@@ -107,6 +107,8 @@ system AcronymNames {
     let dg = api.digitalSKUs.create({ title: "Ebook", sizeBytes: 1024 })
     expect(api.physicalSKUs.getById(p).weightGrams).toBe(500)
     expect(api.digitalSKUs.getById(dg).sizeBytes).toBe(1024)
+    expect(api.catalogSKUs.getById(dg).title).toBe("Ebook")
+    expect(api.catalogSKUs.all().total).toBe(2)
   }
 
   test e2e "acronym-named projection and workflow state tables are written" against d {
@@ -142,15 +144,15 @@ system AcronymNames {
     let p = api.physicalSKUs.create({ title: "Crate", weightGrams: 900 })
     api.physicalSKUs.update(p, { weightGrams: 950 })
     expect(api.physicalSKUs.getById(p).weightGrams).toBe(950)
-    let physical = api.physicalSKUs.all().length
+    let physical = api.physicalSKUs.all().total
     api.physicalSKUs.destroy(p)
-    expect(api.physicalSKUs.all().length).toBe(physical - 1)
+    expect(api.physicalSKUs.all().total).toBe(physical - 1)
 
     let dg = api.digitalSKUs.create({ title: "Song", sizeBytes: 10 })
     api.digitalSKUs.update(dg, { sizeBytes: 20 })
     expect(api.digitalSKUs.getById(dg).sizeBytes).toBe(20)
-    let digital = api.digitalSKUs.all().length
+    let digital = api.digitalSKUs.all().total
     api.digitalSKUs.destroy(dg)
-    expect(api.digitalSKUs.all().length).toBe(digital - 1)
+    expect(api.digitalSKUs.all().total).toBe(digital - 1)
   }
 }

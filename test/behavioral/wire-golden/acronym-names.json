@@ -148,6 +148,47 @@
     },
     {
       "seq": 12,
+      "method": "GET",
+      "path": "/api/catalog_skus/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "sizeBytes": 1024,
+        "title": "Ebook",
+        "type": "DigitalSKU"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/catalog_skus",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "title": "Box",
+            "type": "PhysicalSKU",
+            "weightGrams": 500
+          },
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "sizeBytes": 1024,
+            "title": "Ebook",
+            "type": "DigitalSKU"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 14,
       "method": "POST",
       "path": "/api/product_skus",
       "status": 201,
@@ -156,14 +197,14 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 15,
       "method": "POST",
       "path": "/api/product_skus/{id}/restock",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 14,
+      "seq": 16,
       "method": "GET",
       "path": "/api/workflows/restock_sku/instances/{id}",
       "status": 200,
@@ -173,7 +214,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 17,
       "method": "POST",
       "path": "/api/url_aliases",
       "status": 201,
@@ -182,14 +223,14 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 18,
       "method": "POST",
       "path": "/api/url_aliases/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 17,
+      "seq": 19,
       "method": "GET",
       "path": "/api/url_aliases/{id}",
       "status": 200,
@@ -200,7 +241,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 20,
       "method": "GET",
       "path": "/api/url_aliases",
       "status": 200,
@@ -224,14 +265,14 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 21,
       "method": "DELETE",
       "path": "/api/url_aliases/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 20,
+      "seq": 22,
       "method": "GET",
       "path": "/api/url_aliases",
       "status": 200,
@@ -250,7 +291,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 23,
       "method": "POST",
       "path": "/api/http_logs",
       "status": 201,
@@ -259,14 +300,14 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 24,
       "method": "POST",
       "path": "/api/http_logs/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 23,
+      "seq": 25,
       "method": "GET",
       "path": "/api/http_logs",
       "status": 200,
@@ -290,14 +331,14 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 26,
       "method": "DELETE",
       "path": "/api/http_logs/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 25,
+      "seq": 27,
       "method": "GET",
       "path": "/api/http_logs",
       "status": 200,
@@ -316,7 +357,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 28,
       "method": "POST",
       "path": "/api/product_skus",
       "status": 201,
@@ -325,14 +366,14 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 29,
       "method": "POST",
       "path": "/api/product_skus/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 28,
+      "seq": 30,
       "method": "GET",
       "path": "/api/product_skus/{id}",
       "status": 200,
@@ -346,7 +387,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 31,
       "method": "GET",
       "path": "/api/product_skus",
       "status": 200,
@@ -391,14 +432,14 @@
       }
     },
     {
-      "seq": 30,
+      "seq": 32,
       "method": "DELETE",
       "path": "/api/product_skus/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 31,
+      "seq": 33,
       "method": "GET",
       "path": "/api/product_skus",
       "status": 200,
@@ -435,7 +476,7 @@
       }
     },
     {
-      "seq": 32,
+      "seq": 34,
       "method": "POST",
       "path": "/api/physical_skus",
       "status": 201,
@@ -444,14 +485,14 @@
       }
     },
     {
-      "seq": 33,
+      "seq": 35,
       "method": "POST",
       "path": "/api/physical_skus/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 34,
+      "seq": 36,
       "method": "GET",
       "path": "/api/physical_skus/{id}",
       "status": 200,
@@ -463,48 +504,60 @@
       }
     },
     {
-      "seq": 35,
+      "seq": 37,
       "method": "GET",
       "path": "/api/physical_skus",
       "status": 200,
-      "body": [
-        {
-          "id": "<volatile:key>",
-          "rowVersion": 1,
-          "title": "Box",
-          "weightGrams": 500
-        },
-        {
-          "id": "<volatile:key>",
-          "rowVersion": 2,
-          "title": "Crate",
-          "weightGrams": 950
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "title": "Box",
+            "weightGrams": 500
+          },
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 2,
+            "title": "Crate",
+            "weightGrams": 950
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
     },
     {
-      "seq": 36,
+      "seq": 38,
       "method": "DELETE",
       "path": "/api/physical_skus/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 37,
+      "seq": 39,
       "method": "GET",
       "path": "/api/physical_skus",
       "status": 200,
-      "body": [
-        {
-          "id": "<volatile:key>",
-          "rowVersion": 1,
-          "title": "Box",
-          "weightGrams": 500
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "title": "Box",
+            "weightGrams": 500
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
-      "seq": 38,
+      "seq": 40,
       "method": "POST",
       "path": "/api/digital_skus",
       "status": 201,
@@ -513,14 +566,14 @@
       }
     },
     {
-      "seq": 39,
+      "seq": 41,
       "method": "POST",
       "path": "/api/digital_skus/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 40,
+      "seq": 42,
       "method": "GET",
       "path": "/api/digital_skus/{id}",
       "status": 200,
@@ -532,48 +585,60 @@
       }
     },
     {
-      "seq": 41,
+      "seq": 43,
       "method": "GET",
       "path": "/api/digital_skus",
       "status": 200,
-      "body": [
-        {
-          "id": "<volatile:key>",
-          "rowVersion": 1,
-          "sizeBytes": 1024,
-          "title": "Ebook"
-        },
-        {
-          "id": "<volatile:key>",
-          "rowVersion": 2,
-          "sizeBytes": 20,
-          "title": "Song"
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "sizeBytes": 1024,
+            "title": "Ebook"
+          },
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 2,
+            "sizeBytes": 20,
+            "title": "Song"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
     },
     {
-      "seq": 42,
+      "seq": 44,
       "method": "DELETE",
       "path": "/api/digital_skus/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 43,
+      "seq": 45,
       "method": "GET",
       "path": "/api/digital_skus",
       "status": 200,
-      "body": [
-        {
-          "id": "<volatile:key>",
-          "rowVersion": 1,
-          "sizeBytes": 1024,
-          "title": "Ebook"
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "sizeBytes": 1024,
+            "title": "Ebook"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
-      "seq": 44,
+      "seq": 46,
       "method": "PATCH",
       "path": "/api/url_aliases",
       "status": 405,
@@ -587,7 +652,7 @@
       }
     },
     {
-      "seq": 45,
+      "seq": 47,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -601,7 +666,7 @@
       }
     },
     {
-      "seq": 46,
+      "seq": 48,
       "method": "POST",
       "path": "/api/url_aliases",
       "status": 400,
@@ -615,7 +680,7 @@
       }
     },
     {
-      "seq": 47,
+      "seq": 49,
       "method": "GET",
       "path": "/api/workflows/restock_sku/instances/{id}",
       "status": 404,
@@ -629,7 +694,7 @@
       }
     },
     {
-      "seq": 48,
+      "seq": 50,
       "method": "POST",
       "path": "/api/product_skus/{id}/add_variant",
       "status": 422,

@@ -49,22 +49,34 @@
       "method": "GET",
       "path": "/api/trucks",
       "status": 200,
-      "body": []
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
     },
     {
       "seq": 5,
       "method": "GET",
       "path": "/api/cars",
       "status": 200,
-      "body": [
-        {
-          "archived": false,
-          "id": "<volatile:key>",
-          "plate": "C-1",
-          "rowVersion": 1,
-          "seats": 4
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "archived": false,
+            "id": "<volatile:key>",
+            "plate": "C-1",
+            "rowVersion": 1,
+            "seats": 4
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 6,
@@ -81,6 +93,56 @@
     },
     {
       "seq": 7,
+      "method": "GET",
+      "path": "/api/vehicles",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "archived": false,
+            "id": "<volatile:key>",
+            "plate": "C-1",
+            "rowVersion": 1,
+            "seats": 4,
+            "type": "Car"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/vehicles/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Vehicle {id} not found",
+        "instance": "/api/vehicles/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/vehicles/{id}",
+      "status": 200,
+      "body": {
+        "archived": false,
+        "id": "<volatile:key>",
+        "plate": "C-1",
+        "rowVersion": 1,
+        "seats": 4,
+        "type": "Car"
+      }
+    },
+    {
+      "seq": 10,
       "method": "POST",
       "path": "/api/drivers",
       "status": 201,
@@ -89,7 +151,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 11,
       "method": "POST",
       "path": "/api/dispatchers",
       "status": 201,
@@ -98,7 +160,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 12,
       "method": "GET",
       "path": "/api/dispatchers",
       "status": 200,
@@ -113,14 +175,14 @@
       ]
     },
     {
-      "seq": 10,
+      "seq": 13,
       "method": "POST",
       "path": "/api/drivers/{id}/archive",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 11,
+      "seq": 14,
       "method": "GET",
       "path": "/api/drivers/{id}",
       "status": 404,
@@ -137,14 +199,14 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 15,
       "method": "GET",
       "path": "/api/drivers",
       "status": 200,
       "body": []
     },
     {
-      "seq": 13,
+      "seq": 16,
       "method": "GET",
       "path": "/api/dispatchers/{id}",
       "status": 200,
@@ -157,99 +219,111 @@
       }
     },
     {
-      "seq": 14,
-      "method": "GET",
-      "path": "/api/crews",
-      "status": 200,
-      "body": {
-        "items": [
-          {
-            "archived": false,
-            "desk": 3,
-            "id": "<volatile:key>",
-            "name": "Bob",
-            "rowVersion": 1,
-            "type": "Dispatcher"
-          }
-        ],
-        "page": 1,
-        "pageSize": 20,
-        "total": 1,
-        "totalPages": 1
-      }
-    },
-    {
-      "seq": 15,
-      "method": "GET",
-      "path": "/api/crews",
-      "status": 200,
-      "body": {
-        "items": [
-          {
-            "archived": false,
-            "desk": 3,
-            "id": "<volatile:key>",
-            "name": "Bob",
-            "rowVersion": 1,
-            "type": "Dispatcher"
-          }
-        ],
-        "page": 1,
-        "pageSize": 20,
-        "total": 1,
-        "totalPages": 1
-      }
-    },
-    {
-      "seq": 16,
-      "method": "POST",
-      "path": "/api/cranes",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
-    },
-    {
       "seq": 17,
-      "method": "POST",
-      "path": "/api/forklifts",
-      "status": 201,
+      "method": "GET",
+      "path": "/api/crews",
+      "status": 200,
       "body": {
-        "id": "<volatile:key>"
+        "items": [
+          {
+            "archived": false,
+            "desk": 3,
+            "id": "<volatile:key>",
+            "name": "Bob",
+            "rowVersion": 1,
+            "type": "Dispatcher"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
       }
     },
     {
       "seq": 18,
       "method": "GET",
-      "path": "/api/cranes",
+      "path": "/api/crews",
       "status": 200,
-      "body": [
-        {
-          "archived": false,
-          "id": "<volatile:key>",
-          "reachM": 40,
-          "rowVersion": 1,
-          "tag": "CR-1"
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "archived": false,
+            "desk": 3,
+            "id": "<volatile:key>",
+            "name": "Bob",
+            "rowVersion": 1,
+            "type": "Dispatcher"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 19,
-      "method": "GET",
-      "path": "/api/forklifts",
-      "status": 200,
-      "body": [
-        {
-          "archived": false,
-          "id": "<volatile:key>",
-          "liftKg": 2000,
-          "rowVersion": 1,
-          "tag": "FL-1"
-        }
-      ]
+      "method": "POST",
+      "path": "/api/cranes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
     },
     {
       "seq": 20,
+      "method": "POST",
+      "path": "/api/forklifts",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/cranes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "archived": false,
+            "id": "<volatile:key>",
+            "reachM": 40,
+            "rowVersion": 1,
+            "tag": "CR-1"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 22,
+      "method": "GET",
+      "path": "/api/forklifts",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "archived": false,
+            "id": "<volatile:key>",
+            "liftKg": 2000,
+            "rowVersion": 1,
+            "tag": "FL-1"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 23,
       "method": "GET",
       "path": "/api/equipments/{id}",
       "status": 200,
@@ -263,7 +337,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 24,
       "method": "GET",
       "path": "/api/equipments/{id}",
       "status": 200,
@@ -277,7 +351,7 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 25,
       "method": "GET",
       "path": "/api/projections/equipment_count",
       "status": 200,
@@ -286,7 +360,7 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 26,
       "method": "GET",
       "path": "/api/equipments",
       "status": 200,
@@ -316,14 +390,14 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 27,
       "method": "POST",
       "path": "/api/forklifts/{id}/archive",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 25,
+      "seq": 28,
       "method": "GET",
       "path": "/api/equipments/{id}",
       "status": 404,
@@ -337,7 +411,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 29,
       "method": "GET",
       "path": "/api/projections/equipment_count",
       "status": 200,
@@ -346,7 +420,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 30,
       "method": "GET",
       "path": "/api/equipments",
       "status": 200,
@@ -368,7 +442,7 @@
       }
     },
     {
-      "seq": 28,
+      "seq": 31,
       "method": "GET",
       "path": "/api/equipments",
       "status": 200,
@@ -390,7 +464,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 32,
       "method": "POST",
       "path": "/api/cars",
       "status": 201,
@@ -399,14 +473,14 @@
       }
     },
     {
-      "seq": 30,
+      "seq": 33,
       "method": "POST",
       "path": "/api/cars/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 31,
+      "seq": 34,
       "method": "GET",
       "path": "/api/cars/{id}",
       "status": 200,
@@ -419,14 +493,14 @@
       }
     },
     {
-      "seq": 32,
+      "seq": 35,
       "method": "DELETE",
       "path": "/api/cars/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 33,
+      "seq": 36,
       "method": "GET",
       "path": "/api/cars/{id}",
       "status": 404,
@@ -443,7 +517,7 @@
       }
     },
     {
-      "seq": 34,
+      "seq": 37,
       "method": "POST",
       "path": "/api/cars",
       "status": 201,
@@ -452,14 +526,14 @@
       }
     },
     {
-      "seq": 35,
+      "seq": 38,
       "method": "POST",
       "path": "/api/cars/{id}/archive",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 36,
+      "seq": 39,
       "method": "POST",
       "path": "/api/trucks",
       "status": 201,
@@ -468,14 +542,14 @@
       }
     },
     {
-      "seq": 37,
+      "seq": 40,
       "method": "POST",
       "path": "/api/trucks/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 38,
+      "seq": 41,
       "method": "GET",
       "path": "/api/trucks/{id}",
       "status": 200,
@@ -488,14 +562,14 @@
       }
     },
     {
-      "seq": 39,
+      "seq": 42,
       "method": "DELETE",
       "path": "/api/trucks/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 40,
+      "seq": 43,
       "method": "GET",
       "path": "/api/trucks/{id}",
       "status": 404,
@@ -512,7 +586,7 @@
       }
     },
     {
-      "seq": 41,
+      "seq": 44,
       "method": "POST",
       "path": "/api/drivers",
       "status": 201,
@@ -521,14 +595,14 @@
       }
     },
     {
-      "seq": 42,
+      "seq": 45,
       "method": "POST",
       "path": "/api/drivers/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 43,
+      "seq": 46,
       "method": "GET",
       "path": "/api/drivers/{id}",
       "status": 200,
@@ -541,14 +615,14 @@
       }
     },
     {
-      "seq": 44,
+      "seq": 47,
       "method": "DELETE",
       "path": "/api/drivers/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 45,
+      "seq": 48,
       "method": "GET",
       "path": "/api/drivers/{id}",
       "status": 404,
@@ -565,7 +639,7 @@
       }
     },
     {
-      "seq": 46,
+      "seq": 49,
       "method": "POST",
       "path": "/api/dispatchers",
       "status": 201,
@@ -574,14 +648,14 @@
       }
     },
     {
-      "seq": 47,
+      "seq": 50,
       "method": "POST",
       "path": "/api/dispatchers/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 48,
+      "seq": 51,
       "method": "GET",
       "path": "/api/dispatchers/{id}",
       "status": 200,
@@ -594,14 +668,14 @@
       }
     },
     {
-      "seq": 49,
+      "seq": 52,
       "method": "DELETE",
       "path": "/api/dispatchers/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 50,
+      "seq": 53,
       "method": "GET",
       "path": "/api/dispatchers/{id}",
       "status": 404,
@@ -618,7 +692,7 @@
       }
     },
     {
-      "seq": 51,
+      "seq": 54,
       "method": "POST",
       "path": "/api/cranes",
       "status": 201,
@@ -627,14 +701,14 @@
       }
     },
     {
-      "seq": 52,
+      "seq": 55,
       "method": "POST",
       "path": "/api/cranes/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 53,
+      "seq": 56,
       "method": "GET",
       "path": "/api/cranes/{id}",
       "status": 200,
@@ -647,14 +721,14 @@
       }
     },
     {
-      "seq": 54,
+      "seq": 57,
       "method": "DELETE",
       "path": "/api/cranes/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 55,
+      "seq": 58,
       "method": "GET",
       "path": "/api/cranes/{id}",
       "status": 404,
@@ -671,7 +745,7 @@
       }
     },
     {
-      "seq": 56,
+      "seq": 59,
       "method": "POST",
       "path": "/api/forklifts",
       "status": 201,
@@ -680,14 +754,14 @@
       }
     },
     {
-      "seq": 57,
+      "seq": 60,
       "method": "POST",
       "path": "/api/forklifts/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 58,
+      "seq": 61,
       "method": "GET",
       "path": "/api/forklifts/{id}",
       "status": 200,
@@ -700,14 +774,14 @@
       }
     },
     {
-      "seq": 59,
+      "seq": 62,
       "method": "DELETE",
       "path": "/api/forklifts/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 60,
+      "seq": 63,
       "method": "GET",
       "path": "/api/forklifts/{id}",
       "status": 404,
@@ -724,7 +798,7 @@
       }
     },
     {
-      "seq": 61,
+      "seq": 64,
       "method": "PATCH",
       "path": "/api/cars",
       "status": 405,
@@ -738,7 +812,7 @@
       }
     },
     {
-      "seq": 62,
+      "seq": 65,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -752,7 +826,7 @@
       }
     },
     {
-      "seq": 63,
+      "seq": 66,
       "method": "POST",
       "path": "/api/cars",
       "status": 400,
@@ -766,7 +840,7 @@
       }
     },
     {
-      "seq": 64,
+      "seq": 67,
       "method": "POST",
       "path": "/api/trucks/{id}/archive",
       "status": 404,
@@ -783,7 +857,7 @@
       }
     },
     {
-      "seq": 65,
+      "seq": 68,
       "method": "POST",
       "path": "/api/trucks/{id}/archive",
       "status": 404,
@@ -800,7 +874,7 @@
       }
     },
     {
-      "seq": 66,
+      "seq": 69,
       "method": "POST",
       "path": "/api/trucks/{id}/archive",
       "status": 415,
@@ -814,7 +888,7 @@
       }
     },
     {
-      "seq": 67,
+      "seq": 70,
       "method": "POST",
       "path": "/api/cars/{id}/update",
       "status": 404,

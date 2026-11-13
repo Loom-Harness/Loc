@@ -1246,11 +1246,9 @@ export class Elaborator {
       if (verb === "create") return Ty.record({ of: "created", ref: target });
       if (verb === "getById") return wireOf(row);
       if (verb === "all" || verb === "list") {
-        const paged =
-          target.persistedAs !== "eventLog" &&
-          (target.shape ?? "relational") === "relational" &&
-          !target.superType;
-        return wireOf(paged ? { kind: "generic", ctor: "paged", arg: row } : Ty.array(row));
+        return wireOf(
+          implicitAllPaged(target) ? { kind: "generic", ctor: "paged", arg: row } : Ty.array(row),
+        );
       }
       if (verb === "destroy") return Ty.never;
       if (verb === AUDIT_HISTORY_FIND) return Ty.array(AUDIT_ENTRY);
@@ -1437,14 +1435,9 @@ export class Elaborator {
           return row;
         if (opId === camelId(opDestroy(agg.name))) return Ty.never;
         if (opId === camelId(opList(agg.name))) {
-          // The implicit `all` is paged by default, except for the shapes the
-          // enrichment keeps unbounded (an event log, a document / embedded
-          // aggregate, an inheritance subtype).
-          const paged =
-            agg.persistedAs !== "eventLog" &&
-            (agg.shape ?? "relational") === "relational" &&
-            !agg.superType;
-          return paged ? { kind: "generic", ctor: "paged", arg: row } : Ty.array(row);
+          return implicitAllPaged(agg)
+            ? { kind: "generic", ctor: "paged", arg: row }
+            : Ty.array(row);
         }
         for (const o of ownerChain(agg)) {
           for (const m of o.members as AstNode[]) {
@@ -2656,3 +2649,32 @@ function isPureMemberCall(n: MemberSuffix): boolean {
 }
 
 export type { Model, Statement };
+
+/** Whether an aggregate's implicit `all` answers a page — the AST-side mirror
+ *  of `ensureFindAll` (`ir/enrich/enrichments.ts`), which the typing layer
+ *  cannot import.  Every shape pages except an event log, a document or
+ *  embedded aggregate, and a TPC (`ownTable`) subtype, whose whole read the
+ *  polymorphic base reader merges before paging. */
+function implicitAllPaged(agg: Aggregate): boolean {
+  return (
+    agg.persistedAs !== "eventLog" &&
+    (agg.shape ?? "relational") === "relational" &&
+    !(agg.superType && effectiveLayoutAst(agg) === "ownTable")
+  );
+}
+
+/** A participant's inheritance layout: its own `inheritanceUsing`, else the
+ *  root base's, else `sharedTable` (`effectiveLayout` in
+ *  `ir/util/inheritance.ts` resolves the same chain on the IR). */
+function effectiveLayoutAst(agg: Aggregate): "sharedTable" | "ownTable" {
+  const seen = new Set<Aggregate>();
+  let cur: Aggregate | undefined = agg;
+  let root: Aggregate = agg;
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    root = cur;
+    cur = cur.superType?.ref;
+  }
+  const own = agg.inheritanceUsing ?? root.inheritanceUsing;
+  return own === "ownTable" ? "ownTable" : "sharedTable";
+}
