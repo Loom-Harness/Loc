@@ -19,7 +19,7 @@
 // python and nowhere on elixir, at `0 error(s), 0 warning(s)`.
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR, ExprIR, InvariantIR } from "../types/loom-ir.js";
+import type { AggregateIR, EnrichedAggregateIR, ExprIR, InvariantIR } from "../types/loom-ir.js";
 import { singleFieldConstraints } from "../validate/invariant-classify.js";
 
 /** Reads that resolve against the applied struct (`data.<col>`).
@@ -214,7 +214,7 @@ export function structRenderableShape(inv: InvariantIR): boolean {
  *  them in the changeset, so `apply_changes/1` materialises exactly what the
  *  request sent. */
 export function unreadableCollections(
-  agg: Pick<AggregateIR, "invariants"> & Partial<Pick<AggregateIR, "associations">>,
+  agg: Pick<AggregateIR, "invariants"> & Partial<Pick<EnrichedAggregateIR, "associations">>,
 ): ReadonlySet<string> {
   return new Set((agg.associations ?? []).map((a) => a.fieldName));
 }
@@ -246,7 +246,7 @@ export function renderableHere(inv: InvariantIR, opaque: ReadonlySet<string>): b
  *  set of silently-missing rules is empty BY CONSTRUCTION rather than by
  *  enumeration — a shape nobody thought of lands here too. */
 export function unrenderableInvariants(
-  agg: Pick<AggregateIR, "invariants"> & Partial<Pick<AggregateIR, "associations">>,
+  agg: Pick<AggregateIR, "invariants"> & Partial<Pick<EnrichedAggregateIR, "associations">>,
 ): InvariantIR[] {
   const opaque = unreadableCollections(agg);
   return (agg.invariants ?? []).filter(

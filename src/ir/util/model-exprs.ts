@@ -126,7 +126,6 @@ export const SITES = {
     "AggregateIR.contextFilterRefs",
     "AggregateIR.contextFilters",
     "AggregateIR.contextStamps",
-    "AggregateIR.createInput",
     "AggregateIR.creates",
     "AggregateIR.derived",
     "AggregateIR.destroys",
@@ -310,7 +309,6 @@ export const SITES = {
   aliased: new Set<string>([
     "BoundedContextIR.siblingValueObjects",
     "ExistsReadIR.args",
-    "EnrichedAggregateIR.createInput",
     "EnrichedAggregateIR.parts",
     "EnrichedBoundedContextIR.aggregates",
     "EnrichedBoundedContextIR.siblingValueObjects",
@@ -467,7 +465,6 @@ function visitValueObject(vo: ValueObjectIR, src: string, v: ExprVisitor) {
 function visitAggregate(a: AggregateIR, src: string, v: ExprVisitor) {
   const s = `${src}/${a.name}`;
   visitFields(a.fields, s, v);
-  for (const ci of a.createInput ?? []) visitFields([ci.field], `${s}/createInput`, v);
   visitDerived(a.derived, s, v);
   if (a.displayDerived) visitDerived([a.displayDerived], s, v);
   if (a.inspectDerived) visitDerived([a.inspectDerived], s, v);

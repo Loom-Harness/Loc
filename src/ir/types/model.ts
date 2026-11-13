@@ -272,11 +272,9 @@ export type EnrichedLoomModel = Omit<LoomModel, "systems" | "contexts" | "rootVa
 };
 
 export type EnrichedAggregateIR = AggregateIR & {
-  /** Always populated by `enrichLoomModel` (empty when none derived). */
+  /** Many-to-many associations derived from `Target id[]` fields, one per
+   * reference-collection field (`buildAssociations`).  Empty when none. */
   associations: AssociationIR[];
-  /** Always populated by `enrichLoomModel` (empty when the aggregate has
-   * no client-suppliable create fields). */
-  createInput: CreateInputFieldIR[];
   parts: EnrichedEntityPartIR[];
 };
 
