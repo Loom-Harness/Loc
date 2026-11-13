@@ -49,7 +49,9 @@ context Pricing {
     }
   }
 }
+```
 
+```ddd
 context Banking {
   domainService Transfer {
     // mutating — mutates the PASSED-IN aggregates via their own ops
