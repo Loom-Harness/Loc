@@ -31,8 +31,8 @@ const key = (sourceType: string, kind: string): string => `${sourceType} × ${ki
 
 /** Every registered sourceType × the kinds it binds; a type binding none is
  *  one `unbindable` pair. */
-export function requiredPairs(): { pair: string; unbindable: boolean }[] {
-  return registeredSourceTypes().flatMap((t) => {
+function requiredPairs(): { pair: string; unbindable: boolean }[] {
+  return registeredSourceTypes().flatMap((t): { pair: string; unbindable: boolean }[] => {
     const kinds = KINDS.filter((k) => supportsSurfaceKind(t, k));
     return kinds.length
       ? kinds.map((k) => ({ pair: key(t, k), unbindable: false }))
@@ -41,7 +41,7 @@ export function requiredPairs(): { pair: string; unbindable: boolean }[] {
 }
 
 /** The census verdicts over a table, against an issue-state lookup and a clock. */
-export function censusProblems(
+function censusProblems(
   rows: readonly CoverageRow[],
   opts: { today: Date; open: ReadonlySet<string>; isClosed?: (issue: string) => boolean },
 ): string[] {
@@ -95,7 +95,7 @@ export function censusProblems(
       }
     }
   }
-  const used = new Set(rows.flatMap((r) => (r.pending ? [r.pending.issue] : [])));
+  const used = new Set<string>(rows.flatMap((r) => (r.pending ? [r.pending.issue] : [])));
   for (const i of OPEN_TRACKING_ISSUES)
     if (!used.has(i)) out.push(`${i}: in OPEN_TRACKING_ISSUES but no row is pending on it`);
   return out;
