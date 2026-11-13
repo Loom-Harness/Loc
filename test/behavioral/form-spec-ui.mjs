@@ -191,20 +191,23 @@ export async function judgePartTable(page, origin, id) {
 /** The Detail page shows the record's array fields: the joined strings, the
  *  enum items and the value-object rows, each where its test id says. */
 export async function judgeDetailCollections(page, origin, id) {
+  const record = await readPolicy(origin, id);
   await page.goto(`${origin}/policies/${id}`);
   const why = [];
   const expect = [
-    ["policies-detail-tags", "a, b"],
-    ["policies-detail-perils", "Fire"],
-    ["policies-detail-riders", "R1"],
+    ["policies-detail-tags", record.tags.join(", ")],
+    ["policies-detail-perils", record.perils[0]],
+    ["policies-detail-riders", record.riders[0].code],
   ];
   for (const [testId, text] of expect) {
     const el = page.locator(`[data-testid="${testId}"]`).first();
-    const ok = await el
+    const shown = await el
       .waitFor({ state: "attached", timeout: 15000 })
-      .then(async () => (await el.innerText()).includes(text))
-      .catch(() => false);
-    if (!ok) why.push(`${testId}: the detail page does not show "${text}"`);
+      .then(() => el.innerText())
+      .catch(() => "(absent)");
+    if (!shown.includes(text)) {
+      why.push(`${testId}: the detail page shows ${JSON.stringify(shown)}, not "${text}"`);
+    }
   }
   return why;
 }
