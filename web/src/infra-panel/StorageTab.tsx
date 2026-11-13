@@ -19,7 +19,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { InfraError, InfraHeader } from "./chrome";
 import { declaredOf, type InfraTabProps } from "./types";
-import { useInfra, useInfraAction, useInfraCall } from "./use-infra";
+import { useInfra, useInfraAction, useInfraCall, useSessionState } from "./use-infra";
 
 export const STORAGE_NOTES = [
   "Objects and files live in the browser (in memory, or OPFS for a persistent workspace), shared by every deployable of the system.",
@@ -66,10 +66,10 @@ export default function StorageTab({ env, active }: InfraTabProps): JSX.Element 
     return out;
   }, [s3Declared, s3.data, diskDeclared]);
 
-  const [storeId, setStoreId] = useState<string | null>(null);
+  const [storeId, setStoreId] = useSessionState<string | null>("storage.store", null);
   const store = stores.find((s) => s.id === storeId) ?? stores[0] ?? null;
-  const [prefix, setPrefix] = useState("");
-  const [viewing, setViewing] = useState<string | null>(null);
+  const [prefix, setPrefix] = useSessionState("storage.prefix", "");
+  const [viewing, setViewing] = useSessionState<string | null>("storage.viewing", null);
 
   const entries = useMemo<Entry[]>(() => {
     if (!store) return [];

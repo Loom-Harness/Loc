@@ -33,10 +33,10 @@ import {
 /** The models a host serves.  Each call makes a fresh, independent instance. */
 export interface EmulationHost {
   mailbox(opts?: { store?: BlobStore | null }): Mailbox;
-  s3(opts?: { store?: BlobStore | null }): S3;
+  s3(opts?: { store?: BlobStore | null; buckets?: readonly string[] }): S3;
   ses(opts: { mailbox: Mailbox }): Ses;
   disk(opts?: { store?: BlobStore | null }): Disk;
-  httpMock(opts?: { sample?: () => Promise<SchemaSampler> }): HttpMock;
+  httpMock(opts?: { sample?: () => Promise<SchemaSampler>; now?: () => Date }): HttpMock;
   oidc(): OidcProvider;
   broker(opts: BrokerModelOptions): BrokerModel;
   cache(opts?: CacheOptions): CacheModel;
@@ -140,6 +140,69 @@ export function emulationContract(hostName: string, host: EmulationHost): void {
         await again.persist(store);
         expect(again.list().map((o) => `${o.bucket}/${o.key}`)).toEqual(["b/k"]);
       });
+      it("serves a presigned GET without verifying its signature", () => {
+        const s3 = host.s3();
+        s3.http(req("PUT", "http://s3.local/b/p.txt", "x"));
+        const res = s3.http(
+          req(
+            "GET",
+            "http://s3.local/b/p.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=k%2F20261113%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261113T000000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=0000",
+          ),
+        );
+        expect([res.status, dec.decode(res.body)]).toEqual([200, "x"]);
+      });
+
+      it("answers CreateBucket, HeadBucket and GetBucketLocation, and 501 for other bucket verbs", () => {
+        const s3 = host.s3();
+        expect(s3.http(req("PUT", "http://s3.local/fresh")).status).toBe(200);
+        expect(s3.http(req("HEAD", "http://s3.local/fresh")).status).toBe(200);
+        const loc = s3.http(req("GET", "http://s3.local/fresh?location"));
+        expect([loc.status, dec.decode(loc.body).includes("<LocationConstraint")]).toEqual([
+          200,
+          true,
+        ]);
+        const other = s3.http(req("POST", "http://s3.local/fresh?delete"));
+        expect([
+          other.status,
+          dec.decode(other.body).includes("<Code>NotImplemented</Code>"),
+        ]).toEqual([501, true]);
+      });
+
+      it("lists sorted by bucket then key; pre-created buckets survive reset, others do not", () => {
+        const s3 = host.s3({ buckets: ["app-files"] });
+        expect(s3.buckets()).toEqual(["app-files"]);
+        for (const p of ["b/z", "a/y", "a/x"]) s3.http(req("PUT", `http://s3.local/${p}`, "1"));
+        expect(s3.list().map((o) => `${o.bucket}/${o.key}`)).toEqual(["a/x", "a/y", "b/z"]);
+        expect(s3.buckets()).toEqual(["a", "app-files", "b"]);
+        s3.reset();
+        expect([s3.buckets(), s3.list()]).toEqual([["app-files"], []]);
+      });
+
+      it("direct get/put/delete and the wire share one durable store", async () => {
+        const store = memoryBlobStore();
+        const s3 = host.s3({ store });
+        s3.put("b", "k", enc.encode("direct"), "text/plain");
+        const got = s3.http(req("GET", "http://s3.local/b/k"));
+        expect([dec.decode(got.body), got.headers["content-type"]]).toEqual([
+          "direct",
+          "text/plain",
+        ]);
+        const put = s3.http(
+          req("PUT", "http://s3.local/b/w", "wire", { "content-type": "application/json" }),
+        );
+        const w = s3.get("b", "w");
+        expect(w && dec.decode(w.body)).toBe("wire");
+        expect(w?.contentType).toBe("application/json");
+        expect(w?.etag).toBe(put.headers.etag);
+        expect(Number.isNaN(Date.parse(w?.lastModified ?? ""))).toBe(false);
+        expect(s3.get("b", "missing")).toBeNull();
+        s3.delete("b", "k");
+        s3.delete("b", "never-there");
+        expect(s3.http(req("GET", "http://s3.local/b/k")).status).toBe(404);
+        const again = host.s3();
+        await again.persist(store);
+        expect(again.list().map((o) => o.key)).toEqual(["w"]);
+      });
     });
 
     describe("ses", () => {
@@ -185,19 +248,95 @@ export function emulationContract(hostName: string, host: EmulationHost): void {
     });
 
     describe("httpMock", () => {
-      it("echoes a request without a spec and logs it, with its body when given", async () => {
-        const mock = host.httpMock();
-        expect(await mock.request({ method: "GET", url: "http://crm.test/customers?x=1" })).toEqual(
+      it("echoes a request without a spec and logs what it answered", async () => {
+        const mock = host.httpMock({ now: () => new Date("2026-01-01T00:00:00Z") });
+        expect(await mock.request({ method: "get", url: "http://crm.test/customers?x=1" })).toEqual(
           {
             status: 200,
-            body: { mock: true, method: "GET", path: "/customers?x=1" },
+            body: { mock: true, method: "get", path: "/customers?x=1" },
           },
         );
         await mock.request({ method: "POST", url: "http://crm.test/pings", body: '"a@x"' });
         expect(mock.log()).toEqual([
-          { method: "GET", url: "http://crm.test/customers?x=1" },
-          { method: "POST", url: "http://crm.test/pings", body: '"a@x"' },
+          {
+            at: "2026-01-01T00:00:00.000Z",
+            method: "GET",
+            url: "http://crm.test/customers?x=1",
+            operation: "GET /customers",
+            status: 200,
+            response: { mock: true, method: "get", path: "/customers?x=1" },
+            overridden: false,
+          },
+          {
+            at: "2026-01-01T00:00:00.000Z",
+            method: "POST",
+            url: "http://crm.test/pings",
+            body: '"a@x"',
+            operation: "POST /pings",
+            status: 200,
+            response: { mock: true, method: "POST", path: "/pings" },
+            overridden: false,
+          },
         ]);
+        mock.clearLog();
+        expect(mock.log()).toEqual([]);
+      });
+
+      it("an override answers its operation in place of the spec sample, until cleared", async () => {
+        const mock = host.httpMock({ sample: async () => () => ({ sampled: true }) });
+        const ok = { "200": { content: { "application/json": { schema: { type: "object" } } } } };
+        mock.registerSpec("http://rates.test", {
+          paths: { "/rate/{cur}": { get: { responses: ok }, put: { responses: ok } } },
+        });
+        expect(mock.operations()).toEqual([
+          { origin: "http://rates.test", operation: "GET /rate/{cur}" },
+          { origin: "http://rates.test", operation: "PUT /rate/{cur}" },
+        ]);
+        expect(() =>
+          mock.setOverride({
+            origin: "http://rates.test",
+            operation: "GET /rate/{cur}",
+            status: 99,
+          }),
+        ).toThrow(/not an HTTP status/);
+        mock.setOverride({
+          origin: "http://rates.test",
+          operation: "GET /rate/{cur}",
+          status: 503,
+          body: { down: true },
+        });
+        expect(await mock.request({ method: "GET", url: "http://rates.test/rate/EUR" })).toEqual({
+          status: 503,
+          body: { down: true },
+        });
+        // Keyed by origin: the same operation on another origin is not overridden.
+        expect(
+          (await mock.request({ method: "GET", url: "http://other.test/rate/EUR" })).status,
+        ).toBe(200);
+        expect(mock.log().map((r) => [r.operation, r.status, r.overridden])).toEqual([
+          ["GET /rate/{cur}", 503, true],
+          ["GET /rate/EUR", 200, false],
+        ]);
+        expect(mock.overrides()).toEqual([
+          {
+            origin: "http://rates.test",
+            operation: "GET /rate/{cur}",
+            status: 503,
+            body: { down: true },
+          },
+        ]);
+        mock.clearOverride({ origin: "http://rates.test", operation: "GET /rate/{cur}" });
+        expect(await mock.request({ method: "GET", url: "http://rates.test/rate/EUR" })).toEqual({
+          status: 200,
+          body: { sampled: true },
+        });
+        mock.setOverride({
+          origin: "http://rates.test",
+          operation: "PUT /rate/{cur}",
+          status: 204,
+        });
+        mock.reset();
+        expect([mock.overrides(), mock.operations(), mock.log()]).toEqual([[], [], []]);
       });
 
       it("answers a registered spec's operations with sampled 2xx bodies", async () => {

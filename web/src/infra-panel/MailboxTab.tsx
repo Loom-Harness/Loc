@@ -6,7 +6,7 @@ import { Box, Button, Group, ScrollArea, SegmentedControl, Stack, Text, Unstyled
 import { useState } from "react";
 import { InfraError, InfraHeader } from "./chrome";
 import { declaredOf, type InfraTabProps } from "./types";
-import { useInfra, useInfraAction } from "./use-infra";
+import { useInfra, useInfraAction, useSessionState } from "./use-infra";
 
 /** The mailbox service's `list` row. */
 export interface MailMessage {
@@ -29,7 +29,7 @@ export const MAILBOX_NOTES = [
 export default function MailboxTab({ env, active }: InfraTabProps): JSX.Element {
   const { data, error } = useInfra<MailMessage[]>("mailbox", "list", {}, { enabled: active });
   const { run } = useInfraAction();
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useSessionState<string | null>("mailbox.selected", null);
   const [actionError, setActionError] = useState<string | null>(null);
   const mail = [...(data ?? [])].reverse();
   const open = mail.find((m) => m.id === selected) ?? null;

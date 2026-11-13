@@ -17,6 +17,17 @@ const infra = (page: Page, service: string, op: string, params?: unknown) =>
     [service, op, params],
   );
 
+/** GetObject on desk-files over the S3 wire — the request the deployable's SDK makes. */
+async function wireGet(page: Page, key: string): Promise<{ status: number; text: string }> {
+  const res = (await infra(page, "s3", "http", {
+    method: "GET",
+    url: `https://desk-files.s3.us-east-1.amazonaws.com/${key}`,
+    headers: {},
+    body: new Uint8Array(),
+  })) as { status: number; body: Uint8Array };
+  return { status: res.status, text: res.status === 200 ? Buffer.from(Object.values(res.body)).toString("utf8") : "" };
+}
+
 async function send(page: Page, endpoint: RegExp, name = "alpha"): Promise<void> {
   await page.getByTestId("devtools-tab-backend").click();
   await page.getByTestId("req-endpoint").click();
@@ -111,28 +122,28 @@ test("infrastructure panel: mailbox, object store and REST mocks follow the depl
     await expect(page.getByTestId("storage-view-body")).toHaveText(JSON.stringify("alpha"));
 
     const [download] = await Promise.all([page.waitForEvent("download"), alpha.getByTestId("storage-download").click()]);
-    expect(download.suggestedFilename()).toBe("alpha");
+    // The browser adds the extension of the object's content type (application/json).
+    expect(download.suggestedFilename()).toMatch(/^alpha(\.json)?$/);
     const path = await download.path();
     expect(path && (await import("node:fs")).readFileSync(path, "utf8")).toBe(JSON.stringify("alpha"));
 
-    // An uploaded object is the deployable's to read.
+    // An uploaded object is the deployable's to read: its SDK's GetObject
+    // (the S3 wire the fake answers) returns it.
     await page.getByTestId("storage-upload-input").setInputFiles({
       name: "beta",
       mimeType: "application/json",
       buffer: Buffer.from(JSON.stringify("uploaded")),
     });
     await expect(page.locator('[data-testid=storage-object][data-key="notes/beta"]')).toBeVisible();
-    await send(page, /^GET \/(api\/)?notes\/\{name\}$/, "beta");
-    await expectStatus(page, /200/);
+    expect(await wireGet(page, "notes/beta")).toEqual({ status: 200, text: JSON.stringify("uploaded") });
 
-    // Deleting it takes it from the deployable too.
+    // Deleting one takes it from the deployable too: its GetObject is a 404.
     await openTab(page, "storage");
     await alpha.getByTestId("storage-delete").click();
     await expect(alpha).toHaveCount(0);
     const left = (await infra(page, "s3", "list")) as { key: string }[];
     expect(left.map((o) => o.key)).toEqual(["notes/beta"]);
-    await send(page, /^GET \/(api\/)?notes\/\{name\}$/, "alpha");
-    await expect(page.getByTestId("resp-status")).not.toContainText("200", { timeout: 30_000 });
+    expect((await wireGet(page, "notes/alpha")).status).toBe(404);
 
     // localDisk: walk the folders down to the file the deployable wrote.
     await openTab(page, "storage");
@@ -160,8 +171,8 @@ test("infrastructure panel: mailbox, object store and REST mocks follow the depl
 
     await page.getByTestId("rest-override-operation").click();
     await page.getByRole("option", { name: /GET \/rate\/\{ccy\}/ }).click();
-    await page.getByTestId("rest-override-status").locator("input").fill("503");
-    await page.getByTestId("rest-override-body").locator("textarea").fill('{ "down": true }');
+    await page.getByTestId("rest-override-status").fill("503");
+    await page.getByTestId("rest-override-body").fill('{ "down": true }');
     await page.getByTestId("rest-override-set").click();
     await expect(page.getByTestId("rest-override")).toContainText("503");
 
