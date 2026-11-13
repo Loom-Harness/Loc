@@ -12,12 +12,7 @@ import {
   wireStatus,
   wireTitle,
 } from "../../ir/enrich/wire-policy.js";
-import {
-  channelPlan,
-  hasDurableEvents,
-  observableWorkflows,
-  routedPolymorphicRead,
-} from "../../ir/plan/index.js";
+import { channelPlan, observableWorkflows, routedPolymorphicRead } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   DeployableIR,
@@ -253,9 +248,9 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     events: [...mergedBase.events, ...foreignConsumedEvents],
   };
   const hasChannels = channelBindings.length > 0;
-  // Consumer side only when a hosted WORKFLOW reactor subscribes (slice-2
-  // scope: projection folds stay on the in-process path).
-  const hasChannelConsumers = hasChannels && mergedSubscriptions.some((s) => !s.projection);
+  // A broker consumer runs when a hosted reactor, event-triggered create or
+  // projection fold consumes an event a wired binding carries.
+  const hasChannelConsumers = chPlan.consumesFromBroker;
   // Durable broker-bound events (M-T4.4): carried by a wired
   // `queue`/`work` (or future `log`) channel — the producer path for these
   // rides the outbox relay (design §5), never the inline tee.  Intersected
@@ -522,9 +517,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // task. adds the workflow-less durable-broker PRODUCER
   // (design §5): no subscription, but the relay must still drain the outbox
   // to publish.  No durable channel → byte-identical boot.
-  const startsRelay =
-    hasDurableEvents(merged) &&
-    (dispatchSubscriptionsOf(merged).length > 0 || durableBrokerEvents.size > 0);
+  const startsRelay = chPlan.hasOutbox;
   // Explicit transport layer (unfoldable-api-derivation.md, A2): one APIRouter
   // per served api whose `route` list resolves to a hosted handler, dispatching
   // each route to its `app/application/<handler>.py` function.  Emitted before
@@ -674,6 +667,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     durableBrokerEvents,
     hasRealtime,
     authRequired,
+    chPlan.hasOutbox,
   );
   const hasDispatch = dispatchFile != null;
   // Broker transport module (M-T4.4 slices 2b + 7a): the redis.asyncio /

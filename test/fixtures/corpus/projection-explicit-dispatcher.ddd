@@ -1,0 +1,81 @@
+// A folded projection on a deployable whose boot builds its own dispatcher
+// chain.
+//
+// A durable channel and a reactor make the deployable run the outbox relay, so
+// boot hands createApp an explicit dispatcher instead of its default chain.
+// That explicit chain must fold projections exactly as the default one does:
+// `OrderNoted` rides no channel, is dispatched in-process on the request path,
+// and `OrderBoard` reads it back in the same request sequence.
+system ExplicitDispatcherSys {
+  subdomain Sales {
+    context Orders {
+      aggregate Order with crudish {
+        customerId: string
+        status: string
+        operation place() {
+          precondition status == "Draft"
+          status := "Placed"
+          emit OrderPlaced { order: id, at: now() }
+          emit OrderNoted { order: id, note: "placed" }
+        }
+      }
+      repository Orders for Order { }
+      // A plain string, not `Order id`: the relay may or may not have issued
+      // the receipt by the time the order is destroyed, and a reference would
+      // make that delete's status depend on relay timing.  No api surface:
+      // only the reactor writes it.
+      aggregate Receipt {
+        orderRef: string
+      }
+      repository Receipts for Receipt { }
+
+      event OrderPlaced { order: Order id, at: datetime }
+      event OrderNoted { order: Order id, note: string }
+
+      // Durable: OrderPlaced goes through the outbox and the relay.
+      channel Lifecycle {
+        carries: OrderPlaced
+        delivery: queue
+        retention: work
+      }
+
+      // The reactor that makes the relay run.
+      workflow Issue {
+        orderId: Order id
+        create(p: OrderPlaced) by p.order {
+          let r = Receipt.create(orderRef: "issued")
+        }
+      }
+
+      projection OrderBoard keyed by order {
+        order: Order id
+        note: string
+        on(e: OrderNoted) {
+          order := e.order
+          note := e.note
+        }
+      }
+    }
+  }
+  api SalesApi from Sales
+  storage pg { type: postgres }
+  resource ordersState { for: Orders, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Orders]
+    dataSources: [ordersState]
+    serves: SalesApi
+    port: 4000
+  }
+
+  test e2e "a fold runs on the dispatcher boot builds" against d {
+    let o = api.orders.create({ customerId: "c-1", status: "Draft" })
+    api.orders.place(o)
+    expect(api.orderBoard.byKey(o.id).note).toBe("placed")
+    expect(api.orders.getById(o).status).toBe("Placed")
+    expect(api.orders.all().items.length).toBe(1)
+    api.orders.update(o, { customerId: "c-2", status: "Placed" })
+    api.orders.destroy(o)
+    expect(api.orders.getById(o)).toThrow(404)
+  }
+}

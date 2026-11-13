@@ -1,0 +1,9 @@
+{
+  "title": "durable broker channel whose only consumer is a projection fold on another deployable",
+  "doc": "channels",
+  "backends": "ALL",
+  "note": "the consumer deployable has a fold and no reactor.  The channel plan's `consumesFromBroker` counts the fold, so every backend emits and starts a broker consumer on `shipApi`; a backend that keys the consumer on a non-projection subscription emits none and the projection never folds.  The behavioural cell (place on salesApi \u2192 OrderBook row on shipApi) needs the broker sidecar.",
+  "apiCaller": {
+    "e2eLess": "BROKER SIDECAR: the claim (place on salesApi, an OrderBook row on shipApi) needs a broker between two booted services, and the real-process legs cannot boot a wired deployable without a broker URL (#5613).  Until then the compile tier and test/generator/channel-consumer-wiring.test.ts carry the consumer wiring."
+  }
+}
