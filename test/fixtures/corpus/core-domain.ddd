@@ -4,7 +4,16 @@ system CoreShop {
   subdomain Sales {
     context Orders {
       enum Status { Draft, Placed, Cancelled }
-      valueobject Money { amount: decimal  currency: string }
+      valueobject Money {
+        amount: decimal
+        currency: string
+        // A VO function naming its OWN type, inside that type's body.  Python
+        // evaluated the annotation eagerly there (`def plus(self, other:
+        // Money) -> Money` before `Money` is bound), so the domain module
+        // raised NameError at import and the app never booted.  Declared, not
+        // called: the import alone is the proof, on every python tier.
+        function plus(other: Money): Money = Money { amount: amount + other.amount, currency: currency }
+      }
       event OrderPlaced { code: string }
       aggregate Order with crudish {
         code: string
