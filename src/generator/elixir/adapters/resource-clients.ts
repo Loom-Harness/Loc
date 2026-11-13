@@ -12,9 +12,12 @@ import type { DataSourceIR, StorageIR } from "../../../ir/types/loom-ir.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import {
+  RESOURCE_HOST_ENV,
+  resourceEnvDirVar,
   resourceEnvEndpointVar,
   resourceEnvUrlVar,
   resourceSidecarUrl,
+  SENDGRID_SEND_PATH,
 } from "../../../util/resource-env.js";
 
 export interface PhoenixResourceAdapter {
@@ -316,15 +319,26 @@ const sesPhoenixAdapter: PhoenixResourceAdapter = {
       const fn = snake(r.name);
       const region = cfg(storeOf(r, stores), "region") ?? "us-east-1";
       lines.push(
+        // Swoosh posts to `host` as given; unset keeps its AWS host.
+        `  defp ${fn}_endpoint do`,
+        `    case System.get_env("${RESOURCE_HOST_ENV.ses(r.name)}") do`,
+        `      url when url in [nil, ""] -> []`,
+        `      url -> [host: url]`,
+        "    end",
+        "  end",
+        "",
         `  defp ${fn}_region do`,
         `    System.get_env("${envStem(r.name)}_REGION") || ${elixirString(region)}`,
         "  end",
         "",
         `  def ${fn}_send(to, subject, body) do`,
-        `    Swoosh.Adapters.AmazonSES.deliver(${fn}_email(to, subject, body),`,
-        `      region: ${fn}_region(),`,
-        '      access_key: System.get_env("AWS_ACCESS_KEY_ID"),',
-        '      secret: System.get_env("AWS_SECRET_ACCESS_KEY")',
+        `    Swoosh.Adapters.AmazonSES.deliver(`,
+        `      ${fn}_email(to, subject, body),`,
+        "      [",
+        `        region: ${fn}_region(),`,
+        '        access_key: System.get_env("AWS_ACCESS_KEY_ID"),',
+        '        secret: System.get_env("AWS_SECRET_ACCESS_KEY")',
+        `      ] ++ ${fn}_endpoint()`,
         "    )",
         "",
         "    :ok",
@@ -349,9 +363,18 @@ const sendgridPhoenixAdapter: PhoenixResourceAdapter = {
     for (const r of resources) {
       const fn = snake(r.name);
       lines.push(
+        // Swoosh's `base_url` is the API root it appends `/mail/send` to.
+        `  defp ${fn}_endpoint do`,
+        `    case System.get_env("${RESOURCE_HOST_ENV.sendgrid(r.name)}") do`,
+        `      url when url in [nil, ""] -> []`,
+        `      url -> [base_url: String.trim_trailing(url, "/") <> ${elixirString(SENDGRID_SEND_PATH.replace(/\/mail\/send$/, ""))}]`,
+        "    end",
+        "  end",
+        "",
         `  def ${fn}_send(to, subject, body) do`,
-        `    Swoosh.Adapters.Sendgrid.deliver(${fn}_email(to, subject, body),`,
-        '      api_key: System.get_env("SENDGRID_API_KEY")',
+        `    Swoosh.Adapters.Sendgrid.deliver(`,
+        `      ${fn}_email(to, subject, body),`,
+        `      [api_key: System.get_env("SENDGRID_API_KEY")] ++ ${fn}_endpoint()`,
         "    )",
         "",
         "    :ok",
@@ -381,7 +404,7 @@ const localDiskPhoenixAdapter: PhoenixResourceAdapter = {
       const fn = snake(r.name);
       lines.push(
         `  defp ${fn}_dir do`,
-        `    System.get_env("${envVar(r.name).replace(/_URL$/, "")}_DIR") || "data/${r.name}"`,
+        `    System.get_env("${resourceEnvDirVar(r.name)}") || "data/${r.name}"`,
         "  end",
         "",
         // Guard against path traversal: minted keys are UUIDs, but a
