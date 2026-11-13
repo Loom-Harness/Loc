@@ -1,5 +1,5 @@
 import type { BoundedContextIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
-import { enumPool } from "../../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { isStringField } from "./changeset-ingress.js";
 import { renderInvariantValidatorFn } from "./changeset-invariant-emit.js";
@@ -9,6 +9,7 @@ import {
   voHasConstraints,
   voUncarriedInvariants,
 } from "./changeset-validators.js";
+import { renderValueObjectFunctions } from "./function-emit.js";
 
 // ---------------------------------------------------------------------------
 // Validating value-object constructor (Ecto/Phoenix)
@@ -45,19 +46,39 @@ export function emitVanillaValueObjects(
 ): void {
   const appSnake = appModule.replace(/([A-Z])/g, (_, c, i) => (i ? "_" : "") + c.toLowerCase());
   const ctxSnake = snake(ctx.name);
-  for (const vo of ctx.valueObjects) {
-    if (!voHasConstraints(vo)) continue;
+  const own = new Set(ctx.valueObjects.map((v) => v.name));
+  for (const vo of valueObjectPool(ctx)) {
+    // A value object's validating constructor lives with its own context; a
+    // sibling (shared-kernel) value object read here still needs its
+    // `function`s, which every call site in this context reaches as
+    // `<App>.<Ctx>.<Vo>.<fn>`.
+    const rules = own.has(vo.name) && voHasConstraints(vo);
+    const fns = renderValueObjectFunctions(`${appModule}.${upperFirst(ctx.name)}`, vo);
+    if (!rules && fns.length === 0) continue;
     out.set(
       `lib/${appSnake}/${ctxSnake}/${snake(vo.name)}.ex`,
-      renderValueObjectModule(appModule, ctx, vo),
+      rules
+        ? renderValueObjectModule(appModule, ctx, vo, fns)
+        : renderFunctionsOnlyModule(voModule(appModule, ctx, vo), fns),
     );
   }
+}
+
+/** The module of a value object with functions and no rules to judge. */
+function renderFunctionsOnlyModule(moduleName: string, fns: string[]): string {
+  return `# Auto-generated.
+defmodule ${moduleName} do
+  @moduledoc false
+${fns.slice(1).join("\n")}
+end
+`;
 }
 
 function renderValueObjectModule(
   appModule: string,
   ctx: BoundedContextIR,
   vo: ValueObjectIR,
+  fns: string[],
 ): string {
   const moduleName = voModule(appModule, ctx, vo);
   const enums = new Map(enumPool(ctx).map((e) => [e.name, e]));
@@ -116,6 +137,6 @@ ${castLine}${validators ? `\n${validators}` : ""}${invariantPipe}
   def new(attrs) when is_map(attrs) do
     apply_action(changeset(attrs), :insert)
   end
-${tagDefs}${invariantDefs}end
+${tagDefs}${invariantDefs}${fns.length > 0 ? `${fns.join("\n")}\n` : ""}end
 `;
 }
