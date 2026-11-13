@@ -28,6 +28,13 @@ export function renderPyEnumsAndValueObjects(ctx: BoundedContextIR): string {
   return lines(
     `"""Enums + value objects with constructor-enforced invariants.  Auto-generated."""`,
     "",
+    // Annotations stay unevaluated: a VO `function plus(other: Money): Money`
+    // names its own class inside that class's body, where the name is not yet
+    // bound, so an eagerly-evaluated annotation raises NameError at import and
+    // the app never boots.  Dependency order (below) covers only the
+    // cross-class case.
+    "from __future__ import annotations",
+    "",
     PY_IMPORTS,
     ...ctx.enums.flatMap(renderPyEnum),
     // Dependency order: `ctx.valueObjects` lists context-local VOs before the
