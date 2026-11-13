@@ -163,7 +163,8 @@ The generated code reaches a broker only through its `ChannelTransport`, so the
 preview plugs one facade (`src/runtime/broker-facade.ts`) into `bootApp`'s
 `channelTransport` seam for every binding. The facade holds no state: publish,
 subscribe and each delivery's ack / nack go over the deployable's `InfraPort`
-to one broker model in the infra worker (`src/runtime/infra/broker-model.ts`).
+to one broker model in the infra worker (the shared emulation core's
+`BrokerModel`, `../src/emulation/broker-model.ts`).
 One owner of the state is what makes the per-broker semantics hold across
 deployables:
 
@@ -182,9 +183,17 @@ contents and a journal of who received and acknowledged each envelope.
 ### Resource fakes
 
 `objectStore`, `mailer` and `api` resources are answered inside the browser.
-All state lives in the infra worker (`src/runtime/infra/`, one module per
-service, registered in `infra/services.ts`); a deployable worker carries only
-facades that forward there over the deployable's `InfraPort` (`src/runtime/resource-fakes.ts`).
+All state lives in the infra worker; a deployable worker carries only facades
+that forward there over the deployable's `InfraPort` (`src/runtime/resource-fakes.ts`).
+
+The services' semantics are not the playground's own: each one is a model of
+the emulation core (`../src/emulation/` — the mailbox, S3/SES, the disk, the
+restApi mock, the identity provider, the broker), the same models the Node test
+kit serves over loopback ports. `src/runtime/infra/` holds one thin
+`InfraService` wrapper per service (registered in `infra/services.ts`) that owns
+one instance of its model, routes the infra ops to it and hands it the OPFS
+`BlobStore`; it carries no state or wire behaviour of its own
+(`test/emulation/emulation-census.test.ts` holds it to that).
 `examples/resource-fakes-system.ddd` wires every kind.
 
 | sourceType | In the bundle | In the infra worker |
@@ -215,7 +224,8 @@ Runtime panel's "emulated" tooltip states.
 ### The identity provider
 
 A system with `auth { oidc }` boots its generated OIDC verifier against an
-identity provider in the infra worker (`src/runtime/infra/oidc.ts`). It serves
+identity provider in the infra worker (the emulation core's
+`createOidcProvider`, wrapped by `src/runtime/infra/oidc.ts`). It serves
 discovery, the JWKS and a token endpoint under the issuer each backend's compose
 env names (`OIDC_ISSUER`); a deployable's `fetch` hands any URL under that issuer
 to it (`src/runtime/resource-fakes.ts`). Its realm and personas come from the
