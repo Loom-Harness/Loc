@@ -139,16 +139,7 @@ export async function startPgServer(): Promise<PgServer> {
       `-p ${port}:5432 postgres:18-alpine`,
     { stdio: "pipe", timeout: 60_000 },
   );
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    try {
-      execSync(`docker exec ${name} pg_isready -U postgres`, { stdio: "pipe", timeout: 5_000 });
-      break;
-    } catch {
-      await new Promise((r) => setTimeout(r, 500));
-    }
-  }
-  return {
+  const server: PgServer = {
     host: "127.0.0.1",
     port,
     user: "postgres",
@@ -161,6 +152,27 @@ export async function startPgServer(): Promise<PgServer> {
       }
     },
   };
+  // Ready means a query answers over TCP from the host — the path every query
+  // takes.  `pg_isready` inside the container answers the entrypoint's
+  // TEMPORARY init server (unix socket only), which then shuts down and
+  // restarts, so the first TCP query after it raced the restart.  The init
+  // server listens on no TCP port, so a TCP answer can only come from the
+  // real one.
+  const deadline = Date.now() + 90_000;
+  let last = "";
+  for (;;) {
+    try {
+      psql(server, "postgres", "SELECT 1");
+      return server;
+    } catch (e) {
+      last = e instanceof Error ? e.message : String(e);
+      if (Date.now() > deadline) {
+        server.stop();
+        throw new Error(`migration-evolution e2e: postgres never answered over TCP: ${last}`);
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
 }
 
 function serverUrl(s: PgServer, db: string): string {
@@ -178,10 +190,9 @@ function psql(s: PgServer, db: string, sql: string): string {
       .toString()
       .trim();
   } catch (e) {
-    const err = e as { stderr?: Buffer; message?: string };
-    throw new Error(
-      `psql failed (is postgresql-client on PATH?): ${err.stderr?.toString() ?? err.message ?? e}`,
-    );
+    const err = e as { code?: string; stderr?: Buffer; message?: string };
+    const hint = err.code === "ENOENT" ? " (postgresql-client is not on PATH)" : "";
+    throw new Error(`psql failed${hint}: ${err.stderr?.toString() ?? err.message ?? e}`);
   }
 }
 
