@@ -25,11 +25,14 @@ import { irTypeModules } from "../_helpers/ir-types-source.js";
 const BUDGET = 800;
 const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "aggregate.ts": 14,
-  // +3: a policy level's `when` (absent = every caller) and the context's
-  // `policyRowRules` list, absent like its `policyReadLevels` siblings.
-  // +2: the context's `policyShareGates` list and a share gate's `when`
-  // (absent = every caller), the same shape again.
-  "context.ts": 33,
+  // Kept: the read clauses a find may lack (`requires`, `filter`,
+  // `criterionRef`, `defaultSort`) and its four synthesis flags, the history
+  // find, a policy rule's `when` (absent = every caller), a channel's key, a
+  // union payload's variants, a monomorphized payload's carrier, a domain
+  // service op's return, a retrieval's criterion, the shared `Bypassing`
+  // stance, `readsDefaultDenied`, and the enrichment-derived maps and sibling
+  // pools (absent on a loose, single-context lowering).
+  "context.ts": 25,
   // Kept: a binding's per-kind knobs (absent = not declared, which the
   // capability check tells apart from a declared knob), a frontend's target /
   // design / ui binding, a backend's realization axes, `auth`, `favicon`, and
