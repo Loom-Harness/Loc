@@ -622,6 +622,15 @@ system Shop {
 
 Data visibility is flat: a `tenantOwned` row is visible to its own org only (`tenant_id = <operating org>`), and `tenantId` is the only column tenancy adds. The registry tree (`parent`, an ordinary mutable field — a move is an operation the author writes) is for managing sub-tenants and takes no part in a data read. The generated filters, stamps, and the `loom.tenancy-*` / `loom.policy-*` gate catalogue are covered in [`../tenancy.md`](../tenancy.md) and [Capabilities, filters & stamps](11-capabilities-filters-stamps.md).
 
+### Reference admission
+
+An `X id` a row stores from a request resolves in the target's scope: an id of
+another tenant's `tenantOwned` row is refused exactly like an id of no row
+(422 — the backend's answer to a dangling reference); `crossTenant` and registry targets are
+checked by the foreign key alone; a `tenantOwned` target in another context
+cannot be checked and warns `loom.tenancy-ref-unresolvable`.  See
+[`../tenancy.md` → "Reference admission"](../tenancy.md#reference-admission).
+
 ### `organizationContext` — the operating scope
 
 Backend code may read two members:
