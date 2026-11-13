@@ -3724,23 +3724,6 @@ system P {
   deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
 }`,
 
-  // A workflow `create` answering `T or E` in a context an elixir deployable
-  // hosts.
-  "loom.elixir-entry-result-unsupported": `
-system P {
-  subdomain D { context C {
-    error Declined { reason: string }
-    workflow W {
-      create(n: int): int or Declined {
-        return Declined { reason: "no" }
-      }
-    }
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
-}`,
-
   // A `let`-bound mutating domain-service call in a workflow an elixir
   // deployable emits.
   "loom.elixir-bound-mutating-call-unsupported": `

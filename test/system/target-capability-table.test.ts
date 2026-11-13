@@ -691,10 +691,16 @@ system M {
   "call:bound-mutating@entry-body": (platform) =>
     ledgerWitness(
       platform,
-      `workflow Pay {
+      `domainService Move {
+        operation run(a: Account, amt: int): int or Insufficient {
+          let r = a.withdraw(amt)
+          return r
+        }
+      }
+      workflow Pay {
         create(id: Account id, amt: int) {
           let a = Accounts.get(id)
-          let r = a.withdraw(amt)
+          let r = Move.run(a, amt)
           match r { int n => { } Insufficient e => { } }
         }
       }`,

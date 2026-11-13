@@ -103,21 +103,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: false,
   },
   {
-    code: "loom.elixir-entry-result-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/call-result-checks.ts:272",
-    what:
-      "A routed workflow `create`, `commandHandler` or `queryHandler` an elixir deployable " +
-      "emits whose result is an expected failure (`T or E`), and a `create` answering its own " +
-      "workflow (`return this`).  The other four backends run the entry point in one " +
-      "transaction, roll it back whole on an error answer (saves, saga row, the error arm's " +
-      "writes, no events) and answer the error at its mapped status; the Phoenix with-chain " +
-      "routes have no tagged result to branch on and no `Repo.rollback` seam around the saga " +
-      "row and the body, and the bound mutating call most such bodies match is refused " +
-      "already (`loom.elixir-bound-mutating-call-unsupported`)",
-    mission: "#4571",
-  },
-  {
     code: "loom.ui-multi-backend-unsupported",
     kind: "gap",
     site: "src/ir/validate/checks/ui-backend-binding-checks.ts:48",
