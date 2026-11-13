@@ -1789,7 +1789,7 @@ browser's infra worker (`web/src/runtime/infra/oidc.ts`):
 - **Realm.** The provider answers under the `OIDC_ISSUER` the backend's compose
   service names, with Keycloak's endpoint paths
   (`/.well-known/openid-configuration`, `/protocol/openid-connect/certs`,
-  `…/token`, `…/userinfo`). Tokens are RS256, signed with a WebCrypto key whose
+  `…/token`, `…/userinfo`, `…/logout`). Tokens are RS256, signed with a WebCrypto key whose
   public half is the JWKS. `aud` is `OIDC_AUDIENCE` when compose sets it,
   otherwise what the dev realm's audience mapper mints (the declared
   `audience:`), otherwise the client id.
