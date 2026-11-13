@@ -234,10 +234,15 @@ if (t !== null) {
 ```
 
 ```elixir
-# elixir (Phoenix) — the branch evaluates to the tagged miss
+# elixir (Phoenix) — the branch evaluates to the tagged miss; the hit runs
+# `escalate` on the struct and saves it once at the branch's end
 if t != nil do
-  Context.escalate_ticket(t, %{})
-  {:ok, t}
+  with {:ok, t} <- Context.__apply_escalate_ticket(t, %{}),
+       {:ok, _} <- Context.__save_ticket(t) do
+    {:ok, t}
+  else
+    err -> err
+  end
 else
   {:error, {:not_found, "no open ticket"}}
 end

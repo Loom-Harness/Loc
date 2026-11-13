@@ -298,7 +298,7 @@ def respond_result(conn, other), do: respond(conn, other)
 ```
 ::: end
 
-Elixir's operations return the updated struct rather than mutating in place, so on this path an operation whose receiver the result reads rebinds it (`{:ok, source} <- Context.withdraw_account(source, …)`) — `return source.balance` answers the post-operation value, as on the other four backends. The generated workflow form pages on all six frontends accept a 2xx with or without a body, so a result changes nothing on the UI side.
+Elixir's operations return the updated struct rather than mutating in place, so on this path an operation rebinds its receiver (`{:ok, source} <- Context.__apply_withdraw_account(source, …)`) and the save that closes the body rebinds it to the saved row (`{:ok, source} <- Context.__save_account(source)`) — `return source.balance` answers the post-operation value, as on the other four backends. The generated workflow form pages on all six frontends accept a 2xx with or without a body, so a result changes nothing on the UI side.
 
 ### Expected failures
 
