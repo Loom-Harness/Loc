@@ -1,15 +1,19 @@
 import { type PolymorphicRead, polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
-import type {
-  AggregateIR,
-  EnrichedAggregateIR,
-  EnrichedBoundedContextIR,
+import type { PolymorphicReadGate } from "../../../ir/plan/index.js";
+import {
+  type AggregateIR,
+  type EnrichedAggregateIR,
+  type EnrichedBoundedContextIR,
+  findGateUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
+import { renderCsGate } from "../cqrs/queries.js";
 import { csIdValueClrType, projectEntityExpr } from "../dto-mapping.js";
 import { efSetName } from "../ef-read-source.js";
+import { collectCsExprUsings } from "../render-expr.js";
 import { csProducesProblem } from "../wire-policy-cs.js";
 import { csPagedQueryParams, dotnetNotFoundThrow } from "./common.js";
 // The polymorphic base read (aggregate-inheritance.md): a read of an abstract
@@ -205,15 +209,46 @@ function renderTpcBaseReaderImpl(
 /** `Api/<Bases>Controller.cs` — `GET /api/<bases>` (paged, tagged items) and,
  *  under TPH, `GET /api/<bases>/{id}` (one tagged row; 404 when absent or
  *  hidden by a restriction).  Each item is `{ "type": "<Concrete>", …that
- *  concrete's own by-id wire body }` (the tagged-union wire, payloads.md). */
+ *  concrete's own by-id wire body }` (the tagged-union wire, payloads.md).
+ *
+ *  Both reads check every concrete's list-read gate (`gates`) before they load:
+ *  a caller who fails any one gets that concrete's own pre-load 403
+ *  (`Forbidden: find <name>`).  A concrete's `mask unless` fields are redacted
+ *  per row by its own response projection, under the request's principal. */
 export function renderBaseController(
   base: EnrichedAggregateIR,
   read: PolymorphicRead,
   ctx: EnrichedBoundedContextIR,
   ns: string,
   routePrefix: string,
+  gates: readonly PolymorphicReadGate[] = [],
 ): string {
   const B = base.name;
+  const C = plural(upperFirst(B));
+  const gateUsesUser = gates.some((g) => findGateUsesCurrentUser(g.find));
+  const gateUsings = new Set<string>();
+  if (gateUsesUser) gateUsings.add(`${ns}.Auth`);
+  for (const g of gates) collectCsExprUsings(g.find.requires, gateUsings, ns);
+  gateUsings.delete(`${ns}.Domain.Common`);
+  const gateLines = [
+    ...(gateUsesUser ? ["        var currentUser = _currentUser.User;"] : []),
+    ...gates.map(
+      (g) =>
+        `        if (!(${renderCsGate(g.find.requires)})) throw new ForbiddenException(${JSON.stringify(`Forbidden: find ${g.find.name}`)});`,
+    ),
+  ];
+  const forbidden =
+    gates.length > 0 ? [csProducesProblem("forbidden", ctx.structuralErrorStatuses)] : [];
+  const ctorParams = [
+    `I${B}Repository repo`,
+    "IOptions<JsonOptions> json",
+    ...(gateUsesUser ? ["ICurrentUserAccessor currentUser"] : []),
+  ].join(", ");
+  const ctorBody = [
+    "_repo = repo;",
+    "_json = json.Value.JsonSerializerOptions;",
+    ...(gateUsesUser ? ["_currentUser = currentUser;"] : []),
+  ].join(" ");
   const variants = variantsOf(read, ctx);
   const route = `${routePrefix}${routeSegmentFor(B)}`;
   const [pageParam, pageSizeParam] = csPagedQueryParams();
@@ -248,22 +283,26 @@ export function renderBaseController(
       `using ${ns}.Domain.Ids;`,
       `using ${ns}.Domain.ValueObjects;`,
       `using ${ns}.Domain.Enums;`,
+      ...[...gateUsings].sort().map((u) => `using ${u};`),
       "",
       `namespace ${ns}.Api;`,
       "",
       "[ApiController]",
       `[Route("${route}")]`,
-      `public sealed class ${plural(upperFirst(B))}Controller : ControllerBase`,
+      `public sealed class ${C}Controller : ControllerBase`,
       "{",
       `    private readonly I${B}Repository _repo;`,
       "    private readonly JsonSerializerOptions _json;",
-      `    public ${plural(upperFirst(B))}Controller(I${B}Repository repo, IOptions<JsonOptions> json) { _repo = repo; _json = json.Value.JsonSerializerOptions; }`,
+      ...(gateUsesUser ? ["    private readonly ICurrentUserAccessor _currentUser;"] : []),
+      `    public ${C}Controller(${ctorParams}) { ${ctorBody} }`,
       "",
       "    [HttpGet]",
       "    [ProducesResponseType(typeof(Paged<JsonObject>), 200)]",
+      ...forbidden,
       csProducesProblem("field-invalid"),
       `    public async Task<ActionResult<Paged<JsonObject>>> All${B}(${pageParam}, ${pageSizeParam})`,
       "    {",
+      ...gateLines,
       "        var result = await _repo.FindPageAsync(page, pageSize, HttpContext.RequestAborted);",
       "        return Ok(new Paged<JsonObject>(result.Items.Select(ToWire).ToList(), result.Page, result.PageSize, result.Total, result.TotalPages));",
       "    }",
@@ -272,10 +311,12 @@ export function renderBaseController(
             "",
             '    [HttpGet("{id}")]',
             "    [ProducesResponseType(typeof(JsonObject), 200)]",
+            ...forbidden,
             csProducesProblem("not-found"),
             csProducesProblem("field-invalid"),
             `    public async Task<ActionResult<JsonObject>> Get${B}ById([FromRoute] ${idClr} id)`,
             "    {",
+            ...gateLines,
             `        var found = await _repo.GetByIdAsync(new ${B}Id(id), HttpContext.RequestAborted);`,
             `        if (found is null) ${dotnetNotFoundThrow(ns, B, "id")}`,
             "        return Ok(ToWire(found));",
