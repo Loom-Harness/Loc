@@ -8,8 +8,8 @@ name: Lifecycle / chaos (runtime e2e)
 # unmet fact runs as a strict expected failure, so a fix that lands without
 # flipping the fact turns this leg red.
 #
-# TIER: per-PR, path-scoped, on the node cell only (the smoke — the fastest
-# image); nightly on main across every backend and persistence adapter.  Not in
+# TIER: per-PR, path-scoped to the generation path, on the node cell only
+# (the smoke — the fastest image, ~5 min); nightly on main across every backend and persistence adapter.  Not in
 # the merge queue: the per-PR smoke is binding through `pr-gate`, and the full
 # matrix is ~7 compose builds.
 on:
@@ -18,9 +18,12 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - 'src/language/**'
+      - 'src/macros/**'
+      - 'src/ir/**'
+      - 'src/util/**'
       - 'src/platform/**'
-      - 'src/system/index.ts'
-      - 'src/system/kubernetes.ts'
+      - 'src/system/**'
       - 'src/generator/_channels/**'
       - 'src/generator/typescript/emit/channels.ts'
       - 'src/platform/hono/shared/emit.ts'

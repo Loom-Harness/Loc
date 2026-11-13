@@ -219,6 +219,14 @@ describe("broker topology — declared up front, not left to the first client", 
         destination_type: "queue",
         routing_key: "",
       },
+      // The bounded-retry route back onto the consumer's own queue.
+      {
+        source: "loom.dlx",
+        vhost: "loom",
+        destination: `${address}.shipApi`,
+        destination_type: "queue",
+        routing_key: `loom.retry.${address}.shipApi`,
+      },
     ]);
   });
 

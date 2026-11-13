@@ -108,6 +108,7 @@ on:
       - "Schemathesis contract fuzzing"
       - "Tenancy isolation (runtime e2e)"
       - "Timer single-fire (runtime e2e)"
+      - "Lifecycle / chaos (runtime e2e)"
       - "Tests + coverage"
       - "TypeScript (Hono) build verification"
     types: [completed]
