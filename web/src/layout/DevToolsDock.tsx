@@ -11,7 +11,6 @@ import { type DockTab, type LayoutCtx } from "./ctx";
 import {
   agentMark,
   authMark,
-  infraMark,
   type Mark,
   migrationsMark,
   runtimeMark,
@@ -66,7 +65,7 @@ function DevToolsDockView({ ctx, tab, setTab }: Props): JSX.Element {
     { id: "migrations", label: PANE.migrations, mark: migrationsMark(ctx) },
     { id: "history", label: PANE.history, mark: null },
     { id: "auth", label: PANE.auth, mark: authMark(ctx) },
-    { id: "infra", label: PANE.infra, mark: infraMark(ctx) },
+    { id: "infra", label: PANE.infra, mark: null },
   ];
 
   return (

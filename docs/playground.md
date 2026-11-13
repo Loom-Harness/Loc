@@ -223,6 +223,27 @@ intercepted — an `<img src>` or a download link to a presigned URL still goes 
 the real host (a page cannot be intercepted without a service worker), which the
 Runtime panel's "emulated" tooltip states.
 
+### The Infrastructure panel
+
+The dock's **Infrastructure** tab (on a phone: **More → Infrastructure**) shows
+and manages the emulated services of the booted system, one tab per service
+(`web/src/infra-panel/`, listed in `tabs.ts`). A tab reads and changes state only
+through the infra worker's `{ service, op, params }` protocol (`useInfra` /
+`useInfraAction`), so what it shows is the one copy the deployables use. Each
+tab carries an **emulated** badge whose hover lists how the service differs from
+production, and shows an empty state when the booted system declares no storage
+of its types.
+
+| Tab | Shows | Actions |
+|---|---|---|
+| Mailbox | every mail from `smtp`, `ses` and `sendgrid`: from, to, subject, via | read the text, or the HTML in a sandboxed frame (no scripts, no same-origin); clear |
+| Object store | the `s3` buckets and the `localDisk` tree, browsed by folder | view (text, image or hex), download, upload into the current folder, delete |
+| REST mocks | every request to a `restApi`: method, URL, status, request body, response | override one operation's response (status + JSON body) in place of the spec sample or the echo; clear the log |
+
+An override is keyed by the API's origin and the operation (`GET /rate/{ccy}`
+from the spec, or the literal path without one), answers every call until it is
+cleared, and is dropped on a re-boot.
+
 ### The identity provider
 
 A system with `auth { oidc }` boots its generated OIDC verifier against an
