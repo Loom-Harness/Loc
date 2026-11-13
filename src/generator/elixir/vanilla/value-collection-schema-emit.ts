@@ -9,6 +9,8 @@ import type {
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
+import { renderInvariantValidatorFn } from "./changeset-invariant-emit.js";
 import { taggedConstraintLines } from "./changeset-validators.js";
 import { exEctoIdType, exEctoScalarType } from "./codec-spelling-ex.js";
 import { isVanillaDocAgg } from "./document-emit.js";
@@ -175,6 +177,23 @@ function renderChildSchema(
   const validatorLines = tagging.lines;
   const validatorBlock = validatorLines.length > 0 ? `\n${validatorLines.join("\n")}` : "";
   const requiredBlock = requiredCols ? `\n    |> validate_required([${requiredCols}])` : "";
+  // Every rule the native lines above cannot carry — a cross-field or guarded
+  // invariant (`upper > number when op == Scale`) — goes through the same
+  // `validate_invariants/1` seam an aggregate or a part uses.  This changeset is
+  // what the owner's `cast_assoc` runs on each element, so it is where a value
+  // collection's element rules are enforced, or nowhere: node/.NET/java/python
+  // assert them in the value object's constructor and answer 422.
+  const nativelyCarried = (inv: ValueObjectIR["invariants"][number]): boolean =>
+    (singleFieldConstraints(inv) ?? []).some((c) => _voFieldNames.has(snake(c.field)));
+  const invariantFn = renderInvariantValidatorFn(
+    {
+      invariants: (vo.invariants ?? []).filter((inv) => !nativelyCarried(inv)),
+      fields: vo.fields,
+      derived: [],
+    },
+    `${appModule}.${ctxModule}`,
+  );
+  const invariantBlock = invariantFn ? "\n    |> validate_invariants()" : "";
 
   return `# Auto-generated.
 defmodule ${moduleName} do
@@ -196,9 +215,9 @@ ${voFieldLines.join("\n")}
     attrs = __normalize_keys(attrs)
 
     struct
-    |> cast(attrs, [${castCols}])${requiredBlock}${validatorBlock}
+    |> cast(attrs, [${castCols}])${requiredBlock}${validatorBlock}${invariantBlock}
   end
-
+${invariantFn ? `\n${invariantFn}\n` : ""}
 ${NORMALIZE_KEYS_DEFP}${tagging.defs ? `\n\n${tagging.defs.trimEnd()}` : ""}
 end
 `;

@@ -1,0 +1,56 @@
+// shape: invariants on the ELEMENT of a value collection (`conditions:
+// Condition[]`) — a cross-field comparison and a guarded rule.
+//
+// node/.NET/java/python assert a value object's invariants in its constructor,
+// so a bad element answers 422 on create and on update.  Elixir stores the
+// collection as child rows cast through the element's own `changeset/2`, which
+// carried only `validate_required`: the bad rows were accepted (201/204).
+system ValueCollectionInvariants {
+  subdomain Rules {
+    context Rules {
+      enum Operator { Scale, Equals }
+
+      valueobject Condition {
+        op: Operator
+        lower: decimal?
+        upper: decimal?
+        label: string?
+        invariant (upper ?? 0) > (lower ?? 0) when op == Scale
+        invariant label != null when op == Equals
+      }
+
+      aggregate RuleSet with crudish {
+        name: string
+        conditions: Condition[]
+      }
+      repository RuleSets for RuleSet { }
+    }
+  }
+
+  api RulesApi from Rules
+  storage primary { type: postgres }
+  resource rulesState { for: Rules, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Rules]
+    dataSources: [rulesState]
+    serves: RulesApi
+    port: 4000
+  }
+
+  test e2e "a value collection's element invariants are enforced" against d {
+    let ok = api.ruleSets.create({ name: "ok", conditions: [
+      { op: "Scale", lower: 1, upper: 5 },
+      { op: "Equals", label: "x" }
+    ] })
+    expect(api.ruleSets.getById(ok).conditions.count()).toBe(2)
+
+    expect(api.ruleSets.create({ name: "inverted", conditions: [{ op: "Scale", lower: 5, upper: 1 }] })).toThrow(422)
+    expect(api.ruleSets.create({ name: "unlabelled", conditions: [{ op: "Equals" }] })).toThrow(422)
+    expect(api.ruleSets.update(ok, { name: "ok", conditions: [{ op: "Scale", lower: 3, upper: 3 }] })).toThrow(422)
+
+    let kept = api.ruleSets.getById(ok)
+    expect(kept.conditions.count()).toBe(2)
+    expect(api.ruleSets.all().total).toBe(1)
+  }
+}
