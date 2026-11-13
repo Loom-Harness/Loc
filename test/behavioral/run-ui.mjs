@@ -43,9 +43,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { copyLocales, localesBeside } from "./case-source.mjs";
 import {
+  driveAddRider,
   driveAddVehicle,
   driveUpdate,
   judgeFormSpec,
+  judgeRiderAdded,
   judgeVehicleAdded,
   judgePartTable,
   readPolicy,
@@ -289,6 +291,16 @@ async function formSpecProbe(origin) {
         await page.waitForTimeout(500);
       }
       why.push(...judgeVehicleAdded(after));
+    }
+    if (why.length === 0) {
+      const withVehicle = after;
+      await driveAddRider(page, origin, before.id);
+      for (let i = 0; i < 30; i++) {
+        after = await readPolicy(origin, before.id);
+        if ((after.riders ?? []).length > 1) break;
+        await page.waitForTimeout(500);
+      }
+      why.push(...judgeRiderAdded(withVehicle, after));
     }
     if (why.length === 0) {
       await seedCoverage(origin, before.id);

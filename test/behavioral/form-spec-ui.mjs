@@ -14,6 +14,10 @@
 //   part tables      a part's value-object fields are columns of its table.
 //   optional group   checking an optional value object's presence box and
 //                    filling it saves the object.
+//   rows             a value-object row renders each field's own input: the
+//                    seeded row keeps its enum, reference and flag through an
+//                    update, and an added row saves its defaults (first enum
+//                    value, unchecked flag, unset reference as null).
 //
 // Inputs are found by the shared test ids (`<slug>-op-<op>-input-<field>`);
 // where a pack puts the id on a wrapper, the probe reaches the input inside it.
@@ -54,7 +58,7 @@ export async function seedFormSpec(base) {
     tags: ["a", "b"],
     perils: ["Fire"],
     alternates: [],
-    riders: [{ code: "R1", premium: 2.5 }],
+    riders: [{ code: "R1", premium: 2.5, peril: "Flood", insurer: provider.id, waived: true }],
   });
   return { ...(await readPolicy(base, created.id)), lastProviderId: lastProvider.id };
 }
@@ -184,5 +188,39 @@ export async function judgePartTable(page, origin, id) {
   if (!text.includes("COV-1")) why.push("coverages: the part row never rendered");
   if (!/Limit Amount/i.test(text)) why.push("coverages: no Limit Amount column");
   if (!text.includes("777")) why.push(`coverages: the limit amount cell is missing (card text ${JSON.stringify(text.slice(0, 300))})`);
+  return why;
+}
+
+/** Add a rider row through the Update dialog, filling only its text inputs: the
+ *  row's enum starts on its first value, its bool unchecked and its optional
+ *  reference unset. */
+export async function driveAddRider(page, origin, id) {
+  await page.goto(`${origin}/policies/${id}`);
+  await page.locator('[data-testid="policies-op-update"]').first().click({ timeout: 20000 });
+  await page.getByRole("button", { name: /Add Rider/i }).first().click({ timeout: 15000 });
+  await (await inputOf(page, "policies-op-update-input-riders-1-code")).fill("R2");
+  await (await inputOf(page, "policies-op-update-input-riders-1-premium")).fill("4");
+  await page.locator('[data-testid="policies-op-update-submit"]').first().click();
+}
+
+/** Judge the record after the rider row was added: the seeded row kept its
+ *  enum, reference and flag, and the new one saved its row defaults. */
+export function judgeRiderAdded(before, after) {
+  const why = [];
+  const rows = after.riders ?? [];
+  if (rows.length !== 2) return [`riders: expected 2 rows, got ${JSON.stringify(rows)}`];
+  const [kept, added] = rows;
+  const seeded = before.riders[0];
+  if (kept.peril !== seeded.peril || kept.insurer !== seeded.insurer || kept.waived !== seeded.waived) {
+    why.push(`riders[0]: the row lost its values (${JSON.stringify(seeded)} → ${JSON.stringify(kept)})`);
+  }
+  if (added.code !== "R2" || Number(added.premium) !== 4) {
+    why.push(`riders[1]: the typed values did not save, got ${JSON.stringify(added)}`);
+  }
+  if (added.peril !== "Fire") why.push(`riders[1].peril: expected the first value, got ${JSON.stringify(added.peril)}`);
+  if (added.waived !== false) why.push(`riders[1].waived: expected false, got ${JSON.stringify(added.waived)}`);
+  if (added.insurer !== null && added.insurer !== undefined) {
+    why.push(`riders[1].insurer: an unset reference must submit null, got ${JSON.stringify(added.insurer)}`);
+  }
   return why;
 }

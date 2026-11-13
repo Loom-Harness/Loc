@@ -400,15 +400,16 @@ function withServerErrors(
  *  under its own label.  Bound to `row.<wireName>` (the `List.mapi` lambda binds
  *  `row` + the index `i`) and dispatching the INDEXED setter `<setMsg> (i, v)`.
  *  One line (offside-safe inside the row's Feliz children list). */
-function renderRowInput(fld: FelizRowField, text?: FelizInputText): string {
+function renderRowInput(fld: FelizRowField, testId: string, text?: FelizInputText): string {
   const value = `row.${fld.fsName}`;
+  const tid = `prop.custom("data-testid", ${testId}); `;
   const set = (v: string): string => `dispatch (${fld.setMsg} (i, ${v}))`;
   const labelText = text?.label ?? fsString(humanize(fld.wireName));
   const labelled = (input: string): string =>
     `Html.label [ prop.className "form-control"; prop.children [ Html.span [ prop.className "label-text"; prop.text ${labelText} ]; ${input} ] ]`;
   if (fld.inputKind === "checkbox") {
     return labelled(
-      `Html.input [ prop.className "checkbox"; prop.type'.checkbox; prop.isChecked (${value} = "true"); prop.onChange (fun (v: bool) -> ${set('if v then "true" else "false"')}) ]`,
+      `Html.input [ ${tid}prop.className "checkbox"; prop.type'.checkbox; prop.isChecked (${value} = "true"); prop.onChange (fun (v: bool) -> ${set('if v then "true" else "false"')}) ]`,
     );
   }
   if (fld.inputKind === "select") {
@@ -417,13 +418,13 @@ function renderRowInput(fld: FelizRowField, text?: FelizInputText): string {
     );
     const allOpts = fld.required ? opts : ['Html.option [ prop.value ""; prop.text "" ]', ...opts];
     return labelled(
-      `Html.select [ prop.className "select select-bordered"; prop.value ${value}; prop.onChange (fun (v: string) -> ${set("v")}); prop.children [ ${allOpts.join("; ")} ] ]`,
+      `Html.select [ ${tid}prop.className "select select-bordered"; prop.value ${value}; prop.onChange (fun (v: string) -> ${set("v")}); prop.children [ ${allOpts.join("; ")} ] ]`,
     );
   }
   if (fld.inputKind === "idselect" && fld.idTarget) {
     const listField = `model.${pickerFieldName(fld.idTarget)}`;
     return labelled(
-      `Html.select [ prop.className "select select-bordered"; prop.value ${value}; prop.onChange (fun (v: string) -> ${set("v")}); prop.children (Html.option [ prop.value ""; prop.text "" ] :: View.idOptions ${listField} (fun x -> x.id) (fun x -> x.${fld.idLabelField ?? "id"})) ]`,
+      `Html.select [ ${tid}prop.className "select select-bordered"; prop.value ${value}; prop.onChange (fun (v: string) -> ${set("v")}); prop.children (Html.option [ prop.value ""; prop.text "" ] :: View.idOptions ${listField} (fun x -> x.id) (fun x -> x.${fld.idLabelField ?? "id"})) ]`,
     );
   }
   const typeProp =
@@ -433,7 +434,7 @@ function renderRowInput(fld: FelizRowField, text?: FelizInputText): string {
         ? "prop.type'.date; "
         : "";
   return labelled(
-    `Html.input [ prop.className "input input-bordered"; ${typeProp}prop.value ${value}; prop.onChange (fun (v: string) -> ${set("v")}) ]`,
+    `Html.input [ ${tid}prop.className "input input-bordered"; ${typeProp}prop.value ${value}; prop.onChange (fun (v: string) -> ${set("v")}) ]`,
   );
 }
 
@@ -447,9 +448,14 @@ function renderFieldArray(
   fa: FelizFieldArray,
   ctx: WalkContext,
   src: FormTextSource,
+  base: string,
 ): string {
   const rowInputs = fa.rowFields.map((rf) =>
-    renderRowInput(rf, felizInputText(ctx, src, [fa.jsonKey], rf.jsonKey)),
+    renderRowInput(
+      rf,
+      `"${base}-input-${fa.jsonKey}-" + string i + "-${rf.jsonKey}"`,
+      felizInputText(ctx, src, [fa.jsonKey], rf.jsonKey),
+    ),
   );
   const remove = `Html.button [ prop.className "btn btn-sm btn-error"; prop.onClick (fun _ -> dispatch (${fa.removeMsg} i)); prop.text ${localizedPageChromeValue(ctx, sentenceChromeName("removeItem", fa.elementName))} ]`;
   const row = `Html.div [ prop.className "flex gap-2 items-end"; prop.children [ ${[...rowInputs, remove].join("; ")} ] ]`;
@@ -899,7 +905,9 @@ export const felizTarget: WalkerTarget = {
     const { inputs, formError } = withServerErrors(form.formField, form.fields, base, true, (f) =>
       fieldInputText(ctx, src, f),
     );
-    const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa, ctx, src));
+    const arrays = form.fieldArrays.map((fa) =>
+      renderFieldArray(form.formField, fa, ctx, src, base),
+    );
     const createLabel = src.bc ? opModelText(ctx, src.bc, agg.name, "create") : undefined;
     const disabled =
       form.fields.length > 0
@@ -969,7 +977,9 @@ export const felizTarget: WalkerTarget = {
       opHasForm(form),
       (f) => fieldInputText(ctx, src, f),
     );
-    const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa, ctx, src));
+    const arrays = form.fieldArrays.map((fa) =>
+      renderFieldArray(form.formField, fa, ctx, src, base),
+    );
     const opLabel = src.bc ? opModelText(ctx, src.bc, agg.name, op.name) : undefined;
     // The submit guard reads `Validation.<validFn>`, only emitted when the form
     // has flat fields; an array-only form has no required-field guard.
@@ -1027,7 +1037,9 @@ export const felizTarget: WalkerTarget = {
       wfHasForm(form),
       (f) => fieldInputText(ctx, src, f),
     );
-    const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa, ctx, src));
+    const arrays = form.fieldArrays.map((fa) =>
+      renderFieldArray(form.formField, fa, ctx, src, base),
+    );
     const runLabel = src.bc ? workflowRunExpr(ctx, src.bc, wfName) : undefined;
     const disabled =
       form.fields.length > 0
