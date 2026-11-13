@@ -26,6 +26,7 @@ import type {
   EntityPartIR,
   FieldAccess,
   PayloadIR,
+  SystemIR,
   TypeIR,
   WireField,
 } from "../types/loom-ir.js";
@@ -119,4 +120,20 @@ export function responseMaskPlan(
     if (plan) nested.push({ name: r.name, collection: r.type.kind === "array", plan });
   }
   return fields.length === 0 && nested.length === 0 ? undefined : { fields, nested };
+}
+
+/** The aggregate named `name` in `sys`, with the payloads of the context that
+ *  declares it — what a consumer holding only the system needs to read the
+ *  aggregate's response rows. */
+export function aggregateHome(
+  sys: SystemIR,
+  name: string,
+): { agg: AggregateIR; payloads: readonly PayloadIR[] } | undefined {
+  for (const sd of sys.subdomains) {
+    for (const ctx of sd.contexts) {
+      const agg = ctx.aggregates.find((a) => a.name === name);
+      if (agg) return { agg, payloads: ctx.payloads };
+    }
+  }
+  return undefined;
 }

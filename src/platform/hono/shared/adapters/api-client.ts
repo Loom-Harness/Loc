@@ -12,8 +12,8 @@
 //      drift from what the callee actually mounts, which is the failure the
 //      untyped path allowed (a hand-written "/orders/{id}" compiled clean and
 //      404'd at runtime).
-//   2. The response schema comes from `emitResponseSchema`, which walks
-//      `forApiRead(wireFieldsFor(agg))` — literally the field list the callee
+//   2. The response schema walks the callee's declared response record
+//      (`responseWireFor`) — literally the field list the callee
 //      serializes.  So the caller parses exactly what the callee sends, and a
 //      wire-shape change breaks the caller at build time.
 //
@@ -26,8 +26,7 @@ import { zodForResponse } from "../../../../generator/_frontend/zod-schemas.js";
 import { ref } from "../../../../generator/_imports/symbol.js";
 import { tsNamed } from "../../../../generator/_imports/ts.js";
 import { apiCallPrincipal } from "../../../../ir/enrich/hosting-facts.js";
-import { forApiRead, wireFieldsForAggregate } from "../../../../ir/enrich/wire-projection.js";
-import type { AggregateIR, SystemIR, TypeIR } from "../../../../ir/types/loom-ir.js";
+import type { AggregateIR, PayloadIR, SystemIR, TypeIR } from "../../../../ir/types/loom-ir.js";
 import {
   type ApiResourceBinding,
   servedContextsFor,
@@ -38,22 +37,13 @@ import {
   collectionSuccess,
   deriveContextOperations,
 } from "../../../../ir/util/api-surface.js";
+import { aggregateHome, responseWireFor } from "../../../../ir/util/response-wire.js";
 import { escapeTsIdent } from "../../../../util/naming.js";
 import { resourceEnvUrlVar } from "../../../../util/resource-env.js";
 
 /** The aggregate an operation answers with, looked up ACROSS the system — the
  *  callee's context belongs to another deployable, so it isn't in the caller's
  *  own `contexts`. */
-function aggregateNamed(sys: SystemIR, name: string): AggregateIR | undefined {
-  for (const sd of sys.subdomains) {
-    for (const ctx of sd.contexts) {
-      const agg = ctx.aggregates.find((a) => a.name === name);
-      if (agg) return agg;
-    }
-  }
-  return undefined;
-}
-
 /** TS parameter type for one operation parameter.  Ids and every scalar the
  *  path/query can carry are strings on the wire; a body param takes the
  *  callee's request shape, which we keep as the zod-inferred type. */
@@ -91,18 +81,18 @@ function pathExpr(op: ApiOperationIR): string {
 
 /** Zod schema for an aggregate's read wire shape.
  *
- *  Deliberately built from `forApiRead(wireFieldsForAggregate(agg))` — the same
- *  walk the CALLEE's own response emitter uses — rather than from
- *  `_frontend/emitResponseSchema`, whose parameter is branded
- *  `EnrichedAggregateIR`.  The brand is stricter than the real dependency
- *  (`wireFieldsForAggregate` takes a plain `AggregateIR` and recomputes from
- *  `agg.fields`), and the Hono emitter only receives `SystemIR`.  Casting to
- *  the brand to satisfy a requirement the code does not actually have is how
- *  the `as Storage` bug in `checkDataSource` happened; this stays honest
- *  instead, at the cost of a dozen lines. */
-function responseSchema(agg: AggregateIR, schemaName: string): string[] {
+ *  Built from `responseWireFor(payloads, agg)` — the rows the CALLEE's own
+ *  response emitter renders — rather than from `_frontend/emitResponseSchema`,
+ *  whose parameter is branded `EnrichedAggregateIR`: the Hono emitter only
+ *  receives `SystemIR`, and the rows need no more than a plain `AggregateIR`
+ *  and its context's payloads. */
+function responseSchema(
+  agg: AggregateIR,
+  payloads: readonly PayloadIR[],
+  schemaName: string,
+): string[] {
   const lines: string[] = [`export const ${schemaName} = z.object({`];
-  for (const wf of forApiRead(wireFieldsForAggregate(agg))) {
+  for (const wf of responseWireFor(payloads, agg)) {
     lines.push(
       wf.source === "id"
         ? `  ${wf.name}: z.string(),`
@@ -176,11 +166,12 @@ export function emitApiClientModule(
       const coll = collectionSuccess(op.responseType);
       const respAgg =
         op.responseType?.kind === "entity" ? op.responseType.name : (absentAgg ?? coll?.agg);
-      const agg = respAgg ? aggregateNamed(sys, respAgg) : undefined;
+      const home = respAgg ? aggregateHome(sys, respAgg) : undefined;
+      const agg = home?.agg;
       const schemaName = agg ? `${agg.name}Response` : undefined;
       if (agg && schemaName && !emittedSchemas.has(schemaName)) {
         emittedSchemas.add(schemaName);
-        out.push(...responseSchema(agg, schemaName));
+        out.push(...responseSchema(agg, home!.payloads, schemaName));
         out.push(``);
       }
       // The paged envelope is emitted once per aggregate, beside its row

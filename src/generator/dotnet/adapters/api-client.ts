@@ -9,7 +9,7 @@
 //
 // Both halves stay derived, so neither can drift from the callee:
 //   - paths from `deriveContextOperations` (what the callee actually mounts),
-//   - the response record from `forApiRead(wireFieldsForAggregate(...))` (the
+//   - the response record from the callee's declared response record (the
 //     field list the callee serializes).
 //
 // The boundary check is `JsonSerializer.Deserialize` + an explicit null guard,
@@ -27,8 +27,7 @@
 // ---------------------------------------------------------------------------
 
 import { apiCallPrincipal } from "../../../ir/enrich/hosting-facts.js";
-import { forApiRead, wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
-import type { AggregateIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import type { AggregateIR, PayloadIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import {
   type ApiResourceBinding,
   servedContextsFor,
@@ -39,6 +38,7 @@ import {
   collectionSuccess,
   deriveContextOperations,
 } from "../../../ir/util/api-surface.js";
+import { aggregateHome, responseWireFor } from "../../../ir/util/response-wire.js";
 import { escapeCsharpIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 import { resourceEnvUrlVar } from "../../../util/resource-env.js";
 // `API_CLIENT_CLASS` lives in `render-expr.ts`, not here: this module already
@@ -49,16 +49,6 @@ import { API_CLIENT_CLASS, renderCsType } from "../render-expr.js";
 /** The aggregate an operation answers with, looked up ACROSS the system — the
  *  callee's context belongs to another deployable, so it is not in the caller's
  *  own `contexts`. */
-function aggregateNamed(sys: SystemIR, name: string): AggregateIR | undefined {
-  for (const sd of sys.subdomains) {
-    for (const ctx of sd.contexts) {
-      const agg = ctx.aggregates.find((a) => a.name === name);
-      if (agg) return agg;
-    }
-  }
-  return undefined;
-}
-
 /** C# parameter type.  Ids and path/query scalars ride the wire as `string`; an
  *  entity-typed body is the callee's createInput projection, which the caller
  *  does not model — `object` rather than a false precision. */
@@ -105,8 +95,12 @@ function pathExpr(op: ApiOperationIR): string {
 
 /** A `record` mirroring the aggregate's read wire shape — the same walk the
  *  callee serializes from. */
-function responseRecord(agg: AggregateIR, recordName: string): string[] {
-  const fields = forApiRead(wireFieldsForAggregate(agg));
+function responseRecord(
+  agg: AggregateIR,
+  payloads: readonly PayloadIR[],
+  recordName: string,
+): string[] {
+  const fields = responseWireFor(payloads, agg);
   if (fields.length === 0) return [`    public sealed record ${recordName}();`];
   const members = fields.map((wf) => {
     const t = wf.source === "id" ? "string" : renderCsType(wf.type);
@@ -170,11 +164,12 @@ export function emitDotnetApiClients(
         const coll = collectionSuccess(op.responseType);
         const respAgg =
           op.responseType?.kind === "entity" ? op.responseType.name : (absentAgg ?? coll?.agg);
-        const agg = respAgg ? aggregateNamed(sys, respAgg) : undefined;
+        const home = respAgg ? aggregateHome(sys, respAgg) : undefined;
+        const agg = home?.agg;
         const recordName = agg ? `${agg.name}Response` : undefined;
         if (agg && recordName && !emittedRecords.has(recordName)) {
           emittedRecords.add(recordName);
-          records.push(...responseRecord(agg, recordName), "");
+          records.push(...responseRecord(agg, home!.payloads, recordName), "");
         }
         // The paged envelope mirrors the callee's `<Agg>Paged` field for field.
         // Members are non-nullable value types with defaults: the callee always
