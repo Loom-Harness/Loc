@@ -390,7 +390,7 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
     // exactly as a success arm does.  This leaf once collapsed the shape "one
     // non-error variant + error variant(s)" to `_ => <errorValue>` on the
     // theory that it was a repository union find's OPTIONAL TWIN (`Agg?`, see
-    // `unionFindAsOptionalTwin`), for which no carrier records are emitted.
+    // `domainFindShape`), for which no carrier records are emitted.
     // That test was an arity guess, and it misfired on every REAL union of one
     // success + one error: the discard declares nothing, so the arm's bound
     // name was left undefined (CS0103 — audit F59).

@@ -70,5 +70,25 @@ system PagedShop {
     let left = api.orders.all()
     expect(left.items.length).toBe(1)
     expect(left.total).toBe(1)
+
+    // A page sorted by a key equal on several rows breaks the tie by id
+    // ascending, whatever the key's direction, so each row lands on exactly
+    // one page.  Ids are created in ascending order, and updating the first
+    // row moves its tuple to the end of the heap, so an order by the key
+    // alone answers the rows in a different order.  The tied rows differ
+    // only in `id`, so the pages are compared by id.
+    let t1 = api.orders.create({ code: "T", region: "TIE" })
+    let t2 = api.orders.create({ code: "T", region: "TIE" })
+    let t3 = api.orders.create({ code: "T", region: "TIE" })
+    api.orders.update(t1, { code: "T", region: "TIE" })
+    let r1 = api.orders.getById(t1)
+    let r2 = api.orders.getById(t2)
+    let r3 = api.orders.getById(t3)
+    // The remaining "NA" row sorts first ascending, last descending.
+    expect(api.orders.all({ page: 2, pageSize: 1, sort: "region", dir: "asc" }).items.first().id).toBe(r1.id)
+    expect(api.orders.all({ page: 3, pageSize: 1, sort: "region", dir: "asc" }).items.first().id).toBe(r2.id)
+    expect(api.orders.all({ page: 4, pageSize: 1, sort: "region", dir: "asc" }).items.first().id).toBe(r3.id)
+    expect(api.orders.all({ page: 1, pageSize: 1, sort: "region", dir: "desc" }).items.first().id).toBe(r1.id)
+    expect(api.orders.all({ page: 3, pageSize: 1, sort: "region", dir: "desc" }).items.first().id).toBe(r3.id)
   }
 }

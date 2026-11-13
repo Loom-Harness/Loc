@@ -53,6 +53,20 @@ export function useAllCustomers(query: AllQueryInput = {}) {
   });
 }
 
+export function useCustomersOptions() {
+  return useQuery({
+    queryKey: ["customers", "options"],
+    queryFn: async () => {
+      const rows: CustomerResponse[] = [];
+      for (let page = 1; ; page++) {
+        const r = CustomerPaged.parse(await api.get(`/customers?page=${page}&pageSize=500`));
+        rows.push(...r.items);
+        if (page >= r.totalPages) return rows;
+      }
+    },
+  });
+}
+
 export function useCustomerById(id: string | undefined) {
   return useQuery({
     queryKey: ["customers", id],

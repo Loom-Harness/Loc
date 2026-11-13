@@ -2,6 +2,7 @@ import { readSortFor } from "../../../ir/enrich/read-scope.js";
 import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
+import { clientSortTieBreak, domainFindShape, singleReadOrder } from "../../../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
   FindIR,
@@ -164,6 +165,15 @@ function springSort(sort: readonly SortTermIR[]): string {
     (t) => `${SORT}.Order.${t.direction}(${JSON.stringify(dottedSortPath(t))})`,
   );
   return `${SORT}.by(${orders.join(", ")})`;
+}
+
+/** `.and(Sort.by(Sort.Order.asc("id")))` — the terms a page sorted by the
+ *  caller's `?sort=` key takes after that key (`clientSortTieBreak`). */
+function javaClientSortTieBreak(): string {
+  const orders = clientSortTieBreak().map(
+    (t) => `${SORT}.Order.${t.direction}(${JSON.stringify(jid(t.field))})`,
+  );
+  return `.and(${SORT}.by(${orders.join(", ")}))`;
 }
 
 /** ` order by e.a.b asc, …, e.id asc` for the JPQL path (`readSortFor`). */
@@ -361,20 +371,6 @@ export function inMemoryPagedSortLines(agg: EnrichedAggregateIR): string[] {
   ];
 }
 
-/** A union-returning find (`Order or NotFound` / `Order option`) reaches
- *  the repository/service as its OPTIONAL TWIN — a single nullable row;
- *  the controller owns the union translation (absent → 404 / problem,
- *  found → the tagged wire record).  Mirrors .NET's
- *  `unionFindAsOptionalTwin`; the Domain layer never names the
- *  Response-side union type. */
-export function unionFindAsOptionalTwin(find: FindIR, aggName: string): FindIR {
-  if (find.returnType.kind !== "union") return find;
-  const success = find.returnType.variants.find(
-    (v) => v.kind === "entity" && v.name === aggName,
-  ) ?? { kind: "entity" as const, name: aggName, declKind: "aggregate" as const };
-  return { ...find, returnType: { kind: "optional", inner: success } };
-}
-
 /** Names a declared-find delegate in the repository IMPL spells itself — the
  *  `jpa` / `em` / `currentUserAccessor` fields and the `result` / `__sort` /
  *  `__sortField` / `__session` locals.  A find param landing here is declared
@@ -434,7 +430,7 @@ export function renderJavaRepositoryInterface(
   idClass: string,
 ): string {
   const findLines = declaredFinds(repo).map(
-    (f) => `    ${findSignature(unionFindAsOptionalTwin(f, agg.name), ctx.basePkg)};`,
+    (f) => `    ${findSignature(domainFindShape(f, agg.name), ctx.basePkg)};`,
   );
   // Two overloads per retrieval, mirroring .NET's optional call-site
   // `page` tuple: the bare run plus `(…, Integer offset, Integer limit)`
@@ -509,7 +505,7 @@ export function renderJavaSpringDataRepository(
   ctx: JavaRepoCtx,
   idClass: string,
 ): string {
-  const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
+  const finds = declaredFinds(repo).map((f) => domainFindShape(f, agg.name));
   const retrievals = ctx.retrievals ?? [];
   const anyReified = retrievals.some((r) => ctx.isReified?.(r));
   const enumsPkg = `${ctx.basePkg}.domain.enums`;
@@ -552,9 +548,13 @@ export function renderJavaSpringDataRepository(
     // A first-match read may match many rows, which a single-entity @Query
     // answers with IncorrectResultSizeDataAccessException; it pages one row
     // in id order instead and the impl takes the head.
-    if (f.takeFirst) {
+    const firstMatch = singleReadOrder(f);
+    if (firstMatch) {
+      const order = firstMatch
+        .map((t) => (t.direction === "asc" ? `e.${t.field}` : `e.${t.field} desc`))
+        .join(", ");
       return [
-        `    @${QUERY}("select e from ${agg.name} e${where} order by e.id")`,
+        `    @${QUERY}("select e from ${agg.name} e${where} order by ${order}")`,
         `    java.util.List<${agg.name}> ${jid(f.name)}(${[...declaredParams, `${PAGEABLE} pageable`].join(", ")});`,
         ``,
       ];
@@ -675,7 +675,7 @@ export function renderJavaRepositoryImpl(
   ctx: JavaRepoCtx,
   idClass: string,
 ): string {
-  const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
+  const finds = declaredFinds(repo).map((f) => domainFindShape(f, agg.name));
   const retrievals = ctx.retrievals ?? [];
   // Same-package types (the default layouts) resolve without an import line.
   const persistencePkg = ctx.persistencePkg ?? ctx.infraPkg;
@@ -809,8 +809,8 @@ export function renderJavaRepositoryImpl(
           // An unwhitelisted `sort` (the route's `""` default) takes the read's
           // declared order (`defaultSortOrder`).
           declaredOrder
-            ? `        ${SORT} __sort = java.util.List.of(${sortWhitelist}).contains(sort) ? ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)}) : ${SORT}.by(${declaredOrder});`
-            : `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)});`,
+            ? `        ${SORT} __sort = java.util.List.of(${sortWhitelist}).contains(sort) ? ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)})${javaClientSortTieBreak()} : ${SORT}.by(${declaredOrder});`
+            : `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)})${javaClientSortTieBreak()};`,
           `        var result = jpa.${jid(f.name)}(${args});`,
           findExecutedLog(f, "result.getTotalElements()"),
           `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
@@ -825,7 +825,7 @@ export function renderJavaRepositoryImpl(
       `    @Override`,
       `    public ${sig} {`,
       ...wrapBypass(findBypass, [
-        f.takeFirst
+        singleReadOrder(f)
           ? `        var result = jpa.${f.name}(${[args, `${PAGE_REQUEST}.of(0, 1)`].filter(Boolean).join(", ")}).stream().findFirst().orElse(null);`
           : `        var result = jpa.${f.name}(${args});`,
         findExecutedLog(f, rowsExpr),
@@ -1011,7 +1011,7 @@ export function renderJavaRepositoryImpl(
           `    public ${pagedRef(ctx.basePkg)}<${agg.name}> findAllPaged(int page, int pageSize, String sort, String dir) {`,
           `        String __sortField = java.util.List.of(${pagedAllSortWhitelist}).contains(sort) ? sort : "id";`,
           ...sortPropertyLines(agg),
-          `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)});`,
+          `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)})${javaClientSortTieBreak()};`,
           `        var result = jpa.findAllPaged(${PAGE_REQUEST}.of(page - 1, pageSize, __sort));`,
           `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "all", "rows", result.getTotalElements());`,
           `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,

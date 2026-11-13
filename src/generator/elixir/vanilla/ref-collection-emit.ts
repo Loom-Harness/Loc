@@ -29,7 +29,7 @@ import type {
   ExprIR,
   FieldIR,
 } from "../../../ir/types/loom-ir.js";
-import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
+import { isRefCollectionType, refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { ectoIdType } from "../dispatch-emit.js";
 
@@ -37,11 +37,6 @@ import { ectoIdType } from "../dispatch-emit.js";
 export interface RefCollField {
   field: FieldIR;
   assoc: AssociationIR;
-}
-
-/** Is this field an `X id[]` reference collection (array-of-id)? */
-export function isRefCollField(f: { type: { kind: string; element?: { kind: string } } }): boolean {
-  return f.type.kind === "array" && f.type.element?.kind === "id";
 }
 
 /** The aggregate's reference-collection fields, each paired with the
@@ -52,7 +47,7 @@ export function refCollFields(agg: AggregateIR): RefCollField[] {
   const associations = (agg as EnrichedAggregateIR).associations ?? [];
   const out: RefCollField[] = [];
   for (const f of agg.fields) {
-    if (!isRefCollField(f)) continue;
+    if (!isRefCollectionType(f.type)) continue;
     const assoc = associations.find((a) => a.fieldName === f.name);
     if (assoc) out.push({ field: f, assoc });
   }
@@ -235,7 +230,7 @@ export function hasRefColls(agg: AggregateIR): boolean {
 export function containsRefCollField(filter: ExprIR | undefined, agg: AggregateIR): string | null {
   if (filter?.kind !== "method-call") return null;
   if (filter.member !== "contains") return null;
-  if (filter.receiverType.kind !== "array" || filter.receiverType.element.kind !== "id") {
+  if (!isRefCollectionType(filter.receiverType)) {
     return null;
   }
   const fieldName = refCollectionFieldName(filter.receiver);

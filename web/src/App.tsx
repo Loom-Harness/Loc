@@ -1629,8 +1629,9 @@ export default function App(): JSX.Element {
       // The playground's runtime is Hono + React only.  Spell out
       // why bundling can't proceed: either nothing recognisable was
       // emitted, or the system only declares deployables the
-      // browser can't run (.NET, Phoenix LiveView, or the non-React
-      // frontends — SvelteKit, Vue, Angular).
+      // browser can't run (.NET, Phoenix LiveView, Spring Boot, FastAPI,
+      // or the non-React frontends — SvelteKit, Vue, Angular, Feliz,
+      // Flutter).
       const message =
         entries.unsupported.length > 0
           ? `Nothing to bundle in the browser — this system only declares ${formatUnsupportedDeployables(entries.unsupported)}, which run outside the playground.  Generated files are visible in the Files pane.`

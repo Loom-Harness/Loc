@@ -48,6 +48,7 @@ import {
   combinePredicate,
   contextFilterPredicate,
   criterionFnName,
+  drizzleClientSortTieBreak,
   drizzleKindPredicate,
   drizzleOrderBy,
   type FilterBypass,
@@ -522,7 +523,7 @@ export function findQueryMethod(
         ? [
             // An unwhitelisted `sort` (the route's `""` default) takes the
             // read's declared order (`defaultSortOrder`).
-            `    const ${L.orderBy} = Object.hasOwn(${L.sortColumns}, sort) ? [dir === "desc" ? desc(${L.sortColumns}[sort]!) : asc(${L.sortColumns}[sort]!)] : [${declaredOrder}];`,
+            `    const ${L.orderBy} = Object.hasOwn(${L.sortColumns}, sort) ? [dir === "desc" ? desc(${L.sortColumns}[sort]!) : asc(${L.sortColumns}[sort]!), ${drizzleClientSortTieBreak(tableName)}] : [${declaredOrder}];`,
           ]
         : [
             `    const ${L.sortColumn} = Object.hasOwn(${L.sortColumns}, sort) ? ${L.sortColumns}[sort]! : schema.${tableName}.id;`,
@@ -531,7 +532,7 @@ export function findQueryMethod(
       `    const ${L.countRows} = await this.db.select({ value: count() }).from(schema.${tableName})${whereClause};`,
       `    const ${L.total} = Number(${L.countRows}[0]?.value ?? 0);`,
       `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
-      `    const ${L.rootRows} = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(${declaredOrder ? `...${L.orderBy}` : L.orderBy}).limit(pageSize).offset(${L.offset});`,
+      `    const ${L.rootRows} = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(${declaredOrder ? `...${L.orderBy}` : `${L.orderBy}, ${drizzleClientSortTieBreak(tableName)}`}).limit(pageSize).offset(${L.offset});`,
       `    if (${L.rootRows}.length === 0) {`,
       `      ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: 0`)}`,
       `      return ${pagedEnvelopeLiteral({ ...L, items: "[]" })};`,

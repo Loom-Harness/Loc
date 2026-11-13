@@ -24,6 +24,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import {
   effectiveSavingShape,
   resolveDataSourceConfig,
@@ -57,7 +58,6 @@ import { provColumn, provenancedFieldsOf } from "./provenance-emit.js";
 import { ectoReadScope, renderSchemaReadScope } from "./read-scope-emit.js";
 import {
   foreignRefCollFields,
-  isRefCollField,
   refCollFields,
   refCollRelationLine,
   renderRefRowSchema,
@@ -425,7 +425,7 @@ function renderSchema(
   // the plain `field` lines (the migration emits no such column, so a
   // `{:array, :binary_id}` field would query a phantom column → runtime 500).
   const declaredLines = schemaFields
-    .filter((f) => !isRefCollField(f))
+    .filter((f) => !isRefCollectionType(f.type))
     .map((f) => renderFieldLine(f, enumsByName, SYSTEM_FIELDS, ctx ? voColumnsOf(ctx) : undefined))
     .filter(Boolean);
   // `many_to_many :party, App.Ctx.Pokemon, join_through: "<schema>.trainer_party", …`

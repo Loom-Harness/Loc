@@ -88,7 +88,7 @@ export class CustomerRepository implements CustomerRepositoryPort {
     const countRows = await this.db.select({ value: count() }).from(schema.customers);
     const total = Number(countRows[0]?.value ?? 0);
     const totalPages = pageSize > 0 ? Math.ceil(total / pageSize) : 0;
-    const rootRows = await this.db.select().from(schema.customers).orderBy(orderBy).limit(pageSize).offset(offset);
+    const rootRows = await this.db.select().from(schema.customers).orderBy(orderBy, asc(schema.customers.id)).limit(pageSize).offset(offset);
     if (rootRows.length === 0) {
       requestLog().debug({ event: "find_executed", aggregate: "Customer", find: "all", rows: 0 });
       return { items: [], page, pageSize, total, totalPages };

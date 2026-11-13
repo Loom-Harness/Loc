@@ -65,7 +65,9 @@ describe("vanilla `paged` wire envelope (§1)", () => {
     expect(repo).not.toContain(":count, :id");
     expect(repo).toContain("offset = (page - 1) * page_size");
     expect(repo).toContain('dir_atom = if dir == "desc", do: :desc, else: :asc');
-    expect(repo).toContain("|> order_by([record], [{^dir_atom, field(record, ^sort_col)}])");
+    expect(repo).toContain(
+      "|> order_by([record], [{^dir_atom, field(record, ^sort_col)}, asc: record.id])",
+    );
 
     // the envelope map — canonical wire keys (atom keys serialise to camelCase JSON).
     expect(repo).toContain("items: items");

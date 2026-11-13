@@ -1,3 +1,4 @@
+import type { FormScalarKind } from "./form-spec.js";
 // ---------------------------------------------------------------------------
 // View-model types for the template-pack rendering layer.
 //
@@ -217,6 +218,17 @@ export interface NamedLayoutVM {
 export interface FormFieldVM {
   /** Logical template name. */
   template: string;
+  /** Set on an optional value object (`field-input-valueobject`): the group is
+   *  opt-in, and `zeroTs` is the object its presence box seeds
+   *  (`_frontend/form-optional-group.ts`). */
+  optionalGroup?: { zeroTs: string };
+  /** Set on a scalar / enum / reference collection: rendered by the active
+   *  framework's collection input (`_frontend/form-array-input.ts`), not a pack
+   *  template.  `enum` carries its values, `ref` its picker's option source. */
+  arrayInput?:
+    | { kind: "enum"; valuesJson: string }
+    | { kind: "ref"; optionsExpr: string; hasDisplay: boolean }
+    | { kind: "scalar"; element: FormScalarKind };
   /** RHF dotted path (e.g. "customerId", "price.amount"). */
   path: string;
   /** Humanised label, derived from the leaf path segment so nested

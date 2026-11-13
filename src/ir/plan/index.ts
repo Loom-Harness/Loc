@@ -34,6 +34,9 @@ export {
   foldRowUnseeded,
   foldSteps,
 } from "./projection-fold.js";
+export { domainFindShape } from "./repo-find-shape.js";
+export { routedPolymorphicRead } from "./repo-polymorphic.js";
+export { clientSortTieBreak, singleReadOrder } from "./repo-read.js";
 export { type RepoNeed, reposNeeded } from "./repos-needed.js";
 export {
   domainServiceReadPorts,

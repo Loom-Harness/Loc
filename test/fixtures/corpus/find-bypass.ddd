@@ -161,7 +161,20 @@ system FindBypass {
     expect(api.orders.all().items.length).toBe(0)
     expect(api.orders.restore(o)).toThrow(404)
 
-    let n = api.notes.create({ body: "N-1" })
+    // Several rows match a widened first-match read; it answers the first in
+    // id order, the same row the clause-less read answers.  Ids are created in
+    // ascending order, and updating the first row moves its tuple to the end
+    // of the heap, so an unordered read answers a different row.  The rows
+    // differ only in `id`, so the comparison is by id.
+    let d1 = api.orders.create({ code: "DUP", total: "1.00" })
+    let d2 = api.orders.create({ code: "DUP", total: "1.00" })
+    let d3 = api.orders.create({ code: "DUP", total: "1.00" })
+    api.orders.update(d1, { code: "DUP", total: "1.00" })
+    let first = api.orders.getOrderByScoped("DUP")
+    expect(api.orders.getOrderByAnyTenant("DUP").id).toBe(first.id)
+    expect(api.orders.getOrderByUnfiltered("DUP").id).toBe(first.id)
+
+    let n =api.notes.create({ body: "N-1" })
     expect(api.notes.getById(n).body).toBe("N-1")
     api.notes.update(n, { body: "N-2" })
     expect(api.orders.getNoteByAnyTenant("N-2").body).toBe("N-2")

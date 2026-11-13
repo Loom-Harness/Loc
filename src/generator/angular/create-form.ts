@@ -52,6 +52,7 @@ export interface AngularCreateFormSpec {
   /** True when the form has ≥1 `File` field — the page-shell emits the shared
    *  `onFileUpload` method once per component. */
   hasFile: boolean;
+  hasList: boolean;
 }
 
 /** Resolve the `CreateForm(of: <Agg>)` aggregate ref. */
@@ -154,6 +155,7 @@ export function renderAngularCreateForm(
     fieldArrays: parts.fieldArrays,
     fieldGroups: parts.fieldGroups,
     hasFile: parts.hasFileField,
+    hasList: parts.hasListField,
   };
   angularSink(ctx).forms.push(spec);
 

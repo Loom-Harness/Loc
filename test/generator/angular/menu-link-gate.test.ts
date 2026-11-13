@@ -10,7 +10,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SYS = (opts: { authUi: boolean; gate: string }) => `
 system Helpdesk {
-  user { id: string role: string }
+  user { id: string role: string permissions: string[] }
   auth {
     enforcement: opt
     provider: keycloak
@@ -62,13 +62,44 @@ describe("angular menu-link gate", () => {
       "get currentUser(): Record<string, any> { return this.session.user() ?? {}; }",
     );
     // Secret (gated) link is wrapped; Public (ungated) link is not.
-    expect(shell).toContain('@if (currentUser.role === "manager") { <a mat-list-item');
+    // The gate holds only once the session has loaded: the shell renders outside
+    // the auth gate, so before `/auth/me` resolves `currentUser` is `{}`.  Run
+    // the emitted condition in both states.
+    const cond = /@if \((session\.user\(\) != null && \(.*?\))\) \{ <a mat-list-item/.exec(
+      shell,
+    )?.[1];
+    expect(cond).toBeDefined();
+    const run = (user: Record<string, unknown> | null): unknown =>
+      new Function("session", "currentUser", `return ${cond};`)({ user: () => user }, user ?? {});
+    expect(run(null)).toBe(false);
+    expect(run({ role: "manager" })).toBe(true);
+    expect(run({ role: "clerk" })).toBe(false);
     expect(shell).toContain('routerLink="/secret"');
     expect(shell).toContain('routerLink="/public"');
     // Exactly one nav link is gated.  Counted on the GATE shape, not on bare
     // `@if`: the shell now always carries one more `@if` for the root
     // error-handler banner (M-T1.8), which has nothing to do with nav gating.
-    expect(shell.match(/@if \(currentUser/g)?.length ?? 0).toBe(1);
+    expect(shell.match(/@if \(session\.user\(\) != null/g)?.length ?? 0).toBe(1);
+  });
+
+  it("a permission-gated link stays hidden, without throwing, until the session loads", async () => {
+    const shell = find(
+      await generateSystemFiles(
+        SYS({
+          authUi: true,
+          gate: 'requires currentUser.permissions.contains("tickets.read")\n      ',
+        }),
+      ),
+      "src/app/app.component.ts",
+    );
+    const cond = /@if \((.*?)\) \{ <a mat-list-item/.exec(shell)?.[1];
+    expect(cond).toBeDefined();
+    const run = (user: Record<string, unknown> | null): unknown =>
+      new Function("session", "currentUser", `return ${cond};`)({ user: () => user }, user ?? {});
+    // Before `/auth/me` resolves the shell's `currentUser` is `{}`.
+    expect(run(null)).toBe(false);
+    expect(run({ permissions: ["tickets.read"] })).toBe(true);
+    expect(run({ permissions: [] })).toBe(false);
   });
 
   it("rejects a gated link without auth: ui (the silent drop is closed)", async () => {
