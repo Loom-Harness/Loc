@@ -54,14 +54,22 @@ const unxml = (s) =>
 const path = (bucket, key = "") =>
   `/${encodeURIComponent(bucket)}${key ? `/${key.split("/").map(encodeURIComponent).join("/")}` : ""}`;
 
+/** A `config { … }` value of a storage: the lowered IR carries a list of
+ *  `{ key, value: { kind, value } }`; a hand-built plan may pass a map. */
+function configValue(storage, key) {
+  const config = storage?.config;
+  if (Array.isArray(config)) return config.find((e) => e.key === key)?.value?.value;
+  return config?.[key];
+}
+
 /**
- * @param {{ storage?: { name: string, config?: { bucket?: string } },
+ * @param {{ storage?: { name: string, config?: unknown },
  *           resources?: Array<{ name: string, bucket?: string }> }} [opts]
  */
 export async function start(opts = {}) {
   const resources = (opts.resources ?? []).map((r) => ({
     name: r.name,
-    bucket: r.bucket ?? opts.storage?.config?.bucket,
+    bucket: r.bucket ?? configValue(opts.storage, "bucket"),
   }));
   for (const r of resources) {
     if (!r.bucket) throw new Error(`s3 sidecar: resource '${r.name}' names no bucket`);
@@ -105,6 +113,7 @@ export async function start(opts = {}) {
   await arm();
 
   return {
+    kind: "objects",
     env: await envFor(resources, endpoint),
     endpoint,
     async observe() {

@@ -32,9 +32,9 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 export const STORAGE_FAKES = {
   smtp: () => import("./mailpit-sidecar.mjs"),
   restApi: () => import("./http.mjs"),
-  s3: null,
-  rabbitmq: null,
-  redis: null,
+  s3: () => import("./s3-sidecar.mjs"),
+  rabbitmq: () => import("./broker-sidecar.mjs"),
+  redis: () => import("./broker-sidecar.mjs"),
 };
 
 /**

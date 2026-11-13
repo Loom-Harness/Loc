@@ -56,7 +56,11 @@ async function envNames() {
     import(join(REPO, "out", "util", "resource-env.js")),
     import(join(REPO, "out", "util", "channels.js")),
   ]);
-  return { resourceUrlVar: re.resourceEnvUrlVar, channelUrlVar: ch.channelSourceEnvVar };
+  return {
+    resourceUrlVar: re.resourceEnvUrlVar,
+    resourceSidecarUrl: re.resourceSidecarUrl,
+    channelUrlVar: ch.channelSourceEnvVar,
+  };
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -232,13 +236,15 @@ async function startRabbit(opts) {
       ? rehost(c.url, host, amqpPort)
       : `amqp://${ADMIN.user}:${ADMIN.pass}@${host}:${amqpPort}`;
   }
+  // A queue resource's URL is the one compose hands it (and the client bakes
+  // as its fallback), re-hosted onto the sidecar.
   for (const r of opts.resources ?? []) {
-    env[names.resourceUrlVar(r.name)] = r.url
-      ? rehost(r.url, host, amqpPort)
-      : `amqp://${ADMIN.user}:${ADMIN.pass}@${host}:${amqpPort}`;
+    const url = r.url ?? names.resourceSidecarUrl("rabbitmq", opts.storage.name);
+    env[names.resourceUrlVar(r.name)] = rehost(url, host, amqpPort);
   }
 
   return {
+    kind: "broker",
     env,
     url: `amqp://${ADMIN.user}:${ADMIN.pass}@${host}:${amqpPort}`,
     managementUrl: mgmt,
@@ -415,6 +421,7 @@ async function startRedis(opts) {
   }
 
   return {
+    kind: "broker",
     env,
     url: base,
     captured,

@@ -1,5 +1,8 @@
 // External resources (resources.md): objectStore (S3), queue, http api clients
-// alongside the state store, used from a workflow.
+// alongside the state store, used from a workflow.  The behavioural legs run
+// it against the kit's sidecars, so the golden's `effects` record what each
+// client did: the objects written, the messages enqueued, the api calls, the
+// mail sent.
 system RC {
   subdomain D {
     context Sales {
@@ -33,5 +36,9 @@ system RC {
     dataSources: [salesState, salesFiles, salesJobs, crm, mail]
     serves: A
     port: 4000
+  }
+  test e2e "the archive workflow reaches every resource kind" against d {
+    api.archive.run({ name: "n1" })
+    api.archive.run({ name: "n2" })
   }
 }

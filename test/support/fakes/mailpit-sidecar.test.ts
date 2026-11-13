@@ -19,7 +19,9 @@ describe("mailpit sidecar — pins", () => {
     const found = readdirSync(WORKFLOWS)
       .filter((f) => f.startsWith("behavioral-e2e") || f === "email-e2e.yml")
       .flatMap((f) =>
-        [...readFileSync(join(WORKFLOWS, f), "utf8").matchAll(/image:\s*(axllent\/mailpit\S*)/g)].map((m) => [f, m[1]]),
+        [
+          ...readFileSync(join(WORKFLOWS, f), "utf8").matchAll(/image:\s*(axllent\/mailpit\S*)/g),
+        ].map((m) => [f, m[1]]),
       );
     expect(found.length).toBeGreaterThanOrEqual(8);
     for (const [, image] of found) expect(image).toBe(MAILPIT_IMAGE);
