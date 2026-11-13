@@ -47,8 +47,9 @@ describe("node leg: one process per case, with bounded memory", () => {
   });
 
   it("the generated run() releases the dispatch and closes PGlite in a finally", () => {
+    // A channel-bound app stops (`appStop`) first, while PGlite is still open.
     expect(RUN).toMatch(
-      /\} finally \{\s*__releaseDispatch\(\);\s*await pglite\.close\?\.\(\);\s*\}/,
+      /\} finally \{(\$\{appStop\})?\s*__releaseDispatch\(\);\s*await pglite\.close\?\.\(\);\s*\}/,
     );
   });
 

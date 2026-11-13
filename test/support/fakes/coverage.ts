@@ -146,7 +146,7 @@ export const COVERAGE: readonly CoverageRow[] = [
     sourceType: "localDisk",
     kind: "objectStore",
     fake: "in-process-fake",
-    module: "localdisk.mjs",
+    module: "local-disk.mjs",
     witness: { fixture: "resources-localdisk", effects: "files" },
   },
   // ── outbound apis and mail ─────────────────────────────────────────────

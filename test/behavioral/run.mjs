@@ -254,8 +254,8 @@ export async function run() {
     for (const r of await runTests(harness.tests)) out.push({ tier: "unit", ...r });
     delete globalThis.__loomUnit;
   }
-  } finally {
-    __releaseDispatch();${appStop}
+  } finally {${appStop}
+    __releaseDispatch();
     await pglite.close?.();
   }
 

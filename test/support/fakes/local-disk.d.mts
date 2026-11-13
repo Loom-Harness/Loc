@@ -1,4 +1,4 @@
-// Types for the local-disk object-store fake (`localdisk.mjs`).
+// Types for the local-disk object-store fake (`local-disk.mjs`).
 
 /** One stored file as the behavioural golden records it. */
 export interface LocalDiskEffect {

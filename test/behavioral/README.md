@@ -593,7 +593,7 @@ server: `adobe/s3mock`, pinned by digest as `S3_IMAGE`. The kit starts it with
 - **Between cases.** `reset()` deletes every object and bucket, then re-creates
   the case's buckets.
 
-### Local-disk object store (`test/support/fakes/localdisk.mjs`)
+### Local-disk object store (`test/support/fakes/local-disk.mjs`)
 
 A `localDisk` storage needs no container. Each object-store resource gets an
 empty temporary directory, named by `<RES>_DIR` (`resourceHostEnvVar`).

@@ -6,7 +6,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { resourceHostEnvVar } from "../../../src/util/resource-env.js";
-import { start } from "./localdisk.mjs";
+import { start } from "./local-disk.mjs";
 
 describe("localDisk fake", () => {
   it("hands each resource its own directory and lists its objects, not their metadata", async () => {

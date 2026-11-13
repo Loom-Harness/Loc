@@ -188,7 +188,7 @@ rows read back over the S3 API. They land in the golden's `effects` under
 `channels-broker` (rabbitmq), `channels-broker-workflow`, `channels-broker-redis`
 and `channels-broker-kafka` corpus fixtures witness them on every leg. A
 `localDisk` object store needs no container: the kit hands each resource an
-empty temporary directory through `<RES>_DIR` (`test/support/fakes/localdisk.mjs`)
+empty temporary directory through `<RES>_DIR` (`test/support/fakes/local-disk.mjs`)
 and records its stored objects as `{ resource, key, size }` rows under
 `files`, leaving out the metadata file each backend keeps beside an object;
 `resources-localdisk` witnesses it. The node leg boots a channel-bound deployable through its
