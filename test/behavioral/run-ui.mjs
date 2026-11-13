@@ -43,9 +43,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { copyLocales, localesBeside } from "./case-source.mjs";
 import {
+  driveAddRider,
   driveAddVehicle,
   driveUpdate,
   judgeFormSpec,
+  judgeRiderAdded,
   judgeVehicleAdded,
   judgeNoEarlyErrors,
   judgePartTable,
@@ -298,6 +300,22 @@ async function formSpecProbe(origin, opensWorkflowResult) {
     // Feliz and Flutter workflow calls do not hand back the created id yet.
     if (why.length === 0 && opensWorkflowResult) {
       why.push(...(await judgeWorkflowOpensResult(page, origin)));
+    }
+    if (why.length === 0) {
+      const withVehicle = after;
+      const widgetWhy = await driveAddRider(page, origin, before.id).catch(async (e) => {
+        const ids = await page
+          .locator('[data-testid*="riders"]')
+          .evaluateAll((els) => els.map((el) => el.getAttribute("data-testid")))
+          .catch(() => []);
+        throw new Error(`${e.message.split("\n")[0]}; rider ids on the page: ${JSON.stringify(ids.slice(0, 12))}`);
+      });
+      for (let i = 0; i < 30; i++) {
+        after = await readPolicy(origin, before.id);
+        if ((after.riders ?? []).length > 1) break;
+        await page.waitForTimeout(500);
+      }
+      why.push(...widgetWhy, ...judgeRiderAdded(withVehicle, after));
     }
     if (why.length === 0) {
       await seedCoverage(origin, before.id);

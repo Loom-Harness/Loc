@@ -288,6 +288,11 @@ function objectArrayVM(f: FormFieldSpec, c: JsxArmCtx): FormFieldVM {
 function defaultRowValue(f: FormFieldVM): string {
   if (f.template === "field-input-money") return 'new Decimal("0")';
   if (f.template === "field-input-bool") return "false";
+  // An enum row starts on its first value, the option its select shows.
+  if (f.template === "field-input-enum-select" && f.enumValuesJson) {
+    const first = (JSON.parse(f.enumValuesJson) as string[])[0];
+    if (first !== undefined) return JSON.stringify(first);
+  }
   return f.valueAsNumber ? "0" : '""';
 }
 
@@ -317,9 +322,9 @@ function errorAccess(path: string): string {
  *  parents); `sub` is the row sub-field's bare name.  `index` is emitted
  *  verbatim: it is the row template's own loop variable, not a value this
  *  layer knows. */
-function rowErrorAccess(arrayPath: string, sub: string): string {
+export function rowErrorAccess(arrayPath: string, sub: string): string {
   const parts = arrayPath.split(".");
-  return `${FIELD_ERROR_TEXT}(errors.${parts.join("?.")}?.[index]?.${sub})`;
+  return `${FIELD_ERROR_TEXT}(errors.${parts.join("?.")}?.[index]?.${sub.split(".").join("?.")})`;
 }
 
 /** The render-time field-error localizer a form's `errorExpr` calls. */

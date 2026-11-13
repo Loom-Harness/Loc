@@ -859,7 +859,11 @@ part-table columns) is the `form-spec` probe of the behavioural UI legs
 The JSX-family binding syntax for the two inputs no design pack template covers
 — the optional value object's opt-in group and the collection inputs — lives in
 `_frontend/form-optional-group.ts` and `_frontend/form-array-input.ts`, one
-renderer per framework.
+renderer per framework.  A dynamic row (`riders: Rider[]`) renders each of its
+fields through the pack's own single-field template, so a row field gets the
+input its kind gets at the top level; `_frontend/form-row-binding.ts` re-binds
+the template's static path and test id to the row index per framework, and
+fails generation on a binding site it does not recognise.
 
 ### React frontend (`src/generator/react/`)
 

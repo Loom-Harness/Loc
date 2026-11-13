@@ -196,6 +196,16 @@ function recordSeedTs(f: FormFieldSpec, recordVar: string, ctx: BoundedContextIR
   if (f.kind === "datetime") {
     return f.optional ? `${read}?.slice(0, 16) ?? ""` : `${read}.slice(0, 16)`;
   }
+  // A collection or an object is copied: the record is the read cache's value,
+  // which the form must neither mutate nor be refused by (a reactive form's
+  // add-row pushes onto the array it was seeded with).
+  const rows = f.optional ? `(${read} ?? [])` : read;
+  if (f.kind === "objectArray") return `${rows}.map((__r) => ({ ...__r }))`;
+  if (f.kind === "scalarArray" || f.kind === "enumArray" || f.kind === "refArray") {
+    return `[...${rows}]`;
+  }
+  if (f.kind === "valueObject") return f.optional ? `{ ...(${read} ?? {}) }` : `{ ...${read} }`;
+  if (f.kind === "optionalValueObject") return `${read} ? { ...${read} } : null`;
   if (!f.optional) return read;
   if (textLike) return `${read} ?? ""`;
   return `${read} ?? ${initialValueTs(f.type, ctx, false)}`;

@@ -55,6 +55,7 @@ import {
   AUDIT_ENTRY_LIST_TYPE,
   collectUsedTypes,
   emitAuditEntrySchemas,
+  emitValueObjectSchema,
   provenancedZod,
   zodForRequest,
 } from "./zod-schemas.js";
@@ -721,15 +722,6 @@ export function emitOperationUnionResponse(
 function emitEnumSchema(e: EnumIR): string[] {
   const values = e.values.map((v) => `"${v}"`).join(", ");
   return [`export const ${e.name}Schema = z.enum([${values}]);`];
-}
-
-function emitValueObjectSchema(vo: ValueObjectIR): string[] {
-  return emitObjectWithRefines(
-    `${vo.name}Schema`,
-    vo.fields.map((f) => ({ name: f.name, base: zodForResponseInner(f.type) })),
-    vo.invariants,
-    new Set(vo.fields.map((f) => f.name)),
-  );
 }
 
 // ---------------------------------------------------------------------------

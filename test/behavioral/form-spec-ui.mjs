@@ -17,6 +17,10 @@
 //                    shows no error before a touch.
 //   optional group   checking an optional value object's presence box and
 //                    filling it saves the object.
+//   rows             a value-object row renders each field's own input: the
+//                    seeded row keeps its enum, reference and flag through an
+//                    update, and an added row saves its defaults (first enum
+//                    value, unchecked flag, unset reference as null).
 //
 // Inputs are found by the shared test ids (`<slug>-op-<op>-input-<field>`);
 // where a pack puts the id on a wrapper, the probe reaches the input inside it.
@@ -57,7 +61,7 @@ export async function seedFormSpec(base) {
     tags: ["a", "b"],
     perils: ["Fire"],
     alternates: [],
-    riders: [{ code: "R1", premium: 2.5 }],
+    riders: [{ code: "R1", premium: 2.5, peril: "Flood", insurer: provider.id, waived: true }],
   });
   return { ...(await readPolicy(base, created.id)), lastProviderId: lastProvider.id };
 }
@@ -119,8 +123,18 @@ function normalize(v) {
 
 /** The `<input>` a test id names — the element itself, or the first input
  *  inside a wrapper that carries the id. */
-async function inputOf(page, testId) {
-  const el = page.locator(`[data-testid="${testId}"]`).first();
+async function inputOf(page, testId, rowTestId, rowIndex) {
+  // Angular names a row input by a row-wide id; the row is its nth match.
+  let el = page.locator(`[data-testid="${testId}"]`).first();
+  if (rowTestId) {
+    await page
+      .locator(`[data-testid="${testId}"], [data-testid="${rowTestId}"]`)
+      .first()
+      .waitFor({ state: "attached", timeout: 15000 });
+  }
+  if (rowTestId && (await page.locator(`[data-testid="${rowTestId}"]`).count()) > 0) {
+    el = page.locator(`[data-testid="${rowTestId}"]`).nth(rowIndex);
+  }
   await el.waitFor({ state: "attached", timeout: 15000 });
   const tag = await el.evaluate((n) => n.tagName);
   return tag === "INPUT" || tag === "TEXTAREA" ? el : el.locator("input, textarea").first();
@@ -219,4 +233,66 @@ export async function judgeWorkflowOpensResult(page, origin) {
     await page.waitForTimeout(500);
   }
   return [`the workflow run did not open the provider it created (at ${new URL(page.url()).pathname})`];
+}
+
+/** Add a rider row through the Update dialog, filling only its text inputs: the
+ *  row's enum starts on its first value, its bool unchecked and its optional
+ *  reference unset. */
+export async function driveAddRider(page, origin, id) {
+  await page.goto(`${origin}/policies/${id}`);
+  await page.locator('[data-testid="policies-op-update"]').first().click({ timeout: 20000 });
+  await (await inputOf(page, "policies-op-update-input-riders-0-code", "policies-op-update-riders-row-input-code", 0)).waitFor();
+  const widgets = await judgeRowWidgets(page);
+  await page.getByRole("button", { name: /Add Rider/i }).first().click({ timeout: 15000 });
+  await (await inputOf(page, "policies-op-update-input-riders-1-code", "policies-op-update-riders-row-input-code", 1)).fill("R2");
+  await (await inputOf(page, "policies-op-update-input-riders-1-premium", "policies-op-update-riders-row-input-premium", 1)).fill("4");
+  await page.locator('[data-testid="policies-op-update-submit"]').first().click();
+  return widgets;
+}
+
+const CHOICE = 'select, [role="combobox"], [aria-haspopup="listbox"]';
+const TOGGLE = 'input[type="checkbox"], [role="switch"], [role="checkbox"]';
+
+/** A row's enum and reference fields are choice controls and its bool a
+ *  toggle — the inputs the same fields get at the top level, not text boxes. */
+async function judgeRowWidgets(page) {
+  const why = [];
+  const cells = [
+    ["peril", CHOICE],
+    ["insurer", CHOICE],
+    ["waived", TOGGLE],
+  ];
+  for (const [sub, want] of cells) {
+    const ok = await page
+      .locator(
+        `[data-testid="policies-op-update-input-riders-0-${sub}"], [data-testid="policies-op-update-riders-row-input-${sub}"]`,
+      )
+      .first()
+      .evaluate((el, sel) => el.matches(sel) || el.querySelector(sel) !== null, want)
+      .catch(() => false);
+    if (!ok) why.push(`riders row ${sub}: not rendered as its field's input (${want})`);
+  }
+  return why;
+}
+
+/** Judge the record after the rider row was added: the seeded row kept its
+ *  enum, reference and flag, and the new one saved its row defaults. */
+export function judgeRiderAdded(before, after) {
+  const why = [];
+  const rows = after.riders ?? [];
+  if (rows.length !== 2) return [`riders: expected 2 rows, got ${JSON.stringify(rows)}`];
+  const [kept, added] = rows;
+  const seeded = before.riders[0];
+  if (kept.peril !== seeded.peril || kept.insurer !== seeded.insurer || kept.waived !== seeded.waived) {
+    why.push(`riders[0]: the row lost its values (${JSON.stringify(seeded)} → ${JSON.stringify(kept)})`);
+  }
+  if (added.code !== "R2" || Number(added.premium) !== 4) {
+    why.push(`riders[1]: the typed values did not save, got ${JSON.stringify(added)}`);
+  }
+  if (added.peril !== "Fire") why.push(`riders[1].peril: expected the first value, got ${JSON.stringify(added.peril)}`);
+  if (added.waived !== false) why.push(`riders[1].waived: expected false, got ${JSON.stringify(added.waived)}`);
+  if (added.insurer !== null && added.insurer !== undefined) {
+    why.push(`riders[1].insurer: an unset reference must submit null, got ${JSON.stringify(added.insurer)}`);
+  }
+  return why;
 }
