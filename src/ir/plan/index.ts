@@ -22,6 +22,21 @@
 //
 // `test/platform/pipeline-layering.test.ts` enforces the import rules.
 
+export {
+  type BrokerBinding,
+  type BrokerTransport,
+  brokerChannelBindings,
+  channelTransportStorageNames,
+  kafkaStartsAtEarliest,
+} from "./channel-bindings.js";
+export {
+  type ChannelPlan,
+  type ChannelPlanSystem,
+  channelPlan,
+  deliversLocally,
+  type EventRoute,
+  eventRoute,
+} from "./channel-plan.js";
 export { hasDurableEvents } from "./context-events.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
 export { lookupOp } from "./operation-lookup.js";
