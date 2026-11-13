@@ -1,5 +1,11 @@
 {
   "title": "saga consumer of a durable channel declared by another context — the migration must create the `last_event_id` marker the ORM maps",
   "doc": "workflow",
-  "backends": "ALL"
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "The transactional workflow that emits the durable event; same not-lifted workflow-route class.",
+    "unattributed": [
+      "api.relog.run (no such aggregate)"
+    ]
+  }
 }
