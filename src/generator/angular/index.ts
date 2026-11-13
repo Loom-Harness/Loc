@@ -51,6 +51,7 @@ import {
   deriveSidebarFromUi,
   isDefaultNavPage,
   type NavSectionVM,
+  navPageNameFallbacksFor,
 } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { ANGULAR_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
@@ -307,6 +308,7 @@ export function generateAngularForContexts(
       sentences: HAND_BUILT_FORM_SENTENCES.rows,
       implicitModelText: angularTarget.modelTextImplicitSites === true,
       sessionView: authUi,
+      menuPageNames: navPageNameFallbacksFor(ui, contexts),
     };
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
     // produced (scoped to this ui's keys, `TODO:` values already dropped by
@@ -572,7 +574,7 @@ export function generateAngularForContexts(
   const defaultSections: NavSectionVM[] =
     ui && pages.length > 0 ? [defaultAngularNavSection(sys, pages, pageCtx, authUi)] : [];
   const sidebarOverride = ui
-    ? deriveSidebarFromUi(ui, pageCtx, authUi, defaultSections)
+    ? deriveSidebarFromUi(ui, pageCtx, authUi, defaultSections, { nameLabelKeys: true })
     : undefined;
   const navSections = sidebarOverride
     ? sidebarOverride.map((s) => ({

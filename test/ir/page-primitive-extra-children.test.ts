@@ -127,6 +127,20 @@ describe("loom.page-primitive-extra-children — the gate", () => {
     expect(hit?.message).toMatch(new RegExp(name));
   });
 
+  // The gate is an IR-level check, so it holds for a `platform: elixir` (HEEx)
+  // deployable exactly as for the JSX frontends: a `Text` whose positionals are
+  // not all inline text is refused, never silently rendered by one target.
+  it("refuses `Text { name, Bold { name } }` (no string literal, not a rich sentence) on a HEEx host", async () => {
+    const src = wrap(
+      `page P { route: "/"  state { name: string = "x"  secret: string = "" }
+         body: Text { name, Bold { name }, Italic { secret } } }`,
+    ).replace("platform: node", "platform: elixir");
+    const { model, errors } = await parseString(src);
+    if (errors.length) throw new Error(errors.join("\n"));
+    const d = validateLoomModel(enrichLoomModel(lowerModel(model)));
+    expect(d.some((x) => x.code === CODE && /Text/.test(x.message))).toBe(true);
+  });
+
   it("reports ONE diagnostic per primitive, however often the page repeats it", async () => {
     const hits = (
       await diagnostics(`

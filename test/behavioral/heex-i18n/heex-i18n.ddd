@@ -1,0 +1,71 @@
+// The Phoenix translated-locale behavioural fixture (`run-heex-ui.mjs i18n`).
+//
+// The LiveView twin of `../i18n-ui/i18n-ui.ddd`: one page per locale claim the
+// Phoenix runtime makes, shipped with a `fr` translator tree (`locales/fr/`) so
+// the leg can read the TRANSLATED text off the rendered DOM:
+//   - the nav      a titled page (`title:`), and a menu section;
+//   - /invoices/:id  a `money` ICU hole `{amount, number, ::currency/EUR}`, a
+//                  `DateDisplay`, a `ProvenanceInfo` disclosure and an
+//                  `Action { x.op }` label.
+// No auth: the page `requires` Forbidden view is a SPA-only claim (a refused
+// LiveView gate navigates home), so it has no Phoenix probe.
+system Ledgerfront {
+  subdomain Billing {
+    context Invoicing {
+      aggregate Invoice with crudish {
+        label: string
+        amount: money
+        issuedOn: date
+        total: int provenanced
+        operation reprice() {
+          total := 42
+        }
+      }
+      repository Invoices for Invoice { }
+    }
+  }
+
+  api BillingApi from Billing
+
+  storage primary { type: postgres }
+  resource invoiceState { for: Invoicing, kind: state, use: primary }
+
+  ui WebApp {
+    api B: BillingApi
+    page Price {
+      route: "/price"
+      title: "Pricing"
+      body: Heading { "Pricing page" }
+    }
+    page Plain { route: "/plain" body: Heading { "Plain Page" } }
+    page Invoice(id: Invoice id) {
+      route: "/invoices/:id"
+      body: QueryView {
+        of: B.Invoice.byId(id),
+        single: true,
+        data: i => Stack {
+          Text { i.label },
+          Text { `Total {i.amount, number, ::currency/EUR}` },
+          DateDisplay { i.issuedOn },
+          ProvenanceInfo(of: i, field: "total"),
+          Action { i.reprice }
+        }
+      }
+    }
+    menu {
+      section "Main" {
+        link Price,
+        link Plain
+      }
+    }
+  }
+
+  deployable phoenixApp {
+    platform: elixir
+    contexts: [Invoicing]
+    dataSources: [invoiceState]
+    serves: BillingApi
+    ui: WebApp { B: phoenixApp }
+    port: 4000
+  }
+}

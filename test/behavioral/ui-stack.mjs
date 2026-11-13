@@ -305,21 +305,4 @@ export async function buildServerModule(deplDir, workDir, { devStub = false } = 
   return import(pathToFileURL(bundle).href);
 }
 
-/** Recursively flatten a Playwright JSON report to {name,status,error} outcomes. */
-export function outcomesFromPlaywrightJson(json) {
-  const out = [];
-  const visit = (suites) => {
-    for (const s of suites ?? []) {
-      for (const spec of s.specs ?? []) {
-        const err = spec.tests
-          ?.flatMap((t) => t.results ?? [])
-          .map((r) => r.error?.message)
-          .find(Boolean);
-        out.push({ name: spec.title, status: spec.ok ? "pass" : "fail", error: err });
-      }
-      visit(s.suites);
-    }
-  };
-  visit(json.suites);
-  return out;
-}
+export { judgePlaywrightReport, outcomesFromPlaywrightJson } from "./playwright-outcome.mjs";

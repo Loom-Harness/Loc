@@ -38,11 +38,7 @@ const NOT_USER_VISIBLE =
   /(?:throw new Error|message:|summary:|Exception\(|diagMessage|console\.|giveUp|`Action\(|`Form\()/;
 
 /** file → the frames not yet in the catalog, by a distinctive substring. */
-const KNOWN_UNCATALOGUED: Readonly<Record<string, readonly string[]>> = {
-  "elixir/liveview-emit.ts": ["${b.opHuman} succeeded"],
-  "elixir/heex-modal.ts": ["is not available in the current state"],
-  "elixir/heex-handlers.ts": ["${upperFirst(aggName)} not found"],
-};
+const KNOWN_UNCATALOGUED: Readonly<Record<string, readonly string[]>> = {};
 
 /** The emitters that write UI text (the backends emit error text through the
  *  problem-detail catalog, and the pack / persistence layers emit no page text). */

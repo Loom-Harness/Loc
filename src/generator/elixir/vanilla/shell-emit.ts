@@ -36,7 +36,7 @@ import type { ApiRoute } from "../api-emit.js";
 import {
   GETTEXT_DEP,
   GETTEXT_DOMAIN,
-  heexIcuEnabled,
+  heexCldrEnabled,
   ICU_DEPS,
   renderCldrBackend,
   renderGettextBackend,
@@ -154,10 +154,10 @@ export function emitVanillaShellFiles(
   const hasLiveView = liveRoutes.length > 0 || hasSidebar;
   // Either source of translatable strings turns the runtime on.
   const i18nEnabled = i18nUi !== undefined;
-  // The SECOND-tier i18n gate (D-I18N-HEEX-ICU): an ICU engine ships only for a
-  // ui that actually INTERPOLATES, so a translatable-but-literal-only app pays
-  // for no ICU dep.
-  const icuEnabled = i18nUi !== undefined && heexIcuEnabled(i18nUi);
+  // The SECOND-tier i18n gate (D-I18N-HEEX-ICU, D-HEEX-I18N-FORMAT): the CLDR
+  // runtime ships only for a ui that INTERPOLATES or renders a locale-formatted
+  // date or amount, so a translatable-but-literal-only app pays for no CLDR dep.
+  const icuEnabled = i18nUi !== undefined && heexCldrEnabled(i18nUi);
   // The locale model: the source plus every translated catalog.  The
   // negotiation wiring (plug, `on_mount`, `<html lang dir>`, the shell
   // switcher) ships when there is a second locale to negotiate to, or when a
@@ -487,9 +487,11 @@ function renderVanillaMixExs(
    *  adds the `gettext` dep the generated backend + `priv/gettext/**` need.
    *  False ⇒ no `gettext` dep. */
   i18nEnabled = false,
-  /** True when that ui INTERPOLATES (D-I18N-HEEX-ICU) — adds the ICU engine the
-   *  generated `loom_icu/2` formats through.  Strictly narrower than
-   *  `i18nEnabled`: a literal-only app never pays the CLDR compile. */
+  /** True when that ui INTERPOLATES or renders a locale-formatted date or amount
+   *  (D-I18N-HEEX-ICU, D-HEEX-I18N-FORMAT) — adds the CLDR packages the
+   *  generated `loom_icu/2` and `loom_date/1` format through.
+   *  Strictly narrower than `i18nEnabled`: a literal-only app never pays the
+   *  CLDR compile. */
   icuEnabled = false,
 ): string {
   // LiveView dep — only when the deployable mounts a HEEx `ui:`.
@@ -624,8 +626,9 @@ function renderVanillaWebModule(
    *  `html_helpers` so `pgettext/2` resolves unqualified inside every `~H`
    *  template.  False ⇒ no import. */
   i18nEnabled = false,
-  /** True when the ui interpolates — `import`s the generated ICU helper so
-   *  `loom_icu/2` resolves inside every `~H` template (D-I18N-HEEX-ICU). */
+  /** True when the ui needs the CLDR runtime — `import`s the generated helper so
+   *  `loom_icu/2` and `loom_date/1` resolve inside every `~H`
+   *  template (D-I18N-HEEX-ICU, D-HEEX-I18N-FORMAT). */
   icuEnabled = false,
 ): string {
   const webModule = `${appModule}Web`;
