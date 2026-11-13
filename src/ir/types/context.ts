@@ -568,6 +568,10 @@ export interface SeedIR {
    *  `LOOM_SEED` / the test harness.  Defaults to `"default"` when the
    *  source omits it. */
   dataset: string;
+  /** The context that declares the block.  A deployable hosting several
+   *  contexts seeds from their merged context, where each block still needs
+   *  its own owner: the ship-once marker is keyed `<context>/<dataset>`. */
+  context: string;
   /** Through the domain `create` (default) or straight to tables (`raw`). */
   path: "domain" | "raw";
   /** Ordered records, in source order.  (Topological reorder by `@handle`

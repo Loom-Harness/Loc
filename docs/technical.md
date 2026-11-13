@@ -252,12 +252,19 @@ user can hand-write — and vice versa.
 ## Phase ④ — AST validation
 
 **Files**
-- `src/language/ddd-validator.ts` — thin dispatcher (~360 LOC) that
-  wires Langium's `ValidationRegistry` to the themed check modules.
+- `src/language/ddd-validator.ts` — thin dispatcher that wires
+  Langium's `ValidationRegistry` to the themed check modules; it owns
+  no check logic.
 - `src/language/validators/` — the per-theme checks themselves
   (`deployable.ts`, `auth.ts`, `criterion.ts`, `composition.ts`, …),
-  barrelled through `validators/index.ts`.  The previous ~2.5k-LOC
-  monolith was split here; `ddd-validator.ts` owns no check logic.
+  barrelled through `validators/index.ts`.
+- `src/language/validators/model-contents.ts` — one flattened walk per
+  document per validation run.  A check that visits every node of a
+  document iterates `modelContents(model)`, never
+  `AstUtils.streamAllContents(model)`: the dispatcher runs ~70
+  model-level checks in sequence, and each one re-walking the tree
+  dominated validation time.  `test/language/validators/model-contents.test.ts`
+  fails on a direct whole-document walk.
 - `src/language/typing/` — the single typing pass: `Ty` (the one type
   representation), the elaborator that types every expression, and the type
   relations validators judge with (`relations.ts`: `isAssignable`,
@@ -461,7 +468,7 @@ generators) classify against.
 
 ## Loom IR shape
 
-Defined in `src/ir/types/loom-ir.ts`.  The whole IR is a tree of immutable
+Defined under `src/ir/types/` — one module per declaration area (`aggregate.ts`, `context.ts`, `expr.ts`, `stmt.ts`, `ui.ts`, `workflow.ts`, …), re-exported by the `loom-ir.ts` barrel, which is the import path.  The whole IR is a tree of immutable
 records; no graphs, no cycles.
 
 **Top-level**:
@@ -526,8 +533,9 @@ mutator without re-walking the env.
 itself: every `ref` names a declaration of its `refKind` the body can see,
 every `assign` / `add` / `remove` path is rooted at a stored member, every
 `member` read on an aggregate / part / value-object receiver names a member
-of that type, every `call` names a target of its `callKind`, and no
-statement block binds one `let` twice.  It covers the domain-logic bodies —
+of that type, every `call` names a target of its `callKind`, no
+statement block binds one `let` twice, and no workflow / handler statement
+reached the IR as lowering's `__bad__` placeholder.  It covers the domain-logic bodies —
 aggregates, parts, value objects, domain services, workflows, command /
 query handlers, repository finds and criteria — and walks them through
 `src/ir/util/walk.ts`.
@@ -776,7 +784,7 @@ module exporting `render<Thing>(args)` functions.  No runtime
 parsing, no SafeString escaping, no helper registration — the type
 checker validates every data flow from the IR to the rendered string.
 
-### Hono backend (`src/platform/hono/v5/` + shared `v4/` + `src/generator/typescript/`)
+### Hono backend (`src/platform/hono/v5/` + `src/platform/hono/shared/` + `src/generator/typescript/`)
 
 The Hono backend is split between *versioned* packages under
 `src/platform/hono/` (each owns its package shell + dep pin set) and a
@@ -788,7 +796,7 @@ version ships today: `v5/` (zod 4 / TS 6), which bareword
 pinning it is a `loom.platform-version-unknown` error naming `node@v5`.
 
 `v5/` is deliberately tiny — `index.ts` + `pins.ts` only.  It feeds its
-pin set through `makeHonoPlatform(...)` imported from `v4/index.ts` and
+pin set through `makeHonoPlatform(...)` imported from `shared/index.ts` and
 reuses the whole shell + emitter table below.  `platform/hono/shared/`
 registers no version of its own: it holds the shared Hono shell and
 emitters that the registered package calls.
@@ -843,6 +851,32 @@ emitters that the registered package calls.
 | `emit.ts` | Top-level barrel that `index.ts` invokes per context. |
 | `render-expr.ts` / `render-stmt.ts` | IR → idiomatic C#, with a `thisName` context (e.g., `x` for find filters' `.Where(x => …)`). |
 
+### Scaffolded forms — the shared form model (`src/generator/_frontend/form-spec.ts`)
+
+Every frontend renders create / update / operation / workflow forms from one
+framework-neutral `FormSpec`.  For each field it decides:
+
+| Fact | Rule |
+| --- | --- |
+| **kind** | One of 17 (`string`, `int`, `decimal`, `money`, `bool`, `date`, `datetime`, `file`, `enum`, `ref`, `optionalRef`, `valueObject`, `optionalValueObject`, `scalarArray`, `enumArray`, `refArray`, `objectArray`). |
+| **absence** | An optional field left empty submits `null` (a cleared text-like input is `""` → `null`; an un-added optional value object is `null`); a collection with no items submits `[]`. |
+| **prefill** | An operation param named and typed like an aggregate field seeds from the loaded record (so a scaffold `update` opens on the current values); otherwise the declared `= <expr>` default when the client can evaluate it; otherwise the kind's zero. |
+| **picker** | A reference reads every row of its target (`use<Plural>Options()` on the JS frontends, the equivalent page walk on Angular / Feliz / Flutter). |
+
+Each target renders a field through a `FormFieldArms` table — one arm per kind
+— so a new kind fails to type-check until every target has an arm.
+`test/generator/_frontend/form-spec-census.test.ts` pins every table to the full
+kind set and generates `test/behavioral/form-spec-ui.ddd` (one field of every
+kind) on all six frontends, failing on a placeholder stub.  The booted form
+behaviour (prefill, absence, collections, pickers, the opt-in optional group,
+part-table columns) is the `form-spec` probe of the behavioural UI legs
+(`test/behavioral/form-spec-ui.mjs`).
+
+The JSX-family binding syntax for the two inputs no design pack template covers
+— the optional value object's opt-in group and the collection inputs — lives in
+`_frontend/form-optional-group.ts` and `_frontend/form-array-input.ts`, one
+renderer per framework.
+
 ### React frontend (`src/generator/react/`)
 
 | File | Owns |
@@ -850,7 +884,7 @@ emitters that the registered package calls.
 | `index.ts` | Project shell (Vite, package.json, tsconfig, index.html, Dockerfile, certs/ dir, App.tsx with router, main.tsx with providers, e2e/ suite shell). |
 | `api-builder.ts` | Per-aggregate API module: Zod schemas (request + response, walked via `wireFieldsForAggregate`) + React Query hooks (one per route, plus one `use<Op><Agg>` mutation hook per public operation). |
 | `body-walker.ts` | The **single** page-codegen path.  Walks a page's `body:` `ExprIR` and emits TSX by dispatching every walker-stdlib primitive (`Stack`/`Table`/`QueryView`/`CreateForm`/`Modal`/`KeyValueRow`/…) through the active design pack's `primitive-*` templates.  No archetype renderers — `page <Name> { body: … }` and scaffolded pages share this one walker. |
-| `form-helpers.ts` | Per-type form-input dispatch (`prepareFormFieldVM`/`renderFormField`): text/number/switch/select/fieldset/datetime, RHF `register` vs `Controller`, initial-value generation, `X id` → `useAll<Target>()` picker injection.  Shared by `CreateForm { of: }`, `WorkflowForm { runs: }`, and operation-modal forms. |
+| `form-helpers.ts` | Form seeding and `Controller` need over the shared form model: `formSeedTs` (a form's `defaultValues` from its `FormSpec` — record prefill, declared default, or the kind's zero), `needsController`, the `X id` picker targets. |
 | `pages-emitter.ts` | Page shell: wraps the walker's body TSX with `useForm`/mutation-hook/`useParams`/import declarations the body recorded on the walk context. |
 | `page-objects-builder.ts` / `walker-page-objects.ts` | Per-aggregate Playwright page-object class — keyed off the `data-testid` strings every primitive threads through (`testid:` named arg). |
 | `layouts-emitter.ts` | Per-layout shell (`<Outlet/>` wrappers, header/footer, sidebar slots). |
@@ -1234,7 +1268,7 @@ Rough recipe:
 2. **AST scope / validation** — if the new node introduces names
    or has type constraints, update `ddd-scope.ts` / the relevant
    themed module under `src/language/validators/` / `type-system.ts`.
-3. **IR** — add the IR node in `loom-ir.ts`; lower it in the
+3. **IR** — add the IR node in its area module under `src/ir/types/` (re-exported by `loom-ir.ts`); lower it in the
    relevant `lower/` module — the matching per-kind sibling
    (`lower-members.ts`, `lower-workflow.ts`, …) wired into the
    `lower.ts` orchestrator, or `lower-expr.ts` (expression /
@@ -1276,7 +1310,12 @@ The shape:
    `composeService(...)`, `needsDb`, `defaultPort`.  Internally,
    that adapter usually wraps a `generate<Backend>ForContexts(contexts, ...) → Map<path, content>`
    in `generator/<backend>/index.ts`.
-2. Register the new platform in `src/platform/registry.ts`.
+2. Register the new platform in `src/platform/registry.ts` and give it a
+   `TARGET_FACTS` row in `src/platform/target-facts.ts` — lowering, the
+   validators and system composition read what a target is from that row,
+   never by comparing its name (`biome-plugins/no-target-name-literal.grit`
+   refuses a platform-name literal in `src/ir/`, `src/language/`,
+   `src/system/`; see [`platforms.md`](platforms.md)).
 3. For domain-logic-running backends, implement an `ExprTarget` leaf
    table (the shared `renderExprWith` in `_expr/target.ts` owns the
    dispatch + recursion) wrapped by a thin `renderXxxExpr(e: ExprIR):
@@ -1296,7 +1335,7 @@ The shape:
    (there is no stored `wireShape` field on these nodes) — never
    assemble the field list per backend.
 6. If the platform needs a new value in `Platform`, also extend
-   `language/ddd.langium`'s `Platform` rule, `ir/loom-ir.ts`'s
+   `language/ddd.langium`'s `Platform` rule, `ir/types/deployment.ts`'s
    `Platform` type, and `checkDeployable` in
    `language/validators/deployable.ts` — see the `'react'` addition
    for the pattern.

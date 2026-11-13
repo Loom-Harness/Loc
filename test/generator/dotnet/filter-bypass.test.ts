@@ -62,14 +62,14 @@ describe("dotnet ignoring filter-bypass emission", () => {
   it('find(C) `ignoring <Cap>` → IgnoreQueryFilters(["<Name>"]) before Where', async () => {
     const repo = get(await files(), "Infrastructure/Repositories/OrderRepository.cs");
     expect(repo).toContain(
-      '_db.Orders.IgnoreQueryFilters(["IsDeletedFilter"]).Where(new BigOrdersCriterion().ToExpression()).FirstOrDefaultAsync',
+      '_db.Orders.IgnoreQueryFilters(["IsDeletedFilter"]).Where(new BigOrdersCriterion().ToExpression()).OrderBy(x => x.Id).FirstOrDefaultAsync',
     );
   });
 
   it("find(C) `ignoring *` → parameterless IgnoreQueryFilters()", async () => {
     const repo = get(await files(), "Infrastructure/Repositories/OrderRepository.cs");
     expect(repo).toContain(
-      "_db.Orders.IgnoreQueryFilters().Where(new BigOrdersCriterion().ToExpression()).FirstOrDefaultAsync",
+      "_db.Orders.IgnoreQueryFilters().Where(new BigOrdersCriterion().ToExpression()).OrderBy(x => x.Id).FirstOrDefaultAsync",
     );
   });
 

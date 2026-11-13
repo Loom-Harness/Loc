@@ -1,0 +1,3 @@
+{
+  "Booking.rule.noDuplicateHold": "A hold for {reason} is already placed"
+}

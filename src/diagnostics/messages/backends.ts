@@ -47,8 +47,7 @@ export const messages = {
     `(compute a value inside the \`match\`, act on it after), or host this context on a ` +
     `node / dotnet / java / python backend.`,
   "loom.elixir-match-stmt-unsupported#event-sourced": (p: { where: unknown; name: unknown }) =>
-    `A statement \`match\` is used in ${p.where} — an EVENT-SOURCED command body or workflow ` +
-    `handler — whose context is hosted by the Phoenix/Elixir deployable '${p.name}'.  Such a ` +
+    `A statement \`match\` is used in ${p.where} — an EVENT-SOURCED command body — whose context is hosted by the Phoenix/Elixir deployable '${p.name}'.  Such a ` +
     `body is not rendered as a statement sequence on Phoenix: its guards become ` +
     `\`with :ok <- ensure(…)\` clauses and its \`emit\`s one \`events = […]\` list, so an ` +
     `arm has nowhere to render.  Compute the choice as a VALUE (an expression ` +

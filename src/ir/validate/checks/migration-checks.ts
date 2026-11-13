@@ -1,7 +1,15 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
-import type { AggregateIR, EnrichedLoomModel, ExprIR, TypeIR } from "../../types/loom-ir.js";
+import type {
+  AggregateIR,
+  BoundedContextIR,
+  EnrichedLoomModel,
+  ExprIR,
+  FieldIR,
+  TypeIR,
+} from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
 import { databaseModules, databaseOf } from "../../util/databases.js";
+import { valueObjectPool } from "../../util/reachable-types.js";
 import { sqlRenderableExpr, sqlTemporalArith } from "../../util/sql-renderable-expr.js";
 import { resolveTableStepTarget } from "../../util/table-step-target.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -272,6 +280,37 @@ const SELF_PROVISIONING_ADAPTERS = new Set(["dapper", "mikroorm"]);
  *  can never run on them. */
 const MIGRATION_LESS_ADAPTERS = new Set(["mikroorm"]);
 
+/** True when `ctx` persists `enumName` — in an aggregate or part field, a
+ *  workflow's saga state or a projection's read model, directly, in an array,
+ *  or inside a value object.  Matched by name, the way the migration builder
+ *  matches a column's `enumOf`. */
+function contextPersistsEnum(ctx: BoundedContextIR, enumName: string): boolean {
+  const vos = new Map(valueObjectPool(ctx).map((v) => [v.name, v.fields] as const));
+  const reaches = (t: TypeIR, seen: Set<string>): boolean => {
+    switch (t.kind) {
+      case "enum":
+        return t.name === enumName;
+      case "optional":
+        return reaches(t.inner, seen);
+      case "array":
+        return reaches(t.element, seen);
+      case "valueobject":
+        if (seen.has(t.name)) return false;
+        seen.add(t.name);
+        return (vos.get(t.name) ?? []).some((f) => reaches(f.type, seen));
+      default:
+        return false;
+    }
+  };
+  const any = (fields: readonly FieldIR[] | undefined) =>
+    (fields ?? []).some((f) => reaches(f.type, new Set()));
+  return (
+    ctx.aggregates.some((a) => any(a.fields) || a.parts.some((p) => any(p.fields))) ||
+    ctx.workflows.some((w) => any(w.stateFields)) ||
+    ctx.projections.some((p) => any(p.stateFields))
+  );
+}
+
 export function validateMigrationAdapterSupport(
   loom: EnrichedLoomModel,
   diags: LoomDiagnostic[],
@@ -294,8 +333,17 @@ export function validateMigrationAdapterSupport(
   }
   for (const b of loom.backfillIntents)
     add(b.context, b.migration, `backfill ${b.aggregate}.${b.field}`);
+  // A context-local enum's rename updates every column that stores it, in
+  // whichever context that column lives — so it is charged to the declaring
+  // context and to every context that persists the enum.
   for (const r of loom.enumValueRenameIntents) {
-    if (r.context !== undefined) add(r.context, r.migration, `rename ${r.enum}.${r.from}`);
+    if (r.context === undefined) continue;
+    const step = `rename ${r.enum}.${r.from}`;
+    add(r.context, r.migration, step);
+    for (const ctx of contexts) {
+      if (ctx.name !== r.context && contextPersistsEnum(ctx, r.enum))
+        add(ctx.name, r.migration, step);
+    }
   }
   // A root-level enum belongs to no context: like a raw `sql` step, its rename
   // is charged to every self-provisioning deployable.

@@ -130,8 +130,18 @@ function emitSeeds(
   for (const ds of datasets) {
     const entries = ds.entries.filter((e) => seedable.has(e.row.aggregate));
     if (entries.length === 0) continue;
-    fnBlocks.push(renderDatasetFn(ds.name, entries, typesByAgg, backend.rawInsert, schemaFor));
-    callLines.push(`  await seed${upperFirst(ds.name)}(db, requested);`);
+    fnBlocks.push(
+      renderDatasetFn(
+        ds.name,
+        ds.marker,
+        ds.ident,
+        entries,
+        typesByAgg,
+        backend.rawInsert,
+        schemaFor,
+      ),
+    );
+    callLines.push(`  await seed${upperFirst(ds.ident)}(db, requested);`);
   }
   if (callLines.length === 0) return;
 
@@ -150,6 +160,8 @@ function emitSeeds(
 /** Render one `async function seed<Dataset>(db, requested)`. */
 function renderDatasetFn(
   dataset: string,
+  marker: string,
+  ident: string,
   entries: Entry[],
   typesByAgg: Map<string, Map<string, TypeIR>>,
   rawInsert: (sql: string) => string,
@@ -168,12 +180,12 @@ function renderDatasetFn(
       : `  await ${repoVar(e.row.aggregate)}.save(${e.row.aggregate}.create(${renderInput(e.row, typesByAgg.get(e.row.aggregate))}));`,
   );
   return lines(
-    `async function seed${upperFirst(dataset)}(db: Db, requested: Set<string>): Promise<void> {`,
+    `async function seed${upperFirst(ident)}(db: Db, requested: Set<string>): Promise<void> {`,
     `  if (!datasetEnabled(${JSON.stringify(dataset)}, requested)) return;`,
-    `  if (await alreadySeeded(db, ${JSON.stringify(dataset)})) return;`,
+    `  if (await alreadySeeded(db, ${JSON.stringify(marker)})) return;`,
     ...repoDecls,
     ...saveLines,
-    `  await markSeeded(db, ${JSON.stringify(dataset)});`,
+    `  await markSeeded(db, ${JSON.stringify(marker)});`,
     `}`,
     "",
   );
@@ -251,7 +263,9 @@ function renderSeedFile(
       "}",
       "",
       "async function alreadySeeded(db: Db, dataset: string): Promise<boolean> {",
-      '  const r = await db.execute(sql`SELECT 1 FROM "__loom_seed" WHERE "dataset" = ${dataset}`);',
+      "  const r = await db.execute(",
+      '    sql`SELECT 1 FROM "__loom_seed" WHERE "dataset" = ${dataset} OR "dataset" = split_part(${dataset}, \'/\', 2)`,',
+      "  );",
       "  return r.rows.length > 0;",
       "}",
       "",
@@ -359,7 +373,7 @@ function renderMikroSeedFile(
       "}",
       "",
       "async function alreadySeeded(db: Db, dataset: string): Promise<boolean> {",
-      '  const r = (await db.getConnection().execute(\'SELECT 1 FROM "__loom_seed" WHERE "dataset" = ?\', [dataset])) as unknown[];',
+      '  const r = (await db.getConnection().execute(\'SELECT 1 FROM "__loom_seed" WHERE "dataset" = ? OR "dataset" = split_part(?, \\\'/\\\', 2)\', [dataset, dataset])) as unknown[];',
       "  return r.length > 0;",
       "}",
       "",

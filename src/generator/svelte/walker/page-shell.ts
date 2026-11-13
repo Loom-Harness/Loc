@@ -37,12 +37,14 @@ import { typeUsesMoney } from "../../../ir/types/loom-ir.js";
 import { escapeTsIdent, humanize, lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
+import { forbiddenTexts } from "../../_frontend/auth-ui.js";
 import {
   paramPropTsType,
   takeMoneyPropImport,
   valueObjectIndex,
 } from "../../_frontend/component-prop-type.js";
-import { idTargetHookVar } from "../../_frontend/form-helpers.js";
+import { formSeedTs, idTargetHookVar } from "../../_frontend/form-helpers.js";
+import { formSpecEnvOf, operationFormSpec } from "../../_frontend/form-spec.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import { SVELTE_LIB_TOAST_EFFECT_IMPORT, usesToastEffect } from "../../_frontend/toast-effect.js";
 import type { LoadedPack } from "../../_packs/loader.js";
@@ -306,7 +308,15 @@ function renderFormOpWiring(
       hookVar: idTargetHookVar(t),
     })),
     useController,
-    defaultValuesTs,
+    // The decls build the form at page scope, where the loaded record is not in
+    // scope: a record-threaded form starts on the record-free seed, and its
+    // snippet's trigger — handed the record — writes the record seed
+    // (`record.<field>`, see `formSeedTs`) into it each time the dialog opens.
+    defaultValuesTs: state.recordVar
+      ? formSeedTs(operationFormSpec(agg, op, formSpecEnvOf(state.bc, new Map())), state.bc, {})
+      : defaultValuesTs,
+    recordType: state.recordVar ? state.recordType : undefined,
+    recordSeed: state.recordVar ? defaultValuesTs : undefined,
     hasParams: fieldHtmls.length > 0,
     fieldHtmls,
     triggerLabel: state.triggerLabel,
@@ -516,6 +526,8 @@ export function renderSveltePage(
   // pack-DECLARED chrome it renders binds a `t` this page must import — and the
   // import block is serialized two lines below.  Hence the form wiring runs here.
   if (needsPackChromeT(form.templateScope)) addImportToMap(imports, I18N_MODULE, "t");
+  // The forbidden view reads its text through `t` under i18n.
+  if (requires && i18nPrefix) addImportToMap(imports, I18N_MODULE, "t");
   addOpModuleImports(imports, pack, formOfs);
   // The <script> block is the SINGLE owner of this file's `Decimal` binding, so
   // the active pack's `field-input-money` declaration is absorbed here instead
@@ -610,7 +622,7 @@ export function renderSveltePage(
   // and wrap the body markup in an `{#if}` that renders `<Forbidden/>` when the
   // currentUser-only predicate fails (Svelte has no early-return in markup, so
   // the guard is a template conditional, not a control-flow return).
-  const gate = renderSveltePageGate(requires, usesCurrentUser);
+  const gate = renderSveltePageGate(requires, usesCurrentUser, i18nPrefix !== undefined);
   const markup = gate.guardOpen
     ? `${gate.guardOpen}\n${indentJsx(tsx, "  ")}\n${gate.guardClose}`
     : indentJsx(tsx, "");
@@ -634,6 +646,7 @@ ${templateScope}`,
 function renderSveltePageGate(
   requires: ExprIR | undefined,
   usesCurrentUser: boolean,
+  i18n: boolean,
 ): {
   import: string;
   binding: string;
@@ -646,6 +659,7 @@ function renderSveltePageGate(
   if (!requires && !usesCurrentUser) {
     return { import: "", binding: "", guardOpen: "", guardClose: "" };
   }
+  const text = forbiddenTexts(i18n, (call) => `{${call}}`);
   return {
     import: `  import { useSession } from "$lib/auth/AuthGate.svelte";\n`,
     // Dynamic OIDC/JWT claims → loose type so chained access / membership stays
@@ -653,7 +667,7 @@ function renderSveltePageGate(
     binding: `  const currentUser = useSession().user as Record<string, any>;\n`,
     guardOpen: requires
       ? `{#if !(${renderGateExpr(requires, "currentUser")})}
-  <div style="padding:24px"><h2>Forbidden</h2><p>You do not have access to this page.</p></div>
+  <div style="padding:24px"><h2>${text.title}</h2><p>${text.body}</p></div>
 {:else}`
       : "",
     guardClose: requires ? `{/if}` : "",
@@ -795,7 +809,7 @@ export function renderSvelteComponentFile(
   // currentUser binding for any gated `Action(...)` button in the body (the
   // action-level mirror of the page gate; binding-only — components have no
   // page `requires`).
-  const gate = renderSveltePageGate(undefined, usesCurrentUser);
+  const gate = renderSveltePageGate(undefined, usesCurrentUser, false);
   // Component `derived` bindings → hoisted `$derived` consts.  A derived
   // reading a state field forces the `$state` declaration.
   const derivedResult = buildDerivedLines(

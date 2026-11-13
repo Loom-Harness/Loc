@@ -759,8 +759,10 @@ toolchains are older than what the emitted projects target:
 | `test:python` | `uv` + ruff + mypy + pytest | `uv` | host |
 
 A managed remote/sandbox environment ships the Docker **client** but no
-running daemon.  `scripts/sandbox-bootstrap.sh` starts one and, in the same
-step, puts the toolchains the table lists on the **host**:
+running daemon.  `scripts/sandbox-bootstrap.sh` starts one (`dockerd
+--registry-mirror=https://mirror.gcr.io`, so Docker Hub pulls go through a
+mirror that has no pull rate limit) and, in the same step, puts the
+toolchains the table lists on the **host**:
 
 ```bash
 scripts/sandbox-bootstrap.sh            # all targets; or: java dotnet elixir node24 flutter
@@ -774,6 +776,10 @@ source /opt/loom-tc/env.sh              # PATH, JAVA_HOME, DOTNET_ROOT, ELIXIR_E
 | `elixir` | the generated Dockerfile's `hexpm/elixir` image (`/usr/local/lib/{elixir,erlang}`) | `elixir/{elixir,erlang}` | `run-elixir.mjs`, `phoenix-ui-e2e` |
 | `node24` | `node:24` (`/usr/local/bin/node`, `lib/node_modules`) | `node24/` | Angular CLI (needs Node ≥ 22.22.3; the host has 22.22.0) |
 | `flutter` | `ghcr.io/cirruslabs/flutter:stable` (`/sdks/flutter`) | `flutter/flutter` | the Flutter suites; also `npm install` in `test/behavioral` (else `Cannot find package 'esbuild'`) |
+
+**Run one heavy job at a time** (`npm test`, `tsc -b`, a Docker build, a
+Gradle or .NET build).  Parallel heavy jobs exhaust the sandbox's memory and
+restart the container, which also kills `dockerd`.
 
 The image tags are read from the constants the generators pin (the Java
 version, the Phoenix Dockerfile `ARG`s, the .NET SDK tag), so a bump moves
@@ -1443,23 +1449,20 @@ tar xf node.tar.xz && export PATH="$PWD/node-v24.15.0-linux-x64/bin:$PATH"
 npx ng build          # in the emitted out/web
 ```
 
-**Feliz builds here too — it does not "stay CI's to answer"** (this paragraph
-said so until 2026-09-13; re-measured that day and corrected). Fable is a dotnet
-tool and the image ships no .NET SDK, but Microsoft's own install script puts one
-in the scratchpad in under a minute, and `dotnet fable` + `vite build` then run
-green on a generated Feliz app:
+**Feliz builds here too — it does not "stay CI's to answer".**  Fable is a
+dotnet tool and the image ships no .NET SDK; `scripts/sandbox-bootstrap.sh
+dotnet` puts SDK 10 on the host, and `dotnet fable` + `vite build` then run on
+a generated Feliz app:
 
 ```bash
-curl -fsSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
-bash dotnet-install.sh --channel 8.0 --install-dir "$PWD/dotnet" --no-path   # 8.0 = the TFM the emitted App.fsproj targets
-export PATH="$PWD/dotnet:$PATH" DOTNET_ROOT="$PWD/dotnet"
+scripts/sandbox-bootstrap.sh dotnet
+source /opt/loom-tc/env.sh
 cd out/web && npm install && npm run build        # = dotnet tool restore && dotnet fable + vite build
 ```
 
-Measured 2026-09-13 on `sales-system-feliz`: Fable parsed 47 source files and
-compiled in ~15 s, vite bundled in ~3 s, and the **full behavioural UI leg**
-(`cd test/behavioral && node run-ui.mjs sales-system-feliz` — real Hono backend on
-PGlite, real headless Chromium) came back **11 passed, 0 failed**. So the Feliz
+The full behavioural UI leg runs the same way: with that environment sourced,
+`cd test/behavioral && node run-ui.mjs sales-system-feliz` (real Hono backend on
+PGlite, real headless Chromium) reports **11 passed, 0 failed**.  So the Feliz
 cell of `frontend-fullstack-e2e` is reproducible locally like every other
 frontend; do that before pushing rather than reading CI.
 

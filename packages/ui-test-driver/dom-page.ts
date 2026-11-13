@@ -288,11 +288,62 @@ export class DomLocator {
     );
   }
 
-  locator(selector: string): DomLocator {
+  locator(selector: string | DomLocator): DomLocator {
+    if (typeof selector !== "string") return this.locatorWithin(selector);
     return this.add(
       (roots) =>
         dedupe(roots.flatMap((r) => Array.from(r.querySelectorAll(selector)))),
       `locator(${JSON.stringify(selector)})`,
+    );
+  }
+
+  /** `locator(other)` with a Locator argument: `other`'s chain resolved
+   *  relative to each element this locator matches. */
+  locatorWithin(inner: DomLocator): DomLocator {
+    return this.add(
+      (roots) => dedupe(roots.flatMap((r) => inner.matchesFrom([r]))),
+      `locator(${inner.describe()})`,
+    );
+  }
+
+  /** Union of this locator and `other`, in document order.  `other` is
+   *  resolved from the same roots as this locator's own chain. */
+  or(other: DomLocator): DomLocator {
+    return this.combine(other, "or", (a, b) => {
+      const all = dedupe([...a, ...b]);
+      return all.sort((x, y) =>
+        x === y
+          ? 0
+          : x.compareDocumentPosition(y) & 4 /* DOCUMENT_POSITION_FOLLOWING */
+            ? -1
+            : 1,
+      );
+    });
+  }
+
+  /** Elements matched by both this locator and `other`. */
+  and(other: DomLocator): DomLocator {
+    return this.combine(other, "and", (a, b) => {
+      const inB = new Set(b);
+      return a.filter((el) => inB.has(el));
+    });
+  }
+
+  /** Fold this locator's whole chain and `other`'s into one step so the
+   *  result stays re-rootable (usable under `filter({has})` and
+   *  `locator(locator)`). */
+  private combine(
+    other: DomLocator,
+    name: "or" | "and",
+    merge: (a: Element[], b: Element[]) => Element[],
+  ): DomLocator {
+    const self = this;
+    return new DomLocator(
+      this.doc,
+      this.rootProvider,
+      [(roots) => merge(self.matchesFrom(roots), other.matchesFrom(roots))],
+      this.timeout,
+      [`${this.describe()}.${name}(${other.describe()})`],
     );
   }
 

@@ -303,3 +303,123 @@ migration "remap-dentist" { sql "UPDATE c.appts SET skill = 'gp' WHERE skill = '
     expect(refusals).toEqual([]);
   });
 });
+
+// Columns no `enumValues` CHECK constrains — an enum array (`TEXT[]`) and a
+// projection read-model column — still store the enum's values, so losing a
+// member there is breaking-for-data too.  The baseline's value set for them is
+// the column's recorded `enumMembers`.
+describe("loom.migration-enum-narrowed on an unchecked column", () => {
+  const ARRAY_ONLY = (decl: string) => `system M {
+  subdomain S { context C {
+    ${decl}
+    aggregate Appt { label: string  tags: Skill[] }
+    repository Appts for Appt { }
+  } }
+  storage p { type: postgres }  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}`;
+  const PROJECTION = (decl: string) => `system M {
+  subdomain S { context C {
+    ${decl}
+    aggregate Appt { label: string  skill: Skill }
+    event Booked { appt: Appt id  skill: Skill }
+    projection SkillByAppt keyed by appt {
+      appt: Appt id
+      last: Skill
+      on(e: Booked) { appt := e.appt  last := e.skill }
+    }
+    repository Appts for Appt { }
+  } }
+  storage p { type: postgres }  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}`;
+
+  async function derive(v1: string, v2: string, opts: { allowDestructive?: boolean } = {}) {
+    const first = buildMigrations((await buildLoomModel(v1)).systems[0]!, memorySnapshotStore());
+    const store = memorySnapshotStore(
+      Object.fromEntries(first.map((m) => [m.module, m.next])) as Record<string, SchemaSnapshot>,
+    );
+    const refusals: (MigrationDestructiveError | MigrationShapeChangeError)[] = [];
+    const next = await buildLoomModel(v2);
+    const deltas = buildMigrations(next.systems[0]!, store, {
+      ...migrationIntents(next),
+      destructiveRefusals: refusals,
+      ...opts,
+    });
+    return { refusals, steps: deltas.flatMap((d) => d.steps) };
+  }
+
+  it("refuses a member dropped from an enum only an array stores", async () => {
+    const { refusals } = await derive(ARRAY_ONLY(ENUM3), ARRAY_ONLY("enum Skill { physio, gp }"));
+    expect(refusals.map((r) => r.code)).toEqual(["loom.migration-enum-narrowed"]);
+    const msg = refusals[0]!.message;
+    expect(msg).toContain("enum Skill no longer has 'dentist'");
+    expect(msg).toContain("column tags of existing table c.appts");
+    expect(msg).toContain(`{ Skill.dentist -> <one of physio, gp> }`);
+  });
+
+  it("refuses a member dropped from a projection column", async () => {
+    const { refusals } = await derive(PROJECTION(ENUM3), PROJECTION("enum Skill { physio, gp }"));
+    expect(refusals.map((r) => r.code)).toEqual(["loom.migration-enum-narrowed"]);
+    expect(refusals[0]!.message).toContain("enum check appts_skill_enum");
+    expect(refusals[0]!.message).toMatch(
+      /enum Skill no longer has 'dentist', which column last of existing table \S*skill_by_appt/,
+    );
+  });
+
+  it("is released by a declared rename (which updates the array in place)", async () => {
+    const v2 = `${ARRAY_ONLY("enum Skill { physio, gp, dental }")}
+migration "rename-dentist" { Skill.dentist -> dental }`;
+    const { refusals, steps } = await derive(ARRAY_ONLY(ENUM3), v2);
+    expect(refusals).toEqual([]);
+    expect(steps.some((s) => s.op === "sqlExec" && s.sql.includes("array_replace"))).toBe(true);
+  });
+
+  it("a member-only change still records a step, so the chain baseline moves", async () => {
+    const widened = await derive(ARRAY_ONLY("enum Skill { physio, gp }"), ARRAY_ONLY(ENUM3));
+    expect(widened.refusals).toEqual([]);
+    expect(widened.steps).toEqual([
+      { op: "sqlComment", comment: "enum Skill stored in c.appts.tags adds dentist" },
+    ]);
+    const narrowed = await derive(ARRAY_ONLY(ENUM3), ARRAY_ONLY("enum Skill { physio, gp }"), {
+      allowDestructive: true,
+    });
+    expect(narrowed.refusals).toEqual([]);
+    expect(narrowed.steps).toEqual([
+      { op: "sqlComment", comment: "enum Skill stored in c.appts.tags drops dentist" },
+    ]);
+  });
+
+  it("an unchanged model records nothing", async () => {
+    const { refusals, steps } = await derive(ARRAY_ONLY(ENUM3), ARRAY_ONLY(ENUM3));
+    expect(refusals).toEqual([]);
+    expect(steps).toEqual([]);
+  });
+
+  it("a baseline recorded without member lists is not compared", async () => {
+    const first = buildMigrations(
+      (await buildLoomModel(ARRAY_ONLY(ENUM3))).systems[0]!,
+      memorySnapshotStore(),
+    );
+    const legacy = Object.fromEntries(
+      first.map((m) => [
+        m.module,
+        {
+          ...m.next,
+          tables: m.next.tables.map((t) => ({
+            ...t,
+            columns: t.columns.map(({ enumMembers: _, ...c }) => c),
+          })),
+        },
+      ]),
+    ) as Record<string, SchemaSnapshot>;
+    const next = await buildLoomModel(ARRAY_ONLY("enum Skill { physio, gp }"));
+    const refusals: (MigrationDestructiveError | MigrationShapeChangeError)[] = [];
+    const deltas = buildMigrations(next.systems[0]!, memorySnapshotStore(legacy), {
+      ...migrationIntents(next),
+      destructiveRefusals: refusals,
+    });
+    expect(refusals).toEqual([]);
+    expect(deltas.flatMap((d) => d.steps)).toEqual([]);
+  });
+});

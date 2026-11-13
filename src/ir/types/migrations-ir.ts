@@ -112,6 +112,14 @@ export interface ColumnShape {
    *  `addColumnDefault`: no renderer reads it, the diff never compares it, and
    *  `canonicalSnapshot` strips it. */
   enumOf?: string;
+  /** The member values of the enum this column stores (`enumOf`), in
+   *  declaration order.  Unlike `enumOf` it is KEPT in the committed snapshot:
+   *  it is the baseline's only record of the value set on a column no
+   *  `enumValues` CHECK constrains — an enum array, a projection or
+   *  workflow-state column — so a member the next generation drops is
+   *  detected there too (`loom.migration-enum-narrowed`).  No renderer reads
+   *  it and the column diff never compares it. */
+  enumMembers?: readonly string[];
   /** Set on a co-located provenance lineage column (`total_provenance`): names
    *  the `provenanced` field it backs.  Its one consumer is the add-column
    *  diff, which renders the add as `ADD COLUMN IF NOT EXISTS` (see that

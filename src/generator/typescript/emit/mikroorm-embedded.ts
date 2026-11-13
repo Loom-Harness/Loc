@@ -14,6 +14,7 @@ import type {
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
@@ -23,7 +24,6 @@ import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
-import { isRefCollection } from "../repository-associations-builder.js";
 import {
   aggregateRetrievals,
   deserializeField,
@@ -55,7 +55,13 @@ import { rowClassOf } from "./mikroorm-entities.js";
 import { AMBIENT_PRINCIPAL, mikroFilterOrRefuse, mikroGetByIdLines } from "./mikroorm-filter.js";
 import { mikroRetrievalMethod, valueCollFieldsOf } from "./mikroorm-relational.js";
 import { mikroFilterOption } from "./mikroorm-schema-filters.js";
-import { maskUserImport, tsParamType, usesRawFragment } from "./mikroorm-shared.js";
+import {
+  maskUserImport,
+  mikroClientSortTieBreak,
+  mikroFindOneOptions,
+  tsParamType,
+  usesRawFragment,
+} from "./mikroorm-shared.js";
 
 // ---------------------------------------------------------------------------
 // Embedded-shape (`shape: embedded`) MikroORM repository.  The queryable
@@ -80,7 +86,7 @@ function embeddedHydrateLocals(
 ): string[] {
   const out: string[] = [];
   for (const f of agg.fields) {
-    if (f.type.kind !== "array" || f.type.element.kind !== "id") continue;
+    if (!isRefCollectionType(f.type)) continue;
     const target = f.type.element.targetName;
     out.push(
       `${indent}const ${f.name} = ((${rowVar}.${f.name} ?? []) as string[]).map((s) => ${T.Ids}.${target}Id(s));`,
@@ -120,7 +126,7 @@ export function renderMikroEmbeddedRepository(
   const readArgs = (where: string, options: string | null): string =>
     options ? `${where}, ${options}` : where;
   const scalarFields = agg.fields.filter(
-    (f) => !isRefCollection(f.type) && !isValueCollectionType(f.type),
+    (f) => !isRefCollectionType(f.type) && !isValueCollectionType(f.type),
   );
 
   // Root save row: id + scalar column projection + one jsonb id-string array
@@ -132,7 +138,7 @@ export function renderMikroEmbeddedRepository(
     for (const e of projectFieldEntries(f, "aggregate", ctx))
       rootEntries.push(`${e.fieldName}: ${e.expr}`);
   for (const f of agg.fields)
-    if (isRefCollection(f.type))
+    if (isRefCollectionType(f.type))
       rootEntries.push(
         `${f.name}: aggregate.${escapeTargetFieldMember("ts", f.name)}.map((x) => x as string)`,
       );
@@ -247,7 +253,7 @@ export function renderMikroEmbeddedRepository(
         `    const em = this.em.fork({ keepTransactionContext: true });`,
         `    const ${L.sortable} = new Set<string>([${sortable}]);`,
         `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : "id";`,
-        `    const ${L.orderBy}: Record<string, "asc" | "desc"> = { [${L.sortField}]: dir === "desc" ? "desc" : "asc" };`,
+        `    const ${L.orderBy}: Record<string, "asc" | "desc">[] = [{ [${L.sortField}]: dir === "desc" ? "desc" : "asc" }, ${mikroClientSortTieBreak()}];`,
         `    const ${L.total} = await em.count(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
         `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
         `    const rows = await em.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`}${ignoring ? `, ${ignoring}` : ""} });`,
@@ -279,7 +285,7 @@ export function renderMikroEmbeddedRepository(
     return lines(
       `  async ${name}(${params}): Promise<${optional ? `${agg.name} | null` : agg.name}> {`,
       `    const em = this.em.fork({ keepTransactionContext: true });`,
-      `    const row = await em.findOne(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
+      `    const row = await em.findOne(${row}, ${readArgs(filter, mikroFindOneOptions(f, ignoring))});`,
       optional
         ? `    if (row === null) return null;`
         : `    if (row === null) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,

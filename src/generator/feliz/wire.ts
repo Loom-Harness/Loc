@@ -23,7 +23,7 @@ import {
   wireFieldsForPart,
   wireFieldsForValueObject,
 } from "../../ir/enrich/wire-projection.js";
-import { PAGED_META_MEMBERS } from "../../ir/stdlib/generics.js";
+import { PAGED_MAX_PAGE_SIZE, PAGED_META_MEMBERS } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -59,6 +59,7 @@ import { errorTypeUri } from "../../util/error-defaults.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { type FormFieldArms, formFieldSpec, renderFormField } from "../_frontend/form-spec.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
 import { provenancedTypeMembers } from "../_payload/provenanced-wire.js";
@@ -93,6 +94,9 @@ export interface FelizRead {
   decoderExpr: string;
   /** Collection base fetch route (`/api/orders`).  A byId read appends `/%s`. */
   route: string;
+  /** Picker-option read: walks every page of the envelope (`?page=N&pageSize=500`
+   *  until `totalPages`) so no row is unpickable.  Holds the rows decoder. */
+  allPagesRows?: string;
   /** The match-arm binding the `data:` lambda param resolves to
    *  (`allOrders` / `orderById` — camelCase of `field`). */
   binding: string;
@@ -242,6 +246,13 @@ export function readFieldName(aggregate: string): string {
   return `All${plural(upperFirst(aggregate))}`;
 }
 
+/** The Model field holding an aggregate's FORM-PICKER options (`Provider` →
+ *  `ProviderOptions`) — separate from `All<Aggs>` because a page's own list read
+ *  may be a single page (`QueryView paged`), while a picker needs every row. */
+export function pickerFieldName(aggregate: string): string {
+  return `${upperFirst(aggregate)}Options`;
+}
+
 /** The Model field name for an aggregate byId read (`Order` → `OrderById`). */
 export function byIdFieldName(aggregate: string): string {
   return `${upperFirst(aggregate)}ById`;
@@ -251,6 +262,8 @@ export function byIdFieldName(aggregate: string): string {
  *  envelope; `controls` the page/sort state its `of:` threads (only meaningful
  *  under `paged`). */
 export interface FelizAllReadOpts {
+  /** The read feeds a form picker: fetch every page, not the default first one. */
+  allPages?: boolean;
   paged?: boolean;
   controls?: FelizPageControls;
   /** Aggregate → owning context, so the decoder can ask `isPagedAllRead`
@@ -265,7 +278,7 @@ export interface FelizAllReadOpts {
 
 /** Build the `FelizRead` for a `.all` read of `aggregate`. */
 export function felizAllRead(aggregate: string, opts: FelizAllReadOpts = {}): FelizRead {
-  const field = readFieldName(aggregate);
+  const field = opts.allPages ? pickerFieldName(aggregate) : readFieldName(aggregate);
   const paging: FelizReadPaging | undefined = opts.paged
     ? { controls: opts.controls, metaField: pageMetaFieldName(field) }
     : undefined;
@@ -298,6 +311,7 @@ export function felizAllRead(aggregate: string, opts: FelizAllReadOpts = {}): Fe
     single: false,
     listShaped: true,
     paging,
+    allPagesRows: opts.allPages && envelope && !paging ? rows : undefined,
   };
 }
 
@@ -540,7 +554,8 @@ export type FelizInputKind =
   | "select"
   | "idselect"
   | "file"
-  | "date";
+  | "date"
+  | "checkgroup";
 
 /** One field of a create form — an F# form-record field (string-typed, bound to
  *  an `Html.input`), its `Set<Form><Field>` update `Msg`, the Thoth encoder
@@ -613,6 +628,14 @@ export interface FelizFormField {
    *  pre-encode check submit raised an unhandled Elmish exception instead of
    *  showing a form error.  Drives the numeric guard in `renderValidation`. */
   numeric?: "integral" | "fractional";
+  /** Set on the PRESENCE checkbox cell of an optional value object
+   *  (`vehiclePresent`): the wire object key it governs.  The cell is a bool
+   *  string (`"true"` = the object is present); it is never encoded itself —
+   *  the group's encoder emits the object when checked and `null` otherwise. */
+  presenceOf?: string;
+  /** Set on a flattened sub-field of an OPTIONAL value object: the record cell
+   *  (`vehiclePresent`) whose `"true"` mounts this input. */
+  presentCell?: string;
 }
 
 /** One scalar sub-field of a dynamic-row group (`sku` / `qty` of a `LineItem`
@@ -832,6 +855,10 @@ export interface FelizOperationForm extends FormRecord {
    *  and the submit arm passes the loaded record's `version` (see
    *  `ifMatchVersionExpr`).  Optional so every other form stays byte-identical. */
   ifMatch?: boolean;
+  /** The F# expression (over the loaded record `__r`) that seeds this form from
+   *  the record its page loaded — set when some param prefills from the
+   *  aggregate's same-named field.  Absent keeps the form on `empty<Form>`. */
+  seed?: string;
 }
 
 /** The F# expression the submit arm passes as an op form's `If-Match` version:
@@ -940,35 +967,52 @@ function inputKindFor(
   enumsByName: ReadonlyMap<string, string[]>,
   idLabels: ReadonlyMap<string, string>,
 ): FelizInputKind {
-  const base = scalarBase(t);
-  if (base.kind === "enum" && enumsByName.has(base.name)) return "select";
-  if (base.kind === "id" && idLabels.has(base.targetName)) return "idselect";
-  if (base.kind === "primitive") {
-    switch (base.name) {
-      case "int":
-      case "long":
-      case "decimal":
-      case "money":
-        return "number";
-      case "bool":
-        return "checkbox";
-      // A calendar `date` renders a date picker; its string value is already
-      // the wire's `YYYY-MM-DD`, so the form cell and the encoder stay strings.
-      case "date":
-        return "date";
-      // A `File` is not typeable: it renders a file picker whose pick uploads
-      // (multipart POST /files) and whose RESULT — the `FileRef` — is what the
-      // form submits.  Without this arm the field fell to `text` and encoded
-      // `Encode.string form.<f>` — a guaranteed 422 (the backend expects the
-      // FileRef object `{ url, key, contentType, size }`).
-      case "File":
-        return "file";
-      default:
-        return "text";
-    }
-  }
-  return "text"; // id / unresolved enum (string name) / everything else
+  // This projection holds no bounded context: the spec reads the maps it
+  // carries (resolvable enums; ids whose target has a label).
+  const spec = formFieldSpec(
+    { name: "", type: t },
+    {
+      enumValues: (name) => enumsByName.get(name),
+      valueObjectFields: () => undefined,
+      hasDisplay: (aggregate) => idLabels.has(aggregate),
+      isPaged: () => false,
+    },
+  );
+  return renderFormField(spec, FELIZ_FORM_FIELD_ARMS, undefined);
 }
+
+const felizText = (): FelizInputKind => "text";
+const felizNumber = (): FelizInputKind => "number";
+
+/** The Feliz input widget per form field kind.  A value object, an array or an
+ *  unresolved enum is plain text: the Feliz form record is all-string and
+ *  nested shapes are flattened by the caller before classification. */
+export const FELIZ_FORM_FIELD_ARMS: FormFieldArms<FelizInputKind> = {
+  string: felizText,
+  int: felizNumber,
+  decimal: felizNumber,
+  money: felizNumber,
+  bool: () => "checkbox",
+  // A calendar `date` renders a date picker; its string value is already
+  // the wire's `YYYY-MM-DD`, so the form cell and the encoder stay strings.
+  date: () => "date",
+  datetime: felizText,
+  // A `File` is not typeable: it renders a file picker whose pick uploads
+  // (multipart POST /files) and whose RESULT — the `FileRef` — is what the
+  // form submits.
+  file: () => "file",
+  enum: () => "select",
+  ref: (f) => (f.picker?.hasDisplay ? "idselect" : "text"),
+  optionalRef: (f) => (f.picker?.hasDisplay ? "idselect" : "text"),
+  valueObject: felizText,
+  optionalValueObject: felizText,
+  scalarArray: felizText,
+  // An enum / reference collection is a checkbox group over a comma-joined
+  // cell (one box per option); an unresolvable element stays a text box.
+  enumArray: (f) => (f.enumValues ? "checkgroup" : "text"),
+  refArray: (f) => (f.picker?.hasDisplay ? "checkgroup" : "text"),
+  objectArray: felizText,
+};
 
 /** The BARE string a constant/enum `= default` seeds into the all-string Feliz
  *  form model (`Model.<field> = "<seed>"`), or `undefined` when the default is
@@ -1024,9 +1068,19 @@ function buildField(
 ): FelizFormField {
   const base = scalarBase(type);
   const inputKind = inputKindFor(type, enumsByName, idLabels);
+  const element = base.kind === "array" ? scalarBase(base.element) : undefined;
+  const group = inputKind === "checkgroup";
+  const enumOf = group ? element : base;
   const enumValues =
-    inputKind === "select" && base.kind === "enum" ? enumsByName.get(base.name) : undefined;
-  const idTarget = inputKind === "idselect" && base.kind === "id" ? base.targetName : undefined;
+    (inputKind === "select" || group) && enumOf?.kind === "enum"
+      ? enumsByName.get(enumOf.name)
+      : undefined;
+  const idTarget =
+    inputKind === "idselect" && base.kind === "id"
+      ? base.targetName
+      : group && element?.kind === "id"
+        ? element.targetName
+        : undefined;
   const idLabelField = idTarget ? (idLabels.get(idTarget) ?? "id") : undefined;
   // A REQUIRED enum defaults to its first value so the select and the string
   // state agree from the start (and the required guard passes); everything else
@@ -1044,7 +1098,9 @@ function buildField(
     encodeExpr: encodeExprFor(type, `form.${fsIdent(wireName)}`, optional),
     inputKind,
     numeric: numericKind(base),
-    required: !optional,
+    // An array cell is a comma-separated list: empty is the empty list, a
+    // legitimate value (the wire schema carries no minimum), never "unfilled".
+    required: !optional && base.kind !== "array",
     enumValues,
     idTarget,
     idLabelField,
@@ -1076,11 +1132,12 @@ function formFieldsFrom(
       // field's own optionality relaxes every sub-field (an absent VO → absent
       // sub-values); nested VO / collection sub-fields are skipped (one level).
       const voOptional = f.optional === true || f.type.kind === "optional";
-      return voFields
+      const presentCell = `${f.name}Present`;
+      const subs = voFields
         .filter((sub) => isScalarInput(sub.type))
         .map((sub) => {
           const subOptional = voOptional || sub.optional === true || sub.type.kind === "optional";
-          return buildField(
+          const cell = buildField(
             formType,
             `${f.name}${upperFirst(sub.name)}`,
             sub.name,
@@ -1091,7 +1148,34 @@ function formFieldsFrom(
             sub.default,
             f.name,
           );
+          // The group's optionality relaxes `required`, not the cell's starting
+          // value: a sub-field that is itself a required enum starts at its first
+          // value, so ticking the opt-in box submits a valid member.
+          const ownOptional = sub.optional === true || sub.type.kind === "optional";
+          const start =
+            voOptional && !ownOptional && cell.inputKind === "select" && cell.enumValues?.length
+              ? { ...cell, emptyValue: cell.enumValues[0]! }
+              : cell;
+          return voOptional ? { ...start, presentCell: fsIdent(presentCell) } : start;
         });
+      if (!voOptional) return subs;
+      // An optional VO is opt-in: a presence checkbox leads its sub-fields; the
+      // sub-inputs mount (and the object is submitted) only while it is checked.
+      const presence: FelizFormField = {
+        ...buildField(
+          formType,
+          presentCell,
+          f.name,
+          { kind: "primitive", name: "bool" },
+          true,
+          enumsByName,
+          idLabels,
+        ),
+        presenceOf: f.name,
+        encodeExpr: `Encode.bool (form.${fsIdent(presentCell)} = "true")`,
+        required: false,
+      };
+      return [presence, ...subs];
     }
     const optional = f.optional === true || f.type.kind === "optional";
     return [
@@ -1243,7 +1327,7 @@ function buildFieldArray(
         setMsg: `Set${formType}${upperFirst(field.name)}${upperFirst(vf.name)}`,
         // A per-row FK select would need the target list in every row; v1 renders
         // the id as plain text instead.
-        inputKind: kind === "idselect" || rowFile ? "text" : kind,
+        inputKind: kind === "idselect" || kind === "checkgroup" || rowFile ? "text" : kind,
         encodeExpr: rowFile
           ? `Encode.string row.${fsIdent(vf.name)}`
           : encodeExprFor(vf.type, `row.${vf.name}`, optional),
@@ -3149,6 +3233,24 @@ function renderApiFn(r: FelizRead): (string | undefined)[] {
       "    }",
     ];
   }
+  if (r.allPagesRows) {
+    return [
+      `  let ${r.apiFn} () : Async<Result<${r.resultType}, string>> =`,
+      `    let rec loop (page: int) (acc: ${r.resultType}) : Async<Result<${r.resultType}, string>> =`,
+      "      async {",
+      `        let! (status, body) = Http.get (sprintf "${r.route}?page=%d&pageSize=${PAGED_MAX_PAGE_SIZE}" page)`,
+      "        if status = 200 then",
+      `          match Decode.fromString (Decode.map2 (fun __items __pages -> (__items, __pages)) (Decode.field "items" ${r.allPagesRows}) (Decode.field "totalPages" Decode.int)) body with`,
+      "          | Ok (items, totalPages) ->",
+      "            let acc = acc @ items",
+      "            if page >= totalPages then return Ok acc else return! loop (page + 1) acc",
+      "          | Error e -> return Error e",
+      "        else",
+      '          return Error (sprintf "HTTP %d" status)',
+      "      }",
+      "    loop 1 []",
+    ];
+  }
   // Paramless list read.  The return type must follow the DECODER, not the row
   // type: an UNCONTROLLED read of a paged find still decodes the envelope (its
   // page body can read `rows.total`), so `readLoadedType` — the single place
@@ -3539,7 +3641,22 @@ function encoderEntries(fields: FelizFormField[]): string[] {
   let i = 0;
   while (i < fields.length) {
     const fld = fields[i]!;
-    if (fld.objectKey) {
+    if (fld.presenceOf) {
+      // The presence cell is not a wire field; it gates its group below.
+      i++;
+    } else if (fld.objectKey && fld.presentCell) {
+      // An optional value object: the object when present, `null` otherwise.
+      // One line keeps the `if` offside-safe inside the list.
+      const key = fld.objectKey;
+      const entries: string[] = [];
+      while (i < fields.length && fields[i]!.objectKey === key) {
+        entries.push(`"${fields[i]!.jsonKey}", ${fields[i]!.encodeExpr}`);
+        i++;
+      }
+      out.push(
+        `      "${key}", (if form.${fld.presentCell} = "true" then Encode.object [ ${entries.join("; ")} ] else Encode.nil)`,
+      );
+    } else if (fld.objectKey) {
       const key = fld.objectKey;
       out.push(`      "${key}", Encode.object [`);
       while (i < fields.length && fields[i]!.objectKey === key) {
@@ -3700,7 +3817,7 @@ export function renderValidation(forms: FormRecord[]): string {
               `${NUMERIC_CHECK_FN[rf.numeric as "integral" | "fractional"]} row.${rf.wireName}`,
           )
           .join(" && ");
-        return [`List.forall (fun row -> ${inner}) form.${fa.fieldName}`];
+        return [`List.forall (fun (row: ${fa.rowType}) -> ${inner}) form.${fa.fieldName}`];
       });
       const allTerms = [...terms, ...rowTerms];
       const body = allTerms.length > 0 ? allTerms.join(" && ") : "true";

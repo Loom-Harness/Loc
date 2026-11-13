@@ -3,33 +3,20 @@
 //
 // Compiled to `out/dap-server/main.js` and invoked by the `packages/ddd-dap/
 // bin.js` shim (`npx ddd-dap`). Mirrors `src/mcp/main.ts`'s role for the MCP
-// server / `src/cli/main.ts`'s role for the CLI bin: loads the fs-backed
-// `.loom/sourcemap.json` (via `load-map.ts`), constructs the fs-free
-// `LoomDebugSession` over it, and wires it to the stdio DAP transport via the
-// SDK's `ProtocolServer.start(inStream, outStream)`.
-//
-// NOTE — the map path is deliberately simple: `--map=<path>` on argv, else the
-// `LOOM_DAP_MAP` env var, else `.loom/sourcemap.json`
-// relative to the current working directory (the same default
-// `src/cli/commands/trace.ts`'s `resolveMapPath` uses for `ddd trace`/`ddd
-// breakpoints`). A real editor launch config sets one of these explicitly.
+// server / `src/cli/main.ts`'s role for the CLI bin: resolves the map path
+// (`args.ts` — `--map <path>` / `--map=<path>`, else `LOOM_DAP_MAP`, else
+// `./.loom/sourcemap.json`), loads the fs-backed `.loom/sourcemap.json` (via
+// `load-map.ts`), constructs the fs-free `LoomDebugSession` over it, and wires
+// it to the stdio DAP transport via the SDK's `ProtocolServer.start(inStream,
+// outStream)`.
 // ---------------------------------------------------------------------------
 
-import * as path from "node:path";
+import { DapArgsError, resolveMapPathFromArgs } from "./args.js";
 import { loadSourceMap, makeFsReadSource } from "./load-map.js";
 import { LoomDebugSession } from "./session.js";
 
-const MAP_ARG_PREFIX = "--map=";
-
-function resolveMapPath(): string {
-  const argMap = process.argv.slice(2).find((a) => a.startsWith(MAP_ARG_PREFIX));
-  if (argMap) return path.resolve(argMap.slice(MAP_ARG_PREFIX.length));
-  if (process.env.LOOM_DAP_MAP) return path.resolve(process.env.LOOM_DAP_MAP);
-  return path.resolve(".loom", "sourcemap.json");
-}
-
 function main(): void {
-  const mapPath = resolveMapPath();
+  const mapPath = resolveMapPathFromArgs(process.argv.slice(2), process.env.LOOM_DAP_MAP);
   const map = loadSourceMap(mapPath);
   const session = new LoomDebugSession(map, makeFsReadSource());
   session.start(process.stdin, process.stdout);
@@ -43,6 +30,6 @@ try {
 } catch (err) {
   // Diagnostics go to stderr — stdout is the DAP transport channel and must
   // carry only protocol frames.
-  console.error(err);
+  console.error(err instanceof DapArgsError ? `ddd-dap: ${err.message}` : err);
   process.exit(1);
 }

@@ -6,7 +6,16 @@ import { layeredStyleAdapter } from "../generator/java/adapters/layered-style.js
 import { generateJavaForContexts } from "../generator/java/index.js";
 import { basePackageFor, javaPackageSegment } from "../generator/java/naming.js";
 import { databaseOf, migratesAtBoot } from "../ir/util/databases.js";
+import { serviceSlug } from "../util/service-slug.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
+import {
+  BACKEND_HEALTH,
+  BROKER_BASELINE,
+  BROKER_BASELINE_GAPS,
+  MIGRATIONS_BASELINE,
+  wgetHealthcheck,
+} from "./operations.js";
+import { backendEnvContract } from "./operations-env.js";
 import {
   type ComposeServiceShape,
   EMBEDDABLE_FRAMEWORKS,
@@ -61,6 +70,21 @@ const javaPlatform: PlatformSurface = {
       { emitTrace, sourcemap },
     );
   },
+  operations: {
+    health: BACKEND_HEALTH,
+    healthcheck: wgetHealthcheck,
+    healthcheckBinaries: ["wget"],
+    env: (args) =>
+      backendEnvContract(
+        args,
+        javaPlatform.composeService({ ...args, slug: serviceSlug(args.deployable.name) }),
+      ),
+    listen: "dual-stack",
+    log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
+    broker: { ...BROKER_BASELINE, reconnects: false },
+    migrations: MIGRATIONS_BASELINE,
+    gaps: { ...BROKER_BASELINE_GAPS, "broker.reconnects": "#5450" },
+  },
   composeService({ slug, deployable, sys }): ComposeServiceShape {
     const database = databaseOf(sys, deployable)?.name ?? slug;
     return {
@@ -81,7 +105,6 @@ const javaPlatform: PlatformSurface = {
       dependsOnDb: true,
       // Compose healthcheck → /ready (DB-aware); /health stays for cheap
       // liveness probing.  Mirrors dotnet.
-      healthPath: "/ready",
       internalPort: 8080,
     };
   },

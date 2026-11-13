@@ -36,6 +36,11 @@
 
 import type { AggregateIR, BoundedContextIR } from "../../ir/types/loom-ir.js";
 import { escapeCsharpIdent, lowerFirst, upperFirst } from "../../util/naming.js";
+import {
+  dotnetAmbientClash,
+  dotnetImportedNamespaces,
+  isDotnetAmbientTypeName,
+} from "../_symbols/plan.js";
 
 /** BCL type names this backend's emitted `using` set brings into scope, so a
  *  same-named domain type is ambiguous rather than merely shadowed.
@@ -456,6 +461,12 @@ function namespaceDecl(src: string): { ns: string; insertAt: number } | undefine
   return { ns: m[1], insertAt: m.index + m[0].length };
 }
 
+/** The aggregate / part names the compilation-unit aliases of
+ *  {@link collidingNamesOfAggregate} bind in the files emitted for them. */
+function perFileAliasedNames(contexts: Parameters<typeof declaredTypeNames>[0]): Set<string> {
+  return new Set(contexts.flatMap((c) => c.aggregates.flatMap(collidingNamesOfAggregate)));
+}
+
 /** Alias every hosted type that collides with a generated layer namespace
  *  (or, for an aggregate id, a `System` type) inside each `<root>.…`
  *  namespace declaration of `out` — see the block above.  Returns the
@@ -488,9 +499,17 @@ export function layerClashAliases(
   for (const ctx of contexts) {
     for (const agg of ctx.aggregates) candidates.add(`${agg.name}Id`);
   }
-  const clashing = [...candidates]
-    .filter((t) => layers.has(t) || BCL_COLLIDING_ID_NAMES.has(t))
-    .sort();
+  const always = new Set(
+    [...candidates].filter((t) => layers.has(t) || BCL_COLLIDING_ID_NAMES.has(t)),
+  );
+  // A type an imported framework namespace also exports clashes only in the
+  // units that import both (`_symbols/plan.ts`).  The aggregates and parts the
+  // per-file aliases above already bind are left to them.
+  const perFile = perFileAliasedNames(contexts);
+  const ambient = new Set(
+    [...candidates].filter((t) => !always.has(t) && !perFile.has(t) && isDotnetAmbientTypeName(t)),
+  );
+  const clashing = [...always, ...ambient].sort();
   if (clashing.length === 0) return rewritten;
 
   // Where each clashing type is declared — read off the output, so the alias
@@ -504,10 +523,16 @@ export function layerClashAliases(
   }
 
   for (const f of files) {
+    const imported = dotnetImportedNamespaces(f.src);
+    const sees = (t: string, ns: string): boolean =>
+      always.has(t) || (imported.includes(ns) && dotnetAmbientClash(t, imported));
     const aliases = [...home]
       .filter(
         ([t, ns]) =>
-          f.ns !== ns && !namespaces.has(`${f.ns}.${t}`) && new RegExp(`\\b${t}\\b`).test(f.src),
+          f.ns !== ns &&
+          !namespaces.has(`${f.ns}.${t}`) &&
+          sees(t, ns) &&
+          new RegExp(`\\b${t}\\b`).test(f.src),
       )
       .map(([t, ns]) => ` using ${t} = global::${ns}.${t};`);
     if (aliases.length === 0) continue;

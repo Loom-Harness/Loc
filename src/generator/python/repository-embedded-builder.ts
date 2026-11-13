@@ -7,6 +7,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
+import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
@@ -15,7 +16,7 @@ import { PY_IMPORTS } from "../_imports/python.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
 import { writeScopePredicate } from "./find-predicate.js";
 import { pyGuardedSaveTail } from "./guarded-save-py.js";
-import { isRefCollectionField, isValueCollectionField, rowClassName } from "./py-columns.js";
+import { isValueCollectionField, rowClassName } from "./py-columns.js";
 import { PY, pyIdType } from "./py-symbols.js";
 import {
   aggHasFieldMask,
@@ -179,7 +180,7 @@ function hydrateMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR):
   const kwargs: string[] = [`id=${pyIdType(agg.name)}(row.id)`];
   for (const f of agg.fields) {
     if (isValueCollectionField(f)) continue;
-    if (isRefCollectionField(f)) {
+    if (isRefCollectionType(f.type)) {
       const target = refTarget(f);
       kwargs.push(
         `${pythonIdent(f.name)}=[${pyIdType(target)}(${PY.cast}(str, __x)) for __x in ${PY.cast}(list[object], row.${pythonIdent(f.name)})]`,
@@ -209,7 +210,7 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
   const pairs: Array<[string, string]> = [["id", "aggregate.id"]];
   for (const f of agg.fields) {
     if (isValueCollectionField(f)) continue;
-    if (isRefCollectionField(f)) {
+    if (isRefCollectionType(f.type)) {
       pairs.push([snake(f.name), `[str(__x) for __x in aggregate.${pythonIdent(f.name)}]`]);
       continue;
     }
@@ -280,6 +281,6 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
 
 function refTarget(f: FieldIR): string {
   const t = f.type.kind === "optional" ? f.type.inner : f.type;
-  if (t.kind === "array" && t.element.kind === "id") return t.element.targetName;
+  if (isRefCollectionType(t)) return t.element.targetName;
   return "";
 }

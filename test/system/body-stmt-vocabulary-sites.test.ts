@@ -222,8 +222,8 @@ system R {
 }`;
     const files = await generateSystemFiles(src);
     const ex = fileMatching(files, /workflows\/fulfil\/on_noted\.ex$/);
-    expect(ex).toContain("{:ok, _} <- (case Api.C.run_find_all_by_placed_order(limit: 1) do");
-    expect(ex).toContain("{:ok, [o6 | _]} ->");
+    expect(ex).toContain("o6 = case Api.C.run_find_all_by_placed_order(limit: 1) do");
+    expect(ex).toContain("{:ok, [hit | _]} -> hit");
     expect(ex).toContain("{:ok, _} <- Api.C.delete_order(o3)");
     expect(ex).toContain("_ = Api.Resources.Smtp.mail_send(");
   });

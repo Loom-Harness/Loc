@@ -56,8 +56,9 @@ IMG_NODE="node:24"
 
 ensure_dockerd() {
   docker info >/dev/null 2>&1 && return 0
+  # mirror.gcr.io serves Docker Hub images without the Hub pull rate limit.
   log "starting dockerd"
-  (dockerd >/tmp/dockerd.log 2>&1 &)
+  (dockerd --registry-mirror=https://mirror.gcr.io >/tmp/dockerd.log 2>&1 &)
   local i
   for i in $(seq 1 45); do
     docker info >/dev/null 2>&1 && return 0

@@ -1,4 +1,5 @@
 {
+  "seedsOpFormRecord": true,
   "name": "flowbite",
   "version": "v1",
   "format": "svelte",

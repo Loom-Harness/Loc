@@ -893,15 +893,6 @@ const WAIVERS: Record<string, Waiver> = {
       "PROVEN silent: `default: break` drops a self-`call` (the callee's events never reach the stream — `events = []`) and a `return` value in an event-sourced command on a `0 error(s)` model. The ES discipline refuses only assign/add/remove; a statement `match` is refused on elixir by `loom.elixir-match-stmt-unsupported`. Needs the runner to fold a callee's events, or a refusal",
     reviewUntil: "2026-12-31",
   },
-  // PROVEN silent: `on(pr: PaymentRegistered) { let o = Orders.getById(pr.order) … }`
-  // on an eventSourced workflow emits NOTHING for the `repo-let` on elixir
-  // (measured), while node emits `const o = await orders.getById(pr.order)`.
-  "src/generator/elixir/vanilla/workflow-eventsourced-emit.ts#renderEsWorkflowHandler": {
-    deferred:
-      "MISFILED by the old bucket, and PROVEN silent: `default: break` drops the statement. Measured — a `repo-let` in an eventSourced workflow's `on(...)` handler is ABSENT from the emitted Elixir on a `0 error(s), 0 warning(s)` model, while node emits it. Both a silent drop AND parity debt; hand-off row in https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-cr1-f.md",
-    reviewUntil: "2026-12-31",
-  },
-
   // -- the CR1-f gate itself ------------------------------------------------
   // Deliberately NOT `never`-checked, and the reason is the point of the gate:
   // its `default` REFUSES.  A new `ExprIR` kind therefore fails CLOSED here (a

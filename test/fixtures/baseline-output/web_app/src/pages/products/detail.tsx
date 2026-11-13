@@ -1,6 +1,6 @@
 // Auto-generated.  Do not edit by hand.
 import { useParams, Link as RouterLink } from "react-router";
-import { UpdateProductRequest, useUpdateProduct } from "../../api/product";
+import { ProductResponse, UpdateProductRequest, useUpdateProduct } from "../../api/product";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
 import { fieldErrorText } from "../../lib/field-error";
@@ -11,18 +11,18 @@ import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
 import { Controller, useForm } from "react-hook-form";
 import { useProductById } from "../../api/product";
-function openUpdateModal(mut: ReturnType<typeof useUpdateProduct>): void {
+function openUpdateModal(mut: ReturnType<typeof useUpdateProduct>, record: ProductResponse): void {
   modals.open({
     title: t("Products.Product.op.update", "Update"),
     closeButtonProps: { "aria-label": t("chrome.close", "Close") },
-    children: <UpdateForm mut={mut} onClose={() => modals.closeAll()} />,
+    children: <UpdateForm mut={mut} record={record} onClose={() => modals.closeAll()} />,
   });
 }
 
-function UpdateForm({ mut, onClose }: { mut: ReturnType<typeof useUpdateProduct>; onClose: () => void }) {
+function UpdateForm({ mut, record, onClose }: { mut: ReturnType<typeof useUpdateProduct>; record: ProductResponse; onClose: () => void }) {
   const { register, handleSubmit, setError, control, formState: { errors } } = useForm<UpdateProductRequest>({
     resolver: zodResolver(UpdateProductRequest),
-    defaultValues: { sku: "", price: { amount: 0, currency: "" } },
+    defaultValues: { sku: record.sku, price: record.price },
   });
   return (
     <form
@@ -106,7 +106,7 @@ export default function ProductDetail() {
               </Stack>
             </Card>
             <Group gap="xs">
-              <Button variant="filled" onClick={() => openUpdateModal(update)} data-testid="products-op-update">{t("Products.Product.op.update", "Update")}</Button>
+              <Button variant="filled" onClick={() => openUpdateModal(update, productById.data!)} data-testid="products-op-update">{t("Products.Product.op.update", "Update")}</Button>
     
             </Group>
           </Stack>

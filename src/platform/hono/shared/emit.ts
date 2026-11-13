@@ -1,4 +1,8 @@
-import { hasDurableEvents, workflowIsolation } from "../../../ir/plan/index.js";
+import {
+  hasDurableEvents,
+  routedPolymorphicRead,
+  workflowIsolation,
+} from "../../../ir/plan/index.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
 // This orchestrator (project assembly: which files, framework wiring,
 // package.json/Dockerfile) is backend-specific, so it lives with the
@@ -30,7 +34,6 @@ import {
   buildBaseUnionFile,
   buildMikroBaseReaderFile,
   buildTpcBaseReaderFile,
-  routesPolymorphicRead,
 } from "../../../generator/typescript/base-reader-builder.js";
 import {
   TS_MONEY_GRAMMAR,
@@ -53,7 +56,7 @@ import {
   MIKRO_INDEX_IMPORTS,
   MIKRO_ORM_VERSION,
   mikroConnectionSetup,
-  mikroForeignKeyDdl,
+  mikroPostUpdateDdl,
   renderMikroConfig,
   renderMikroDocumentRepository,
   renderMikroEmbeddedRepository,
@@ -1123,7 +1126,13 @@ export function generateTypeScriptForContexts(
     effectiveSavingShape(agg, resolveDataSource(agg));
   const mikroForeignKeys =
     usingMikro &&
-    mikroForeignKeyDdl(merged.aggregates, merged, mikroShapeOf, resolveStreamContext).length > 0;
+    mikroPostUpdateDdl(
+      merged.aggregates,
+      merged,
+      mikroShapeOf,
+      resolveStreamContext,
+      hasDurableEvents(merged),
+    ).length > 0;
   if (usingMikro) {
     out.set(
       "db/entities.ts",
@@ -1507,7 +1516,7 @@ export function generateTypeScriptForContexts(
         base.origin,
         baseConstruct,
       );
-      if (routesPolymorphicRead(base, ctx)) {
+      if (routedPolymorphicRead(base, ctx)) {
         place(
           "http-routes",
           base.name,
@@ -1542,7 +1551,7 @@ export function generateTypeScriptForContexts(
         base.origin,
         baseConstruct,
       );
-      if (routesPolymorphicRead(base, ctx)) {
+      if (routedPolymorphicRead(base, ctx)) {
         place(
           "http-routes",
           base.name,

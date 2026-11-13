@@ -1425,7 +1425,7 @@ function lowerContext(
     else if (isChannel(m)) channels.push(lowerChannel(m));
     else if (isProjection(m)) projections.push(lowerProjection(m, env));
     else if (isRetrieval(m)) retrievals.push(lowerRetrieval(m, env));
-    else if (isSeed(m)) seeds.push(lowerSeed(m, env));
+    else if (isSeed(m)) seeds.push(lowerSeed(m, env, ctx.name));
   }
   // Workflows lower in a SECOND pass so they can see the context's already-
   // lowered `aggregates` + `domainServices` (domain-services.md rev. 4, the
@@ -1515,7 +1515,7 @@ function lowerChannel(c: Channel): ChannelIR {
  *  (enum values, value-object object-literals, and pure stdlib builtins like
  *  `now()` all resolve there).  No `this` binding — seed rows construct fresh
  *  instances, they do not operate on an existing aggregate. */
-function lowerSeed(s: Seed, env: Env): SeedIR {
+function lowerSeed(s: Seed, env: Env, context: string): SeedIR {
   const rows: SeedRowIR[] = s.rows.map((row) => {
     const agg = row.aggregate.ref;
     // Per-field declared type, so a bare object literal in a value-object-
@@ -1545,6 +1545,7 @@ function lowerSeed(s: Seed, env: Env): SeedIR {
   });
   return {
     dataset: s.dataset ?? "default",
+    context,
     path: s.raw ? "raw" : "domain",
     rows,
   };

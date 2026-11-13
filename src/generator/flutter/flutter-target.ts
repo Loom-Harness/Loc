@@ -43,10 +43,15 @@ import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
+import { optionalChainedMemberRead } from "../_frontend/optional-member.js";
 import { renderValueEqualsCall } from "../_frontend/value-equals.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
-import { localizedNamedValue, localizedPositionalTranslation } from "../_walker/i18n-emit.js";
+import {
+  localizedNamedValue,
+  localizedPageChromeValue,
+  localizedPositionalTranslation,
+} from "../_walker/i18n-emit.js";
 import { opGateFor } from "../_walker/op-gate.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
@@ -70,6 +75,7 @@ import {
   createFormWidgetName,
   destroyFormWidgetName,
   operationFormWidgetName,
+  opFormTakesRecord,
   workflowFormWidgetName,
 } from "./forms-emit.js";
 import { dartStringLit } from "./i18n.js";
@@ -170,7 +176,18 @@ function instanceOperation(
   const versionExpr = sendsIfMatchPrecondition(agg, op)
     ? `${emitExpr(inst.receiver, ctx)}.${ROW_VERSION_FIELD}`
     : undefined;
-  return { agg, op, idExpr, ...(versionExpr ? { versionExpr } : {}) };
+  // The instance is the decoded record: its wire map seeds the form's inputs
+  // (`recordSeeds`), so an `update` opens on the current values.
+  const recordExpr = opFormTakesRecord(agg, op)
+    ? `${emitExpr(inst.receiver, ctx)}.toJson()`
+    : undefined;
+  return {
+    agg,
+    op,
+    idExpr,
+    ...(versionExpr ? { versionExpr } : {}),
+    ...(recordExpr ? { recordExpr } : {}),
+  };
 }
 
 /** A resolved op-form reference: the aggregate + op, the Dart expression for the
@@ -180,13 +197,16 @@ interface OpFormTarget {
   op: AggregateIR["operations"][number];
   idExpr: string;
   versionExpr?: string;
+  /** The loaded record's wire map, when the form prefills from it. */
+  recordExpr?: string;
 }
 
 /** The constructor call of an op-form widget: `UpdateNoteForm(id: id)`, plus
  *  `expectedVersion:` when the call site holds the loaded record. */
 function opFormWidgetCall(r: OpFormTarget, extra = ""): string {
   const version = r.versionExpr ? `, expectedVersion: ${r.versionExpr}` : "";
-  return `${operationFormWidgetName(r.agg.name, r.op.name)}(id: ${r.idExpr}${version}${extra})`;
+  const record = r.recordExpr ? `, record: ${r.recordExpr}` : "";
+  return `${operationFormWidgetName(r.agg.name, r.op.name)}(id: ${r.idExpr}${version}${record}${extra})`;
 }
 
 /** The op-form widget reference for an instance-qualified `OperationForm`, or
@@ -444,10 +464,16 @@ export const flutterTarget: WalkerTarget = {
   /** A wire field named after a Dart RESERVED word (`default`, `enum`,
    *  `extends`, …) or an `Object` member (`toString`, `hashCode`, …) is the
    *  `<name>_` member on the generated model (`dart-member.ts`), so
-   *  `row.default` — a parse error — reads `row.default_`.  Every other member
-   *  falls through `undefined` to the shared bare emit. */
-  renderMemberRead: ({ receiver, member }) =>
-    dartMember(member) !== member ? `${receiver}.${dartMember(member)}` : undefined,
+   *  `row.default` — a parse error — reads `row.default_`.  A read off an
+   *  OPTIONAL receiver (`policy.vehicle.vin` with `vehicle: Vehicle?`) takes
+   *  Dart's `?.`: a plain `.` on a nullable is `unchecked_use_of_nullable_value`.
+   *  Every other member falls through `undefined` to the shared bare emit. */
+  renderMemberRead: (spec) => {
+    const member = dartMember(spec.member);
+    const optional = optionalChainedMemberRead({ ...spec, member });
+    if (optional !== undefined) return optional;
+    return member !== spec.member ? `${spec.receiver}.${member}` : undefined;
+  },
 
   /** Dart NAMED RECORD for a find's query bag — `(page: 1, pageSize: 10, …)`.
    *  The shared default is a JavaScript object literal, whose bare `page:` keys
@@ -960,8 +986,13 @@ export const flutterTarget: WalkerTarget = {
     const row = (label: string, value: string) =>
       `Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[` +
       `Expanded(child: ${label}), Expanded(child: ${value})])`;
-    const rule = row(`const Text(${dartString("Rule")})`, "Text(__p.snapshotId)");
-    const value = row(`const Text(${dartString("Value")})`, "Text(__p.computedValue)");
+    // A translated label is a runtime `t(…)` call, so its `Text` cannot be `const`.
+    const label = (name: string): string => {
+      const expr = localizedPageChromeValue(ctx, name);
+      return ctx.i18nPrefix ? `Text(${expr})` : `const Text(${expr})`;
+    };
+    const rule = row(label("provenanceRule"), "Text(__p.snapshotId)");
+    const value = row(label("provenanceValue"), "Text(__p.computedValue)");
     const inputs = `...__p.inputs.map((__i) => ${row("Text(__i.path)", "Text(__i.value)")})`;
     const body =
       `Column(crossAxisAlignment: CrossAxisAlignment.start, ` +
@@ -970,7 +1001,7 @@ export const flutterTarget: WalkerTarget = {
     // screen-reader label the JSX targets put on `<summary aria-label=…>` rides
     // `Semantics` here (Flutter's a11y seam — `a11y.test.ts` pins the idiom).
     const tile =
-      `ExpansionTile(title: Semantics(label: ${dartString("How this value was computed")}, ` +
+      `ExpansionTile(title: Semantics(label: ${localizedPageChromeValue(ctx, "provenanceHowComputed")}, ` +
       `child: const Text(${dartString("?")})), children: <Widget>[${body}])`;
     return `(switch (${lineage}) { final __p? => ${tile}, _ => const SizedBox.shrink() })`;
   },

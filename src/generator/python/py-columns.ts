@@ -1,6 +1,7 @@
 import { eventLogTable } from "../../ir/plan/index.js";
 import type { AssociationIR, BoundedContextIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import { escapePythonIdent, snake, upperFirst } from "../../util/naming.js";
 import { pyIdColumnType, pyScalarColumn } from "./codec-spelling.js";
 
@@ -87,13 +88,6 @@ export function valueCollectionRowClassName(childTable: string): string {
   return `${pascal}Row`;
 }
 
-/** True for `T id[]` reference-collection fields (persisted via a join
- *  table, no column on the owner). */
-export function isRefCollectionField(f: FieldIR): boolean {
-  const t = f.type.kind === "optional" ? f.type.inner : f.type;
-  return t.kind === "array" && t.element.kind === "id";
-}
-
 /** True for `<VO>[]` value-collection fields (id-less child table —
  *  deferred; see the schema emitter's note). */
 export function isValueCollectionField(f: FieldIR): boolean {
@@ -133,7 +127,7 @@ export function valueCollectionChildColumns(
 export function columnsForFields(fields: FieldIR[], ctx: BoundedContextIR): PyColumn[] {
   const out: PyColumn[] = [];
   for (const f of fields) {
-    if (isRefCollectionField(f) || isValueCollectionField(f)) continue;
+    if (isRefCollectionType(f.type) || isValueCollectionField(f)) continue;
     out.push(...columnsFor(f.name, f.type, f.optional, ctx));
   }
   return out;
