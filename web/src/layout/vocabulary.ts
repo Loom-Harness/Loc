@@ -50,6 +50,7 @@ export const PANE = {
   migrations: "Migrations",
   history: "History",
   auth: "Auth",
+  infra: "Infrastructure",
   more: "More",
   explorer: "Explorer",
   devTools: "Dev Tools",

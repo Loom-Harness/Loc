@@ -66,6 +66,7 @@ import { examples, defaultExample, type LoomExample } from "./examples";
 import { LoomBuildClient } from "./build/client";
 import { BuildWorkerRespawnedError, onOneWorker } from "./build/respawn";
 import type {
+  DeclaredResource,
   EvolutionResult,
   GenerateOk,
   GenerateResult,
@@ -569,6 +570,9 @@ export default function App(): JSX.Element {
   // Auth panel minted (sent as `Authorization: Bearer` while the booted
   // backends verify OIDC tokens).
   const [oidc, setOidc] = useState<OidcState>(NO_OIDC);
+  // The booted system's declared `storage`s — what the Infrastructure panel
+  // lists its tabs against.  Set on each successful boot.
+  const [infraResources, setInfraResources] = useState<DeclaredResource[]>([]);
   const oidcRef = useRef(oidc);
   oidcRef.current = oidc;
   // The preview app's cookies for its backend — the session the generated
@@ -1802,6 +1806,7 @@ export default function App(): JSX.Element {
       const res = await engine.boot(plan.plan, { fresh: opts?.fresh });
       if (res.ok) {
         previewCookiesRef.current.clear();
+        setInfraResources(planned.resources);
         // A token minted against the same realm still verifies (the signing
         // key outlives a boot); one for another realm, or a stub boot, drops it.
         setOidc((prev) => ({
@@ -3249,6 +3254,7 @@ export default function App(): JSX.Element {
       setPreviewFrontend,
       authStub,
       oidc,
+      infraResources,
       editorSourceTick,
       editorHandleRef,
       diagnostics,
@@ -3363,6 +3369,7 @@ export default function App(): JSX.Element {
       activeFrontend,
       authStub,
       oidc,
+      infraResources,
       editorSourceTick,
       diagnostics,
       errorCount,
