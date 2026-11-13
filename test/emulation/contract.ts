@@ -25,7 +25,7 @@ import { memoryBlobStore, RABBIT_MAX_ATTEMPTS } from "../../src/emulation/index.
 /** The models a host serves.  Each call makes a fresh, independent instance. */
 export interface EmulationHost {
   mailbox(opts?: { store?: BlobStore | null }): Mailbox;
-  s3(opts?: { store?: BlobStore | null }): S3;
+  s3(opts?: { store?: BlobStore | null; buckets?: readonly string[] }): S3;
   ses(opts: { mailbox: Mailbox }): Ses;
   disk(opts?: { store?: BlobStore | null }): Disk;
   httpMock(opts?: { sample?: () => Promise<SchemaSampler>; now?: () => Date }): HttpMock;
@@ -130,6 +130,69 @@ export function emulationContract(hostName: string, host: EmulationHost): void {
         const again = host.s3();
         await again.persist(store);
         expect(again.list().map((o) => `${o.bucket}/${o.key}`)).toEqual(["b/k"]);
+      });
+      it("serves a presigned GET without verifying its signature", () => {
+        const s3 = host.s3();
+        s3.http(req("PUT", "http://s3.local/b/p.txt", "x"));
+        const res = s3.http(
+          req(
+            "GET",
+            "http://s3.local/b/p.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=k%2F20261113%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261113T000000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=0000",
+          ),
+        );
+        expect([res.status, dec.decode(res.body)]).toEqual([200, "x"]);
+      });
+
+      it("answers CreateBucket, HeadBucket and GetBucketLocation, and 501 for other bucket verbs", () => {
+        const s3 = host.s3();
+        expect(s3.http(req("PUT", "http://s3.local/fresh")).status).toBe(200);
+        expect(s3.http(req("HEAD", "http://s3.local/fresh")).status).toBe(200);
+        const loc = s3.http(req("GET", "http://s3.local/fresh?location"));
+        expect([loc.status, dec.decode(loc.body).includes("<LocationConstraint")]).toEqual([
+          200,
+          true,
+        ]);
+        const other = s3.http(req("POST", "http://s3.local/fresh?delete"));
+        expect([
+          other.status,
+          dec.decode(other.body).includes("<Code>NotImplemented</Code>"),
+        ]).toEqual([501, true]);
+      });
+
+      it("lists sorted by bucket then key; pre-created buckets survive reset, others do not", () => {
+        const s3 = host.s3({ buckets: ["app-files"] });
+        expect(s3.buckets()).toEqual(["app-files"]);
+        for (const p of ["b/z", "a/y", "a/x"]) s3.http(req("PUT", `http://s3.local/${p}`, "1"));
+        expect(s3.list().map((o) => `${o.bucket}/${o.key}`)).toEqual(["a/x", "a/y", "b/z"]);
+        expect(s3.buckets()).toEqual(["a", "app-files", "b"]);
+        s3.reset();
+        expect([s3.buckets(), s3.list()]).toEqual([["app-files"], []]);
+      });
+
+      it("direct get/put/delete and the wire share one durable store", async () => {
+        const store = memoryBlobStore();
+        const s3 = host.s3({ store });
+        s3.put("b", "k", enc.encode("direct"), "text/plain");
+        const got = s3.http(req("GET", "http://s3.local/b/k"));
+        expect([dec.decode(got.body), got.headers["content-type"]]).toEqual([
+          "direct",
+          "text/plain",
+        ]);
+        const put = s3.http(
+          req("PUT", "http://s3.local/b/w", "wire", { "content-type": "application/json" }),
+        );
+        const w = s3.get("b", "w");
+        expect(w && dec.decode(w.body)).toBe("wire");
+        expect(w?.contentType).toBe("application/json");
+        expect(w?.etag).toBe(put.headers.etag);
+        expect(Number.isNaN(Date.parse(w?.lastModified ?? ""))).toBe(false);
+        expect(s3.get("b", "missing")).toBeNull();
+        s3.delete("b", "k");
+        s3.delete("b", "never-there");
+        expect(s3.http(req("GET", "http://s3.local/b/k")).status).toBe(404);
+        const again = host.s3();
+        await again.persist(store);
+        expect(again.list().map((o) => o.key)).toEqual(["w"]);
       });
     });
 
