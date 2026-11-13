@@ -461,6 +461,42 @@ declared `function`.  `requires` is admissible in workflow
 bodies too; the workflow handler / route handler maps it to 403
 the same way as the operation route does.
 
+#### Gate order
+
+Every backend refuses a request on an aggregate row in one order
+(`src/ir/plan/gate-ladder.ts`):
+
+| # | Step | Status |
+|---|---|---|
+| 1 | authentication | 401 |
+| 2 | `requires` that reads no row (the principal, the parameters) | 403 |
+| 3 | request shape (framework binding) | 422 |
+| 4 | load through the read scope (`policy { read }`, tenancy, shares) | 404 |
+| 5 | `requires` that reads the row; the write scope | 403 / 404 |
+| 6 | version (`If-Match`) | 409 |
+| 7 | `when` | 409 |
+| 8 | preconditions, invariants | 409 / 422 |
+
+A caller refused at step 2 gets 403 for an existing id, a missing id, a stale
+`If-Match` and a row in the wrong state alike, so the refusal reveals nothing
+about the row.  A row outside the read scope answers 404, never 403.
+
+```ddd
+operation reopen() when !open {
+  requires currentUser.role == "agent"   // step 2: before the load
+  open := true
+}
+```
+```
+POST /api/tickets/<missing id>/reopen   (role: "clerk")  → 403
+POST /api/tickets/<missing id>/reopen   (role: "agent")  → 404
+```
+
+`GET /{id}/can_<op>`, the probe of a `when`-gated operation, runs the same
+ladder without a body.  The by-id read's gate refuses it (403) and a row the
+caller cannot read is 404, exactly as `GET /{id}` answers.  The operation's
+own `requires` and `when` answer `{ "allowed": false }`.
+
 #### Guarded state transitions — close the generic-update side door
 
 A `requires` gate guards **its own route**.  It does not make the field the
