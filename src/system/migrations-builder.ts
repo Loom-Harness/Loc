@@ -4097,12 +4097,16 @@ function tableForPart(
     { name: parentFk, type: idColumnType(), nullable: false },
   ];
   const foreignKeys: FKShape[] = [{ column: parentFk, refTable: parentTable, onDelete: "cascade" }];
+  // A single containment (`contains label: Label`) holds at most one child
+  // per parent, so its parent FK is UNIQUE: the database refuses a second
+  // child instead of letting a backend that loads one part (has_one /
+  // OneToOne / OwnsOne) read an arbitrary row.  A collection's FK is not.
   const indexes: IndexShape[] = [
     {
       name: `${tableName}_${parentFk}_idx`,
       table: tableName,
       columns: [parentFk],
-      unique: false,
+      unique: dp?.single === true,
     },
   ];
 

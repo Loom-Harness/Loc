@@ -9,6 +9,7 @@ import {
   runJournalOrderingGate,
   runMigrationEvolutionGate,
   runMoneyBoundsCatchUpGate,
+  runSingleChildUniqueGate,
   runUniqueIndexEvolutionGate,
   runValueCollectionEvolutionGate,
 } from "./support/migration-evolution-harness.js";
@@ -94,6 +95,15 @@ describe.skipIf(!ENABLED)(
   () => {
     it("applies to a populated db with no flag, backfills it, and leaves NO column default", async () => {
       await runFieldDefaultEvolutionGate();
+    }, 240_000);
+  },
+);
+
+describe.skipIf(!ENABLED)(
+  "single-child uniqueness gate — a collection containment made single gets a UNIQUE parent FK",
+  () => {
+    it("rebuilds the index on a populated table and refuses a second child", async () => {
+      await runSingleChildUniqueGate();
     }, 240_000);
   },
 );
