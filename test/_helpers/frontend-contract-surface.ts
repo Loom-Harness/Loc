@@ -29,12 +29,17 @@ import type {
   TypeIR,
 } from "../../src/ir/types/loom-ir.js";
 import { declaredResponseFor } from "../../src/ir/util/declared-response.js";
+import { exposedContexts } from "../../src/ir/util/exposed-contexts.js";
 
 interface Surface {
   /** Response record → field → masked. */
   responses: Map<string, Map<string, boolean>>;
-  /** Aggregate / part name → its response record's fields. */
+  /** Aggregate / part name → what a read on it may name: its response
+   *  record's fields, and its operations (a UI hands `order.confirm` to a form). */
   entities: Map<string, Set<string>>;
+  /** Workflows and projections of a served context: their routes are on the
+   *  wire, so a type edge may name them. */
+  routed: Set<string>;
   records: Map<string, Set<string>>;
   events: Map<string, Set<string>>;
   valueObjects: Map<string, Set<string>>;
@@ -94,15 +99,17 @@ export function exposedSurface(model: EnrichedLoomModel, sys: EnrichedSystemIR):
     valueObjects: new Map(),
     enums: new Map(),
     user: new Set((sys.user?.fields ?? []).map((f) => f.name)),
+    routed: new Set(),
   };
-  const modules = new Set(sys.apis.map((a) => a.sourceModule));
   const all = [...sys.subdomains.flatMap((sd) => sd.contexts), ...model.contexts];
-  const exposed = sys.subdomains.filter((sd) => modules.has(sd.name)).flatMap((sd) => sd.contexts);
+  const exposed = exposedContexts(sys);
   const setResponse = (rec: string, entity: string, fields: Map<string, boolean>): void => {
     s.responses.set(rec, fields);
     s.entities.set(entity, new Set(fields.keys()));
   };
   for (const ctx of exposed) {
+    for (const w of ctx.workflows) s.routed.add(w.name);
+    for (const p of ctx.projections) s.routed.add(p.name);
     for (const agg of ctx.aggregates) {
       if (agg.isAbstract) continue;
       const rec = ctx.payloads.find(
@@ -114,7 +121,13 @@ export function exposedSurface(model: EnrichedLoomModel, sys: EnrichedSystemIR):
           const r = ctx.payloads.find(
             (p) => p.kind === "response" && p.name === `${ent.name}Response`,
           );
-          if (r) setResponse(r.name, ent.name, new Map(r.fields.map((f) => [f.name, false])));
+          // A declared record leaves the id implicit; every backend serializes it.
+          if (r)
+            setResponse(
+              r.name,
+              ent.name,
+              new Map([["id", false], ...r.fields.map((f) => [f.name, false] as const)]),
+            );
         }
       } else {
         for (const ent of [agg, ...agg.parts]) {
@@ -126,6 +139,11 @@ export function exposedSurface(model: EnrichedLoomModel, sys: EnrichedSystemIR):
           );
         }
       }
+    }
+    for (const agg of ctx.aggregates) {
+      const members = s.entities.get(agg.name);
+      if (!members) continue;
+      for (const op of agg.operations) if (op.visibility === "public") members.add(op.name);
     }
     for (const p of ctx.payloads) {
       if (p.kind === "event" || !isWireRecord(p)) continue;
@@ -178,6 +196,8 @@ export function surfaceViolations(
     for (const [k, x] of Object.entries(n)) walk(x, `${at}.${k}`, visit);
   };
   walk(contract, "$", (n, at) => {
+    // An api's `errorStatuses` is a map keyed by error name, not a structure.
+    if (at.endsWith(".errorStatuses")) return;
     for (const k of Object.keys(n))
       if (!keys.has(k)) out.push(`${at}: key '${k}' is not shipped by any spec`);
   });
@@ -265,6 +285,7 @@ function entityOnWire(
 ): boolean {
   if (declKind === "aggregate" || declKind === "part") return s.entities.has(name);
   if (declKind === "principal" || declKind === "synthetic") return true;
+  if (declKind === "workflow" || declKind === "projection") return s.routed.has(name);
   return shippedRecords.has(name) || s.records.has(name) || s.events.has(name);
 }
 
