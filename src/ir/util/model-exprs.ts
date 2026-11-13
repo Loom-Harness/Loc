@@ -34,6 +34,7 @@ import type {
   WireField,
   WorkflowIR,
 } from "../types/loom-ir.js";
+import { aggregateArg } from "../types/loom-ir.js";
 import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "./walk.js";
 
 // ---------------------------------------------------------------------------
@@ -525,7 +526,7 @@ function visitProjectionQuery(q: ProjectionQueryIR, src: string, v: ExprVisitor)
   for (const j of q.joins) expr(j.idRef, `${src}/${j.alias}`, "ProjectionJoinIR.idRef", v);
   for (const sel of q.selects ?? []) {
     expr(sel.expr, `${src}/${sel.field}`, "ProjectionQueryIR.selects", v);
-    expr(sel.aggregate?.arg, `${src}/${sel.field}`, "ProjectionAggregateIR.arg", v);
+    expr(aggregateArg(sel.aggregate), `${src}/${sel.field}`, "ProjectionAggregateIR.arg", v);
   }
 }
 

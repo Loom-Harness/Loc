@@ -29,6 +29,7 @@ import type {
   TypeIR,
 } from "../../types/loom-ir.js";
 import {
+  aggregateArg,
   isMaterializedProjection,
   isQueryTimeProjection,
   isShorthandProjection,
@@ -379,7 +380,7 @@ function validateQueryComprehension(
       // a computed expression (`sum(o.total + o.tax)`) or a bare unqualified
       // name (`sum(total)`) has no rendering at all and would CRASH codegen
       // with an internal error.  Gate it honestly.
-      const arg = s.aggregate.arg;
+      const arg = aggregateArg(s.aggregate);
       // The test is `member`, NOT `member on this` — deliberately, and the
       // difference is not cosmetic.  Every backend's `aggregateColumn` renders
       // the arg by reading `.member` alone (`${sourceTable}.${arg.member}`),
