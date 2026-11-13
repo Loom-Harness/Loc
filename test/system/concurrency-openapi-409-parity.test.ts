@@ -100,7 +100,10 @@ describe("versioned → 409 declared on the update op (cross-backend OpenAPI par
   /** The `@ApiResponse` codes on the Java update mapping, in order. */
   function javaUpdateStatuses(files: Map<string, string>): string[] {
     const ctrl = fileMatching(files, (p) => p.endsWith("CustomersController.java"));
-    const block = ctrl.slice(ctrl.indexOf('@PostMapping("/{id}/update")'), ctrl.indexOf("updateCustomer("));
+    const block = ctrl.slice(
+      ctrl.indexOf('@PostMapping("/{id}/update")'),
+      ctrl.indexOf("updateCustomer("),
+    );
     return [...block.matchAll(/responseCode = "(\d{3})"/g)].map((m) => m[1]!);
   }
 
