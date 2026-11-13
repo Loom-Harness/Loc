@@ -1,0 +1,5 @@
+{
+  "title": "parameterised query-time projections — declared params are the only filter on the grouped, singleton and repository arms, checked like operation inputs (malformed → 422)",
+  "doc": "language",
+  "backends": "ALL"
+}

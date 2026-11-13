@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { elixirDocumentedOperations } from "../../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
@@ -82,17 +83,13 @@ describe("vanilla OpenAPI spec — a deployable without `serves:` (F15)", () => 
     const files = await generateSystemFiles(f15Source({ serves: false }));
     const router = file(files, "/router.ex");
     const spec = files.get("api/lib/api_web/api/api_spec.ex")!;
-    // Every path key path-embeds the `/api` mount, like node/dotnet/java/python
-    // — no `servers` base a client given an explicit `--url` would replace,
-    // dropping `/api` from every request (M-T6.70: Schemathesis fuzzed the
-    // LiveView routes instead of the API).
+    // The paths come from the router itself, so each key path-embeds the
+    // `/api` scope like node/dotnet/java/python — no `servers` base a client
+    // given an explicit `--url` would replace (M-T6.70).
     expect(spec).not.toContain("servers:");
-    const keys = [...spec.matchAll(/^ {6}"([^"]+)" => %OpenApiSpex\.PathItem\{/gm)].map(
-      (m) => m[1]!,
-    );
-    expect(keys.length).toBeGreaterThan(0);
-    for (const k of keys) expect(k, `path key ${k} lacks the /api base`).toMatch(/^\/api\//);
-    // … and every route the `scope "/api"` block mounts has a matching path item.
+    expect(spec).toContain("paths: Paths.from_router(ApiWeb.Router)");
+    const documented = elixirDocumentedOperations(files);
+    // … and every route the `scope "/api"` block mounts declares its operation.
     const apiScope = router.slice(router.indexOf('scope "/api"'), router.lastIndexOf('scope "/"'));
     const mounted = [...apiScope.matchAll(/^\s+(get|post|put|patch|delete) "([^"]+)"/gm)].map(
       (m) => [m[1]!, m[2]!.replace(/:(\w+)/g, "{$1}")] as const,
@@ -101,17 +98,9 @@ describe("vanilla OpenAPI spec — a deployable without `serves:` (F15)", () => 
       mounted.length,
       "no /api routes mounted — the fixture is not exercising this",
     ).toBeGreaterThan(0);
-    for (const [verb, path] of mounted) {
-      const at = spec.indexOf(`"/api${path}" => %OpenApiSpex.PathItem{`);
-      expect(
-        at,
-        `spec is missing a path item for ${verb.toUpperCase()} ${path}`,
-      ).toBeGreaterThanOrEqual(0);
-      expect(
-        spec.slice(at, spec.indexOf("\n      }", at)),
-        `path item ${path} does not declare ${verb}`,
-      ).toContain(`${verb}: %OpenApiSpex.Operation{`);
-    }
+    expect([...documented.keys()].sort()).toEqual(
+      mounted.map(([verb, path]) => `${verb} /api${path}`).sort(),
+    );
     // The read + operation surface this fixture mounts, spelled out.
     expect(mounted.map(([v, p]) => `${v} ${p}`)).toEqual([
       "get /orders",

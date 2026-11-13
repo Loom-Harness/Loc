@@ -1,0 +1,5 @@
+{
+  "title": "`policy { deny [write] on <Agg> }` — the deny-wins carve-out on both the read-filter and write-scope seams",
+  "doc": "auth",
+  "backends": "ALL"
+}

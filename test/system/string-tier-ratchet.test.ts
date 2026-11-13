@@ -126,7 +126,7 @@ const CEILINGS: Record<string, number> = {
   // 1900 → 2100: java's stream-tenant / fold-tenant scoping and its
   // `Math.*Exact` overflow guards (#3533, #4594, #3585) — per-site predicates in
   // emitted JPQL / service code that compile cleanly when missing.
-  java: 2100,
+  java: 2000,
   python: 1800,
   react: 1600,
   svelte: 600,

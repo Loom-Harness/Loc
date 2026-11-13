@@ -21,7 +21,7 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 // (live field, per-block duplicates, empty sql).  Here, with the fully-typed
 // ExprIR in hand, we gate what the phase-⑨ builder can actually render:
 //
-//   - `loom.migration-expr-unsupported`   — backfill expression outside the
+//   - `loom.migration-expr-invalid`   — backfill expression outside the
 //     SQL-renderable subset (`sqlRenderableExpr`, ir/util).
 //   - `loom.backfill-target-invalid`  — the target field has no single
 //     scalar column: value-object / collection / entity fields, and
@@ -91,8 +91,8 @@ export function validateMigrationDataSteps(loom: EnrichedLoomModel, diags: LoomD
     if (renderable !== true) {
       diags.push({
         severity: "error",
-        code: "loom.migration-expr-unsupported",
-        message: diagMessage("loom.migration-expr-unsupported", {
+        code: "loom.migration-expr-invalid",
+        message: diagMessage("loom.migration-expr-invalid", {
           aggregate: intent.aggregate,
           field: intent.field,
           reason: renderable.reason,
@@ -120,6 +120,16 @@ export function validateMigrationDataSteps(loom: EnrichedLoomModel, diags: LoomD
           field: intent.field,
           sources: nullableFrom.map((n) => `'${n}'`).join(", "),
           example: nullableFrom[0],
+        }),
+        source,
+      });
+    } else if (fit !== true && fit.expected === "guid" && fit.got === "string") {
+      diags.push({
+        severity: "error",
+        code: "loom.backfill-type-mismatch",
+        message: diagMessage("loom.backfill-type-mismatch#guid-literal", {
+          aggregate: intent.aggregate,
+          field: intent.field,
         }),
         source,
       });
@@ -205,7 +215,7 @@ function sqlExprFamily(e: ExprIR): string | undefined {
     // No family — and that is SAFE here by construction: this classifier only
     // ever sees a backfill expression, and `sqlRenderableExpr`
     // (`src/ir/util/sql-renderable-expr.ts`) has already refused every kind
-    // below with `loom.migration-expr-unsupported`, so reaching one of these is
+    // below with `loom.migration-expr-invalid`, so reaching one of these is
     // dead code rather than an unchecked value.  `undefined` means "type
     // unknown → skip the family comparison", never "types agree".  Named
     // rather than left to a `default:` so a new `ExprIR` kind is a decision
@@ -687,7 +697,19 @@ function backfillTypeFits(
   if (NUMERIC.has(got) && NUMERIC.has(expected)) return true;
   if (expected.startsWith("enum:") && got === "string") return true;
   if (expected === "id" && got === "string") return true;
+  // A `guid` column takes a UUID written as a string literal: Postgres reads
+  // the quoted constant straight into the uuid column.  Any other string —
+  // a malformed literal, or a text column's value — is refused, since
+  // Postgres would reject it at apply time.
+  if (expected === "guid" && got === "string" && isUuidLiteral(expr)) return true;
   return { expected, got };
+}
+
+const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuidLiteral(e: ExprIR): boolean {
+  if (e.kind === "paren") return isUuidLiteral(e.inner);
+  return e.kind === "literal" && e.lit === "string" && UUID_TEXT.test(e.value);
 }
 
 // ---------------------------------------------------------------------------

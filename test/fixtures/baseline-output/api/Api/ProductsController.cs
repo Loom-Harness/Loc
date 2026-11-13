@@ -28,9 +28,9 @@ public sealed class ProductsController : ControllerBase
 
     [HttpPost]
     [ProducesResponseType(typeof(CreateProductResponse), 201)]
-    [ProducesResponseType(typeof(ProblemDetails), 400)]
-    [ProducesResponseType(typeof(ProblemDetails), 415)]
-    [ProducesResponseType(typeof(ProblemDetails), 422)]
+    [ProducesResponseType(typeof(ProblemResponse), 400, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 415, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 422, "application/problem+json")]
     public async Task<ActionResult<CreateProductResponse>> CreateProduct([FromBody] CreateProductRequest request)
     {
         new CreateProductRequestValidator().ValidateAndThrow(request);
@@ -46,8 +46,8 @@ public sealed class ProductsController : ControllerBase
 
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(ProductResponse), 200)]
-    [ProducesResponseType(typeof(ProblemDetails), 404)]
-    [ProducesResponseType(typeof(ProblemDetails), 422)]
+    [ProducesResponseType(typeof(ProblemResponse), 404, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 422, "application/problem+json")]
     public async Task<ActionResult<ProductResponse>> GetProductById([FromRoute] Guid id)
     {
         var response = await _mediator.Send(new GetProductByIdQuery(new ProductId(id)));
@@ -57,9 +57,9 @@ public sealed class ProductsController : ControllerBase
 
     [HttpDelete("{id}")]
     [ProducesResponseType(204)]
-    [ProducesResponseType(typeof(ProblemDetails), 404)]
-    [ProducesResponseType(typeof(ProblemDetails), 409)]
-    [ProducesResponseType(typeof(ProblemDetails), 422)]
+    [ProducesResponseType(typeof(ProblemResponse), 404, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 409, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 422, "application/problem+json")]
     public async Task<IActionResult> DestroyProduct([FromRoute] Guid id)
     {
         try
@@ -75,11 +75,11 @@ public sealed class ProductsController : ControllerBase
 
     [HttpPost("{id}/update")]
     [ProducesResponseType(204)]
-    [ProducesResponseType(typeof(ProblemDetails), 400)]
-    [ProducesResponseType(typeof(ProblemDetails), 404)]
-    [ProducesResponseType(typeof(ProblemDetails), 409)]
-    [ProducesResponseType(typeof(ProblemDetails), 415)]
-    [ProducesResponseType(typeof(ProblemDetails), 422)]
+    [ProducesResponseType(typeof(ProblemResponse), 400, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 404, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 409, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 415, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 422, "application/problem+json")]
     public async Task<IActionResult> UpdateProduct([FromRoute] Guid id, [FromBody] UpdateProductRequest request)
     {
         new UpdateProductRequestValidator().ValidateAndThrow(request);
@@ -97,7 +97,7 @@ public sealed class ProductsController : ControllerBase
 
     [HttpGet]
     [ProducesResponseType(typeof(Paged<ProductResponse>), 200)]
-    [ProducesResponseType(typeof(ProblemDetails), 422)]
+    [ProducesResponseType(typeof(ProblemResponse), 422, "application/problem+json")]
     public async Task<ActionResult<Paged<ProductResponse>>> AllProduct([FromQuery] [System.ComponentModel.DataAnnotations.Range(1, 1000000)] int page = 1, [FromQuery] [System.ComponentModel.DataAnnotations.Range(1, 500)] int pageSize = 20, [FromQuery] string sort = "id", [FromQuery] string dir = "asc")
     {
         var result = await _mediator.Send(new AllQuery(page, pageSize, sort, dir));

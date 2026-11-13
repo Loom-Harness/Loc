@@ -1,0 +1,6 @@
+{
+  "title": "a create-input field (`e: int`) and an event-sourced `create(e: int)` parameter named like the .NET construction factory's instance local",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "The .NET `Create(...)` factory built the instance into `var e` and took each create input as a same-named parameter, so a field called `e` re-declared a parameter in the same scope (CS0136) — on both the state-backed and the event-sourced factory — while `generate system` reported 0 error(s).  The local now steps aside (`_e`) only when a parameter owns `e`, so every other model stays byte-identical.  The row is ALL because no other backend declares such a local, and nothing else may move."
+}

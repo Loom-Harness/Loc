@@ -139,6 +139,8 @@ describe("F5d — cqrs per-operation decomposition", () => {
     const close = cqrsStyleModule.cqrsStyleAdapter.emitEndpoint(opNamed(agg, "close"), ctx);
     const closeText = close.join("\n");
     expect(closeText).toContain('[HttpGet("{id}/can_close")]');
-    expect(closeText).toContain("[ProducesResponseType(typeof(ProblemDetails), 409)]");
+    expect(closeText).toContain(
+      '[ProducesResponseType(typeof(ProblemResponse), 409, "application/problem+json")]',
+    );
   });
 });

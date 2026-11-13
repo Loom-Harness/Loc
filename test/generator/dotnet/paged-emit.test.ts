@@ -29,8 +29,8 @@ async function files(): Promise<Map<string, string>> {
 describe(".NET generator — paged reads (P3b)", () => {
   it("emits the shared Paged<T> record into Domain.Common", async () => {
     const common = (await files()).get("Domain/Common/DomainException.cs")!;
-    expect(common).toContain(
-      "public sealed record Paged<T>(IReadOnlyList<T> Items, int Page, int PageSize, int Total, int TotalPages);",
+    expect(common).toMatch(
+      /public sealed record Paged<T>\([^;]*IReadOnlyList<T> Items,[^;]*int Page,[^;]*int PageSize,[^;]*int Total,[^;]*int TotalPages\);/,
     );
   });
 

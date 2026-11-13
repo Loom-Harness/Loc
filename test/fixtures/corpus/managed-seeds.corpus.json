@@ -1,0 +1,6 @@
+{
+  "title": "server-owned fields with no default (`openedAt: datetime managed`, `hits: int managed`, … `seenAt: datetime internal`) read back at the shared language-defined seed",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "minted by the booking DX trial: java inserted NULL for `openedAt: datetime managed` and answered 409/500 where node created the row at now.  Measured on all five booted backends: node and python seeded every type; .NET left the CLR default (datetime 0001-01-01, string/list NULL → 500); java left datetime/decimal/string/list unassigned (NULL → 500); elixir seeded nothing (500 on all six, 422 on the internal one).  The seed table (`src/ir/util/server-init-seed.ts`) was the shared rule all along; java, .NET and elixir never consumed it — `serverSeededFields` (`src/generator/construction-default.ts`) now feeds every backend's create factory."
+}

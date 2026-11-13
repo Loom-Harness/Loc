@@ -218,10 +218,9 @@ export function wireType(
  *     field, before the controller/handler runs).  So requests target the
  *     constructor PARAMETER with a bare `[Required]`.  Swashbuckle's
  *     DataAnnotations reader does NOT pick up parameter-targeted attributes,
- *     so request-body OpenAPI required-ness is restored separately by the
- *     `RequiredFromCtorParamFilter` ISchemaFilter (emit/api.ts), which
- *     reflects the ctor params back into `schema.Required`.  That keeps the
- *     strict-parity `requiredDiffs` gate green without re-introducing the
+ *     so the record restates its required set in a class-level
+ *     `[SwaggerSchema(Required = …)]` (`csSchemaRequiredAttr`), which only the
+ *     schema generator reads — the required set is published without the
  *     property-target metadata that triggers the throw.
  *   - RESPONSE DTOs are only serialized, never model-bound, so the throw
  *     can't fire; they keep `[property: Required]` so Swashbuckle's
@@ -337,8 +336,8 @@ export function dtoParam(
   // string through the structural layer defers emptiness to the domain
   // invariant, so all backends reject it with the same 422 (cross-backend
   // parity).  Null/omitted still fails `[Required]` (400), as before.  Stays
-  // a `RequiredAttribute`, so Swashbuckle's `RequiredFromCtorParamFilter`
-  // keeps the field in the OpenAPI required-set.
+  // a `RequiredAttribute`, so `csSchemaRequiredAttr` keeps the field in the
+  // OpenAPI required-set.
   //
   // A RESPONSE string carries `AllowEmptyStrings = true` for a different
   // reason, and one that is about the CONTRACT rather than the pipeline:
@@ -1055,4 +1054,75 @@ export function valueObjectsUsedBy(
 /** The CLR type an id crosses the wire / a DTO as — every identity is a guid. */
 export function csIdValueClrType(): string {
   return "Guid";
+}
+
+/** System.Text.Json's `JsonNamingPolicy.CamelCase` — the wire name of a
+ *  PascalCase member: the leading run of capitals is lowered, except the last
+ *  one when a lowercase letter follows it (`URLPath` → `urlPath`). */
+function stjCamelCase(name: string): string {
+  const chars = [...name];
+  const isUpper = (c: string | undefined): boolean =>
+    c !== undefined && c === c.toUpperCase() && c !== c.toLowerCase();
+  if (!isUpper(chars[0])) return name;
+  for (let i = 0; i < chars.length; i++) {
+    if (i === 1 && !isUpper(chars[i])) break;
+    const hasNext = i + 1 < chars.length;
+    if (i > 0 && hasNext && !isUpper(chars[i + 1])) {
+      if (chars[i + 1] === " ") chars[i] = chars[i]!.toLowerCase();
+      break;
+    }
+    chars[i] = chars[i]!.toLowerCase();
+  }
+  return chars.join("");
+}
+
+/** Split a rendered C# parameter list at its top-level commas. */
+function splitCsParams(params: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let inString = false;
+  let start = 0;
+  for (let i = 0; i < params.length; i++) {
+    const c = params[i];
+    if (inString) {
+      if (c === "\\") i++;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') inString = true;
+    else if (c === "<" || c === "(" || c === "[" || c === "{") depth++;
+    else if (c === ">" || c === ")" || c === "]" || c === "}") depth--;
+    else if (c === "," && depth === 0) {
+      out.push(params.slice(start, i));
+      start = i + 1;
+    }
+  }
+  if (params.slice(start).trim() !== "") out.push(params.slice(start));
+  return out;
+}
+
+/** The class-level `[SwaggerSchema(Required = …)]` that publishes a request
+ *  record's required members (with a trailing newline), or "" when it has none.
+ *
+ *  A request record marks a required member with a PARAMETER-targeted
+ *  `[Required]` (see `dtoParam`: a property-targeted validation attribute on a
+ *  positional record makes MVC throw at model binding).  Swashbuckle reads
+ *  `[Required]` only off the property, so the record restates the same set for
+ *  the schema generator.  Only Swashbuckle reads the attribute: binding,
+ *  validation and serialization are unchanged. */
+export function csSchemaRequiredAttr(params: string): string {
+  const required: string[] = [];
+  for (const p of splitCsParams(params)) {
+    const decl = p.replace(/\[property:[^\]]*\]/g, "");
+    if (!/\[Required\b/.test(decl)) continue;
+    const head = decl
+      .replace(/\[[^\]]*\]/g, "")
+      .split("=")[0]!
+      .trim();
+    const name = /(\w+)\s*$/.exec(head)?.[1];
+    if (name) required.push(stjCamelCase(name));
+  }
+  if (required.length === 0) return "";
+  const names = required.map((r) => JSON.stringify(r)).join(", ");
+  return `[global::Swashbuckle.AspNetCore.Annotations.SwaggerSchema(Required = new[] { ${names} })]\n`;
 }

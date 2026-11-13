@@ -164,10 +164,16 @@ export function csFindAbsentException(ns: string | null = null): string {
   return `new ${type}(${csLit(FIND_ABSENT_DETAIL)})`;
 }
 
-/** `[ProducesResponseType(typeof(ProblemDetails), <status>)]` for an
- *  already-resolved status. */
+/** The declaration of one RFC 7807 refusal status on an action:
+ *  `application/problem+json` carrying the documented problem body
+ *  (`Api/ProblemResponse.cs`, published as `ProblemDetails`).  Every declared
+ *  4xx/5xx goes through here. */
+export function csProblemResponseAttr(status: number, indent = "    "): string {
+  return `${indent}[ProducesResponseType(typeof(ProblemResponse), ${status}, "application/problem+json")]`;
+}
+
 function csProducesStatus(status: number, indent = "    "): string {
-  return `${indent}[ProducesResponseType(typeof(ProblemDetails), ${status})]`;
+  return csProblemResponseAttr(status, indent);
 }
 
 /** The same attribute for a rejection class, at the status the fact resolves. */

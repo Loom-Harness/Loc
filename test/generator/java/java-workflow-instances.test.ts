@@ -41,24 +41,22 @@ const find = (files: Map<string, string>, suffix: string): string | undefined =>
   [...files.entries()].find(([k]) => k.endsWith(suffix))?.[1];
 
 describe("java workflow instance read endpoints", () => {
-  it("covers the instance routes in the OpenAPI contract customizer", async () => {
-    // springdoc inlines `List<T>` and declares no 404s — the customizer must
-    // register the named `<Wf>InstanceListResponse` wrapper, the byId 404,
-    // and the instance DTO's required set (every non-optional wire field),
-    // matching Hono / .NET / Python / Phoenix.
-    const c = find(await gen(SRC), "OpenApiContractCustomizer.java");
-    expect(c, "customizer not emitted").toBeDefined();
-    expect(c).toContain(
-      'new Wrapper("OrderFulfillmentInstanceListResponse", "OrderFulfillmentInstanceResponse")',
-    );
-    expect(c).toContain(
-      'new Route("get", "/api/workflows/order_fulfillment/instances", "OrderFulfillmentInstanceListResponse", new int[] {}, null, 0)',
-    );
-    expect(c).toContain(
-      'new Route("get", "/api/workflows/order_fulfillment/instances/{id}", null, new int[] {404, 422}, null, 0)',
-    );
-    expect(c).toContain(
-      'new RequiredSet("OrderFulfillmentInstanceResponse", List.of("attempts", "orderId", "status"))',
+  it("publishes the instance routes' OpenAPI metadata", async () => {
+    // Wiring this suite boots nothing for: the byId route declares its 404 /
+    // 422 problem responses, and the instance record its required set (every
+    // non-optional wire field), as Hono / .NET / Python / Phoenix publish.
+    const files = await gen(SRC);
+    const ctl = find(files, "WorkflowInstancesController.java");
+    expect(ctl, "instance controller not emitted").toBeDefined();
+    const byId = ctl!.slice(ctl!.indexOf('@GetMapping("/order_fulfillment/instances/{id}")'));
+    const head = byId.slice(0, byId.indexOf(" public "));
+    expect([...head.matchAll(/responseCode = "(\d{3})"/g)].map((m) => m[1])).toEqual([
+      "200",
+      "404",
+      "422",
+    ]);
+    expect(find(files, "OrderFulfillmentInstanceResponse.java")).toContain(
+      'requiredProperties = {"attempts", "orderId", "status"}',
     );
   });
 

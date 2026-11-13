@@ -37,25 +37,7 @@ const ORM_TABLE: Record<Backend, { file: RegExp; table: RegExp }> = {
 
 /** Known disagreements, per backend and feature, each naming its owning issue.
  *  It ratchets: a feature that now agrees fails until its entry is deleted. */
-const KNOWN: Partial<Record<Backend, { issue: string; features: readonly string[] }>> = {
-  // drizzle declares a table for every projection, query-time included.
-  node: {
-    issue: "#4674",
-    features: [
-      "datetime-wire",
-      "inheritance-base-reads",
-      "projection-agg-filters",
-      "projection-aggregation",
-      "projection-document-aggregation",
-      "projection-groupby",
-      "projection-join",
-      "projection-params",
-      "projection-split-deployables",
-      "projection-tph-source",
-      "read-gates",
-    ],
-  },
-};
+const KNOWN: Partial<Record<Backend, { issue: string; features: readonly string[] }>> = {};
 
 function migrationTables(files: Map<string, string>): Set<string> {
   const out = new Set<string>();

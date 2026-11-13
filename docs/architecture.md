@@ -96,7 +96,7 @@ v0 type enum:
 
 The rows marked **no** parse as a `type:` and bind to nothing: there is no
 search kind and no analytics kind, and `queue` admits `rabbitmq` alone — so
-every `resource … use: <that storage>` is refused by `loom.kind-incompatible`,
+every `resource … use: <that storage>` is refused by `loom.resource-kind-storage-mismatch`,
 and no sidecar or client is emitted.
 See [`resources.md`](resources.md#recognised-but-bound-to-no-kind-yet).
 
@@ -222,7 +222,6 @@ local handles for the api contracts the UI needs.
 ```ddd
 ui WebApp {
   api Sales: SalesApi             // local handle `Sales` of contract `SalesApi`
-  api Mktg:  MarketingApi
 
   page CustomerList {
     route: "/customers"
@@ -236,7 +235,7 @@ ui WebApp {
       Field { "Name", bind: name },
       Button {"Save",
         disabled: Sales.Customer.create.isPending,
-        onClick: e => { Sales.Customer.create.mutate({ name }) }}
+        onClick: e => { Sales.Customer.create.mutate({ name: name }) }}
     }
   }
 }
@@ -322,19 +321,25 @@ deployable monolithApi {
 ```ddd
 deployable webApp {
   platform: static
-  targets: salesApi               // the backend(s) this frontend talks to
-  ui: WebApp {                    // bind UI params to backends
+  targets: salesApi               // the backend this frontend talks to
+  ui: WebApp {                    // bind UI params to the backend
     Sales: salesApi               //   `Sales` ← salesApi (which serves SalesApi)
-    Mktg:  marketingApi
   }
   port: 3002
 }
 ```
 
-The `ui: WebApp { Sales: salesApi, Mktg: marketingApi }` block
-is the explicit composition: each UI api parameter (declared in
+The `ui: WebApp { Sales: salesApi }` block is the explicit
+composition: each UI api parameter (declared in
 `ui WebApp { api Sales: SalesApi }`) is bound by name to a
-backend deployable that supplies its contract.
+backend deployable that supplies its contract.  Multiple bindings
+are comma-separated.
+
+**One frontend deployable, one backend.**  A frontend is generated
+against the single backend named in `targets:`.  Binding the handles of
+one `ui` to two different backends is refused
+(`loom.ui-multi-backend-unsupported`); declare one `ui` per backend
+and mount each on its own frontend deployable.
 
 **Validator obligations:**
 
@@ -436,46 +441,18 @@ What the reader gets from any single declaration:
 | `deployable webApp` | what UI runs, which backend fills each api param |
 
 
-## Scaffold expands to walker stdlib (Slice C2 / D1)
+## Scaffold expands to walker stdlib
 
-The `scaffold subdomains: [M]` directive (page-metamodel §10) keeps
-working — but as **compile-time sugar**.  Synthesised pages now
-lower to explicit walker-stdlib bodies via
-`src/ir/lower/walker-primitive-expander.ts`, called at the end of
-`lowerModel` as the final sub-pass of lowering (see
-[`docs/technical.md`](./technical.md) phase ⑤c):
+The `scaffold subdomains: [M]` directive (page-metamodel §10) is
+**compile-time sugar** expanded entirely in phase ②.  The scaffold macros
+build each synthesised page with its full walker-stdlib body
+(`src/macros/stdlib/scaffold/_body-builders.ts`), so the lowerer sees
+ordinary pages; a page's kind is derived on demand from its role-scoped name
+and area via `classifyPage`.  See
+[`technical.md` → Scaffold expansion](./technical.md#scaffold-expansion-compile-time-sugar-not-a-codegen-path)
+for the expansion and an example body.
 
-```
-scaffold aggregates: Order
-  ↓ (AST expander synthesises pages with scaffoldOrigin)
-page OrderList { route: "/orders"  body: List { of: Order } }
-  ↓ (IR-level scaffold expander rewrites body)
-page OrderList {
-  route: "/orders"
-  body: Stack {
-    Breadcrumbs { Anchor { "Home", to: "/" }, Text { "Orders" } },
-    Toolbar {Heading { "Orders", level: 2 },
-            Button { "New order", to: "/orders/new", testid: ... }},
-    QueryView {of: Sales.Order.all,
-              loading: Skeleton { count: 5 },
-              error: Alert { "Couldn't load orders" },
-              empty: Empty { "No orders yet." },
-              data: rows => Paper { Table { rows, … } }},
-    testid: "orders-list"
-  }
-}
-  ↓ (single walker emit path)
-src/pages/orders/list.tsx
-```
-
-There is **one** codegen path: the walker.  The legacy
-archetype renderers (`renderListPage`, `renderDetailPage`,
-`renderNewPage`, etc.) and their per-pack templates
-(`page-list.hbs`, `page-detail.hbs`, etc.) were deleted in
-Slice D1.
-
-A migrated `examples/acme.ddd` (PR #94) demonstrates the new
-shape end-to-end.
+There is **one** codegen path: the walker.
 
 
 ## What the validator catches
@@ -505,7 +482,6 @@ shape end-to-end.
 | `subdomain`, `context`, aggregate fields | Drizzle schema, Hono routes, .NET commands (existing) |
 | `api X from <Ctx>` | Per-aggregate `api/<name>.ts` with React Query hooks (existing scaffold output) |
 | `storage X { type: postgres }` | Drizzle config + Phoenix/Hono/.NET Postgres migrations via the platform-neutral MigrationsIR (`src/ir/types/migrations-ir.ts` + `src/system/migrations-builder.ts`); per-backend emitters in `src/generator/<backend>/emit/migrations*.ts` (one per backend — `elixir`, `typescript`, `dotnet`, `python`, `java`) |
-| `storage X { type: <other> }` | Parses + validates; no generator output yet |
 | `resource X { for: C, kind: state, use: Y, schema: "...", tablePrefix: "..." }` | EF Core `ToTable("name", "schema")`, Drizzle `pgSchema("...").table(...)`, Ecto `@schema_prefix "..." + schema "prefix_..."`.  Schema defaults to `snake(contextName)` when omitted on a relational store. |
 | `resource X { ..., isolationLevel: <level> }` | Default isolation for transactional workflows in the bound context, overridden by per-workflow `transactional(<level>)`. |
 | `resource X { ..., ttl/every/retain/readonly/keyPrefix: ... }` | Validated for shape and compatibility; no emitter consumes them, so the IR validator refuses each as `loom.target-unsupported#resource-knob-unrealized` on every backend. |
