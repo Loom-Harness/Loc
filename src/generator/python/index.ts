@@ -672,6 +672,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     durableBrokerEvents,
     hasRealtime,
     authRequired,
+    chPlan.hasOutbox,
   );
   const hasDispatch = dispatchFile != null;
   // Broker transport module (M-T4.4 slices 2b + 7a): the redis.asyncio /

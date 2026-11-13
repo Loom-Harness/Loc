@@ -180,13 +180,17 @@ export function buildPyDispatchFile(
    *  principal of that origin (`app.auth.user.event_origin_frame`).  Auth-less
    *  output is unchanged. */
   carriesOrigin = false,
+  /** The deployable's outbox tier (`channelPlan(...).hasOutbox`): capture,
+   *  relay and the redelivery dedupe exist only with it.  Absent (a
+   *  single-context emit) → every hosted durable event has the tier. */
+  outboxTier = true,
 ): string | null {
   const subs = dispatchSubscriptionsOf(ctx);
   // Durable tier: events on a `retention: log | work` channel route
   // through `__loom_outbox` + the relay; saga rows gain `last_event_id`.
   const durableSet = durableEventTypes(ctx);
   const durableEvents = ctx.events.filter((e) => durableSet.has(e.name));
-  const hasOutbox = durableEvents.length > 0;
+  const hasOutbox = outboxTier && durableEvents.length > 0;
   const durableBroker = durableBrokerEvents.size > 0;
   if (subs.length === 0) {
     if (!hasChannels) return hasRealtime ? buildRealtimeOnlyDispatch() : null;

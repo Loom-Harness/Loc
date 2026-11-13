@@ -49,7 +49,7 @@ const RULES: Record<string, RegExp> = {
   "foreign-stubs": /!hostedChannelNames\.has\(/,
   "durable-broker": /retention === "(work|log)" \|\| \w+\.retention === "(work|log)"/,
   "durable-set": /\bdurableEventTypes\(/,
-  "outbox-tier": /\b(standaloneOutbox|hasOutboxTier)\s*=|\bforceOutbox:/,
+  "outbox-tier": /\b(standaloneOutbox|hasOutboxTier)\s*=(?!\s*chPlan\.)|\bforceOutbox:/,
   consumer: /\(\s*(s|sub)\s*\)\s*=>\s*!\s*(s|sub)\.projection\b/,
   subscriptions: /\bderiveEventSubscriptions\(/,
 };
@@ -66,11 +66,7 @@ const TOPOLOGY_READERS = [
 
 /** Today's hand-derived copies: file → rule → count.  Only ever lowered. */
 const LEDGER: Record<string, Record<string, number>> = {
-  "src/generator/dotnet/index.ts": {
-    "durable-broker": 1,
-    "durable-set": 2,
-    "outbox-tier": 1,
-  },
+  "src/generator/dotnet/index.ts": { "durable-broker": 1, "durable-set": 2 },
   "src/generator/dotnet/projection-emit.ts": { subscriptions: 1 },
   "src/generator/elixir/dispatch-emit.ts": { subscriptions: 1 },
   "src/generator/elixir/vanilla/index.ts": {
@@ -84,7 +80,7 @@ const LEDGER: Record<string, Record<string, number>> = {
   "src/generator/python/dispatch-builder.ts": { "durable-set": 1, subscriptions: 1 },
   "src/generator/python/index.ts": { "durable-broker": 1, "durable-set": 1 },
   "src/generator/typescript/emit/routes.ts": { consumer: 1 },
-  "src/platform/hono/shared/emit.ts": { "durable-broker": 1, "outbox-tier": 1 },
+  "src/platform/hono/shared/emit.ts": { "durable-broker": 1 },
   "src/platform/hono/shared/workflow-builder.ts": { "durable-set": 3 },
   "src/system/migrations-builder.ts": { "durable-set": 1 },
 };

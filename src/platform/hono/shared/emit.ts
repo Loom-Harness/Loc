@@ -1160,7 +1160,9 @@ export function generateTypeScriptForContexts(
     const st = storeType.get(r.storageName);
     if (st) resourceSourceTypes.set(r.name, st);
   }
-  if (merged.workflows.length > 0 || (durableBrokerEvents.size > 0 && hasDurableEvents(merged))) {
+  // `http/workflows.ts` also carries the outbox machinery, so a deployable
+  // with an outbox tier and no workflow still emits it.
+  if (merged.workflows.length > 0 || chPlan.hasOutbox) {
     const aggsByName = new Map(merged.aggregates.map((a) => [a.name, a] as const));
     // Only collected when a recorder is actually threaded in — a
     // no-sourcemap run pays no per-statement bookkeeping cost.
@@ -1251,10 +1253,9 @@ export function generateTypeScriptForContexts(
       persistence: usingMikro ? "mikroorm" : "drizzle",
       explicitRouters,
       fileUpload,
-      // Durable broker-bound events must reach the outbox even from a
-      // deployable with no local reactor (M-T4.4): the relay
-      // publishes them on drain.
-      forceOutbox: durableBrokerEvents.size > 0 && hasDurableEvents(merged),
+      // The outbox tier (channels.md "Event routing"): durable events are
+      // captured on the request path exactly when the relay runs.
+      outbox: chPlan.hasOutbox,
       forwardCallerCredential: !!system && forwardsCallerCredential(system.deployable, system.sys),
     }),
   );
@@ -1761,15 +1762,11 @@ export function generateTypeScriptForContexts(
     resourceImports,
     runSeedsAtBoot: hasSeeds,
     usingMikro,
-    // Outbox relay (dispatch-delivery-semantics.md): started at boot when
-    // any context carries a durable channel AND the in-process dispatcher
-    // is wired (subscriptions exist).  Persistence-neutral — the mikro
-    // adapter emits the same relay over the EntityManager.
-    outboxRelay:
-      contexts.some((c) => c.eventSubscriptions.length > 0 && hasDurableEvents(c)) ||
-      // A durable-broker producer relays even without local subscribers:
-      // the drained rows publish to the broker.
-      (durableBrokerEvents.size > 0 && hasDurableEvents(merged)),
+    // Outbox relay (channels.md "Event routing"): started whenever the
+    // deployable has an outbox tier — a hosted durable event some hosted
+    // reactor or fold consumes (in any hosted context), or a wired binding
+    // carries (the relay publishes it).  Persistence-neutral.
+    outboxRelay: chPlan.hasOutbox,
     // Realtime tee: the relay's inner dispatcher rides through it so
     // relayed (durable) events reach the SSE wire too.  Persistence-neutral.
     hasRealtime: contexts.some((c) => realtimeEventTypes(c).size > 0),

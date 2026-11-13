@@ -139,7 +139,7 @@ describe("channelPlan", () => {
     expect(eventRoute(plan, "OrderNoted")).toBe("inline-local");
   });
 
-  it("a durable event nobody consumes and no broker carries needs no outbox", async () => {
+  it("a deployable that consumes nothing in-process and publishes nothing durable has no outbox", async () => {
     const loom = await buildLoomModel(SOURCE);
     const orders = loom.systems[0].subdomains[0].contexts;
     const plan = channelPlan(orders);

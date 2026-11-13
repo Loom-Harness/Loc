@@ -64,10 +64,11 @@ export interface ChannelPlan {
   /** The deployable runs a broker consumer: it wires a binding and consumes
    *  some event that binding carries. */
   consumesFromBroker: boolean;
-  /** The deployable runs an outbox tier (capture and relay): some hosted
-   *  durable event is consumed here (the relay redelivers it in-process) or
-   *  carried by a wired binding (the relay publishes it).  A durable event
-   *  nobody here or on the broker consumes needs no relay. */
+  /** The deployable runs an outbox tier (capture and relay): it hosts a
+   *  durable event, and either some hosted reactor, event-triggered `create`
+   *  or projection fold consumes events in-process (the relay redelivers to
+   *  them) or a wired binding carries a hosted durable event (the relay
+   *  publishes it).  With neither there is nothing to deliver to. */
   hasOutbox: boolean;
   /** The events the outbox captures: every hosted durable event, once the
    *  deployable has an outbox tier; none without one. */
@@ -138,7 +139,7 @@ export function channelPlan(
   const brokerConsumedEvents = new Set([...consumed].filter((ev) => brokerEvents.has(ev)));
   const consumesFromBroker = brokerConsumedEvents.size > 0;
 
-  const hasOutbox = [...hostedDurable].some((ev) => consumed.has(ev) || brokerEvents.has(ev));
+  const hasOutbox = hostedDurable.size > 0 && (consumed.size > 0 || durableBrokerEvents.size > 0);
   const outboxEvents: ReadonlySet<string> = hasOutbox ? hostedDurable : new Set();
   const producerOnly = hasOutbox && consumed.size === 0;
   const dedupedEvents = new Set(

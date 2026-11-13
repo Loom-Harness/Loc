@@ -58,3 +58,16 @@ describe("a projection-only broker consumer runs a broker consumer on every back
     expect(consumer).toContain("Events.OrderPlaced{}");
   });
 });
+
+describe("node: the outbox relay runs whenever the deployable has an outbox tier", () => {
+  // The durable event is raised in one hosted context and consumed by a saga in
+  // another.  Request-path capture and the relay must agree, or the captured
+  // rows are never drained.  Booted witness: C2's node legs of
+  // saga-redelivery-e2e; the corpus `test e2e` vocabulary cannot wait on the
+  // asynchronous relay.
+  it("a cross-context consumer starts the relay", async () => {
+    const boot = file(await files("saga-durable-cross-context", "node"), "d/boot.ts");
+    expect(boot).toContain("const stopOutboxRelay = startOutboxRelay(db, inProcessEvents);");
+    expect(boot).toContain("createApp(db, createOutboxDispatcher(db, requestEvents))");
+  });
+});
