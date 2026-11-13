@@ -203,7 +203,7 @@ export function emitVanillaShellFiles(
       schedulerChildren,
       preEndpointChildren,
       seedModules,
-      authEnabled && !oidc ? devAuthBootLog() : elixirBootRequiredAuth(bootRequired),
+      authEnabled && !oidc ? devAuthBootLog() : elixirBootRequiredAuth(appName, bootRequired),
     ),
   );
   // `mix run priv/repo/seeds.exs` — the canonical Phoenix manual entry, over
@@ -1982,8 +1982,11 @@ end
 function renderVanillaTest(appName: string, appModule: string, oidc: boolean): string {
   // `mix test` has no issuer: the generated tests build their principal from a
   // claims map (`Auth.as_principal/1`), so the JWKS strategy — which fetches the
-  // issuer's keys synchronously at start — stays off under `:test`.
-  const jwks = oidc ? `\nconfig :${appName}, :start_jwks_strategy, false\n` : "";
+  // issuer's keys synchronously at start — stays off under `:test`, and so
+  // does the boot check of the env-bound auth settings.
+  const jwks = oidc
+    ? `\nconfig :${appName}, :start_jwks_strategy, false\nconfig :${appName}, :require_auth_env, false\n`
+    : "";
   return `import Config
 
 config :${appName}, ${appModule}.Repo,
@@ -2011,7 +2014,10 @@ ${jwks}`;
  *  the release refuses to boot without them (a raise in \`start/2\` fails the
  *  application, and the VM exits non-zero) rather than answer every request
  *  with a 401. */
-function elixirBootRequiredAuth(required: readonly BootRequiredSetting[]): string[] {
+function elixirBootRequiredAuth(
+  appName: string,
+  required: readonly BootRequiredSetting[],
+): string[] {
   if (required.length === 0) return [];
   const rows = required
     .map(
@@ -2021,7 +2027,9 @@ function elixirBootRequiredAuth(required: readonly BootRequiredSetting[]): strin
   return [
     "# The model binds these auth settings to env(…), so there is no fallback:",
     "# refuse to boot without them rather than answer every request with a 401.",
-    `for {setting, vars} <- [${rows}] do`,
+    "# (`mix test` turns the check off: its principals come from claims maps.)",
+    `for {setting, vars} <- [${rows}],`,
+    `    Application.get_env(:${appName}, :require_auth_env, true) do`,
     '  if Enum.all?(vars, &(System.get_env(&1) in [nil, ""])) do',
     '    Logger.error("config_missing", event: "config_missing", setting: setting, vars: Enum.join(vars, ", "))',
     '    raise "missing required auth setting #{setting}: set #{Enum.join(vars, " or ")}"',
