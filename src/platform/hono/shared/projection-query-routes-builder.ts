@@ -27,13 +27,13 @@ import {
 } from "../../../generator/typescript/repository-wire-builder.js";
 import { T } from "../../../generator/typescript/ts-symbols.js";
 import { readDiscriminator, readScopeFor } from "../../../ir/enrich/read-scope.js";
-import { projectionQueryParams } from "../../../ir/plan/index.js";
 import {
   wireCode,
   wireFixedDetail,
   wireStatus,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
+import { projectionQueryParams } from "../../../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,

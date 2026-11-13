@@ -1,3 +1,4 @@
+import { projectionQueryParams } from "../../ir/plan/index.js";
 import type {
   AggregateIR,
   EnrichedBoundedContextIR,
@@ -6,7 +7,6 @@ import type {
   ProjectionIR,
   WireField,
 } from "../../ir/types/loom-ir.js";
-import { projectionQueryParams } from "../../ir/plan/index.js";
 import { isQueryTimeProjection, queryProjectionUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import {
   type AggregateSelect,

@@ -27,6 +27,7 @@
 // slugs ⇒ no route collision).  Every backend emits query-time projections.
 // ---------------------------------------------------------------------------
 
+import { projectionQueryParams } from "../../../ir/plan/index.js";
 import type {
   AggregateIR,
   EnrichedBoundedContextIR,
@@ -72,7 +73,6 @@ import { denialOverrides, denialResponse } from "./denial.js";
 import { docFilterLambdaArg, docPredReadsRecord, isVanillaDocAgg } from "./document-emit.js";
 import { effectiveGate } from "./gate.js";
 import { ELIXIR_NUMERIC, elixirDecimalNumHelper, elixirMoneyRoundHelper } from "./numeric-codec.js";
-import { projectionQueryParams } from "../../../ir/plan/index.js";
 import { findParamRead, queryParamSpecs, renderQueryParamHelpers } from "./query-param.js";
 import { readOpts } from "./read-scope-emit.js";
 import { hasRefColls, preloadSuffix } from "./ref-collection-emit.js";
@@ -943,10 +943,10 @@ defmodule ${webModule}.QueryProjectionsController do
   """
 
 ${actions}${renderQueryParamHelpers(
-      projections.flatMap(({ ctx, proj }) =>
-        projectionQueryParams(proj, ctx).map((param) => ({ param, ctx })),
-      ),
-    )}
+  projections.flatMap(({ ctx, proj }) =>
+    projectionQueryParams(proj, ctx).map((param) => ({ param, ctx })),
+  ),
+)}
 end
 `,
   );
@@ -966,7 +966,10 @@ end
  *  `where: record.owner == ^o` over an undefined `o`, which does not compile.
  *  The declared params LEAD; `current_user` keeps its trailing default-arg
  *  position (a default argument must come last in Elixir). */
-function runHead(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): { spec: string; head: string } {
+function runHead(
+  proj: ProjectionIR,
+  ctx: EnrichedBoundedContextIR,
+): { spec: string; head: string } {
   const names = projectionQueryParams(proj, ctx).map((p) => escapeElixirIdent(snake(p.name)));
   const specArgs = [...names.map(() => "any()"), "any()"].join(", ");
   const headArgs = [...names, "current_user \\\\ nil"].join(", ");

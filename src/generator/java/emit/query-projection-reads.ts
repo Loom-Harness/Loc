@@ -1,4 +1,5 @@
 import { forApiRead, wireFieldsFor } from "../../../ir/enrich/wire-projection.js";
+import { type ProjectionQueryParam, projectionQueryParams } from "../../../ir/plan/index.js";
 import type {
   AggregateIR,
   EnrichedAggregateIR,
@@ -10,7 +11,6 @@ import type {
   TypeIR,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
-import { type ProjectionQueryParam, projectionQueryParams } from "../../../ir/plan/index.js";
 import { exprUsesCurrentUser, isQueryTimeProjection } from "../../../ir/types/loom-ir.js";
 import {
   type AggregateSelect,
@@ -472,7 +472,8 @@ export function renderJavaQueryProjections(
     const paramBinds = params
       .filter((p) => filterParams.has(p.name))
       .map(
-        (p) => `.setParameter(${JSON.stringify(jid(p.name))}, ${domainArg(p, localOf(svcLocals, p.name))})`,
+        (p) =>
+          `.setParameter(${JSON.stringify(jid(p.name))}, ${domainArg(p, localOf(svcLocals, p.name))})`,
       );
     // In-memory filters (workflow- / projection-sourced) read the params too.
     const svcParamExpr = (n: string): string | undefined => movedLocalOrUndefined(svcLocals, n);

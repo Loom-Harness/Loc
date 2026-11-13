@@ -25,6 +25,12 @@
 export { hasDurableEvents } from "./context-events.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
 export { lookupOp } from "./operation-lookup.js";
+export {
+  type ProjectionQueryParam,
+  projectionQueryParams,
+  type QueryParamCheck,
+  queryParamCheck,
+} from "./projection-params.js";
 export { type RepoNeed, reposNeeded } from "./repos-needed.js";
 export {
   domainServiceReadPorts,
@@ -34,12 +40,6 @@ export {
   servicesCalled,
   withReadPortRepos,
 } from "./service-read-ports.js";
-export {
-  type ProjectionQueryParam,
-  projectionQueryParams,
-  type QueryParamCheck,
-  queryParamCheck,
-} from "./projection-params.js";
 export { requiredStateFields, type StateZero, stateZero } from "./state-zero.js";
 export {
   type RemoteApiOpRef,

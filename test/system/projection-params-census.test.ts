@@ -77,9 +77,7 @@ describe("projection-params census: query-time reads bind their params through t
   });
 
   it("the detector sees a direct read and ignores a commented one", () => {
-    expect(directReads("const a = proj.params.map(f);\n// p.params\n")).toEqual([
-      "1: proj.params",
-    ]);
+    expect(directReads("const a = proj.params.map(f);\n// p.params\n")).toEqual(["1: proj.params"]);
     expect(directReads("projectionQueryParams(proj, ctx).map(f)")).toEqual([]);
   });
 });

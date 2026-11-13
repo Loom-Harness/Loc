@@ -1,4 +1,5 @@
 import { projectionSourceTableName } from "../../ir/enrich/storage-names.js";
+import { type ProjectionQueryParam, projectionQueryParams } from "../../ir/plan/index.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -10,7 +11,6 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isQueryTimeProjection } from "../../ir/types/loom-ir.js";
-import { type ProjectionQueryParam, projectionQueryParams } from "../../ir/plan/index.js";
 import { projectionSourceTable } from "../../ir/util/inheritance.js";
 import {
   type AggregateSelect,
@@ -418,7 +418,10 @@ ${ctor}
 
     public async ValueTask<IReadOnlyList<${rowName}>> Handle(${queryName} query, CancellationToken cancellationToken)
     {
-${paramLocals(proj, ctx)}${gate}        var domain = await _repo.${upperFirst(proj.name)}(${projectionQueryParams(proj, ctx)
+${paramLocals(proj, ctx)}${gate}        var domain = await _repo.${upperFirst(proj.name)}(${projectionQueryParams(
+    proj,
+    ctx,
+  )
     .map((p) => escapeCsharpIdent(p.name))
     .concat("cancellationToken")
     .join(", ")});
@@ -851,7 +854,14 @@ function renderAggregateHandler(
     usings.add(`${ns}.Domain.Common`); // ForbiddenException
     if (gateUsesUser) usings.add(`${ns}.Auth`); // ICurrentUserAccessor
   }
-  const seam = dapperFilterSeam(usingDapper, filter, ns, usings, caps, projectionQueryParams(proj, ctx));
+  const seam = dapperFilterSeam(
+    usingDapper,
+    filter,
+    ns,
+    usings,
+    caps,
+    projectionQueryParams(proj, ctx),
+  );
 
   const dbType = usingDapper ? CS.NpgsqlDataSource : "AppDbContext";
   const fields: string[] = [`    private readonly ${dbType} _db;`];
@@ -1044,7 +1054,14 @@ function renderGroupedHandler(
     usings.add(`${ns}.Domain.Common`); // ForbiddenException
     if (gateUsesUser) usings.add(`${ns}.Auth`); // ICurrentUserAccessor
   }
-  const seam = dapperFilterSeam(usingDapper, filter, ns, usings, caps, projectionQueryParams(proj, ctx));
+  const seam = dapperFilterSeam(
+    usingDapper,
+    filter,
+    ns,
+    usings,
+    caps,
+    projectionQueryParams(proj, ctx),
+  );
 
   const dbType = usingDapper ? CS.NpgsqlDataSource : "AppDbContext";
   const fields: string[] = [`    private readonly ${dbType} _db;`];
@@ -1314,7 +1331,14 @@ function renderWorkflowHandler(
     usings.add(`${ns}.Domain.Common`); // ForbiddenException
     if (gateUsesUser) usings.add(`${ns}.Auth`); // ICurrentUserAccessor
   }
-  const seam = dapperFilterSeam(usingDapper, filter, ns, usings, [], projectionQueryParams(proj, ctx));
+  const seam = dapperFilterSeam(
+    usingDapper,
+    filter,
+    ns,
+    usings,
+    [],
+    projectionQueryParams(proj, ctx),
+  );
 
   // Project each state row through the `select` expressions, keyed by wire field.
   // A source-alias read (`f.orderId`) lowers to a member off the current row, so
@@ -1447,7 +1471,14 @@ function renderProjectionSourceHandler(
     usings.add(`${ns}.Domain.Common`); // ForbiddenException
     if (gateUsesUser) usings.add(`${ns}.Auth`); // ICurrentUserAccessor
   }
-  const seam = dapperFilterSeam(usingDapper, filter, ns, usings, [], projectionQueryParams(proj, ctx));
+  const seam = dapperFilterSeam(
+    usingDapper,
+    filter,
+    ns,
+    usings,
+    [],
+    projectionQueryParams(proj, ctx),
+  );
 
   // Project each source row through the `select` expressions, keyed by wire field.
   // A source-row read (`t.total`) lowers to a member off the current row, so
@@ -1612,7 +1643,10 @@ function renderController(ctx: BoundedContextIR, ns: string, routePrefix?: strin
         .map((p) => queryActionParam(p).actionParam)
         .join(", ")})\n` +
       `    {\n` +
-      `        var result = await _mediator.Send(new ${upperFirst(proj.name)}QpQuery(${projectionQueryParams(proj, ctx)
+      `        var result = await _mediator.Send(new ${upperFirst(proj.name)}QpQuery(${projectionQueryParams(
+        proj,
+        ctx,
+      )
         .map((p) => queryActionParam(p).commandArg)
         .join(", ")}));\n` +
       `        return Ok(result);\n` +

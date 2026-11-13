@@ -16,8 +16,8 @@
 //      reaches the query or the in-memory filter is the declared type.
 // ---------------------------------------------------------------------------
 
-import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { type QueryParamCheck, queryParamCheck } from "../../../ir/plan/index.js";
+import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import { exFieldCode, exFieldMessage, exLit, exMissingSuffix } from "../wire-policy-ex.js";
 
@@ -201,9 +201,17 @@ function renderQueryParamCheck(kinds: ReadonlySet<QueryParamCheck["kind"]>): str
         case __find_param_error(Map.get(params, name), check, required) do
           nil -> []
           :missing -> [%{pointer: "/" <> name, message: name <> ${exLit(` ${exMissingSuffix()}`)}, code: ${exFieldCode("missing")}}]
-${[...kinds].includes("integer") ? `          {code, message, params} -> [%{pointer: "/" <> name, message: message, code: code, params: params}]
-` : ""}${kinds.has("uuid") ? `          {code, message} -> [%{pointer: "/" <> name, message: message, code: code}]
-` : ""}          message -> [%{pointer: "/" <> name, message: message, code: ${exFieldCode("type-mismatch")}}]
+${
+  [...kinds].includes("integer")
+    ? `          {code, message, params} -> [%{pointer: "/" <> name, message: message, code: code, params: params}]
+`
+    : ""
+}${
+  kinds.has("uuid")
+    ? `          {code, message} -> [%{pointer: "/" <> name, message: message, code: code}]
+`
+    : ""
+}          message -> [%{pointer: "/" <> name, message: message, code: ${exFieldCode("type-mismatch")}}]
         end
       end)
 
