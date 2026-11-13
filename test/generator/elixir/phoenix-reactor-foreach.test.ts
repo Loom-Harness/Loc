@@ -144,12 +144,12 @@ describe("phoenix reactor loop body: guard, emit and saga-state read", () => {
     return [...files.entries()].find(([k]) => k.endsWith("on_post_published.ex"))![1];
   }
 
-  it("re-shapes a loop-body guard into a `<-` clause, not a throw", async () => {
+  it("renders a loop-body guard as a `<-` clause that halts the reduce, not a throw", async () => {
     const src = await rich();
-    // A top-level guard renders `unless …, do: throw(…)`.  Inside the loop that
-    // would abort the whole handler mid-fan-out instead of halting the reduce,
-    // so it must become a clause carrying the SAME tagged denial term.
-    const loop = src.slice(src.indexOf("Enum.reduce_while"));
+    // The handler throws the chain's first failure once, after the chain.  A
+    // throw inside the loop would abort mid-fan-out instead of halting the
+    // reduce, so the guard is a clause carrying the tagged denial term.
+    const loop = src.slice(src.indexOf("Enum.reduce_while"), src.lastIndexOf("err -> throw(err)"));
     expect(loop).toContain(
       ':ok <- (if state.fanned >= 0, do: :ok, else: {:error, {:precondition_failed, "Business rule violated"}})',
     );

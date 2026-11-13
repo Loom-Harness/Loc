@@ -77,11 +77,13 @@ describe("vanilla for-each body — broader statement set", () => {
 
   it("lowers an op-call + emit loop body through a per-iteration with-chain", async () => {
     const wf = await fileEndingIn(SRC, "/workflows/batch_confirm.ex");
-    // op-call becomes a fallible `<-` clause...
-    expect(wf).toMatch(/\{:ok, loop_updated\} <- Context\.confirm_order\(x, %\{\}\)/);
+    // op-call becomes a fallible `<-` clause; the emit reads `x` after it, so
+    // the handle is rebound to the saved record the op returns...
+    expect(wf).toMatch(/with \{:ok, x\} <- Context\.confirm_order\(x, %\{\}\) do/);
+    expect(wf).not.toContain("loop_updated");
     // ...the emit side-effect runs in the do-branch, then continue.
     expect(wf).toMatch(/PostCommit\.broadcast\(.*Events\.Confirmed\{order: x\.id\}\)/);
-    expect(wf).toContain("{:cont, {:ok, loop_updated}}");
+    expect(wf).toContain("{:cont, {:ok, nil}}");
     expect(wf).toContain("err -> {:halt, err}");
   });
 
@@ -90,7 +92,7 @@ describe("vanilla for-each body — broader statement set", () => {
     expect(wf).not.toContain("# TODO: lower for-each body statement kind");
   });
 
-  it("keeps the flat `case` shape for a lone op-call body", async () => {
+  it("halts the loop on a lone op-call body's error", async () => {
     const src = wrap(`
       workflow loneConfirm {
         create(d: bool) {
@@ -99,8 +101,8 @@ describe("vanilla for-each body — broader statement set", () => {
         }
       }`);
     const wf = await fileEndingIn(src, "/workflows/lone_confirm.ex");
-    expect(wf).toMatch(/case Context\.confirm_order\(x, %\{\}\) do/);
-    expect(wf).toContain("{:ok, updated} -> {:cont, {:ok, updated}}");
+    expect(wf).toMatch(/with \{:ok, _\} <- Context\.confirm_order\(x, %\{\}\) do/);
+    expect(wf).toContain("err -> {:halt, err}");
   });
 });
 
@@ -124,7 +126,7 @@ describe("vanilla if-let branches — broader statement set", () => {
     // The else-branch factory-let bind is unread, so it `_`-discards (an unused
     // real-named bind would trip `--warnings-as-errors`).  The create is
     // fallible, so it threads the branch's with-chain instead of a raising `=`.
-    expect(wf).toMatch(/with \{:ok, _\} <- Context\.create_order\(%\{[^}]*\}\) do/);
+    expect(wf).toMatch(/with \{:ok, _fresh\} <- Context\.create_order\(%\{[^}]*\}\) do/);
   });
 
   it("emits no `# TODO: lower if-let branch statement kind` comment", async () => {
