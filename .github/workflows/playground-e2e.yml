@@ -41,7 +41,10 @@ concurrency:
 
 jobs:
   e2e:
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.59 ships no Chromium build for ubuntu-latest's
+    # 26.04 image, and the browser cache below misses whenever
+    # web/package-lock.json changes, which forces a fresh install.
+    runs-on: ubuntu-24.04
     # Skip the labeled trigger unless it's specifically `run-e2e`; push,
     # schedule, and manual (`workflow_dispatch`) runs always proceed.
     if: >-

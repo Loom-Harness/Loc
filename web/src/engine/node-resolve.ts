@@ -108,24 +108,59 @@ export function resolveExports(
       : null;
   }
 
-  const map = exportsField as Record<string, unknown>;
-  if (sub in map) return resolveConditions(map[sub], conditions);
+  return resolveSubpathMap(exportsField as Record<string, unknown>, sub, conditions);
+}
 
-  // `*` patterns: pick the longest matching prefix.
-  let best: { target: unknown; star: string } | null = null;
-  for (const key of Object.keys(map)) {
-    const star = key.indexOf("*");
+/** Look `key` up in a subpath map (`exports` subpaths, or `imports`):
+ *  exact key first, then `*` patterns (longest prefix wins, per Node). */
+function resolveSubpathMap(
+  map: Record<string, unknown>,
+  key: string,
+  conditions: readonly string[],
+): string | null {
+  if (key in map) return resolveConditions(map[key], conditions);
+  let best: { target: unknown; pre: string; matched: string } | null = null;
+  for (const pattern of Object.keys(map)) {
+    const star = pattern.indexOf("*");
     if (star === -1) continue;
-    const pre = key.slice(0, star);
-    const post = key.slice(star + 1);
-    if (sub.startsWith(pre) && sub.endsWith(post) && sub.length >= pre.length + post.length) {
-      const matched = sub.slice(pre.length, sub.length - post.length);
-      if (!best || pre.length > best.star.length) best = { target: map[key], star: matched };
+    const pre = pattern.slice(0, star);
+    const post = pattern.slice(star + 1);
+    if (key.startsWith(pre) && key.endsWith(post) && key.length >= pre.length + post.length) {
+      const matched = key.slice(pre.length, key.length - post.length);
+      if (!best || pre.length > best.pre.length) best = { target: map[pattern], pre, matched };
     }
   }
   if (best) {
     const t = resolveConditions(best.target, conditions);
-    return t ? t.replace("*", best.star) : null;
+    return t ? t.replace("*", best.matched) : null;
+  }
+  return null;
+}
+
+/** Resolve a package-internal `#name` specifier through the `imports` field
+ *  of the nearest package.json above `importer` (svelte's runtime imports
+ *  `#client/constants` this way).  Null when no package maps it. */
+export function resolvePackageImports(
+  spec: string,
+  importer: string,
+  src: FileSource,
+  conditions: readonly string[] = ESM_CONDITIONS,
+): string | null {
+  let dir = importer.slice(0, importer.lastIndexOf("/"));
+  while (dir) {
+    const raw = src.read(joinPosix(dir, "package.json"));
+    if (raw !== undefined) {
+      let pkg: { imports?: unknown };
+      try {
+        pkg = JSON.parse(raw) as { imports?: unknown };
+      } catch {
+        return null;
+      }
+      if (pkg.imports == null || typeof pkg.imports !== "object") return null;
+      const target = resolveSubpathMap(pkg.imports as Record<string, unknown>, spec, conditions);
+      return target ? probeFile(joinPosix(dir, target), src) : null;
+    }
+    dir = dir.slice(0, dir.lastIndexOf("/"));
   }
   return null;
 }
