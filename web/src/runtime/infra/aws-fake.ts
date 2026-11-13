@@ -195,13 +195,7 @@ export const s3Service: InfraService<ResourceOp> = {
     if (op === "http") return s3Http(p as HttpRequestData);
     if (op === "list") {
       return [...buckets].flatMap(([bucket, objs]) =>
-        [...objs].map(([key, o]) => ({
-          bucket,
-          key,
-          size: o.body.byteLength,
-          contentType: o.contentType,
-          lastModified: o.lastModified.toISOString(),
-        })),
+        [...objs].map(([key, o]) => ({ bucket, key, size: o.body.byteLength, contentType: o.contentType })),
       );
     }
     // The Infrastructure panel's object browser: the same objects the
