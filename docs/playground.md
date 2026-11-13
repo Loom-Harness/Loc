@@ -183,10 +183,10 @@ contents and a journal of who received and acknowledged each envelope.
 The Infrastructure panel's **Broker** tab shows the same state live: redis
 channels and their subscribers, rabbitmq queues with their ready / unacked
 counts, kafka topics with each consumer group's committed offset and lag per
-partition, and the messages a queue or topic holds (`browse`). It publishes a
+partition, and the messages a queue or topic holds, bodies included. It publishes a
 test message onto any address in the generated envelope shape, re-drives an
 address's dead letters onto it (`redrive`: rabbitmq drains
-`loom.dlq.<address>`; kafka copies `<address>.dlq`, which keeps its log), and
+`loom.dlq.<address>`; kafka moves `<address>.dlq` back and truncates it), and
 moves a kafka group's offset to replay (`seek`). The emulated badge lists the
 `emulated` notes.
 
@@ -214,7 +214,7 @@ one instance of its model, routes the infra ops to it and hands it the OPFS
 | `smtp`, `sendgrid` | `nodemailer` / `@sendgrid/mail` → facades | the Mailbox |
 | `ses` | the real `@aws-sdk/client-ses`; its `SendEmail` is answered by the fake | the Mailbox |
 | `restApi` | the generated `fetch` → the `httpMock` service | sample data for the storage's `config: { spec }` OpenAPI document (`openapi-sampler`); an echo when it has none |
-| `redis` (`kind: cache`) | `ioredis` → a facade forwarding each command (`GET`, `SET … PX`, `DEL`, `INCR`, `EXISTS`, `PTTL`, `FLUSHDB`) | one keyspace per server URL with TTLs and least-recently-used eviction (`src/runtime/infra/cache.ts`), in memory only; the Cache tab lists the keys with their remaining TTL and evicts or flushes them |
+| `redis` (`kind: cache`) | `ioredis` → a facade forwarding each command (`GET`, `SET … PX`, `DEL`, `INCR`, `EXISTS`, `PTTL`, `FLUSHDB`) | one keyspace per server URL with TTLs and least-recently-used eviction (`src/emulation/cache.ts`), in memory only; the Cache tab lists the keys with their remaining TTL and evicts or flushes them |
 
 The AWS SDKs get dummy credentials (`adaptResourceSource` in
 `src/engine/npm/resource-facades.ts`); the fakes ignore signatures. Objects,
