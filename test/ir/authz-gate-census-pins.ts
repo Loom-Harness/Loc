@@ -423,6 +423,24 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "create POST /api/notes": R.sharedTenancyIdentity,
     "find GET /api/notes": R.sharedTenancyIdentity,
   },
+  // The by-id cache fixture: its isolation rungs are cross-tenant / cross-role /
+  // `own` statements in the e2e body, not refusal arms (see `sharedTenancyIdentity`).
+  "corpus/cache-by-id": {
+    "create POST /api/items": R.sharedTenancyIdentity,
+    "create POST /api/notes": R.sharedTenancyIdentity,
+    "destroy DELETE /api/notes/{id}": R.sharedTenancyIdentity,
+    "find GET /api/items": R.sharedTenancyIdentity,
+    "find GET /api/notes": R.sharedTenancyIdentity,
+    "find GET /api/orgs": R.sharedTenancyIdentity,
+    "getById GET /api/items/{id}": R.sharedTenancyIdentity,
+    "getById GET /api/notes/{id}": R.sharedTenancyIdentity,
+    "getById GET /api/orgs/{id}": R.sharedTenancyIdentity,
+    "operation POST /api/items/{id}/rename": R.sharedTenancyIdentity,
+    "operation POST /api/items/{id}/restore": R.sharedTenancyIdentity,
+    "operation POST /api/items/{id}/soft_delete": R.sharedTenancyIdentity,
+    "operation POST /api/items/{id}/update": R.sharedTenancyIdentity,
+    "operation POST /api/notes/{id}/update": R.sharedTenancyIdentity,
+  },
   "corpus/tenancy-owned": {
     "create POST /api/invoices": R.sharedTenancyIdentity,
     "create POST /api/organizations": R.sharedTenancyIdentity,
@@ -547,6 +565,6 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   importGateOnly: 1,
   principalFreeGate: 20,
   rowDataGate: 4,
-  sharedTenancyIdentity: 111,
+  sharedTenancyIdentity: 125,
   oneSeededId: 6,
 };

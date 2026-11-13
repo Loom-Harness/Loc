@@ -479,6 +479,12 @@ export const UNCALLED_PINS: Record<string, Record<string, string>> = {
     destroyOrganization: R.tenantRegistryRow,
     updateOrganization: R.tenantRegistryRow,
   },
+  "corpus/cache-by-id": {
+    // The registry (`Org`) serves its two reads and no writes; its self-scope
+    // hides every row from the harness principal.
+    getOrgById: R.tenantRegistryRow,
+    allOrg: R.tenantRegistryRow,
+  },
   "corpus/tenancy-claim-name": {
     // Same registry class, under the `orgId` claim.
     createOrganization: R.tenantRegistryRow,
@@ -567,6 +573,9 @@ export const UNCALLED_PINS: Record<string, Record<string, string>> = {
  * is broken and an operation is about to look uncovered for the wrong reason.
  */
 export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
+  // `api.relabel.run(...)` drives a command workflow — a write path the cache
+  // must evict on (`apiSurfaceCoverage.notLifted`).
+  "corpus/cache-by-id": ["api.relabel.run (no such aggregate)"],
   // `api.orderBoard.byKey(...)` reads a folded PROJECTION
   // (`GET /api/projections/order_board/{key}`), which `deriveContextOperations`
   // lists under `apiSurfaceCoverage.notLifted`.  Lifting projection queries into
@@ -1290,7 +1299,7 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
  * recurs — see `autoFindAll` and `crudishUpdate`).
  */
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
-  tenantRegistryRow: 20,
+  tenantRegistryRow: 22,
   seededListReadUnwritten: 2,
   gateProbe: 3,
   // +2 — `corpus/handler-triad` joined the census when the routed-handler call

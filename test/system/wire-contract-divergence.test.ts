@@ -193,6 +193,7 @@ const UNCONTRACTED: string[] = [];
 const DERIVED_FALLBACK = [
   "audit-history-guarded.ddd Staff.Employee",
   "audit-history-guarded.ddd Staff.Payslip",
+  "cache-by-id.ddd Catalog.Item",
   "field-mask.ddd Staff.Employee",
   "shareable.ddd Catalog.Category",
 ];

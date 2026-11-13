@@ -8,7 +8,7 @@
 //               key carries the operating tenant and the role the mask reads.
 //   * `Note`  — the policy ladder's `own` rung: the key carries the caller id
 //               and role.
-//   * `Org`   — the tenant registry, self-scoped by the tenancy claim.
+//   * `Org`   — the tenant registry; it serves no routes here.
 system CacheById {
   user { id: string  tenantId: string  role: string }
 
@@ -16,7 +16,7 @@ system CacheById {
 
   subdomain Core {
     context Catalog {
-      aggregate Org with crudish {
+      aggregate Org {
         name: string
       }
       aggregate Item with tenantOwned, crudish(updateOnly: true), softDeletable, softDelete {
@@ -81,9 +81,13 @@ system CacheById {
     api.relabel.run({ item: lamp.id, to: "Reading lamp" })
     expect(api.items.getById(lamp)).not.toBeCached()
     expect(api.items.getById(lamp).name).toBe("Reading lamp")
-    // …and a soft delete: nobody reads the row after it.
+    // …and a soft delete: nobody reads the row after it, cached or not.
+    expect(api.items.all().total).toBe(1)
     api.items.softDelete(lamp)
     expect(api.items.getById(lamp)).toThrow(404)
+    expect(api.items.all().total).toBe(0)
+    // The by-id load of a deleted row answers 404 for its restore too.
+    expect(api.items.restore(lamp)).toThrow(404)
   }
 
   test e2e "one caller's cached answer is never served to another scope" against d {
@@ -126,6 +130,14 @@ system CacheById {
     // A manager keeps the tenant default and reads it.
     as { id: "alice", tenantId: "acme", role: "manager" }
     expect(api.notes.getById(memo).body).toBe("memo")
+    expect(api.notes.all().total).toBe(1)
+
+    // An update by the author evicts the manager's answer too.
+    as { id: "dave", tenantId: "acme", role: "clerk" }
+    api.notes.update(memo, { body: "memo v2" })
+    as { id: "alice", tenantId: "acme", role: "manager" }
+    expect(api.notes.getById(memo)).not.toBeCached()
+    expect(api.notes.getById(memo).body).toBe("memo v2")
 
     // A delete evicts.
     as { id: "dave", tenantId: "acme", role: "clerk" }
