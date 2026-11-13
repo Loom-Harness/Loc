@@ -92,6 +92,7 @@ const PROBE_BODY = `Stack {
         Card { "SlotCardTitle", Text { "SlotCardBody" } },
         Alert { "SlotAlert", title: "SlotAlertTitle" },
         Toolbar { label: "SlotToolbarAria", Text { "SlotToolbarChild" } },
+        Toolbar { Text { "SlotUnnamedToolbarChild" } },
         Divider { label: "SlotDividerLabel" },
         Modal { Text { "SlotModalBody" }, open: modalOpen, title: "SlotModalTitle" },
         Icon { name: "check", label: "SlotIconLabel" },
