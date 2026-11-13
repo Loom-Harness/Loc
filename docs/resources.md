@@ -386,7 +386,7 @@ const __hit = await itemCache.read(id, __scope);
 if (__hit) {
   if (__hit.etag !== null) c.header("etag", __hit.etag);
   c.header("x-loom-cache", "hit");
-  return c.body(__hit.body, 200, { "content-type": "application/json" });
+  return c.json(JSON.parse(__hit.body) as z.infer<typeof ItemResponse>, 200);
 }
 const found = await repo.findById(Ids.ItemId(id));
 // … 404, masks, etag …

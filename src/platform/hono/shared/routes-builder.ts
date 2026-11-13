@@ -1298,7 +1298,9 @@ export function buildRoutesFile(
         `      if (!(${renderTsExpr(byIdFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind.name}`)});`,
       );
     }
-    if (cache) lines.push(...renderCacheHit(cache, "id", "      "));
+    if (cache) {
+      lines.push(...renderCacheHit(cache, "id", `z.infer<typeof ${agg.name}Response>`, "      "));
+    }
     lines.push(`      const found = await repo.findById(${T.Ids}.${agg.name}Id(id));`);
     // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
     // every backend, and this route was the one place Hono answered a machine

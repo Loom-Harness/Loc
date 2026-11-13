@@ -68,7 +68,15 @@ function cacheRef(read: CachedByIdRead): string {
   return ref(tsNamed(`~/${BY_ID_CACHE_PATH.replace(/\.ts$/, "")}`, byIdCacheName(read)));
 }
 
-export function renderCacheHit(read: CachedByIdRead, idExpr: string, indent: string): string[] {
+/** `responseType` is the route's declared 200 body type: the stored answer is
+ *  that body, so the hit is answered as it, keeping the route's typed
+ *  response contract. */
+export function renderCacheHit(
+  read: CachedByIdRead,
+  idExpr: string,
+  responseType: string,
+  indent: string,
+): string[] {
   const cache = cacheRef(read);
   return [
     `${indent}const __scope = ${scopeFingerprintTs(read)};`,
@@ -76,7 +84,7 @@ export function renderCacheHit(read: CachedByIdRead, idExpr: string, indent: str
     `${indent}if (__hit) {`,
     `${indent}  if (__hit.etag !== null) c.header("etag", __hit.etag);`,
     `${indent}  c.header("${CACHE_STATUS_HEADER}", "hit");`,
-    `${indent}  return c.body(__hit.body, 200, { "content-type": "application/json" });`,
+    `${indent}  return c.json(JSON.parse(__hit.body) as ${responseType}, 200);`,
     `${indent}}`,
   ];
 }
