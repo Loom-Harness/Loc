@@ -41,7 +41,7 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   // `exists` carries `forWrite` (only on `for write`) and `read` (only in an
   // in-app gate position; a query-position quantifier has no read).
   "expr.ts": 36,
-  "members.ts": 16,
+  "members.ts": 15,
   // `UnresolvedTypeSite`/`LoweringViolation` carry `origin` through `Sourced`.
   // Kept: the table move's two contexts (qualified form only), an enum rename's
   // context (absent at root level), the raw brand, a subscription's channel
