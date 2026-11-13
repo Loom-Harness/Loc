@@ -2,5 +2,10 @@
   "title": "folded-projection fresh row — every column a fold has not written starts at its declared default, its type's neutral zero, or null",
   "doc": "language",
   "backends": "ALL",
-  "note": "D-PROJECTION-ROW-SEED.  java started a required int/bool column at 0/false and every other backend at null, so the same unwritten column read differently per backend.  The fold writes one column; the wire golden records every other column's starting value."
+  "note": "D-PROJECTION-ROW-SEED.  java started a required int/bool column at 0/false and every other backend at null, so the same unwritten column read differently per backend.  The fold writes one column; the wire golden records every other column's starting value.",
+  "apiCaller": {
+    "unattributed": [
+      "api.articleStats.byKey (no such aggregate)"
+    ]
+  }
 }
