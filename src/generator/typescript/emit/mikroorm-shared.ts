@@ -6,7 +6,14 @@
 // (wave-2) — mechanical move, no logic change.
 // -------------------------------------------------------------------------
 
-import type { EnrichedAggregateIR, RepositoryIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import type { ReadOrderTerm } from "../../../ir/enrich/read-scope.js";
+import { clientSortTieBreak, singleReadOrder } from "../../../ir/plan/index.js";
+import type {
+  EnrichedAggregateIR,
+  FindIR,
+  RepositoryIR,
+  TypeIR,
+} from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { renderTsType } from "../render-expr.js";
 import { aggHasFieldMask } from "../repository-wire-builder.js";
@@ -72,4 +79,27 @@ export function tsParamType(t: TypeIR): string {
     }
   }
   return "string";
+}
+
+/** `orderBy: { col: "asc", … }` — an `em.find` option over the row's own
+ *  columns. */
+export function mikroOrderBy(terms: readonly ReadOrderTerm[]): string {
+  return `orderBy: { ${terms.map((t) => `${t.field}: "${t.direction}"`).join(", ")} }`;
+}
+
+/** The `em.findOne` options of a single-row find: the first-match order, then
+ *  its `ignoring` filter switch; `null` when it needs neither. */
+export function mikroFindOneOptions(f: FindIR, ignoring: string | null): string | null {
+  const order = singleReadOrder(f);
+  const opts = [order ? mikroOrderBy(order) : null, ignoring].filter((o) => o);
+  return opts.length > 0 ? `{ ${opts.join(", ")} }` : null;
+}
+
+/** The `orderBy` array entries a page sorted by the caller's `?sort=` key
+ *  takes after that key (`clientSortTieBreak`), one single-key map per term so
+ *  the terms keep their order. */
+export function mikroClientSortTieBreak(): string {
+  return clientSortTieBreak()
+    .map((t) => `{ ${t.field}: "${t.direction}" }`)
+    .join(", ");
 }

@@ -19,7 +19,10 @@ export type ChainNode =
   | { k: "getByTitle"; text: string; exact?: boolean }
   | { k: "getByAltText"; text: string; exact?: boolean }
   | { k: "locator"; selector: string }
+  | { k: "locatorWithin"; inner: ChainNode[] }
   | { k: "filter"; has: ChainNode[] }
+  | { k: "or"; other: ChainNode[] }
+  | { k: "and"; other: ChainNode[] }
   | { k: "first" }
   | { k: "last" }
   | { k: "nth"; index: number };
@@ -58,6 +61,15 @@ export function resolveChain(
         break;
       case "locator":
         loc = loc.locator(node.selector);
+        break;
+      case "locatorWithin":
+        loc = loc.locatorWithin(resolveChain(doc, node.inner, timeout));
+        break;
+      case "or":
+        loc = loc.or(resolveChain(doc, node.other, timeout));
+        break;
+      case "and":
+        loc = loc.and(resolveChain(doc, node.other, timeout));
         break;
       case "filter":
         loc = loc.filter({ has: resolveChain(doc, node.has, timeout) });

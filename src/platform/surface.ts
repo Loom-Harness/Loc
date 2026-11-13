@@ -14,6 +14,7 @@ import type {
 } from "../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../ir/types/migrations-ir.js";
 import type { TargetCapabilityTable } from "../util/target-capabilities.js";
+import type { PlatformOperations } from "./operations.js";
 import type { TargetFacts } from "./target-facts.js";
 
 // ---------------------------------------------------------------------------
@@ -100,8 +101,6 @@ export interface ComposeServiceShape {
   secretEnvKeys?: readonly string[];
   /** Whether this service should `depends_on: db` with a healthcheck wait. */
   dependsOnDb: boolean;
-  /** Health-check path relative to the service's HTTP root. */
-  healthPath: string;
   /** The internal port the service's HTTP listener binds to. */
   internalPort: number;
   /** Frontend whose built bundle fetches the API at a RELATIVE `/api`, served
@@ -263,6 +262,11 @@ export interface PlatformSurface extends PlatformDescriptor {
      *  entry and negotiates among their tags at runtime. */
     translations?: ReadonlyMap<string, Record<string, string>>;
   }): Map<string, string>;
+  /** The operational contract — health endpoints, the healthcheck command,
+   *  listen families, log shape, broker and migration-runner facts — that the
+   *  compose / k8s emitters read and the lifecycle leg proves
+   *  (`src/platform/operations.ts`). */
+  readonly operations: PlatformOperations;
   /** Inputs for the deployable's docker-compose service stanza. */
   composeService(args: {
     deployable: DeployableIR;

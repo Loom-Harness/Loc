@@ -68,6 +68,20 @@ export function useAllOrders(query: AllQueryInput = {}) {
   });
 }
 
+export function useOrdersOptions() {
+  return useQuery({
+    queryKey: ["orders", "options"],
+    queryFn: async () => {
+      const rows: OrderResponse[] = [];
+      for (let page = 1; ; page++) {
+        const r = OrderPaged.parse(await api.get(`/orders?page=${page}&pageSize=500`));
+        rows.push(...r.items);
+        if (page >= r.totalPages) return rows;
+      }
+    },
+  });
+}
+
 export function useOrderById(id: string | undefined) {
   return useQuery({
     queryKey: ["orders", id],

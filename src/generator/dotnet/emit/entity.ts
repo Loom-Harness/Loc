@@ -28,13 +28,15 @@ import {
   operationBody,
   operationBodyUsesCurrentUser,
 } from "../../../ir/util/op-gates.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeCsharpIdent, factoryLocal, plural, upperFirst } from "../../../util/naming.js";
+import { factoryLocal, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { floorRuleText } from "../../_i18n/rule-text.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import { csMemberScope, csParamIdent, csProjectType, typeMemberNames } from "../bcl-collision.js";
 import { sortedCsUsings } from "../cs-symbols.js";
@@ -47,6 +49,7 @@ import {
   renderCsStatements,
   statementSubRegions,
 } from "../render-stmt.js";
+import { isVoList } from "../vo-collection-copy.js";
 import { csRuleParams } from "../wire-policy-cs.js";
 import { CS_STATE_HOLDER } from "./state-holder.js";
 
@@ -61,12 +64,6 @@ import { CS_STATE_HOLDER } from "./state-holder.js";
 export interface OpFragment {
   fragmentText: string;
   subRegions: SourceMapSubRegion[];
-}
-
-/** True for a field type that is a collection of references
- * (`Id<T>[]`) — persisted via a join table, not a column. */
-function isRefCollection(t: TypeIR): boolean {
-  return t.kind === "array" && t.element.kind === "id";
 }
 
 /** A statement shape narrow enough to cover both a real `StmtIR` and the
@@ -423,7 +420,7 @@ export function renderEntity(
     // `private` to `internal` keeps the field unwritable from
     // user/application code but lets the same-assembly hydration
     // succeed without reflection.
-    const fieldSetter = isRefCollection(f.type) ? "internal" : setterVisibility;
+    const fieldSetter = isRefCollectionType(f.type) ? "internal" : setterVisibility;
     propLines.push(
       `    public ${renderCsType(f.type)} ${upperFirst(f.name)} { get; ${fieldSetter} set; }${def}`,
     );
@@ -604,7 +601,9 @@ export function renderEntity(
       // match the scaffold-once implementation (extern.ts `hookParams`) — a
       // differing name is CS8826 — and, body-less, it hides nothing.
       const hookParams = [
-        op.params.map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`).join(", "),
+        op.params
+          .map((p) => `${renderCsType(p.type)} ${DOMAIN_NAMES.csharp.binding(p.name)}`)
+          .join(", "),
         userParam,
       ]
         .filter(Boolean)
@@ -770,12 +769,12 @@ export function renderEntity(
     isRoot && eventSourced && esCreate
       ? [
           `    public static ${entity.name} Create(${esCreate.params
-            .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+            .map((p) => `${renderCsType(p.type)} ${DOMAIN_NAMES.csharp.binding(p.name)}`)
             .join(", ")})`,
           "    {",
           `        var ${esLocal} = new ${entity.name}();`,
           `        ${esLocal}.Id = new ${idClass}(${csNewIdValue(renderCtx.memberScope)});`,
-          `        ${esLocal}._Init(${esCreate.params.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
+          `        ${esLocal}._Init(${esCreate.params.map((p) => DOMAIN_NAMES.csharp.binding(p.name)).join(", ")});`,
           `        return ${esLocal};`,
           "    }",
           "",
@@ -936,8 +935,14 @@ export function renderEntity(
   const createAssignments = createInputFieldList.map((f) => {
     const dflt = csFactoryDefault(f);
     // `??`, not a truthiness test: an explicit 0/""/false must survive.
-    const arg = escapeCsharpIdent(f.name);
-    return `        ${pubLocal}.${upperFirst(f.name)} = ${dflt === undefined ? arg : `${arg} ?? ${dflt}`};`;
+    // A value-object list is element-copied (`vo-collection-copy.ts`): the
+    // caller may hand over another aggregate's loaded, EF-tracked instances.
+    const arg = DOMAIN_NAMES.csharp.binding(f.name);
+    const voList = isVoList(f.type);
+    const copied = voList
+      ? `${arg}${dflt === undefined && !f.optional && f.type.kind !== "optional" ? "" : "?"}.Select(__vo => __vo with { }).ToList()`
+      : arg;
+    return `        ${pubLocal}.${upperFirst(f.name)} = ${dflt === undefined ? copied : `${copied} ?? ${dflt}`};`;
   });
   // Server-seeded literal defaults (RS-11): fields outside the create-input set
   // (`token`/`managed`/`internal`) whose default is a construction-time
@@ -995,13 +1000,14 @@ export function renderEntity(
           ]
             .map((f) => {
               const dflt = csFactoryDefault(f);
-              if (dflt === undefined) return `${renderCsType(f.type)} ${escapeCsharpIdent(f.name)}`;
+              if (dflt === undefined)
+                return `${renderCsType(f.type)} ${DOMAIN_NAMES.csharp.binding(f.name)}`;
               // `T? x = null` rather than `T x = <default>`: a C# optional
               // parameter default must be a compile-time constant, which a
               // rendered default expression (a VO ctor, an enum member, a
               // decimal) need not be.  The body applies it instead.
               const t = renderCsType(f.type);
-              return `${t.endsWith("?") ? t : `${t}?`} ${escapeCsharpIdent(f.name)} = null`;
+              return `${t.endsWith("?") ? t : `${t}?`} ${DOMAIN_NAMES.csharp.binding(f.name)} = null`;
             })
             .join(", ")})`,
           "    {",
@@ -1019,7 +1025,7 @@ export function renderEntity(
           // locals, unlisted fields already at their declared defaults.
           ...(createBody.length > 0
             ? [
-                `        ${pubLocal}._CreateBody(${createParams.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
+                `        ${pubLocal}._CreateBody(${createParams.map((p) => DOMAIN_NAMES.csharp.binding(p.name)).join(", ")});`,
               ]
             : []),
           `        return ${pubLocal};`,
@@ -1028,7 +1034,7 @@ export function renderEntity(
             ? [
                 "",
                 `    private void _CreateBody(${createParams
-                  .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+                  .map((p) => `${renderCsType(p.type)} ${DOMAIN_NAMES.csharp.binding(p.name)}`)
                   .join(", ")})`,
                 "    {",
                 renderCsStatements(createBody, renderCtx, {

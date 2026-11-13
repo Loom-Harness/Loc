@@ -30,8 +30,13 @@
 //      even resolve its own imports.
 //   2. `heex-ui-roundtrip.pw.ts` — the create → LIST → detail leg the `test
 //      e2e` DSL cannot yet spell (no "assert the row is in the list" verb).
+//   3. `heex-ui-auth.pw.ts` — the authorization legs: operation forms dispatch
+//      to the named op as the session principal (`requires`, `when`, `emit`),
+//      the detail page applies the read policy, and a workflow form runs as
+//      the principal.  Driven as three roles via the `x-loom-dev-claims`
+//      header, which the dev-stub :browser pipeline seeds the session from.
 //
-// Both assert on RENDERED TEXT, so a 200 with an empty page fails.
+// All assert on RENDERED TEXT, so a 200 with an empty page fails.
 //
 // Runtime.  `mix` on PATH is used directly when present (CI provides it via
 // `erlef/setup-beam`); otherwise every mix step runs inside the pinned
@@ -87,6 +92,7 @@ const DDD = CASE === "i18n" ? join(HERE, "heex-i18n", "heex-i18n.ddd") : join(HE
 const ROUNDTRIP_SPEC =
   CASE === "i18n" ? join(HERE, "heex-i18n", "heex-i18n.pw.ts") : join(HERE, "heex-ui-roundtrip.pw.ts");
 const HAND_SPEC = CASE === "i18n" ? "heex-i18n.spec.ts" : "heex-roundtrip.spec.ts";
+const AUTH_SPEC = join(HERE, "heex-ui-auth.pw.ts");
 
 // Pinned to the same image the compile gate uses
 // (test/e2e/generated-elixir-vanilla-build.test.ts), so a dep set that
@@ -287,6 +293,9 @@ async function main() {
       MIX_ENV: "dev",
       PHX_SERVER: "true",
       PORT: String(PORT),
+      // The fixture's deployable is `auth: required` on the dev stub, which
+      // answers only under this flag (the docker path below passes it too).
+      LOOM_DEV_AUTH: "1",
     };
     // ONE shell chain either way: deps → schema → serve.  `phx.server` is last
     // and blocks, so the process staying alive IS the "migrations applied"
@@ -345,6 +354,9 @@ async function main() {
     // The hand-written list leg, alongside the emitted spec.  Renamed on the
     // way in so the repo's own vitest run never discovers it.
     copyFileSync(ROUNDTRIP_SPEC, join(e2eDir, HAND_SPEC));
+    // The authorization legs: named-op dispatch, the `when` gate, the read
+    // gate and the workflow principal, each driven as a dev-claims principal.
+    if (CASE === "ui") copyFileSync(AUTH_SPEC, join(e2eDir, "heex-auth.spec.ts"));
 
     log("▶ driving the rendered LiveView in a browser");
     execFileSync(npm, ["install", "--no-audit", "--no-fund"], { cwd: e2eDir, stdio: "pipe", timeout: 600_000 });

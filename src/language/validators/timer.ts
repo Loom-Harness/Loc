@@ -14,13 +14,14 @@
 // requirement, dead-config unbound warning) are cross-cutting semantics and live
 // in the IR validator (`src/ir/validate/checks/timer-checks.ts`).
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { checkCron, cronEquivalentOf, MIN_INTERVAL_MS, parseDurationMs } from "../../util/timer.js";
 import { isTimerSource, type Model } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 export function checkTimers(model: Model, accept: ValidationAcceptor): void {
-  for (const ts of [...AstUtils.streamAllContents(model)].filter(isTimerSource)) {
+  for (const ts of [...modelContents(model)].filter(isTimerSource)) {
     const hasCron = ts.cron != null;
     const hasEvery = ts.every != null;
 

@@ -37,12 +37,12 @@ import { stmtHasProv } from "../../../ir/util/prov-id.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { serverInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { lowerFirst } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
-import { escapeTargetFieldMember, escapeTargetMember } from "../../../util/target-identifiers.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { floorRuleText } from "../../_i18n/rule-text.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { constructionSeededFields } from "../../construction-default.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
 import {
@@ -563,7 +563,7 @@ function renderEntity(
   }
   for (const f of e.fields) {
     getters.push(
-      `  get ${escapeTargetFieldMember("ts", f.name)}(): ${renderTsType(f.type)} { return this._${f.name}; }`,
+      `  get ${DOMAIN_NAMES.ts.field(f.name)}(): ${renderTsType(f.type)} { return this._${f.name}; }`,
     );
   }
   for (const f of provFields) {
@@ -573,12 +573,12 @@ function renderEntity(
   }
   for (const c of e.contains) {
     getters.push(
-      `  get ${escapeTargetFieldMember("ts", c.name)}(): ${containsGetterType(c)} { return this._${c.name}; }`,
+      `  get ${DOMAIN_NAMES.ts.field(c.name)}(): ${containsGetterType(c)} { return this._${c.name}; }`,
     );
   }
   for (const d of e.derived) {
     getters.push(
-      `  get ${escapeTargetFieldMember("ts", d.name)}(): ${renderTsType(d.type)} { return ${renderTsExpr(d.expr)}; }`,
+      `  get ${DOMAIN_NAMES.ts.field(d.name)}(): ${renderTsType(d.type)} { return ${renderTsExpr(d.expr)}; }`,
     );
   }
   // Host-language debug-string hooks delegate to the `inspect` getter
@@ -594,7 +594,7 @@ function renderEntity(
 
   const fns = e.functions.flatMap((fn) => {
     const params = fn.params
-      .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+      .map((p) => `${DOMAIN_NAMES.ts.binding(p.name)}: ${renderTsType(p.type)}`)
       .join(", ");
     // PUBLIC, like the operations below.  A `function` is not an internal
     // helper the class keeps to itself: the generated code calls it from
@@ -605,7 +605,7 @@ function renderEntity(
     // (`precondition t.hasSkill(…)`).  Emitted `private`, every one of those
     // was a TS2341 on a model that validated `0 error(s)`.  The generator's
     // own `.loom/domain.mmd` has always rendered the member as `+<fn>()`.
-    const head = `  public ${escapeTargetMember("ts", lowerFirst(fn.name))}(${params}): ${renderTsType(fn.returnType)}`;
+    const head = `  public ${DOMAIN_NAMES.ts.method(lowerFirst(fn.name))}(${params}): ${renderTsType(fn.returnType)}`;
     // Expression form stays the single-line `{ return expr; }` (byte-identical);
     // block form (domain-services.md rev. 4) emits its lowered statements.
     if ("expr" in fn.body) {
@@ -659,7 +659,7 @@ function renderEntity(
     // post-load, before this method is entered (op-gates.ts).
     const opBody = operationBody(op);
     const baseParams = op.params
-      .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+      .map((p) => `${DOMAIN_NAMES.ts.binding(p.name)}: ${renderTsType(p.type)}`)
       .join(", ");
     const userParam = usesUser ? "currentUser: User" : "";
     const params = [baseParams, userParam].filter(Boolean).join(", ");
@@ -671,7 +671,7 @@ function renderEntity(
       const checkName = `check${op.name[0]!.toUpperCase()}${op.name.slice(1)}`;
       const hookName = `${lowerFirst(op.name)}Extern`;
       const callArgs = [
-        op.params.map((p) => escapeTsIdent(p.name)).join(", "),
+        op.params.map((p) => DOMAIN_NAMES.ts.binding(p.name)).join(", "),
         usesUser ? "currentUser" : "",
       ]
         .filter(Boolean)
@@ -690,9 +690,7 @@ function renderEntity(
       ops.push("  }");
       ops.push("");
       // The operation method — state gate → preconditions → hook → invariants.
-      ops.push(
-        `  public ${escapeTargetMember("ts", lowerFirst(op.name))}(${params}): ${retType} {`,
-      );
+      ops.push(`  public ${DOMAIN_NAMES.ts.method(lowerFirst(op.name))}(${params}): ${retType} {`);
       const externGate = whenGate(op);
       if (externGate) ops.push(externGate);
       ops.push(`    this.${checkName}(${callArgs});`);
@@ -723,7 +721,7 @@ function renderEntity(
     // ends in `return`, so the trailing assert would be unreachable — skip it.
     const retType = op.returnType ? renderOperationReturnType(op.returnType, ctx) : "void";
     ops.push(
-      `  ${visibility} ${escapeTargetMember("ts", lowerFirst(op.name))}(${params}): ${retType} {`,
+      `  ${visibility} ${DOMAIN_NAMES.ts.method(lowerFirst(op.name))}(${params}): ${retType} {`,
     );
     const gate = whenGate(op);
     if (gate) ops.push(gate);
@@ -933,7 +931,7 @@ function renderEntity(
           `  }`,
           "",
           `  private _init(${esCreate.params
-            .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+            .map((p) => `${DOMAIN_NAMES.ts.binding(p.name)}: ${renderTsType(p.type)}`)
             .join(", ")}): void {`,
           renderTsStatements(esCreate.statements, emitProvenance, {
             emitTrace,
@@ -1105,7 +1103,7 @@ function renderEntity(
               eventSourced: true,
             });
             return [
-              `  private _apply${ap.event}(${escapeTsIdent(ap.param)}: Events.${ap.event}): void {`,
+              `  private _apply${ap.event}(${DOMAIN_NAMES.ts.binding(ap.param)}: Events.${ap.event}): void {`,
               ...(body.length > 0 ? [body] : []),
               "  }",
               "",

@@ -17,7 +17,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
-import { humanize, snake } from "../../util/naming.js";
+import { elixirString, humanize, snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { giveUpText } from "../_walker/give-up.js";
@@ -304,41 +304,28 @@ export function renderFieldInputForField(
     const optionsVar = `${snake(inner.targetName)}_options`;
     return `<.input field={${assignPrefix}${formAssign}[:${fieldName}]} type="select" label=${labelAttr} options={@${optionsVar}}${tid} />`;
   }
-  // Value-object fields render as `<.inputs_for :let={<f>_form}>`
-  // with one nested `<.input>` per VO field.  The `:let` local
-  // variable shadows the outer form scope, so the recursive call
-  // passes assignPrefix="" — `f_form[:sub]` instead of `@f_form[:sub]`.
-  // The Ecto changeset's embedded-schema cast handles the nested-changeset
-  // wiring at validate time.  Falls back to text input when the VO
+  // Value-object fields render as one plain `<.input>` per VO leaf, named
+  // `<form>[<field>][<sub>]` off the field's own `FormField.name` and valued
+  // from its submitted params.  Not `<.inputs_for>`: phoenix_ecto's `to_form`
+  // raises on a field that is neither an association nor an embed, and a VO is
+  // neither — it is flattened into `<field>_<sub>` columns on the aggregate and
+  // cast as a plain map at the boundary.  The submit carries the same nested
+  // map the REST route takes as JSON.  Falls back to a text input when the VO
   // registry isn't threaded or the type's name isn't found.
   if (inner.kind === "valueobject" && valueObjectsByName) {
     const vo = valueObjectsByName.get(inner.name);
     if (vo) {
-      const nestedFormVar = `${fieldName}_form`;
-      // Single-line emission keeps the multi-line indent from the
-      // outer template unbroken — the caller prefixes a fixed number
-      // of spaces and that prefix applies to the whole `<fieldset>`
-      // block.  HEEx is whitespace-tolerant; the rendered DOM nests
-      // identically.
-      const subInputs = vo.fields
-        .map((sub) =>
-          renderFieldInputForField(
-            sub,
-            nestedFormVar,
-            enumsByName,
-            idOptionsBindings,
-            valueObjectsByName,
-            "",
-            // Nested VO controls extend the parent's testid with the sub-field
-            // name (`…-input-price-amount`), the exact shape `fillBlock`
-            // drives for a value-object create input.
-            testid ? `${testid}-${sub.name}` : undefined,
-            modelText ? { ...modelText, owner: vo.name } : undefined,
-          ),
-        )
-        .join(" ");
+      const field = `${assignPrefix}${formAssign}[:${fieldName}]`;
       const legend = labelCall ? `<%= ${labelCall} %>` : label;
-      return `<fieldset><legend>${legend}</legend><.inputs_for :let={${nestedFormVar}} field={${assignPrefix}${formAssign}[:${fieldName}]}>${subInputs}</.inputs_for></fieldset>`;
+      return `<fieldset><legend>${legend}</legend>${renderVoLeafInputs(
+        vo,
+        field,
+        [],
+        enumsByName,
+        valueObjectsByName,
+        testid,
+        modelText,
+      )}</fieldset>`;
     }
   }
   const inputType = htmlInputTypeForIRType(f.type);
@@ -353,6 +340,75 @@ export function renderFieldInputForField(
       ? ` pattern="^-?\\d+(\\.\\d+)?$" inputmode="decimal"`
       : "";
   return `<.input field={${assignPrefix}${formAssign}[:${fieldName}]} type="${inputType}" label=${labelAttr}${extraAttrs}${tid} />`;
+}
+
+/** The leaf inputs of a value-object field, recursing through nested VOs.
+ *  `field` is the HEEx expression of the VO's `FormField` (`@set_reserve_form[:reserve]`);
+ *  `path` the sub-field keys below it.  Each leaf is named
+ *  `<field.name>[<path>…][<sub>]` and valued from the field's submitted map, so
+ *  it round-trips through `phx-change` exactly as a top-level input does. */
+function renderVoLeafInputs(
+  vo: ValueObjectIR,
+  field: string,
+  path: readonly string[],
+  enumsByName: ReadonlyMap<string, EnumIR> | undefined,
+  valueObjectsByName: ReadonlyMap<string, ValueObjectIR>,
+  testid: string | undefined,
+  modelText:
+    | { ctx: WalkContext; home: BoundedContextIR | undefined; owner: string | undefined }
+    | undefined,
+): string {
+  return vo.fields
+    .map((sub) => {
+      const subPath = [...path, snake(sub.name)];
+      // Nested VO controls extend the parent's testid with the sub-field name
+      // (`…-input-price-amount`), the exact shape `fillBlock` drives for a
+      // value-object create input.
+      const subTestid = testid ? `${testid}-${sub.name}` : undefined;
+      const subText = modelText ? { ...modelText, owner: vo.name } : undefined;
+      const subInner = sub.type.kind === "optional" ? sub.type.inner : sub.type;
+      if (subInner.kind === "valueobject") {
+        const nested = valueObjectsByName.get(subInner.name);
+        if (nested)
+          return renderVoLeafInputs(
+            nested,
+            field,
+            subPath,
+            enumsByName,
+            valueObjectsByName,
+            subTestid,
+            subText,
+          );
+      }
+      const labelCall = subText
+        ? fieldLabelCall(subText.ctx, subText.home, subText.owner, sub.name)
+        : undefined;
+      const labelAttr = labelCall ? `{${labelCall}}` : `"${humanize(sub.name)}"`;
+      const name = `{${field}.name <> ${elixirString(subPath.map((k) => `[${k}]`).join(""))}}`;
+      const id = `{${field}.id <> ${elixirString(`_${subPath.join("_")}`)}}`;
+      // The submitted map, walked key by key; anything that is not a map (an
+      // unset field, a loaded struct's non-map member) reads as unset.
+      const binds = subPath
+        .slice(0, -1)
+        .map((k, i) => `%{} = m${i + 1} <- Map.get(m${i}, ${elixirString(k)})`);
+      const value = `{with ${[`%{} = m0 <- ${field}.value`, ...binds].join(", ")}, do: Map.get(m${
+        subPath.length - 1
+      }, ${elixirString(subPath[subPath.length - 1]!)}), else: (_ -> nil)}`;
+      const tid = subTestid ? ` data-testid="${escapeHeexAttr(subTestid)}"` : "";
+      if (subInner.kind === "enum" && enumsByName) {
+        const en = enumsByName.get(subInner.name);
+        if (en) {
+          const tuples = subText ? enumOptionTuples(subText.ctx, subText.home, en) : undefined;
+          const options = (tuples ?? en.values.map((v) => JSON.stringify(v))).join(", ");
+          return `<.input name=${name} id=${id} value=${value} type="select" label=${labelAttr} options={[${options}]}${tid} />`;
+        }
+      }
+      const inputType = htmlInputTypeForIRType(sub.type);
+      const isDecimal = subInner.kind === "primitive" && subInner.name === "decimal";
+      const step = isDecimal ? ` step="0.01"` : "";
+      return `<.input name=${name} id=${id} value=${value} type="${inputType}" label=${labelAttr}${step}${tid} />`;
+    })
+    .join(" ");
 }
 
 /** Map a TypeIR to the HTML `<input type="…">` attribute the form

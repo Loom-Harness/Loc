@@ -97,6 +97,49 @@ function fakeResponse<T>(command: string): DebugProtocol.Response & { body: T } 
 }
 
 describe("LoomDebugSession", () => {
+  describe("dispatchRequest — requests the remap layer does not back", () => {
+    /** Dispatch `command` through the real SDK entry point and return the
+     *  single response the session sent. */
+    function dispatch(command: string, args: unknown = {}): DebugProtocol.Response {
+      const session = new LoomDebugSession(fixtureMap(), readSource);
+      const sendResponseSpy = vi.spyOn(session, "sendResponse");
+      // biome-ignore lint/suspicious/noExplicitAny: invoking the protected SDK dispatcher directly.
+      (session as any).dispatchRequest({ seq: 7, type: "request", command, arguments: args });
+      expect(sendResponseSpy).toHaveBeenCalledTimes(1);
+      return sendResponseSpy.mock.calls[0]![0];
+    }
+
+    it.each([
+      "launch",
+      "attach",
+      "continue",
+      "threads",
+      "next",
+      "stepIn",
+      "pause",
+      "evaluate",
+    ])("%s answers success: false naming the remap layer", (command) => {
+      const response = dispatch(command, { threadId: 1 });
+      expect(response.success).toBe(false);
+      expect(response.command).toBe(command);
+      expect(response.request_seq).toBe(7);
+      expect(response.message).toBe(
+        `${command} is not supported by the remap layer; ` +
+          "use the target's native debug configuration (the generated .vscode/launch.json).",
+      );
+    });
+
+    it("supported requests still succeed through the dispatcher", () => {
+      expect(dispatch("initialize", { adapterID: "loom", pathFormat: "path" }).success).toBe(true);
+      expect(
+        dispatch("setBreakpoints", { source: { path: DDD_PATH }, breakpoints: [{ line: 6 }] })
+          .success,
+      ).toBe(true);
+      expect(dispatch("stackTrace", { threadId: 1 }).success).toBe(true);
+      expect(dispatch("configurationDone").success).toBe(true);
+    });
+  });
+
   describe("initializeRequest", () => {
     it("advertises supportsConfigurationDoneRequest and sends an InitializedEvent", () => {
       const session = new LoomDebugSession(fixtureMap(), readSource);

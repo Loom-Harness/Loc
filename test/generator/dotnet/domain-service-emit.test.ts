@@ -22,7 +22,7 @@ const SRC = `
     repository Carts for Cart { }
 
     domainService Pricing {
-      operation quote(cart: Cart, customer: Customer): money {
+      operation quote(cart: Cart, customer: Cart): money {
         return cart.subtotal
       }
       operation applyCoupon(price: money): money or CouponExpired {
@@ -47,7 +47,7 @@ describe(".NET generator — domainService", () => {
 
   it("emits one public static method per operation (PascalCased)", async () => {
     const svc = (await files()).get("Domain/Services/Pricing.cs")!;
-    expect(svc).toMatch(/public static decimal Quote\(Cart cart, Customer customer\)/);
+    expect(svc).toMatch(/public static decimal Quote\(Cart cart, Cart customer\)/);
     expect(svc).toMatch(/return cart\.Subtotal;/);
     // The union return type reuses the shared `unionInstanceName` (a `money`
     // variant tags by its bare primitive name → `moneyOrCouponExpired`), so the

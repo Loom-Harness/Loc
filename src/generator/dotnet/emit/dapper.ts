@@ -1,10 +1,17 @@
 import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
-import { eventLogTable, foldedEventNames } from "../../../ir/plan/index.js";
+import {
+  clientSortTieBreak,
+  domainFindShape,
+  eventLogTable,
+  foldedEventNames,
+  singleReadOrder,
+} from "../../../ir/plan/index.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import {
   recordDurableLines,
   rowDispatchLines,
   rowOriginDeclLines,
+  streamCaptureLines,
   streamOriginFrameLines,
   streamScopePredicate,
   streamScopeWhere,
@@ -33,7 +40,8 @@ import {
 
 import {
   existsScopePredicates,
-  readSortFor,
+  type ReadOrderTerm,
+  readOrderFor,
   withExistsScopes,
 } from "../../../ir/enrich/read-scope.js";
 import { aggregateTableName, partTableName } from "../../../ir/enrich/storage-names.js";
@@ -57,7 +65,7 @@ import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { idColumnVsOperatingOrg, orgAncestorsMembershipArg } from "../../../ir/util/org-context.js";
 import { type PrincipalTerm, principalTerm } from "../../../ir/util/principal-term.js";
-import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
+import { isRefCollectionType, refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { eventsCarryRowTenant, guidFromStringSelfScope } from "../../../ir/util/tenant-stance.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
@@ -73,7 +81,6 @@ import { refuseOutOfVocabulary } from "../../_expr/target.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { csIdSqlType, csJsonSqlType, csSqlType } from "../codec-spelling.js";
-import { domainFindShape } from "../find-emit.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { csLocalNamer, csReadOwnParams } from "../local-names.js";
 import {
@@ -1144,7 +1151,7 @@ export function collectFilterPrincipalRefs(
     const claimProp = upperFirst(member);
     // A principal list of typed ids (the operating org's lineage) binds as the
     // raw uuid array `= ANY(@…)` reads.
-    if (type?.kind === "array" && type.element.kind === "id") {
+    if (type && isRefCollectionType(type)) {
       add({
         param: currentUserParam(member),
         claimProp,
@@ -1853,9 +1860,8 @@ export function renderDapperRepository(
         // compile tier because the whole thing is a string (M-T6.42).
         .map((wf) => `"${wf}" => "${sqlIdent(snake(wf))}"`)
         .join(", ");
-      const declaredOrder = defaultSortOrder(f.defaultSort)
-        ?.map((t) => `${sqlIdent(snake(t.field))} ${t.direction.toUpperCase()}`)
-        .join(", ");
+      const declaredTerms = defaultSortOrder(f.defaultSort);
+      const declaredOrder = declaredTerms ? dapperOrderSql(declaredTerms) : undefined;
       return lines(
         `    public async Task<${ret}> ${name}(${renderParams(f.params, ["int page", "int pageSize", "string sort", "string dir"], usesUser)})`,
         `    {`,
@@ -1867,12 +1873,12 @@ export function renderDapperRepository(
         // declared order (`defaultSortOrder`).
         ...(declaredOrder
           ? [
-              `        var ${L("orderClause")} = ${L("sortColumn")} is null ? "${declaredOrder}" : $"{${L("sortColumn")}} {${L("sortDir")}}";`,
+              `        var ${L("orderClause")} = ${L("sortColumn")} is null ? "${declaredOrder}" : $"{${L("sortColumn")}} {${L("sortDir")}}, ${dapperOrderSql(clientSortTieBreak())}";`,
             ]
           : []),
         `        var ${L("total")} = await ${L("conn")}.ExecuteScalarAsync<int>(new CommandDefinition(${csSqlLiteral(`SELECT COUNT(*) ${fromClause}`)}${paramObj}, cancellationToken: ${ct}));`,
         `        var ${L("totalPages")} = pageSize > 0 ? (int)System.Math.Ceiling((double)${L("total")} / pageSize) : 0;`,
-        `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition($"SELECT ${colList} ${csSqlInterpolated(fromClause)} ORDER BY ${declaredOrder ? `{${L("orderClause")}}` : `{${L("sortColumn")}} {${L("sortDir")}}`} LIMIT @__take OFFSET @__offset", new { __take = pageSize, __offset = ${L("offset")}${allFindParamsSuffix} }, cancellationToken: ${ct}));`,
+        `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition($"SELECT ${colList} ${csSqlInterpolated(fromClause)} ORDER BY ${declaredOrder ? `{${L("orderClause")}}` : `{${L("sortColumn")}} {${L("sortDir")}}, ${dapperOrderSql(clientSortTieBreak())}`} LIMIT @__take OFFSET @__offset", new { __take = pageSize, __offset = ${L("offset")}${allFindParamsSuffix} }, cancellationToken: ${ct}));`,
         ...(hasContains
           ? [
               `        var ${L("items")} = await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), ${ct});`,
@@ -1930,6 +1936,8 @@ export function renderDapperRepository(
     // /warnaserror` rejects it with CS8603 ("Possible null reference return").
     // Nothing caught it because the `dotnet-build` fixture matrix has no
     // `persistence: dapper` case that declares a non-optional find.
+    const firstMatch = singleReadOrder(f);
+    const firstMatchSql = firstMatch ? ` ORDER BY ${dapperOrderSql(firstMatch)}` : "";
     const absent = f.returnType.kind === "optional" ? "null" : `throw ${csFindAbsentException()}`;
     const absentGuard =
       f.returnType.kind === "optional"
@@ -1939,7 +1947,7 @@ export function renderDapperRepository(
       `    public async Task<${ret}> ${name}(${renderParams(f.params, [], usesUser)})`,
       `    {`,
       `        ${dapperOpenConn(ns, L("conn"), ct)}`,
-      `        var ${L("r")} = await ${L("conn")}.QueryFirstOrDefaultAsync<Row>(new CommandDefinition(${csSqlLiteral(`${sql} LIMIT 1`)}${paramObj}, cancellationToken: ${ct}));`,
+      `        var ${L("r")} = await ${L("conn")}.QueryFirstOrDefaultAsync<Row>(new CommandDefinition(${csSqlLiteral(`${sql}${firstMatchSql} LIMIT 1`)}${paramObj}, cancellationToken: ${ct}));`,
       ...(hasContains
         ? [
             absentGuard,
@@ -1975,10 +1983,8 @@ export function renderDapperRepository(
     const own = csReadOwnParams(r.params.map((p) => p.name));
     // As on the find path: a refusal is `loom.query-emission-invalid`, not a stub.
     const whereSql = whereToSql(r.where, sqlCtx);
-    // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`).
-    const orderSql = ` ORDER BY ${readSortFor(r.sort)
-      .map((s) => `${sqlIdent(snake(s.path[0]!.name))} ${s.direction === "desc" ? "DESC" : "ASC"}`)
-      .join(", ")}`;
+    // The declared terms with the `id` tie-break, or `id` alone (`readOrderFor`).
+    const orderSql = ` ORDER BY ${dapperOrderSql(readOrderFor(r.sort))}`;
     // A retrieval's `ignoring` clause arrives at RUNTIME (the `FilterBypass
     // bypass` port param a workflow's inline `Repo.run(...) ignoring …` binds),
     // so unlike the find path the SQL cannot be decided at emit time: the
@@ -2604,6 +2610,9 @@ export function renderDapperEventSourcedRepository(
   /** Context retrievals over this aggregate — each a `Run<Name>Async`
    *  answered in memory (`inMemoryRunMethodLines`). */
   retrievals: readonly RetrievalIR[] = [],
+  /** The context routes events through the transactional outbox: the append
+   *  and the durable events' outbox rows commit in one transaction. */
+  durable = false,
 ): string {
   // BCL type-name collision (#3024) — the dapper adapter is a SECOND repository
   // emitter beside the EF one, with its own using block and its own non-generic
@@ -2630,6 +2639,10 @@ export function renderDapperEventSourcedRepository(
   const streamType = agg.name;
   // Audit staging seam — shared with the relational + document emitters.
   const audit = dapperAuditSeam(agg, ns);
+  // The append runs in one transaction when it must commit with an audit row
+  // or with the durable events' outbox rows.
+  const txOn = audit.on || durable;
+  const txArg = txOn ? "transaction: __tx, " : "";
   const eventNames = foldedEventNames(agg);
   const idValue = csValueTypeForId();
   const parseId =
@@ -2789,16 +2802,17 @@ export function renderDapperEventSourcedRepository(
       `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
       "    {",
       "        var __pending = aggregate.PullEvents();",
-      // Audited: the connection + transaction are hoisted out of the append
-      // block, because the staged audit row must be drained and committed even
-      // on a save that appends no events.  Un-audited keeps `conn` scoped
-      // inside the block, byte-identical to the pre-audit emit.
-      audit.on ? `        ${dapperOpenConn(ns)}` : null,
-      audit.begin,
+      ...(durable ? ["        IReadOnlyList<IDomainEvent> __afterCommit = __pending;"] : []),
+      // In a transaction (audited, or with a durable channel) the connection
+      // and transaction are hoisted out of the append block: a staged audit row
+      // must be drained and committed even on a save that appends no events.
+      // Otherwise `conn` stays scoped inside the block.
+      txOn ? `        ${dapperOpenConn(ns)}` : null,
+      txOn ? `        ${DAPPER_BEGIN_TX}` : null,
       "        if (__pending.Count > 0)",
       "        {",
       "            var __sid = aggregate.Id.Value.ToString();",
-      audit.on ? null : `            ${dapperOpenConn(ns)}`,
+      txOn ? null : `            ${dapperOpenConn(ns)}`,
       // Expected-version append (M-T6.98): continue from the version THIS
       // handle was folded to, not from a `MAX(version)` re-read here — a
       // re-read lets a handle loaded before another append keep a decision
@@ -2816,19 +2830,30 @@ export function renderDapperEventSourcedRepository(
       "                var __data = System.Text.Json.JsonSerializer.Serialize((object)__ev, __json);",
       "                try",
       "                {",
-      `                    await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at${metaSel}) VALUES (@st, @sid, @version, @type, CAST(@data AS jsonb), now()${metaCols.map((c) => `, @${c}`).join("")})", new { st = "${streamType}", sid = __sid, version = __version, type = __ev.GetType().Name, data = __data${(tenancy?.metadata ?? []).map((m) => `, ${m.column} = aggregate.${upperFirst(m.field)}`).join("")} }, ${audit.txArg}cancellationToken: cancellationToken));`,
+      `                    await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at${metaSel}) VALUES (@st, @sid, @version, @type, CAST(@data AS jsonb), now()${metaCols.map((c) => `, @${c}`).join("")})", new { st = "${streamType}", sid = __sid, version = __version, type = __ev.GetType().Name, data = __data${(tenancy?.metadata ?? []).map((m) => `, ${m.column} = aggregate.${upperFirst(m.field)}`).join("")} }, ${txArg}cancellationToken: cancellationToken));`,
       "                }",
       '                catch (Npgsql.PostgresException __ex) when (__ex.SqlState == "23505")',
       "                {",
       `                    throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
       "                }",
       "            }",
+      // Transactional outbox: the durable events' outbox rows are INSERTed on
+      // `__tx`, so they commit with the stream rows; only the rest dispatch
+      // after the commit.
+      ...(durable
+        ? streamCaptureLines(
+            ns,
+            "            ",
+            "_events.RecordDurableAsync(__pending, __tx, cancellationToken)",
+            !!tenancy,
+          )
+        : []),
       "            aggregate._StreamVersion = __version;",
       "        }",
       ...audit.flush,
-      audit.commit,
+      txOn ? `        ${DAPPER_COMMIT_TX}` : null,
       ...(tenancy ? streamOriginFrameLines(ns, "        ") : []),
-      "        foreach (var ev in __pending) await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
+      `        foreach (var ev in ${durable ? "__afterCommit" : "__pending"}) await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);`,
       "    }",
       "",
       `    private async Task<List<${agg.name}>> _LoadAllAsync(CancellationToken cancellationToken)`,
@@ -2952,4 +2977,11 @@ function renderDapperDateOnlyHandler(ns: string): string {
     "        value is DateOnly d ? d : DateOnly.FromDateTime((DateTime)value);",
     "}",
   );
+}
+
+/** `col DIR, …` — a list of order terms over the candidate's own columns. */
+function dapperOrderSql(terms: readonly ReadOrderTerm[]): string {
+  return terms
+    .map((t) => `${sqlIdent(snake(t.field))} ${t.direction === "desc" ? "DESC" : "ASC"}`)
+    .join(", ");
 }

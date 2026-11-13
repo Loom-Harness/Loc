@@ -1,0 +1,50 @@
+// A correlated workflow's instance comes into existence only when its start
+// succeeds: a start whose body fails leaves no instance, so its instance read
+// is 404 — and a later successful start creates it.
+system WorkflowFailedStart {
+  subdomain Crm {
+    context Crm {
+      aggregate Customer with crudish {
+        name: string
+      }
+      repository Customers for Customer { }
+
+      workflow Onboarding {
+        customer: Customer id
+        step: int
+        create(customer: Customer id, ready: bool) {
+          precondition ready
+          step := 1
+        }
+      }
+    }
+  }
+
+  api CrmApi from Crm
+  storage pg { type: postgres }
+  resource crmState { for: Crm, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Crm]
+    dataSources: [crmState]
+    serves: CrmApi
+    port: 4000
+  }
+
+  test e2e "a failed start leaves no workflow instance" against d {
+    let c = api.customers.create({ name: "ada" })
+    expect(api.onboarding.run({ customer: c.id, ready: false })).toThrow(422)
+    expect(api.onboarding.instance(c)).toThrow(404)
+
+    api.onboarding.run({ customer: c.id, ready: true })
+    let started = api.onboarding.instance(c)
+    expect(started.step).toBe(1)
+
+    // The remaining CRUD routes.
+    api.customers.update(c, { name: "grace" })
+    expect(api.customers.getById(c).name).toBe("grace")
+    expect(api.customers.all().total).toBe(1)
+    api.customers.destroy(c)
+    expect(api.customers.getById(c)).toThrow(404)
+  }
+}

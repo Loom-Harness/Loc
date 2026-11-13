@@ -78,14 +78,14 @@ const CASES: [string, string[]][] = [
       "with c <- (case Context.run_find_all_by_by_email_customer(e, limit: 1) do",
       "o = case Context.get_order(oid) do",
       "o = x",
-      // The reactor (dispatcher) body: each source but a criterion read
-      // answers the row or nil, so the then-arm is guarded on presence.
-      "(case D.Sales.get_order(event.order) do",
-      "{:ok, o} when not is_nil(o) ->",
-      "{:ok, q} when not is_nil(q) ->",
+      // The reactor (dispatcher) body: each source answers the row or nil,
+      // bound first, and the then-arm runs on presence.
+      "o = case D.Sales.get_order(event.order) do",
+      "if o != nil do",
+      "if q != nil do",
       "k <- (case D.Sales.find_by_code_order(event.code) do",
-      "(case k do",
-      "p when not is_nil(p) ->",
+      "p = k",
+      "if p != nil do",
     ],
   ],
 ];

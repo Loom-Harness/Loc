@@ -228,6 +228,7 @@ on:
       - 'Kubernetes/Helm validation'
       - 'Kubernetes cluster e2e (kind)'
       - 'Langium generated files in sync'
+      - 'Lifecycle / chaos (runtime e2e)'
       - 'Migration evolution (runtime e2e)'
       - 'Deploy landing page + playground to GitHub Pages'
       - 'Pairwise combination corpus'

@@ -302,7 +302,19 @@ function validateHandlerUnboundNames(
       };
     for (const top of h.statements) {
       walkWorkflowStmtsDeep(top, (st) => {
-        if (st.kind === "expr-let" && st.name === "__bad__") return;
+        if (st.kind === "expr-let" && st.name === "__bad__") {
+          // A statement lowering has no handler form for (an assignment — a
+          // handler has no state of its own) reaches the IR as this
+          // placeholder; refuse it rather than emit nothing for it.
+          diags.push({
+            severity: "error",
+            code: "loom.handler-unrecognised-statement",
+            message: diagMessage("loom.handler-unrecognised-statement", { handler: label }),
+            source: `${ctx.name}/${h.name}`,
+            ...(st.origin ? { origin: st.origin } : {}),
+          });
+          return;
+        }
         const where = st.kind === "expr-let" ? `let '${st.name}'` : st.kind;
         walkWorkflowStmtChildren(st, { expr: (root) => walkExprDeep(root, visitIn(where)) });
       });
@@ -1301,7 +1313,21 @@ function validateWorkflowBody(
     );
   }
 
-  if (wf.transactional && !mutated) {
+  // A statement lowering has no form for reaches the IR as the `__bad__`
+  // placeholder and is refused on its own (`loom.workflow-unrecognised-
+  // statement`).  Its effect is unknowable, so "this body changes nothing"
+  // cannot be claimed about a body that holds one.
+  const holdsRefused = workflowBodies(wf).some((statements) =>
+    statements.some((top) => {
+      let found = false;
+      walkWorkflowStmtsDeep(top, (st) => {
+        if (st.kind === "expr-let" && st.name === "__bad__") found = true;
+      });
+      return found;
+    }),
+  );
+
+  if (wf.transactional && !mutated && !holdsRefused) {
     diags.push({
       severity: "warning",
       code: "loom.transactional-no-effect",

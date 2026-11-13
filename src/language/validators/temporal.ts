@@ -13,7 +13,7 @@
 //   loom.duration-arity          — exactly one positional argument
 //   loom.duration-arg-type       — the amount must be int-typed
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { durationUnitOf } from "../../util/temporal.js";
 import type { Model, PostfixChain } from "../generated/ast.js";
@@ -27,9 +27,10 @@ import {
   typeToString,
 } from "../type-system.js";
 import { canPromoteLiteralTo } from "./_shared.js";
+import { modelContents } from "./model-contents.js";
 
 export function checkDurationConstructors(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isPostfixChain(node)) continue;
     const chain = node as PostfixChain;
     if (!isNameRef(chain.head)) continue;

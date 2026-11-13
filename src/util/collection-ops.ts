@@ -48,8 +48,8 @@ export const COLLECTION_OP_SIGNATURES: ReadonlyArray<CollectionOpSignature> = [
   { name: "take", signature: "(n: int): T[]" },
   { name: "skip", signature: "(n: int): T[]" },
   { name: "join", signature: "(sep: string): string" },
-  { name: "min", signature: "(λ): T?" },
-  { name: "max", signature: "(λ): T?" },
+  { name: "min", signature: "(λ): U?" },
+  { name: "max", signature: "(λ): U?" },
   { name: "avg", signature: "(λ): decimal?" },
 ];
 

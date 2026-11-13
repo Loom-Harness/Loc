@@ -92,6 +92,16 @@ export const messages = {
     `is accepted where an id is expected (that is how an id arrives as JSON), but two ids of ` +
     `different aggregates are not interchangeable: this would persist a row pointing at the ` +
     `wrong table. Pass the '${p.expected}' — the id of the aggregate the field references.`,
+  "loom.create-field-id-target#guid": (p: {
+    name: unknown;
+    name2: unknown;
+    expected: unknown;
+    actual: unknown;
+  }) =>
+    `'${p.name}.create' field '${p.name2}' expects '${p.expected}' but got '${p.actual}' — a ` +
+    `typed reference is not a bare guid on the backends that name it (.NET and java give ` +
+    `every aggregate its own id type), so the call would not compile. Declare the field ` +
+    `'${p.actual}' if it references that aggregate.`,
   "loom.aggregate-not-constructible": (p: { name: unknown }) =>
     `No code path can create a '${p.name}': it declares no 'create' (and no ` +
     `'with crudish'), no workflow or commandHandler builds one, and it is not ` +
@@ -220,6 +230,8 @@ export const messages = {
     `Reference an aggregate or an entity part instead${p.hint}.`,
   "loom.provenanced-never-written": (p: { name: unknown; aggName: unknown }) =>
     `Provenanced field '${p.name}' on aggregate '${p.aggName}' is never written; no trace records will be produced.`,
+  "loom.provenanced-part-field": (p: { name: unknown; partName: unknown; aggName: unknown }) =>
+    `Field '${p.name}' of entity '${p.partName}' cannot be provenanced: lineage is recorded only for fields of the aggregate root '${p.aggName}'. Move the field onto '${p.aggName}', or drop 'provenanced'.`,
   "loom.entity-field-modifier": (p: {
     name: unknown;
     label: unknown;

@@ -135,7 +135,7 @@ describe("resolveSetBreakpoints", () => {
     expect(out).toHaveLength(1);
     expect(out[0]!.verified).toBe(false);
     expect(out[0]!.line).toBe(NO_MATCH_LINE);
-    expect(out[0]!.message).toMatch(/No generated location/);
+    expect(out[0]!.message).toMatch(/No generated statement/);
   });
 
   it("1:1 positional correspondence: 3 requested breakpoints (mix of mapped + unmapped) -> response length 3, same order", () => {
@@ -206,6 +206,39 @@ describe("resolveSetBreakpoints", () => {
     const out = resolveSetBreakpoints(args, map, readSource);
     expect(out).toHaveLength(1);
     expect(out[0]).toEqual({ verified: true, line: 55, source: { path: GEN_FILE } });
+  });
+
+  it("a line covered only by an enclosing declaration is unverified, not bound to that declaration's file header", () => {
+    // `customerName: string` (line 5) sits inside the aggregate's region,
+    // whose target is line 1 of a generated file — arming it would stop on an
+    // import. The line has no generated statement of its own.
+    const PROPERTY_LINE = 5;
+    const map: SourceMap = {
+      version: 1,
+      sources: ["main.ddd"],
+      files: {
+        "hono_api/domain/order.test.ts": [
+          {
+            target: [1, 1],
+            origin: { kind: "source", path: "main.ddd", span: AGGREGATE_SPAN },
+            construct: "Orders.Order",
+          },
+        ],
+      },
+    };
+
+    const out = resolveSetBreakpoints(
+      { source: { path: "main.ddd" }, breakpoints: [{ line: PROPERTY_LINE }] },
+      map,
+      readSource,
+    );
+    expect(out).toEqual([
+      {
+        verified: false,
+        line: PROPERTY_LINE,
+        message: `No generated statement maps to main.ddd:${PROPERTY_LINE}.`,
+      },
+    ]);
   });
 
   it("source.path undefined -> all breakpoints unverified, message names the reason", () => {

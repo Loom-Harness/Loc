@@ -433,7 +433,7 @@ system Shop {
     expect(fs).toContain(
       "  let orderCreateFormValid (form: OrderCreateForm) : bool =\n" +
         "    not (System.String.IsNullOrWhiteSpace form.reference)" +
-        " && List.forall (fun row -> isWholeText row.qty && isNumberText row.price) form.items",
+        " && List.forall (fun (row: LineItemRow) -> isWholeText row.qty && isNumberText row.price) form.items",
     );
     // The string row cell contributes nothing.
     expect(fs).not.toContain("row.sku)");

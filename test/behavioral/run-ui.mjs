@@ -43,6 +43,16 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromiumLaunchOptions, playwrightFallbackArgs } from "./browser-fallback.mjs";
 import { copyLocales, localesBeside } from "./case-source.mjs";
+import {
+  driveAddVehicle,
+  driveUpdate,
+  judgeFormSpec,
+  judgeVehicleAdded,
+  judgePartTable,
+  readPolicy,
+  seedCoverage,
+  seedFormSpec,
+} from "./form-spec-ui.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE } from "./money-compare-ui.mjs";
 import { NUMERIC_FIELDS, numericSeedBody } from "./numeric-ui-contract.mjs";
 import {
@@ -241,6 +251,61 @@ async function moneyCompareProbe(origin) {
   return { tier: "ui-probe", name, status: why.length ? "fail" : "pass", error: why.join("; ") };
 }
 
+/**
+ * The SCAFFOLDED-FORM probe (#5212), for a case that declares
+ * `"textProbe": "form-spec"` in corpus.json.  Seeds a record of
+ * `form-spec-ui.ddd`'s Policy over the api, opens its Update dialog on the built
+ * app, changes one field and clears an optional one, submits, and reads the
+ * record back (`form-spec-ui.mjs`): the other fields must survive and the
+ * cleared one must be `null`.
+ */
+async function formSpecProbe(origin) {
+  const name =
+    "form-spec probe: update prefill, absence as null, collections, every-row pickers, the optional group and part-table columns";
+  execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], {
+    cwd: HERE,
+    stdio: "pipe",
+  });
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch();
+  const why = [];
+  try {
+    const before = await seedFormSpec(origin);
+    const page = await browser.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+    await driveUpdate(page, origin, before.id, before.lastProviderId);
+    let after = before;
+    for (let i = 0; i < 30; i++) {
+      after = await readPolicy(origin, before.id);
+      if (after.priority !== before.priority) break;
+      await page.waitForTimeout(500);
+    }
+    why.push(...judgeFormSpec(before, after));
+    if (why.length === 0) {
+      await driveAddVehicle(page, origin, before.id);
+      for (let i = 0; i < 30; i++) {
+        after = await readPolicy(origin, before.id);
+        if (after.vehicle) break;
+        await page.waitForTimeout(500);
+      }
+      why.push(...judgeVehicleAdded(after));
+    }
+    if (why.length === 0) {
+      await seedCoverage(origin, before.id);
+      why.push(...(await judgePartTable(page, origin, before.id)));
+    }
+    if (why.length) {
+      const text = await page.locator("body").innerText().catch(() => "");
+      why.push(`page text: ${JSON.stringify(text.slice(0, 600))}`);
+    }
+    if (errors.length) why.push(errors.slice(0, 3).join(" | "));
+  } finally {
+    await browser.close().catch(() => {});
+  }
+  return { tier: "ui-probe", name, status: why.length ? "fail" : "pass", error: why.join("; ") };
+}
+
 async function runCase(c) {
   const genDir = mkdtempSync(join(tmpdir(), `loom-bhui-${c.name}-`));
   const workDir = join(WORK, c.name);
@@ -296,6 +361,16 @@ async function runCase(c) {
 
     if (uiSpecs.length === 0) {
       const results = [];
+      if (c.textProbe === "form-spec") {
+        results.push(
+          await formSpecProbe(`http://127.0.0.1:${server.port}`).catch((err) => ({
+            tier: "ui-probe",
+            name: "form-spec probe",
+            status: "fail",
+            error: String(err?.message ?? err),
+          })),
+        );
+      }
       if (c.textProbe === "money-compare") {
         results.push(
           await moneyCompareProbe(`http://127.0.0.1:${server.port}`).catch((err) => ({

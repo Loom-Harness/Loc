@@ -60,10 +60,7 @@ validation error). This grid is the **live** view, derived from the
 validator gate sets in `src/ir/validate/checks/` and frozen against drift by
 [`test/platform/backend-parity-gates.test.ts`](../test/platform/backend-parity-gates.test.ts)
 (a backend can't be silently *ungated-and-unemitting* — the F1 class of bug).
-The dated baseline write-up is
-[`audits/backend-feature-parity-2026-06.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/backend-feature-parity-2026-06.md);
-remaining gaps + sequencing are in
-[`plans/backend-parity-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/backend-parity-plan.md).
+Open parity gaps are tracked as GitHub issues (label `gap`).
 
 | Feature | node | dotnet | java | python | elixir | Gate |
 | --- | :-: | :-: | :-: | :-: | :-: | --- |
@@ -72,42 +69,22 @@ remaining gaps + sequencing are in
 | TPH inheritance `inheritanceUsing: sharedTable` | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 | TPC inheritance `inheritanceUsing: ownTable` | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 | Discriminated unions / the `paged` carrier | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
-| The `envelope` carrier — a **single-row find** (see below) | ✓ | ✓ | ✓ | ✓ | ✓ | corpus `envelope` + `test/generator/envelope-carrier.test.ts` |
 | `when` canCommand gate + `can_<op>` query | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 | Exception-less returns (`op(): X or NotFound`) | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
-| Capability `filter` — relational (non-principal) | ✓ | ✓ | ✓ | ✓ | ✓ | `LIMITED_FAMILIES` |
+| Capability `filter` — relational (non-principal) | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 | Capability `filter` — principal (`currentUser`/tenancy) | ✓ | ✓ | ✓ | ✓ | ✓ | system-checks.ts |
 | Provenanced fields (runtime trace) | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 | Per-operation `audited` | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 | Audited **lifecycle** (`audited create`/`destroy`) | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 | Audit/context stamping (`with audit`) | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 
-> **`envelope` is a single-row find (M-T6.57, ratified 2026-09-10).** `find
-> audit(): Order envelope` means "read at most one `Order`": the repository
-> answers `Order`, the route serialises the **bare body**, and an empty result
-> set is the not-found rung (404). It carries **no distinct wire shape** — the
-> `{ id, ts, body }` wrapper was the P3 design and never shipped, because
-> nothing in the IR can source `ts`. `T envelope` and `T` therefore emit
-> identically on every backend, which is what the gate on that row asserts.
->
-> Until that landed, the row above carried **five ticks on output that did not
-> build**: java named `Envelope<Order>` in the repository port, the Spring Data
-> interface and the impl and declared it *nowhere*; .NET returned a bare `Order`
-> from a `Task<Envelope<Order>>` (CS0029); Elixir `Repo.all`-ed every row and
-> answered a JSON array against its own single-object OpenAPI. Only node and
-> python were honest. Nothing caught it because **no `.ddd` in the repo
-> instantiated the carrier** — every compile gate was blind to it by
-> construction, which is why `test/fixtures/corpus/envelope.ddd` now exists.
+> **`envelope` is removed** (`loom.envelope-removed`): `T envelope` meant exactly
+> `T` and carried no wrapper, so the keyword is refused with a quick fix that drops
+> it — see [`payloads.md`](payloads.md).
 
-**Re-verified 2026-08-23 against `src/ir/validate/checks/system-checks.ts`: every
-gate set in this table held all five backends** — so the per-backend support
-sets (`EVENT_SOURCING_BACKENDS`, `SUPPORTED_UNION_BACKENDS`, `AUDIT_OP_BACKENDS`,
-…) were later deleted outright; `(universal)` means no per-backend gate exists,
-and `test/platform/backend-parity-gates.test.ts` pins the emission per backend. The
-former open gaps (principal Python filters W1b, per-op/lifecycle `audited`
-beyond node/dotnet W3, event-sourced workflow on Elixir W4) are **closed**. The
-gaps that remain are language-level rather than per-backend — see
-[`audits/language-gaps-2026-08.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/language-gaps-2026-08.md).
+`(universal)` means no per-backend gate exists — every backend emits the
+feature — and `test/platform/backend-parity-gates.test.ts` pins the emission per
+backend.
 
 | Construct | TypeScript (Hono + Drizzle) | .NET (ASP.NET + EF + Mediator) | React (Vite + RQ + Mantine) |
 | --- | --- | --- | --- |
@@ -1383,11 +1360,36 @@ module, the TypeScript scanner's reserved-word range).
 | elixir | `elixirLocal(name)` for every parameter / bound op input (`do_`); `elixirOpAction(name)` for a controller action (`def do_`, and `show` / `index` step aside to `show_op` from the CRUD read actions); an OpenApiSpex schema with a reserved property key opts out of the derived struct (`struct?: false`) |
 | java | already clean through `jid` (M-T6.36) |
 
-**Not covered yet** — tracked by #4213: a FIELD named `constructor` on node
-(its getter cannot carry that name), TYPE names that shadow a target's
-globals / BCL / framework types (`valueobject Promise` / `String` / `Symbol` on
-node; `.NET` handles `Task`-like names via `dotnet-bcl-type-collision`), and the
-frontends (the fixture declares no `ui`).
+**One plan per target.** The domain class emitters (aggregate, part, value object,
+enum, event, domain service) read every identifier from the symbol plan,
+`src/generator/_symbols/plan.ts`, rather than calling the escaping funnels themselves.
+So a definition and each of its uses get one spelling:
+
+- a TS domain-service operation is defined as `<service>_<op>`, and a bare sibling
+  call inside the service resolves to that same function;
+- a python method escaped at its `def` (`raise_`) is called by the same name from
+  a workflow;
+- python also escapes the decorators a generated class body applies (`property`,
+  `classmethod`, `staticmethod`).
+
+`test/system/symbol-plan-census.test.ts` keeps the raw funnels out of those files.
+
+**Type names a target imports implicitly.** On .NET, a domain type whose simple
+name an imported framework namespace also exports (`TaskStatus` from
+`System.Threading.Tasks`, `ServiceProvider` from
+`Microsoft.Extensions.DependencyInjection`) is aliased on the namespace line of
+each compilation unit that sees both. The table of non-generic framework type
+names per namespace, `src/generator/_symbols/ambient-dotnet.ts`, is generated
+from the SDK reference packs and the pinned packages by
+`scripts/gen-dotnet-ambient-types.mjs`. The gate is the corpus fixture
+`domain-symbol-collisions`, on every backend's compile leg.
+
+The plan does not cover:
+
+- a FIELD named `constructor` on node (its getter cannot carry that name);
+- type names that shadow a node or java global (`Promise`, `Record`, `String`,
+  `Object`, …), which the generated framework code spells bare in the same unit;
+- the frontends.
 
 ---
 
@@ -1541,21 +1543,17 @@ Out of scope for v1 (intentional):
   flag is never a lie.
 - **Multi-target frontends**: a `react` deployable has exactly one
   `targets:`.  Hosting against several APIs is deferred.
-- ~~**Typeahead lookups for `X id` form fields**~~ — **stale, corrected
-  2026-09-10.**  An `X id` field renders a **Select picker** populated
-  from the target's own list hook whenever the target declares
-  `derived display: string` (`prepareFormFieldVM` →
-  `field-input-id-select`, `src/generator/_walker/form-fields-vm.ts`);
-  the option label is read off the wire `display` field, so a compound
-  (`firstName + " " + lastName`), member-access or conditional display
-  works without the picker knowing the source expression.  Several
-  packs make it searchable client-side (mantine's `<Select searchable>`).
-  It falls back to `field-input-id-text` in exactly two cases — the
-  target aggregate is unresolved, or it declares no `derived display` —
-  and the text input's placeholder then names which.  What is still
-  out of scope is a **server-side** typeahead: the picker loads the
-  target's list, so a target with more rows than a page is not
-  searchable beyond what it loaded.
+- **Typeahead lookups for `X id` form fields**: an `X id` field renders a
+  picker over every row of the target — a Select for `X id`/`X id?`, a
+  checkbox group for `X id[]` — whenever the target declares
+  `derived display: string`.  Its options come from the target's
+  `use<Plural>Options()` read (every list page, walked at the largest page
+  size the route accepts), and each option is labelled by the wire `display`
+  field, so a compound, member-access or conditional display works without the
+  picker knowing the source expression.  A target with no `derived display`
+  (or an unresolved one) falls back to a text input whose placeholder says
+  why.  A **server-side** typeahead is out of scope: the picker loads every
+  row of the target.
 - **Ordering on `X id[]` collections**: `Target id[]` is a set
   ([D-REFCOLL-SET](decisions.md)).  On all five backends the join table
   is only the composite `(owner, target)` key — no `ordinal` column —

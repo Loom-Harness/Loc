@@ -19,6 +19,7 @@ import { csLineageValue } from "./codec-spelling.js";
 import { CS_NUMERIC } from "./numeric-codec.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { addCsExprUsing, renderCsExpr } from "./render-expr.js";
+import { csVoListCopy } from "./vo-collection-copy.js";
 import { csRuleParams } from "./wire-policy-cs.js";
 
 // ---------------------------------------------------------------------------
@@ -131,7 +132,13 @@ function csStmtTarget(ctx: CsRenderContext, traceCtx: TraceCtx): StmtTarget {
       `${INDENT}var ${escapeCsharpIdent(s.name)} = ${renderCsExpr(s.expr, ctx)};`,
 
     assign: (s, ix) => {
-      const base = `${INDENT}${renderPath(s.target)} = ${renderCsExpr(s.value, ctx)};`;
+      const base = isContainmentReplace(s)
+        ? // A contained-part collection is a read-only view (`Tasks`) over the
+          // EF-tracked backing list, so `:=` replaces its CONTENTS in place:
+          // materialise the new elements first (the value usually reads the
+          // list it is about to clear), then clear and refill.
+          `${INDENT}{ var __parts = (${renderCsExpr(s.value, ctx)}).ToList(); ${renderPrivatePath(s.target, ctx)}.Clear(); ${renderPrivatePath(s.target, ctx)}.AddRange(__parts); }`
+        : `${INDENT}${renderPath(s.target)} = ${csVoListCopy(s.targetType, s.value, renderCsExpr(s.value, ctx))};`;
       // NOTE the wrap ORDER: .NET (like java / python) puts `value_computed`
       // INSIDE the provenance capture; node puts it outside.  Preserved.
       const traced = withValueComputed(base, s.target, traceCtx, ctx);
@@ -468,6 +475,17 @@ function withCa2245Suppressed(rendered: string): string {
 //     "scalar-array mutation" blind spot.)
 //
 // Falls back to the containment convention when there's no aggregate context.
+/** `parts := <collection>` on the aggregate's own contained-part collection. */
+function isContainmentReplace(s: Extract<StmtIR, { kind: "assign" }>): boolean {
+  const t = s.targetType;
+  return (
+    s.target.segments.length === 1 &&
+    t.kind === "array" &&
+    t.element.kind === "entity" &&
+    t.element.declKind === "part"
+  );
+}
+
 function renderPrivatePath(p: PathIR, ctx?: CsRenderContext): string {
   if (p.segments.length === 0) return "this";
   const [head, ...tail] = p.segments;

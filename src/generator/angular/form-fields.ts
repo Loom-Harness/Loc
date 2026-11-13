@@ -6,12 +6,18 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
-import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
 import { modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
 import { humanize, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { renderDefaultSeed } from "../_frontend/default-seed.js";
 import { unwrapOpt } from "../_frontend/form-helpers.js";
+import {
+  type FormFieldArms,
+  type FormFieldSpec,
+  formFieldSpec,
+  formSpecEnvOf,
+  renderFormField,
+} from "../_frontend/form-spec.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
 import { localizedModelText, localizedPageChromeText } from "../_walker/i18n-emit.js";
 import { enumLabelEntries, implicitModelTextOn } from "../_walker/model-text-sites.js";
@@ -51,56 +57,52 @@ export interface AngularFormControlSpec {
   validators?: string[];
 }
 
-/** A `useAll<X>()` query the page-shell hoists so an `X id` form field can
- *  render a Select populated from the referenced aggregate's collection.
+/** A `use<X>Options()` query the page-shell hoists so an `X id` form field can
+ *  render a Select populated from every row of the referenced aggregate.
  *  `hookVar` is the class field the hoist declares (`readonly <hookVar> =
- *  <hookFn>();`); the field markup reads its options off `<hookVar>.data()`. */
+ *  <hookFn>();`); the field markup reads its options off `<hookVar>.data()`,
+ *  a bare array whatever the list route's shape. */
 export interface AngularIdTargetSpec {
-  /** Class field name the page-shell hoists (`customerAll`). */
+  /** Class field name the page-shell hoists (`customerOptions`). */
   hookVar: string;
-  /** `useAll<X>` factory the field calls (imported from `importFrom`). */
+  /** `use<X>Options` factory the field calls (imported from `importFrom`). */
   hookFn: string;
   /** `src/api/<x>` module path the `hookFn` is imported from (page-relative). */
   importFrom: string;
-  /** The Select's OPTION SOURCE, resolved against the shape the target's list
-   *  route actually serves — `<hookVar>.data()?.items ?? []` for the paged
-   *  auto-`findAll`, `<hookVar>.data() ?? []` for a declared
-   *  `find all(): T[]`, whose signature makes the route return a bare array.
-   *  The JSX packs' `optionsExpr` (`_walker/form-fields-vm.ts`), in Angular's
-   *  signal spelling; same `isPagedAllRead` fact behind both. */
+  /** The picker's OPTION SOURCE — the bare array `<hookVar>.data() ?? []`. */
   optionsExpr: string;
 }
 
-/** Resolve the `useAll<X>()` query an `X id` field needs to render a Select,
+/** Resolve the `use<X>Options()` query an `X id` field needs to render a Select,
  *  or `undefined` when the field is not a Select-rendered id (not an id type,
  *  the target aggregate is unresolved, or it carries no `derived display`).
  *
  *  Mirrors the shared `form-fields-vm.ts` gate (`inner.kind === "id"` with a
- *  resolvable `target.displayDerived`): the page-shell hoists `useAll<X>()`
+ *  resolvable `target.displayDerived`): the page-shell hoists `use<X>Options()`
  *  exactly for the fields {@link fieldInput} renders as a `<select>`. */
 export function idTargetForField(
   t: TypeIR,
   bc: BoundedContextIR,
   ctx: WalkContext,
 ): AngularIdTargetSpec | undefined {
-  const inner = unwrapOpt(t);
+  // A reference collection (`Tag id[]`) reads its options from the same query.
+  const unwrapped = unwrapOpt(t);
+  const inner = unwrapped.kind === "array" ? unwrapOpt(unwrapped.element) : unwrapped;
   if (inner.kind !== "id") return undefined;
   const target = resolveIdTarget(inner.targetName, bc, ctx);
   if (!target?.displayDerived) return undefined;
-  const hookVar = `${lowerFirst(target.name)}All`;
+  const hookVar = `${lowerFirst(target.name)}Options`;
   return {
     hookVar,
-    hookFn: `useAll${plural(target.name)}`,
+    hookFn: `use${plural(target.name)}Options`,
     importFrom: `../../api/${lowerFirst(target.name)}`,
-    optionsExpr: isPagedAllRead(target.name, ctx.bcByAggregate)
-      ? `${hookVar}.data()?.items ?? []`
-      : `${hookVar}.data() ?? []`,
+    optionsExpr: `${hookVar}.data() ?? []`,
   };
 }
 
-/** Collect the de-duplicated `useAll<X>()` queries a form's fields need —
+/** Collect the de-duplicated `use<X>Options()` queries a form's fields need —
  *  one per distinct Select-rendered `X id` target.  The page-shell hoists each
- *  as a class field and imports its `useAll<X>` factory. */
+ *  as a class field and imports its `use<X>Options` factory. */
 export function collectIdTargets(
   fields: { type: TypeIR }[],
   bc: BoundedContextIR,
@@ -560,6 +562,42 @@ export function fieldInput(
   // an unimported `FileRef` and an unimported `api` in the emitted
   // `onFileUpload` method.
   const inner = unwrapOpt(t);
+  const c: AngularArmCtx = {
+    name,
+    t,
+    bc,
+    ctx,
+    testidBase,
+    formVar,
+    label,
+    testid,
+    cn,
+    style,
+    inner,
+  };
+  const spec = formFieldSpec(
+    { name, type: t },
+    formSpecEnvOf(bc, ctx.aggregatesByName, ctx.bcByAggregate),
+  );
+  return renderFormField(spec, ANGULAR_FORM_FIELD_ARMS, c);
+}
+
+interface AngularArmCtx {
+  name: string;
+  t: TypeIR;
+  bc: BoundedContextIR;
+  ctx: WalkContext;
+  testidBase: string;
+  formVar: string | undefined;
+  label: string;
+  testid: string;
+  cn: string;
+  style: ReturnType<typeof formStyle>;
+  inner: TypeIR;
+}
+
+function angularFileInput(_f: FormFieldSpec, c: AngularArmCtx): string {
+  const { name, ctx, formVar, label, testid } = c;
   // A `File` field renders a native file input that multipart-POSTs the chosen
   // file to `/files` (`api.upload`) and writes the returned `FileRef` back into
   // the reactive-form control — file inputs can't use `formControlName` (the
@@ -567,14 +605,16 @@ export function fieldInput(
   // the control off the form group and `setValue`s it via `onFileUpload`.  A
   // plain input across all packs (no design-system file component exists in
   // Material/PrimeNG/spartanNg); mirrors the JSX frontends' `field-input-file`.
-  if (inner.kind === "primitive" && inner.name === "File") {
-    registerFileUploadImports(ctx);
-    // The control name is single-quoted: it sits inside the double-quoted
-    // `(change)="…"` attribute, so `JSON.stringify`'s double quotes would close
-    // the attribute early.  Field names are safe identifiers (no escaping needed).
-    const change = formVar ? ` (change)="onFileUpload($event, ${formVar}.get('${name}'))"` : "";
-    return `<label class="loom-field"><span class="loom-label">${label}</span><input type="file" class="loom-input"${testid}${change} /></label>`;
-  }
+  registerFileUploadImports(ctx);
+  // The control name is single-quoted: it sits inside the double-quoted
+  // `(change)="…"` attribute, so `JSON.stringify`'s double quotes would close
+  // the attribute early.  Field names are safe identifiers (no escaping needed).
+  const change = formVar ? ` (change)="onFileUpload($event, ${formVar}.get('${name}'))"` : "";
+  return `<label class="loom-field"><span class="loom-label">${label}</span><input type="file" class="loom-input"${testid}${change} /></label>`;
+}
+
+function angularArrayStub(_f: FormFieldSpec, c: AngularArmCtx): string {
+  const { ctx, label, testid, style } = c;
   // An array-valued field that the VO-row `FormArray` path did not claim (a
   // reference collection `Tag id[]`, a primitive/enum collection).  Rendered
   // like the JSX frontends' `field-input-array` fallback: a DISABLED,
@@ -583,58 +623,116 @@ export function fieldInput(
   // control, so the form would POST `"a,b"` where the wire wants `["a","b"]`.
   // Left unbound, the control keeps its `[]` seed and the submit path sends an
   // array.  (Same reasoning as the `File` branch above.)
-  if (inner.kind === "array") {
-    const ph = ARRAY_UNSUPPORTED_PLACEHOLDER;
-    if (style === "material") {
-      addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
-      addNg(ctx, "@angular/material/input", "MatInputModule");
-      return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><input matInput placeholder="${ph}" disabled${testid}></mat-form-field>`;
-    }
-    if (style === "primeng") {
-      addNg(ctx, "primeng/inputtext", "InputTextModule");
-      return `<label class="loom-field"><span class="loom-label">${label}</span><input pInputText class="loom-input" placeholder="${ph}" disabled${testid} /></label>`;
-    }
-    return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input" placeholder="${ph}" disabled${testid} /></label>`;
+  const ph = ARRAY_UNSUPPORTED_PLACEHOLDER;
+  if (style === "material") {
+    addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
+    addNg(ctx, "@angular/material/input", "MatInputModule");
+    return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><input matInput placeholder="${ph}" disabled${testid}></mat-form-field>`;
   }
-  if (inner.kind === "enum") {
-    const en = enumPool(bc).find((e) => e.name === inner.name);
-    const values = en?.values ?? [];
-    // Each option's text: the identity-keyed translation of the value, else the
-    // raw wire value.
-    const optionLabels = enumOptionLabels(ctx, bc, inner.name, values);
-    const optionText = (v: string): string =>
-      optionLabels ? ctx.target.renderInterpolation(optionLabels.get(v)!, STRING) : v;
-    if (style === "material") {
-      addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
-      addNg(ctx, "@angular/material/select", "MatSelectModule");
-      const opts = values
-        .map((v) => `<mat-option value=${JSON.stringify(v)}>${optionText(v)}</mat-option>`)
-        .join("");
-      return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><mat-select formControlName=${cn}${testid}>${opts}</mat-select></mat-form-field>`;
-    }
-    if (style === "primeng") {
-      addNg(ctx, "primeng/select", "SelectModule");
-      const opts = optionLabels
-        ? `[${values.map((v) => `{ "label": ${optionLabels.get(v)}, "value": ${JSON.stringify(v)} }`).join(", ")}]`
-        : JSON.stringify(values.map((v) => ({ label: v, value: v })));
-      return `<label class="loom-field"><span class="loom-label">${label}</span><p-select [options]='${opts}' optionLabel="label" optionValue="value" styleClass="loom-input" formControlName=${cn}${testid}></p-select></label>`;
-    }
-    const opts = values
-      .map((v) => `<option value=${JSON.stringify(v)}>${optionText(v)}</option>`)
+  if (style === "primeng") {
+    addNg(ctx, "primeng/inputtext", "InputTextModule");
+    return `<label class="loom-field"><span class="loom-label">${label}</span><input pInputText class="loom-input" placeholder="${ph}" disabled${testid} /></label>`;
+  }
+  return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input" placeholder="${ph}" disabled${testid} /></label>`;
+}
+
+/** Members the collection inputs call: `setListItems` parses the comma-separated
+ *  text into the control's array; `toggleListItem` adds/removes one choice. */
+export function listInputMethodLines(): string[] {
+  return [
+    '  setListItems(control: AbstractControl | null, text: string, kind: "string" | "number" | "boolean"): void {',
+    "    if (!control) return;",
+    '    const items = text.split(",").map((s) => s.trim()).filter((s) => s !== "");',
+    '    if (kind === "number") control.setValue(items.map(Number).filter((n) => !Number.isNaN(n)));',
+    '    else if (kind === "boolean") control.setValue(items.map((s) => s === "true"));',
+    "    else control.setValue(items);",
+    "  }",
+    "  toggleListItem(control: AbstractControl | null, value: string, event: Event): void {",
+    "    if (!control) return;",
+    "    const current = ((control.value ?? []) as string[]);",
+    "    const on = (event.target as HTMLInputElement).checked;",
+    "    control.setValue(on ? [...current.filter((v) => v !== value), value] : current.filter((v) => v !== value));",
+    "  }",
+  ];
+}
+
+/** A collection field: a CHOICE collection (enum values, references labelled by
+ *  `display`) is a checkbox group, a SCALAR collection one comma-separated text
+ *  input.  Both write the array into the (unbound) control.  Inside a nested
+ *  group (`formVar` unknown) the disabled stub remains. */
+function angularListInput(f: FormFieldSpec, c: AngularArmCtx): string {
+  const { name, t, bc, ctx, testidBase, formVar, label, testid } = c;
+  if (!formVar) return angularArrayStub(f, c);
+  addNg(ctx, "@angular/forms", "AbstractControl");
+  const control = `${formVar}.controls.${name}`;
+  const box = (value: string, text: string): string =>
+    `<label><input type="checkbox" data-testid="${testidBase}-option-${value}" [checked]="(${control}.value ?? []).includes(${JSON.stringify(value).replaceAll('"', "'")})" (change)="toggleListItem(${control}, ${JSON.stringify(value).replaceAll('"', "'")}, $event)" /> ${text}</label>`;
+  if (f.kind === "enumArray" && f.enumValues) {
+    const optionLabels = f.enumName
+      ? enumOptionLabels(ctx, bc, f.enumName, f.enumValues)
+      : undefined;
+    const boxes = f.enumValues
+      .map((v) =>
+        box(v, optionLabels ? ctx.target.renderInterpolation(optionLabels.get(v)!, STRING) : v),
+      )
       .join("");
-    return `<label class="loom-field"><span class="loom-label">${label}</span><select class="loom-input" formControlName=${cn}${testid}>${opts}</select></label>`;
+    return `<fieldset class="loom-field" data-testid="${testidBase}"><legend class="loom-label">${label}</legend>${boxes}</fieldset>`;
   }
-  if (inner.kind === "primitive" && inner.name === "bool") {
-    if (style === "material") {
-      addNg(ctx, "@angular/material/checkbox", "MatCheckboxModule");
-      return `<mat-checkbox formControlName=${cn}${testid}>${label}</mat-checkbox>`;
-    }
-    if (style === "primeng") {
-      addNg(ctx, "primeng/checkbox", "CheckboxModule");
-      return `<label class="loom-toggle"><p-checkbox [binary]="true" formControlName=${cn}${testid}></p-checkbox><span>${label}</span></label>`;
-    }
-    return `<label class="loom-toggle"><input type="checkbox" formControlName=${cn}${testid} />${label}</label>`;
+  const idTarget = f.kind === "refArray" ? idTargetForField(t, bc, ctx) : undefined;
+  if (idTarget) {
+    return `<fieldset class="loom-field" data-testid="${testidBase}"><legend class="loom-label">${label}</legend>@for (__o of ${idTarget.optionsExpr}; track __o.id) {<label><input type="checkbox" [attr.data-testid]="'${testidBase}-option-' + __o.id" [checked]="(${control}.value ?? []).includes(__o.id)" (change)="toggleListItem(${control}, __o.id, $event)" /> {{ __o.display }}</label>}</fieldset>`;
   }
+  const el = f.elementKind;
+  const kind = el === "int" || el === "decimal" ? "number" : el === "bool" ? "boolean" : "string";
+  return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input"${testid} [value]="(${control}.value ?? []).join(', ')" (change)="setListItems(${control}, $any($event.target).value, '${kind}')" /></label>`;
+}
+
+function angularEnumInput(_f: FormFieldSpec, c: AngularArmCtx): string {
+  const { bc, ctx, label, testid, cn, style, inner } = c;
+  if (inner.kind !== "enum") return angularTextInput(_f, c);
+  const en = enumPool(bc).find((e) => e.name === inner.name);
+  const values = en?.values ?? [];
+  // Each option's text: the identity-keyed translation of the value, else the
+  // raw wire value.
+  const optionLabels = enumOptionLabels(ctx, bc, inner.name, values);
+  const optionText = (v: string): string =>
+    optionLabels ? ctx.target.renderInterpolation(optionLabels.get(v)!, STRING) : v;
+  if (style === "material") {
+    addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
+    addNg(ctx, "@angular/material/select", "MatSelectModule");
+    const opts = values
+      .map((v) => `<mat-option value=${JSON.stringify(v)}>${optionText(v)}</mat-option>`)
+      .join("");
+    return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><mat-select formControlName=${cn}${testid}>${opts}</mat-select></mat-form-field>`;
+  }
+  if (style === "primeng") {
+    addNg(ctx, "primeng/select", "SelectModule");
+    const opts = optionLabels
+      ? `[${values.map((v) => `{ "label": ${optionLabels.get(v)}, "value": ${JSON.stringify(v)} }`).join(", ")}]`
+      : JSON.stringify(values.map((v) => ({ label: v, value: v })));
+    return `<label class="loom-field"><span class="loom-label">${label}</span><p-select [options]='${opts}' optionLabel="label" optionValue="value" styleClass="loom-input" formControlName=${cn}${testid}></p-select></label>`;
+  }
+  const opts = values
+    .map((v) => `<option value=${JSON.stringify(v)}>${optionText(v)}</option>`)
+    .join("");
+  return `<label class="loom-field"><span class="loom-label">${label}</span><select class="loom-input" formControlName=${cn}${testid}>${opts}</select></label>`;
+}
+
+function angularBoolInput(_f: FormFieldSpec, c: AngularArmCtx): string {
+  const { ctx, label, testid, cn, style } = c;
+  if (style === "material") {
+    addNg(ctx, "@angular/material/checkbox", "MatCheckboxModule");
+    return `<mat-checkbox formControlName=${cn}${testid}>${label}</mat-checkbox>`;
+  }
+  if (style === "primeng") {
+    addNg(ctx, "primeng/checkbox", "CheckboxModule");
+    return `<label class="loom-toggle"><p-checkbox [binary]="true" formControlName=${cn}${testid}></p-checkbox><span>${label}</span></label>`;
+  }
+  return `<label class="loom-toggle"><input type="checkbox" formControlName=${cn}${testid} />${label}</label>`;
+}
+
+function angularRefInput(f: FormFieldSpec, c: AngularArmCtx): string {
+  const { t, bc, ctx, testidBase, label, testid, cn, style } = c;
   // `X id` (cross-aggregate reference) → a Select populated from the target's
   // `useAll<X>()` collection (parity with React/Vue/Svelte's
   // `field-input-id-select`).  Gated exactly like `form-fields-vm.ts`: emit a
@@ -658,6 +756,11 @@ export function fieldInput(
     }
     return `<label class="loom-field"><span class="loom-label">${label}</span><select class="loom-input" formControlName=${cn}${testid}>@for (__o of ${optionsExpr}; track __o.id) {<option [value]="__o.id" [attr.data-testid]="'${optionTestid}-' + __o.id">{{ __o.display }}</option>}</select></label>`;
   }
+  return angularTextInput(f, c);
+}
+
+function angularTextInput(_f: FormFieldSpec, c: AngularArmCtx): string {
+  const { ctx, label, testid, cn, style, inner } = c;
   // `money` is deliberately NOT numeric input: its control holds a decimal
   // STRING (see `controlInit`), and a numeric widget — `type="number"` or
   // PrimeNG's `p-inputnumber` — would bind a JS number back into it, losing the
@@ -702,6 +805,30 @@ export function fieldInput(
   }
   return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input"${inputType}${moneyMode} formControlName=${cn}${testid} /></label>`;
 }
+
+/** The Angular arm per form field kind.  Value objects and value-object arrays
+ *  never reach `fieldInput` — `partitionAngularFields` claims them as a nested
+ *  `FormGroup` / `FormArray` first — so their arms here are the text fallback
+ *  the dispatch has always had for an unclaimed field. */
+export const ANGULAR_FORM_FIELD_ARMS: FormFieldArms<string, AngularArmCtx> = {
+  string: angularTextInput,
+  int: angularTextInput,
+  decimal: angularTextInput,
+  money: angularTextInput,
+  bool: angularBoolInput,
+  date: angularTextInput,
+  datetime: angularTextInput,
+  file: angularFileInput,
+  enum: angularEnumInput,
+  ref: angularRefInput,
+  optionalRef: angularRefInput,
+  valueObject: angularTextInput,
+  optionalValueObject: angularTextInput,
+  scalarArray: angularListInput,
+  enumArray: angularListInput,
+  refArray: angularListInput,
+  objectArray: angularArrayStub,
+};
 
 // ---------------------------------------------------------------------------
 // Dynamic sub-form rows — an `X[]`-of-value-object input renders as a
@@ -942,6 +1069,10 @@ export interface AngularFieldGroupSpec {
   subGroups: AngularFieldGroupSpec[];
   /** The array-of-value-object sub-fields, each a `FormArray` inside this one. */
   subArrays: AngularFieldArraySpec[];
+  /** A top-level optional value object: the group starts disabled (absent) and
+   *  a presence checkbox enables it, so its validators never block a submit
+   *  while absent and the submitted value is `null`. */
+  optional?: boolean;
 }
 
 /** The renderable sub-fields of a single `X: <VO>` input, or null when the
@@ -996,12 +1127,23 @@ function splitSubFields(
       const tsType = controlTsType(unwrapOpt(f.type));
       controls.push({
         name: f.name,
-        init: controlInit(f.type),
+        init: subControlInit(f.type, bc),
         ...(tsType ? { nonNullableTsType: tsType } : {}),
       });
     }
   }
   return { controls, groups, arrays };
+}
+
+/** A value-object sub-control's initial value: an enum starts on its first
+ *  value, so the zero object a freshly enabled optional group holds is valid. */
+function subControlInit(t: TypeIR, bc: BoundedContextIR): string {
+  const inner = unwrapOpt(t);
+  if (t.kind !== "optional" && inner.kind === "enum") {
+    const first = enumPool(bc).find((e) => e.name === inner.name)?.values[0];
+    if (first !== undefined) return JSON.stringify(first);
+  }
+  return controlInit(t);
 }
 
 /** The control declarations inside a group / row: one `FormControl` per scalar
@@ -1028,6 +1170,7 @@ function fieldGroupSpec(
   voFields: FieldIR[],
   bc: BoundedContextIR,
   parentPath = "",
+  optional = false,
 ): AngularFieldGroupSpec {
   const parts = splitSubFields(voFields, bc, `${parentPath}${upperFirst(name)}`);
   return {
@@ -1035,6 +1178,7 @@ function fieldGroupSpec(
     subControls: parts.controls,
     subGroups: parts.groups,
     subArrays: parts.arrays,
+    ...(optional ? { optional } : {}),
   };
 }
 
@@ -1042,7 +1186,19 @@ function fieldGroupSpec(
  *  FormGroup({ amount: new FormControl(0, …), currency: new FormControl("", …) })`).
  *  The `FormGroup` import is registered by the form builder (walk time). */
 export function fieldGroupControlDecl(spec: AngularFieldGroupSpec): string {
-  return `${spec.fieldName}: new FormGroup({ ${groupInnerDecl(spec.subControls, spec.subGroups, spec.subArrays)} })`;
+  const group = `new FormGroup({ ${groupInnerDecl(spec.subControls, spec.subGroups, spec.subArrays)} })`;
+  // An optional group starts disabled: absent, and exempt from validation.
+  if (spec.optional) {
+    return `${spec.fieldName}: (() => { const g = ${group}; g.disable(); return g; })()`;
+  }
+  return `${spec.fieldName}: ${group}`;
+}
+
+/** The names of a form's optional value-object groups. */
+export function optionalGroupNames(form: {
+  fieldGroups?: readonly AngularFieldGroupSpec[];
+}): string[] {
+  return (form.fieldGroups ?? []).filter((g) => g.optional).map((g) => g.fieldName);
 }
 
 /** One value-object sub-field's markup: a control through `fieldInput`, or —
@@ -1116,7 +1272,12 @@ export function fieldGroupInput(
       subFieldMarkup(f, bc, ns, ctx, `${containerTid}-${f.name}`, voName, scope, container),
     )
     .join("");
-  return `<div class="loom-fieldset" formGroupName=${JSON.stringify(spec.fieldName)} data-testid="${containerTid}"><span class="loom-label">${label}</span>${subInputs}</div>`;
+  const fieldset = `<div class="loom-fieldset" formGroupName=${JSON.stringify(spec.fieldName)} data-testid="${containerTid}"><span class="loom-label">${label}</span>${subInputs}</div>`;
+  if (!spec.optional) return fieldset;
+  // The opt-in presence checkbox enables / disables the group; its inputs mount
+  // only while the group is enabled.
+  const control = `${scope.base}.controls.${spec.fieldName}`;
+  return `<label class="loom-optional-toggle"><input type="checkbox" data-testid="${containerTid}-present" [checked]="${control}.enabled" (change)="$any($event.target).checked ? ${control}.enable() : ${control}.disable()" /> ${label}</label>@if (${control}.enabled) {${fieldset}}`;
 }
 
 /** Split a form's input fields into the flat `FormControl` fields (rendered +
@@ -1127,7 +1288,7 @@ export function fieldGroupInput(
  *  and no value object, `flatMarkup`/`flatControls` are byte-identical to the
  *  previous all-flat output. */
 export function partitionAngularFields(
-  fields: readonly { name: string; type: TypeIR; default?: ExprIR }[],
+  fields: readonly { name: string; type: TypeIR; optional?: boolean; default?: ExprIR }[],
   bc: BoundedContextIR,
   ns: string,
   ctx: WalkContext,
@@ -1153,6 +1314,8 @@ export function partitionAngularFields(
   /** True when any flat field is a `File` — the page-shell emits the shared
    *  `onFileUpload` method once for the component. */
   hasFileField: boolean;
+  /** A flat collection field (the `setListItems` / `toggleListItem` members). */
+  hasListField: boolean;
 } {
   const isArray = (f: { type: TypeIR }) => arrayVoFields(f.type, bc) !== null;
   const isGroup = (f: { type: TypeIR }) => !isArray(f) && voScalarFields(f.type, bc) !== null;
@@ -1185,7 +1348,13 @@ export function partitionAngularFields(
   const groupIdFields: FieldIR[] = [];
   for (const f of groups) {
     const voFields = voScalarFields(f.type, bc)!;
-    const spec = fieldGroupSpec(f.name, voFields, bc);
+    const spec = fieldGroupSpec(
+      f.name,
+      voFields,
+      bc,
+      "",
+      f.optional === true || f.type.kind === "optional",
+    );
     fieldGroups.push(spec);
     const groupType = unwrapOpt(f.type);
     groupMarkup.push(
@@ -1287,6 +1456,10 @@ export function partitionAngularFields(
     arrayMarkup,
     fieldGroups,
     groupMarkup,
+    hasListField: flat.some((f) => {
+      const u = unwrapOpt(f.type);
+      return u.kind === "array" && unwrapOpt(u.element).kind !== "valueobject";
+    }),
     hasFileField: flat.some((f) => {
       const u = unwrapOpt(f.type);
       return u.kind === "primitive" && u.name === "File";

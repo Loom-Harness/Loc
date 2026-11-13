@@ -166,6 +166,7 @@ import { DEFAULT_SOURCE_LOCALE, lit } from "../types/loom-ir.js";
 import { type ApiOperationIR, deriveContextOperations } from "../util/api-surface.js";
 import { classifyPage, type PageKind, type PageNameCtx } from "../util/page-kind.js";
 import { computePermissionClosures, type PermissionEdge } from "../util/permission-closure.js";
+import { verifyLoweredModel } from "../verify/verify-lowered.js";
 import { lowerAuth } from "./lower-auth.js";
 import type { ContextLevelCapabilities } from "./lower-capabilities.js";
 import {
@@ -260,7 +261,14 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
   // Every read of an expression the typing pass left unresolved travels with
   // the model, for `validateLoomModel` to refuse it (`loom.unresolved-type`).
   const { result, sites } = collectUnresolvedTypes(() => lowerProjectBody(models));
-  return sites.length > 0 ? { ...result, unresolvedTypes: sites } : result;
+  // The well-formedness verifier runs on every lowering; what it finds travels
+  // with the model for `validateLoomModel` to refuse (`loom.ir-ill-formed`).
+  const violations = verifyLoweredModel(result);
+  return {
+    ...result,
+    ...(sites.length > 0 ? { unresolvedTypes: sites } : {}),
+    ...(violations.length > 0 ? { loweringViolations: violations } : {}),
+  };
 }
 
 function lowerProjectBody(models: ReadonlyArray<Model>): RawLoomModel {
@@ -616,6 +624,9 @@ export function mergeLoomModels(models: RawLoomModel[]): RawLoomModel {
     unresolvedTypes: models.some((m) => m.unresolvedTypes)
       ? models.flatMap((m) => m.unresolvedTypes ?? [])
       : undefined,
+    loweringViolations: models.some((m) => m.loweringViolations)
+      ? models.flatMap((m) => m.loweringViolations ?? [])
+      : undefined,
   };
 }
 
@@ -732,14 +743,14 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
       }
       subdomains.push({
         name: m.name,
-        contexts: m.contexts.map((c) => lowerContext(c, user, permissions)),
+        contexts: m.contexts.map((c) => lowerContext(c, user, permissions, members)),
         permissions,
       });
     } else if (isBoundedContext(m)) {
       // Loose contexts under a system don't sit inside a subdomain,
       // so `permissions.X` references inside them stay unresolved
       // (the validator will surface a friendly diagnostic).
-      looseContexts.push(lowerContext(m, user));
+      looseContexts.push(lowerContext(m, user, undefined, members));
     } else if (isDeployable(m)) {
       deployables.push(lowerDeployable(m));
     } else if (isTestE2E(m)) {
@@ -1346,6 +1357,7 @@ function lowerContext(
   ctx: BoundedContext,
   user?: UserIR,
   modulePermissions?: PermissionDeclIR[],
+  systemMembers?: ReadonlyArray<AstNode>,
 ): BoundedContextIR {
   // Lowering produces a faithful AST projection only.  Auto-included
   // `findAll`, react `contextNames` inheritance, and wire-shape
@@ -1360,20 +1372,22 @@ function lowerContext(
   // system-level `resource X { for: <thisCtx>, kind, … }` declarations,
   // keyed by name → infra kind.  Workflow bodies resolve `files.put(…)`
   // against this map.  Empty for loose contexts (no enclosing system).
+  // `systemMembers` is the COMPOSED member list of the project's system —
+  // the `system { }` block plus the deployment members declared at the root
+  // of any file — so a root-level `resource` binds exactly as a nested one;
+  // without it (the structural pre-pass) the syntactic container is read.
   const resources = new Map<string, DataSourceKind>();
   // Which of those handles is an in-system api binding (M-T4.8) — the subset
   // whose `.op(...)` calls resolve against a served api's operation set rather
   // than the closed per-kind verb registry.
   const resourceApis = new Map<string, string>();
-  const sys = AstUtils.getContainerOfType(ctx, isSystem);
-  if (sys) {
-    for (const m of sys.members) {
-      if (isResource(m) && m.context?.ref === ctx && m.kind) {
-        resources.set(m.name, m.kind as DataSourceKind);
-        const target = m.use?.ref;
-        if (m.kind === "api" && target && isApi(target)) {
-          resourceApis.set(m.name, target.name);
-        }
+  const members = systemMembers ?? AstUtils.getContainerOfType(ctx, isSystem)?.members ?? [];
+  for (const m of members) {
+    if (isResource(m) && m.context?.ref === ctx && m.kind) {
+      resources.set(m.name, m.kind as DataSourceKind);
+      const target = m.use?.ref;
+      if (m.kind === "api" && target && isApi(target)) {
+        resourceApis.set(m.name, target.name);
       }
     }
   }
@@ -1414,7 +1428,7 @@ function lowerContext(
     else if (isChannel(m)) channels.push(lowerChannel(m));
     else if (isProjection(m)) projections.push(lowerProjection(m, env));
     else if (isRetrieval(m)) retrievals.push(lowerRetrieval(m, env));
-    else if (isSeed(m)) seeds.push(lowerSeed(m, env));
+    else if (isSeed(m)) seeds.push(lowerSeed(m, env, ctx.name));
   }
   // Workflows lower in a SECOND pass so they can see the context's already-
   // lowered `aggregates` + `domainServices` (domain-services.md rev. 4, the
@@ -1504,7 +1518,7 @@ function lowerChannel(c: Channel): ChannelIR {
  *  (enum values, value-object object-literals, and pure stdlib builtins like
  *  `now()` all resolve there).  No `this` binding — seed rows construct fresh
  *  instances, they do not operate on an existing aggregate. */
-function lowerSeed(s: Seed, env: Env): SeedIR {
+function lowerSeed(s: Seed, env: Env, context: string): SeedIR {
   const rows: SeedRowIR[] = s.rows.map((row) => {
     const agg = row.aggregate.ref;
     // Per-field declared type, so a bare object literal in a value-object-
@@ -1534,6 +1548,7 @@ function lowerSeed(s: Seed, env: Env): SeedIR {
   });
   return {
     dataset: s.dataset ?? "default",
+    context,
     path: s.raw ? "raw" : "domain",
     rows,
   };

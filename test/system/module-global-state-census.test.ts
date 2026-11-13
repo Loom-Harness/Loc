@@ -81,6 +81,11 @@ const PINNED: Record<string, Pin> = {
     discipline: "keyed-cache",
     reason: "WeakMap keyed by the aggregate map it derives from; dies with that map.",
   },
+  "src/generator/dotnet/validator-emit.ts:dateLocal": {
+    discipline: "per-run-reset",
+    reason:
+      "`buildFluentRules` sets it to 0 before rendering each rule's predicate, synchronously.",
+  },
   "src/ir/lower/lower-expr.ts:ambientEnumIndex": {
     discipline: "per-run-reset",
     reason: "`lowerModel` calls `setAmbientEnumIndex` before lowering any body (lower.ts:271).",
@@ -144,6 +149,11 @@ const PINNED: Record<string, Pin> = {
     reason:
       "Late-bound `printStmt` reference, installed once to break the " +
       "print-expr / print-stmt import cycle.  Never reassigned per call.",
+  },
+  "src/language/validators/model-contents.ts:active": {
+    discipline: "scoped-restore",
+    reason:
+      "Per-validation-run contents cache: `withModelContentsCache` installs a fresh map for one synchronous `DddValidator.check` and clears it in a `finally` (a nested call reuses the outer map); outside a run `modelContents` walks fresh.",
   },
   "src/generator/_i18n/source-text.ts:active": {
     discipline: "scoped-restore",

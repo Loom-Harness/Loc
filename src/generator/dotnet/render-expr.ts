@@ -329,6 +329,24 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
     const narrowed = e && ctx ? narrowedNullableBranch(e, then, otherwise, ctx) : undefined;
     if (narrowed === "then") then = `${then}.Value`;
     if (narrowed === "otherwise") otherwise = `${otherwise}.Value`;
+    // The same proof reaches a one-element list of the operand (`x == null ?
+    // [] : [x]`): its element unwraps too, or a `List<T>` slot gets a `T?`.
+    const listed = e && ctx ? narrowedNullableBranch(e, then, otherwise, ctx, true) : undefined;
+    if (listed === "then") then = `[${then.slice(1, -1)}.Value]`;
+    if (listed === "otherwise") otherwise = `[${otherwise.slice(1, -1)}.Value]`;
+    // `c ? null : <value-typed T>` has no natural C# type (CS0173 in a `var`
+    // — `avg` desugars to exactly this): the null takes `T?`.
+    if (e) {
+      const isNull = (x: ExprIR): boolean => x.kind === "literal" && x.lit === "null";
+      const valueTyped = (x: ExprIR): TypeIR | undefined => {
+        const t = bodyTypeOf(x);
+        return t && t.kind !== "optional" && isCsValueType(t) ? t : undefined;
+      };
+      const thenT = isNull(e.then) ? valueTyped(e.otherwise) : undefined;
+      const elseT = isNull(e.otherwise) ? valueTyped(e.then) : undefined;
+      if (thenT) then = `(${renderCsType(thenT)}?)null`;
+      if (elseT) otherwise = `(${renderCsType(elseT)}?)null`;
+    }
     return `${cond} ? ${then} : ${otherwise}`;
   },
   // `??` evaluates the left once and yields `T` for a `T?` left (value-typed
@@ -390,7 +408,7 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
     // exactly as a success arm does.  This leaf once collapsed the shape "one
     // non-error variant + error variant(s)" to `_ => <errorValue>` on the
     // theory that it was a repository union find's OPTIONAL TWIN (`Agg?`, see
-    // `unionFindAsOptionalTwin`), for which no carrier records are emitted.
+    // `domainFindShape`), for which no carrier records are emitted.
     // That test was an arity guess, and it misfired on every REAL union of one
     // success + one error: the discard declares nothing, so the arm's bound
     // name was left undefined (CS0103 — audit F59).
@@ -432,7 +450,13 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
   // C# 12's collection expression is TARGET-TYPED — it takes its shape from
   // the assignment target — so one spelling serves `T[]`, `List<T>` and
   // `IReadOnlyList<T>`, empty or not.
-  list: (elements) => `[${elements.join(", ")}]`,
+  // An empty literal with a known element type names it: a collection
+  // expression has no natural type, so `c ? [] : [x]` (both branches
+  // collection expressions) is CS0173.
+  list: (elements, e) =>
+    elements.length === 0 && e.elementType
+      ? `new List<${renderCsType(e.elementType)}>()`
+      : `[${elements.join(", ")}]`,
   // An in-app `exists`: the handler holding the gate has the quantified
   // aggregate's repository injected (`csExistsReadDeps`).
   existsRead: (e, args) =>
@@ -731,6 +755,8 @@ function narrowedNullableBranch(
   then: string,
   otherwise: string,
   ctx: CsRenderContext,
+  /** Match a branch that is the one-element list `[<operand>]` instead. */
+  asListElement = false,
 ): "then" | "otherwise" | undefined {
   let cond = e.cond;
   while (cond.kind === "paren") cond = cond.inner;
@@ -747,7 +773,8 @@ function narrowedNullableBranch(
   const side = cond.op === "!=" ? "then" : "otherwise";
   const [branch, other] = side === "then" ? [then, e.otherwise] : [otherwise, e.then];
   if (isNull(other)) return undefined;
-  return branch === renderCsExpr(tested, ctx) ? side : undefined;
+  const operand = renderCsExpr(tested, ctx);
+  return branch === (asListElement ? `[${operand}]` : operand) ? side : undefined;
 }
 
 /** Is this `convert` reading an OPTIONAL operand that C# models as

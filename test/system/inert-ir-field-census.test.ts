@@ -15,7 +15,7 @@
 // be true or false. That is the shape `gated-features-inventory.md` rotted into.
 //
 // THE MEASUREMENT. A field declared on the IR and read by NO file under
-// `src/generator/**`, `src/system/**` or `src/platform/**` — nor by a
+// `src/generator/**`, `src/system/**`, `src/platform/**` or `src/ir/plan/**` — nor by a
 // `src/ir/util/` helper those files import — is a CANDIDATE inert surface:
 // something the pipeline computes and no target consumes.  A name that appears
 // only in a comment is not a read.
@@ -40,13 +40,16 @@ import { expectReach } from "../_helpers/census-reach.js";
 import { REPO_ROOT } from "../_helpers/ddd-corpus.js";
 import { irTypesSource } from "../_helpers/ir-types-source.js";
 
-/** Roots that EMIT. A field no file here mentions reaches no target. */
-const EMITTING_ROOTS = ["src/generator", "src/system", "src/platform"];
+/** Roots that EMIT. A field no file here mentions reaches no target.
+ *  `src/ir/plan` holds the facts the targets ask for instead of reading the
+ *  field themselves, so a read there is a target's read. */
+const EMITTING_ROOTS = ["src/generator", "src/system", "src/platform", "src/ir/plan"];
 /** Per-root file floors (~90% of today's count).  A root missing here fails (floor = Infinity). */
 const ROOT_FLOOR: Record<string, number> = {
   "src/generator": 580,
   "src/system": 24,
   "src/platform": 36,
+  "src/ir/plan": 12,
 };
 
 /** IR fields no target reads, by design.  Each says why that is benign. */
@@ -55,6 +58,8 @@ const NO_READER_ALLOWED: Readonly<Record<string, string>> = {
     "consumed in the IR by `fieldRedactedInInspect` (src/ir/enrich/mask-taint.ts): `synthesizeInspect` redacts the leaf for every target, and Phoenix's Inspect-impl gate calls the same predicate",
   foldTenantClaim:
     "read through `foldTenancyFor` in `src/ir/enrich/fold-tenancy.ts` (an enrich helper the scan does not cover), which every backend's projection emitter and the migrations builder import",
+  loweringViolations:
+    "consumed in the IR by `validateLoweringViolations` (src/ir/validate/checks/lowering-checks.ts): a model carrying one is refused as `loom.ir-ill-formed` before any target runs",
   timezone:
     "has a RESERVED_SURFACES row (`timer-source-timezone`), so the author is told no target honours it",
   unresolvedTypes:

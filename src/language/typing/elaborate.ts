@@ -2280,7 +2280,7 @@ function ownerChain(
 
 /** True when `agg` (or a base it extends) declares a property, containment
  *  or derived member named `name`. */
-function declaresDataMember(agg: Aggregate, name: string): boolean {
+export function declaresDataMember(agg: Aggregate, name: string): boolean {
   return ownerChain(agg).some((o) =>
     (o.members as AstNode[]).some(
       (m) => (isProperty(m) || isContainment(m) || isDerivedProp(m)) && m.name === name,
@@ -2318,6 +2318,13 @@ function join(a: Ty, b: Ty): Ty | undefined {
     return undefined;
   }
   if (a.kind === "enum" && b.kind === "enum") return joinEnums(a, b);
+  // Element-wise, so the empty literal `[]` (`never[]`) takes the other
+  // branch's element type: `blocked ? [] : xs.map(…)` is `Contribution[]`, not
+  // `never[]` (whose members nothing downstream can read).
+  if (a.kind === "array" && b.kind === "array") {
+    const el = join(a.element, b.element);
+    return el ? Ty.array(el) : undefined;
+  }
   if (sameType(a, b)) return a;
   return undefined;
 }

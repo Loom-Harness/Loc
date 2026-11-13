@@ -23,7 +23,7 @@ import {
 } from "./heex-walker-core.js";
 import { chromeExpr, formChromeAttr } from "./i18n.js";
 import { updateSeamGates } from "./vanilla/gate.js";
-import { liveViewCallsOp, servesCanProbe } from "./vanilla/op-form.js";
+import { liveViewCallsOp, liveViewOpReturnsRecord, servesCanProbe } from "./vanilla/op-form.js";
 
 /** `Modal(trigger: Button(...), title: "…", OperationForm(of: Agg, op: x))`
  *  → a `<.button phx-click={show_modal(id)}>` trigger followed by
@@ -139,6 +139,9 @@ ${heading}${childrenHeex}
     params,
     ...(gated ? { gated: true } : {}),
     ...(agg && op && liveViewCallsOp(agg, op) ? { callsOp: true } : {}),
+    ...(agg && op && liveViewCallsOp(agg, op) && !liveViewOpReturnsRecord(agg, op)
+      ? { reloads: true }
+      : {}),
     ...(recordAssign ? { recordAssign } : {}),
   });
 

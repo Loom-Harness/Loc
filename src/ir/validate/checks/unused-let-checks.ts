@@ -100,7 +100,12 @@ function unreadWorkflowLets(
             lets.push({ name: s.name, origin: s.origin });
           break;
         case "expr-let":
-          if (!isExistenceRead(s.expr, ex)) lets.push({ name: s.name, origin: s.origin });
+          // The `__bad__` placeholder stands for a statement lowering has no
+          // form for; it is refused as such, and its "binding" is not the
+          // author's.  Its own ref is a use (`y := 2` reads as using `y`).
+          if (s.name === "__bad__")
+            walkExprDeep(s.expr, (e) => e.kind === "ref" && used.add(e.name));
+          else if (!isExistenceRead(s.expr, ex)) lets.push({ name: s.name, origin: s.origin });
           break;
         case "op-call":
           used.add(s.target);

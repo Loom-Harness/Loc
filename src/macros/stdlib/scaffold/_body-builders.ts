@@ -836,10 +836,15 @@ function relatedCard(
   ]);
   const testid = { name: "testid", value: stringLit(`${slug}-detail-${snake(c.name)}`) };
   if (c.collection) {
-    const cols = columnsFromProperties(propertiesOf(part.members)).map((col) => ({
+    const cols = partColumns(part).map((col) => ({
       value: callExpr("Column", [
-        { value: labelOf(part.name, col.name) },
-        { value: lambda("row", columnAccessor(col.name, col.kind, "row", col.provenanced)) },
+        { value: col.label },
+        {
+          value: lambda(
+            "row",
+            col.cell(() => nameRefExpr("row")),
+          ),
+        },
       ]),
     }));
     const table = callExpr("Table", [
@@ -854,22 +859,78 @@ function relatedCard(
       testid,
     ]);
   }
-  // Single part: one KeyValueRow per scalar field, rooted at `<cell>.<part>.<f>`.
-  const singleRows = columnsFromProperties(propertiesOf(part.members)).map((col) => ({
+  // Single part: one KeyValueRow per displayed field, rooted at `<cell>.<part>`.
+  const singleRows = partColumns(part).map((col) => ({
     value: callExpr("KeyValueRow", [
-      { value: labelOf(part.name, col.name) },
-      {
-        value: typedCell(
-          () => memberAccess(memberAccess(nameRefExpr(cellVar), c.name), col.name),
-          col.kind,
-        ),
-      },
+      { value: col.label },
+      { value: col.cell(() => memberAccess(nameRefExpr(cellVar), c.name)) },
     ]),
   }));
   return callExpr("Card", [
     { value: callExpr("Stack", [{ value: heading }, { value: callExpr("Stack", singleRows) }]) },
     testid,
   ]);
+}
+
+/** The columns an entity part shows, in declaration order: one per scalar
+ *  field (the list-column dispatch), and one per leaf of a value-object field,
+ *  labelled "<Field> <Leaf>" and read through the field — the same flattening
+ *  the parent's detail card gives a value object (`valueObjectRows`).  A
+ *  collection field has no cell. */
+function partColumns(part: EntityPart): PartColumn[] {
+  const out: PartColumn[] = [];
+  for (const p of propertiesOf(part.members)) {
+    const name = String(p.name);
+    const vo = valueObjectTarget(p.type);
+    if (vo) {
+      out.push(...valueObjectColumns((row) => memberAccess(row(), name), humanize(name), vo));
+      continue;
+    }
+    for (const col of columnsFromProperties([p])) {
+      out.push({
+        label: labelOf(part.name, col.name),
+        cell: (row) =>
+          typedCell(
+            () =>
+              col.provenanced
+                ? memberAccess(memberAccess(row(), col.name), PROVENANCE_VALUE_FIELD)
+                : memberAccess(row(), col.name),
+            col.kind,
+          ),
+      });
+    }
+  }
+  return out;
+}
+
+interface PartColumn {
+  label: Expression;
+  /** The cell over a row/part receiver. */
+  cell: (receiver: () => Expression) => Expression;
+}
+
+function valueObjectColumns(
+  read: (receiver: () => Expression) => Expression,
+  labelPrefix: string,
+  vo: ValueObject,
+): PartColumn[] {
+  const out: PartColumn[] = [];
+  for (const lf of propertiesOf(vo.members)) {
+    if (lf.type.array) continue;
+    const name = String(lf.name);
+    const label = `${labelPrefix} ${humanize(name)}`;
+    const nested = valueObjectTarget(lf.type);
+    if (nested) {
+      out.push(...valueObjectColumns((row) => memberAccess(read(row), name), label, nested));
+      continue;
+    }
+    const kind = kindForType(lf.type, true)!;
+    out.push({
+      label: stringLit(label),
+      cell: (row) => typedCell(() => memberAccess(read(row), name), kind),
+    });
+  }
+  return out;
 }
 
 /** Flatten a value-object field into labelled leaf rows, recursing through

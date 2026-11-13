@@ -54,6 +54,20 @@ export function useAllProducts(query: AllQueryInput = {}) {
   });
 }
 
+export function useProductsOptions() {
+  return useQuery({
+    queryKey: ["products", "options"],
+    queryFn: async () => {
+      const rows: ProductResponse[] = [];
+      for (let page = 1; ; page++) {
+        const r = ProductPaged.parse(await api.get(`/products?page=${page}&pageSize=500`));
+        rows.push(...r.items);
+        if (page >= r.totalPages) return rows;
+      }
+    },
+  });
+}
+
 export function useProductById(id: string | undefined) {
   return useQuery({
     queryKey: ["products", id],

@@ -22,7 +22,7 @@
 // `loom.context-test-unsupported` WARNING is raised only when no backend
 // deployable hosts the target context (nothing would run the test).
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import {
   type BoundedContext,
@@ -40,11 +40,12 @@ import {
   type TestPrincipal,
 } from "../generated/ast.js";
 import { platformOwnsBackend } from "./data/platform-rules.js";
+import { modelContents } from "./model-contents.js";
 
 /** True when a backend deployable hosts this context — every backend emits a
  *  runnable context integration test (test-placement.md). */
 function integrationBackendHostsContext(model: Model, ctx: BoundedContext): boolean {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (isDeployable(node) && platformOwnsBackend(node.platform)) {
       if (node.contextRefs.some((r) => r.ref === ctx)) return true;
     }
@@ -80,7 +81,7 @@ function checkPrincipalClaims(principal: TestPrincipal, accept: ValidationAccept
 }
 
 export function checkTestPlacement(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (isTestE2E(node)) {
       if (node.principal) checkPrincipalClaims(node.principal, accept);
       for (const line of node.body.filter(isTestPrincipal)) checkPrincipalClaims(line, accept);

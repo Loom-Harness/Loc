@@ -24,6 +24,8 @@ import type {
   BoundedContextIR,
   DeployableIR,
   EnumIR,
+  ExprIR,
+  OperationIR,
   PageIR,
   StateFieldIR,
   SystemIR,
@@ -48,7 +50,7 @@ import {
 } from "../../ir/util/page-kind.js";
 import { isFrontendReadableProjection } from "../../ir/util/projection-read.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
-import { listReadGate } from "../../ir/util/read-gates.js";
+import { byIdRouteFind, listReadGate } from "../../ir/util/read-gates.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import {
@@ -90,6 +92,7 @@ import {
 } from "./vanilla/audit-history-emit.js";
 import { renderGateCondition, updateSeamGates } from "./vanilla/gate.js";
 import { isRelationalRowAgg, servesRefLabel, servesRefLabels } from "./vanilla/ref-label.js";
+import { workflowThreadsActor } from "./vanilla/workflow-execution-emit.js";
 
 /** One router entry the orchestrator splices into router.ex. */
 export interface LiveRoute {
@@ -248,10 +251,16 @@ export function emitLiveViewPages(args: {
   // `WorkflowForm` needs.  Built from the same `<App>.<Ctx>` prefix the HTTP
   // `WorkflowsController` resolves against.
   const workflowModuleByName = new Map<string, string>();
+  // Workflows whose `run` threads `current_user` (`workflowThreadsActor`) — a
+  // LiveView form submits the session principal to them, as the
+  // `WorkflowsController` passes `conn.assigns.current_user`.
+  const workflowsTakingActor = new Set<string>();
   for (const ctx of contexts) {
     const ctxModule = `${appModule}.${upperFirst(ctx.name)}`;
     for (const wf of ctx.workflows ?? []) {
       workflowModuleByName.set(wf.name, `${ctxModule}.Workflows.${upperFirst(wf.name)}`);
+      // The REST route passes the principal exactly when `run` takes one.
+      if (workflowThreadsActor(wf, ctx)) workflowsTakingActor.add(wf.name);
     }
     for (const proj of ctx.projections ?? []) {
       if (!isFrontendReadableProjection(proj)) continue;
@@ -284,17 +293,27 @@ export function emitLiveViewPages(args: {
       // carries no gate of its own, so a page mounted on the same deployable
       // rendered every row the HTTP route 403s.  One read, authorized on one
       // seam only — exactly what the projection gate above exists to prevent.
-      const listGate = listReadGate(
-        (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name),
-      );
-      if (listGate) {
+      const repo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
+      const listGate = listReadGate(repo);
+      // The by-id read's gate — the one `show` evaluates before `get_<agg>`.
+      // A detail LiveView loads the record through the same façade
+      // `defdelegate`, which carries no gate of its own, so without it a
+      // direct navigation to `/<aggs>/<id>` rendered a record the HTTP route
+      // 403s.
+      const byIdGate = byIdRouteFind(repo)?.requires;
+      // The synthesised denyByDefault gate (M-T3.19) must not render as the
+      // literal `false` — see `renderGateCondition`.
+      const renderGate = (gate: ExprIR): { expr: string; usesUser: boolean } => ({
+        expr: renderGateCondition(gate, (g) =>
+          renderDomainExpr(g, { thisName: "record", contextModule: ctxModule }),
+        ),
+        usesUser: exprUsesCurrentUser(gate),
+      });
+      if (listGate || byIdGate) {
         listReadGateByAggName.set(agg.name, {
-          // The synthesised denyByDefault gate (M-T3.19) must not render as
-          // the literal `false` — see `renderGateCondition`.
-          expr: renderGateCondition(listGate, (g) =>
-            renderDomainExpr(g, { thisName: "record", contextModule: ctxModule }),
-          ),
-          usesUser: exprUsesCurrentUser(listGate),
+          ...(listGate ? renderGate(listGate) : { expr: "true", usesUser: false }),
+          ...(listGate ? {} : { listOpen: true }),
+          ...(byIdGate ? { byId: renderGate(byIdGate) } : {}),
         });
       }
       // Entity history — the READ side of the `audited` trail.  Gated on the
@@ -428,6 +447,7 @@ export function emitLiveViewPages(args: {
       valueObjectsByName,
       contextModuleByAggName,
       workflowModuleByName,
+      workflowsTakingActor,
       projectionReads,
       listReadGateByAggName,
       historyReads,
@@ -562,6 +582,7 @@ interface RenderArgs {
    *  Same source as the HTTP `WorkflowsController` action, so the two seams
    *  cannot dispatch to different modules. */
   workflowModuleByName: ReadonlyMap<string, string>;
+  workflowsTakingActor: ReadonlySet<string>;
   /** Frontend-readable query-time projections, keyed by projection name — the
    *  `run/1` module (and any `requires` gate) a `QueryView { of:
    *  <api>.<Projection> }` load resolves to. */
@@ -1012,13 +1033,23 @@ function renderLiveView(a: RenderArgs): {
       walked.queryBindings,
       a.i18nEnabled === true,
     ) +
-    renderWorkflowEventClauses(walked.formBindings, a.workflowModuleByName) +
+    renderWorkflowEventClauses(
+      walked.formBindings,
+      a.workflowModuleByName,
+      a.workflowsTakingActor,
+    ) +
     renderTableControlClauses(
       walked.tableControls,
       walked.queryBindings,
       contextModuleByAggName,
       a.listReadGateByAggName,
       refreshLabels,
+    ) +
+    // After every `handle_event/3` clause: Elixir requires a function's
+    // clauses to be contiguous, and the page may carry more after the op forms.
+    renderOpParamCoercer(
+      walked.formBindings.filter((fb) => fb.kind === "operation"),
+      aggregatesByName,
     );
   // Realtime `handle_info` clauses — one per subscribed event type, each
   // rendering the handler's `toast(…)` as `put_flash(:info, …)` and re-loading
@@ -1579,6 +1610,11 @@ ${assigns.join("\n")}
 interface ListReadGate {
   expr: string;
   usesUser: boolean;
+  /** No list gate — the entry exists only for its by-id gate. */
+  listOpen?: boolean;
+  /** The by-id read's gate (`byIdRouteFind`), evaluated before a detail
+   *  page's `get_<agg>(id)` exactly as the `show` action evaluates it. */
+  byId?: { expr: string; usesUser: boolean };
 }
 
 function renderQueryLoadBlock(
@@ -1645,13 +1681,26 @@ ${nilArm}${okArm}
     // arm.  A custom single find takes its own typed argument, not an id, and
     // keeps its plain read.
     if (readFn !== `get_${aggSnake}`) return `    socket =\n${read}`;
-    return `    socket =
+    const byIdGate = listGate?.byId;
+    // A denied caller never reaches the repository and the page renders its
+    // error slot, never the record — the `show` action's 403, as a page.
+    const gatedRead = byIdGate
+      ? `      if ${byIdGate.expr} do
+${read.replace(/^/gm, "  ")}
+      else
+        assign(socket, :${qb.assign}, :error)
+      end`
+      : read;
+    const cuBind = byIdGate?.usesUser
+      ? "    current_user = Map.get(socket.assigns, :current_user)\n"
+      : "";
+    return `${cuBind}    socket =
       case Ecto.UUID.cast(${readKeyArgs.join(", ")}) do
         :error ->
           assign(socket, :${qb.assign}, :not_found)
 
         {:ok, _} ->
-${read.replace(/^/gm, "    ")}
+${gatedRead.replace(/^/gm, "    ")}
       end`;
   }
   // List read.  A bare `list_<agg>s()` returns `{:ok, list}` (the repo wraps
@@ -1677,7 +1726,7 @@ ${read.replace(/^/gm, "    ")}
     qb.gate === undefined
       ? block
       : `      if ${qb.gate} do\n${block.replace(/^ {6}/gm, "        ")}\n      else\n        socket\n      end`;
-  if (!listGate) return `    socket =\n${gated(read)}`;
+  if (!listGate || listGate.listOpen) return `    socket =\n${gated(read)}`;
   // Gated list read — denial takes the same `:error` sentinel the projection
   // loader uses, so the page renders its error slot instead of the rows.  The
   // gate is evaluated BEFORE the query, matching the `index` action's contract:
@@ -2007,10 +2056,9 @@ function renderOperationEventClauses(
         const reload = detailBaseRoute
           ? `\n         |> push_patch(to: ~p"${detailBaseRoute}/#{record.id}")`
           : "";
-        // Op-form lifecycle: validate builds a changeset off the CURRENT
-        // record with the incoming params + `action: :validate` (so the form
-        // shows errors); submit persists and re-seeds the op form from the
-        // saved record.
+        // The CRUD `update` form validates a changeset off the CURRENT record
+        // with the incoming params; a named op's form is backed by its params
+        // and submits through the op (`renderNamedOpClauses`).
         const ctxModule = contextModuleByAggName.get(fb.name);
         const aggSnake = snake(fb.name);
         if (!ctxModule) return ""; // unresolved — validator catches upstream
@@ -2024,14 +2072,7 @@ function renderOperationEventClauses(
           )
           .join("");
         const labelRefresh = refreshLabels ? "\n         |> __loom_ref_labels()" : "";
-        // A parameterless named operation runs ITSELF — its body, its `when`
-        // gate, its preconditions — rather than a field update that skips all
-        // three.  A refused gate (or any non-changeset error) flashes instead
-        // of crashing the LiveView on an unmatched clause.
         const opIR = aggregatesByName.get(fb.name)?.operations.find((o) => snake(o.name) === op);
-        // A principal-reading op takes the actor the same way the `Action`
-        // seam passes it (nil when the deployable runs no auth).
-        const cu = fb.callsOp && opIR && opUsesCurrentUser(opIR);
         // A merge-patch `update` seam with a `mask unless` write gate evaluates
         // it against the actor, and may deny.
         const updateGated =
@@ -2043,16 +2084,23 @@ function renderOperationEventClauses(
         // lambda param to (`customer`, `data`, …) — validate reads it, submit
         // reads and rewrites it.
         const rec = recordAssignFor(fb, queryBindings);
-        const submitCall = fb.callsOp
-          ? `${ctxModule}.${op}_${aggSnake}(socket.assigns.${rec}, params${cu ? ", Map.get(socket.assigns, :current_user)" : ""})`
-          : `${ctxModule}.update_${aggSnake}(socket.assigns.${rec}, params${updateGated ? ", Map.get(socket.assigns, :current_user)" : ""})`;
-        const errorArm =
-          fb.callsOp || updateGated
-            ? `
+        if (fb.callsOp && opIR) {
+          return renderNamedOpClauses(fb, opIR, ctxModule, aggSnake, rec, {
+            human,
+            gateRefresh,
+            labelRefresh,
+            reload,
+            readActorArgs: queryBindings.find((q) => q.assign === rec && q.kind === "single")
+              ?.actorArgs,
+          });
+        }
+        const submitCall = `${ctxModule}.update_${aggSnake}(socket.assigns.${rec}, params${updateGated ? ", Map.get(socket.assigns, :current_user)" : ""})`;
+        const errorArm = updateGated
+          ? `
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "${human} failed: #{inspect(reason)}")}`
-            : "";
+          : "";
         return `  @impl true
   def handle_event("validate_${op}", params, socket) do
     params = Map.get(params, "${op}", %{})
@@ -2086,6 +2134,184 @@ function renderOperationEventClauses(
   );
 }
 
+/** The `validate_<op>` / `submit_<op>` pair of a NAMED operation form.
+ *
+ *  Submit dispatches to `<op>_<agg>(record, params[, current_user])` — the
+ *  function the REST action calls, with the session principal — so the op's
+ *  `requires` gate, `when` state gate, preconditions and `emit`s all run, and a
+ *  refusal flashes instead of persisting.  The submitted strings are narrowed
+ *  to the op's declared param types and rekeyed to the declared (wire) names
+ *  first: the op reads `params` exactly as it reads a JSON body. */
+function renderNamedOpClauses(
+  fb: import("./heex-walker.js").FormBinding,
+  opIR: OperationIR,
+  ctxModule: string,
+  aggSnake: string,
+  rec: string,
+  parts: {
+    human: string;
+    gateRefresh: string;
+    labelRefresh: string;
+    reload: string;
+    readActorArgs: readonly string[] | undefined;
+  },
+): string {
+  const op = fb.op!;
+  const { human, gateRefresh, labelRefresh, reload } = parts;
+  const guardErrorModule = `${ctxModule.slice(0, ctxModule.lastIndexOf("."))}.GuardError`;
+  const cu = opUsesCurrentUser(opIR);
+  const params = opIR.params;
+  const rawVar = params.length > 0 ? "raw" : "_raw";
+  const built =
+    params.length > 0
+      ? `%{\n${params
+          .map(
+            (pp) =>
+              `      ${elixirString(pp.name)} => __op_param(Map.get(raw, ${elixirString(
+                snake(pp.name),
+              )}), :${opParamKind(pp.type)})`,
+          )
+          .join(",\n")}\n    }`
+      : "%{}";
+  const call = `${ctxModule}.${op}_${aggSnake}(socket.assigns.${rec}, params${cu ? ", Map.get(socket.assigns, :current_user)" : ""})`;
+  // A returning op answers its declared result, not the record: re-read it.
+  const okArm = fb.reloads
+    ? `{:ok, _result} ->
+        case ${ctxModule}.get_${aggSnake}(${[`socket.assigns.${rec}.id`, ...(parts.readActorArgs ?? [])].join(", ")}) do
+          {:ok, record} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "${human} succeeded")
+             |> assign(:${rec}, record)
+             |> assign(:${op}_form, ${opFormExpr(fb, ctxModule, aggSnake, "record")})${gateRefresh.replace(/\n/g, "\n    ")}${labelRefresh.replace(/\n/g, "\n    ")}${reload.replace(/\n/g, "\n    ")}}
+
+          _ ->
+            {:noreply, put_flash(socket, :info, "${human} succeeded")}
+        end`
+    : `{:ok, record} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "${human} succeeded")
+         |> assign(:${rec}, record)
+         |> assign(:${op}_form, ${opFormExpr(fb, ctxModule, aggSnake, "record")})${gateRefresh}${labelRefresh}${reload}}`;
+  const tagArm = fb.reloads
+    ? `
+
+      {:error, tag, _data} when is_binary(tag) ->
+        {:noreply, put_flash(socket, :error, "${human} failed: #{tag}")}`
+    : "";
+  return `  @impl true
+  def handle_event("validate_${op}", params, socket) do
+    params = Map.get(params, "${op}", %{})
+    {:noreply, assign(socket, :${op}_form, to_form(params, as: "${op}"))}
+  end
+
+  @impl true
+  def handle_event("submit_${op}", ${rawVar === "raw" ? "submitted" : "_submitted"}, socket) do
+${rawVar === "raw" ? `    raw = Map.get(submitted, "${op}", %{})\n` : ""}    params = ${built}
+
+    case ${call} do
+      ${okArm}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, assign(socket, :${op}_form, to_form(${rawVar === "raw" ? "raw" : "%{}"}, as: "${op}", errors: changeset.errors, action: :validate))}${tagArm}
+
+      {:error, {_kind, detail}} when is_binary(detail) ->
+        {:noreply, put_flash(socket, :error, detail)}
+
+      {:error, {_kind, %{detail: detail}}} when is_binary(detail) ->
+        {:noreply, put_flash(socket, :error, detail)}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "${human} failed: #{inspect(reason)}")}
+    end
+  rescue
+    # A guard on the op's pure core raises rather than returning; the REST
+    # action answers it as a problem response, a page as a flash.
+    error in ${guardErrorModule} ->
+      {:noreply, put_flash(socket, :error, Exception.message(error))}
+  end\n`;
+}
+
+/** The `__op_param/2` kind token for a named op's declared param type — the
+ *  buckets a browser form's string needs narrowing into before the op reads it
+ *  as it reads a JSON body. */
+type OpParamKind = "int" | "decimal" | "bool" | "vo" | "string";
+function opParamKind(t: TypeIR): OpParamKind {
+  const inner = t.kind === "optional" ? t.inner : t;
+  if (inner.kind === "valueobject") return "vo";
+  if (inner.kind !== "primitive") return "string";
+  switch (inner.name) {
+    case "int":
+    case "long":
+      return "int";
+    case "decimal":
+      return "decimal";
+    case "bool":
+      return "bool";
+    default:
+      return "string";
+  }
+}
+
+/** `defp __op_param/2` — one per LiveView, covering every named op form on the
+ *  page.  Only the per-kind clauses some param needs are emitted (every call
+ *  site passes a literal kind atom, so an unused clause is a
+ *  `--warnings-as-errors` "never used" warning).  An unparseable value becomes
+ *  `nil` rather than a raise, so the op's own wire guard answers it, as the
+ *  REST route does for the same bad input. */
+function renderOpParamCoercer(
+  ops: readonly import("./heex-walker.js").FormBinding[],
+  aggregatesByName: ReadonlyMap<string, AggregateIR>,
+): string {
+  const kinds = new Set<OpParamKind>();
+  for (const fb of ops) {
+    if (!fb.callsOp) continue;
+    const opIR = aggregatesByName.get(fb.name)?.operations.find((o) => snake(o.name) === fb.op);
+    for (const pp of opIR?.params ?? []) kinds.add(opParamKind(pp.type));
+  }
+  if (kinds.size === 0) return "";
+  const groups: string[] = [];
+  if (kinds.has("int")) {
+    groups.push(`  defp __op_param(v, :int) when is_binary(v) do
+    case Integer.parse(v) do
+      {n, ""} -> n
+      _ -> nil
+    end
+  end`);
+  }
+  if (kinds.has("decimal")) {
+    groups.push(`  defp __op_param(v, :decimal) when is_binary(v) do
+    case Decimal.parse(v) do
+      {d, ""} -> d
+      _ -> nil
+    end
+  end`);
+  }
+  if (kinds.has("vo")) {
+    // A value object left entirely blank is absent, not a map of blanks.
+    groups.push(`  defp __op_param(%{} = v, :vo) do
+    if Enum.all?(Map.values(v), &(&1 in [nil, ""])), do: nil, else: v
+  end`);
+  }
+  groups.push(
+    [
+      ...(kinds.has("bool")
+        ? ['  defp __op_param(v, :bool) when is_binary(v), do: v in ["true", "on", "1"]']
+        : []),
+      "  defp __op_param(v, _kind), do: v",
+    ].join("\n"),
+  );
+  return `
+  # A browser form submits strings; the REST route feeds the same operation
+  # typed JSON.  Narrow here, where the declared param type is still known.
+  defp __op_param(nil, _kind), do: nil
+  defp __op_param("", _kind), do: nil
+
+${groups.join("\n\n")}
+`;
+}
+
 /** The assign an operation form's record lives under: the walker-recorded one,
  *  else the page's single-record load of the same aggregate (the by-name
  *  `OperationForm(of:, op:)` shape), else `data`. */
@@ -2112,6 +2338,10 @@ function opFormExpr(
   aggSnake: string,
   record: string,
 ): string {
+  // A named op's form is backed by the params it will submit: its inputs are
+  // the OPERATION's params, which need not be aggregate fields, and the op —
+  // not an aggregate changeset — decides what is valid.
+  if (fb.callsOp) return `to_form(%{}, as: "${fb.op}")`;
   return `${ctxModule}.change_${aggSnake}(${record}) |> to_form(as: "${fb.op}")`;
 }
 
@@ -2216,6 +2446,7 @@ ${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}
 function renderWorkflowEventClauses(
   formBindings: readonly import("./heex-walker.js").FormBinding[],
   workflowModuleByName: ReadonlyMap<string, string>,
+  workflowsTakingActor: ReadonlySet<string> = new Set(),
 ): string {
   const runs = formBindings.filter((fb) => fb.kind === "workflow");
   if (runs.length === 0) return "";
@@ -2248,7 +2479,7 @@ function renderWorkflowEventClauses(
   def handle_event("run_${wfSnake}", %{"${wfSnake}" => ${rawVar}}, socket) do
     params = ${built}
 
-    case ${wfModule}.run(params) do
+    case ${wfModule}.run(params${workflowsTakingActor.has(fb.name) ? ", Map.get(socket.assigns, :current_user)" : ""}) do
       {:ok, _result} ->
         {:noreply, put_flash(socket, :info, "${humanizeOp(wfSnake)} started")}
 

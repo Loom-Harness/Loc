@@ -404,10 +404,10 @@ describe("mikroorm — `filter` capability predicates", () => {
     );
     // …and a read that bypasses it by name or with `*` switches that filter off.
     expect(repo).toContain(
-      'async findFirstOrdersWithDeletedIgnoringSoftDeletable(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer }, { filters: { "softDeletable": false } });',
+      'async findFirstOrdersWithDeletedIgnoringSoftDeletable(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer }, { orderBy: { id: "asc" }, filters: { "softDeletable": false } });',
     );
     expect(repo).toContain(
-      'async findFirstOrdersReallyAllIgnoringAll(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer }, { filters: { "softDeletable": false } });',
+      'async findFirstOrdersReallyAllIgnoringAll(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer }, { orderBy: { id: "asc" }, filters: { "softDeletable": false } });',
     );
   });
 });
@@ -1150,7 +1150,7 @@ describe("mikroorm — shape: document (wave 3)", () => {
     expect(entities).toContain("export class ArticleRow {");
     expect(entities).toContain('id: { type: "string", primary: true }');
     expect(entities).toContain('data: { type: "json", columnType: "jsonb" }');
-    expect(entities).toContain('rowVersion: { type: "number" }');
+    expect(entities).toContain('rowVersion: { type: "number", default: 1 }');
     // The contained Section part rides inside the blob — no relational child Row.
     expect(entities).not.toContain("SectionRow");
     expect(entities).toContain("export const entities = [ArticleRowSchema];");

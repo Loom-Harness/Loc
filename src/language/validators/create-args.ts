@@ -36,10 +36,11 @@ import {
   isRecordFormCreate,
 } from "../factory-call.js";
 import { isTestBlock, type Model } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 import { describeOwner } from "./stmt-placement.js";
 
 export function checkCreateArgs(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     const fc = factoryCallOf(node);
     if (!fc) continue;
     const { agg, call } = fc;

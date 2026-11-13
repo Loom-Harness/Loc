@@ -62,8 +62,8 @@ export function buildPySeedFile(
   for (const ds of datasets) {
     const entries = ds.entries.filter((e) => seedable.has(e.row.aggregate));
     if (entries.length === 0) continue;
-    fnBlocks.push(renderDatasetFn(ds.name, entries, schemaFor, aggByName));
-    callLines.push(`        await _seed_${snake(ds.name)}(session, requested)`);
+    fnBlocks.push(renderDatasetFn(ds.name, ds.marker, ds.ident, entries, schemaFor, aggByName));
+    callLines.push(`        await _seed_${snake(ds.ident)}(session, requested)`);
   }
   if (callLines.length === 0) return null;
 
@@ -91,7 +91,8 @@ export function buildPySeedFile(
     "",
     "async def _already_seeded(session: AsyncSession, dataset: str) -> bool:",
     "    r = await session.execute(",
-    '        text("SELECT 1 FROM __loom_seed WHERE dataset = :d"), {"d": dataset}',
+    "        text(\"SELECT 1 FROM __loom_seed WHERE dataset = :d OR dataset = split_part(:d, '/', 2)\"),",
+    '        {"d": dataset},',
     "    )",
     "    return r.first() is not None",
     "",
@@ -127,6 +128,8 @@ const NOOP_DISPATCHER = pyRef("app.domain.events", "NoopDomainEventDispatcher");
 
 function renderDatasetFn(
   dataset: string,
+  marker: string,
+  ident: string,
   entries: Entry[],
   schemaFor: (aggName: string) => string | undefined,
   aggByName: Map<string, SeederAggregate>,
@@ -144,14 +147,14 @@ function renderDatasetFn(
       : `    await ${snake(e.row.aggregate)}_repo.save(${pyRef(`app.domain.${snake(e.row.aggregate)}`, e.row.aggregate)}.create(${renderInput(e.row, aggByName.get(e.row.aggregate)!)}))`,
   );
   return lines(
-    `async def _seed_${snake(dataset)}(session: AsyncSession, requested: set[str]) -> None:`,
+    `async def _seed_${snake(ident)}(session: AsyncSession, requested: set[str]) -> None:`,
     `    if not _dataset_enabled(${pyStr(dataset)}, requested):`,
     "        return",
-    `    if await _already_seeded(session, ${pyStr(dataset)}):`,
+    `    if await _already_seeded(session, ${pyStr(marker)}):`,
     "        return",
     ...repoDecls,
     ...saveLines,
-    `    await _mark_seeded(session, ${pyStr(dataset)})`,
+    `    await _mark_seeded(session, ${pyStr(marker)})`,
     "",
   );
 }

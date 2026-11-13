@@ -146,8 +146,8 @@ Backend-count and frontend-count claims are where the most stale text hides, bec
 the target set *grows* and prose written at "three backends" never self-updates. The
 ground truth is the registry: `src/platform/registry.ts` today registers **5 backends**
 (`node`/Hono, `dotnet`, `java`, `python`, `elixir` — vanilla Ecto/Phoenix)
-and **5 frontends** (`react`, `vue`, `svelte`, `angular`, `feliz` — F#/Fable/Elmish
-via `dotnet fable`+vite). Any doc saying "three
+and **6 frontends** (`react`, `vue`, `svelte`, `angular`, `feliz` — F#/Fable/Elmish
+via `dotnet fable`+vite, `flutter` — Dart/Riverpod via the Flutter SDK). Any doc saying "three
 backends", "four targets", "the React frontend" (singular), or listing
 "node/dotnet/phoenix/react" as if that's the whole set is a freeze artifact.
 

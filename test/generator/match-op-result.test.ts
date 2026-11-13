@@ -204,7 +204,12 @@ describe("matched op result — python", () => {
   it("the workflow saves in the success arm only", async () => {
     const src = await fileOf("python", "app/http/workflows_routes.py");
     expectBlock(src, ["r = a.withdraw(amt)", 'if r["type"] == "int":']);
-    expectBlock(src, ["await accounts.save(a)", 'elif r["type"] == "Insufficient":']);
+    // Not `transactional`: the arm's save commits on its own.
+    expectBlock(src, [
+      "await accounts.save(a)",
+      "await commit_save(session)",
+      'elif r["type"] == "Insufficient":',
+    ]);
   });
 
   it("builds the repository an arm saves a created aggregate through", async () => {

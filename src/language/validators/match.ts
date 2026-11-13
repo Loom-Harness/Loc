@@ -23,9 +23,11 @@ import {
   type StringLit,
   type TestE2E,
 } from "../generated/ast.js";
+import { typingFor } from "../typing/shared.js";
+import { modelContents } from "./model-contents.js";
 
 export function checkMatchExpressions(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (node.$type !== "MatchExpr") continue;
     const m = node as MatchExpr;
     const isVariant = !!m.subject;
@@ -84,7 +86,7 @@ function subjectIsCall(subject: Expression): boolean {
  *  Walks every MemberSuffix in the model (post-grammar-flatten, calls
  *  on a receiver are MemberSuffix nodes with `call: true`). */
 export function checkMatcherArity(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isMemberSuffix(node)) continue;
     const ms = node as MemberSuffix;
     if (!ms.call) continue;
@@ -137,7 +139,7 @@ function isNegated(expr: Expression): boolean {
  *  is therefore valid only in a `test e2e` block and must be an integer
  *  literal so the e2e renderer can translate it into a `/→ N\b/` matcher. */
 export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isExpectStmt(node)) continue;
     const stmt = node as ExpectStmt;
     const matcher = trailingMatcher(stmt.expr);
@@ -298,7 +300,7 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
  *  it.  That is the "validates clean, then means something else" shape this
  *  repo refuses; name it at the author's own source span instead. */
 export function checkThrowKindPlacement(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isMemberSuffix(node)) continue;
     const ms = node as MemberSuffix;
     if (!ms.throwKind || ms.member === "toThrow") continue;
@@ -350,11 +352,45 @@ function lowersToUiSpec(block: TestE2E): boolean {
   return AstUtils.streamAllContents(block).some((n) => isNameRef(n) && n.name === "ui");
 }
 
+/** Receiver types that are definitely not a string.  An untyped (`unknown`,
+ *  `any`) receiver is not among them: the intrinsic rule keeps applying there,
+ *  so a typo'd receiver still learns what `matches` takes. */
+const NON_STRING_RECEIVERS: ReadonlySet<string> = new Set([
+  "record",
+  "valueobject",
+  "id",
+  "enum",
+  "array",
+  "generic",
+  "union",
+  "none",
+  "action",
+  "slot",
+]);
+
+/** False when the typing pass gave `ms`'s receiver a type that is definitely
+ *  not a string (optional or not). */
+function mayBeStringReceiver(ms: MemberSuffix): boolean {
+  const chain = ms.$container;
+  if (!isPostfixChain(chain)) return true;
+  const typing = typingFor(chain);
+  const i = chain.suffixes.indexOf(ms);
+  const recv = i <= 0 ? typing.synthAt(chain.head) : typing.synthAt(chain.suffixes[i - 1]!);
+  if (!recv) return true;
+  const bare = recv.kind === "optional" ? recv.inner : recv;
+  if (bare.kind === "primitive") return bare.name === "string";
+  return !NON_STRING_RECEIVERS.has(bare.kind);
+}
+
 export function checkMatchesCalls(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isMemberSuffix(node)) continue;
     const ms = node as MemberSuffix;
     if (ms.member !== "matches" || !ms.call) continue;
+    // `matches` is the STRING intrinsic only on a string receiver; a user
+    // function or operation of that name on a record is an ordinary call,
+    // checked like any other.  An untyped receiver keeps the intrinsic rule.
+    if (!mayBeStringReceiver(ms)) continue;
     // `matches` always takes exactly one string-literal argument.
     if (ms.args.length !== 1) {
       accept("error", diagMessage("loom.matches-arity"), {

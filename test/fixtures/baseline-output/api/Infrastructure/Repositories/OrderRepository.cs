@@ -83,7 +83,7 @@ public sealed class OrderRepository : IOrderRepository
         var sortColumn = sort switch { "customerId" => "CustomerId", "status" => "Status", "placedAt" => "PlacedAt", _ => "Id" };
         var total = await _db.Orders.CountAsync(cancellationToken);
         var totalPages = pageSize > 0 ? (int)System.Math.Ceiling((double)total / pageSize) : 0;
-        var ordered = dir == "desc" ? _db.Orders.OrderByDescending(e => EF.Property<object>(e, sortColumn)) : _db.Orders.OrderBy(e => EF.Property<object>(e, sortColumn));
+        var ordered = dir == "desc" ? _db.Orders.OrderByDescending(e => EF.Property<object>(e, sortColumn)).ThenBy(e => e.Id) : _db.Orders.OrderBy(e => EF.Property<object>(e, sortColumn)).ThenBy(e => e.Id);
         var items = await ordered.Skip(offset).Take(pageSize).ToListAsync(cancellationToken);
         _log.LogDebug("{Event} aggregate={Aggregate} find={Find} rows={Rows}", "find_executed", "Order", "all", items.Count);
         return new Paged<Order>(items, page, pageSize, total, totalPages);

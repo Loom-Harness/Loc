@@ -189,6 +189,10 @@ export interface RenderCtx {
    *  reading fn itself is emitted INTO this module by `domain-service-emit.ts`.
    *  Defaults to `contextModule` when unset. */
   readingServiceModule?: string;
+  /** The module being rendered has no `__ref_id_list/1` helper (a standalone
+   *  `Domain.Services` module): a reference-collection `contains` normalises
+   *  its receiver inline instead of calling the context module's helper. */
+  noRefIdListHelper?: boolean;
   /** Document-shape STRUCT rendering (Route A).  A `shape: document`
    *  aggregate now rehydrates its blob into a typed `%<Agg>.Data{}` struct, so a
    *  `this.<field>` read is genuine struct access (`record.<field>`) — same as the
@@ -223,8 +227,10 @@ export interface RenderCtx {
    *  this.  Unset everywhere else (bare call). */
   qualifyFunctions?: boolean;
   /** The host aggregate's `derived` definitions, for inlining a `this-derived`
-   *  read when no enriched {@link agg} is in hand (the stamp pipe).  Consulted
-   *  only when `agg` is unset. */
+   *  read when no enriched {@link agg} is in hand (the stamp pipe, the pure
+   *  domain core).  Consulted only when `agg` is unset.  A body that reads a
+   *  derived with neither set falls back to `record.<name>`, a struct key the
+   *  schema does not define (`KeyError`), so every body renderer sets one. */
   derivedDefs?: readonly DerivedIR[];
 }
 
@@ -827,7 +833,37 @@ function renderMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
     }
     return read;
   }
+  // A REFERENCE collection (`X id[]`) read off a loaded aggregate value — a
+  // domain-service / workflow param or let (`p.specialities`).  The field is a
+  // `many_to_many`, so the struct carries the preloaded TARGET STRUCTS, not
+  // ids; handed on as-is, `Enum.member?(structs, id)` is always false and a
+  // `guid[]`-typed callee sees structs.  Project to the id list the type
+  // promises (a document aggregate already stores raw ids, which pass
+  // through).  A `this`-rooted read inside the context module is left alone:
+  // its consumers normalise through the context's own `__ref_id_list/1`.
+  if (isRefIdsProjection(e, ctx)) return ELIXIR_REF_IDS(`${recv}.${snake(e.member)}`);
   return `${recv}.${snake(e.member)}`;
+}
+
+/** A reference collection's value → its id list: a preloaded target struct
+ *  yields its `id`, a raw id (a document aggregate's stored list) passes. */
+const ELIXIR_REF_IDS = (list: string): string =>
+  `Enum.map(${list}, fn %{id: id} -> id; id -> id end)`;
+
+/** Does `renderMember` project this read to an id list — an `X id[]` field
+ *  read off a loaded aggregate value that is not `this`? */
+function isRefIdsProjection(e: ExprIR, ctx: RenderCtx): boolean {
+  if (e.kind === "paren") return isRefIdsProjection(e.inner, ctx);
+  return (
+    e.kind === "member" &&
+    !ctx.filterArgs &&
+    e.receiver.kind !== "this" &&
+    // The principal's id lists are plain ids already.
+    !(e.receiver.kind === "ref" && e.receiver.refKind === "current-user") &&
+    e.receiverType.kind === "entity" &&
+    e.memberType.kind === "array" &&
+    e.memberType.element.kind === "id"
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -988,6 +1024,12 @@ function renderMethodCall(recv: string, args: string[], e: MethodCallExpr, ctx: 
     const field = ctx.filterArgs ? refCollectionFieldName(e.receiver) : null;
     if (field && ctx.refCollOwnerModule) {
       return `${ctx.thisName}.id in subquery(from(owner_row in ${ctx.refCollOwnerModule}, join: member_row in assoc(owner_row, :${snake(field)}), where: member_row.id == ${args[0]}, select: owner_row.id))`;
+    }
+    // A reference collection read off a loaded value already projected to ids
+    // (`renderMember`), so it needs no second normalisation.
+    if (isRefIdsProjection(e.receiver, ctx)) return `Enum.member?(${recv}, ${args[0]})`;
+    if (ctx.noRefIdListHelper) {
+      return `Enum.member?(${ELIXIR_REF_IDS(recv)}, ${args[0]})`;
     }
     return `Enum.member?(__ref_id_list(${recv}), ${args[0]})`;
   }

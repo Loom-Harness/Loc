@@ -990,11 +990,14 @@ ${sseLines}
       return `      live ${JSON.stringify(r.route)}, ${local}`;
     })
     .join("\n");
-  // OIDC only: seed the Phoenix session's `current_user` from the verified
-  // `session` cookie so LiveAuth.on_mount can gate LiveViews (the `auth: ui`
-  // frontend guard).  Runs right after `:fetch_session`.  The dev stub needs
-  // none — LiveAuth's dev_user fallback grants LiveViews out of the box.
-  const browserAuthPlug = authEnabled && oidc ? `\n    plug ${webModule}.BrowserAuth` : "";
+  // Seed the Phoenix session's `current_user` so LiveAuth.on_mount can gate
+  // LiveViews: under OIDC from the verified `session` cookie (the `auth: ui`
+  // frontend guard); under the dev stub from an `x-loom-dev-claims` header,
+  // when one is sent (LiveAuth's dev_user fallback covers the rest).  Runs
+  // right after `:fetch_session`.
+  const browserAuthPlug = authEnabled
+    ? `\n    plug ${webModule}.${oidc ? "BrowserAuth" : "DevBrowserAuth"}`
+    : "";
   // The locale plug runs right after the session loads (it stores the result in
   // it) and before the root layout renders `<html lang dir>`.
   const localePlug = localeNegotiation ? `\n    plug ${webModule}.LocalePlug` : "";
@@ -1928,11 +1931,22 @@ if config_env() == :prod do
   host = System.get_env("PHX_HOST") || "example.com"
   port = String.to_integer(System.get_env("PORT") || "4000")
 
+  # The IPv6 wildcard with v6only off serves IPv4 too (k8s probes dial the
+  # pod's IPv4 address) — but only a kernel with IPv6 can open it: on a host
+  # booted without IPv6 the listener fails with eafnosupport, so bind the IPv4
+  # wildcard there.
+  # (ipv6_v6only is an IPv6-socket option: on the IPv4 bind it is einval.)
+  {bind_ip, bind_opts} =
+    if File.exists?("/proc/net/if_inet6"),
+      do: {{0, 0, 0, 0, 0, 0, 0, 0}, [ipv6_v6only: false]},
+      else: {{0, 0, 0, 0}, []}
+
   config :${appName}, ${appModule}Web.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [
-      ip: {0, 0, 0, 0, 0, 0, 0, 0},
-      port: port
+      ip: bind_ip,
+      port: port,
+      thousand_island_options: [transport_options: bind_opts]
     ],
     secret_key_base: secret_key_base
 
