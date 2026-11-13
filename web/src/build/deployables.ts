@@ -2,12 +2,12 @@
 // file tree.
 //
 // The browser runtime boots every Hono backend (one worker each) and previews
-// every React, Vue and SvelteKit frontend, one at a time, each against the backend its `targets:`
+// every React, Vue, SvelteKit and Angular frontend, one at a time, each against the backend its `targets:`
 // names.  Everything else in the tree is files-only, and is
 // listed so the UI can say so by name: .NET (`Program.cs`), Phoenix LiveView
 // (`mix.exs`), Spring Boot (`build.gradle.kts`) and FastAPI (`pyproject.toml`)
-// backends, and the frontends the preview engine does not bundle (Angular,
-// Feliz, Flutter).
+// backends, and the frontends whose toolchain does not run in the browser
+// (Feliz, Flutter).
 //
 // Pure: no React, no DOM, no worker — the root vitest suite imports it.
 
@@ -24,7 +24,7 @@ export type PreviewFramework = "react" | CompiledFramework;
 export interface PreviewFrontend {
   /** The deployable's slug — its generated folder. */
   slug: string;
-  /** Its entry path (`<slug>/src/main.tsx`, `main.ts` for Vue, the
+  /** Its entry path (`<slug>/src/main.tsx`, `main.ts` for Vue and Angular, the
    *  `app.html` beside the routes for SvelteKit). */
   entry: string;
   framework: PreviewFramework;
@@ -133,10 +133,9 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
     if (dotnet?.[1]) platformBySlug.set(dotnet[1], "dotnet");
     const phoenix = f.path.match(/^([^/]+)\/mix\.exs$/);
     if (phoenix?.[1]) platformBySlug.set(phoenix[1], "elixir");
-    // Frontend SPAs: SvelteKit (`svelte.config.js`) and Vue (`src/main.ts` —
-    // the `.ts` entry, vs react's `src/main.tsx`) preview; Angular
-    // (`angular.json`; its AOT/`ng build` toolchain) doesn't run
-    // in-browser.  Angular *also* emits `src/main.ts`,
+    // Frontend SPAs: SvelteKit (`svelte.config.js`), Vue (`src/main.ts` —
+    // the `.ts` entry, vs react's `src/main.tsx`) and Angular
+    // (`angular.json`).  Angular *also* emits `src/main.ts`,
     // so `angular.json` is the discriminator and takes precedence over the
     // Vue match (applied after the loop, independent of file order).
     const svelte = f.path.match(/^([^/]+)\/svelte\.config\.js$/);
@@ -157,7 +156,7 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
     const flutter = f.path.match(/^([^/]+)\/pubspec\.yaml$/);
     if (flutter?.[1]) platformBySlug.set(flutter[1], "flutter");
   }
-  for (const slug of angularSlugs) platformBySlug.set(slug, "angular");
+  for (const slug of angularSlugs) frontendEntries.push({ entry: `${slug}/src/main.ts`, framework: "angular" });
   for (const [slug, entry] of vueEntries) {
     if (!angularSlugs.has(slug)) frontendEntries.push({ entry, framework: "vue" });
   }

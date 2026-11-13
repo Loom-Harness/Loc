@@ -111,13 +111,21 @@ mobile they render as the plain source editor until explicitly opened
 
 ### Live preview
 
-When the generated tree contains Hono backends and React or Vue frontends, the
+When the generated tree contains Hono backends and React, Vue, SvelteKit or
+Angular frontends, the
 engine bundles each of them (an in-browser npm install + esbuild-wasm
 bundle, `src/engine/`), boots every backend in its own runtime worker, and
 the frontend renders in a sandboxed iframe. A Vue frontend's single-file
 components are compiled in the bundler worker by `@vue/compiler-sfc` (pinned
 to the generated `vue` version), as `@vitejs/plugin-vue` would under
-`vite dev` (`src/engine/npm/frontend-frameworks.ts`). Iframe `fetch()` calls to `http://localhost:*` are
+`vite dev` (`src/engine/npm/frontend-frameworks.ts`). A SvelteKit frontend's
+components are compiled by the `svelte` compiler (pinned the same way), and a
+small client router stands in for the kit (`src/engine/npm/sveltekit-shim.ts`):
+the file routes and their layout chains, `$app/state`, `$app/navigation` and
+in-app link clicks — the generated app is an `ssr = false` SPA, so that is all
+the kit does for it. An Angular frontend is compiled just in time by its own
+`@angular/compiler`: the entry loads the `angular.json` polyfills and styles,
+the compiler, then `main.ts`, and `<base href>` is the preview's path. Iframe `fetch()` calls to `http://localhost:*` are
 intercepted by an in-iframe shim and routed via `postMessage` to the
 parent, which dispatches them through the runtime worker of the backend the
 frontend `targets:` — so the
@@ -125,16 +133,16 @@ generated frontend → Hono → Postgres round-trip runs end-to-end under one
 origin. In live mode the preview refreshes in place as you type (debounced
 ~5 s).
 
-Every React and Vue frontend of a system is previewable. When there is more than
+Every React, Vue, SvelteKit and Angular frontend of a system is previewable. When there is more than
 one, a **Frontend** picker above the preview switches between them; each
 option names the backend that frontend targets, and the preview sends that
 frontend's API calls (and its login redirect chain) there. The frontends
 are listed by slug, and the backend the first one targets is the HTTP
 console's default target.
 
-The runtime is **Hono + React/Vue only**. A system that declares only .NET,
-Phoenix LiveView, Java, or Python deployables — or a Svelte, Angular,
-Feliz or Flutter frontend — generates fully and is browsable in the Files pane, but the preview names
+The runtime boots **Hono** backends only. A system that declares only .NET,
+Phoenix LiveView, Java, or Python deployables — or a Feliz or Flutter
+frontend, whose Fable and Flutter SDK builds do not run in the browser — generates fully and is browsable in the Files pane, but the preview names
 those as "run outside the playground" rather than booting them. The
 playground surfaces this explicitly instead of failing silently.
 

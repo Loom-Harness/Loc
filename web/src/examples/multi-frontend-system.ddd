@@ -1,8 +1,8 @@
-// Three frontends — a React back office, a Vue shop and a SvelteKit kiosk —
-// over two backends sharing one `storage`.  `backoffice` targets `admin`;
-// `shopfront` and `kiosk` target `storefront`.  Both backends bind `primary`,
-// so a product created in the back office is listed in the shop and the
-// kiosk.
+// Four frontends — a React back office, an Angular operations console, a Vue
+// shop and a SvelteKit kiosk — over two backends sharing one `storage`.
+// `backoffice` and `ops` target `admin`; `shopfront` and `kiosk` target
+// `storefront`.  Both backends bind `primary`, so a product created in the
+// back office is listed in the shop and the kiosk.
 //
 // The playground previews every frontend: the picker above the preview
 // switches between them, and each one's API calls go to the backend its
@@ -54,6 +54,13 @@ system MultiFrontend {
     targets: storefront
     ui: Shop
     port: 3003
+  }
+
+  deployable ops {
+    platform: angular
+    targets: admin
+    ui: Backoffice
+    port: 3005
   }
 
   deployable kiosk {

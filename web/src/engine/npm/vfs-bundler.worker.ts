@@ -14,7 +14,7 @@
 import * as esbuild from "esbuild-wasm";
 import wasmURL from "esbuild-wasm/esbuild.wasm?url";
 import { BACKEND_LOWERED_SYNTAX, makeVfsNpmPlugin } from "./esbuild-vfs-plugin.js";
-import { type CompiledFramework, frameworkDefines, frameworkPlugin } from "./frontend-frameworks.js";
+import { type CompiledFramework, frameworkDefines, frameworkPlugin, frameworkTsconfig } from "./frontend-frameworks.js";
 import { harvestTsconfigPaths } from "../../bundle/plugin.js";
 import { install } from "./install.js";
 import { getInstallCache, getNpmMirror } from "./install-sources.js";
@@ -374,6 +374,7 @@ self.onmessage = async (ev: MessageEvent<VfsBundleRequest>): Promise<void> => {
           ? {
               ...BUILD_COMMON,
               define: { ...BUILD_COMMON.define, ...frameworkDefines(framework) },
+              tsconfigRaw: frameworkTsconfig(framework),
               sourcemap: sourcemapOption,
               plugins: [
                 frameworkPlugin(framework, files),
