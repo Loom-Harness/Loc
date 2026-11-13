@@ -112,6 +112,30 @@ Walk these in order; stop at the first match.
    network-gated, and self-skips when the sandbox can't reach the
    registry — so it's a signal, not a per-PR gate.
 
+### Adding a corpus fixture
+
+A corpus feature is two files in `test/fixtures/corpus/`: the `<id>.ddd` and
+its manifest row `<id>.corpus.json` (`title`, optional `doc` / `note` /
+`deployables`, and `backends` — a list of backend keys or a named set from
+`BACKEND_SETS` in `manifest.ts`). `CORPUS` is discovered from the sidecars, so
+fixtures added by different changes never conflict; the manifest refuses to
+load on an unpaired `.ddd` or sidecar or a malformed sidecar.
+
+A fixture with a `test e2e` block also enters the **api-caller census**
+(`test/ir/api-caller-census.test.ts`). Before the first full run, make sure
+its `test e2e` blocks:
+
+- **call every derived route** of every aggregate a backend deployable serves
+  — the crudish `create` / `getById` / `update` / `destroy` / `all`, each
+  declared operation and each find. An operation with no caller fails the
+  census unless it is pinned in `UNCALLED_PINS`
+  (`test/ir/api-caller-census-pins.ts`) with a reason class; pins are for
+  routes the `test e2e` surface cannot reach, not for tests nobody wrote.
+- **pin the calls the census cannot attribute.** A workflow run or a
+  projection read maps to no derived operation, so each such `api.*` call
+  must be listed in `UNATTRIBUTED_CALLS` for the fixture. The census compares
+  both sets exactly, so a pin that goes stale fails too.
+
 ### Behavioral corpus constraint
 
 The docker-free behavioral tiers (`test/behavioral/`) require each corpus

@@ -87,6 +87,8 @@ A fleet does not send one PR per worker through the merge queue. Each queue entr
 
 **Rules learned the hard way**
 - No pushes while the train is queued — GitHub refuses them (GH006), and a sync of a queued PR re-runs everything for nothing.
+- **Pulling a queued train to fix it.** A session has no dequeue button, and a push to a queued PR is refused with GH006. The lever is: close the PR (closing removes it from the queue), push the fix, reopen it, mark it ready for review, and enable auto-merge again. Closing and reopening keeps the PR number, its `Fixes #N` lines and its review history.
+- **Rebuild before a mutation run.** `bin/cli.js` runs the compiled `out/`, so a mutation made in `src/` reaches no CLI-driven leg until `npx tsc -b` has run. The CLI refuses to start while a `src/` file is newer than the last build.
 - A member PR whose base is another member (a stacked PR) is **not** auto-closed when the train lands; close it by hand.
 - One push per fix. A conflict with `main` is the only reason to sync an open train.
 
