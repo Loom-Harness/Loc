@@ -74,7 +74,10 @@ describe.each([
 describe("angular dynamic sub-form row test ids", () => {
   it("indexes each row's input id like the other frontends", async () => {
     const all = await generateSystemFiles(
-      readFileSync("test/behavioral/form-spec-ui.ddd", "utf8").replaceAll("__FRONTEND__", "angular"),
+      readFileSync("test/behavioral/form-spec-ui.ddd", "utf8").replaceAll(
+        "__FRONTEND__",
+        "angular",
+      ),
     );
     const ts = [...all]
       .filter(([p]) => p.endsWith(".ts"))

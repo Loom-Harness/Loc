@@ -91,3 +91,23 @@ describe("angular auth: ui guard — emission", () => {
     expect(authShell).not.toEqual(shell);
   });
 });
+
+// String assertions: the interceptor's wiring is only observable in a booted
+// session whose token expires; no compile or booted tier here ages a cookie.
+describe("angular auth: ui — refresh-on-401 interceptor", () => {
+  it("registers a functional interceptor that refreshes once and retries", async () => {
+    const files = await generateSystemFiles(BASE(true));
+    const interceptor = find(files, "web/src/api/auth-interceptor.ts");
+    expect(interceptor).toContain("export const authRefreshInterceptor: HttpInterceptorFn");
+    expect(interceptor).toContain("/auth/refresh");
+    expect(interceptor).toContain("switchMap(() => next(withSession))");
+    const config = find(files, "web/src/app/app.config.ts");
+    expect(config).toContain("withInterceptors([authRefreshInterceptor])");
+  });
+
+  it("emits neither without auth: ui", async () => {
+    const files = await generateSystemFiles(BASE(false));
+    expect(has(files, "web/src/api/auth-interceptor.ts")).toBe(false);
+    expect(find(files, "web/src/app/app.config.ts")).not.toContain("withInterceptors");
+  });
+});
