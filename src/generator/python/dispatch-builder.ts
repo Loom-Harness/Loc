@@ -4,7 +4,7 @@ import {
   esStarterSharesEvent,
   eventSourcedWorkflows,
   type FoldRowSeed,
-  FOLD_INBOX_TABLE,
+  foldInboxClaimSql,
   type FoldStep,
   foldedEventNames,
   foldRowSeeds,
@@ -579,7 +579,7 @@ function projectionHandlerFn(
       ? [
           "    __eid = _current_event_id.get()",
           "    if __eid is not None:",
-          `        __claimed = await session.execute(${SA_TEXT}(${JSON.stringify(`insert into ${FOLD_INBOX_TABLE} (projection, event_id) values (:projection, :event_id) on conflict do nothing returning event_id`)}), {"projection": ${JSON.stringify(proj.name)}, "event_id": __eid})`,
+          `        __claimed = await session.execute(${SA_TEXT}(${JSON.stringify(foldInboxClaimSql(":projection", ":event_id", true))}), {"projection": ${JSON.stringify(proj.name)}, "event_id": __eid})`,
           "        if __claimed.first() is None:",
           "            return",
         ]

@@ -24,7 +24,7 @@
 // ---------------------------------------------------------------------------
 
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
-import { eventLogTable, FOLD_INBOX_TABLE, stateRowWorkflows } from "../../../ir/plan/index.js";
+import { eventLogTable, foldInboxClaimSql, stateRowWorkflows } from "../../../ir/plan/index.js";
 import {
   isMaterializedProjection,
   isSingletonProjection,
@@ -246,7 +246,7 @@ function renderRowStore(
  *  it runs first; the inbox claim and the row upserts then share one
  *  transaction, and an event already claimed drops the buffer unwritten. */
 function foldOnce(upsert: string, bind: string, ns: string): string[] {
-  const claim = `insert into ${FOLD_INBOX_TABLE} (projection, event_id) values (@projection, @eventId) on conflict do nothing`;
+  const claim = foldInboxClaimSql("@projection", "@eventId", false);
   return [
     "    public async Task FoldOnceAsync(string projection, string? eventId, Func<Task> fold, CancellationToken cancellationToken = default)",
     "    {",

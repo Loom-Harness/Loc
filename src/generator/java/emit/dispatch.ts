@@ -2,7 +2,7 @@ import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
 import {
   esStarterSharesEvent,
-  FOLD_INBOX_TABLE,
+  foldInboxClaimSql,
   type FoldStep,
   foldSteps,
   foldsDedupe,
@@ -240,7 +240,7 @@ function renderProjectionFold(
   const claim = dedupe
     ? [
         `        var __eventId = OutboxDelivery.currentEventId();`,
-        `        if (__eventId != null && jdbc.update(${JSON.stringify(`insert into ${FOLD_INBOX_TABLE} (projection, event_id) values (?, ?) on conflict do nothing`)}, ${JSON.stringify(proj.name)}, __eventId) == 0) return;`,
+        `        if (__eventId != null && jdbc.update(${JSON.stringify(foldInboxClaimSql("?", "?", false))}, ${JSON.stringify(proj.name)}, __eventId) == 0) return;`,
       ]
     : [];
   const body: string[] = tenancy

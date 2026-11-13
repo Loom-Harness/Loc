@@ -25,7 +25,7 @@ import {
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
 import {
-  FOLD_INBOX_TABLE,
+  foldInboxClaimSql,
   type FoldRowSeed,
   type FoldStep,
   foldRowSeeds,
@@ -393,7 +393,6 @@ function emitFoldHandler(
   }
   // The inbox claim and the row save commit together: a redelivered event
   // finds its claim and changes nothing; a failed save releases it.
-  const claimSql = `insert into ${FOLD_INBOX_TABLE} (projection, event_id) values (?, ?) on conflict do nothing returning event_id`;
   out.push(
     `  const __eventId = (${escapeTsIdent(h.param)} as { __loomEventId?: string }).__loomEventId;`,
   );
@@ -401,7 +400,7 @@ function emitFoldHandler(
     out.push(
       `  await __em.transactional(async (__tx) => {`,
       `    if (__eventId !== undefined) {`,
-      `      const __claimed = await __tx.execute(${JSON.stringify(claimSql)}, [${JSON.stringify(p.name)}, __eventId]);`,
+      `      const __claimed = await __tx.execute(${JSON.stringify(foldInboxClaimSql("?", "?", true))}, [${JSON.stringify(p.name)}, __eventId]);`,
       `      if (__claimed.length === 0) return;`,
       `    }`,
       ...apply("__tx", "    "),
@@ -412,7 +411,7 @@ function emitFoldHandler(
       `  await db.transaction(async (__tx) => {`,
       `    const __db = __tx as unknown as NodePgDatabase<typeof schema>;`,
       `    if (__eventId !== undefined) {`,
-      `      const __claimed = await __db.execute(${TS.sql}\`${claimSql.replace("(?, ?)", `(\${${JSON.stringify(p.name)}}, \${__eventId})`)}\`);`,
+      `      const __claimed = await __db.execute(${TS.sql}\`${foldInboxClaimSql(`\${${JSON.stringify(p.name)}}`, "${__eventId}", true)}\`);`,
       `      if (__claimed.rows.length === 0) return;`,
       `    }`,
       ...apply("__db", "    "),

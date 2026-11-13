@@ -1,4 +1,4 @@
-import { FOLD_INBOX_TABLE } from "../../../ir/plan/index.js";
+import { foldInboxClaimSql } from "../../../ir/plan/index.js";
 
 // ---------------------------------------------------------------------------
 // EF Core adapters for the domain persistence ports.
@@ -122,7 +122,7 @@ public sealed class EfReadModelStore<TRow> : IReadModelStore<TRow> where TRow : 
             ? await _db.Database.BeginTransactionAsync(cancellationToken)
             : null;
         var claimed = await _db.Database.ExecuteSqlInterpolatedAsync(
-            $"insert into ${FOLD_INBOX_TABLE} (projection, event_id) values ({projection}, {eventId}) on conflict do nothing",
+            $"${foldInboxClaimSql("{projection}", "{eventId}", false)}",
             cancellationToken);
         if (claimed == 0) return;
         await fold();

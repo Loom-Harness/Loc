@@ -1,7 +1,7 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
 import {
-  FOLD_INBOX_TABLE,
+  foldInboxClaimSql,
   type FoldRowSeed,
   type FoldStep,
   foldRowSeeds,
@@ -860,7 +860,7 @@ function renderProjectionFoldHandler(
   // A durably delivered event folds once: the claim on `(projection, event_id)`
   // in the fold inbox commits with the row write, in one transaction.  An
   // event dispatched inline has no id and is never redelivered.
-  const claimSql = `insert into ${FOLD_INBOX_TABLE} (projection, event_id) values ($1, $2) on conflict do nothing returning event_id`;
+  const claimSql = foldInboxClaimSql("$1", "$2", true);
   const once = dedupe
     ? `  defp fold(${args}) do
     case Process.get(:loom_event_id) do

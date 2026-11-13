@@ -63,6 +63,8 @@ import {
   commandCreateReturnsSelf,
   esStarterSharesEvent,
   eventSourcedWorkflows,
+  foldInboxPurgeSql,
+  foldsDedupe,
   hasDurableEvents,
   hasStateRow,
   lookupOp,
@@ -614,7 +616,14 @@ export function buildWorkflowsFile(
     body.push("");
     body.push(...emitDispatcherFactory(new Map(), usingMikro));
     body.push("");
-    body.push(...emitOutboxMachinery(durableEventTypes(ctx), usingMikro, carriesOrigin));
+    body.push(
+      ...emitOutboxMachinery(
+        durableEventTypes(ctx),
+        usingMikro,
+        carriesOrigin,
+        foldsDedupe(ctx, true),
+      ),
+    );
   }
   // Now derive imports from what the body actually references.
   const rawBodyStr = body.join("\n");
@@ -1787,7 +1796,7 @@ function emitSubscriptionHandlers(
   const durable = durableEventTypes(ctx);
   if (durable.size > 0) {
     out.push("");
-    out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin));
+    out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin, foldsDedupe(ctx, true)));
   }
   return out;
 }
@@ -1817,13 +1826,14 @@ const OUTBOX_RELAY_ERROR_LOG =
  *  the dispatched rows older than the retention window (`del` is the store's
  *  delete over `cutoff`).  A failed purge is logged and retried next interval
  *  — it never blocks delivery. */
-function outboxPurgeStep(del: string): string[] {
+function outboxPurgeStep(del: string, inboxDel?: string): string[] {
   return [
     `      if (Date.now() - lastPurge >= ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000}) {`,
     `        lastPurge = Date.now();`,
     `        const cutoff = new Date(lastPurge - retentionMs);`,
     `        try {`,
     `          await ${del};`,
+    ...(inboxDel ? [`          await ${inboxDel};`] : []),
     `        } catch (err) {`,
     `          ${OUTBOX_RELAY_ERROR_LOG}`,
     `        }`,
@@ -1848,6 +1858,9 @@ function emitOutboxMachinery(
   durable: ReadonlySet<string>,
   usingMikro = false,
   carriesOrigin = false,
+  /** The deployable's folds claim events in the fold inbox (`foldsDedupe`):
+   *  the purge prunes it on the outbox's window. */
+  pruneInbox = false,
 ): string[] {
   // The outbox row payload: the event, plus its origin under the reserved
   // key when the deployable carries auth (ruling D1).
@@ -1878,7 +1891,7 @@ function emitOutboxMachinery(
   out.push(...emitOutboxRetention());
   out.push(``);
   if (usingMikro) {
-    out.push(...emitMikroOutboxMachinery(captured, redeliver));
+    out.push(...emitMikroOutboxMachinery(captured, redeliver, pruneInbox));
     return out;
   }
   out.push(`export function createOutboxDispatcher(`);
@@ -1934,6 +1947,7 @@ function emitOutboxMachinery(
   out.push(
     ...outboxPurgeStep(
       "db.delete(schema.loomOutbox).where(lt(schema.loomOutbox.dispatchedAt, cutoff))",
+      pruneInbox ? `db.execute(\`${foldInboxPurgeSql("'${cutoff.toISOString()}'")}\`)` : undefined,
     ),
   );
   out.push(`      const rows = await db`);
@@ -1992,6 +2006,7 @@ function emitOutboxMachinery(
 function emitMikroOutboxMachinery(
   captured: string,
   redeliver: (indent: string) => string[],
+  pruneInbox = false,
 ): string[] {
   const ROW = MIKRO_OUTBOX_ROW_CLASS;
   return [
@@ -2059,7 +2074,12 @@ function emitMikroOutboxMachinery(
     `    draining = true;`,
     `    try {`,
     `      const em = db.fork();`,
-    ...outboxPurgeStep(`em.nativeDelete(${ROW}, { dispatchedAt: { $lt: cutoff } })`),
+    ...outboxPurgeStep(
+      `em.nativeDelete(${ROW}, { dispatchedAt: { $lt: cutoff } })`,
+      pruneInbox
+        ? `em.getConnection().execute(${JSON.stringify(foldInboxPurgeSql("?"))}, [cutoff])`
+        : undefined,
+    ),
     `      const rows = await em.find(`,
     `        ${ROW},`,
     `        { dispatchedAt: null, deadAt: null },`,
@@ -2609,7 +2629,7 @@ function buildProducerOutboxFile(
   ];
   out.push(...emitDispatcherFactory(new Map(), usingMikro));
   out.push("");
-  out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin));
+  out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin, foldsDedupe(ctx, true)));
   return `${out.join("\n")}\n`;
 }
 

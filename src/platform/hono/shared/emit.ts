@@ -1,4 +1,4 @@
-import { hasDurableEvents, workflowIsolation } from "../../../ir/plan/index.js";
+import { foldsDedupe, hasDurableEvents, workflowIsolation } from "../../../ir/plan/index.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
 // This orchestrator (project assembly: which files, framework wiring,
 // package.json/Dockerfile) is backend-specific, so it lives with the
@@ -1148,6 +1148,9 @@ export function generateTypeScriptForContexts(
         // The `every:` claim table — the MigrationsIR table the drizzle path
         // gets from its migrations; mikro's `schema.update()` needs an entity.
         timerClaim: ownsIntervalTimers(system),
+        // The fold inbox — the MigrationsIR table the drizzle path gets from
+        // its migrations, on the condition the folds claim it.
+        foldInbox: foldsDedupe(merged, hasDurableEvents(merged)),
       }),
     );
     out.set("mikro-orm.config.ts", renderMikroConfig());
