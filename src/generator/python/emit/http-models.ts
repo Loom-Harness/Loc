@@ -37,6 +37,8 @@ const BEFORE_VALIDATOR = pyd("BeforeValidator");
 const STRING_CONSTRAINTS = pyd("StringConstraints");
 const WITH_JSON_SCHEMA = pyd("WithJsonSchema");
 const STRICT_BOOL = pyd("StrictBool");
+const PLAIN_SERIALIZER = pyd("PlainSerializer");
+const ISO_HELPER = pyRef("app.db.wire", "iso");
 const PYDANTIC_CUSTOM_ERROR = pyRef("pydantic_core", "PydanticCustomError");
 
 /** A reference to one of the shared wire-model module's names
@@ -285,6 +287,43 @@ const PY_WIRE_STR_DEF = [
   `${PY_WIRE_STR} = ${ANNOTATED}[str, ${AFTER_VALIDATOR}(_reject_nul)]`,
 ];
 
+export const PY_WIRE_INSTANT = "WireInstant";
+
+/** Python source of the `WireInstant` alias — a value-object `datetime` field.
+ *
+ *  A value-object model is shared by request and response, so its `datetime`
+ *  field parses on the way in.  On the way out the repository's `to_wire`
+ *  already spelled the instant with `iso()` (RS-4 + RS-38: three fractional
+ *  digits, none on a whole second), but the response model re-parses that
+ *  string into a `datetime` and pydantic re-serializes it with SIX digits
+ *  (`.345000Z`), so a VO instant disagreed with every other backend and with a
+ *  top-level field of the same aggregate.  The serializer re-spells it through
+ *  the same `iso()`; `WithJsonSchema` keeps the published schema the
+ *  `date-time` string it was in both directions. */
+const PY_WIRE_INSTANT_DEF = [
+  `${PY_WIRE_INSTANT} = ${ANNOTATED}[`,
+  `    ${PY.datetime},`,
+  `    ${PLAIN_SERIALIZER}(${ISO_HELPER}, return_type=str),`,
+  `    ${WITH_JSON_SCHEMA}({"type": "string", "format": "date-time"}),`,
+  "]",
+];
+
+/** A value-object field's wire type: the request spelling, with every
+ *  `datetime` (through `?` / `[]`) as `WireInstant`. */
+function voFieldPyType(t: TypeIR, ctx: BoundedContextIR): string {
+  if (t.kind === "primitive" && t.name === "datetime") return PY_WIRE_INSTANT;
+  if (t.kind === "optional") return `${voFieldPyType(t.inner, ctx)} | None`;
+  if (t.kind === "array") return `list[${voFieldPyType(t.element, ctx)}]`;
+  return wireFieldType(t, ctx, "request", "");
+}
+
+function typeHasDatetime(t: TypeIR): boolean {
+  if (t.kind === "primitive") return t.name === "datetime";
+  if (t.kind === "optional") return typeHasDatetime(t.inner);
+  if (t.kind === "array") return typeHasDatetime(t.element);
+  return false;
+}
+
 /** Pydantic field type for one wire-side value (REQUEST direction —
  *  money stays Decimal so the domain receives precise values). */
 export function requestPyType(t: TypeIR, ctx: BoundedContextIR): string {
@@ -498,6 +537,7 @@ function contextHasRequestMoney(ctx: BoundedContextIR): boolean {
 
 export function renderPyWireModels(ctx: BoundedContextIR): string {
   const needsMoney = contextHasRequestMoney(ctx);
+  const needsInstant = ctx.valueObjects.some((vo) => vo.fields.some((f) => typeHasDatetime(f.type)));
   // Dependency order — see the value-object emitter (`emit/value-objects.ts`).
   const models = orderValueObjectsByDependency(ctx.valueObjects).map((vo) => {
     // A VO's own `invariant`s ride the SAME wire carriers the aggregate
@@ -525,7 +565,7 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
         // the nested VO model.  `withFieldConstraint` folds the default into
         // `Field(default=None, …)` when the subfield also carries an invariant.
         const optional = f.optional || f.type.kind === "optional";
-        const base = wireFieldType(f.type, ctx, "request", "");
+        const base = voFieldPyType(f.type, ctx);
         const decl = !optional
           ? base
           : base.endsWith("| None")
@@ -561,6 +601,7 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     PY_INT32_PARAM_DEF,
     "",
     PY_WIRE_STR_DEF,
+    needsInstant ? ["", "", ...PY_WIRE_INSTANT_DEF] : null,
     models.join(""),
     hasProv ? provenancedModel() : null,
     "",
