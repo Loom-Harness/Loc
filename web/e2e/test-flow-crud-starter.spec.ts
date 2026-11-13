@@ -14,17 +14,30 @@ import {
   waitForPlaygroundReady,
 } from "./_helpers";
 
-/** Run a suite and wait until every row has a verdict; return the rows' text. */
-async function runAll(suite: Locator, testid: string): Promise<string[]> {
+/** Run a suite and wait until every row has a verdict; return each row's
+ *  status and text. */
+async function runAll(suite: Locator, testid: string): Promise<{ status: string; text: string }[]> {
   await suite.page().getByTestId(`btn-run-all-${testid}`).click();
   const rows = suite.getByTestId("test-row");
+  await expect(rows.first()).toBeVisible();
   await expect
-    .poll(async () => (await rows.allInnerTexts()).every((t) => /\b(pass|fail)\b/.test(t)), {
-      timeout: 180_000,
-      message: `${testid}: every row has a verdict`,
-    })
+    .poll(
+      async () => {
+        const all = await rows.evaluateAll((els) => els.map((e) => e.getAttribute("data-status")));
+        return all.every((s) => s === "pass" || s === "fail");
+      },
+      { timeout: 180_000, message: `${testid}: every row has a verdict` },
+    )
     .toBe(true);
-  return rows.allInnerTexts();
+  return rows.evaluateAll((els) =>
+    els.map((e) => ({ status: e.getAttribute("data-status") ?? "", text: (e as HTMLElement).innerText })),
+  );
+}
+
+/** Every row passed; a failure reports its row text (name + error). */
+function expectAllPass(rows: { status: string; text: string }[], what: string): void {
+  expect(rows.length, `${what}: rows`).toBeGreaterThan(0);
+  for (const r of rows) expect(r.status, `${what}: ${r.text}`).toBe("pass");
 }
 
 test("crud starter: generated unit, UI and API suites are discovered and pass in the browser", async ({
@@ -65,8 +78,8 @@ test("crud starter: generated unit, UI and API suites are discovered and pass in
   for (let i = 0; i < (await unit.count()); i++) {
     const s = unit.nth(i);
     const id = ((await s.getAttribute("data-testid")) ?? "").replace(/^test-suite-/, "");
-    for (const row of await runAll(s, id)) expect(row, `unit ${id}`).toMatch(/\bpass\b/);
+    expectAllPass(await runAll(s, id), `unit ${id}`);
   }
-  for (const row of await runAll(api, "api")) expect(row, "API e2e").toMatch(/\bpass\b/);
-  for (const row of await runAll(ui, "ui")) expect(row, "UI e2e").toMatch(/\bpass\b/);
+  expectAllPass(await runAll(api, "api"), "API e2e");
+  expectAllPass(await runAll(ui, "ui"), "UI e2e");
 });

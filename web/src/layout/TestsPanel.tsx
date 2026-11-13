@@ -25,7 +25,8 @@ import {
 } from "./vocabulary";
 import { OutputStreamLink } from "./OutputStreamLink";
 import { TsTransformClient, type EsbuildBuild } from "../testing/transform-client";
-import { formatSuiteLoadFailures, nearestPackageDeps, type SuiteLoadFailure } from "../testing/suite-deps";
+import { discoverSuites } from "../testing/discover";
+import { formatSuiteLoadFailures, nearestPackageDeps } from "../testing/suite-deps";
 import { findApiTestFile, loadApiTests } from "../testing/run-api-tests";
 import { findUiTestFile, loadUiSuite, uiSuiteFiles } from "../testing/run-ui-tests";
 import {
@@ -201,64 +202,57 @@ function TestsBodyView({
       setProgress(TEST_DISCOVERY.progress(n, total, label));
     };
     void (async () => {
-      // Each suite loads on its own: one that fails to build or import is
-      // reported by name, and the others stay listed and runnable.
-      const failures: SuiteLoadFailure[] = [];
-      const attempt = async <T,>(suite: string, path: string, load: () => Promise<T>): Promise<T | null> => {
-        try {
-          return await load();
-        } catch (e) {
-          failures.push({ suite, path, message: e instanceof Error ? e.message : String(e) });
-          return null;
-        }
-      };
       try {
         const c = client();
         const build: EsbuildBuild = (e, f, a, d) => c.build(e, f, a, d);
-        const units: UnitSuite[] = [];
-        for (const f of unitFiles) {
-          if (token.cancelled) return;
-          const base = f.path.split("/").pop()!.replace(/\.test\.ts$/, "");
-          step(base);
-          const cases = await attempt(base, f.path, () =>
-            loadUnitSuite({
-              entry: f.path,
-              files: unitSuiteFiles(files, f),
-              build,
-              deps: nearestPackageDeps(files, f.path),
-            }),
-          );
-          if (cases) units.push({ id: `unit\0${f.path}`, label: base, cases });
-        }
-        if (token.cancelled) return;
-        if (uiFile) step("UI");
-        const ui = uiFile
-          ? await attempt("UI", uiFile.path, () =>
-              loadUiSuite({
-                entry: uiFile.path,
-                files: uiSuiteFiles(files, uiFile),
-                build,
-                deps: nearestPackageDeps(files, uiFile.path),
-              }),
-            )
-          : null;
-        if (token.cancelled) return;
-        if (apiFile && engine) step("API");
-        const api = apiFile && engine
-          ? await attempt("API", apiFile.path, () =>
-              loadApiTests({
-                source: apiFile.content,
-                compile: (ts) => c.compile(ts),
-                dispatch: (req) => engine.dispatch(req),
-              }),
-            )
-          : null;
-        if (token.cancelled) return;
-        setUnitSuites(units);
-        setUiCases(ui);
-        setApiCases(api);
-        if (failures.length > 0) {
-          setError({ kind: "discovery", message: formatSuiteLoadFailures(failures) });
+        const found = await discoverSuites(
+          {
+            units: unitFiles.map((f) => ({
+              label: f.path.split("/").pop()!.replace(/\.test\.ts$/, ""),
+              path: f.path,
+              load: () =>
+                loadUnitSuite({
+                  entry: f.path,
+                  files: unitSuiteFiles(files, f),
+                  build,
+                  deps: nearestPackageDeps(files, f.path),
+                }),
+            })),
+            ui: uiFile
+              ? {
+                  label: "UI",
+                  path: uiFile.path,
+                  load: () =>
+                    loadUiSuite({
+                      entry: uiFile.path,
+                      files: uiSuiteFiles(files, uiFile),
+                      build,
+                      deps: nearestPackageDeps(files, uiFile.path),
+                    }),
+                }
+              : null,
+            api:
+              apiFile && engine
+                ? {
+                    label: "API",
+                    path: apiFile.path,
+                    load: () =>
+                      loadApiTests({
+                        source: apiFile.content,
+                        compile: (ts) => c.compile(ts),
+                        dispatch: (req) => engine.dispatch(req),
+                      }),
+                  }
+                : null,
+          },
+          { step, cancelled: () => token.cancelled },
+        );
+        if (!found) return;
+        setUnitSuites(found.units.map((u) => ({ id: `unit\0${u.path}`, label: u.label, cases: u.cases })));
+        setUiCases(found.ui);
+        setApiCases(found.api);
+        if (found.failures.length > 0) {
+          setError({ kind: "discovery", message: formatSuiteLoadFailures(found.failures) });
         }
       } catch (e) {
         if (!token.cancelled) {
@@ -705,7 +699,7 @@ function Suite({
         {cases.map((name) => {
           const r = results[key(group, name)];
           return (
-            <Box key={name} data-testid="test-row">
+            <Box key={name} data-testid="test-row" data-status={r?.status ?? "pending"}>
               <Group gap={8} wrap="nowrap">
                 <Button
                   size="compact-xs"
