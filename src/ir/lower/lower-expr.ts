@@ -397,7 +397,7 @@ export function passType(node: AstNode | undefined, env?: Env): TypeIR {
 
 /** The pass's type for `node` when it resolved one, else `undefined` — never
  *  the placeholder `passType` falls back to, and never recording an
- *  unresolved read. */
+ *  unresolved read (the caller still asks `passType` for that). */
 function resolvedPassType(node: AstNode, env: Env): TypeIR | undefined {
   const t = passSynth(node, env);
   if (!t || t.kind === "unknown" || t.kind === "slot") return undefined;
