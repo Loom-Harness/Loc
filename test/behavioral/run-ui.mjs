@@ -47,7 +47,9 @@ import {
   driveUpdate,
   judgeFormSpec,
   judgeVehicleAdded,
+  judgePartTable,
   readPolicy,
+  seedCoverage,
   seedFormSpec,
 } from "./form-spec-ui.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE } from "./money-compare-ui.mjs";
@@ -258,7 +260,7 @@ async function moneyCompareProbe(origin) {
  */
 async function formSpecProbe(origin) {
   const name =
-    "form-spec probe: the update form opens on the record, a cleared optional submits null, and an optional value object is opt-in";
+    "form-spec probe: update prefill, absence as null, collections, every-row pickers, the optional group and part-table columns";
   execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], {
     cwd: HERE,
     stdio: "pipe",
@@ -271,7 +273,7 @@ async function formSpecProbe(origin) {
     const page = await browser.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
-    await driveUpdate(page, origin, before.id);
+    await driveUpdate(page, origin, before.id, before.lastProviderId);
     let after = before;
     for (let i = 0; i < 30; i++) {
       after = await readPolicy(origin, before.id);
@@ -287,6 +289,10 @@ async function formSpecProbe(origin) {
         await page.waitForTimeout(500);
       }
       why.push(...judgeVehicleAdded(after));
+    }
+    if (why.length === 0) {
+      await seedCoverage(origin, before.id);
+      why.push(...(await judgePartTable(page, origin, before.id)));
     }
     if (why.length) {
       const text = await page.locator("body").innerText().catch(() => "");

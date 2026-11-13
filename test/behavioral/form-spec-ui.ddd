@@ -58,7 +58,18 @@ system FormSpecUi {
         perils: Peril[]
         alternates: Provider id[]
         riders: Rider[]
+        contains coverages: Coverage[]
         derived display: string = holder
+
+        operation addCoverage(code: string, limit: Limit, premium: money) {
+          coverages += Coverage { code: code, limit: limit, premium: premium }
+        }
+
+        entity Coverage {
+          code: string
+          limit: Limit
+          premium: money
+        }
       }
       repository Providers for Provider { }
       repository Policies for Policy { }

@@ -1506,7 +1506,10 @@ function renderAppFs(
   const reads: FelizRead[] = readsForUi(ui, contexts);
   const readFields = new Set(reads.map((r) => r.field));
   for (const target of fkTargets) {
-    const r = felizAllRead(target, { bcByAggregate: bcByAggregateOf(contexts) });
+    const r = felizAllRead(target, {
+      bcByAggregate: bcByAggregateOf(contexts),
+      allPages: true,
+    });
     if (!readFields.has(r.field)) {
       readFields.add(r.field);
       reads.push(r);

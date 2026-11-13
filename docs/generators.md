@@ -1541,21 +1541,17 @@ Out of scope for v1 (intentional):
   flag is never a lie.
 - **Multi-target frontends**: a `react` deployable has exactly one
   `targets:`.  Hosting against several APIs is deferred.
-- ~~**Typeahead lookups for `X id` form fields**~~ — **stale, corrected
-  2026-09-10.**  An `X id` field renders a **Select picker** populated
-  from the target's own list hook whenever the target declares
-  `derived display: string` (`prepareFormFieldVM` →
-  `field-input-id-select`, `src/generator/_walker/form-fields-vm.ts`);
-  the option label is read off the wire `display` field, so a compound
-  (`firstName + " " + lastName`), member-access or conditional display
-  works without the picker knowing the source expression.  Several
-  packs make it searchable client-side (mantine's `<Select searchable>`).
-  It falls back to `field-input-id-text` in exactly two cases — the
-  target aggregate is unresolved, or it declares no `derived display` —
-  and the text input's placeholder then names which.  What is still
-  out of scope is a **server-side** typeahead: the picker loads the
-  target's list, so a target with more rows than a page is not
-  searchable beyond what it loaded.
+- **Typeahead lookups for `X id` form fields**: an `X id` field renders a
+  picker over every row of the target — a Select for `X id`/`X id?`, a
+  checkbox group for `X id[]` — whenever the target declares
+  `derived display: string`.  Its options come from the target's
+  `use<Plural>Options()` read (every list page, walked at the largest page
+  size the route accepts), and each option is labelled by the wire `display`
+  field, so a compound, member-access or conditional display works without the
+  picker knowing the source expression.  A target with no `derived display`
+  (or an unresolved one) falls back to a text input whose placeholder says
+  why.  A **server-side** typeahead is out of scope: the picker loads every
+  row of the target.
 - **Ordering on `X id[]` collections**: `Target id[]` is a set
   ([D-REFCOLL-SET](decisions.md)).  On all five backends the join table
   is only the composite `(owner, target)` key — no `ordinal` column —

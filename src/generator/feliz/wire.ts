@@ -23,7 +23,7 @@ import {
   wireFieldsForPart,
   wireFieldsForValueObject,
 } from "../../ir/enrich/wire-projection.js";
-import { PAGED_META_MEMBERS } from "../../ir/stdlib/generics.js";
+import { PAGED_MAX_PAGE_SIZE, PAGED_META_MEMBERS } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -94,6 +94,9 @@ export interface FelizRead {
   decoderExpr: string;
   /** Collection base fetch route (`/api/orders`).  A byId read appends `/%s`. */
   route: string;
+  /** Picker-option read: walks every page of the envelope (`?page=N&pageSize=500`
+   *  until `totalPages`) so no row is unpickable.  Holds the rows decoder. */
+  allPagesRows?: string;
   /** The match-arm binding the `data:` lambda param resolves to
    *  (`allOrders` / `orderById` — camelCase of `field`). */
   binding: string;
@@ -243,6 +246,13 @@ export function readFieldName(aggregate: string): string {
   return `All${plural(upperFirst(aggregate))}`;
 }
 
+/** The Model field holding an aggregate's FORM-PICKER options (`Provider` →
+ *  `ProviderOptions`) — separate from `All<Aggs>` because a page's own list read
+ *  may be a single page (`QueryView paged`), while a picker needs every row. */
+export function pickerFieldName(aggregate: string): string {
+  return `${upperFirst(aggregate)}Options`;
+}
+
 /** The Model field name for an aggregate byId read (`Order` → `OrderById`). */
 export function byIdFieldName(aggregate: string): string {
   return `${upperFirst(aggregate)}ById`;
@@ -252,6 +262,8 @@ export function byIdFieldName(aggregate: string): string {
  *  envelope; `controls` the page/sort state its `of:` threads (only meaningful
  *  under `paged`). */
 export interface FelizAllReadOpts {
+  /** The read feeds a form picker: fetch every page, not the default first one. */
+  allPages?: boolean;
   paged?: boolean;
   controls?: FelizPageControls;
   /** Aggregate → owning context, so the decoder can ask `isPagedAllRead`
@@ -266,7 +278,7 @@ export interface FelizAllReadOpts {
 
 /** Build the `FelizRead` for a `.all` read of `aggregate`. */
 export function felizAllRead(aggregate: string, opts: FelizAllReadOpts = {}): FelizRead {
-  const field = readFieldName(aggregate);
+  const field = opts.allPages ? pickerFieldName(aggregate) : readFieldName(aggregate);
   const paging: FelizReadPaging | undefined = opts.paged
     ? { controls: opts.controls, metaField: pageMetaFieldName(field) }
     : undefined;
@@ -299,6 +311,7 @@ export function felizAllRead(aggregate: string, opts: FelizAllReadOpts = {}): Fe
     single: false,
     listShaped: true,
     paging,
+    allPagesRows: opts.allPages && envelope && !paging ? rows : undefined,
   };
 }
 
@@ -541,7 +554,8 @@ export type FelizInputKind =
   | "select"
   | "idselect"
   | "file"
-  | "date";
+  | "date"
+  | "checkgroup";
 
 /** One field of a create form — an F# form-record field (string-typed, bound to
  *  an `Html.input`), its `Set<Form><Field>` update `Msg`, the Thoth encoder
@@ -993,8 +1007,10 @@ export const FELIZ_FORM_FIELD_ARMS: FormFieldArms<FelizInputKind> = {
   valueObject: felizText,
   optionalValueObject: felizText,
   scalarArray: felizText,
-  enumArray: felizText,
-  refArray: felizText,
+  // An enum / reference collection is a checkbox group over a comma-joined
+  // cell (one box per option); an unresolvable element stays a text box.
+  enumArray: (f) => (f.enumValues ? "checkgroup" : "text"),
+  refArray: (f) => (f.picker?.hasDisplay ? "checkgroup" : "text"),
   objectArray: felizText,
 };
 
@@ -1052,9 +1068,19 @@ function buildField(
 ): FelizFormField {
   const base = scalarBase(type);
   const inputKind = inputKindFor(type, enumsByName, idLabels);
+  const element = base.kind === "array" ? scalarBase(base.element) : undefined;
+  const group = inputKind === "checkgroup";
+  const enumOf = group ? element : base;
   const enumValues =
-    inputKind === "select" && base.kind === "enum" ? enumsByName.get(base.name) : undefined;
-  const idTarget = inputKind === "idselect" && base.kind === "id" ? base.targetName : undefined;
+    (inputKind === "select" || group) && enumOf?.kind === "enum"
+      ? enumsByName.get(enumOf.name)
+      : undefined;
+  const idTarget =
+    inputKind === "idselect" && base.kind === "id"
+      ? base.targetName
+      : group && element?.kind === "id"
+        ? element.targetName
+        : undefined;
   const idLabelField = idTarget ? (idLabels.get(idTarget) ?? "id") : undefined;
   // A REQUIRED enum defaults to its first value so the select and the string
   // state agree from the start (and the required guard passes); everything else
@@ -1301,7 +1327,7 @@ function buildFieldArray(
         setMsg: `Set${formType}${upperFirst(field.name)}${upperFirst(vf.name)}`,
         // A per-row FK select would need the target list in every row; v1 renders
         // the id as plain text instead.
-        inputKind: kind === "idselect" || rowFile ? "text" : kind,
+        inputKind: kind === "idselect" || kind === "checkgroup" || rowFile ? "text" : kind,
         encodeExpr: rowFile
           ? `Encode.string row.${fsIdent(vf.name)}`
           : encodeExprFor(vf.type, `row.${vf.name}`, optional),
@@ -3205,6 +3231,24 @@ function renderApiFn(r: FelizRead): (string | undefined)[] {
       "      else",
       '        return Error (sprintf "HTTP %d" status)',
       "    }",
+    ];
+  }
+  if (r.allPagesRows) {
+    return [
+      `  let ${r.apiFn} () : Async<Result<${r.resultType}, string>> =`,
+      `    let rec loop (page: int) (acc: ${r.resultType}) : Async<Result<${r.resultType}, string>> =`,
+      "      async {",
+      `        let! (status, body) = Http.get (sprintf "${r.route}?page=%d&pageSize=${PAGED_MAX_PAGE_SIZE}" page)`,
+      "        if status = 200 then",
+      `          match Decode.fromString (Decode.map2 (fun __items __pages -> (__items, __pages)) (Decode.field "items" ${r.allPagesRows}) (Decode.field "totalPages" Decode.int)) body with`,
+      "          | Ok (items, totalPages) ->",
+      "            let acc = acc @ items",
+      "            if page >= totalPages then return Ok acc else return! loop (page + 1) acc",
+      "          | Error e -> return Error e",
+      "        else",
+      '          return Error (sprintf "HTTP %d" status)',
+      "      }",
+      "    loop 1 []",
     ];
   }
   // Paramless list read.  The return type must follow the DECODER, not the row

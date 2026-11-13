@@ -78,6 +78,7 @@ import {
   opHasForm,
   pageMetaFieldName,
   pageMetaMember,
+  pickerFieldName,
   projectionFieldName,
   readFieldName,
   wfHasForm,
@@ -327,11 +328,28 @@ function renderFormInputBody(
     const input = `Html.input [ ${tidP}prop.className "file-input file-input-bordered w-full"; prop.type'.file; prop.onChange (fun (file: Browser.Types.File) -> dispatch (${pick} file))${onBlur}${aria} ]`;
     return wrap(`Html.div [ prop.className "w-full"; prop.children [ ${input}; ${chosen} ] ]`);
   }
+  if (fld.inputKind === "checkgroup") {
+    // One checkbox per option over the comma-joined cell (the encoder splits
+    // it into the JSON array).  Group testid = the field's; each box
+    // `<field testid>-option-<value>`.
+    const gid = fieldTestid(base, fld);
+    const sel = `(${value}.Split(',') |> Array.toList |> List.map (fun s -> s.Trim()) |> List.filter (fun s -> s <> ""))`;
+    const box = (valueExpr: string, labelExpr: string): string => {
+      const toggled = `(String.concat "," (if c then (${sel} @ [ ${valueExpr} ] |> List.distinct) else (${sel} |> List.filter (fun s -> s <> ${valueExpr}))))`;
+      return `Html.label [ prop.className "label cursor-pointer gap-1"; prop.children [ Html.input [ prop.custom("data-testid", "${gid}-option-" + ${valueExpr}); prop.className "checkbox"; prop.type'.checkbox; prop.isChecked (${sel} |> List.contains ${valueExpr}); prop.onChange (fun (c: bool) -> dispatch (${fld.setMsg} ${toggled})) ]; Html.span [ prop.text ${labelExpr} ] ] ]`;
+    };
+    const boxes = fld.idTarget
+      ? `(match model.${pickerFieldName(fld.idTarget)} with | Loaded items -> items |> List.map (fun x -> ${box("x.id", `x.${fld.idLabelField ?? "id"}`)}) | _ -> [])`
+      : `[ ${(fld.enumValues ?? []).map((v) => box(`"${v}"`, text?.options?.get(v) ?? `"${v}"`)).join("; ")} ]`;
+    return wrap(
+      `Html.div [ prop.custom("data-testid", "${gid}"); prop.className "flex flex-wrap gap-3"; prop.children ${boxes} ]`,
+    );
+  }
   if (fld.inputKind === "idselect" && fld.idTarget) {
     // Options load at runtime from the target's `.all` (`View.idOptions` maps the
     // Remote list to `<option>`s); a leading blank option is the unselected state
     // (a required FK is guarded, so it must be chosen before submit).
-    const listField = `model.${readFieldName(fld.idTarget)}`;
+    const listField = `model.${pickerFieldName(fld.idTarget)}`;
     const label = fld.idLabelField ?? "id";
     return wrap(
       `Html.select [ ${tidP}prop.className "select select-bordered w-full"; prop.value ${value}; prop.onChange (fun (v: string) -> dispatch (${fld.setMsg} v))${onBlur}${aria}; prop.children (Html.option [ prop.value ""; prop.text "" ] :: View.idOptions ${listField} (fun x -> x.id) (fun x -> x.${label})) ]`,

@@ -6,7 +6,6 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
-import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
 import { modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
 import { humanize, lowerFirst, plural, upperFirst } from "../../util/naming.js";
@@ -58,32 +57,28 @@ export interface AngularFormControlSpec {
   validators?: string[];
 }
 
-/** A `useAll<X>()` query the page-shell hoists so an `X id` form field can
- *  render a Select populated from the referenced aggregate's collection.
+/** A `use<X>Options()` query the page-shell hoists so an `X id` form field can
+ *  render a Select populated from every row of the referenced aggregate.
  *  `hookVar` is the class field the hoist declares (`readonly <hookVar> =
- *  <hookFn>();`); the field markup reads its options off `<hookVar>.data()`. */
+ *  <hookFn>();`); the field markup reads its options off `<hookVar>.data()`,
+ *  a bare array whatever the list route's shape. */
 export interface AngularIdTargetSpec {
-  /** Class field name the page-shell hoists (`customerAll`). */
+  /** Class field name the page-shell hoists (`customerOptions`). */
   hookVar: string;
-  /** `useAll<X>` factory the field calls (imported from `importFrom`). */
+  /** `use<X>Options` factory the field calls (imported from `importFrom`). */
   hookFn: string;
   /** `src/api/<x>` module path the `hookFn` is imported from (page-relative). */
   importFrom: string;
-  /** The Select's OPTION SOURCE, resolved against the shape the target's list
-   *  route actually serves — `<hookVar>.data()?.items ?? []` for the paged
-   *  auto-`findAll`, `<hookVar>.data() ?? []` for a declared
-   *  `find all(): T[]`, whose signature makes the route return a bare array.
-   *  The JSX packs' `optionsExpr` (`_walker/form-fields-vm.ts`), in Angular's
-   *  signal spelling; same `isPagedAllRead` fact behind both. */
+  /** The picker's OPTION SOURCE — the bare array `<hookVar>.data() ?? []`. */
   optionsExpr: string;
 }
 
-/** Resolve the `useAll<X>()` query an `X id` field needs to render a Select,
+/** Resolve the `use<X>Options()` query an `X id` field needs to render a Select,
  *  or `undefined` when the field is not a Select-rendered id (not an id type,
  *  the target aggregate is unresolved, or it carries no `derived display`).
  *
  *  Mirrors the shared `form-fields-vm.ts` gate (`inner.kind === "id"` with a
- *  resolvable `target.displayDerived`): the page-shell hoists `useAll<X>()`
+ *  resolvable `target.displayDerived`): the page-shell hoists `use<X>Options()`
  *  exactly for the fields {@link fieldInput} renders as a `<select>`. */
 export function idTargetForField(
   t: TypeIR,
@@ -96,20 +91,18 @@ export function idTargetForField(
   if (inner.kind !== "id") return undefined;
   const target = resolveIdTarget(inner.targetName, bc, ctx);
   if (!target?.displayDerived) return undefined;
-  const hookVar = `${lowerFirst(target.name)}All`;
+  const hookVar = `${lowerFirst(target.name)}Options`;
   return {
     hookVar,
-    hookFn: `useAll${plural(target.name)}`,
+    hookFn: `use${plural(target.name)}Options`,
     importFrom: `../../api/${lowerFirst(target.name)}`,
-    optionsExpr: isPagedAllRead(target.name, ctx.bcByAggregate)
-      ? `${hookVar}.data()?.items ?? []`
-      : `${hookVar}.data() ?? []`,
+    optionsExpr: `${hookVar}.data() ?? []`,
   };
 }
 
-/** Collect the de-duplicated `useAll<X>()` queries a form's fields need —
+/** Collect the de-duplicated `use<X>Options()` queries a form's fields need —
  *  one per distinct Select-rendered `X id` target.  The page-shell hoists each
- *  as a class field and imports its `useAll<X>` factory. */
+ *  as a class field and imports its `use<X>Options` factory. */
 export function collectIdTargets(
   fields: { type: TypeIR }[],
   bc: BoundedContextIR,

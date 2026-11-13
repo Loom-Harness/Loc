@@ -7,6 +7,11 @@
 //                    keeps every other field (a zero-seeded form reset them).
 //   absence          clearing an optional text input submits `null`, not `""`;
 //                    an optional value object left out submits `null`.
+//   collections      a scalar list is typed comma-separated and an enum list is
+//                    a checkbox group; both submit arrays.
+//   pickers          a reference collection offers every row of its target,
+//                    not one list page (the 25th provider is tickable).
+//   part tables      a part's value-object fields are columns of its table.
 //   optional group   checking an optional value object's presence box and
 //                    filling it saves the object.
 //
@@ -25,6 +30,12 @@ export async function seedFormSpec(base) {
     return r.json();
   };
   const provider = await post("/providers", { name: "Acme Towing" });
+  // More providers than one default list page (20): a picker must offer the
+  // last one too.
+  let lastProvider = provider;
+  for (let i = 2; i <= 25; i++) {
+    lastProvider = await post("/providers", { name: `Provider ${String(i).padStart(2, "0")}` });
+  }
   const created = await post("/policies", {
     holder: "Ada",
     region: "North",
@@ -45,7 +56,7 @@ export async function seedFormSpec(base) {
     alternates: [],
     riders: [{ code: "R1", premium: 2.5 }],
   });
-  return readPolicy(base, created.id);
+  return { ...(await readPolicy(base, created.id)), lastProviderId: lastProvider.id };
 }
 
 export async function readPolicy(base, id) {
@@ -64,8 +75,6 @@ export const KEPT_FIELDS = [
   "usage",
   "provider",
   "limit",
-  "tags",
-  "perils",
   "riders",
   // Absent on the record and untouched: a zero object would fail its invariant.
   "vehicle",
@@ -77,6 +86,15 @@ export function judgeFormSpec(before, after) {
   if (after.priority !== 7) why.push(`priority: expected 7, got ${JSON.stringify(after.priority)}`);
   if (after.region !== null && after.region !== undefined) {
     why.push(`region: a cleared optional input must submit null, got ${JSON.stringify(after.region)}`);
+  }
+  if (JSON.stringify(after.tags) !== JSON.stringify(["x", "y"])) {
+    why.push(`tags: expected ["x","y"], got ${JSON.stringify(after.tags)}`);
+  }
+  if (JSON.stringify([...(after.perils ?? [])].sort()) !== JSON.stringify(["Fire", "Flood"])) {
+    why.push(`perils: expected Fire + Flood, got ${JSON.stringify(after.perils)}`);
+  }
+  if (!(after.alternates ?? []).includes(before.lastProviderId)) {
+    why.push(`alternates: the 25th provider was not pickable, got ${JSON.stringify(after.alternates)}`);
   }
   for (const k of KEPT_FIELDS) {
     const a = JSON.stringify(normalize(before[k]));
@@ -106,13 +124,18 @@ async function inputOf(page, testId) {
 }
 
 /** Drive the Update dialog on the record's detail page. */
-export async function driveUpdate(page, origin, id) {
+export async function driveUpdate(page, origin, id, lastProviderId) {
   await page.goto(`${origin}/policies/${id}`);
   await page.locator('[data-testid="policies-op-update"]').first().click({ timeout: 20000 });
   const priority = await inputOf(page, "policies-op-update-input-priority");
   await priority.fill("7");
   const region = await inputOf(page, "policies-op-update-input-region");
   await region.fill("");
+  const tags = await inputOf(page, "policies-op-update-input-tags");
+  await tags.fill("x, y");
+  await tags.press("Tab");
+  await (await inputOf(page, "policies-op-update-input-perils-option-Flood")).check();
+  await (await inputOf(page, `policies-op-update-input-alternates-option-${lastProviderId}`)).check();
   await page.locator('[data-testid="policies-op-update-submit"]').first().click();
 }
 
@@ -133,4 +156,33 @@ export function judgeVehicleAdded(after) {
     return [`vehicle: the opt-in group did not save it, got ${JSON.stringify(v)}`];
   }
   return [];
+}
+
+/** Add one coverage — a part row carrying a value object — over the api, for
+ *  the part-table check. */
+export async function seedCoverage(base, id) {
+  const r = await fetch(`${base}/api/policies/${id}/add_coverage`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code: "COV-1", limit: { amount: "777.00", note: "per claim" }, premium: "12.00" }),
+  });
+  if (!r.ok) throw new Error(`seed failed: POST add_coverage → ${r.status} ${await r.text()}`);
+}
+
+/** The detail page's coverages table shows the part's value-object fields as
+ *  columns (header and cell), not just its scalars. */
+export async function judgePartTable(page, origin, id) {
+  await page.goto(`${origin}/policies/${id}`);
+  const card = page.locator('[data-testid="policies-detail-coverages"]').first();
+  let text = "";
+  for (let i = 0; i < 30; i++) {
+    text = await card.innerText().catch(() => "");
+    if (text.includes("COV-1")) break;
+    await page.waitForTimeout(500);
+  }
+  const why = [];
+  if (!text.includes("COV-1")) why.push("coverages: the part row never rendered");
+  if (!/Limit Amount/i.test(text)) why.push("coverages: no Limit Amount column");
+  if (!text.includes("777")) why.push(`coverages: the limit amount cell is missing (card text ${JSON.stringify(text.slice(0, 300))})`);
+  return why;
 }
