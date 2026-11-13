@@ -11,7 +11,7 @@
 // hook the same JSON a PreToolUse(Bash) call delivers.
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -242,5 +242,48 @@ describe.skipIf(!hasTools)("pre-push gate selection", () => {
     // The prose set is an allow-list: an unknown path counts as code.
     const work = branchTouching(["notes.txt"]);
     expect(traceHook(work)).toContain("code push");
+  });
+});
+
+// Which dependency tree the merged-tree gates borrow. An agent worktree under
+// `.claude/worktrees/` often holds only a vite cache stub in `node_modules` and
+// resolves its deps from the main checkout; borrowing the stub fails `tsc` with
+// TS2688 on a tree that is fine, so the hook takes the first `node_modules`
+// that holds TypeScript and Node's types. A docs-only push resolves it too, and
+// with the censuses skipped it stops right after, so no compiler runs here.
+describe.skipIf(!hasTools)("pre-push dependency tree", () => {
+  function installFakeDeps(dir: string): void {
+    mkdirSync(join(dir, "node_modules/typescript"), { recursive: true });
+    writeFileSync(join(dir, "node_modules/typescript/package.json"), "{}\n");
+    mkdirSync(join(dir, "node_modules/@types/node"), { recursive: true });
+  }
+
+  /** An agent-style worktree of `work` with only a vite stub in node_modules. */
+  function agentWorktree(work: string): string {
+    const wt = join(work, ".claude/worktrees/agent-x");
+    git(work, "worktree", "add", "-q", "-b", "topic", wt, "origin/main");
+    mkdirSync(join(wt, "node_modules/.vite"), { recursive: true });
+    commitAt(wt, "docs/guide.md", "guide\n", "docs");
+    return wt;
+  }
+
+  it("borrows the main checkout's node_modules when the worktree only has a stub", () => {
+    const { work } = setup();
+    installFakeDeps(work);
+    const err = traceHook(agentWorktree(work));
+    expect(err).toContain(`borrowing node_modules from ${realpathSync(work)}/node_modules`);
+  });
+
+  it("prefers the pushing checkout's own node_modules when it resolves", () => {
+    const { work } = setup();
+    installFakeDeps(work);
+    const wt = agentWorktree(work);
+    installFakeDeps(wt);
+    expect(traceHook(wt)).toContain(`borrowing node_modules from ${realpathSync(wt)}/node_modules`);
+  });
+
+  it("skips the gates when no node_modules resolves the toolchain", () => {
+    const { work } = setup();
+    expect(traceHook(agentWorktree(work))).toContain("no resolvable node_modules");
   });
 });

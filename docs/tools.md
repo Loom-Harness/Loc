@@ -1613,6 +1613,13 @@ on the un-merged branch. It is the same combined tree the **merge queue**
 re-runs, which means today the feedback arrives hours later and after a runner
 slot; the hook moves it to ~1 minute before the push.
 
+**Which `node_modules` it borrows.** The throwaway tree gets a symlink to the
+first `node_modules` that holds TypeScript and Node's type definitions: the
+pushing checkout's own, then the main checkout's. An agent worktree under
+`.claude/worktrees/` often has only a vite cache stub there and resolves its
+dependencies from the main checkout, so it is judged with the main checkout's
+tree. `LOOM_PREFLIGHT_TRACE=1` prints which one was borrowed.
+
 **It fails open on everything else.** No `npx`, no borrowable `node_modules`,
 an unparsable merged-tree OID, a worktree that will not create, a 900 s
 timeout per gate, not a git repo, no `origin/main`, an offline fetch, git older

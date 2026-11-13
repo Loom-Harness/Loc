@@ -194,11 +194,11 @@ export const vueTarget: WalkerTarget = {
 
   /** A `v-model` search box driving the client-side filter — two-way binds the
    *  ref (the SFC compiler unwraps it), so no manual event cast is needed. */
-  renderFilterInput(filter) {
+  renderFilterInput(filter, labels) {
     const style = "margin-bottom: 0.75rem; padding: 0.375rem 0.5rem;";
     return (
-      `<input type="search" v-model="${filter.name}" placeholder="Filter…" ` +
-      `aria-label="Filter table" style="${style}" data-testid="table-filter" />`
+      `<input type="search" v-model="${filter.name}" ${labels.placeholderAttr} ` +
+      `${labels.ariaAttr} style="${style}" data-testid="table-filter" />`
     );
   },
 

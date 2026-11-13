@@ -1,4 +1,10 @@
-import type { CodeRefKind, LoomModel, RequirementIR, TraceabilityIR } from "../ir/types/loom-ir.js";
+import type {
+  CodeRefKind,
+  EnrichedLoomModel,
+  LoomModel,
+  RequirementIR,
+  TraceabilityIR,
+} from "../ir/types/loom-ir.js";
 import { type LinesPart, lines } from "../util/code-builder.js";
 import { emissionSink } from "../util/emission-sink.js";
 
@@ -32,7 +38,7 @@ export function hasTraceability(loom: LoomModel): boolean {
 }
 
 /** path (relative to the output root) → file content. */
-export function renderTraceabilityArtifacts(loom: LoomModel): Map<string, string> {
+export function renderTraceabilityArtifacts(loom: EnrichedLoomModel): Map<string, string> {
   const out = emissionSink("system/traceability");
   if (!hasTraceability(loom)) return out;
   out.set(".loom/traceability.md", renderTraceabilityDoc(loom));
@@ -48,13 +54,7 @@ export function renderTraceabilityArtifacts(loom: LoomModel): Map<string, string
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-function trace(loom: LoomModel): TraceabilityIR {
-  if (!loom.traceability) {
-    throw new Error(
-      "internal: traceability index not populated — render must consume " +
-        "an IR produced by enrichLoomModel(lowerModel(model)).",
-    );
-  }
+function trace(loom: EnrichedLoomModel): TraceabilityIR {
   return loom.traceability;
 }
 
@@ -80,7 +80,7 @@ function check(b: boolean): string {
 // traceability.md — the human-readable spec
 // ---------------------------------------------------------------------------
 
-function renderTraceabilityDoc(loom: LoomModel): string {
+function renderTraceabilityDoc(loom: EnrichedLoomModel): string {
   const t = trace(loom);
   const byId = requirementById(loom);
 
@@ -154,7 +154,7 @@ function renderTraceabilityDoc(loom: LoomModel): string {
 // coverage.md
 // ---------------------------------------------------------------------------
 
-function renderCoverageReport(loom: LoomModel): string {
+function renderCoverageReport(loom: EnrichedLoomModel): string {
   const t = trace(loom);
 
   // Code coverage.
@@ -219,7 +219,7 @@ function renderCoverageReport(loom: LoomModel): string {
 // gaps.md
 // ---------------------------------------------------------------------------
 
-function renderGapsReport(loom: LoomModel): string {
+function renderGapsReport(loom: EnrichedLoomModel): string {
   const t = trace(loom);
 
   const reqsNoSolution = loom.requirements.filter(
@@ -272,7 +272,7 @@ function renderGapsReport(loom: LoomModel): string {
 // traceability-matrix.md
 // ---------------------------------------------------------------------------
 
-function renderMatrix(loom: LoomModel): string {
+function renderMatrix(loom: EnrichedLoomModel): string {
   const t = trace(loom);
   const tcIds = loom.testCases.map((tc) => tc.id);
   if (tcIds.length === 0) {
@@ -343,7 +343,7 @@ function esc(s: string): string {
   return s.replace(/"/g, "'");
 }
 
-function renderTraceabilityDiagram(loom: LoomModel): string {
+function renderTraceabilityDiagram(loom: EnrichedLoomModel): string {
   nodeSeq = 0;
   const codeNodes = new Map<string, string>();
   const emitted = new Set<string>();
@@ -394,7 +394,7 @@ function renderTraceabilityDiagram(loom: LoomModel): string {
 // traceability.json — machine-readable index for CI gates
 // ---------------------------------------------------------------------------
 
-function renderTraceabilityJson(loom: LoomModel): string {
+function renderTraceabilityJson(loom: EnrichedLoomModel): string {
   const t = trace(loom);
   const codeElems = Object.keys(t.codeElements);
   const coveredCode = codeElems.filter((q) => (t.testsByCodeElement[q] ?? []).length > 0);

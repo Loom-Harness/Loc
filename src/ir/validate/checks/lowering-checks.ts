@@ -17,7 +17,6 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 export const IR_ILL_FORMED_CODE = "loom.ir-ill-formed";
 
 export function validateLoweringViolations(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
-  if (!loom.loweringViolations?.length) return;
   if (diags.some((d) => d.severity === "error")) return;
   for (const v of loom.loweringViolations) {
     diags.push({

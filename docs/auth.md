@@ -1848,6 +1848,27 @@ sets the HttpOnly `session` and `refresh` cookies → the app. The preview keeps
 those cookies for the app's requests, so `/api/auth/refresh` rotates the
 refresh token when the access token expires and **Sign out** clears both.
 
+## Required auth settings at boot
+
+An `oidc { … }` value bound to `env("…")` (the issuer, the audience) has no
+fallback, so a service that starts without it could only answer 401s while
+reporting ready. Every backend checks those variables once at boot: when none of
+the names that supply a setting is set (the canonical `OIDC_ISSUER` /
+`OIDC_AUDIENCE` override, or the variable the model names), the service logs
+one `config_missing` event (`setting`, `vars`) and exits non-zero. The env
+contract classes those variables as `boot`, so compose and the k8s chart must
+wire them.
+
+```ddd
+auth { oidc { issuer: env("OIDC_ISSUER") clientId: "gate" audience: env("OIDC_AUDIENCE") } }
+```
+
+```json
+{"ts":"2026-11-13T05:30:00.000Z","level":"error","event":"config_missing","setting":"issuer","vars":"OIDC_ISSUER"}
+```
+
+A literal value needs no check: it is its own fallback.
+
 ## Token audience (`aud`)
 
 `oidc { audience: … }` is the token's intended recipient. When it resolves to a
