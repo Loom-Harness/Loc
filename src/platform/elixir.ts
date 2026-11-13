@@ -5,7 +5,17 @@ import { layeredStyleAdapter } from "../generator/elixir/adapters/layered-style.
 import { generateElixirProject } from "../generator/elixir/index.js";
 import { databaseOf } from "../ir/util/databases.js";
 import { deterministicHex } from "../util/deterministic-secret.js";
+import { serviceSlug } from "../util/service-slug.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
+import {
+  BACKEND_HEALTH,
+  BROKER_BASELINE,
+  BROKER_BASELINE_GAPS,
+  MIGRATIONS_BASELINE,
+  wgetHealthcheck,
+  withoutGaps,
+} from "./operations.js";
+import { backendEnvContract } from "./operations-env.js";
 import type { ComposeServiceShape, PlatformSurface } from "./surface.js";
 import { TARGET_FACTS } from "./target-facts.js";
 
@@ -78,6 +88,34 @@ const elixirPlatform: PlatformSurface = {
       translations,
     });
   },
+  operations: {
+    health: { ...BACKEND_HEALTH, compose: "/health" },
+    healthcheck: wgetHealthcheck,
+    healthcheckBinaries: ["wget"],
+    env: (args) =>
+      backendEnvContract(
+        args,
+        elixirPlatform.composeService({ ...args, slug: serviceSlug(args.deployable.name) }),
+        // Ecto's pool size; MIX_ENV / MIX_TEST_PARTITION are Mix's own (the
+        // release runs `prod`; the partition only shards `mix test`).
+        ["POOL_SIZE", "MIX_ENV", "MIX_TEST_PARTITION"],
+      ),
+    listen: "dual-stack",
+    log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
+    // The Phoenix relay halts its pass and backs off on an unreachable broker.
+    broker: {
+      ...BROKER_BASELINE,
+      outboxRidesOutOutage: true,
+      reconnects: false,
+      deadLettersUnderAcl: false,
+    },
+    migrations: MIGRATIONS_BASELINE,
+    gaps: {
+      ...withoutGaps(BROKER_BASELINE_GAPS, "broker.outboxRidesOutOutage"),
+      "broker.reconnects": "#5386",
+      "broker.deadLettersUnderAcl": "#5397",
+    },
+  },
   composeService({ slug, sys, deployable }): ComposeServiceShape {
     const database = databaseOf(sys, deployable)?.name ?? slug;
     return {
@@ -105,7 +143,6 @@ const elixirPlatform: PlatformSurface = {
       // emitter routes it to a Secret rather than a plaintext ConfigMap.
       secretEnvKeys: ["SECRET_KEY_BASE"],
       dependsOnDb: true,
-      healthPath: "/health",
       internalPort: 4000,
     };
   },

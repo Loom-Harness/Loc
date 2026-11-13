@@ -252,12 +252,19 @@ user can hand-write — and vice versa.
 ## Phase ④ — AST validation
 
 **Files**
-- `src/language/ddd-validator.ts` — thin dispatcher (~360 LOC) that
-  wires Langium's `ValidationRegistry` to the themed check modules.
+- `src/language/ddd-validator.ts` — thin dispatcher that wires
+  Langium's `ValidationRegistry` to the themed check modules; it owns
+  no check logic.
 - `src/language/validators/` — the per-theme checks themselves
   (`deployable.ts`, `auth.ts`, `criterion.ts`, `composition.ts`, …),
-  barrelled through `validators/index.ts`.  The previous ~2.5k-LOC
-  monolith was split here; `ddd-validator.ts` owns no check logic.
+  barrelled through `validators/index.ts`.
+- `src/language/validators/model-contents.ts` — one flattened walk per
+  document per validation run.  A check that visits every node of a
+  document iterates `modelContents(model)`, never
+  `AstUtils.streamAllContents(model)`: the dispatcher runs ~70
+  model-level checks in sequence, and each one re-walking the tree
+  dominated validation time.  `test/language/validators/model-contents.test.ts`
+  fails on a direct whole-document walk.
 - `src/language/typing/` — the single typing pass: `Ty` (the one type
   representation), the elaborator that types every expression, and the type
   relations validators judge with (`relations.ts`: `isAssignable`,
