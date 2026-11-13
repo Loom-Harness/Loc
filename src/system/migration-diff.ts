@@ -202,6 +202,7 @@ const BUCKET_LABEL: Record<WireContractChange["bucket"], string> = {
   aggregates: "aggregate",
   parts: "part",
   valueObjects: "value object",
+  requests: "request",
 };
 
 /** `aggregate Order` / `value object Money` — how a wire change names the

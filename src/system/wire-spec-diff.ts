@@ -38,7 +38,7 @@ type SchemaObject = WireSpecDoc["aggregates"][string];
 type SchemaProperty = SchemaObject["properties"][string];
 
 /** Which of the three top-level buckets an entity lives in. */
-export type WireBucket = "aggregates" | "parts" | "valueObjects";
+export type WireBucket = "aggregates" | "parts" | "valueObjects" | "requests";
 
 /** The classification of one semantic change to the wire contract. */
 export type WireContractChangeKind =
@@ -84,7 +84,7 @@ export interface WireContractDiff {
   readonly breaking: boolean;
 }
 
-const BUCKETS: readonly WireBucket[] = ["aggregates", "parts", "valueObjects"];
+const BUCKETS: readonly WireBucket[] = ["aggregates", "parts", "valueObjects", "requests"];
 
 /** Singular label for a bucket, for human-readable `detail` strings. */
 function singular(bucket: WireBucket): string {
@@ -95,6 +95,8 @@ function singular(bucket: WireBucket): string {
       return "part";
     case "valueObjects":
       return "value object";
+    case "requests":
+      return "request";
   }
 }
 
@@ -140,8 +142,10 @@ export function diffWireSpec(prev: WireSpecDoc, next: WireSpecDoc): WireContract
   const changes: WireContractChange[] = [];
 
   for (const bucket of BUCKETS) {
-    const prevEntities = prev[bucket];
-    const nextEntities = next[bucket];
+    // A document written before the request contracts joined it has no
+    // `requests` bucket; it reads as empty.
+    const prevEntities = prev[bucket] ?? {};
+    const nextEntities = next[bucket] ?? {};
     for (const entity of unionKeys(prevEntities, nextEntities)) {
       const before = prevEntities[entity];
       const after = nextEntities[entity];
