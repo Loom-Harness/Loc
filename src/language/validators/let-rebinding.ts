@@ -10,12 +10,13 @@
 // sibling statement of each enclosing statement list, up to and including the
 // parameters of the first enclosing node that declares any.
 
-import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
+import type { AstNode, ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { isLetStmt, isParameter, type LetStmt, type Model } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 export function checkLetRebindings(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isLetStmt(node)) continue;
     const prior = priorBinding(node);
     if (!prior) continue;
