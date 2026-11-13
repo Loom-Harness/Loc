@@ -180,6 +180,24 @@ and its objects reach the golden as sorted `{ bucket, key, size, contentType }`
 rows read back over the S3 API. `npm run test:fakes-docker`
 runs the kit's own container tests.
 
+### External services and the `effects` golden
+
+The behavioural legs boot a backend against **the external services its model
+declares**, real wherever they can run: a digest-pinned Mailpit for `smtp`, the
+broker and object-store sidecars above. A service that cannot run for real (a
+third-party `restApi`) is an **in-process fake**: a loopback transport over a
+model of the emulation core (`src/emulation/`, see "Test infrastructure /
+emulation"). `test/support/fakes/sidecars.mjs` reads which services a case needs
+off its model, starts them, and hands the backend the env its emitted client
+already reads (`src/util/resource-env.ts`). What the backend sent — the mail in
+Mailpit's inbox, the requests the restApi fake answered, the broker publishes,
+the objects stored — lands in the wire recording's `effects` section and is
+diffed against the golden on every leg, so a mail's envelope or a remote call's
+path and body is asserted by golden, not by emitted text. A new service
+implements `start(opts) → { kind, env, observe(), reset(), stop() }` and
+registers its storage type in `sidecars.mjs`; `test/support/fakes/coverage.ts`
+says which fake backs each source type.
+
 ### Behavioral UI runner pass/fail semantics
 
 Every Playwright-driven behavioral UI runner (`run-ui.mjs`, `run-heex-ui.mjs`,
@@ -336,7 +354,7 @@ fails the fast suite.
 | `phoenix-ui-e2e.yml` | `npm run test:phoenix-ui-e2e` | docker, mirror |
 | `api-call-e2e.yml` | `LOOM_API_CALL_CALLER=<node\|python\|dotnet\|java\|elixir> npm run test:api-call` (pg via `LOOM_API_CALL_PG_URL`; elixir caller adds mirror) | pg |
 | `channels-e2e.yml` | `npm run test:channels` family — `test:channels{,-mikroorm,-python,-dotnet,-java,-elixir}`, `-rabbit*` (incl. `-rabbit-mikroorm`), `-kafka*`, `-auth` (pg via `LOOM_CHANNELS_PG_URL`; redis/rabbit/kafka via docker; the two `*-mikroorm` legs are the redis/rabbit suites with `LOOM_CHANNELS_PERSISTENCE=mikroorm` and shifted ports, so they run beside the default ones — the RABBIT one is the durable/outbox-relay leg) | docker, pg |
-| `email-e2e.yml` | `npm run test:email{,-python,-dotnet,-java,-elixir}` (pg + a Mailpit container: `LOOM_MAILPIT_SMTP`/`LOOM_MAILPIT_API`) | docker, pg |
+| `email-e2e.yml` | `npm run test:email{,-python,-dotnet,-java,-elixir}` (pg; the SMTP sink is in-process unless `LOOM_MAILPIT_SMTP`/`LOOM_MAILPIT_API` name a Mailpit) | docker, pg |
 | `lifecycle-e2e.yml` | `npm run test:lifecycle` (every backend; `LOOM_LIFECYCLE_CELLS=node,dotnet:dapper` narrows to `<backend>[:<persistence>]` cells; behind a TLS proxy add `LOOM_E2E_CA_DIR=<dir of *.crt>`) | docker + compose |
 | `timer-e2e.yml` | `npm run test:timer` (all five backends; `LOOM_TIMER_E2E_BACKENDS=node,…` narrows; behind a TLS proxy add `LOOM_E2E_CA_DIR=<dir of *.crt>`) | docker + compose |
 | `context-integration-e2e.yml` | `bash scripts/context-integration-e2e.sh <node\|python\|dotnet\|java\|elixir>` | pg |

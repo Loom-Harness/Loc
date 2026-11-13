@@ -29,6 +29,7 @@
 // (test/behavioral/golden-coverage.test.ts).  A static import would break that
 // import at resolution time.
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { diffEffects, isEmptyEffects } from "../support/fakes/index.mjs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -87,12 +88,33 @@ function readGolden(caseName) {
   return JSON.parse(readFileSync(p, "utf8"));
 }
 
-function writeGolden(caseName, backend, entries) {
+function writeGolden(caseName, backend, entries, effects) {
   mkdirSync(GOLDEN_DIR, { recursive: true });
-  writeFileSync(
-    goldenPath(caseName),
-    `${JSON.stringify({ case: caseName, oracle: backend, entries }, null, 2)}\n`,
-  );
+  // `effects` is written only when the case's fakes observed something, so a
+  // case with no external service keeps the golden shape it always had.
+  const golden = { case: caseName, oracle: backend, entries, ...(isEmptyEffects(effects) ? {} : { effects }) };
+  writeFileSync(goldenPath(caseName), `${JSON.stringify(golden, null, 2)}\n`);
+}
+
+/**
+ * The `effects` half of the gate: what the case's fake services observed
+ * (test/support/fakes/) against the golden's `effects` section.  Every
+ * divergence gates — there is no waiver for an effect, because the effect is
+ * the observable the case exists to pin.
+ */
+export function gateEffects(backend, caseName, golden, actual) {
+  const divergences = diffEffects(golden, actual);
+  if (!divergences.length) {
+    return { gating: [], report: isEmptyEffects(actual) ? "" : `  ⟐ effects: ${Object.keys(actual).join(", ")} match the golden` };
+  }
+  const show = (v) => (v === undefined ? "(absent)" : JSON.stringify(v));
+  return {
+    gating: divergences,
+    report: [
+      `  ✗ effects: ${divergences.length} divergence(s) from the golden for ${backend} on ${caseName}:`,
+      ...divergences.slice(0, 12).map((d) => `      ${d.path}: golden ${show(d.golden)}, actual ${show(d.actual)}`),
+    ].join("\n"),
+  };
 }
 
 /**
@@ -102,14 +124,14 @@ function writeGolden(caseName, backend, entries) {
  * gate failure the caller folds into its exit code; `skipped` means there is no
  * golden for this case (and it isn't a required one), so nothing was asserted.
  */
-export async function gateWireRecording({ backend, caseName, entries, workDir }) {
+export async function gateWireRecording({ backend, caseName, entries, effects, workDir }) {
   const none = { gating: [], waived: [], usedWaivers: new Set(), skipped: true, report: "" };
   if (WIRE_OFF) return none;
 
   const core = await loadWireCore(workDir);
 
   if (WIRE_UPDATE) {
-    writeGolden(caseName, backend, entries);
+    writeGolden(caseName, backend, entries, effects);
     return {
       ...none,
       skipped: false,
@@ -136,12 +158,13 @@ export async function gateWireRecording({ backend, caseName, entries, workDir })
 
   const divergences = core.diffRecording(golden.entries, entries);
   const split = core.applyWaivers(divergences, backend, caseName, core.WIRE_WAIVERS);
+  const fx = gateEffects(backend, caseName, golden.effects, effects);
   return {
-    gating: split.gating,
+    gating: [...split.gating, ...fx.gating],
     waived: split.waived,
     usedWaivers: split.usedWaivers,
     skipped: false,
-    report: core.renderWireReport(backend, caseName, split),
+    report: [core.renderWireReport(backend, caseName, split), fx.report].filter(Boolean).join("\n"),
   };
 }
 
@@ -201,7 +224,7 @@ export function makeWireGate(backend, workDir) {
      * outcome has to be classified deliberately rather than turning the gate off
      * by default.
      */
-    async check(caseName, entries, results, { expectFailure = false } = {}) {
+    async check(caseName, entries, results, { expectFailure = false, effects } = {}) {
       if (WIRE_OFF) return 0;
       // No recording at all ⇒ the api tier never ran (a boot/infra failure the
       // runner has ALREADY counted as an errored case).
@@ -212,7 +235,7 @@ export function makeWireGate(backend, workDir) {
         );
         return 0;
       }
-      const res = await gateWireRecording({ backend, caseName, entries, workDir });
+      const res = await gateWireRecording({ backend, caseName, entries, effects, workDir });
       if (res.report) process.stdout.write(`${res.report}\n`);
       if (res.skipped) return 0;
       // A tracked expected failure (BEHAVIOURAL_XFAIL) is settled by the case

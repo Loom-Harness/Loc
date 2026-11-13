@@ -680,6 +680,28 @@ still derives both halves from the contract, and the feliz fixture still
 reads every field back. Without it, deleting a field from a fixture would
 leave two nightly legs green and pointless.
 
+## External services
+
+A generated backend that sends mail or calls a remote api would reach for a
+mail server or the remote host at boot or on the first call.  Every leg instead
+starts the services the case's model needs (`test/support/fakes/`) and merges
+their env over the backend's boot env — `MAIL_URL`, `CRM_URL`, … — named by
+`src/util/resource-env.ts`, the same names the emitted clients read.  The node
+leg hands the env to its case worker; the real-process legs to the server they
+spawn.  A case declares nothing: `sidecars.mjs` lowers the model and starts one
+service per hosted storage of a type the kit serves, and a case with none pays
+only a textual prefilter.
+
+A service that can run is real and pinned by digest: Mailpit for `smtp`
+(`docker run` locally, the workflow's `services: mailpit` in CI, named by
+`LOOM_MAILPIT_SMTP` / `LOOM_MAILPIT_API`), beside the broker and object-store
+sidecars.  One that cannot — a third-party `restApi` — is an in-process fake
+over the emulation core's model (`src/emulation/`), the same model the browser
+playground runs.  What they observed lands in the recording's `effects`
+section (see [`wire-golden/README.md`](wire-golden/README.md#the-effects-section)).
+`corpus/resource-mail-api` reaches all three resource call sites — a workflow
+body, a commandHandler body and an event-triggered starter.
+
 ## The wire differential — every leg gates the same canonical bytes
 
 Every runner above (all five backends plus the `dapper` / `mikroorm`

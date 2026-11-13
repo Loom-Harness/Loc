@@ -1,0 +1,73 @@
+// The mailer (smtp) and outbound-api (restApi) resource kinds, observed at
+// runtime.  Every leg boots this against the harness's in-process fakes
+// (test/support/fakes/): an SMTP sink stands in for Mailpit and an HTTP
+// recorder for the remote api, each reached through the `<RESOURCE>_URL` the
+// backend's client already reads.  What the backend SENT is appended to the
+// wire recording as its `effects` section and diffed against the golden, so a
+// client that drops the call, mis-addresses it or mangles the envelope fails
+// the leg it runs on.
+//
+// Three call sites, because each backend reaches its resource clients through
+// a different emitter at each: a workflow body, a commandHandler body, and an
+// event-triggered workflow starter run by the event dispatcher.  The fixture
+// declares no objectStore / queue resource, so a leg needs no S3 or broker to
+// boot it.
+system ResourceMailApi {
+  subdomain D {
+    context Sales {
+      aggregate Order with crudish {
+        email: string
+        operation touch() { emit OrderTouched { orderRef: id, email: email } }
+      }
+      repository Orders for Order { }
+      event OrderTouched { orderRef: Order id  email: string }
+
+      // workflow leg: a bare GET, then a mail.
+      workflow notify {
+        create(email: string) {
+          crm.get("/customers")
+          mail.send(email, "Welcome", "Hello " + email + ", welcome aboard.")
+        }
+      }
+
+      // dispatcher leg: an event-triggered starter.
+      workflow TouchTrail {
+        orderRef: Order id
+        create(e: OrderTouched) by e.orderRef {
+          orderRef := e.orderRef
+          mail.send(e.email, "Order touched", "Your order was touched.")
+        }
+      }
+
+      // command leg: a POST carrying a body, then a mail.
+      commandHandler Ping(email: string): int {
+        crm.post("/pings", email)
+        mail.send(email, "Ping", "Pinged " + email + ".")
+        return 1
+      }
+    }
+  }
+  api A from D {
+    route POST "/ping/{email}" -> Sales.Ping
+  }
+  storage pg { type: postgres }
+  storage crmApi { type: restApi, config: { baseUrl: "http://crm:9000" } }
+  storage mailServer { type: smtp, config: { from: "no-reply@rma.test" } }
+  resource salesState { for: Sales, kind: state, use: pg }
+  resource crm { for: Sales, kind: api, use: crmApi }
+  resource mail { for: Sales, kind: mailer, use: mailServer }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Sales]
+    dataSources: [salesState, crm, mail]
+    serves: A
+    port: 4000
+  }
+
+  test e2e "each resource call site reaches the mailer and the remote api" against d {
+    api.notify.run({ email: "ada@rma.test" })
+    expect(api.sales.ping("bo@rma.test")).toBe(1)
+    let o = api.orders.create({ email: "cy@rma.test" })
+    api.orders.touch(o)
+  }
+}

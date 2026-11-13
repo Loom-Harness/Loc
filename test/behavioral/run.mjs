@@ -35,6 +35,7 @@ import { authzLadderTail, makeWireGate, recorderPreamble } from "./wire-differen
 import { startMockIssuer } from "./oidc-mock.mjs";
 import { MIGRATOR_IMPORT, SCHEMA_AGREEMENT_IMPORT, applyMigrationsStmt, schemaAgreementStmt } from "./emitted-schema.mjs";
 import { optInTestReset } from "./proc.mjs";
+import { startSidecars } from "../support/fakes/index.mjs";
 
 // The generated reset seam is opt-in and token-gated (H-30, src/util/test-reset.ts);
 // this leg relied on it being on by default, so it now opts in explicitly.
@@ -263,9 +264,9 @@ export async function run() {
  *  and the leg was OOM-killed partway through the corpus.  A `run()` throw
  *  re-throws here with the same message; a worker that dies without answering
  *  is a case error naming its exit code/signal. */
-function runInWorker(bundle) {
+function runInWorker(bundle, env = {}) {
   return new Promise((resolve, reject) => {
-    const child = fork(WORKER, [bundle], { cwd: HERE, stdio: "inherit", serialization: "advanced" });
+    const child = fork(WORKER, [bundle], { cwd: HERE, stdio: "inherit", serialization: "advanced", env: { ...process.env, ...env } });
     let reply = null;
     child.once("message", (m) => {
       reply = m;
@@ -309,9 +310,14 @@ async function runCase(c) {
   const genDir = mkdtempSync(join(tmpdir(), `loom-bh-${c.name}-`));
   const workDir = join(WORK, c.name);
   mkdirSync(workDir, { recursive: true });
+  // The fake services the case's model needs (test/support/fakes/).  They
+  // listen in THIS process; the case's worker reaches them through the env
+  // its generated resource clients read at module load.
+  let fakes = null;
   try {
     const srcPath = join(workDir, "system.ddd");
     writeCaseSource(srcPath, c.source, c.locales);
+    fakes = await startSidecars(srcPath, c.source);
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", srcPath, "-o", genDir], { stdio: "pipe" });
     const deplDir = findNodeDeployable(genDir);
     const e2eDir = join(genDir, "e2e");
@@ -365,8 +371,10 @@ async function runCase(c) {
       seedFile, mountsFiles,
     }));
     await build({ entryPoints: [entry], outfile: bundle, bundle: true, platform: "node", format: "esm", target: "node20", packages: "external", logLevel: "warning" });
-    return await runInWorker(bundle);
+    const out = await runInWorker(bundle, fakes.env);
+    return { ...out, effects: await fakes.effects() };
   } finally {
+    await fakes?.stop();
     rmSync(genDir, { recursive: true, force: true });
   }
 }

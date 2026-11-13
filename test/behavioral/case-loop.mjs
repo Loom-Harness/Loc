@@ -163,7 +163,9 @@ export function makeCaseLoop(leg, wire) {
 
       // An expected failure's wire divergences are its own business: they are
       // judged by `settle` below, and must not reach the run-level count.
-      const wireBad = compareWire ? await wire.check(c.name, out.wire, out.results, { expectFailure: !!entry }) : 0;
+      const wireBad = compareWire
+        ? await wire.check(c.name, out.wire, out.results, { expectFailure: !!entry, effects: out.effects })
+        : 0;
 
       const observed = out.error
         ? { kind: "error", message: String(out.error) }

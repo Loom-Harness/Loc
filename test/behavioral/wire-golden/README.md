@@ -25,6 +25,29 @@ ordinals the rest of the file aligns on:
   green. Only projection/instance-bearing cases grow an entry; a case that reads
   neither route is skipped rather than guessed at.
 
+## The `effects` section
+
+A case whose model routes a resource to a storage the kit serves
+(`../../support/fakes/` — a pinned Mailpit for `smtp`, an in-process restApi
+fake) boots against them, and what the backend SENT is part of the answer key: after the
+tier, the probes and the ladder, the runner waits for the fakes to quiesce (two
+consecutive equal snapshots) and records
+
+```json
+"effects": {
+  "http": [{ "method": "POST", "path": "/pings", "body": "bo@rma.test" }],
+  "mail": [{ "from": "no-reply@rma.test", "to": ["bo@rma.test"], "subject": "Ping", "text": "Pinged bo@rma.test." }]
+}
+```
+
+Each list is what the service itself reports — Mailpit's inbox over its REST
+API, the restApi fake's log — normalised so it is the same on every backend:
+ids and timestamps dropped, a JSON body reduced to its sorted keys (or its
+value, for a scalar), every list sorted.  The section is
+diffed on every leg, with no waiver: a client that drops the call, addresses
+it wrongly or mangles the envelope fails the leg it runs on.  A golden carries
+the key only when the fakes observed something.
+
 Every backend runner (`../run.mjs`, `run-python`, `run-dotnet`, `run-java`,
 `run-elixir`, plus the `run-dapper` / `run-mikroorm` persistence-adapter legs)
 records its own run at its single `fetch`/`app.fetch` chokepoint and diffs it

@@ -42,6 +42,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, resetDatabase, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { writeCaseSource } from "./case-source.mjs";
 import { optInTestReset, stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
+import { startSidecars } from "../support/fakes/index.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
@@ -242,9 +243,13 @@ async function runCase(c) {
   const workDir = join(WORK, c.name);
   mkdirSync(workDir, { recursive: true });
   let server;
+  // The fake services the case's model needs (test/support/fakes/), up
+  // before the boot so their env reaches it.
+  let fakes = null;
   try {
     const srcPath = join(workDir, "system.ddd");
     writeCaseSource(srcPath, forceMikroorm(c.source), c.locales);
+    fakes = await startSidecars(srcPath, c.source);
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", srcPath, "-o", genDir], { stdio: "pipe" });
     const deplDir = findNodeDeployable(genDir);
     const e2eDir = join(genDir, "e2e");
@@ -300,7 +305,7 @@ async function runCase(c) {
         cwd: deplDir,
         stdio: "pipe",
         detached: true, // own process group so we can SIGTERM tsx + its child
-        env: { ...process.env, DATABASE_URL, PORT: String(PORT), ...oidcEnv },
+        env: { ...process.env, DATABASE_URL, PORT: String(PORT), ...oidcEnv, ...fakes.env },
       });
       let serverLog = "";
       server.stdout.on("data", (d) => { serverLog += d; });
@@ -330,12 +335,13 @@ async function runCase(c) {
     const indexProbe = EXTERNAL_BASE ? [] : await outboxIndexProbe(deplDir);
     return {
       results: [...api.results.map((r) => ({ tier: "api", ...r })), ...(api.authz ?? []), ...indexProbe],
-      wire: api.wire,
+      wire: api.wire, effects: await fakes.effects(),
     };
   } finally {
     // AWAIT the exit — firing SIGTERM and moving on leaves the port occupied
     // into the next case, which then talks to the wrong app (see proc.mjs).
     await stopServer(server);
+    await fakes?.stop();
     rmSync(genDir, { recursive: true, force: true });
   }
 }

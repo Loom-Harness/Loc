@@ -106,7 +106,21 @@ jobs:
         ports:
           - 9090:9090
 
+
+      # The mail sidecar of the same kit (test/support/fakes/mailpit-sidecar.mjs):
+      # a case whose model declares an `smtp` storage sends to it, and its inbox
+      # is read back into the golden's `effects`.  Pinned to MAILPIT_IMAGE.
+      mailpit:
+        image: axllent/mailpit:v1.27.10@sha256:b1f1be18af530d939a11ee8820b379e0c88eeec204d904bfad68862adced3a5a
+        env:
+          MP_SMTP_AUTH_ACCEPT_ANY: "1"
+          MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+        ports:
+          - 1025:1025
+          - 8025:8025
     env:
+      LOOM_MAILPIT_SMTP: localhost:1025
+      LOOM_MAILPIT_API: http://localhost:8025
       LOOM_FAKE_AMQP_URL: amqp://guest:guest@localhost:5672
       LOOM_FAKE_AMQP_MGMT_URL: http://localhost:15672
       LOOM_FAKE_S3_URL: http://localhost:9090

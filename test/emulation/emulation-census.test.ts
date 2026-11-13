@@ -134,7 +134,8 @@ describe("emulation census", () => {
 
   it("no host file re-implements a model's state or wire semantics", () => {
     const bad: string[] = [];
-    const hostFiles = [...files(WEB, /\.ts$/), ...files(NODE_KIT, /\.(m?js|ts)$/)];
+    // Sidecars speak their real service's protocol, so its words are theirs.
+    const hostFiles = [...files(WEB, /\.ts$/), ...nodeKitAdapters()];
     for (const f of hostFiles) {
       const c = code(read(f));
       for (const m of SEMANTIC_MARKERS) if (c.includes(m)) bad.push(`${rel(f)}: spells "${m}"`);
@@ -154,15 +155,63 @@ describe("emulation census", () => {
   });
 });
 
-/** The Node kit's service adapters: every fake module except the kit's own
- *  plumbing.  Empty until the kit lands. */
-function nodeKitAdapters(): string[] {
-  const plumbing = new Set([
+/**
+ * The Node kit's files, by class.  Every `.mjs` under test/support/fakes is in
+ * exactly one set; an unclassified file fails the census.
+ */
+const NODE_KIT_CLASSES = {
+  /** Front a REAL service, pinned by digest.  They talk that service's own
+   *  protocol, so they never import the emulation core — an emulated model
+   *  behind a sidecar would be a second, unpinned implementation of it. */
+  sidecars: new Set([
+    "broker-sidecar.mjs",
+    "s3-sidecar.mjs",
+    "local-disk.mjs",
+    "mailpit-sidecar.mjs",
+  ]),
+  /** Stand in for a service that cannot run (a third-party api, an issuer the
+   *  test controls): a transport over an emulation-core model, never a model
+   *  of its own. */
+  inProcess: new Set(["http.mjs", "ses.mjs", "sendgrid.mjs", "oidc.mjs"]),
+  /** The kit's own wiring: derivation, quiescence, env names, the core loader. */
+  plumbing: new Set([
     "index.mjs",
     "sidecars.mjs",
     "quiesce.mjs",
     "resource-env.mjs",
     "emulation.mjs",
-  ]);
-  return files(NODE_KIT, /\.mjs$/).filter((f) => !plumbing.has(path.basename(f)));
+  ]),
+};
+
+const kitFiles = (set: Set<string>): string[] =>
+  files(NODE_KIT, /\.mjs$/).filter((f) => set.has(path.basename(f)));
+
+/** The Node kit's in-process fakes — the files that must import the core. */
+function nodeKitAdapters(): string[] {
+  return kitFiles(NODE_KIT_CLASSES.inProcess);
 }
+
+describe("emulation census — the Node kit", () => {
+  it("every kit module is classified as a sidecar, an in-process fake or plumbing", () => {
+    const all = Object.values(NODE_KIT_CLASSES).flatMap((s) => [...s]);
+    const unclassified = files(NODE_KIT, /\.mjs$/)
+      .map((f) => path.basename(f))
+      .filter((f) => !all.includes(f));
+    expect(unclassified, "add the module to NODE_KIT_CLASSES with the class it belongs to").toEqual(
+      [],
+    );
+  });
+
+  it("a sidecar fronts a digest-pinned image and does not import the emulation core", () => {
+    const bad: string[] = [];
+    for (const f of kitFiles(NODE_KIT_CLASSES.sidecars)) {
+      const c = code(read(f));
+      if (/emulation/.test(c)) bad.push(`${rel(f)}: imports the emulation core`);
+      const startsContainer = /\brunContainer\(|["']run["']/.test(c);
+      if (startsContainer && !/["'][\w./-]+:[\w.-]+@sha256:[0-9a-f]{64}["']/.test(c)) {
+        bad.push(`${rel(f)}: starts a container without an image pinned by digest`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+});

@@ -1,0 +1,5 @@
+{
+  "title": "mailer (smtp) + api (restApi) resource calls observed at runtime through the harness fakes",
+  "doc": "resources",
+  "backends": "ALL"
+}
