@@ -39,7 +39,7 @@ describe("analyzeDeployables", () => {
       "catalog_web/http/index.ts",
     ]);
     expect(out.frontends).toEqual([
-      { slug: "web_app", entry: "web_app/src/main.tsx", apiTarget: "api" },
+      { slug: "web_app", entry: "web_app/src/main.tsx", framework: "react", apiTarget: "api" },
     ]);
     expect(out.unsupported).toEqual([]);
   });
@@ -84,7 +84,7 @@ describe("analyzeDeployables", () => {
 });
 
 describe("analyzeDeployables lists every frontend", () => {
-  it("previews each React frontend against the backend its targets: names", async () => {
+  it("previews each React and Vue frontend against the backend its targets: names", async () => {
     const source = `system Shop {
   subdomain Core {
     context Sales {
@@ -97,17 +97,23 @@ describe("analyzeDeployables lists every frontend", () => {
   resource st { for: Sales, kind: state, use: primary }
   deployable writer { platform: node, contexts: [Sales], dataSources: [st], port: 3000 }
   deployable reader { platform: node, contexts: [Sales], dataSources: [st], port: 3002 }
-  deployable shopWeb { platform: react, targets: reader, ui: WebApp, port: 3003 }
+  deployable shopWeb { platform: vue, targets: reader, ui: WebApp, port: 3003 }
   deployable adminWeb { platform: react, targets: writer, ui: WebApp, port: 3001 }
 }`;
     const out = analyzeDeployables(await tree(source));
     expect(out.frontends).toEqual([
-      { slug: "admin_web", entry: "admin_web/src/main.tsx", apiTarget: "writer" },
-      { slug: "shop_web", entry: "shop_web/src/main.tsx", apiTarget: "reader" },
+      {
+        slug: "admin_web",
+        entry: "admin_web/src/main.tsx",
+        framework: "react",
+        apiTarget: "writer",
+      },
+      { slug: "shop_web", entry: "shop_web/src/main.ts", framework: "vue", apiTarget: "reader" },
     ]);
     // The first frontend's backend leads the boot order (the console's
     // default target).
     expect(out.backends).toEqual(["writer/http/index.ts", "reader/http/index.ts"]);
+    expect(out.unsupported).toEqual([]);
   });
 });
 

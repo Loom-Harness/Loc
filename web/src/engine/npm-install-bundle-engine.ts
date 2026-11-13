@@ -48,6 +48,8 @@ import type {
   RuntimeEngineOptions,
 } from "./runtime-engine.js";
 import { postProcessNpmBundle } from "./npm/postprocess.js";
+import { type CompiledFramework, frontendStdin } from "./npm/frontend-frameworks.js";
+import type { PreviewFramework } from "../build/deployables.js";
 import { VfsBundlerClient } from "./npm/vfs-bundler-client.js";
 
 export interface EsbuildRunInput {
@@ -70,6 +72,9 @@ export interface EsbuildRunInput {
    *  the Hono run (the React bundle never sets this — frontend `.ddd`
    *  debugging is a separate, out-of-scope slice). */
   sourcemap?: boolean;
+  /** A frontend a framework compiler builds (`npm/frontend-frameworks.ts`):
+   *  `stdinContents` is then its synthesised entry. */
+  framework?: CompiledFramework;
 }
 
 export type EsbuildRun = (
@@ -115,6 +120,26 @@ function harvestDeps(
     }
   }
   return {};
+}
+
+/** The framework runtime a compiled frontend's components import, when its
+ *  package.json lists it as a build-time dependency: SvelteKit's components
+ *  import `svelte/internal/client`, which ships in the `svelte` devDependency. */
+function compilerRuntimeDeps(
+  files: Map<string, string | Uint8Array>,
+  entry: string,
+  framework: CompiledFramework,
+): Record<string, string> {
+  if (framework !== "svelte") return {};
+  const raw = files.get(`/${entry.split("/")[0]}/package.json`);
+  if (raw == null) return {};
+  try {
+    const pkg = JSON.parse(typeof raw === "string" ? raw : new TextDecoder().decode(raw));
+    const v = pkg.devDependencies?.svelte ?? pkg.dependencies?.svelte;
+    return typeof v === "string" ? { svelte: v } : {};
+  } catch {
+    return {};
+  }
 }
 
 export class NpmInstallBundleEngine implements RuntimeEngine {
@@ -217,9 +242,9 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     if (backends.every((b) => b.bundle.ok)) {
       for (const entry of input.frontendEntries ?? []) {
         frontends.push({
-          slug: entry.split("/").slice(0, -2).join("/"),
-          entry,
-          bundle: await this.bundleFrontend(run, generatedFiles, entry),
+          slug: entry.slug,
+          entry: entry.entry,
+          bundle: await this.bundleFrontend(run, generatedFiles, entry.entry, entry.framework),
         });
       }
     }
@@ -230,6 +255,7 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     run: EsbuildRun,
     generatedFiles: Map<string, string | Uint8Array>,
     entry: string,
+    framework: PreviewFramework,
   ): Promise<BundleResult> {
     // C2: the worker externalises the prebuilt design-pack vendor when one is
     // shipped (app-only bundle + iframe importmap), and otherwise bundles the
@@ -239,11 +265,17 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     // path) onto the BundleResult for the preview.  Installing only what each
     // bundle imports keeps the Mantine tree out of the backend install (and
     // vice-versa); the frontends of one system share their install cache.
-    const r = await run({
-      generatedFiles,
-      rootDeps: harvestDeps(generatedFiles, entry),
-      entry: "/" + entry,
-    });
+    const r = await run(
+      framework === "react"
+        ? { generatedFiles, rootDeps: harvestDeps(generatedFiles, entry), entry: "/" + entry }
+        : {
+            generatedFiles,
+            rootDeps: { ...harvestDeps(generatedFiles, entry), ...compilerRuntimeDeps(generatedFiles, entry, framework) },
+            entry: "/" + entry,
+            stdinContents: frontendStdin("/" + entry, framework),
+            framework,
+          },
+    );
     return r.ok
       ? {
           ok: true,

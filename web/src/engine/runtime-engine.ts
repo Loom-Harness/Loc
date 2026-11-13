@@ -20,6 +20,7 @@
 
 import type { NavigationOutcome } from "../preview/auth-navigation.js";
 import type { VirtualFile } from "../build/protocol.js";
+import type { PreviewFramework } from "../build/deployables.js";
 import type { BundleResult } from "../bundle/protocol.js";
 import type { BrokerInspectResult } from "../runtime/infra/broker-protocol.js";
 import type {
@@ -63,8 +64,8 @@ export interface PrepareInput {
    *  to bundle" wording stays in the caller because it needs the
    *  unsupported-deployable list. */
   backendEntries: string[];
-  /** Frontend deployable entries (`<slug>/src/main.tsx`), one bundle each. */
-  frontendEntries?: string[];
+  /** The frontend deployables, one bundle each. */
+  frontendEntries?: { slug: string; entry: string; framework: PreviewFramework }[];
   /** Opt-in: bundle the Hono backend with an inline Source Map v3 that
    *  chains back to `.ddd` (via the `.ts.map` sidecars `files` carries
    *  when its generate step ran with `sourcemap: true`), so the
