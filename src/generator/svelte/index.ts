@@ -42,7 +42,7 @@ import {
 import { LIB_SCHEMAS_PROV_TS, PROV_LINEAGE_SCHEMA_BLOCK } from "../_frontend/lib-schemas.js";
 import { localeDir } from "../_frontend/locale-meta.js";
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
-import { deriveSidebarFromUi } from "../_frontend/menu-emitter.js";
+import { deriveSidebarFromUi, navPageNameFallbacksFor } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { JSX_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
 import { buildProjectionsApiModule, readableProjections } from "../_frontend/projections-module.js";
@@ -204,6 +204,7 @@ export function generateSvelteForContexts(
     sentences: pack.manifest.sentenceChrome ?? [],
     implicitModelText: svelteTarget.modelTextImplicitSites === true,
     sessionView: authUi,
+    menuPageNames: navPageNameFallbacksFor(ui, contexts),
   };
   if (i18nEnabled) {
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
@@ -442,6 +443,7 @@ export function generateSvelteForContexts(
       ui.pages,
       authUi,
     ),
+    { nameLabelKeys: true },
   );
   const navSections =
     sidebarOverride?.map((s) => ({

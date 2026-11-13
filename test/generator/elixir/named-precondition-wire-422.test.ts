@@ -225,7 +225,7 @@ system S {
 
       domainService Quotes {
         operation quote(p: Product): int {
-          requires currentUser.level > 2
+          requires p.quantity > 2
           return p.quantity
         }
       }
@@ -267,7 +267,7 @@ describe("elixir/vanilla — the RAISE path carries the rule's text (M-T6.20 pat
   it("a `domainService` requires raises the same typed exception", async () => {
     const svc = file(await generateSystemFiles(RAISE_PATH), "/domain/services/quotes.ex");
     expect(svc).toContain(
-      'raise(Api.GuardError, kind: :forbidden, message: "Forbidden: currentUser.level > 2")',
+      'raise(Api.GuardError, kind: :forbidden, message: "Forbidden: p.quantity > 2")',
     );
   });
 

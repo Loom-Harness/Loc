@@ -47,7 +47,9 @@
 // killed run).  Postgres comes from a docker sidecar unless `LOOM_HEEX_UI_PG_URL`
 // supplies one.
 //
-// Usage:  cd test/behavioral && npm ci ; node run-heex-ui.mjs
+// Usage:  cd test/behavioral && npm ci ; node run-heex-ui.mjs [i18n]
+//         (`i18n` — the translated-locale case: boots `heex-i18n/heex-i18n.ddd`
+//         with its `fr` tree and reads the French text off the rendered DOM)
 // Exit non-zero on any failed spec, or if the stack never boots.
 //
 // Env knobs:
@@ -73,15 +75,23 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { playwrightFallbackArgs } from "./browser-fallback.mjs";
 import { mixDepsGetShell, mixLocalInstallShell } from "./mix-retry.mjs";
 import { stopServer, waitForPort } from "./proc.mjs";
 import { outcomesFromPlaywrightJson } from "./ui-stack.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..", "..");
-const WORK = join(HERE, ".work-heex-ui");
-const DDD = join(HERE, "heex-ui.ddd");
-const ROUNDTRIP_SPEC = join(HERE, "heex-ui-roundtrip.pw.ts");
+// Two cases share one boot recipe.  `ui` (default) is the create → list → detail
+// round-trip; `i18n` boots the translated-locale fixture and reads the French
+// text off the rendered DOM (`heex-i18n/heex-i18n.pw.ts`, a `fr` translator tree
+// beside the fixture).
+const CASE = process.argv[2] === "i18n" ? "i18n" : "ui";
+const WORK = join(HERE, CASE === "i18n" ? ".work-heex-i18n" : ".work-heex-ui");
+const DDD = CASE === "i18n" ? join(HERE, "heex-i18n", "heex-i18n.ddd") : join(HERE, "heex-ui.ddd");
+const ROUNDTRIP_SPEC =
+  CASE === "i18n" ? join(HERE, "heex-i18n", "heex-i18n.pw.ts") : join(HERE, "heex-ui-roundtrip.pw.ts");
+const HAND_SPEC = CASE === "i18n" ? "heex-i18n.spec.ts" : "heex-roundtrip.spec.ts";
 const AUTH_SPEC = join(HERE, "heex-ui-auth.pw.ts");
 
 // Pinned to the same image the compile gate uses
@@ -91,7 +101,10 @@ const IMAGE =
   process.env.LOOM_HEEX_UI_IMAGE ??
   "hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-20260610-slim";
 const PORT = Number(process.env.LOOM_HEEX_UI_PORT ?? "4111");
-const PG_DB = "heex_ui";
+// One database per case: both fixtures render migrations under the same
+// versions, so a shared database would mark the second case's migrations
+// applied and leave its tables uncreated.
+const PG_DB = CASE === "i18n" ? "heex_i18n" : "heex_ui";
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 
@@ -257,7 +270,8 @@ async function main() {
     if (!existsSync(join(projDir, "mix.exs"))) throw new Error("no phoenix deployable generated");
     const emittedSpec = join(e2eDir, "HeexUiSystem.ui.spec.ts");
     // A missing emitted spec is the WHOLE point of the leg — never skip past it.
-    if (!existsSync(emittedSpec)) {
+    // (The i18n case has no `test e2e` block: its spec is the hand-written one.)
+    if (CASE === "ui" && !existsSync(emittedSpec)) {
       throw new Error("the emitted HeexUiSystem.ui.spec.ts is absent — nothing to drive");
     }
 
@@ -289,8 +303,21 @@ async function main() {
     // ONE shell chain either way: deps → schema → serve.  `phx.server` is last
     // and blocks, so the process staying alive IS the "migrations applied"
     // signal, exactly as run-elixir.mjs relies on.
+    // Behind an egress proxy that re-terminates TLS, the container must trust the
+    // proxy CA and route through the proxy for hosts the app downloads at compile
+    // time (ex_cldr fetches each locale's data from raw.githubusercontent.com).
+    const proxyCa = process.env.SSL_CERT_FILE;
+    const proxyDocker =
+      process.env.HTTPS_PROXY && proxyCa && existsSync(proxyCa)
+        ? [
+            "-e", `HTTPS_PROXY=${process.env.HTTPS_PROXY}`,
+            "-e", `NO_PROXY=${process.env.NO_PROXY ?? "localhost,127.0.0.1"}`,
+            "-v", `${proxyCa}:/usr/local/share/ca-certificates/loom-egress-proxy.crt:ro`,
+          ]
+        : [];
+    const proxyShell = proxyDocker.length ? "update-ca-certificates >/dev/null 2>&1; " : "";
     const bootScript =
-      `${mirror?.shellPrefix ?? ""}${mixLocalInstallShell()} && ` +
+      `${proxyShell}${mirror?.shellPrefix ?? ""}${mixLocalInstallShell()} && ` +
       `${mixDepsGetShell()} && mix ecto.create && mix ecto.migrate && mix phx.server`;
     server = useMix
       ? spawn("bash", ["-c", bootScript], { cwd: projDir, env, stdio: "pipe", detached: true })
@@ -305,6 +332,7 @@ async function main() {
             "-e", `DATABASE_URL=${pg.url}`, "-e", "MIX_ENV=dev",
             "-e", "PHX_SERVER=true", "-e", `PORT=${PORT}`,
             "-e", "LOOM_DEV_AUTH=1",
+            ...proxyDocker,
             IMAGE, "bash", "-c", bootScript,
           ],
           { stdio: "pipe", detached: true },
@@ -328,10 +356,10 @@ async function main() {
 
     // The hand-written list leg, alongside the emitted spec.  Renamed on the
     // way in so the repo's own vitest run never discovers it.
-    copyFileSync(ROUNDTRIP_SPEC, join(e2eDir, "heex-roundtrip.spec.ts"));
+    copyFileSync(ROUNDTRIP_SPEC, join(e2eDir, HAND_SPEC));
     // The authorization legs: named-op dispatch, the `when` gate, the read
     // gate and the workflow principal, each driven as a dev-claims principal.
-    copyFileSync(AUTH_SPEC, join(e2eDir, "heex-auth.spec.ts"));
+    if (CASE === "ui") copyFileSync(AUTH_SPEC, join(e2eDir, "heex-auth.spec.ts"));
 
     log("▶ driving the rendered LiveView in a browser");
     execFileSync(npm, ["install", "--no-audit", "--no-fund"], { cwd: e2eDir, stdio: "pipe", timeout: 600_000 });
@@ -359,7 +387,10 @@ async function main() {
       // --workers=1: both specs write to the SAME database, and the round-trip
       // spec asserts a row DELTA on the list.  Parallel workers would make that
       // delta depend on interleaving.
-      const cp = spawn(npx, ["playwright", "test", "--workers=1", "--reporter=list,json"], {
+      // The i18n case runs only its own spec: the emitted smoke spec is the
+      // `ui` case's concern, and its routes carry no locale.
+      const only = CASE === "i18n" ? [HAND_SPEC] : [];
+      const cp = spawn(npx, ["playwright", "test", ...playwrightFallbackArgs(e2eDir), ...only, "--workers=1", "--reporter=list,json"], {
         cwd: e2eDir,
         stdio: "inherit",
         env: { ...process.env, E2E_BASE_URL: base, PLAYWRIGHT_JSON_OUTPUT_NAME: reportFile },
