@@ -193,7 +193,14 @@ export function requiredGoldenCases(): RequiredCase[] {
   // Example (broad) systems ride the node runner only.
   for (const n of exampleCaseNames()) add(n, "run.mjs");
 
-  const optedOut = new Set([...optedOutCaseNames(), ...oracleExpectedFailures()]);
+  // An oracle expected failure is exempt only while it has no answer key: a
+  // golden another leg minted (its `oracle` field names which) is required and
+  // compared like any other.
+  const committed = new Set(committedGoldenNames());
+  const optedOut = new Set([
+    ...optedOutCaseNames(),
+    ...oracleExpectedFailures().filter((n) => !committed.has(n)),
+  ]);
   return [...byName.entries()]
     .filter(([name]) => !optedOut.has(name))
     .map(([name, runners]) => ({ name, runners: [...new Set(runners)].sort() }))

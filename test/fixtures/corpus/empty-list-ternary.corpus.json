@@ -2,5 +2,11 @@
   "title": "an empty list literal `[]` as a ternary branch (+ `avg`'s null branch, a narrowed `[x]`)",
   "doc": "language",
   "backends": "ALL",
-  "note": "The typing join is element-wise, so `[]` takes the other branch's element type; lowering records it on the empty literal (`ExprIR.list.elementType`) for java `List.<T>of()` / .NET `new List<T>()`. .NET also unwraps a narrowed `[x]` element and types a `c ? null : <value T>` null as `T?`."
+  "note": "The typing join is element-wise, so `[]` takes the other branch's element type; lowering records it on the empty literal (`ExprIR.list.elementType`) for java `List.<T>of()` / .NET `new List<T>()`. .NET also unwraps a narrowed `[x]` element and types a `c ? null : <value T>` null as `T?`.",
+  "apiCaller": {
+    "//": "A workflow run — the `notLifted` class.",
+    "unattributed": [
+      "api.scoreProvider.run (no such aggregate)"
+    ]
+  }
 }

@@ -620,9 +620,12 @@ Backfills target single scalar columns only — value-object leaves are excluded
 subset can't express. Emitted **exactly once**: the snapshot records each
 step's `"<block>#<index>"` key in `appliedDataMigrations` (raw SQL has no
 structural condition to be naturally inert against). Runs *after* the
-generation's structural steps, in declaration order. On Ecto both data steps
-render through `execute/1`; everywhere else they ride the same migration file
-as the DDL (`renderBackfillSql` is shared, so the DML is bit-identical).
+generation's structural steps, in declaration order, in the generation's
+transactional unit — so it runs before an expression backfill, which fills its
+column in the non-transactional unit after that commits (§ Locks on a
+populated table). On Ecto both data steps render through `execute/1`;
+everywhere else they ride the generation's migration files with the DDL
+(`renderBackfillSql` is shared, so the DML is bit-identical).
 
 ```ddd
 migration "clear-legacy-notes" { sql "UPDATE sales.orders SET note = '' WHERE note IS NULL" }
@@ -965,7 +968,7 @@ no long lock:
 | Step | Rendered as | Lock held while it runs |
 |---|---|---|
 | Column add backfilled with a **constant** (also a field default, an empty collection, `softDeletable`'s `false`) | `ADD COLUMN … DEFAULT <c> NOT NULL` + `ALTER COLUMN … DROP DEFAULT` | ACCESS EXCLUSIVE for milliseconds: on PG11+ a non-volatile default is stored in the catalog, and no row is rewritten |
-| Column add backfilled with an **expression** | `ADD COLUMN … NULL` → `UPDATE … WHERE … IS NULL` → `SET NOT NULL` | ACCESS EXCLUSIVE for the whole UPDATE and the `SET NOT NULL` scan. Batched backfills are not implemented |
+| Column add (or a NOT NULL flip) backfilled with an **expression** | `ADD COLUMN … NULL` in the transactional unit; then, in the non-transactional unit, `UPDATE … WHERE … IS NULL` → `ADD CONSTRAINT … CHECK (… IS NOT NULL) NOT VALID` → the same UPDATE again → `VALIDATE CONSTRAINT` → `SET NOT NULL` → `DROP CONSTRAINT` | ACCESS EXCLUSIVE only for the catalog changes. The UPDATE holds row locks on the rows it rewrites until it commits, so reads go on and writes to other rows go on, while writes to those rows wait for it; it is one statement, not batched. `VALIDATE` scans under SHARE UPDATE EXCLUSIVE, and `SET NOT NULL` skips its scan because the validated CHECK proves it |
 | Index added to a table that **already exists** (`resource … index:`, `unique (…)`, an FK's covering index) | `DROP INDEX CONCURRENTLY IF EXISTS` + `CREATE [UNIQUE] INDEX CONCURRENTLY`, in a unit of its own | none that blocks reads or writes. The build waits for transactions already open on the table |
 | Index on a table **created** in the same generation | inline plain `CREATE INDEX` | none worth avoiding: the table is empty |
 
@@ -984,20 +987,23 @@ CREATE INDEX CONCURRENTLY "orders_status_idx" ON "store"."orders" ("status");
 ```
 
 **The non-transactional unit.** Postgres refuses `CONCURRENTLY` inside a
-transaction block, and a multi-statement query counts as one. So the steps that
-need it (`addIndex` with `concurrently`, chosen once by
-`src/ir/util/migration-steps.ts`) leave the generation's file and become a
-second migration of the same generation. It is ordered right after the first,
+transaction block, and a multi-statement query counts as one; and a backfill
+run inside the transaction that added its column would hold that column's
+ACCESS EXCLUSIVE lock for the whole UPDATE. So the steps that must run outside
+a transaction (`addIndex` with `concurrently`, and an expression backfill —
+both chosen once by `src/ir/util/migration-steps.ts`) leave the generation's
+file and become a second migration of the same generation. Every statement in
+it is safe to re-run, so a unit that failed part-way is retried as a whole. It is ordered right after the first,
 holds one statement per command, and goes into the runner's ledger on its own:
 
 | Backend | Second unit | How the runner applies it |
 |---|---|---|
 | Hono / Drizzle | `db/migrations/<tag>_concurrent.sql`, first line `-- loom:no-transaction`, its own journal entry | the generated `db/migrate.ts` (Drizzle's migrator with the same `drizzle.__drizzle_migrations` ledger and watermark) runs a marked file statement by statement outside a transaction, then writes its ledger row. Consecutive unmarked files still share one transaction. `npm run db:migrate` runs the same runner out of band (`db/migrate-cli.ts`); `drizzle-kit migrate`, which wraps everything in one transaction, is not wired |
 | Python / FastAPI | `migrations/<tag>_concurrent.sql`, same marker | `run_migrations()` applies a marked file on an `AUTOCOMMIT` connection, then records its tag in `__loom_migrations`. Consecutive unmarked files share one transaction |
-| Java / Flyway | `V<v>.<n>.1__<Mod>_<Name>Concurrent.sql` | Flyway runs a script that holds only `CREATE`/`DROP INDEX CONCURRENTLY` statements without a transaction. It refuses a script that mixes them with transactional ones, which is why the unit is its own script |
+| Java / Flyway | `V<v>.<n>.1__<Mod>_<Name>Concurrent.sql` + its script config file `….sql.conf` (`executeInTransaction=false`) | Flyway runs every statement of the script outside a transaction, as the config file says; its own inference recognises only `CONCURRENTLY` |
 | .NET / EF Core | `Migrations/<slug>_Concurrent.cs` | one `migrationBuilder.Sql(…, suppressTransaction: true)` per statement |
 | .NET / Dapper | `Migrations/<slug>_Concurrent.cs`, `InTransaction => false` | `DbSchema.EnsureAsync` runs its statements without a transaction, then records its id |
-| Phoenix / Ecto | `<version + 1>_<module>_<name>_concurrent.exs` with `@disable_ddl_transaction true` and `@disable_migration_lock true` | `ecto.migrate`; `drop_if_exists index(…, concurrently: true)` + `create index(…, concurrently: true)` |
+| Phoenix / Ecto | `<version + 1>_<module>_<name>_concurrent.exs` with `@disable_ddl_transaction true` and `@disable_migration_lock true` | `ecto.migrate`; `drop_if_exists index(…, concurrently: true)` + `create index(…, concurrently: true)`, and a backfill as one `execute/1` per statement |
 
 Ecto orders and records files by an integer version, so the migration chain
 reserves `version + 1` after any generation that has such a unit: the next

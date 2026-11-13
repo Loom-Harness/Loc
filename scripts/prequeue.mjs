@@ -163,7 +163,16 @@ const BACKENDS = [
 const FIVE_BACKENDS = ["node (hono)", "dotnet", "elixir", "python", "java"];
 
 // Mirrors census_merged in .claude/hooks/pre-push-merge-check.sh, plus the
-// diagnostic catalog gate.
+// whole-tree gates outside its `*census*` / `*ratchet*` glob that eject trains
+// from the merge queue: the diagnostic catalog, the unsupported register
+// (its sites name declarations in shared validator files) and the api-caller
+// census (its pins follow every corpus fixture).
+const EXTRA_CENSUSES = [
+  "test/system/typing-differential.test.ts",
+  "test/system/diagnostic-catalog.test.ts",
+  "test/system/unsupported-register.test.ts",
+  "test/ir/api-caller-census.test.ts",
+];
 const CENSUS_SLOW =
   /diagnostic-firing-census|openapi-component-uniqueness-census|\/ddd-source-census/;
 
@@ -173,7 +182,7 @@ if (args.includes("--help") || args.includes("-h")) {
   console.log(`Usage: npm run prequeue [-- flags]
 
 Runs the merge-queue pre-checks on (origin/main + HEAD) in a throwaway worktree:
-  tsc -b, test/ typecheck, lint, fast censuses/ratchets (+ diagnostic-catalog).
+  tsc -b, test/ typecheck, lint, fast censuses/ratchets (+ the EXTRA_CENSUSES gates).
 Then lists the per-backend compile gates the diff reaches.
 
   --heavy           run those per-backend compile gates, one at a time
@@ -270,7 +279,7 @@ async function main() {
   results.push(await run("lint", "npm run lint"));
 
   const files = sh(
-    "ls test/system/*census*.test.ts test/system/*ratchet*.test.ts test/system/typing-differential.test.ts test/system/diagnostic-catalog.test.ts 2>/dev/null | sort -u",
+    `ls test/system/*census*.test.ts test/system/*ratchet*.test.ts ${EXTRA_CENSUSES.join(" ")} 2>/dev/null | sort -u`,
     { cwd: wt },
   )
     .stdout.split("\n")

@@ -116,8 +116,9 @@ Walk these in order; stop at the first match.
 
 A corpus feature is two files in `test/fixtures/corpus/`: the `<id>.ddd` and
 its manifest row `<id>.corpus.json` (`title`, optional `doc` / `note` /
-`deployables`, and `backends` — a list of backend keys or a named set from
-`BACKEND_SETS` in `manifest.ts`). `CORPUS` is discovered from the sidecars, so
+`deployables`, `backends` — a list of backend keys or a named set from
+`BACKEND_SETS` in `manifest.ts` — and the fixture's api-caller census pins
+under `apiCaller`). `CORPUS` is discovered from the sidecars, so
 fixtures added by different changes never conflict; the manifest refuses to
 load on an unpaired `.ddd` or sidecar or a malformed sidecar.
 
@@ -128,13 +129,17 @@ its `test e2e` blocks:
 - **call every derived route** of every aggregate a backend deployable serves
   — the crudish `create` / `getById` / `update` / `destroy` / `all`, each
   declared operation and each find. An operation with no caller fails the
-  census unless it is pinned in `UNCALLED_PINS`
-  (`test/ir/api-caller-census-pins.ts`) with a reason class; pins are for
-  routes the `test e2e` surface cannot reach, not for tests nobody wrote.
+  census unless the sidecar pins it under `apiCaller.uncalled`
+  (`"<operationId>": "<class>"`, a key of `R` in
+  `test/ir/api-caller-census-pins.ts`); pins are for routes the `test e2e`
+  surface cannot reach, not for tests nobody wrote.
 - **pin the calls the census cannot attribute.** A workflow run or a
   projection read maps to no derived operation, so each such `api.*` call
-  must be listed in `UNATTRIBUTED_CALLS` for the fixture. The census compares
-  both sets exactly, so a pin that goes stale fails too.
+  must be listed in the sidecar's `apiCaller.unattributed`. The census
+  compares both sets exactly, so a pin that goes stale fails too.
+
+A fixture with no `test e2e` block at all sets `apiCaller.e2eLess` to the
+reason it has none.
 
 ### Test infrastructure / emulation
 

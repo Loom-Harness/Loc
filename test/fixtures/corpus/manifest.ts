@@ -198,6 +198,22 @@ export interface CorpusFeature {
    *  backend boots and comes up once the backend has tried it — the boot
    *  gate (`test/support/fakes/broker-sidecar.mjs`). */
   readonly fakes?: { readonly broker?: "after-boot" };
+  /**
+   * The fixture's entries in the api-caller census
+   * (`test/ir/api-caller-census.test.ts`), kept beside the fixture so two
+   * changes pinning different fixtures never edit one shared map:
+   * `uncalled` maps a derived operationId with no `test e2e` caller to its
+   * reason class (a key of `R` in `api-caller-census-pins.ts`); `unattributed`
+   * lists the `api.*` calls that map to no derived operation (a workflow run,
+   * a projection read); `e2eLess` says why the fixture has no `test e2e` block.
+   */
+  readonly apiCaller?: CorpusApiCaller;
+}
+
+export interface CorpusApiCaller {
+  readonly uncalled?: Readonly<Record<string, string>>;
+  readonly unattributed?: readonly string[];
+  readonly e2eLess?: string;
 }
 
 /** The named backend sets a sidecar's `backends` may cite instead of a list. */
@@ -215,7 +231,35 @@ export const BACKEND_SETS: Readonly<Record<string, readonly Backend[]>> = {
 };
 
 const SIDECAR_SUFFIX = ".corpus.json";
-const SIDECAR_KEYS = new Set(["//", "title", "doc", "backends", "note", "deployables", "fakes"]);
+const SIDECAR_KEYS = new Set(["//", "title", "doc", "backends", "note", "deployables", "apiCaller", "fakes"]);
+const API_CALLER_KEYS = new Set(["//", "uncalled", "unattributed", "e2eLess"]);
+
+const isStringList = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.every((x) => typeof x === "string");
+
+/** Why a sidecar's `apiCaller` block is malformed (empty when it is not). */
+function apiCallerErrors(where: string, v: unknown): string[] {
+  if (v === null || typeof v !== "object" || Array.isArray(v))
+    return [`${where}: \`apiCaller\` must be an object`];
+  const o = v as Record<string, unknown>;
+  const errors = Object.keys(o)
+    .filter((k) => !API_CALLER_KEYS.has(k))
+    .map((k) => `${where}: unknown apiCaller key ${JSON.stringify(k)}`);
+  const u = o.uncalled;
+  if (
+    u !== undefined &&
+    (u === null ||
+      typeof u !== "object" ||
+      Array.isArray(u) ||
+      !Object.values(u).every((r) => typeof r === "string"))
+  )
+    errors.push(`${where}: \`apiCaller.uncalled\` must map operationIds to reason-class names`);
+  if (o.unattributed !== undefined && !isStringList(o.unattributed))
+    errors.push(`${where}: \`apiCaller.unattributed\` must be a list of strings`);
+  if (o.e2eLess !== undefined && typeof o.e2eLess !== "string")
+    errors.push(`${where}: \`apiCaller.e2eLess\` must be a string`);
+  return errors;
+}
 
 /** Parse one sidecar's JSON into a row, or the reasons it is malformed. */
 export function parseSidecar(id: string, raw: unknown): { row?: CorpusFeature; errors: string[] } {
@@ -257,6 +301,7 @@ export function parseSidecar(id: string, raw: unknown): { row?: CorpusFeature; e
     )
   )
     errors.push(`${id}${SIDECAR_SUFFIX}: \`fakes\` may only be { "broker": "after-boot" }`);
+  if (o.apiCaller !== undefined) errors.push(...apiCallerErrors(`${id}${SIDECAR_SUFFIX}`, o.apiCaller));
   if (errors.length > 0 || !backends) return { errors };
   return {
     errors,
@@ -268,6 +313,7 @@ export function parseSidecar(id: string, raw: unknown): { row?: CorpusFeature; e
       ...(o.note !== undefined ? { note: o.note as string } : {}),
       ...(deployables !== undefined ? { deployables: deployables as string[] } : {}),
       ...(fakes !== undefined ? { fakes: fakes as { broker?: "after-boot" } } : {}),
+      ...(o.apiCaller !== undefined ? { apiCaller: o.apiCaller as CorpusApiCaller } : {}),
     },
   };
 }

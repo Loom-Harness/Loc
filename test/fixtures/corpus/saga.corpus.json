@@ -1,5 +1,11 @@
 {
   "title": "in-process dispatch / saga with persisted correlation",
   "doc": "workflow",
-  "backends": "ALL"
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "M-T9.42 — the EVENT-SOURCED saga's instance reads (LIST folds every stream, by-key folds one), the same not-lifted workflow-route class as above. …and the plain (state-table) saga's by-key read (M-T9.42 own-state).",
+    "unattributed": [
+      "api.orderFulfillment.instance (no such aggregate)"
+    ]
+  }
 }

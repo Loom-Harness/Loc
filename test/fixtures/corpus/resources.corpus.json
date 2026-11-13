@@ -1,5 +1,17 @@
 {
   "title": "external resources — objectStore / queue / http api / mailer (smtp) clients",
   "doc": "resources",
-  "backends": "ALL"
+  "backends": "ALL",
+  "apiCaller": {
+    "uncalled": {
+      "allOrder": "autoFindAll",
+      "createOrder": "create",
+      "destroyOrder": "destroy",
+      "getOrderById": "getById",
+      "updateOrder": "crudishUpdate"
+    },
+    "unattributed": [
+      "api.archive.run (no such aggregate)"
+    ]
+  }
 }

@@ -2,6 +2,14 @@
   "title": "a channel-bound producer + consumer whose kafka broker is down while the backend boots",
   "doc": "channels",
   "backends": "ALL",
-  "fakes": { "broker": "after-boot" },
-  "note": "the boot gate (test/support/fakes/broker-sidecar.mjs) refuses every broker connection until the backend has tried one, so a consumer that connects once at init and gives up fails the boot; a retrying one boots and carries on."
+  "fakes": {
+    "broker": "after-boot"
+  },
+  "note": "the boot gate (test/support/fakes/broker-sidecar.mjs) refuses every broker connection until the backend has tried one, so a consumer that connects once at init and gives up fails the boot; a retrying one boots and carries on.",
+  "apiCaller": {
+    "uncalled": {
+      "allOrder": "autoFindAll",
+      "getOrderById": "getById"
+    }
+  }
 }
