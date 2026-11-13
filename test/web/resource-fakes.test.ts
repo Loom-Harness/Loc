@@ -362,7 +362,16 @@ describe("worker-side routing + bundle facades", () => {
     const sg = await import(
       `data:text/javascript,${encodeURIComponent(RESOURCE_FACADE_PACKAGES["@sendgrid/mail"] as string)}`
     );
-    await sg.default.send({ from: "f@x", to: "t@x", subject: "s2", text: "b" });
+    // The generated client builds its own MailService over a Client.
+    const sgClient = await import(
+      `data:text/javascript,${encodeURIComponent(RESOURCE_FACADE_PACKAGES["@sendgrid/client"] as string)}`
+    );
+    const client = new sgClient.Client();
+    client.setApiKey("k");
+    client.setDefaultRequest("baseUrl", "http://fake:9090");
+    const mail = new sg.MailService();
+    mail.setClient(client);
+    await mail.send({ from: "f@x", to: "t@x", subject: "s2", text: "b" });
     expect(
       ((await callService("mailbox", "list", {})) as { via: string }[]).map((m) => m.via),
     ).toEqual(["smtp", "sendgrid"]);

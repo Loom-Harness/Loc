@@ -3,7 +3,7 @@
 // `globalThis.__loomInfra` (installed by `runtime/resource-fakes.ts`).
 //
 //   smtp       `nodemailer` → Mailbox        (facade package)
-//   sendgrid   `@sendgrid/mail` → Mailbox    (facade package)
+//   sendgrid   `@sendgrid/mail` + `@sendgrid/client` → Mailbox (facade packages)
 //   ses        real `@aws-sdk/client-ses`, its HTTP answered by the fake SES
 //   s3         real `@aws-sdk/client-s3` + presigner, HTTP answered by the fake S3
 //   localDisk  `node:fs` → the infra worker's disk
@@ -63,9 +63,23 @@ export const RESOURCE_FACADE_PACKAGES: Readonly<Record<string, string>> = {
     "export default { createTransport };",
   ].join("\n"),
   "@sendgrid/mail": [
+    "export class MailService {",
+    "  setApiKey() {}",
+    "  setClient() {}",
+    `  async send(m) { await ${capture("sendgrid", "m")}; return [{ statusCode: 202, body: "", headers: {} }, {}]; }`,
+    "}",
+    "const mail = new MailService();",
     "export function setApiKey() {}",
-    `export async function send(m) { await ${capture("sendgrid", "m")}; return [{ statusCode: 202, body: "", headers: {} }, {}]; }`,
-    "export default { setApiKey, send };",
+    "export async function send(m) { return mail.send(m); }",
+    "export default mail;",
+  ].join("\n"),
+  // The endpoint override is a no-op here: the facade never leaves the page.
+  "@sendgrid/client": [
+    "export class Client {",
+    "  setApiKey() {}",
+    "  setDefaultRequest() { return this; }",
+    "}",
+    "export default new Client();",
   ].join("\n"),
 };
 
