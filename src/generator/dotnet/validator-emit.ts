@@ -1,5 +1,6 @@
 import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../../ir/enrich/wire-policy.js";
 import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
+import { valueObjectBorne, valueObjectParams } from "../../ir/plan/value-object-params.js";
 import type {
   AggregateIR,
   ExprIR,
@@ -252,23 +253,6 @@ ${ruleLines.join("\n")}
 // matching node/python/elixir instead of the domain-floor 400.
 // ---------------------------------------------------------------------------
 
-/** Resolve a (possibly array/optional-wrapped) type to the value object it
- *  bears, plus whether the field is a collection (RuleFor vs RuleForEach). */
-function voBorne(type: TypeIR): { name: string; each: boolean } | null {
-  switch (type.kind) {
-    case "valueobject":
-      return { name: type.name, each: false };
-    case "array": {
-      const e = voBorne(type.element);
-      return e ? { name: e.name, each: true } : null;
-    }
-    case "optional":
-      return voBorne(type.inner);
-    default:
-      return null;
-  }
-}
-
 /** True when a value object carries at least one wire-boundary rule (so its
  *  `<VO>RequestValidator` is emitted and SetValidator-referenced). */
 export function voHasWireRules(vo: ValueObjectIR): boolean {
@@ -290,7 +274,7 @@ function voRequestFields(
 ): { field: string; voClass: string; each: boolean; nullable: boolean }[] {
   const out: { field: string; voClass: string; each: boolean; nullable: boolean }[] = [];
   for (const p of params) {
-    const borne = voBorne(p.type);
+    const borne = valueObjectBorne(p.type);
     if (!borne) continue;
     const vo = voByName.get(borne.name);
     if (!vo || !voHasWireRules(vo)) continue;
@@ -379,6 +363,51 @@ export function renderRequestValidators(
   vos: readonly ValueObjectIR[],
   ns: string,
 ): string | null {
+  return renderRequestValidatorFile(
+    requestParamSets(agg),
+    vos,
+    ns,
+    `${ns}.Application.${plural(agg.name)}.Requests`,
+  );
+}
+
+/** The request validators of a context's workflow `create` routes, as one
+ *  `Application/Workflows/WorkflowRequestValidators.cs` — a `<Wf>RequestValidator`
+ *  per workflow whose params bear a rule-carrying value object
+ *  (`valueObjectParams`), plus the `<Vo>RequestValidator`s it SetValidator-refs
+ *  over the workflows namespace's own `<Vo>Request` records.  The controller
+ *  runs it before mapping, so a breach is the wire 422 at `/<param>/<member>`
+ *  an operation param answers.  Null when no workflow needs one. */
+export function renderWorkflowRequestValidators(
+  workflows: readonly {
+    name: string;
+    params: { name: string; type: TypeIR; default?: ExprIR }[];
+  }[],
+  vos: readonly ValueObjectIR[],
+  ns: string,
+): string | null {
+  return renderRequestValidatorFile(
+    workflows.map((wf) => ({
+      name: `${upperFirst(wf.name)}Request`,
+      params: valueObjectParams(wf.params).map(({ param }) => param),
+      patch: false,
+    })),
+    vos,
+    ns,
+    `${ns}.Application.Workflows`,
+  );
+}
+
+function renderRequestValidatorFile(
+  sets: readonly {
+    name: string;
+    params: { name: string; type: TypeIR; default?: ExprIR }[];
+    patch?: boolean;
+  }[],
+  vos: readonly ValueObjectIR[],
+  ns: string,
+  namespace: string,
+): string | null {
   const voByName = new Map(vos.map((v) => [v.name, v]));
   const classes: string[] = [];
   // Namespaces the emitted `.Must(…)` predicates reach into beyond the SDK's
@@ -387,9 +416,9 @@ export function renderRequestValidators(
   // `using FluentValidation;` and the project failed to build with CS0103.
   const fileUsings = new Set<string>();
 
-  // 1) A `<VO>RequestValidator` for every VO (used by this agg) carrying rules.
+  // 1) A `<VO>RequestValidator` for every VO (used by these requests) carrying rules.
   const emittedVo = new Set<string>();
-  for (const set of requestParamSets(agg)) {
+  for (const set of sets) {
     for (const f of voRequestFields(set.params, voByName)) {
       const voName = f.voClass.slice(0, -"RequestValidator".length);
       if (emittedVo.has(voName)) continue;
@@ -417,7 +446,7 @@ export function renderRequestValidators(
   }
 
   // 2) A `<Request>Validator` per request that SetValidator-refs its VO fields.
-  for (const set of requestParamSets(agg)) {
+  for (const set of sets) {
     const fields = voRequestFields(set.params, voByName, set.patch);
     if (fields.length === 0) continue;
     const rules = fields.map((f) => {
@@ -446,7 +475,7 @@ export function renderRequestValidators(
   return `// Auto-generated.
 using FluentValidation;${extraUsings ? "\n" + extraUsings : ""}
 
-namespace ${ns}.Application.${plural(agg.name)}.Requests;
+namespace ${namespace};
 
 ${classes.join("\n\n")}
 `;

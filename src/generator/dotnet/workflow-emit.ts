@@ -48,6 +48,7 @@ type ResolvedWorkflowBody = {
 };
 
 import { wireStatus } from "../../ir/enrich/wire-policy.js";
+import { valueObjectParams } from "../../ir/plan/value-object-params.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { errorStatuses } from "../../ir/util/openapi-errors.js";
 import {
@@ -110,6 +111,7 @@ import type { CsRenderContext } from "./render-expr.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "./render-expr.js";
 import { collectCsStmtUsings, renderCsStatements } from "./render-stmt.js";
 import { splitUnionSuccessTags } from "./union-records.js";
+import { renderWorkflowRequestValidators, requestVoValidatorName } from "./validator-emit.js";
 import {
   csNotFoundException,
   csProblemResponseAttr,
@@ -263,6 +265,8 @@ export function emitWorkflows(
     // mirroring the aggregate-create `<Vo>Request` shape.
     const voRequests = renderWorkflowValueObjectRequests(commandWfs, ctx, ns);
     if (voRequests) out.set("Application/Workflows/WorkflowRequests.cs", voRequests);
+    const voValidators = renderWorkflowRequestValidators(commandWfs, ctx.valueObjects, ns);
+    if (voValidators) out.set("Application/Workflows/WorkflowRequestValidators.cs", voValidators);
     // A command-workflow whose param is a declared record PAYLOAD
     // (`create(c: FileClaim)` — `docs/workflow.md`'s explicit-command form)
     // needs TWO records that nothing else emits, because a payload has no
@@ -2291,7 +2295,16 @@ function renderController(
   const className = `${ctx.name}WorkflowsController`;
   const route = `${routePrefix ?? ""}workflows`;
   const blocks: string[] = [];
+  let anyWireValidator = false;
   for (const wf of workflows) {
+    // A param bearing a rule-carrying value object is judged at the wire, as an
+    // operation param is (`renderWorkflowRequestValidators`).
+    const wireValidator = requestVoValidatorName(
+      `${upperFirst(wf.name)}Request`,
+      valueObjectParams(wf.params).map(({ param }) => param),
+      ctx.valueObjects,
+    );
+    if (wireValidator) anyWireValidator = true;
     const cmdArgs = wf.params
       .map((p) =>
         wireToCommandArgument(`request.${upperFirst(p.name)}`, p.type, ctx, {
@@ -2361,6 +2374,7 @@ function renderController(
         armAttrs +
         `    public async Task<IActionResult> ${upperFirst(camelId(opWorkflow(wf.name)))}([FromBody] ${upperFirst(wf.name)}Request request)\n` +
         `    {\n` +
+        (wireValidator ? `        new ${wireValidator}().ValidateAndThrow(request);\n` : "") +
         `        var cmd = new ${upperFirst(wf.name)}Command(\n            ${cmdArgs});\n` +
         send +
         `    }\n`,
@@ -2371,7 +2385,7 @@ function renderController(
   // `ref`; their slots render iff the actions use them.
   const extraUsings = sortedCsUsings([]);
   return `// Auto-generated.
-using System.Threading.Tasks;${extraUsings.length > 0 ? "\n" + extraUsings.join("\n") : ""}
+using System.Threading.Tasks;${extraUsings.length > 0 ? "\n" + extraUsings.join("\n") : ""}${anyWireValidator ? "\nusing FluentValidation;" : ""}
 using Mediator;
 using Microsoft.AspNetCore.Mvc;
 using ${ns}.Application.Workflows;
