@@ -129,6 +129,18 @@ function isNavigable(p: PageIR): boolean {
   return true;
 }
 
+/** A page a frontend's DEFAULT sidebar links: one with a parameterless route
+ *  inside the app shell (`isNavigable`), and not a create or detail
+ *  page of a scaffolded aggregate or workflow — those are reached from their
+ *  list, and a detail route's `:id` has no value to link to. */
+export function isDefaultNavPage(p: PageIR, pageCtx: PageNameCtx): boolean {
+  if (!isNavigable(p)) return false;
+  const kind = classifyPage(p, pageCtx).kind;
+  return (
+    kind !== "aggregate-new" && kind !== "aggregate-detail" && kind !== "workflow-instance-detail"
+  );
+}
+
 /** Merge a caller's DEFAULT sidebar sections with the sections derived
  *  from the ui's own pages.  Defaults come first (an empty one is
  *  dropped rather than rendering a heading over nothing); a default

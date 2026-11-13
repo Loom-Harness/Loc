@@ -47,7 +47,11 @@ import {
 } from "../_frontend/i18n-runtime.js";
 import { localeDir } from "../_frontend/locale-meta.js";
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
-import { deriveSidebarFromUi, type NavSectionVM } from "../_frontend/menu-emitter.js";
+import {
+  deriveSidebarFromUi,
+  isDefaultNavPage,
+  type NavSectionVM,
+} from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { ANGULAR_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
@@ -579,7 +583,7 @@ export function generateAngularForContexts(
           label: e.label,
           labelKey: e.labelKey,
           testId: e.testId,
-          requiresJs: e.requiresJs,
+          requiresJs: sessionLoadedGate(e.requiresJs),
           external: !!e.external,
           href: e.href,
         })),
@@ -592,7 +596,7 @@ export function generateAngularForContexts(
           label: e.label,
           labelKey: e.labelKey,
           testId: e.testId,
-          requiresJs: e.requiresJs,
+          requiresJs: sessionLoadedGate(e.requiresJs),
           external: !!e.external,
           href: e.href,
         })),
@@ -956,17 +960,26 @@ function defaultAngularNavSection(
 ): NavSectionVM {
   return {
     label: humanize(sys.name),
-    entries: pages.map((p) => ({
-      to: p.route ?? "",
-      // A page's own `menu { label: … }` (a scaffold List page's "Products")
-      // names its link; `deriveSidebarFromUi` keys it and groups it under the
-      // page's `menu { section: … }`.
-      label: menuMetaString(p, "label") ?? humanize(p.name),
-      testId: `nav-${pageSlug(p, pageCtx)}`,
-      activeArgs: JSON.stringify(p.route ?? ""),
-      ...(authUi && p.requires ? { requiresJs: renderGateExpr(p.requires, "currentUser") } : {}),
-    })),
+    entries: pages
+      .filter((p) => isDefaultNavPage(p, pageCtx))
+      .map((p) => ({
+        to: p.route ?? "",
+        // A page's own `menu { label: … }` (a scaffold List page's "Products")
+        // names its link; `deriveSidebarFromUi` keys it and groups it under the
+        // page's `menu { section: … }`.
+        label: menuMetaString(p, "label") ?? humanize(p.name),
+        testId: `nav-${pageSlug(p, pageCtx)}`,
+        activeArgs: JSON.stringify(p.route ?? ""),
+        ...(authUi && p.requires ? { requiresJs: renderGateExpr(p.requires, "currentUser") } : {}),
+      })),
   };
+}
+
+/** A gated nav link's condition, false until `/auth/me` resolves.  The shell
+ *  renders outside the auth gate, so before the session loads `currentUser` is
+ *  `{}` and `currentUser.permissions.includes(…)` would throw. */
+function sessionLoadedGate(requiresJs: string | undefined): string | undefined {
+  return requiresJs === undefined ? undefined : `session.user() != null && (${requiresJs})`;
 }
 
 /**
