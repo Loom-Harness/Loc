@@ -1119,6 +1119,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "the sibling call typed as unknown, so node and python narrowed the chain to a double at the call (0.006999999999999999 for 0.007).  The golden was minted from python (its oracle field says so) while node could not yet compile a domain-service sibling call; every leg, node included, compares against it.",
   },
   {
+    id: "money-test-literals",
+    title:
+      "`money` literals in a unit-test body — operation argument, create input, domain-service argument, matcher expected — reach each backend's exact decimal",
+    doc: "language",
+    backends: ALL,
+    note: "node passed the bare number where the domain takes a decimal.js `Decimal`, and python a float (`Decimal + float` raises; `Decimal(\"0.3\") == 0.3` is False).  The shared test-literal rule (`_test/arg-coercion.ts`) decides the money position; each backend spells the literal through its own expression renderer.",
+  },
+  {
     id: "domain-floor-messages",
     title:
       "M-T1.11 (c) — a named invariant / precondition tripped at the DOMAIN FLOOR answers 422 with an `errors[]` entry carrying the rule's `<Ctx>.<Owner>.rule.<name>` code",
