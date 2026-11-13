@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { RESOURCE_FACADE_PACKAGES } from "../../web/src/engine/npm/resource-facades.js";
 import { CacheModel, type CacheServerInfo, runCommand } from "../../src/emulation/cache.js";
+import { RESOURCE_FACADE_PACKAGES } from "../../web/src/engine/npm/resource-facades.js";
 import { createCacheService } from "../../web/src/runtime/infra/cache.js";
 
 // The playground's cache (web/src/runtime/infra/cache.ts over the core's

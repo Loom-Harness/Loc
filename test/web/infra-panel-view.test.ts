@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createBroker } from "../../src/emulation/broker-model.js";
 import {
   brokerAddresses,
   deadLetterOf,
@@ -8,7 +9,6 @@ import {
 } from "../../web/src/infra-panel/broker-view.js";
 import { formatRemaining } from "../../web/src/infra-panel/format.js";
 import { decodeJwt } from "../../web/src/infra-panel/jwt.js";
-import { createBroker } from "../../src/emulation/broker-model.js";
 
 // The pure shaping behind the infra panel's Broker and OIDC tabs.  The tabs
 // themselves are proven in the browser (web/e2e/infra-panel-*.spec.ts).
