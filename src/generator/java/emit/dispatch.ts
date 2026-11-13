@@ -2,8 +2,8 @@ import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
 import {
   esStarterSharesEvent,
-  foldInboxClaimSql,
   type FoldStep,
+  foldInboxClaimSql,
   foldSteps,
   foldsDedupe,
   namesBound,
@@ -646,7 +646,10 @@ export function renderJavaDispatcher(
   }
   // The idempotent-consumer marker preamble (renderHandler, above) references
   // OutboxDelivery only for non-event-sourced sagas under a durable channel.
-  if (dctx.deployableDurable === true && (stateWfs.length > 0 || (dedupe && touchedProjections.length > 0))) {
+  if (
+    dctx.deployableDurable === true &&
+    (stateWfs.length > 0 || (dedupe && touchedProjections.length > 0))
+  ) {
     imports.add(`${dctx.basePkg}.domain.common.OutboxDelivery`);
   }
 

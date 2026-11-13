@@ -1,6 +1,7 @@
 import { aggregateRouteTypes } from "../../../ir/enrich/wire-policy.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
 import { frontendAxesOf } from "../../../util/frontend-axes.js";
+
 // ---------------------------------------------------------------------------
 // Elixir orchestrator — the elixir emit subtree.
 //
@@ -14,6 +15,7 @@ import { frontendAxesOf } from "../../../util/frontend-axes.js";
 
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
+import { foldsDedupe } from "../../../ir/plan/index.js";
 import {
   type ChannelIR,
   sourceLocaleOf,
@@ -804,6 +806,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       {
         durableBroker: durableBrokerEvents.size > 0,
         carriesOrigin: deployable.auth?.required === true && !!sys.user,
+        pruneInbox: contexts.some((c) => foldsDedupe(c, true)),
       },
     );
     for (const [path, content] of emission.files) out.set(path, content);
@@ -826,6 +829,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       durableEventIrs,
       hostedDispatchers,
       deployable.auth?.required === true && !!sys.user,
+      contexts.some((c) => foldsDedupe(c, true)),
     );
     for (const [path, content] of emission.files) out.set(path, content);
     channelChildren = emission.children;

@@ -25,9 +25,9 @@ import {
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
 import {
-  foldInboxClaimSql,
   type FoldRowSeed,
   type FoldStep,
+  foldInboxClaimSql,
   foldRowSeeds,
   foldSteps,
   foldsDedupe,

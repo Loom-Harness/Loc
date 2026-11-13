@@ -1,9 +1,9 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
 import {
-  foldInboxClaimSql,
   type FoldRowSeed,
   type FoldStep,
+  foldInboxClaimSql,
   foldRowSeeds,
   foldSteps,
   foldsDedupe,

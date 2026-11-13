@@ -28,11 +28,11 @@ export { lookupOp } from "./operation-lookup.js";
 export {
   assignsFoldKey,
   FOLD_INBOX_TABLE,
-  foldInboxClaimSql,
-  foldInboxPurgeSql,
   type FoldRowSeed,
   type FoldRowZero,
   type FoldStep,
+  foldInboxClaimSql,
+  foldInboxPurgeSql,
   foldRowSeeds,
   foldSteps,
   foldsDedupe,

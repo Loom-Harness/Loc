@@ -1,3 +1,4 @@
+import { foldInboxPurgeSql } from "../../ir/plan/index.js";
 import type { EventIR, StmtIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { branchesContain } from "../../ir/util/if-normal-form.js";
 import {
@@ -322,6 +323,9 @@ function elixirOutboxRelayModule(
   /** The delivery publishes through a broker: an unreachable broker halts the
    *  pass and backs off without spending the row's attempt budget. */
   brokerAware = false,
+  /** The folds claim events in the fold inbox (`foldsDedupe`): the purge
+   *  prunes it on the outbox's window. */
+  pruneInbox = false,
 ): string {
   const deadLetteredLog = renderPhoenixLogCall("eventDeadLettered", [
     { name: "id", valueExpr: "row.id" },
@@ -422,7 +426,12 @@ function elixirOutboxRelayModule(
         limit: @purge_batch
       )
 
-    ${appModule}.Repo.delete_all(from(o in ${appModule}.LoomOutbox, where: o.id in subquery(expired)))
+    ${appModule}.Repo.delete_all(from(o in ${appModule}.LoomOutbox, where: o.id in subquery(expired)))${
+      pruneInbox
+        ? `
+    ${appModule}.Repo.query!(${JSON.stringify(foldInboxPurgeSql("$1"))}, [cutoff])`
+        : ""
+    }
   rescue
     error ->
       ${purgeErrorLog}
@@ -482,6 +491,8 @@ export function emitElixirStandaloneOutbox(
   /** The deployable carries auth: rows record the EVENT ORIGIN and the relay
    *  delivers each as its system principal (ruling D1). */
   carriesOrigin = false,
+  /** See `elixirOutboxRelayModule`. */
+  pruneInbox = false,
 ): ElixirChannelFiles {
   const files = emissionSink("generator/elixir/channels-emit");
   const webModule = `${appModule}Web`;
@@ -609,6 +620,8 @@ ${elixirOutboxRelayModule(
     after
       Process.delete(:loom_event_id)
     end`,
+  false,
+  pruneInbox,
 )}`,
   );
   children.push(`      ${appModule}.LocalOutboxRelay`);
@@ -628,7 +641,9 @@ export function emitElixirChannelFiles(
    *  site opens around persist + dispatch) and the OutboxRelay publishes
    *  on drain with the row id as the envelope id (design §5).  False on
    *  consumers that don't host the durable channel's context. */
-  opts: { durableBroker: boolean; carriesOrigin?: boolean } = { durableBroker: false },
+  opts: { durableBroker: boolean; carriesOrigin?: boolean; pruneInbox?: boolean } = {
+    durableBroker: false,
+  },
 ): ElixirChannelFiles {
   // `carriesOrigin`: the deployable carries auth — envelopes and outbox rows
   // carry the raising process's EVENT ORIGIN and the consumer / relay deliver
@@ -1190,6 +1205,7 @@ ${elixirOutboxRelayModule(
   "OutboxRelay",
   `    ${appModule}.Channels.publish_from_relay(row.type, row.payload, row.id)`,
   true,
+  opts.pruneInbox ?? false,
 )}`,
     );
     children.push(`      ${appModule}.OutboxRelay`);

@@ -73,7 +73,10 @@ export function emitProjectionDispatch(
     const on = proj.handlers.find((h) => h.event === s.event && h.param === s.param);
     if (!on) continue;
     const cls = projectionHandlerClass(proj, on);
-    out.set(`Application/Workflows/${cls}.cs`, renderProjectionFoldHandler(cls, proj, on, ns, dedupe));
+    out.set(
+      `Application/Workflows/${cls}.cs`,
+      renderProjectionFoldHandler(cls, proj, on, ns, dedupe),
+    );
   }
 }
 

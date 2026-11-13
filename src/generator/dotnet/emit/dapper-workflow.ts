@@ -24,7 +24,12 @@
 // ---------------------------------------------------------------------------
 
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
-import { eventLogTable, foldInboxClaimSql, foldInboxPurgeSql, stateRowWorkflows } from "../../../ir/plan/index.js";
+import {
+  eventLogTable,
+  foldInboxClaimSql,
+  foldInboxPurgeSql,
+  stateRowWorkflows,
+} from "../../../ir/plan/index.js";
 import {
   isMaterializedProjection,
   isSingletonProjection,
