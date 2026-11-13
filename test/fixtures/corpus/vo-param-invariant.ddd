@@ -63,6 +63,14 @@ system VoParamInvariant {
     expect(kept.span.low).toBe(2)
     expect(kept.span.high).toBe(9)
 
+    // The aggregate's own create and update carry the same value object.
+    let m = api.lots.create({ label: "m", span: { low: 0, high: 1 } })
+    expect(api.lots.create({ label: "x", span: { low: 3, high: 1 } })).toThrow(422)
+    api.lots.update(m, { label: "m2", span: { low: 0, high: 2 } })
+    expect(api.lots.update(m, { label: "m2", span: { low: 4, high: 2 } })).toThrow(422)
+    expect(api.lots.getById(m).span.high).toBe(2)
+    api.lots.destroy(m)
+
     api.lots.destroy(l)
     expect(api.lots.getById(l)).toThrow(404)
   }
