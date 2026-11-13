@@ -1,0 +1,57 @@
+// Two frontends, each on its own backend, over one shared `storage`.
+// `backoffice` targets `admin`, `shopfront` targets `storefront`; both
+// backends bind `primary`, so a product created in the back office is listed
+// in the shop.
+//
+// The playground previews every frontend: the picker above the preview
+// switches between them, and each one's API calls go to the backend its
+// `targets:` names.
+
+system MultiFrontend {
+  subdomain Catalog {
+    context Catalog {
+      aggregate Product with crudish {
+        sku: string
+        name: string
+        invariant sku.length > 0
+      }
+    }
+  }
+
+  ui Backoffice with scaffold(subdomains: [Catalog]) {
+  }
+
+  ui Shop with scaffold(subdomains: [Catalog]) {
+  }
+
+  storage primary { type: postgres }
+  resource catalogState { for: Catalog, kind: state, use: primary }
+
+  deployable admin {
+    platform: node
+    contexts: [Catalog]
+    dataSources: [catalogState]
+    port: 3000
+  }
+
+  deployable storefront {
+    platform: node
+    contexts: [Catalog]
+    dataSources: [catalogState]
+    port: 3002
+  }
+
+  deployable backoffice {
+    platform: react
+    targets: admin
+    ui: Backoffice
+    port: 3001
+  }
+
+  deployable shopfront {
+    platform: react
+    targets: storefront
+    ui: Shop
+    port: 3003
+  }
+}

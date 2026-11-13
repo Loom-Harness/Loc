@@ -111,16 +111,23 @@ mobile they render as the plain source editor until explicitly opened
 
 ### Live preview
 
-When the generated tree contains Hono backends and a React frontend, the
+When the generated tree contains Hono backends and React frontends, the
 engine bundles each of them (an in-browser npm install + esbuild-wasm
 bundle, `src/engine/`), boots every backend in its own runtime worker, and
-the React app renders in a sandboxed iframe. Iframe `fetch()` calls to `http://localhost:*` are
+a React app renders in a sandboxed iframe. Iframe `fetch()` calls to `http://localhost:*` are
 intercepted by an in-iframe shim and routed via `postMessage` to the
 parent, which dispatches them through the runtime worker of the backend the
 frontend `targets:` — so the
 generated React → Hono → Postgres round-trip runs end-to-end under one
 origin. In live mode the preview refreshes in place as you type (debounced
 ~5 s).
+
+Every React frontend of a system is previewable. When there is more than
+one, a **Frontend** picker above the preview switches between them; each
+option names the backend that frontend targets, and the preview sends that
+frontend's API calls (and its login redirect chain) there. The frontends
+are listed by slug, and the backend the first one targets is the HTTP
+console's default target.
 
 The runtime is **Hono + React only**. A system that declares only .NET,
 Phoenix LiveView, Java, or Python deployables — or a Vue, Svelte, Angular,

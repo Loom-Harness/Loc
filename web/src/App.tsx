@@ -165,6 +165,7 @@ import {
   backendBundlesOk as selBackendBundlesOk,
   combinedBackendBundle,
   pendingMigration as selPendingMigration,
+  frontendBundleResult as selFrontendBundleResult,
   reactBundleOk as selReactBundleOk,
 } from "./pipeline/state";
 import { DesktopHeader, MobileHeader } from "./layout/HeaderBar";
@@ -349,6 +350,8 @@ export default function App(): JSX.Element {
   const [reqTarget, setReqTarget] = useState<string | null>(null);
   /** The storage the SQL console and Reset act on; null = the first one. */
   const [dbTarget, setDbTarget] = useState<string | null>(null);
+  // The frontend the preview renders (a deployable slug); null = the first.
+  const [previewFrontend, setPreviewFrontend] = useState<string | null>(null);
   // Generated backends mount domain routes under `/api` (`app.route("/api/products", …)`),
   // matching the frontend client's `API_BASE_URL` (= `/api`).  The HTTP-console
   // default must include that prefix or the first dispatch 404s.
@@ -667,8 +670,11 @@ export default function App(): JSX.Element {
   // injecting the Auth panel's identity (`authHeaders`).  Memoised with no
   // deps (reads engine + auth state via refs) so the preview iframe is not
   // re-mounted when the identity changes.
-  const authedRuntime = useMemo<RuntimeDispatcher>(() => {
-    const dispatch: RuntimeDispatcher["dispatch"] = async (req) => {
+  // The preview's dispatcher, bound to `target` — the backend the previewed
+  // frontend's `targets:` names (undefined = the plan's first backend).  The
+  // login redirect chain follows the same backend as the page's API calls.
+  const runtimeFor = useCallback((target: string | undefined): RuntimeDispatcher => {
+    const dispatch: RuntimeDispatcher["dispatch"] = async (req, explicit) => {
         const engine = engineRef.current;
         if (!engine) throw new Error("runtime not ready");
         const jar = previewCookiesRef.current;
@@ -678,7 +684,7 @@ export default function App(): JSX.Element {
           ...(cookie ? { cookie } : {}),
           ...authHeaders(authStubRef.current, oidcRef.current),
         };
-        const out = await engine.dispatch({ ...req, headers });
+        const out = await engine.dispatch({ ...req, headers }, explicit ?? target);
         if (out.ok && out.response.setCookies) jar.store(out.response.setCookies);
         return out;
     };
@@ -963,6 +969,7 @@ export default function App(): JSX.Element {
     setLspDiagnostics([]);
     setSelectedPath(null);
     setPreviewBundle(null);
+    setPreviewFrontend(null);
     setPreviewBooted(false);
     clearBackendLog();
     setAppLog([]);
@@ -1305,8 +1312,8 @@ export default function App(): JSX.Element {
     [pipeline.boot],
   );
   const { honoBundleResult, honoBundle, bundledDeployables } = bundleDerived;
-  const reactBundleResult = pipeline.bundle.kind === "result" ? pipeline.bundle.react : null;
-  const reactBundle = selReactBundleOk(pipeline);
+  const reactBundleResult = selFrontendBundleResult(pipeline, previewFrontend);
+  const reactBundle = selReactBundleOk(pipeline, previewFrontend);
   const ddl = selBootedDDL(pipeline);
   const persistent = selBootPersistent(pipeline);
   const { appliedMigrations, bootedBackends, bootedDeployables, bootedStorages, bootPending } =
@@ -1334,7 +1341,7 @@ export default function App(): JSX.Element {
   // the `ctx` memo below miss on every single render.
   const reactBundleStatus = useMemo<ReactBundleStatus>(() => {
     if (pipeline.bundle.kind !== "result") return { kind: "pending" };
-    const r = pipeline.bundle.react;
+    const r = selFrontendBundleResult(pipeline, previewFrontend);
     if (r === null) {
       // The React half is skipped when the Hono half fails, so a null react
       // result after a failed Hono bundle is a FAILURE, not "no React
@@ -1345,7 +1352,7 @@ export default function App(): JSX.Element {
       return { kind: "absent" };
     }
     return r.ok ? { kind: "ok", result: r } : { kind: "fail", result: r };
-  }, [pipeline.bundle]);
+  }, [pipeline.bundle, previewFrontend]);
 
   // Last-good preview retention.  The preview now refreshes in place,
   // so it must stay mounted across the live-mode regenerate cascade —
@@ -1355,11 +1362,15 @@ export default function App(): JSX.Element {
   // iframe persist; the new bundle is hot-swapped only when generate +
   // bundle actually succeed.  A failed rebuild leaves the previous app
   // on screen and only flips `previewProblem` for a non-blocking badge.
-  const [previewBundle, setPreviewBundle] = useState<BundleOk | null>(null);
+  //
+  // The held bundle is the selected frontend's: picking another frontend
+  // drops it rather than keep showing the previous one.
+  const [heldPreview, setPreviewBundle] = useState<{ frontend: string | null; bundle: BundleOk } | null>(null);
+  const previewBundle = heldPreview?.frontend === previewFrontend ? heldPreview.bundle : null;
   const [previewBooted, setPreviewBooted] = useState(false);
   useEffect(() => {
-    if (reactBundle) setPreviewBundle(reactBundle);
-  }, [reactBundle]);
+    if (reactBundle) setPreviewBundle({ frontend: previewFrontend, bundle: reactBundle });
+  }, [reactBundle, previewFrontend]);
   useEffect(() => {
     if (ddl) setPreviewBooted(true);
   }, [ddl]);
@@ -1617,7 +1628,8 @@ export default function App(): JSX.Element {
   interface BundleStepResult {
     /** Every backend's bundle, when all of them bundled; null otherwise. */
     backends: BootableBackend[] | null;
-    react: BundleOk | { ok: false } | null;
+    /** Whether any frontend bundled — the preview has something to show. */
+    previewable: boolean;
   }
 
   async function runBundleStep(gen: GenerateOk): Promise<BundleStepResult | null> {
@@ -1640,8 +1652,8 @@ export default function App(): JSX.Element {
         ok: false as const,
         diagnostics: [{ severity: "error" as const, message }],
       };
-      dispatch({ type: "BUNDLE_DONE", backends: [{ slug: "", entry: "", bundle: failed }], react: null });
-      return { backends: null, react: null };
+      dispatch({ type: "BUNDLE_DONE", backends: [{ slug: "", entry: "", bundle: failed }], frontends: [] });
+      return { backends: null, previewable: false };
     }
     dispatch({ type: "BUNDLE_START" });
     // `gen.files` carries the `.ts.map` sidecars (either straight from
@@ -1650,15 +1662,15 @@ export default function App(): JSX.Element {
     // engine to inline them into the Hono boot bundle so DevTools can
     // chain a breakpoint back to `.ddd`.  Backend-only; the React run
     // never sets this (see `PrepareInput.sourcemap`).
-    const { backends, react: reactRes } = await engine.prepare({
+    const { backends, frontends } = await engine.prepare({
       files: gen.files,
       dependencies: emptyDependencySet(),
       backendEntries: entries.backends,
-      reactEntry: entries.react ?? undefined,
+      frontendEntries: entries.frontends.map((f) => f.entry),
       sourcemap: true,
     });
-    dispatch({ type: "BUNDLE_DONE", backends, react: reactRes });
-    return { backends: bootableBackends(backends), react: reactRes };
+    dispatch({ type: "BUNDLE_DONE", backends, frontends });
+    return { backends: bootableBackends(backends), previewable: frontends.some((f) => f.bundle.ok) };
   }
 
   // Best-effort: fetch the booted backend's OpenAPI document and turn it
@@ -2058,7 +2070,7 @@ export default function App(): JSX.Element {
     // React frontend present and successfully bundled → Preview is
     // the natural destination.  Otherwise the user gets the Backend
     // tab so they can poke endpoints against the live runtime.
-    if (navigate) setActiveTab(bundleRes.react?.ok ? "preview" : "backend");
+    if (navigate) setActiveTab(bundleRes.previewable ? "preview" : "backend");
     clearPhase();
     return "done";
   }
@@ -2248,6 +2260,13 @@ export default function App(): JSX.Element {
     () => analyzeDeployables(files),
     [files],
   );
+  // The frontends the preview can render, and the backend the selected one
+  // talks to.  A selection the tree no longer has falls back to the first.
+  const previewFrontends = deployableAnalysis.frontends;
+  const activeFrontend =
+    previewFrontends.find((f) => f.slug === previewFrontend) ?? previewFrontends[0] ?? null;
+  const previewApiTarget = activeFrontend?.apiTarget ?? undefined;
+  const authedRuntime = useMemo(() => runtimeFor(previewApiTarget), [runtimeFor, previewApiTarget]);
 
   // ---------------------------------------------------------------------
   // M-T8.20 — the `.loom/` views, the output diff, the correspondence.
@@ -3225,6 +3244,9 @@ export default function App(): JSX.Element {
       buildClient,
       engine,
       authedRuntime,
+      previewFrontends,
+      previewFrontend: activeFrontend?.slug ?? null,
+      setPreviewFrontend,
       authStub,
       oidc,
       editorSourceTick,
@@ -3337,6 +3359,8 @@ export default function App(): JSX.Element {
       buildClient,
       engine,
       authedRuntime,
+      previewFrontends,
+      activeFrontend,
       authStub,
       oidc,
       editorSourceTick,

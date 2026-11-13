@@ -31,6 +31,7 @@ import type {
 } from "../build/protocol";
 import type { Band, Correspondence, SourceSpan } from "../build/correspondence";
 import type { OutputDiff } from "../build/output-diff";
+import type { PreviewFrontend } from "../build/deployables";
 import type { SelectTarget } from "../build/select-target";
 import type { BundleFail, BundleOk } from "../bundle/protocol";
 import type { LoomExample } from "../examples";
@@ -367,9 +368,15 @@ export interface LayoutCtx {
   buildClient: LoomBuildClient | null;
   engine: RuntimeEngine | null;
   /** Dispatcher handed to the preview — wraps `engine` with the auth-stub
-   *  claims-header injection.  Stable identity (so the preview iframe is
-   *  not re-mounted when the stub changes). */
+   *  claims-header injection, and sends each request to the backend the
+   *  previewed frontend targets.  Stable identity per frontend (so the
+   *  preview iframe is not re-mounted when the stub changes). */
   authedRuntime: RuntimeDispatcher;
+  /** Every frontend the preview can render, sorted by slug. */
+  previewFrontends: ReadonlyArray<PreviewFrontend>;
+  /** The slug of the frontend the preview renders; null when there is none. */
+  previewFrontend: string | null;
+  setPreviewFrontend: (slug: string) => void;
 
   // Editor wiring
   /** Canonical-source sink.  `origin` distinguishes edits typed in Monaco
