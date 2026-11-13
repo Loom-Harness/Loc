@@ -590,6 +590,7 @@ message names the base to write it on.
 | Shape | Renders as |
 |---|---|
 | literals: string, int/long/decimal/money, bool, `null`, `now()` | the SQL constant (`now()` stays a call) |
+| a UUID string literal into a `guid` (or `X id`) column | the quoted constant, read as `uuid` |
 | enum value | its stored text |
 | a sibling scalar field (primitive / enum / `X id`) | the quoted column |
 | `( … )`, unary `-` / `!` | the same, `!` as `NOT` |

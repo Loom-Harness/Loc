@@ -123,6 +123,16 @@ export function validateMigrationDataSteps(loom: EnrichedLoomModel, diags: LoomD
         }),
         source,
       });
+    } else if (fit !== true && fit.expected === "guid" && fit.got === "string") {
+      diags.push({
+        severity: "error",
+        code: "loom.backfill-type-mismatch",
+        message: diagMessage("loom.backfill-type-mismatch#guid-literal", {
+          aggregate: intent.aggregate,
+          field: intent.field,
+        }),
+        source,
+      });
     } else if (fit !== true) {
       diags.push({
         severity: "error",
@@ -687,7 +697,19 @@ function backfillTypeFits(
   if (NUMERIC.has(got) && NUMERIC.has(expected)) return true;
   if (expected.startsWith("enum:") && got === "string") return true;
   if (expected === "id" && got === "string") return true;
+  // A `guid` column takes a UUID written as a string literal: Postgres reads
+  // the quoted constant straight into the uuid column.  Any other string —
+  // a malformed literal, or a text column's value — is refused, since
+  // Postgres would reject it at apply time.
+  if (expected === "guid" && got === "string" && isUuidLiteral(expr)) return true;
   return { expected, got };
+}
+
+const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuidLiteral(e: ExprIR): boolean {
+  if (e.kind === "paren") return isUuidLiteral(e.inner);
+  return e.kind === "literal" && e.lit === "string" && UUID_TEXT.test(e.value);
 }
 
 // ---------------------------------------------------------------------------
