@@ -1,3 +1,4 @@
+import { gateReadsRow } from "../../../ir/plan/gate-ladder.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -8,8 +9,13 @@ import type {
   RepositoryIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
-import { findGateUsesCurrentUser, findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import {
+  exprUsesCurrentUser,
+  findGateUsesCurrentUser,
+  findUsesCurrentUser,
+} from "../../../ir/types/loom-ir.js";
 import { maskedHistoryFields } from "../../../ir/util/audit-history.js";
+import { operationGates } from "../../../ir/util/op-gates.js";
 import { byIdRouteFind, isAlwaysDenyGate } from "../../../ir/util/read-gates.js";
 import { upperFirst } from "../../../util/naming.js";
 import { projectEntityExpr, projectionNamesDomainCommon } from "../dto-mapping.js";
@@ -44,11 +50,17 @@ function projectionUsings(agg: EnrichedAggregateIR, ns: string): string[] {
 // ---------------------------------------------------------------------------
 
 /** The side-effect-free companions of `when`-gated operations: per op a
- *  `Can<Op>Query(Id) : IQuery<CanResponse>` + handler (load → evaluate the
- *  predicate → `{ allowed }`), plus one `CanResponse` record per aggregate
- *  folder.  The canCommand pattern, criterion.md use site 2. */
+ *  `Can<Op>Query(Id) : IQuery<CanResponse>` + handler, plus one `CanResponse`
+ *  record per aggregate folder.  The canCommand pattern, criterion.md use
+ *  site 2.
+ *
+ *  The handler runs the operation's gate ladder (`ir/plan/gate-ladder.ts`)
+ *  without a body: the by-id read's gate refuses (403) and a row outside the
+ *  read scope is 404, exactly as `GET /{id}` answers; the operation's own
+ *  `requires` and `when` fold into `allowed`. */
 export function emitCanOpQueriesAndHandlers(
   agg: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
   ns: string,
   aggFolder: string,
   out: Map<string, string>,
@@ -63,9 +75,41 @@ export function emitCanOpQueriesAndHandlers(
       `namespace ${ns}.Application.${aggFolder}.Responses;\n\n` +
       `public sealed record CanResponse([property: Required] bool Allowed);\n`,
   );
+  const byIdFind = byIdRouteFind(ctx.repositories.find((r) => r.aggregateName === agg.name));
   for (const op of gated) {
     const opName = upperFirst(op.name);
     const pred = renderCsExpr(op.when!, { thisName: "aggregate" });
+    const gates = operationGates(op);
+    // A probe carries no body: a gate that reads an operation parameter cannot
+    // be decided, so it answers `allowed: false`.
+    const readsParam = (g: (typeof gates)[number]): boolean => {
+      let hit = false;
+      renderCsExpr(g.expr, {
+        thisName: "aggregate",
+        paramExpr: (name) => {
+          if (op.params.some((q) => q.name === name)) hit = true;
+          return undefined;
+        },
+      });
+      return hit;
+    };
+    const denies = (g: (typeof gates)[number]): string =>
+      readsParam(g)
+        ? `        return new CanResponse(false);\n`
+        : `        if (!(${renderCsExpr(g.expr, { thisName: "aggregate" })})) return new CanResponse(false);\n`;
+    const rowFree = gates.filter((g) => !gateReadsRow(g));
+    const rowReading = gates.filter(gateReadsRow);
+    const readGate = byIdFind?.requires;
+    const readGateUsesUser = readGate && byIdFind ? findGateUsesCurrentUser(byIdFind) : false;
+    const needsUser = readGateUsesUser || gates.some((g) => exprUsesCurrentUser(g.expr));
+    const usings = new Set<string>([`${ns}.Domain.Common`]);
+    if (needsUser) usings.add(`${ns}.Auth`);
+    // The predicates are arbitrary expressions rendered into THIS file and
+    // scanned nowhere else, so it carries their own namespaces
+    // (`System.Text.RegularExpressions` for `matches`, audit A17).
+    collectCsExprUsings(op.when!, usings, ns);
+    for (const g of gates) collectCsExprUsings(g.expr, usings, ns);
+    if (readGate) collectCsExprUsings(readGate, usings, ns);
     out.set(
       `Application/${aggFolder}/Queries/Can${opName}Query.cs`,
       renderQuery({
@@ -84,17 +128,22 @@ export function emitCanOpQueriesAndHandlers(
         handlerName: `Can${opName}Handler`,
         queryName: `Can${opName}Query`,
         returnType: "CanResponse",
-        // The predicate is an arbitrary expression rendered into THIS file and
-        // scanned nowhere else, so it carries its own namespaces
-        // (`System.Text.RegularExpressions` for `matches`, audit A17).
-        extraUsings: [
-          `${ns}.Domain.Common`,
-          ...collectCsExprUsings(op.when!, new Set<string>(), ns),
+        extraUsings: [...usings],
+        extraDeps: [
+          ...(needsUser ? [{ type: "ICurrentUserAccessor", field: "_currentUser" }] : []),
+          ...csExistsReadDeps([op.when, ...gates.map((g) => g.expr), readGate]),
         ],
-        extraDeps: csExistsReadDeps([op.when]),
         body:
+          (needsUser ? `        var currentUser = _currentUser.User;\n` : "") +
+          (readGate
+            ? `        if (!(${renderCsGate(readGate)})) throw new ForbiddenException(${JSON.stringify(
+                `Forbidden: find ${byIdFind!.name}`,
+              )});\n`
+            : "") +
+          rowFree.map(denies).join("") +
           `        var aggregate = await _repo.GetByIdAsync(query.Id, cancellationToken)\n` +
           `            ?? throw ${csNotFoundException(null, `${agg.name} {query.Id}`)};\n` +
+          rowReading.map(denies).join("") +
           `        return new CanResponse(${pred});\n`,
       }),
     );
