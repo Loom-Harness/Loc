@@ -10,35 +10,31 @@
 // shared `lib/forms.dart`.
 //
 // Field introspection reuses the framework-neutral create-input contract
-// (`createInputFields` off the enriched aggregate — the same set every backend's
-// create surface consumes) and the op's declared params; the widget kind is
-// derived purely from the wire `TypeIR` (mirroring Feliz's `inputKindFor`):
-//   - string / guid / json        → `TextFormField`
-//   - int / long                  → `TextFormField` (numeric keyboard, int parse)
-//   - decimal                     → `TextFormField` (numeric keyboard, double parse)
-//   - money                       → `TextFormField` (numeric keyboard); the
-//                                   TEXT is submitted, never a parsed double
+// (`createInputFields` off the enriched aggregate) and the op's declared params.
+// Every field is classified ONCE by the shared form model
+// (`_frontend/form-spec.ts`: kind, optionality, enum values, picker, element
+// kind, value-object children) and rendered here through
+// `FLUTTER_FORM_FIELD_ARMS`; this module never reads the field's `TypeIR`:
+//   - string                      → `TextFormField`
+//   - int / decimal / money       → `TextFormField` (numeric keyboard); money
+//                                   submits the TEXT, never a parsed double
 //   - bool                        → `SwitchListTile`
-//   - enum (values resolvable)    → `DropdownButtonFormField`
-//   - datetime                    → a `showDatePicker` field
-//   - value object (resolvable)   → flattened into its scalar sub-fields
-//   - id (foreign key)            → `DropdownButtonFormField` loaded at runtime
-//                                   from `GET /<target-collection>` when the
-//                                   target aggregate has a derived `display`
-//                                   field (the option label); otherwise a raw id
-//                                   `TextFormField` (matches the cross-frontend
-//                                   `display`-gated id-select/id-text split).
-//
-// A SCALAR array (`tags: string[]` / `scores: int[]`) renders as a repeatable
-// add/remove row list (one `TextEditingController` per row); an OBJECT array
-// (`items: LineItem[]`) renders each row as a group of `TextFormField`s over the
-// value object's scalar sub-fields (a `List<List<TextEditingController>>` in
-// state), submitting a `{sub: value, …}` map per row.
-// DEFERRED: a VO-array whose sub-fields aren't all text/numeric (bool / enum /
-// datetime / nested), and enum/bool/datetime scalar element arrays, are dropped —
-// but LOUDLY (M-A): each drop emits a `// TODO(flutter form-field): …` marker on
-// the widget class (`FlutterFormSpec.dropped`) so the omission is visible in the
-// Dart and counted by the parity lint, never silent.
+//   - enum                        → `DropdownButtonFormField`
+//   - date / datetime             → a `showDatePicker` field
+//   - file                        → pick → `POST /files` → the `FileRef` map
+//   - value object                → flattened into its sub-fields; an optional
+//                                   one is an opt-in group behind a switch
+//   - ref                         → a runtime-loaded dropdown when the target
+//                                   declares `derived display`, else a raw id
+//                                   `TextFormField`
+//   - scalar / enum / ref arrays  → repeatable rows / a checkbox per row / a
+//                                   dropdown per row / a multi-select
+//   - value-object array          → a row of cells per element
+// A field with no Flutter form (an opaque field, a date element array, a
+// value-object array with a cell that has no flat input) is dropped LOUDLY:
+// a `// TODO(flutter form-field): …` marker on the widget class
+// (`FlutterFormSpec.dropped`), counted by the parity lint and by the form-spec
+// census.
 
 import { createInputFields, isConstructible } from "../../ir/enrich/wire-projection.js";
 import { PAGED_MAX_PAGE_SIZE } from "../../ir/stdlib/generics.js";
@@ -66,12 +62,14 @@ import { routeSegmentFor } from "../../util/storage-names.js";
 import {
   type FormFieldArms,
   type FormFieldSpec,
+  type FormScalarKind,
   type FormSpecEnv,
   formFieldSpec,
   operationFormSpec,
   renderFormField,
 } from "../_frontend/form-spec.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
+import { workflowResultSegment } from "../_frontend/workflow-result.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { chromeKey, chromeMessage, sentenceChromeName } from "../_walker/i18n-chrome.js";
 import {
@@ -120,8 +118,8 @@ export function workflowFormWidgetName(workflow: string): string {
 // Field preparation
 // ---------------------------------------------------------------------------
 
-/** The Flutter input widget a form field renders as — derived purely from the
- *  wire `TypeIR`.  The form widget keeps text/number values in
+/** The Flutter input widget a form field renders as — read off the field's
+ *  `FormFieldSpec` (`flatInputKind`).  The form widget keeps text/number values in
  *  `TextEditingController`s and bool/enum/datetime in plain state fields. */
 export type FlutterInputKind =
   | "text"
@@ -184,6 +182,9 @@ export interface FlutterFormField {
    *  (`operationFormSpec` → `prefill.from === "record"`).  A flattened
    *  value-object leaf reads through its `objectPath`. */
   fromRecord?: true;
+  /** The record field is `provenanced`: its value is the wire carrier's
+   *  `value`. */
+  recordCarrier?: true;
   /** Client-side rules derived from the aggregate's (or operation's)
    *  wire-translatable `invariant`s — M-T1.16 / ledger row
    *  `M-T1.16-invariant-validation-feliz-flutter`.  Empty/absent ⇒ the emitted
@@ -244,6 +245,9 @@ export interface FlutterFormSpec {
   /** A workflow run may write any aggregate, so its success drops every cached
    *  read rather than one aggregate's. */
   invalidatesAllReads?: boolean;
+  /** A workflow run whose start route answers with the created record's id:
+   *  the route segment of that record, which the form opens on success. */
+  resultSegment?: string;
   /** Whether the widget takes a `required String id` ctor arg (op / destroy). */
   needsId: boolean;
   /** Fully-built request path (a Dart string-literal body, e.g. `/products` or
@@ -322,28 +326,10 @@ function droppedMarker(field: string, reason: string): string {
   return `// TODO(flutter form-field): ${field} — ${reason} dropped (deferred, M-B)`;
 }
 
-/** Peel a single `optional` layer. */
-function peel(t: TypeIR): TypeIR {
-  return t.kind === "optional" ? t.inner : t;
-}
-
 /** The Dart `RegExp` a money input validates against — the exact grammar every
  *  backend's money request schema accepts (`money-scale.ts`, RS-12), so what
  *  passes here is what the wire accepts. */
 const MONEY_TEXT_PATTERN = String.raw`RegExp(r'^-?\d+(\.\d+)?$')`;
-
-/** `money` — a numeric input whose SUBMIT value is the decimal STRING the user
- *  typed, not a JSON number (`money-scale.ts`, RS-12). */
-function isMoney(t: TypeIR): boolean {
-  const b = peel(t);
-  return b.kind === "primitive" && b.name === "money";
-}
-
-/** `date` — the date picker's value submits as its `YYYY-MM-DD` day. */
-function isDateOnly(t: TypeIR): boolean {
-  const b = peel(t);
-  return b.kind === "primitive" && b.name === "date";
-}
 
 /** The picked `DateTime?` in its wire form: a `datetime` as the ISO instant, a
  *  `date` as the calendar day the picker chose (the picker returns that day at
@@ -352,119 +338,109 @@ function pickedWire(expr: string, dateOnly: boolean | undefined): string {
   return dateOnly ? `${expr}?.toIso8601String().substring(0, 10)` : `${expr}?.toIso8601String()`;
 }
 
-/** The Flutter input kind for a scalar wire type, or `undefined` when the type
- *  isn't a flat scalar the string/number/bool/enum/datetime form renders. */
-function scalarInputKind(
-  t: TypeIR,
-  enumsByName: ReadonlyMap<string, string[]>,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
-): FlutterInputKind | undefined {
-  const base = peel(t);
-  if (base.kind === "enum") return enumsByName.has(base.name) ? "enum" : "text";
-  // A foreign-key id → a runtime-loaded dropdown when the target has a derived
-  // `display` field (the option label); otherwise a raw id text field (the same
-  // `display`-gated split every other frontend makes).
-  if (base.kind === "id")
-    return aggregatesByName.get(base.targetName)?.displayDerived ? "fk-select" : "text";
-  if (base.kind === "primitive") {
-    switch (base.name) {
-      case "int":
-      case "long":
-        return "number-int";
-      case "decimal":
-      case "money":
-        return "number-double";
-      case "bool":
-        return "bool";
-      // A calendar date rides the same picker; `dateOnly` changes what it submits.
-      case "date":
-      case "datetime":
-        return "datetime";
-      case "File":
-        // A `File` field is the fixed `FileRef` wire object
-        // (`{url,key,contentType,size}`) — NOT a string.  It renders as the same
-        // pick → multipart `POST /files` → `FileRef` write-back the standalone
-        // `FileUpload` page primitive ships (`pack.ts`), and submits the
-        // `FileRef` map.  Falling through to `"text"` posts a bare `String`,
-        // which every backend rejects with a 422.
-        return "file";
-      default:
-        return "text"; // string, guid, json
-    }
+/** The flat input a scalar field kind renders as, or `undefined` when the kind
+ *  has no flat input (a value object, an array, or an opaque field).  Read off
+ *  the shared form model: the kind, the resolved enum values and the picker are
+ *  `FormFieldSpec` facts, never re-derived from the type here. */
+function flatInputKind(f: FormFieldSpec): FlutterInputKind | undefined {
+  if (f.opaque) return undefined;
+  switch (f.kind) {
+    case "string":
+      return "text";
+    case "int":
+      return "number-int";
+    case "decimal":
+    case "money":
+      return "number-double";
+    case "bool":
+      return "bool";
+    // A calendar date rides the same picker; `dateOnly` changes what it submits.
+    case "date":
+    case "datetime":
+      return "datetime";
+    // A `File` field is the fixed `FileRef` wire object — it renders the same
+    // pick → multipart `POST /files` → `FileRef` write-back the `FileUpload`
+    // page primitive ships, and submits the `FileRef` map, not a string.
+    case "file":
+      return "file";
+    case "enum":
+      return f.enumValues ? "enum" : "text";
+    // A reference whose target declares `derived display` is a runtime-loaded
+    // dropdown labelled by it; without one the picker is a raw id text field.
+    case "ref":
+    case "optionalRef":
+      return f.picker?.hasDisplay ? "fk-select" : "text";
+    default:
+      return undefined;
   }
-  return undefined;
+}
+
+/** The per-row input a `scalarArray` element kind renders as. */
+function elementInputKind(k: FormScalarKind | undefined): "text" | "number-int" | "number-double" {
+  return k === "int" ? "number-int" : k === "decimal" || k === "money" ? "number-double" : "text";
 }
 
 /** Build one flat `FlutterFormField`. */
 function buildField(
+  f: FormFieldSpec,
   wireName: string,
-  jsonKey: string,
-  type: TypeIR,
-  optional: boolean,
   kind: FlutterInputKind,
-  enumsByName: ReadonlyMap<string, string[]>,
   objectPath?: readonly string[],
 ): FlutterFormField {
-  const base = peel(type);
-  const enumValues =
-    kind === "enum" && base.kind === "enum" ? enumsByName.get(base.name) : undefined;
-  const fkCollection =
-    kind === "fk-select" && base.kind === "id" ? routeSegmentFor(base.targetName) : undefined;
   return {
     wireName,
-    jsonKey,
+    jsonKey: f.name,
     // A nested sub-field is labelled by its whole path (`addr geo lat`), so two
     // sub-fields with the same leaf name in sibling value objects stay tellable
     // apart on the form.
     label:
-      objectPath && objectPath.length > 0 ? [...objectPath, jsonKey].join(" ") : humanize(wireName),
+      objectPath && objectPath.length > 0 ? [...objectPath, f.name].join(" ") : humanize(wireName),
     kind,
-    required: !optional,
-    enumValues,
-    money: isMoney(type) || undefined,
-    dateOnly: isDateOnly(type) || undefined,
+    required: !f.optional,
+    enumValues: kind === "enum" && f.enumValues ? [...f.enumValues] : undefined,
+    money: f.kind === "money" || undefined,
+    dateOnly: f.kind === "date" || undefined,
     objectPath,
-    fkCollection,
+    fkCollection: kind === "fk-select" && f.picker ? routeSegmentFor(f.picker.target) : undefined,
   };
 }
 
 /** Prepare the form fields from a `{name, type, optional?}` input list.  A
  *  value-object field is FLATTENED into one field per scalar sub-field
  *  (`cost: Money` → `costAmount` / `costCurrency`); a scalar renders directly.
- *  Non-scalar / array / unresolvable-VO inputs are dropped (deferred) — but no
- *  longer SILENTLY: each drop pushes a LOUD `// TODO(flutter form-field): …`
- *  marker (M-A) alongside the rendered fields, so the omission is visible in the
- *  Dart and caught by the parity lint. */
+ *  An input with no Flutter form is dropped — loudly: each drop pushes a
+ *  `// TODO(flutter form-field): …` marker alongside the rendered fields, so
+ *  the omission is visible in the Dart and caught by the parity lint. */
 function prepareFields(
   inputs: readonly { name: string; type: TypeIR; optional?: boolean }[],
   enumsByName: ReadonlyMap<string, string[]>,
   vosByName: ReadonlyMap<string, readonly FieldIR[]>,
   aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
-  /** Recursion state — the value-object keys walked into so far (outermost
-   *  first) and the Dart identifier prefix built from them.  Empty at the top
-   *  level; `["addr"]` / `addr` one level into an `addr: Addr`. */
-  nest: { path: readonly string[]; prefix: string; label: string } = {
-    path: [],
-    prefix: "",
-    label: "",
-  },
+): { fields: FlutterFormField[]; dropped: string[] } {
+  const env = flutterSpecEnv(enumsByName, vosByName, aggregatesByName);
+  return prepareSpecs(
+    inputs.map((f) => formFieldSpec(f, env, f.name)),
+    { path: [], prefix: "", label: "" },
+  );
+}
+
+/** Render a list of field specs one value-object level deep.  `nest` is the
+ *  value-object keys walked into so far (outermost first), the Dart identifier
+ *  prefix built from them, and the dotted source path a drop marker names. */
+function prepareSpecs(
+  specs: readonly FormFieldSpec[],
+  nest: FlutterNest,
 ): { fields: FlutterFormField[]; dropped: string[] } {
   const out: FlutterFormField[] = [];
   const dropped: string[] = [];
-  const env = flutterSpecEnv(enumsByName, vosByName, aggregatesByName);
-  for (const f of inputs) {
+  for (const f of specs) {
     // Names are NEST-QUALIFIED: the Dart identifier prefixes the walked VO keys
     // (`addrGeoLat`), the drop marker uses the dotted source path (`addr.geo`),
     // and `objectPath` carries the keys so the request body re-nests.
-    const r = renderFormField(formFieldSpec(f, env, f.name), FLUTTER_FORM_FIELD_ARMS, {
-      input: f,
+    const r = renderFormField(f, FLUTTER_FORM_FIELD_ARMS, {
       wireName: nest.prefix ? `${nest.prefix}${upperFirst(f.name)}` : f.name,
       markerName: nest.label ? `${nest.label}.${f.name}` : f.name,
       objectPath: nest.path.length > 0 ? nest.path : undefined,
-      fieldOptional: f.optional === true || f.type.kind === "optional",
-      enumsByName,
-      vosByName,
-      aggregatesByName,
       nest,
     });
     out.push(...r.fields);
@@ -488,16 +464,17 @@ function flutterSpecEnv(
   };
 }
 
+interface FlutterNest {
+  path: readonly string[];
+  prefix: string;
+  label: string;
+}
+
 interface FlutterArmCtx {
-  input: { name: string; type: TypeIR; optional?: boolean };
   wireName: string;
   markerName: string;
   objectPath: readonly string[] | undefined;
-  fieldOptional: boolean;
-  enumsByName: ReadonlyMap<string, string[]>;
-  vosByName: ReadonlyMap<string, readonly FieldIR[]>;
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>;
-  nest: { path: readonly string[]; prefix: string; label: string };
+  nest: FlutterNest;
 }
 
 interface FlutterPrepared {
@@ -505,65 +482,35 @@ interface FlutterPrepared {
   dropped: string[];
 }
 
-/** A flat scalar input (or, when the type has no flat form, a drop marker). */
-function flutterScalarArm(_f: FormFieldSpec, c: FlutterArmCtx): FlutterPrepared {
-  const { input } = c;
-  const kind = scalarInputKind(input.type, c.enumsByName, c.aggregatesByName);
+/** A flat scalar input (or, for an opaque field, a drop marker). */
+function flutterScalarArm(f: FormFieldSpec, c: FlutterArmCtx): FlutterPrepared {
+  const kind = flatInputKind(f);
   if (!kind) {
-    // unresolved value-object / otherwise-unsupported scalar — deferred.
-    const b = peel(input.type);
-    const label = b.kind === "valueobject" ? `unresolved value-object ${b.name}` : b.kind;
-    return { fields: [], dropped: [droppedMarker(c.markerName, `${label} field`)] };
+    return { fields: [], dropped: [droppedMarker(c.markerName, "unsupported field")] };
   }
-  return {
-    fields: [
-      buildField(
-        c.wireName,
-        input.name,
-        input.type,
-        c.fieldOptional,
-        kind,
-        c.enumsByName,
-        c.objectPath,
-      ),
-    ],
-    dropped: [],
-  };
+  return { fields: [buildField(f, c.wireName, kind, c.objectPath)], dropped: [] };
 }
 
 /** Value objects flatten RECURSIVELY: `addr: Addr { line, geo: Geo { lat,
  *  lng } }` becomes `addrLine` + `addrGeoLat` + `addrGeoLng`, each carrying its
- *  full `objectPath` so `bodyAssembly` rebuilds the same nesting on the wire. */
-function flutterValueObjectArm(_f: FormFieldSpec, c: FlutterArmCtx): FlutterPrepared {
-  const { input, nest } = c;
-  const base = peel(input.type);
-  const voFields = (base.kind === "valueobject" ? c.vosByName.get(base.name) : undefined) ?? [];
-  const optIn = _f.kind === "optionalValueObject";
-  const inner = prepareFields(
-    voFields.map((sf) => ({
-      name: sf.name,
-      type: sf.type,
-      // An opt-in group keeps each leaf's own optionality: the presence switch
-      // is what makes the whole value object optional.
-      optional: optIn ? sf.optional === true : c.fieldOptional || sf.optional === true,
-    })),
-    c.enumsByName,
-    c.vosByName,
-    c.aggregatesByName,
-    {
-      path: [...nest.path, input.name],
-      prefix: nest.prefix ? `${nest.prefix}${upperFirst(input.name)}` : input.name,
-      label: nest.label ? `${nest.label}.${input.name}` : input.name,
-    },
-  );
-  if (!optIn) return inner;
+ *  full `objectPath` so `bodyAssembly` rebuilds the same nesting on the wire.
+ *  Each leaf keeps its own optionality: an opt-in group's presence switch is
+ *  what makes the whole value object optional. */
+function flutterValueObjectArm(f: FormFieldSpec, c: FlutterArmCtx): FlutterPrepared {
+  const { nest } = c;
+  const inner = prepareSpecs(f.children ?? [], {
+    path: [...nest.path, f.name],
+    prefix: nest.prefix ? `${nest.prefix}${upperFirst(f.name)}` : f.name,
+    label: nest.label ? `${nest.label}.${f.name}` : f.name,
+  });
+  if (f.kind !== "optionalValueObject") return inner;
   const group: FlutterPresenceGroup = {
     id: c.wireName,
-    path: [...(c.objectPath ?? []), input.name],
-    label: humanize(input.name),
+    path: [...(c.objectPath ?? []), f.name],
+    label: humanize(f.name),
   };
   return {
-    fields: inner.fields.map((f) => ({ ...f, presence: [group, ...(f.presence ?? [])] })),
+    fields: inner.fields.map((ff) => ({ ...ff, presence: [group, ...(ff.presence ?? [])] })),
     dropped: inner.dropped,
   };
 }
@@ -571,145 +518,100 @@ function flutterValueObjectArm(_f: FormFieldSpec, c: FlutterArmCtx): FlutterPrep
 /** Array of value objects → each row is a group of the VO's sub-field CELLS.  A
  *  cell is any flat scalar the form already knows how to render — text / number
  *  (a `TextEditingController` in the row slot), bool (a checkbox), enum (a
- *  dropdown) or datetime (a date picker).  Only a sub-field with no flat form (a
- *  nested VO, an array, a File, an fk id) defers the whole array. */
-function flutterObjectArrayArm(_f: FormFieldSpec, c: FlutterArmCtx): FlutterPrepared {
-  const { input } = c;
-  const base = peel(input.type);
-  const elemBase = base.kind === "array" ? peel(base.element) : base;
-  const voFieldsOfElem =
-    elemBase.kind === "valueobject" ? c.vosByName.get(elemBase.name) : undefined;
+ *  dropdown) or datetime (a date picker).  Only a sub-field with no flat cell (a
+ *  nested VO, an array, a File, a reference picker) defers the whole array. */
+function flutterObjectArrayArm(f: FormFieldSpec, c: FlutterArmCtx): FlutterPrepared {
   const objectFields: NonNullable<FlutterFormField["objectFields"]> = [];
-  let allScalar = voFieldsOfElem !== undefined;
-  for (const sub of voFieldsOfElem ?? []) {
-    const k = scalarInputKind(sub.type, c.enumsByName, c.aggregatesByName);
+  const children = f.children ?? [];
+  for (const sub of children) {
+    const k = flatInputKind(sub);
     if (
-      k === "text" ||
-      k === "number-int" ||
-      k === "number-double" ||
-      k === "bool" ||
-      k === "enum" ||
-      k === "datetime"
+      k !== "text" &&
+      k !== "number-int" &&
+      k !== "number-double" &&
+      k !== "bool" &&
+      k !== "enum" &&
+      k !== "datetime"
     ) {
-      const subBase = peel(sub.type);
-      objectFields.push({
-        jsonKey: sub.name,
-        label: humanize(sub.name),
-        kind: k,
-        money: isMoney(sub.type) || undefined,
-        dateOnly: isDateOnly(sub.type) || undefined,
-        enumValues:
-          k === "enum" && subBase.kind === "enum" ? c.enumsByName.get(subBase.name) : undefined,
-        required: !(sub.optional === true || sub.type.kind === "optional") || undefined,
-      });
-    } else {
-      allScalar = false;
-      break;
+      // A value-object array carrying a sub-field with no flat cell — the whole
+      // array defers, loudly.
+      return {
+        fields: [],
+        dropped: [
+          droppedMarker(c.markerName, "value-object array with a non-renderable sub-field"),
+        ],
+      };
     }
+    objectFields.push({
+      jsonKey: sub.name,
+      label: humanize(sub.name),
+      kind: k,
+      money: sub.kind === "money" || undefined,
+      dateOnly: sub.kind === "date" || undefined,
+      enumValues: k === "enum" && sub.enumValues ? [...sub.enumValues] : undefined,
+      required: !sub.optional || undefined,
+    });
   }
-  if (allScalar && objectFields.length > 0) {
-    return {
-      fields: [
-        {
-          wireName: c.wireName,
-          jsonKey: input.name,
-          label: humanize(input.name),
-          kind: "object-array",
-          required: !c.fieldOptional,
-          elementName: elemBase.kind === "valueobject" ? elemBase.name : undefined,
-          objectFields,
-          objectPath: c.objectPath,
-        },
-      ],
-      dropped: [],
-    };
+  if (objectFields.length === 0) {
+    return { fields: [], dropped: [droppedMarker(c.markerName, "empty value-object array")] };
   }
-  // A value-object array carrying a sub-field with no flat form — the whole
-  // array defers, loudly.
   return {
-    fields: [],
-    dropped: [droppedMarker(c.markerName, "value-object array with a non-renderable sub-field")],
+    fields: [
+      {
+        wireName: c.wireName,
+        jsonKey: f.name,
+        label: humanize(f.name),
+        kind: "object-array",
+        required: !f.optional,
+        elementName: f.valueObject,
+        objectFields,
+        objectPath: c.objectPath,
+      },
+    ],
+    dropped: [],
   };
 }
 
-/** Scalar array.  Text / numeric elements are a column of text rows; bool and
- *  enum elements are their own row editors (a checkbox / a dropdown per row).
- *  datetime / File / fk-id / unresolved element arrays stay deferred. */
-function flutterScalarArrayArm(_f: FormFieldSpec, c: FlutterArmCtx): FlutterPrepared {
-  const { input } = c;
-  const base = peel(input.type);
-  if (base.kind !== "array") return { fields: [], dropped: [] };
+/** Scalar, enum and reference arrays.  Text / numeric elements are a column of
+ *  text rows; bool and enum elements are their own row editors (a checkbox / a
+ *  dropdown per row); references with a display are a multi-select.  Date and
+ *  opaque element arrays stay deferred. */
+function flutterScalarArrayArm(f: FormFieldSpec, c: FlutterArmCtx): FlutterPrepared {
   const common = {
     wireName: c.wireName,
-    jsonKey: input.name,
-    label: humanize(input.name),
-    required: !c.fieldOptional,
+    jsonKey: f.name,
+    label: humanize(f.name),
+    required: !f.optional,
+    objectPath: c.objectPath,
   };
-  const elemKind = scalarInputKind(base.element, c.enumsByName, c.aggregatesByName);
-  if (elemKind === "text" || elemKind === "number-int" || elemKind === "number-double") {
+  const field = ((): FlutterFormField | undefined => {
+    if (f.opaque) return undefined;
+    if (f.kind === "enumArray") {
+      return { ...common, kind: "enum-array", enumValues: f.enumValues && [...f.enumValues] };
+    }
+    if (f.kind === "refArray") {
+      // A multi-select over the target's runtime-loaded options, loaded exactly
+      // like the single fk-select; the selected ids submit as a `List<String>`.
+      return f.picker?.hasDisplay
+        ? { ...common, kind: "fk-multi", fkCollection: routeSegmentFor(f.picker.target) }
+        : { ...common, kind: "scalar-array", elementKind: "text" };
+    }
+    if (f.elementKind === "bool") return { ...common, kind: "bool-array" };
+    if (f.elementKind === "date" || f.elementKind === "datetime") return undefined;
     return {
-      fields: [
-        {
-          ...common,
-          kind: "scalar-array",
-          elementKind: elemKind,
-          elementMoney: isMoney(base.element) || undefined,
-          objectPath: c.objectPath,
-        },
-      ],
-      dropped: [],
+      ...common,
+      kind: "scalar-array",
+      elementKind: elementInputKind(f.elementKind),
+      elementMoney: f.elementKind === "money" || undefined,
     };
-  }
-  if (elemKind === "fk-select" && base.element.kind === "id") {
-    // A multi-select over the target's runtime-loaded options, loaded exactly
-    // like the single fk-select; the selected ids submit as a `List<String>`.
-    return {
-      fields: [
-        {
-          ...common,
-          kind: "fk-multi",
-          fkCollection: routeSegmentFor(base.element.targetName),
-          objectPath: c.objectPath,
-        },
-      ],
-      dropped: [],
-    };
-  }
-  if (elemKind === "bool") {
-    return {
-      fields: [{ ...common, kind: "bool-array", objectPath: c.objectPath }],
-      dropped: [],
-    };
-  }
-  if (elemKind === "enum") {
-    const eb = peel(base.element);
-    return {
-      fields: [
-        {
-          ...common,
-          kind: "enum-array",
-          enumValues: eb.kind === "enum" ? c.enumsByName.get(eb.name) : undefined,
-          objectPath: c.objectPath,
-        },
-      ],
-      dropped: [],
-    };
-  }
-  const eb = peel(base.element);
-  const elemLabel =
-    eb.kind === "enum"
-      ? "enum"
-      : eb.kind === "id"
-        ? "id"
-        : eb.kind === "primitive"
-          ? eb.name
-          : eb.kind;
-  return { fields: [], dropped: [droppedMarker(c.markerName, `${elemLabel} element array`)] };
+  })();
+  if (field) return { fields: [field], dropped: [] };
+  const what = f.opaque ? "unsupported" : f.elementKind;
+  return { fields: [], dropped: [droppedMarker(c.markerName, `${what} element array`)] };
 }
 
-/** The Flutter arm per form field kind.  Every flat scalar kind shares one arm
- *  (the widget kind is read off the wire type); value objects flatten; arrays
- *  split by element. */
+/** The Flutter arm per form field kind.  Every flat scalar kind shares one arm;
+ *  value objects flatten; arrays split by element. */
 export const FLUTTER_FORM_FIELD_ARMS: FormFieldArms<FlutterPrepared, FlutterArmCtx> = {
   string: flutterScalarArm,
   int: flutterScalarArm,
@@ -955,7 +857,16 @@ export function flutterOperationForm(
     const seeded = new Set(
       spec.fields.filter((f) => f.prefill.from === "record").map((f) => f.name),
     );
-    for (const f of fields) if (seeded.has(f.objectPath?.[0] ?? f.jsonKey)) f.fromRecord = true;
+    const carriers = new Set(
+      spec.fields
+        .filter((f) => f.prefill.from === "record" && f.prefill.carrier)
+        .map((f) => f.name),
+    );
+    for (const f of fields) {
+      const root = f.objectPath?.[0] ?? f.jsonKey;
+      if (seeded.has(root)) f.fromRecord = true;
+      if (carriers.has(root)) f.recordCarrier = true;
+    }
   }
   attachRules(
     fields,
@@ -1036,6 +947,7 @@ export function flutterWorkflowForm(
     needsId: false,
     pathExpr: `/workflows/${snake(wf.name)}`,
     invalidatesAllReads: true,
+    ...(workflowResultSegment(wf) ? { resultSegment: workflowResultSegment(wf) } : {}),
     submitLabel: run ? run.defaultText : opDefaultText(wf.name, "run"),
     ...(text && run ? { submitExpr: dartTranslate(run.key, run.defaultText) } : {}),
     fields,
@@ -1400,7 +1312,8 @@ function loaderId(wireName: string): string {
 function recordLeaf(f: FlutterFormField, rowKey = f.jsonKey): string {
   let e = "r";
   for (const k of f.objectPath ?? []) e = `(${e}['${dartStr(k)}'] as Map<String, dynamic>?)`;
-  return `${e}${(f.objectPath ?? []).length > 0 ? "?" : ""}['${dartStr(rowKey)}']`;
+  const leaf = `${e}${(f.objectPath ?? []).length > 0 ? "?" : ""}['${dartStr(rowKey)}']`;
+  return f.recordCarrier ? `(${leaf} as Map<String, dynamic>?)?['value']` : leaf;
 }
 
 /** One object-array cell's initial slot value, read out of the row map `m`. */
@@ -2262,7 +2175,10 @@ function submitMethod(spec: FlutterFormSpec, invalidates: boolean): string[] {
     "      if (res.statusCode >= 200 && res.statusCode < 300) {",
     "        if (!mounted) return;",
     ...invalidateCall(spec, invalidates),
-    "        Navigator.of(context).pop();",
+    // A run that created a record opens it in place of the form.
+    spec.resultSegment
+      ? `        Navigator.of(context).pushReplacementNamed('/${spec.resultSegment}/\${jsonDecode(res.body) as String}');`
+      : "        Navigator.of(context).pop();",
     "        return;",
     "      }",
     // A rejection lands at the fields its ProblemDetails pointers name; the

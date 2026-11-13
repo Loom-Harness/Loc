@@ -4,8 +4,11 @@ import type { MigrationStep } from "../types/migrations-ir.js";
 // Transaction placement of a generation's migration steps.
 //
 // Every backend runner applies a generation inside a transaction, except the
-// steps Postgres refuses to run in one: an `addIndex` with `concurrently`
-// (`CREATE INDEX CONCURRENTLY`).  Each backend emits those steps as a second
+// steps that must not run in one: an `addIndex` with `concurrently`
+// (`CREATE INDEX CONCURRENTLY`, which Postgres refuses in a transaction), and
+// a lock-safe backfill (`backfillColumn` with `outsideTransaction`), which
+// would otherwise hold the ACCESS EXCLUSIVE lock of the `ADD COLUMN` before it
+// for the whole UPDATE.  Each backend emits those steps as a second
 // migration unit of the same generation, applied outside a transaction and
 // recorded in the runner's ledger on its own, right after the transactional
 // unit.  This module is the one place that decides which steps go where, so
@@ -14,6 +17,7 @@ import type { MigrationStep } from "../types/migrations-ir.js";
 
 /** True for a step that Postgres cannot run inside a transaction block. */
 function isNonTransactionalStep(step: MigrationStep): boolean {
+  if (step.op === "backfillColumn") return step.outsideTransaction === true;
   return step.op === "addIndex" && step.concurrently === true;
 }
 

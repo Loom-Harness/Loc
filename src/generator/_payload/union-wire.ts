@@ -30,6 +30,7 @@ import {
   type WireField,
 } from "../../ir/types/loom-ir.js";
 import { peelCollection, peelNullable, wireTypeInfo } from "../../ir/types/wire-types.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 
 /** A normalized field contributed by a record-shaped union variant. */
@@ -127,17 +128,65 @@ function wireToMembers(wire: readonly WireField[] | undefined): UnionMemberField
 
 /** The `money` positions of one SUCCESS variant of an operation-return union,
  *  whose in-memory tagged dict holds a decimal value the wire must carry as the
- *  fixed-scale string (RS-12).  `key` is the tagged dict's key: the payload
- *  field's name, or `value` for a scalar `money` variant. */
+ *  fixed-scale string (RS-12) at every depth.  `key` is the tagged dict's key:
+ *  the payload field's name, or `value` for a scalar `money` variant. */
 export interface UnionMoneyArm {
   tag: string;
-  keys: { key: string; optional: boolean }[];
+  keys: UnionMoneyKey[];
 }
 
-/** Which success variants of `variants` carry `money` that the route must
- *  encode before answering.  A payload / event variant contributes its direct
- *  `money` fields; a scalar `money` variant its `value`.  An `error` variant
- *  answers as a ProblemDetails, so it is skipped. */
+/** One position to encode.  A `money` key is encoded in place; a `vo` key is
+ *  a value object (`amt: Amount`) holding money somewhere inside, listed with
+ *  ALL its declared fields so a backend that rebuilds the object has them —
+ *  each field's `money` is the nested position to encode, absent for a field
+ *  that passes through. */
+export type UnionMoneyKey =
+  | { kind: "money"; key: string; optional: boolean }
+  /** An instant: the RS-4/RS-38 wire string (millisecond fraction, `Z`).
+   *  A backend whose JSON encoder already writes that form passes it through. */
+  | { kind: "instant"; key: string; optional: boolean }
+  | {
+      kind: "vo";
+      key: string;
+      optional: boolean;
+      voName: string;
+      fields: { name: string; money?: UnionMoneyKey }[];
+    };
+
+const isMoneyType = (t: TypeIR): boolean => scalarCodecOf(t)?.wire.form === "fixed-scale-decimal";
+const isInstantType = (t: TypeIR): boolean => scalarCodecOf(t)?.wire.form === "instant";
+
+/** The encode position for a field named `key` of type `t`, or undefined when
+ *  nothing under it is money.  A value object recurses into its own fields;
+ *  a collection is not descended into. */
+function moneyKeyFor(
+  key: string,
+  t: TypeIR,
+  optional: boolean,
+  ctx: BoundedContextIR,
+  seen: ReadonlySet<string>,
+): UnionMoneyKey | undefined {
+  const inner = t.kind === "optional" ? t.inner : t;
+  const opt = optional || t.kind === "optional";
+  if (isMoneyType(t)) return { kind: "money", key, optional: opt };
+  if (isInstantType(t)) return { kind: "instant", key, optional: opt };
+  if (inner.kind !== "valueobject" || seen.has(inner.name)) return undefined;
+  const vo = findValueObjectInScope(ctx, inner.name);
+  if (!vo) return undefined;
+  const next = new Set([...seen, vo.name]);
+  const fields = vo.fields.map((f) => ({
+    name: f.name,
+    money: moneyKeyFor(f.name, f.type, false, ctx, next),
+  }));
+  if (!fields.some((f) => f.money)) return undefined;
+  return { kind: "vo", key, optional: opt, voName: vo.name, fields };
+}
+
+/** Which success variants of `variants` carry `money` or instants that the
+ *  route must encode before answering.  A payload / event variant contributes
+ *  those fields, directly or inside a value-object field; a scalar `money`
+ *  variant its `value`.  An `error` variant answers as a ProblemDetails, so it
+ *  is skipped. */
 export function unionMoneyArms(variants: TypeIR[], ctx: BoundedContextIR): UnionMoneyArm[] {
   const arms: UnionMoneyArm[] = [];
   for (const m of unionMembers(variants, ctx)) {
@@ -145,14 +194,17 @@ export function unionMoneyArms(variants: TypeIR[], ctx: BoundedContextIR): Union
       const v = variants.find((x) => variantTag(x) === m.tag);
       return v?.kind === "entity" && isPayloadDeclKind(v.declKind) && v.declKind !== "error";
     })();
-    const moneyOf = (t: TypeIR): boolean => scalarCodecOf(t)?.wire.form === "fixed-scale-decimal";
     if (m.shape === "record" && isPayloadArm) {
-      const keys = m.fields
-        .filter((f) => moneyOf(f.type))
-        .map((f) => ({ key: f.name, optional: f.optional || f.type.kind === "optional" }));
+      const keys = m.fields.flatMap((f) => {
+        const k = moneyKeyFor(f.name, f.type, f.optional, ctx, new Set());
+        return k ? [k] : [];
+      });
       if (keys.length) arms.push({ tag: m.tag, keys });
-    } else if (m.shape === "scalar" && moneyOf(m.type)) {
-      arms.push({ tag: m.tag, keys: [{ key: "value", optional: m.type.kind === "optional" }] });
+    } else if (m.shape === "scalar" && isMoneyType(m.type)) {
+      arms.push({
+        tag: m.tag,
+        keys: [{ kind: "money", key: "value", optional: m.type.kind === "optional" }],
+      });
     }
   }
   return arms;
@@ -236,6 +288,24 @@ export function discriminatedUnionZod(memberObjects: string[]): string {
  *  per-variant components (FastAPI's declared-schema response models, the
  *  springdoc customizer's baked components, the .NET document filter).
  *  Structural kinds only — the parity diff folds formats. */
+/** The types a value of `t` puts on the wire, one level in: an `or`-union's
+ *  variants contribute their scalar or record-field types, any other type
+ *  itself.  A schema / record collector that seeds value-object and enum
+ *  reachability from an operation's return reads it through this, so a value
+ *  object named only inside a union variant (`Quote { amt: Amount }`) still
+ *  gets its schema emitted. */
+export function* wireSurfaceTypes(t: TypeIR | undefined, ctx: BoundedContextIR): Generator<TypeIR> {
+  if (!t) return;
+  if (t.kind !== "union") {
+    yield t;
+    return;
+  }
+  for (const m of unionMembers(t.variants, ctx)) {
+    if (m.shape === "scalar") yield m.type;
+    else if (m.shape === "record") for (const f of m.fields) yield f.type;
+  }
+}
+
 export function unionMembersJsonSchema(members: readonly UnionMember[]): unknown {
   return { oneOf: members.map(memberJsonSchema) };
 }

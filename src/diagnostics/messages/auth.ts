@@ -341,6 +341,11 @@ export const messages = {
     `payloads and every aggregate that holds it, so no serializer could apply the mask ` +
     `everywhere it goes. Mask the aggregate or entity field that holds the value object ` +
     `instead (\`address: ${p.vo} mask unless …\`).`,
+  "loom.field-mask-on-payload": (p: { kind: unknown; payload: unknown; field: unknown }) =>
+    `${p.kind} '${p.payload}' field '${p.field}' declares \`mask unless\`, but a read mask ` +
+    `belongs to the aggregate or entity field that holds the value: every response serializer ` +
+    `redacts by those masks, and a \`response <Agg>Response\` record takes its masks from its ` +
+    `aggregate. Mask the aggregate field instead (\`${p.field}: T mask unless …\`).`,
   "loom.field-mask-event-channel": (p: { event: unknown; channel: unknown; field: unknown }) =>
     `event '${p.event}' carries the \`mask unless\` field '${p.field}' and is published on ` +
     `channel '${p.channel}' — a channel message is delivered to every subscriber unredacted (no ` +

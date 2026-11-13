@@ -17,11 +17,11 @@
 // ---------------------------------------------------------------------------
 
 import type { PageIR, UiIR } from "../../ir/types/loom-ir.js";
-import type { PageNameCtx } from "../../ir/util/page-kind.js";
+import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
 import { menuMetaString } from "../../ir/util/page-menu.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
 import type { NavSectionVM } from "../_frontend/menu-emitter.js";
-import { deriveSidebarFromUi } from "../_frontend/menu-emitter.js";
+import { deriveSidebarFromUi, isDefaultNavPage } from "../_frontend/menu-emitter.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { renderRequiresGuardInTemplate } from "./heex-walker-core.js";
 import { pgettextCall } from "./i18n.js";
@@ -80,7 +80,7 @@ export function renderSidebarComponent(args: RenderSidebarComponentArgs): string
   // into that default and drops the default copy of any route the merge
   // already claims (M-FT.6 / finding C1) — before, a single page-level
   // `menu { … }` block replaced the whole sidebar.
-  const defaults = buildDefaultSections(ui);
+  const defaults = buildDefaultSections(ui, nameCtx);
   const navSections: NavSectionVM[] = deriveSidebarFromUi(ui, nameCtx, false, defaults) ?? defaults;
 
   // Per-entry currentUser-only gate, keyed by route.  Only populated when the
@@ -161,20 +161,21 @@ function escapeHeex(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** Fallback: when the UI has no explicit menu block AND no eligible explicit
- *  pages with menuMeta, build a minimal section from whatever pages the UI
- *  declares.  This avoids an empty sidebar when `deriveSidebarFromUi`
- *  returns `undefined`. */
-function buildDefaultSections(ui: UiIR): NavSectionVM[] {
+/** The default sidebar section: one link per page the shared default-nav rule
+ *  admits (`isDefaultNavPage` — no create form, no record or run detail, no
+ *  hidden page), so the bar never carries an unlabelled "New" link.  Each test
+ *  id names the page by its emit name, unique across aggregates
+ *  (`nav-productlist`). */
+function buildDefaultSections(ui: UiIR, nameCtx: PageNameCtx): NavSectionVM[] {
   const entries = ui.pages
-    .filter((p) => p.route && !p.route.includes(":"))
+    .filter((p) => p.route && isDefaultNavPage(p, nameCtx))
     .map((p) => ({
       to: p.route ?? "/",
       // A page's own `menu { label: … }` (a scaffold List page's "Products")
       // names its link; `deriveSidebarFromUi` keys it and groups it under the
       // page's `menu { section: … }`.
       label: menuMetaString(p, "label") ?? p.name,
-      testId: `nav-${p.name.toLowerCase()}`,
+      testId: `nav-${pageEmitName(p, nameCtx).toLowerCase()}`,
       activeArgs: JSON.stringify(p.route ?? "/"),
     }));
 

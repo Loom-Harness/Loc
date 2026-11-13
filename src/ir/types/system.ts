@@ -1,4 +1,4 @@
-import type { TestPrincipalIR, TestStmtIR } from "./aggregate.js";
+import type { TestClauses, TestStmtIR } from "./aggregate.js";
 import type { DataSourceIR, DeployableIR, SubdomainIR } from "./deployment.js";
 import type { FieldIR } from "./members.js";
 import type { ApiIR, LayoutIR, UiIR } from "./ui.js";
@@ -133,8 +133,9 @@ export interface StorageIR {
    *  `literal("…")` for a hard-coded URL.  Optional in v1. */
   connection?: ConnectionSourceIR;
   /** Generic vendor-parameter map (region, bucket, vhost, …), validated
-   *  per sourceType against the registry config schema. */
-  config?: readonly ConfigEntryIR[];
+   *  per sourceType against the registry config schema.  Empty when the
+   *  storage declares no `config { … }`. */
+  config: readonly ConfigEntryIR[];
 }
 
 export type ConnectionSourceIR =
@@ -183,10 +184,9 @@ export type StorageKind =
 /** The default source language of a system with no `i18n { … }` block. */
 export const DEFAULT_SOURCE_LOCALE = "en";
 
-/** The source language of a system.  Tolerates a hand-built system with no
- *  `i18n` (the default source). */
-export function sourceLocaleOf(sys: { i18n?: I18nIR }): string {
-  return sys.i18n?.source ?? DEFAULT_SOURCE_LOCALE;
+/** The source language of a system. */
+export function sourceLocaleOf(sys: Pick<SystemIR, "i18n">): string {
+  return sys.i18n.source;
 }
 
 /** The resolved `i18n { … }` block of a system. */
@@ -309,7 +309,7 @@ export interface TenancyIR {
 }
 
 /** End-to-end test that targets a running deployable. */
-export interface TestE2EIR {
+export interface TestE2EIR extends TestClauses {
   name: string;
   /** "api" — typed-fetch HTTP test (default).  "ui" — Playwright
    * test driven through the auto-generated page objects in the
@@ -317,9 +317,4 @@ export interface TestE2EIR {
   kind: "api" | "ui";
   deployableName: string;
   statements: TestStmtIR[];
-  /** Traceability back-link — see `TestIR.verifiesTestCase`. */
-  verifiesTestCase?: string;
-  /** The `as { … }` principal — see `TestIR.principal`.  The suite sends it as
-   *  the dev-stub claims override for every request of this block. */
-  principal?: TestPrincipalIR;
 }

@@ -13,6 +13,10 @@ export type ThrowClassification =
   | { deferred: string; mission: string; reviewUntil: string };
 
 export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
+  "src/generator/_frontend/form-row-binding.ts#settled": {
+    invariant:
+      "a shipped pack's field template binds its path or test id through a site the row binder does not rewrite; every shipped pack's dynamic rows render in the form-spec census and the walker suites, so only a new pack template shape reaches it",
+  },
   // src/generator/java/wire-policy-java.ts
   "src/generator/java/wire-policy-java.ts#javaIngressCoercions": {
     invariant:
@@ -978,7 +982,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   // src/generator/feliz/wire.ts
-  "src/generator/feliz/wire.ts#assertNotDurationWireField": {
+  "src/generator/feliz/wire-codec.ts#assertNotDurationWireField": {
     invariant:
       "PrimitiveType has no 'duration' spelling and wire/param/state types are all declared TypeRefs, so no wire field can be duration-typed. (src/language/ddd.langium:2162)",
   },

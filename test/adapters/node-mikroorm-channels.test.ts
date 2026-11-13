@@ -175,6 +175,14 @@ describe("MikroORM broker channels", () => {
     expect(wf).toContain('import { LoomOutboxRow } from "../db/entities";');
     expect(wf).toContain("export function startOutboxRelay(\n  db: EntityManager,");
     expect(wf).not.toContain('from "drizzle-orm"');
+    // Import hygiene (no compile tier builds this producer-only shape): every
+    // mikro-orm name the relay uses is imported, the claim's LockMode included.
+    for (const name of ["EntityManager", "LockMode"]) {
+      if (new RegExp(`\\b${name}\\b`).test(wf.replace(/^import .*$/gm, "")))
+        expect(wf, `${name} is imported`).toMatch(
+          new RegExp(`import \\{[^}]*\\b${name}\\b[^}]*\\} from "@mikro-orm/postgresql"`),
+        );
+    }
     // …and the outbox table is in the entity set so `schema.update()` makes it.
     const entities = files.get("api/db/entities.ts") as string;
     expect(entities).toMatch(/export const entities = \[[^\]]*LoomOutboxRowSchema[^\]]*\];/);

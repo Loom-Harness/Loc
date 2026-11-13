@@ -59,8 +59,8 @@ import { errorTypeUri } from "../../util/error-defaults.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import { type FormFieldArms, formFieldSpec, renderFormField } from "../_frontend/form-spec.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
+import { workflowResultSegment } from "../_frontend/workflow-result.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
 import { provenancedTypeMembers } from "../_payload/provenanced-wire.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
@@ -68,10 +68,17 @@ import { isEntityHistoryRead } from "../_walker/history-read.js";
 import { isOfReadCall } from "../_walker/of-reads.js";
 import { isPagedQuery, type PagedQueryContext, queryShape } from "../_walker/paged-query.js";
 import { boolNamed } from "../_walker/shared/args.js";
+import { felizFieldArrays, felizFormFields } from "./form-fields.js";
 import { CODE_POINT_LEN_HELPER, type FelizFieldRule, felizFieldRules } from "./form-validators.js";
 import { fsString } from "./fs-expr.js";
 import { fsIdent } from "./fs-ident.js";
-import { typeToFs } from "./type-fs.js";
+import {
+  decoderExprFor,
+  FS_PROVENANCED,
+  FS_PROVENANCED_DECODER,
+  paramEncoder,
+  wireFieldType,
+} from "./wire-codec.js";
 /** A read the page view issues, projected to everything the MVU wiring + api
  *  module need.  Two shapes:
  *   - LIST (`<param>.<agg>.all`) — a `Remote<'T list>` fired at `init`.
@@ -672,6 +679,10 @@ export interface FelizRowField {
   jsonKey: string;
   /** For a `select` sub-field, the enum's allowed values. */
   enumValues?: string[];
+  /** For an `idselect` sub-field, the referenced aggregate (its options are the
+   *  same all-pages list a flat picker reads) and the field its options show. */
+  idTarget?: string;
+  idLabelField?: string;
   /** Whether the sub-field is required (non-optional) — informational for v1
    *  (row validity does not gate submit yet). */
   required: boolean;
@@ -962,428 +973,8 @@ export function felizAction(aggregate: string, op: OperationIR): FelizAction {
   };
 }
 
-/** The scalar base of a type, peeling `optional` — an optional field renders
- *  the same widget + encodes as the same wire type as its required twin (the
- *  optionality only changes the empty→null encoding + validation exemption). */
-function scalarBase(t: TypeIR): TypeIR {
-  return t.kind === "optional" ? t.inner : t;
-}
-
-/** The HTML input widget a field type maps to — numerics render `type: number`,
- *  bools a `checkbox`, an enum (whose values we can resolve) a `select`, a
- *  foreign-key `X id` (whose target we can resolve) an `idselect`, a `File` a
- *  `file` picker, everything else a plain text input.  Purely derived from the
- *  wire type (no stamped field); the form record stays all-string apart from a
- *  `file` field (a `FileRef option` — see `FelizInputKind`). */
-function inputKindFor(
-  t: TypeIR,
-  enumsByName: ReadonlyMap<string, string[]>,
-  idLabels: ReadonlyMap<string, string>,
-): FelizInputKind {
-  // This projection holds no bounded context: the spec reads the maps it
-  // carries (resolvable enums; ids whose target has a label).
-  const spec = formFieldSpec(
-    { name: "", type: t },
-    {
-      enumValues: (name) => enumsByName.get(name),
-      valueObjectFields: () => undefined,
-      hasDisplay: (aggregate) => idLabels.has(aggregate),
-      isPaged: () => false,
-    },
-  );
-  return renderFormField(spec, FELIZ_FORM_FIELD_ARMS, undefined);
-}
-
-const felizText = (): FelizInputKind => "text";
-const felizNumber = (): FelizInputKind => "number";
-
-/** The Feliz input widget per form field kind.  A value object, an array or an
- *  unresolved enum is plain text: the Feliz form record is all-string and
- *  nested shapes are flattened by the caller before classification. */
-export const FELIZ_FORM_FIELD_ARMS: FormFieldArms<FelizInputKind> = {
-  string: felizText,
-  int: felizNumber,
-  decimal: felizNumber,
-  money: felizNumber,
-  bool: () => "checkbox",
-  // A calendar `date` renders a date picker; its string value is already
-  // the wire's `YYYY-MM-DD`, so the form cell and the encoder stay strings.
-  date: () => "date",
-  datetime: felizText,
-  // A `File` is not typeable: it renders a file picker whose pick uploads
-  // (multipart POST /files) and whose RESULT — the `FileRef` — is what the
-  // form submits.
-  file: () => "file",
-  enum: () => "select",
-  ref: (f) => (f.picker?.hasDisplay ? "idselect" : "text"),
-  optionalRef: (f) => (f.picker?.hasDisplay ? "idselect" : "text"),
-  valueObject: felizText,
-  optionalValueObject: felizText,
-  scalarArray: felizText,
-  // An enum / reference collection is a checkbox group over a comma-joined
-  // cell (one box per option); an unresolvable element stays a text box.
-  enumArray: (f) => (f.enumValues ? "checkgroup" : "text"),
-  refArray: (f) => (f.picker?.hasDisplay ? "checkgroup" : "text"),
-  objectArray: felizText,
-};
-
-/** The BARE string a constant/enum `= default` seeds into the all-string Feliz
- *  form model (`Model.<field> = "<seed>"`), or `undefined` when the default is
- *  outside the client-evaluable subset (money/now/this-relative/ref → the field
- *  keeps its `emptyValue`).  The Feliz form stores every field as a string that
- *  `encodeExprFor` parses back (`int "3"`, `decimal "1.5"`, `bool = "true"`,
- *  string/enum verbatim), so the seed is the value's raw string — the analogue
- *  of `renderDefaultSeed` for the JS-family frontends, minus the quoting. */
-function felizDefaultString(e: ExprIR | undefined): string | undefined {
-  if (!e) return undefined;
-  if (e.kind === "literal") {
-    // string / int / long / decimal / bool carry their value as the state
-    // string; money / now / null need a runtime carrier or are ambient.
-    if (["string", "int", "long", "decimal", "bool"].includes(e.lit)) return e.value;
-    return undefined;
-  }
-  // `status: Status = Draft` — the enum member's wire form is its bare name.
-  if (e.kind === "ref" && e.refKind === "enum-value") return e.name;
-  return undefined;
-}
-
-/** How strictly a form cell's text must parse before the encoder converts it,
- *  or `undefined` for a non-numeric field.  `base` is the already-peeled scalar
- *  type.  A scalar ARRAY of numbers is deliberately NOT marked: its cell holds
- *  a comma-separated list, which no single-value parse describes (the per-item
- *  guard is tracked separately). */
-function numericKind(base: TypeIR): "integral" | "fractional" | undefined {
-  if (base.kind !== "primitive") return undefined;
-  switch (base.name) {
-    case "int":
-    case "long":
-      return "integral";
-    case "decimal":
-    case "money":
-      return "fractional";
-    default:
-      return undefined;
-  }
-}
-
-/** Build one flat `FelizFormField` — the record field `wireName` (bound to an
- *  input), encoding to `jsonKey` (inside `objectKey`'s group when set). */
-function buildField(
-  formType: string,
-  wireName: string,
-  jsonKey: string,
-  type: TypeIR,
-  optional: boolean,
-  enumsByName: ReadonlyMap<string, string[]>,
-  idLabels: ReadonlyMap<string, string>,
-  defaultExpr?: ExprIR,
-  objectKey?: string,
-): FelizFormField {
-  const base = scalarBase(type);
-  const inputKind = inputKindFor(type, enumsByName, idLabels);
-  const element = base.kind === "array" ? scalarBase(base.element) : undefined;
-  const group = inputKind === "checkgroup";
-  const enumOf = group ? element : base;
-  const enumValues =
-    (inputKind === "select" || group) && enumOf?.kind === "enum"
-      ? enumsByName.get(enumOf.name)
-      : undefined;
-  const idTarget =
-    inputKind === "idselect" && base.kind === "id"
-      ? base.targetName
-      : group && element?.kind === "id"
-        ? element.targetName
-        : undefined;
-  const idLabelField = idTarget ? (idLabels.get(idTarget) ?? "id") : undefined;
-  // A REQUIRED enum defaults to its first value so the select and the string
-  // state agree from the start (and the required guard passes); everything else
-  // — text/number/checkbox, an idselect (its list loads at runtime), a VO
-  // sub-field, and an OPTIONAL enum (empty = null) — is "".
-  const emptyValue =
-    felizDefaultString(defaultExpr) ??
-    (inputKind === "select" && !optional && enumValues && enumValues.length > 0
-      ? enumValues[0]!
-      : "");
-  return {
-    wireName,
-    fsName: fsIdent(wireName),
-    setMsg: `Set${formType}${upperFirst(wireName)}`,
-    encodeExpr: encodeExprFor(type, `form.${fsIdent(wireName)}`, optional),
-    inputKind,
-    numeric: numericKind(base),
-    // An array cell is a comma-separated list: empty is the empty list, a
-    // legitimate value (the wire schema carries no minimum), never "unfilled".
-    required: !optional && base.kind !== "array",
-    enumValues,
-    idTarget,
-    idLabelField,
-    objectKey,
-    jsonKey,
-    isArray: base.kind === "array",
-    emptyValue,
-  };
-}
-
-/** Build the shared form fields for a form of `formType` from a `{name, type,
- *  optional?}` field/param list.  A value-object field (`address: Address`) is
- *  FLATTENED into one field per scalar VO sub-field (`addressStreet`,
- *  `addressCity`) — the form record stays flat/all-string, and the encoder
- *  re-nests them under the object key (`vosByName` resolves the VO's fields).
- *  Reused by create + operation + workflow forms. */
-function formFieldsFrom(
-  formType: string,
-  fields: readonly { name: string; type: TypeIR; optional?: boolean; default?: ExprIR }[],
-  enumsByName: ReadonlyMap<string, string[]> = new Map(),
-  idLabels: ReadonlyMap<string, string> = new Map(),
-  vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
-): FelizFormField[] {
-  return fields.flatMap((f) => {
-    const base = scalarBase(f.type);
-    const voFields = base.kind === "valueobject" ? vosByName.get(base.name) : undefined;
-    if (voFields) {
-      // A VO field: flatten each SCALAR sub-field to `<field><Sub>`.  The VO
-      // field's own optionality relaxes every sub-field (an absent VO → absent
-      // sub-values); nested VO / collection sub-fields are skipped (one level).
-      const voOptional = f.optional === true || f.type.kind === "optional";
-      const presentCell = `${f.name}Present`;
-      const subs = voFields
-        .filter((sub) => isScalarInput(sub.type))
-        .map((sub) => {
-          const subOptional = voOptional || sub.optional === true || sub.type.kind === "optional";
-          const cell = buildField(
-            formType,
-            `${f.name}${upperFirst(sub.name)}`,
-            sub.name,
-            sub.type,
-            subOptional,
-            enumsByName,
-            idLabels,
-            sub.default,
-            f.name,
-          );
-          // The group's optionality relaxes `required`, not the cell's starting
-          // value: a sub-field that is itself a required enum starts at its first
-          // value, so ticking the opt-in box submits a valid member.
-          const ownOptional = sub.optional === true || sub.type.kind === "optional";
-          const start =
-            voOptional && !ownOptional && cell.inputKind === "select" && cell.enumValues?.length
-              ? { ...cell, emptyValue: cell.enumValues[0]! }
-              : cell;
-          return voOptional ? { ...start, presentCell: fsIdent(presentCell) } : start;
-        });
-      if (!voOptional) return subs;
-      // An optional VO is opt-in: a presence checkbox leads its sub-fields; the
-      // sub-inputs mount (and the object is submitted) only while it is checked.
-      const presence: FelizFormField = {
-        ...buildField(
-          formType,
-          presentCell,
-          f.name,
-          { kind: "primitive", name: "bool" },
-          true,
-          enumsByName,
-          idLabels,
-        ),
-        presenceOf: f.name,
-        encodeExpr: `Encode.bool (form.${fsIdent(presentCell)} = "true")`,
-        required: false,
-      };
-      return [presence, ...subs];
-    }
-    const optional = f.optional === true || f.type.kind === "optional";
-    return [
-      buildField(formType, f.name, f.name, f.type, optional, enumsByName, idLabels, f.default),
-    ];
-  });
-}
-
-/** The point-free / lambda encoder for ONE array element of scalar type `base`
- *  (already peeled), applied to a trimmed string item. */
-function elemEncoderFn(base: TypeIR): string {
-  if (base.kind === "primitive") {
-    switch (base.name) {
-      case "int":
-        return "(fun s -> Encode.int (int s))";
-      // A `long` element is an int64 on the wire as a JSON NUMBER.  Thoth's
-      // `Encode.int64` renders a STRING (`value.ToString(InvariantCulture)`),
-      // so the number goes out through `Encode.float`.
-      case "long":
-        return "(fun s -> Encode.float (float (int64 s)))";
-      // RS-12: `money` is a wire STRING (Thoth's `Encode.decimal` is
-      // `value.ToString()`), and RS-24: a plain `decimal` is a wire NUMBER.
-      // They shared one arm until M-T1.22, so every `decimal` element encoded
-      // as a string and the backends answered 422.
-      case "money":
-        return "(fun s -> Encode.decimal (decimal s))";
-      case "decimal":
-        return "(fun s -> Encode.float (float s))";
-      case "bool":
-        return '(fun s -> Encode.bool (s = "true"))';
-      default:
-        return "Encode.string";
-    }
-  }
-  return "Encode.string"; // id / enum / string
-}
-
-/** Thoth encoder expression that lifts a string-typed form field `access`
- *  (`form.price`) back to its wire type.  A scalar-array field splits the
- *  comma-separated string into a JSON array; an `optional` scalar field's empty
- *  string encodes to `Encode.nil` (JSON `null`) — the client omitted it — while a
- *  filled value encodes as its base type; a bool is never wrapped (unchecked is
- *  a legitimate `false`, never absent). */
-function encodeExprFor(t: TypeIR, access: string, optional = false): string {
-  const base = scalarBase(t);
-  // A `File` form cell is NOT a string — it holds the `FileRef option` the
-  // upload returned, so it encodes as the FileRef OBJECT (`fileRefEncoder`) or
-  // JSON `null` when nothing has been uploaded yet.  Required-ness is enforced
-  // by the submit guard (`Validation`), not by the encoder.
-  if (base.kind === "primitive" && base.name === "File") {
-    return `(match ${access} with | Some __f -> fileRefEncoder __f | None -> Encode.nil)`;
-  }
-  // A scalar array → split the comma-separated input, trim/drop blanks, encode
-  // each element.  An empty input yields `[]` (never null), so it needs no
-  // optional-null wrapping.
-  if (base.kind === "array") {
-    const elemFn = elemEncoderFn(scalarBase(base.element));
-    return `Encode.list (${access}.Split(',') |> Array.toList |> List.map (fun s -> s.Trim()) |> List.filter (fun s -> s <> "") |> List.map ${elemFn})`;
-  }
-  const encodeBase = (): string => {
-    if (base.kind === "primitive") {
-      switch (base.name) {
-        case "int":
-          return `Encode.int (int ${access})`;
-        // A `long` is a JSON NUMBER, and Thoth's `Encode.int64` renders a
-        // STRING — so the int64 is parsed (keeping the full range on the way
-        // in) and encoded through `Encode.float`.
-        case "long":
-          return `Encode.float (float (int64 ${access}))`;
-        // `money` is a wire STRING (RS-12) — Thoth's `Encode.decimal` renders
-        // `value.ToString()`.  A plain `decimal` is a wire NUMBER (RS-24), so
-        // it goes out through `Encode.float`; sharing the money arm made every
-        // decimal request field a string and the backends rejected it (422).
-        case "money":
-          return `Encode.decimal (decimal ${access})`;
-        case "decimal":
-          return `Encode.float (float ${access})`;
-        case "bool":
-          return `Encode.bool (${access} = "true")`;
-        default:
-          return `Encode.string ${access}`; // string, json, datetime (ISO)
-      }
-    }
-    // id / enum (string name) / everything else → the string verbatim.
-    return `Encode.string ${access}`;
-  };
-  const encoded = encodeBase();
-  // A bool always has a value; only text/number optionals fold empty → null.
-  if (optional && !(base.kind === "primitive" && base.name === "bool")) {
-    return `(if ${access} = "" then Encode.nil else ${encoded})`;
-  }
-  return encoded;
-}
-
-/** Whether a create-input field is a SCALAR the string form can render (peeling
- *  `optional`) — a nested part / value object / collection needs a sub-form. */
-function isScalarInput(t: TypeIR): boolean {
-  const base = scalarBase(t);
-  return base.kind === "primitive" || base.kind === "id" || base.kind === "enum";
-}
-
-/** Whether a create-input field is one the form can render as a FLAT field — a
- *  scalar, a value object we can FLATTEN into its scalar sub-fields (`vosByName`),
- *  or a SCALAR ARRAY (`X[]`, rendered as a comma-separated text input).  An
- *  array-OF-value-object is handled separately as a dynamic-row `FelizFieldArray`
- *  (see `buildFieldArray`); a nested part / array-of-part is still a follow-up. */
-function isExpandableInput(t: TypeIR, vosByName: ReadonlyMap<string, readonly FieldIR[]>): boolean {
-  const base = scalarBase(t);
-  return (
-    isScalarInput(t) ||
-    (base.kind === "valueobject" && vosByName.has(base.name)) ||
-    (base.kind === "array" && isScalarInput(base.element))
-  );
-}
-
-/** Build a dynamic-row `FelizFieldArray` from an `X[]`-of-value-object input, or
- *  null when the field isn't an array-of-VO (or the VO isn't resolvable).  Only
- *  SCALAR sub-fields render in v1 — a nested VO / array inside the row element is
- *  dropped (mirrors the flat-form scalar limit).  An `id` sub-field degrades to a
- *  plain text input (the raw id string) since a per-row FK `<select>` would need
- *  the target list threaded into every row. */
-function buildFieldArray(
-  formType: string,
-  field: { name: string; type: TypeIR },
-  vosByName: ReadonlyMap<string, readonly FieldIR[]>,
-  enumsByName: ReadonlyMap<string, string[]>,
-  idLabels: ReadonlyMap<string, string>,
-): FelizFieldArray | null {
-  const base = scalarBase(field.type);
-  if (base.kind !== "array") return null;
-  const elem = scalarBase(base.element);
-  if (elem.kind !== "valueobject") return null;
-  const voFields = vosByName.get(elem.name);
-  if (!voFields) return null;
-  const rowFields: FelizRowField[] = voFields
-    .filter((vf) => isScalarInput(vf.type))
-    .map((vf) => {
-      const optional = vf.type.kind === "optional";
-      const kind = inputKindFor(vf.type, enumsByName, idLabels);
-      const eb = scalarBase(vf.type);
-      // A `File` sub-field inside a dynamic ROW keeps the v1 text degradation:
-      // the row record is all-string, and a real per-row picker needs an INDEXED
-      // upload `Cmd` (one in flight per row) — a follow-up, alongside the per-row
-      // FK select.  The FLAT form path (`buildField`) does render a real picker.
-      const rowFile = kind === "file";
-      return {
-        wireName: vf.name,
-        fsName: fsIdent(vf.name),
-        setMsg: `Set${formType}${upperFirst(field.name)}${upperFirst(vf.name)}`,
-        // A per-row FK select would need the target list in every row; v1 renders
-        // the id as plain text instead.
-        inputKind: kind === "idselect" || kind === "checkgroup" || rowFile ? "text" : kind,
-        encodeExpr: rowFile
-          ? `Encode.string row.${fsIdent(vf.name)}`
-          : encodeExprFor(vf.type, `row.${vf.name}`, optional),
-        jsonKey: vf.name,
-        enumValues: kind === "select" && eb.kind === "enum" ? enumsByName.get(eb.name) : undefined,
-        required: !optional,
-        // A file cell degrades to text and encodes as a string — never numeric.
-        numeric: rowFile ? undefined : numericKind(eb),
-      };
-    });
-  const rowType = `${upperFirst(elem.name)}Row`;
-  return {
-    fieldName: fsIdent(field.name),
-    jsonKey: field.name,
-    rowType,
-    emptyRowBinding: `empty${rowType}`,
-    elementName: elem.name,
-    label: humanize(field.name),
-    addMsg: `Add${formType}${upperFirst(field.name)}`,
-    removeMsg: `Remove${formType}${upperFirst(field.name)}`,
-    rowFields,
-  };
-}
-
-/** Collect every array-of-value-object input from a field/param list into its
- *  dynamic-row `FelizFieldArray` (the complement of the flat `isExpandableInput`
- *  filter). */
-function buildFieldArrays(
-  formType: string,
-  inputs: readonly { name: string; type: TypeIR }[],
-  vosByName: ReadonlyMap<string, readonly FieldIR[]>,
-  enumsByName: ReadonlyMap<string, string[]>,
-  idLabels: ReadonlyMap<string, string>,
-): FelizFieldArray[] {
-  return inputs
-    .map((f) => buildFieldArray(formType, f, vosByName, enumsByName, idLabels))
-    .filter((a): a is FelizFieldArray => a !== null);
-}
-
 /** Build the `FelizForm` for a `CreateForm(of: agg)` from the aggregate's
- *  create-input contract.  v1 keeps the REQUIRED scalar fields (mirroring the
- *  React create form's `!optional` filter); non-scalar / optional inputs are a
- *  follow-up. */
+ *  create-input contract — its flat cells and its value-object row groups. */
 export function felizCreateForm(
   agg: AggregateIR,
   enumsByName: ReadonlyMap<string, string[]> = new Map(),
@@ -1393,16 +984,7 @@ export function felizCreateForm(
   const name = agg.name;
   const formType = formTypeName("create", name);
   const fields = attachFieldRules(
-    formFieldsFrom(
-      formType,
-      // Scalar create inputs (required + optional) AND value-object fields (each
-      // flattened into its scalar sub-fields).  Nested part / collection (`array`)
-      // inputs still need a sub-form (follow-up).
-      createInputFields(agg).filter((f: FieldIR) => isExpandableInput(f.type, vosByName)),
-      enumsByName,
-      idLabels,
-      vosByName,
-    ),
+    felizFormFields(formType, createInputFields(agg), enumsByName, idLabels, vosByName),
     // M-T1.16 — the aggregate's own invariants, narrowed by the shared gate to
     // the fields this form carries (`Create<Agg>Request`'s refine set).
     agg.invariants,
@@ -1426,7 +1008,7 @@ export function felizCreateForm(
     decoderExpr: `(Decode.field "id" Decode.string)`,
     resultType: "string",
     fields,
-    fieldArrays: buildFieldArrays(
+    fieldArrays: felizFieldArrays(
       formType,
       createInputFields(agg),
       vosByName,
@@ -1451,13 +1033,7 @@ export function felizOperationForm(
   const opCap = formBase("op", `${upperFirst(op.name)}${upperFirst(name)}`);
   const formType = `${opCap}Form`;
   const fields = attachFieldRules(
-    formFieldsFrom(
-      formType,
-      operationFormParams(op).filter((p) => isExpandableInput(p.type, vosByName)),
-      enumsByName,
-      idLabels,
-      vosByName,
-    ),
+    felizFormFields(formType, operationFormParams(op), enumsByName, idLabels, vosByName),
     // M-T1.16 — the SAME set the JS frontends refine an `<Op><Agg>Request`
     // with (`_frontend/api-module.ts`): the aggregate's invariants plus this
     // op's own `precondition`s, narrowed by the shared gate to the op's params.
@@ -1478,7 +1054,7 @@ export function felizOperationForm(
     opPath: snake(op.routeSlug ?? op.name),
     navigateSegs: routeSegmentFor(name).split("/"),
     fields,
-    fieldArrays: buildFieldArrays(
+    fieldArrays: felizFieldArrays(
       formType,
       operationFormParams(op),
       vosByName,
@@ -1508,6 +1084,9 @@ export interface FelizWorkflowForm extends FormRecord {
   route: string;
   /** `Router.navigate` segments after success (`[""]` → home). */
   navigateSegs: string[];
+  /** The route segment of the record a successful run created, when the start
+   *  route answers with its id: the run then opens that record instead. */
+  resultSegment?: string;
 }
 
 /** Build the `FelizWorkflowForm` for a `WorkflowForm(runs: wf)`.  Fields are the
@@ -1520,13 +1099,7 @@ export function felizWorkflowForm(
 ): FelizWorkflowForm {
   const wfCap = formBase("workflow", wf.name);
   const formType = `${wfCap}Form`;
-  const fields = formFieldsFrom(
-    formType,
-    wf.params.filter((p) => isExpandableInput(p.type, vosByName)),
-    enumsByName,
-    idLabels,
-    vosByName,
-  );
+  const fields = felizFormFields(formType, wf.params, enumsByName, idLabels, vosByName);
   return {
     workflow: wf.name,
     formType,
@@ -1539,8 +1112,9 @@ export function felizWorkflowForm(
     doneMsg: `${wfCap}Done`,
     route: `${API_BASE_PATH}/workflows/${snake(wf.name)}`,
     navigateSegs: [""], // home
+    ...(workflowResultSegment(wf) ? { resultSegment: workflowResultSegment(wf) } : {}),
     fields,
-    fieldArrays: buildFieldArrays(formType, wf.params, vosByName, enumsByName, idLabels),
+    fieldArrays: felizFieldArrays(formType, wf.params, vosByName, enumsByName, idLabels),
   };
 }
 
@@ -2542,35 +2116,6 @@ export interface FelizAsyncEffect {
   extraErrorPayloads: string[];
 }
 
-/** Thoth encoder function for a scalar op-param type (peeling `optional`).  Non-
- *  scalar params fall back to `Encode.string`, which fails loud at the Fable
- *  compile (a type mismatch) rather than silently mis-encoding. */
-function paramEncoder(t: TypeIR): string {
-  const base = scalarBase(t);
-  if (base.kind === "primitive") {
-    switch (base.name) {
-      case "int":
-        return "Encode.int";
-      // The param is already `int64`-typed (`wireFieldType`); `Encode.int64`
-      // would render it as a JSON string, so widen to a JSON number instead.
-      case "long":
-        return "(fun (v: int64) -> Encode.float (float v))";
-      // Same RS-12/RS-24 split as the form encoders: money is a wire string,
-      // a plain decimal is a wire number.  The op-param value is already
-      // `decimal`-typed here (`wireFieldType`), so the number arm converts.
-      case "money":
-        return "Encode.decimal";
-      case "decimal":
-        return "(fun (v: decimal) -> Encode.float (float v))";
-      case "bool":
-        return "Encode.bool";
-      default:
-        return "Encode.string";
-    }
-  }
-  return "Encode.string";
-}
-
 /** Build the `FelizAsyncEffect` for a supported `match await` shape on `action`.
  *  `errorPayloadNames` classifies an arm as an error variant (authoritative over
  *  the lowered `isError` hint, which a UI body can't always resolve). */
@@ -2770,100 +2315,6 @@ export function renderAsyncOutcomeTypes(effects: readonly FelizAsyncEffect[]): s
 // Domain records + Thoth decoders (off wireShape)
 // ---------------------------------------------------------------------------
 
-/** Guard the wire path against a `duration`-typed field.
- *
- *  `typeToFs` spells a duration `System.TimeSpan` (the type `FS_LEAVES.duration`
- *  builds and the temporal binary arms consume), but `decoderExprFor` has no
- *  `Decode.timespan` — Thoth ships none, and no backend puts a duration on the
- *  wire to decode: `duration` is EXPRESSION-ONLY, with no spelling in the
- *  grammar's `PrimitiveType` rule, so no declared property, `derived <name>:
- *  <TypeRef>`, or action param can be duration-typed and `wireShape` (built from
- *  declared types alone) can never carry one.  Rather than let the record field
- *  say `System.TimeSpan` while its decoder falls through to `Decode.string` — a
- *  Fable type error in the emitted `App.fs`, and the reason an earlier attempt at
- *  the `typeToFs` arm was reverted — the pair fails loudly at GENERATE time here.
- *  Same stance the node backend takes for its column mapper
- *  (`typescript/emit/schema.ts`).  Delete this guard only together with a real
- *  wire representation + matching decoder/encoder arms. */
-function assertNotDurationWireField(t: TypeIR): void {
-  if (t.kind === "primitive" && t.name === "duration") {
-    throw new Error("internal: 'duration' is expression-only and never reaches a wire field");
-  }
-}
-
-/** F# type spelling of a wire field's declared type, honouring the wire
- *  contract: an enum value arrives as its string name, so it decodes to a
- *  plain `string` (a proper DU decoder is a follow-up). */
-export function wireFieldType(t: TypeIR): string {
-  // A `File` wire field is the fixed `FileRef` record (`renderFileRefType`),
-  // not a scalar — decoded via `fileRefDecoder`.
-  if (t.kind === "primitive" && t.name === "File") return "FileRef";
-  assertNotDurationWireField(t);
-  switch (t.kind) {
-    case "enum":
-      return "string";
-    case "array":
-      return `${wireFieldType(t.element)} list`;
-    case "optional":
-      return `${wireFieldType(t.inner)} option`;
-    case "genericInstance":
-      // `Provenanced<int>` (M-T6.12).  Without this arm the carrier fell
-      // through to `typeToFs`'s `obj` and the field decoded as an untyped
-      // blob — a SILENT degradation of exactly the shape the carrier exists
-      // to make uniform.
-      if (t.ctor === "provenanced") return `${FS_PROVENANCED}<${wireFieldType(t.arg)}>`;
-      return typeToFs(t);
-    default:
-      return typeToFs(t);
-  }
-}
-
-/** Thoth decoder expression for a wire field's declared type. */
-export function decoderExprFor(t: TypeIR): string {
-  assertNotDurationWireField(t);
-  switch (t.kind) {
-    case "primitive":
-      switch (t.name) {
-        case "int":
-          return "Decode.int";
-        // `Decode.int` bounds-checks against Int32.MIN/MAX and fails the WHOLE
-        // record decode on anything past int32 — so a `long` field decoded
-        // through it rejected every value it exists to carry.
-        case "long":
-          return "Decode.int64";
-        case "decimal":
-        case "money":
-          return "Decode.decimal";
-        case "bool":
-          return "Decode.bool";
-        case "datetime":
-          return "Decode.datetimeUtc";
-        case "File":
-          return "fileRefDecoder"; // the fixed FileRef record (renderFileRefType)
-        default:
-          return "Decode.string"; // string, json
-      }
-    case "id":
-      return "Decode.string";
-    case "enum":
-      return "Decode.string"; // wire carries the enum's string name
-    case "valueobject":
-    case "entity":
-      return `Decoders.${fsIdent(lowerFirst(t.name))}`;
-    case "array":
-      return `(Decode.list ${decoderExprFor(t.element)})`;
-    case "optional":
-      return decoderExprFor(t.inner); // handled at the field via get.Optional
-    case "genericInstance":
-      if (t.ctor === "provenanced") {
-        return `(${FS_PROVENANCED_DECODER} ${decoderExprFor(t.arg)})`;
-      }
-      return "Decode.string";
-    default:
-      return "Decode.string";
-  }
-}
-
 /** A record + decoder the emitted wire layer needs — an aggregate, one of its
  *  entity parts, or a value object, keyed by its F# type name. */
 interface WireRecord {
@@ -2934,10 +2385,6 @@ export function renderProvLineageType(): string {
     "    })",
   );
 }
-
-/** The Feliz spelling of the shared wire carrier + its Thoth decoder factory. */
-const FS_PROVENANCED = "Provenanced";
-const FS_PROVENANCED_DECODER = "provenancedDecoder";
 
 /** The F# type name a wire field references (an entity part / value object),
  *  peeling arrays + optionals; undefined for scalar/enum leaves. */
@@ -3516,8 +2963,16 @@ export function wfHasForm(f: FelizWorkflowForm): boolean {
  *  PARAM-LESS workflow takes `()` and posts an empty `{}` body (no form). */
 function renderWorkflowFn(f: FelizWorkflowForm): (string | undefined)[] {
   const hasForm = wfHasForm(f);
+  // A run that answers with the created record's id decodes it from the body.
+  const ok = f.resultSegment
+    ? [
+        "        match Decode.fromString Decode.string response.responseText with",
+        "        | Ok id -> return Ok id",
+        "        | Error e -> return Error (ServerErrors.formLevel e)",
+      ]
+    : ["        return Ok ()"];
   return [
-    `  let ${f.apiFn} ${hasForm ? `(form: ${f.formType})` : "()"} : Async<Result<unit, ServerErrors>> =`,
+    `  let ${f.apiFn} ${hasForm ? `(form: ${f.formType})` : "()"} : Async<Result<${workflowResultType(f)}, ServerErrors>> =`,
     "    async {",
     hasForm
       ? `      let body = Encode.toString 0 (Encoders.${f.encoderFn} form)`
@@ -3529,11 +2984,16 @@ function renderWorkflowFn(f: FelizWorkflowForm): (string | undefined)[] {
     '        |> Http.header (Headers.contentType "application/json")',
     "        |> Http.send",
     "      if response.statusCode = 200 || response.statusCode = 204 then",
-    "        return Ok ()",
+    ...ok,
     "      else",
     "        return Error (ServerErrors.ofResponse response.statusCode response.responseText)",
     "    }",
   ];
+}
+
+/** The success payload of a workflow run: the created record's id, or `unit`. */
+export function workflowResultType(f: FelizWorkflowForm): string {
+  return f.resultSegment ? "string" : "unit";
 }
 
 /** One async action function — a fieldless operation.  POSTs an empty JSON body
@@ -3646,7 +3106,12 @@ export function renderFormTypes(forms: FormRecord[]): string {
         "",
         `let ${fa.emptyRowBinding} : ${fa.rowType} =`,
         "  {",
-        ...fa.rowFields.map((rf) => `    ${rf.wireName} = ""`),
+        // A required enum starts on its first value, the option its select
+        // shows; every other cell starts empty.
+        ...fa.rowFields.map(
+          (rf) =>
+            `    ${rf.wireName} = ${JSON.stringify(rf.inputKind === "select" && rf.required ? (rf.enumValues?.[0] ?? "") : "")}`,
+        ),
         "  }",
       );
     }

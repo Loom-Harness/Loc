@@ -68,13 +68,14 @@ describe.each(PACKS)("react dynamic sub-form rows — $design", ({ design, contr
   it("renders repeatable rows with indexed-path registers", async () => {
     const tsx = await pageTsx(design);
     expect(tsx).toContain("itemsFields.map((field, index) => (");
-    // Each sub-field registers at the runtime-indexed path; the numeric one
-    // coerces via valueAsNumber (so `z.number()` validates the text input).
-    // shadcn registers via `form.register`, the others via a destructured
-    // `register` — both carry the same indexed path + valueAsNumber.
-    const reg = design === "shadcn" ? "form.register" : "register";
-    expect(tsx).toContain(`{...${reg}(\`items.\${index}.sku\`)}`);
-    expect(tsx).toContain(`{...${reg}(\`items.\${index}.qty\`, { valueAsNumber: true })}`);
+    // Each sub-field is the pack's own single-field input (the one a top-level
+    // field of that type gets), bound at the runtime-indexed path with a
+    // row-indexed test id.  The numeric one is a `Controller`/`FormField` at
+    // the indexed name, never a bare `register`.
+    expect(tsx).toContain("name={`items.${index}.qty`}");
+    expect(tsx).toContain("orders-new-input-items-${index}-sku");
+    expect(tsx).toContain("orders-new-input-items-${index}-qty");
+    expect(tsx).not.toContain("register(`items.${index}.qty`");
     // Add / remove controls.
     expect(tsx).toContain("onClick={() => removeItems(index)}");
     expect(tsx).toContain('onClick={() => appendItems({ sku: "", qty: 0 })}');
@@ -156,6 +157,7 @@ system Shop {
       'const { fields: moreFields, append: appendMore, remove: removeMore } = useFieldArray({ control, name: "more" });',
     );
     expect(tsx).toContain("moreFields.map((field, index) => (");
-    expect(tsx).toContain(`{...register(\`more.\${index}.qty\`, { valueAsNumber: true })}`);
+    expect(tsx).toContain("name={`more.${index}.qty`}");
+    expect(tsx).not.toContain("register(`more.${index}.qty`");
   });
 });

@@ -43,7 +43,7 @@ import {
 import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
-import { RFC7807_MEMBERS, unionMoneyArms } from "../../_payload/union-wire.js";
+import { RFC7807_MEMBERS, type UnionMoneyKey, unionMoneyArms } from "../../_payload/union-wire.js";
 import { type SourceMapSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
 import {
   type ElixirChannelsCfg,
@@ -56,7 +56,7 @@ import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { exErrorVariant, exFixedDetail, exProblemResponse } from "../wire-policy-ex.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
 import { opPersistInvariantPipes } from "./changeset-emit.js";
-import { exLineageValue } from "./codec-spelling-ex.js";
+import { exInstantWire, exLineageValue } from "./codec-spelling-ex.js";
 import {
   appModuleOf,
   denialClause,
@@ -1770,15 +1770,7 @@ export function renderReturningOpControllerAction(
   const moneyArmClauses =
     op.returnType?.kind === "union"
       ? unionMoneyArms(op.returnType.variants, ctx).map((arm) => {
-          const pipe = arm.keys
-            .map(({ key, optional }) => {
-              const atom = `:${key}`;
-              const round = numericEncode(ELIXIR_NUMERIC, "money", "dto-map", "&1");
-              return optional
-                ? `Map.update(${atom}, nil, &(&1 && ${round}))`
-                : `Map.update!(${atom}, &(${round}))`;
-            })
-            .join(" |> ");
+          const pipe = arm.keys.map((k) => exMoneyUpdate(k, `:${k.key}`)).join(" |> ");
           return `  def ${resultFn}(conn, {:ok, %{type: ${JSON.stringify(arm.tag)}} = success}),
     do: json(conn, success |> ${pipe})`;
         })
@@ -1865,4 +1857,28 @@ export function renderProblemVariantHelper(): string {
     |> put_status(status)
     |> json(body)
   end`;
+}
+
+/** One `Map.update` step of a union variant's money re-encode.  `atom` is the
+ *  key in the enclosing map: the camelCase wire atom at the top of the tagged
+ *  map, the snake field atom inside a value object's map.  A value object is
+ *  updated in place, one nested step per money position. */
+function exMoneyUpdate(k: UnionMoneyKey, atom: string): string {
+  if (k.kind === "instant") {
+    const wire = exInstantWire("&1");
+    return k.optional ? `Map.update(${atom}, nil, &(${wire}))` : `Map.update!(${atom}, &(${wire}))`;
+  }
+  if (k.kind === "money") {
+    const round = numericEncode(ELIXIR_NUMERIC, "money", "dto-map", "&1");
+    return k.optional
+      ? `Map.update(${atom}, nil, &(&1 && ${round}))`
+      : `Map.update!(${atom}, &(${round}))`;
+  }
+  const inner = k.fields
+    .flatMap((f) => (f.money ? [exMoneyUpdate(f.money, `:${snake(f.name)}`)] : []))
+    .join(" |> ");
+  const fn = `fn vo -> vo |> ${inner} end`;
+  return k.optional
+    ? `Map.update(${atom}, nil, &(&1 && (${fn}).(&1)))`
+    : `Map.update!(${atom}, ${fn})`;
 }
