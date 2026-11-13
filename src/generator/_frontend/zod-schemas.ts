@@ -68,7 +68,7 @@ export function emitEnumSchema(e: EnumIR): string[] {
 export function emitValueObjectSchema(vo: ValueObjectIR): string[] {
   return emitObjectWithRefines(
     `${vo.name}Schema`,
-    vo.fields.map((f) => ({ name: f.name, base: zodForResponseInner(f.type) })),
+    vo.fields.map((f) => ({ name: f.name, base: valueObjectFieldZod(f.type) })),
     vo.invariants,
     new Set(vo.fields.map((f) => f.name)),
   );
@@ -318,6 +318,17 @@ export function zodForRequest(t: TypeIR): string {
       // bare `T` — a caller supplies a value, never a lineage.
       throw new Error(PROVENANCED_REQUEST_ERROR);
   }
+}
+
+/** One value-object field's schema.  A value object is a form's nested value
+ *  too (a sub-form, a dynamic row), so an optional text-like field reads an
+ *  empty input as absent, exactly as a top-level request field does
+ *  ({@link zodForRequest}); the server never sends `""` for an absent id, enum
+ *  or date, so a read is unaffected. */
+function valueObjectFieldZod(t: TypeIR): string {
+  const base = zodForResponseInner(t);
+  if (!wireTypeInfo(t, "request").isNullable) return base;
+  return emptyIsAbsent(peelNullable(t)) ? `z.literal("").transform(() => null).or(${base})` : base;
 }
 
 /** An optional request field whose form input is text-like, so an empty

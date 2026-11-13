@@ -22,7 +22,7 @@ function openUpdateModal(mut: ReturnType<typeof useUpdateProduct>, record: Produ
 function UpdateForm({ mut, record, onClose }: { mut: ReturnType<typeof useUpdateProduct>; record: ProductResponse; onClose: () => void }) {
   const { register, handleSubmit, setError, control, formState: { errors } } = useForm<UpdateProductRequest>({
     resolver: zodResolver(UpdateProductRequest),
-    defaultValues: { sku: record.sku, price: record.price },
+    defaultValues: { sku: record.sku, price: { ...record.price } },
   });
   return (
     <form
