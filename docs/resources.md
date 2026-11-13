@@ -293,8 +293,9 @@ The `mailer` client also has `ses` (AWS SES SDK / `AmazonSES` / SendGrid-style)
 and `sendgrid` (`@sendgrid/mail` etc.) sourceType variants; `smtp` is the one
 with a dev sidecar.
 
-Dev `docker-compose` gains a sidecar per object-store / queue / smtp-mailer
-storage (MinIO for `s3`, `rabbitmq`, **Mailpit** for `smtp`); deployables with
+Dev `docker-compose` gains a sidecar per object-store / queue / smtp-mailer /
+cache storage (MinIO for `s3`, `rabbitmq`, **Mailpit** for `smtp`, valkey for a
+`redis` cache); deployables with
 no such resources are byte-identical. A sidecar runs under the storage's name, and
 every deployable that wires a `mailer` (smtp) or `queue` (rabbitmq) resource gets
 that address injected as `<RESOURCE>_URL` (plus a `depends_on` on the sidecar):
@@ -321,6 +322,79 @@ Each backend bakes the same URL as its fallback
 (`resourceSidecarUrl`, `src/util/resource-env.ts`) on both sides. A rabbitmq
 storage that also carries a channel transport boots without the `guest` account
 (broker auth, `channels.md`), so no queue URL is injected for it.
+
+## The by-id read cache — `kind: cache`
+
+A `kind: cache` resource caches the single-row read of each aggregate of its
+context — the `GET /{id}` read — in the bound storage, and evicts it on every
+write.  Lists, `findAll`, criterion and paged reads always go to the database.
+
+```ddd
+storage hotCache { type: redis }   // or `type: inMemory` (one process)
+resource catalogCache { for: Catalog, kind: cache, use: hotCache, keyPrefix: "shop", ttl: 120 }
+deployable api { platform: node, contexts: [Catalog], dataSources: [catalogState, catalogCache], … }
+```
+
+One plan (`src/ir/plan/cache.ts`) decides everything a backend renders, so no
+backend composes a key or an eviction set of its own
+(`test/system/cache-plan-census.test.ts`):
+
+- **Entry key** — `<keyPrefix>:<aggregate>:<hash>:<id>`.  `keyPrefix` defaults
+  to `<system>:<context>`; the hash covers the aggregate's wire shape and its
+  read stance (which restrictions apply — the tenancy floor, `softDeletable`,
+  a `deny` — and which fields are masked), so an entry written under one model
+  is never read under another.
+- **Scope in the key.** The entry maps a *scope fingerprint* to the wire answer
+  that scope was served.  The fingerprint is every principal member the read
+  can depend on: the operating tenant the tenancy floor reads, each
+  `currentUser.<claim>` the policy rungs (`when`, `own`) and `mask unless`
+  predicates read.  Two callers with equal fingerprints get the same answer by
+  construction; one caller's answer is never served to another scope.
+- **Eviction** — every write of an aggregate reaches its repository's `save`
+  (create, update, operation, workflow / handler / reactor write, soft delete)
+  or `delete`; both evict the id's whole entry, every scope at once.
+- **ttl** — `ttl:` seconds, default 60.
+
+An aggregate whose answer depends on **other rows** — an `exists` row rule, a
+policy function over a referenced row, a field followed through an `X id` — is
+read from the database, and so are event-sourced aggregates and inheritance
+hierarchies; `loom.cache-read-uncached` (a warning) names each one and why.
+
+The route sets `x-loom-cache: hit | miss`, which the e2e matcher
+`toBeCached()` reads (`language-reference/18-testing.md`).  A store that is
+down never fails a request: the read goes to the database, and a failed
+eviction is logged (`cache_unavailable`) and expires at its ttl.
+
+| backend | store client | eviction |
+|---|---|---|
+| node | `ioredis` (`redis`), a `Map` with expiry (`inMemory`) | `save` / `delete` of every repository class, wrapped once in `cache/by-id-cache.ts` |
+
+The other backends refuse a wired cache resource with
+`loom.target-unsupported#resource-kind-unrealized`.  A sibling deployable that
+does not list the resource reads the database.
+
+The node read, for `Item with tenantOwned` and a `cost` masked unless
+`currentUser.role == "manager"`:
+
+```ts
+// http/item.routes.ts — GET /{id}
+const __scope = JSON.stringify([requireCurrentUser().operatingOrg, requireCurrentUser().role]);
+const __hit = await itemCache.read(id, __scope);
+if (__hit) {
+  if (__hit.etag !== null) c.header("etag", __hit.etag);
+  c.header("x-loom-cache", "hit");
+  return c.body(__hit.body, 200, { "content-type": "application/json" });
+}
+const found = await repo.findById(Ids.ItemId(id));
+// … 404, masks, etag …
+await itemCache.write(id, __scope, { body: JSON.stringify(out), etag: versionETag(found.rowVersion) });
+c.header("x-loom-cache", "miss");
+```
+
+A `redis` storage a wired cache uses gets a `valkey/valkey:8-alpine` sidecar
+in the dev compose, and the deployable gets `<RESOURCE>_URL`
+(`redis://<storage>:6379`).  A redis storage that also carries a channel
+transport shares its password-locked valkey, and the URL carries the password.
 
 ## Calling another Loom service — `use: <Api>`
 

@@ -135,14 +135,11 @@ export type BackendConstruct =
   | "capability:shareable@aggregate"
   /** `resource r { kind: replica, … }` — a read-replica binding. */
   | "resource:replica@resource"
-  /** `resource r { kind: cache, … }` — a read-through cache binding. */
+  /** `resource r { kind: cache, … }` — the by-id read cache, with its `ttl`
+   *  and `keyPrefix` knobs (they are valid on no other kind). */
   | "resource:cache@resource"
   /** `resource r { kind: snapshot, … }` — an event-sourced snapshot store. */
   | "resource:snapshot@resource"
-  /** `resource r { …, ttl: … }` — a cache expiry. */
-  | "knob:ttl@resource"
-  /** `resource r { …, keyPrefix: … }` — a cache key namespace. */
-  | "knob:keyPrefix@resource"
   /** `resource r { …, every: … }` — a snapshot cadence. */
   | "knob:every@resource"
   /** `resource r { …, retain: … }` — a snapshot retention count. */
@@ -262,8 +259,6 @@ export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "resource:replica@resource",
   "resource:cache@resource",
   "resource:snapshot@resource",
-  "knob:ttl@resource",
-  "knob:keyPrefix@resource",
   "knob:every@resource",
   "knob:retain@resource",
   "knob:readonly@resource",
@@ -540,8 +535,6 @@ const UNREALIZED_RESOURCES: Pick<
   | "resource:replica@resource"
   | "resource:cache@resource"
   | "resource:snapshot@resource"
-  | "knob:ttl@resource"
-  | "knob:keyPrefix@resource"
   | "knob:every@resource"
   | "knob:retain@resource"
   | "knob:readonly@resource"
@@ -558,8 +551,6 @@ const UNREALIZED_RESOURCES: Pick<
   "resource:replica@resource": refused("resource-kind-unrealized"),
   "resource:cache@resource": refused("resource-kind-unrealized"),
   "resource:snapshot@resource": refused("resource-kind-unrealized"),
-  "knob:ttl@resource": refused("resource-knob-unrealized"),
-  "knob:keyPrefix@resource": refused("resource-knob-unrealized"),
   "knob:every@resource": refused("resource-knob-unrealized"),
   "knob:retain@resource": refused("resource-knob-unrealized"),
   "knob:readonly@resource": refused("resource-knob-unrealized"),
@@ -757,6 +748,9 @@ const STATIC_HOST_BACKEND_ROWS: Readonly<Record<BackendConstruct, CapabilityVerd
 const NODE_BACKEND: TargetCapabilityTable = {
   backend: {
     ...STATIC_HOST_BACKEND_ROWS,
+    // The by-id read cache (`src/ir/plan/cache.ts`): ioredis or an in-process
+    // map, read through on `GET /{id}`, evicted by the repository's writes.
+    "resource:cache@resource": SUPPORTED,
     // The save inserts the events and then dispatches outside the transaction.
     "publish:event-sourced@broker-channel": refused("feature-composition-broken"),
   },

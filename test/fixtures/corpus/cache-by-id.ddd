@@ -1,0 +1,135 @@
+// The by-id read cache (`resource … { kind: cache }`, docs/resources.md →
+// "The by-id read cache").  A `GET /{id}` answer is cached per caller scope —
+// the principal members the read scope, the policy rungs and the masks read —
+// and evicted by every write of the aggregate.  `toBeCached()` reads the
+// route's `x-loom-cache` status.
+//
+//   * `Item`  — `tenantOwned` + `softDeletable` + a `mask unless` field: the
+//               key carries the operating tenant and the role the mask reads.
+//   * `Note`  — the policy ladder's `own` rung: the key carries the caller id
+//               and role.
+//   * `Org`   — the tenant registry, self-scoped by the tenancy claim.
+system CacheById {
+  user { id: string  tenantId: string  role: string }
+
+  tenancy by user.tenantId of Org
+
+  subdomain Core {
+    context Catalog {
+      aggregate Org with crudish {
+        name: string
+      }
+      aggregate Item with tenantOwned, crudish(updateOnly: true), softDeletable, softDelete {
+        name: string
+        cost: int mask unless currentUser.role == "manager"
+        create(name: string, cost: int) {
+          name := name
+          cost := cost
+        }
+        operation rename(to: string) {
+          name := to
+        }
+      }
+      aggregate Note with tenantOwned, auditable, crudish {
+        body: string
+      }
+      repository Items for Item
+      workflow relabel {
+        create(item: Item id, to: string) {
+          let i = Items.get(item)
+          i.rename(to)
+        }
+      }
+      policy {
+        allow own on Note when currentUser.role == "clerk"
+      }
+    }
+  }
+  api CatalogApi from Core
+  storage primary { type: postgres }
+  storage hot { type: inMemory }
+  resource catalogState { for: Catalog, kind: state, use: primary }
+  resource catalogCache { for: Catalog, kind: cache, use: hot, ttl: 300 }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Catalog]
+    dataSources: [catalogState, catalogCache]
+    serves: CatalogApi
+    port: 4000
+    auth: required
+  }
+
+  test e2e "a by-id read is answered from the cache until a write evicts it" against d {
+    as { id: "alice", tenantId: "acme", role: "manager" }
+    let lamp = api.items.create({ name: "Lamp", cost: 40 })
+    // The first read goes to the database and stores its answer; the next is
+    // served from the cache.
+    expect(api.items.getById(lamp)).not.toBeCached()
+    expect(api.items.getById(lamp)).toBeCached()
+    expect(api.items.getById(lamp).name).toBe("Lamp")
+
+    // Every write path evicts: the canonical update…
+    api.items.update(lamp, { name: "Desk lamp", cost: 45 })
+    expect(api.items.getById(lamp)).not.toBeCached()
+    expect(api.items.getById(lamp).name).toBe("Desk lamp")
+    expect(api.items.getById(lamp).cost).toBe(45)
+    // …an operation…
+    api.items.rename(lamp, { to: "Floor lamp" })
+    expect(api.items.getById(lamp).name).toBe("Floor lamp")
+    expect(api.items.getById(lamp)).toBeCached()
+    // …a workflow write…
+    api.relabel.run({ item: lamp.id, to: "Reading lamp" })
+    expect(api.items.getById(lamp)).not.toBeCached()
+    expect(api.items.getById(lamp).name).toBe("Reading lamp")
+    // …and a soft delete: nobody reads the row after it.
+    api.items.softDelete(lamp)
+    expect(api.items.getById(lamp)).toThrow(404)
+  }
+
+  test e2e "one caller's cached answer is never served to another scope" against d {
+    as { id: "alice", tenantId: "acme", role: "manager" }
+    let desk = api.items.create({ name: "Desk", cost: 300 })
+    expect(api.items.getById(desk).cost).toBe(300)
+    expect(api.items.getById(desk)).toBeCached()
+
+    // The mask's role is in the key: a clerk of the same tenant gets its own
+    // entry, with the cost masked — not the manager's answer.
+    as { id: "bob", tenantId: "acme", role: "clerk" }
+    expect(api.items.getById(desk)).not.toBeCached()
+    expect(api.items.getById(desk).cost).toBeNull()
+    expect(api.items.getById(desk)).toBeCached()
+
+    // The tenant is in the key: another tenant's manager is not served acme's
+    // cached row.
+    as { id: "carol", tenantId: "globex", role: "manager" }
+    expect(api.items.getById(desk)).toThrow(404)
+
+    // A write by one scope evicts every scope's answer.
+    as { id: "alice", tenantId: "acme", role: "manager" }
+    api.items.rename(desk, { to: "Standing desk" })
+    as { id: "bob", tenantId: "acme", role: "clerk" }
+    expect(api.items.getById(desk)).not.toBeCached()
+    expect(api.items.getById(desk).name).toBe("Standing desk")
+  }
+
+  test e2e "the policy ladder's own rung keys the cache by caller" against d {
+    as { id: "dave", tenantId: "acme", role: "clerk" }
+    let memo = api.notes.create({ body: "memo" })
+    expect(api.notes.getById(memo).body).toBe("memo")
+    expect(api.notes.getById(memo)).toBeCached()
+
+    // Another clerk of the same tenant and role: the rung reads the caller's
+    // id, so dave's cached answer is not erin's.
+    as { id: "erin", tenantId: "acme", role: "clerk" }
+    expect(api.notes.getById(memo)).toThrow(404)
+
+    // A manager keeps the tenant default and reads it.
+    as { id: "alice", tenantId: "acme", role: "manager" }
+    expect(api.notes.getById(memo).body).toBe("memo")
+
+    // A delete evicts.
+    as { id: "dave", tenantId: "acme", role: "clerk" }
+    api.notes.destroy(memo)
+    expect(api.notes.getById(memo)).toThrow(404)
+  }
+}

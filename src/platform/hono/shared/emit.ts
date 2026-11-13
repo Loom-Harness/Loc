@@ -1,4 +1,9 @@
 import {
+  BY_ID_CACHE_PATH,
+  renderByIdCacheModule,
+} from "../../../generator/typescript/emit/by-id-cache.js";
+import { cachePlanFor } from "../../../ir/plan/cache.js";
+import {
   hasDurableEvents,
   routedPolymorphicRead,
   workflowIsolation,
@@ -1265,9 +1270,19 @@ export function generateTypeScriptForContexts(
     const st = objStore ? storeType.get(objStore.storageName) : undefined;
     if (objStore && st) fileUpload = { resource: objStore.name, sourceType: st };
   }
+  // The by-id read cache (`src/ir/plan/cache.ts`): one module per deployable,
+  // imported by `http/index.ts` so its eviction wraps every repository.
+  const cachedReads = system
+    ? contexts.flatMap((ctx) => cachePlanFor(system.sys, ctx, system.deployable).cached)
+    : [];
+  const byIdCacheModule = system
+    ? renderByIdCacheModule(system.sys, system.deployable, cachedReads)
+    : null;
+  if (byIdCacheModule) out.set(BY_ID_CACHE_PATH, byIdCacheModule);
   out.set(
     "http/index.ts",
     renderHttpIndex(merged, {
+      byIdCache: byIdCacheModule !== null,
       authRequired,
       persistence: usingMikro ? "mikroorm" : "drizzle",
       explicitRouters,
@@ -1737,7 +1752,9 @@ export function generateTypeScriptForContexts(
       withMoney: projectImportsDecimalJs,
       withOidc: !!oidcAuth,
       withCronTimers: hasTimers && anyTimerUsesCron(ownedTimers),
-      withRedisChannels: hasChannels && channelBindings.some((b) => b.transport === "redis"),
+      withRedisChannels:
+        (hasChannels && channelBindings.some((b) => b.transport === "redis")) ||
+        cachedReads.some((r) => r.storageType === "redis"),
       withRabbitChannels: hasChannels && channelBindings.some((b) => b.transport === "rabbitmq"),
       withKafkaChannels: hasChannels && channelBindings.some((b) => b.transport === "kafka"),
       resourceDeps,

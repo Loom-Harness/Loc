@@ -102,6 +102,13 @@ const INTRINSIC_MATCHER_SIGNATURES: ReadonlyArray<MatcherSig> = [
   // phase 5, so no backend re-resolves it) and `checkContainReceiver`
   // rejects every other subject type at the author's own source span.
   { name: "toContain", arity: 1, on: "value", negatable: true },
+  // `expect(api.<aggregates>.getById(id)).toBeCached()` — E2E ONLY: the read
+  // was answered from the by-id read cache (`kind: cache`); `.not.` — it was
+  // read from the database.  The claim is about the route's `x-loom-cache`
+  // status, so its subject is a by-id api read of an aggregate the target
+  // deployable caches (`loom.cached-subject-invalid`), and it is asked with a
+  // second request: the matcher issues the read itself.
+  { name: "toBeCached", arity: 0, on: "value", negatable: true },
 ];
 
 /** The failure RUNGS `toThrow(<kind>)` can pin — a closed, compiler-known set

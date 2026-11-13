@@ -8,6 +8,7 @@ import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
 import { isRepoVerbAt } from "../../../util/repository-contract.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
+import { cachedByIdRead } from "../../plan/cache.js";
 import type {
   AggregateIR,
   ApiIR,
@@ -359,6 +360,7 @@ export function validateE2ETest(
   }
 
   checkMatcherSubjects(test.statements, source, diags);
+  checkCachedSubjects(test, sys, target, contexts, source, diags);
 
   for (const stmt of test.statements) {
     const badKind = unsupportedE2EStmtKind(stmt);
@@ -892,6 +894,56 @@ function checkMagicCall(
     }),
     source,
   });
+}
+
+/** `expect(api.<aggregates>.getById(<id>)).toBeCached()` — the by-id api read
+ *  of an aggregate the target deployable caches.  Anything else could never
+ *  hold, or would reach the e2e renderer with nothing to ask. */
+function checkCachedSubjects(
+  test: TestE2EIR,
+  sys: SystemIR,
+  target: DeployableIR,
+  contexts: BoundedContextIR[],
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  const seen = new Set<ExprIR>();
+  const report = (message: string) =>
+    diags.push({ severity: "error", code: "loom.cached-subject-invalid", message, source });
+  for (const stmt of test.statements) {
+    walkStmt(stmt, (e) => {
+      if (e.kind !== "method-call" || !e.isIntrinsicMatcher || e.member !== "toBeCached") return;
+      if (seen.has(e)) return;
+      seen.add(e);
+      if (test.kind === "ui") {
+        report(diagMessage("loom.cached-subject-invalid#ui", { deployable: target.name }));
+        return;
+      }
+      const { subject } = matcherSubject(e);
+      const slug =
+        subject.kind === "method-call" &&
+        subject.member === "getById" &&
+        subject.receiver.kind === "member" &&
+        subject.receiver.receiver.kind === "ref" &&
+        subject.receiver.receiver.name === "api"
+          ? subject.receiver.member
+          : undefined;
+      const agg = slug === undefined ? undefined : findAggregateBySlug(slug, contexts);
+      if (!agg) {
+        report(diagMessage("loom.cached-subject-invalid#shape", { actual: exprLabel(subject) }));
+        return;
+      }
+      const ctx = contexts.find((c) => c.aggregates.includes(agg));
+      if (!ctx || !cachedByIdRead(sys, ctx, agg.name, target)) {
+        report(
+          diagMessage("loom.cached-subject-invalid#uncached", {
+            aggregate: agg.name,
+            deployable: target.name,
+          }),
+        );
+      }
+    });
+  }
 }
 
 function collectContexts(

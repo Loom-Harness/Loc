@@ -20,6 +20,7 @@ export const segments = [
   "unit",
   "not",
   "context",
+  "cached",
 ] as const;
 
 export const messages = {
@@ -124,6 +125,14 @@ export const messages = {
     "'expect' requires a matcher — write 'expect(<actual>).toBe(<expected>)' (or .toThrow(), .toHaveText(…), …), not a bare expression.",
   "loom.matcher-e2e-only#same-instant":
     "'toBeSameInstant' compares wire timestamps and is only valid in a 'test e2e' block; compare in-memory values with 'toBe' in an in-process test.",
+  "loom.matcher-e2e-only#cached":
+    "'toBeCached' reads a by-id read's cache status, an HTTP response header, and is only valid in a 'test e2e' block against a backend.",
+  "loom.cached-subject-invalid#shape": (p: { actual: unknown }) =>
+    `'toBeCached()' asks whether a by-id read was answered from the cache, so 'expect(...)' must be given one: \`expect(api.<aggregates>.getById(<id>)).toBeCached()\`.  Got ${p.actual}.`,
+  "loom.cached-subject-invalid#ui": (p: { deployable: unknown }) =>
+    `'toBeCached()' reads a backend route's cache status, and this test runs against '${p.deployable}', which renders a ui.  Point the test at the backend deployable.`,
+  "loom.cached-subject-invalid#uncached": (p: { aggregate: unknown; deployable: unknown }) =>
+    `'toBeCached()' on a read of '${p.aggregate}', which deployable '${p.deployable}' does not cache: no \`kind: cache\` resource it wires covers the aggregate (or \`loom.cache-read-uncached\` says why it is read from the database), so the assertion can never hold.`,
   "loom.matcher-e2e-only#throw-status":
     "'toThrow(<status>)' pins an HTTP status and is only valid in a 'test e2e' block; use a bare 'toThrow()' in an in-process test.",
   "loom.tothrow-arity": (p: { got: unknown }) =>

@@ -21,6 +21,7 @@ import { SourceMapRecorder } from "../generator/_trace/sourcemap.js";
 import { E2E_FIXTURES_TS } from "../generator/react/emit-templates.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel } from "../ir/lower/lower.js";
+import { cacheStoragesOf } from "../ir/plan/cache.js";
 import type {
   DeployableIR,
   EnrichedBoundedContextIR,
@@ -1304,10 +1305,17 @@ function sidecarResourceBindings(
   for (const name of d.dataSourceNames) {
     const resource = sys.dataSources.find((r) => r.name === name);
     if (!resource?.storageName) continue;
-    if (resource.kind !== "mailer" && resource.kind !== "queue") continue;
+    const isCache = cacheStoragesOf(sys, { dataSourceNames: [resource.name] }).length > 0;
+    if (resource.kind !== "mailer" && resource.kind !== "queue" && !isCache) continue;
     const storage = sys.storages.find((s) => s.name === resource.storageName);
-    if (!storage || transportStorages.has(storage.name)) continue;
-    const url = resourceSidecarUrl(storage.type, storage.name);
+    if (!storage) continue;
+    // A cache on a redis storage that also carries a channel transport dials
+    // the transport's password-locked valkey with its credential.
+    const sharedValkey = isCache && storage.type === "redis" && transportStorages.has(storage.name);
+    if (transportStorages.has(storage.name) && !sharedValkey) continue;
+    const url = sharedValkey
+      ? `redis://:${devPassword(storage.name)}@${serviceSlug(storage.name)}:6379`
+      : resourceSidecarUrl(storage.type, storage.name);
     if (!url) continue;
     out.push({ envVar: resourceEnvUrlVar(resource.name), url, slug: serviceSlug(storage.name) });
   }
@@ -1323,11 +1331,32 @@ function renderStorageSidecars(sys: SystemIR): { services: string[][]; volumes: 
   // Broker transports (channels.md; M-T4.4): a redis-type storage
   // that backs a channelSource some deployable actually wires gets a Valkey
   // sidecar — valkey/valkey (BSD-3, redis-wire-compatible) rather than the
-  // relicensed redis: images (design §6a).  Cache-only redis storages (no
-  // wired channelSource) keep emitting no sidecar — byte-identical.
+  // relicensed redis: images (design §6a).
   const transportStorages = channelTransportStorageNames(sys);
+  // A redis storage a wired `kind: cache` resource reads through gets the
+  // same Valkey image, without a password: it holds only cache entries.
+  const wired = new Set(sys.deployables.flatMap((d) => d.dataSourceNames));
+  const cacheStorages = new Set(
+    sys.dataSources
+      .filter(
+        (r) => wired.has(r.name) && cacheStoragesOf(sys, { dataSourceNames: [r.name] }).length > 0,
+      )
+      .map((r) => r.storageName),
+  );
   for (const s of sys.storages) {
     const slug = serviceSlug(s.name);
+    if (s.type === "redis" && !transportStorages.has(s.name) && cacheStorages.has(s.name)) {
+      services.push([
+        `${slug}:`,
+        `  image: valkey/valkey:8-alpine`,
+        `  healthcheck:`,
+        `    test: ["CMD", "valkey-cli", "ping"]`,
+        `    interval: 5s`,
+        `    timeout: 5s`,
+        `    retries: 10`,
+      ]);
+      continue;
+    }
     if (s.type === "redis" && transportStorages.has(s.name)) {
       // Broker auth (design §7): `requirepass` locks the
       // sidecar to the single v1 credential the wired deployables carry in

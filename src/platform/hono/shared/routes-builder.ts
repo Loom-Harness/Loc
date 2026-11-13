@@ -34,6 +34,10 @@ import {
   historySelectStatement,
   renderHistoryEntryMapper,
 } from "../../../generator/typescript/emit/audit-history.js";
+import {
+  renderCacheHit,
+  renderCacheStore,
+} from "../../../generator/typescript/emit/by-id-cache.js";
 import { domainServiceNamesInExprs } from "../../../generator/typescript/emit/domain-service.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
@@ -80,6 +84,7 @@ import {
   wireCreateDefault,
   wireFieldsFor,
 } from "../../../ir/enrich/wire-projection.js";
+import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -493,6 +498,9 @@ export function buildRoutesFile(
   // instead of drizzle's `db.transaction` + `tx.insert(schema.<table>)`.  The
   // drizzle default keeps `usingMikro = false`, so its output is byte-identical.
   usingMikro = false,
+  // The aggregate's cached by-id read (`src/ir/plan/cache.ts`), when a
+  // `kind: cache` resource on this deployable caches it.
+  cache?: CachedByIdRead,
 ): string {
   // An audited public command action instruments its route handler with an
   // `audit_records` insert; the schema table is only emitted when some
@@ -1288,6 +1296,7 @@ export function buildRoutesFile(
         `      if (!(${renderTsExpr(byIdFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind.name}`)});`,
       );
     }
+    if (cache) lines.push(...renderCacheHit(cache, "id", "      "));
     lines.push(`      const found = await repo.findById(${T.Ids}.${agg.name}Id(id));`);
     // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
     // every backend, and this route was the one place Hono answered a machine
@@ -1314,10 +1323,28 @@ export function buildRoutesFile(
     // conformance spec-diff, so declaring it on node alone would read as a
     // contract divergence.  Declaring it belongs with emitting it on the other
     // four backends, in one change.
-    if (readsIfMatch(operationVersionCheck(agg))) {
+    const sendsETag = readsIfMatch(operationVersionCheck(agg));
+    if (sendsETag) {
       lines.push(`      c.header("etag", versionETag(found.${ROW_VERSION_FIELD}));`);
     }
-    if (emitTrace) {
+    if (cache) {
+      lines.push(`      const out = ${wireResp(agg, "repo", "found")};`);
+      if (emitTrace) {
+        lines.push(
+          `      ${renderHonoLogCall("wireOut", "keys: Object.keys(out as Record<string, unknown>)")}`,
+        );
+      }
+      lines.push(
+        ...renderCacheStore(
+          cache,
+          "id",
+          "out",
+          sendsETag ? `versionETag(found.${ROW_VERSION_FIELD})` : "null",
+          "      ",
+        ),
+      );
+      lines.push(`      return c.json(out as z.infer<typeof ${agg.name}Response>, 200);`);
+    } else if (emitTrace) {
       // toWire isn't trivial — bind once so it's not run twice between
       // Object.keys and c.json.
       lines.push(`      const out = ${wireResp(agg, "repo", "found")};`);

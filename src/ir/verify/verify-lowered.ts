@@ -338,6 +338,9 @@ function verifyExpr(e: ExprIR, scope: BodyScope, b: Bindings, report: Report): v
       verifyRef(e, scope, b, report);
       return;
     case "member": {
+      // `expect(<x>).not.<matcher>()` — the negation marker, not a member of
+      // the subject.  The AST validator admits `.not` only there.
+      if (e.member === "not") return;
       const members = membersOfType(e.receiverType, scope.index);
       const uiOps =
         e.receiverType.kind === "entity"
