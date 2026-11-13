@@ -733,6 +733,7 @@ export function buildWorkflowsFile(
   const mikroNames = [
     /(?<!\.)\bEntityManager\b/.test(bodyStr) ? "EntityManager" : "",
     /(?<!\.)\bIsolationLevel\./.test(bodyStr) ? "IsolationLevel" : "",
+    /(?<!\.)\bLockMode\./.test(bodyStr) ? "LockMode" : "",
   ].filter((n) => n !== "");
   if (mikroNames.length > 0)
     imports.push(`import { ${mikroNames.join(", ")} } from "@mikro-orm/postgresql";`);
@@ -1838,7 +1839,12 @@ function relayOptionLines(): string[] {
 /** A row whose publish found the broker unreachable is not at fault: the
  *  pass halts there without spending the row's attempt (the shared relay
  *  policy), and the pass's failure backs the relay off. */
-const RELAY_HALT_ON_BROKER_DOWN = `          if (err instanceof Error && err.name === "BrokerUnavailableError") throw err;`;
+const RELAY_HALT_ON_BROKER_DOWN = [
+  `            if (err instanceof Error && err.name === "BrokerUnavailableError") {`,
+  `              halted = err;`,
+  `              break;`,
+  `            }`,
+].join("\n");
 
 /** The pass's end and the relay's schedule: a failed pass (database or
  *  broker unreachable) is logged, and the next one waits the policy's capped
@@ -2016,35 +2022,43 @@ function emitOutboxMachinery(
       pruneInbox ? `db.execute(sql\`${foldInboxPurgeSql("${cutoff}")}\`)` : undefined,
     ),
   );
-  out.push(`      const rows = await db`);
-  out.push(`        .select()`);
-  out.push(`        .from(schema.loomOutbox)`);
+  // The pass claims its batch: one transaction locks the rows it takes and
+  // skips the ones another relay holds, so competing replicas never publish
+  // the same row.
+  out.push(`      let halted: unknown;`);
+  out.push(`      await db.transaction(async (tx) => {`);
+  out.push(`        const rows = await tx`);
+  out.push(`          .select()`);
+  out.push(`          .from(schema.loomOutbox)`);
   out.push(
-    `        .where(and(isNull(schema.loomOutbox.dispatchedAt), isNull(schema.loomOutbox.deadAt)))`,
+    `          .where(and(isNull(schema.loomOutbox.dispatchedAt), isNull(schema.loomOutbox.deadAt)))`,
   );
-  out.push(`        .orderBy(asc(schema.loomOutbox.occurredAt))`);
-  out.push(`        .limit(batchSize);`);
-  out.push(`      for (const row of rows) {`);
-  out.push(`        try {`);
+  out.push(`          .orderBy(asc(schema.loomOutbox.occurredAt))`);
+  out.push(`          .limit(batchSize)`);
+  out.push(`          .for("update", { skipLocked: true });`);
+  out.push(`        for (const row of rows) {`);
+  out.push(`          try {`);
   // The outbox row id rides on the dispatched event so the saga handler's
   // idempotent-consumer marker can no-op on redelivery (dispatch-delivery-
   // semantics.md §3).  Inline (ephemeral) dispatch carries no id.
-  out.push(...redeliver("          "));
+  out.push(...redeliver("            "));
   out.push(
-    `          await db.update(schema.loomOutbox).set({ dispatchedAt: new Date() }).where(eq(schema.loomOutbox.id, row.id));`,
+    `            await tx.update(schema.loomOutbox).set({ dispatchedAt: new Date() }).where(eq(schema.loomOutbox.id, row.id));`,
   );
-  out.push(`        } catch (err) {`);
+  out.push(`          } catch (err) {`);
   out.push(RELAY_HALT_ON_BROKER_DOWN);
-  out.push(`          const attempts = row.attempts + 1;`);
-  out.push(`          const dead = attempts >= maxAttempts;`);
+  out.push(`            const attempts = row.attempts + 1;`);
+  out.push(`            const dead = attempts >= maxAttempts;`);
   out.push(
-    `          await db.update(schema.loomOutbox).set({ attempts, deadAt: dead ? new Date() : null }).where(eq(schema.loomOutbox.id, row.id));`,
+    `            await tx.update(schema.loomOutbox).set({ attempts, deadAt: dead ? new Date() : null }).where(eq(schema.loomOutbox.id, row.id));`,
   );
-  out.push(`          if (dead) {`);
-  out.push(`            ${TS_DEAD_LETTERED_LOG}`);
+  out.push(`            if (dead) {`);
+  out.push(`              ${TS_DEAD_LETTERED_LOG}`);
+  out.push(`            }`);
   out.push(`          }`);
   out.push(`        }`);
-  out.push(`      }`);
+  out.push(`      });`);
+  out.push(`      if (halted) throw halted;`);
   out.push(...relayPassTail());
   out.push(`}`);
   return out;
@@ -2138,28 +2152,34 @@ function emitMikroOutboxMachinery(
         ? `em.getConnection().execute(${JSON.stringify(foldInboxPurgeSql("?"))}, [cutoff])`
         : undefined,
     ),
-    `      const rows = await em.find(`,
-    `        ${ROW},`,
-    `        { dispatchedAt: null, deadAt: null },`,
-    `        { orderBy: { occurredAt: "asc" }, limit: batchSize },`,
-    `      );`,
-    `      for (const row of rows) {`,
-    `        try {`,
+    // The pass claims its batch (FOR UPDATE SKIP LOCKED) inside one
+    // transaction, exactly like the drizzle relay above.
+    `      let halted: unknown;`,
+    `      await em.transactional(async (tx) => {`,
+    `        const rows = await tx.find(`,
+    `          ${ROW},`,
+    `          { dispatchedAt: null, deadAt: null },`,
+    `          { orderBy: { occurredAt: "asc" }, limit: batchSize, lockMode: LockMode.PESSIMISTIC_PARTIAL_WRITE },`,
+    `        );`,
+    `        for (const row of rows) {`,
+    `          try {`,
     // The outbox row id rides on the dispatched event so the saga handler's
     // idempotent-consumer marker can no-op on redelivery — identical to the
     // drizzle relay above.
-    ...redeliver("          "),
-    `          await em.nativeUpdate(${ROW}, { id: row.id }, { dispatchedAt: new Date() });`,
-    `        } catch (err) {`,
+    ...redeliver("            "),
+    `            await tx.nativeUpdate(${ROW}, { id: row.id }, { dispatchedAt: new Date() });`,
+    `          } catch (err) {`,
     RELAY_HALT_ON_BROKER_DOWN,
-    `          const attempts = row.attempts + 1;`,
-    `          const dead = attempts >= maxAttempts;`,
-    `          await em.nativeUpdate(${ROW}, { id: row.id }, { attempts, deadAt: dead ? new Date() : null });`,
-    `          if (dead) {`,
-    `            ${TS_DEAD_LETTERED_LOG}`,
+    `            const attempts = row.attempts + 1;`,
+    `            const dead = attempts >= maxAttempts;`,
+    `            await tx.nativeUpdate(${ROW}, { id: row.id }, { attempts, deadAt: dead ? new Date() : null });`,
+    `            if (dead) {`,
+    `              ${TS_DEAD_LETTERED_LOG}`,
+    `            }`,
     `          }`,
     `        }`,
-    `      }`,
+    `      });`,
+    `      if (halted) throw halted;`,
     ...relayPassTail(),
     `}`,
   ];
@@ -2662,7 +2682,8 @@ function buildProducerOutboxFile(
     `import type * as Events from "../domain/events";`,
     ...(usingMikro
       ? [
-          `import { EntityManager } from "@mikro-orm/postgresql";`,
+          // The relay claims its batch with LockMode (the shared claim policy).
+          `import { EntityManager, LockMode } from "@mikro-orm/postgresql";`,
           `import { randomUUID } from "node:crypto";`,
           `import { ${MIKRO_OUTBOX_ROW_CLASS} } from "../db/entities";`,
         ]

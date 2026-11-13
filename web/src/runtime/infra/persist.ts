@@ -1,19 +1,12 @@
-// Durable backing for the resource fakes (S3 objects, localDisk files, the
-// Mailbox).  Services keep their working set in memory and write through to a
-// `BlobStore`; on boot they hydrate from it, so what an app stored survives a
-// page reload like the PGlite storages do.  Without OPFS (private mode, an old
-// browser) there is no store and the fakes stay memory-only.
+// The playground's durable backing for the resource fakes (S3 objects,
+// localDisk files, the Mailbox): an OPFS-backed `BlobStore` (src/emulation)
+// per island, so what an app stored survives a page reload like the PGlite
+// storages do.  Without OPFS (private mode, an old browser) there is no store
+// and the fakes stay memory-only.
 
-/** A namespaced key → bytes store.  Writes are queued in order and awaited by
- *  `flush`; a failed write is dropped (memory stays authoritative). */
-export interface BlobStore {
-  load(ns: string): Promise<Map<string, Uint8Array>>;
-  put(ns: string, key: string, bytes: Uint8Array): void;
-  remove(ns: string, key: string): void;
-  /** Drop everything this store holds. */
-  clear(): Promise<void>;
-  flush(): Promise<void>;
-}
+import { type BlobStore, blobNameOf as nameOf, splitBlobName as splitName } from "../../../../src/emulation/blob-store.js";
+
+export { type BlobStore, memoryBlobStore } from "../../../../src/emulation/blob-store.js";
 
 interface OpfsFile {
   kind: "file";
@@ -38,12 +31,6 @@ interface OpfsDir {
  *  `loom-<island>` directories, which `engine/opfs-gc.ts` collects by that
  *  prefix; it collects these by `loomres-` against the same keep set. */
 export const RESOURCE_DIR_PREFIX = "loomres-";
-
-const nameOf = (ns: string, key: string): string => `${ns}.${encodeURIComponent(key)}`;
-const splitName = (name: string): { ns: string; key: string } | null => {
-  const dot = name.indexOf(".");
-  return dot < 0 ? null : { ns: name.slice(0, dot), key: decodeURIComponent(name.slice(dot + 1)) };
-};
 
 /** The OPFS store of one island, or null where OPFS is unavailable. */
 export async function openOpfsBlobStore(island: string): Promise<BlobStore | null> {
@@ -102,26 +89,5 @@ export async function openOpfsBlobStore(island: string): Promise<BlobStore | nul
       for (const n of names) await dir.removeEntry(n).catch(() => undefined);
     },
     flush: () => tail,
-  };
-}
-
-/** An in-memory `BlobStore` (tests; also what "persistence" means when there
- *  is nothing durable to write to). */
-export function memoryBlobStore(): BlobStore & { snapshot(): Map<string, Uint8Array> } {
-  const m = new Map<string, Uint8Array>();
-  return {
-    load: async (ns) => {
-      const out = new Map<string, Uint8Array>();
-      for (const [n, v] of m) {
-        const p = splitName(n);
-        if (p?.ns === ns) out.set(p.key, v);
-      }
-      return out;
-    },
-    put: (ns, key, bytes) => void m.set(nameOf(ns, key), bytes),
-    remove: (ns, key) => void m.delete(nameOf(ns, key)),
-    clear: async () => m.clear(),
-    flush: async () => undefined,
-    snapshot: () => new Map(m),
   };
 }

@@ -27,6 +27,7 @@ import type {
 import {
   unreadableCollections,
   unrenderableInvariants,
+  voUncarriedInvariants,
 } from "../../util/changeset-invariant-carrier.js";
 import {
   walkExprDeep,
@@ -144,8 +145,18 @@ function unenforceableReason(inv: InvariantIR, opaque: ReadonlySet<string>): str
  *  `invariant:unvalidated-shape@aggregate`. */
 export function unvalidatedInvariants(
   ctx: BoundedContextIR,
-): { agg: AggregateIR; inv: InvariantIR; reason: string }[] {
-  const out: { agg: AggregateIR; inv: InvariantIR; reason: string }[] = [];
+): { agg: { name: string }; inv: InvariantIR; reason: string }[] {
+  const out: { agg: { name: string }; inv: InvariantIR; reason: string }[] = [];
+  // A value object's rules run in its validating constructor
+  // (`<Ctx>.<Vo>.new/1`): single-field ones as native `validate_*` lines, the
+  // rest through the same `validate_invariants/1` carrier, over the cast map.
+  // What that carrier cannot evaluate is enforced nowhere on this backend.
+  for (const vo of ctx.valueObjects) {
+    const uncarried = voUncarriedInvariants(vo);
+    for (const inv of unrenderableInvariants({ invariants: uncarried })) {
+      out.push({ agg: vo, inv, reason: unenforceableReason(inv, new Set()) });
+    }
+  }
   for (const agg of ctx.aggregates) {
     // An event-sourced aggregate is checked against its in-memory fold, which
     // holds a reference collection as the plain id list — so nothing is

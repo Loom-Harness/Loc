@@ -246,11 +246,21 @@ export function schemaFromModule(
       // Its `X id[]` reference collections need their join tables too — the
       // owner FK points at the shared base table, whose row id the concrete's
       // id IS (every backend's TPH repository writes the base row id there).
+      // Its value-object array fields (`lines: Line[]`) keep their id-less
+      // child tables, FK'd to the shared base table for the same reason.
       return [
         ...agg.parts.map((part) =>
           tableForPart(part, agg, module.name, voLookup, enumLookup, owner),
         ),
         ...agg.associations.map((assoc) => tableForAssociation(assoc, module.name, pool)),
+        ...valueCollectionsFor(agg).map((vc) =>
+          valueCollectionTableShape(vc, agg, module.name, voLookup, enumLookup, undefined, owner),
+        ),
+        ...agg.parts.flatMap((part) =>
+          valueCollectionsFor(part).map((vc) =>
+            valueCollectionTableShape(vc, agg, module.name, voLookup, enumLookup, part.name),
+          ),
+        ),
       ];
     }
     if (isTphBase(agg, pool)) {
@@ -2105,7 +2115,10 @@ export function applyDestructivePolicy(
         const add: MigrationStep = s.fk
           ? { op: "addColumn", table: s.table, schema: s.schema, column: addCol, fk: s.fk }
           : { op: "addColumn", table: s.table, schema: s.schema, column: addCol };
-        const out: MigrationStep[] = [
+        // The column arrives nullable in the DDL transaction; the fill and
+        // the NOT NULL proof run after it commits (`renderLockSafeBackfill`),
+        // so the table's ACCESS EXCLUSIVE lock lasts only for the ADD COLUMN.
+        return [
           add,
           {
             op: "backfillColumn",
@@ -2114,21 +2127,10 @@ export function applyDestructivePolicy(
             column: s.column.name,
             valueSql: b.valueSql,
             onlyNull: true,
+            outsideTransaction: true,
+            ...(blocking ? { setNotNull: true as const } : {}),
           },
         ];
-        if (blocking) {
-          const flip: MigrationStep = {
-            op: "alterColumnNullable",
-            table: s.table,
-            schema: s.schema,
-            name: s.column.name,
-            type: s.column.type,
-            nullable: false,
-          };
-          safeFlips.add(flip);
-          out.push(flip);
-        }
-        return out;
       }
       // No declared backfill — but the field may carry a `.ddd` default
       // (`status: string = "pending"`).  Add the column WITH that default so
@@ -2188,6 +2190,8 @@ export function applyDestructivePolicy(
       const b = backfillFor(s.schema, s.table, s.name);
       if (b) {
         safeFlips.add(s);
+        // The flip rides the backfill: filled and proved NOT NULL outside the
+        // DDL transaction (`renderLockSafeBackfill`).
         return [
           {
             op: "backfillColumn",
@@ -2196,8 +2200,9 @@ export function applyDestructivePolicy(
             column: s.name,
             valueSql: b.valueSql,
             onlyNull: true,
+            outsideTransaction: true,
+            setNotNull: true,
           },
-          s,
         ];
       }
       return [s];
@@ -2438,6 +2443,48 @@ export class MigrationShapeChangeError extends Error {
     this.name = "MigrationShapeChangeError";
   }
 }
+
+/** The FK re-point steps for every table that survives a reshape while
+ *  holding an FK into a reshaped (backed-up) table: the baseline FK named
+ *  `<table>_<column>_fkey` is dropped and the next schema's FK on the same
+ *  column is added `NOT VALID`.  A column whose FK is gone from the next
+ *  schema is left to the ordinary column diff. */
+function reshapeFkRepoints(
+  baseline: SchemaSnapshot | null,
+  next: SchemaSnapshot,
+  reshapes: readonly ReshapeEvent[],
+): MigrationStep[] {
+  if (!baseline) return [];
+  const backedUp = new Set(reshapes.flatMap((r) => r.backups.map((b) => qkey(b.schema, b.name))));
+  const out: MigrationStep[] = [];
+  for (const t of baseline.tables) {
+    if (backedUp.has(qkey(t.schema, t.name))) continue;
+    const after = next.tables.find((n) => n.name === t.name && n.schema === t.schema);
+    if (!after) continue;
+    for (const fk of t.foreignKeys) {
+      if (!backedUp.has(qkey(t.schema, fk.refTable))) continue;
+      const nextFk = after.foreignKeys.find((f) => f.column === fk.column);
+      if (!nextFk) continue;
+      const table = qualifiedSql(t.schema, t.name);
+      const constraint = quoteIdent(`${t.name}_${fk.column}_fkey`);
+      out.push(
+        { op: "sqlExec", sql: `ALTER TABLE ${table} DROP CONSTRAINT IF EXISTS ${constraint};` },
+        {
+          op: "sqlExec",
+          sql:
+            `ALTER TABLE ${table} ADD CONSTRAINT ${constraint} FOREIGN KEY (${quoteIdent(fk.column)}) ` +
+            `REFERENCES ${qualifiedSql(t.schema, nextFk.refTable)} ON DELETE ` +
+            `${nextFk.onDelete === "cascade" ? "CASCADE" : "RESTRICT"} NOT VALID;`,
+        },
+      );
+    }
+  }
+  return out;
+}
+
+const quoteIdent = (name: string): string => `"${name.replaceAll('"', '""')}"`;
+const qualifiedSql = (schema: string | undefined, name: string): string =>
+  schema ? `${quoteIdent(schema)}.${quoteIdent(name)}` : quoteIdent(name);
 
 /** Detect table reshapes between the baseline snapshot and the next schema
  *  (M-T2.4).  Two mechanisms:
@@ -2895,6 +2942,15 @@ export function buildMigrations(
           });
         }
       }
+      // A SURVIVING table's FK into a reshaped table follows the rename to the
+      // backup too (Postgres and Ecto carry an FK across a table rename), so
+      // every new row it writes would have to reference the backup.  Re-point
+      // it at the new shape's table: drop the constraint by the name Postgres
+      // gives an inline FK (`<table>_<column>_fkey`, every backend's DDL) and
+      // re-add it `NOT VALID` — the stored rows still reference ids the data
+      // move has not copied yet, while every new write is checked against the
+      // new table.  Runs after the new shape is created.
+      reshapeComments.push(...reshapeFkRepoints(diffBaseline, next, reshapes));
       next = {
         ...next,
         tables: [...next.tables, ...injected].sort((a, b) => a.name.localeCompare(b.name)),
@@ -4127,12 +4183,16 @@ function tableForPart(
     { name: parentFk, type: idColumnType(), nullable: false },
   ];
   const foreignKeys: FKShape[] = [{ column: parentFk, refTable: parentTable, onDelete: "cascade" }];
+  // A single containment (`contains label: Label`) holds at most one child
+  // per parent, so its parent FK is UNIQUE: the database refuses a second
+  // child instead of letting a backend that loads one part (has_one /
+  // OneToOne / OwnsOne) read an arbitrary row.  A collection's FK is not.
   const indexes: IndexShape[] = [
     {
       name: `${tableName}_${parentFk}_idx`,
       table: tableName,
       columns: [parentFk],
-      unique: false,
+      unique: dp?.single === true,
     },
   ];
 
@@ -4242,8 +4302,13 @@ function valueCollectionTableShape(
   // NO `enumValues` CHECK, which is exactly the silent gap this closes.
   enumLookup: EnumLookup,
   partName?: string,
+  /** The aggregate whose table holds the owning row, when it is not
+   *  `parentAgg` itself — a TPH concrete's rows live in its base's table. */
+  ownerAggName?: string,
 ): TableShape {
-  const ownerTable = partName ? tableNameFor(partName) : tableNameFor(parentAgg.name);
+  const ownerTable = partName
+    ? tableNameFor(partName)
+    : tableNameFor(ownerAggName ?? parentAgg.name);
   const idType = idColumnType();
   const elementFields = voLookup.get(vc.voName) ?? [];
   const columns: ColumnShape[] = [

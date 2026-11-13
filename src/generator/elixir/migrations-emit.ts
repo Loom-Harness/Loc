@@ -14,6 +14,7 @@ import {
   renderAlterColumnDefaultSql,
   renderAlterColumnTypeSql,
   renderBackfillSql,
+  renderLockSafeBackfill,
   renderRenameIndexSql,
   renderSetSchemaSql,
 } from "../sql-pg.js";
@@ -758,7 +759,9 @@ export function renderEctoStep(step: MigrationStep): string[] {
       // Raw-SQL DML via `execute/1` — the UPDATE text is shared with the
       // Postgres renderer (`renderBackfillSql`) so the statement is
       // bit-identical cross-backend, exactly like the DDL steps.
-      return [`execute(${elixirStr(renderBackfillSql(step))})`];
+      return step.outsideTransaction
+        ? renderLockSafeBackfill(step).map((sql) => `execute(${elixirStr(sql)})`)
+        : [`execute(${elixirStr(renderBackfillSql(step))})`];
     case "sqlExec":
       return [`execute(${elixirStr(step.sql.trimEnd().replace(/;$/, ""))})`];
   }

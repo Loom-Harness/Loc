@@ -729,13 +729,15 @@ ${outboxExecuteLoop()}
 
     private async Task DrainAsync(CancellationToken cancellationToken)
     {
-        List<OutboxRow> rows;
-        await using (var conn = await _db.OpenConnectionAsync(cancellationToken))
-        {
-            rows = (await conn.QueryAsync<OutboxRow>(new CommandDefinition(
-                "SELECT id, type, payload, attempts FROM __loom_outbox WHERE ${OUTBOX_PENDING_PREDICATE} ORDER BY occurred_at LIMIT @take",
-                new { take = BatchSize }, cancellationToken: cancellationToken))).ToList();
-        }
+        // The pass claims its batch: one transaction locks the rows it takes
+        // and skips the ones another relay holds, so competing replicas never
+        // publish the same row.  Reactors run on their own connections.
+        await using var conn = await _db.OpenConnectionAsync(cancellationToken);
+        await using var claim = await conn.BeginTransactionAsync(cancellationToken);
+        var rows = (await conn.QueryAsync<OutboxRow>(new CommandDefinition(
+            "SELECT id, type, payload, attempts FROM __loom_outbox WHERE ${OUTBOX_PENDING_PREDICATE} ORDER BY occurred_at LIMIT @take ${OUTBOX_RELAY.claimLock}",
+            new { take = BatchSize }, claim, cancellationToken: cancellationToken))).ToList();
+        Exception? halted = null;
         foreach (var row in rows)
         {
             await using var scope = _scopes.CreateAsyncScope();${innerResolve}
@@ -743,10 +745,9 @@ ${outboxExecuteLoop()}
             {
                 var ev = Deserialize(row.type, row.payload);${originFrame}
                 ${dispatchBlock}
-                await using var mark = await _db.OpenConnectionAsync(cancellationToken);
-                await mark.ExecuteAsync(new CommandDefinition(
+                await conn.ExecuteAsync(new CommandDefinition(
                     "UPDATE __loom_outbox SET dispatched_at = now() WHERE id = @id",
-                    new { id = row.id }, cancellationToken: cancellationToken));
+                    new { id = row.id }, claim, cancellationToken: cancellationToken));
             }
             catch (OperationCanceledException)
             {
@@ -756,16 +757,17 @@ ${outboxExecuteLoop()}
             {
                 var attempts = row.attempts + 1;
                 var dead = attempts >= MaxAttempts;
-                await using var bump = await _db.OpenConnectionAsync(cancellationToken);
-                await bump.ExecuteAsync(new CommandDefinition(
+                await conn.ExecuteAsync(new CommandDefinition(
                     "UPDATE __loom_outbox SET attempts = @attempts, dead_at = CASE WHEN @dead THEN now() END WHERE id = @id",
-                    new { attempts, dead, id = row.id }, cancellationToken: cancellationToken));
+                    new { attempts, dead, id = row.id }, claim, cancellationToken: cancellationToken));
                 if (dead)
                 {
                     ${outboxDeadLetteredLog({ id: "row.id", type: "row.type", attempts: "attempts" })}
                 }
             }
         }
+        await claim.CommitAsync(cancellationToken);
+        if (halted is not null) throw halted;
     }
 
     private static IDomainEvent? Deserialize(string type, string payload) =>

@@ -8,6 +8,7 @@ import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { SECURE_TRANSPORT_ENV } from "../../util/security-headers.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
 import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
+import { bootRequiredAuthEnv } from "../_auth/boot-required.js";
 import { claimShapes, UUID_PATTERN } from "../_auth/claim-decode.js";
 import { DEV_CLAIMS_HEADER, MALFORMED_DEV_CLAIMS_DETAIL } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
@@ -835,7 +836,23 @@ ${
 # audience="" with verify_aud on rejects EVERY token.`
 }
 _AUDIENCE: str | None = (${auth.oidc.audience ? pyEnvOverridable("OIDC_AUDIENCE", auth.oidc.audience) : 'os.environ.get("OIDC_AUDIENCE")'}) or None
-
+${
+  bootRequiredAuthEnv(auth).length > 0
+    ? `
+# The model binds these settings to env(…), so there is no fallback: refuse to
+# boot without them rather than answer every request with a 401.
+for _setting, _vars in (${bootRequiredAuthEnv(auth)
+        .map(
+          (r) =>
+            `(${JSON.stringify(r.setting)}, (${r.vars.map((v) => JSON.stringify(v)).join(", ")},))`,
+        )
+        .join(", ")},):
+    if not any(os.environ.get(_var) for _var in _vars):
+        ${PY.log}("error", "config_missing", setting=_setting, vars=", ".join(_vars))
+        raise SystemExit(1)
+`
+    : ""
+}
 
 def _issuer() -> str:
     return (${issuerExpr}).rstrip("/")
