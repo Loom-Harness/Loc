@@ -1,4 +1,6 @@
 // Auto-generated.
+global using ProblemResponse = CatalogApi.Api.ProblemResponse;
+
 using System.Collections.Generic;
 
 namespace CatalogApi.Api;

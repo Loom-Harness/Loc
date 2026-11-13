@@ -1829,7 +1829,12 @@ public static class ValidationProblem
  *  ProblemDetails` and writes the extension members through `Extensions`,
  *  which serialize to the same JSON. */
 export function renderProblemResponse(ns: string): string {
+  // The alias is a `global using`: a `directoryLayout: byFeature` controller
+  // lives in `<ns>.Features.<Agg>`, outside `<ns>.Api`, and names this type in
+  // its `[ProducesResponseType]` attributes too.
   return `// Auto-generated.
+global using ProblemResponse = ${ns}.Api.ProblemResponse;
+
 using System.Collections.Generic;
 
 namespace ${ns}.Api;
