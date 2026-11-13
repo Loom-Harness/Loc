@@ -63,6 +63,7 @@ import {
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
+import { type BootRequiredSetting, bootRequiredAuthEnv } from "../_auth/boot-required.js";
 import { registryTableSql } from "../_persistence/registry-walk.js";
 
 /** True when some aggregate declares an `extern` operation or the context
@@ -1156,6 +1157,7 @@ function emitProjectFromContexts(
     resourceNugetDeps: resourceEmission.nugetDeps,
     fileUpload,
     oidc: !!(authRequired && system.sys.auth),
+    bootRequiredAuth: authRequired && system?.sys.auth ? bootRequiredAuthEnv(system.sys.auth) : [],
     forwardCallerCredential:
       authRequired && !!system && forwardsCallerCredential(system.deployable, system.sys),
   });
@@ -1786,6 +1788,8 @@ function emitProject(
     /** OIDC turnkey auth (D-AUTH-OIDC): the system declares `auth { oidc }`,
      *  so emit the generated verifier registration + its NuGet refs. */
     oidc?: boolean;
+    /** The env(…)-bound auth settings the service refuses to boot without. */
+    bootRequiredAuth?: readonly BootRequiredSetting[];
     /** Typed calls to an `auth: required` callee forward the caller's credential. */
     forwardCallerCredential?: boolean;
     /** TimerSource scheduling (scheduling.md, M-T4.1): the owned timers this
@@ -1863,6 +1867,7 @@ function emitProject(
       hasHistory: !!options?.hasHistory,
       fileUpload: options?.fileUpload,
       oidc: !!options?.oidc,
+      bootRequiredAuth: options?.bootRequiredAuth ?? [],
       forwardCallerCredential: !!options?.forwardCallerCredential,
       hasProvenance: !!options?.hasProvenance,
       timerServices: timerServiceFqns(timers, ns),

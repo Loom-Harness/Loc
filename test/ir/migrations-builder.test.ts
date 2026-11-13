@@ -1808,12 +1808,13 @@ describe("applyDestructivePolicy — silent-rename data-loss guard", () => {
       ...noFlag,
       backfills: [{ table: "orders", column: "status", valueSql: "'pending'" }],
     });
-    expect(steps.map((s) => s.op)).toEqual(["addColumn", "backfillColumn", "alterColumnNullable"]);
+    expect(steps.map((s) => s.op)).toEqual(["addColumn", "backfillColumn"]);
     const add = steps[0]!;
     expect(add.op === "addColumn" && add.column.nullable).toBe(true); // added nullable first
-    const backfillIdx = steps.findIndex((s) => s.op === "backfillColumn");
-    const flipIdx = steps.findIndex((s) => s.op === "alterColumnNullable" && !s.nullable);
-    expect(backfillIdx).toBeLessThan(flipIdx); // UPDATE strictly precedes SET NOT NULL
+    // The NOT NULL flip rides the backfill, rendered after its UPDATE.
+    expect(steps[1]).toMatchObject({ op: "backfillColumn", setNotNull: true });
+    const sql = renderPgStep(steps[1]!);
+    expect(sql.indexOf("UPDATE")).toBeLessThan(sql.indexOf("SET NOT NULL"));
   });
 });
 
@@ -1851,7 +1852,7 @@ migration "add-status" { Order.status = quantity > 0 ? "open" : "pending" }
       sqlSteps: loom.sqlMigrationSteps,
     });
     const steps = out[0]!.steps;
-    expect(steps.map((s) => s.op)).toEqual(["addColumn", "backfillColumn", "alterColumnNullable"]);
+    expect(steps.map((s) => s.op)).toEqual(["addColumn", "backfillColumn"]);
     const add = steps[0]!;
     if (add.op !== "addColumn") throw new Error("expected addColumn");
     expect(add.column.nullable).toBe(true);
@@ -1862,10 +1863,9 @@ migration "add-status" { Order.status = quantity > 0 ? "open" : "pending" }
       column: "status",
       valueSql: `(CASE WHEN ("quantity" > 0) THEN 'open' ELSE 'pending' END)`,
       onlyNull: true,
+      outsideTransaction: true,
+      setNotNull: true,
     });
-    const flip = steps[2]!;
-    if (flip.op !== "alterColumnNullable") throw new Error("expected alterColumnNullable");
-    expect(flip.nullable).toBe(false);
     expect(steps.map(renderPgStep).join("\n")).toContain(
       `UPDATE "orders" SET "status" = (CASE WHEN ("quantity" > 0) THEN 'open' ELSE 'pending' END) WHERE "status" IS NULL;`,
     );
@@ -1906,7 +1906,8 @@ describe("applyDestructivePolicy — NULL→NOT-NULL flips (M-T2.3)", () => {
       module: "Sales",
       backfills: [{ table: "orders", column: "status", valueSql: "'pending'" }],
     });
-    expect(out.map((s) => s.op)).toEqual(["backfillColumn", "alterColumnNullable"]);
+    expect(out.map((s) => s.op)).toEqual(["backfillColumn"]);
+    expect(out[0]).toMatchObject({ outsideTransaction: true, setNotNull: true });
   });
 
   it("under --allow-destructive an unbackfilled flip carries the TODO marker", () => {
@@ -2076,7 +2077,7 @@ migration "evolve" {
       `migration "flip" { Order.note = "" }\n`,
     );
     const g1 = await gen(FLIP, await v1Baseline());
-    expect(g1.out.steps.map((s) => s.op)).toEqual(["backfillColumn", "alterColumnNullable"]);
+    expect(g1.out.steps.map((s) => s.op)).toEqual(["backfillColumn"]);
     expect(g1.warnings.map((w) => w.code)).not.toContain("loom.migration-block-applied");
     const g2 = await gen(FLIP, g1.out.next);
     expect(g2.warnings.map((w) => w.code)).toContain("loom.migration-block-applied");
@@ -2982,8 +2983,15 @@ ${extra}
     })[0]!.steps;
     expect(exprSteps.map(renderPgStep)).toEqual([
       `ALTER TABLE "as" ADD COLUMN "status" TEXT NULL;`,
-      `UPDATE "as" SET "status" = "name" WHERE "status" IS NULL;`,
-      `ALTER TABLE "as" ALTER COLUMN "status" SET NOT NULL;`,
+      [
+        `UPDATE "as" SET "status" = "name" WHERE "status" IS NULL;`,
+        `ALTER TABLE "as" DROP CONSTRAINT IF EXISTS "as_status_backfill_nn";`,
+        `ALTER TABLE "as" ADD CONSTRAINT "as_status_backfill_nn" CHECK ("status" IS NOT NULL) NOT VALID;`,
+        `UPDATE "as" SET "status" = "name" WHERE "status" IS NULL;`,
+        `ALTER TABLE "as" VALIDATE CONSTRAINT "as_status_backfill_nn";`,
+        `ALTER TABLE "as" ALTER COLUMN "status" SET NOT NULL;`,
+        `ALTER TABLE "as" DROP CONSTRAINT "as_status_backfill_nn";`,
+      ].join("\n"),
     ]);
     expect(exprSteps.map(renderPgStep).join("\n")).not.toContain("pending");
     // The carrier is still on the step's column shape — it is simply never
@@ -3141,12 +3149,7 @@ describe("applyDestructivePolicy — backfilled/defaulted adds are never renames
       module: "Ops",
       backfills,
     });
-    expect(steps.map((s) => s.op)).toEqual([
-      "dropColumn",
-      "addColumn",
-      "backfillColumn",
-      "alterColumnNullable",
-    ]);
+    expect(steps.map((s) => s.op)).toEqual(["dropColumn", "addColumn", "backfillColumn"]);
     // No rename anywhere: the old column's data is dropped, not misattributed.
     expect(steps.some((s) => s.op === "renameColumn")).toBe(false);
     const sql = steps.map(renderPgStep).join("\n");
@@ -3491,12 +3494,7 @@ describe("applyDestructivePolicy — announces the inferred rename (F-3)", () =>
     // The diff shape is the same one that warns above — what differs is that
     // the collapse did not fire.
     expect(steps.some((s) => s.op === "renameColumn")).toBe(false);
-    expect(steps.map((s) => s.op)).toEqual([
-      "dropColumn",
-      "addColumn",
-      "backfillColumn",
-      "alterColumnNullable",
-    ]);
+    expect(steps.map((s) => s.op)).toEqual(["dropColumn", "addColumn", "backfillColumn"]);
     expect(warnings).toEqual([]);
   });
 
