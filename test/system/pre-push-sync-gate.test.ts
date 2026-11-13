@@ -167,6 +167,41 @@ describe.skipIf(!hasTools)("pre-push sync-only gate", () => {
     expect(denied(runHook(work))).toBe(false);
   });
 
+  // The words "git push" inside quoted text or a heredoc body are text, not a
+  // push, so the hook must not judge the branch (here: a sync-only branch a
+  // real push would be denied on).  A real push beside quoted text still is.
+  describe("push detection ignores quoted text and heredoc bodies", () => {
+    function syncOnly(): string {
+      const { work, other } = setup();
+      advanceMain(other, "c.txt", "c1\n");
+      git(work, "fetch", "-q", "origin", "main");
+      git(work, "merge", "-q", "--no-edit", "origin/main");
+      return work;
+    }
+
+    it("ignores a push mentioned inside a double-quoted string", () => {
+      expect(denied(runHook(syncOnly(), 'echo "the proxy refuses git push --delete" >> log.md'))).toBe(false);
+    });
+
+    it("ignores a push mentioned inside a single-quoted string", () => {
+      expect(denied(runHook(syncOnly(), "printf '%s\\n' 'never git push from here' > note.txt"))).toBe(false);
+    });
+
+    it("ignores a push mentioned inside a heredoc body", () => {
+      const cmd = "cat >> notes.md <<'EOF'\n- remember: git push only after prequeue\nEOF";
+      expect(denied(runHook(syncOnly(), cmd))).toBe(false);
+    });
+
+    it("still gates a real push chained after quoted text", () => {
+      expect(denied(runHook(syncOnly(), 'git commit -q --allow-empty -m "wip" ; git push'))).toBe(true);
+    });
+
+    it("still gates a real push after a heredoc", () => {
+      const cmd = "cat > a.txt <<'EOF'\nhello\nEOF\ngit push -u origin feat";
+      expect(denied(runHook(syncOnly(), cmd))).toBe(true);
+    });
+  });
+
   it("allows an ordinary push with no merge", () => {
     const { work } = setup();
     commit(work, "b.txt", "b2\n", "more feature work");
