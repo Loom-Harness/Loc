@@ -364,10 +364,14 @@ function emitFoldHandler(
         ]
       : []),
     `  const __key = ${keyExpr};`,
-    `  const state = (await load${T}(db, __key${cols ? ", __tenant" : ""})) ?? ${allocate};`,
+    // MikroORM: the fold loads and upserts through its own fork, so a write
+    // the database refuses is dropped with the fork instead of staying in a
+    // shared identity map where a later read would serve it.
+    ...(usingMikro ? [`  const __em = db.fork();`] : []),
+    `  const state = (await load${T}(${usingMikro ? "__em" : "db"}, __key${cols ? ", __tenant" : ""})) ?? ${allocate};`,
   ];
   for (const step of foldSteps(p, h)) out.push(renderFoldStep(step, ctxDecls));
-  out.push(`  await save${T}(db, state);`);
+  out.push(`  await save${T}(${usingMikro ? "__em" : "db"}, state);`);
   out.push(`}`);
   return out;
 }
@@ -631,7 +635,7 @@ function emitProjectionRoutes(
     out.push(...gateLines(p, "      "));
     out.push(
       usingMikro
-        ? `      const rows = await db.find(${rowClass}, {${mikroScope.length > 0 ? ` ${mikroScope.join(", ")} ` : ""}});`
+        ? `      const rows = await db.fork().find(${rowClass}, {${mikroScope.length > 0 ? ` ${mikroScope.join(", ")} ` : ""}});`
         : drizzleScope
           ? `      const rows = await db.select().from(${table}).where(${drizzleScope});`
           : `      const rows = await db.select().from(${table});`,
@@ -673,7 +677,7 @@ function emitProjectionRoutes(
     out.push(...gateLines(p, "      "));
     if (usingMikro) {
       out.push(
-        `      const row = await db.findOne(${rowClass}, { ${[`${corr}: key`, ...mikroScope].join(", ")} });`,
+        `      const row = await db.fork().findOne(${rowClass}, { ${[`${corr}: key`, ...mikroScope].join(", ")} });`,
       );
     } else {
       const byKey = drizzleScope

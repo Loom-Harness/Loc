@@ -46,9 +46,16 @@ system FoldIsolationSys {
   test e2e "a failing fold leaves the command committed and the read model as it was" against d {
     let a = api.accounts.create({ owner: "Ada", charges: 0 })
     api.accounts.charge(a, { amount: "600000000000000.00" })
-    expect(api.totals.byKey(a.id).total).toBe("600000000000000.0000")
+    let before = api.totals.byKey(a.id)
     api.accounts.charge(a, { amount: "600000000000000.00" })
     expect(api.accounts.getById(a).charges).toBe(2)
-    expect(api.totals.byKey(a.id).total).toBe("600000000000000.0000")
+    expect(api.totals.byKey(a.id).total).toBe(before.total)
+
+    // The derived surface, so each derived route has a runtime caller.
+    expect(api.accounts.all().items.length).toBe(1)
+    api.accounts.update(a, { owner: "Grace", charges: 2 })
+    expect(api.accounts.getById(a).owner).toBe("Grace")
+    api.accounts.destroy(a)
+    expect(api.accounts.getById(a)).toThrow(404)
   }
 }
