@@ -55,9 +55,9 @@ export interface CoverageRow {
  *  census's online leg (`LOOM_CENSUS_ONLINE=1`). */
 export const OPEN_TRACKING_ISSUES: ReadonlySet<string> = new Set([
   "#4440",
-  "#5613",
   "#5614",
   "#5617",
+  "#5618",
   "#5619",
   "#5712",
 ]);
@@ -102,7 +102,7 @@ export const COVERAGE: readonly CoverageRow[] = [
     kind: "cache",
     fake: "real-sidecar",
     module: "broker-sidecar.mjs",
-    pending: pending("#5613"),
+    pending: pending("#4440"),
   },
   {
     sourceType: "redis",
@@ -123,7 +123,7 @@ export const COVERAGE: readonly CoverageRow[] = [
     kind: "channel",
     fake: "real-sidecar",
     module: "broker-sidecar.mjs",
-    pending: pending("#5613"),
+    witness: { fixture: "channels-broker", effects: "broker" },
   },
   // A Kafka-held event log is refused on every backend: an event-sourced
   // aggregate keeps its log on its state database.
@@ -143,7 +143,8 @@ export const COVERAGE: readonly CoverageRow[] = [
     module: "s3-sidecar.mjs",
     witness: { fixture: "resources", effects: "objects" },
   },
-  { sourceType: "localDisk", kind: "objectStore", fake: "n/a", pending: pending("#5613") },
+  // Waits on one localDisk directory env name across the five backends.
+  { sourceType: "localDisk", kind: "objectStore", fake: "n/a", pending: pending("#5618") },
   // ── outbound apis and mail ─────────────────────────────────────────────
   {
     sourceType: "restApi",

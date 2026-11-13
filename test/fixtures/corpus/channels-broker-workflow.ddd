@@ -12,8 +12,10 @@
 // errors: TS2304 for `createOutboxDispatcher` plus three TS2305 for the
 // missing exports.
 //
-// The compile tier is the oracle here — the defect is invisible to a
-// generator-text assertion that does not also typecheck the tree.
+// The compile tier is the oracle for that defect — it is invisible to a
+// generator-text assertion that does not also typecheck the tree.  The
+// behavioural legs then run the workflow against the kit's rabbitmq sidecar,
+// and the golden's `broker` effects record the events it published.
 system ChannelsBrokerWorkflowSys {
   subdomain Sales {
     context Orders {
@@ -55,5 +57,9 @@ system ChannelsBrokerWorkflowSys {
     channels: [lifecycleBus]
     serves: OrdersApi
     port: 4000
+  }
+  test e2e "a workflow's event reaches the channel's exchange" against d {
+    api.draftOrder.run({ customerId: "c1" })
+    api.draftOrder.run({ customerId: "c2" })
   }
 }

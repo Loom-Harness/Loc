@@ -97,13 +97,6 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
   // tests — a narrower claim than the one this entry used to make.
   outbox:
     "relay delivery is asynchronous; needs a booted leg that drains the outbox — the node leg never starts the relay, the other four run it on its own poll interval, and the `test e2e` vocabulary has no `eventually` form (#3790)",
-  "channels-broker":
-    "needs a broker container (the channels-e2e legs boot one; the corpus case does not) — and not only for delivery: the four real-process legs cannot BOOT without the broker URL (e.g. python's `init_channel_transports()` raises at startup) — #4212",
-  "channels-broker-workflow":
-    "same broker-container reason as `channels-broker`, and the defect it was minted for is a " +
-    "HARD compile error in the emitted project (TS2304 for `createOutboxDispatcher` plus three " +
-    "TS2305 for the missing exports), so the compile tier IS its oracle — a booted leg would " +
-    "re-run `channels-broker`'s delivery with a workflow in the tree and assert nothing new",
   "projection-split-deployables":
     "the defect is a hard compile error in the emitted project (`TS2306: File " +
     "'domain/value-objects.ts' is not a module`), so the compile tier is the oracle.  A " +

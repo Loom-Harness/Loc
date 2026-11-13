@@ -395,7 +395,7 @@ const REGISTERED: Ratchet[] = [
     // 21 → 22: `domain-symbol-collisions`, a compile-tier row (domain names
     // colliding with a symbol the target binds: TS2304, CS0104, a python
     // decorator rebound); every fix is a host spelling the wire cannot see.
-    max: 20,
+    max: 18,
   },
 ];
 
