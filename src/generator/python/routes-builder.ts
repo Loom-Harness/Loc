@@ -97,16 +97,12 @@ import {
   withFieldConstraint,
 } from "./emit/wire-constraints.js";
 import { PY_NUMERIC } from "./numeric-codec.js";
+import { type PyResponseUnion, pyResponsesKwarg } from "./openapi-responses-py.js";
 import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
 import { renderPyExpr, renderPyNegatedGuard } from "./render-expr.js";
 import { aggHasFieldMask, emittableFinds } from "./repository-builder.js";
 import { hasStamp, type StampEvent, stampUsesUser } from "./stamp-call.js";
-import {
-  pyConflictRaise,
-  pyErrorVariantReturn,
-  pyProblemResponseEntry,
-  wireStatusResolver,
-} from "./wire-policy-py.js";
+import { pyConflictRaise, pyErrorVariantReturn, wireStatusResolver } from "./wire-policy-py.js";
 
 // The symbols a routes module references, as `ref()` markers — the module's
 // import block derives from the ones that survive into its text (M-T9.84).
@@ -340,10 +336,10 @@ function cmdLoad(agg: EnrichedAggregateIR): string {
 }
 
 /** The per-route error-response matrix (openapi-errors.ts) as a
- *  FastAPI `responses=` kwarg.  Declared via `"model": ProblemDetails`
- *  (which registers the shared component); `install_openapi` re-keys
- *  the content to application/problem+json — and routes that declare
- *  their own 422 here suppress FastAPI's auto HTTPValidationError. */
+ *  FastAPI `responses=` kwarg (`pyResponsesKwarg`).  A route that declares
+ *  its own 422 here also keeps FastAPI from adding its HTTPValidationError
+ *  422.  `union` is the route's `T or E` result, whose split names the 200
+ *  body and the error arms' problem bodies. */
 export function errorResponsesKwarg(
   kind: OpErrorKind,
   guarded = false,
@@ -355,13 +351,12 @@ export function errorResponsesKwarg(
   /** Body facts the `kind` cannot carry — `readsAggregate` for the workflow
    *  arm's conditional not-found rung.  See `errorStatuses`. */
   opts?: { readsAggregate?: boolean },
+  union?: PyResponseUnion,
 ): string {
   const statuses = [...new Set([...errorStatuses(kind, guarded, resolve, opts), ...extra])].sort(
     (a, b) => a - b,
   );
-  if (statuses.length === 0) return "";
-  const entries = statuses.map((st) => pyProblemResponseEntry(st, H.ProblemDetails));
-  return `, responses={${entries.join(", ")}}`;
+  return pyResponsesKwarg(statuses, union);
 }
 
 /** The DERIVED operation's declared non-2xx set as the FastAPI `responses=`
@@ -369,10 +364,8 @@ export function errorResponsesKwarg(
  *  deduped (base table + when/versioned conflicts + union error arms), so the
  *  route renders it verbatim.  This is the unification seam: the numbers come
  *  from `deriveAggregateOperations`, only the kwarg idiom is python's. */
-function derivedResponsesKwarg(op: ApiOperationIR): string {
-  if (op.errorStatuses.length === 0) return "";
-  const entries = op.errorStatuses.map((st) => pyProblemResponseEntry(st, H.ProblemDetails));
-  return `, responses={${entries.join(", ")}}`;
+function derivedResponsesKwarg(op: ApiOperationIR, union?: PyResponseUnion): string {
+  return pyResponsesKwarg(op.errorStatuses, union);
 }
 
 /** `resolveErrorStatus` bound to a context's `httpStatus` override map — the
@@ -1283,7 +1276,7 @@ function operationRoute(
       // NAMED FIX (unification): the declared set now includes the union
       // error arms' statuses — this route always ANSWERED them (the
       // ProblemDetails translations below) but never declared them.
-      `@router.post("${relativeOpPath(apiOp)}", response_model=None, operation_id="${camelId(opOperation(agg.name, op.name))}"${derivedResponsesKwarg(apiOp)})`,
+      `@router.post("${relativeOpPath(apiOp)}", response_model=None, operation_id="${camelId(opOperation(agg.name, op.name))}"${derivedResponsesKwarg(apiOp, { variants: op.returnType.variants, ctx })})`,
       `async def ${snake(op.name)}_${snake(agg.name)}(${ID_PARAM}, ${pyCommandBodyParam(`${upperFirst(op.name)}${agg.name}Request`, op.params)}, ${PY_REQUEST_PARAM}, session: SessionDep) -> dict[str, object] | ${H.JSONResponse}:`,
       usesUser || gateUsesUser || stampUpdateUsesUser ? PY_USER_BIND : null,
       "    repo = _repo(session)",

@@ -1,0 +1,6 @@
+{
+  "title": "the crudish `update` body as a JSON Merge Patch (RFC 7396) — an absent key keeps the stored value, `null` clears a `T?` field and is refused on a required one, a one-member rule judged at the wire only when its member is present, a two-member rule over a partial patch judged by the domain floor",
+  "doc": "scaffold-macros",
+  "backends": "ALL",
+  "note": "minted by the owner ruling on #4109 (RS-47): every backend read the update body as a full replacement, so an update omitting `note` CLEARED it (the optional param bound to null) and one omitting a required field was a 422 — which also meant a caller who could not read a `mask unless` field (#3600) could not update the row without wiping it.  One field of each shape the merge has to carry back unchanged (required/optional scalar, int, optional date, enum, scalar collection, optional value object).  The `test e2e` block carries this fixture's golden"
+}

@@ -1,0 +1,5 @@
+{
+  "title": "`when` canCommand state gate + GET can-query companion",
+  "doc": "criterion",
+  "backends": "ALL"
+}

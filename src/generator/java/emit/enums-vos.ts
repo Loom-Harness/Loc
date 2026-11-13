@@ -58,6 +58,8 @@ export function renderJavaEnum(e: EnumIR, basePkg: string): string {
     `package ${basePkg}.domain.enums;`,
     ``,
     JAVA_IMPORTS,
+    // A named OpenAPI component (`$ref`), as every backend publishes an enum.
+    `@io.swagger.v3.oas.annotations.media.Schema(enumAsRef = true)`,
     `public enum ${e.name} {`,
     ...valueLines,
     mangled ? enumWireCodec(e) : null,

@@ -21,7 +21,9 @@
 import { describe, expect, it } from "vitest";
 import { defaultBuiltInBackends } from "../../src/platform/registry.js";
 import { snake } from "../../src/util/naming.js";
+import { elixirDocumentedOperations } from "../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { javaDocumentedRoutes } from "../_helpers/java-openapi-annotations.js";
 
 const FAMILIES = [...new Set(defaultBuiltInBackends().map((b) => b.manifest.family))].sort();
 
@@ -137,31 +139,24 @@ const errorStatuses: Record<string, (s: Subject) => Promise<number[]>> = {
     expect(at, `dotnet: no action ${handler}`).toBeGreaterThan(-1);
     const from = src.lastIndexOf("    [Http", at);
     return sorted(
-      src.slice(from, at).matchAll(/ProducesResponseType\(typeof\(ProblemDetails\), (\d{3})\)/g),
+      src
+        .slice(from, at)
+        .matchAll(
+          /ProducesResponseType\(typeof\(ProblemResponse\), (\d{3}), "application\/problem\+json"\)/g,
+        ),
     );
   },
-  /** springdoc: the `new Route("<method>", "<path>", …, new int[] {…}, …)` row. */
+  /** springdoc: the `@ApiResponse` annotations above the controller method. */
   async java({ method, path }) {
-    const src = await fileMatching(/OpenApiContractCustomizer\.java$/);
-    const line = src.split("\n").find((l) => l.includes(`new Route("${method}", "/api${path}"`));
-    expect(line, `java: no contract row for ${method} ${path}`).toBeDefined();
-    const set = /new int\[\] \{([^}]*)\}/.exec(line!);
-    return (set?.[1] ?? "")
-      .split(",")
-      .map((n) => Number(n.trim()))
-      .filter((n) => !Number.isNaN(n))
-      .sort((a, b) => a - b);
+    const route = javaDocumentedRoutes(await files()).get(`${method} /api${path}`);
+    expect(route, `java: no documented route for ${method} ${path}`).toBeDefined();
+    return route!.errors;
   },
-  /** OpenApiSpex: the `<method>: %OpenApiSpex.Operation{…}` under the PathItem. */
+  /** OpenApiSpex: the routed action's `operation` spec. */
   async elixir({ method, path }) {
-    const src = await fileMatching(/r_api_spec\.ex$/);
-    const item = src.indexOf(`"/api${path}" => %OpenApiSpex.PathItem{`);
-    expect(item, `elixir: no PathItem for ${path}`).toBeGreaterThan(-1);
-    const at = src.indexOf(`${method}: %OpenApiSpex.Operation{`, item);
-    expect(at, `elixir: no ${method} operation for ${path}`).toBeGreaterThan(-1);
-    const next = src.indexOf("%OpenApiSpex.Operation{", at + 30);
-    const block = src.slice(at, next > 0 ? next : undefined);
-    return sorted(block.matchAll(/(\d{3}) => %OpenApiSpex\.Response\{/g)).filter((s) => s >= 400);
+    const block = elixirDocumentedOperations(await files()).get(`${method} /api${path}`);
+    expect(block, `elixir: no ${method} operation for ${path}`).toBeDefined();
+    return sorted(block!.matchAll(/(\d{3}) => %OpenApiSpex\.Response\{/g)).filter((s) => s >= 400);
   },
 };
 

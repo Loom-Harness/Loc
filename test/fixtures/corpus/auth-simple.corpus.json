@@ -1,0 +1,5 @@
+{
+  "title": "dev-stub auth — user shape + requires-guard",
+  "doc": "auth",
+  "backends": "ALL"
+}

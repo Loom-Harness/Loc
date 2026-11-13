@@ -788,17 +788,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: true,
   },
   {
-    code: "loom.migration-expr-unsupported",
-    kind: "scope",
-    site: "src/ir/validate/checks/migration-checks.ts:74",
-    what:
-      "backfill exprs are a narrow validated ExprIR subset — a permanent, documented limit " +
-      "(docs/migrations.md § Data migrations), widened only for a shape a real model needs.  " +
-      "No successor: the owning item renames the code out of the suffix",
-    mission: "#4217",
-    verified: true,
-  },
-  {
     code: "loom.retrieval-loads-unsupported",
     kind: "scope",
     site: "src/ir/validate/checks/query-checks.ts:389",

@@ -1,0 +1,6 @@
+{
+  "title": "durable broker channel + a workflow + NO reactor — the producer-only saga service",
+  "doc": "channels",
+  "backends": "ALL",
+  "note": "the axis pair `channels-broker` misses: it is the same producer WITHOUT a workflow, so it takes the workflow-less emission path and emits the outbox machinery fine.  Owning one workflow leaves that path, and the with-workflows path emitted the machinery only from inside the subscription block — which a producer-only context never enters.  Neither ran, while index.ts/http/index.ts referenced all three factories unconditionally: TS2304 + three TS2305 on a model that validated 0 error(s).  Only the compile tier can see it."
+}

@@ -5,11 +5,9 @@
 export {
   renderController,
   renderExceptionFilter,
-  renderListWrapperFilter,
   renderMalformedPathIdFilter,
   renderNoNulCharAttribute,
-  renderProblemDetailsFilter,
-  renderRequiredFromCtorParamFilter,
+  renderProblemResponse,
   renderValidationProblem,
   renderValueObjectSchemaMergeFilter,
   VO_MERGE_FILTER_PATH,

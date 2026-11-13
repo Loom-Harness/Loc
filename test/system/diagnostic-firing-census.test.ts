@@ -554,6 +554,15 @@ ${opts.e2e ?? ""}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A backfill expression outside the SQL-renderable subset: a call.
+  "loom.migration-expr-invalid": `
+system S {
+  subdomain M { context C {
+    aggregate Order with crudish { label: string  code: string }
+    repository Orders for Order { }
+  } }
+}
+migration "fill-code" { Order.code = label.toUpper() }`,
   // `provenanced` on an entity part's field: lineage lives on the root only.
   "loom.provenanced-part-field": `
 system S {

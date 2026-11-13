@@ -389,7 +389,7 @@ Four backends assert every invariant at a domain floor of their own (`_assertInv
 `validate_invariants/1` renders through the **same** expression renderer the operation and `derived` bodies use, so it covers cross-field comparisons, guarded rules (`… when …`), named rules, member reads, scalar intrinsics, collection ops and `derived` reads:
 
 ```ddd
-invariant sku.trim().length > 0        // String.length(String.trim(data.sku))
+invariant sku.trim().length > 0        // length(String.to_charlist(String.trim(data.sku)))
 invariant lines.count > 0             // Enum.count(data.lines)
 invariant lines.any(l => l.qty > 0)   // Enum.any?(data.lines, …)
 invariant isBig == false              // the derived expression, INLINED
@@ -564,10 +564,8 @@ RuleFor(x => x).Must(x => !(x.TaxRate > 0m) || (x.Note.EnumerateRunes().Count() 
 if ((this.taxRate.compareTo(new BigDecimal("0")) > 0) && !(((int) this.note.codePoints().count()) > 0)) throw new DomainException("Business rule violated");
 ```
 ```java
-// features/orders/CreateOrderValidator.java — KNOWN BUG: the wire rule drops the guard,
-// so an empty note is rejected even when taxRate == 0 (src/generator/java/emit/validator.ts
-// renders inv.expr without the `!(guard) ||` implication the other backends emit)
-if (!(((int) note.codePoints().count()) > 0)) errors.rejectValue("note", "loom.invariant", "Business rule violated");
+// features/orders/CreateOrderValidator.java — the wire rule keeps the guard, as an implication
+if (!(note == null || taxRate == null || !(taxRate.compareTo(new BigDecimal("0")) > 0) || (((int) note.codePoints().count()) > 0))) errors.rejectValue("note", "problem.domain-floor", "Business rule violated");
 ```
 == python
 ```python
@@ -582,12 +580,12 @@ if not (not (self.taxRate > 0) or (len(self.note) > 0)):
 ```
 == elixir
 ```elixir
-# Honest gap: a guarded invariant whose predicate is a single-field shape
-# (.length / .matches / a numeric bound) is emitted NEITHER as a native
-# validator NOR in validate_invariants/1 — the changeset carries nothing for it
-# (src/generator/elixir/vanilla/changeset-invariant-emit.ts, residualInvariants).
-# A guarded CROSS-FIELD comparison (both sides plain fields) does render, as
-#   changeset = if <guard> do (if <pred>, do: changeset, else: add_error(…)) else changeset end
+# lib/ex_api/demo/order_changeset.ex — validate_invariants/1 renders the guard around the predicate
+if Decimal.compare(data.tax_rate, Decimal.new("0")) == :gt do
+  if length(String.to_charlist(data.note)) > 0, do: changeset, else: add_error(changeset, :note, "Business rule violated", loom_rule_code: "problem.domain-floor")
+else
+  changeset
+end
 ```
 ::: end
 
@@ -671,7 +669,7 @@ def total(self) -> Decimal:
 # computed inline in the serializer map
 "tax" => __money_round(Decimal.mult(record.subtotal, record.tax_rate)),
 ```
-Honest gap: `total` is **absent** from the Phoenix response. A derived whose expression reads another derived (or a helper function, `currentUser`, a resource) is silently skipped by the serializer instead of projected (`src/generator/elixir/vanilla/wire-serialize.ts`, `derivedRenderable`) — the other four backends put it on the wire, so this is a cross-backend wire divergence with no validator.
+A derived that reads another derived is projected as well: the serializer inlines the full expression (`"total" => __money_round(Decimal.add(record.subtotal, Decimal.mult(record.subtotal, record.tax_rate)))`), so `total` is on the Phoenix wire like the other four backends.
 ::: end
 
 ### Reserved `display` and `inspect`
@@ -743,7 +741,7 @@ end
 
 ## `function` — a pure helper
 
-`function name(params): Type = Expr` (expression form) or `function name(params): Type { let … return … }` (block form — `let` bindings, `precondition` / `requires` bug-regime statements, and a mandatory `return` of the declared type on every path, `loom.function-block-no-return`) is a pure, side-effect-free helper callable from any expression in the same aggregate / entity part / value object / workflow — invariant predicates, derived expressions, operation bodies. The expression form is SQL-inlinable like a `criterion`; the block form is not queryable (a call is already rejected in `where` / `criterion` positions). It compiles to a private method on the aggregate on node/.NET/java (`_`-prefixed on python; a public context-facade function on Phoenix) — never part of the public command surface.
+`function name(params): Type = Expr` (expression form) or `function name(params): Type { let … return … }` (block form — `let` bindings, `precondition` / `requires` bug-regime statements, and a mandatory `return` of the declared type on every path, `loom.function-block-no-return`) is a pure, side-effect-free helper callable from any expression in the same aggregate / entity part / value object / workflow — invariant predicates, derived expressions, operation bodies. The expression form is SQL-inlinable like a `criterion`; the block form is not queryable (a call is already rejected in `where` / `criterion` positions). It compiles to a **public** method on the aggregate on every object-oriented backend (a public context-facade function on Phoenix), so a workflow or domain service holding a loaded aggregate calls it as `t.hasSkill(skill)`. It is a pure query — it never mutates and is not an HTTP route; the command surface (`operation` / `create` / `destroy`) stays separate.
 
 The same purity contract binds the four RULE positions — `invariant Expr`, its `when Guard`, a field's `check Expr`, and `derived name: T = Expr`. All four are spliced into the per-instance floor, which runs with nothing in scope but `this`, so a rule expression may not reach a repository, an aggregate, a workflow or any other declaration it cannot address, and may not call one of the aggregate's own actions (`operation` / `create` / `destroy`). Both are refused by `loom.rule-expr-impure` (`src/language/validators/types.ts`, slugs `#unaddressable` and `#operation`) at the offending head / call. A cross-aggregate rule such as `invariant Technicians.get(technicianId).skills.contains(…)` used to validate clean and then emit an unresolvable identifier into every backend (`TS2304: Cannot find name 'Technicians'`) — or, on Phoenix, silently emit nothing at all. Denormalize the value onto the aggregate and assert over that, or move the rule into the operation / workflow that already loads it. A pure `domainService` call stays legal in a rule: it is a calculator, and every backend threads its import.
 
@@ -771,8 +769,8 @@ valueobject Price {
 == node
 ```ts
 // domain/order.ts — decimal is a plain number on node
-private isMutable(): boolean { return this._status === Status.Draft; }
-private fee(q: number): number {
+public isMutable(): boolean { return this._status === Status.Draft; }
+public fee(q: number): number {
   const base = q * 2.5;
   return base + this._taxRate;
 }
@@ -782,37 +780,37 @@ withTax(rate: number): number { return this.amount * (1 + rate); }
 == dotnet
 ```csharp
 // Domain/Orders/Order.cs
-private bool IsMutable() => this.Status == Status.Draft;
-private decimal Fee(int q)
+public bool IsMutable() => this.Status == Status.Draft;
+public decimal Fee(int q)
 {
     var @base = (decimal)q * 2.5m;
     return @base + this.TaxRate;
 }
 // Domain/ValueObjects/Price.cs
-private decimal WithTax(decimal rate) => this.Amount * (1m + rate);
+public decimal WithTax(decimal rate) => this.Amount * (1m + rate);
 ```
 == java
 ```java
 // features/orders/Order.java — decimal is BigDecimal
-private boolean isMutable() {
+public boolean isMutable() {
     return this.status == Status.Draft;
 }
-private BigDecimal fee(int q) {
+public BigDecimal fee(int q) {
     var base = BigDecimal.valueOf(q).multiply(new BigDecimal("2.5"));
     return base.add(this.taxRate);
 }
 // domain/valueobjects/Price.java
-private BigDecimal withTax(BigDecimal rate) {
+public BigDecimal withTax(BigDecimal rate) {
     return this.amount.multiply((new BigDecimal("1").add(rate)));
 }
 ```
 == python
 ```python
-# app/domain/order.py — underscore-prefixed; decimal is a float
-def _is_mutable(self) -> bool:
+# app/domain/order.py — decimal is a float
+def is_mutable(self) -> bool:
     return self._status == Status.Draft
 
-def _fee(self, q: int) -> float:
+def fee(self, q: int) -> float:
     base = float(q) * 2.5
     return base + self._tax_rate
 
@@ -835,7 +833,7 @@ def fee(%ExApi.Demo.Order{} = record, _q) do
   Decimal.add(base, record.tax_rate)
 end
 ```
-Honest gap: the block form underscore-prefixes a parameter the body reads (`_q` above, `src/generator/elixir/vanilla/function-emit.ts` — `bodyUsesParam` misses a `let`-bound use), so a block-form function with a parameter does not compile on Phoenix today; the expression form is fine.
+The block form binds its parameter under its own name on Phoenix (`def fee(%ExApi.Demo.Order{} = record, q) do`), so a block-form function with a parameter compiles like the expression form.
 ::: end
 
 A pure block that breaks the contract:
@@ -893,21 +891,21 @@ system Ch07 {
 ::: tabs backend
 == node
 ```ts
-private big(): boolean { return (this._qty > 100); }
+public big(): boolean { return (this._qty > 100); }
 ```
 == dotnet
 ```csharp
-private bool Big() => (this.Qty > 100);
+public bool Big() => (this.Qty > 100);
 ```
 == java
 ```java
-private boolean big() {
+public boolean big() {
     return (this.qty > 100);
 }
 ```
 == python
 ```python
-def _big(self) -> bool:
+def big(self) -> bool:
     return (self._qty > 100)
 ```
 == elixir

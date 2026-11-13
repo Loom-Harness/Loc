@@ -663,18 +663,22 @@ export function queryParamSignatures(spec: OpenApiSpec): Map<string, string> {
 //     document omits is inferred from members that all pin the same property
 //     to one value.  A polymorphic base (`discriminator` on the base, subtypes
 //     `allOf` it) is the same union as `oneOf` over the subtypes.
+//   - An inline `oneOf` over `$ref`s naming exactly the members of one named
+//     union component is a `$ref` to it.
 //   - A discriminator mapping pins each arm's tag property: an arm the mapping
 //     tags `Circle` reads as `type: {enum: [Circle]}` when it does not already
 //     pin a value (Swashbuckle publishes the tag only in the mapping).
 //   - A named component referenced ONLY as a union arm is inlined at that
 //     arm, and its mapping entry keeps the tag but not the name: whether a
 //     framework names an arm is spelling, its structure and tag are contract.
-//   - At an error status, `anyOf: [ProblemDetails, <X>]` where every `<X>` is
-//     `allOf` ProblemDetails is plain ProblemDetails.  ProblemDetails is an
-//     open object, so the union accepts exactly the bodies ProblemDetails
-//     accepts; a framework that cannot spell `anyOf` (Swashbuckle) publishes
-//     the plain body.  A `<X>Problem` component nothing else references then
-//     drops out.
+//   - Only in a pair with a backend whose generator cannot spell `anyOf`
+//     (`NO_ANYOF_BACKENDS`: Swashbuckle on .NET): at an error status,
+//     `anyOf: [ProblemDetails, <X>]` where every `<X>` is `allOf`
+//     ProblemDetails is plain ProblemDetails, and a `<X>Problem` component
+//     nothing else references drops out.  ProblemDetails is an open object,
+//     so the union accepts exactly the bodies plain ProblemDetails accepts,
+//     but the typed error-arm body is lost to a generated client; every
+//     other pair still compares the arms.
 //   - An inline object or union schema structurally identical to exactly one
 //     named component (in either document) becomes a `$ref` to it, so `$ref`
 //     vs an inlined identical schema compares equal.
@@ -911,6 +915,34 @@ function polymorphicBasesAsUnions(spec: OpenApiSpec, bases: Map<string, Set<stri
   return out;
 }
 
+/** An inline `oneOf` over `$ref`s that names exactly the members of one named
+ *  union component is a `$ref` to that component (Swashbuckle inlines a
+ *  polymorphic body as `oneOf` over the subtypes while also publishing the
+ *  base).  Matched by member NAMES, so two unions whose arms happen to share a
+ *  structure stay distinct. */
+function refNamedUnions(spec: OpenApiSpec): OpenApiSpec {
+  const memberKey = (s: Json): string | undefined => {
+    if (!Array.isArray(s.oneOf) || s.oneOf.length === 0) return undefined;
+    const names = s.oneOf.map((m) => (isObj(m) ? refTarget(m.$ref) : undefined));
+    return names.every((n) => n !== undefined) ? [...names].sort().join("|") : undefined;
+  };
+  const byKey = new Map<string, string[]>();
+  for (const [name, schema] of Object.entries(spec.components?.schemas ?? {})) {
+    const k = isObj(schema) ? memberKey(schema) : undefined;
+    if (k) byKey.set(k, [...(byKey.get(k) ?? []), name]);
+  }
+  if (byKey.size === 0) return spec;
+  return mapDocumentSchemas(
+    spec,
+    (s) => {
+      const k = memberKey(s);
+      const names = k ? byKey.get(k) : undefined;
+      return names?.length === 1 ? { $ref: `#/components/schemas/${names[0]}` } : s;
+    },
+    false,
+  );
+}
+
 /** Write each explicit discriminator-mapping tag into the arm it targets, as
  *  a one-value `enum` on the tag property, unless the arm already pins one. */
 function pinDiscriminatorTags(spec: OpenApiSpec): OpenApiSpec {
@@ -986,6 +1018,12 @@ function inlineArmOnlyComponents(spec: OpenApiSpec): OpenApiSpec {
   for (const name of armOnly) delete out.components!.schemas![name];
   return out;
 }
+
+/** Backends whose OpenAPI generator cannot spell `anyOf`, so an
+ *  operation-return union's error-arm status publishes plain ProblemDetails
+ *  (Swashbuckle composes only `oneOf`, which would reject an arm body that
+ *  also matches the open ProblemDetails). */
+export const NO_ANYOF_BACKENDS: ReadonlySet<string> = new Set(["dotnet"]);
 
 /** The shared RFC 7807 error body every backend publishes. */
 const PROBLEM_SCHEMA = "ProblemDetails";
@@ -1152,13 +1190,20 @@ function foldInlineIntoComponents(a: OpenApiSpec, b: OpenApiSpec): [OpenApiSpec,
  * Rewrite a pair of documents into one canonical spelling (see the section
  * header).  Pure: the inputs are not modified.
  */
-export function canonicalizePair(a: OpenApiSpec, b: OpenApiSpec): [OpenApiSpec, OpenApiSpec] {
+export function canonicalizePair(
+  a: OpenApiSpec,
+  b: OpenApiSpec,
+  /** Fold an error-arm `anyOf` into plain ProblemDetails: set only for a pair
+   *  with a `NO_ANYOF_BACKENDS` member. */
+  problemUnionsAsProblem = false,
+): [OpenApiSpec, OpenApiSpec] {
   const one = (spec: OpenApiSpec): OpenApiSpec => {
     const flat = flattenAllOf(spec);
     let s = inlineArrayAliases(flat.spec);
     s = polymorphicBasesAsUnions(s, flat.bases);
+    s = refNamedUnions(s);
     s = pinDiscriminatorTags(s);
-    s = collapseProblemUnions(s, flat.bases);
+    if (problemUnionsAsProblem) s = collapseProblemUnions(s, flat.bases);
     s = inlineArmOnlyComponents(s);
     return canonicalizeUnions(s);
   };
@@ -1296,7 +1341,11 @@ export function diffSpecs(
 ): ParityDiff {
   // Compare the canonical spelling of both documents (see `canonicalizePair`):
   // framework-native spellings of one contract are not divergences.
-  const [refSpec, otherSpec] = canonicalizePair(refIn.spec, otherIn.spec);
+  const [refSpec, otherSpec] = canonicalizePair(
+    refIn.spec,
+    otherIn.spec,
+    NO_ANYOF_BACKENDS.has(refIn.name) || NO_ANYOF_BACKENDS.has(otherIn.name),
+  );
   const ref = { name: refIn.name, spec: refSpec };
   const other = { name: otherIn.name, spec: otherSpec };
   const refOps = collectOps(ref.spec);
