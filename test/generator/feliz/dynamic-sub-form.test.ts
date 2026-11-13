@@ -90,10 +90,10 @@ describe("feliz dynamic sub-form rows (array-of-value-object)", () => {
     expect(app).toContain(
       "prop.value row.sku; prop.onChange (fun (v: string) -> dispatch (SetOrderCreateFormItemsSku (i, v)))",
     );
-    // Each row input sits in a labelled `form-control` wrapper; the numeric
-    // sub-field carries the number input type.
+    // Each row input sits in a labelled `form-control` wrapper under a
+    // row-indexed test id; the numeric sub-field carries the number input type.
     expect(app).toContain(
-      'Html.label [ prop.className "form-control"; prop.children [ Html.span [ prop.className "label-text"; prop.text (I18n.t "Ordering.LineItem.field.qty" "Qty") ]; Html.input [ prop.className "input input-bordered"; prop.type\'.number; prop.value row.qty;',
+      'Html.label [ prop.className "form-control"; prop.children [ Html.span [ prop.className "label-text"; prop.text (I18n.t "Ordering.LineItem.field.qty" "Qty") ]; Html.input [ prop.custom("data-testid", "orders-new-input-items-" + string i + "-qty"); prop.className "input input-bordered"; prop.type\'.number; prop.value row.qty;',
     );
     // Add / per-row Remove controls.
     expect(app).toContain("dispatch (RemoveOrderCreateFormItems i)");
