@@ -42,7 +42,7 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   // well-formed) and `LoweringViolation.origin` (absent when the offending node
   // and its statement carry no source span).
   "model.ts": 13,
-  "projection.ts": 16,
+  "projection.ts": 14,
   "queries.ts": 1,
   "stmt.ts": 16,
   "system.ts": 29,
