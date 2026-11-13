@@ -34,7 +34,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, parseTrx, resetDatabase, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
+import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, parseTrx, resetDatabase, awaitOutboxDrained, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { writeCaseSource } from "./case-source.mjs";
 import { stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
 import { startSidecars } from "../support/fakes/index.mjs";
@@ -299,6 +299,9 @@ async function runCase(c) {
     await build({ entryPoints: [entry], outfile: bundle, bundle: true, platform: "node", format: "esm", target: "node20", packages: "external", logLevel: "warning" });
     const { run } = await import(pathToFileURL(bundle).href);
     const api = await run();
+    // A durable event reaches the broker on the relay's own poll: read the
+    // broker effects once the outbox holds nothing still owed delivery.
+    if (!EXTERNAL_BASE && fakes.kinds.includes("broker")) await awaitOutboxDrained(dotnetPgUrl(CONNECTION_STRING));
     return { results: [...unitResults, ...api.results, ...(api.authz ?? [])], wire: api.wire, effects: await fakes.effects() };
   } finally {
     // AWAIT the exit — firing SIGTERM and moving on leaves the port occupied

@@ -39,7 +39,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, resetDatabase, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
+import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, resetDatabase, awaitOutboxDrained, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { writeCaseSource } from "./case-source.mjs";
 import { optInTestReset, stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
 import { startSidecars } from "../support/fakes/index.mjs";
@@ -335,6 +335,9 @@ async function runCase(c) {
     const { run } = await import(pathToFileURL(bundle).href);
     const api = await run();
     const indexProbe = EXTERNAL_BASE ? [] : await outboxIndexProbe(deplDir);
+    // A durable event reaches the broker on the relay's own poll: read the
+    // broker effects once the outbox holds nothing still owed delivery.
+    if (!EXTERNAL_BASE && fakes.kinds.includes("broker")) await awaitOutboxDrained(DATABASE_URL);
     return {
       results: [...api.results.map((r) => ({ tier: "api", ...r })), ...(api.authz ?? []), ...indexProbe],
       wire: api.wire, effects: await fakes.effects(),

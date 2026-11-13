@@ -1124,6 +1124,39 @@ export async function resetDatabase(pgUrl) {
 }
 
 
+const { OUTBOX_PENDING_PREDICATE } = await import(new URL("../../out/util/channels.js", import.meta.url).href);
+
+/** Wait (bounded) until no outbox row in the shared Postgres is still owed
+ *  delivery.  A durable event reaches its broker through the backend's relay,
+ *  on the relay's own poll, after the request that raised it has answered; a
+ *  runner reads the broker effects only once that relay has caught up, as the
+ *  node leg does in process.  Every table with the outbox's `dispatched_at` /
+ *  `dead_at` columns counts, whichever schema the backend put it in; a database
+ *  with none returns at once.  On the bound it returns, and the effects diff
+ *  names what never arrived. */
+export async function awaitOutboxDrained(pgUrl, { timeoutMs = 15_000 } = {}) {
+  const client = new pg.Client({ connectionString: pgUrl });
+  await client.connect();
+  try {
+    const { rows } = await client.query(`
+      SELECT table_schema AS s, table_name AS t FROM information_schema.columns
+      WHERE column_name IN ('dispatched_at', 'dead_at')
+      GROUP BY table_schema, table_name HAVING count(*) = 2`);
+    if (rows.length === 0) return;
+    const q = rows
+      .map((r) => `SELECT count(*)::int AS n FROM ${pg.escapeIdentifier(r.s)}.${pg.escapeIdentifier(r.t)} WHERE ${OUTBOX_PENDING_PREDICATE}`)
+      .join(" UNION ALL ");
+    const until = Date.now() + timeoutMs;
+    for (;;) {
+      const pending = (await client.query(q)).rows.reduce((n, r) => n + r.n, 0);
+      if (pending === 0 || Date.now() > until) return;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  } finally {
+    await client.end();
+  }
+}
+
 /** Filter a case-name list against the platform's behavioural skip set. */
 function notSkipped(names, platformClause) {
   const skip = BEHAVIOURAL_SKIP[platformClause] ?? {};

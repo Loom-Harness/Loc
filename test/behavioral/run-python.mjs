@@ -35,7 +35,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, resetDatabase, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
+import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, resetDatabase, awaitOutboxDrained, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { writeCaseSource } from "./case-source.mjs";
 import { stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
 import { startSidecars } from "../support/fakes/index.mjs";
@@ -294,6 +294,9 @@ async function runCase(c) {
       for (const r of api.authz ?? []) out.push(r);
       // The OIDC authorization-code handshake against the fake issuer (off the recorder).
       for (const r of isOidc && oidc ? await probeCodeFlow({ request: httpRequest(BASE), oidc }) : []) out.push(r);
+      // A durable event reaches the broker on the relay's own poll: read the
+      // broker effects once the outbox holds nothing still owed delivery.
+      if (!EXTERNAL_BASE && fakes.kinds.includes("broker")) await awaitOutboxDrained(DATABASE_URL.replace("+asyncpg", ""));
       return { results: out, error: null, wire: api.wire, effects: await fakes.effects() };
     } catch (apiErr) {
       return { results: out, error: apiErr?.message ?? String(apiErr) };

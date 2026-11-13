@@ -29,7 +29,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, parseJUnitXml, resetDatabase, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
+import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, parseJUnitXml, resetDatabase, awaitOutboxDrained, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { writeCaseSource } from "./case-source.mjs";
 import { stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
 import { startSidecars } from "../support/fakes/index.mjs";
@@ -349,6 +349,9 @@ async function runCase(c) {
     const api = await run();
     // The OIDC authorization-code handshake against the fake issuer (off the recorder).
     const codeFlow = isOidc && oidc ? await probeCodeFlow({ request: httpRequest(BASE), oidc }) : [];
+    // A durable event reaches the broker on the relay's own poll: read the
+    // broker effects once the outbox holds nothing still owed delivery.
+    if (!EXTERNAL_BASE && fakes.kinds.includes("broker")) await awaitOutboxDrained(DATASOURCE_URL.replace(/^jdbc:postgresql:\/\//, `postgresql://${DATASOURCE_USERNAME}:${DATASOURCE_PASSWORD}@`));
     return { results: [...unitResults, ...api.results, ...(api.authz ?? []), ...codeFlow], wire: api.wire, effects: await fakes.effects() };
   } finally {
     // AWAIT the exit — firing SIGTERM and moving on leaves the port occupied
