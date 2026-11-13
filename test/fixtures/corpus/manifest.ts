@@ -458,6 +458,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "The transaction boundary of a workflow command is one save unless the workflow is `transactional` (the plan's `workflowRunsInTransaction`).  java wrapped every workflow service in a class-level `@Transactional` and python ran each request in one transaction, so a failing non-transactional workflow rolled its earlier saves back there while node, .NET and elixir kept them.",
   },
   {
+    id: "workflow-failed-start",
+    title:
+      "a correlated workflow whose start fails leaves no instance; a later successful start creates it",
+    doc: "workflow",
+    backends: ALL,
+    note: "Elixir inserted the instance row before the body ran, so a failing non-transactional start left a default-valued instance that the instance read answered with 200; node, .NET, java and python write the row only after the body succeeds.",
+  },
+  {
     id: "workflow-create-result",
     title:
       "command-triggered `create(…): T { … return <expr> }` — the workflow route answers 200 with the declared value (an `X id`, a scalar read after a transactional body); a result-less create keeps 204",

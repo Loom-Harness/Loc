@@ -759,6 +759,11 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.bumpThenFail.run (no such aggregate)",
     "api.bumpThenFailAtomically.run (no such aggregate)",
   ],
+  // The start and the instance read; same not-lifted workflow-route class.
+  "corpus/workflow-failed-start": [
+    "api.onboarding.run (no such aggregate)",
+    "api.onboarding.instance (no such aggregate)",
+  ],
   "corpus/workflow-create-result": [
     "api.openAccount.run (no such aggregate)",
     "api.topUp.run (no such aggregate)",
