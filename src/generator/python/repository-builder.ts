@@ -5,7 +5,6 @@ import {
   readScopeFor,
   readSortFor,
 } from "../../ir/enrich/read-scope.js";
-import type { WireMaskPlan } from "../../ir/util/response-wire.js";
 import { clientSortTieBreak, singleReadOrder } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type { PayloadIR } from "../../ir/types/loom-ir.js";
@@ -29,6 +28,7 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { findRaisesNotFound } from "../../ir/util/key-lookup.js";
 import { isRefCollectionType } from "../../ir/util/ref-collection.js";
+import type { WireMaskPlan } from "../../ir/util/response-wire.js";
 import { responseMaskPlan, responseWireFor } from "../../ir/util/response-wire.js";
 import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
 import { ROW_VERSION_COLUMN } from "../../util/row-version.js";

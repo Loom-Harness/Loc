@@ -5,7 +5,6 @@
 // identical specs across backends.
 
 import { carriesFieldMask } from "../../ir/enrich/mask-taint.js";
-import type { WireMaskPlan } from "../../ir/util/response-wire.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -17,6 +16,7 @@ import type {
   WireField,
 } from "../../ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import type { WireMaskPlan } from "../../ir/util/response-wire.js";
 import { responseMaskPlan, responseWireFor } from "../../ir/util/response-wire.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
