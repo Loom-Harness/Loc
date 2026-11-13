@@ -250,8 +250,8 @@ describe("let-bound mutating call — validation", () => {
   });
 
   it("accepts the bound op-call form on an elixir deployable", async () => {
-    expect(await errorCodes(SYS(PAY(`int n => { } Insufficient e => { }`), "elixir"))).not.toContain(
-      "loom.elixir-bound-mutating-call-unsupported",
-    );
+    expect(
+      await errorCodes(SYS(PAY(`int n => { } Insufficient e => { }`), "elixir")),
+    ).not.toContain("loom.elixir-bound-mutating-call-unsupported");
   });
 });
