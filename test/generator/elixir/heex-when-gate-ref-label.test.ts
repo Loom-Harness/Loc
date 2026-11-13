@@ -69,7 +69,7 @@ describe.each([
     it("renders the trigger and the modal submit disabled while the gate refuses", async () => {
       const live = file(await files(), "/live/task_detail_live.ex");
       expect(live).toMatch(
-        /<\.button phx-click=\{show_modal\("task-op-complete-modal"\)\} disabled=\{!@can_complete\} title=\{unless @can_complete, do: "Complete is not available in the current state"\}>/,
+        /<\.button phx-click=\{show_modal\("task-op-complete-modal"\)\} disabled=\{!@can_complete\} title=\{unless @can_complete, do: pgettext\("chrome\.opNotAllowed", "Not available in the current state"\)\}>/,
       );
       expect(live).toContain('<.button type="submit" disabled={!@can_complete}>');
     });

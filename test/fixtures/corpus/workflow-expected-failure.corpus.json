@@ -1,5 +1,12 @@
 {
   "title": "a workflow `create` / handler answering `T or E`, rolled back whole on the error",
   "doc": "workflow",
-  "backends": "ALL"
+  "backends": "ALL",
+  "apiCaller": {
+    "unattributed": [
+      "api.hold.instance (no such aggregate)",
+      "api.hold.run (no such aggregate)",
+      "api.pay.run (no such aggregate)"
+    ]
+  }
 }

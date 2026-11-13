@@ -24,8 +24,10 @@ export const messages = {
   }) =>
     `'${p.owner}.${p.field}' references the tenant-scoped aggregate '${p.target}' of context ` +
     `'${p.targetContext}', which has no table beside '${p.context}': the write cannot check that the ` +
-    `referenced row belongs to the caller's tenant, so any id is stored as given.  Keep the ` +
-    `reference inside one context, or reference data that is \`crossTenant\`.`,
+    `referenced row belongs to the caller's tenant, so any id is stored as given.  Move the ` +
+    `reference into '${p.targetContext}' beside '${p.target}', or reference \`crossTenant\` or ` +
+    `registry data instead.  (An error under \`enforcement: denyByDefault\`; a warning under ` +
+    `\`enforcement: opt\`.)`,
   // ----------------------------------------------------------------------
   // `shareable` (D-SHARING) — src/macros/expander.ts and
   // src/ir/validate/checks/policy-scope-checks.ts

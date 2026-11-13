@@ -47,12 +47,14 @@ export type FormAbsence = "required" | "null" | "emptyArray";
 
 /** Where a field's initial value comes from.
  *  - `record` — an update / operation form opened on a loaded record seeds the
- *    field from the record's same-named, same-typed field (`field`).
+ *    field from the record's same-named, same-typed field (`field`).  A
+ *    `provenanced` record field reads as its wire carrier `{ value, lineage }`,
+ *    so `carrier` says the value is the carrier's `value`.
  *  - `default` — the declared `= <expr>` default (`expr`), when the target can
  *    evaluate it client-side; otherwise the target falls back to `zero`.
  *  - `zero` — the kind's empty value (`null` for an optional field). */
 export type FormPrefill =
-  | { from: "record"; field: string }
+  | { from: "record"; field: string; carrier?: true }
   | { from: "default"; expr: ExprIR }
   | { from: "zero" };
 
@@ -345,7 +347,13 @@ function sameValueType(a: TypeIR, b: TypeIR): boolean {
  *  `update` form when every param prefills that way. */
 export function operationFormSpec(agg: AggregateIR, op: OperationIR, env: FormSpecEnv): FormSpec {
   const recordFields = new Map<string, TypeIR>(agg.fields.map((f) => [f.name, f.type]));
-  const fields = operationFormParams(op).map((p) => formFieldSpec(p, env, p.name, recordFields));
+  const carriers = new Set(agg.fields.filter((f) => f.provenanced).map((f) => f.name));
+  const fields = operationFormParams(op).map((p) => {
+    const spec = formFieldSpec(p, env, p.name, recordFields);
+    return spec.prefill.from === "record" && carriers.has(p.name)
+      ? { ...spec, prefill: { ...spec.prefill, carrier: true as const } }
+      : spec;
+  });
   const fromRecord = fields.filter((f) => f.prefill.from === "record").length;
   return {
     kind: fields.length > 0 && fromRecord === fields.length ? "update" : "operation",

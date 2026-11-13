@@ -206,13 +206,12 @@ system Shop {
     expect(fs).not.toContain(`prop.ariaLabel "Order actions"`);
   });
 
-  it("keeps the Toolbar's DEFAULT accessible name a plain F# literal", async () => {
-    // "Actions" is the pack's own fallback — no source literal, so it is not in
-    // the catalog and must never become an `I18n.t` call (its key would resolve
-    // to nothing).  This is the i18n-ON app exercising the value seam's OFF
-    // branch, byte-identical to the pre-i18n emission.
+  it("reads the Toolbar's DEFAULT accessible name through the catalog", async () => {
+    // The a11y contract's fallback name has no source literal; it reads the
+    // `chrome.toolbarActions` catalog entry so a locale can translate it.
     const fs = await appFs(SYS(`Toolbar { Heading { "Orders" } }`));
-    expect(fs).toContain(`prop.role "toolbar"; prop.ariaLabel "Actions"`);
+    expect(fs).toContain("chrome.toolbarActions");
+    expect(fs).not.toContain(`prop.ariaLabel "Actions"`);
   });
 
   it("keeps an unlabelled Divider byte-identical", async () => {

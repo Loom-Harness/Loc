@@ -64,7 +64,7 @@ import {
 } from "./emit-templates.js";
 import { prepareNamedLayouts } from "./layouts-emitter.js";
 import { renderLocaleSwitcherModule } from "./locale-switcher.js";
-import { deriveSidebarFromUi } from "./menu-emitter.js";
+import { deriveSidebarFromUi, navPageNameFallbacksFor } from "./menu-emitter.js";
 import { deriveExtraRoutesFromUi, emitPageObjectsForUi, emitPagesForUi } from "./pages-emitter.js";
 import { buildRealtimeHandlers } from "./realtime-handlers-builder.js";
 import { REACT_REF_LABEL, REACT_REF_LABEL_PATH, REF_LABEL_MARKER } from "./ref-label-runtime.js";
@@ -256,6 +256,7 @@ export function generateReactForContexts(
     sentences: pack.manifest.sentenceChrome ?? [],
     implicitModelText: tsxTarget.modelTextImplicitSites === true,
     sessionView: authUi,
+    menuPageNames: navPageNameFallbacksFor(ui, contexts),
   };
   const emitCtx = {
     sys,
@@ -514,6 +515,7 @@ export function generateReactForContexts(
       ui.pages,
       authUi,
     ),
+    { nameLabelKeys: true },
   );
 
   out.set(

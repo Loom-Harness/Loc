@@ -287,12 +287,14 @@ function renderMoney(vm: VM): string {
   return `<span class="money"${str(vm.testidAttr)}>${prefix}<%= to_string(${str(vm.valueExpr)}) %></span>`;
 }
 
-/** `DateDisplay(value)` → a `<time>` carrying the ISO value, showing the date. */
+/** `DateDisplay(value)` → a `<time>` carrying the ISO value, showing the date —
+ *  `loom_date/1` (CLDR, the negotiated locale) under i18n, else the ISO date. */
 function renderDateDisplay(vm: VM): string {
   const testid = str(vm.testidAttr);
   if (!vm.hasValue) return `<time${testid}></time>`;
   const v = str(vm.valueExpr);
-  return `<time datetime={to_string(${v})}${testid}><%= Calendar.strftime(${v}, "%Y-%m-%d") %></time>`;
+  const shown = vm.hasI18n ? `loom_date(${v})` : `Calendar.strftime(${v}, "%Y-%m-%d")`;
+  return `<time datetime={to_string(${v})}${testid}><%= ${shown} %></time>`;
 }
 
 /** `Alert(color:)` → the daisyUI alert modifier.  A raw colour (`alert-red`)

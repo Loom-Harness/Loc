@@ -18,7 +18,7 @@ export default function OrderList() {
         <Anchor component={RouterLink} to="/">{t("WebApp.page.List.anchor.n0mxf2", "Home")}</Anchor>
         <Text>{t("Orders.Order.name.other", "Orders")}</Text>
       </Breadcrumbs>
-      <Group justify="space-between" align="center" gap="md" role="toolbar" aria-label="Actions">
+      <Group justify="space-between" align="center" gap="md" role="toolbar" aria-label={t("chrome.toolbarActions", "Actions")}>
         <Title order={2}>{t("Orders.Order.name.other", "Orders")}</Title>
         <Button onClick={() => navigate("/orders/new")} data-testid="orders-list-create">{t("WebApp.page.List.button.i38a1x", "New order")}</Button>
       </Group>

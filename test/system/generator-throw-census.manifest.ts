@@ -13,6 +13,10 @@ export type ThrowClassification =
   | { deferred: string; mission: string; reviewUntil: string };
 
 export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
+  "src/generator/_frontend/form-row-binding.ts#settled": {
+    invariant:
+      "a shipped pack's field template binds its path or test id through a site the row binder does not rewrite; every shipped pack's dynamic rows render in the form-spec census and the walker suites, so only a new pack template shape reaches it",
+  },
   // src/generator/java/wire-policy-java.ts
   "src/generator/java/wire-policy-java.ts#javaIngressCoercions": {
     invariant:

@@ -12,7 +12,7 @@ import { routeSegmentFor } from "../../util/storage-names.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { simpleAccessorField } from "../_walker/primitives/data-grid-shape.js";
-import { namedArg, testIdAttr } from "./heex-markup.js";
+import { heexChromeAttr, heexChromeText, namedArg, testIdAttr } from "./heex-markup.js";
 import { enumLabelLookup } from "./heex-model-text.js";
 import {
   escapeHeexAttr,
@@ -135,10 +135,10 @@ export function renderProvenanceInfo(
   return [
     `<%= if ${lineage} do %>`,
     `  <details class="loom-provenance"${testid}>`,
-    `    <summary aria-label="How this value was computed">?</summary>`,
+    `    <summary aria-label=${heexChromeAttr(ctx, "provenanceHowComputed")}>?</summary>`,
     `    <dl class="loom-provenance-tree">`,
-    `      <div><dt>Rule</dt><dd><code><%= ${lineage}["snapshotId"] %></code></dd></div>`,
-    `      <div><dt>Value</dt><dd><%= ${lineage}["computedValue"] %></dd></div>`,
+    `      <div><dt>${heexChromeText(ctx, "provenanceRule")}</dt><dd><code><%= ${lineage}["snapshotId"] %></code></dd></div>`,
+    `      <div><dt>${heexChromeText(ctx, "provenanceValue")}</dt><dd><%= ${lineage}["computedValue"] %></dd></div>`,
     `      <%= for inp <- ${lineage}["inputs"] || [] do %>`,
     `        <div><dt><%= inp["path"] %></dt><dd><%= inp["value"] %></dd></div>`,
     `      <% end %>`,
