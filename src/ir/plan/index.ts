@@ -24,6 +24,16 @@
 
 export { hasDurableEvents } from "./context-events.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
+export {
+  canOpLadder,
+  GATE_ORDER,
+  type GateCheck,
+  type GateStep,
+  gateRank,
+  gateReadsParam,
+  gateReadsRow,
+  operationLadder,
+} from "./gate-ladder.js";
 export { lookupOp } from "./operation-lookup.js";
 export {
   assignsFoldKey,

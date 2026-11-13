@@ -170,6 +170,26 @@
     },
     {
       "seq": 14,
+      "method": "POST",
+      "path": "/api/orders/{id}/reopen",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "code": "O-2",
+        "id": "<volatile:key>",
+        "open": true,
+        "rowVersion": 3,
+        "total": "30.0000"
+      }
+    },
+    {
+      "seq": 16,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -183,7 +203,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 17,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -197,7 +217,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 18,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,
@@ -211,7 +231,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 19,
       "method": "GET",
       "path": "/api/projections/order_book/{id}",
       "status": 404,
@@ -225,7 +245,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 20,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,
@@ -235,41 +255,41 @@
       }
     },
     {
-      "seq": 19,
-      "method": "POST",
-      "path": "/api/orders/{id}/place",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Order {id} not found",
-        "instance": "/api/orders/{id}/place",
-        "params": {
-          "type": "Orders.Order"
-        },
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
-      }
-    },
-    {
-      "seq": 20,
-      "method": "POST",
-      "path": "/api/orders/{id}/place",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Order {id} not found",
-        "instance": "/api/orders/{id}/place",
-        "params": {
-          "type": "Orders.Order"
-        },
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
-      }
-    },
-    {
       "seq": 21,
+      "method": "POST",
+      "path": "/api/orders/{id}/place",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/place",
+        "params": {
+          "type": "Orders.Order"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
+      "method": "POST",
+      "path": "/api/orders/{id}/place",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/place",
+        "params": {
+          "type": "Orders.Order"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
       "method": "POST",
       "path": "/api/orders/{id}/place",
       "status": 415,
@@ -283,7 +303,7 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 24,
       "method": "POST",
       "path": "/api/orders",
       "status": 201,
@@ -292,14 +312,14 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 25,
       "method": "POST",
       "path": "/api/orders/{id}/place",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 24,
+      "seq": 26,
       "method": "GET",
       "path": "/api/orders",
       "status": 403,
@@ -313,7 +333,7 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 27,
       "method": "GET",
       "path": "/api/orders",
       "status": 200,
@@ -322,8 +342,8 @@
           {
             "code": "O-2",
             "id": "<volatile:key>",
-            "open": false,
-            "rowVersion": 2,
+            "open": true,
+            "rowVersion": 3,
             "total": "30.0000"
           },
           {
@@ -341,7 +361,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 28,
       "method": "GET",
       "path": "/api/projections/order_book",
       "status": 403,
@@ -355,7 +375,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 29,
       "method": "GET",
       "path": "/api/projections/order_book",
       "status": 200,
@@ -375,7 +395,7 @@
       ]
     },
     {
-      "seq": 28,
+      "seq": 30,
       "method": "GET",
       "path": "/api/projections/order_book/{id}",
       "status": 403,
@@ -389,7 +409,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 31,
       "method": "GET",
       "path": "/api/projections/order_book/{id}",
       "status": 200,
@@ -399,7 +419,7 @@
       }
     },
     {
-      "seq": 30,
+      "seq": 32,
       "method": "GET",
       "path": "/api/projections/open_orders",
       "status": 403,
@@ -413,14 +433,18 @@
       }
     },
     {
-      "seq": 31,
+      "seq": 33,
       "method": "GET",
       "path": "/api/projections/open_orders",
       "status": 200,
-      "body": []
+      "body": [
+        {
+          "code": "O-2"
+        }
+      ]
     },
     {
-      "seq": 32,
+      "seq": 34,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 403,
@@ -434,7 +458,7 @@
       }
     },
     {
-      "seq": 33,
+      "seq": 35,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 200,
@@ -444,6 +468,29 @@
         "open": false,
         "rowVersion": 2,
         "total": "10.0000"
+      }
+    },
+    {
+      "seq": 36,
+      "method": "GET",
+      "path": "/api/orders/{id}/can_reopen",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/orders/{id}/can_reopen",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 37,
+      "method": "GET",
+      "path": "/api/orders/{id}/can_reopen",
+      "status": 200,
+      "body": {
+        "allowed": true
       }
     }
   ]
