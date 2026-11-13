@@ -23,6 +23,7 @@ import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
 import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
+import { wireSurfaceTypes } from "../../_payload/union-wire.js";
 import { jid, jsonProp } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { renderJavaExpr } from "../render-expr.js";
@@ -148,6 +149,9 @@ export function renderDtoFiles(
       : o.kind === "operation"
         ? `${upperFirst(o.operation)}${o.aggregate}Request`
         : `${upperFirst(o.workflow)}Request`,
+  /** The aggregate's bounded context — resolves the value objects named only
+   *  inside an `or`-union operation return's variants. */
+  ctx?: EnrichedBoundedContextIR,
 ): DtoFile[] {
   const out: DtoFile[] = [];
   const entityImport = entityPkg !== pkg ? `import ${entityPkg}.${agg.name};` : undefined;
@@ -165,6 +169,9 @@ export function renderDtoFiles(
       op.params.map((p) => p.type),
       voNames,
     );
+    // A value object named only inside a union return's variant still needs
+    // its `<Vo>Response` for the controller's variant mapping.
+    if (ctx) referencedValueObjects([...wireSurfaceTypes(op.returnType, ctx)], voNames);
   }
   referencedValueObjects(
     responseWireFor(payloads, agg).map((w) => w.type),

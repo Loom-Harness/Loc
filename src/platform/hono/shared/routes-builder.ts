@@ -17,9 +17,11 @@ import {
   type OpUnionResponses,
   opUnionResponses,
   type UnionMemberField,
+  type UnionMoneyKey,
   unionMemberObjects,
   unionMembers,
   unionMoneyArms,
+  wireSurfaceTypes,
 } from "../../../generator/_payload/union-wire.js";
 import {
   PG_FOREIGN_KEY_VIOLATION,
@@ -2417,11 +2419,10 @@ function emitReturningOperationRoute(
   // A `money` field of a payload success variant rides as the fixed-scale
   // string (RS-12) — the tagged dict holds the decimal.js value.
   for (const arm of u ? unionMoneyArms(u.variants, ctx) : []) {
-    const enc = arm.keys.map(({ key, optional }) => {
-      const access = `result.${key}`;
-      const wire = numericEncode(TS_NUMERIC, "money", "dto-map", access);
-      return `${key}: ${optional ? `${access} == null ? null : ${wire}` : wire}`;
-    });
+    // A JS `Date` already serializes to the wire instant; only money is re-encoded.
+    const keys = arm.keys.filter(tsHasMoney);
+    if (keys.length === 0) continue;
+    const enc = keys.map((k) => tsMoneyEntry(k, "result"));
     out.push(`    if (result.type === ${JSON.stringify(arm.tag)}) {`);
     out.push(`      return c.json({ ...result, ${enc.join(", ")} }, 200);`);
     out.push(`    }`);
@@ -3053,7 +3054,7 @@ function collectUsedValueObjects(
   ctx: BoundedContextIR,
 ): ValueObjectIR[] {
   const pool = valueObjectPool(ctx);
-  const { valueObjects } = collectReachableTypes(aggSchemaSeeds(agg, repo), pool);
+  const { valueObjects } = collectReachableTypes(aggSchemaSeeds(agg, repo, ctx), pool);
   // Dependency order, not pool order: each VO becomes a `const <Vo>Schema` in
   // one module, and the pool lists context-local VOs before the root-level
   // (shared-kernel) ones folded in at enrichment.  A local VO that wraps a
@@ -3067,7 +3068,7 @@ function collectUsedEnums(
   repo: RepositoryIR | undefined,
   ctx: BoundedContextIR,
 ): EnumIR[] {
-  const { enums } = collectReachableTypes(aggSchemaSeeds(agg, repo), valueObjectPool(ctx));
+  const { enums } = collectReachableTypes(aggSchemaSeeds(agg, repo, ctx), valueObjectPool(ctx));
   // `enumPool`, not `ctx.enums`: an enum declared in a SIBLING context is a
   // legal field type, and this list is what MINTS the route file's
   // `const <E>Schema = z.enum([...])`.  Filtering `ctx.enums` dropped the
@@ -3081,10 +3082,18 @@ function collectUsedEnums(
  *  derived, public-operation + find params, and contained parts.  The
  *  schema collectors take the transitive closure of these through value
  *  objects' own fields (see `collectReachableTypes`). */
-function* aggSchemaSeeds(agg: AggregateIR, repo: RepositoryIR | undefined): Generator<TypeIR> {
+function* aggSchemaSeeds(
+  agg: AggregateIR,
+  repo: RepositoryIR | undefined,
+  ctx: BoundedContextIR,
+): Generator<TypeIR> {
   for (const f of agg.fields) yield f.type;
   for (const d of agg.derived) yield d.type;
-  for (const op of agg.operations) for (const p of op.params) yield p.type;
+  for (const op of agg.operations) {
+    for (const p of op.params) yield p.type;
+    // A value object named only inside an `or`-union return's variant.
+    yield* wireSurfaceTypes(op.returnType, ctx);
+  }
   for (const f of repo?.finds ?? []) for (const p of f.params) yield p.type;
   for (const part of agg.parts) {
     for (const f of part.fields) yield f.type;
@@ -3268,4 +3277,23 @@ export function wireToDomainExpr(expr: string, t: TypeIR, ctx?: BoundedContextIR
       // scalar — the carrier is a serialization shape, not an in-memory one.
       throw new Error(PROVENANCED_REQUEST_ERROR);
   }
+}
+
+/** One `key: <encoded>` entry of a union variant's money re-encode: a money
+ *  leaf through the money codec, a value object rebuilt as its own fields with
+ *  its money positions encoded in turn. */
+function tsMoneyEntry(k: UnionMoneyKey, recv: string): string {
+  const access = `${recv}.${k.key}`;
+  const wire =
+    k.kind === "vo"
+      ? `{ ...${access}, ${k.fields.flatMap((f) => (f.money && tsHasMoney(f.money) ? [tsMoneyEntry(f.money, access)] : [])).join(", ")} }`
+      : numericEncode(TS_NUMERIC, "money", "dto-map", access);
+  return `${k.key}: ${k.optional ? `${access} == null ? null : ${wire}` : wire}`;
+}
+
+/** True when `k` is, or holds, a money position. */
+function tsHasMoney(k: UnionMoneyKey): boolean {
+  if (k.kind === "money") return true;
+  if (k.kind === "instant") return false;
+  return k.fields.some((f) => f.money !== undefined && tsHasMoney(f.money));
 }

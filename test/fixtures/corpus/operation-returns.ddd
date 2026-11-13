@@ -10,6 +10,19 @@ system RU {
       // fields.  The golden below now records the camelCase key, so the rule is
       // gated at runtime on all seven behavioural legs.
       error NotFound { resource: string, attemptedCode: string }
+      // A success variant carrying a money, a datetime and a value object.
+      // .NET types an aggregate's union records at their RESPONSE wire shape,
+      // so each field is encoded as the variant is built (a datetime as its
+      // ISO string, the value object as its `<VO>Response`, which must be
+      // emitted although no field names the VO).  A domain service's union
+      // records are domain-typed and take the values as they are.
+      valueobject Amount { v: money }
+      response Quote { price: money, at: datetime, amt: Amount }
+      domainService Pricing {
+        operation pick(a: Amount): Quote or NotFound {
+          return Quote { price: a.v, at: now(), amt: a }
+        }
+      }
       aggregate Order with crudish {
         code: string
         reserved: bool
@@ -17,6 +30,9 @@ system RU {
         operation accept(): string or NotFound { reserved := true  return code }
         // Mutates, then fails: the error leaves no trace (D-FAILURE-MODEL).
         operation hold(): string or NotFound { reserved := true  return NotFound { resource: code, attemptedCode: code } }
+        operation quote(): Quote or NotFound {
+          return Quote { price: money("2.5"), at: now(), amt: Amount { v: money("1.25") } }
+        }
       }
       repository Orders for Order { }
     }
@@ -68,5 +84,11 @@ system RU {
     let after = api.orders.getById(o)
     expect(after.reserved).toBe(false)
     expect(after.rowVersion).toBe(3)
+
+    // A success variant's money is the fixed-scale string at every depth —
+    // directly on the variant and inside its value object.
+    let q = api.orders.quote(o)
+    expect(q.price).toBe("2.5000")
+    expect(q.amt.v).toBe("1.2500")
   }
 }

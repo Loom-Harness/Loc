@@ -1,5 +1,11 @@
 {
   "title": "`when` canCommand state gate + GET can-query companion",
   "doc": "criterion",
-  "backends": "ALL"
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "The one route with no `test e2e` verb at all.  The gate itself is exercised: the 409 on the gated operation, and — added by this drain — the canonical DELETE on the very row the gate refused, which must NOT inherit it.  Only the `can_<op>` endpoint a UI polls stays uncalled.",
+    "uncalled": {
+      "canCancelOrder": "gateProbe"
+    }
+  }
 }

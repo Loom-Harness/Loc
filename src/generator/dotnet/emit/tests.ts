@@ -34,6 +34,7 @@ const CS_TEST_LITERAL: TestValueTarget = {
   datetime: (rendered) =>
     `DateTime.Parse(${rendered}, null, System.Globalization.DateTimeStyles.RoundtripKind)`,
   date: (rendered) => csCalendarDateParseExact(rendered),
+  money: (digits) => renderCsExpr({ kind: "literal", lit: "money", value: digits }),
   valueObject: (name, args) => `new ${name}(${args.join(", ")})`,
   omitted: "null",
 };
