@@ -13,6 +13,7 @@ import {
   BROKER_BASELINE,
   BROKER_BASELINE_GAPS,
   MIGRATIONS_BASELINE,
+  RESOURCES_BASELINE,
   wgetHealthcheck,
 } from "./operations.js";
 import { backendEnvContract } from "./operations-env.js";
@@ -83,6 +84,7 @@ const javaPlatform: PlatformSurface = {
     log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
     broker: BROKER_BASELINE,
     migrations: MIGRATIONS_BASELINE,
+    resources: RESOURCES_BASELINE,
     gaps: BROKER_BASELINE_GAPS,
   },
   composeService({ slug, deployable, sys }): ComposeServiceShape {

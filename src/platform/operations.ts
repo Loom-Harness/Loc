@@ -68,6 +68,13 @@ export interface BrokerResilience {
   readonly exportsMetrics: boolean;
 }
 
+/** What a backend's resource clients guarantee on the dev stack. */
+export interface ResourceFacts {
+  /** An \`objectStore\` on an \`s3\` storage writes to the dev compose's MinIO
+   *  sidecar (endpoint, credentials and bucket wired), never to AWS. */
+  readonly objectStoreReachesSidecar: boolean;
+}
+
 /** What a backend's boot-time schema migrator guarantees. */
 export interface MigrationRunnerFacts {
   /** A second boot against an already-migrated database applies nothing and
@@ -115,6 +122,8 @@ export interface PlatformOperations {
   env(args: EnvContractArgs): readonly EnvRequirement[];
   /** Present on a backend that emits a broker client. */
   readonly broker?: BrokerResilience;
+  /** Present on a backend that emits resource clients. */
+  readonly resources?: ResourceFacts;
   /** Present on a backend that migrates a database at boot. */
   readonly migrations?: MigrationRunnerFacts;
   /** The open issue behind every runtime fact above that is not met yet,
@@ -177,3 +186,8 @@ export function withoutGaps(
 ): Readonly<Record<string, string>> {
   return Object.fromEntries(Object.entries(gaps).filter(([k]) => !met.includes(k)));
 }
+
+/** The resource-client facts every backend meets. */
+export const RESOURCES_BASELINE: ResourceFacts = {
+  objectStoreReachesSidecar: true,
+};

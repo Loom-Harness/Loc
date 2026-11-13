@@ -25,6 +25,9 @@
 //                              then parked in its DLQ under the generated broker
 //                              ACL.  Last, because the unmet form of this fact
 //                              can crash-loop the consumer.
+//   9. object store          — a workflow writes through its objectStore
+//                              resource; the object lands in the dev MinIO
+//                              sidecar's bucket.
 //
 // The claims come from the platform's operations contract
 // (`src/platform/operations.ts`).  A fact the contract states as unmet (with
@@ -136,6 +139,13 @@ system Lifecycle {
           let s = Shipment.create(orderRef: p.order, status: "Pending")
         }
       }
+      // Writes one object through the object-store resource: the dev stack
+      // must reach its MinIO sidecar, with the bucket already created.
+      workflow Archive {
+        create(note: string) {
+          shippingFiles.put("notes/" + note, note)
+        }
+      }
       aggregate Sweep { note: string }
       event SweepTick { sweep: Sweep id, at: datetime }
       workflow SweepRun {
@@ -148,8 +158,10 @@ system Lifecycle {
   storage pg { type: postgres }
   storage bus { type: rabbitmq }
   storage cache { type: redis }
+  storage files { type: s3, config: { bucket: "lifecycle" } }
   resource ordersState { for: Orders, kind: state, use: pg }
   resource shippingState { for: Shipping, kind: state, use: pg }
+  resource shippingFiles { for: Shipping, kind: objectStore, use: files }
   channelSource lifecycleBus { for: Lifecycle, use: bus }
   channelSource pingBus { for: Pings, use: cache }
   timerSource sweep { for: SweepTick, every: 2s }
@@ -157,7 +169,7 @@ system Lifecycle {
   deployable d {
     platform: ${platform}
     contexts: [Orders, Shipping]
-    dataSources: [ordersState, shippingState]
+    dataSources: [ordersState, shippingState, shippingFiles]
     channels: [lifecycleBus, pingBus]
     serves: A
     port: ${PORT}
@@ -516,6 +528,21 @@ describe.runIf(RUN)("lifecycle: reboot, regenerate, broker outage, DB pause", ()
             });
           },
         );
+
+        // ── 9. object store ───────────────────────────────────────────────
+        if (ops.resources) {
+          await claim(
+            ops,
+            "resources.objectStoreReachesSidecar",
+            ops.resources.objectStoreReachesSidecar,
+            "an object-store write lands in the dev MinIO sidecar's bucket",
+            async () => {
+              const r = await ok("POST", "/api/workflows/archive", { note: "n1" });
+              expect(r.status, JSON.stringify(r.json)).toBeLessThan(300);
+              sh(`${compose} exec -T files mc stat local/lifecycle/notes/n1`, out);
+            },
+          );
+        }
       } catch (err) {
         try {
           console.error(sh(`${compose} logs --no-color --tail=120`, out, 120_000));
