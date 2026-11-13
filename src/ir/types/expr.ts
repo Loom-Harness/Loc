@@ -214,6 +214,11 @@ export type ExprIR = (
        *  validators decide whether to flag them. */
       kind: "list";
       elements: ExprIR[];
+      /** The element type of an EMPTY literal (`[]`) when its position fixes
+       *  one — a ternary branch whose other branch is a typed list.  A
+       *  nominally typed target cannot infer it from `[]` alone (java's
+       *  `List.of()` is `List<Object>` in a `var`'s conditional). */
+      elementType?: TypeIR;
     }
   /**
    * Authorization / tenancy filter sentinel (M-T9.9).  A synthesized,

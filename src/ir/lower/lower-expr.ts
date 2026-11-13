@@ -395,6 +395,15 @@ export function passType(node: AstNode | undefined, env?: Env): TypeIR {
   return irType(t);
 }
 
+/** The pass's type for `node` when it resolved one, else `undefined` — never
+ *  the placeholder `passType` falls back to, and never recording an
+ *  unresolved read. */
+function resolvedPassType(node: AstNode, env: Env): TypeIR | undefined {
+  const t = passSynth(node, env);
+  if (!t || t.kind === "unknown" || t.kind === "slot") return undefined;
+  return irType(t);
+}
+
 /** `passType` without recording an unresolved read: for an observer asking
  *  the same question lowering asks (the typing differential), which must not
  *  add reads lowering never made. */
@@ -1476,12 +1485,25 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
     return lowerBinaryChain(expr, env);
   }
   if (isTernaryExpr(expr)) {
+    const thenIR = lowerExpr(expr.thenExpr, env);
+    const otherwiseIR = lowerExpr(expr.elseExpr, env);
+    // An empty `[]` branch takes the ternary's element type (see
+    // `ExprIR.list.elementType`).
+    const joined = resolvedPassType(expr, env);
+    const unwrapped = joined?.kind === "optional" ? joined.inner : joined;
+    if (unwrapped?.kind === "array") {
+      for (const branch of [thenIR, otherwiseIR]) {
+        if (branch.kind === "list" && branch.elements.length === 0) {
+          branch.elementType = unwrapped.element;
+        }
+      }
+    }
     return {
       kind: "ternary",
       cond: lowerExpr(expr.cond, env),
       // biome-ignore lint/suspicious/noThenProperty: the ternary IR node's branch field is named `then` across the IR
-      then: lowerExpr(expr.thenExpr, env),
-      otherwise: lowerExpr(expr.elseExpr, env),
+      then: thenIR,
+      otherwise: otherwiseIR,
     };
   }
   if (isLambda(expr)) {

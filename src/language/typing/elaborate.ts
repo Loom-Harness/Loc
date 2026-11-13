@@ -2318,6 +2318,13 @@ function join(a: Ty, b: Ty): Ty | undefined {
     return undefined;
   }
   if (a.kind === "enum" && b.kind === "enum") return joinEnums(a, b);
+  // Element-wise, so the empty literal `[]` (`never[]`) takes the other
+  // branch's element type: `blocked ? [] : xs.map(…)` is `Contribution[]`, not
+  // `never[]` (whose members nothing downstream can read).
+  if (a.kind === "array" && b.kind === "array") {
+    const el = join(a.element, b.element);
+    return el ? Ty.array(el) : undefined;
+  }
   if (sameType(a, b)) return a;
   return undefined;
 }

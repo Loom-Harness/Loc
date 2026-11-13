@@ -1,0 +1,102 @@
+// shape: an empty list literal `[]` as one branch of a ternary.
+//
+// The ternary's type is the other branch's list type, and the `[]` has to be
+// spelled with that element type on the nominally typed targets.  Before, the
+// typing pass joined `never[]` with `Contribution[]` to `never[]`, so a member
+// read off an element (`c.points`) was `loom.unresolved-type`; java's bare
+// `List.of()` in a `var`'s conditional is `List<Object>`; .NET's `c ? [] : [x]`
+// has no natural type (CS0173), a narrowed `[x]` element kept its `T?`, and
+// `avg`'s `count == 0 ? null : sum / count` was CS0173 in a `var`.
+system EmptyListTernary {
+  subdomain Matching {
+    context Matching {
+      valueobject Trait {
+        name: string
+        weight: decimal?
+      }
+      valueobject Contribution {
+        points: decimal
+      }
+
+      aggregate Provider with crudish {
+        name: string
+        blocked: bool
+        attributes: Trait[]
+        bonus: decimal?
+      }
+      repository Providers for Provider { }
+
+      domainService Scoring {
+        operation total(p: Provider): decimal {
+          let cs = p.blocked ? [] : p.attributes.map(a => Contribution { points: a.weight ?? 0.0 })
+          return cs.sum(c => c.points)
+        }
+        operation best(p: Provider): decimal {
+          let vs = p.blocked ? [] : p.attributes
+          let b = vs.max(v => v.weight ?? 0.0)
+          return b ?? 0.0
+        }
+        operation bonuses(p: Provider): int {
+          let fixed = p.bonus == null ? [] : [p.bonus]
+          return fixed.count
+        }
+        operation mean(p: Provider): decimal {
+          let m = p.attributes.avg(a => a.weight ?? 0.0)
+          return m ?? -1.0
+        }
+      }
+
+      aggregate Score with crudish {
+        provider: Provider id
+        label: string
+        total: decimal
+        best: decimal
+        bonuses: int
+        mean: decimal
+      }
+
+      workflow scoreProvider {
+        create(provider: Provider id): Score id {
+          let p = Providers.get(provider)
+          let s = Score.create(provider: provider, label: p.name, total: Scoring.total(p), best: Scoring.best(p), bonuses: Scoring.bonuses(p), mean: Scoring.mean(p))
+          return s.id
+        }
+      }
+    }
+  }
+
+  api MatchingApi from Matching
+  storage primary { type: postgres }
+  resource matchingState { for: Matching, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Matching]
+    dataSources: [matchingState]
+    serves: MatchingApi
+    port: 4000
+  }
+
+  test e2e "an empty-list ternary branch keeps the other branch's element type" against d {
+    let open = api.providers.create({ name: "open", blocked: false, attributes: [
+      { name: "a", weight: 1.5 },
+      { name: "b", weight: 2.5 },
+      { name: "c" }
+    ], bonus: 3 })
+    let s1 = api.scores.getById(api.scoreProvider.run({ provider: open.id }))
+    expect(s1.label).toBe("open")
+    expect(decimal(s1.total)).toBe(4)
+    expect(decimal(s1.best)).toBe(2.5)
+    expect(s1.bonuses).toBe(1)
+
+    let shut = api.providers.create({ name: "shut", blocked: true, attributes: [{ name: "a", weight: 9 }] })
+    let s2 = api.scores.getById(api.scoreProvider.run({ provider: shut.id }))
+    expect(decimal(s2.total)).toBe(0)
+    expect(decimal(s2.best)).toBe(0)
+    expect(s2.bonuses).toBe(0)
+    expect(decimal(s2.mean)).toBe(9)
+
+    let none = api.providers.create({ name: "none", blocked: false, attributes: [] })
+    let s3 = api.scores.getById(api.scoreProvider.run({ provider: none.id }))
+    expect(decimal(s3.mean)).toBe(-1)
+  }
+}
