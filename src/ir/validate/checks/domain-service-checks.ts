@@ -61,7 +61,7 @@ import type {
   StmtIR,
 } from "../../types/loom-ir.js";
 import { aggregateOpResolver, classifyDomainServiceTier } from "../../util/domain-service-tier.js";
-import { walkStmtDeep, walkStmtExprsDeep, walkStmtsDeep } from "../../util/walk.js";
+import { walkStmtExprsDeep, walkStmtsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { foreignRepositoryOwners } from "./shared.js";
 
@@ -85,39 +85,6 @@ export function validateDomainServices(
   // NON-pure services, then a scan of every aggregate body for a call
   // into one.  Run it once per context after the per-service checks.
   checkInfraCallsFromAggregates(ctx, diags);
-}
-
-/** A domain service is stateless: it never sees the principal.  A `requires`
- *  gate, or a read of `currentUser` / `organizationContext` (both lower to a
- *  `current-user` ref), would need a principal the service is never handed —
- *  every backend renders it unbound.  The gate belongs to the calling operation
- *  or workflow; a principal attribute the calculation needs is a parameter. */
-function checkPrincipalFree(
-  ctx: BoundedContextIR,
-  svc: DomainServiceIR,
-  op: DomainServiceOperationIR,
-  diags: LoomDiagnostic[],
-): void {
-  let gate = false;
-  let principal = false;
-  for (const stmt of op.body) {
-    walkStmtDeep(stmt, (s) => {
-      if (s.kind === "requires") gate = true;
-    });
-    walkStmtExprsDeep(stmt, (e) => {
-      if (e.kind === "ref" && e.refKind === "current-user") principal = true;
-    });
-  }
-  if (!gate && !principal) return;
-  diags.push({
-    severity: "error",
-    code: "loom.domain-service-no-principal",
-    message: diagMessage("loom.domain-service-no-principal", {
-      where: `domainService '${svc.name}' operation '${op.name}'`,
-      what: gate ? "a `requires` gate" : "a read of `currentUser`",
-    }),
-    source: `${ctx.name}/${svc.name}.${op.name}`,
-  });
 }
 
 function checkOperationBody(
@@ -444,4 +411,32 @@ function callReceiverName(e: ExprIR): string | undefined {
  *  this function. */
 function forEachStmtExpr(stmt: StmtIR, visit: (e: ExprIR) => void): void {
   walkStmtExprsDeep(stmt, visit);
+}
+
+/** A domain service is stateless: it never sees the principal.  A read of
+ *  `currentUser` / `organizationContext` (both lower to a `current-user` ref)
+ *  would need a principal the service is never handed — every backend renders
+ *  it unbound.  An authorization gate belongs to the calling operation or
+ *  workflow; a principal attribute the calculation needs is a parameter. */
+function checkPrincipalFree(
+  ctx: BoundedContextIR,
+  svc: DomainServiceIR,
+  op: DomainServiceOperationIR,
+  diags: LoomDiagnostic[],
+): void {
+  let principal = false;
+  for (const stmt of op.body) {
+    walkStmtExprsDeep(stmt, (e) => {
+      if (e.kind === "ref" && e.refKind === "current-user") principal = true;
+    });
+  }
+  if (!principal) return;
+  diags.push({
+    severity: "error",
+    code: "loom.domain-service-no-principal",
+    message: diagMessage("loom.domain-service-no-principal", {
+      where: `domainService '${svc.name}' operation '${op.name}'`,
+    }),
+    source: `${ctx.name}/${svc.name}.${op.name}`,
+  });
 }

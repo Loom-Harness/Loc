@@ -185,7 +185,7 @@ await accounts.save(d);
 | A `this`-rooted write (`:=` / `+=` / `-=`) — there is no `this` (`a.n := 2` on a param included) | `loom.domain-service-no-mutation` |
 | A repository **write** (`save`/`insert`/`update`/`delete`/`add`/`remove`/`commit`) | `loom.domain-service-no-repo-write` |
 | Start a workflow in the same context | `loom.domain-service-no-workflow-start` |
-| A `requires` gate, or a read of `currentUser` / `organizationContext` | `loom.domain-service-no-principal` |
+| A read of `currentUser` / `organizationContext` | `loom.domain-service-no-principal` |
 | Read a repository of **another context** — the reading tier is scoped to the service's own context | `loom.domain-service-cross-context-read` |
 | A repository read used as a member **receiver** (`Accounts.byN(n).n`) — bind it first (`let x = …`) | `loom.domain-service-read-unsupported` |
 | A resource op (`files.put(…)`, `mail.send(…)`) — outbound I/O belongs to the orchestrator | `loom.resource-op-outside-workflow` |
