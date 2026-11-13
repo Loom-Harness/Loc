@@ -16,6 +16,7 @@ import type {
   RepositoryIR,
   SystemIR,
   TimerSourceIR,
+  TypeIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { isMaterializedProjection, isQueryTimeProjection } from "../../ir/types/loom-ir.js";
@@ -118,7 +119,7 @@ import {
 import { domainUnionFiles } from "./cqrs/dtos.js";
 import { canEmitToExpressionFor, emitCriteria } from "./criteria-emit.js";
 import { DotnetOutputMap } from "./cs-output.js";
-import { projectEntityArgs } from "./dto-mapping.js";
+import { projectEntityArgs, projectToResponse } from "./dto-mapping.js";
 import {
   renderAuditRecord,
   renderAuditRecordConfiguration,
@@ -1463,7 +1464,12 @@ function emitAggregate(
   // so the entity emitter can type the method + thread the variant order.
   const operationReturnUnions = new Map<
     string,
-    { name: string; members: ReturnType<typeof unionMembers>; selfArgs?: string }
+    {
+      name: string;
+      members: ReturnType<typeof unionMembers>;
+      selfArgs?: string;
+      encode: (domainExpr: string, t: TypeIR) => string;
+    }
   >();
   for (const op of agg.operations) {
     if (op.returnType?.kind !== "union") continue;
@@ -1474,6 +1480,11 @@ function emitAggregate(
     operationReturnUnions.set(op.name, {
       name: unionInstanceName(op.returnType.variants),
       members,
+      // The aggregate's union records are typed at their RESPONSE wire shape
+      // (`cqrs/dtos.ts`), so every field is encoded with the DTO mapper's
+      // codec as the variant is built — money/decimal, datetime, a value
+      // object's `<VO>Response`, a part's projection — not only the numerics.
+      encode: (domainExpr, t) => projectToResponse(domainExpr, t, ctx),
       ...(selfArm
         ? { selfArgs: projectEntityArgs("this", agg, ctx, { unionVariant: true, unmasked: true }) }
         : {}),

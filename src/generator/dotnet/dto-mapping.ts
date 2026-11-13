@@ -26,6 +26,7 @@ import {
 import { upperFirst } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
+import { wireSurfaceTypes } from "../_payload/union-wire.js";
 import { recordPayloadOf } from "../_payload/workflow-param-payloads.js";
 import {
   csCalendarDateTryParseExact,
@@ -1036,7 +1037,12 @@ export function valueObjectsUsedBy(
   const seeds = function* (): Generator<TypeIR> {
     for (const f of agg.fields) yield f.type;
     for (const d of agg.derived) yield d.type;
-    for (const op of agg.operations) for (const p of op.params) yield p.type;
+    for (const op of agg.operations) {
+      for (const p of op.params) yield p.type;
+      // An `or`-union return's variant records project a value-object field
+      // to its `<VO>Response`, which must exist even when no field names the VO.
+      yield* wireSurfaceTypes(op.returnType, ctx);
+    }
     for (const part of agg.parts) {
       for (const f of part.fields) yield f.type;
       for (const d of part.derived) yield d.type;
