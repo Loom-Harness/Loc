@@ -15,6 +15,7 @@ import {
   BROKER_BASELINE,
   BROKER_BASELINE_GAPS,
   MIGRATIONS_BASELINE,
+  SECURITY_BASELINE,
   wgetHealthcheck,
 } from "./operations.js";
 import { backendEnvContract } from "./operations-env.js";
@@ -107,6 +108,7 @@ const dotnetPlatform: PlatformSurface = {
     log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
     broker: BROKER_BASELINE,
     migrations: MIGRATIONS_BASELINE,
+    security: SECURITY_BASELINE,
     gaps: BROKER_BASELINE_GAPS,
   },
   composeService({ slug, deployable, sys }): ComposeServiceShape {

@@ -7,6 +7,7 @@ import {
   BROKER_BASELINE,
   BROKER_BASELINE_GAPS,
   MIGRATIONS_BASELINE,
+  SECURITY_BASELINE,
   wgetHealthcheck,
   withoutGaps,
 } from "./operations.js";
@@ -82,6 +83,7 @@ const pythonPlatform: PlatformSurface = {
     // The FastAPI relay backs off on an unreachable broker without spending attempts.
     broker: { ...BROKER_BASELINE, outboxRidesOutOutage: true },
     migrations: MIGRATIONS_BASELINE,
+    security: SECURITY_BASELINE,
     gaps: withoutGaps(BROKER_BASELINE_GAPS, "broker.outboxRidesOutOutage"),
   },
   composeService({ slug, deployable, sys }): ComposeServiceShape {

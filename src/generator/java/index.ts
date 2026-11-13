@@ -72,6 +72,7 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
+import { bootRequiredAuthEnv } from "../_auth/boot-required.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
@@ -368,6 +369,7 @@ function emitProjectFromContexts(
   // Nimbus dep land only when an `auth { oidc }` block targets this
   // (auth: required) deployable.
   const oidc = authRequired && !!system?.sys.auth;
+  const javaBootRequired = oidc ? bootRequiredAuthEnv(system?.sys.auth) : [];
   // Resource client classes (objectStore / queue / api) + their Gradle
   // deps — empty when the deployable wires no consumable
   // resources, leaving build.gradle.kts byte-identical.
@@ -1578,7 +1580,10 @@ function emitProjectFromContexts(
   // logback.xml behind the observability catalog (CatalogLog logs through
   // SLF4J; logstash-logback-encoder renders the JSON envelope).
   out.set("src/main/resources/logback.xml", renderLogbackConfig());
-  out.set(mainSourcePath(basePkg, "Application.java"), renderApplication(basePkg));
+  out.set(
+    mainSourcePath(basePkg, "Application.java"),
+    renderApplication(basePkg, javaBootRequired),
+  );
   out.set(
     mainSourcePath(`${basePkg}.api`, "HealthController.java"),
     renderHealthController(basePkg),

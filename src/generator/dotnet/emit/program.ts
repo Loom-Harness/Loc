@@ -20,6 +20,7 @@ import {
   TEST_RESET_PATH,
   TEST_RESET_TOKEN_ENV,
 } from "../../../util/test-reset.js";
+import type { BootRequiredSetting } from "../../_auth/boot-required.js";
 import {
   DEBIAN_CERTS_BLOCK,
   NODE_CERTS_BLOCK,
@@ -29,6 +30,7 @@ import { csNsRef, csUsing } from "../../_imports/dotnet.js";
 import { BOOT_DB_RETRY } from "../../_obs/boot-db-retry.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { OTEL_ENDPOINT_ENV, OTEL_SERVICE_NAME_ENV } from "../../_obs/tracing.js";
+import { csInstantWire } from "../codec-spelling.js";
 import { CS } from "../cs-symbols.js";
 import type { SchemaIdOverride } from "../schema-ids.js";
 import { csFixedDetail, csSentence } from "../wire-policy-cs.js";
@@ -60,6 +62,43 @@ function asMigrationStmt(rendered: string): string {
  *  names that switch. */
 const DOTNET_MIGRATION_ERROR_EXPR =
   '(migrationError as Npgsql.PostgresException ?? migrationError.InnerException as Npgsql.PostgresException) is { } pgError ? $"{pgError.SqlState}: {pgError.MessageText} detail: {pgError.Detail} constraint: {pgError.ConstraintName}" : migrationError.Message';
+
+/** The model binds these auth settings to env(…), so there is no fallback:
+ *  the service refuses to boot without them rather than answer every request
+ *  with a 401.  Logged before the host exists, so the catalog line is written
+ *  straight to stdout in the shared envelope. */
+function dotnetBootRequiredAuth(required: readonly BootRequiredSetting[]): string {
+  if (required.length === 0) return "";
+  const rows = required
+    .map(
+      (r) =>
+        `    (${JSON.stringify(r.setting)}, new[] { ${r.vars.map((v) => JSON.stringify(v)).join(", ")} }),`,
+    )
+    .join("\n");
+  return `
+// The model binds these auth settings to env(…), so there is no fallback:
+// refuse to boot without them rather than answer every request with a 401.
+foreach (var (setting, vars) in new (string, string[])[]
+{
+${rows}
+})
+{
+    if (!vars.Any(v => !string.IsNullOrEmpty(Environment.GetEnvironmentVariable(v))))
+    {
+        Console.Out.WriteLine(System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            ["ts"] = ${csInstantWire("DateTime.UtcNow")},
+            ["level"] = "error",
+            ["event"] = "config_missing",
+            ["setting"] = setting,
+            ["vars"] = string.Join(", ", vars),
+        }));
+        Console.Out.Flush();
+        Environment.Exit(1);
+    }
+}
+`;
+}
 
 /** The boot-time DB-connect wait (`BOOT_DB_RETRY`, eval item #24) — a
  *  top-level local function in Program.cs.  It retries the caller's connect
@@ -210,6 +249,8 @@ export function renderProgram(
      *  block, so register the generated `OidcUserVerifier` (last-wins over the
      *  dev stub).  Implies `authRequired`. */
     oidc?: boolean;
+    /** The env(…)-bound auth settings the service refuses to boot without. */
+    bootRequiredAuth?: readonly BootRequiredSetting[];
     /** Field-level provenance (provenance.md): like `hasAudit`, its history
      *  rows stamp the per-dispatch frame's scope / parent ids, so it also
      *  forces the `ExecutionContextBehavior` frame-opener to be registered. */
@@ -858,7 +899,7 @@ using OpenTelemetry.Trace;
 using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
-${
+${dotnetBootRequiredAuth(options?.bootRequiredAuth ?? [])}${
   options?.nativePort !== undefined
     ? `
 // A native \`dotnet run\` listens on the deployable's declared port.  The image

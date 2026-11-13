@@ -12,6 +12,7 @@ import {
   BROKER_BASELINE,
   BROKER_BASELINE_GAPS,
   MIGRATIONS_BASELINE,
+  SECURITY_BASELINE,
   wgetHealthcheck,
   withoutGaps,
 } from "./operations.js";
@@ -110,6 +111,7 @@ const elixirPlatform: PlatformSurface = {
       deadLettersUnderAcl: false,
     },
     migrations: MIGRATIONS_BASELINE,
+    security: SECURITY_BASELINE,
     gaps: {
       ...withoutGaps(BROKER_BASELINE_GAPS, "broker.outboxRidesOutOutage"),
       "broker.reconnects": "#5386",
