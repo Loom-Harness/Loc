@@ -537,7 +537,9 @@ function contextHasRequestMoney(ctx: BoundedContextIR): boolean {
 
 export function renderPyWireModels(ctx: BoundedContextIR): string {
   const needsMoney = contextHasRequestMoney(ctx);
-  const needsInstant = ctx.valueObjects.some((vo) => vo.fields.some((f) => typeHasDatetime(f.type)));
+  const needsInstant = ctx.valueObjects.some((vo) =>
+    vo.fields.some((f) => typeHasDatetime(f.type)),
+  );
   // Dependency order — see the value-object emitter (`emit/value-objects.ts`).
   const models = orderValueObjectsByDependency(ctx.valueObjects).map((vo) => {
     // A VO's own `invariant`s ride the SAME wire carriers the aggregate
