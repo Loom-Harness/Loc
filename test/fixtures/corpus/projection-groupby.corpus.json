@@ -1,5 +1,14 @@
 {
   "title": "group by — grouped query-time projection (one row per group, key selects + per-group aggregates, GROUP BY/ORDER BY pushed to SQL)",
   "doc": "language",
-  "backends": "ALL"
+  "backends": "ALL",
+  "apiCaller": {
+    "unattributed": [
+      "api.ordersByStatus.list (no such aggregate)",
+      "api.ordersByTotal.list (no such aggregate)",
+      "api.revenueByDay.list (no such aggregate)",
+      "api.salesByStatus.list (no such aggregate)",
+      "api.volumeByCustomerAndStatus.list (no such aggregate)"
+    ]
+  }
 }

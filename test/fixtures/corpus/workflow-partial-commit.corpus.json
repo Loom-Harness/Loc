@@ -2,5 +2,12 @@
   "title": "a workflow without `transactional` keeps the saves it made before failing; its `transactional` twin keeps none",
   "doc": "workflow",
   "backends": "ALL",
-  "note": "The transaction boundary of a workflow command is one save unless the workflow is `transactional` (the plan's `workflowRunsInTransaction`).  java wrapped every workflow service in a class-level `@Transactional` and python ran each request in one transaction, so a failing non-transactional workflow rolled its earlier saves back there while node, .NET and elixir kept them."
+  "note": "The transaction boundary of a workflow command is one save unless the workflow is `transactional` (the plan's `workflowRunsInTransaction`).  java wrapped every workflow service in a class-level `@Transactional` and python ran each request in one transaction, so a failing non-transactional workflow rolled its earlier saves back there while node, .NET and elixir kept them.",
+  "apiCaller": {
+    "//": "The two workflows the transaction-boundary fixture runs; same not-lifted workflow-route class.",
+    "unattributed": [
+      "api.bumpThenFail.run (no such aggregate)",
+      "api.bumpThenFailAtomically.run (no such aggregate)"
+    ]
+  }
 }

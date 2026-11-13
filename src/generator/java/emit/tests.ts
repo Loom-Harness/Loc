@@ -221,6 +221,7 @@ function javaTestLiteral(): TestValueTarget {
     id: (rendered, targetName) => `new ${targetName}Id(${J.UUID}.fromString(${rendered}))`,
     datetime: (rendered) => `${J.Instant}.parse(${rendered})`,
     date: (rendered) => `${J.LocalDate}.parse(${rendered})`,
+    money: (digits) => renderJavaExpr({ kind: "literal", lit: "money", value: digits }, TEST_CTX),
     valueObject: (name, args) => `new ${name}(${args.join(", ")})`,
     omitted: "null",
   };
