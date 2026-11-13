@@ -32,6 +32,23 @@ export interface BrokerSubscribeParams {
   fromBeginning: boolean;
 }
 
+/** Move a kafka consumer group's committed offset (all partitions unless one
+ *  is named); the group then consumes from there. */
+export interface BrokerSeekParams {
+  topic: string;
+  group: string;
+  offset: number;
+  partition?: number;
+}
+
+/** Send a dead-letter queue's (rabbitmq) or topic's (kafka) parked messages
+ *  back to where they failed. */
+export interface BrokerRedriveParams {
+  transport: "rabbitmq" | "kafka";
+  /** The DLQ name, as `inspect()` lists it. */
+  deadLetter: string;
+}
+
 export type BrokerOp =
   | { op: "publish"; params: BrokerPublishParams }
   | { op: "subscribe"; params: BrokerSubscribeParams }
@@ -40,7 +57,9 @@ export type BrokerOp =
   | { op: "ack"; params: { deliveryId: number } }
   /** The handler threw (or the body did not parse). */
   | { op: "nack"; params: { deliveryId: number; error: string; poison?: boolean } }
-  | { op: "inspect"; params: Record<string, never> };
+  | { op: "inspect"; params: Record<string, never> }
+  | { op: "seek"; params: BrokerSeekParams }
+  | { op: "redrive"; params: BrokerRedriveParams };
 
 export interface BrokerSubscribeResult {
   subId: string;
@@ -76,6 +95,8 @@ export interface BrokerInspectMessage {
   id: string;
   type: string;
   attempts: number;
+  /** The message as published. */
+  body: string;
 }
 
 export interface BrokerInspectQueue {
@@ -100,6 +121,15 @@ export interface BrokerInspectTopic {
   /** Records retained per partition (start offset … end offset). */
   partitions: { start: number; end: number }[];
   groups: BrokerInspectGroup[];
+  /** The newest retained records of each partition, oldest first. */
+  records: {
+    partition: number;
+    offset: number;
+    key: string | null;
+    id: string;
+    type: string;
+    body: string;
+  }[];
 }
 
 export interface BrokerInspectChannel {
@@ -112,7 +142,16 @@ export interface BrokerJournalEntry {
   seq: number;
   at: number;
   transport: BrokerKind;
-  kind: "published" | "delivered" | "acked" | "nacked" | "retried" | "dead-lettered" | "dropped";
+  kind:
+    | "published"
+    | "delivered"
+    | "acked"
+    | "nacked"
+    | "retried"
+    | "dead-lettered"
+    | "dropped"
+    | "seeked"
+    | "redriven";
   address: string;
   /** Envelope id. */
   id: string;
