@@ -13,7 +13,6 @@
 
 import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
 import { errorVariantCode } from "../../../ir/enrich/wire-policy.js";
-import { forApiRead, wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import { variantTag } from "../../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -23,12 +22,14 @@ import type {
   EnrichedBoundedContextIR,
   ExprIR,
   OperationIR,
+  PayloadIR,
   ProvSite,
   StmtIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { branchesContain } from "../../../ir/util/if-normal-form.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
+import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { eventsCarryRowTenant } from "../../../ir/util/tenant-stance.js";
 import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { walkStmtsDeep } from "../../../ir/util/walk.js";
@@ -113,12 +114,14 @@ export interface OpFragment {
 }
 
 /** The wire field list a returning op's success branch serialises `record`
- *  into — the same ordered `wireShape` the find/CRUD controllers expose, so the
- *  success body matches what `GET /<plural>/:id` returns for the same aggregate.
- *  `forApiRead` drops `internal` / `secret` fields, exactly as the REST
- *  serializer does (RS-25) — an op success body is the same read boundary. */
-function wireFieldsOf(agg: AggregateIR): { field: string; wire: string }[] {
-  return forApiRead(wireFieldsForAggregate(agg)).map((f) => ({
+ *  into — the declared response record's rows the find/CRUD controllers
+ *  expose, so the success body matches what `GET /<plural>/:id` returns for
+ *  the same aggregate (an op success body is the same read boundary, RS-25). */
+function wireFieldsOf(
+  agg: AggregateIR,
+  payloads: readonly PayloadIR[],
+): { field: string; wire: string }[] {
+  return responseWireFor(payloads, agg).map((f) => ({
     field: snake(f.name),
     wire: f.name,
   }));
@@ -955,7 +958,7 @@ export function renderReturningOpFunction(
     const wireKey = (f: string, wire: string): string =>
       f === ROW_VERSION_COLUMN ? ROW_VERSION_FIELD : wire;
     const wireMap = (recordVar: string, projectRefColls: boolean): string =>
-      `%{${aggTag}${wireFieldsOf(agg)
+      `%{${aggTag}${wireFieldsOf(agg, ctx.payloads)
         .map(({ field: f, wire }) =>
           projectRefColls && isRefCollFieldName(agg, f)
             ? `${wireKey(f, wire)}: __ref_id_list(${recordVar}.${f})`
