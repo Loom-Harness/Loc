@@ -10,6 +10,7 @@ import {
   emitsRestCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
+import { domainFindShape } from "../../../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -55,12 +56,7 @@ import {
 import { javaNotFoundThrow } from "./common.js";
 import { exprsCallDomainService } from "./domain-service.js";
 import { hookStampsFor } from "./entity.js";
-import {
-  declaredFinds,
-  isPagedAutoAll,
-  isPagedFind,
-  unionFindAsOptionalTwin,
-} from "./repository.js";
+import { declaredFinds, isPagedAutoAll, isPagedFind } from "./repository.js";
 import { returnUnionSpec } from "./unions.js";
 import { collectWireToDomainImports, domainToWire, wireJavaType, wireToDomain } from "./wire.js";
 
@@ -395,7 +391,7 @@ export function renderJavaService(
   // unconditional rather than history-gated.
   imports.add(`${ctx.basePkg}.domain.common.AggregateNotFoundException`);
   const findLines = declaredFinds(repo)
-    .map((f) => unionFindAsOptionalTwin(f, agg.name))
+    .map((f) => domainFindShape(f, agg.name))
     .flatMap((f) => {
       const findLocals = javaLocals(
         f.params.map((p) => p.name),

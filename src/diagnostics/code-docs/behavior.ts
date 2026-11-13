@@ -38,6 +38,7 @@ export const anchors: Readonly<Record<string, string>> = {
     "09-payloads-and-unions.md#error--httpstatus--exception-less-problemdetails",
   "loom.ignoring-clause-placement":
     "10-repositories-and-queries.md#ignoring--capability-filter-bypass",
+  "loom.handler-unrecognised-statement": "13-workflows.md#body-vocabulary",
   "loom.handler-unknown-name":
     "06-behavior-and-statements.md#handler-bodies--commandhandler--queryhandler",
 

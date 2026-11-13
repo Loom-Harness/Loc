@@ -102,6 +102,9 @@ export const messages = {
   "loom.unresolved-member#on-type": (p: { member: unknown; recv: unknown }) =>
     `Cannot resolve member '${p.member}' on type '${p.recv}'.`,
   "loom.unresolved-lvalue-head": (p: { head: unknown }) => `Cannot resolve '${p.head}'.`,
+  "loom.duplicate-let": (p: { name: unknown; what: unknown }) =>
+    `'let ${p.name}' rebinds a name ${p.what} already binds in this body. Java and C# refuse a ` +
+    "local that redeclares or shadows another — pick a new name.",
   // The lowering backstop (`ir/validate/checks/unresolved-type-checks.ts`): an
   // expression whose type the typing pass could not work out, in a model no
   // other diagnostic refuses.

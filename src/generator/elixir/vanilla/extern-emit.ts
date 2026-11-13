@@ -30,9 +30,9 @@
 // ---------------------------------------------------------------------------
 
 import type { AggregateIR, BoundedContextIR, OperationIR } from "../../../ir/types/loom-ir.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
-import { isRefCollField } from "./ref-collection-emit.js";
 
 /** A non-CRUD `extern` operation — the ops this seam handles.  (CRUD-reserved
  *  names never carry `extern`; they route through the generic create/update
@@ -69,7 +69,7 @@ export function externImplModule(facadeMod: string, aggPascal: string): string {
  *  aren't columns.  Containment mutation from an extern impl is a follow-up. */
 export function externPersistForceChanges(agg: AggregateIR): string[] {
   return agg.fields
-    .filter((f) => !isRefCollField(f))
+    .filter((f) => !isRefCollectionType(f.type))
     .map((f) => {
       const col = snake(f.name);
       return `Ecto.Changeset.force_change(:${col}, record.${col})`;

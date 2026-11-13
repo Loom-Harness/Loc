@@ -27,6 +27,7 @@ import {
   emitOperationUnionResponse,
   historyHookName,
   opRequestFields,
+  pickerOptionsHook,
   typeReachesMoney,
 } from "../_frontend/api-module.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
@@ -269,6 +270,8 @@ export function buildSvelteApiModule(
     lines.push(`  }));`);
     lines.push(`}`);
   }
+  lines.push("");
+  lines.push(...pickerOptionsHook(agg.name, tag, allPaged?.name, "createQuery"));
   lines.push("");
 
   lines.push(`export function use${agg.name}ById(id: () => string | undefined) {`);

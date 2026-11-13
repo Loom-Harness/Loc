@@ -81,7 +81,7 @@ public sealed class ProductRepository : IProductRepository
         var sortColumn = sort switch { "sku" => "Sku", _ => "Id" };
         var total = await _db.Products.CountAsync(cancellationToken);
         var totalPages = pageSize > 0 ? (int)System.Math.Ceiling((double)total / pageSize) : 0;
-        var ordered = dir == "desc" ? _db.Products.OrderByDescending(e => EF.Property<object>(e, sortColumn)) : _db.Products.OrderBy(e => EF.Property<object>(e, sortColumn));
+        var ordered = dir == "desc" ? _db.Products.OrderByDescending(e => EF.Property<object>(e, sortColumn)).ThenBy(e => e.Id) : _db.Products.OrderBy(e => EF.Property<object>(e, sortColumn)).ThenBy(e => e.Id);
         var items = await ordered.Skip(offset).Take(pageSize).ToListAsync(cancellationToken);
         _log.LogDebug("{Event} aggregate={Aggregate} find={Find} rows={Rows}", "find_executed", "Product", "all", items.Count);
         return new Paged<Product>(items, page, pageSize, total, totalPages);

@@ -204,6 +204,19 @@ export const messages = {
     `'precondition' must be of type 'bool', got '${p.actual}'.`,
   "loom.assign-to-derived": (p: { path: unknown }) =>
     `Cannot assign to derived property '${p.path}'.`,
+  "loom.assign-to-local": (p: { name: unknown; what: unknown }) =>
+    `Cannot assign to '${p.name}': it is a ${p.what}, not a member. An assignment writes a ` +
+    "stored member of `this`, and a local is immutable — assign to a field, or bind the new " +
+    "value with another `let` name.",
+  "loom.assign-through-local-unsupported": (p: {
+    path: unknown;
+    name: unknown;
+    what: unknown;
+    type: unknown;
+  }) =>
+    `Cannot assign '${p.path}': '${p.name}' is a ${p.what} holding a '${p.type}', not a member. ` +
+    "An assignment writes a stored member of `this`; changing a part or record selected into " +
+    "a local is not supported yet.",
   "loom.assign-type-mismatch": (p: { actual: unknown; expected: unknown }) =>
     `Cannot assign '${p.actual}' to '${p.expected}'.`,
   "loom.collection-mutation-non-collection": (p: { op: unknown; actual: unknown }) =>

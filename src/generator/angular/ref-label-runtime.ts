@@ -27,7 +27,7 @@ import { API_BASE_URL } from "../api/config";
 })
 export class LoomRefLabel {
   readonly path = input.required<string>();
-  readonly refId = input.required<string>();
+  readonly refId = input.required<string | null | undefined>();
   private readonly http = inject(HttpClient);
   private readonly ref = injectQuery(() => ({
     queryKey: ["loom-ref-label", this.path(), this.refId()] as const,
@@ -35,7 +35,7 @@ export class LoomRefLabel {
     queryFn: () =>
       firstValueFrom(
         this.http.get<{ display?: unknown } | null>(
-          \`\${API_BASE_URL}\${this.path()}\${encodeURIComponent(this.refId())}\`,
+          \`\${API_BASE_URL}\${this.path()}\${encodeURIComponent(this.refId()!)}\`,
         ),
       ),
   }));

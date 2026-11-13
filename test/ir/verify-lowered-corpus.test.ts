@@ -196,6 +196,45 @@ const MUTATIONS: Record<string, Mutation> = {
         return false;
       }),
   },
+  "workflow let → bound twice": {
+    kind: "duplicate-let",
+    floor: 30,
+    seed: (m) =>
+      visitVerified(m, (n) => {
+        for (const [k, v] of Object.entries(n)) {
+          if (k === "origin" || !Array.isArray(v)) continue;
+          const i = v.findIndex((s) => {
+            const kind = (s as Node | undefined)?.kind;
+            return kind === "repo-let" || kind === "expr-let" || kind === "factory-let";
+          });
+          if (i < 0) continue;
+          v.splice(i + 1, 0, structuredClone(v[i]));
+          return true;
+        }
+        return false;
+      }),
+  },
+  // The handler `y := 2` shape: a statement lowering has no form for.
+  "workflow statement → placeholder": {
+    kind: "unlowered-statement",
+    floor: 30,
+    seed: (m) =>
+      visitVerified(m, (n) => {
+        for (const [k, v] of Object.entries(n)) {
+          if (k === "origin" || !Array.isArray(v)) continue;
+          const i = v.findIndex((s) => (s as Node | undefined)?.kind === "op-call");
+          if (i < 0) continue;
+          v[i] = {
+            kind: "expr-let",
+            name: "__bad__",
+            type: { kind: "primitive", name: "string" },
+            expr: { kind: "literal", lit: "null", value: "null" },
+          };
+          return true;
+        }
+        return false;
+      }),
+  },
 };
 
 describe("post-lowering IR well-formedness over the corpus", async () => {

@@ -1,6 +1,7 @@
 import { wireCode } from "../../../ir/enrich/wire-policy.js";
 import type { AuthIR, AuthValueIR, FieldIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import type { OrgContextPlan } from "../../../ir/util/org-context.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import {
   guidClaimAccessorName,
   guidFromStringTenancyClaim,
@@ -1302,7 +1303,7 @@ function meClaimValue(f: FieldIR): string {
   const optional = f.optional || f.type.kind === "optional";
   const t = f.type.kind === "optional" ? f.type.inner : f.type;
   if (t.kind === "id") return `${access} == null ? null : ${access}.value()`;
-  if (t.kind === "array" && t.element.kind === "id") {
+  if (isRefCollectionType(t)) {
     const mapped = `${access}.stream().map(v -> v.value()).toList()`;
     return optional ? `${access} == null ? null : ${mapped}` : mapped;
   }

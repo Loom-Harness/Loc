@@ -420,6 +420,11 @@ export const messages = {
     `it is ${p.reason}. Every backend would render '${p.name}' verbatim as a name the generated ` +
     `handler never binds, so the project would not compile. Use a parameter, a 'let' binding, or ` +
     `a read of this context's own repositories bound to a 'let' ('let x = <Repo>.get(…)').`,
+  "loom.handler-unrecognised-statement": (p: { handler: unknown }) =>
+    `${p.handler}: statement isn't a recognised handler form.  Allowed: precondition, requires, ` +
+    "let (repo / factory / scalar), name.op(args), emit, and a final `return`.  A handler has " +
+    "no state of its own, so it assigns nothing — call an operation on a loaded aggregate " +
+    "(`let o = Orders.get(id)` then `o.close()`) instead.",
   "loom.iflet-bad-source": (p: { name: unknown; var: unknown }) =>
     `workflow '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)', 'Repo.find(id)' or 'Repo.findBy(…)' (a read that answers 'T?').`,
   "loom.iflet-bad-source#handler": (p: { kind: unknown; name: unknown; var: unknown }) =>

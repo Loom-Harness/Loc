@@ -5,9 +5,9 @@ import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helper
 // Angular CreateForm `X id` field → Select (cross-aggregate reference).  When a
 // form field's type is a cross-aggregate `Customer id` whose target carries a
 // `derived display`, the Angular `fieldInput` seam renders a Select populated
-// from the target's `useAll<X>()` collection (parity with React/Vue/Svelte's
+// from the target's `use<X>Options()` collection (parity with React/Vue/Svelte's
 // `field-input-id-select`) instead of a plain text input.  The page-shell hoists
-// `readonly customerAll = useAllCustomers();` + imports the factory, and each
+// `readonly customerOptions = useCustomersOptions();` + imports the factory, and each
 // option carries `data-testid="<ns>-input-<name>-option-<id>"`.  The flavour
 // forks per pack: angularMaterial → `<mat-select>`, primeng → `<p-select>`,
 // spartanNg/default → a plain `<select>`.  A target with NO `derived display`
@@ -67,12 +67,12 @@ async function formPage(design: string | null): Promise<string> {
 }
 
 describe("angular generator — CreateForm `X id` field renders a Select", () => {
-  it("angularMaterial: renders a <mat-select> with the useAll<X> @for loop + per-option testid", async () => {
+  it("angularMaterial: renders a <mat-select> with the use<X>Options @for loop + per-option testid", async () => {
     const page = await formPage(null);
     expect(page).toContain(
       '<mat-select formControlName="customerId" data-testid="orders-new-input-customerId">',
     );
-    expect(page).toContain("@for (__o of customerAll.data()?.items ?? []; track __o.id) {");
+    expect(page).toContain("@for (__o of customerOptions.data() ?? []; track __o.id) {");
     expect(page).toContain(
       `<mat-option [value]="__o.id" [attr.data-testid]="'orders-new-input-customerId-option-' + __o.id">{{ __o.display }}</mat-option>`,
     );
@@ -80,41 +80,41 @@ describe("angular generator — CreateForm `X id` field renders a Select", () =>
     expect(page).not.toContain('<input matInput formControlName="customerId"');
   });
 
-  it("angularMaterial: hoists the useAll<X> query as a class field + imports the factory", async () => {
+  it("angularMaterial: hoists the use<X>Options query as a class field + imports the factory", async () => {
     const page = await formPage(null);
-    expect(page).toContain('import { useAllCustomers } from "../../api/customer";');
-    expect(page).toContain("readonly customerAll = useAllCustomers();");
+    expect(page).toContain('import { useCustomersOptions } from "../../api/customer";');
+    expect(page).toContain("readonly customerOptions = useCustomersOptions();");
   });
 
-  it("primeng: renders a <p-select> driven by the useAll<X> options + item template testid", async () => {
+  it("primeng: renders a <p-select> driven by the use<X>Options options + item template testid", async () => {
     const page = await formPage("primeng");
     expect(page).toContain(
-      '<p-select [options]="customerAll.data()?.items ?? []" optionLabel="display" optionValue="id" styleClass="loom-input" formControlName="customerId" data-testid="orders-new-input-customerId"',
+      '<p-select [options]="customerOptions.data() ?? []" optionLabel="display" optionValue="id" styleClass="loom-input" formControlName="customerId" data-testid="orders-new-input-customerId"',
     );
     expect(page).toContain(
       `<span [attr.data-testid]="'orders-new-input-customerId-option-' + __o.id">{{ __o.display }}</span>`,
     );
     // Same hoist + import on the non-default pack.
-    expect(page).toContain('import { useAllCustomers } from "../../api/customer";');
-    expect(page).toContain("readonly customerAll = useAllCustomers();");
+    expect(page).toContain('import { useCustomersOptions } from "../../api/customer";');
+    expect(page).toContain("readonly customerOptions = useCustomersOptions();");
   });
 
-  it("spartanNg: renders a plain <select> with the useAll<X> @for loop + per-option testid", async () => {
+  it("spartanNg: renders a plain <select> with the use<X>Options @for loop + per-option testid", async () => {
     const page = await formPage("spartanNg");
     expect(page).toContain(
       '<select class="loom-input" formControlName="customerId" data-testid="orders-new-input-customerId"',
     );
-    expect(page).toContain("@for (__o of customerAll.data()?.items ?? []; track __o.id) {");
+    expect(page).toContain("@for (__o of customerOptions.data() ?? []; track __o.id) {");
     expect(page).toContain(
       `<option [value]="__o.id" [attr.data-testid]="'orders-new-input-customerId-option-' + __o.id">{{ __o.display }}</option>`,
     );
-    expect(page).toContain("readonly customerAll = useAllCustomers();");
+    expect(page).toContain("readonly customerOptions = useCustomersOptions();");
   });
 });
 
 // ---------------------------------------------------------------------------
 // Fallback: an `X id` field whose target has NO `derived display` keeps the
-// plain text input (the user types the raw id) — no Select, no `useAll<X>`
+// plain text input (the user types the raw id) — no Select, no `use<X>Options`
 // hoist/import.  Gated exactly like the `form-fields-vm.ts` Select gate.
 // ---------------------------------------------------------------------------
 
@@ -160,7 +160,7 @@ const NO_DISPLAY_SOURCE = `
 `;
 
 describe("angular generator — `X id` field with no derived display falls back to text", () => {
-  it("renders a plain <input> and emits no Select / useAll<X> hoist", async () => {
+  it("renders a plain <input> and emits no Select / use<X>Options hoist", async () => {
     const all = await generateSystemFilesUnchecked(
       NO_DISPLAY_SOURCE,
       "an id-ref to an aggregate with no `derived display` is exactly what " +
@@ -171,7 +171,7 @@ describe("angular generator — `X id` field with no derived display falls back 
       '<input matInput formControlName="customerId" data-testid="orders-new-input-customerId">',
     );
     expect(page).not.toContain('<mat-select formControlName="customerId"');
-    expect(page).not.toContain("useAllCustomers");
-    expect(page).not.toContain("customerAll");
+    expect(page).not.toContain("useCustomersOptions");
+    expect(page).not.toContain("customerOptions");
   });
 });
