@@ -7,6 +7,7 @@ import storefrontElixirSource from "./storefront-elixir.ddd?raw";
 import salesSystemSource from "./sales-system.ddd?raw";
 import crossDeployableSystemSource from "./cross-deployable-system.ddd?raw";
 import sharedStorageSystemSource from "./shared-storage-system.ddd?raw";
+import multiFrontendSystemSource from "./multi-frontend-system.ddd?raw";
 import brokerChannelsSystemSource from "./broker-channels-system.ddd?raw";
 import resourceFakesSystemSource from "./resource-fakes-system.ddd?raw";
 import oidcAuthSystemSource from "./oidc-auth-system.ddd?raw";
@@ -289,6 +290,13 @@ export const examples: LoomExample[] = [
     source: sharedStorageSystemSource,
     blurb:
       "Two Node backends bound to one `storage`: both boot, each in its own worker, on one database — a product written through `admin` is listed by `storefront`.",
+  },
+  {
+    id: "multi-frontend-system",
+    label: "Four frontends (React, Angular, Vue, SvelteKit; two Hono backends)",
+    source: multiFrontendSystemSource,
+    blurb:
+      "A React, an Angular, a Vue and a SvelteKit frontend over two Node backends on one shared database. The preview's frontend picker switches between them; each app's API calls go to the backend its `targets:` names.",
   },
   {
     id: "broker-channels-system",

@@ -16,6 +16,7 @@ import type {
   RepositoryIR,
   SystemIR,
   TimerSourceIR,
+  TypeIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { isMaterializedProjection, isQueryTimeProjection } from "../../ir/types/loom-ir.js";
@@ -63,6 +64,7 @@ import {
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
+import { type BootRequiredSetting, bootRequiredAuthEnv } from "../_auth/boot-required.js";
 import { registryTableSql } from "../_persistence/registry-walk.js";
 
 /** True when some aggregate declares an `extern` operation or the context
@@ -119,7 +121,7 @@ import {
 import { domainUnionFiles } from "./cqrs/dtos.js";
 import { canEmitToExpressionFor, emitCriteria } from "./criteria-emit.js";
 import { DotnetOutputMap } from "./cs-output.js";
-import { projectEntityArgs } from "./dto-mapping.js";
+import { projectEntityArgs, projectToResponse } from "./dto-mapping.js";
 import {
   renderAuditRecord,
   renderAuditRecordConfiguration,
@@ -1173,6 +1175,7 @@ function emitProjectFromContexts(
     resourceNugetDeps: resourceEmission.nugetDeps,
     fileUpload,
     oidc: !!(authRequired && system.sys.auth),
+    bootRequiredAuth: authRequired && system?.sys.auth ? bootRequiredAuthEnv(system.sys.auth) : [],
     forwardCallerCredential:
       authRequired && !!system && forwardsCallerCredential(system.deployable, system.sys),
   });
@@ -1413,7 +1416,12 @@ function emitAggregate(
   // so the entity emitter can type the method + thread the variant order.
   const operationReturnUnions = new Map<
     string,
-    { name: string; members: ReturnType<typeof unionMembers>; selfArgs?: string }
+    {
+      name: string;
+      members: ReturnType<typeof unionMembers>;
+      selfArgs?: string;
+      encode: (domainExpr: string, t: TypeIR) => string;
+    }
   >();
   for (const op of agg.operations) {
     if (op.returnType?.kind !== "union") continue;
@@ -1424,6 +1432,18 @@ function emitAggregate(
     operationReturnUnions.set(op.name, {
       name: unionInstanceName(op.returnType.variants),
       members,
+      // The aggregate's union records are typed at their RESPONSE wire shape
+      // (`cqrs/dtos.ts`), so every field is encoded with the DTO mapper's
+      // codec as the variant is built — money/decimal, datetime, a value
+      // object's `<VO>Response`, a part's projection — not only the numerics.
+      encode: (domainExpr, t) =>
+        projectToResponse(
+          domainExpr,
+          t,
+          ctx,
+          undefined,
+          `${ns}.Application.${plural(agg.name)}.Responses`,
+        ),
       ...(selfArm
         ? { selfArgs: projectEntityArgs("this", agg, ctx, { unionVariant: true, unmasked: true }) }
         : {}),
@@ -1786,6 +1806,8 @@ function emitProject(
     /** OIDC turnkey auth (D-AUTH-OIDC): the system declares `auth { oidc }`,
      *  so emit the generated verifier registration + its NuGet refs. */
     oidc?: boolean;
+    /** The env(…)-bound auth settings the service refuses to boot without. */
+    bootRequiredAuth?: readonly BootRequiredSetting[];
     /** Typed calls to an `auth: required` callee forward the caller's credential. */
     forwardCallerCredential?: boolean;
     /** TimerSource scheduling (scheduling.md, M-T4.1): the owned timers this
@@ -1863,6 +1885,7 @@ function emitProject(
       hasHistory: !!options?.hasHistory,
       fileUpload: options?.fileUpload,
       oidc: !!options?.oidc,
+      bootRequiredAuth: options?.bootRequiredAuth ?? [],
       forwardCallerCredential: !!options?.forwardCallerCredential,
       hasProvenance: !!options?.hasProvenance,
       timerServices: timerServiceFqns(timers, ns),

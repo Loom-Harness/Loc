@@ -205,7 +205,7 @@ async function differential(): Promise<Tally> {
     });
     let passGap = false;
     try {
-      passGap = (lowerModel(model).unresolvedTypes ?? []).some((u) => PASS_GAPS.has(u.cause));
+      passGap = lowerModel(model).unresolvedTypes.some((u) => PASS_GAPS.has(u.cause));
     } catch {
       // A model lowering cannot handle still has language + new answers.
     } finally {

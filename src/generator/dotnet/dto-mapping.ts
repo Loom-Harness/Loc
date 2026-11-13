@@ -26,6 +26,7 @@ import {
 import { upperFirst } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
+import { wireSurfaceTypes } from "../_payload/union-wire.js";
 import { recordPayloadOf } from "../_payload/workflow-param-payloads.js";
 import {
   csCalendarDateTryParseExact,
@@ -601,6 +602,10 @@ export function projectToResponse(
   t: TypeIR,
   ctx: EnrichedBoundedContextIR,
   names?: MaskNamer,
+  /** Namespace to qualify a `<VO>Response` with, for a caller outside the
+   *  Application Responses namespace (a Domain union variant built in the
+   *  aggregate's own file). */
+  responseNs?: string,
 ): string {
   const info = wireTypeInfo(t, "response");
   if (info.isNullable) {
@@ -608,10 +613,10 @@ export function projectToResponse(
     // explicitly: value types use `.Value`, reference types use `!`.
     const innerT = peelNullable(t);
     const unwrap = csIsValueType(innerT) ? `${domainExpr}.Value` : `${domainExpr}!`;
-    return `(${domainExpr} is null ? null : ${projectToResponse(unwrap, innerT, ctx, names)})`;
+    return `(${domainExpr} is null ? null : ${projectToResponse(unwrap, innerT, ctx, names, responseNs)})`;
   }
   if (info.isCollection) {
-    return `${domainExpr}.Select(__e => ${projectToResponse("__e", peelCollection(t), ctx, names)}).ToList()`;
+    return `${domainExpr}.Select(__e => ${projectToResponse("__e", peelCollection(t), ctx, names, responseNs)}).ToList()`;
   }
   switch (info.refKind) {
     case "primitive":
@@ -652,9 +657,11 @@ export function projectToResponse(
       const vo = findValueObjectInScope(ctx, info.base);
       if (!vo) return domainExpr;
       const args = vo.fields
-        .map((f) => projectToResponse(`${domainExpr}.${upperFirst(f.name)}`, f.type, ctx, names))
+        .map((f) =>
+          projectToResponse(`${domainExpr}.${upperFirst(f.name)}`, f.type, ctx, names, responseNs),
+        )
         .join(", ");
-      return `new ${info.base}Response(${args})`;
+      return `new ${responseNs ? `${responseNs}.` : ""}${info.base}Response(${args})`;
     }
     case "entity": {
       type Resolved = {
@@ -923,7 +930,10 @@ export function responseParamsFromPayload(
     const t: TypeIR = provenanced.has(f.name)
       ? { kind: "genericInstance", ctor: "provenanced", arg: f.type }
       : f.type;
-    parts.push(dtoParam(payloadFieldCsType(t, ctx), upperFirst(f.name)));
+    // A masked field is redacted to null by `maskWrap`, so its param is nullable.
+    let csType = payloadFieldCsType(t, ctx);
+    if (f.maskUnless && !csType.endsWith("?")) csType = `${csType}?`;
+    parts.push(dtoParam(csType, upperFirst(f.name)));
   }
   return parts.join(", ");
 }
@@ -1034,7 +1044,12 @@ export function valueObjectsUsedBy(
   const seeds = function* (): Generator<TypeIR> {
     for (const f of agg.fields) yield f.type;
     for (const d of agg.derived) yield d.type;
-    for (const op of agg.operations) for (const p of op.params) yield p.type;
+    for (const op of agg.operations) {
+      for (const p of op.params) yield p.type;
+      // An `or`-union return's variant records project a value-object field
+      // to its `<VO>Response`, which must exist even when no field names the VO.
+      yield* wireSurfaceTypes(op.returnType, ctx);
+    }
     for (const part of agg.parts) {
       for (const f of part.fields) yield f.type;
       for (const d of part.derived) yield d.type;

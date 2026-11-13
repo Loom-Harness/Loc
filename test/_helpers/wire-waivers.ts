@@ -82,17 +82,6 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
         "#4023 — RS-1: a value object nested in a folded projection's read model keeps its snake_case leaf keys on elixir",
     }),
   ),
-  // MikroORM's folded projection hands its `money` column to the wire without
-  // the scale-4 formatting its aggregate fields get (RS-12).
-  {
-    backends: ["mikroorm"],
-    cases: ["projection-fold-statements"],
-    request: "GET /api/projections/account_board/*",
-    path: "$.charged",
-    kinds: ["value"],
-    reason:
-      "#4214 — RS-12: a folded projection's money column reaches the wire unscaled on mikroorm",
-  },
   // The .NET request validator applies a value object's invariant one level
   // deep, so a breach inside a VO nested in a VO reaches the domain constructor
   // and answers its domain-error 422 (no `errors[]` pointer) instead of the

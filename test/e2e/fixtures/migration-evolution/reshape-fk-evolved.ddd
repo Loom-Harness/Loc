@@ -1,0 +1,22 @@
+// Reshape FK gate — EVOLVED model (v2): `Cart` is reshaped to a document; `Order`
+// survives and still references it.
+system ReshapeFk {
+  subdomain Sales {
+    context Ord {
+      aggregate Cart shape: document { label: string }
+      aggregate Order { code: string  cart: Cart id }
+      repository Carts for Cart { }
+      repository Orders for Order { }
+    }
+  }
+  api OrdApi from Sales
+  storage primary { type: postgres }
+  resource ordState { for: Ord, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ord]
+    dataSources: [ordState]
+    serves: OrdApi
+    port: 4000
+  }
+}

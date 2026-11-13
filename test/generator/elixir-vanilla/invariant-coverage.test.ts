@@ -290,4 +290,21 @@ system S {
     );
     expect(cs).not.toMatch(/validate_invariants/);
   });
+
+  it("reports a value-object invariant its constructor cannot evaluate", async () => {
+    // A value object's cross-field rules run in `<Vo>.new/1` through the same
+    // carrier; one it cannot evaluate (`now()` is not deterministic in a
+    // validator) is reported, not dropped.  The cross-field rule beside it is
+    // carried, so it is not reported.
+    const w = await warnings(
+      sys(
+        `valueobject Window { opens: datetime  closes: datetime
+          invariant closes > opens
+          invariant closes > now() }
+        aggregate Order { sku: string  window: Window }`,
+      ),
+    );
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain("'closes > now()' on 'Shop.Window'");
+  });
 });

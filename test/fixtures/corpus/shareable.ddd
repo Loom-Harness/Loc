@@ -46,7 +46,6 @@ system Sharing {
         category: Category id
         name: string
         on(e: CategoryRenamed) {
-          category := e.category
           name := e.name
         }
       }

@@ -26,9 +26,7 @@ const FIXTURES = [
 
 /** Reads that are defects, each naming its open issue.  A waiver ratchets:
  *  one that no longer matches a read fails the suite, so a fix deletes it. */
-const WAIVERS: Record<string, string> = {
-  "python:SALES_FILES_BUCKET": "#5305 — every other backend reads SALES_FILES_URL_BUCKET",
-};
+const WAIVERS: Record<string, string> = {};
 const usedWaivers = new Set<string>();
 let cellsRun = 0;
 

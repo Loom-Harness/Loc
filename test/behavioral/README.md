@@ -409,6 +409,36 @@ credential plumbing, not a new prober — each runner passes
 `AUTHZ_LADDERS[case]` plus `unauthorizedCredentials(...)` into its entry
 source, and the shared preamble does the rest.
 
+### The OIDC issuer and the authorization-code round trip
+
+An `auth { oidc }` case boots against the emulated OIDC provider
+(`src/emulation/oidc.ts`, the same one the playground runs), served on a
+loopback port by the Node kit's host (`test/support/fakes/oidc.mjs`) and
+configured by `oidc-mock.mjs` with the tier's `agent` / `visitor` principals.
+It serves discovery, JWKS, the authorization endpoint (signs `agent` straight
+back in, or renders a login page), the token endpoint (`authorization_code`
+with PKCE, `refresh_token` with rotation, `password`), userinfo and
+end_session. Its `env` (`OIDC_ISSUER`, `OIDC_CLIENT_ID`) is what the generated
+verifier and handshake read; `observe()` lists the tokens its token endpoint
+issued as `{ grant, principal, sub }`.
+
+After the ladder, every leg drives the backend's own login handshake against
+it (`test/support/oidc-code-flow.mjs`), off the recorder:
+
+```
+GET  /api/auth/login     → 3xx to the issuer, state + PKCE cookies set
+GET  <authorize>         → 302 back to the redirect_uri with ?code&state
+GET  /api/auth/callback  → code exchanged with the PKCE verifier, session set
+GET  /api/auth/me        → the logged-in principal (its `sub`)
+POST /api/auth/refresh   → a rotated session; the spent refresh token is refused
+```
+
+plus a callback whose `state` does not match the state cookie, which must
+set no session. Each step is a `probe` row, so a backend that skips its
+state check, or does not prove PKCE possession, fails that step by name.
+`test/harness/fake-oidc.test.ts` proves the driver against hand-written
+handshakes with each of those defects seeded.
+
 A spec may declare **several** gated surfaces and a **multi-step** seed.
 Both exist for the read side: one system carries three distinct gated read
 surfaces (the gated list read, a folded projection, a query-time

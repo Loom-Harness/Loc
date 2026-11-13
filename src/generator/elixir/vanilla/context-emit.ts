@@ -81,13 +81,14 @@ import {
 } from "./eventsourced-emit.js";
 import { externImplModule, externPersistForceChanges, isExternOp } from "./extern-emit.js";
 import { collidingFacadeFunctions, renderAggregateFunctions } from "./function-emit.js";
-import { renderGateCondition, updateSeamGates } from "./gate.js";
+import { opRowFreeGates, probeRowGates, renderGateCondition, updateSeamGates } from "./gate.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { paramGuardClause } from "./op-param-guards.js";
 import { isOpTree, opPaths, renderOpTree } from "./op-tree.js";
 import {
   collectOpGuardClauses,
+  gateClauses,
   isReturningOperation,
   type OpFragment,
   opEmitsEvent,
@@ -864,10 +865,21 @@ ${body}
   @doc "Whether the \`${op.name}\` state gate currently admits this ${aggPascal}."
   def can_${snake(op.name)}_${aggSnake}(%${facadeMod}.${aggPascal}{} = record) do
     ${renderExpr(op.when as ExprIR, rc)}
-  end`;
+  end${renderProbeWithRowGates(facadeMod, agg, op, rc)}`;
             })
             .join("")
         : "";
+    // The row-independent `requires` gates of each public operation as a
+    // function the controller calls BEFORE it loads the row (the gate ladder).
+    const opGateFacade = (agg.operations ?? [])
+      .filter(
+        (op) =>
+          op.visibility === "public" &&
+          !CRUD_RESERVED_NAMES.has(op.name) &&
+          opRowFreeGates(op).length > 0,
+      )
+      .map((op) => renderOpGateFn(facadeMod, ctx, agg, op, isDoc))
+      .join("");
     // Aggregate `function` members (§11b) — pure domain helpers callable from the
     // op / precondition / derived bodies emitted above.  Each renders as a
     // struct-guarded `def <fn>(%Agg{} = record, …)` so the lowered call site
@@ -1080,7 +1092,7 @@ ${
       : ""
   }
 ${createDelegate}
-${updateSeam}${deleteDelegate}${changeFacade}${destroyFacade}${opBangFacade}${canFacade}${renderRefLabelFacade(appModule, facadeMod, agg, ctx, sys)}
+${updateSeam}${deleteDelegate}${changeFacade}${destroyFacade}${opBangFacade}${opGateFacade}${canFacade}${renderRefLabelFacade(appModule, facadeMod, agg, ctx, sys)}
 ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privateOpHelpers.length > 0 ? `${privateOpHelpers.join("\n")}\n` : ""}${functionBlock}`;
   });
 
@@ -2058,6 +2070,95 @@ ${dispatchBlock}
           {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | term()}
   def ${opSnake}_${aggSnake}(%${aggModule}{} = record, params${opUsesCurrentUser(op) ? ", current_user \\\\ nil" : ""}) when is_map(params) do
 ${bodyContent}
+  end`;
+}
+
+/** The op parameters an expression list reads. */
+function paramsRead(exprs: readonly ExprIR[], op: OperationIR): OperationIR["params"] {
+  const names = new Set<string>();
+  for (const e of exprs) {
+    walkExprDeep(e, (x) => {
+      if (x.kind === "ref" && x.refKind === "param") names.add(x.name);
+    });
+  }
+  return op.params.filter((p) => names.has(p.name));
+}
+
+/** `<op>_<agg>_gate(params, current_user)` — the operation's row-independent
+ *  `requires` gates, runnable before the row is loaded (the gate ladder,
+ *  `ir/plan/gate-ladder.ts`): the controller calls it ahead of the load so a
+ *  refused caller gets 403 for a missing row, a stale `If-Match` and a
+ *  wrong-state row alike.  A parameter a gate reads is parsed first, through
+ *  the same wire guard the operation itself uses (a malformed one answers its
+ *  422); every other refusal stays behind the gates.  Returns `:ok` or the
+ *  denial tuple the operation's own chain returns. */
+function renderOpGateFn(
+  facadeMod: string,
+  ctx: BoundedContextIR,
+  agg: AggregateIR,
+  op: OperationIR,
+  isDoc: boolean,
+): string {
+  const rc: RenderCtx = {
+    thisName: "record",
+    contextModule: facadeMod,
+    agg: agg as EnrichedAggregateIR,
+  };
+  const gates = opRowFreeGates(op);
+  const read = paramsRead(
+    gates.map((g) => g.expr),
+    op,
+  );
+  const guards = read.map((p) => paramGuardClause(p.name, p.type, isDoc ? undefined : ctx));
+  const binds = read
+    .filter((_, i) => guards[i] == null)
+    .map(
+      (p) =>
+        `    ${elixirLocal(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}\n`,
+    )
+    .join("");
+  const guardClauses = guards.filter((c): c is string => c != null);
+  const wireAvailable = new Set(op.params.map((p) => p.name));
+  const clauses = [...guardClauses, ...gates.flatMap((g) => gateClauses(g, rc, wireAvailable))];
+  const recordBind =
+    guardClauses.length > 0 ? `    record = %${facadeMod}.${upperFirst(agg.name)}{}\n` : "";
+  const user = gates.some(stmtUsesCurrentUser) ? "current_user" : "_current_user";
+  return `\n
+  @doc "The \`${op.name}\` operation's \`requires\` gates that read no row — evaluated before the ${upperFirst(agg.name)} is loaded."
+  def ${snake(op.name)}_${snake(agg.name)}_gate(${read.length > 0 ? "params" : "_params"}, ${user} \\\\ nil) do
+${recordBind}${binds}    with ${clauses.join(",\n         ")} do
+      :ok
+    end
+  end`;
+}
+
+/** `can_<op>_<agg>/2` — the probe's verdict with the row-reading `requires`
+ *  gates folded in (the operation's parameters are absent: the probe carries no
+ *  body).  Empty when the operation has no such gate; the arity-1 predicate
+ *  stays the `when` alone, which is what the LiveView button reads. */
+function renderProbeWithRowGates(
+  facadeMod: string,
+  agg: AggregateIR,
+  op: OperationIR,
+  rc: RenderCtx,
+): string {
+  const gates = probeRowGates(op);
+  if (gates.length === 0 || !op.when) return "";
+  const absent = paramsRead(
+    gates.map((g) => g.expr),
+    op,
+  )
+    .map((p) => `    ${elixirLocal(p.name)} = nil\n`)
+    .join("");
+  const tests = gates.map((g) => {
+    const pred = renderGateCondition(g.expr, (x) => renderExpr(x, rc));
+    return stmtUsesCurrentUser(g) ? `(not is_nil(current_user) and (${pred}))` : `(${pred})`;
+  });
+  const user = gates.some(stmtUsesCurrentUser) ? "current_user" : "_current_user";
+  return `\n
+  @doc "Whether the caller may run \`${op.name}\` on this ${upperFirst(agg.name)} now: its row-reading \`requires\` gates and its state gate."
+  def can_${snake(op.name)}_${snake(agg.name)}(%${facadeMod}.${upperFirst(agg.name)}{} = record, ${user}) do
+${absent}    ${tests.join(" and ")} and (${renderExpr(op.when as ExprIR, rc)})
   end`;
 }
 
