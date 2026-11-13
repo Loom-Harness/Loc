@@ -54,7 +54,7 @@ describe("loom.index-suggestion", () => {
     expect(d).toHaveLength(1);
     expect(d[0]!.severity).toBe("warning");
     expect(d[0]!.message).toContain("Customer.status");
-    expect(d[0]!.message).toContain("index: Customer.status");
+    expect(d[0]!.message).toContain("`index: [Customer.status]`");
     expect(d[0]!.message).toContain("ordState"); // names the fix site
   });
 
@@ -170,7 +170,7 @@ const CATALOG = (members: string) => `
 
 describe("loom.index-suggestion — over criteria and retrievals", () => {
   const columns = (d: LoomDiagnostic[]): (string | undefined)[] =>
-    d.map((x) => x.message.match(/index: (Product\.\w+)/)?.[1]).sort();
+    d.map((x) => x.message.match(/index: \[(Product\.\w+)/)?.[1]).sort();
 
   it("suggests both columns a criterion + retrieval filter", async () => {
     const d = await suggestions(
@@ -207,5 +207,20 @@ describe("loom.index-suggestion — over criteria and retrievals", () => {
     );
     // `sku` is a unique-key leading column; `live` is boolean — neither is suggested.
     expect(indexSuggestions(enrichLoomModel(lowerModel(model)))).toEqual([]);
+  });
+
+  it("quotes valid grammar: pasting the suggested `index: [...]` parses and silences the lint", async () => {
+    const source = sys(
+      `aggregate Customer with crudish { email: string  status: string }`,
+      `find byStatus(status: string): Customer? where this.status == status`,
+    );
+    const [d] = await suggestions(source);
+    const quoted = /`(index: \[[^\]`]+\])`/.exec(d!.message)?.[1];
+    expect(quoted).toBe("index: [Customer.status]");
+    const pasted = source.replace("use: primarySql }", `use: primarySql, ${quoted} }`);
+    expect(pasted).not.toBe(source);
+    // Parse WITH validation: a malformed suggestion is a parse error here.
+    const { model } = await parseString(pasted);
+    expect(indexSuggestions(enrichLoomModel(lowerModel(model)))).toHaveLength(0);
   });
 });

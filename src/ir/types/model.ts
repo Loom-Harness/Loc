@@ -99,6 +99,36 @@ export interface LoomModel {
    *  so a model carrying one never reaches codegen.  Absent when there is
    *  none — the case for every model that validates. */
   unresolvedTypes?: UnresolvedTypeSite[];
+  /** Every place the lowered IR disagrees with itself — a `ref` naming no
+   *  declaration of its `refKind`, a write to a non-stored member, … — found by
+   *  `verifyLoweredModel` right after lowering.  `validateLoomModel` turns each
+   *  into a `loom.ir-ill-formed` internal error, so an ill-formed IR never
+   *  reaches codegen.  Absent when there is none. */
+  loweringViolations?: LoweringViolation[];
+}
+
+/** The rule a lowering violation breaks (see `src/ir/verify/verify-lowered.ts`). */
+export type LoweringViolationKind =
+  /** A `ref` names no declaration of its `refKind` visible to the body. */
+  | "ref-unresolved"
+  /** An assignment / `+=` / `-=` target is not a stored member of the owner. */
+  | "assign-target"
+  /** A member read names no member of its receiver's declared type. */
+  | "member-unresolved"
+  /** A call names no target of its `callKind`. */
+  | "call-target"
+  /** One statement block binds the same `let` name twice. */
+  | "duplicate-let";
+
+/** One place the lowered IR is not well-formed. */
+export interface LoweringViolation {
+  kind: LoweringViolationKind;
+  /** The body holding the defect — `Context.Owner.member`. */
+  where: string;
+  /** What is wrong, naming the offending name. */
+  detail: string;
+  /** The nearest `.ddd` origin the IR carries. */
+  origin?: OriginRef;
 }
 
 /** One expression lowering read with no resolved type. */

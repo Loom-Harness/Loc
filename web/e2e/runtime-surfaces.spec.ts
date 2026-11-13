@@ -87,15 +87,17 @@ test("Tests tab shows the verdict legend and interprets the discovery error with
   await expect(verdict).toBeVisible();
   await expect(verdict).toHaveText(/^(Verified|Failing|Untested|Unverified)$/);
 
-  // Discovery either fails (the sandbox: the generated suite imports a
-  // dependency the browser cannot resolve) or lists suites.  On the
-  // failure, the interpretation line is up and the raw text is folded.
+  // Discovery either fails (offline: the npm packages the generated suite
+  // imports cannot be downloaded; or a suite that does not load) or lists
+  // suites.  On the failure, the interpretation line is up and the raw text
+  // is folded.
   const hint = page.getByTestId("test-error-hint");
   const suite = page.locator('[data-testid^="test-suite-"]').first();
   await expect(hint.or(suite).first()).toBeVisible({ timeout: 90_000 });
   if (await hint.isVisible()) {
-    await expect(hint).toContainText(/Test discovery needs the generated project's dependencies/);
-    await expect(hint).toContainText(/Generate, then Bundle first/);
+    await expect(hint).toContainText(
+      /^Test discovery couldn't (download the npm packages the generated tests import — check the network|load the generated tests)/,
+    );
     // Folded: the raw block is not in the DOM until Show details.
     await expect(page.getByTestId("test-error")).toHaveCount(0);
     await page.getByTestId("test-error-toggle").click();

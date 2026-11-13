@@ -6678,7 +6678,12 @@ equal: an inline array and a named array component with the same `items`;
 `$ref` and an inlined identical schema; `oneOf` and `anyOf` over arms a
 discriminator separates; explicit, implicit and inferred discriminator
 mappings; a polymorphic base whose subtypes `allOf` it and a `oneOf` over the
-subtypes. Real contract differences still fail — operations, success and error
+subtypes; a union arm's tag pinned on the arm (`enum`) and the same tag given
+only in the discriminator mapping; a union arm inlined and the same arm as a
+named component nothing else references; and, at an error status,
+`anyOf: [ProblemDetails, <X>Problem]` (each `<X>Problem` extending
+ProblemDetails) and plain ProblemDetails, which accept the same bodies because
+ProblemDetails is open. Real contract differences still fail — operations, success and error
 statuses, media types, required sets, field schemas, enum values, union arms
 and tags. Every accepted equivalence and its nearest rejected difference is a
 fixture pair under `test/_helpers/openapi-parity-fixtures/`.

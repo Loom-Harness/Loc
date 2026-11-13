@@ -11,15 +11,14 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
-import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { escapePythonIdent, pythonIdent, snake } from "../../../util/naming.js";
 import { PY_IMPORTS, pyModule, pyRef } from "../../_imports/python.js";
 import { ref, spellMarkers } from "../../_imports/symbol.js";
 import {
   coerceMatcherExpected,
   coerceTestArgs,
-  coerceTestLiteral,
-  type TestLiteralTarget,
+  coerceTestValue,
+  type TestValueTarget,
 } from "../../_test/arg-coercion.js";
 import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
 import { PY, pyIdType, pyVoOrEnum } from "../py-symbols.js";
@@ -29,10 +28,12 @@ import { PY_CALENDAR_DATE } from "./calendar-date.js";
 /** Python leaves for the shared test-literal coercion rule
  *  (`_test/arg-coercion.ts`).  `<X>Id(…)` is the id class the generator emits
  *  into `app/domain/ids.py`; `datetime` parses via `fromisoformat`. */
-const PY_TEST_LITERAL: TestLiteralTarget = {
+const PY_TEST_LITERAL: TestValueTarget = {
   id: (rendered, targetName) => `${pyIdType(targetName)}(${rendered})`,
   datetime: (rendered) => `${PY.datetime}.fromisoformat(${rendered})`,
   date: (rendered) => `${PY_CALENDAR_DATE}.fromisoformat(${rendered})`,
+  valueObject: (name, args) => `${pyVoOrEnum(name)}(${args.join(", ")})`,
+  omitted: "None",
 };
 
 // A currentUser-gated operation's method signature picks up a trailing
@@ -312,25 +313,11 @@ export function renderCreateInput(
     .join(", ");
 }
 
-/** Coerce one create-input value to its declared type for a domain test:
- *  `X id` string → `<X>Id("…")`, value-object literal → positional ctor
- *  in declared field order (omitted optionals → None), datetime literal
- *  → `datetime.fromisoformat("…")`. */
+/** Coerce one create-input value to its declared type for a domain test —
+ *  the shared rule (`_test/arg-coercion.ts`): VO literal → positional ctor,
+ *  `X id` / date / datetime literal → its strong type. */
 function coerceCreateValue(value: ExprIR, type: TypeIR | undefined, ctx: BoundedContextIR): string {
-  if (type?.kind === "valueobject" && value.kind === "object") {
-    const vo = findValueObjectInScope(ctx, type.name);
-    if (vo) {
-      const byName = new Map(value.fields.map((f) => [f.name, f.value] as const));
-      const args = vo.fields.map((vf) => {
-        const v = byName.get(vf.name);
-        return v ? coerceCreateValue(v, vf.type, ctx) : "None";
-      });
-      return `${pyVoOrEnum(vo.name)}(${args.join(", ")})`;
-    }
-  }
-  // The id / datetime arms are the SHARED rule (`_test/arg-coercion.ts`) — the
-  // same one the operation-call path above applies to a declared param type.
-  return coerceTestLiteral(type, value, renderTestExpr(value, ctx), PY_TEST_LITERAL);
+  return coerceTestValue(type, value, ctx, (e) => renderTestExpr(e, ctx), PY_TEST_LITERAL);
 }
 
 /** Comparison matchers map 1:1 onto Python operators. */

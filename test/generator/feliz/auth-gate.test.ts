@@ -165,17 +165,16 @@ system Storefront {
       body: Heading { "Admin only", level: 1 }
     }`),
     );
-    expect(app).toContain(
-      '(match model.CurrentUser with Some currentUser when currentUser.Role = "admin" -> ' +
-        'Html.li [ prop.children [ Html.a [ prop.href "/admin"; prop.text "Admin" ] ] ] | _ -> Html.none)',
+    expect(app).toMatch(
+      /\(match model\.CurrentUser with Some currentUser when currentUser\.Role = "admin" -> Html\.li \[ prop\.children \[ Html\.a \[ prop\.href "\/admin"; prop\.text \(I18n\.t "WebApp\.page\.Admin\.name\.\w+" "Admin"\) \] \] \] \| _ -> Html\.none\)/,
     );
     // The two ungated pages keep the bare entry — byte-identical to the
     // pre-gate shell, so a gate-free bar does not change shape.
-    expect(app).toContain(
-      '            Html.li [ prop.children [ Html.a [ prop.href "/about"; prop.text "About" ] ] ]',
+    expect(app).toMatch(
+      /^ {12}Html\.li \[ prop\.children \[ Html\.a \[ prop\.href "\/about"; prop\.text \(I18n\.t "WebApp\.page\.About\.name\.\w+" "About"\) \] \] \]$/m,
     );
-    expect(app).toContain(
-      '            Html.li [ prop.children [ Html.a [ prop.href "/"; prop.text "Home" ] ] ]',
+    expect(app).toMatch(
+      /^ {12}Html\.li \[ prop\.children \[ Html\.a \[ prop\.href "\/"; prop\.text \(I18n\.t "WebApp\.page\.Home\.name\.\w+" "Home"\) \] \] \]$/m,
     );
   });
 
@@ -183,8 +182,8 @@ system Storefront {
   // guard must not be reachable there: the bar stays byte-identical.
   it("leaves the navbar untouched when the app carries no page gate", async () => {
     const app = await appFs(NO_GATE);
-    expect(app).toContain(
-      '            Html.li [ prop.children [ Html.a [ prop.href "/about"; prop.text "About" ] ] ]',
+    expect(app).toMatch(
+      /^ {12}Html\.li \[ prop\.children \[ Html\.a \[ prop\.href "\/about"; prop\.text \(I18n\.t "WebApp\.page\.About\.name\.\w+" "About"\) \] \] \]$/m,
     );
     expect(app).not.toContain("Html.none)");
   });

@@ -46,7 +46,11 @@ import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { renderValueEqualsCall } from "../_frontend/value-equals.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
-import { localizedNamedValue, localizedPositionalTranslation } from "../_walker/i18n-emit.js";
+import {
+  localizedNamedValue,
+  localizedPageChromeValue,
+  localizedPositionalTranslation,
+} from "../_walker/i18n-emit.js";
 import { opGateFor } from "../_walker/op-gate.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
@@ -960,8 +964,13 @@ export const flutterTarget: WalkerTarget = {
     const row = (label: string, value: string) =>
       `Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[` +
       `Expanded(child: ${label}), Expanded(child: ${value})])`;
-    const rule = row(`const Text(${dartString("Rule")})`, "Text(__p.snapshotId)");
-    const value = row(`const Text(${dartString("Value")})`, "Text(__p.computedValue)");
+    // A translated label is a runtime `t(…)` call, so its `Text` cannot be `const`.
+    const label = (name: string): string => {
+      const expr = localizedPageChromeValue(ctx, name);
+      return ctx.i18nPrefix ? `Text(${expr})` : `const Text(${expr})`;
+    };
+    const rule = row(label("provenanceRule"), "Text(__p.snapshotId)");
+    const value = row(label("provenanceValue"), "Text(__p.computedValue)");
     const inputs = `...__p.inputs.map((__i) => ${row("Text(__i.path)", "Text(__i.value)")})`;
     const body =
       `Column(crossAxisAlignment: CrossAxisAlignment.start, ` +
@@ -970,7 +979,7 @@ export const flutterTarget: WalkerTarget = {
     // screen-reader label the JSX targets put on `<summary aria-label=…>` rides
     // `Semantics` here (Flutter's a11y seam — `a11y.test.ts` pins the idiom).
     const tile =
-      `ExpansionTile(title: Semantics(label: ${dartString("How this value was computed")}, ` +
+      `ExpansionTile(title: Semantics(label: ${localizedPageChromeValue(ctx, "provenanceHowComputed")}, ` +
       `child: const Text(${dartString("?")})), children: <Widget>[${body}])`;
     return `(switch (${lineage}) { final __p? => ${tile}, _ => const SizedBox.shrink() })`;
   },

@@ -33,6 +33,7 @@
 // npm install + boot), mirroring the other runners' BASE env convention.
 
 import { build } from "esbuild";
+import pg from "pg";
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -326,8 +327,9 @@ async function runCase(c) {
     await build({ entryPoints: [entry], outfile: bundle, bundle: true, platform: "node", format: "esm", target: "node20", packages: "external", logLevel: "warning" });
     const { run } = await import(pathToFileURL(bundle).href);
     const api = await run();
+    const indexProbe = EXTERNAL_BASE ? [] : await outboxIndexProbe(deplDir);
     return {
-      results: [...api.results.map((r) => ({ tier: "api", ...r })), ...(api.authz ?? [])],
+      results: [...api.results.map((r) => ({ tier: "api", ...r })), ...(api.authz ?? []), ...indexProbe],
       wire: api.wire,
     };
   } finally {
@@ -335,6 +337,27 @@ async function runCase(c) {
     // into the next case, which then talks to the wrong app (see proc.mjs).
     await stopServer(server);
     rmSync(genDir, { recursive: true, force: true });
+  }
+}
+
+/** The relay polls `__loom_outbox` through its pending-row partial index, which
+ *  the migration chain gives every other adapter; here `schema.update()` cannot
+ *  declare it, so boot creates it.  Probed on the booted database for every
+ *  deployable that maps the outbox table. */
+async function outboxIndexProbe(deplDir) {
+  const entities = join(deplDir, "db", "entities.ts");
+  if (!existsSync(entities) || !readFileSync(entities, "utf8").includes('"__loom_outbox"')) return [];
+  const client = new pg.Client({ connectionString: DATABASE_URL });
+  await client.connect();
+  try {
+    const r = await client.query(
+      "SELECT indexdef FROM pg_indexes WHERE tablename = '__loom_outbox' AND indexname = '__loom_outbox_pending_idx'",
+    );
+    const def = r.rows[0]?.indexdef ?? "";
+    const ok = /\(occurred_at\)/.test(def) && /dispatched_at IS NULL/.test(def) && /dead_at IS NULL/.test(def);
+    return [{ tier: "probe", name: "outbox pending index exists", status: ok ? "pass" : "fail", ...(ok ? {} : { error: def || "__loom_outbox_pending_idx is missing" }) }];
+  } finally {
+    await client.end();
   }
 }
 

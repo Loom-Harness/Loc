@@ -13,10 +13,10 @@
 
 import * as esbuild from "esbuild-wasm";
 import wasmURL from "esbuild-wasm/esbuild.wasm?url";
-import { makeVfsNpmPlugin } from "./esbuild-vfs-plugin.js";
+import { BACKEND_LOWERED_SYNTAX, makeVfsNpmPlugin } from "./esbuild-vfs-plugin.js";
 import { harvestTsconfigPaths } from "../../bundle/plugin.js";
 import { install } from "./install.js";
-import { IdbInstallCache } from "./install-cache-idb.js";
+import { getInstallCache, getNpmMirror } from "./install-sources.js";
 import { BundleMemo, bundleKey } from "./bundle-memo.js";
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -117,49 +117,6 @@ function getVendor(pack: string): Promise<VendorManifest | null> {
     vendorPromises.set(pack, p);
   }
   return p;
-}
-
-// IDB-backed install cache, worker-scoped (IndexedDB is available in
-// DedicatedWorkerGlobalScope).  Opened once; memory-only no-op when
-// IDB is unavailable.  This is why a dep set installs once and
-// replays across prepares/reloads.
-let cachePromise: Promise<IdbInstallCache> | null = null;
-function getCache(): Promise<IdbInstallCache> {
-  if (!cachePromise) {
-    cachePromise = (async () => {
-      const c = new IdbInstallCache();
-      await c.open();
-      return c;
-    })();
-  }
-  return cachePromise;
-}
-
-// C1 local tarball mirror: name@version → same-origin asset URL,
-// loaded once from the manifest the build step ships under
-// <base>/npm-mirror/.  Missing/404 (dev, or no mirror built) → empty
-// map → install falls back to the registry.
-let mirrorPromise: Promise<Map<string, string>> | null = null;
-function getMirror(): Promise<Map<string, string>> {
-  if (!mirrorPromise) {
-    mirrorPromise = (async () => {
-      const map = new Map<string, string>();
-      try {
-        const base = deployBase + "npm-mirror/";
-        const res = await fetch(base + "manifest.json");
-        if (res.ok) {
-          const manifest = (await res.json()) as Record<string, string>;
-          for (const [k, file] of Object.entries(manifest)) {
-            map.set(k, base + file);
-          }
-        }
-      } catch {
-        /* no mirror → registry fallback */
-      }
-      return map;
-    })();
-  }
-  return mirrorPromise;
 }
 
 let initPromise: Promise<void> | null = null;
@@ -411,6 +368,7 @@ self.onmessage = async (ev: MessageEvent<VfsBundleRequest>): Promise<void> => {
         options: stdinContents
           ? {
               ...BUILD_COMMON,
+              supported: BACKEND_LOWERED_SYNTAX,
               sourcemap: sourcemapOption,
               plugins: [
                 makeVfsNpmPlugin(files, "/node_modules", !!externalReactRuntime, aliases),
@@ -437,7 +395,7 @@ self.onmessage = async (ev: MessageEvent<VfsBundleRequest>): Promise<void> => {
     const { versions, fileCount, timings } = await install(
       rootDeps,
       (p, d) => slot.files.set(p, d),
-      { cache: await getCache(), mirror: await getMirror() },
+      { cache: await getInstallCache(), mirror: await getNpmMirror(deployBase) },
     );
     const installMs = Math.round(performance.now() - tInstall);
     const versionRec = Object.fromEntries(versions);

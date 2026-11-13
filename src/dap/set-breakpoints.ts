@@ -36,13 +36,20 @@ function resolveOne(
   // built. The RESPONSE `column` below
   // is the GENERATED column (from `BreakpointTarget.column`), independent of
   // any column the request carried.
-  const targets = translateBreakpoint(map, sourcePath, bp.line, readSource);
+  //
+  // `lineLocalOnly`: a line that only an ENCLOSING declaration covers (a
+  // plain property, an `invariant` line) has no generated statement of its
+  // own; the enclosing region's target is a file header (line 1 of the
+  // entity, routes or test file), so arming it would stop on an import.
+  const targets = translateBreakpoint(map, sourcePath, bp.line, readSource, {
+    lineLocalOnly: true,
+  });
 
   if (targets.length === 0) {
     return {
       verified: false,
       line: bp.line,
-      message: `No generated location maps to ${sourcePath}:${bp.line}.`,
+      message: `No generated statement maps to ${sourcePath}:${bp.line}.`,
     };
   }
 
@@ -76,9 +83,10 @@ function resolveOne(
  *   source-reference-only `Source` is not resolvable here — honest, not a
  *   guess).
  * - Each requested breakpoint is translated independently via
- *   `translateBreakpoint`; a line with no covering region comes back
- *   unverified but keeps the REQUESTED `.ddd` line (so the editor still
- *   shows the grey breakpoint marker on the right line).
+ *   `translateBreakpoint`; a line with no region of its own (none at all,
+ *   or only an enclosing declaration's) comes back unverified but keeps the
+ *   REQUESTED `.ddd` line (so the editor still shows the grey breakpoint
+ *   marker on the right line).
  * - A line whose regions fan out across multiple targets reports only the
  *   narrowest one verified — see the design-decision comment in
  *   `resolveOne` above.

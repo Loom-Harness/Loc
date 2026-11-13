@@ -21,6 +21,7 @@ export {
   MIKRO_OUTBOX_ROW_CLASS,
   MIKRO_TIMER_RUNS_ROW_CLASS,
   mikroForeignKeyDdl,
+  mikroPostUpdateDdl,
   mikroProjectionRowClass,
   mikroWorkflowRowClass,
   renderMikroEntities,

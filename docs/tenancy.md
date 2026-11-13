@@ -64,9 +64,10 @@ system Billder {
   ```
 
   The `tenantId` column lands in the migrations automatically — **with a
-  derived non-unique `<table>_tenant_id_idx`** (every tenant read prefixes on
-  that column; derived in the shared `MigrationsIR`, so all DB backends emit
-  it); `internal` keeps the column out of create inputs (the client can
+  derived non-unique `(tenant_id, id)` index, `<table>_tenant_id_id_idx`**
+  (every tenant read prefixes on `tenant_id`, and a list orders by `id`, so the
+  composite serves the page in index order; derived in the shared
+  `MigrationsIR`, so all DB backends emit it); `internal` keeps the column out of create inputs (the client can
   never pass it); the filter is AND-ed into **every** generated read on all
   five backends; the stamp copies the claim at create.
 
@@ -105,7 +106,7 @@ system Billder {
     "tenant_id" TEXT NOT NULL,
     …
   );
-  CREATE INDEX "invoices_tenant_id_idx" ON "invoicing"."invoices" ("tenant_id");
+  CREATE INDEX "invoices_tenant_id_id_idx" ON "invoicing"."invoices" ("tenant_id", "id");
   ```
 
   `tenantId` is the only column tenancy adds to a row. Where an org sits in
