@@ -39,6 +39,8 @@
 
 import { describe, expect, it } from "vitest";
 import { WIRE_ERROR_MESSAGES } from "../../../src/generator/_i18n/wire-error-text.js";
+import { loadPack, resolvePackDir } from "../../../src/generator/_packs/loader-fs.js";
+import { shellChromeAria, shellChromeText } from "../../../src/generator/elixir/i18n.js";
 import { USER_VISIBLE_SLOTS } from "../../../src/util/user-visible-slots.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
@@ -90,6 +92,7 @@ const PROBE_BODY = `Stack {
         Card { "SlotCardTitle", Text { "SlotCardBody" } },
         Alert { "SlotAlert", title: "SlotAlertTitle" },
         Toolbar { label: "SlotToolbarAria", Text { "SlotToolbarChild" } },
+        Toolbar { Text { "SlotUnnamedToolbarChild" } },
         Divider { label: "SlotDividerLabel" },
         Modal { Text { "SlotModalBody" }, open: modalOpen, title: "SlotModalTitle" },
         Icon { name: "check", label: "SlotIconLabel" },
@@ -106,6 +109,7 @@ const PROBE_BODY = `Stack {
           of: Shop.Product.all,
           data: rows => Table { rows: rows, Column { "SlotColumnHeader", o => Text { o.name } } }
         },
+        Table { rows: picked, filter: tableQuery, Column { "SlotColumnHeader", n => Text { n } } },
         Loader()__GRID__
       }`;
 
@@ -180,6 +184,7 @@ function uiBlock(t: FrontendTarget, menu: MenuShape): string {
         flag: bool = false
         doc: File
         picked: string[] = []
+        tableQuery: string = ""
       }
       body: ${probeBody(t)}
     }
@@ -189,6 +194,15 @@ function uiBlock(t: FrontendTarget, menu: MenuShape): string {
       route: "/titled"
       title: "SlotNavTitle"
       body: Text { "SlotTitledBody" }
+    }`
+        : ""
+    }
+    ${
+      SIGN_OUT_PLATFORMS.has(t.platform)
+        ? `page Gated {
+      route: "/gated"
+      requires currentUser.role == "agent"
+      body: Text { "SlotGatedBody" }
     }`
         : ""
     }
@@ -233,6 +247,11 @@ const DOMAIN = `
   resource s { for: Cat, kind: state, use: db }
   resource f { for: Cat, kind: objectStore, use: blobs }`;
 
+/** The frontends whose pack shell draws a Sign out control, and only under
+ *  `auth: ui` — so the fixture's web deployable declares it, putting that
+ *  control (and its chrome key) in every one of their cells. */
+const SIGN_OUT_PLATFORMS: ReadonlySet<string> = new Set(["react", "vue", "svelte", "angular"]);
+
 function frontendSystem(t: FrontendTarget, menu: MenuShape): string {
   const deployables =
     t.platform === "elixir"
@@ -240,15 +259,19 @@ function frontendSystem(t: FrontendTarget, menu: MenuShape): string {
       platform: elixir, contexts: [Cat], dataSources: [s, f], serves: ShopApi,
       design: "${t.pack}", ui: WebApp { Shop: phoenixApp }, port: 4000
     }`
-      : `deployable api { platform: node contexts: [Cat] dataSources: [s, f] serves: ShopApi port: 3000 }
+      : `deployable api { platform: node contexts: [Cat] dataSources: [s, f] serves: ShopApi port: 3000${
+          SIGN_OUT_PLATFORMS.has(t.platform) ? " auth: required" : ""
+        } }
     deployable web {
       platform: ${t.platform}
       ${t.pack ? `design: "${t.pack}"` : ""}
       targets: api
       ui: WebApp { Shop: api }
       port: 3005
+      ${SIGN_OUT_PLATFORMS.has(t.platform) ? "auth: ui" : ""}
     }`;
-  return `system Shop {${DOMAIN}${uiBlock(t, menu)}
+  const user = SIGN_OUT_PLATFORMS.has(t.platform) ? "\n  user { id: string  role: string }" : "";
+  return `system Shop {${user}${DOMAIN}${uiBlock(t, menu)}
     ${deployables}
   }`;
 }
@@ -315,17 +338,6 @@ const BOTH: readonly MenuShape[] = ["explicit", "derived"];
  *  that is a defect by definition, and the gate fails it. */
 const DEAD_KEY_WAIVERS: readonly Waiver[] = [
   // --- over-merge: a feature this fixture does not reach -------------------
-  {
-    kind: "over-merge",
-    id: "OM-SIGN-OUT",
-    targets: [...REACT, ...VUE, ...SVELTE, ...NG],
-    menus: BOTH,
-    key: /^pack\.\w+\.signOut\./,
-    reason:
-      "each JSX pack's app shell renders its Sign out control only under `auth: ui`; the " +
-      "pack declares the chrome role unconditionally (packChromeCatalog catalogs every " +
-      "declared role), and this fixture's frontend deployable has no auth.",
-  },
   // --- defects -------------------------------------------------------------
   {
     kind: "defect",
@@ -503,14 +515,6 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
     key: /^pack\.vuetify\.chooseFile\./,
     reason: "the in-FORM File placeholder; the fixture's File input is a standalone FileUpload",
   },
-  {
-    kind: "over-merge",
-    id: "O-homeLink",
-    targets: HEEX,
-    menus: BOTH,
-    key: /^pack\.\w+\.homeLink\./,
-    reason: "HEEx pack shell chrome for a home link the default layout does not render",
-  },
 ];
 
 // --- harness -----------------------------------------------------------------
@@ -525,6 +529,24 @@ function stripFelizCatalog(src: string): string {
   return src.slice(0, start) + (nextTop < 0 ? "" : rest.slice(nextTop));
 }
 
+/** The pack's no-sidebar app layout (the `{{else}}` branch of `app-shell`),
+ *  rendered the way the shell emitter renders it under i18n.  No fixture reaches
+ *  it through generation — a LiveView deployable always draws the sidebar layout
+ *  — so its consumption sites are rendered from the pack template itself and
+ *  joined to the tree the dead-key and raw-render directions read. */
+function noSidebarLayout(t: FrontendTarget): string {
+  const pack = loadPack(resolvePackDir(t.pack!));
+  pack.setChromeI18n(true);
+  return pack.render("app-shell", {
+    hasSidebar: false,
+    webModule: "ShopWeb",
+    currentUser: false,
+    skipToContent: shellChromeText("skipToContent", true),
+    primaryNavAria: shellChromeAria("primaryNav", true),
+    localeSwitcher: "",
+  });
+}
+
 /** The files that can CONSUME a key — the target's app tree minus every file
  *  that IS a catalog (locale JSON, `lib/i18n.dart`, gettext `.po`/`.pot`, the
  *  Feliz `I18n` module) and minus the generated tests (a page object naming a
@@ -535,6 +557,7 @@ function consumptionTree(
 ): Map<string, string> {
   const root = t.platform === "elixir" ? "phoenix_app/" : "web/";
   const out = new Map<string, string>();
+  if (t.platform === "elixir") out.set("phoenix_app/<no-sidebar app layout>", noSidebarLayout(t));
   for (const [p, src] of files) {
     if (!p.startsWith(root)) continue;
     if (/\/(e2e|test|node_modules)\//.test(p)) continue;
@@ -573,13 +596,13 @@ const MARKUP_FILE = /\.(tsx?|vue|svelte|html|heex|exs?)$/;
 /** A translation call for `key` in an INERT position: the value of a plain
  *  quoted attribute (`title="t('k', …)"` — no `:` / `[` / `{` binding), or a
  *  text node outside any interpolation braces (`>t("k", …)`; a `>` closing an
- *  arrow `=>` / `->` is not a tag end).  Either renders the call's source text
+ *  arrow `=>` / `->`, or an Elixir pipe `|>`, is not a tag end).  Either renders the call's source text
  *  to the user. */
 function inertCall(key: string): RegExp {
   const k = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const call = `(?:\\bt|\\bpgettext)\\(\\s*["']${k}["']`;
   return new RegExp(
-    `(?:(?:^|[\\s<])[A-Za-z_][\\w.-]*=(["'])[^"'{]*?${call}|(?<![=-])>[^<{]*?${call})`,
+    `(?:(?:^|[\\s<])[A-Za-z_][\\w.-]*=(["'])[^"'{]*?${call}|(?<![=|-])>[^<{]*?${call})`,
   );
 }
 
@@ -1122,7 +1145,7 @@ describe("i18n round trip — ProvenanceInfo chrome", () => {
 describe("i18n round trip — untitled page names", () => {
   const NOTES = /^Web\.page\.Notes\.name\.\w+$/;
 
-  for (const platform of ["feliz", "flutter"] as const) {
+  for (const platform of ["feliz", "flutter", "react", "vue", "svelte", "angular"] as const) {
     it(`${platform}: the name is catalogued, bound through its key, and translatable`, async () => {
       const probe = await generateSystemFiles(provSystem(platform));
       const system = json(probe, ".loom/messages.en.json");
@@ -1133,11 +1156,21 @@ describe("i18n round trip — untitled page names", () => {
         translations: new Map([["de", { [key!]: "Notizen" }]]),
       });
       expect(appSource(files)).toMatch(quoted(key!));
-      // Flutter's catalog lives in `lib/i18n.dart` (not a consumer); Feliz's in `App.fs`.
-      const catalogPath = platform === "feliz" ? /App\.fs$/ : /lib\/i18n\.dart$/;
+      // Flutter's catalog lives in `lib/i18n.dart` (not a consumer); Feliz's in
+      // `App.fs`; the SPA frontends' in `locales/de.json`.
+      const catalogPath =
+        platform === "feliz"
+          ? /App\.fs$/
+          : platform === "flutter"
+            ? /lib\/i18n\.dart$/
+            : /locales\/de\.json$/;
       const catalogFile = [...files].find(([p]) => p.startsWith("web/") && catalogPath.test(p))![1];
       expect(catalogFile).toContain(
-        platform === "feliz" ? `"${key}", "Notizen"` : `'${key}': 'Notizen'`,
+        platform === "feliz"
+          ? `"${key}", "Notizen"`
+          : platform === "flutter"
+            ? `'${key}': 'Notizen'`
+            : `"${key}": "Notizen"`,
       );
     });
   }
@@ -1153,9 +1186,19 @@ describe("i18n round trip — untitled page names", () => {
     expect(Object.keys(system).filter((k) => NOTES.test(k))).toEqual([]);
   });
 
-  it("the pack-rendered frontends catalog no page names", async () => {
-    const files = await generateSystemFiles(provSystem("react"));
-    const system = json(files, ".loom/messages.en.json");
-    expect(Object.keys(system).filter((k) => /\.page\.\w+\.name\./.test(k))).toEqual([]);
+  it("a page the nav never links carries no name entry (catalogued only when emitted)", async () => {
+    for (const platform of ["react", "vue", "svelte", "angular"] as const) {
+      const files = await generateSystemFiles(
+        provSystem(platform).replace(
+          'route: "/notes" body',
+          'route: "/notes" menu { hidden: true } body',
+        ),
+      );
+      const system = json(files, ".loom/messages.en.json");
+      expect(
+        Object.keys(system).filter((k) => NOTES.test(k)),
+        platform,
+      ).toEqual([]);
+    }
   });
 });
