@@ -65,7 +65,7 @@ describe("Phoenix Action — instance-qualified operation button", () => {
     const files = await build();
     const mod = files.get("phoenix_app/lib/phoenix_app_web/components/ui_components.ex")!;
     expect(mod).toMatch(
-      /<\.button phx-click="confirm_customer" phx-value-id=\{@customer\.id\}>Confirm<\/\.button>/,
+      /<\.button phx-click="confirm_customer" phx-value-id=\{@customer\.id\}><%= pgettext\("Sales\.Customer\.op\.confirm", "Confirm"\) %><\/\.button>/,
     );
   });
 

@@ -70,7 +70,7 @@ test.describe("fr-FR", () => {
 
   test("the titled page's nav link and the menu section read the fr catalog", async ({ page }) => {
     await page.goto(`${BASE}/price`);
-    const nav = page.getByRole("navigation");
+    const nav = page.getByTestId("sidebar");
     await expect(nav.getByRole("link", { name: "Tarifs" })).toBeVisible();
     await expect(nav).toContainText("Principal");
     await expect(nav.getByRole("link", { name: "Pricing" })).toHaveCount(0);

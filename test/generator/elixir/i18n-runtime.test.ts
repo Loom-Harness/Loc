@@ -15,6 +15,7 @@
 // No Elixir is compiled here; `elixir-vanilla-build.yml` owns "is the Elixir
 // real" (`mix compile --warnings-as-errors`).
 
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { collectUiMessages } from "../../../src/generator/_walker/i18n-extract.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
@@ -272,9 +273,7 @@ describe("Phoenix HEEx i18n — ICU interpolation", () => {
     expect(fileEndingWith(files, "mix.exs")).toContain('{:ex_cldr_messages, "1.0.4"}');
     const cldr = fileEndingWith(files, "lib/app/cldr.ex");
     expect(cldr).toContain("use Cldr,");
-    expect(cldr).toContain(
-      "providers: [Cldr.Number, Cldr.Date, Cldr.Time, Cldr.DateTime, Cldr.Message]",
-    );
+    expect(cldr).toContain("providers: [Cldr.Number, Cldr.Calendar, Cldr.DateTime, Cldr.Message]");
     // String tier (absence claim): the moduledoc must not tell a translator to
     // hand-register a locale; the `locales/<tag>.json` sidecar yields both halves.
     expect(cldr).toContain("`locales/<tag>.json` beside the .ddd");
@@ -365,6 +364,15 @@ describe("Phoenix HEEx i18n — CLDR number and date formatting", () => {
     expect(fileEndingWith(files, "lib/app/cldr.ex")).toContain("Cldr.DateTime");
     const runtime = fileEndingWith(files, "lib/app_web/i18n.ex")!;
     expect(runtime).toContain("def loom_date(value) do");
+    // String tier (absence claims a boot cannot observe): `Cldr.Date`/`Cldr.Time`
+    // are not providers (they raise at compile), the calendar provider is what
+    // `Cldr.Date.to_string/2` localizes months through, and the ISO fallback is
+    // logged rather than a silent catch-all.
+    const cldrSrc = fileEndingWith(files, "lib/app/cldr.ex")!;
+    expect(cldrSrc).toContain("Cldr.Calendar");
+    expect(cldrSrc).not.toMatch(/providers:.*Cldr\.(Date|Time),/);
+    expect(runtime).toContain("Logger.error(");
+    expect(runtime).not.toContain("_ -> iso_date(value)");
     expect(runtime).toContain("defp expand_skeletons(message, bindings) do");
     expect(fileEndingWith(files, "lib/app_web.ex")).toContain("import AppWeb.I18n");
   });
@@ -398,5 +406,22 @@ describe("Phoenix HEEx i18n — CLDR number and date formatting", () => {
       expect(live, key).toContain(`pgettext("${key}", "${english}")`);
     }
     expect(live).not.toContain('aria-label="How this value was computed"');
+  });
+});
+
+// An `Action { x.<op> }` button reads the operation's identity key
+// (`<Ctx>.<Agg>.op.<op>`) like every other target.  String tier: the French
+// text a browser reads is the `heex-i18n` leg; this pins that the wiring goes
+// through the catalog at all (absence of the raw humanized literal).
+describe("Phoenix HEEx i18n — Action button label", () => {
+  it("renders the operation label through the op identity key", async () => {
+    const src = readFileSync(
+      new URL("../../behavioral/heex-i18n/heex-i18n.ddd", import.meta.url),
+      "utf8",
+    );
+    const files = await generateSystemFiles(src);
+    const live = [...files.entries()].find(([k]) => k.endsWith("invoice_live.ex"))![1];
+    expect(live).toContain('<%= pgettext("Invoicing.Invoice.op.reprice", "Reprice") %></.button>');
+    expect(live).not.toContain(">Reprice</.button>");
   });
 });
