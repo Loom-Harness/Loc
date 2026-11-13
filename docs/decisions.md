@@ -6825,6 +6825,11 @@ match while three removed the first, and one built its write from the
 pre-fold row so a later statement read a stale value. A fact computed once
 cannot disagree with itself.
 
+**Enforced by** `test/system/projection-fold-census.test.ts`: no emitter under
+`src/generator/` or `src/platform/` reads a fold handler's raw `statements`
+(checked with the TypeScript type checker), and every fold emitter calls
+`foldSteps`.
+
 ## D-PROJECTION-FOLD-AFTER-COMMIT — a fold runs after the command commits, isolated per handler
 
 **Status:** owner ruling, 2026-11-13.
