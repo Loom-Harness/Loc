@@ -1,0 +1,5 @@
+{
+  "title": "tenancy registry tree — `implements tenantRegistry` beside flat data visibility (`policy` local / deny write)",
+  "doc": "tenancy",
+  "backends": "ALL"
+}

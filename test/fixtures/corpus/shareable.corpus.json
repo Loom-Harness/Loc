@@ -1,0 +1,6 @@
+{
+  "title": "`shareable` — a row shared beyond its org: org / subtree / user grantees, write shares, revoke, gated by `allow share on X`",
+  "doc": "auth",
+  "backends": "ALL",
+  "note": "`with shareable` unfolds to the share aggregate, its events, `GranteeIsMe` / `SharedWithMe` and the row rules.  No `test e2e` block and no wire golden: a grantee must be a REAL registry org id carried as the tenancy claim, which a literal `as { … }` claim cannot name.  The runtime proof — each grantee kind, a write share, revoke, no re-share, a Subtree grant re-targeted by an authored move, a mask still applying, the share gate's 403 — is the booted `tenancy-org-context*` leg of tenancy-e2e (`assertShareable`)."
+}
