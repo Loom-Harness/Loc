@@ -124,12 +124,13 @@ export function cellRowAggregate(
   // aggregate — every cell then typed against the wrong shape, silently.
   const contained = containmentRowKey(rowsArg, ctx);
   if (contained) return contained;
-  // A VALUE-OBJECT ARRAY read — `policyById.data.riders` — yields rows of the
-  // element value object, keyed through its owning field.
-  const elements = valueObjectRowKey(rowsArg, ctx);
-  if (elements) return elements;
   if (rowsArg.kind === "member" && rowsArg.receiver.kind === "ref") {
-    return ctx.listRowAggregates?.get(rowsArg.receiver.name);
+    const enveloped = ctx.listRowAggregates?.get(rowsArg.receiver.name);
+    if (enveloped) return enveloped;
   }
-  return undefined;
+  // A VALUE-OBJECT ARRAY read — `policyById.data.riders` — yields rows of the
+  // element value object, keyed through its owning field.  Tried after the
+  // envelope: a paged list's `rows.items` is the envelope's page, even when
+  // the row aggregate also declares an `items` field.
+  return valueObjectRowKey(rowsArg, ctx);
 }
