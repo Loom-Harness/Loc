@@ -337,6 +337,7 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "embedded-optional", title: "shape: embedded — optional single containment (nullable jsonb)", doc: "language", backends: ALL },
   { id: "inheritance", title: "aggregate inheritance — TPH (sharedTable) + TPC (ownTable)", doc: "inheritance", backends: ALL },
   { id: "tph", title: "TPH-only (sharedTable) hierarchy — Vehicle/Car/Truck canonical fixture", doc: "inheritance", backends: ALL },
+  { id: "tph-value-collection", title: "TPH concrete with a value-object array field — its child table FKs the shared base table", doc: "inheritance", backends: ALL },
   {
     id: "acronym-names",
     title:
