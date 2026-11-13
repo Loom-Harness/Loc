@@ -155,6 +155,11 @@ Every backend's relay behaves the same way on `__loom_outbox`:
   AND dead_at IS NULL ORDER BY occurred_at`, 50 per pass every 500 ms. The
   partial index `__loom_outbox_pending_idx` carries the same predicate, so the
   poll cost tracks the backlog, not the table's history.
+- **Claim.** A pass takes its rows inside one transaction with
+  `FOR UPDATE SKIP LOCKED` and marks them before it commits, so two relays
+  over one outbox (replicas of a deployable, or two deployables sharing a
+  database) never publish the same row. Reactors the relay runs in-process
+  use their own connection, never the claim's.
 - **Broker outage.** A publish the broker cannot take halts the pass without
   spending the row's attempt; the rows already published commit. After a
   failed pass (broker or database unreachable) the next one waits

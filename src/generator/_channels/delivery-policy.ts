@@ -37,6 +37,13 @@ export const OUTBOX_RELAY = {
   maxBackoffMs: 30_000,
   /** Failed passes past which the delay stops doubling. */
   maxBackoffDoublings: 6,
+  /** How a pass claims its batch: it takes the pending rows inside one
+   *  transaction with this lock, skipping rows another relay holds, and marks
+   *  them before it commits — so competing relays (replicas of one
+   *  deployable, or two deployables sharing an outbox) never deliver the same
+   *  row.  Reactors a relay runs in-process use their own connection, never
+   *  the claim's. */
+  claimLock: "FOR UPDATE SKIP LOCKED",
 } as const;
 
 /** Delay (ms) before the next pass after `failures` consecutive failed passes
