@@ -85,7 +85,7 @@ jobs:
           --health-retries 10
 
       # The broker sidecar of the hermetic fake-service kit
-      # (test/support/fakes/broker.mjs): a case whose model declares a
+      # (test/support/fakes/broker-sidecar.mjs): a case whose model declares a
       # `rabbitmq` storage gets its generated definitions imported here and
       # its publishes tapped.  Pinned to the same digest as BROKER_IMAGES.
       rabbitmq:

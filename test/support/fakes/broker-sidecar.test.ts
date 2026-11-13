@@ -9,7 +9,14 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { channelSourceEnvVar } from "../../../src/util/channels.js";
 import { resourceEnvUrlVar } from "../../../src/util/resource-env.js";
-import { BROKER_IMAGES, cloudEventType, parseResp, rehost, start, summarise } from "./broker.mjs";
+import {
+  BROKER_IMAGES,
+  cloudEventType,
+  parseResp,
+  rehost,
+  start,
+  summarise,
+} from "./broker-sidecar.mjs";
 
 describe("broker sidecar — pure helpers", () => {
   it("re-hosts a compose URL, keeping credentials, vhost and query", () => {

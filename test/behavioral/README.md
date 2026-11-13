@@ -494,10 +494,10 @@ the main vitest suite can import it: `test/harness/behavioral-proc.test.ts`
 gates this behaviour on every PR against a server that deliberately ignores
 SIGTERM. Left to these legs, a race is only tested when it is lost.
 
-### Broker sidecar (`test/support/fakes/broker.mjs`)
+### Broker sidecar (`test/support/fakes/broker-sidecar.mjs`)
 
 The real-process legs speak AMQP and RESP to a real broker, not to an emulation.
-`broker.mjs` starts one digest-pinned container per broker type
+`broker-sidecar.mjs` starts one digest-pinned container per broker type
 (`BROKER_IMAGES`: `rabbitmq:4.1-management-alpine`, `valkey/valkey:8-alpine`)
 with `docker run`. In CI it uses the workflow's `services: rabbitmq` entry,
 named by `LOOM_FAKE_AMQP_URL` and `LOOM_FAKE_AMQP_MGMT_URL`. Kafka is not

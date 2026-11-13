@@ -1,4 +1,4 @@
-// Types for the plain-JS broker sidecar (`broker.mjs`).
+// Types for the plain-JS broker sidecar (`broker-sidecar.mjs`).
 
 /** One golden row: publishes to one exchange (rabbitmq) or channel (valkey)
  *  with one routing key and one CloudEvent `type` (null for a plain body). */
