@@ -58,7 +58,7 @@ function bootedState(persistent: boolean) {
   s = pipelineReducer(s, {
     type: "BUNDLE_DONE",
     backends: [{ slug: "api", entry: "api/http/index.ts", bundle: SAMPLE_BUNDLE }],
-    react: null,
+    frontends: [],
   });
   s = pipelineReducer(s, { type: "BOOT_START" });
   s = pipelineReducer(s, {

@@ -220,7 +220,6 @@ describe("enum value rename — the migration chain", () => {
       order: Order id
       status: Status
       on(e: Placed) {
-        order := e.order
         status := e.status
       }
     }`;

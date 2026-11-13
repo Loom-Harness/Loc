@@ -998,14 +998,33 @@ export function fieldArrayInput(
   /** The row-name prefix of a nested array's testids. */
   rowNsOverride?: string,
 ): string {
-  const rowNs = rowNsOverride ?? `${ns}-${spec.fieldName}-row`;
+  // Row ids are `<ns>-input-<field>-<index>-<sub>`, the shape every other
+  // frontend emits.  The index is a loop variable, so the row markup is built
+  // with a depth-keyed token that `bindRowIndex` turns into a binding.
+  const rowNs = rowNsOverride ?? `${ns}-input-${spec.fieldName}`;
   const depth = scope?.depth ?? 0;
   const rowVar = depth === 0 ? "__row" : `__row${depth}`;
+  const idxVar = depth === 0 ? "__i" : `__i${depth}`;
   const rowScope: FieldScope = { base: rowVar, rel: [], depth: depth + 1 };
   const rowContainer = { groups: spec.rowGroups, arrays: spec.rowArrays };
-  const rowInputs = voFields
-    .map((f) => subFieldMarkup(f, bc, rowNs, ctx, undefined, voName, rowScope, rowContainer))
-    .join("");
+  const rowInputs = bindRowIndex(
+    voFields
+      .map((f) =>
+        subFieldMarkup(
+          f,
+          bc,
+          rowNs,
+          ctx,
+          `${rowNs}-${rowIndexToken(depth)}-${f.name}`,
+          voName,
+          rowScope,
+          rowContainer,
+        ),
+      )
+      .join(""),
+    depth,
+    idxVar,
+  );
   const parent = scope ? scopeExpr(scope) : undefined;
   const remove = formButton(ctx, {
     type: "button",
@@ -1020,7 +1039,25 @@ export function fieldArrayInput(
     attrs: ` (click)="${spec.addMethod}(${parent ?? ""})"`,
   });
   const rows = parent ? `${spec.getter}(${parent})` : `${spec.getter}.controls`;
-  return `<div class="loom-field" formArrayName=${JSON.stringify(spec.fieldName)}><span class="loom-label">${label}</span>@for (${rowVar} of ${rows}; track $index) {<div class="loom-row" [formGroupName]="$index">${rowInputs}${remove}</div>}${add}</div>`;
+  return `<div class="loom-field" formArrayName=${JSON.stringify(spec.fieldName)}><span class="loom-label">${label}</span>@for (${rowVar} of ${rows}; track $index; let ${idxVar} = $index) {<div class="loom-row" [formGroupName]="$index">${rowInputs}${remove}</div>}${add}</div>`;
+}
+
+/** The placeholder a row's ids carry for the row index until `bindRowIndex`. */
+function rowIndexToken(depth: number): string {
+  return `@@IDX${depth}@@`;
+}
+
+/** Turn a row's index token into the loop variable: a static `attr="…token…"`
+ *  becomes `[attr.attr]="'…' + i + '…'"`, a token already inside a quoted
+ *  template expression is spliced into it. */
+function bindRowIndex(markup: string, depth: number, idxVar: string): string {
+  const tok = rowIndexToken(depth);
+  const splice = (v: string) => v.split(tok).join(`' + ${idxVar} + '`);
+  return splice(
+    markup.replace(/(\s)([\w-]+)="([^"]*@@IDX\d+@@[^"]*)"/g, (m, sp, name, value) =>
+      value.includes(tok) ? `${sp}[attr.${name}]="'${splice(value)}'"` : m,
+    ),
+  ).replace(/ \+ ''/g, "");
 }
 
 /** Where a value-object sub-field's control lives: `base` is a template
@@ -1241,7 +1278,7 @@ function subFieldMarkup(
       ctx,
       spec.elementName,
       scope,
-      tid ? `${tid}-row` : `${ns}-${f.name}-row`,
+      tid,
     );
   }
   return fieldInput(f.name, f.type, bc, ns, ctx, tid, undefined, undefined, voName);

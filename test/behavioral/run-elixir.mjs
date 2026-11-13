@@ -47,6 +47,7 @@ import { startSidecars } from "../support/fakes/index.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
+import { httpRequest, probeCodeFlow } from "../support/oidc-code-flow.mjs";
 
 /** In-process mock OIDC issuer, started when the corpus has an `auth {}` case. */
 let oidc = null;
@@ -466,7 +467,7 @@ async function runCase(c) {
       // Run the emitted ExUnit domain suite (pure domain — no DB tables — but
       // `mix test` boots the app in :test env, so the `api_test` DB must exist
       // for the Repo pool to connect).  ExUnit has no JUnit dep, so gate on the
-      // "N tests, M failures" summary line.
+      // "N tests, M failures[, K skipped]" summary line.
       const testDir = join(deplDir, "test");
       const hasUnit = existsSync(testDir) && walk(testDir, (p) => p.endsWith("_test.exs")).length > 0;
       const tUnit = Date.now();
@@ -487,7 +488,13 @@ async function runCase(c) {
         if (m) {
           const total = Number(m[1]);
           const failures = Number(m[2]);
-          unitResults.push({ tier: "unit", name: `mix test (${total} tests)`, status: failures === 0 ? "pass" : "fail", error: failures === 0 ? undefined : `${failures} failure(s)` });
+          // A test the emitter could not render is a `@tag :skip`, which ExUnit
+          // counts as green — so a skip is a failure here, or the tier would
+          // pass a test that never ran.
+          const skipped = Number(/(\d+) skipped/.exec(out)?.[1] ?? 0);
+          const bad = failures > 0 || skipped > 0;
+          const why = [failures > 0 ? `${failures} failure(s)` : "", skipped > 0 ? `${skipped} skipped (an unrenderable test shape — see its "# Reason" line)` : ""].filter(Boolean).join(", ");
+          unitResults.push({ tier: "unit", name: `mix test (${total} tests)`, status: bad ? "fail" : "pass", error: bad ? why : undefined });
         } else {
           unitResults.push({ tier: "unit", name: "mix test", status: "fail", error: "no ExUnit summary (compile error?)" });
         }
@@ -544,7 +551,9 @@ async function runCase(c) {
     await build({ entryPoints: [entry], outfile: bundle, bundle: true, platform: "node", format: "esm", target: "node20", packages: "external", logLevel: "warning" });
     const { run } = await import(pathToFileURL(bundle).href);
     const api = await run();
-    return { results: [...unitResults, ...api.results, ...(api.authz ?? [])], wire: api.wire, effects: await fakes.effects() };
+    // The OIDC authorization-code handshake against the fake issuer (off the recorder).
+    const codeFlow = isOidc && oidc ? await probeCodeFlow({ request: httpRequest(BASE), oidc }) : [];
+    return { results: [...unitResults, ...api.results, ...(api.authz ?? []), ...codeFlow], wire: api.wire, effects: await fakes.effects() };
   } finally {
     // AWAIT the exit — firing SIGTERM and moving on leaves the port occupied
     // into the next case, which then talks to the wrong app (see stopServer).

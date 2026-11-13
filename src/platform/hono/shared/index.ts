@@ -17,6 +17,8 @@ import {
   BROKER_BASELINE,
   BROKER_BASELINE_GAPS,
   MIGRATIONS_BASELINE,
+  RESOURCES_BASELINE,
+  SECURITY_BASELINE,
   wgetHealthcheck,
 } from "../../operations.js";
 import { backendEnvContract } from "../../operations-env.js";
@@ -85,6 +87,8 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
       log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
       broker: BROKER_BASELINE,
       migrations: MIGRATIONS_BASELINE,
+      security: SECURITY_BASELINE,
+      resources: RESOURCES_BASELINE,
       gaps: BROKER_BASELINE_GAPS,
     },
     composeService({ slug, deployable, sys }): ComposeServiceShape {

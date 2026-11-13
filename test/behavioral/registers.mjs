@@ -285,17 +285,6 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
-    // A value object whose invariants are all cross-field gets no `new/1`
-    // validator, so the out-of-order stay is stored (201, not 422).
-    "vo-date-invariant": {
-      issue: "#5333",
-      expect: "fail",
-      tests: {
-        "a value-object date ordering invariant judges calendar order":
-          "expected the call to reject, but it resolved",
-      },
-      reason: "elixir validates only a value object's single-field invariants",
-    },
     // An expected-failure entry point (`T or E`) is refused on Phoenix, so
     // generation stops at phase ⑦ (unsupported register).
     "workflow-expected-failure": {

@@ -36,7 +36,9 @@ describe("Table client-side filter (Vue)", () => {
         rows: rows, filter: q) }`,
     );
     const content = files.get("web/src/pages/x.vue")!;
-    expect(content).toContain(`<input type="search" v-model="q" placeholder="Filter…"`);
+    expect(content).toContain(
+      `<input type="search" v-model="q" :placeholder='t("chrome.tableFilterPlaceholder", "Filter…")'`,
+    );
     expect(content).toContain('data-testid="table-filter"');
     // Rows filtered via the shared helper (ref auto-unwraps in the template).
     expect(content).toContain("filterRows(customerAll.data.items, q)");

@@ -1,3 +1,4 @@
+import { gateReadsRow } from "../../../ir/plan/gate-ladder.js";
 import type { ExprIR, OperationIR } from "../../../ir/types/loom-ir.js";
 import { mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { operationGates, type RequiresStmtIR } from "../../../ir/util/op-gates.js";
@@ -59,4 +60,18 @@ export function updateSeamGates(op: OperationIR | undefined): RequiresStmtIR[] {
   return operationGates(op).filter(
     (g) => g.maskWriteOf !== undefined || !isAlwaysPublicGate(g.expr),
   );
+}
+
+/** The leading `requires` gates of `op` that read no row.  The controller runs
+ *  them (`<op>_<agg>_gate/2`) BEFORE it loads the row, so a caller one refuses
+ *  gets 403 whether or not the row exists (the gate ladder,
+ *  `ir/plan/gate-ladder.ts`). */
+export function opRowFreeGates(op: OperationIR): RequiresStmtIR[] {
+  return operationGates(op).filter((g) => !gateReadsRow(g));
+}
+
+/** The leading `requires` gates of `op` that read the loaded row and can deny:
+ *  the `can_<op>` probe folds them into `allowed` (`can_<op>_<agg>/2`). */
+export function probeRowGates(op: OperationIR): RequiresStmtIR[] {
+  return operationGates(op).filter((g) => gateReadsRow(g) && !isAlwaysPublicGate(g.expr));
 }

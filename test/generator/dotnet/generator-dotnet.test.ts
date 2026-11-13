@@ -1497,7 +1497,9 @@ describe(".NET generator", () => {
       expect(order).not.toMatch(/currentUser/);
       // The `precondition` 422-mapping path stays distinct.
       expect(order).not.toMatch(/throw new DomainException\([^)]*Forbidden/);
-      // The handler owns the 403 now, post-load and pre-call.
+      // The handler owns the 403 now.  This gate reads no row, so the gate
+      // ladder (ir/plan/gate-ladder.ts) runs it before the load, and before
+      // the call.
       const handler = [...files.entries()].find(
         ([p, c]) => p.includes("Commands/") && c.includes("aggregate.Cancel("),
       )?.[1];
@@ -1506,8 +1508,8 @@ describe(".NET generator", () => {
       const load = handler!.indexOf("var aggregate = await _repo.");
       const gate = handler!.indexOf("throw new ForbiddenException(");
       const call = handler!.indexOf("aggregate.Cancel(");
-      expect(load).toBeLessThan(gate);
-      expect(gate).toBeLessThan(call);
+      expect(gate).toBeLessThan(load);
+      expect(load).toBeLessThan(call);
     });
   });
 

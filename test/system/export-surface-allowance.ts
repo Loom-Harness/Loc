@@ -50,7 +50,6 @@ export const MODULE_LOCAL_ALLOWANCE: Readonly<Record<string, number>> = {
   "src/generator/elixir/render-expr.ts": 1,
   "src/generator/elixir/vanilla/api-emit.ts": 1,
   "src/generator/elixir/vanilla/changeset-emit.ts": 1,
-  "src/generator/elixir/vanilla/changeset-invariant-emit.ts": 1,
   "src/generator/elixir/vanilla/changeset-validators.ts": 1,
   "src/generator/elixir/vanilla/denial.ts": 2,
   "src/generator/elixir/vanilla/domain-core-emit.ts": 1,

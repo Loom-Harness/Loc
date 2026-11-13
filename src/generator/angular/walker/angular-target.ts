@@ -224,12 +224,12 @@ export const angularTarget: WalkerTarget = {
   /** A `[value]`/`(input)` search box driving the client-side filter.  Angular
    *  signals read as `filter()` and write as `filter.set(…)`; `$any(...)` casts
    *  the event target so the template typechecker accepts `.value`. */
-  renderFilterInput(filter) {
+  renderFilterInput(filter, labels) {
     const n = filter.name;
     const style = "margin-bottom: 0.75rem; padding: 0.375rem 0.5rem;";
     return (
       `<input type="search" [value]="${n}()" (input)="${n}.set($any($event.target).value)" ` +
-      `placeholder="Filter…" aria-label="Filter table" style="${style}" data-testid="table-filter" />`
+      `${labels.placeholderAttr} ${labels.ariaAttr} style="${style}" data-testid="table-filter" />`
     );
   },
 

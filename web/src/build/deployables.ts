@@ -1,33 +1,54 @@
 // Which generated deployables the playground can run, read off the generated
 // file tree.
 //
-// The browser runtime boots every Hono backend (one worker each) and serves at
-// most one React frontend.  Everything else in the tree is files-only, and is
+// The browser runtime boots every Hono backend (one worker each) and previews
+// every React, Vue, SvelteKit and Angular frontend, one at a time, each against the backend its `targets:`
+// names.  Everything else in the tree is files-only, and is
 // listed so the UI can say so by name: .NET (`Program.cs`), Phoenix LiveView
 // (`mix.exs`), Spring Boot (`build.gradle.kts`) and FastAPI (`pyproject.toml`)
-// backends, and the frontends the preview engine does not bundle (SvelteKit,
-// Vue, Angular, Feliz, Flutter).
+// backends, and the frontends whose toolchain does not run in the browser
+// (Feliz, Flutter).
 //
 // Pure: no React, no DOM, no worker — the root vitest suite imports it.
 
 import type { UnsupportedDeployable, UnsupportedPlatform } from "../layout/ctx.js";
 import { serviceSlug } from "../../../src/util/service-slug.js";
 import type { VirtualFile } from "./protocol.js";
+import type { CompiledFramework } from "../engine/npm/frontend-frameworks.js";
+
+/** The framework a previewed frontend is built with: React bundles as is,
+ *  the others through their compiler (`engine/npm/frontend-frameworks.ts`). */
+export type PreviewFramework = "react" | CompiledFramework;
+
+/** One frontend deployable the preview renders. */
+export interface PreviewFrontend {
+  /** The deployable's slug — its generated folder. */
+  slug: string;
+  /** Its entry path (`<slug>/src/main.tsx`, `main.ts` for Vue and Angular, the
+   *  `app.html` beside the routes for SvelteKit). */
+  entry: string;
+  framework: PreviewFramework;
+  /** The slug of the backend its `targets:` names (the compose
+   *  `VITE_API_PROXY_TARGET`) — where the preview sends its API calls.  Null
+   *  when the tree records none. */
+  apiTarget: string | null;
+}
 
 export interface DeployableAnalysis {
   /** Hono entry paths to bundle + boot (the single-context root, or one per
-   *  system-mode slug folder), the backend the React frontend talks to first —
-   *  the default target of the preview's and the console's requests.  Empty
-   *  when the tree has none. */
+   *  system-mode slug folder), the backend the first frontend talks to first —
+   *  the default target of the console's requests.  Empty when the tree has
+   *  none. */
   backends: string[];
-  /** React entry path (always under a system-mode slug folder). */
-  react: string | null;
+  /** Every frontend the preview renders, sorted by slug. */
+  frontends: PreviewFrontend[];
   /** Deployables the browser does not bundle/boot, sorted by slug. */
   unsupported: UnsupportedDeployable[];
 }
 
 const HONO_ENTRY = /^([^/]+)\/http\/index\.ts$/;
 const REACT_ENTRY = /^([^/]+)\/src\/main\.tsx$/;
+const VUE_ENTRY = /^([^/]+)\/src\/main\.ts$/;
 
 /** The lines of one compose service's block, or null when the file declares
  *  no such service.  Service names are the deployable slugs. */
@@ -95,36 +116,34 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
   // Legacy single-context mode puts Hono at the root with no slug, and emits
   // nothing else.
   if (files.some((f) => f.path === "http/index.ts")) {
-    return { backends: ["http/index.ts"], react: null, unsupported: [] };
+    return { backends: ["http/index.ts"], frontends: [], unsupported: [] };
   }
   const honoSlugs: string[] = [];
-  let react: string | null = null;
+  const frontendEntries: { entry: string; framework: PreviewFramework }[] = [];
+  const vueEntries = new Map<string, string>();
   let compose: string | null = null;
   const platformBySlug = new Map<string, UnsupportedPlatform>();
   const angularSlugs = new Set<string>();
   for (const f of files) {
     const hono = f.path.match(HONO_ENTRY);
     if (hono?.[1] && !honoSlugs.includes(hono[1])) honoSlugs.push(hono[1]);
-    if (!react && REACT_ENTRY.test(f.path)) react = f.path;
+    if (REACT_ENTRY.test(f.path)) frontendEntries.push({ entry: f.path, framework: "react" });
     if (f.path === "docker-compose.yml") compose = f.content;
     const dotnet = f.path.match(/^([^/]+)\/Program\.cs$/);
     if (dotnet?.[1]) platformBySlug.set(dotnet[1], "dotnet");
     const phoenix = f.path.match(/^([^/]+)\/mix\.exs$/);
     if (phoenix?.[1]) platformBySlug.set(phoenix[1], "elixir");
-    // Frontend SPAs the preview engine doesn't bundle in-browser: SvelteKit
-    // (`svelte.config.js`; its `$app/*` client + file routing aren't
-    // reproduced), Vue (`src/main.ts` — the `.ts` entry, vs react's
-    // `src/main.tsx`; the `.vue` SFC pipeline isn't wired), and Angular
-    // (`angular.json`; its AOT/`ng build` toolchain isn't run in-browser).
-    // Angular *also* emits `src/main.ts`, so `angular.json` is the
-    // discriminator and takes precedence over the Vue match (applied after
-    // the loop, independent of file order).
+    // Frontend SPAs: SvelteKit (`svelte.config.js`), Vue (`src/main.ts` —
+    // the `.ts` entry, vs react's `src/main.tsx`) and Angular
+    // (`angular.json`).  Angular *also* emits `src/main.ts`,
+    // so `angular.json` is the discriminator and takes precedence over the
+    // Vue match (applied after the loop, independent of file order).
     const svelte = f.path.match(/^([^/]+)\/svelte\.config\.js$/);
-    if (svelte?.[1]) platformBySlug.set(svelte[1], "svelte");
+    if (svelte?.[1]) frontendEntries.push({ entry: `${svelte[1]}/src/app.html`, framework: "svelte" });
     const angular = f.path.match(/^([^/]+)\/angular\.json$/);
     if (angular?.[1]) angularSlugs.add(angular[1]);
-    const vue = f.path.match(/^([^/]+)\/src\/main\.ts$/);
-    if (vue?.[1]) platformBySlug.set(vue[1], "vue");
+    const vue = f.path.match(VUE_ENTRY);
+    if (vue?.[1]) vueEntries.set(vue[1], f.path);
     // Backends and frontends with their own toolchain: Spring Boot
     // (`build.gradle.kts`), FastAPI (`pyproject.toml`), Feliz (`*.fsproj`,
     // built by Fable) and Flutter (`pubspec.yaml`).
@@ -137,13 +156,22 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
     const flutter = f.path.match(/^([^/]+)\/pubspec\.yaml$/);
     if (flutter?.[1]) platformBySlug.set(flutter[1], "flutter");
   }
-  for (const slug of angularSlugs) platformBySlug.set(slug, "angular");
+  for (const slug of angularSlugs) frontendEntries.push({ entry: `${slug}/src/main.ts`, framework: "angular" });
+  for (const [slug, entry] of vueEntries) {
+    if (!angularSlugs.has(slug)) frontendEntries.push({ entry, framework: "vue" });
+  }
 
-  // Every Hono backend boots.  The one the React frontend talks to leads, so
-  // the preview's API calls land on a backend that serves them; the rest
-  // follow in path order.
-  const reactSlug = react?.match(REACT_ENTRY)?.[1] ?? null;
-  const targeted = reactSlug && compose ? frontendApiTarget(compose, reactSlug) : null;
+  const frontends: PreviewFrontend[] = frontendEntries
+    .map(({ entry, framework }) => {
+      const slug = entry.slice(0, entry.indexOf("/"));
+      return { slug, entry, framework, apiTarget: compose ? frontendApiTarget(compose, slug) : null };
+    })
+    .sort((a, b) => a.slug.localeCompare(b.slug));
+
+  // Every Hono backend boots.  The one the first frontend talks to leads, so
+  // the console's default target serves the preview's pages; the rest follow
+  // in path order.
+  const targeted = frontends[0]?.apiTarget ?? null;
   const ordered =
     targeted && honoSlugs.includes(targeted)
       ? [targeted, ...honoSlugs.filter((slug) => slug !== targeted)]
@@ -152,7 +180,7 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
   const unsupported: UnsupportedDeployable[] = [...platformBySlug]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([slug, platform]) => ({ slug, platform }));
-  return { backends: ordered.map((slug) => `${slug}/http/index.ts`), react, unsupported };
+  return { backends: ordered.map((slug) => `${slug}/http/index.ts`), frontends, unsupported };
 }
 
 /** The files-only platform of the deployable a `.ddd` source names, or null

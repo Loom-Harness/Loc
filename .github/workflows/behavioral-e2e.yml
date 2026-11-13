@@ -32,7 +32,7 @@ on:
       - 'web/src/examples/sales-system.ddd'
       - 'web/src/examples/storefront-system.ddd'
       - 'test/behavioral/**'
-      - 'test/support/fakes/**'
+      - 'test/support/**'
       # The typed corpus manifest + its fixtures are this tier's CASE LIST:
       # `cases.mjs` derives every feature case from them, so a fixture that
       # grows a `test e2e`/`test` block mints a case (and needs a wire golden)

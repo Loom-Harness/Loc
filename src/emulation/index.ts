@@ -33,10 +33,15 @@ export { createMailbox, type Mailbox, type MailInput, type MailMessage } from ".
 export {
   createOidcProvider,
   discovery,
+  type IssuedToken,
+  KEYCLOAK_ROUTES,
   type MintParams,
+  OIDC_EMULATION_NOTES,
   type OidcGrant,
   type OidcPersona,
   type OidcProvider,
+  type OidcProviderOptions,
   type OidcRealm,
+  type OidcRoutes,
   type TokenSet,
 } from "./oidc.js";

@@ -8,6 +8,8 @@ import { provableStringType } from "../../../util/expr-body-type.js";
 import { giveUp } from "../give-up.js";
 import { sentenceChromeName } from "../i18n-chrome.js";
 import {
+  localizedChromeAria,
+  localizedChromeAttr,
   localizedChromeIcuText,
   localizedChromeIcuValue,
   localizedChromeText,
@@ -117,7 +119,15 @@ export function emitTable(
       // walk below runs after this.
       columns: columnFields(call),
     });
-    filterMarkup = ctx.target.renderFilterInput!(filterRef);
+    // Rendered straight into the page, so the page's `t` import is ours to ask
+    // for (the pager does the same).
+    if (ctx.i18nPrefix) registerI18nImport(ctx);
+    filterMarkup = ctx.target.renderFilterInput!(filterRef, {
+      placeholderAttr: localizedChromeAttr(ctx, "placeholder", "tableFilterPlaceholder"),
+      ariaAttr: localizedChromeAria(ctx, "tableFilterAria", "Filter table").trimStart(),
+      placeholderValue: localizedChromeValue(ctx, "tableFilterPlaceholder"),
+      ariaValue: localizedChromeValue(ctx, "tableFilterAria"),
+    });
   }
 
   // Column sort (M-T1.1 client / M-T2.6 server).  The clickable sortable

@@ -86,15 +86,16 @@ export interface DataSourceIR {
    *  aggregate header's `shape: …` (see {@link SavingShape} /
    *  {@link effectiveSavingShape}).  Omitted → the header decides. */
   shape?: SavingShape;
-  /** Generic vendor-parameter map for the binding (RFC §3.2). */
-  config?: readonly ConfigEntryIR[];
+  /** Generic vendor-parameter map for the binding (RFC §3.2).  Empty when
+   *  none is declared. */
+  config: readonly ConfigEntryIR[];
   /** Manual performance indexes declared via `index: [...]`
    *  (uniqueness-and-indexes.md §3.2, D-INDEX-INFRA).  Each entry names its
    *  target entity EXPLICITLY (an aggregate or one of its contained parts in
    *  the binding's context) plus the column(s) — one for a single-column
    *  index, several for a composite.  Always non-unique — uniqueness is the
-   *  domain `unique (...)` invariant.  Omitted when none declared. */
-  manualIndexes?: readonly ManualIndexIR[];
+   *  domain `unique (...)` invariant.  Empty when none declared. */
+  manualIndexes: readonly ManualIndexIR[];
 }
 
 /** One `index: [...]` entry — an explicitly-targeted performance index on a

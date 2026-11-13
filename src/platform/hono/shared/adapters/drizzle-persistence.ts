@@ -14,7 +14,7 @@
 import type { EmitCtx, Lines, PersistenceAdapter } from "../../../../generator/_adapters/index.js";
 import { renderSchema } from "../../../../generator/typescript/emit/schema.js";
 import type { EnrichedBoundedContextIR } from "../../../../ir/types/loom-ir.js";
-import { dedupeByName } from "../../../../util/dedupe.js";
+import { mergeContexts } from "../../../../ir/util/merge-contexts.js";
 import type { BackendPins } from "../emit.js";
 
 /** Find the matching repository declaration across the deployable's
@@ -101,37 +101,12 @@ export const drizzlePersistenceAdapterFor = (pins: BackendPins): PersistenceAdap
  *  `emit.ts`.
  *
  *  `renderSchema` takes a single merged context, so we synthesise one
- *  from every context the deployable hosts — same merge the existing
- *  orchestrator does inline. */
+ *  from every context the deployable hosts through `mergeContexts`. */
 export function emitDrizzleSchema(
   ctx: EmitCtx,
   options: { audit?: boolean; provenance?: boolean } = {},
 ): Lines {
   const ns = ctx.deployable.name;
-  const merged: EnrichedBoundedContextIR = {
-    name: ns,
-    // Dedupe the ambient root-level enums / VOs that enrichment folds into
-    // every hosted context — a plain union would emit duplicate
-    // `pgEnum` exports in the schema (rejected by the bundler).
-    enums: dedupeByName(ctx.contexts.flatMap((c) => c.enums)),
-    valueObjects: dedupeByName(ctx.contexts.flatMap((c) => c.valueObjects)),
-    events: ctx.contexts.flatMap((c) => c.events),
-    payloads: ctx.contexts.flatMap((c) => c.payloads),
-    aggregates: ctx.contexts.flatMap((c) => c.aggregates),
-    repositories: ctx.contexts.flatMap((c) => c.repositories),
-    workflows: ctx.contexts.flatMap((c) => c.workflows),
-    criteria: ctx.contexts.flatMap((c) => c.criteria),
-    domainServices: ctx.contexts.flatMap((c) => c.domainServices ?? []),
-    channels: ctx.contexts.flatMap((c) => c.channels),
-    projections: ctx.contexts.flatMap((c) => c.projections ?? []),
-    retrievals: ctx.contexts.flatMap((c) => c.retrievals),
-    seeds: ctx.contexts.flatMap((c) => c.seeds),
-    tests: ctx.contexts.flatMap((c) => c.tests ?? []),
-    commandHandlers: ctx.contexts.flatMap((c) => c.commandHandlers),
-    queryHandlers: ctx.contexts.flatMap((c) => c.queryHandlers),
-    // Schema emission only — dispatch wiring reads the value computed in
-    // `emit.ts`; flatMap the per-context derivations to satisfy the type.
-    eventSubscriptions: ctx.contexts.flatMap((c) => c.eventSubscriptions),
-  };
+  const merged: EnrichedBoundedContextIR = { ...mergeContexts(ctx.contexts), name: ns };
   return splitLines(renderSchema(merged, options));
 }

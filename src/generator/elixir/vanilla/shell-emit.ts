@@ -26,6 +26,7 @@ import {
   TEST_RESET_PATH,
   TEST_RESET_TOKEN_ENV,
 } from "../../../util/test-reset.js";
+import type { BootRequiredSetting } from "../../_auth/boot-required.js";
 import { NPM_FETCH_RETRY_FLAGS } from "../../_docker/node-stage.js";
 import { uiUsesLocaleSwitcher } from "../../_frontend/locale-switcher-use.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
@@ -147,6 +148,8 @@ export function emitVanillaShellFiles(
    *  tag.  Each becomes a `priv/gettext/<locale>/LC_MESSAGES/default.po`, and
    *  its tag joins the negotiation's known-locale table. */
   translations: ReadonlyMap<string, Record<string, string>> = new Map(),
+  /** The env(…)-bound auth settings the release refuses to boot without. */
+  bootRequired: readonly BootRequiredSetting[] = [],
 ): void {
   const hasLiveView = liveRoutes.length > 0 || hasSidebar;
   // Either source of translatable strings turns the runtime on.
@@ -200,7 +203,7 @@ export function emitVanillaShellFiles(
       schedulerChildren,
       preEndpointChildren,
       seedModules,
-      authEnabled && !oidc ? devAuthBootLog() : [],
+      authEnabled && !oidc ? devAuthBootLog() : elixirBootRequiredAuth(appName, bootRequired),
     ),
   );
   // `mix run priv/repo/seeds.exs` — the canonical Phoenix manual entry, over
@@ -1985,8 +1988,11 @@ end
 function renderVanillaTest(appName: string, appModule: string, oidc: boolean): string {
   // `mix test` has no issuer: the generated tests build their principal from a
   // claims map (`Auth.as_principal/1`), so the JWKS strategy — which fetches the
-  // issuer's keys synchronously at start — stays off under `:test`.
-  const jwks = oidc ? `\nconfig :${appName}, :start_jwks_strategy, false\n` : "";
+  // issuer's keys synchronously at start — stays off under `:test`, and so
+  // does the boot check of the env-bound auth settings.
+  const jwks = oidc
+    ? `\nconfig :${appName}, :start_jwks_strategy, false\nconfig :${appName}, :require_auth_env, false\n`
+    : "";
   return `import Config
 
 config :${appName}, ${appModule}.Repo,
@@ -2010,6 +2016,34 @@ ${jwks}`;
 
 /** The one boot line saying whether the dev-stub login is on — an
  *  `auth: required` system with no `auth { oidc }` block. */
+/** The model binds these auth settings to env(…), so there is no fallback:
+ *  the release refuses to boot without them (a raise in \`start/2\` fails the
+ *  application, and the VM exits non-zero) rather than answer every request
+ *  with a 401. */
+function elixirBootRequiredAuth(
+  appName: string,
+  required: readonly BootRequiredSetting[],
+): string[] {
+  if (required.length === 0) return [];
+  const rows = required
+    .map(
+      (r) => `{${JSON.stringify(r.setting)}, [${r.vars.map((v) => JSON.stringify(v)).join(", ")}]}`,
+    )
+    .join(", ");
+  return [
+    "# The model binds these auth settings to env(…), so there is no fallback:",
+    "# refuse to boot without them rather than answer every request with a 401.",
+    "# (`mix test` turns the check off: its principals come from claims maps.)",
+    `for {setting, vars} <- [${rows}],`,
+    `    Application.get_env(:${appName}, :require_auth_env, true) do`,
+    '  if Enum.all?(vars, &(System.get_env(&1) in [nil, ""])) do',
+    '    Logger.error("config_missing", event: "config_missing", setting: setting, vars: Enum.join(vars, ", "))',
+    '    raise "missing required auth setting #{setting}: set #{Enum.join(vars, " or ")}"',
+    "  end",
+    "end",
+  ];
+}
+
 function devAuthBootLog(): string[] {
   const disabled = renderPhoenixLogCall("authDevStubDisabled", [
     { name: "reason", valueExpr: JSON.stringify(DEV_AUTH_DISABLED_LOG) },

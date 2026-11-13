@@ -162,7 +162,6 @@ describe("field mask — IR gates", () => {
         who: P id
         newSalary: money
         on(e: Raised) by e.who {
-          who := e.who
           newSalary := e.newSalary
         }
       }

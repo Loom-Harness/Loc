@@ -124,6 +124,10 @@ system MessagedRules {
     //   …and a BLANK leaf, which has to reach the same rule rather than be
     //   cast to nil and skipped by every length validator.
     expect(api.products.create({ name: "Gadget", sku: { code: "" }, quantity: 1, reorderLevel: 1 })).toThrow(422)
+    //   the UNNAMED single-field invariant `reorderLevel >= 1` at create: it
+    //   stays on each backend's native chain and must answer the same
+    //   `field.min` code, bound and pointer as the named carriers' envelope.
+    expect(api.products.create({ name: "Gadget", sku: { code: "GAD" }, quantity: 1, reorderLevel: 0 })).toThrow(422)
     let stillOne = api.products.all()
     expect(stillOne.total).toBe(1)
     let read = api.products.getById(p)
