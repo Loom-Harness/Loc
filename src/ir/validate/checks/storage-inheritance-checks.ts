@@ -94,39 +94,6 @@ export function validateInheritanceStorage(
   }
 }
 
-/** A polymorphic base whose read stays unrouted.  The base reader is emitted,
- *  but `GET /api/<bases>` is not mounted, because routing it would bypass a
- *  concrete's list-read gate or field mask.  Said here so the missing route
- *  is a stated fact of the model rather than a silent hole. */
-export function validatePolymorphicReadRouting(
-  ctx: BoundedContextIR,
-  diags: LoomDiagnostic[],
-  backendPlatforms: Set<string>,
-): void {
-  if (backendPlatforms.size === 0) return;
-  for (const base of ctx.aggregates) {
-    if (!base.isAbstract) continue;
-    const closure = polymorphicReadClosure(base, ctx);
-    if (!closure) continue;
-    diags.push({
-      severity: "warning",
-      code: "loom.polymorphic-read-unrouted",
-      message:
-        closure.reason === "mask"
-          ? diagMessage("loom.polymorphic-read-unrouted#mask", {
-              base: base.name,
-              concrete: closure.aggregate,
-            })
-          : diagMessage("loom.polymorphic-read-unrouted#requires", {
-              base: base.name,
-              concrete: closure.aggregate,
-            }),
-      source: `${ctx.name}/${base.name}`,
-      origin: base.origin,
-    });
-  }
-}
-
 // Event-sourced storage emission (`persistedAs: eventLog`, appliers A2) is
 // implemented on every backend: the `<agg>_events` stream table + fold-on-load
 // repository (Phoenix via the per-aggregate stream data layer,
@@ -398,5 +365,38 @@ export function validateAuditedOperationSupport(
         auditedLifecycle.map((o) => o.name || "<create>"),
       );
     }
+  }
+}
+
+/** A polymorphic base whose read stays unrouted.  The base reader is emitted,
+ *  but `GET /api/<bases>` is not mounted, because routing it would bypass a
+ *  concrete's list-read gate or field mask.  Said here so the missing route
+ *  is a stated fact of the model rather than a silent hole. */
+export function validatePolymorphicReadRouting(
+  ctx: BoundedContextIR,
+  diags: LoomDiagnostic[],
+  backendPlatforms: Set<string>,
+): void {
+  if (backendPlatforms.size === 0) return;
+  for (const base of ctx.aggregates) {
+    if (!base.isAbstract) continue;
+    const closure = polymorphicReadClosure(base, ctx);
+    if (!closure) continue;
+    diags.push({
+      severity: "warning",
+      code: "loom.polymorphic-read-unrouted",
+      message:
+        closure.reason === "mask"
+          ? diagMessage("loom.polymorphic-read-unrouted#mask", {
+              base: base.name,
+              concrete: closure.aggregate,
+            })
+          : diagMessage("loom.polymorphic-read-unrouted#requires", {
+              base: base.name,
+              concrete: closure.aggregate,
+            }),
+      source: `${ctx.name}/${base.name}`,
+      origin: base.origin,
+    });
   }
 }

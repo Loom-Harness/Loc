@@ -39,6 +39,7 @@ import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { LoomModel } from "../../src/ir/types/loom-ir.js";
 import { aggregateSegment } from "../../src/ir/util/api-surface.js";
+import { isTpcBase, tpcConcretesOf } from "../../src/ir/util/inheritance.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { buildLoomModel } from "../_helpers/ir.js";
@@ -1030,10 +1031,16 @@ describe("M-T9.41 — the IR census's un-refusable pins are proven APPLIED on em
           if (pin.kind === "scope") {
             const r = await scopeResult(c, v);
             if (r === null) continue;
-            proven =
-              c.agg.some((a) => a.name === agg!.name) &&
-              checked(r, agg!.name).length > 0 &&
-              !r.findings.some((f) => f.aggregate === agg!.name && f.problem !== "retained");
+            // A TPC base owns no table: its polymorphic read merges each
+            // concrete's own scoped read, so the gate is applied where every
+            // concrete's is.
+            const owners = isTpcBase(agg!, aggs) ? tpcConcretesOf(agg!, aggs) : [agg!];
+            proven = owners.every(
+              (o) =>
+                c.agg.some((a) => a.name === o.name) &&
+                checked(r, o.name).length > 0 &&
+                !r.findings.some((f) => f.aggregate === o.name && f.problem !== "retained"),
+            );
           } else {
             const m = await maskResult(c, v);
             if (m === null) continue;
