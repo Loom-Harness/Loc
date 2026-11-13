@@ -185,8 +185,24 @@ export function createS3(opts: { store?: BlobStore | null } = {}): S3 {
       };
     }
     if (key === "") {
+      // Every bucket exists on first touch, so CreateBucket and HeadBucket
+      // both succeed; a client that creates or probes its bucket at boot
+      // proceeds exactly as it would against a provisioned one.
+      if (method === "PUT" || method === "HEAD") {
+        return {
+          status: 200,
+          headers: { "x-amz-request-id": "loom-playground", ...CORS },
+          body: new Uint8Array(),
+        };
+      }
+      if (method === "GET" && url.searchParams.has("location")) {
+        return xml(
+          200,
+          `<LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/"></LocationConstraint>`,
+        );
+      }
       if (method !== "GET")
-        return s3Error(405, "MethodNotAllowed", "Only ListObjectsV2 is supported on a bucket.");
+        return s3Error(501, "NotImplemented", `${method} on a bucket is not supported.`);
       const prefix = url.searchParams.get("prefix") ?? "";
       const hits = [...objects.entries()]
         .filter(([k]) => k.startsWith(prefix))
