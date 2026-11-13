@@ -404,10 +404,10 @@ describe("mikroorm — `filter` capability predicates", () => {
     );
     // …and a read that bypasses it by name or with `*` switches that filter off.
     expect(repo).toContain(
-      'async findFirstOrdersWithDeletedIgnoringSoftDeletable(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer }, { filters: { "softDeletable": false } });',
+      'async findFirstOrdersWithDeletedIgnoringSoftDeletable(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer }, { orderBy: { id: "asc" }, filters: { "softDeletable": false } });',
     );
     expect(repo).toContain(
-      'async findFirstOrdersReallyAllIgnoringAll(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer }, { filters: { "softDeletable": false } });',
+      'async findFirstOrdersReallyAllIgnoringAll(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer }, { orderBy: { id: "asc" }, filters: { "softDeletable": false } });',
     );
   });
 });

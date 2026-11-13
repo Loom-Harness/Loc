@@ -37,14 +37,14 @@ RUN cat /usr/local/share/ca-certificates/*.crt 2>/dev/null >> /etc/ssl/cert.pem 
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/cert.pem NPM_CONFIG_CAFILE=/etc/ssl/cert.pem
 `;
 
-/** Proxy-CA trust for a debian-based stage that layers Node onto another SDK
- *  (the Feliz `spa-build` stage: `dotnet/sdk` + nodesource).  Debian ships
+/** Proxy-CA trust for a debian-based build stage (the Feliz `spa-build` stage,
+ *  the Flutter SDK stage, the fullstack backend images).  Debian ships
  *  `update-ca-certificates`, so the CA lands in the OS bundle that curl, apt,
- *  the .NET SDK and Node all read. */
+ *  the .NET SDK, Node and Dart all read. */
 export const DEBIAN_CERTS_BLOCK = `# Optional proxy CAs — drop *.crt files into ./certs/ to make curl / apt /
 # dotnet / npm trust them.  The directory always exists (with a .gitkeep),
 # so this COPY is a no-op when no CAs are configured.  It has to come BEFORE
-# the nodesource fetch below: that is this stage's first network call.
+# the stage's first network fetch.
 COPY certs/ /usr/local/share/ca-certificates/
 RUN update-ca-certificates 2>/dev/null || true
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \\

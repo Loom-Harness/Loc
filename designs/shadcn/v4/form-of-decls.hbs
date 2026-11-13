@@ -1,6 +1,6 @@
   const create = useCreate{{aggregateName}}();
 {{#if hasServerDefaults}}  const __prep = usePrepare{{aggregateName}}();
-{{/if}}{{#each idTargets}}  const {{this.hookVar}} = useAll{{this.namePlural}}();
+{{/if}}{{#each idTargets}}  const {{this.hookVar}} = use{{this.namePlural}}Options();
 {{/each}}  const form = useForm<{{{formGenerics}}}>({
     resolver: zodResolver(Create{{aggregateName}}Request),
     defaultValues: {{{defaultValuesTs}}},

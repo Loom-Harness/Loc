@@ -6,6 +6,7 @@ import {
   wireCreateDefault,
   wireFieldsFor,
 } from "../../../ir/enrich/wire-projection.js";
+import { routedPolymorphicRead } from "../../../ir/plan/index.js";
 import { PAGED_MAX_PAGE, PAGED_MAX_PAGE_SIZE, pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -80,7 +81,6 @@ import { workflowParamPayloads } from "../../_payload/workflow-param-payloads.js
 import type { ApiRoute } from "../api-emit.js";
 import { exReasonPhrase, exStatus } from "../wire-policy-ex.js";
 import { servedOperationEntries, servesHistory } from "./api-emit.js";
-import { routesPolymorphicRead } from "./base-reader.js";
 import { exInt32Range } from "./codec-spelling-ex.js";
 import { denialOverrides, denialStatus } from "./denial.js";
 import { isAbstractBase, isTphBase } from "./inheritance-emit.js";
@@ -1675,7 +1675,7 @@ function polymorphicPathEntries(
   aggSlug: string,
   schemasModule: string,
 ): string[] {
-  if (!routesPolymorphicRead(base, ctx)) return [];
+  if (!routedPolymorphicRead(base, ctx)) return [];
   const pageParams = pagingQueryParams().split(",\n").slice(0, 2).join(",\n");
   const out = [
     `      "/${aggSlug}" => %OpenApiSpex.PathItem{

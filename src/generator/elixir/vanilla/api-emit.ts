@@ -23,6 +23,7 @@ import {
   createInputFields,
   emitsRestCreate as sharedEmitsRestCreate,
 } from "../../../ir/enrich/wire-projection.js";
+import { routedPolymorphicRead } from "../../../ir/plan/index.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -61,11 +62,7 @@ import {
   renderVanillaHistoryMapper,
   vanillaHistoryFind,
 } from "./audit-history-emit.js";
-import {
-  hasPolymorphicConcretes,
-  renderPolymorphicSerialize,
-  routesPolymorphicRead,
-} from "./base-reader.js";
+import { hasPolymorphicConcretes, renderPolymorphicSerialize } from "./base-reader.js";
 import { aggregateUsesPrincipalContextFilter, listUsesPrincipal } from "./capability-filter.js";
 import { CRUD_RESERVED_NAMES } from "./context-emit.js";
 import {
@@ -280,7 +277,7 @@ export function emitVanillaApiControllers(
     // An abstract base's polymorphic read is routed only where it bypasses no
     // concrete's list gate or field mask (`routesPolymorphicRead`); its by-id
     // read only on TPH, where one table owns the ids.
-    const polyRouted = abstract && routesPolymorphicRead(agg, ctx);
+    const polyRouted = abstract && !!routedPolymorphicRead(agg, ctx);
     if (allEntry) routes.push(routeOf(allEntry, ":index"));
     else if (polyRouted) {
       // Read-only polymorphic index over the subtype tables — not derived

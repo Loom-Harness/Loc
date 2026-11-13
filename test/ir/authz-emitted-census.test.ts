@@ -619,8 +619,8 @@ const LEAK_DENY: Record<VariantId, Edit[]> = {
     {
       file: /secret-repository\.ts$/,
       after: "async findFirstSecretsEverythingIgnoringAll(",
-      from: '{ filters: { "tenantOwned": false } }',
-      to: '{ filters: { "tenantOwned": false, "loom.deny": false } }',
+      from: '{ orderBy: { id: "asc" }, filters: { "tenantOwned": false } }',
+      to: '{ orderBy: { id: "asc" }, filters: { "tenantOwned": false, "loom.deny": false } }',
     },
   ],
   dotnet: [

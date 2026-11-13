@@ -27,6 +27,7 @@ import {
   tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -544,8 +545,6 @@ export function renderConfiguration(
   // the scalar `fieldConfigLines` (whose primitive-collection arm would pin a
   // stray `.Property(x => x.Tags).HasColumnName("tags")` that the join path
   // immediately `.Ignore`s and the embedded path replaces).
-  const isRefCollectionField = (f: FieldIR): boolean =>
-    f.type.kind === "array" && f.type.element.kind === "id";
   // Optimistic concurrency (`versioned`): the synthetic `version` token field
   // is configured as EF's native concurrency token, so every UPDATE/DELETE
   // guards on the loaded value (`... WHERE id = @id AND version = @orig`) and a
@@ -553,7 +552,7 @@ export function renderConfiguration(
   // `aggregateIsVersioned` — a non-versioned aggregate is byte-identical.
   const versioned = aggregateIsVersioned(agg);
   const fieldConfigs = cfgFields
-    .filter((f) => !isRefCollectionField(f))
+    .filter((f) => !isRefCollectionType(f.type))
     .flatMap((f) =>
       fieldConfigLines(
         f,

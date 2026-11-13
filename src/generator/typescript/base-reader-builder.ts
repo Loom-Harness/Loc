@@ -27,9 +27,10 @@
 // and states no restriction itself; the ORM hydrates each row as its subclass
 // and applies every concrete's guarded filter.
 
-import { type PolymorphicRead, polymorphicReadFor } from "../../ir/enrich/read-scope.js";
+import type { PolymorphicRead } from "../../ir/enrich/read-scope.js";
 import { reasonPhrase, wireStatus } from "../../ir/enrich/wire-policy.js";
 import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
+import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import { isValueCollectionType } from "../../ir/util/value-collections.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
@@ -37,7 +38,6 @@ import { lowerFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { rowClassOf } from "./emit/mikroorm-entities.js";
-import { isRefCollection } from "./repository-associations-builder.js";
 import { hydrateRootExpr } from "./repository-find-hydrate.js";
 import {
   drizzleOrderBy,
@@ -46,7 +46,6 @@ import {
   repoTableName,
 } from "./repository-find-predicate.js";
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
-import { aggHasFieldMask } from "./repository-wire-builder.js";
 import { T, TT } from "./ts-symbols.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
 /** The `<Base> = Concrete | …` discriminated-union type (TS structural union
@@ -74,36 +73,12 @@ export function buildBaseUnionFile(
   );
 }
 
-/** True when `base`'s polymorphic read is routed (`GET /api/<bases>`) on the
- *  drizzle adapter.
- *
- *  The route answers every subtype's rows, so it may only exist where every
- *  subtype's own list read is open to the same caller: a concrete whose `all`
- *  carries a `requires` gate (author-written, or the `denyByDefault`
- *  synthesised one) or whose wire masks a field would have that gate or mask
- *  bypassed by the base route.  Those hierarchies keep the reader but get no
- *  route until the base read carries the gates itself. */
-export function routesPolymorphicRead(
-  base: EnrichedAggregateIR,
-  ctx: EnrichedBoundedContextIR,
-): boolean {
-  const read = polymorphicReadFor(base, ctx.aggregates);
-  if (!read) return false;
-  return read.variants.every((v) => {
-    const concrete = ctx.aggregates.find((a) => a.name === v.aggregate);
-    const all = ctx.repositories
-      .find((r) => r.aggregateName === v.aggregate)
-      ?.finds.find((f) => f.name === "all");
-    return !!concrete && !!all && !all.requires && !aggHasFieldMask(concrete);
-  });
-}
-
 /** True when a concrete hydrates from its root row alone — no contained part,
  *  `X id[]` reference or value-object collection to load from another table. */
 function hydratesFromRow(agg: EnrichedAggregateIR): boolean {
   return (
     agg.contains.length === 0 &&
-    !agg.fields.some((f) => isRefCollection(f.type) || isValueCollectionType(f.type))
+    !agg.fields.some((f) => isRefCollectionType(f.type) || isValueCollectionType(f.type))
   );
 }
 

@@ -4,6 +4,8 @@
 // core: the function is pack-driven (each design pack supplies the
 // `field-input-*` templates), so it carries no framework specifics.
 
+import type { ArrayInputRenderer } from "../_frontend/form-array-input.js";
+import type { OptionalGroupRenderer } from "../_frontend/form-optional-group.js";
 import type { FormFieldVM } from "../_frontend/view-models.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { chromeMessage, sentenceChromeName } from "./i18n-chrome.js";
@@ -21,10 +23,45 @@ export function renderFormField(
 ): string {
   const tokens = chrome.fieldTokens?.(vm) ?? {};
   if (vm.template === "field-input-valueobject") {
-    const innerHtml = (vm.children ?? [])
+    const childrenHtml = (vm.children ?? [])
       .map((child) => renderFormField(child, pack, chrome))
       .join("\n");
+    // An optional value object is an opt-in group: a presence box, and the
+    // inputs only while the value is present.
+    const innerHtml =
+      vm.optionalGroup && chrome.optionalGroup
+        ? chrome.optionalGroup(
+            {
+              path: vm.path,
+              testId: vm.testId,
+              label: vm.label,
+              ...(tokens.labelExpr ? { labelExpr: tokens.labelExpr } : {}),
+              zeroTs: vm.optionalGroup.zeroTs,
+            },
+            childrenHtml,
+          )
+        : childrenHtml;
     return pack.render(vm.template, { ...vm, ...chrome, ...tokens, innerHtml });
+  }
+  if (vm.arrayInput && chrome.arrayInput) {
+    const a = vm.arrayInput;
+    const enumLabel = tokens.enumLabelFn;
+    const optionsTs =
+      a.kind === "enum"
+        ? `(${a.valuesJson} as const).map((v) => ({ value: v, label: ${enumLabel ? `(${enumLabel})(v)` : "v"} }))`
+        : a.kind === "ref"
+          ? `(${a.optionsExpr}).map((o) => ({ value: o.id, label: ${a.hasDisplay ? "o.display" : "o.id"} }))`
+          : undefined;
+    return chrome.arrayInput({
+      path: vm.path,
+      testId: vm.testId,
+      label: vm.label,
+      ...(tokens.labelExpr ? { labelExpr: tokens.labelExpr } : {}),
+      input:
+        optionsTs !== undefined
+          ? { kind: "choice", optionsTs }
+          : { kind: "scalar", element: a.kind === "scalar" ? a.element : "string" },
+    });
   }
   if (vm.elementName !== undefined) {
     const addItemLabel =
@@ -62,4 +99,9 @@ export interface FormFieldChrome {
    *  `_walker/model-text-sites.ts`.  Empty for a field naming no model fact or
    *  when the implicit sites are off, so a template's literal branch renders. */
   fieldTokens?: (vm: FormFieldVM) => Record<string, string>;
+  /** The active framework's opt-in group for an optional value object. */
+  optionalGroup?: OptionalGroupRenderer;
+  /** The active framework's collection input for a scalar / enum / reference
+   *  collection. */
+  arrayInput?: ArrayInputRenderer;
 }
