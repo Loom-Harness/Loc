@@ -595,6 +595,8 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   ],
   // A workflow run (`POST /api/workflows/labeller`) — the `notLifted` class.
   "corpus/nullable-load": ["api.labeller.run (no such aggregate)"],
+  // A workflow run — the `notLifted` class.
+  "corpus/decimal-call-reductions": ["api.scoreProvider.run (no such aggregate)"],
   // A workflow run carrying a stale `If-Match` — not a lifted route class.
   "corpus/concurrency-workflow-ifmatch": ["api.renameBoth.run (no such aggregate)"],
   // Workflow runs (M-T6.98) — not a lifted route class.
