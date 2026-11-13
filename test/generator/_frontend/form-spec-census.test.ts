@@ -46,8 +46,7 @@ const ARMS: Record<Frontend, Record<string, unknown>> = {
 };
 
 /** Known stubs, each a tracked gap.  Keyed `<frontend>:<kind>`. */
-const STUBS: Record<string, string> = {
-};
+const STUBS: Record<string, string> = {};
 
 const FIXTURE = readFileSync("test/behavioral/form-spec-ui.ddd", "utf8");
 

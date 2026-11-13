@@ -553,7 +553,8 @@ function flutterObjectArrayArm(f: FormFieldSpec, c: FlutterArmCtx): FlutterPrepa
       money: sub.kind === "money" || undefined,
       dateOnly: sub.kind === "date" || undefined,
       enumValues: k === "enum" && sub.enumValues ? [...sub.enumValues] : undefined,
-      fkCollection: k === "fk-select" && sub.picker ? routeSegmentFor(sub.picker.target) : undefined,
+      fkCollection:
+        k === "fk-select" && sub.picker ? routeSegmentFor(sub.picker.target) : undefined,
       required: !sub.optional || undefined,
     });
   }

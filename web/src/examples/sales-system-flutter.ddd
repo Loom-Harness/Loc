@@ -154,7 +154,7 @@ system SalesSystem {
       repository Orders for Order { }
 
       workflow placeOrder transactional {
-        create(customerId: Customer id, productId: Product id, qty: int) {
+        create(customerId: Customer id, productId: Product id, qty: int): Order id {
           precondition qty > 0
           let customer = Customers.get(customerId)
           let product = Products.get(productId)
@@ -165,6 +165,7 @@ system SalesSystem {
           )
           order.addLine(productId, qty)
           order.confirm()
+          return order.id
         }
       }
     }
