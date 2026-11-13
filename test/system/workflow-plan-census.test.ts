@@ -73,6 +73,14 @@ import { expectReach } from "../_helpers/census-reach.js";
 //               runs in one transaction exactly when the plan says so; any
 //               other commits each save on its own.
 //               → use `workflowRunsInTransaction` / `workflowIsolation`.
+//   wire-status a `workflowCanAnswerNotFound(…)` call that is not an argument
+//               of `errorStatuses` (or a backend wrapper that forwards to it:
+//               `errorResponsesKwarg`, `errorResponseEntries`) — a backend
+//               deciding a workflow route's declared not-found rung itself;
+//               or a `defaultErrorStatus(…)` call / an `errorStatusOverrides[…]`
+//               lookup — a backend mapping an error variant to its wire status
+//               itself.  Both mappings live in the IR's wire policy.
+//               → use `errorStatuses("workflow", …)` / `errorVariantResponse`.
 //   folded-events  a `.map(…)` over an `appliers` list whose callback returns
 //               the applier's `.event` — the hand-rolled "which events does
 //               this stream fold" list.
@@ -201,6 +209,7 @@ interface Violation {
     | "isolation"
     | "implicit-tx"
     | "tx-boundary"
+    | "wire-status"
     | "folded-events"
     | "event-log"
     | "repos"
@@ -213,6 +222,25 @@ interface Violation {
     | "es-shared";
   where: string;
   text: string;
+}
+
+/** The callees that own a route's declared error-status set. */
+const STATUS_TABLES = new Set(["errorStatuses", "errorResponsesKwarg", "errorResponseEntries"]);
+
+/** Is `n` (transitively) an argument of a call to one of `STATUS_TABLES`? */
+function insideStatusTable(n: ts.Node): boolean {
+  for (let p = n.parent; p && !ts.isSourceFile(p); p = p.parent) {
+    if (
+      ts.isCallExpression(p) &&
+      ts.isIdentifier(p.expression) &&
+      STATUS_TABLES.has(p.expression.text) &&
+      p.arguments.some((a) => a.pos <= n.pos && n.end <= a.end)
+    ) {
+      return true;
+    }
+    if (ts.isFunctionLike(p)) return false;
+  }
+  return false;
 }
 
 /** Bodies of the function-like callbacks among `args`: an inline arrow or
@@ -601,6 +629,20 @@ function scan(file: string): Violation[] {
     }
     if (
       ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      ((n.expression.text === "workflowCanAnswerNotFound" && !insideStatusTable(n)) ||
+        n.expression.text === "defaultErrorStatus")
+    ) {
+      out.push({ rule: "wire-status", where: at(n), text: n.getText(sf) });
+    }
+    if (
+      ts.isElementAccessExpression(n) &&
+      /\berrorStatusOverrides$/.test(n.expression.getText(sf))
+    ) {
+      out.push({ rule: "wire-status", where: at(n), text: n.getText(sf) });
+    }
+    if (
+      ts.isCallExpression(n) &&
       ts.isPropertyAccessExpression(n.expression) &&
       n.expression.name.text === "map" &&
       /\bappliers\b/.test(n.expression.expression.getText(sf)) &&
@@ -741,6 +783,11 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend chooses its own workflow transaction boundary (use workflowRunsInTransaction / workflowIsolation)", () => {
     const hits = violations.filter((v) => v.rule === "tx-boundary");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend maps a workflow error to its wire status itself (use errorStatuses / errorVariantResponse)", () => {
+    const hits = violations.filter((v) => v.rule === "wire-status");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 

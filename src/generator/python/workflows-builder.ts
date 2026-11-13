@@ -1,4 +1,4 @@
-import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
+import { notFoundStmtDetail, wireStatusResolver } from "../../ir/enrich/wire-policy.js";
 import {
   isWorkflowSelfType,
   lookupOp,
@@ -99,7 +99,7 @@ import {
   requestFieldDecl,
 } from "./routes-builder.js";
 import { type PySaveLines, pySaveRenderer } from "./stamp-call.js";
-import { pyNotFoundRaise, pyRuleParams, wireStatusResolver } from "./wire-policy-py.js";
+import { pyNotFoundRaise, pyRuleParams } from "./wire-policy-py.js";
 import { esFns } from "./workflow-eventsourced-emit.js";
 
 // ---------------------------------------------------------------------------

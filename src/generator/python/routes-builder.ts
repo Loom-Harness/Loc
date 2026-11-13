@@ -6,6 +6,7 @@ import {
   reasonPhrase,
   wireCode,
   wireSentenceFor,
+  wireStatusResolver,
 } from "../../ir/enrich/wire-policy.js";
 import {
   createInputFields,
@@ -101,12 +102,7 @@ import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
 import { renderPyExpr, renderPyNegatedGuard } from "./render-expr.js";
 import { aggHasFieldMask, emittableFinds } from "./repository-builder.js";
 import { hasStamp, type StampEvent, stampUsesUser } from "./stamp-call.js";
-import {
-  pyConflictRaise,
-  pyErrorVariantReturn,
-  pyProblemResponseEntry,
-  wireStatusResolver,
-} from "./wire-policy-py.js";
+import { pyConflictRaise, pyErrorVariantReturn, pyProblemResponseEntry } from "./wire-policy-py.js";
 
 // The symbols a routes module references, as `ref()` markers — the module's
 // import block derives from the ones that survive into its text (M-T9.84).

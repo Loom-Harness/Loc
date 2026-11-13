@@ -4,6 +4,7 @@ import {
   MISSING_FILE_PART_DETAIL,
   wireSentenceFor,
   wireStatus,
+  wireStatusResolver,
 } from "../../../ir/enrich/wire-policy.js";
 import { emitsRestCreate } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
@@ -49,7 +50,6 @@ import {
   csTitle,
   csTypeMismatchMessage,
   csTypeParamsArg,
-  wireStatusResolver,
 } from "../wire-policy-cs.js";
 import { dotnetFindAbsenceThrow } from "./common.js";
 

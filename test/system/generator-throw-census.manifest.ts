@@ -77,12 +77,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
   },
 
-  // src/generator/python/wire-policy-py.ts
-  "src/generator/python/wire-policy-py.ts#wireStatusResolver": {
-    invariant:
-      "The resolver is called only by errorStatuses (src/ir/util/openapi-errors.ts) with its four fixed rung names (ReferencedInUse, DomainError, Forbidden, NotFound); no .ddd input names a rung. (src/generator/python/wire-policy-py.ts:72)",
-  },
-
   // src/generator/_imports/python.ts
   "src/generator/_imports/python.ts#parseStatement": {
     invariant:

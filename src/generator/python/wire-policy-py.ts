@@ -61,25 +61,6 @@ export function pyErrorVariantReturn(opts: {
   ];
 }
 
-const RESOLVED_CLASS: Readonly<Record<string, WireRejectionClass>> = {
-  ReferencedInUse: "referenced-in-use",
-  DomainError: "domain-floor",
-  Forbidden: "forbidden",
-  NotFound: "not-found",
-};
-
-/** The status resolver `errorStatuses` takes: a stdlib rung name resolved
- *  through the fact's rejection class and the context's `httpStatus` map. */
-export function wireStatusResolver(
-  overrides?: Readonly<Record<string, number>>,
-): (name: string) => number {
-  return (name) => {
-    const cls = RESOLVED_CLASS[name];
-    if (cls === undefined) throw new Error(`wirePolicy: no rejection class for rung '${name}'`);
-    return wireStatus(cls, overrides);
-  };
-}
-
 /** `raise <Exc>(f"<Agg> {<idExpr>} was modified by another request")` — the
  *  optimistic-concurrency 409's sentence (RS-40). */
 export function pyConflictRaise(excRef: string, aggName: string, idExpr: string): string {

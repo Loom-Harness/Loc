@@ -1,4 +1,4 @@
-import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
+import { notFoundStmtDetail, wireStatusResolver } from "../../ir/enrich/wire-policy.js";
 import { createInputFields, createOmissionValue } from "../../ir/enrich/wire-projection.js";
 import {
   auditedOpCallAggregates,
@@ -108,7 +108,7 @@ import { csFilterBypassArg, csReadOwnParams } from "./local-names.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "./render-expr.js";
 import { collectCsStmtUsings, renderCsStatements } from "./render-stmt.js";
-import { csNotFoundException, csRuleParams, wireStatusResolver } from "./wire-policy-cs.js";
+import { csNotFoundException, csRuleParams } from "./wire-policy-cs.js";
 import {
   esCorrIdClass,
   esEventDbSet,
