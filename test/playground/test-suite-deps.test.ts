@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import type { VirtualFile } from "../../web/src/build/protocol.js";
 import {
+  formatSuiteLoadFailures,
   installFailedMessage,
   nearestPackageDeps,
   packageNameOf,
@@ -85,6 +86,23 @@ describe("installFailedMessage", () => {
       ),
     ).toBe(
       "could not install the suite's npm dependencies (uuidv7@1.2.1, decimal.js@10.6.0): Failed to fetch",
+    );
+  });
+});
+
+describe("formatSuiteLoadFailures", () => {
+  it("names each failed suite and its file", () => {
+    expect(
+      formatSuiteLoadFailures([
+        {
+          suite: "UI",
+          path: "web_app/e2e/app.ui.spec.ts",
+          message: "test.extend is not a function",
+        },
+        { suite: "orders", path: "api/domain/order.test.ts", message: "boom" },
+      ]),
+    ).toBe(
+      "UI (web_app/e2e/app.ui.spec.ts): test.extend is not a function\n\norders (api/domain/order.test.ts): boom",
     );
   });
 });

@@ -91,9 +91,10 @@ describe("python — lifecycle stamps on in-process saves", () => {
         "        await tickets.save(t)",
       ].join("\n"),
     );
-    // An aggregate with no stamp is saved as-is — no stray stamp call.
+    // An aggregate with no stamp is saved as-is — no stray stamp call.  (The
+    // workflow is not `transactional`, so each save commits on its own.)
     expect(wf).toContain(
-      "            t._stamp_on_create(__principal)\n        await tickets.save(t)\n        await tags.save(g)",
+      "            t._stamp_on_create(__principal)\n        await tickets.save(t)\n        await commit_save(session)\n        await tags.save(g)",
     );
     expect(wf).not.toContain("g._stamp_on_");
     expect(wf).toContain(IMPORT);

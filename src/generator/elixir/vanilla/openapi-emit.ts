@@ -6,6 +6,7 @@ import {
   wireCreateDefault,
   wireFieldsFor,
 } from "../../../ir/enrich/wire-projection.js";
+import { routedPolymorphicRead } from "../../../ir/plan/index.js";
 import { PAGED_MAX_PAGE, PAGED_MAX_PAGE_SIZE, pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -80,7 +81,6 @@ import { workflowParamPayloads } from "../../_payload/workflow-param-payloads.js
 import type { ApiRoute } from "../api-emit.js";
 import { exReasonPhrase, exStatus } from "../wire-policy-ex.js";
 import { servedOperationEntries, servesHistory } from "./api-emit.js";
-import { routesPolymorphicRead } from "./base-reader.js";
 import { exInt32Range } from "./codec-spelling-ex.js";
 import { denialOverrides, denialStatus } from "./denial.js";
 import { isAbstractBase, isTphBase } from "./inheritance-emit.js";
@@ -1682,14 +1682,14 @@ end
 /** The documented polymorphic base read: `GET /<bases>` (paged, `page` /
  *  `pageSize` only — the read has one global `id` order) and, on TPH,
  *  `GET /<bases>/{id}`.  Empty when the router does not mount it
- *  (`routesPolymorphicRead`). */
+ *  (`routedPolymorphicRead`). */
 function polymorphicOperations(
   base: EnrichedAggregateIR,
   ctx: EnrichedBoundedContextIR,
   aggSlug: string,
   schemasModule: string,
 ): ElixirApiOperation[] {
-  if (!routesPolymorphicRead(base, ctx)) return [];
+  if (!routedPolymorphicRead(base, ctx)) return [];
   const out: ElixirApiOperation[] = [
     {
       method: "get",

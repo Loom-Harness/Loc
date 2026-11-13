@@ -153,7 +153,8 @@ describe("a collection create-input field may be omitted (#2864 G4)", () => {
   it("dotnet: an optional positional plus a collection-expression coalesce", async () => {
     const src = await emitted("dotnet", "Domain/Voyages/Voyage.cs");
     expect(src).toMatch(/public static Voyage Create\([^)]*List<Leg>\? legs = null/);
-    expect(src).toContain("e.Legs = legs ?? []");
+    // The value-object list is element-copied (`vo-collection-copy.ts`).
+    expect(src).toContain("e.Legs = legs?.Select(__vo => __vo with { }).ToList() ?? []");
     expect(src).toContain("e.Tags = tags ?? []");
   });
 

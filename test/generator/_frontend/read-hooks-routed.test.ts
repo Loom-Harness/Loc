@@ -54,7 +54,12 @@ function hookGets(files: ReadonlyMap<string, string>, frontendDir: string): stri
     for (const m of content.matchAll(
       /(?:api\.get|http\.get<[^>]*>)\(`(?:\$\{API_BASE_URL\})?([^`]*)`/g,
     )) {
-      const raw = m[1]!.replace(/\$\{qs[^}]*\}$/, "").replace(/\$\{qs \? [^`]*$/, "");
+      // A literal query string (the picker options hook's `?page=…&pageSize=…`)
+      // is not part of the route.
+      const raw = m[1]!
+        .replace(/\$\{qs[^}]*\}$/, "")
+        .replace(/\$\{qs \? [^`]*$/, "")
+        .replace(/\?.*$/, "");
       out.add(`${API_BASE_PATH}${raw.replace(/\$\{[^}]*\}/g, "{}")}`);
     }
   }

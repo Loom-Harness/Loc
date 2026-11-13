@@ -22,8 +22,8 @@ import { expectReach } from "../_helpers/census-reach.js";
 // clean.
 //
 // Scope: the domain class emitters (aggregate / part / value object / enum /
-// event / domain service) of the five backends.  The workflow, handler,
-// repository, OpenAPI and walker emitters migrate in #5224's follow-ups.
+// event / domain service) of the five backends.  Domain-layer names resolve
+// through the plan; the other emitters still name symbols locally.
 // ---------------------------------------------------------------------------
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");

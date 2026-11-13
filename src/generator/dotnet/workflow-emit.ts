@@ -13,6 +13,7 @@ import {
   serviceOpReadPorts,
   servicesCalled,
   subscriptionHandler,
+  workflowCapturesDurableEmits,
   workflowIsolation,
   workflowRunsInTransaction,
 } from "../../ir/plan/index.js";
@@ -1570,6 +1571,13 @@ function renderHandler(
       `        {\n` +
       stmtLines.map((l) => "    " + l).join("\n") +
       "\n" +
+      // A durable workflow emit is owed with the workflow's writes: its outbox
+      // row commits with `tx`, and only the remaining events dispatch after.
+      (workflowCapturesDurableEmits(wf, ctx)
+        ? `            var __afterCommit = new List<IDomainEvent>(await tx.CaptureDurableAsync(_events, _workflowEvents, cancellationToken));\n` +
+          `            _workflowEvents.Clear();\n` +
+          `            _workflowEvents.AddRange(__afterCommit);\n`
+        : "") +
       (er && result
         ? `            if (${entryErrorTestCs(er, result.type, ns, "workflowResult")}) await tx.RollbackAsync(cancellationToken);\n` +
           `            else await tx.CommitAsync(cancellationToken);\n`

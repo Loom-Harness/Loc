@@ -90,18 +90,19 @@ describe("the X id picker reads the target's ACTUAL list shape", () => {
     ["svelte", "shadcnSvelte"],
     ["angular", "angularMaterial"],
   ] as const)(
-    "%s: the paged `all` picker still reads `.items`",
+    "%s: the paged `all` picker reads the Options hook's bare array, not `.items`",
     async (frontend, design) => {
       const src = all(await generateSystemFiles(system(frontend, design, false)));
       const picker = src
         .split("\n")
         .filter((l) => l.includes("workflow-touch-input-doc"))
         .join("\n");
+      // The `use<Plural>Options()` hook unwraps the `{items, …}` envelope
+      // itself and hands the picker a bare array, so the page never reads it.
       expect(
         picker,
-        `${frontend}: the paged \`all\` DOES serve the {items, …} envelope — dropping ` +
-          `\`.items\` here would empty every picker in the shipped corpus`,
-      ).toMatch(/\.items/);
+        `${frontend}: the picker must read the Options hook's bare array (\`.data ?? []\`)`,
+      ).toMatch(/\.data\(?\)? \?\? \[\]/);
     },
     180_000,
   );

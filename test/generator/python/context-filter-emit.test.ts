@@ -91,7 +91,7 @@ system Shop {
     expect(files.has(SCOPE)).toBe(false);
     expect(files.get("api/app/db/__init__.py")).toBe("");
     expect(repo).toContain(
-      "await self._session.execute(select(PlainRow).order_by(_order).limit(page_size).offset(offset))",
+      "await self._session.execute(select(PlainRow).order_by(*_order).limit(page_size).offset(offset))",
     );
     expect(repo).toContain("row = await self._session.get(PlainRow, id)");
     expect(repo).not.toContain("and_(");

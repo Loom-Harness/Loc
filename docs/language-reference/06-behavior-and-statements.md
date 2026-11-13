@@ -327,7 +327,7 @@ workflow Sweep { create(n: int) {
 
 ## `let` & `emit`
 
-`let name = Expr` binds a local; `emit Event { field: value, … }` records a domain event (`EmitField`s are `name: value` pairs; a missing or ill-typed field is reported at the construction site, and the event must be declared in the same context). Field names re-quote and re-case per backend; emit-field order is normalized to the event's declared field order on positional-constructor backends (Java/.NET).
+`let name = Expr` binds a local. A name binds once per body: a `let` that rebinds an earlier `let` (in its block or an enclosing one) or a parameter is `loom.duplicate-let`, since Java and C# refuse a local that redeclares or shadows another. A `let` named like a member is fine — the member stays reachable as `this.<name>`. `emit Event { field: value, … }` records a domain event (`EmitField`s are `name: value` pairs; a missing or ill-typed field is reported at the construction site, and the event must be declared in the same context). Field names re-quote and re-case per backend; emit-field order is normalized to the event's declared field order on positional-constructor backends (Java/.NET).
 
 ```ddd
 operation addLine(price: money) {
@@ -439,7 +439,19 @@ operation rename(name: int) {
 }
 ```
 
-(Before M-T5.42 the bare form resolved its head to the int parameter, validated clean, and emitted an assignment its own target language rejected.) Prefer the explicit prefix whenever a parameter shares a field's name. The same applies to a this-rooted **call**: `this.files.put(k, v)` is a member call on the aggregate even when a `resource files` is in scope, which the bare spelling would otherwise resolve to the resource.
+Prefer the explicit prefix whenever a parameter shares a field's name.
+
+A head that names a local — a `let` or a parameter — and no member is refused: locals are immutable, and a write through one has no member of `this` to land on. Changing a part selected into a local (`let task = tasks.where(…).first`) is not supported yet.
+
+```ddd
+operation finish(code: string) {
+  let n = 1
+  n := 2                  // error: loom.assign-to-local
+  code := "x"             // error: loom.assign-to-local (a parameter)
+  let task = tasks.where(t => t.code == code).first
+  task.status := Done     // error: loom.assign-through-local-unsupported
+}
+``` The same applies to a this-rooted **call**: `this.files.put(k, v)` is a member call on the aggregate even when a `resource files` is in scope, which the bare spelling would otherwise resolve to the resource.
 
 ```ddd
 aggregate Order {

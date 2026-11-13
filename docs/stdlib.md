@@ -151,8 +151,8 @@ compute the value in a repository `find`, an aggregate `derived`, or a
 | `take` | `(n: int): T[]` |
 | `skip` | `(n: int): T[]` |
 | `join` | `(sep: string): string` |
-| `min` | `(λ): T?` |
-| `max` | `(λ): T?` |
+| `min` | `(λ): U?` |
+| `max` | `(λ): U?` |
 | `avg` | `(λ): decimal?` |
 
 ## Value-object equality

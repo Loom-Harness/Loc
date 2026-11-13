@@ -22,11 +22,20 @@ system TenantClaimName {
 
   subdomain Core {
     context Billing {
+      // The invoice number is unique PER TENANT — the key
+      // `loom.unique-missing-tenant-scope` asks for.  A natural-key read names
+      // it without `tenantId`: the floor pins that column to the operating
+      // tenant (and the author cannot supply it — it is `internal`).
       aggregate Invoice with tenantOwned, crudish {
         number: string
         amountDue: int
+        unique (tenantId, number)
       }
       repository Invoices for Invoice { }
+      queryHandler InvoiceAmount(n: string): int {
+        let i = Invoices.getBy(number: n)
+        return i.amountDue
+      }
       criterion InvoicesByNumber(n: string) of Invoice = this.number == n
       queryHandler ListInvoicesByNumber(n: string): Invoice[] {
         let r = Invoices.all(InvoicesByNumber(n))
@@ -68,6 +77,7 @@ system TenantClaimName {
   }
   api BillingApi from Core {
     route GET "/invoices/by_number/{n}" -> Billing.ListInvoicesByNumber
+    route GET "/invoices/amount" -> Billing.InvoiceAmount
   }
   storage primary { type: postgres }
   resource billingState { for: Billing, kind: state, use: primary }
@@ -115,5 +125,18 @@ system TenantClaimName {
     let empty = api.invoices.all()
     expect(empty.items.length).toBe(0)
     expect(empty.total).toBe(0)
+
+    // The natural-key read through the tenant-scoped key `(tenantId, number)`:
+    // the call names `number` alone, and the floor supplies `tenantId`.  A
+    // second tenant may reuse the number (the key is per tenant), and each
+    // tenant's read resolves to its own row.  A backend that dropped the floor
+    // from the synthesized key read would answer the other tenant's amount, or
+    // fail on two matching rows.
+    let first = api.invoices.create({ number: "INV-K", amountDue: 5 })
+    expect(api.billing.invoiceAmount("INV-K")).toBe(5)
+    as { orgId: "globex" }
+    let second = api.invoices.create({ number: "INV-K", amountDue: 9 })
+    expect(api.billing.invoiceAmount("INV-K")).toBe(9)
+    expect(api.billing.invoiceAmount("INV-1B")).toThrow(404)
   }
 }

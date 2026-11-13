@@ -389,10 +389,11 @@ describe("pack-declared chrome — catalogs and emission", () => {
   system Shop {
     subdomain Sales {
       context Sales {
+        valueobject Tag { label: string }
         aggregate Order with crudish {
           status: string
-          tags: string[]
-          operation retag(newTags: string[]) { status := "tagged" }
+          tags: Tag[]
+          operation retag(newTags: Tag[]) { status := "tagged" }
         }
         repository Orders for Order { }
       }
@@ -420,7 +421,7 @@ describe("pack-declared chrome — catalogs and emission", () => {
     it(`${platform}: an op dialog's pack chrome binds AND the page imports its \`t\``, async () => {
       const files = await generateSystemFiles(OP_DIALOG_SYSTEM(platform, design));
       const page = fileEndingWith(files, suffix);
-      expect(page).toContain(`t("pack.${family}.arrayUnsupported.`);
+      expect(page).toContain(`t("pack.${family}.removeItem.`);
       expect(page).toContain(importLine);
     });
   }

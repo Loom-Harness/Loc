@@ -302,6 +302,17 @@ public interface IDomainTransaction : IAsyncDisposable
 {
     Task CommitAsync(CancellationToken cancellationToken = default);
     Task RollbackAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Writes the outbox rows of the durable events among <paramref name="events"/>
+    /// in THIS transaction, so they commit with it, and returns the rest for
+    /// dispatch after the commit.  A workflow's own durable emits are owed
+    /// exactly when its writes commit.
+    /// </summary>
+    Task<IReadOnlyList<IDomainEvent>> CaptureDurableAsync(
+        IDomainEventDispatcher dispatcher,
+        IReadOnlyList<IDomainEvent> events,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>The shape a workflow event-stream record exposes to the event-store

@@ -6,6 +6,7 @@ import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import {
   eventSourcedWorkflows,
   observableWorkflows,
+  routedPolymorphicRead,
   stateRowWorkflows,
 } from "../../ir/plan/index.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
@@ -62,6 +63,7 @@ import {
   valueObjectFieldLookup,
   valueObjectPool,
 } from "../../ir/util/reachable-types.js";
+import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import {
   effectiveSavingShape,
   resolveContextSchema,
@@ -123,7 +125,7 @@ import {
   renderJavaAuditHistorySupport,
 } from "./emit/audit-history.js";
 import { renderAuthFiles } from "./emit/auth.js";
-import { renderJavaBaseReadController, routedJavaPolymorphicRead } from "./emit/base-read.js";
+import { renderJavaBaseReadController } from "./emit/base-read.js";
 import {
   AMQP_CLIENT_VERSION,
   type ChannelConsumerHandler,
@@ -966,7 +968,7 @@ function emitProjectFromContexts(
       construct: string,
     ): void => {
       for (const f of fields) {
-        if (f.type.kind !== "array" || f.type.element.kind !== "id") continue;
+        if (!isRefCollectionType(f.type)) continue;
         place(
           `${f.type.element.targetName}IdJsonListConverter.java`,
           "id",
@@ -1769,7 +1771,7 @@ function emitAggregate(
       construct,
     );
     // The polymorphic base read (`GET /api/<bases>`, TPH `/{id}`).
-    const read = routedJavaPolymorphicRead(agg, ctx);
+    const read = routedPolymorphicRead(agg, ctx);
     if (read) {
       place(
         `${plural(agg.name)}Controller.java`,

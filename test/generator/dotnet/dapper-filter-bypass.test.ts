@@ -104,7 +104,7 @@ describe("dapper ignoring filter-bypass emission", () => {
     expect(all).not.toContain("tenant_key = 'acme'");
     expect(all).toContain("FROM orders");
     // Only the criterion's own predicate is left — it is the query.
-    expect(all).toContain("WHERE (total > 0) LIMIT 1");
+    expect(all).toContain("WHERE (total > 0) ORDER BY id ASC LIMIT 1");
   });
 
   it("a retrieval composes its WHERE from the runtime FilterBypass (capability names, not EF filter names)", async () => {

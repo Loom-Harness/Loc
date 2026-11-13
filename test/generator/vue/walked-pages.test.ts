@@ -76,7 +76,7 @@ describe("vue walker — scaffold pages", () => {
     expect(detail).toContain(`const update = reactive(useUpdateCustomer(id ?? ""));`);
     expect(detail).toContain("const updateOpen = ref(false);");
     expect(detail).toContain(
-      "const openUpdateModal = (_mut: unknown) => { updateOpen.value = true; };",
+      "const openUpdateModal = (_mut: unknown, record?: CustomerResponse) => { if (record) Object.assign(updateForm.values, { name: record.name, email: record.email }); updateOpen.value = true; };",
     );
     expect(detail).toContain(
       'const updateForm = useLoomForm(UpdateCustomerRequest, { name: "", email: "" });',

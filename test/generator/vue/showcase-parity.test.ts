@@ -44,8 +44,8 @@ describe("vue showcase — workflows parity", () => {
       `@submit.prevent='form.handleSubmit(async (vals) => { await run.mutateAsync(vals); pushToast(t("chrome.completed.placeOrder", "Place Order completed")); navigate("/workflows"); })($event)'`,
     );
     // `X id` workflow param renders as a select fed by the
-    // idTargetHookVar-named useAll lookup.
-    expect(page).toMatch(/const __\w+ = reactive\(useAll\w+\(\)\);/);
+    // idTargetHookVar-named use<Plural>Options lookup.
+    expect(page).toMatch(/const __\w+ = reactive\(use\w+Options\(\)\);/);
   });
 
   it("money-free project stays lean: no schemas helper, no decimal.js", async () => {
