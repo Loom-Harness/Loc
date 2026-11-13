@@ -32,6 +32,7 @@ import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes,
 import { localesBeside, writeCaseSource } from "./case-source.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
 import { HARNESS_WAITS } from "./registers.mjs";
+const { OUTBOX_PENDING_PREDICATE } = await import(new URL("../../out/util/channels.js", import.meta.url).href);
 import { authzLadderTail, makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
 import { MIGRATOR_IMPORT, SCHEMA_AGREEMENT_IMPORT, applyMigrationsStmt, schemaAgreementStmt } from "./emitted-schema.mjs";
@@ -92,7 +93,7 @@ function findNodeDeployable(genDir) {
 }
 
 /** Synthesise the per-case boot+run entry (bundled by esbuild). */
-function entrySource({ deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, authMode, bearerToken, unauthorizedToken, authzLadder, seedFile, mountsFiles, channelBoot }) {
+function entrySource({ deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, authMode, bearerToken, unauthorizedToken, authzLadder, seedFile, mountsFiles, channelBoot, outboxDrain }) {
   const J = JSON.stringify;
   // When the deployable is `auth: required` the generated boot module
   // (index.ts) registers a verifier before serving — but we boot via
@@ -167,7 +168,14 @@ function entrySource({ deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, aut
     ? `\n  booted = await bootApp(db);${settleMs ? `\n  await new Promise((r) => setTimeout(r, ${settleMs}));` : ""}\n  const app = booted.app;`
     : "";
   const appCreate = channelBoot ? "" : "\n  const app = createApp(db);";
-  const appStop = channelBoot ? "\n    await booted?.stop();" : "";
+  // A durable event leaves through the outbox relay, on its own poll; the
+  // entrypoint-booted legs keep serving while it drains, but this worker ends
+  // as soon as its requests do.  So before stopping, it waits (bounded) until
+  // no outbox row is pending, as a running server would have let it.
+  const drain = outboxDrain
+    ? `\n    if (booted) { const __until = Date.now() + 15000; for (;;) { const __r = await pglite.query(${J(`SELECT count(*)::int AS n FROM "${outboxDrain.table}" WHERE ${outboxDrain.predicate}`)}); if (__r.rows[0].n === 0 || Date.now() > __until) break; await new Promise((r) => setTimeout(r, 100)); } }`
+    : "";
+  const appStop = channelBoot ? `${drain}\n    await booted?.stop();` : "";
   return `
 ${recorderPreamble()}
 ${MIGRATOR_IMPORT}
@@ -393,12 +401,17 @@ async function runCase(c) {
       existsSync(channelsPath) &&
       /export function createChannelTransports\b/.test(readFileSync(channelsPath, "utf8")) &&
       existsSync(join(deplDir, "boot.ts"));
+    // The outbox a channel-bound deployable's relay drains: its table as the
+    // generated schema names it, its pending rows as every backend selects them.
+    const schemaSrc = channelBoot ? readFileSync(join(deplDir, "db", "schema.ts"), "utf8") : "";
+    const outboxTable = /pgTable\("([^"]*outbox[^"]*)"/.exec(schemaSrc)?.[1];
+    const outboxDrain = outboxTable ? { table: outboxTable, predicate: OUTBOX_PENDING_PREDICATE } : null;
     const entry = join(workDir, "entry.mts");
     const bundle = join(workDir, "bundle.mjs");
     writeFileSync(entry, entrySource({
       deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, authMode, bearerToken, unauthorizedToken,
       authzLadder: AUTHZ_LADDERS[c.name] ?? null,
-      seedFile, mountsFiles, channelBoot,
+      seedFile, mountsFiles, channelBoot, outboxDrain,
     }));
     await build({ entryPoints: [entry], outfile: bundle, bundle: true, platform: "node", format: "esm", target: "node20", packages: "external", logLevel: "warning" });
     const out = await runInWorker(bundle, fakes.env);

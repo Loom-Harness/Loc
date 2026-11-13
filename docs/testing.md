@@ -178,10 +178,13 @@ likewise runs against a pinned `adobe/s3mock` container
 (`test/support/fakes/s3-sidecar.mjs`, CI: `services: s3`, `LOOM_FAKE_S3_URL`),
 and its objects reach the golden as sorted `{ bucket, key, size, contentType }`
 rows read back over the S3 API. They land in the golden's `effects` under
-`broker` and `objects`; the `resources`, `handler-resource-ops` and
-`channels-broker-redis` corpus fixtures witness them on every leg. The node leg
-boots a channel-bound deployable through its generated `bootApp`, the only
-place its broker transports exist, so its publishes reach the sidecar too. `npm run test:fakes-docker` runs the kit's
+`broker` and `objects`; the `resources`, `handler-resource-ops`,
+`channels-broker-redis` and `channels-broker-kafka` corpus fixtures witness
+them on every leg. The node leg boots a channel-bound deployable through its
+generated `bootApp`, the only place its broker transports exist, and before it
+stops it waits for the outbox relay to drain, so its publishes, durable ones
+included, reach the sidecar too. A kafka sidecar runs per case, started from
+the case's compose environment, so its SASL users are the deployed ones. `npm run test:fakes-docker` runs the kit's
 own container tests.
 
 ### External services and the `effects` golden

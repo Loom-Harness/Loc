@@ -1,0 +1,5 @@
+{
+  "title": "broker-bound channel on kafka — the durable `queue/work` producer, its records read back from a real KRaft broker",
+  "doc": "channels",
+  "backends": "ALL"
+}

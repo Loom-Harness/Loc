@@ -121,7 +121,13 @@ export const COVERAGE: readonly CoverageRow[] = [
     pending: pending("#5613"),
   },
   { sourceType: "kafka", kind: "eventLog", fake: "real-sidecar", pending: pending("#5615") },
-  { sourceType: "kafka", kind: "channel", fake: "real-sidecar", pending: pending("#5615") },
+  {
+    sourceType: "kafka",
+    kind: "channel",
+    fake: "real-sidecar",
+    module: "broker-sidecar.mjs",
+    witness: { fixture: "channels-broker-kafka", effects: "broker" },
+  },
   // ── object stores ──────────────────────────────────────────────────────
   {
     sourceType: "s3",

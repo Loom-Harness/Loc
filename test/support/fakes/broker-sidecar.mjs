@@ -689,7 +689,15 @@ async function startKafka(opts) {
      *  a throwaway consumer (no group, so nothing is committed). */
     async observe() {
       const publishes = [];
-      for (const [topic, count] of parseKafkaOffsets(kafkaBin("kafka-get-offsets.sh"))) {
+      let offsets;
+      try {
+        offsets = kafkaBin("kafka-get-offsets.sh");
+      } catch (e) {
+        // With no topic at all the tool exits 1 rather than printing nothing.
+        if (/Could not match any topic-partitions/.test(String(e?.stderr ?? e))) return [];
+        throw e;
+      }
+      for (const [topic, count] of parseKafkaOffsets(offsets)) {
         if (count === 0) continue;
         const dump = kafkaBin(
           "kafka-console-consumer.sh",

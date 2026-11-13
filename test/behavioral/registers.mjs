@@ -312,6 +312,14 @@ export const BEHAVIOURAL_XFAIL = {
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
   java: {
+    // A kafka binding's LoomEventEnvelope carries a doc comment no
+    // declaration follows; the leg's -Werror build refuses it.
+    "channels-broker-kafka": {
+      issue: "#5715",
+      expect: "error",
+      match: "dangling-doc-comments",
+      reason: "the generated java envelope record emits a dangling doc comment on a kafka binding",
+    },
     // `toJson` returns a String as-is, so a string is stored raw under
     // content-type application/json; the golden's object sizes differ.
     resources: {
