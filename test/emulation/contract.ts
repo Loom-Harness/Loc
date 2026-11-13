@@ -310,7 +310,10 @@ export function emulationContract(hostName: string, host: EmulationHost): void {
         p.reset();
         expect(p.personas()).toEqual([]);
         expect(await p.jwks()).toEqual(before);
-        expect(p.settings({ accessTokenLifetime: 5 })).toEqual({ accessTokenLifetime: 5 });
+        expect(p.settings({ accessTokenLifetime: 5 })).toEqual({
+          accessTokenLifetime: 5,
+          autoLogin: null,
+        });
       });
     });
 
