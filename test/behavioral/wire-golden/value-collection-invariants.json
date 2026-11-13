@@ -159,6 +159,30 @@
     },
     {
       "seq": 7,
+      "method": "DELETE",
+      "path": "/api/rule_sets/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/rule_sets/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "RuleSet {id} not found",
+        "instance": "/api/rule_sets/{id}",
+        "params": {
+          "type": "Rules.RuleSet"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
       "method": "PATCH",
       "path": "/api/rule_sets",
       "status": 405,
@@ -172,7 +196,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 10,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -186,7 +210,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 11,
       "method": "POST",
       "path": "/api/rule_sets",
       "status": 400,

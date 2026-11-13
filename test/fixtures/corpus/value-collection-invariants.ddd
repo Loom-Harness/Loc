@@ -54,5 +54,7 @@ system ValueCollectionInvariants {
     let kept = api.ruleSets.getById(ok)
     expect(kept.conditions.count()).toBe(2)
     expect(api.ruleSets.all().total).toBe(1)
+    api.ruleSets.destroy(ok)
+    expect(api.ruleSets.getById(ok)).toThrow(404)
   }
 }
