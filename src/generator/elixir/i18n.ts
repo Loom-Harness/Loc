@@ -46,6 +46,7 @@
 
 import { type BoundedContextIR, DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
+import { elixirString } from "../../util/naming.js";
 import {
   aggregateProblemGeneric,
   buildUiCatalog,
@@ -58,6 +59,7 @@ import {
   chromeKey,
   chromeMessage,
   type FormSentenceScope,
+  HEEX_SENTENCES,
 } from "../_walker/i18n-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
 
@@ -357,7 +359,8 @@ export function renderGettextCatalog(
 ): string {
   const scope: FormSentenceScope = {
     contexts: modelTextContexts,
-    sentences: [],
+    sentences: HEEX_SENTENCES,
+    flashOnCustomSubmit: true,
     implicitModelText: true,
     optionalCreateInputs: true,
     fallbackLabels: true,
@@ -446,6 +449,14 @@ export function shellChromeAria(name: string, i18nEnabled: boolean): string {
   const key = chromeKey(name);
   const english = APP_SHELL_CHROME[key]!;
   return i18nEnabled ? `{${pgettextCall(key, english)}}` : `"${english}"`;
+}
+
+/** A chrome sentence as an Elixir EXPRESSION (a flash message, a title
+ *  string): the `pgettext(…)` call under i18n, else the quoted English. */
+export function chromeExpr(name: string, i18nEnabled: boolean): string {
+  const key = chromeKey(name);
+  const english = chromeMessage(name);
+  return i18nEnabled ? pgettextCall(key, english) : elixirString(english);
 }
 
 /** A walker-chrome string (`CHROME_MESSAGES`) as a HEEx ATTRIBUTE VALUE — the

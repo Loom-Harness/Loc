@@ -28,16 +28,19 @@
 
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type {
+  ActionIR,
   AggregateIR,
   BoundedContextIR,
   ExprIR,
   LayoutIR,
+  StmtIR,
   TypeIR,
   UiIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { detectAwaitedOp } from "../../ir/util/awaited-op.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
-import { walkExprDeep } from "../../ir/util/walk.js";
+import { walkExprDeep, walkExprStmtsDeep, walkStmtsDeep } from "../../ir/util/walk.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { humanize } from "../../util/naming.js";
 import { sourceText } from "../_i18n/source-text.js";
@@ -105,6 +108,8 @@ export const CHROME_MESSAGES: Record<string, string> = {
   // The accessible reason on a `when`-gated operation trigger while its
   // `GET /{id}/can_<op>` probe answers `{ allowed: false }`.
   [chromeKey("opNotAllowed")]: "Not available in the current state",
+  // The default accessible name of a `Toolbar` that names none.
+  [chromeKey("toolbarActions")]: "Actions",
   // The body of a page that declares none, on the targets that draw a
   // placeholder for it (`HAND_BUILT_FORM_SENTENCES.rowsAndGuards`).
   [chromeKey("emptyPage")]: "Empty page",
@@ -193,6 +198,14 @@ export const SENTENCE_CHROME: Record<string, (subject: string) => string> = {
   column: (position) => `Column ${position}`,
   created: (aggregate) => `${humanize(aggregate)} created`,
   completed: (workflow) => `${humanize(workflow)} completed`,
+  // The flash after an `Action(<row>.<op>)` button ran its operation (HEEx; the
+  // JSX frontends bind the call to a client mutation and show no sentence).
+  actionSucceeded: (operation) => `${humanize(operation)} succeeded`,
+  // The flash after a `DestroyForm` removed a record of this aggregate.
+  deleteSucceeded: (aggregate) => `${humanize(aggregate)} deleted`,
+  // The flash when a `match await` operation's record is gone.  The subject is
+  // the aggregate the operation lives on.
+  entityNotFound: (aggregate) => `${humanize(aggregate)} not found`,
   // A dynamic-row form's per-row button.  The subject is the value object each
   // row holds, so a locale can word it per item type; the English names no
   // noun.
@@ -221,6 +234,17 @@ export const HAND_BUILT_FORM_SENTENCES: Readonly<
   rowsAndGuards: ["addItem", "addValue", "fieldRequired", "emptyPage"],
 };
 
+/** The sentence bases the HEEx renderer reads: the flashes its LiveView
+ *  handlers raise after a form / action / destroy ran, and the one for a record
+ *  a `match await` operation no longer finds. */
+export const HEEX_SENTENCES: readonly string[] = [
+  "operationSucceeded",
+  "created",
+  "actionSucceeded",
+  "deleteSucceeded",
+  "entityNotFound",
+];
+
 /** The chrome name of the `base` sentence about `subject`. */
 export function sentenceChromeName(base: string, subject: string): string {
   return `${base}.${subject}`;
@@ -234,6 +258,8 @@ const FALLBACK_LABEL_CHROME: Record<string, string> = {
   [chromeKey("fieldFallback")]: "Field",
   [chromeKey("dataFallback")]: "Data",
   [chromeKey("submitFallback")]: "Submit",
+  // The accessible name of a `Table { filter: … }` box (HEEx).
+  [chromeKey("tableFilterAria")]: "Filter table",
 };
 
 function sentenceChromeMessage(name: string): string | undefined {
@@ -319,6 +345,7 @@ function fallbackLabelNamesForUi(ui: UiIR, contexts: readonly BoundedContextIR[]
     walkExprDeep(body, (e) => {
       if (e.kind !== "call") return;
       const positionals = e.args.filter((_, i) => !e.argNames?.[i]);
+      if (e.name === "Table" && refArgName(e, "filter") !== undefined) names.add("tableFilterAria");
       if (e.name === "Table" && positionals.length === 0) names.add("dataFallback");
       else if (e.name === "KeyValueRow" && positionals.length === 0) names.add("fieldFallback");
       else if (e.name === "CreateForm" || e.name === "WorkflowForm") {
@@ -359,6 +386,9 @@ export interface FormSentenceScope {
    *  (`WalkerTarget.modelTextImplicitSites`), so their keys belong in the
    *  catalog; unset ⇒ those sites render English and carry no key. */
   readonly implicitModelText?: boolean;
+  /** The rendering target flashes `created` after a `CreateForm` even when the
+   *  call supplies its own `onSubmit:` (HEEx ignores that handler). */
+  readonly flashOnCustomSubmit?: boolean;
   /** The rendering target's create form also shows OPTIONAL inputs (HEEx has
    *  no update flow to defer them to), so their labels are catalogued too. */
   readonly optionalCreateInputs?: boolean;
@@ -461,6 +491,13 @@ export function sentenceChromeNamesForUi(ui: UiIR, scope?: FormSentenceScope): s
       if (e.kind !== "call") return;
       if (e.name === "DestroyForm") {
         for (const n of destroyFormSentences(e)) names.add(n);
+        const target = ofName(e, "of");
+        if (target && wants("deleteSucceeded"))
+          names.add(sentenceChromeName("deleteSucceeded", target));
+      } else if (e.name === "Action") {
+        const opRef = e.args.find((_, i) => !(e.argNames ?? [])[i]);
+        if (opRef?.kind === "member" && wants("actionSucceeded"))
+          names.add(sentenceChromeName("actionSucceeded", opRef.member));
       } else if (e.name === "OperationForm") {
         const opArg = (e.argNames ?? []).indexOf("op");
         const named = opArg >= 0 ? e.args[opArg] : undefined;
@@ -491,7 +528,11 @@ export function sentenceChromeNamesForUi(ui: UiIR, scope?: FormSentenceScope): s
             vos,
             leaves,
           );
-        if (owner && wants("created") && !hasCustomSubmit(e))
+        if (
+          owner &&
+          wants("created") &&
+          (scope?.flashOnCustomSubmit === true || !hasCustomSubmit(e))
+        )
           names.add(sentenceChromeName("created", owner));
       } else if (e.name === "WorkflowForm") {
         const runs = ofName(e, "runs");
@@ -501,8 +542,19 @@ export function sentenceChromeNamesForUi(ui: UiIR, scope?: FormSentenceScope): s
           names.add(sentenceChromeName("completed", runs));
       }
     });
-  for (const page of ui.pages) visit(page.body);
-  for (const component of ui.components) visit(component.body);
+  const visitStmt = (stmt: StmtIR) =>
+    walkStmtsDeep(stmt, (st) => {
+      if (st.kind !== "variant-match" || !wants("entityNotFound")) return;
+      const awaited = detectAwaitedOp(st.subject);
+      if (awaited) names.add(sentenceChromeName("entityNotFound", awaited.aggName));
+    });
+  const visitHost = (host: { body?: ExprIR | undefined; actions?: readonly ActionIR[] }) => {
+    visit(host.body);
+    walkExprStmtsDeep(host.body, visitStmt);
+    for (const action of host.actions ?? []) for (const st of action.body) visitStmt(st);
+  };
+  for (const page of ui.pages) visitHost(page);
+  for (const component of ui.components) visitHost(component);
   if (wants("addItem"))
     for (const el of leaves.elements) names.add(sentenceChromeName("addItem", el));
   if (wants("removeItem"))
@@ -644,6 +696,9 @@ export const FORM_CHROME: Record<string, string> = {
   // The accessible reason on a `when`-gated operation trigger while its
   // `GET /{id}/can_<op>` probe answers `{ allowed: false }`.
   [chromeKey("opNotAllowed")]: "Not available in the current state",
+  // The accessible name of a `Toolbar` that names none (`Toolbar.label` is an
+  // authored slot and translates by its own key).
+  [chromeKey("toolbarActions")]: "Actions",
 };
 
 /** Chrome the generated session gate renders — the sign-in prompt and its

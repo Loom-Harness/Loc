@@ -329,14 +329,16 @@ function localizedAttrOf(
  *     pre-i18n path, so every non-JS frontend + a string-less app are unchanged.
  *
  *  `role` MUST match the slot's role in `USER_VISIBLE_SLOTS`.  `defaultLabel`
- *  (Toolbar's "Actions") is a canonical fallback with no source literal — it is
- *  not in the catalog, so it always renders static, never a `t()` call. */
+ *  (Toolbar's "Actions") is a canonical fallback with no source literal; when
+ *  `defaultChrome` names its chrome entry (`toolbarActions`) and the body is
+ *  i18n-enabled it renders through `t()` under that key, else it is static. */
 export function localizedAriaLabelAttr(
   call: ExprIR & { kind: "call" },
   ctx: WalkContext,
   role: string,
   name = "label",
   defaultLabel?: string,
+  defaultChrome?: string,
 ): string {
   const arg = namedArgValue(call, name);
   const literal = literalString(arg);
@@ -356,6 +358,12 @@ export function localizedAriaLabelAttr(
   // `label:` IS present, so nothing else catches it.  Bind the expression.
   if (literal === undefined && arg) {
     return ctx.target.renderAttrBinding(attrName, emitExpr(arg, ctx));
+  }
+  if (literal === undefined && defaultChrome !== undefined && ctx.i18nPrefix) {
+    return ctx.target.renderAttrBinding(
+      attrName,
+      translateCall(ctx, chromeKey(defaultChrome), chromeMessage(defaultChrome)),
+    );
   }
   return ariaLabelAttr(literal ?? defaultLabel);
 }
@@ -396,6 +404,7 @@ export function localizedNamedValue(
   role: string,
   name = "label",
   defaultLabel?: string,
+  defaultChrome?: string,
 ): string | undefined {
   const arg = namedArgValue(call, name);
   const literal = literalString(arg);
@@ -407,6 +416,9 @@ export function localizedNamedValue(
   const icu = icuTranslateCall(arg, ctx, role);
   if (icu) return icu;
   if (literal === undefined && arg) return emitExpr(arg, ctx);
+  if (literal === undefined && defaultChrome !== undefined && ctx.i18nPrefix) {
+    return translateCall(ctx, chromeKey(defaultChrome), chromeMessage(defaultChrome));
+  }
   const text = literal ?? defaultLabel;
   if (text === undefined || text === "") return undefined;
   return stringLiteral(ctx, text);

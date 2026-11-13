@@ -412,7 +412,6 @@ export function renderDestroyForm(
     ctx.actionBindings.push({
       agg: ofName,
       op: "destroy",
-      opHuman: "Delete",
       eventName,
       thenRoute,
       byId: true,
