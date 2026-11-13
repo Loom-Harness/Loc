@@ -28,6 +28,7 @@ import {
   operationBody,
   operationBodyUsesCurrentUser,
 } from "../../../ir/util/op-gates.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, factoryLocal, plural, upperFirst } from "../../../util/naming.js";
@@ -61,12 +62,6 @@ import { CS_STATE_HOLDER } from "./state-holder.js";
 export interface OpFragment {
   fragmentText: string;
   subRegions: SourceMapSubRegion[];
-}
-
-/** True for a field type that is a collection of references
- * (`Id<T>[]`) — persisted via a join table, not a column. */
-function isRefCollection(t: TypeIR): boolean {
-  return t.kind === "array" && t.element.kind === "id";
 }
 
 /** A statement shape narrow enough to cover both a real `StmtIR` and the
@@ -423,7 +418,7 @@ export function renderEntity(
     // `private` to `internal` keeps the field unwritable from
     // user/application code but lets the same-assembly hydration
     // succeed without reflection.
-    const fieldSetter = isRefCollection(f.type) ? "internal" : setterVisibility;
+    const fieldSetter = isRefCollectionType(f.type) ? "internal" : setterVisibility;
     propLines.push(
       `    public ${renderCsType(f.type)} ${upperFirst(f.name)} { get; ${fieldSetter} set; }${def}`,
     );

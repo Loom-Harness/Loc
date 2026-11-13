@@ -63,6 +63,7 @@ import {
   valueObjectFieldLookup,
   valueObjectPool,
 } from "../../ir/util/reachable-types.js";
+import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import {
   effectiveSavingShape,
   resolveContextSchema,
@@ -964,7 +965,7 @@ function emitProjectFromContexts(
       construct: string,
     ): void => {
       for (const f of fields) {
-        if (f.type.kind !== "array" || f.type.element.kind !== "id") continue;
+        if (!isRefCollectionType(f.type)) continue;
         place(
           `${f.type.element.targetName}IdJsonListConverter.java`,
           "id",
