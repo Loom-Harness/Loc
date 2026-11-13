@@ -1024,6 +1024,11 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "domain-services",
     backends: ALL,
     note: "elixir loads a reference collection as a preloaded `many_to_many` (target structs); the read is projected to ids so a service's `contains` compares ids with ids. Before, the count came out 0 with no error, and a `contains` in a standalone service module called the context module's private `__ref_id_list/1`.",
+    id: "value-collection-invariants",
+    title: "cross-field and guarded invariants on a value-collection element",
+    doc: "language",
+    backends: ALL,
+    note: "elixir casts each element through the child schema's `changeset/2`, which now runs the same `validate_invariants/1` seam an aggregate and a part use; before it carried only `validate_required` and accepted bad rows with 201/204.",
   },
   {
     id: "scaffold-macros",
