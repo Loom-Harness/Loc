@@ -24,7 +24,6 @@ import {
   type OperationIR,
   type RepositoryIR,
   type TypeIR,
-  type ValueObjectIR,
 } from "../../ir/types/loom-ir.js";
 import {
   peelCollection,
