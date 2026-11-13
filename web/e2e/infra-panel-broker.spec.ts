@@ -111,9 +111,11 @@ test("infra panel — Broker tab shows and manages the emulated brokers", async 
     await expect(dlq.getByTestId("infra-broker-message").first()).toContainText('"sku":"POISON"');
     await dlq.getByTestId("infra-broker-redrive").click();
     await expect(tab.locator('[data-testid="infra-broker-journal"][data-kind="redriven"]')).toHaveCount(2);
-    // Still poison: each group retries it again and parks it once more.
+    // A re-drive republishes to the address's exchange, so both groups' queues
+    // receive each of the two messages again; still poison, each copy is
+    // retried and parked once more: four dead letters.
     await expect(tab.locator('[data-testid="infra-broker-journal"][data-kind="retried"]').first()).toBeVisible();
-    await expect(dlq.getByTestId("infra-broker-queue-counts")).toContainText("2 ready", { timeout: 30_000 });
+    await expect(dlq.getByTestId("infra-broker-queue-counts")).toContainText("4 ready", { timeout: 30_000 });
   });
 
   await test.step("a seek replays a kafka group from the start", async () => {
