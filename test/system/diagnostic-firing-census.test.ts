@@ -669,6 +669,21 @@ system S {
   deployable db { platform: node, contexts: [B], port: 3001, auth: required }
 }`,
   // `shareable` with no `tenancy by … of <Registry>` to name grantee orgs by.
+  // A principal read inside a stateless domain service.
+  "loom.domain-service-no-principal": `
+system R {
+  user { id: string  permissions: string[] }
+  subdomain S {
+    context C {
+      domainService Calc {
+        operation f(x: int): int {
+          requires currentUser.permissions.contains("x")
+          return x + 1
+        }
+      }
+    }
+  }
+}`,
   "loom.shareable-no-tenancy": `
 context C {
   aggregate Doc with tenantOwned, shareable, crudish { title: string }
