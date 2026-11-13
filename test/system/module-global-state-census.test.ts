@@ -67,6 +67,16 @@ interface Pin {
 
 // key = "<file>:<identifier>"
 const PINNED: Record<string, Pin> = {
+  "src/ir/contract/allowlist.ts:DENIED": {
+    discipline: "build-once-cache",
+    reason:
+      "WeakSet marking the rules `deny()` built while the contract spec modules load; never mutated after module init, and only read to tell a denied field from a shipped one.",
+  },
+  "src/ir/contract/allowlist.ts:REGISTRY": {
+    discipline: "build-once-cache",
+    reason:
+      "Every named Frontend Contract spec, registered once while the spec modules load (a second registration of a name throws); read-only afterwards, by the allowlist census.",
+  },
   "src/language/storage-config-key.ts:clauses": {
     discipline: "build-once-cache",
     reason:

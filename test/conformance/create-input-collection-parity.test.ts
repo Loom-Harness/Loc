@@ -26,6 +26,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  buildCreateInput,
   createOmissionValue,
   isRequiredCreateInput,
   isRequiredUpdateInput,
@@ -82,7 +83,7 @@ describe("a collection create-input field may be omitted (#2864 G4)", () => {
 
     // Non-vacuity: all four fields really are in the create input, so the
     // assertions below are about required-ness and not about absence.
-    const inputNames = (agg.createInput ?? []).map((c) => c.field.name);
+    const inputNames = buildCreateInput(agg).map((c) => c.field.name);
     expect(inputNames).toEqual(expect.arrayContaining(["code", "legs", "tags", "maybeLegs"]));
 
     expect(isRequiredCreateInput(byName.get("code")!), "a scalar stays required").toBe(true);

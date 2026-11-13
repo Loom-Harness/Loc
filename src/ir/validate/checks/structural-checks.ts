@@ -10,6 +10,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { isStdlibError, STRUCTURAL_CONFLICT_ERRORS } from "../../../util/error-defaults.js";
 import { bodyTypeOf } from "../../../util/expr-body-type.js";
 import { tableNameFor } from "../../../util/storage-names.js";
+import { buildCreateInput } from "../../enrich/wire-projection.js";
 import { foldedEventNames } from "../../plan/index.js";
 import type {
   AggregateIR,
@@ -1596,7 +1597,7 @@ export function validateLifecycleBodyDropped(
         const illegal = lifecycleGuardIllegalReads(
           s.expr,
           label,
-          new Set((agg.createInput ?? []).map((f) => f.field.name)),
+          new Set(buildCreateInput(agg).map((f) => f.field.name)),
         );
         if (illegal.length === 0) continue;
         // Two literal `diagMessage` keys, and two pushes rather than one
