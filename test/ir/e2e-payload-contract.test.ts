@@ -230,10 +230,20 @@ describe("e2e payload — a literal of the wrong scalar type", () => {
     expect(await codesFor(`let w = api.widgets.create({ ${FULL} })`)).toEqual([]);
   });
 
-  it("NON-VACUITY: a plain int is admissible for a `money` / `decimal`", async () => {
+  it("refuses a bare number for a `money` — the wire takes no JSON number", async () => {
+    for (const n of ["5", "2.50"]) {
+      expect(
+        await codesFor(
+          `let w = api.widgets.create({ ${FULL.replace('price: money("1.00")', `price: ${n}`)} })`,
+        ),
+      ).toEqual(["loom.e2e-body-type-mismatch"]);
+    }
+  });
+
+  it("NON-VACUITY: a `money`'s string wire form is admissible", async () => {
     expect(
       await codesFor(
-        `let w = api.widgets.create({ ${FULL.replace('price: money("1.00")', "price: 5")} })`,
+        `let w = api.widgets.create({ ${FULL.replace('price: money("1.00")', 'price: "2.50"')} })`,
       ),
     ).toEqual([]);
   });
