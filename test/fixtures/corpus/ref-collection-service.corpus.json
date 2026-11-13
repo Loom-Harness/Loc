@@ -2,5 +2,11 @@
   "title": "an `X id[]` read off a loaded aggregate, handed to a domain service",
   "doc": "domain-services",
   "backends": "ALL",
-  "note": "elixir loads a reference collection as a preloaded `many_to_many` (target structs); the read is projected to ids so a service's `contains` compares ids with ids. Before, the count came out 0 with no error, and a `contains` in a standalone service module called the context module's private `__ref_id_list/1`."
+  "note": "elixir loads a reference collection as a preloaded `many_to_many` (target structs); the read is projected to ids so a service's `contains` compares ids with ids. Before, the count came out 0 with no error, and a `contains` in a standalone service module called the context module's private `__ref_id_list/1`.",
+  "apiCaller": {
+    "//": "A workflow run — the `notLifted` class.",
+    "unattributed": [
+      "api.matchProvider.run (no such aggregate)"
+    ]
+  }
 }
