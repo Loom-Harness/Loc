@@ -22,6 +22,7 @@ import type { NavigationOutcome } from "../preview/auth-navigation.js";
 import type { VirtualFile } from "../build/protocol.js";
 import type { BundleResult } from "../bundle/protocol.js";
 import type { BrokerInspectResult } from "../runtime/infra/broker-protocol.js";
+import type { ResourceService } from "../runtime/infra-client.js";
 import type {
   BootPlan,
   BootResult,
@@ -176,8 +177,9 @@ export interface RuntimeEngine extends RuntimeDispatcher {
    *  boot; absent on an engine without one. */
   inspectBroker?(): Promise<BrokerInspectResult | null>;
   /** Call an infra-worker service from the main thread (the fake identity
-   *  provider's `mint`).  Absent on an engine without the infra worker. */
-  infraService?<T = unknown>(service: "oidc", op: string, params?: unknown): Promise<T>;
+   *  provider's `mint`, the Infrastructure panel's reads and edits).  Rejects
+   *  before a boot; absent on an engine without the infra worker. */
+  infraService?<T = unknown>(service: ResourceService, op: string, params?: unknown): Promise<T>;
 
   /** Stop one booted deployable while the infrastructure and the other
    *  deployables run on (`docker compose stop <svc>`), and start it again on

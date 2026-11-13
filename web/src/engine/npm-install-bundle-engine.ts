@@ -435,7 +435,7 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     return slug === undefined ? null : (this.runtimes.get(slug) ?? null);
   }
 
-  infraService<T = unknown>(service: "oidc", op: string, params: unknown = {}): Promise<T> {
+  infraService<T = unknown>(service: ResourceService, op: string, params: unknown = {}): Promise<T> {
     if (!this.infra) return Promise.reject(new Error("Runtime not booted — boot first."));
     return this.infra.service<T>(service, op, params);
   }

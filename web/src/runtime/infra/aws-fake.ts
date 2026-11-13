@@ -195,8 +195,45 @@ export const s3Service: InfraService<ResourceOp> = {
     if (op === "http") return s3Http(p as HttpRequestData);
     if (op === "list") {
       return [...buckets].flatMap(([bucket, objs]) =>
-        [...objs].map(([key, o]) => ({ bucket, key, size: o.body.byteLength, contentType: o.contentType })),
+        [...objs].map(([key, o]) => ({
+          bucket,
+          key,
+          size: o.body.byteLength,
+          contentType: o.contentType,
+          lastModified: o.lastModified.toISOString(),
+        })),
       );
+    }
+    // The Infrastructure panel's object browser: the same objects the
+    // deployables reach over HTTP, read and written directly.
+    if (op === "buckets") return [...buckets.keys()].sort();
+    const { bucket, key } = p as { bucket: string; key: string };
+    if (typeof bucket !== "string" || bucket === "" || typeof key !== "string" || key === "") {
+      throw new Error(`s3.${op}: needs a bucket and a key.`);
+    }
+    switch (op) {
+      case "get": {
+        const o = buckets.get(bucket)?.get(key);
+        return o ? { body: o.body, contentType: o.contentType, etag: o.etag, lastModified: o.lastModified.toISOString() } : null;
+      }
+      case "put": {
+        const { body, contentType } = p as { body: Uint8Array; contentType?: string };
+        const stored: StoredObject = {
+          body,
+          contentType: contentType || "application/octet-stream",
+          etag: etagOf(body),
+          lastModified: new Date(),
+        };
+        const objects = buckets.get(bucket) ?? new Map<string, StoredObject>();
+        buckets.set(bucket, objects);
+        objects.set(key, stored);
+        store?.put("s3", blobKey(bucket, key), packObject(stored));
+        return { ok: true, etag: stored.etag };
+      }
+      case "delete":
+        buckets.get(bucket)?.delete(key);
+        store?.remove("s3", blobKey(bucket, key));
+        return { ok: true };
     }
     throw new Error(`s3: unknown op "${op}"`);
   },

@@ -21,6 +21,7 @@ import type { RuntimeDispatcher, RuntimeEngine } from "../engine";
 import type { Diagnostic } from "../lsp/protocol";
 import type {
   ApiSurfaceView,
+  DeclaredResource,
   EvolutionResult,
   RecordMigrationResult,
   GenerateOk,
@@ -175,7 +176,8 @@ export type MobileTab =
   | "migrations"
   | "history"
   | "agent"
-  | "auth";
+  | "auth"
+  | "infra";
 
 /** Sub-view of the consolidated mobile "Code" tab: the source editor,
  *  the visual page Builder, the structural Model, or the generated-file
@@ -197,7 +199,8 @@ export type DockTab =
   | "tests"
   | "migrations"
   | "history"
-  | "auth";
+  | "auth"
+  | "infra";
 
 /** The desktop centre area's active document (lifted from DesktopShell in
  *  M-T8.18 so the palette and the panes' *Go to line N* can switch it). */
@@ -525,6 +528,9 @@ export interface LayoutCtx {
   authStub: AuthStubConfig;
   setAuthStub: (v: AuthStubConfig | ((prev: AuthStubConfig) => AuthStubConfig)) => void;
   oidc: OidcState;
+  /** The booted system's declared `storage`s (empty before the first boot) —
+   *  the Infrastructure panel shows each tab's empty state against them. */
+  infraResources: DeclaredResource[];
   /** Mint a token for `persona` (its realm claims, `claims` merged over) and
    *  send it from now on.  Rejects when no system with `auth { oidc }` is
    *  booted. */

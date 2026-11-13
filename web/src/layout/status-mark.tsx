@@ -87,6 +87,12 @@ export function runtimeMark(ctx: LayoutCtx): Mark | null {
   return ctx.ddl ? { colour: "green", label: "booted" } : null;
 }
 
+/** Infrastructure: the system declares emulated resources and is booted. */
+export function infraMark(ctx: LayoutCtx): Mark | null {
+  const n = ctx.infraResources.filter((r) => r.type !== "postgres").length;
+  return ctx.ddl && n > 0 ? { colour: "gray", count: n, label: `${n} emulated ${n === 1 ? "resource" : "resources"}` } : null;
+}
+
 /** Agent: the last turn finished. */
 export function agentMark(ctx: LayoutCtx): Mark | null {
   const last = ctx.agentMessages.at(-1);
