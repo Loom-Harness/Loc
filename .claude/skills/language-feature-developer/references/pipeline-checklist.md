@@ -12,10 +12,11 @@ exits, then touch only those rows. The canonical deep dive is
 ```
 
 Targets: **5 backends** (TypeScript/Hono `node`, .NET, Phoenix vanilla Ecto
-`elixir`, Python/FastAPI, Java/Spring) and **5 frontends** (React, Vue,
-Svelte, Angular, Feliz — F#/Fable/Elmish; consumes the shared walker via
-`src/generator/feliz/feliz-target.ts` but emits F#, not JSX, and uses
-`.fsproj`+Fable, not the JS `stacks/` system or design packs). The two seams
+`elixir`, Python/FastAPI, Java/Spring) and **6 frontends** (React, Vue,
+Svelte, Angular, Feliz — F#/Fable/Elmish, and Flutter — Dart/Riverpod; Feliz and
+Flutter consume the shared walker via `src/generator/feliz/feliz-target.ts` /
+`src/generator/flutter/flutter-target.ts` but emit F# / Dart, not JSX, and build
+with `.fsproj`+Fable / the Flutter SDK, not the JS `stacks/` system or design packs). The two seams
 that let one feature reach all backends:
 `ExprTarget` (`src/generator/_expr/target.ts`) for expressions and
 `WalkerTarget` (`src/generator/_walker/target.ts`) for JSX-/F#-family page

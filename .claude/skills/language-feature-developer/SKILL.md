@@ -3,7 +3,7 @@ name: language-feature-developer
 description: >-
   End-to-end workflow for adding a language feature to the Loom DSL compiler
   (the .ddd toolchain in this repo) — from a proposal through grammar, IR,
-  validation, all five backends and five frontends, and tests. Use this
+  validation, all five backends and six frontends, and tests. Use this
   whenever the task is to implement, design, or scope a Loom language feature:
   picking up a feature issue or design record, closing a codegen gap, adding new
   surface syntax, an expression/statement/type, a capability, a UI primitive,
@@ -22,7 +22,7 @@ Adding a feature to Loom means walking a ten-phase, strictly one-directional
 pipeline (`.ddd → parse → macro → scope → AST-validate → lower → enrich →
 IR-validate → codegen → compose → write`) and landing it across **ten targets**
 (5 backends: TS/Hono, .NET, Phoenix vanilla Ecto, Python/FastAPI, Java/Spring;
-5 frontends: React, Vue, Svelte, Angular, Feliz F#/Fable). The failure mode this
+6 frontends: React, Vue, Svelte, Angular, Feliz F#/Fable, Flutter Dart). The failure mode this
 skill exists to prevent is a feature that's designed for one backend,
 half-implemented, or rebuilt because it was already shipped on a fast-moving
 `main`.
