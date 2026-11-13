@@ -23,9 +23,11 @@ export type { HttpRequestData, HttpResponseData } from "./http.js";
 export {
   createHttpMock,
   type HttpMock,
-  type HttpMockLogEntry,
+  type HttpMockRequest,
+  type MockOverride,
   type OpenApiDoc,
   type SchemaSampler,
+  type ServedRequest,
 } from "./http-mock.js";
 export { createMailbox, type Mailbox, type MailInput, type MailMessage } from "./mailbox.js";
 export {

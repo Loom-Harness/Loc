@@ -28,7 +28,7 @@ export interface EmulationHost {
   s3(opts?: { store?: BlobStore | null }): S3;
   ses(opts: { mailbox: Mailbox }): Ses;
   disk(opts?: { store?: BlobStore | null }): Disk;
-  httpMock(opts?: { sample?: () => Promise<SchemaSampler> }): HttpMock;
+  httpMock(opts?: { sample?: () => Promise<SchemaSampler>; now?: () => Date }): HttpMock;
   oidc(): OidcProvider;
   broker(opts: BrokerModelOptions): BrokerModel;
 }
@@ -176,19 +176,95 @@ export function emulationContract(hostName: string, host: EmulationHost): void {
     });
 
     describe("httpMock", () => {
-      it("echoes a request without a spec and logs it, with its body when given", async () => {
-        const mock = host.httpMock();
-        expect(await mock.request({ method: "GET", url: "http://crm.test/customers?x=1" })).toEqual(
+      it("echoes a request without a spec and logs what it answered", async () => {
+        const mock = host.httpMock({ now: () => new Date("2026-01-01T00:00:00Z") });
+        expect(await mock.request({ method: "get", url: "http://crm.test/customers?x=1" })).toEqual(
           {
             status: 200,
-            body: { mock: true, method: "GET", path: "/customers?x=1" },
+            body: { mock: true, method: "get", path: "/customers?x=1" },
           },
         );
         await mock.request({ method: "POST", url: "http://crm.test/pings", body: '"a@x"' });
         expect(mock.log()).toEqual([
-          { method: "GET", url: "http://crm.test/customers?x=1" },
-          { method: "POST", url: "http://crm.test/pings", body: '"a@x"' },
+          {
+            at: "2026-01-01T00:00:00.000Z",
+            method: "GET",
+            url: "http://crm.test/customers?x=1",
+            operation: "GET /customers",
+            status: 200,
+            response: { mock: true, method: "get", path: "/customers?x=1" },
+            overridden: false,
+          },
+          {
+            at: "2026-01-01T00:00:00.000Z",
+            method: "POST",
+            url: "http://crm.test/pings",
+            body: '"a@x"',
+            operation: "POST /pings",
+            status: 200,
+            response: { mock: true, method: "POST", path: "/pings" },
+            overridden: false,
+          },
         ]);
+        mock.clearLog();
+        expect(mock.log()).toEqual([]);
+      });
+
+      it("an override answers its operation in place of the spec sample, until cleared", async () => {
+        const mock = host.httpMock({ sample: async () => () => ({ sampled: true }) });
+        const ok = { "200": { content: { "application/json": { schema: { type: "object" } } } } };
+        mock.registerSpec("http://rates.test", {
+          paths: { "/rate/{cur}": { get: { responses: ok }, put: { responses: ok } } },
+        });
+        expect(mock.operations()).toEqual([
+          { origin: "http://rates.test", operation: "GET /rate/{cur}" },
+          { origin: "http://rates.test", operation: "PUT /rate/{cur}" },
+        ]);
+        expect(() =>
+          mock.setOverride({
+            origin: "http://rates.test",
+            operation: "GET /rate/{cur}",
+            status: 99,
+          }),
+        ).toThrow(/not an HTTP status/);
+        mock.setOverride({
+          origin: "http://rates.test",
+          operation: "GET /rate/{cur}",
+          status: 503,
+          body: { down: true },
+        });
+        expect(await mock.request({ method: "GET", url: "http://rates.test/rate/EUR" })).toEqual({
+          status: 503,
+          body: { down: true },
+        });
+        // Keyed by origin: the same operation on another origin is not overridden.
+        expect(
+          (await mock.request({ method: "GET", url: "http://other.test/rate/EUR" })).status,
+        ).toBe(200);
+        expect(mock.log().map((r) => [r.operation, r.status, r.overridden])).toEqual([
+          ["GET /rate/{cur}", 503, true],
+          ["GET /rate/EUR", 200, false],
+        ]);
+        expect(mock.overrides()).toEqual([
+          {
+            origin: "http://rates.test",
+            operation: "GET /rate/{cur}",
+            status: 503,
+            body: { down: true },
+          },
+        ]);
+        mock.clearOverride({ origin: "http://rates.test", operation: "GET /rate/{cur}" });
+        expect(await mock.request({ method: "GET", url: "http://rates.test/rate/EUR" })).toEqual({
+          status: 200,
+          body: { sampled: true },
+        });
+        mock.setOverride({
+          origin: "http://rates.test",
+          operation: "PUT /rate/{cur}",
+          status: 204,
+        });
+        mock.reset();
+        expect([mock.overrides(), mock.operations(), mock.log()]).toEqual([[], [], []]);
       });
 
       it("answers a registered spec's operations with sampled 2xx bodies", async () => {
