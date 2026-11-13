@@ -25,7 +25,7 @@ import {
 } from "./vocabulary";
 import { OutputStreamLink } from "./OutputStreamLink";
 import { TsTransformClient, type EsbuildBuild } from "../testing/transform-client";
-import { nearestPackageDeps } from "../testing/suite-deps";
+import { formatSuiteLoadFailures, nearestPackageDeps, type SuiteLoadFailure } from "../testing/suite-deps";
 import { findApiTestFile, loadApiTests } from "../testing/run-api-tests";
 import { findUiTestFile, loadUiSuite, uiSuiteFiles } from "../testing/run-ui-tests";
 import {
@@ -201,6 +201,17 @@ function TestsBodyView({
       setProgress(TEST_DISCOVERY.progress(n, total, label));
     };
     void (async () => {
+      // Each suite loads on its own: one that fails to build or import is
+      // reported by name, and the others stay listed and runnable.
+      const failures: SuiteLoadFailure[] = [];
+      const attempt = async <T,>(suite: string, path: string, load: () => Promise<T>): Promise<T | null> => {
+        try {
+          return await load();
+        } catch (e) {
+          failures.push({ suite, path, message: e instanceof Error ? e.message : String(e) });
+          return null;
+        }
+      };
       try {
         const c = client();
         const build: EsbuildBuild = (e, f, a, d) => c.build(e, f, a, d);
@@ -209,37 +220,46 @@ function TestsBodyView({
           if (token.cancelled) return;
           const base = f.path.split("/").pop()!.replace(/\.test\.ts$/, "");
           step(base);
-          const cases = await loadUnitSuite({
-            entry: f.path,
-            files: unitSuiteFiles(files, f),
-            build,
-            deps: nearestPackageDeps(files, f.path),
-          });
-          units.push({ id: `unit\0${f.path}`, label: base, cases });
+          const cases = await attempt(base, f.path, () =>
+            loadUnitSuite({
+              entry: f.path,
+              files: unitSuiteFiles(files, f),
+              build,
+              deps: nearestPackageDeps(files, f.path),
+            }),
+          );
+          if (cases) units.push({ id: `unit\0${f.path}`, label: base, cases });
         }
         if (token.cancelled) return;
         if (uiFile) step("UI");
         const ui = uiFile
-          ? await loadUiSuite({
-              entry: uiFile.path,
-              files: uiSuiteFiles(files, uiFile),
-              build,
-              deps: nearestPackageDeps(files, uiFile.path),
-            })
+          ? await attempt("UI", uiFile.path, () =>
+              loadUiSuite({
+                entry: uiFile.path,
+                files: uiSuiteFiles(files, uiFile),
+                build,
+                deps: nearestPackageDeps(files, uiFile.path),
+              }),
+            )
           : null;
         if (token.cancelled) return;
         if (apiFile && engine) step("API");
         const api = apiFile && engine
-          ? await loadApiTests({
-              source: apiFile.content,
-              compile: (ts) => c.compile(ts),
-              dispatch: (req) => engine.dispatch(req),
-            })
+          ? await attempt("API", apiFile.path, () =>
+              loadApiTests({
+                source: apiFile.content,
+                compile: (ts) => c.compile(ts),
+                dispatch: (req) => engine.dispatch(req),
+              }),
+            )
           : null;
         if (token.cancelled) return;
         setUnitSuites(units);
         setUiCases(ui);
         setApiCases(api);
+        if (failures.length > 0) {
+          setError({ kind: "discovery", message: formatSuiteLoadFailures(failures) });
+        }
       } catch (e) {
         if (!token.cancelled) {
           setError({ kind: "discovery", message: e instanceof Error ? e.message : String(e) });
@@ -392,6 +412,7 @@ function TestsBodyView({
               traceability={traceability}
               verification={verification}
               results={results}
+              suitesMissing={error?.kind === "discovery"}
             />
           )}
           {(unitSuites ?? []).map((s) => (
@@ -486,10 +507,14 @@ function RequirementsRollup({
   traceability,
   verification,
   results,
+  suitesMissing,
 }: {
   traceability: TraceabilityJson;
   verification: VerificationIR;
   results: Record<string, TestResult>;
+  /** Some generated suites failed to load, so a requirement they cover reads
+   *  Unverified although nothing here can run it. */
+  suitesMissing: boolean;
 }): JSX.Element {
   const { requirements, testCases, index } = traceability;
   const byId = new Map(requirements.map((r) => [r.id, r]));
@@ -577,6 +602,11 @@ function RequirementsRollup({
       <Text size="xs" c="dimmed" mb={6} data-testid="verdict-legend">
         {VERDICT_LEGEND}
       </Text>
+      {suitesMissing && s.unverified > 0 && (
+        <Text size="xs" c="orange" mb={6} data-testid="verdict-suites-missing">
+          {TEST_DISCOVERY.unverifiedUnloadable}
+        </Text>
+      )}
       <Stack gap={4}>{roots.flatMap((r) => renderReq(r.id, 0))}</Stack>
     </Box>
   );
