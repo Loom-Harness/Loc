@@ -100,7 +100,7 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
     const consumer = files.get("ship_api/lib/ship_api/channel_consumer.ex") ?? "";
     // One durable queue per consuming deployable — the consumer group.
     expect(consumer).toContain(
-      'consume(chan_loom_channels_0, "loom.Orders.Lifecycle", "loom.Orders.Lifecycle.shipApi")',
+      '[{"loom.Orders.Lifecycle", "loom.Orders.Lifecycle.shipApi"}], 0)',
     );
     expect(consumer).toContain("AMQP.Basic.qos(chan, prefetch_count: 1)");
     // Dead-letter topology: DLX exchange + per-address parking queue, wired
