@@ -856,6 +856,8 @@ function isRefIdsProjection(e: ExprIR, ctx: RenderCtx): boolean {
     e.kind === "member" &&
     !ctx.filterArgs &&
     e.receiver.kind !== "this" &&
+    // The principal's id lists are plain ids already.
+    !(e.receiver.kind === "ref" && e.receiver.refKind === "current-user") &&
     e.receiverType.kind === "entity" &&
     e.memberType.kind === "array" &&
     e.memberType.element.kind === "id"
