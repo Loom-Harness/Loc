@@ -138,7 +138,11 @@ const errorStatuses: Record<string, (s: Subject) => Promise<number[]>> = {
     expect(at, `dotnet: no action ${handler}`).toBeGreaterThan(-1);
     const from = src.lastIndexOf("    [Http", at);
     return sorted(
-      src.slice(from, at).matchAll(/ProducesResponseType\(typeof\(ProblemDetails\), (\d{3})\)/g),
+      src
+        .slice(from, at)
+        .matchAll(
+          /ProducesResponseType\(typeof\(ProblemResponse\), (\d{3}), "application\/problem\+json"\)/g,
+        ),
     );
   },
   /** springdoc: the `@ApiResponse` annotations above the controller method. */

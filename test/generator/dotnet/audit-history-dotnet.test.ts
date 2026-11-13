@@ -109,8 +109,12 @@ describe("entity history — .NET negative authz", () => {
     const files = await emit(MASKED);
     const ctrl = fileEndingWith(files, "Api/EmployeesController.cs");
     const action = ctrl.slice(ctrl.indexOf('[HttpGet("{id}/history")]'));
-    expect(action).toContain("[ProducesResponseType(typeof(ProblemDetails), 403)]");
-    expect(action).toContain("[ProducesResponseType(typeof(ProblemDetails), 404)]");
+    expect(action).toContain(
+      '[ProducesResponseType(typeof(ProblemResponse), 403, "application/problem+json")]',
+    );
+    expect(action).toContain(
+      '[ProducesResponseType(typeof(ProblemResponse), 404, "application/problem+json")]',
+    );
   });
 });
 

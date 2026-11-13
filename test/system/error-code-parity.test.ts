@@ -90,8 +90,8 @@ const BACKEND_FACTS: Readonly<
     // The app-wide filter reads the addressed aggregate off the request path.
     typeParams: /Problem\(context, \d+, [^\n]*"problem\.not-found", TypeParams\(context\)\);/,
     schema: [
-      /\["code"\] = new OpenApiSchema \{ Type = JsonSchemaType\.String/,
-      /\["params"\] = new OpenApiSchema/,
+      /public string\? Code \{ get; set; \}/,
+      /public IDictionary<string, object\?>\? Params \{ get; set; \}/,
     ],
     catalog: /LoomMessages|Localization\/LoomMessages\.cs/,
   },

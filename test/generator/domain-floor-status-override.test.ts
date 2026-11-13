@@ -19,7 +19,7 @@
 // What "declaration" means per backend, since the four spell it differently:
 //   node    — the `responses: { <status>: { description, content } }` block of
 //             the emitted `createRoute({ ... })`.
-//   dotnet  — `[ProducesResponseType(typeof(ProblemDetails), <status>)]`.
+//   dotnet  — `[ProducesResponseType(typeof(ProblemResponse), <status>, "application/problem+json")]`.
 //   java    — the controller methods' `@ApiResponse(responseCode = …)` annotations.
 //   python  — the FastAPI `responses={<status>: {"model": ProblemDetails, …}}` kwarg.
 
@@ -84,7 +84,10 @@ const RUNTIME_ARM: Record<string, (status: number, title: string) => string> = {
 const DECLARED: Record<string, (status: number) => RegExp> = {
   node: (s) =>
     new RegExp(`${s}: \\{ description: "[^"]+", content: \\{ "application/problem\\+json"`),
-  dotnet: (s) => new RegExp(`\\[ProducesResponseType\\(typeof\\(ProblemDetails\\), ${s}\\)\\]`),
+  dotnet: (s) =>
+    new RegExp(
+      `\\[ProducesResponseType\\(typeof\\(ProblemResponse\\), ${s}, "application/problem\\+json"\\)\\]`,
+    ),
   // springdoc reads the declared set off each controller method's `@ApiResponse`.
   java: (s) => new RegExp(`annotations\\.responses\\.ApiResponse\\(responseCode = "${s}"`),
   python: (s) => new RegExp(`${s}: \\{"model": ProblemDetails`),

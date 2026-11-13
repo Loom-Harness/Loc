@@ -18,17 +18,6 @@ function generate(file: string): Promise<Map<string, string>> {
 }
 
 describe(".NET workflow instance read endpoints", () => {
-  it("registers the named <Wf>InstanceListResponse wrapper pair", async () => {
-    // Swashbuckle inlines `IEnumerable<T>`; the document filter promotes the
-    // list response to the named carrier the other backends emit
-    // (`<Wf>InstanceListResponse` — Hono z.array().openapi(), Python RootModel).
-    const files = await generate("test/fixtures/dispatch-sample.ddd");
-    const filter = files.get("Api/ListResponseWrapperFilter.cs") ?? "";
-    expect(filter).toContain(
-      '("OrderFulfillmentInstanceResponse", "OrderFulfillmentInstanceListResponse"),',
-    );
-  });
-
   it("emits no instance controller for a workflow without a correlation field", async () => {
     const files = await generate("examples/sales.ddd");
     const hasInstanceCtrl = [...files.keys()].some((k) =>

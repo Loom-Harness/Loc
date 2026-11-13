@@ -55,10 +55,10 @@ const MAX_DEFERRAL_DAYS = 180;
 const WAIVERS: Record<string, Waiver> = {
   "src/generator/dotnet/": {
     deferred:
-      "Swashbuckle document/operation/schema filters; replaced by [ProducesResponseType], " +
-      "C# required members and [JsonPolymorphic] with UseOneOfForPolymorphism",
+      "ValueObjectSchemaMergeFilter folds each value object's per-direction, per-aggregate " +
+      "wire records into one component; replaced by one shared wire record per value object",
     reviewUntil: "2027-03-31",
-    blockedBy: "#4871",
+    blockedBy: "#5321",
   },
   "src/generator/python/": {
     deferred:
