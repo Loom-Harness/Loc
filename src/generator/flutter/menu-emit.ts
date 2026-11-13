@@ -31,6 +31,7 @@ import { lines } from "../../util/code-builder.js";
 import { humanize } from "../../util/naming.js";
 import {
   deriveSidebarFromUi,
+  isDefaultNavPage,
   type NavEntryVM,
   type NavSectionVM,
 } from "../_frontend/menu-emitter.js";
@@ -58,15 +59,6 @@ export function navScaffoldLines(kind: FlutterNavKind | undefined): string[] {
   return kind === "drawer" ? [`      drawer: const ${FLUTTER_NAV_DRAWER_WIDGET}(),`] : [];
 }
 
-/** A page that appears in the default navigation: a parameterless route, laid
- *  out inside the app chrome, and not hidden by its `menu { hidden: true }`. */
-function isDefaultNavPage(p: PageIR): boolean {
-  if (!p.route || p.route.includes(":")) return false;
-  if (p.layout?.kind === "preset" && p.layout.name === "none") return false;
-  const hidden = p.menuMeta?.entries.find((e) => e.name === "hidden")?.value;
-  return !(hidden?.kind === "literal" && hidden.lit === "bool" && hidden.value === "true");
-}
-
 /** The default sections handed to `deriveSidebarFromUi`: Home, then one entry per
  *  nav page — each regrouped under its own `menu { section }` by the shared
  *  merge. */
@@ -79,7 +71,7 @@ function defaultNavSections(ui: UiIR, nameCtx: PageNameCtx): NavSectionVM[] {
   const entries = [
     ...(home ? [entry(home, "Home")] : []),
     ...ui.pages
-      .filter((p) => p.route !== "/" && isDefaultNavPage(p))
+      .filter((p) => p.route !== "/" && isDefaultNavPage(p, nameCtx))
       .map((p) => entry(p, menuMetaString(p, "label") ?? humanize(pageEmitName(p, nameCtx)))),
   ];
   return entries.length > 0 ? [{ label: "", entries }] : [];

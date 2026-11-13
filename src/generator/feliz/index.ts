@@ -32,12 +32,7 @@ import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesDataGrid } from "../../ir/util/data-grid.js";
 import { felizComponentStateInit } from "../../ir/util/feliz-component-state-init.js";
 import { typeIsFile } from "../../ir/util/file-field.js";
-import {
-  classifyPage,
-  type PageNameCtx,
-  pageConstructId,
-  pageEmitName,
-} from "../../ir/util/page-kind.js";
+import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
 import { menuMetaString } from "../../ir/util/page-menu.js";
 import { readableProjectionNames } from "../../ir/util/projection-read.js";
 import {
@@ -58,6 +53,7 @@ import {
 import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
 import {
   deriveSidebarFromUi,
+  isDefaultNavPage,
   type NavEntryVM,
   type NavSectionVM,
 } from "../_frontend/menu-emitter.js";
@@ -828,18 +824,6 @@ function renderRouting(
 /** The root routing `view` — a `React.router` that dispatches `UrlChanged` and
  *  renders the active page's view fn (threading the route `id` to detail pages).
  *  Named `view` normally; `appView` under an auth gate (the gate owns `view`). */
-/** A page the DEFAULT bar links: a parameterless route (no `:id`), inside the
- *  app shell, that is not a create or detail page of a scaffolded aggregate or
- *  workflow — those are reached from their list, and a detail route's `:id` has
- *  no value to link to. */
-function isDefaultNavPage(page: PageIR, nameCtx: PageNameCtx): boolean {
-  if (!page.route || page.route.includes(":")) return false;
-  if (page.layout?.kind === "preset" && page.layout.name === "none") return false;
-  const kind = classifyPage(page, nameCtx).kind;
-  return (
-    kind !== "aggregate-new" && kind !== "aggregate-detail" && kind !== "workflow-instance-detail"
-  );
-}
 
 /** The default bar's links: one per navigable page, named by the page's own
  *  `menu { label: … }` (a scaffold list page carries its aggregate's plural,

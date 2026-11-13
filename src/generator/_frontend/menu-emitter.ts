@@ -130,11 +130,12 @@ function isNavigable(p: PageIR): boolean {
 }
 
 /** A page a frontend's DEFAULT sidebar links: one with a parameterless route
- *  inside the app shell (`isNavigable`), and not a create or detail
+ *  inside the app shell (`isNavigable`), not hidden by its own
+ *  `menu { hidden: true }`, and not a create or detail
  *  page of a scaffolded aggregate or workflow — those are reached from their
  *  list, and a detail route's `:id` has no value to link to. */
 export function isDefaultNavPage(p: PageIR, pageCtx: PageNameCtx): boolean {
-  if (!isNavigable(p)) return false;
+  if (!isNavigable(p) || readMenuMetaBool(p, "hidden")) return false;
   const kind = classifyPage(p, pageCtx).kind;
   return (
     kind !== "aggregate-new" && kind !== "aggregate-detail" && kind !== "workflow-instance-detail"
