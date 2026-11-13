@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { chromium, defineConfig, devices } from "@playwright/test";
 
 /** A Chromium to launch when the one this Playwright version pins is not
- *  installed: `LOOM_PW_CHROMIUM`, else the sandbox image's preinstalled
+ *  installed: `LOOM_CHROMIUM_PATH`, else the sandbox image's preinstalled
  *  `$PLAYWRIGHT_BROWSERS_PATH/chromium` (default `/opt/pw-browsers`).  With the
  *  pinned browser present (CI installs it), Playwright's own choice stands. */
 function fallbackChromium(): string | undefined {
@@ -12,7 +12,8 @@ function fallbackChromium(): string | undefined {
     // no pinned browser registered: fall through
   }
   const root = process.env.PLAYWRIGHT_BROWSERS_PATH || "/opt/pw-browsers";
-  return [process.env.LOOM_PW_CHROMIUM, `${root}/chromium`].find(
+  // `LOOM_PW_CHROMIUM` is the older spelling of `LOOM_CHROMIUM_PATH`.
+  return [process.env.LOOM_CHROMIUM_PATH, process.env.LOOM_PW_CHROMIUM, `${root}/chromium`].find(
     (p): p is string => !!p && existsSync(p),
   );
 }
