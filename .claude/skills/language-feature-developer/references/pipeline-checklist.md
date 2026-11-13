@@ -83,6 +83,15 @@ tells you when it applies.
   output is the branded `EnrichedLoomModel`; downstream takes only the enriched
   type, so an un-enriched IR fails to typecheck.
 
+### Plan — whenever more than one target implements the feature
+- `src/ir/plan/<feature>.ts` — the feature's cross-target *decisions* (analysis
+  facts and order/semantics), as pure on-demand functions over the enriched IR,
+  exported from `src/ir/plan/index.ts`. Each target's emitter imports them and
+  only renders its idiom. Rule of thumb: if two targets choosing differently
+  would be a bug, it goes here; if it would only be a style difference, it stays
+  in the emitter. Add a census rule that forbids recomputing the fact inside a
+  target (pattern: `test/system/workflow-plan-census.test.ts`), mutation-proved.
+
 ### ⑦ IR validate — almost always (cross-aggregate / capability / gating checks)
 - `src/ir/validate/checks/{query,system,ui,structural,workflow,test}-checks.ts`
   — the gate logic. Shared predicate helpers go in `src/ir/util/<feature>-capability.ts`.

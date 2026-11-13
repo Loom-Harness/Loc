@@ -648,6 +648,38 @@ backend.
 
 ---
 
+## Semantic plans — `src/ir/plan/`
+
+A **plan** is a backend-neutral fact about the model that more than one
+consumer needs: the IR validators (phase ⑦) and the per-target generators
+(phase ⑧). Plans are a library of pure functions over the enriched IR, not
+a pipeline phase.
+
+- **Computed on demand.** A plan is never written back onto an IR node or
+  cached there ("derive, don't stamp"); callers ask for it where they need it.
+- **Platform-neutral.** A plan never branches on a backend, frontend or
+  framework name.
+- **Downstream of enrichment.** A plan module imports only `ir/types/`,
+  `ir/util/`, `ir/enrich/`, `src/util/` and its siblings;
+  `test/platform/pipeline-layering.test.ts` enforces it.
+- **One implementation per fact.** A generator that needs a plan fact imports
+  it, and a census forbids recomputing it inside a target.
+
+**What belongs in a plan.** A feature implemented by several targets splits
+into three layers:
+
+| Layer | Example | Where it lives |
+|---|---|---|
+| **Analysis**: facts read off the IR | which repositories a body needs, which operations are audited, whether a workflow keeps a state row | the plan |
+| **Order and semantics**: decisions every target must make the same way | the order repositories are declared, where a transaction opens, whether a gate runs before a load, a fold's merge rule | the plan |
+| **Envelope**: the target's idiom | framework wiring, ORM mapping, file layout, naming conventions | the target's emitter |
+
+The test: if two targets choosing differently would be a bug, it is analysis
+or order and belongs in the plan; if it would only be a different style, it is
+envelope and stays per target. A new multi-target feature lands its analysis
+and order facts in `src/ir/plan/` first, with a census rule, and each target
+then renders them.
+
 ## Phase ⑦ — IR validation
 
 **File**: `src/ir/validate/validate.ts` (~220 lines) — a thin
