@@ -168,7 +168,7 @@
     {
       "seq": 14,
       "method": "POST",
-      "path": "/api/accounts/{id}/update",
+      "path": "/api/workflows/pay_with_receipt",
       "status": 204,
       "body": ""
     },
@@ -178,24 +178,23 @@
       "path": "/api/accounts/{id}",
       "status": 200,
       "body": {
-        "balance": 40,
+        "balance": 25,
         "id": "<volatile:key>",
-        "owner": "bea",
+        "owner": "ann",
         "rowVersion": 5
       }
     },
     {
       "seq": 16,
       "method": "GET",
-      "path": "/api/accounts",
+      "path": "/api/receipts",
       "status": 200,
       "body": {
         "items": [
           {
-            "balance": 40,
             "id": "<volatile:key>",
-            "owner": "bea",
-            "rowVersion": 5
+            "left": 25,
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -207,6 +206,45 @@
     {
       "seq": 17,
       "method": "POST",
+      "path": "/api/accounts/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 40,
+        "id": "<volatile:key>",
+        "owner": "bea",
+        "rowVersion": 6
+      }
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/accounts",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "balance": 40,
+            "id": "<volatile:key>",
+            "owner": "bea",
+            "rowVersion": 6
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 20,
+      "method": "POST",
       "path": "/api/notes",
       "status": 201,
       "body": {
@@ -214,7 +252,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 21,
       "method": "GET",
       "path": "/api/notes/{id}",
       "status": 200,
@@ -225,14 +263,14 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 22,
       "method": "POST",
       "path": "/api/notes/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 20,
+      "seq": 23,
       "method": "GET",
       "path": "/api/notes/{id}",
       "status": 200,
@@ -243,21 +281,21 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 24,
       "method": "DELETE",
       "path": "/api/notes/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 22,
+      "seq": 25,
       "method": "DELETE",
       "path": "/api/accounts/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 23,
+      "seq": 26,
       "method": "GET",
       "path": "/api/accounts/{id}",
       "status": 404,
@@ -274,7 +312,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 27,
       "method": "PATCH",
       "path": "/api/accounts",
       "status": 405,
@@ -288,7 +326,7 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 28,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -302,7 +340,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 29,
       "method": "POST",
       "path": "/api/accounts",
       "status": 400,
@@ -316,7 +354,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 30,
       "method": "POST",
       "path": "/api/accounts/{id}/withdraw",
       "status": 422,
