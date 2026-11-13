@@ -1,11 +1,10 @@
-import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
 import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant, eventsKeepOriginFrame } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
 import { type CachedByIdRead, cachePlanFor } from "../../ir/plan/cache.js";
-import { hasDurableEvents } from "../../ir/plan/index.js";
+import { channelPlan, hasDurableEvents } from "../../ir/plan/index.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   BoundedContextIR,
@@ -86,7 +85,6 @@ import { apiRoutePrefix } from "../../util/api-base.js";
 import { rewrite } from "../../util/emission-sink.js";
 import { plural, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
-import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { finalizeCsUnit } from "../_imports/dotnet.js";
@@ -364,30 +362,13 @@ function emitProjectFromContexts(
   // enricher-stored `eventSubscriptions`; OR them in so a projection-only context
   // still gets the Mediator dispatcher + IDomainEvent notification plumbing (the
   // fold handlers, discovered by assembly scan, otherwise never run).
-  // Broker bindings (channels.md; M-T4.4 slices 6a + 7b): the broker-bound
-  // channelSources this deployable wires via `channels:`.  A wired-but-foreign
-  // channel joins the carrier set as a stub with its REAL semantics knobs, so
-  // the subscription derivation routes a hosted reactor off a channel declared
-  // in a non-hosted context (mirrors the Hono/Python orchestrators).  The
-  // stubs feed ONLY the subscription derivation — the outbox/idempotency
-  // machinery keys off HOSTED durable channels, matching what the
-  // module-level migrations back; a foreign `queue`/`work` consumer relies on
-  // broker ack semantics + idempotent reactors (the slice-3 stance).
-  const channelBindings = brokerChannelBindings(system.deployable, system.sys);
-  const hostedChannelNames = new Set(contexts.flatMap((c) => c.channels).map((ch) => ch.name));
-  const wiredForeignChannels = channelBindings
-    .filter((b) => !hostedChannelNames.has(b.channelName))
-    .map((b) => ({
-      name: b.channelName,
-      carries: b.events,
-      delivery: b.delivery,
-      retention: b.retention,
-    }));
-  const mergedSubscriptions = deriveEventSubscriptions(
-    [...contexts.flatMap((c) => c.channels), ...wiredForeignChannels],
-    contexts.flatMap((c) => c.workflows),
-    contexts.flatMap((c) => c.projections ?? []),
-  );
+  // The deployable's channel plan (channels.md "Event routing"): its broker
+  // bindings, and the subscriptions routed off its hosted channels plus the
+  // wired channels it does not host.  The outbox and dedupe machinery still
+  // key off the HOSTED durable channels.
+  const chPlan = channelPlan(contexts, system);
+  const channelBindings = chPlan.bindings;
+  const mergedSubscriptions = chPlan.subscriptions;
   const hasChannels = channelBindings.length > 0;
   const hasChannelConsumers = hasChannels && mergedSubscriptions.some((sub) => !sub.projection);
   const hasSubscriptions =

@@ -1,7 +1,11 @@
 import type { EventIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent } from "../../util/naming.js";
-import { type BrokerBinding, kafkaStartsAtEarliest } from "../_channels/bindings.js";
+import {
+  type BrokerBinding,
+  kafkaStartsAtEarliest,
+  uniqueBindings,
+} from "../_channels/bindings.js";
 import { CHANNEL_CONSUMER } from "../_channels/delivery-policy.js";
 import { pyModule, pyRef } from "../_imports/python.js";
 import { ref } from "../_imports/symbol.js";
@@ -64,15 +68,6 @@ const C = {
 // snake_case, so the codec arms map both directions), datetimes travel as
 // ISO-8601 strings, money as decimal strings.
 // ---------------------------------------------------------------------------
-
-function uniqueBindings(bindings: BrokerBinding[]): BrokerBinding[] {
-  const seen = new Set<string>();
-  return bindings.filter((b) => {
-    if (seen.has(b.csName)) return false;
-    seen.add(b.csName);
-    return true;
-  });
-}
 
 /** The per-binding driver pick in `init_channel_transports` — a direct
  *  assignment when one driver is wired, a transport-discriminated
