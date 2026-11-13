@@ -947,14 +947,6 @@ export function generateTypeScriptForContexts(
   // the channel's owning context to react to its events.
   const chPlan = channelPlan(contexts, system);
   const channelBindings = chPlan.bindings;
-  // Durable broker-bound events (M-T4.4): carried by a wired
-  // `queue`/`work` (or future `log`) channel — the producer path for these
-  // rides the outbox relay (design §5), never the inline tee.
-  const durableBrokerEvents = new Set(
-    channelBindings
-      .filter((b) => b.retention === "work" || b.retention === "log")
-      .flatMap((b) => b.events),
-  );
   const mergedBase = mergeContexts(contexts);
   const mergedSubscriptions = chPlan.subscriptions;
   // Foreign events a hosted workflow consumes through a wired channel join

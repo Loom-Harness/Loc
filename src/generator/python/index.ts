@@ -12,12 +12,7 @@ import {
   wireStatus,
   wireTitle,
 } from "../../ir/enrich/wire-policy.js";
-import {
-  channelPlan,
-  hasDurableEvents,
-  observableWorkflows,
-  routedPolymorphicRead,
-} from "../../ir/plan/index.js";
+import { channelPlan, observableWorkflows, routedPolymorphicRead } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   DeployableIR,

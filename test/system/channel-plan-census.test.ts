@@ -80,7 +80,6 @@ const LEDGER: Record<string, Record<string, number>> = {
   "src/generator/python/dispatch-builder.ts": { "durable-set": 1, subscriptions: 1 },
   "src/generator/python/index.ts": { "durable-broker": 1, "durable-set": 1 },
   "src/generator/typescript/emit/routes.ts": { consumer: 1 },
-  "src/platform/hono/shared/emit.ts": { "durable-broker": 1 },
   "src/platform/hono/shared/workflow-builder.ts": { "durable-set": 3 },
   "src/system/migrations-builder.ts": { "durable-set": 1 },
 };
