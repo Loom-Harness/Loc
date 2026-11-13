@@ -273,31 +273,13 @@
     },
     {
       "seq": 19,
-      "method": "GET",
-      "path": "/api/racks",
-      "status": 200,
-      "body": [
-        {
-          "id": "<volatile:key>",
-          "label": "Side 2",
-          "rowVersion": 2
-        },
-        {
-          "id": "<volatile:key>",
-          "label": "Top",
-          "rowVersion": 1
-        }
-      ]
-    },
-    {
-      "seq": 20,
       "method": "DELETE",
       "path": "/api/racks/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 21,
+      "seq": 20,
       "method": "GET",
       "path": "/api/racks/{id}",
       "status": 404,
@@ -312,6 +294,19 @@
         "title": "Not Found",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/racks",
+      "status": 200,
+      "body": [
+        {
+          "id": "<volatile:key>",
+          "label": "Top",
+          "rowVersion": 1
+        }
+      ]
     },
     {
       "seq": 22,
