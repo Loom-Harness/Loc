@@ -14,6 +14,7 @@
 //   part tables      a part's value-object fields are columns of its table.
 //   optional group   checking an optional value object's presence box and
 //                    filling it saves the object.
+//   detail arrays    the Detail page shows the record's array fields.
 //
 // Inputs are found by the shared test ids (`<slug>-op-<op>-input-<field>`);
 // where a pack puts the id on a wrapper, the probe reaches the input inside it.
