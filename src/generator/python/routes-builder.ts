@@ -460,7 +460,8 @@ function responseModel(
             : f.type,
           ctx,
         );
-        const optional = f.optional || f.type.kind === "optional";
+        // A masked field can be redacted to null, so the model admits None.
+        const optional = f.optional || f.type.kind === "optional" || f.maskUnless !== undefined;
         const suffix =
           optional && !t.endsWith("| None") ? " | None = None" : optional ? " = None" : "";
         return withFieldConstraint(f.name, `${t}${suffix}`, undefined);

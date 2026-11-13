@@ -9,13 +9,30 @@
 
 import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
-import type { BoundedContext, Model } from "../generated/ast.js";
+import type { BoundedContext, Model, PayloadDecl } from "../generated/ast.js";
 import { isBoundedContext, isEventDecl, isPayloadDecl, isValueObject } from "../generated/ast.js";
 import { modelContents } from "./model-contents.js";
 
 export function checkPayloads(model: Model, accept: ValidationAcceptor): void {
   for (const node of modelContents(model)) {
     if (isBoundedContext(node)) checkContextPayloads(node, accept);
+    else if (isPayloadDecl(node)) checkPayloadMasks(node, accept);
+  }
+}
+
+/** A payload field cannot declare `mask unless`.  A read mask belongs to the
+ *  aggregate or part field that holds the value: every serializer redacts by
+ *  the aggregate's masks, and a declared `<Agg>Response` record takes its
+ *  masks from them (`declaredResponseFor`).  A mask written on the record
+ *  itself would be one no serializer applies. */
+function checkPayloadMasks(p: PayloadDecl, accept: ValidationAcceptor): void {
+  for (const f of p.fields) {
+    if (!f.maskUnless) continue;
+    accept(
+      "error",
+      diagMessage("loom.field-mask-on-payload", { kind: p.kind, payload: p.name, field: f.name }),
+      { node: f, property: "maskUnless", code: "loom.field-mask-on-payload" },
+    );
   }
 }
 
