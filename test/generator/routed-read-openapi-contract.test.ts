@@ -9,6 +9,7 @@
 // `dotnet/explicit-handlers.test.ts`.)
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { javaDocumentedRoutes } from "../_helpers/java-openapi-annotations.js";
 
 const src = (platform: string) => `
 system S {
@@ -50,10 +51,12 @@ describe("routed read — the OpenAPI contract every backend declares", () => {
   });
 
   it("java: the contract customizer pins the 200 body and the error set", async () => {
-    const customizer = await fileEndingWith("java", "OpenApiContractCustomizer.java");
-    expect(customizer).toContain(
-      'new Route("get", "/api/orders/by_code", "OrderResponse", new int[] {400, 404, 422}, null, 0)',
-    );
+    const files = await generateSystemFiles(src("java"));
+    const route = javaDocumentedRoutes(files).get("get /api/orders/by_code");
+    expect(route).toBeDefined();
+    expect(route?.errors).toEqual([400, 404, 422]);
+    expect(route?.success).toEqual([200]);
+    expect(route?.successSchema).toBe("OrderResponse");
   });
 
   it("elixir: the spec module publishes the routed path", async () => {

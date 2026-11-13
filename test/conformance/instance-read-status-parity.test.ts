@@ -28,6 +28,7 @@
 import { describe, expect, it } from "vitest";
 import { errorStatuses } from "../../src/ir/util/openapi-errors.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { javaDocumentedRoutes } from "../_helpers/java-openapi-annotations.js";
 
 /** One observable (event-sourced) workflow, per backend — its instance routes
  *  are emitted whenever `instanceWireShape` is derived. */
@@ -103,15 +104,9 @@ const DECLARED: Record<Platform, (files: Map<string, string>) => number[]> = {
     );
   },
   java: (files) => {
-    const src = pick(files, /OpenApiContractCustomizer\.java$/);
-    const m = src.match(
-      /new Route\("get", "\/api\/workflows\/tracker\/instances\/\{id\}", null, new int\[\] \{([^}]*)\}/,
-    );
-    expect(m, "java instance-by-id Route").not.toBeNull();
-    return (m?.[1] ?? "")
-      .split(",")
-      .map((s) => Number(s.trim()))
-      .filter((n) => Number.isFinite(n));
+    const route = javaDocumentedRoutes(files).get("get /api/workflows/tracker/instances/{id}");
+    expect(route, "java instance-by-id route").toBeDefined();
+    return route!.errors;
   },
   dotnet: (files) => {
     const src = pick(files, /WorkflowInstancesController\.cs$/);

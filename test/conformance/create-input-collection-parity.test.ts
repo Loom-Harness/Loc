@@ -33,6 +33,7 @@ import {
 } from "../../src/ir/enrich/wire-projection.js";
 import { allAggregates } from "../../src/ir/types/loom-ir.js";
 import { buildLoomModel, generateSystemFiles } from "../_helpers/index.js";
+import { javaRequiredSets } from "../_helpers/java-openapi-annotations.js";
 
 /** `legs` is a value-object collection, `tags` a scalar one — the relaxation is
  *  deliberately about COLLECTIONS, not about value objects, so both must land
@@ -178,9 +179,10 @@ describe("a collection create-input field may be omitted (#2864 G4)", () => {
   // gate can compare.
   // The update is a merge patch (RS-47): it requires no key on either.
   it("java and elixir agree on the create required-set, and neither requires an update key", async () => {
-    const java = await emitted("java", "OpenApiContractCustomizer.java");
-    expect(java).toContain('new RequiredSet("CreateVoyageRequest", List.of("code"))');
-    expect(java).toContain('new RequiredSet("UpdateVoyageRequest", List.of())');
+    const sets = javaRequiredSets(await generateSystemFiles(FIXTURE("java")));
+    expect(sets.get("CreateVoyageRequest")).toEqual(["code"]);
+    // An empty required set is not annotated at all.
+    expect(sets.get("UpdateVoyageRequest") ?? []).toEqual([]);
 
     const create = await emitted("elixir", "schemas/create_voyage_request.ex");
     expect(create).toContain("required: [:code]");

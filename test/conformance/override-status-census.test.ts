@@ -298,14 +298,12 @@ const SITES: Record<Platform, Site[]> = {
     },
     {
       rung: "NotFound",
-      what: "getById's DECLARED response set in the OpenAPI customizer",
-      file: "config/OpenApiContractCustomizer.java",
-      // The array carries the wire-validation 422 alongside the rung (#2612 —
-      // a malformed `{id}` is parsed and refused), so the pattern must tolerate
-      // trailing entries.  Capture group 1 is the FIRST, which is the rung:
-      // the emitter sorts ascending and both 404 and the override sort below
-      // 422.
-      at: /"\/api\/lines\/\{id\}", null, new int\[\] \{(\d+)(?:, \d+)*\}/,
+      what: "getById's DECLARED @ApiResponse set",
+      file: "LinesController.java",
+      // The declared problem responses ascend; the rung sorts below the
+      // wire-validation 422 a malformed `{id}` also declares, so the FIRST
+      // problem+json response after the mapping is the rung.
+      at: /@GetMapping\("\/\{id\}"\)[\s\S]*?responseCode = "(\d+)", description = "[^"]*", content = @[\w.]+\.Content\(mediaType/,
     },
     {
       rung: "Disallowed",
@@ -339,9 +337,9 @@ const SITES: Record<Platform, Site[]> = {
     },
     {
       rung: "Forbidden",
-      what: "the gated list read's DECLARED response set in the OpenAPI customizer",
-      file: "config/OpenApiContractCustomizer.java",
-      at: /new Route\("get", "\/api\/items", null, new int\[\] \{(?:422, )?(\d+)/,
+      what: "the gated list read's DECLARED @ApiResponse set",
+      file: "ItemsController.java",
+      at: /@GetMapping\n[\s\S]*?responseCode = "(?!422")(\d{3})", description = "[^"]*", content = @[\w.]+\.Content\(mediaType/,
     },
   ],
   python: [

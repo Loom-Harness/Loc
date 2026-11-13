@@ -9,6 +9,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { javaDocumentedRoutes } from "../_helpers/java-openapi-annotations.js";
 
 const SOURCE = (platform: string) =>
   readFileSync("test/fixtures/corpus/workflow-expected-failure.ddd", "utf8").replace(
@@ -80,10 +81,26 @@ describe("expected-failure entry routes publish the operation union split", () =
   });
 
   it("Java", async () => {
-    const src = await all("java");
-    expect(src).toContain('"PaymentDeclinedProblem"');
-    for (const r of ROUTES) expect(src).toContain(`"${r.success}"`);
-    for (const r of ROUTES) expect(src).toContain(`"${r.path}"`);
+    const out = await generateSystemFiles(SOURCE("java"));
+    const routes = javaDocumentedRoutes(out);
+    const published = new Map<string, string>();
+    for (const [path, src] of out) {
+      if (!path.endsWith(".java")) continue;
+      for (const m of src.matchAll(
+        /@io\.swagger\.v3\.oas\.annotations\.media\.Schema\(([^\n]*)\)\s*\n\s*public (?:sealed interface|record) (\w+)/g,
+      )) {
+        published.set(m[2]!, m[1]!.match(/(?:^|, )name = "([^"]+)"/)?.[1] ?? m[2]!);
+      }
+    }
+    expect([...published.values()]).toContain("PaymentDeclinedProblem");
+    for (const r of ROUTES) {
+      const route = [...routes].find(([k]) => k.endsWith(` ${r.path}`))?.[1];
+      expect(route, r.path).toBeDefined();
+      expect(published.get(route!.successSchema!)).toBe(r.success);
+      expect(route!.errorAnyOf.get(409)?.map((c) => published.get(c))).toContain(
+        "PaymentDeclinedProblem",
+      );
+    }
   });
 
   it("Python", async () => {
