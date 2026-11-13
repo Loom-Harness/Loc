@@ -1051,6 +1051,13 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: ".NET element-copies a value-object list (`x with { }`) at the create factory and at `:=`, so EF never re-parents another owner's tracked owned instances; elixir turns a loaded child-row struct into params before `cast_assoc`. Both answered 500 before.",
   },
   {
+    id: "guarded-not-null",
+    title: "a guarded `x != null when …` rule with the field left out (aggregate + value-collection element)",
+    doc: "language",
+    backends: ALL,
+    note: "Every backend answers the rule's own `problem.domain-floor` entry. Node's zod issue mapper treated a rule's `refine` issue on an absent key as `field.missing`, the one divergence.",
+  },
+  {
     id: "scaffold-macros",
     title: "stdlib macros — crudish (create/update/destroy) + softDeletable capability + softDelete ops",
     doc: "scaffold-macros",

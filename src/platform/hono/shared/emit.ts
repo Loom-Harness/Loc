@@ -537,6 +537,10 @@ function pointerOf(path: ReadonlyArray<PropertyKey>): string {
 function isMissing(input: unknown, issue: { path: ReadonlyArray<PropertyKey>; code?: string }): boolean {
   const path = issue.path;
   if (path.length === 0) return false;
+  // A rule's own \`refine\` issue (\`label != null when op == Equals\`) names the
+  // field it points at, not a missing key: it keeps the rule's code, as on the
+  // other four backends, even when the key was left out.
+  if (issue.code === "custom") return false;
   let node: unknown = input;
   for (const seg of path.slice(0, -1)) {
     if (node === null || typeof node !== "object") return false;
