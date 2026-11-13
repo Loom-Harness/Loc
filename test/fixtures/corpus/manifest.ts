@@ -458,6 +458,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by the PR that fixed node (`backends` is node-only — see `PROJECTION_VO_ROW` for why each of the other four is held out, java included).  The shape validated `0 error(s)` and emitted on all five backends while FOUR of them produced a read model that cannot run — node with two compile errors in the generated project (`state.stamp = e.stamp` against a row that holds `stamp_atTime` / `stamp_who`, TS2339; `stamp: StampSchema.nullish()` with `StampSchema` declared nowhere, TS2304), dotnet with an EF model-build failure, python with an `AttributeError`, elixir naming a column the migration does not create.  Only java bridged the flat-column / nested-wire halves.  Nothing caught it because no corpus fixture carried a value object on a folded projection, so no tier ever compiled or booted one.  The optional field is never folded on purpose (the wire `null` arm) and `Audit` holds a `Stamp` on purpose (two levels of flattening, which a one-level implementation gets wrong silently).",
   },
   {
+    id: "projection-fold-isolation",
+    title:
+      "folded-projection fold failure — a fold whose write fails in the database leaves the command committed and the read model as it was (after commit, isolated per handler)",
+    doc: "language",
+    backends: ALL,
+    note: "D-PROJECTION-FOLD rule 1.  java folded inside the command transaction (a fold failure rolled the command back) and node awaited the fold outside the reactor isolation (the committed command answered 500).  The failure is a `numeric(19,4)` overflow on the second charge, which every backend's database write refuses.",
+  },
+  {
     id: "projection-fold-statements",
     title:
       "folded-projection fold body — the FULL pure statement vocabulary (`let` read by a later assign, scalar `+=`/`-=` over int and money, collection `+=`/`-=`)",

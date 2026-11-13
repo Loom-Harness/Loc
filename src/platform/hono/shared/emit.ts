@@ -1807,6 +1807,11 @@ export function generateTypeScriptForContexts(
     inProcessDispatcherEmitted: /^export function createInProcessDispatcher\(/m.test(
       out.get("http/workflows.ts") ?? "",
     ),
+    // `http/projections.ts` exports `projectionTee` when a hosted context has a
+    // folded projection; every dispatcher boot builds must fold through it.
+    projectionTeeEmitted: /^export function projectionTee\(/m.test(
+      out.get("http/projections.ts") ?? "",
+    ),
     orgRegistry: authRequired ? hostedOrgRegistry(system.sys, system.deployable) : undefined,
   };
   out.set("boot.ts", renderProjectBootTs(entryConfig));
@@ -2268,6 +2273,8 @@ interface ProjectEntryConfig {
    *  published through the tee, so a consumer on another deployable sees it. */
   readonly timerTicksOverBroker: boolean;
   readonly inProcessDispatcherEmitted: boolean;
+  /** `http/projections.ts` exports `projectionTee`. */
+  readonly projectionTeeEmitted: boolean;
   /** The tenancy registry this deployable hosts, when the operating-scope
    *  switch gate is emitted: boot binds the gate's registry reads to the db. */
   readonly orgRegistry?: {
@@ -2321,6 +2328,7 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
     hasChannelConsumers,
     timerTicksOverBroker,
     inProcessDispatcherEmitted,
+    projectionTeeEmitted,
   } = cfg;
   const seedCall = runSeedsAtBoot
     ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the __loom_seed marker; idempotent across boots.\nawait ${T.runSeeds}(db);\n`
@@ -2391,6 +2399,11 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
           "",
         ].join("\n");
       })();
+  // Every dispatcher boot builds folds the projections on the way through, as
+  // `createApp`'s default chain does: an event reaching the in-process
+  // dispatcher by the relay, a broker consumer or the scheduler folds too.
+  const folding = (inner: string): string =>
+    projectionTeeEmitted ? `${T.projectionTee}(db, ${inner})` : inner;
   // The in-process dispatcher is constructed once and shared by the outbox
   // relay and/or the timer scheduler (scheduling.md).
   const needsDispatcher = outboxRelay || hasTimers || hasChannels;
@@ -2418,11 +2431,11 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
       }const inProcessEvents = ${
         withInProcess
           ? hasRealtime
-            ? `${T.realtimeTee}(${T.createInProcessDispatcher}(db))`
-            : `${T.createInProcessDispatcher}(db)`
+            ? `${T.realtimeTee}(${folding(`${T.createInProcessDispatcher}(db)`)})`
+            : folding(`${T.createInProcessDispatcher}(db)`)
           : hasRealtime
-            ? `${T.realtimeTee}(${T.NoopDomainEventDispatcher})`
-            : `${T.NoopDomainEventDispatcher}`
+            ? `${T.realtimeTee}(${folding(`${T.NoopDomainEventDispatcher}`)})`
+            : folding(`${T.NoopDomainEventDispatcher}`)
       };
 ${
   withInProcess
@@ -2432,8 +2445,8 @@ ${
 // instance above keeps throwing: the relay / consumers / scheduler retry on it.
 const requestEvents = ${
         hasRealtime
-          ? `${T.realtimeTee}(${T.createInProcessDispatcher}(db, { isolateReactorFailures: true }))`
-          : `${T.createInProcessDispatcher}(db, { isolateReactorFailures: true })`
+          ? `${T.realtimeTee}(${folding(`${T.createInProcessDispatcher}(db, { isolateReactorFailures: true })`)})`
+          : folding(`${T.createInProcessDispatcher}(db, { isolateReactorFailures: true })`)
       };
 `
     : ""

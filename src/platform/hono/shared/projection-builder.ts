@@ -1,4 +1,4 @@
-import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
+import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
 import { mikroProjectionRowClass } from "../../../generator/typescript/emit/mikroorm.js";
 import {
   needsWireProjection,
@@ -191,6 +191,8 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
       // decorator, so nothing names it — and an unused import is an error under
       // the generated-project Biome config (`noUnusedImports`).
       bodyText.includes("Events.") ? 'import type * as Events from "../domain/events";' : null,
+      bodyText.includes("randomUUID()") ? 'import { randomUUID } from "node:crypto";' : null,
+      bodyText.includes("requestLog()") ? 'import { requestLog } from "../obs/als";' : null,
       // `ForbiddenError` only when a projection actually declares a `requires`
       // gate — an unused import fails the generated-code Biome gate.
       bodyText.includes("ForbiddenError")
@@ -485,7 +487,18 @@ function emitProjectionTee(
   const byEvent = new Map<string, string[]>();
   for (const p of projections) {
     for (const h of foldHandlers(p)) {
-      const call = `await fold${h.event}Into${upperFirst(p.name)}(db, event as Events.${h.event});`;
+      const fn = `fold${h.event}Into${upperFirst(p.name)}`;
+      // A fold runs after the command committed and is isolated per handler
+      // (D-PROJECTION-FOLD): its failure is logged `reactor_failed` and never
+      // reaches the command or the folds and reactors after it.
+      const call = [
+        `try {`,
+        `            await ${fn}(db, event as Events.${h.event});`,
+        `          } catch (err) {`,
+        `            const event_id = (event as { __loomEventId?: string }).__loomEventId ?? randomUUID();`,
+        `            ${renderHonoStoreLogCall("reactorFailed", `handler: "${fn}", event_type: event.type, event_id, error: err instanceof Error ? err.message : String(err)`)}`,
+        `          }`,
+      ].join("\n");
       const calls = byEvent.get(h.event) ?? [];
       calls.push(call);
       byEvent.set(h.event, calls);
