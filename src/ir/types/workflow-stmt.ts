@@ -1,8 +1,13 @@
 import type { RepoOp } from "../../util/repository-contract.js";
-import type { Bypassing, BypassReadIR, KeyLookupIR, LoadPlanIR, SortTermIR } from "./context.js";
-import type { ExprIR } from "./expr.js";
-import type { MessageIR } from "./members.js";
-import type { PathIR } from "./stmt.js";
+import type { Bypassing, LoadPlanIR, SortTermIR } from "./context.js";
+import type {
+  ExprIR,
+  KeyedRead,
+  RepoReadSource,
+  VariantArmBinding,
+  VariantSubject,
+} from "./expr.js";
+import type { ElseBranch, Messaged, PathIR } from "./stmt.js";
 import type { Sourced, TypeIR } from "./types.js";
 
 /** What an `if let` source does: one of the optional repository reads, or
@@ -28,8 +33,14 @@ export interface CallResultBindingIR {
   errorVariants: string[];
 }
 
+/** A call statement's `let`-bound result (`let r = a.withdraw(x)`); absent on
+ *  the bare statement form.  Shared by `op-call` and `domain-service-call`. */
+export interface ResultBound {
+  result?: CallResultBindingIR;
+}
+
 export type WorkflowStmtIR = (
-  | { kind: "precondition"; expr: ExprIR; source: string; message?: MessageIR }
+  | ({ kind: "precondition"; expr: ExprIR; source: string } & Messaged)
   | {
       kind: "requires";
       expr: ExprIR;
@@ -51,7 +62,7 @@ export type WorkflowStmtIR = (
       aggName: string;
       fields: { name: string; value: ExprIR }[];
     }
-  | {
+  | ({
       kind: "repo-let";
       name: string;
       repoName: string;
@@ -63,24 +74,10 @@ export type WorkflowStmtIR = (
       method: string;
       args: ExprIR[];
       returnType: TypeIR;
-      /** A natural-key read (`load-by-key` / `load-by-key-optional`): the
-       *  tuple `args` follow and the `ignoring` stance.  Enrichment
-       *  synthesises the repository method `method` names from it. */
-      key?: KeyLookupIR;
-      /** A criterion read (`op: "select-one"`, `let c = Repo.find(<Criterion>)`):
-       *  the shared synthetic retrieval (`findAllBy<Criterion>`) it runs with
-       *  limit 1, and the criterion enrichment materialises it from.  `args`
-       *  carry the criterion's arguments.  Absent for every other op. */
-      retrievalName?: string;
-      synthCriterion?: { name: string };
-      /** A widened single-row read (`let c = Repo.find(<Criterion>) ignoring …`
-       *  / `let o = Repo.find(id) ignoring …`): the source and stance of the
-       *  method `method` names, which enrichment synthesises
-       *  (`synthesizeBypassReadFinds`).  `retrievalName` is then absent — the
-       *  read runs its own method, not the shared retrieval — and a backend
-       *  calls `method` the way it calls an `if let`'s `findMethod`. */
-      bypassRead?: BypassReadIR;
-    }
+      // A criterion read (`op: "select-one"`) runs the shared retrieval with
+      // limit 1, `args` carrying the criterion's arguments; a keyed or widened
+      // read runs the method `method` names.
+    } & RepoReadSource)
   | {
       kind: "expr-let";
       name: string;
@@ -121,7 +118,7 @@ export type WorkflowStmtIR = (
       /** Element aggregate array type `{ kind: "array", element: entity }`. */
       returnType: TypeIR;
     } & Bypassing)
-  | {
+  | ({
       // `a.withdraw(x)` as a statement, or `let r = a.withdraw(x)` — a call to
       // an operation of the aggregate the local `target` holds.  Either form
       // mutates `target`; `result` is present for the `let`-bound form.
@@ -130,8 +127,7 @@ export type WorkflowStmtIR = (
       aggName: string;
       op: string;
       args: ExprIR[];
-      result?: CallResultBindingIR;
-    }
+    } & ResultBound)
   | {
       // `<Repo>.remove(o)` — a repository DELETE
       // (destroy) call inside a handler body.  `entity` is the loaded
@@ -170,7 +166,7 @@ export type WorkflowStmtIR = (
       kind: "resource-call";
       call: ExprIR;
     }
-  | {
+  | ({
       // A bare orchestrator call into a `domainService` operation —
       // `Transfer.run(src, dst, amount)` written as a workflow statement
       // (domain-services.md rev. 4, the `mutating` tier).  Distinct from
@@ -187,13 +183,11 @@ export type WorkflowStmtIR = (
       service: string;
       op: string;
       call: ExprIR;
-      /** `let r = Transfer.run(…)` over a `mutating` operation: the local the
-       *  call's value is bound to.  The bound form saves the aggregate args the
-       *  service mutates exactly as the bare statement does.  (A let-bound call
-       *  to a service that mutates nothing rides `expr-let`.) */
-      result?: CallResultBindingIR;
-    }
-  | {
+      // `let r = Transfer.run(…)` over a `mutating` operation saves the
+      // aggregate args the service mutates exactly as the bare statement does.
+      // (A let-bound call to a service that mutates nothing rides `expr-let`.)
+    } & ResultBound)
+  | ({
       // `if let <var> = Repo.find(<Criterion>) { then } else { else }`
       // (criterion.md, use site 3) — the workflow body's only option/null
       // handling construct.  Binds the lookup's first match to `var`
@@ -237,17 +231,11 @@ export type WorkflowStmtIR = (
        *  `Repo.<find>(args)` rather than `Repo.find(<Criterion>)` — or the
        *  method a natural-key `Repo.findBy(…)` source is emitted as. */
       findMethod?: string;
-      /** A natural-key source's tuple + `ignoring` stance (see `repo-let`). */
-      key?: KeyLookupIR;
-      /** A `Repo.find(<Criterion>) ignoring …` / `Repo.find(id) ignoring …`
-       *  source: the criterion (or id) and the stance of the widened read
-       *  `findMethod` names.  For a criterion source `synthCriterion` still
-       *  names the criterion (it is validated like any criterion read);
-       *  `retrievalName` is empty, as the read does not run the shared
-       *  retrieval. */
-      bypassRead?: BypassReadIR;
+      // A keyed or widened source (`KeyedRead`) runs the method `findMethod`
+      // names; for a widened criterion source `synthCriterion` still names the
+      // criterion (it is validated like any criterion read) and
+      // `retrievalName` is empty.
       thenBody: WorkflowStmtIR[];
-      elseBody?: WorkflowStmtIR[];
       /** Saves for aggregates created/mutated inside `thenBody` (the bound
        *  `var` if an op-call targets it, plus factory-lets) — emitted at the
        *  end of the then-branch, the same dirtiness rule as `for-each`'s
@@ -257,7 +245,8 @@ export type WorkflowStmtIR = (
       /** Saves for aggregates created in `elseBody` (e.g. a not-found →
        *  `Agg.create(...)` fallback) — emitted at the end of the else-branch. */
       savesInElse: { name: string; aggName: string; repoName: string }[];
-    }
+    } & KeyedRead &
+      ElseBranch<WorkflowStmtIR>)
   | {
       // `notFound` / `notFound "detail"` — end the body with the standard
       // not-found ProblemDetails, the same answer a `getById` miss earns on
@@ -270,7 +259,7 @@ export type WorkflowStmtIR = (
       detail?: string;
       subject?: string;
     }
-  | {
+  | ({
       // `match <subject> { V b => { … } … else => { … } }` used for its
       // effects in a workflow / handler body — the statement twin of the
       // `match` ExprIR.  The subject is a value the body already holds (a
@@ -288,15 +277,8 @@ export type WorkflowStmtIR = (
       // it (`discardsInArm` / `discardsInElse`).
       kind: "variant-match";
       subject: ExprIR;
-      /** Resolved type of the subject — an `or`-union, or `T?`. */
-      subjectType?: TypeIR;
-      /** `"absence"` when the subject is `T?` (or carries the absence runtime
-       *  shape): the backends render a presence check, not a discriminator
-       *  probe. */
-      subjectShape?: "absence";
-      arms: {
+      arms: ({
         varType: TypeIR;
-        binding?: string;
         /** True when the variant is an `error` record. */
         isError: boolean;
         body: WorkflowStmtIR[];
@@ -308,12 +290,12 @@ export type WorkflowStmtIR = (
          *  them, so no later flush writes the change; one that writes only on
          *  an explicit save renders nothing. */
         discardsInArm?: { name: string; aggName: string; repoName: string }[];
-      }[];
-      elseBody?: WorkflowStmtIR[];
+      } & Pick<VariantArmBinding, "binding">)[];
       savesInElse: { name: string; aggName: string; repoName: string }[];
       /** `discardsInArm` for the `else` arm. */
       discardsInElse?: { name: string; aggName: string; repoName: string }[];
-    }
+    } & VariantSubject &
+      ElseBranch<WorkflowStmtIR>)
   | {
       // `field := value` — assignment to one of the workflow's OWN state
       // fields inside a `create`/`on` body (workflow.md, "own-state

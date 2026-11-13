@@ -1,6 +1,6 @@
 import type { AggregateIR, TestIR } from "./aggregate.js";
 import type { ExprIR } from "./expr.js";
-import type { DerivedIR, FieldIR, FunctionIR, InvariantIR, ParamIR } from "./members.js";
+import type { DerivedIR, FieldIR, FunctionIR, InvariantIR, ParamIR, Returns } from "./members.js";
 import type { ProjectionIR } from "./projection.js";
 import type { StmtIR } from "./stmt.js";
 import type { GenericCtorName, PayloadKind, Sourced, TypeIR } from "./types.js";
@@ -95,28 +95,13 @@ export type Bypassing = {
   bypassCaps?: string[];
 };
 
-export interface FindIR extends Bypassing {
+export interface FindIR extends Bypassing, ReadGated, Filtered, CriterionReified {
   name: string;
   params: ParamIR[];
   returnType: TypeIR;
-  /** Authorization gate (D-AUTH-OIDC / default-deny) — the aggregate's
-   *  `policy { read X requires <expr> }` gate, put on the find by enrichment
-   *  (`applyPolicyReadGates`); a find declares no gate of its own.  A boolean
-   *  evaluated against `currentUser` *before* the query runs; failure → 403.  Distinct from `filter`: the
-   *  filter scopes which rows come back (queryable, pushed to SQL), the gate
-   *  decides whether the caller may hit the endpoint at all.  Lowered in the
-   *  bare context scope (currentUser only, no aggregate row / params), so it
-   *  can reference `currentUser` + constants but not the source row's fields.
-   *  `requires true` is the explicit intentionally-public escape (the
-   *  read-side twin of the operation gate). */
-  requires?: ExprIR;
-  /** Optional `where ...` filter expression in IR form. */
-  filter?: ExprIR;
-  /** Set when the `where` filter is *exactly* one named `criterion`
-   *  reference — its name + lowered args, for backends that consume the
-   *  reified `Criterion`.  `filter` still carries the inlined predicate, so
-   *  composed/anonymous filters and non-reifying backends are unaffected. */
-  criterionRef?: { name: string; args: ExprIR[] };
+  // `requires` is the aggregate's `policy { read X requires <expr> }` gate,
+  // put on the find by enrichment (`applyPolicyReadGates`); a find declares
+  // no gate of its own.
   /** A single-row find that answers the FIRST row its filter matches, in id
    *  order, where more than one row may match — the widened
    *  `Repo.find(<Criterion>) ignoring …` read (`synthesizeBypassReadFinds`),
@@ -260,11 +245,9 @@ export interface DomainServiceIR {
  *  param/return/body shape of an aggregate `OperationIR`, but is always
  *  non-mutating (no `this`) — there is no `mutating` field to stamp; the
  *  no-infra contract is derived by the validator from the body. */
-export interface DomainServiceOperationIR {
+export interface DomainServiceOperationIR extends Returns {
   name: string;
   params: ParamIR[];
-  /** Declared `or`-union (or plain) return type; absent ⇒ no `: T` clause. */
-  returnType?: TypeIR;
   body: StmtIR[];
 }
 
@@ -302,7 +285,7 @@ export type LoadPlanIR = { kind: "whole" } | { kind: "explicit"; paths: LoadSegm
  *  Its `ignoring` stance is set only on the retrievals enrichment derives
  *  for a widened `Repo.all(…) ignoring …` read (`widenedRetrievalName`);
  *  a declared retrieval never carries one. */
-export interface RetrievalIR extends Sourced, Bypassing {
+export interface RetrievalIR extends Sourced, Bypassing, CriterionReified {
   name: string;
   params: ParamIR[];
   /** The `of <T>` candidate type (entity aggregate). */
@@ -311,13 +294,6 @@ export interface RetrievalIR extends Sourced, Bypassing {
    *  (parameters as `param` refs, candidate fields as `this-prop`).
    *  Composes criteria + bare predicates like a `find … where`. */
   where: ExprIR;
-  /** Set when the `where` is *exactly* one named `criterion` reference
-   *  (`where: NamedLike(needle)`) — the criterion name + its lowered
-   *  argument expressions, for backends that consume the reified
-   *  `Criterion`/Specification (the `.where` body is still the inlined
-   *  predicate, so non-reifying backends are unaffected).  Omitted when
-   *  the `where` is composed or an anonymous expression. */
-  criterionRef?: { name: string; args: ExprIR[] };
   /** Ordering terms, in declaration order.  Empty when no `sort:`. */
   sort: SortTermIR[];
   /** Fetch shape; `{ kind: "whole" }` when no `loads:` clause. */
@@ -458,11 +434,9 @@ export interface BoundedContextIR extends Sourced {
 /** One `allow share on <Aggregate> [when <expr>]` rule lowered from a
  *  `policy {}` block.  `when` is lowered in the bare context scope, like a
  *  level rule's: caller-only (`loom.policy-when-not-caller-only`). */
-export interface PolicyShareGateIR {
+export interface PolicyShareGateIR extends CallerConditioned {
   /** The `shareable` aggregate (by name, in this context). */
   aggregate: string;
-  /** The caller condition.  Absent = every caller. */
-  when?: ExprIR;
   /** Source span text for diagnostics (`allow share on Category when …`). */
   source: string;
 }
@@ -492,30 +466,24 @@ export type PolicyLevel = "local" | "own";
  *  D-SHARING).  Without any level rule the default is `local`; a level rule
  *  REPLACES that default for the callers its `when` admits (every caller when
  *  it has none), and the callers no `when` admits keep `local`. */
-export interface PolicyReadLevelIR {
+export interface PolicyReadLevelIR extends CallerConditioned {
   /** The tenant-owned aggregate this level applies to (by name, in this
    *  context).  Resolution + tenant-owned-ness is validated in phase ⑦. */
   aggregate: string;
   /** The read level. */
   level: PolicyLevel;
-  /** The caller condition, lowered in the bare context scope (no row): only
-   *  `currentUser` claims and constants, checked in phase ⑦
-   *  (`loom.policy-when-not-caller-only`).  Absent = every caller. */
-  when?: ExprIR;
   /** Source span text for diagnostics (`allow own on Note when …`). */
   source: string;
 }
 
 /** One `allow write <level> on <Aggregate> [when <expr>]` rule lowered from a
  *  `policy {}` block — the write twin of {@link PolicyReadLevelIR}. */
-export interface PolicyWriteLevelIR {
+export interface PolicyWriteLevelIR extends CallerConditioned {
   /** The tenant-owned aggregate this write level applies to (by name, in this
    *  context).  Resolution + tenant-owned-ness is validated in phase ⑦. */
   aggregate: string;
   /** The write level. */
   level: PolicyLevel;
-  /** The caller condition (see {@link PolicyReadLevelIR.when}). */
-  when?: ExprIR;
   /** Source span text for diagnostics (`allow write local on Invoice`). */
   source: string;
 }
@@ -585,4 +553,39 @@ export interface SeedRowIR {
   aggregate: string;
   /** Field initialisers, fully-resolved to `ExprIR`. */
   fields: { name: string; value: ExprIR }[];
+}
+
+/** A read's authorization gate (D-AUTH-OIDC / default-deny) — a `requires
+ *  <expr>` evaluated against `currentUser` *before* the read runs; failure →
+ *  403.  Distinct from `filter`: the filter scopes which rows come back
+ *  (queryable, pushed to SQL), the gate decides whether the caller may hit the
+ *  read at all.  Lowered in the bare context scope (currentUser only, no row /
+ *  params), so it may reference `currentUser` + constants but not the source
+ *  row's fields.  `requires true` is the explicit intentionally-public escape.
+ *  Shared by finds, query-time projections and pages; absent = ungated (which
+ *  `denyByDefault` reports where it applies). */
+export interface ReadGated {
+  requires?: ExprIR;
+}
+
+/** A read's `where …` predicate in IR form, queryable (pushed to SQL).
+ *  Absent when the read declares none. */
+export interface Filtered {
+  filter?: ExprIR;
+}
+
+/** Set when a read's `where` is *exactly* one named `criterion` reference — the
+ *  criterion name + its lowered argument expressions, for backends that
+ *  consume the reified `Criterion` / Specification.  The read's predicate
+ *  still carries the inlined form, so composed / anonymous predicates and
+ *  non-reifying backends are unaffected.  Absent otherwise. */
+export interface CriterionReified {
+  criterionRef?: { name: string; args: ExprIR[] };
+}
+
+/** A `policy` rule's `when <expr>` caller condition, lowered in the bare
+ *  context scope (no row): only `currentUser` claims and constants, checked in
+ *  phase ⑦ (`loom.policy-when-not-caller-only`).  Absent = every caller. */
+export interface CallerConditioned {
+  when?: ExprIR;
 }
