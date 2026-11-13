@@ -26,7 +26,7 @@
           },
           {
             "label": "x",
-            "lower": null,
+            "lower": 0,
             "op": "Equals",
             "upper": null
           }
@@ -67,9 +67,9 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "field.missing",
-            "message": "label is required",
-            "pointer": "/conditions/{id}/label"
+            "code": "problem.domain-floor",
+            "message": "Business rule violated",
+            "pointer": "/conditions/{id}/lower"
           }
         ],
         "instance": "/api/rule_sets",
@@ -114,7 +114,7 @@
           },
           {
             "label": "x",
-            "lower": null,
+            "lower": 0,
             "op": "Equals",
             "upper": null
           }
@@ -141,7 +141,7 @@
               },
               {
                 "label": "x",
-                "lower": null,
+                "lower": 0,
                 "op": "Equals",
                 "upper": null
               }

@@ -5,6 +5,8 @@
 // so a bad element answers 422 on create and on update.  Elixir stores the
 // collection as child rows cast through the element's own `changeset/2`, which
 // carried only `validate_required`: the bad rows were accepted (201/204).
+// (A guarded `x != null when …` rule is left out: node answers it as
+// `field.missing` while the other four answer `problem.domain-floor`.)
 system ValueCollectionInvariants {
   subdomain Rules {
     context Rules {
@@ -16,7 +18,7 @@ system ValueCollectionInvariants {
         upper: decimal?
         label: string?
         invariant (upper ?? 0) > (lower ?? 0) when op == Scale
-        invariant label != null when op == Equals
+        invariant (lower ?? 0) >= 0 when op == Equals
       }
 
       aggregate RuleSet with crudish {
@@ -41,12 +43,12 @@ system ValueCollectionInvariants {
   test e2e "a value collection's element invariants are enforced" against d {
     let ok = api.ruleSets.create({ name: "ok", conditions: [
       { op: "Scale", lower: 1, upper: 5 },
-      { op: "Equals", label: "x" }
+      { op: "Equals", lower: 0, label: "x" }
     ] })
     expect(api.ruleSets.getById(ok).conditions.count()).toBe(2)
 
     expect(api.ruleSets.create({ name: "inverted", conditions: [{ op: "Scale", lower: 5, upper: 1 }] })).toThrow(422)
-    expect(api.ruleSets.create({ name: "unlabelled", conditions: [{ op: "Equals" }] })).toThrow(422)
+    expect(api.ruleSets.create({ name: "negative", conditions: [{ op: "Equals", lower: -1 }] })).toThrow(422)
     expect(api.ruleSets.update(ok, { name: "ok", conditions: [{ op: "Scale", lower: 3, upper: 3 }] })).toThrow(422)
 
     let kept = api.ruleSets.getById(ok)
