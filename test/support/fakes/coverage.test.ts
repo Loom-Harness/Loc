@@ -11,6 +11,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { validate } from "../../../src/api/index.js";
 import type { DataSourceKind } from "../../../src/ir/types/loom-ir.js";
 import {
   _unregisterSourceTypeForTests,
@@ -41,6 +42,38 @@ function requiredPairs(): { pair: string; unbindable: boolean }[] {
   });
 }
 
+/** The smallest model that binds `kind` on a `sourceType` storage, everything
+ *  else valid: an event-sourced aggregate (so an eventLog binding means
+ *  something), its state on postgres, one node deployable hosting both. */
+function refusalProbe(sourceType: string, kind: string): string {
+  return `system Probe {
+  subdomain D {
+    context C {
+      aggregate Account persistedAs: eventLog {
+        balance: int = 0
+        create() { emit Opened { account: id } }
+        apply(e: Opened) { }
+      }
+      repository Accounts for Account { }
+      event Opened { account: Account id }
+    }
+  }
+  api A from D
+  storage pg { type: postgres }
+  storage probe { type: ${sourceType} }
+  resource cState { for: C, kind: state, use: pg }
+  resource cProbe { for: C, kind: ${kind}, use: probe }
+  deployable d {
+    platform: node
+    contexts: [C]
+    dataSources: [cState, cProbe]
+    serves: A
+    port: 4000
+  }
+}
+`;
+}
+
 /** The census verdicts over a table, against an issue-state lookup and a clock. */
 function censusProblems(
   rows: readonly CoverageRow[],
@@ -67,6 +100,14 @@ function censusProblems(
     if (r.module && !existsSync(join(HERE, r.module)))
       out.push(`${at}: module ${r.module} does not exist`);
     if (r.unbindable) continue;
+    if (r.refused) {
+      // An honest refusal has nothing to boot or fake; the code itself is
+      // proved by the test below, which validates a model binding the pair.
+      if (r.witness || r.pending || r.module || r.fake !== "n/a") {
+        out.push(`${at}: refused by ${r.refused}, so it takes no witness, pending, module or fake`);
+      }
+      continue;
+    }
     if (!r.witness && !r.pending) out.push(`${at}: neither witnessed nor pending`);
     if (r.witness) {
       const golden = join(GOLDENS, `${r.witness.fixture}.json`);
@@ -164,6 +205,24 @@ describe("coverage census", () => {
     expect(
       censusProblems(COVERAGE, { today: later, open: OPEN_TRACKING_ISSUES, waits: HARNESS_WAITS }),
     ).toContain(`${at}: review date ${row.pending?.reviewUntil} has passed`);
+  });
+
+  it("a refused pair is refused, by exactly the code its row names", async () => {
+    const refused = COVERAGE.filter((r) => r.refused);
+    expect(refused.length).toBeGreaterThan(0);
+    for (const r of refused) {
+      const report = await validate(refusalProbe(r.sourceType, r.kind), {
+        path: "refusal-probe.ddd",
+      });
+      const codes = report.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
+      expect(
+        codes,
+        `${key(r.sourceType, r.kind)}: the probe must be refused by ${r.refused}`,
+      ).toContain(r.refused);
+      // Refused for THAT reason and no other: a probe that fails to parse or
+      // trips an unrelated check would prove nothing.
+      expect(new Set(codes), key(r.sourceType, r.kind)).toEqual(new Set([r.refused]));
+    }
   });
 
   it("a harness wait fails once its issue closes or its review date passes", () => {

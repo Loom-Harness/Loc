@@ -203,7 +203,9 @@ diffed against the golden on every leg, so a mail's envelope or a remote call's
 path and body is asserted by golden, not by emitted text. A new service
 implements `start(opts) → { kind, env, observe(), reset(), stop() }` and
 registers its storage type in `sidecars.mjs`; `test/support/fakes/coverage.ts`
-says which fake backs each source type.
+says which fake backs each source type. A pair every backend refuses at validate is a
+`refused` row naming its diagnostic code; the census proves it by validating a
+model that binds the pair, and fails the day the code stops firing.
 
 ### Behavioral UI runner pass/fail semantics
 

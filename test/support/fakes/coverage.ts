@@ -41,6 +41,12 @@ export interface CoverageRow {
   /** A storage type no kind accepts: nothing to back.  The census fails the
    *  day it gains a kind. */
   unbindable?: true;
+  /** The pair is registered but every backend REFUSES it at validate, with
+   *  this diagnostic code: an honest gap, so there is nothing to boot.  The
+   *  census proves the refusal — a model binding the kind to the type must
+   *  draw exactly this code — so the row fails the day a backend starts
+   *  accepting the binding (it then needs a witness) or the code changes. */
+  refused?: `loom.${string}`;
 }
 
 /** The tracking issues a `pending` row may name, while they are open.  DELETE
@@ -51,7 +57,6 @@ export const OPEN_TRACKING_ISSUES: ReadonlySet<string> = new Set([
   "#4440",
   "#5613",
   "#5614",
-  "#5615",
   "#5617",
   "#5619",
   "#5712",
@@ -120,7 +125,9 @@ export const COVERAGE: readonly CoverageRow[] = [
     module: "broker-sidecar.mjs",
     pending: pending("#5613"),
   },
-  { sourceType: "kafka", kind: "eventLog", fake: "real-sidecar", pending: pending("#5615") },
+  // A Kafka-held event log is refused on every backend: an event-sourced
+  // aggregate keeps its log on its state database.
+  { sourceType: "kafka", kind: "eventLog", fake: "n/a", refused: "loom.target-unsupported" },
   {
     sourceType: "kafka",
     kind: "channel",
