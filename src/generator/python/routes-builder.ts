@@ -85,8 +85,8 @@ import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/server-default.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
-import { findUnionSpec, unionMoneyArms } from "../_payload/union-wire.js";
-import { pyCalendarDateWire } from "./codec-spelling.js";
+import { findUnionSpec, type UnionMoneyKey, unionMoneyArms } from "../_payload/union-wire.js";
+import { pyCalendarDateWire, pyInstantWire } from "./codec-spelling.js";
 import { pyCommandBodyParam } from "./command-body.js";
 import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
 import { paramPyType, requestPyType, responsePyType, wireModelRef } from "./emit/http-models.js";
@@ -1184,17 +1184,9 @@ function versionedSave(
  *  string (RS-12) — the tagged dict holds the `Decimal`. */
 function unionMoneyReturn(variants: TypeIR[], ctx: EnrichedBoundedContextIR): string[] {
   return unionMoneyArms(variants, ctx).flatMap((arm) => {
-    const enc = arm.keys.map(({ key, optional }) => {
-      const access = `result[${JSON.stringify(key)}]`;
-      // The tagged result is a `dict[str, object]`; the cast names the
-      // `Decimal` the variant field holds so `mypy --strict` accepts the encode.
-      const wire = numericEncode(
-        PY_NUMERIC,
-        "money",
-        "dto-map",
-        `${PY.cast}(${PY.Decimal}, ${access})`,
-      );
-      return `${JSON.stringify(key)}: ${optional ? `None if ${access} is None else ${wire}` : wire}`;
+    const enc = arm.keys.map((k) => {
+      const access = `result[${JSON.stringify(k.key)}]`;
+      return `${JSON.stringify(k.key)}: ${pyMoneyValue(k, access, true)}`;
     });
     return [
       `    if result["type"] == ${JSON.stringify(arm.tag)}:`,
@@ -1547,4 +1539,26 @@ function _findRoute(
     `        raise ${H.AggregateNotFoundError}("not_found")`,
     `    return ${wireResp(agg, "found")}`,
   );
+}
+
+/** The re-encoded value at `access` for one money position.  The tagged
+ *  result is a `dict[str, object]`, so a top-level read is cast to the type it
+ *  holds for `mypy --strict`; a value object is rebuilt as its wire dict, every
+ *  declared field present and each money position encoded in turn. */
+function pyMoneyValue(k: UnionMoneyKey, access: string, fromDict: boolean): string {
+  let wire: string;
+  if (k.kind === "money") {
+    const typed = fromDict ? `${PY.cast}(${PY.Decimal}, ${access})` : access;
+    wire = numericEncode(PY_NUMERIC, "money", "dto-map", typed);
+  } else if (k.kind === "instant") {
+    wire = pyInstantWire(fromDict ? `${PY.cast}(${PY.datetime}, ${access})` : access);
+  } else {
+    const vo = fromDict ? `${PY.cast}(${pyVoOrEnum(k.voName)}, ${access})` : access;
+    const entries = k.fields.map((f) => {
+      const read = `${vo}.${pythonIdent(f.name)}`;
+      return `${JSON.stringify(f.name)}: ${f.money ? pyMoneyValue(f.money, read, false) : read}`;
+    });
+    wire = `{${entries.join(", ")}}`;
+  }
+  return k.optional ? `None if ${access} is None else ${wire}` : wire;
 }

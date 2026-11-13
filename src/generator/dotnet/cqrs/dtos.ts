@@ -213,6 +213,13 @@ function renderDomainUnion(
       visitEntityRefs(t.inner);
       return;
     }
+    // A value object projects to its `<VO>Response`, emitted into this
+    // aggregate's own Responses namespace (`valueObjectsUsedBy` reaches it
+    // through the operation's return).
+    if (t.kind === "valueobject") {
+      responseUsings.add(`using ${ns}.Application.${plural(agg.name)}.Responses;`);
+      return;
+    }
     if (t.kind !== "entity") return;
     const owner = ctx.aggregates.find(
       (a) => a.name === t.name || a.parts.some((p) => p.name === t.name),
