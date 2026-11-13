@@ -501,7 +501,6 @@ export const messages = {
     slug: unknown;
     verb: unknown;
     key: unknown;
-    declared: unknown;
     got: unknown;
     digits: unknown;
   }) =>
