@@ -9,8 +9,8 @@ import {
 // Playground "preview unsupported" surfacing.
 //
 // The in-browser preview engine bundles only the React SPA shape, so
-// dotnet / phoenix backends — and the angular / feliz / flutter frontends,
-// whose AOT, Fable and Flutter builds aren't reproduced
+// dotnet / phoenix backends — and the feliz / flutter frontends, whose
+// Fable and Flutter builds aren't reproduced
 // in-browser — are listed in the UI instead of showing a silent blank
 // Preview.  These pin the labels + the comma-joined formatter so each
 // platform reads cleanly (`analyzeDeployables` in
@@ -23,7 +23,6 @@ describe("unsupported-platform labels", () => {
     const labels: Record<UnsupportedPlatform, string> = {
       dotnet: ".NET",
       elixir: "Phoenix LiveView",
-      angular: "Angular",
       java: "Spring Boot",
       python: "FastAPI",
       feliz: "Feliz",
@@ -38,9 +37,9 @@ describe("unsupported-platform labels", () => {
     expect(
       formatUnsupportedDeployables([
         { slug: "web", platform: "feliz" },
-        { slug: "admin", platform: "angular" },
+        { slug: "admin", platform: "flutter" },
         { slug: "api", platform: "dotnet" },
       ]),
-    ).toBe("web (Feliz), admin (Angular), api (.NET)");
+    ).toBe("web (Feliz), admin (Flutter), api (.NET)");
   });
 });

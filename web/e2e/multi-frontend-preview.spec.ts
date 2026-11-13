@@ -1,8 +1,8 @@
 // Every frontend of a system previews, each against the backend its
-// `targets:` names — the React `backoffice`, and the Vue `shopfront` and
-// SvelteKit `kiosk`, whose components the preview compiles in the browser.
-// The three-frontends example with `storefront` rebound to its own storage: a product written through `admin` lists in `backoffice`
-// (which targets admin) and not in `shopfront` / `kiosk` (which target
+// `targets:` names — the React `backoffice`, and the Angular `ops`, Vue
+// `shopfront` and SvelteKit `kiosk`, whose components the preview compiles in
+// the browser.  The four-frontends example with `storefront` rebound to its own storage: a product written through `admin` lists in `backoffice`
+// and `ops` (which target admin) and not in `shopfront` / `kiosk` (which target
 // storefront), and the reverse.  A preview that sent every frontend's calls to one backend
 // would list the same products in both.  Needs real internet, like
 // runtime.spec.ts.
@@ -49,9 +49,9 @@ async function expectProducts(page: Page, shown: string, hidden: string): Promis
   await expect(app.getByText(hidden, { exact: true })).toHaveCount(0);
 }
 
-test("two frontends: the picker previews each against its own backend", async ({ page }) => {
+test("every frontend: the picker previews each against its own backend", async ({ page }) => {
   await page.goto("/");
-  await startFromExample(page, /Three frontends/);
+  await startFromExample(page, /Four frontends/);
 
   if (!(await browserCanReachNetwork(page))) {
     test.skip(true, "browser cannot reach the npm registry from this environment");
@@ -90,6 +90,11 @@ test("two frontends: the picker previews each against its own backend", async ({
 
   await test.step("backoffice → admin lists only admin's product", async () => {
     await expect(page.getByTestId("preview-frontend")).toHaveValue("backoffice → admin");
+    await expectProducts(page, "ADMIN-1", "SHOP-1");
+  });
+
+  await test.step("ops (Angular) → admin lists only admin's product", async () => {
+    await pickFrontend(page, "ops → admin");
     await expectProducts(page, "ADMIN-1", "SHOP-1");
   });
 

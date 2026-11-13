@@ -84,7 +84,7 @@ describe("analyzeDeployables", () => {
 });
 
 describe("analyzeDeployables lists every frontend", () => {
-  it("previews each React and Vue frontend against the backend its targets: names", async () => {
+  it("previews each React, Vue, SvelteKit and Angular frontend against the backend its targets: names", async () => {
     const source = `system Shop {
   subdomain Core {
     context Sales {
@@ -99,6 +99,8 @@ describe("analyzeDeployables lists every frontend", () => {
   deployable reader { platform: node, contexts: [Sales], dataSources: [st], port: 3002 }
   deployable shopWeb { platform: vue, targets: reader, ui: WebApp, port: 3003 }
   deployable adminWeb { platform: react, targets: writer, ui: WebApp, port: 3001 }
+  deployable kiosk { platform: svelte, targets: reader, ui: WebApp, port: 3004 }
+  deployable ops { platform: angular, targets: writer, ui: WebApp, port: 3005 }
 }`;
     const out = analyzeDeployables(await tree(source));
     expect(out.frontends).toEqual([
@@ -108,6 +110,8 @@ describe("analyzeDeployables lists every frontend", () => {
         framework: "react",
         apiTarget: "writer",
       },
+      { slug: "kiosk", entry: "kiosk/src/app.html", framework: "svelte", apiTarget: "reader" },
+      { slug: "ops", entry: "ops/src/main.ts", framework: "angular", apiTarget: "writer" },
       { slug: "shop_web", entry: "shop_web/src/main.ts", framework: "vue", apiTarget: "reader" },
     ]);
     // The first frontend's backend leads the boot order (the console's

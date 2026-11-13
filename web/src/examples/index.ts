@@ -293,10 +293,10 @@ export const examples: LoomExample[] = [
   },
   {
     id: "multi-frontend-system",
-    label: "Three frontends (React, Vue, SvelteKit; two Hono backends)",
+    label: "Four frontends (React, Angular, Vue, SvelteKit; two Hono backends)",
     source: multiFrontendSystemSource,
     blurb:
-      "A React, a Vue and a SvelteKit frontend over two Node backends on one shared database. The preview's frontend picker switches between them; each app's API calls go to the backend its `targets:` names.",
+      "A React, an Angular, a Vue and a SvelteKit frontend over two Node backends on one shared database. The preview's frontend picker switches between them; each app's API calls go to the backend its `targets:` names.",
   },
   {
     id: "broker-channels-system",

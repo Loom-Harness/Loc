@@ -10,32 +10,48 @@
 // Svelte: the `svelte` compiler builds each component, and a small client
 // router stands in for SvelteKit (`sveltekit-shim.ts`).
 //
+// Angular: compiled just in time — the generated app's own `@angular/compiler`
+// compiles each standalone component's inline template when it is first used,
+// so the bundle needs only decorators (`experimentalDecorators`) and an entry
+// that loads what `ng build` would: the `angular.json` polyfills and styles,
+// the compiler, then `main.ts`.  The generated components take their
+// dependencies through `inject()`, which JIT resolves without the constructor
+// parameter metadata only the AOT compiler records.
+//
 // Each compiler is imported lazily, so a React-only system never loads it.
 
 import type { Plugin, PluginBuild } from "esbuild-wasm";
 import { setupSvelte, SVELTEKIT_APP } from "./sveltekit-shim.js";
 
 /** A frontend framework the preview compiles in the browser. */
-export type CompiledFramework = "vue" | "svelte";
+export type CompiledFramework = "vue" | "svelte" | "angular";
 
 /** The vfs plugin's namespace for generated + installed files. */
 const NS = "vfs";
 const STYLE_NS = "loom-vue-style";
 const MOUNT_NS = "loom-mount";
+const ANGULAR_NS = "loom-angular";
+const ANGULAR_APP = "loom:angular-app";
 
 /** The specifier of the module that adds the element the generated entry
- *  mounts on (`#app`) inside the preview's `#root`.  The entry imports it
- *  before the app, so the element exists when the app mounts — and it lives
- *  inside `#root`, which the preview replaces on every reload. */
+ *  mounts on (`#app`, Angular's `<app-root>`) inside the preview's `#root`.
+ *  The entry imports it before the app, so the element exists when the app
+ *  mounts — and it lives inside `#root`, which the preview replaces on every
+ *  reload. */
 export const MOUNT_SPECIFIER = "loom:mount";
 
 /** The synthesised entry of a compiled frontend: the mount point, then the
  *  generated entry — for SvelteKit, which has none, the router over the
  *  routes beside `entry` (`<slug>/src/app.html`). */
 export function frontendStdin(entry: string, framework: CompiledFramework): string {
+  const dir = entry.slice(0, entry.lastIndexOf("/"));
   const app =
-    framework === "svelte" ? `${SVELTEKIT_APP}?root=${entry.slice(0, entry.lastIndexOf("/"))}` : entry;
-  return `import ${JSON.stringify(MOUNT_SPECIFIER)};\nimport ${JSON.stringify(app)};\n`;
+    framework === "svelte"
+      ? `${SVELTEKIT_APP}?root=${dir}`
+      : framework === "angular"
+        ? `${ANGULAR_APP}?root=${dir.slice(0, dir.lastIndexOf("/"))}`
+        : entry;
+  return `import ${JSON.stringify(`${MOUNT_SPECIFIER}?framework=${framework}`)};\nimport ${JSON.stringify(app)};\n`;
 }
 
 const MOUNT_SOURCE = `const root = document.getElementById("root") ?? document.body;
@@ -45,6 +61,42 @@ if (!document.getElementById("app")) {
   root.appendChild(el);
 }
 `;
+
+// Angular bootstraps into its root component's selector, and its router reads
+// the app's base path off \`<base href>\` — here the preview's basename.
+const ANGULAR_MOUNT_SOURCE = `const root = document.getElementById("root") ?? document.body;
+if (!root.querySelector("app-root")) root.appendChild(document.createElement("app-root"));
+let base = document.querySelector("base");
+if (!base) { base = document.createElement("base"); document.head.prepend(base); }
+base.setAttribute("href", (window.__LOOM_BASENAME__ ?? "").replace(/\\/$/, "") + "/");
+`;
+
+/** The Angular entry: what `ng build` loads around `main.ts`, read off the
+ *  project's `angular.json` build target. */
+export function angularAppModule(root: string, angularJson: string | undefined): string {
+  let options: { browser?: string; main?: string; polyfills?: string[] | string; styles?: unknown[] } = {};
+  try {
+    const json = JSON.parse(angularJson ?? "{}") as {
+      projects?: Record<string, { architect?: { build?: { options?: typeof options } } }>;
+    };
+    options = Object.values(json.projects ?? {})[0]?.architect?.build?.options ?? {};
+  } catch {
+    // no angular.json: main.ts alone
+  }
+  const local = (p: string): string => (p.startsWith(".") || p.startsWith("src/") ? `${root}/${p.replace(/^\.\//, "")}` : p);
+  const polyfills = typeof options.polyfills === "string" ? [options.polyfills] : (options.polyfills ?? []);
+  const styles = (options.styles ?? [])
+    .map((s) => (typeof s === "string" ? s : (s as { input?: string }).input))
+    .filter((s): s is string => typeof s === "string");
+  const main = options.browser ?? options.main ?? "src/main.ts";
+  return [
+    ...polyfills.map((p) => `import ${JSON.stringify(local(p))};`),
+    `import "@angular/compiler";`,
+    ...styles.map((s) => `import ${JSON.stringify(local(s))};`),
+    `import ${JSON.stringify(local(main))};`,
+    "",
+  ].join("\n");
+}
 
 /** Compile-time flags the framework's runtime reads (`vite dev` defines the
  *  same through the framework's plugin). */
@@ -57,8 +109,16 @@ export function frameworkDefines(framework: CompiledFramework): Record<string, s
         __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: "false",
       };
     case "svelte":
+    case "angular":
       return {};
   }
+}
+
+/** The TypeScript options the framework's sources compile under. */
+export function frameworkTsconfig(framework: CompiledFramework): string | undefined {
+  return framework === "angular"
+    ? JSON.stringify({ compilerOptions: { experimentalDecorators: true, useDefineForClassFields: false } })
+    : undefined;
 }
 
 type SfcCompiler = typeof import("@vue/compiler-sfc");
@@ -90,10 +150,20 @@ export function frameworkPlugin(
   return {
     name: `loom-${framework}`,
     setup(build) {
-      build.onResolve({ filter: /^loom:mount$/ }, () => ({ path: MOUNT_SPECIFIER, namespace: MOUNT_NS }));
-      build.onLoad({ filter: /.*/, namespace: MOUNT_NS }, () => ({ contents: MOUNT_SOURCE, loader: "js" }));
+      build.onResolve({ filter: /^loom:mount/ }, (args) => ({ path: args.path, namespace: MOUNT_NS }));
+      build.onLoad({ filter: /.*/, namespace: MOUNT_NS }, () => ({
+        contents: framework === "angular" ? ANGULAR_MOUNT_SOURCE : MOUNT_SOURCE,
+        loader: "js",
+      }));
       if (framework === "vue") setupVue(build, files, read);
-      else setupSvelte(build, files, read);
+      else if (framework === "svelte") setupSvelte(build, files, read);
+      else {
+        build.onResolve({ filter: /^loom:angular-app/ }, (args) => ({ path: args.path, namespace: ANGULAR_NS }));
+        build.onLoad({ filter: /.*/, namespace: ANGULAR_NS }, (args) => {
+          const root = new URLSearchParams(args.path.slice(args.path.indexOf("?") + 1)).get("root") ?? "";
+          return { contents: angularAppModule(root, read(`${root}/angular.json`)), loader: "js", resolveDir: root || "/" };
+        });
+      }
     },
   };
 }

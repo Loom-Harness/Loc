@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { frameworkPlugin } from "../../web/src/engine/npm/frontend-frameworks.js";
+import { angularAppModule, frameworkPlugin } from "../../web/src/engine/npm/frontend-frameworks.js";
 import { sveltekitRoutes } from "../../web/src/engine/npm/sveltekit-shim.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
@@ -166,5 +166,25 @@ describe("the SvelteKit stand-in", () => {
     };
     expect(runtime).toBeDefined();
     expect(web.dependencies.svelte).toBe(runtime);
+  });
+});
+
+describe("the Angular entry", () => {
+  it("loads the angular.json polyfills, the JIT compiler and the styles before main.ts", async () => {
+    const source = readFileSync(
+      path.resolve(__dirname, "../../web/src/examples/sales-system-angular.ddd"),
+      "utf8",
+    );
+    const generated = await generateSystemFiles(source);
+    const slug = [...generated.keys()].find((p) => p.endsWith("/angular.json"))?.split("/")[0];
+    expect(slug).toBeDefined();
+    const entry = angularAppModule(`/${slug}`, generated.get(`${slug}/angular.json`));
+    expect(entry.split("\n").filter(Boolean)).toEqual([
+      `import "zone.js";`,
+      `import "@angular/compiler";`,
+      `import "@angular/material/prebuilt-themes/azure-blue.css";`,
+      `import "/${slug}/src/styles.css";`,
+      `import "/${slug}/src/main.ts";`,
+    ]);
   });
 });
