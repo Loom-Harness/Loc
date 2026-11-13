@@ -488,7 +488,11 @@ twins: hono `emptyBodyAsEmptyObject`, python `JsonBodyMiddleware`, java
 - `AddScoped<I<Agg>Repository, <Agg>Repository>` per aggregate
 - `AddControllers().AddJsonOptions(...)` — camelCase property naming
 - `AddCors` (permissive default; pin to tighten in prod)
-- `AddSwaggerGen` — spec at `/openapi.json` (aligned across backends)
+- `AddSwaggerGen` — spec at `/openapi.json` (aligned across backends).
+  Swashbuckle composes only `oneOf`, never `anyOf`, so an operation-return
+  union's error-arm status publishes plain `ProblemDetails`; the typed
+  `<Tag>Problem` body the other backends declare beside it is not in the .NET
+  document.
 - `app.MapGet("/health", ...)` + `UseCors() / UseSwagger() / MapControllers()`
 - the boot migration (`Database.Migrate()`, or `DbSchema.EnsureAsync` under
   Dapper) on the database's migrator; a deployable whose storage's database

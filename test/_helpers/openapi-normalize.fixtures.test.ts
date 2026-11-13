@@ -30,11 +30,21 @@ function cases(kind: "equivalent" | "different"): string[] {
     .sort();
 }
 
-function load(kind: string, name: string): { a: OpenApiSpec; b: OpenApiSpec } {
+/** A pair's documents and the backend names it is compared under —
+ *  `names.json` (`{"a": "hono", "b": "dotnet"}`) when an equivalence is
+ *  scoped to particular backends, else `a` / `b`. */
+function load(
+  kind: string,
+  name: string,
+): { a: OpenApiSpec; b: OpenApiSpec; names: { a: string; b: string } } {
   const dir = path.join(root, kind, name);
+  const namesFile = path.join(dir, "names.json");
   return {
     a: readJson<OpenApiSpec>(path.join(dir, "a.json")),
     b: readJson<OpenApiSpec>(path.join(dir, "b.json")),
+    names: fs.existsSync(namesFile)
+      ? readJson<{ a: string; b: string }>(namesFile)
+      : { a: "a", b: "b" },
   };
 }
 
@@ -53,9 +63,9 @@ describe("openapi parity fixtures", () => {
   describe("equivalent spellings compare equal", () => {
     for (const name of cases("equivalent")) {
       it(name, () => {
-        const { a, b } = load("equivalent", name);
-        const ab = diffSpecs({ name: "a", spec: a }, { name: "b", spec: b });
-        const ba = diffSpecs({ name: "b", spec: b }, { name: "a", spec: a });
+        const { a, b, names } = load("equivalent", name);
+        const ab = diffSpecs({ name: names.a, spec: a }, { name: names.b, spec: b });
+        const ba = diffSpecs({ name: names.b, spec: b }, { name: names.a, spec: a });
         expect(nonEmptyDimensions(ab), JSON.stringify(ab, null, 2)).toEqual([]);
         expect(isCleanDiff(ba), JSON.stringify(ba, null, 2)).toBe(true);
       });
@@ -65,13 +75,13 @@ describe("openapi parity fixtures", () => {
   describe("real contract differences still fail", () => {
     for (const name of cases("different")) {
       it(name, () => {
-        const { a, b } = load("different", name);
+        const { a, b, names } = load("different", name);
         const { dimension } = readJson<{ dimension: keyof ParityDiff }>(
           path.join(root, "different", name, "expect.json"),
         );
         for (const diff of [
-          diffSpecs({ name: "a", spec: a }, { name: "b", spec: b }),
-          diffSpecs({ name: "b", spec: b }, { name: "a", spec: a }),
+          diffSpecs({ name: names.a, spec: a }, { name: names.b, spec: b }),
+          diffSpecs({ name: names.b, spec: b }, { name: names.a, spec: a }),
         ]) {
           expect(isCleanDiff(diff)).toBe(false);
           expect(nonEmptyDimensions(diff), JSON.stringify(diff, null, 2)).toContain(dimension);
