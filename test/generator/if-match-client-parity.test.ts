@@ -205,13 +205,15 @@ describe("If-Match: the self-hosted frontends send the loaded version", () => {
     const forms = [...files].find(([p]) => p.endsWith("lib/forms.dart"))![1];
     expect(forms).toContain("  final int? expectedVersion;");
     expect(forms).toContain(
-      "const UpdateDocForm({super.key, required this.id, this.expectedVersion});",
+      "const UpdateDocForm({super.key, required this.id, this.expectedVersion, this.record});",
     );
     expect(forms, "the entity-tag must be QUOTED (RFC 9110 §8.8.3)").toContain(
       "headers: {'Content-Type': 'application/json', if (widget.expectedVersion != null) 'If-Match': '\"${widget.expectedVersion}\"'},",
     );
     const detail = [...files].find(([p]) => p.endsWith("lib/pages/doc_detail_page.dart"))![1];
-    expect(detail).toContain("UpdateDocForm(id: id, expectedVersion: docById.rowVersion)");
+    expect(detail).toContain(
+      "UpdateDocForm(id: id, expectedVersion: docById.rowVersion, record: docById.toJson())",
+    );
   }, 90_000);
 
   it("the precondition rides the guarded write only (self-hosted)", async () => {
