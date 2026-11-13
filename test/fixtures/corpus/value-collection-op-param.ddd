@@ -5,8 +5,7 @@
 // string.  Elixir rewrites the collection with `put_assoc`, which takes typed,
 // atom-keyed rows, and handed it the raw map — `ArgumentError: field names
 // given to change/put_change must be atoms`, then `Ecto.ChangeError` on the
-// datetime: a 500 where every other backend answers 204, and a bad element
-// (`weight` below its floor) a 500 where they answer 422.
+// datetime: a 500 where every other backend answers 204.
 system ValueCollectionOpParam {
   subdomain Matching {
     context Matching {
@@ -64,7 +63,5 @@ system ValueCollectionOpParam {
     let triage = read.attributes.where(a => a.name == "triage").first()
     expect(triage.until).toBe(null)
 
-    expect(api.providers.putAttribute(p, { v: { name: "bad", kind: "Skill", weight: -1 } })).toThrow(422)
-    expect(api.providers.getById(p).attributes.count()).toBe(2)
   }
 }

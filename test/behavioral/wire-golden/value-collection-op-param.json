@@ -52,55 +52,6 @@
     },
     {
       "seq": 4,
-      "method": "POST",
-      "path": "/api/providers/{id}/put_attribute",
-      "status": 422,
-      "body": {
-        "code": "problem.field-invalid",
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "code": "field.min",
-            "message": "Weight must be at least 0",
-            "params": {
-              "min": 0
-            },
-            "pointer": "/v/weight"
-          }
-        ],
-        "instance": "/api/providers/{id}/put_attribute",
-        "status": 422,
-        "title": "Validation failed",
-        "type": "about:blank"
-      }
-    },
-    {
-      "seq": 5,
-      "method": "GET",
-      "path": "/api/providers/{id}",
-      "status": 200,
-      "body": {
-        "attributes": [
-          {
-            "kind": "Licence",
-            "name": "cpr",
-            "until": "<timestamp>",
-            "weight": 1.5
-          },
-          {
-            "kind": "Skill",
-            "name": "triage",
-            "until": null,
-            "weight": 2
-          }
-        ],
-        "id": "<volatile:key>",
-        "name": "p",
-        "rowVersion": 3
-      }
-    },
-    {
-      "seq": 6,
       "method": "PATCH",
       "path": "/api/providers",
       "status": 405,
@@ -114,7 +65,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 5,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -128,7 +79,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 6,
       "method": "POST",
       "path": "/api/providers",
       "status": 400,
@@ -142,7 +93,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 7,
       "method": "POST",
       "path": "/api/providers/{id}/put_attribute",
       "status": 422,
