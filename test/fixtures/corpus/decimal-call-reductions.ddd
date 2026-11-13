@@ -44,6 +44,7 @@ system DecimalCallReductions {
       // The workflow stores each reduction on a row the e2e reads back.
       aggregate ScoreCard with crudish {
         provider: Provider id
+        label: string
         total: decimal
         mean: decimal?
         boosted: decimal
@@ -52,7 +53,7 @@ system DecimalCallReductions {
       workflow scoreProvider {
         create(provider: Provider id): ScoreCard id {
           let p = Providers.get(provider)
-          let card = ScoreCard.create(provider: provider, total: Scoring.total(p), mean: Scoring.mean(p), boosted: Scoring.boostedTotal(p))
+          let card = ScoreCard.create(provider: provider, label: p.name, total: Scoring.total(p), mean: Scoring.mean(p), boosted: Scoring.boostedTotal(p))
           return card.id
         }
       }
@@ -73,6 +74,7 @@ system DecimalCallReductions {
   test e2e "a decimal reduction over a call-bodied lambda folds as decimal" against d {
     let none = api.providers.create({ name: "none", attributes: [] })
     let empty = api.scoreCards.getById(api.scoreProvider.run({ provider: none.id }))
+    expect(empty.label).toBe("none")
     expect(decimal(empty.total)).toBe(0)
     expect(empty.mean).toBe(null)
     expect(decimal(empty.boosted)).toBe(0)

@@ -26,6 +26,7 @@
       "body": {
         "boosted": 0,
         "id": "<volatile:key>",
+        "label": "none",
         "mean": null,
         "provider": "<uuid>",
         "rowVersion": 1,
@@ -56,6 +57,7 @@
       "body": {
         "boosted": 9,
         "id": "<volatile:key>",
+        "label": "p",
         "mean": 1.5,
         "provider": "<uuid>",
         "rowVersion": 1,
