@@ -42,7 +42,7 @@ system DecimalCallReductions {
       }
 
       // The workflow stores each reduction on a row the e2e reads back.
-      aggregate ScoreCard with crudish {
+      aggregate ScoreCard {
         provider: Provider id
         label: string
         total: decimal
@@ -88,5 +88,13 @@ system DecimalCallReductions {
     expect(decimal(card.total)).toBe(4.5)
     expect(decimal(card.mean)).toBe(1.5)
     expect(decimal(card.boosted)).toBe(9)
+
+    expect(api.providers.getById(p.id).name).toBe("p")
+    api.providers.update(p.id, { name: "p2", attributes: [] })
+    expect(api.scoreCards.all().total).toBe(2)
+    let spare = api.providers.create({ name: "spare", attributes: [] })
+    expect(api.providers.all().total).toBe(3)
+    api.providers.destroy(spare.id)
+    expect(api.providers.getById(spare.id)).toThrow(404)
   }
 }
