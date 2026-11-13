@@ -1666,7 +1666,7 @@ export default function App(): JSX.Element {
       files: gen.files,
       dependencies: emptyDependencySet(),
       backendEntries: entries.backends,
-      frontendEntries: entries.frontends.map((f) => f.entry),
+      frontendEntries: entries.frontends,
       sourcemap: true,
     });
     dispatch({ type: "BUNDLE_DONE", backends, frontends });

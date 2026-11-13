@@ -1,6 +1,7 @@
 // Every frontend of a system previews, each against the backend its
-// `targets:` names.  The two-frontends example with `storefront` rebound to
-// its own storage: a product written through `admin` lists in `backoffice`
+// `targets:` names — the React `backoffice` and the Vue `shopfront`, whose
+// single-file components the preview compiles in the browser.  The
+// two-frontends example with `storefront` rebound to its own storage: a product written through `admin` lists in `backoffice`
 // (which targets admin) and not in `shopfront` (which targets storefront),
 // and the reverse.  A preview that sent every frontend's calls to one backend
 // would list the same products in both.  Needs real internet, like

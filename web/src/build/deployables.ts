@@ -2,25 +2,31 @@
 // file tree.
 //
 // The browser runtime boots every Hono backend (one worker each) and previews
-// every React frontend, one at a time, each against the backend its `targets:`
+// every React and Vue frontend, one at a time, each against the backend its `targets:`
 // names.  Everything else in the tree is files-only, and is
 // listed so the UI can say so by name: .NET (`Program.cs`), Phoenix LiveView
 // (`mix.exs`), Spring Boot (`build.gradle.kts`) and FastAPI (`pyproject.toml`)
 // backends, and the frontends the preview engine does not bundle (SvelteKit,
-// Vue, Angular, Feliz, Flutter).
+// Angular, Feliz, Flutter).
 //
 // Pure: no React, no DOM, no worker — the root vitest suite imports it.
 
 import type { UnsupportedDeployable, UnsupportedPlatform } from "../layout/ctx.js";
 import { serviceSlug } from "../../../src/util/service-slug.js";
 import type { VirtualFile } from "./protocol.js";
+import type { CompiledFramework } from "../engine/npm/frontend-frameworks.js";
+
+/** The framework a previewed frontend is built with: React bundles as is,
+ *  the others through their compiler (`engine/npm/frontend-frameworks.ts`). */
+export type PreviewFramework = "react" | CompiledFramework;
 
 /** One frontend deployable the preview renders. */
 export interface PreviewFrontend {
   /** The deployable's slug — its generated folder. */
   slug: string;
-  /** Its entry path (`<slug>/src/main.tsx`). */
+  /** Its entry path (`<slug>/src/main.tsx`, or `main.ts` for Vue). */
   entry: string;
+  framework: PreviewFramework;
   /** The slug of the backend its `targets:` names (the compose
    *  `VITE_API_PROXY_TARGET`) — where the preview sends its API calls.  Null
    *  when the tree records none. */
@@ -41,6 +47,7 @@ export interface DeployableAnalysis {
 
 const HONO_ENTRY = /^([^/]+)\/http\/index\.ts$/;
 const REACT_ENTRY = /^([^/]+)\/src\/main\.tsx$/;
+const VUE_ENTRY = /^([^/]+)\/src\/main\.ts$/;
 
 /** The lines of one compose service's block, or null when the file declares
  *  no such service.  Service names are the deployable slugs. */
@@ -111,14 +118,15 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
     return { backends: ["http/index.ts"], frontends: [], unsupported: [] };
   }
   const honoSlugs: string[] = [];
-  const reactEntries: string[] = [];
+  const frontendEntries: { entry: string; framework: PreviewFramework }[] = [];
+  const vueEntries = new Map<string, string>();
   let compose: string | null = null;
   const platformBySlug = new Map<string, UnsupportedPlatform>();
   const angularSlugs = new Set<string>();
   for (const f of files) {
     const hono = f.path.match(HONO_ENTRY);
     if (hono?.[1] && !honoSlugs.includes(hono[1])) honoSlugs.push(hono[1]);
-    if (REACT_ENTRY.test(f.path)) reactEntries.push(f.path);
+    if (REACT_ENTRY.test(f.path)) frontendEntries.push({ entry: f.path, framework: "react" });
     if (f.path === "docker-compose.yml") compose = f.content;
     const dotnet = f.path.match(/^([^/]+)\/Program\.cs$/);
     if (dotnet?.[1]) platformBySlug.set(dotnet[1], "dotnet");
@@ -126,18 +134,17 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
     if (phoenix?.[1]) platformBySlug.set(phoenix[1], "elixir");
     // Frontend SPAs the preview engine doesn't bundle in-browser: SvelteKit
     // (`svelte.config.js`; its `$app/*` client + file routing aren't
-    // reproduced), Vue (`src/main.ts` — the `.ts` entry, vs react's
-    // `src/main.tsx`; the `.vue` SFC pipeline isn't wired), and Angular
-    // (`angular.json`; its AOT/`ng build` toolchain isn't run in-browser).
-    // Angular *also* emits `src/main.ts`, so `angular.json` is the
-    // discriminator and takes precedence over the Vue match (applied after
-    // the loop, independent of file order).
+    // reproduced) and Angular (`angular.json`; its AOT/`ng build` toolchain
+    // isn't run in-browser).  Vue (`src/main.ts` — the `.ts` entry, vs
+    // react's `src/main.tsx`) previews.  Angular *also* emits `src/main.ts`,
+    // so `angular.json` is the discriminator and takes precedence over the
+    // Vue match (applied after the loop, independent of file order).
     const svelte = f.path.match(/^([^/]+)\/svelte\.config\.js$/);
     if (svelte?.[1]) platformBySlug.set(svelte[1], "svelte");
     const angular = f.path.match(/^([^/]+)\/angular\.json$/);
     if (angular?.[1]) angularSlugs.add(angular[1]);
-    const vue = f.path.match(/^([^/]+)\/src\/main\.ts$/);
-    if (vue?.[1]) platformBySlug.set(vue[1], "vue");
+    const vue = f.path.match(VUE_ENTRY);
+    if (vue?.[1]) vueEntries.set(vue[1], f.path);
     // Backends and frontends with their own toolchain: Spring Boot
     // (`build.gradle.kts`), FastAPI (`pyproject.toml`), Feliz (`*.fsproj`,
     // built by Fable) and Flutter (`pubspec.yaml`).
@@ -151,11 +158,14 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
     if (flutter?.[1]) platformBySlug.set(flutter[1], "flutter");
   }
   for (const slug of angularSlugs) platformBySlug.set(slug, "angular");
+  for (const [slug, entry] of vueEntries) {
+    if (!angularSlugs.has(slug)) frontendEntries.push({ entry, framework: "vue" });
+  }
 
-  const frontends: PreviewFrontend[] = reactEntries
-    .map((entry) => {
-      const slug = entry.match(REACT_ENTRY)?.[1] ?? "";
-      return { slug, entry, apiTarget: compose ? frontendApiTarget(compose, slug) : null };
+  const frontends: PreviewFrontend[] = frontendEntries
+    .map(({ entry, framework }) => {
+      const slug = entry.slice(0, entry.indexOf("/"));
+      return { slug, entry, framework, apiTarget: compose ? frontendApiTarget(compose, slug) : null };
     })
     .sort((a, b) => a.slug.localeCompare(b.slug));
 

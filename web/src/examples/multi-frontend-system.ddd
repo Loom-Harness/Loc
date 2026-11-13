@@ -1,4 +1,5 @@
-// Two frontends, each on its own backend, over one shared `storage`.
+// Two frontends — a React back office and a Vue shop — each on its own
+// backend, over one shared `storage`.
 // `backoffice` targets `admin`, `shopfront` targets `storefront`; both
 // backends bind `primary`, so a product created in the back office is listed
 // in the shop.
@@ -49,7 +50,7 @@ system MultiFrontend {
   }
 
   deployable shopfront {
-    platform: react
+    platform: vue
     targets: storefront
     ui: Shop
     port: 3003

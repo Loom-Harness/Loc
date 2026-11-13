@@ -151,7 +151,6 @@ export type UnsupportedPlatform =
   | "java"
   | "python"
   | "svelte"
-  | "vue"
   | "angular"
   | "feliz"
   | "flutter";
@@ -761,8 +760,6 @@ export function unsupportedPlatformLabel(p: UnsupportedPlatform): string {
       return "Phoenix LiveView";
     case "svelte":
       return "SvelteKit";
-    case "vue":
-      return "Vue";
     case "angular":
       return "Angular";
     case "java":

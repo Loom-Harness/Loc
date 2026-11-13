@@ -9,8 +9,8 @@ import {
 // Playground "preview unsupported" surfacing.
 //
 // The in-browser preview engine bundles only the React SPA shape, so
-// dotnet / phoenix backends — and now the svelte / vue frontends, whose
-// SvelteKit `$app/*` client + Vue SFC pipeline aren't reproduced
+// dotnet / phoenix backends — and the svelte / angular frontends, whose
+// SvelteKit `$app/*` client + Angular AOT build aren't reproduced
 // in-browser — are listed in the UI instead of showing a silent blank
 // Preview.  These pin the labels + the comma-joined formatter so each
 // platform reads cleanly (`analyzeDeployables` in
@@ -24,7 +24,6 @@ describe("unsupported-platform labels", () => {
       dotnet: ".NET",
       elixir: "Phoenix LiveView",
       svelte: "SvelteKit",
-      vue: "Vue",
       angular: "Angular",
       java: "Spring Boot",
       python: "FastAPI",
@@ -40,9 +39,9 @@ describe("unsupported-platform labels", () => {
     expect(
       formatUnsupportedDeployables([
         { slug: "web", platform: "svelte" },
-        { slug: "admin", platform: "vue" },
+        { slug: "admin", platform: "angular" },
         { slug: "api", platform: "dotnet" },
       ]),
-    ).toBe("web (SvelteKit), admin (Vue), api (.NET)");
+    ).toBe("web (SvelteKit), admin (Angular), api (.NET)");
   });
 });
