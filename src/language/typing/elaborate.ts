@@ -2280,7 +2280,7 @@ function ownerChain(
 
 /** True when `agg` (or a base it extends) declares a property, containment
  *  or derived member named `name`. */
-function declaresDataMember(agg: Aggregate, name: string): boolean {
+export function declaresDataMember(agg: Aggregate, name: string): boolean {
   return ownerChain(agg).some((o) =>
     (o.members as AstNode[]).some(
       (m) => (isProperty(m) || isContainment(m) || isDerivedProp(m)) && m.name === name,

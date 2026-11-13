@@ -25,6 +25,7 @@ import {
   operationBodyUsesCurrentUser,
 } from "../../../ir/util/op-gates.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
@@ -83,12 +84,6 @@ const AUDITING_ENTITY_LISTENER = javaRef(
   "org.springframework.data.jpa.domain.support",
   "AuditingEntityListener",
 );
-
-/** True for a field type that is a collection of references
- * (`Id<T>[]`) — persisted via a join table, not a column. */
-function isRefCollection(t: TypeIR): boolean {
-  return t.kind === "array" && t.element.kind === "id";
-}
 
 /** True when an expression tree contains a domain-service member call
  *  (`Pricing.quote(...)` → a `call` with `callKind: "domain-service"`).
@@ -473,7 +468,7 @@ export function renderJavaEntity(
     // four backends emit, so the counter is driven explicitly from the
     // repository save (guarded `where version = :expected`) instead.
     if (persistence) fieldLines.push(...jpaFieldAnnotations(f, entity, persistence));
-    if (isRefCollection(f.type)) {
+    if (isRefCollectionType(f.type)) {
       fieldLines.push(
         `    ${renderJavaType(f.type)} ${DOMAIN_NAMES.java.binding(f.name)} = new ${ARRAY_LIST}<>();`,
       );
@@ -553,7 +548,7 @@ export function renderJavaEntity(
   if (!isRoot) accessor(`${persistence?.parentEntityName ?? rootName}Id`, "parentId");
   for (const f of entity.fields) {
     if (superType?.fieldNames.has(f.name)) continue;
-    if (isRefCollection(f.type)) {
+    if (isRefCollectionType(f.type)) {
       accessor(
         renderJavaType(f.type),
         DOMAIN_NAMES.java.binding(f.name),

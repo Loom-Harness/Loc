@@ -81,7 +81,7 @@ public sealed class CustomerRepository : ICustomerRepository
         var sortColumn = sort switch { "username" => "Username", "email" => "Email", "age" => "Age", _ => "Id" };
         var total = await _db.Customers.CountAsync(cancellationToken);
         var totalPages = pageSize > 0 ? (int)System.Math.Ceiling((double)total / pageSize) : 0;
-        var ordered = dir == "desc" ? _db.Customers.OrderByDescending(e => EF.Property<object>(e, sortColumn)) : _db.Customers.OrderBy(e => EF.Property<object>(e, sortColumn));
+        var ordered = dir == "desc" ? _db.Customers.OrderByDescending(e => EF.Property<object>(e, sortColumn)).ThenBy(e => e.Id) : _db.Customers.OrderBy(e => EF.Property<object>(e, sortColumn)).ThenBy(e => e.Id);
         var items = await ordered.Skip(offset).Take(pageSize).ToListAsync(cancellationToken);
         _log.LogDebug("{Event} aggregate={Aggregate} find={Find} rows={Rows}", "find_executed", "Customer", "all", items.Count);
         return new Paged<Customer>(items, page, pageSize, total, totalPages);

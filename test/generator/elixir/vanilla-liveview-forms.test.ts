@@ -90,29 +90,23 @@ describe("vanilla LiveView forms — create form (2-B)", () => {
   });
 });
 
-describe("vanilla LiveView forms — operation form (2-B)", () => {
-  it("seeds the op-form from the loaded record via change_<agg> in handle_params (no for_update)", async () => {
+// String-tier claims (wiring / absence): the runtime proof that a named op's
+// form runs the op — its gate, state gate and emit — is the authorization leg
+// of `test/behavioral/heex-ui-auth.pw.ts`.
+describe("vanilla LiveView forms — named operation form", () => {
+  it("backs the op form with its submitted params, not an aggregate changeset (wiring)", async () => {
     const live = get(await files(), "/live/customer_detail_live.ex");
-    expect(live).toContain(
-      '|> assign(:adjust_credit_form, PhoenixApp.Sales.change_customer(record) |> to_form(as: "adjust_credit"))',
-    );
-    expect(live).not.toContain("AshPhoenix.Form.for_update");
+    expect(live).toContain('|> assign(:adjust_credit_form, to_form(%{}, as: "adjust_credit"))');
+    expect(live).not.toContain('change_customer(record) |> to_form(as: "adjust_credit")');
   });
 
-  it("validate builds a changeset with action: :validate (no AshPhoenix.Form.validate)", async () => {
-    const live = get(await files(), "/live/customer_detail_live.ex");
-    expect(live).toContain('def handle_event("validate_adjust_credit"');
-    expect(live).toContain("|> PhoenixApp.Sales.change_customer(params)");
-    expect(live).toContain("|> Map.put(:action, :validate)");
-    expect(live).not.toContain("AshPhoenix.Form.validate");
-  });
-
-  it("submit persists via update_<agg> and re-seeds the form (no AshPhoenix.Form.submit)", async () => {
+  it("submit dispatches to the named operation, never the generic update (absence)", async () => {
     const live = get(await files(), "/live/customer_detail_live.ex");
     expect(live).toContain('def handle_event("submit_adjust_credit"');
-    expect(live).toContain("case PhoenixApp.Sales.update_customer(socket.assigns.data, params) do");
-    expect(live).toContain("{:error, %Ecto.Changeset{} = changeset} ->");
-    expect(live).not.toContain("AshPhoenix.Form.submit");
+    expect(live).toContain(
+      "case PhoenixApp.Sales.adjust_credit_customer(socket.assigns.data, params",
+    );
+    expect(live).not.toContain("PhoenixApp.Sales.update_customer(");
   });
 });
 

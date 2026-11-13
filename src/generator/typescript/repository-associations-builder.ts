@@ -6,7 +6,7 @@
 // owner id, the save path diff-syncs the same rows.  These three
 // pure helpers describe the shared join-table shape.
 
-import type { AssociationIR, EnrichedAggregateIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { AssociationIR, EnrichedAggregateIR } from "../../ir/types/loom-ir.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
 import { T, TT } from "./ts-symbols.js";
 
@@ -14,12 +14,6 @@ import { T, TT } from "./ts-symbols.js";
  * aggregate, persisted as many-to-many join tables.  Empty when none. */
 export function associationsOf(agg: EnrichedAggregateIR): AssociationIR[] {
   return agg.associations;
-}
-
-/** True for a field type that is a collection of references
- * (`T id[]`) — persisted via a join table, not a column. */
-export function isRefCollection(t: TypeIR): boolean {
-  return t.kind === "array" && t.element.kind === "id";
 }
 
 /** Bulk-load lines for every association into `<field>ByOwner`

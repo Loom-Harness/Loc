@@ -72,6 +72,13 @@ export const angularTarget: WalkerTarget = {
    *  indexable by the (string) value under `strictTemplates`. */
   renderEnumLabelLookup(entries, valueExpr): string {
     const literal = entries.map((e) => `${JSON.stringify(e.value)}: ${e.label}`).join(", ");
+    // A value read through `?.` (an optional value object's enum field) may be
+    // absent: the lookup is guarded and shows the empty "—", and the index goes
+    // through `$any` because template narrowing does not reach a call-rooted
+    // chain.
+    if (valueExpr.includes("?.")) {
+      return `(${valueExpr} == null ? "—" : ($any({ ${literal} })[$any(${valueExpr})] ?? ${valueExpr}))`;
+    }
     return `($any({ ${literal} })[${valueExpr}] ?? ${valueExpr})`;
   },
 

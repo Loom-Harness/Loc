@@ -118,7 +118,9 @@ export type LoweringViolationKind =
   /** A call names no target of its `callKind`. */
   | "call-target"
   /** One statement block binds the same `let` name twice. */
-  | "duplicate-let";
+  | "duplicate-let"
+  /** A statement lowering has no form for reached the IR as a placeholder. */
+  | "unlowered-statement";
 
 /** One place the lowered IR is not well-formed. */
 export interface LoweringViolation {

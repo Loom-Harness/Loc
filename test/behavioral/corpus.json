@@ -126,6 +126,55 @@
       "ui": false,
       "uiFlutter": true,
       "textProbe": "money-compare"
+    },
+    {
+      "name": "form-spec-ui-react",
+      "ddd": "test/behavioral/form-spec-ui.ddd",
+      "frontend": "react",
+      "api": false,
+      "unit": false,
+      "ui": true,
+      "textProbe": "form-spec"
+    },
+    {
+      "name": "form-spec-ui-vue",
+      "ddd": "test/behavioral/form-spec-ui.ddd",
+      "frontend": "vue",
+      "api": false,
+      "unit": false,
+      "ui": true,
+      "uiTier": "nightly",
+      "textProbe": "form-spec"
+    },
+    {
+      "name": "form-spec-ui-svelte",
+      "ddd": "test/behavioral/form-spec-ui.ddd",
+      "frontend": "svelte",
+      "api": false,
+      "unit": false,
+      "ui": true,
+      "uiTier": "nightly",
+      "textProbe": "form-spec"
+    },
+    {
+      "name": "form-spec-ui-angular",
+      "ddd": "test/behavioral/form-spec-ui.ddd",
+      "frontend": "angular",
+      "api": false,
+      "unit": false,
+      "ui": true,
+      "uiTier": "nightly",
+      "textProbe": "form-spec"
+    },
+    {
+      "name": "form-spec-ui-feliz",
+      "ddd": "test/behavioral/form-spec-ui.ddd",
+      "frontend": "feliz",
+      "api": false,
+      "unit": false,
+      "ui": true,
+      "uiTier": "nightly",
+      "textProbe": "form-spec"
     }
   ]
 }
