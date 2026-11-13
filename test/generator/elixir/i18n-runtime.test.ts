@@ -269,7 +269,9 @@ describe("Phoenix HEEx i18n — ICU interpolation", () => {
     expect(fileEndingWith(files, "mix.exs")).toContain('{:ex_cldr_messages, "1.0.4"}');
     const cldr = fileEndingWith(files, "lib/app/cldr.ex");
     expect(cldr).toContain("use Cldr,");
-    expect(cldr).toContain("providers: [Cldr.Number, Cldr.Message]");
+    expect(cldr).toContain(
+      "providers: [Cldr.Number, Cldr.Date, Cldr.Time, Cldr.DateTime, Cldr.Message]",
+    );
     // String tier (absence claim): the moduledoc must not tell a translator to
     // hand-register a locale; the `locales/<tag>.json` sidecar yields both halves.
     expect(cldr).toContain("`locales/<tag>.json` beside the .ddd");
@@ -327,5 +329,71 @@ describe("Phoenix HEEx i18n — ICU interpolation", () => {
     const catalog = fileEndingWith(files, "priv/gettext/en/LC_MESSAGES/default.po")!;
     expect(catalog).toMatch(/msgid "[^"]*\{[^"]*"/); // a holed chrome msgid IS present…
     expect(fileEndingWith(files, "mix.exs")).not.toContain("ex_cldr"); // …and gates nothing.
+  });
+});
+
+// D-HEEX-I18N-FORMAT: number and date formatting follows the negotiated locale
+// through the CLDR runtime the ICU tier already ships.  The behaviour (the
+// French text a browser reads) is the `heex-i18n` leg; these pin what no boot
+// observes: the gate (which apps pay for CLDR), the dep set, and the absence of
+// the ISO-only renderer under i18n.
+describe("Phoenix HEEx i18n — CLDR number and date formatting", () => {
+  const withDate = (body: string): string =>
+    SYSTEM(body).replace(
+      'page Home {\n      route: "/"',
+      'page Home(day: date) {\n      route: "/:day"',
+    );
+
+  it("renders DateDisplay through the CLDR runtime", async () => {
+    const live = await homeLive(withDate(`Stack { Heading { "Orders" }, DateDisplay { day } }`));
+    expect(live).toContain("loom_date(@day)");
+    // String tier (absence claim): the ISO-only renderer is gone under i18n.
+    expect(live).not.toContain("Calendar.strftime");
+  });
+
+  it("ships the CLDR packages for a ui whose only formatted output is a date", async () => {
+    const files = await generateSystemFiles(
+      withDate(`Stack { Heading { "Orders" }, DateDisplay { day } }`),
+    );
+    const mix = fileEndingWith(files, "mix.exs")!;
+    for (const dep of ["ex_cldr", "ex_cldr_numbers", "ex_cldr_dates_times", "ex_cldr_messages"]) {
+      expect(mix, dep).toContain(`{:${dep},`);
+    }
+    expect(fileEndingWith(files, "lib/app/cldr.ex")).toContain("Cldr.DateTime");
+    const runtime = fileEndingWith(files, "lib/app_web/i18n.ex")!;
+    expect(runtime).toContain("def loom_date(value) do");
+    expect(runtime).toContain("defp expand_skeletons(message, bindings) do");
+    expect(fileEndingWith(files, "lib/app_web.ex")).toContain("import AppWeb.I18n");
+  });
+
+  it("keeps ISO output and the CLDR-free dep set for a ui without i18n", async () => {
+    const live = await homeLive(withDate("DateDisplay { day }"));
+    expect(live).toContain('Calendar.strftime(@day, "%Y-%m-%d")');
+    expect(live).not.toContain("loom_date");
+  });
+
+  it("localizes the ProvenanceInfo labels through the shared chrome keys", async () => {
+    const src = SYSTEM(`Heading { "Orders" }`)
+      .replace(
+        "aggregate Order with crudish { status: string }",
+        "aggregate Order with crudish { status: string  total: int provenanced }",
+      )
+      .replace('page Home {\n      route: "/"', 'page Home(id: Order id) {\n      route: "/:id"')
+      .replace(
+        'body: Heading { "Orders" }',
+        'body: QueryView { of: Sales.Order.byId(id), single: true, data: o => Stack { Heading { "Orders" }, ProvenanceInfo(of: o, field: "total") } }',
+      );
+    const files = await generateSystemFiles(src);
+    const po = fileEndingWith(files, "priv/gettext/en/LC_MESSAGES/default.po")!;
+    const live = fileEndingWith(files, "live/home_live.ex")!;
+    for (const [key, english] of [
+      ["chrome.provenanceHowComputed", "How this value was computed"],
+      ["chrome.provenanceRule", "Rule"],
+      ["chrome.provenanceValue", "Value"],
+    ] as const) {
+      expect(po, key).toContain(`msgctxt "${key}"`);
+      expect(live, key).toContain(`pgettext("${key}", "${english}")`);
+    }
+    expect(live).not.toContain('aria-label="How this value was computed"');
   });
 });
