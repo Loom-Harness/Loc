@@ -233,10 +233,11 @@ function tsStmtTarget(
     remove: (s, ix) => {
       const path = renderPath(s.target);
       const value = rx(s.value);
+      // `xs -= v` removes every element equal to `v`, in place.
       const eq = s.collection
-        ? `(e) => ${removeElementEquals(s.elementType, value)}`
-        : `(e) => e === (${value})`;
-      const base = `${INDENT}{ const idx = ${path}.findIndex(${eq}); if (idx >= 0) ${path}.splice(idx, 1); }`;
+        ? removeElementEquals(s.elementType, "__rm")
+        : "e === __rm";
+      const base = `${INDENT}{ const __rm = ${value}; const __kept = ${path}.filter((e) => !(${eq})); ${path}.splice(0, ${path}.length, ...__kept); }`;
       return withTrace(base, s.prov, s.target, s.value, emitProvenance, ix.prov);
     },
 

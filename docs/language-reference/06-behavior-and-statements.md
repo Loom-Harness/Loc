@@ -459,34 +459,33 @@ aggregate Order {
 ```ts
 this._status = Status.Placed;
 this._notes.push("line");
-{ const idx = this._notes.findIndex((e) => e === ("draft")); if (idx >= 0) this._notes.splice(idx, 1); }
+{ const __rm = "draft"; const __kept = this._notes.filter((e) => !(e === (__rm))); this._notes.splice(0, this._notes.length, ...__kept); }
 ```
 == dotnet
 ```csharp
 Status = Status.Placed;
 Notes.Add("line");
-Notes.Remove("draft");
+{ var __rm = "draft"; Notes.RemoveAll(__e => Equals(__e, __rm)); }
 ```
 == java
 ```java
 this.status = Status.Placed;
 this.notes.add("line");
-this.notes.remove("draft");
+{ var __rm = "draft"; this.notes.removeIf(__e -> java.util.Objects.equals(__e, __rm)); }
 ```
 == python
 ```python
 self._status = Status.Placed
 self._notes.append("line")
 __rm = "draft"
-if __rm in self._notes:
-    self._notes.remove(__rm)
+self._notes[:] = [__e for __e in self._notes if __e != __rm]
 ```
 == elixir
 ```elixir
 # the struct is rebuilt, then every touched field is force_change'd onto the changeset
 record = %{record | status: :Placed}
 record = %{record | notes: (record.notes || []) ++ ["line"]}
-record = %{record | notes: List.delete(record.notes || [], "draft")}
+record = %{record | notes: Enum.reject(record.notes || [], fn __e -> __e == "draft" end)}
 changeset =
   record
   |> Ecto.Changeset.change(%{})
@@ -495,6 +494,8 @@ changeset =
   |> Ecto.Changeset.optimistic_lock(:version)
 ```
 ::: end
+
+A collection `-=` removes **every** element equal to the value, not only the first, on every backend and in every body that has it: an operation, an event-sourced `apply`, a projection fold and page state.
 
 `+=` / `-=` on a `contains` collection append/remove an entity part; on an `X id[]` reference collection they attach/detach a target id (the join-table row is written on save).
 

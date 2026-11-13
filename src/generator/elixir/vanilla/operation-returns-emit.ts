@@ -1511,14 +1511,14 @@ export function renderReturningStmt(
         : `    record = %{record | ${field}: record.${field} + ${value}}`;
     }
     case "remove": {
-      // `items -= x` drops the first matching element; scalar `n -= x` subtracts.
+      // `items -= x` drops every matching element; scalar `n -= x` subtracts.
       const field = snake(s.target.segments[0] ?? "");
       const value = renderExpr(s.value, rc);
       if (s.collection && rc.agg && isRefCollFieldName(rc.agg, field)) {
-        return `    ${field} = List.delete(__ref_id_list(record.${field}), ${value})`;
+        return `    ${field} = Enum.reject(__ref_id_list(record.${field}), fn __e -> __e == ${value} end)`;
       }
       return s.collection
-        ? `    record = %{record | ${field}: List.delete(record.${field} || [], ${value})}`
+        ? `    record = %{record | ${field}: Enum.reject(record.${field} || [], fn __e -> __e == ${value} end)}`
         : `    record = %{record | ${field}: record.${field} - ${value}}`;
     }
     case "emit": {

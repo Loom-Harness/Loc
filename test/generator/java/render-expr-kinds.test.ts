@@ -603,7 +603,7 @@ describe("java renderJavaStatements", () => {
       },
     ];
     expect(renderJavaStatements(stmts)).toBe(
-      [`        this.tags.add("a");`, `        this.tags.remove("a");`].join("\n"),
+      [`        this.tags.add("a");`, `        { var __rm = "a"; this.tags.removeIf(__e -> java.util.Objects.equals(__e, __rm)); }`].join("\n"),
     );
   });
 
@@ -611,7 +611,7 @@ describe("java renderJavaStatements", () => {
   // `remove(int index)` and `remove(Object)` are BOTH applicable and overload
   // resolution picks the INDEX one (phase 1, no boxing).  The unboxed spelling
   // removes the wrong element or throws IndexOutOfBoundsException.
-  it("boxes an int element removal so `List.remove(Object)` binds, not remove(index)", () => {
+  it("removes an int element by value, never through remove(int index)", () => {
     const stmts: StmtIR[] = [
       {
         kind: "remove",
@@ -621,10 +621,10 @@ describe("java renderJavaStatements", () => {
         collection: true,
       },
     ];
-    expect(renderJavaStatements(stmts)).toBe(`        this.codes.remove(Integer.valueOf(code));`);
+    expect(renderJavaStatements(stmts)).toBe(`        { var __rm = code; this.codes.removeIf(__e -> java.util.Objects.equals(__e, __rm)); }`);
   });
 
-  it("leaves a long/money/string element removal unboxed (already binds remove(Object))", () => {
+  it("removes a long/money/string element by value", () => {
     const stmts: StmtIR[] = [
       {
         kind: "remove",
@@ -642,7 +642,10 @@ describe("java renderJavaStatements", () => {
       },
     ];
     expect(renderJavaStatements(stmts)).toBe(
-      [`        this.prices.remove(p);`, `        this.ids.remove(n);`].join("\n"),
+      [
+        `        { var __rm = p; this.prices.removeIf(__e -> java.util.Objects.equals(__e, __rm)); }`,
+        `        { var __rm = n; this.ids.removeIf(__e -> java.util.Objects.equals(__e, __rm)); }`,
+      ].join("\n"),
     );
   });
 

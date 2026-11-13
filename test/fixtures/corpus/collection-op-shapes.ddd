@@ -76,7 +76,7 @@ system CollectionOpShapes {
         operation addLine(sku: string, qty: int, price: money) {
           lines += LineItem { sku: sku, qty: qty, price: price }
         }
-        // A13 — remove BY VALUE from an int collection.
+        // Remove BY VALUE from an int collection: every matching element goes.
         operation dropCode(code: int) {
           codes -= code
         }
@@ -88,16 +88,30 @@ system CollectionOpShapes {
       // Auto-`findAll` only — the derived fields above are what this fixture
       // is for, and they ride every read route.
       repository Orders for Order { }
+
+      // An event-sourced applier's `-=` removes every match too.
+      event Tagged { rack: Rack id, tag: int }
+      event Untagged { rack: Rack id, tag: int }
+      aggregate Rack persistedAs: eventLog {
+        tags: int[]
+        create open(first: int) { emit Tagged { rack: id, tag: first } }
+        operation tag(t: int) { emit Tagged { rack: id, tag: t } }
+        operation untag(t: int) { emit Untagged { rack: id, tag: t } }
+        apply(e: Tagged) { tags += e.tag }
+        apply(e: Untagged) { tags -= e.tag }
+      }
+      repository Racks for Rack { }
     }
   }
 
   api SalesApi from Sales
   storage primary { type: postgres }
   resource salesState { for: Sales, kind: state, use: primary }
+  resource salesLog { for: Sales, kind: eventLog, use: primary }
   deployable d {
     platform: __PLATFORM__
     contexts: [Sales]
-    dataSources: [salesState]
+    dataSources: [salesState, salesLog]
     serves: SalesApi
     port: 4000
   }
@@ -129,11 +143,28 @@ system CollectionOpShapes {
     expect(dropped.codes.contains(2)).toBe(false)
     api.orders.addCode(o, { code: 4 })
     expect(api.orders.getById(o).codes.count()).toBe(3)
+    // `-=` removes every matching element, not only the first.
+    api.orders.addCode(o, { code: 9 })
+    expect(api.orders.getById(o).codes.count()).toBe(4)
+    api.orders.dropCode(o, { code: 9 })
+    let deduped = api.orders.getById(o)
+    expect(deduped.codes.count()).toBe(2)
+    expect(deduped.codes.contains(9)).toBe(false)
+    expect(deduped.codes.contains(7)).toBe(true)
     api.orders.update(o, { customer: "Ada", discount: money("0.75"), codes: [1] })
     let updated = api.orders.getById(o)
     expect(decimal(updated.owed)).toBe(-0.75)
     expect(updated.codes.count()).toBe(1)
     expect(decimal(updated.lineTotal)).toBe(19)
+    let rk = api.racks.create({ first: 5 })
+    api.racks.tag(rk, { t: 6 })
+    api.racks.tag(rk, { t: 5 })
+    expect(api.racks.getById(rk).tags.count()).toBe(3)
+    api.racks.untag(rk, { t: 5 })
+    let rack = api.racks.getById(rk)
+    expect(rack.tags.count()).toBe(1)
+    expect(rack.tags.contains(6)).toBe(true)
+    expect(api.racks.all().length).toBe(1)
     let listed = api.orders.all()
     expect(listed.total).toBe(1)
     api.orders.destroy(o)

@@ -89,13 +89,13 @@ describe("ts `-=` element removal — money compares by value (A14)", () => {
 
   it("uses decimal.js `.eq` for a money[] element", () => {
     expect(renderTsStatements([removeStmt("money")])).toBe(
-      "    { const idx = this._prices.findIndex((e) => e.eq(this._p)); if (idx >= 0) this._prices.splice(idx, 1); }",
+      "    { const __rm = this._p; const __kept = this._prices.filter((e) => !(e.eq(__rm))); this._prices.splice(0, this._prices.length, ...__kept); }",
     );
   });
 
   it("keeps `===` identity for a non-money element (byte-identical)", () => {
     expect(renderTsStatements([removeStmt("int")])).toBe(
-      "    { const idx = this._prices.findIndex((e) => e === (this._p)); if (idx >= 0) this._prices.splice(idx, 1); }",
+      "    { const __rm = this._p; const __kept = this._prices.filter((e) => !(e === (__rm))); this._prices.splice(0, this._prices.length, ...__kept); }",
     );
   });
 });
@@ -118,21 +118,21 @@ describe("ts `-=` element removal — every boxed element type compares by value
     collection: true,
   });
   const scan = (s: StmtIR): string =>
-    /findIndex\((.*)\); if/.exec(renderTsStatements([s]))?.[1] ?? "<no scan emitted>";
+    /filter\(\(e\) => !\((.*)\)\); /.exec(renderTsStatements([s]))?.[1] ?? "<no scan emitted>";
 
   it("datetime compares by `getTime()`, never by reference", () => {
     expect(scan(removeOf({ kind: "primitive", name: "datetime" }))).toBe(
-      "(e) => e.getTime() === (this._d).getTime()",
+      "e.getTime() === (__rm).getTime()",
     );
   });
 
   it("a value-object element uses the class's own `equals()`", () => {
-    expect(scan(removeOf({ kind: "valueobject", name: "Money" }))).toBe("(e) => e.equals(this._d)");
+    expect(scan(removeOf({ kind: "valueobject", name: "Money" }))).toBe("e.equals(__rm)");
   });
 
   it("`json` compares structurally, matching the VO emitter's json arm", () => {
     expect(scan(removeOf({ kind: "primitive", name: "json" }))).toBe(
-      "(e) => JSON.stringify(e) === JSON.stringify(this._d)",
+      "JSON.stringify(e) === JSON.stringify(__rm)",
     );
   });
 
@@ -146,7 +146,7 @@ describe("ts `-=` element removal — every boxed element type compares by value
       { kind: "entity", name: "Line", declKind: "part" },
     ] as TypeIR[]) {
       expect(scan(removeOf(t)), `${t.kind} should keep reference identity`).toBe(
-        "(e) => e === (this._d)",
+        "e === (__rm)",
       );
     }
   });
@@ -159,7 +159,7 @@ describe("ts `-=` element removal — every boxed element type compares by value
       elementType: { kind: "primitive", name: "datetime" },
       collection: false,
     };
-    expect(scan(scalar)).toBe("(e) => e === (this._d)");
+    expect(scan(scalar)).toBe("e === __rm");
   });
 });
 
