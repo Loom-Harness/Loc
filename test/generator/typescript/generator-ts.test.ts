@@ -1464,17 +1464,17 @@ describe("typescript generator", () => {
       expect(order).toMatch(/cancel\(\): void \{/);
     });
 
-    it("the handler evaluates the hoisted gate post-load, before it calls the aggregate", async () => {
+    it("the handler evaluates a row-free hoisted gate before the load and the call", async () => {
       const files = await emitForAuthSystem(SRC_REQUIRES);
       const route = files.get("http/order.routes.ts")!;
       const gate = route.indexOf('throw new ForbiddenError("Forbidden: currentUser.role');
       const load = route.indexOf("await repo.getById(");
       const call = route.indexOf("aggregate.cancel(");
       expect(gate).toBeGreaterThan(-1);
-      // Post-load (so a row-aware gate can read `aggregate.<field>`) and
-      // pre-call (so the domain body never runs for an unauthorized caller).
-      expect(load).toBeLessThan(gate);
-      expect(gate).toBeLessThan(call);
+      // The gate reads no row, so the gate ladder runs it before the load (a
+      // refused caller learns nothing about the row) and so before the call.
+      expect(gate).toBeLessThan(load);
+      expect(load).toBeLessThan(call);
       // The aggregate method no longer takes the principal.
       expect(route).toMatch(/aggregate\.cancel\(\);/);
     });

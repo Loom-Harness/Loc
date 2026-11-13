@@ -56,7 +56,10 @@ jobs:
     # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: playground-e2e-no-network
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.59 ships no Chromium build for ubuntu-latest's
+    # 26.04 image, and the browser cache below misses whenever
+    # web/package-lock.json changes, which forces a fresh install.
+    runs-on: ubuntu-24.04
     # Minutes, not the full suite's 75: no in-browser npm install and no
     # PGlite boot, so the wall clock is `vite build` + a few dozen DOM-level
     # specs (with the config's CI retry budget for the known builder-canvas

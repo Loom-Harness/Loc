@@ -3,7 +3,11 @@ import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.
 import {
   esStarterSharesEvent,
   eventSourcedWorkflows,
+  type FoldRowSeed,
+  type FoldStep,
   foldedEventNames,
+  foldRowSeeds,
+  foldSteps,
   liveLetNames,
   reposNeeded,
   requiredStateFields,
@@ -19,7 +23,6 @@ import type {
   FieldIR,
   ProjectionIR,
   ProjectionOnIR,
-  StmtIR,
   SystemIR,
   TypeIR,
   WorkflowIR,
@@ -540,7 +543,7 @@ function projectionStateHelper(proj: ProjectionIR): string {
 
 /** One pure projection fold handler: load-or-allocate the row for the event's
  *  key (every handler allocates — a projection has no route-or-drop split),
- *  apply the fold assignments against `state`, flush.  Pure — no repos, no
+ *  apply the fold plan's steps against `state`, flush.  Pure — no repos, no
  *  emit, no child-context frame (enforced by `loom.projection-fold-impure`). */
 function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR): string {
   const row = schemaRow(`${proj.name}Row`);
@@ -554,7 +557,13 @@ function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR)
   // stamps it on allocation.  An event with no tenant has no tenant's row.
   const tenancy = foldTenancyFor(proj);
   const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
-  const seed = cols ? `${corr}=__key, ${snake(cols.tenant.field)}=__tenant` : `${corr}=__key`;
+  // A fresh row: the key, the tenant, and each column's starting value
+  // (`foldRowSeeds`); every other column starts null.
+  const seed = [
+    `${corr}=__key`,
+    ...(cols ? [`${snake(cols.tenant.field)}=__tenant`] : []),
+    ...foldRowSeeds(proj).map((sd) => `${snake(sd.field.name)}=${pyRowSeed(sd)}`),
+  ].join(", ");
   const out: string[] = [
     `async def ${fn}(`,
     `    session: AsyncSession, _events: "InProcessDispatcher", ${param}: ${on.event}`,
@@ -573,77 +582,64 @@ function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR)
     `        state = ${row}(${seed})`,
     "        session.add(state)",
   ];
-  for (const stmt of on.statements) out.push(renderProjectionFoldStmt(stmt, proj, on));
+  for (const step of foldSteps(proj, on)) out.push(renderProjectionFoldStep(step));
   out.push("    await session.flush()");
   return lines(...out);
 }
 
-/** Render ONE fold-body statement against the read-model `state` row.
- *
- *  This used to be `if (kind === "assign" || "add" || "remove")` delegating to
- *  the ES-applier renderer, which was wrong twice (F2-XB-4).  A `let` was
- *  silently DROPPED while its uses survived — `state.at = stamped` with no
- *  `stamped = …` line, an `F821`/NameError in the generated app.  And `add` /
- *  `remove` went through the applier's list-only spelling (`state.f.append(v)`),
- *  which an ES applier can do because its state object is constructed with every
- *  list initialised — but a projection ROW is nullable in every non-key column
- *  (the allocate seeds the correlation key only), so `state.tags.append(v)` is
- *  an `AttributeError` on the first event for a key, and a SCALAR `n += v`
- *  (`collection: false`) called `.append` on an `int`.
- *
- *  The four pure fold kinds are now rendered here with the read-model's own
- *  nullability, mirroring hono's `renderFoldStatement`
- *  (`src/platform/hono/shared/projection-builder.ts`); every other kind is an
- *  internal invariant violation, because `checkProjections`
- *  (`src/ir/validate/checks/projection-checks.ts`) rejects it as impure. */
-function renderProjectionFoldStmt(stmt: StmtIR, proj: ProjectionIR, on: ProjectionOnIR): string {
+/** A fresh row's starting value for one column, spelled as a saga state's
+ *  zero of the same type. */
+function pyRowSeed(sd: FoldRowSeed): string {
+  if (sd.kind === "default") return renderPyExpr(sd.expr, { thisName: "state" });
+  switch (sd.zero) {
+    case "int":
+      return pyStateZero({ kind: "int" });
+    case "decimal":
+      return pyStateZero({ kind: "decimal" });
+    case "money":
+      return pyStateZero({ kind: "money" });
+    case "bool":
+      return pyStateZero({ kind: "bool" });
+    case "string":
+      return pyStateZero({ kind: "text", name: "string" });
+    case "list":
+      return pyStateZero({ kind: "array" });
+    default: {
+      const _exhaustive: never = sd.zero;
+      return _exhaustive;
+    }
+  }
+}
+
+/** Render one fold-plan step against the read-model `state` row.  Every
+ *  non-key column of a projection row is nullable (the allocate seeds the key
+ *  only), so an append or a running total coalesces first. */
+function renderProjectionFoldStep(step: FoldStep): string {
   const rctx = { thisName: "state" } as const;
-  const target = (segments: readonly string[]): string =>
-    `state.${segments.map((x) => snake(x)).join(".")}`;
-  switch (stmt.kind) {
-    case "assign":
-      return `    ${target(stmt.target.segments)} = ${renderPyExpr(stmt.value, rctx)}`;
+  const expr = (e: ExprIR): string => renderPyExpr(e, rctx);
+  const path = (field: string): string => `state.${snake(field)}`;
+  switch (step.kind) {
+    case "set":
+      return `    ${path(step.field)} = ${expr(step.value)}`;
     case "let":
       // `let`-names may collide with a Python keyword; escape consistently with
       // the matching `refKind: "let"` use sites in `render-expr.ts`.
-      return `    ${escapePythonIdent(snake(stmt.name))} = ${renderPyExpr(stmt.expr, rctx)}`;
-    case "add": {
-      const path = target(stmt.target.segments);
-      const value = renderPyExpr(stmt.value, rctx);
-      return stmt.collection
-        ? `    ${path} = [*(${path} or []), ${value}]`
-        : `    ${path} = ${accumulatePy(path, "+", value)}`;
-    }
-    case "remove": {
-      const path = target(stmt.target.segments);
-      const value = renderPyExpr(stmt.value, rctx);
-      return stmt.collection
-        ? `    ${path} = [__e for __e in (${path} or []) if __e != (${value})]`
-        : `    ${path} = ${accumulatePy(path, "-", value)}`;
-    }
-    case "emit":
-    case "call":
-    case "precondition":
-    case "requires":
-    case "expression":
-    case "return":
-    case "variant-match":
-    case "if":
-      throw new Error(
-        `python projection fold: unsupported fold statement '${stmt.kind}' in ` +
-          `projection '${proj.name}' on(${on.param}: ${on.event}) — a fold applies pure ` +
-          `assignments / collection mutations / let bindings only; ` +
-          `'loom.projection-fold-impure' should have rejected this.`,
-      );
+      return `    ${escapePythonIdent(snake(step.name))} = ${expr(step.expr)}`;
+    case "accumulate":
+      return `    ${path(step.field)} = ${accumulatePy(path(step.field), step.op, expr(step.value))}`;
+    case "append":
+      return `    ${path(step.field)} = [*(${path(step.field)} or []), ${expr(step.value)}]`;
+    case "remove-all":
+      return `    ${path(step.field)} = [__e for __e in (${path(step.field)} or []) if __e != (${expr(step.value)})]`;
     default: {
-      const _exhaustive: never = stmt;
+      const _exhaustive: never = step;
       return _exhaustive;
     }
   }
 }
 
 /** `state.<field> <op>= <value>` over a NULLABLE read-model column.  Every
- *  non-key projection column is nullable (see `renderProjectionFoldStmt`), so
+ *  non-key projection column is nullable (see `renderProjectionFoldStep`), so
  *  the running total coalesces first — otherwise the first event for a key
  *  folds `None + n`.  `or 0` is representation-neutral in Python: `0 + Decimal`
  *  is a `Decimal`, so money / decimal columns accumulate exactly. */

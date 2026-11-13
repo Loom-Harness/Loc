@@ -1079,6 +1079,45 @@ system OptRefColl {
     }
   } }
 }`,
+  // A running total over an optional field with nothing to start from.
+  "loom.projection-accumulate-optional": `
+system AccumOptional {
+  subdomain S { context C {
+    aggregate Order with crudish { code: string }
+    event OrderPlaced { order: Order id, n: int }
+    projection Board keyed by order {
+      order: Order id
+      seen: int?
+      on(e: OrderPlaced) { seen += e.n }
+    }
+  } }
+}`,
+  // A required fold column whose type has no zero and that declares no default.
+  "loom.projection-field-no-start": `
+system NoStart {
+  subdomain S { context C {
+    aggregate Order with crudish { code: string }
+    event OrderPlaced { order: Order id, at: datetime }
+    projection Board keyed by order {
+      order: Order id
+      placedAt: datetime
+      on(e: OrderPlaced) { placedAt := e.at }
+    }
+  } }
+}`,
+  // A fold assigning its own key: the row is created with the routing key.
+  "loom.projection-key-assign": `
+system KeyAssign {
+  subdomain S { context C {
+    aggregate Order with crudish { code: string }
+    event OrderPlaced { order: Order id }
+    projection Board keyed by order {
+      order: Order id
+      placed: bool
+      on(e: OrderPlaced) { order := e.order  placed := true }
+    }
+  } }
+}`,
   // A query-time projection selecting a \`datetime - datetime\` span: a
   // \`duration\` has no column and no wire form, and node / .NET crashed on it.
   "loom.projection-select-duration": `
@@ -4572,7 +4611,7 @@ system S {
     projection Totals keyed by acct {
       acct: Acct id
       paid: int
-      on(e: Paid) { acct := e.acct  paid := e.amount }
+      on(e: Paid) { paid := e.amount }
     }
   } }
   api Api from D
@@ -4599,7 +4638,7 @@ system S {
     projection Totals keyed by acct {
       acct: Acct id
       paid: int
-      on(e: Paid) { acct := e.acct  paid := e.amount }
+      on(e: Paid) { paid := e.amount }
     }
     projection Big {
       n: int

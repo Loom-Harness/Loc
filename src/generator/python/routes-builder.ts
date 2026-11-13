@@ -14,6 +14,7 @@ import {
   forApiRead,
   wireFieldsFor,
 } from "../../ir/enrich/wire-projection.js";
+import { gateReadsParam, gateReadsRow } from "../../ir/plan/gate-ladder.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -309,7 +310,7 @@ export function buildPyRoutesFile(
     ...opEntries.map((e) => ["", "", operationRoute(agg, e.operation!, ctx, e)]),
     // Can-query companions register after the operation routes (static
     // `can_<op>` paths, no collision with `/{id}`).
-    ...probeEntries.map((e) => ["", "", canOpRoute(agg, e.operation!, e)]),
+    ...probeEntries.map((e) => ["", "", canOpRoute(agg, e.operation!, e, getByIdOp?.find)]),
   );
 
   const body = `${models}\n\n\n${routes}`;
@@ -1062,30 +1063,38 @@ function destroyRoute(
  *  Emitted post-load (so a row-aware term reads the loaded `found`) and BEFORE
  *  the `when` state gate: 403 precedes 409, so an unauthorized caller never
  *  learns the row's state. */
-function requiresGate(op: OperationIR, ctx: BoundedContextIR): string[] {
-  return operationGates(op).flatMap((g) => {
-    // `renderPyNegatedGuard` (not a bare `not (...)`) so a membership gate keeps
-    // the idiomatic `x not in y` the statement renderer produced before the
-    // hoist — the check moved, its spelling shouldn't.
-    const guard = renderPyNegatedGuard(g.expr, {
-      thisName: "found",
-      // Operation params are NOT locals here — the handler holds them at the
-      // wire-read expression the call is about to pass.
-      paramExpr: (name) => {
-        const p = op.params.find((q) => q.name === name);
-        return p ? pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx) : undefined;
-      },
+function requiresGate(
+  op: OperationIR,
+  ctx: BoundedContextIR,
+  which: "row-free" | "row-reading" = "row-reading",
+): string[] {
+  // The gate ladder (`ir/plan/gate-ladder.ts`): a gate that reads no row runs
+  // before the load, one that reads the row after it.
+  return operationGates(op)
+    .filter((g) => gateReadsRow(g) === (which === "row-reading"))
+    .flatMap((g) => {
+      // `renderPyNegatedGuard` (not a bare `not (...)`) so a membership gate keeps
+      // the idiomatic `x not in y` the statement renderer produced before the
+      // hoist — the check moved, its spelling shouldn't.
+      const guard = renderPyNegatedGuard(g.expr, {
+        thisName: "found",
+        // Operation params are NOT locals here — the handler holds them at the
+        // wire-read expression the call is about to pass.
+        paramExpr: (name) => {
+          const p = op.params.find((q) => q.name === name);
+          return p ? pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx) : undefined;
+        },
+      });
+      // A merge-patch update's mask write gate runs only when the body carries
+      // the masked key (an absent key keeps the stored value).
+      const present = maskWritePresenceParam(op, g);
+      return [
+        present
+          ? `    if ${JSON.stringify(pythonWireIdent(present))} in body.model_fields_set and ${guard}:`
+          : `    if ${guard}:`,
+        `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)})`,
+      ];
     });
-    // A merge-patch update's mask write gate runs only when the body carries
-    // the masked key (an absent key keeps the stored value).
-    const present = maskWritePresenceParam(op, g);
-    return [
-      present
-        ? `    if ${JSON.stringify(pythonWireIdent(present))} in body.model_fields_set and ${guard}:`
-        : `    if ${guard}:`,
-      `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)})`,
-    ];
-  });
 }
 
 /** The canonical `create` / `destroy` authorization gate, in the ROUTE.
@@ -1120,17 +1129,51 @@ function whenGate(agg: EnrichedAggregateIR, op: OperationIR): string[] {
 }
 
 /** The auto-exposed, side-effect-free `GET /{id}/can_<op>` companion of a
- *  `when`-gated operation — loads the aggregate, evaluates the predicate,
- *  returns `{ allowed }` so a UI can enable/disable the action without
- *  invoking it (the canCommand pattern). */
-function canOpRoute(agg: EnrichedAggregateIR, op: OperationIR, apiOp: ApiOperationIR): string {
+ *  `when`-gated operation — returns `{ allowed }` so a UI can enable/disable
+ *  the action without invoking it (the canCommand pattern).
+ *
+ *  It runs the operation's gate ladder (`ir/plan/gate-ladder.ts`) without a
+ *  body: the by-id read's gate refuses (403) and a row outside the read scope
+ *  is 404, exactly as `GET /{id}` answers, so the probe tells a caller nothing
+ *  the read would not; the operation's own `requires` and `when` fold into
+ *  `allowed`. */
+function canOpRoute(
+  agg: EnrichedAggregateIR,
+  op: OperationIR,
+  apiOp: ApiOperationIR,
+  readFind: FindIR | undefined,
+): string {
   const pred = renderPyExpr(op.when as ExprIR, { thisName: "found" });
+  const readGate = readFind?.requires;
+  const gates = operationGates(op);
+  // A gate that reads an operation parameter cannot be decided without a
+  // body: the probe answers `False` for it, after the load so a missing row is
+  // still 404 (the gate ladder, `ir/plan/gate-ladder.ts`).
+  const undecidable = gates.some(gateReadsParam);
+  const decided = gates.filter((g) => !gateReadsParam(g));
+  const gateLines = (rowReading: boolean): string[] =>
+    decided
+      .filter((g) => gateReadsRow(g) === rowReading)
+      .flatMap((g) => [
+        `    if ${renderPyNegatedGuard(g.expr, { thisName: "found" })}:`,
+        '        return {"allowed": False}',
+      ]);
+  const bindsFound = !undecidable || decided.some(gateReadsRow);
+  const needsUser =
+    (readGate !== undefined && exprUsesCurrentUser(readGate)) || operationGatesUseCurrentUser(op);
   return lines(
     `@router.get("${relativeOpPath(apiOp)}", response_model=CanResponse, operation_id="${camelId(opOperation(agg.name, `can_${op.name}`))}"${derivedResponsesKwarg(apiOp)})`,
-    `async def can_${snake(op.name)}_${snake(agg.name)}(${ID_PARAM}, session: SessionDep) -> dict[str, object]:`,
+    `async def can_${snake(op.name)}_${snake(agg.name)}(${ID_PARAM}, ${needsUser ? "request: Request, " : ""}session: SessionDep) -> dict[str, object]:`,
+    needsUser ? PY_USER_BIND : null,
+    readGate ? `    if ${renderPyNegatedGuard(readGate)}:` : null,
+    readGate
+      ? `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: find ${readFind!.name}`)})`
+      : null,
+    ...gateLines(false),
     "    repo = _repo(session)",
-    `    found = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
-    `    return {"allowed": ${pred}}`,
+    `    ${bindsFound ? "found = " : ""}await repo.get_by_id(${pyIdType(agg.name)}(id))`,
+    ...gateLines(true),
+    `    return {"allowed": ${undecidable ? "False" : pred}}`,
   );
 }
 
@@ -1273,6 +1316,7 @@ function operationRoute(
       `@router.post("${relativeOpPath(apiOp)}", response_model=None, operation_id="${camelId(opOperation(agg.name, op.name))}"${derivedResponsesKwarg(apiOp, { variants: op.returnType.variants, ctx })})`,
       `async def ${snake(op.name)}_${snake(agg.name)}(${ID_PARAM}, ${pyCommandBodyParam(`${upperFirst(op.name)}${agg.name}Request`, op.params)}, ${PY_REQUEST_PARAM}, session: SessionDep) -> dict[str, object] | ${H.JSONResponse}:`,
       usesUser || gateUsesUser || stampUpdateUsesUser ? PY_USER_BIND : null,
+      ...requiresGate(op, ctx, "row-free"),
       "    repo = _repo(session)",
       `    found = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
       `    ${PY.log}("info", "operation_invoked", aggregate=${JSON.stringify(agg.name)}, op=${JSON.stringify(op.name)}, id=id)`,
@@ -1342,6 +1386,7 @@ function operationRoute(
       `@router.post("${relativeOpPath(apiOp)}", response_model=${wireType}, operation_id="${camelId(opOperation(agg.name, op.name))}"${derivedResponsesKwarg(apiOp)})`,
       `async def ${snake(op.name)}_${snake(agg.name)}(${opSig}) -> ${annotation}:`,
       usesUser || gateUsesUser || stampUpdateUsesUser ? PY_USER_BIND : null,
+      ...requiresGate(op, ctx, "row-free"),
       "    repo = _repo(session)",
       `    found = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
       `    ${PY.log}("info", "operation_invoked", aggregate=${JSON.stringify(agg.name)}, op=${JSON.stringify(op.name)}, id=id)`,
@@ -1366,6 +1411,7 @@ function operationRoute(
     `@router.post("${relativeOpPath(apiOp)}", status_code=204, operation_id="${camelId(opOperation(agg.name, op.name))}"${derivedResponsesKwarg(apiOp)})`,
     `async def ${snake(op.name)}_${snake(agg.name)}(${opSig}) -> ${H.Response}:`,
     usesUser || gateUsesUser || stampUpdateUsesUser ? PY_USER_BIND : null,
+    ...requiresGate(op, ctx, "row-free"),
     "    repo = _repo(session)",
     `    found = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
     `    ${PY.log}("info", "operation_invoked", aggregate=${JSON.stringify(agg.name)}, op=${JSON.stringify(op.name)}, id=id)`,

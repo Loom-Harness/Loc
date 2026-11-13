@@ -10,7 +10,7 @@ import type {
   StorageOpenResult,
   StorageSchemaPlan,
 } from "./infra-protocol.js";
-import type { BrokerInspectResult } from "./infra/broker-protocol.js";
+import type { BrokerInspectResult } from "../../../src/emulation/broker-protocol.js";
 import type { QueryResult, WipeResult } from "./protocol.js";
 
 /** The resource-fake services of `infra/services.ts`. */
