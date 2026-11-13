@@ -28,6 +28,7 @@ export {
   brokerChannelBindings,
   channelTransportStorageNames,
   kafkaStartsAtEarliest,
+  uniqueBindings,
 } from "./channel-bindings.js";
 export {
   type ChannelPlan,

@@ -23,7 +23,7 @@ import type {
   SystemIR,
 } from "../types/loom-ir.js";
 import { consumedEventNames } from "../util/channel-consumption.js";
-import { type BrokerBinding, brokerChannelBindings } from "./channel-bindings.js";
+import { type BrokerBinding, brokerChannelBindings, uniqueBindings } from "./channel-bindings.js";
 
 /** How an event this deployable RAISES leaves the raising transaction.
  *
@@ -38,15 +38,15 @@ export type EventRoute = "inline-local" | "outbox-local" | "broker-inline" | "br
 export interface ChannelPlan {
   /** Every broker binding the deployable wires (one per channelSource ×
    *  context that declares the channel). */
-  bindings: readonly BrokerBinding[];
+  bindings: BrokerBinding[];
   /** One binding per channelSource — the set a broker client connects. */
-  uniqueBindings: readonly BrokerBinding[];
+  uniqueBindings: BrokerBinding[];
   /** Wired channels declared in a context this deployable does not host, as
    *  `ChannelIR` stubs carrying the channel's real delivery/retention. */
-  foreignChannels: readonly ChannelIR[];
+  foreignChannels: ChannelIR[];
   /** Event subscriptions over every hosted context's workflows and
    *  projections, routed off the hosted channels and the foreign stubs. */
-  subscriptions: readonly EventSubscriptionIR[];
+  subscriptions: EventSubscriptionIR[];
   /** Every event some wired binding carries.  These leave the in-process
    *  dispatcher: a local subscriber gets them back from the broker. */
   brokerEvents: ReadonlySet<string>;
@@ -96,12 +96,6 @@ export function channelPlan(
   system?: ChannelPlanSystem,
 ): ChannelPlan {
   const bindings = system ? brokerChannelBindings(system.deployable, system.sys) : [];
-  const seenCs = new Set<string>();
-  const uniqueBindings = bindings.filter((b) => {
-    if (seenCs.has(b.csName)) return false;
-    seenCs.add(b.csName);
-    return true;
-  });
 
   const hostedChannels = contexts.flatMap((c) => c.channels ?? []);
   const hostedChannelNames = new Set(hostedChannels.map((ch) => ch.name));
@@ -147,7 +141,7 @@ export function channelPlan(
 
   return {
     bindings,
-    uniqueBindings,
+    uniqueBindings: uniqueBindings(bindings),
     foreignChannels,
     subscriptions,
     brokerEvents,

@@ -97,6 +97,18 @@ export function brokerChannelBindings(deployable: DeployableIR, sys: SystemIR): 
   return out;
 }
 
+/** One binding per channelSource — the set a broker client connects.  A
+ *  channelSource names one channel, so a second binding for the same name only
+ *  arises from a duplicate `channels:` entry. */
+export function uniqueBindings(bindings: readonly BrokerBinding[]): BrokerBinding[] {
+  const seen = new Set<string>();
+  return bindings.filter((b) => {
+    if (seen.has(b.csName)) return false;
+    seen.add(b.csName);
+    return true;
+  });
+}
+
 /** Names of broker-type storages that back a channelSource some deployable
  *  actually wires — exactly the set the compose renderer provisions a
  *  sidecar for (design §6a: `valkey/valkey` for redis, the official
