@@ -64,20 +64,13 @@
 // WHAT THE 113 CALLERS FOUND — the reason to write them, recorded here because
 // each is a live gap the census surfaced and nothing else could:
 //
-//   1. `deriveContextOperations` declared TWO route families no backend mounts,
-//      and the five typed in-system api-clients render their method lists from
-//      it — so each generated client carried callers that could only ever 404:
-//        • `GET /api/<bases>/{id}` for ABSTRACT aggregates.  `docs/inheritance.md`
-//          says an abstract base "owns no table, repository, controller, or
-//          routes" and every backend skips one before its controller emitter.
-//        • `POST /api/<aggs>/{id}/<op>` for PRIVATE operations.  `docs/
-//          language.md` defines one as "only callable from within the same
-//          aggregate root"; every route emitter filters `visibility === "public"`.
-//      Both fixed in `src/ir/util/api-surface.ts` (the derivation was the lone
-//      outlier against a declared contract, with all five backends agreeing).
-//      Pins removed as STALE rather than drained: `getPartyById`/`getAssetById`
-//      (inheritance), `getVehicleById` (tph + inheritance),
-//      `getPaymentMethodById` (payments), `recalcOrder` (audited).
+//   1. `deriveContextOperations` declared `POST /api/<aggs>/{id}/<op>` for
+//      PRIVATE operations, which no backend mounts: `docs/language.md` defines
+//      one as "only callable from within the same aggregate root" and every
+//      route emitter filters `visibility === "public"`.  An abstract base's
+//      reads are not that defect: they are derived only where the base read is
+//      routed (`polymorphicReadOperations`, `src/ir/plan/repo-polymorphic.ts`),
+//      and the inheritance fixtures call them.
 //   2. `softDelete`'s `restore()` cannot be invoked.  `softDeletable`
 //      contributes `filter !this.isDeleted`, every backend narrows an
 //      operation's load-before-write by the capability filters (that is what
@@ -148,7 +141,7 @@ export const R = {
    *   • a read returning MORE THAN ONE row passes `{ sort, dir }`, because the
    *     wire golden compares whole bodies and diffs item ORDER as its own
    *     divergence kind.  A bare-ARRAY `all` (event-sourced / document /
-   *     embedded / inheritance subtype) has no sort param at all, so those are
+   *     embedded / TPC subtype) has no sort param at all, so those are
    *     written to read 0 or 1 rows — see `systems/ledger` and `corpus/tph`.
    *   • the count beside the page (`total`) is a SECOND query, so a
    *     capability-filtered fixture asserts it explicitly: a count that skipped
