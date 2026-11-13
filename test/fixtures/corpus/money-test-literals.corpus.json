@@ -1,0 +1,6 @@
+{
+  "title": "`money` literals in a unit-test body — operation argument, create input, domain-service argument, matcher expected — reach each backend's exact decimal",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "node passed the bare number where the domain takes a decimal.js `Decimal`, and python a float (`Decimal + float` raises; `Decimal(\"0.3\") == 0.3` is False).  The shared test-literal rule (`_test/arg-coercion.ts`) decides the money position; each backend spells the literal through its own expression renderer."
+}

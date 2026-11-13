@@ -81,6 +81,7 @@ import {
   workflowNeedsCurrentUser,
   workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
+import { valueObjectParams } from "../../../ir/plan/value-object-params.js";
 import { isScalarVariant } from "../../../ir/stdlib/unions.js";
 import {
   type AggregateIR,
@@ -142,6 +143,7 @@ import {
   strictIngressFields,
 } from "../wire-policy-ex.js";
 import { aggregateUsesPrincipalContextFilter, customFindReadsActor } from "./capability-filter.js";
+import { voHasConstraints } from "./changeset-validators.js";
 import { exMoneyGrammarRegex } from "./codec-spelling-ex.js";
 import {
   contextsHaveWireDenials,
@@ -1665,14 +1667,40 @@ function renderWorkflowModule(
       })
       .map((f) => `{:${snake(n)}, :${snake(f.name)}, ${snake(n)}.${snake(f.name)}}`);
   });
+  // A VALUE-OBJECT param runs its value object's validating constructor
+  // (`<Ctx>.<Vo>.new/1`, `valueobject-emit.ts`) on the cast value before the
+  // body, so a broken invariant is the 422 at `/<param>/<member>` the other
+  // four backends answer at the wire — the workflow twin of the operation
+  // param guard (`op-param-guards.ts`).  Only the context's own value objects
+  // carry a module here, the same scope the aggregate changeset reads.
+  const voRuleChecks = valueObjectParams(
+    (wf.params ?? []).filter((p) => params.includes(p.name)),
+  ).flatMap(({ param, vo: voName, each }) => {
+    // A list of value objects is cast row by row with its column; only a single
+    // value runs the constructor here.
+    const vo = !each && ctx ? ctx.valueObjects.find((v) => v.name === voName) : undefined;
+    if (!vo || !voHasConstraints(vo)) return [];
+    const n = param.name;
+    return [
+      `{:${snake(n)}, ${escapeElixirIdent(snake(n))}, &${contextModuleFq}.${upperFirst(vo.name)}.new/1}`,
+    ];
+  });
+  const guardCalls = [
+    ...(moneyChecks.length > 0 ? [`__loom_payload_money([${moneyChecks.join(", ")}])`] : []),
+    ...(voRuleChecks.length > 0 ? [`__loom_vo_rules([${voRuleChecks.join(", ")}])`] : []),
+  ];
+  const guardSubject =
+    guardCalls.length === 1
+      ? guardCalls[0]
+      : `(with ${guardCalls.map((c) => `:ok <- ${c}`).join(", ")}, do: :ok)`;
   const moneyGuardOpen =
-    moneyChecks.length > 0
-      ? `    case __loom_payload_money([${moneyChecks.join(", ")}]) do
+    guardCalls.length > 0
+      ? `    case ${guardSubject} do
       :ok ->
 `
       : "";
   const moneyGuardClose =
-    moneyChecks.length > 0
+    guardCalls.length > 0
       ? `
       {:error, _} = loom_payload_refusal -> loom_payload_refusal
     end`
@@ -1692,6 +1720,28 @@ function renderWorkflowModule(
          {%{}, %{param => :map}}
          |> Ecto.Changeset.change(%{})
          |> Ecto.Changeset.add_error(param, ${exLit(`${exValuePrefix("money-grammar")}: `)} <> Jason.encode!(value), loom_path: [field], loom_code: ${exFieldCode("money-grammar")}, loom_params: %{value: value})}
+      end
+    end)
+  end`
+      : "";
+  const voRulesHelper =
+    voRuleChecks.length > 0
+      ? `
+
+  # A value-object param's own invariants, judged by its validating
+  # constructor; each refusal is reported at \`/<param>/<member>\`.
+  defp __loom_vo_rules(checks) do
+    Enum.find_value(checks, :ok, fn {param, value, new_fun} ->
+      with true <- is_map(value),
+           {:error, %Ecto.Changeset{errors: errors}} <- new_fun.(value) do
+        {:error,
+         errors
+         |> Enum.reverse()
+         |> Enum.reduce(Ecto.Changeset.change({%{}, %{param => :map}}, %{}), fn {key, {msg, opts}}, acc ->
+           Ecto.Changeset.add_error(acc, param, msg, Keyword.put(opts, :loom_path, [key]))
+         end)}
+      else
+        _ -> nil
       end
     end)
   end`
@@ -1804,7 +1854,7 @@ ${missingParamsClause}${failureReporter}
 
   defp run_inner(${innerParam}) when is_map(params) do
 ${finalBody}
-  end${helperDefs}${moneyGuardHelper}
+  end${helperDefs}${moneyGuardHelper}${voRulesHelper}
 end
 `;
     return { content, statementRegions };
@@ -1828,7 +1878,7 @@ ${finalBody}
     end)
     |> report_result()
   end
-${missingParamsClause}${failureReporter}${helperDefs}${moneyGuardHelper}
+${missingParamsClause}${failureReporter}${helperDefs}${moneyGuardHelper}${voRulesHelper}
 end
 `;
   return { content, statementRegions };

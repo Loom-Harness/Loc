@@ -6,17 +6,14 @@ import type {
   StmtIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
-import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { walkStmtExprsDeep } from "../../ir/util/walk.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { floorRuleText } from "../_i18n/rule-text.js";
-import { numericEncode } from "../_numeric/target.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { csProjectType } from "./bcl-collision.js";
 import { csLineageValue } from "./codec-spelling.js";
-import { CS_NUMERIC } from "./numeric-codec.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { addCsExprUsing, renderCsExpr } from "./render-expr.js";
 import { csVoListCopy } from "./vo-collection-copy.js";
@@ -275,27 +272,13 @@ function csStmtTarget(ctx: CsRenderContext, traceCtx: TraceCtx): StmtTarget {
       const order = member && member.shape === "record" ? member.fields : [];
       const args = order.map((mf) => {
         const f = objFields.find((of) => of.name === mf.name);
-        return f ? variantFieldArg(renderCsExpr(f.value, ctx), mf.type) : "default";
+        if (!f) return "default";
+        const value = renderCsExpr(f.value, ctx);
+        return ctx.returnUnion?.encode ? ctx.returnUnion.encode(value, mf.type) : value;
       });
       return `${INDENT}return new ${variant}(${args.join(", ")});`;
     },
   };
-}
-
-/** A record variant's `money` / `decimal` fields are typed at their WIRE
- *  representation (the union records are the response shape), so a domain
- *  `System.Decimal` passed into one is encoded at the boundary with the same
- *  codec the DTO mapper uses; every other field passes through. */
-function variantFieldArg(expr: string, t: TypeIR): string {
-  const info = wireTypeInfo(t, "response");
-  if (info.isCollection || info.refKind !== "primitive") return expr;
-  const kind =
-    info.primitive === "money" ? "money" : info.primitive === "decimal" ? "decimal" : undefined;
-  if (kind === undefined) return expr;
-  if (info.isNullable) {
-    return `(${expr} is null ? null : ${numericEncode(CS_NUMERIC, kind, "dto-map", `${expr}.Value`)})`;
-  }
-  return numericEncode(CS_NUMERIC, kind, "dto-map", expr);
 }
 
 /** Render a precondition.  Trace-off: the one-liner throw.  Trace-on:

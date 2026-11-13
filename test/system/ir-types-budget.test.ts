@@ -25,27 +25,38 @@ import { irTypeModules } from "../_helpers/ir-types-source.js";
 const BUDGET = 800;
 const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "aggregate.ts": 14,
-  // +3: a policy level's `when` (absent = every caller) and the context's
-  // `policyRowRules` list, absent like its `policyReadLevels` siblings.
-  // +2: the context's `policyShareGates` list and a share gate's `when`
-  // (absent = every caller), the same shape again.
-  "context.ts": 33,
-  "deployment.ts": 22,
+  // Kept: the read clauses a find may lack (`requires`, `filter`,
+  // `criterionRef`, `defaultSort`) and its four synthesis flags, the history
+  // find, a policy rule's `when` (absent = every caller), a channel's key, a
+  // union payload's variants, a monomorphized payload's carrier, a domain
+  // service op's return, a retrieval's criterion, the shared `Bypassing`
+  // stance, `readsDefaultDenied`, and the enrichment-derived maps and sibling
+  // pools (absent on a loose, single-context lowering).
+  "context.ts": 25,
+  // Kept: a binding's per-kind knobs (absent = not declared, which the
+  // capability check tells apart from a declared knob), a frontend's target /
+  // design / ui binding, a backend's realization axes, `auth`, `favicon`, and
+  // the subdomain's `migrationsOwner` (absent for a frontend-only subdomain).
+  "deployment.ts": 20,
   // `exists` carries `forWrite` (only on `for write`) and `read` (only in an
   // in-app gate position; a query-position quantifier has no read).
   "expr.ts": 36,
-  "members.ts": 16,
-  // +2: `LoomModel.unresolvedTypes` (absent on every model that validates) and
-  // `UnresolvedTypeSite.origin` (absent for a node with no source span); +1:
-  // `EnumValueRenameIntentIR.context` (a root-level enum has no declaring context);
-  // +2: `LoomModel.loweringViolations` (absent on every model that lowers
-  // well-formed) and `LoweringViolation.origin` (absent when the offending node
-  // and its statement carry no source span).
-  "model.ts": 13,
+  "members.ts": 15,
+  // `UnresolvedTypeSite`/`LoweringViolation` carry `origin` through `Sourced`.
+  // Kept: the table move's two contexts (qualified form only), an enum rename's
+  // context (absent at root level), the raw brand, a subscription's channel
+  // (absent = implicit in-process) and projection (absent = workflow saga),
+  // and the enriched overlay's sibling value objects.
+  "model.ts": 7,
   "projection.ts": 16,
   "queries.ts": 1,
   "stmt.ts": 16,
-  "system.ts": 29,
+  // Kept: the declared-or-absent system blocks (`user`, `auth`, `tenancy`,
+  // `theme`), each theme token (absent = the design pack's default), the OIDC
+  // endpoints a preset may leave unset, the auth preset name, the principal's
+  // tenancy registry, a timer's inert clauses, and a storage's instance /
+  // connection (absent = derived by the orchestrator).
+  "system.ts": 25,
   "traceability.ts": 5,
   "types.ts": 2,
   "ui.ts": 20,

@@ -271,17 +271,6 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
-    // A value object whose invariants are all cross-field gets no `new/1`
-    // validator, so the out-of-order stay is stored (201, not 422).
-    "vo-date-invariant": {
-      issue: "#5333",
-      expect: "fail",
-      tests: {
-        "a value-object date ordering invariant judges calendar order":
-          "expected the call to reject, but it resolved",
-      },
-      reason: "elixir validates only a value object's single-field invariants",
-    },
     // A value object nested inside another is cast as `:map`, so the nested
     // VO's invariant would never run; the capability table refuses the shape
     // on elixir until it does.

@@ -1,10 +1,11 @@
 // Auto-generated.
-import { provideHttpClient, withFetch } from "@angular/common/http";
+import { provideHttpClient, withFetch{{#if hasAuthUi}}, withInterceptors{{/if}} } from "@angular/common/http";
 import { type ApplicationConfig, ErrorHandler, provideZoneChangeDetection } from "@angular/core";
 import { provideAnimationsAsync } from "@angular/platform-browser/animations/async";
 import { provideRouter } from "@angular/router";
 import { QueryClient, provideTanStackQuery } from "@tanstack/angular-query-experimental";
-import { routes } from "./app.routes";
+{{#if hasAuthUi}}import { authRefreshInterceptor } from "../api/auth-interceptor";
+{{/if}}import { routes } from "./app.routes";
 import { LoomErrorHandler } from "./error-handler";
 
 // App-wide providers: the router table, a fetch-backed HttpClient the api
@@ -15,7 +16,7 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(routes),
-    provideHttpClient(withFetch()),
+    provideHttpClient(withFetch(){{#if hasAuthUi}}, withInterceptors([authRefreshInterceptor]){{/if}}),
     provideAnimationsAsync(),
     provideTanStackQuery(new QueryClient()),
     // Root render-time error handler (M-T1.8) — Angular's default one only

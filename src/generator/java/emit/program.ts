@@ -25,6 +25,7 @@ import {
   TEST_RESET_PATH,
   TEST_RESET_TOKEN_ENV,
 } from "../../../util/test-reset.js";
+import type { BootRequiredSetting } from "../../_auth/boot-required.js";
 import {
   DEBIAN_CERTS_LINES,
   NODE_CERTS_LINES,
@@ -312,7 +313,10 @@ export function renderGradleSettings(artifactId: string): string {
   return lines(`rootProject.name = "${artifactId}"`, ``);
 }
 
-export function renderApplication(basePkg: string): string {
+export function renderApplication(
+  basePkg: string,
+  bootRequired: readonly BootRequiredSetting[] = [],
+): string {
   return lines(
     `package ${basePkg};`,
     ``,
@@ -324,6 +328,26 @@ export function renderApplication(basePkg: string): string {
     `@SpringBootApplication`,
     `public class Application {`,
     `    public static void main(String[] args) {`,
+    ...(bootRequired.length > 0
+      ? [
+          `        // The model binds these auth settings to env(…), so there is no`,
+          `        // fallback: refuse to boot without them rather than answer every`,
+          `        // request with a 401.`,
+          `        String[][] requiredAuthEnv = {`,
+          ...bootRequired.map(
+            (r) =>
+              `            {${[r.setting, ...r.vars].map((v) => JSON.stringify(v)).join(", ")}},`,
+          ),
+          `        };`,
+          `        for (String[] required : requiredAuthEnv) {`,
+          `            var vars = java.util.Arrays.copyOfRange(required, 1, required.length);`,
+          `            if (java.util.Arrays.stream(vars).allMatch(v -> System.getenv(v) == null || System.getenv(v).isEmpty())) {`,
+          `                CatalogLog.event(${javaLogEvent("configMissing")}, "setting", required[0], "vars", String.join(", ", vars));`,
+          `                System.exit(1);`,
+          `            }`,
+          `        }`,
+        ]
+      : []),
     `        CatalogLog.event(${javaLogEvent("serverStarting")});`,
     `        SpringApplication.run(Application.class, args);`,
     `    }`,

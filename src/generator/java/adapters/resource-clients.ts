@@ -2,7 +2,11 @@ import type { DataSourceIR, StorageIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { upperFirst } from "../../../util/naming.js";
-import { resourceEnvUrlVar, resourceSidecarUrl } from "../../../util/resource-env.js";
+import {
+  resourceEnvEndpointVar,
+  resourceEnvUrlVar,
+  resourceSidecarUrl,
+} from "../../../util/resource-env.js";
 
 // ---------------------------------------------------------------------------
 // Java ResourceAdapter — client classes for the non-persistence
@@ -79,11 +83,15 @@ const s3JavaAdapter: JavaResourceAdapter = {
   emitClientClass(resources, stores, pkg): string {
     const blocks = resources.flatMap((r) => {
       const bucket = cfg(storeOf(r, stores), "bucket") ?? "";
+      const endpoint = cfg(storeOf(r, stores), "endpoint");
       const n = r.name;
       return [
         `    private static final String ${n}Bucket =`,
         `        System.getenv().getOrDefault("${envVar(n)}_BUCKET", ${JSON.stringify(bucket)});`,
-        `    private static final S3Client ${n}Client = S3Client.create();`,
+        endpoint
+          ? `    private static final String ${n}Endpoint = System.getenv().getOrDefault("${resourceEnvEndpointVar(n)}", ${JSON.stringify(endpoint)});`
+          : `    private static final String ${n}Endpoint = System.getenv("${resourceEnvEndpointVar(n)}");`,
+        `    private static final S3Client ${n}Client = s3Client(${n}Endpoint);`,
         ``,
         // `put(key, json)` (docs/resources.md): the body is a JSON VALUE, not a
         // pre-rendered string -- a record literal at the call site renders as a
@@ -111,7 +119,7 @@ const s3JavaAdapter: JavaResourceAdapter = {
         `    }`,
         ``,
         `    public static String ${n}SignedUrl(String key) {`,
-        `        try (var presigner = S3Presigner.create()) {`,
+        `        try (var presigner = s3Presigner(${n}Endpoint)) {`,
         `            return presigner.presignGetObject(GetObjectPresignRequest.builder()`,
         `                .signatureDuration(Duration.ofHours(1))`,
         `                .getObjectRequest(GetObjectRequest.builder().bucket(${n}Bucket).key(key).build())`,
@@ -148,6 +156,7 @@ const s3JavaAdapter: JavaResourceAdapter = {
     return lines(
       `package ${pkg};`,
       ``,
+      `import java.net.URI;`,
       `import java.time.Duration;`,
       `import java.util.List;`,
       ``,
@@ -155,6 +164,7 @@ const s3JavaAdapter: JavaResourceAdapter = {
       ``,
       `import software.amazon.awssdk.core.sync.RequestBody;`,
       `import software.amazon.awssdk.services.s3.S3Client;`,
+      `import software.amazon.awssdk.services.s3.S3Configuration;`,
       `import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;`,
       `import software.amazon.awssdk.services.s3.model.GetObjectRequest;`,
       `import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;`,
@@ -169,6 +179,25 @@ const s3JavaAdapter: JavaResourceAdapter = {
       `    }`,
       ``,
       ...jsonHelper(),
+      ``,
+      `    /** An S3-compatible endpoint (the dev MinIO sidecar, or the storage's`,
+      `     *  declared one) is addressed path-style; none set means AWS proper. */`,
+      `    private static S3Client s3Client(String endpoint) {`,
+      `        var builder = S3Client.builder();`,
+      `        if (endpoint != null && !endpoint.isEmpty()) {`,
+      `            builder.endpointOverride(URI.create(endpoint)).forcePathStyle(true);`,
+      `        }`,
+      `        return builder.build();`,
+      `    }`,
+      ``,
+      `    private static S3Presigner s3Presigner(String endpoint) {`,
+      `        var builder = S3Presigner.builder();`,
+      `        if (endpoint != null && !endpoint.isEmpty()) {`,
+      `            builder.endpointOverride(URI.create(endpoint))`,
+      `                .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build());`,
+      `        }`,
+      `        return builder.build();`,
+      `    }`,
       ``,
       `    /** Raw object bytes + their stored content-type. */`,
       `    public record ObjectBytes(byte[] bytes, String contentType) {`,

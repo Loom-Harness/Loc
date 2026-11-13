@@ -157,8 +157,8 @@ export function enrichLoomModel(loom: RawLoomModel): EnrichedLoomModel {
     backfillIntents: loom.backfillIntents,
     sqlMigrationSteps: loom.sqlMigrationSteps,
     enumValueRenameIntents: loom.enumValueRenameIntents,
-    ...(loom.unresolvedTypes ? { unresolvedTypes: loom.unresolvedTypes } : {}),
-    ...(loom.loweringViolations ? { loweringViolations: loom.loweringViolations } : {}),
+    unresolvedTypes: loom.unresolvedTypes,
+    loweringViolations: loom.loweringViolations,
     traceability: computeTraceability(loom),
   } as EnrichedLoomModel;
 }
@@ -1507,7 +1507,6 @@ export function deriveEventSubscriptions(
         workflow: wf.name,
         trigger: "create",
         param: create.eventBinding,
-        createName: create.name,
       });
     }
   }

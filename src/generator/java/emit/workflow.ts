@@ -33,7 +33,7 @@ import {
   operationGates,
   workflowNeedsCurrentUser,
 } from "../../../ir/util/op-gates.js";
-import { collectReachableTypes } from "../../../ir/util/reachable-types.js";
+import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import {
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
@@ -92,6 +92,7 @@ import {
   requiredParams,
 } from "./openapi-docs.js";
 import { publishesInRowTenant } from "./service.js";
+import { renderJavaWorkflowValidators } from "./validator.js";
 import {
   bearsNestedRecord,
   collectWireToDomainImports,
@@ -1673,6 +1674,34 @@ export function renderJavaWorkflows(
     ];
   });
   while (routes[routes.length - 1] === "") routes.pop();
+  // A workflow param bearing a rule-carrying value object is judged at the
+  // wire, like an operation param: its `<Wf>Validator` runs at `@Valid`.
+  const wfValidators = renderJavaWorkflowValidators(
+    cmdWorkflows,
+    valueObjectPool(ctx),
+    wctx.pkg,
+    wctx.basePkg,
+    (vo) => wctx.voRequestPkgOf?.(vo),
+  );
+  for (const v of wfValidators)
+    out.set(`${v.className}.java`, { category: "service", content: v.content });
+  const binderTargets = wfValidators.filter((v) =>
+    cmdWorkflows.some((wf) => `${upperFirst(wf.name)}Request` === v.requestType),
+  );
+  const initBinder =
+    binderTargets.length > 0
+      ? [
+          `    @InitBinder`,
+          `    void initBinder(${javaRef("org.springframework.web.bind", "WebDataBinder")} binder) {`,
+          `        var target = binder.getTarget();`,
+          ...binderTargets.map(
+            (v) =>
+              `        if (target instanceof ${v.requestType}) binder.addValidators(new ${v.className}());`,
+          ),
+          `    }`,
+          ``,
+        ]
+      : [];
   out.set(`${ctx.name}WorkflowsController.java`, {
     category: "controller",
     content: lines(
@@ -1698,6 +1727,7 @@ export function renderJavaWorkflows(
       `        this.workflows = workflows;`,
       `    }`,
       ``,
+      ...initBinder,
       ...routes,
       `}`,
       ``,

@@ -3,7 +3,12 @@ import type { DataSourceIR, StorageIR, SystemIR, WorkflowStmtIR } from "../../ir
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { snake } from "../../util/naming.js";
-import { resourceEnvBase, resourceSidecarUrl } from "../../util/resource-env.js";
+import {
+  resourceEnvBase,
+  resourceEnvEndpointVar,
+  resourceEnvUrlVar,
+  resourceSidecarUrl,
+} from "../../util/resource-env.js";
 
 // ---------------------------------------------------------------------------
 // Python ResourceAdapter — async client modules for the non-persistence
@@ -58,13 +63,22 @@ const s3Adapter: PyResourceAdapter = {
     for (const r of resources) {
       const fn = snake(r.name);
       const bucket = cfg(storeOf(r, stores), "bucket") ?? "";
+      const endpoint = cfg(storeOf(r, stores), "endpoint");
       body.push(
-        `_${fn}_bucket = os.environ.get("${envVar(r.name)}_BUCKET", ${JSON.stringify(bucket)})`,
+        `_${fn}_bucket = os.environ.get("${resourceEnvUrlVar(r.name)}_BUCKET", ${JSON.stringify(bucket)})`,
+        // An S3-compatible endpoint (the dev MinIO sidecar, or the storage's
+        // declared one) is addressed path-style; none set means AWS proper.
+        `_${fn}_endpoint = os.environ.get("${resourceEnvEndpointVar(r.name)}")${endpoint ? ` or ${JSON.stringify(endpoint)}` : ""} or None`,
+        `_${fn}_client = boto3.client(`,
+        `    "s3",`,
+        `    endpoint_url=_${fn}_endpoint,`,
+        `    config=Config(s3={"addressing_style": "path"}) if _${fn}_endpoint else None,`,
+        ")",
         "",
         "",
         `async def ${fn}_put(key: str, body: object) -> None:`,
         `    await asyncio.to_thread(`,
-        `        _client.put_object,`,
+        `        _${fn}_client.put_object,`,
         `        Bucket=_${fn}_bucket,`,
         "        Key=key,",
         "        Body=json.dumps(body).encode(),",
@@ -74,8 +88,8 @@ const s3Adapter: PyResourceAdapter = {
         "",
         `async def ${fn}_get(key: str) -> object | None:`,
         "    try:",
-        `        res = await asyncio.to_thread(_client.get_object, Bucket=_${fn}_bucket, Key=key)`,
-        "    except _client.exceptions.NoSuchKey:",
+        `        res = await asyncio.to_thread(_${fn}_client.get_object, Bucket=_${fn}_bucket, Key=key)`,
+        `    except _${fn}_client.exceptions.NoSuchKey:`,
         "        return None",
         `    raw = await asyncio.to_thread(res["Body"].read)`,
         "    return json.loads(raw) if raw else None",
@@ -83,14 +97,14 @@ const s3Adapter: PyResourceAdapter = {
         "",
         `async def ${fn}_list(prefix: str) -> list[str]:`,
         "    res = await asyncio.to_thread(",
-        `        _client.list_objects_v2, Bucket=_${fn}_bucket, Prefix=prefix`,
+        `        _${fn}_client.list_objects_v2, Bucket=_${fn}_bucket, Prefix=prefix`,
         "    )",
         '    return [o["Key"] for o in res.get("Contents", [])]',
         "",
         "",
         `async def ${fn}_signed_url(key: str) -> str:`,
         "    return await asyncio.to_thread(",
-        "        _client.generate_presigned_url,",
+        `        _${fn}_client.generate_presigned_url,`,
         '        "get_object",',
         `        Params={"Bucket": _${fn}_bucket, "Key": key},`,
         "        ExpiresIn=3600,",
@@ -98,7 +112,7 @@ const s3Adapter: PyResourceAdapter = {
         "",
         "",
         `async def ${fn}_delete(key: str) -> None:`,
-        `    await asyncio.to_thread(_client.delete_object, Bucket=_${fn}_bucket, Key=key)`,
+        `    await asyncio.to_thread(_${fn}_client.delete_object, Bucket=_${fn}_bucket, Key=key)`,
         "",
         "",
         // Raw-bytes verbs consumed by the File upload/download endpoints
@@ -106,7 +120,7 @@ const s3Adapter: PyResourceAdapter = {
         // bytes + contentType so a downloaded object streams back byte-identical.
         `async def ${fn}_put_bytes(key: str, body: bytes, content_type: str) -> None:`,
         "    await asyncio.to_thread(",
-        "        _client.put_object,",
+        `        _${fn}_client.put_object,`,
         `        Bucket=_${fn}_bucket,`,
         "        Key=key,",
         "        Body=body,",
@@ -116,8 +130,8 @@ const s3Adapter: PyResourceAdapter = {
         "",
         `async def ${fn}_get_bytes(key: str) -> tuple[bytes, str] | None:`,
         "    try:",
-        `        res = await asyncio.to_thread(_client.get_object, Bucket=_${fn}_bucket, Key=key)`,
-        "    except _client.exceptions.NoSuchKey:",
+        `        res = await asyncio.to_thread(_${fn}_client.get_object, Bucket=_${fn}_bucket, Key=key)`,
+        `    except _${fn}_client.exceptions.NoSuchKey:`,
         "        return None",
         `    raw = await asyncio.to_thread(res["Body"].read)`,
         `    content_type = res.get("ContentType") or "application/octet-stream"`,
@@ -134,8 +148,7 @@ const s3Adapter: PyResourceAdapter = {
       "import os",
       "",
       "import boto3",
-      "",
-      '_client = boto3.client("s3")',
+      "from botocore.config import Config",
       "",
       "",
       body,

@@ -888,6 +888,19 @@ system S {
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
 }`,
+  // A payload field has no serializer of its own: masks come from the aggregate.
+  "loom.field-mask-on-payload": `
+system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    response PView { name: string mask unless currentUser.role == "hr" }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
+}`,
   // A value object has no read boundary of its own, so its field cannot be masked.
   "loom.field-mask-on-value-object": `
 system S {

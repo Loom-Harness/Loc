@@ -976,7 +976,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   // src/generator/feliz/wire.ts
-  "src/generator/feliz/wire.ts#assertNotDurationWireField": {
+  "src/generator/feliz/wire-codec.ts#assertNotDurationWireField": {
     invariant:
       "PrimitiveType has no 'duration' spelling and wire/param/state types are all declared TypeRefs, so no wire field can be duration-typed. (src/language/ddd.langium:2162)",
   },

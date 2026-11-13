@@ -89,7 +89,7 @@ const PINNED: Record<string, number> = {
   // delegates to `runCrossContextMoveGate`, which `expect`s the moved rows,
   // the emptied old schema and the chain ≡ fresh fingerprint (node's psql
   // leg here, Ecto's own migrations in the elixir file).
-  "test/e2e/migration-evolution.test.ts": 8,
+  "test/e2e/migration-evolution.test.ts": 10,
   // dotnet: the EF evolution gate and its unique-index gate, then the Dapper
   // leg's evolution gate — each delegates to a harness function that
   // `expect`s the rows and the history.

@@ -19,6 +19,7 @@
 // python and nowhere on elixir, at `0 error(s), 0 warning(s)`.
 // ---------------------------------------------------------------------------
 
+import { snake } from "../../util/naming.js";
 import type { AggregateIR, ExprIR, InvariantIR } from "../types/loom-ir.js";
 import { singleFieldConstraints } from "../validate/invariant-classify.js";
 
@@ -251,5 +252,61 @@ export function unrenderableInvariants(
   const opaque = unreadableCollections(agg);
   return (agg.invariants ?? []).filter(
     (inv) => singleFieldConstraints(inv) === null && !renderableHere(inv, opaque),
+  );
+}
+
+/** A NAMED rule routes to the `validate_invariants/1` residual carrier — so
+ *  its wire `code` rides the `add_error` metadata (Ecto's native validators
+ *  can't carry a custom key) — when its predicate is renderable against the
+ *  applied struct: either a struct-evaluable cross-field comparison OR a
+ *  recognized single-field shape (`.length` / `.matches` / numeric bound, which
+ *  `renderExpr` renders as `String.length` / `Regex.match?` / `Decimal.compare`).
+ *  An UNNAMED UNGUARDED single-field rule is unaffected — it keeps its
+ *  native `validate_*` line (byte-identical). Consumed by BOTH
+ *  `residualInvariants` (to include it here) and `changeset-emit`'s native path
+ *  (to exclude it there), so the two never double-emit. */
+export function namedRoutesToResidual(
+  inv: InvariantIR,
+  /** The aggregate/part the rule belongs to, for `unreadableCollections`.
+   *  Optional so the native path in `changeset-emit` (which asks only "does
+   *  this route away from me?") keeps its existing call shape; omitting it
+   *  excludes nothing, which is the pre-#3023 answer. */
+  owner?: Pick<AggregateIR, "invariants"> & Partial<Pick<AggregateIR, "associations">>,
+): boolean {
+  if (inv.message == null) return false;
+  return renderableHere(inv, owner ? unreadableCollections(owner) : new Set());
+}
+
+/** Aggregate invariants that need the `validate_invariants/1` seam: unnamed
+ *  cross-field comparisons (fully evaluable against the applied struct), every
+ *  GUARDED rule (no native `validate_*` line can carry an implication, so this
+ *  is the only carrier it has — M-T6.55 F15), plus every NAMED rule that
+ *  routes here to carry its wire `code`.
+ *
+ *  The three arms cannot double-emit with the native path: `changeset-emit`
+ *  renders `singleFieldConstraints(inv) ?? []`, which is null for a guarded rule
+ *  and empty for a cross-field one, and it skips `namedRoutesToResidual`
+ *  explicitly. */
+export function residualInvariants(
+  agg: Pick<AggregateIR, "invariants"> & Partial<Pick<AggregateIR, "associations">>,
+): InvariantIR[] {
+  const opaque = unreadableCollections(agg);
+  return (agg.invariants ?? []).filter(
+    (inv) =>
+      (inv.message == null &&
+        (inv.guard !== undefined || singleFieldConstraints(inv) === null) &&
+        renderableHere(inv, opaque)) ||
+      namedRoutesToResidual(inv, agg),
+  );
+}
+
+/** The value object's invariants with no native single-field line. */
+export function voUncarriedInvariants(vo: {
+  fields: readonly { name: string }[];
+  invariants?: InvariantIR[];
+}): InvariantIR[] {
+  const fieldNames = new Set(vo.fields.map((f) => snake(f.name)));
+  return (vo.invariants ?? []).filter(
+    (inv) => !(singleFieldConstraints(inv) ?? []).some((c) => fieldNames.has(snake(c.field))),
   );
 }

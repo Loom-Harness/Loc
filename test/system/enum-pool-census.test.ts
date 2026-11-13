@@ -180,7 +180,6 @@ const WAIVERS: Record<string, Waiver> = {
   // D15: the HOSTED set that shadows `foreignValueTypes`' unhosted-sibling
   // closure — its own declarations are exactly the ones not to re-emit.
   "src/generator/elixir/vanilla/openapi-emit.ts#emitOpenApiSpec$2": ALL_CONTEXTS,
-  "src/platform/hono/shared/adapters/drizzle-persistence.ts#emitDrizzleSchema": ALL_CONTEXTS,
   "src/platform/hono/shared/explicit-handlers-builder.ts#buildExplicitRoutesFile": ALL_CONTEXTS,
   "src/platform/hono/shared/explicit-handlers-builder.ts#buildExplicitRoutesFile$2": ALL_CONTEXTS,
   "src/generator/feliz/index.ts#enumsFromContexts": ALL_CONTEXTS,

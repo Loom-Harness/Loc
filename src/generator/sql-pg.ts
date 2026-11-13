@@ -81,7 +81,11 @@ export function renderPgStep(step: MigrationStep): string {
     case "sqlComment":
       return `-- ${step.comment}`;
     case "backfillColumn":
-      return `${renderBackfillSql(step)};`;
+      return step.outsideTransaction
+        ? renderLockSafeBackfill(step)
+            .map((s) => `${s};`)
+            .join("\n")
+        : `${renderBackfillSql(step)};`;
     case "sqlExec":
       // Verbatim user SQL; normalise the trailing semicolon so the statement
       // splitters (Drizzle breakpoints, the Python runner) see one statement.
@@ -125,6 +129,46 @@ export function renderBackfillSql(step: {
   const col = ident(step.column);
   const where = step.onlyNull ? ` WHERE ${col} IS NULL` : "";
   return `UPDATE ${target} SET ${col} = ${step.valueSql}${where}`;
+}
+
+/** A backfill run outside the DDL transaction, as statements without their
+ *  semicolons (the Ecto emitter wraps each in `execute/1`).  Each one commits
+ *  on its own and none holds ACCESS EXCLUSIVE for longer than a catalog
+ *  change:
+ *
+ *    1. the UPDATE fills the existing rows (row locks only);
+ *    2. a `NOT VALID` CHECK on the column makes every later write supply it;
+ *    3. a second UPDATE fills the rows written between 1 and 2;
+ *    4. `VALIDATE CONSTRAINT` proves no NULL is left, scanning under SHARE
+ *       UPDATE EXCLUSIVE (reads and writes go on);
+ *    5. `SET NOT NULL` finds the validated CHECK and skips its own scan;
+ *    6. the CHECK is dropped, leaving the column as a fresh CREATE TABLE has it.
+ *
+ *  Steps 2–6 are emitted only when the column ends NOT NULL.  Every statement
+ *  is safe to re-run, so a unit that failed part-way is retried as a whole
+ *  (step 2 first drops a CHECK a failed attempt left behind). */
+export function renderLockSafeBackfill(step: {
+  table: string;
+  schema?: string;
+  column: string;
+  valueSql: string;
+  onlyNull: boolean;
+  setNotNull?: true;
+}): string[] {
+  const fill = renderBackfillSql({ ...step, onlyNull: true });
+  if (!step.setNotNull) return [fill];
+  const target = qualified(step.schema, step.table);
+  const col = ident(step.column);
+  const check = ident(`${step.table}_${step.column}_backfill_nn`);
+  return [
+    fill,
+    `ALTER TABLE ${target} DROP CONSTRAINT IF EXISTS ${check}`,
+    `ALTER TABLE ${target} ADD CONSTRAINT ${check} CHECK (${col} IS NOT NULL) NOT VALID`,
+    fill,
+    `ALTER TABLE ${target} VALIDATE CONSTRAINT ${check}`,
+    `ALTER TABLE ${target} ALTER COLUMN ${col} SET NOT NULL`,
+    `ALTER TABLE ${target} DROP CONSTRAINT ${check}`,
+  ];
 }
 
 /** `ALTER INDEX <schema>.<from> RENAME TO <to>` without its trailing
