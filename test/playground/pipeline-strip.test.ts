@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { GenerateOk } from "../../web/src/build/protocol.js";
 import type { BundleOk } from "../../web/src/bundle/protocol.js";
-import { describePendingMigration } from "../../web/src/layout/pending-migration.js";
+import {
+  awaitsInitialRecord,
+  describePendingMigration,
+} from "../../web/src/layout/pending-migration.js";
 import { deriveStages, nextStage, type StageInputs } from "../../web/src/layout/pipeline-stages.js";
 import { initialPipelineState, type PipelineState } from "../../web/src/pipeline/state.js";
 
@@ -46,6 +49,7 @@ function inputs(
     bootErrorMessage: null,
     bootPending: null,
     pendingMigration: null,
+    sourcesWritable: true,
     ...rest,
     pipeline: { ...initialPipelineState, ...pipeline },
   };
@@ -180,10 +184,19 @@ describe("the migration badge", () => {
     destructive: false,
   };
 
-  it("an unrecorded initial migration blocks Boot with the record-first blocker", () => {
-    const boot = byId({ ...bundled, pendingMigration: initial }).boot;
-    expect(boot).toMatchObject({ state: "blocked", enabled: false, count: "migration required" });
-    expect(boot.blocker).toMatch(/^Record the initial migration first, then apply it/);
+  it("an unrecorded initial migration leaves Boot to record it, unless the session cannot record", () => {
+    // Boot records the initial migration itself.
+    expect(byId({ ...bundled, pendingMigration: initial }).boot).toMatchObject({
+      state: "idle",
+      enabled: true,
+    });
+    const readOnly = byId({ ...bundled, pendingMigration: initial, sourcesWritable: false }).boot;
+    expect(readOnly).toMatchObject({
+      state: "blocked",
+      enabled: false,
+      count: "migration required",
+    });
+    expect(readOnly.blocker).toMatch(/^This session cannot record migrations/);
     // An incremental unrecorded change leaves Boot to report it.
     expect(
       byId({ ...bundled, pendingMigration: { ...initial, initial: false, steps: 1 } }).boot,
@@ -233,5 +246,22 @@ describe("the migration badge", () => {
     });
     expect(describePendingMigration({ kind: "up-to-date" })).toBeNull();
     expect(describePendingMigration(null)).toBeNull();
+  });
+});
+
+describe("awaitsInitialRecord", () => {
+  const unrecorded = { initial: true, modules: ["Sales"], steps: 3, destructive: false };
+  it("is true only for a chain-less plan whose whole model is unrecorded", () => {
+    expect(awaitsInitialRecord({ kind: "chain", units: [], unrecorded })).toBe(true);
+    // A recorded chain: a later change waits for an explicit record.
+    expect(
+      awaitsInitialRecord({
+        kind: "chain",
+        units: [{ id: "u1" } as never],
+        unrecorded: { ...unrecorded, initial: false },
+      }),
+    ).toBe(false);
+    expect(awaitsInitialRecord({ kind: "chain", units: [], unrecorded: null })).toBe(false);
+    expect(awaitsInitialRecord({ kind: "unversioned" })).toBe(false);
   });
 });

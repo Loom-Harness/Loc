@@ -51,6 +51,7 @@ export type StageInputs = Pick<
   | "bootErrorMessage"
   | "bootPending"
   | "pendingMigration"
+  | "sourcesWritable"
 >;
 
 function deriveValidate(c: StageInputs): StageView {
@@ -122,9 +123,9 @@ function deriveBoot(c: StageInputs): StageView {
   if (!c.honoBundle) {
     return { ...base, state: "blocked", count: null, blocker: BLOCKER.boot, enabled: false };
   }
-  // Nothing recorded: a boot would create nothing, so it waits for the
-  // initial migration the strip's badge records.
-  if (bootAwaitsInitialMigration(c.pendingMigration)) {
+  // Nothing recorded, and this session cannot record: a boot would create
+  // nothing.  A writable session's Boot records the initial migration itself.
+  if (bootAwaitsInitialMigration(c.pendingMigration, c.sourcesWritable)) {
     return {
       ...base,
       state: "blocked",
