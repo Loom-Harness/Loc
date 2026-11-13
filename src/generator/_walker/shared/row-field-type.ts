@@ -13,7 +13,11 @@
 // orders them wrongly), which is why the predicate lives here rather than twice.
 
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
-import { containmentRowKey, rowShapeByKey } from "../../_frontend/optional-member.js";
+import {
+  containmentRowKey,
+  rowShapeByKey,
+  valueObjectRowKey,
+} from "../../_frontend/optional-member.js";
 import type { WalkContext } from "../walker-core.js";
 import { extendLambdaParams } from "../walker-core.js";
 
@@ -120,6 +124,10 @@ export function cellRowAggregate(
   // aggregate — every cell then typed against the wrong shape, silently.
   const contained = containmentRowKey(rowsArg, ctx);
   if (contained) return contained;
+  // A VALUE-OBJECT ARRAY read — `policyById.data.riders` — yields rows of the
+  // element value object, keyed through its owning field.
+  const elements = valueObjectRowKey(rowsArg, ctx);
+  if (elements) return elements;
   if (rowsArg.kind === "member" && rowsArg.receiver.kind === "ref") {
     return ctx.listRowAggregates?.get(rowsArg.receiver.name);
   }
