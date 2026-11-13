@@ -302,7 +302,19 @@ function validateHandlerUnboundNames(
       };
     for (const top of h.statements) {
       walkWorkflowStmtsDeep(top, (st) => {
-        if (st.kind === "expr-let" && st.name === "__bad__") return;
+        if (st.kind === "expr-let" && st.name === "__bad__") {
+          // A statement lowering has no handler form for (an assignment — a
+          // handler has no state of its own) reaches the IR as this
+          // placeholder; refuse it rather than emit nothing for it.
+          diags.push({
+            severity: "error",
+            code: "loom.handler-unrecognised-statement",
+            message: diagMessage("loom.handler-unrecognised-statement", { handler: label }),
+            source: `${ctx.name}/${h.name}`,
+            ...(st.origin ? { origin: st.origin } : {}),
+          });
+          return;
+        }
         const where = st.kind === "expr-let" ? `let '${st.name}'` : st.kind;
         walkWorkflowStmtChildren(st, { expr: (root) => walkExprDeep(root, visitIn(where)) });
       });

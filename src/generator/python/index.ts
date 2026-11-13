@@ -12,7 +12,11 @@ import {
   wireStatus,
   wireTitle,
 } from "../../ir/enrich/wire-policy.js";
-import { hasDurableEvents, observableWorkflows } from "../../ir/plan/index.js";
+import {
+  hasDurableEvents,
+  observableWorkflows,
+  routedPolymorphicRead,
+} from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   DeployableIR,
@@ -104,7 +108,6 @@ import {
   buildPyBaseRoutesFile,
   buildPyBaseUnionFile,
   concretesOf,
-  routesPolymorphicRead,
 } from "./base-reader-builder.js";
 import { buildPyChannelsFile } from "./channels-builder.js";
 import { pyIsoHelperBody, pyMoneyQuantum } from "./codec-spelling.js";
@@ -429,7 +432,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // A routed polymorphic base read (`GET /<bases>`) mounts beside its
   // concretes' routers.
   const routedBases = args.contexts.flatMap((c) =>
-    abstractBasesOf(c).filter((b) => concretesOf(b, c).length > 0 && routesPolymorphicRead(b, c)),
+    abstractBasesOf(c).filter((b) => concretesOf(b, c).length > 0 && !!routedPolymorphicRead(b, c)),
   );
   const routedAggs = [
     ...args.contexts.flatMap((c) => c.aggregates.filter((a) => !a.isAbstract).map((a) => a.name)),

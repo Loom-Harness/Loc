@@ -883,8 +883,20 @@ export function renderUpdate(
           : "")
       );
     }
+    // A byId read of an aggregate seeds each of its op forms that prefill from
+    // the record, so an update form opens on the current values.
+    const seeded =
+      r.single && r.field === byIdFieldName(r.aggregate)
+        ? operationForms.filter((f) => f.aggregate === r.aggregate && f.seed && opHasForm(f))
+        : [];
+    const seedSets = seeded
+      .map(
+        (f) =>
+          `; ${f.formField} = (match data with | Some __r -> ${f.seed} | None -> ${f.emptyBinding})`,
+      )
+      .join("");
     return (
-      `  | ${r.msgCase} (Ok data) -> { model with ${r.field} = Loaded data }, Cmd.none\n` +
+      `  | ${r.msgCase} (Ok data) -> { model with ${r.field} = Loaded data${seedSets} }, Cmd.none\n` +
       `  | ${r.msgCase} (Error e) -> { model with ${r.field} = LoadError e }, Cmd.none`
     );
   });

@@ -29,6 +29,7 @@ import { describe, expect, it } from "vitest";
 import { renderDockerfile as renderDotnetDockerfile } from "../../src/generator/dotnet/emit/program.js";
 import { renderDockerfile as renderElixirDockerfile } from "../../src/generator/elixir/shell/project.js";
 import { DOCKERFILE as FELIZ_DOCKERFILE } from "../../src/generator/feliz/index.js";
+import { DOCKERFILE as FLUTTER_DOCKERFILE } from "../../src/generator/flutter/index.js";
 import { renderDockerfile as renderJavaDockerfile } from "../../src/generator/java/emit/program.js";
 import {
   DOCKERFILE_PY as PYTHON_DOCKERFILE,
@@ -247,6 +248,8 @@ function allDockerfiles(): Array<{ name: string; text: string }> {
       name: "java+spa(feliz)",
       text: renderJavaDockerfile({ embeddedSpa: true, spaBuildKind: "feliz" }),
     },
+    { name: "feliz host", text: FELIZ_DOCKERFILE },
+    { name: "flutter host", text: FLUTTER_DOCKERFILE },
     { name: "python", text: PYTHON_DOCKERFILE },
     { name: "python+spa(vite)", text: renderPyFullstackDockerfile("dist") },
     { name: "python+spa(feliz)", text: renderPyFullstackDockerfile("dist", "feliz") },
@@ -355,7 +358,9 @@ describe("G10 — every node build stage trusts ./certs before its first install
       // CA.  Everything below negotiates TLS and fails with "unknown_ca"
       // behind a terminating proxy the stage has not been told about.
       const fetchIdx = stage.findIndex((l) =>
-        /^RUN .*(npm install|npm ci|curl |dotnet tool restore|mix deps\.get|gradle )/.test(l),
+        /^RUN .*(npm install|npm ci|curl |dotnet tool restore|mix deps\.get|gradle |flutter pub get)/.test(
+          l,
+        ),
       );
       if (fetchIdx < 0) continue; // a COPY-only runtime stage reaches no network
       const certsIdx = stage.findIndex((l) => /^COPY certs\//.test(l));
@@ -387,7 +392,13 @@ describe("G10 — every node build stage trusts ./certs before its first install
 // and are out of this sweep.
 // ---------------------------------------------------------------------------
 describe("every backend runtime stage drops root", () => {
-  const FRONTEND_HOSTS = new Set(["react/vite host", "sveltekit host", "angular host"]);
+  const FRONTEND_HOSTS = new Set([
+    "react/vite host",
+    "sveltekit host",
+    "angular host",
+    "feliz host",
+    "flutter host",
+  ]);
   const backends = allDockerfiles().filter(({ name }) => !FRONTEND_HOSTS.has(name));
 
   it.each(backends)("$name", ({ name, text }) => {

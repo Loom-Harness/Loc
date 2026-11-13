@@ -193,12 +193,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     guardedBy: ["loom.exists-outside-query"],
   },
 
-  // src/generator/_frontend/api-module.ts
-  "src/generator/_frontend/api-module.ts#zodForRequest": {
-    invariant:
-      "The provenanced genericInstance has no grammar arm and is built only by wireTypeForField for RESPONSE wire fields; every zodForRequest caller (api-module.ts:177/192/216/238) passes a declared f.type/p.type. (src/ir/enrich/wire-projection.ts:435; src/ir/stdlib/generics.ts:86-95)",
-  },
-
   // src/generator/_frontend/gate-expr.ts
   "src/generator/_frontend/gate-expr.ts#renderGateExpr": {
     guardedBy: ["loom.page-gate-not-client-evaluable"],

@@ -1,4 +1,6 @@
 import type { AssociationIR, FieldIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
+
 import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { snake } from "../../../util/naming.js";
 import { javaOnDemandRef, javaRef } from "../../_imports/java.js";
@@ -181,7 +183,7 @@ export function jpaFieldAnnotations(f: FieldIR, owner: JpaFieldOwner, opts: JpaO
 
   // Reference collection (`Target id[]`) → the association's join table
   // (relational), or a jsonb id-array column under `shape: embedded`.
-  if (t.kind === "array" && t.element.kind === "id") {
+  if (isRefCollectionType(t)) {
     if (opts.embedded || opts.stateRow) {
       // The `List<TargetId>` can't ride `@JdbcTypeCode(JSON)` alone — the
       // @Embeddable id triggers Hibernate's structured-JSON aggregate path,

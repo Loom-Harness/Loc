@@ -144,7 +144,16 @@ export function devClaimsHeader(cfg: AuthStubConfig): string | null {
  *  SvelteKit's `$app/*` client, Vue's SFC pipeline, and Angular's
  *  AOT/`ng build` aren't reproduced in-browser yet), so they're
  *  surfaced here exactly like the backend platforms. */
-export type UnsupportedPlatform = "dotnet" | "elixir" | "svelte" | "vue" | "angular";
+export type UnsupportedPlatform =
+  | "dotnet"
+  | "elixir"
+  | "java"
+  | "python"
+  | "svelte"
+  | "vue"
+  | "angular"
+  | "feliz"
+  | "flutter";
 export interface UnsupportedDeployable {
   slug: string;
   platform: UnsupportedPlatform;
@@ -749,6 +758,14 @@ export function unsupportedPlatformLabel(p: UnsupportedPlatform): string {
       return "Vue";
     case "angular":
       return "Angular";
+    case "java":
+      return "Spring Boot";
+    case "python":
+      return "FastAPI";
+    case "feliz":
+      return "Feliz";
+    case "flutter":
+      return "Flutter";
   }
 }
 

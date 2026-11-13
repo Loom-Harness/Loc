@@ -93,10 +93,9 @@ const SCAFFOLD: Case = {
     'price: new FormControl("0"',
     'inputmode="decimal"',
     // The scalar-array control seeds [] (not null) so `getRawValue()` stays
-    // assignable to `string[]`, and renders the same DISABLED honest-degradation
-    // input the three JSX frontends do rather than an editable box bound to an
-    // array.  Pinning both halves keeps a green `ng build` from hiding the
-    // second one.
+    // assignable to `string[]`, and renders the comma-separated list input that
+    // writes the parsed array back (never a string-writing value accessor).
+    // Pinning both halves keeps a green `ng build` from hiding the second one.
     //
     // Pinned WITH the explicit generic, which is the part that carries the
     // guarantee: `nonNullableTsType` names the element type, so a regression to
@@ -105,7 +104,7 @@ const SCAFFOLD: Case = {
     // spelling — it matched a fix that was superseded, and then matched nothing
     // at all, which this gate only discovered in the merge queue.
     "tags: new FormControl<string[]>([]",
-    "(arrays not yet supported in forms)",
+    "setListItems(",
   ],
   source: `
     system Shop {
@@ -816,6 +815,47 @@ const I18N_TEXT: Case = {
   `,
 };
 
+/** Optional value object with an enum field + optional reference on a scaffolded
+ *  detail page.  The enum-label lookup reads through `vehicle?.usage` and the
+ *  reference label takes a nullable id; both must compile under
+ *  `strictTemplates`. */
+const OPTIONAL_VO_ENUM_REF: Case = {
+  name: "optional-vo-enum-ref",
+  angularDir: "web",
+  mustEmit: ["?.usage", "loom-ref-label"],
+  source: `
+    system Cover {
+      subdomain Cover {
+        context Cover {
+          enum Usage { Private, Commercial }
+          valueobject Vehicle {
+            vin: string
+            usage: Usage
+          }
+          aggregate Provider with crudish {
+            name: string
+            derived display: string = name
+          }
+          aggregate Policy with crudish {
+            holder: string
+            provider: Provider id
+            backup: Provider id?
+            vehicle: Vehicle?
+          }
+          repository Providers for Provider { }
+          repository Policies for Policy { }
+        }
+      }
+      api CoverApi from Cover
+      ui WebApp with scaffold(subdomains: [Cover]) { }
+      storage primary { type: postgres }
+      resource coverState { for: Cover, kind: state, use: primary }
+      deployable api { platform: node, contexts: [Cover], dataSources: [coverState], serves: CoverApi, port: 3000 }
+      deployable web { platform: angular, targets: api, ui: WebApp, port: 3004 }
+    }
+  `,
+};
+
 const PACKS = ["angularMaterial@v1", "primeng@v1", "spartanNg@v1"] as const;
 
 interface MatrixCase extends Case {
@@ -835,6 +875,7 @@ const allCases: MatrixCase[] = [
   NESTED_VO,
   NESTED_ARRAY,
   I18N_TEXT,
+  OPTIONAL_VO_ENUM_REF,
 ].flatMap((c) => PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })));
 
 /** Inject `design: "<pack>"` into the angular deployable (single-line or

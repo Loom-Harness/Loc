@@ -57,6 +57,17 @@ describe("Angular — server errors and client rules localize by catalog code", 
     });
   });
 
+  it("reads the problem off an HttpClient error, where the services' failures land", async () => {
+    // The generated services call through `HttpClient`; a 422 rejects with an
+    // `HttpErrorResponse`, whose parsed payload is `.error`, not `.body`.
+    const files = await generateFor("angular");
+    const { applyServerErrors } = load(fileOf(files, "web/src/lib/server-errors.ts"), frT);
+    const { set, form } = controls();
+    const httpError = { name: "HttpErrorResponse", status: 422, error: FIELD_PROBLEM };
+    expect(applyServerErrors(httpError, form)).toEqual({ kind: "fields" });
+    expect(set.qty?.server).toBe("Quantité -1 refusée");
+  });
+
   it("a body without a code stays unhandled; a pointer-less entry is global", async () => {
     const files = await generateFor("angular");
     const { applyServerErrors } = load(fileOf(files, "web/src/lib/server-errors.ts"), frT);
