@@ -1,6 +1,6 @@
 import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
-import { clientSortTieBreak, foldedEventNames } from "../../../ir/plan/index.js";
+import { clientSortTieBreak, domainFindShape, foldedEventNames } from "../../../ir/plan/index.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -25,7 +25,7 @@ import { csNsRef, csUsing } from "../../_imports/dotnet.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { efReadSource, efWriteSet } from "../ef-read-source.js";
-import { domainFindShape, inMemoryOrderByClauseFor, renderCsOrderTerms } from "../find-emit.js";
+import { inMemoryOrderByClauseFor, renderCsOrderTerms } from "../find-emit.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { csLocalNamer, csReadOwnParams } from "../local-names.js";
 import {

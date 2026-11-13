@@ -1,5 +1,5 @@
 import { type ReadOrderTerm, readSortFor } from "../../ir/enrich/read-scope.js";
-import { singleReadOrder } from "../../ir/plan/index.js";
+import { domainFindShape, singleReadOrder } from "../../ir/plan/index.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
@@ -51,29 +51,6 @@ export function ignoreFiltersClause(
 //     `<name>` if the param's name strips an `Id` suffix), and an
 //     `&&`-conjunction is emitted.
 // ---------------------------------------------------------------------------
-
-/** A union find (`Agg or NotFound` / `Agg option` — validator-pinned to the
- *  absence shape, `loom.union-find-shape-unsupported`) reaches the Domain
- *  repository as its **optional twin**: the same predicate as a single-row
- *  select returning `Agg?`.  The Application query handler owns the union —
- *  it maps `null` to the absent variant and projects a found row into the
- *  tagged DTO (P4c producer side) — so the Domain layer never names the
- *  Response-side union type.  CQRS emitters (queries/DTOs/controller) keep
- *  the original union return. */
-export function unionFindAsOptionalTwin(find: FindIR, aggName: string): FindIR {
-  if (find.returnType.kind !== "union") return find;
-  const success = find.returnType.variants.find(
-    (v) => v.kind === "entity" && v.name === aggName,
-  ) ?? { kind: "entity" as const, name: aggName, declKind: "aggregate" as const };
-  return { ...find, returnType: { kind: "optional", inner: success } };
-}
-
-/** The DOMAIN-side shape of a find: the union→optional twin.  Every emitter
- *  that renders a repository signature or body goes through this, so the
- *  normalisation can never be applied to one emitter and forgotten in another. */
-export function domainFindShape(find: FindIR, aggName: string): FindIR {
-  return unionFindAsOptionalTwin(find, aggName);
-}
 
 export function buildFindBodies(
   agg: EnrichedAggregateIR,

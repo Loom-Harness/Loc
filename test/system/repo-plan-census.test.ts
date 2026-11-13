@@ -23,6 +23,10 @@ import { expectReach } from "../_helpers/census-reach.js";
 //               and reads `.requires` — the hand-rolled "is every concrete's
 //               list read open, so the base read may be routed" test.
 //               → use `routedPolymorphicRead`.
+//   find-shape   an object literal that spreads a value and sets
+//               `returnType: { kind: "optional", … }` — the hand-rolled
+//               union-find → optional-twin rewrite.
+//               → use `domainFindShape`.
 //
 // SCOPE.  `src/generator/`, `src/platform/`, `src/system/`, `src/ir/validate/`.
 // The plan itself (`src/ir/plan/`) is the one place allowed to spell them.
@@ -67,10 +71,32 @@ function scanSource(file: string, text: string): Violation[] {
     ) {
       out.push({ rule: "routed-read", where: at(n), text: n.expression.getText(sf) });
     }
+    if (ts.isObjectLiteralExpression(n) && isOptionalTwinLiteral(n)) {
+      out.push({ rule: "find-shape", where: at(n), text: n.getText(sf).slice(0, 80) });
+    }
     ts.forEachChild(n, visit);
   };
   visit(sf);
   return out;
+}
+
+/** `{ ...x, returnType: { kind: "optional", … } }` — a copy of a find with its
+ *  return rewritten to the optional twin. */
+function isOptionalTwinLiteral(o: ts.ObjectLiteralExpression): boolean {
+  if (!o.properties.some((p) => ts.isSpreadAssignment(p))) return false;
+  return o.properties.some(
+    (p) =>
+      ts.isPropertyAssignment(p) &&
+      p.name.getText() === "returnType" &&
+      ts.isObjectLiteralExpression(p.initializer) &&
+      p.initializer.properties.some(
+        (q) =>
+          ts.isPropertyAssignment(q) &&
+          q.name.getText() === "kind" &&
+          ts.isStringLiteral(q.initializer) &&
+          q.initializer.text === "optional",
+      ),
+  );
 }
 
 /** True when `fn` is a callback that compares something with `"all"` and
@@ -124,6 +150,19 @@ describe("repo-plan census: repository read facts are not recomputed outside src
       });`,
     );
     expect(hits.map((h) => h.rule)).toEqual(["routed-read"]);
+  });
+
+  it("the detector fires on a hand-spelled optional-twin rewrite", () => {
+    const hits = scanSource(
+      path.join(repoRoot, "src/generator/x.ts"),
+      `const twin = { ...find, returnType: { kind: "optional", inner: success } };`,
+    );
+    expect(hits.map((h) => h.rule)).toEqual(["find-shape"]);
+  });
+
+  it("no backend rewrites a union find to its optional twin itself (use domainFindShape)", () => {
+    const hits = violations.filter((v) => v.rule === "find-shape");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 
   it("no backend re-decides whether a polymorphic base read is routed (use routedPolymorphicRead)", () => {

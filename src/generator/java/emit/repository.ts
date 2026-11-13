@@ -2,7 +2,7 @@ import { readSortFor } from "../../../ir/enrich/read-scope.js";
 import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
-import { clientSortTieBreak, singleReadOrder } from "../../../ir/plan/index.js";
+import { clientSortTieBreak, domainFindShape, singleReadOrder } from "../../../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
   FindIR,
@@ -371,20 +371,6 @@ export function inMemoryPagedSortLines(agg: EnrichedAggregateIR): string[] {
   ];
 }
 
-/** A union-returning find (`Order or NotFound` / `Order option`) reaches
- *  the repository/service as its OPTIONAL TWIN — a single nullable row;
- *  the controller owns the union translation (absent → 404 / problem,
- *  found → the tagged wire record).  Mirrors .NET's
- *  `unionFindAsOptionalTwin`; the Domain layer never names the
- *  Response-side union type. */
-export function unionFindAsOptionalTwin(find: FindIR, aggName: string): FindIR {
-  if (find.returnType.kind !== "union") return find;
-  const success = find.returnType.variants.find(
-    (v) => v.kind === "entity" && v.name === aggName,
-  ) ?? { kind: "entity" as const, name: aggName, declKind: "aggregate" as const };
-  return { ...find, returnType: { kind: "optional", inner: success } };
-}
-
 /** Names a declared-find delegate in the repository IMPL spells itself — the
  *  `jpa` / `em` / `currentUserAccessor` fields and the `result` / `__sort` /
  *  `__sortField` / `__session` locals.  A find param landing here is declared
@@ -444,7 +430,7 @@ export function renderJavaRepositoryInterface(
   idClass: string,
 ): string {
   const findLines = declaredFinds(repo).map(
-    (f) => `    ${findSignature(unionFindAsOptionalTwin(f, agg.name), ctx.basePkg)};`,
+    (f) => `    ${findSignature(domainFindShape(f, agg.name), ctx.basePkg)};`,
   );
   // Two overloads per retrieval, mirroring .NET's optional call-site
   // `page` tuple: the bare run plus `(…, Integer offset, Integer limit)`
@@ -519,7 +505,7 @@ export function renderJavaSpringDataRepository(
   ctx: JavaRepoCtx,
   idClass: string,
 ): string {
-  const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
+  const finds = declaredFinds(repo).map((f) => domainFindShape(f, agg.name));
   const retrievals = ctx.retrievals ?? [];
   const anyReified = retrievals.some((r) => ctx.isReified?.(r));
   const enumsPkg = `${ctx.basePkg}.domain.enums`;
@@ -689,7 +675,7 @@ export function renderJavaRepositoryImpl(
   ctx: JavaRepoCtx,
   idClass: string,
 ): string {
-  const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
+  const finds = declaredFinds(repo).map((f) => domainFindShape(f, agg.name));
   const retrievals = ctx.retrievals ?? [];
   // Same-package types (the default layouts) resolve without an import line.
   const persistencePkg = ctx.persistencePkg ?? ctx.infraPkg;

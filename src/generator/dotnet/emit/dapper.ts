@@ -1,6 +1,7 @@
 import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
 import {
   clientSortTieBreak,
+  domainFindShape,
   eventLogTable,
   foldedEventNames,
   singleReadOrder,
@@ -79,7 +80,6 @@ import { refuseOutOfVocabulary } from "../../_expr/target.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { csIdSqlType, csJsonSqlType, csSqlType } from "../codec-spelling.js";
-import { domainFindShape } from "../find-emit.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { csLocalNamer, csReadOwnParams } from "../local-names.js";
 import {
