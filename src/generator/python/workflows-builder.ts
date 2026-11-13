@@ -471,8 +471,9 @@ function workflowRoute(
   // the 200 schema from the return annotation (the response-direction wire type
   // the aggregate DTOs use: an id is its `str`).  No result keeps the 204.
   const result = commandCreateResult(wf);
-  // An expected-failure result (`T or E`): the tagged dict at 200 (its schema
-  // is injected by `install_openapi`), each error arm at its mapped status.
+  // An expected-failure result (`T or E`): the tagged dict at 200 (its
+  // `responses=` entry names the union's success body), each error arm at its
+  // mapped status.
   const er = commandCreateEntryResult(wf);
   const selfResult = isWorkflowSelfType(wf, result?.type);
   const returnAnnotation = er
@@ -491,6 +492,7 @@ function workflowRoute(
       {
         readsAggregate: workflowCanAnswerNotFound(wf, ctx),
       },
+      er && result?.type.kind === "union" ? { variants: result.type.variants, ctx } : undefined,
     )})`,
     // A route-invoked workflow runs in a child frame under the request root, so
     // its audit / provenance rows are distinguishable from a direct operation's.

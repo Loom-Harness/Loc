@@ -153,7 +153,7 @@ describe("folded projection `requires` gate", () => {
       "[ProducesResponseType(typeof(ProblemDetails), 403)]",
     );
     expect(await fileEndingWith("python", GATE, "http/projections_routes.py")).toContain(
-      '403: {"model": ProblemDetails, "description": "Forbidden"}',
+      '403: {"model": ProblemDetails, "description": "Forbidden", "content": PROBLEM_JSON}',
     );
   });
 });

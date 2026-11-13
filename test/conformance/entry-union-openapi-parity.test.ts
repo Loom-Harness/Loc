@@ -88,8 +88,14 @@ describe("expected-failure entry routes publish the operation union split", () =
 
   it("Python", async () => {
     const src = await all("python");
-    for (const r of ROUTES) expect(src).toContain(`"${r.path}":"${r.success}"`);
-    expect(src).toContain('"PaymentDeclinedProblem"');
-    expect(src).toContain('_OP_UNION_METHODS: dict[str, str] = {"/api/peek/{account}":"get"}');
+    expect(src).toContain("class PaymentDeclinedProblem(DeclaredSchema):");
+    for (const r of ROUTES) {
+      expect(src).toContain(`class ${r.success}(DeclaredSchema):`);
+      // The route's own decorator names the split in its `responses=`.
+      const decorator = src.split("\n").find((l) => l.includes(`operation_id="${r.id}"`))!;
+      expect(decorator).toContain(`200: {"model": ${r.success}, "description": "OK"}`);
+      expect(decorator).toContain('409: {"model": ProblemDetails | PaymentDeclinedProblem');
+    }
+    expect(src).toContain('@router.get("/peek/{account}", operation_id="peek"');
   });
 });
