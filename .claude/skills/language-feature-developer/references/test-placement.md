@@ -112,7 +112,7 @@ Reach for the one that matches the compiler your emitted code must satisfy.
    (mostly automatic from `wireShape`; a new dimension goes in the parity harness).
 
 The recipe minimum for a real semantic feature: **1 parsing test + 1 negative
-validator test + 1 IR test + 1 corpus fixture (manifest row, `test e2e` block,
+validator test + 1 IR test + 1 corpus fixture (`<id>.corpus.json` manifest row, `test e2e` block,
 wire golden)**, then at least one `LOOM_TS_BUILD=1` / `LOOM_REACT_BUILD=1`
 compile pass. Add per-target generator string tests only for the claims the
 fixture cannot observe.

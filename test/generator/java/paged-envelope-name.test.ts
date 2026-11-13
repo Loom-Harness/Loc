@@ -55,9 +55,10 @@ describe("java paged envelope naming (F2-W-07)", () => {
     );
   });
 
-  it("registers the `<Agg>Paged` required set on the OpenAPI customizer", async () => {
-    const customizer = await file(paged(), "config/OpenApiContractCustomizer.java");
-    expect(customizer).toContain("WidgetPaged");
-    expect(customizer).not.toContain("PagedWidgetResponse");
+  it("marks the `<Agg>Paged` envelope's members required", async () => {
+    const record = await file(paged(), "WidgetPaged.java");
+    expect(record).toContain(
+      'requiredProperties = {"items", "page", "pageSize", "total", "totalPages"}',
+    );
   });
 });

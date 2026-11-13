@@ -1,0 +1,6 @@
+{
+  "title": "a provenanced field's lineage — `inputs[].value` and `computedValue` carry money as the RS-12 wire string, a decimal as the RS-24 number and a datetime as the RS-38 instant",
+  "doc": "provenance",
+  "backends": "MONEY_LINEAGE_WIRE",
+  "note": "The `Codec` fact (`src/ir/enrich/codec.ts`) rules every scalar's lineage encoding to be its wire encoding (owner rulings on #3527 and #3593).  Every backend — node, python, .NET, java and elixir — writes it through its wire encoders.  The money assertions come first, then the decimal and datetime writes"
+}

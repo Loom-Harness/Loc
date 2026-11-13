@@ -13,6 +13,7 @@
 // default-on aggregate (no explicit capability) still advertises the 409.
 
 import { describe, expect, it } from "vitest";
+import { elixirDocumentedOperations } from "../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 const system = (platform: string, cap: string) => `
@@ -83,7 +84,9 @@ describe("versioned → 409 declared on the update op (cross-backend OpenAPI par
       Math.max(0, ctrl.indexOf("UpdateCustomer") - 400),
       ctrl.indexOf("UpdateCustomer"),
     );
-    expect(around).toContain("ProducesResponseType(typeof(ProblemDetails), 409)");
+    expect(around).toContain(
+      'ProducesResponseType(typeof(ProblemResponse), 409, "application/problem+json")',
+    );
     expect(win).toBeTruthy();
   });
 
@@ -94,19 +97,29 @@ describe("versioned → 409 declared on the update op (cross-backend OpenAPI par
       Math.max(0, ctrl.indexOf("UpdateCustomer") - 400),
       ctrl.indexOf("UpdateCustomer"),
     );
-    expect(around).toContain("ProducesResponseType(typeof(ProblemDetails), 409)");
+    expect(around).toContain(
+      'ProducesResponseType(typeof(ProblemResponse), 409, "application/problem+json")',
+    );
   });
+
+  /** The `@ApiResponse` codes on the Java update mapping, in order. */
+  function javaUpdateStatuses(files: Map<string, string>): string[] {
+    const ctrl = fileMatching(files, (p) => p.endsWith("CustomersController.java"));
+    const block = ctrl.slice(
+      ctrl.indexOf('@PostMapping("/{id}/update")'),
+      ctrl.indexOf("updateCustomer("),
+    );
+    return [...block.matchAll(/responseCode = "(\d{3})"/g)].map((m) => m[1]!);
+  }
 
   it("Java declares 409 in the update route's status set", async () => {
     const files = await generateSystemFiles(system("java", "with versioned"));
-    const cust = fileMatching(files, (p) => p.endsWith("OpenApiContractCustomizer.java"));
-    expect(cust).toMatch(/"\/api\/customers\/\{id\}\/update"[^\n]*\{400, 404, 409, 415, 422\}/);
+    expect(javaUpdateStatuses(files)).toEqual(["204", "400", "404", "409", "415", "422"]);
   });
 
   it("Java declares 409 in the update route by DEFAULT (versioning default-on)", async () => {
     const files = await generateSystemFiles(system("java", ""));
-    const cust = fileMatching(files, (p) => p.endsWith("OpenApiContractCustomizer.java"));
-    expect(cust).toMatch(/"\/api\/customers\/\{id\}\/update"[^\n]*\{400, 404, 409, 415, 422\}/);
+    expect(javaUpdateStatuses(files)).toEqual(["204", "400", "404", "409", "415", "422"]);
   });
 
   it("Python declares 409 on the updateCustomer route", async () => {
@@ -125,15 +138,13 @@ describe("versioned → 409 declared on the update op (cross-backend OpenAPI par
 
   it("Phoenix declares 409 on the /customers/{id}/update spec path", async () => {
     const files = await generateSystemFiles(system(ELIXIR, "with versioned"));
-    const spec = fileMatching(files, (p) => p.endsWith("_api_spec.ex"));
-    const win = updateWindow(spec, /"\/api\/customers\/\{id\}\/update"/);
+    const win = elixirDocumentedOperations(files).get("post /api/customers/{id}/update");
     expect(win).toContain("409 => %OpenApiSpex.Response{");
   });
 
   it("Phoenix declares 409 on the update spec path by DEFAULT (versioning default-on)", async () => {
     const files = await generateSystemFiles(system(ELIXIR, ""));
-    const spec = fileMatching(files, (p) => p.endsWith("_api_spec.ex"));
-    const win = updateWindow(spec, /"\/api\/customers\/\{id\}\/update"/);
+    const win = elixirDocumentedOperations(files).get("post /api/customers/{id}/update");
     expect(win).toContain("409 => %OpenApiSpex.Response{");
   });
 });
