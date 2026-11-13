@@ -61,6 +61,7 @@ import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { type FormFieldArms, formFieldSpec, renderFormField } from "../_frontend/form-spec.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
+import { workflowResultSegment } from "../_frontend/workflow-result.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
 import { provenancedTypeMembers } from "../_payload/provenanced-wire.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
@@ -672,6 +673,10 @@ export interface FelizRowField {
   jsonKey: string;
   /** For a `select` sub-field, the enum's allowed values. */
   enumValues?: string[];
+  /** For an `idselect` sub-field, the referenced aggregate (its options are the
+   *  same all-pages list a flat picker reads) and the field its options show. */
+  idTarget?: string;
+  idLabelField?: string;
   /** Whether the sub-field is required (non-optional) — informational for v1
    *  (row validity does not gate submit yet). */
   required: boolean;
@@ -1306,10 +1311,9 @@ function isExpandableInput(t: TypeIR, vosByName: ReadonlyMap<string, readonly Fi
 
 /** Build a dynamic-row `FelizFieldArray` from an `X[]`-of-value-object input, or
  *  null when the field isn't an array-of-VO (or the VO isn't resolvable).  Only
- *  SCALAR sub-fields render in v1 — a nested VO / array inside the row element is
- *  dropped (mirrors the flat-form scalar limit).  An `id` sub-field degrades to a
- *  plain text input (the raw id string) since a per-row FK `<select>` would need
- *  the target list threaded into every row. */
+ *  SCALAR sub-fields render — a nested VO / array inside the row element is
+ *  dropped (mirrors the flat-form scalar limit).  An `id` sub-field is a picker
+ *  over the target's list, the same list a flat picker of that target reads. */
 function buildFieldArray(
   formType: string,
   field: { name: string; type: TypeIR },
@@ -1338,9 +1342,12 @@ function buildFieldArray(
         wireName: vf.name,
         fsName: fsIdent(vf.name),
         setMsg: `Set${formType}${upperFirst(field.name)}${upperFirst(vf.name)}`,
-        // A per-row FK select would need the target list in every row; v1 renders
-        // the id as plain text instead.
-        inputKind: kind === "idselect" || kind === "checkgroup" || rowFile ? "text" : kind,
+        // A reference picks from the target's list, like a flat picker; a
+        // collection inside a row stays text.
+        inputKind: kind === "checkgroup" || rowFile ? "text" : kind,
+        ...(kind === "idselect" && eb.kind === "id"
+          ? { idTarget: eb.targetName, idLabelField: idLabels.get(eb.targetName) ?? "id" }
+          : {}),
         encodeExpr: rowFile
           ? `Encode.string row.${fsIdent(vf.name)}`
           : encodeExprFor(vf.type, `row.${vf.name}`, optional),
@@ -1508,6 +1515,9 @@ export interface FelizWorkflowForm extends FormRecord {
   route: string;
   /** `Router.navigate` segments after success (`[""]` → home). */
   navigateSegs: string[];
+  /** The route segment of the record a successful run created, when the start
+   *  route answers with its id: the run then opens that record instead. */
+  resultSegment?: string;
 }
 
 /** Build the `FelizWorkflowForm` for a `WorkflowForm(runs: wf)`.  Fields are the
@@ -1539,6 +1549,7 @@ export function felizWorkflowForm(
     doneMsg: `${wfCap}Done`,
     route: `${API_BASE_PATH}/workflows/${snake(wf.name)}`,
     navigateSegs: [""], // home
+    ...(workflowResultSegment(wf) ? { resultSegment: workflowResultSegment(wf) } : {}),
     fields,
     fieldArrays: buildFieldArrays(formType, wf.params, vosByName, enumsByName, idLabels),
   };
@@ -3516,8 +3527,16 @@ export function wfHasForm(f: FelizWorkflowForm): boolean {
  *  PARAM-LESS workflow takes `()` and posts an empty `{}` body (no form). */
 function renderWorkflowFn(f: FelizWorkflowForm): (string | undefined)[] {
   const hasForm = wfHasForm(f);
+  // A run that answers with the created record's id decodes it from the body.
+  const ok = f.resultSegment
+    ? [
+        "        match Decode.fromString Decode.string response.responseText with",
+        "        | Ok id -> return Ok id",
+        "        | Error e -> return Error (ServerErrors.formLevel e)",
+      ]
+    : ["        return Ok ()"];
   return [
-    `  let ${f.apiFn} ${hasForm ? `(form: ${f.formType})` : "()"} : Async<Result<unit, ServerErrors>> =`,
+    `  let ${f.apiFn} ${hasForm ? `(form: ${f.formType})` : "()"} : Async<Result<${workflowResultType(f)}, ServerErrors>> =`,
     "    async {",
     hasForm
       ? `      let body = Encode.toString 0 (Encoders.${f.encoderFn} form)`
@@ -3529,11 +3548,16 @@ function renderWorkflowFn(f: FelizWorkflowForm): (string | undefined)[] {
     '        |> Http.header (Headers.contentType "application/json")',
     "        |> Http.send",
     "      if response.statusCode = 200 || response.statusCode = 204 then",
-    "        return Ok ()",
+    ...ok,
     "      else",
     "        return Error (ServerErrors.ofResponse response.statusCode response.responseText)",
     "    }",
   ];
+}
+
+/** The success payload of a workflow run: the created record's id, or `unit`. */
+export function workflowResultType(f: FelizWorkflowForm): string {
+  return f.resultSegment ? "string" : "unit";
 }
 
 /** One async action function — a fieldless operation.  POSTs an empty JSON body
@@ -3646,7 +3670,12 @@ export function renderFormTypes(forms: FormRecord[]): string {
         "",
         `let ${fa.emptyRowBinding} : ${fa.rowType} =`,
         "  {",
-        ...fa.rowFields.map((rf) => `    ${rf.wireName} = ""`),
+        // A required enum starts on its first value, the option its select
+        // shows; every other cell starts empty.
+        ...fa.rowFields.map(
+          (rf) =>
+            `    ${rf.wireName} = ${JSON.stringify(rf.inputKind === "select" && rf.required ? (rf.enumValues?.[0] ?? "") : "")}`,
+        ),
         "  }",
       );
     }

@@ -140,7 +140,9 @@ export function felizOperationFormSeed(
   const assigns: string[] = [];
   for (const f of spec.fields) {
     if (f.prefill.from !== "record") continue;
-    for (const c of fieldCells(f, `__r.${fsIdent(f.name)}`, form.emptyBinding)) {
+    // A provenanced field's record value is its carrier's `value`.
+    const carrier = f.prefill.carrier ? ".value" : "";
+    for (const c of fieldCells(f, `__r.${fsIdent(f.name)}${carrier}`, form.emptyBinding)) {
       if (cellNames.has(c.name)) assigns.push(`${fsIdent(c.name)} = ${c.value}`);
     }
     if (f.kind === "objectArray") {

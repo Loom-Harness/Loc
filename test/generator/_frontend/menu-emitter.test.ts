@@ -18,11 +18,15 @@
 // shell imports from a reconstructed path is TS2307 at build time.
 
 import { describe, expect, it } from "vitest";
-import { deriveSidebarFromUi } from "../../../src/generator/_frontend/menu-emitter.js";
+import {
+  deriveSidebarFromUi,
+  navPageNameFallbacks,
+} from "../../../src/generator/_frontend/menu-emitter.js";
 import {
   buildPageModuleIndex,
   pageModuleSpecifier,
 } from "../../../src/generator/_frontend/page-identity.js";
+import { pageNameEntry } from "../../../src/generator/_walker/i18n-extract.js";
 import type { PageIR, UiIR } from "../../../src/ir/types/loom-ir.js";
 import { classifyPage, type PageNameCtx, pageSlotKey } from "../../../src/ir/util/page-kind.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
@@ -197,9 +201,25 @@ describe("deriveSidebarFromUi — explicit `menu { … }` block", () => {
         ?.labelKey?.split(".")
         .slice(0, 4),
     ).toEqual(["WebApp", "page", "Dashboard", "title"]);
-    // A page-NAME fallback is not in the catalog, so it carries no key — a key
-    // that resolves to nothing is the dead-key defect.
+    // A page-NAME fallback is not in the catalog by default, so it carries no
+    // key — a key that resolves to nothing is the dead-key defect.
     expect(entries.find((e) => e.to === "/secret")?.labelKey).toBeUndefined();
+  });
+
+  it("a page-NAME fallback carries the page's `name` key for a caller that catalogs it", async () => {
+    const ui = await loadUi(EXPLICIT);
+    const secret = ui.pages.find((p) => p.name === "Secret")!;
+    const entries = (
+      deriveSidebarFromUi(ui, CTX, false, [], { nameLabelKeys: true }) ?? []
+    ).flatMap((s) => s.entries);
+    const entry = entries.find((e) => e.to === "/secret");
+    // The key IS the catalog's name entry for that page (one source of truth).
+    expect(entry?.labelKey).toBe(pageNameEntry(ui, secret)?.key);
+    expect(entry?.labelKey?.split(".").slice(0, 4)).toEqual(["WebApp", "page", "Secret", "name"]);
+    // An authored title keeps its own key; the name key is the fallback only.
+    expect(entries.find((e) => e.to === "/ops/dashboard")?.labelKey?.split(".")[3]).toBe("title");
+    const named = navPageNameFallbacks(ui, CTX).map((p) => p.name);
+    expect([named.includes("Secret"), named.includes("Dashboard")]).toEqual([true, false]);
   });
 
   it("renders an external link as an anchor payload, never a router target", async () => {

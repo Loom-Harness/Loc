@@ -1318,8 +1318,8 @@ get label(): string { return "Order #" + String(this._quantity) + " for " + this
   non-`datetime`, a `number` on a non-numeric, a `select`
   on a non-string/enum) is `loom.interp-hole-type`.  These drive the i18n
   string catalog — see [`new-plan/archive/T1-done.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/archive/T1-done.md) § M-T1.11.
-  **Formats only render in a `ui` page slot** (on the JS/TS frontends; LiveView
-  drops the number/date formatting — `D-HEEX-I18N-FORMAT`).  In backend domain code (a
+  **Formats only render in a `ui` page slot** (on the JS/TS frontends through
+  `Intl`; on LiveView through CLDR in the negotiated locale — `D-HEEX-I18N-FORMAT`).  In backend domain code (a
   `derived`, `function` or `operation` body) every backend renders a formatted
   hole as its bare value: `{qty, number, ::currency/USD}` loses its formatting,
   and `{qty, plural, one {# item} other {# items}}` / `select` / `selectordinal`

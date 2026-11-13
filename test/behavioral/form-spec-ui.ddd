@@ -32,6 +32,9 @@ system FormSpecUi {
       valueobject Rider {
         code: string
         premium: decimal
+        peril: Peril
+        insurer: Provider id?
+        waived: bool
       }
 
       aggregate Provider with crudish {
