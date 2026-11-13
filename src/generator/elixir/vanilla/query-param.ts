@@ -139,13 +139,17 @@ function renderQueryParamCheck(kinds: ReadonlySet<QueryParamCheck["kind"]>): str
     clauses.push(`  defp __find_param_error(value, :uuid, _required) do
     if byte_size(value) == 36 and match?({:ok, _}, Ecto.UUID.cast(value)),
       do: nil,
-      else: ${exFieldMessage("malformed-id")}
+      else: {${exFieldCode("malformed-id")}, ${exFieldMessage("malformed-id")}}
   end`);
   }
   if (kinds.has("integer")) {
+    // An integer outside the declared range is the ruled `integer-range`
+    // refusal with its bounds; anything that is not an integer at all is a
+    // type mismatch.
     clauses.push(`  defp __find_param_error(value, {:integer, min, max}, _required) do
     case Integer.parse(value) do
       {n, ""} when n >= min and n <= max -> nil
+      {_, ""} -> {${exFieldCode("integer-range")}, ${exFieldMessage("integer-range")}, %{min: min, max: max}}
       _ -> "Expected an integer between #{min} and #{max}."
     end
   end`);
@@ -197,7 +201,9 @@ function renderQueryParamCheck(kinds: ReadonlySet<QueryParamCheck["kind"]>): str
         case __find_param_error(Map.get(params, name), check, required) do
           nil -> []
           :missing -> [%{pointer: "/" <> name, message: name <> ${exLit(` ${exMissingSuffix()}`)}, code: ${exFieldCode("missing")}}]
-          message -> [%{pointer: "/" <> name, message: message, code: ${exFieldCode("type-mismatch")}}]
+${[...kinds].includes("integer") ? `          {code, message, params} -> [%{pointer: "/" <> name, message: message, code: code, params: params}]
+` : ""}${kinds.has("uuid") || kinds.has("integer") ? `          {code, message} -> [%{pointer: "/" <> name, message: message, code: code}]
+` : ""}          message -> [%{pointer: "/" <> name, message: message, code: ${exFieldCode("type-mismatch")}}]
         end
       end)
 
