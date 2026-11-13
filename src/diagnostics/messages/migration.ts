@@ -160,6 +160,8 @@ export const messages = {
     expected: unknown;
   }) =>
     `backfill '${p.aggregate}.${p.field}': expression type '${p.got}' does not fit the field's type '${p.expected}'.`,
+  "loom.backfill-type-mismatch#guid-literal": (p: { aggregate: unknown; field: unknown }) =>
+    `backfill '${p.aggregate}.${p.field}': a guid column takes a UUID written as a string literal, e.g. ${p.aggregate}.${p.field} = "00000000-0000-4000-8000-000000000000".`,
   "loom.backfill-type-mismatch#optional-source": (p: {
     aggregate: unknown;
     field: unknown;
