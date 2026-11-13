@@ -125,6 +125,8 @@ reached an assertion proves nothing. A deliberate `test.skip`/`test.fixme` passe
 only when it is listed in an explicit `allowSkips` entry (`{ title, reason }`).
 Direct-probe cases that do not use Playwright keep their own counting.
 
+Those runners launch the Chromium their pinned `@playwright/test` expects. When that revision is not installed under `PLAYWRIGHT_BROWSERS_PATH` (default `/opt/pw-browsers` in the sandbox), `test/behavioral/browser-fallback.mjs` runs the suite through a generated wrapper config using `LOOM_CHROMIUM_PATH`, else `<store>/chromium`, else the newest installed `chromium-*` build; it is a no-op whenever the pinned revision is present.
+
 ### Why so many gates
 
 Structural tests prove code is *emitted*; they can't catch a generated
