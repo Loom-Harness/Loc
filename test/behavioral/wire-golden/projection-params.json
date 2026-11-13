@@ -185,55 +185,183 @@
     },
     {
       "seq": 15,
-      "method": "DELETE",
-      "path": "/api/match_results/{id}",
-      "status": 204,
-      "body": ""
+      "method": "GET",
+      "path": "/api/runs/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "first",
+        "rowVersion": 1
+      }
     },
     {
       "seq": 16,
-      "method": "DELETE",
-      "path": "/api/match_results/{id}",
+      "method": "POST",
+      "path": "/api/runs/{id}/update",
       "status": 204,
       "body": ""
     },
     {
       "seq": 17,
-      "method": "DELETE",
-      "path": "/api/match_results/{id}",
-      "status": 204,
-      "body": ""
+      "method": "GET",
+      "path": "/api/runs",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "label": "first",
+            "rowVersion": 1
+          },
+          {
+            "id": "<volatile:key>",
+            "label": "second run",
+            "rowVersion": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
     },
     {
       "seq": 18,
+      "method": "GET",
+      "path": "/api/match_results/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "matchedOn": "2026-08-02",
+        "provider": "initech",
+        "qualifies": false,
+        "rank": 5,
+        "rowVersion": 1,
+        "run": "<uuid>",
+        "score": 4
+      }
+    },
+    {
+      "seq": 19,
+      "method": "POST",
+      "path": "/api/match_results/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 20,
+      "method": "GET",
+      "path": "/api/projections/top_ranked?maxRank=2",
+      "status": 200,
+      "body": {
+        "providers": 3
+      }
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/match_results",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "matchedOn": "2026-08-01",
+            "provider": "acme",
+            "qualifies": true,
+            "rank": 1,
+            "rowVersion": 1,
+            "run": "<uuid>",
+            "score": 9.5
+          },
+          {
+            "id": "<volatile:key>",
+            "matchedOn": "2026-07-01",
+            "provider": "globex",
+            "qualifies": true,
+            "rank": 3,
+            "rowVersion": 1,
+            "run": "<uuid>",
+            "score": 7.25
+          },
+          {
+            "id": "<volatile:key>",
+            "matchedOn": "2026-08-02",
+            "provider": "initech",
+            "qualifies": false,
+            "rank": 2,
+            "rowVersion": 2,
+            "run": "<uuid>",
+            "score": 4
+          },
+          {
+            "id": "<volatile:key>",
+            "matchedOn": "2026-08-03",
+            "provider": "umbrella",
+            "qualifies": true,
+            "rank": 2,
+            "rowVersion": 1,
+            "run": "<uuid>",
+            "score": 8
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 4,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 22,
       "method": "DELETE",
       "path": "/api/match_results/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 19,
+      "seq": 23,
+      "method": "DELETE",
+      "path": "/api/match_results/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 24,
+      "method": "DELETE",
+      "path": "/api/match_results/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 25,
+      "method": "DELETE",
+      "path": "/api/match_results/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 26,
       "method": "GET",
       "path": "/api/projections/run_outcome?r=<uuid>",
       "status": 200,
       "body": []
     },
     {
-      "seq": 20,
+      "seq": 27,
       "method": "DELETE",
       "path": "/api/runs/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 21,
+      "seq": 28,
       "method": "DELETE",
       "path": "/api/runs/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 22,
+      "seq": 29,
       "method": "PATCH",
       "path": "/api/runs",
       "status": 405,
@@ -247,7 +375,7 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 30,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -261,7 +389,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 31,
       "method": "POST",
       "path": "/api/runs",
       "status": 400,
@@ -271,6 +399,23 @@
         "instance": "/api/runs",
         "status": 400,
         "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 32,
+      "method": "POST",
+      "path": "/api/runs/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Run {id} not found",
+        "instance": "/api/runs/{id}/update",
+        "params": {
+          "type": "Runs.Run"
+        },
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

@@ -110,6 +110,16 @@ system ProjectionParamsSys {
     expect(api.runOutcome.list("not-a-uuid")).toThrow(422)
     expect(api.topRanked.list(3000000000)).toThrow(422)
 
+    // The two aggregates' own routes beside the read models.  An update that
+    // moves a row across a filter moves it across the projection too.
+    expect(api.runs.getById(r1).label).toBe("first")
+    api.runs.update(r2, { label: "second run" })
+    expect(api.runs.all().total).toBe(2)
+    expect(api.matchResults.getById(c).provider).toBe("initech")
+    api.matchResults.update(c, { run: r1.id, provider: "initech", score: 4, rank: 2, qualifies: false, matchedOn: "2026-08-02" })
+    expect(api.topRanked.list(2).providers).toBe(3)
+    expect(api.matchResults.all().total).toBe(4)
+
     api.matchResults.destroy(a)
     api.matchResults.destroy(b)
     api.matchResults.destroy(c)
