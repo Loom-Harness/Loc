@@ -26,7 +26,7 @@ import type {
 import { diagMessage } from "../diagnostics/messages.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel, mergeLoomModels } from "../ir/lower/lower.js";
-import type { EnrichedBoundedContextIR } from "../ir/types/loom-ir.js";
+import type { EnrichedBoundedContextIR, TypeIR } from "../ir/types/loom-ir.js";
 import { declaredResponseFor } from "../ir/util/declared-response.js";
 import { responseWireFor } from "../ir/util/response-wire.js";
 import { typeLabel } from "../ir/util/type-label.js";
@@ -272,6 +272,35 @@ function aggregatesOf(ctx: EnrichedBoundedContextIR): ModelAggregate[] {
         source: f.source,
       }),
     ),
+    members: [
+      {
+        name: "id",
+        type: typeLabel({ kind: "id", targetName: agg.name }),
+        optional: false,
+        source: "id",
+      },
+      ...agg.fields.map((f) => ({
+        name: f.name,
+        type: typeLabel(f.type),
+        optional: f.optional,
+        source: "property",
+      })),
+      ...agg.contains.map((c) => {
+        const part: TypeIR = { kind: "entity", name: c.partName, declKind: "part" };
+        return {
+          name: c.name,
+          type: typeLabel(c.collection ? { kind: "array", element: part } : part),
+          optional: !!c.optional && !c.collection,
+          source: "containment",
+        };
+      }),
+      ...agg.derived.map((d) => ({
+        name: d.name,
+        type: typeLabel(d.type),
+        optional: d.type.kind === "optional",
+        source: "derived",
+      })),
+    ],
   }));
 }
 

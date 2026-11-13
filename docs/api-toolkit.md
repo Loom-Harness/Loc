@@ -17,7 +17,7 @@ All live in `src/api/index.ts`. Signatures (verified against source):
 validate(source: string, opts?: { path?: string }): Promise<ValidateReport>
 generate(source: string, opts?: { path?: string }): Promise<GenerateReport>
 outline(source: string): Promise<Outline>
-readModel(source: string): Promise<ModelView>        // resolved deployables + canonical wire shapes
+readModel(source: string): Promise<ModelView>        // resolved deployables + each aggregate's wire (declared record) and members
 listPrimitives(): PrimitiveCatalog                   // the closed page-body primitive vocabulary
 applyPatches(source: string, patches: ModelPatch[]): Promise<PatchResult>   // re-exported from src/language/model-patch.ts
 
