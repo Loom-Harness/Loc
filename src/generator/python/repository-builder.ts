@@ -5,7 +5,7 @@ import {
   readScopeFor,
   readSortFor,
 } from "../../ir/enrich/read-scope.js";
-import { forApiRead, type WireMaskPlan, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
+import type { WireMaskPlan } from "../../ir/enrich/wire-projection.js";
 import { clientSortTieBreak, singleReadOrder } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type { PayloadIR } from "../../ir/types/loom-ir.js";
@@ -1949,7 +1949,7 @@ function wireProjection(
   varExpr: string,
   ctx: EnrichedBoundedContextIR,
 ): string[] {
-  const fields = forApiRead(wireFieldsFor(ent));
+  const fields = responseWireFor(ctx.payloads, ent);
   const pairs: string[] = [];
   for (const wf of fields) {
     if (wf.source === "id") {
