@@ -1,4 +1,22 @@
-import { defineConfig, devices } from "@playwright/test";
+import { existsSync } from "node:fs";
+import { chromium, defineConfig, devices } from "@playwright/test";
+
+/** A Chromium to launch when the one this Playwright version pins is not
+ *  installed: `LOOM_PW_CHROMIUM`, else the sandbox image's preinstalled
+ *  `$PLAYWRIGHT_BROWSERS_PATH/chromium` (default `/opt/pw-browsers`).  With the
+ *  pinned browser present (CI installs it), Playwright's own choice stands. */
+function fallbackChromium(): string | undefined {
+  try {
+    if (existsSync(chromium.executablePath())) return undefined;
+  } catch {
+    // no pinned browser registered: fall through
+  }
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH || "/opt/pw-browsers";
+  return [process.env.LOOM_PW_CHROMIUM, `${root}/chromium`].find(
+    (p): p is string => !!p && existsSync(p),
+  );
+}
+const executablePath = fallbackChromium();
 
 // E2E for the playground.  Drives a real Chromium instance against
 // `vite preview`, which serves the production-built `dist/` (the
@@ -73,6 +91,7 @@ export default defineConfig({
   use: {
     baseURL: "http://127.0.0.1:4173",
     headless: true,
+    ...(executablePath ? { launchOptions: { executablePath } } : {}),
     // Bound individual actions + navigations.  Playwright's default
     // `actionTimeout`/`navigationTimeout` is 0 (UNBOUNDED) — a `.click()`
     // / `.fill()` whose target never becomes actionable then auto-waits
