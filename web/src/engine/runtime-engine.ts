@@ -63,8 +63,8 @@ export interface PrepareInput {
    *  to bundle" wording stays in the caller because it needs the
    *  unsupported-deployable list. */
   backendEntries: string[];
-  /** React deployable entry, when the system emits a frontend. */
-  reactEntry?: string;
+  /** Frontend deployable entries (`<slug>/src/main.tsx`), one bundle each. */
+  frontendEntries?: string[];
   /** Opt-in: bundle the Hono backend with an inline Source Map v3 that
    *  chains back to `.ddd` (via the `.ts.map` sidecars `files` carries
    *  when its generate step ran with `sourcemap: true`), so the
@@ -84,12 +84,21 @@ export interface BackendBundle {
   bundle: BundleResult;
 }
 
+/** One frontend deployable's bundle. */
+export interface FrontendBundle {
+  /** The deployable's slug — its generated folder. */
+  slug: string;
+  entry: string;
+  bundle: BundleResult;
+}
+
 /** What `prepare` yields — one bundle per Node deployable (the default
- *  dispatch target first) plus the frontend's, as the pipeline state stores
- *  them and the preview consumes them. */
+ *  dispatch target first) plus one per frontend, as the pipeline state stores
+ *  them and the preview consumes them.  `frontends` is empty when a backend
+ *  failed: the frontends are bundled only once every backend has. */
 export interface PreparedBuild {
   backends: BackendBundle[];
-  react: BundleResult | null;
+  frontends: FrontendBundle[];
 }
 
 /** Minimal surface the preview's SW bridge needs.  `Preview.tsx`
@@ -224,7 +233,7 @@ export type RuntimeEngineFactory = (
 ) => RuntimeEngine;
 
 /** Frontend assets the preview renders.  Not part of the engine
- *  interface — `Preview.tsx` pulls these off `PreparedBuild.react`
+ *  interface — `Preview.tsx` pulls these off a `PreparedBuild.frontends` bundle
  *  and feeds them to `makePreviewHtml`. */
 export interface PreviewMaterial {
   js: string;

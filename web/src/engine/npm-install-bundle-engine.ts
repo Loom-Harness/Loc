@@ -39,6 +39,7 @@ import {
 import { engineRegistry } from "./registry.js";
 import type {
   BackendBundle,
+  FrontendBundle,
   EngineCapabilities,
   EngineSnapshot,
   PrepareInput,
@@ -212,39 +213,52 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       });
     }
 
-    let react: BundleResult | null = null;
-    if (backends.every((b) => b.bundle.ok) && input.reactEntry) {
-      // C2: the worker externalises the prebuilt design-pack vendor
-      // when one is shipped (app-only bundle + iframe importmap), and
-      // otherwise bundles the frontend self-contained (react from the
-      // single deduped node_modules — one instance, no importmap).
-      // Either way the engine forwards the worker's vendorImportmap /
-      // vendorCssUrl (set only on the externalised path) onto the
-      // react BundleResult for the preview.  Installing only what each
-      // bundle imports keeps the Mantine tree out of the backend install
-      // (and vice-versa).
-      const r = await run({
-        generatedFiles,
-        rootDeps: harvestDeps(generatedFiles, input.reactEntry),
-        entry: "/" + input.reactEntry,
-      });
-      react = r.ok
-        ? {
-            ok: true,
-            kind: "react",
-            code: r.code,
-            css: r.css,
-            size: r.code.length,
-            durationMs: 0,
-            fetchedUrls: [],
-            versions: r.versions,
-            vendorImportmap: r.vendorImportmap,
-            vendorCssUrl: r.vendorCssUrl,
-            diagnostics: [],
-          }
-        : { ok: false, diagnostics: [{ severity: "error", message: r.message }] };
+    const frontends: FrontendBundle[] = [];
+    if (backends.every((b) => b.bundle.ok)) {
+      for (const entry of input.frontendEntries ?? []) {
+        frontends.push({
+          slug: entry.split("/").slice(0, -2).join("/"),
+          entry,
+          bundle: await this.bundleFrontend(run, generatedFiles, entry),
+        });
+      }
     }
-    return { backends, react };
+    return { backends, frontends };
+  }
+
+  private async bundleFrontend(
+    run: EsbuildRun,
+    generatedFiles: Map<string, string | Uint8Array>,
+    entry: string,
+  ): Promise<BundleResult> {
+    // C2: the worker externalises the prebuilt design-pack vendor when one is
+    // shipped (app-only bundle + iframe importmap), and otherwise bundles the
+    // frontend self-contained (react from the single deduped node_modules —
+    // one instance, no importmap).  Either way the engine forwards the
+    // worker's vendorImportmap / vendorCssUrl (set only on the externalised
+    // path) onto the BundleResult for the preview.  Installing only what each
+    // bundle imports keeps the Mantine tree out of the backend install (and
+    // vice-versa); the frontends of one system share their install cache.
+    const r = await run({
+      generatedFiles,
+      rootDeps: harvestDeps(generatedFiles, entry),
+      entry: "/" + entry,
+    });
+    return r.ok
+      ? {
+          ok: true,
+          kind: "react",
+          code: r.code,
+          css: r.css,
+          size: r.code.length,
+          durationMs: 0,
+          fetchedUrls: [],
+          versions: r.versions,
+          vendorImportmap: r.vendorImportmap,
+          vendorCssUrl: r.vendorCssUrl,
+          diagnostics: [],
+        }
+      : { ok: false, diagnostics: [{ severity: "error", message: r.message }] };
   }
 
   private async bundleBackend(

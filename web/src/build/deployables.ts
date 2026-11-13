@@ -1,8 +1,9 @@
 // Which generated deployables the playground can run, read off the generated
 // file tree.
 //
-// The browser runtime boots every Hono backend (one worker each) and serves at
-// most one React frontend.  Everything else in the tree is files-only, and is
+// The browser runtime boots every Hono backend (one worker each) and previews
+// every React frontend, one at a time, each against the backend its `targets:`
+// names.  Everything else in the tree is files-only, and is
 // listed so the UI can say so by name: .NET (`Program.cs`), Phoenix LiveView
 // (`mix.exs`), Spring Boot (`build.gradle.kts`) and FastAPI (`pyproject.toml`)
 // backends, and the frontends the preview engine does not bundle (SvelteKit,
@@ -14,14 +15,26 @@ import type { UnsupportedDeployable, UnsupportedPlatform } from "../layout/ctx.j
 import { serviceSlug } from "../../../src/util/service-slug.js";
 import type { VirtualFile } from "./protocol.js";
 
+/** One frontend deployable the preview renders. */
+export interface PreviewFrontend {
+  /** The deployable's slug — its generated folder. */
+  slug: string;
+  /** Its entry path (`<slug>/src/main.tsx`). */
+  entry: string;
+  /** The slug of the backend its `targets:` names (the compose
+   *  `VITE_API_PROXY_TARGET`) — where the preview sends its API calls.  Null
+   *  when the tree records none. */
+  apiTarget: string | null;
+}
+
 export interface DeployableAnalysis {
   /** Hono entry paths to bundle + boot (the single-context root, or one per
-   *  system-mode slug folder), the backend the React frontend talks to first —
-   *  the default target of the preview's and the console's requests.  Empty
-   *  when the tree has none. */
+   *  system-mode slug folder), the backend the first frontend talks to first —
+   *  the default target of the console's requests.  Empty when the tree has
+   *  none. */
   backends: string[];
-  /** React entry path (always under a system-mode slug folder). */
-  react: string | null;
+  /** Every frontend the preview renders, sorted by slug. */
+  frontends: PreviewFrontend[];
   /** Deployables the browser does not bundle/boot, sorted by slug. */
   unsupported: UnsupportedDeployable[];
 }
@@ -95,17 +108,17 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
   // Legacy single-context mode puts Hono at the root with no slug, and emits
   // nothing else.
   if (files.some((f) => f.path === "http/index.ts")) {
-    return { backends: ["http/index.ts"], react: null, unsupported: [] };
+    return { backends: ["http/index.ts"], frontends: [], unsupported: [] };
   }
   const honoSlugs: string[] = [];
-  let react: string | null = null;
+  const reactEntries: string[] = [];
   let compose: string | null = null;
   const platformBySlug = new Map<string, UnsupportedPlatform>();
   const angularSlugs = new Set<string>();
   for (const f of files) {
     const hono = f.path.match(HONO_ENTRY);
     if (hono?.[1] && !honoSlugs.includes(hono[1])) honoSlugs.push(hono[1]);
-    if (!react && REACT_ENTRY.test(f.path)) react = f.path;
+    if (REACT_ENTRY.test(f.path)) reactEntries.push(f.path);
     if (f.path === "docker-compose.yml") compose = f.content;
     const dotnet = f.path.match(/^([^/]+)\/Program\.cs$/);
     if (dotnet?.[1]) platformBySlug.set(dotnet[1], "dotnet");
@@ -139,11 +152,17 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
   }
   for (const slug of angularSlugs) platformBySlug.set(slug, "angular");
 
-  // Every Hono backend boots.  The one the React frontend talks to leads, so
-  // the preview's API calls land on a backend that serves them; the rest
-  // follow in path order.
-  const reactSlug = react?.match(REACT_ENTRY)?.[1] ?? null;
-  const targeted = reactSlug && compose ? frontendApiTarget(compose, reactSlug) : null;
+  const frontends: PreviewFrontend[] = reactEntries
+    .map((entry) => {
+      const slug = entry.match(REACT_ENTRY)?.[1] ?? "";
+      return { slug, entry, apiTarget: compose ? frontendApiTarget(compose, slug) : null };
+    })
+    .sort((a, b) => a.slug.localeCompare(b.slug));
+
+  // Every Hono backend boots.  The one the first frontend talks to leads, so
+  // the console's default target serves the preview's pages; the rest follow
+  // in path order.
+  const targeted = frontends[0]?.apiTarget ?? null;
   const ordered =
     targeted && honoSlugs.includes(targeted)
       ? [targeted, ...honoSlugs.filter((slug) => slug !== targeted)]
@@ -152,7 +171,7 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
   const unsupported: UnsupportedDeployable[] = [...platformBySlug]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([slug, platform]) => ({ slug, platform }));
-  return { backends: ordered.map((slug) => `${slug}/http/index.ts`), react, unsupported };
+  return { backends: ordered.map((slug) => `${slug}/http/index.ts`), frontends, unsupported };
 }
 
 /** The files-only platform of the deployable a `.ddd` source names, or null

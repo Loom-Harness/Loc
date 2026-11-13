@@ -38,7 +38,9 @@ describe("analyzeDeployables", () => {
       "catalog_api/http/index.ts",
       "catalog_web/http/index.ts",
     ]);
-    expect(out.react).toBe("web_app/src/main.tsx");
+    expect(out.frontends).toEqual([
+      { slug: "web_app", entry: "web_app/src/main.tsx", apiTarget: "api" },
+    ]);
     expect(out.unsupported).toEqual([]);
   });
 
@@ -78,6 +80,34 @@ describe("analyzeDeployables", () => {
       { slug: "api", platform: "dotnet" },
       { slug: "catalog_api", platform: "dotnet" },
     ]);
+  });
+});
+
+describe("analyzeDeployables lists every frontend", () => {
+  it("previews each React frontend against the backend its targets: names", async () => {
+    const source = `system Shop {
+  subdomain Core {
+    context Sales {
+      aggregate Item with crudish { title: string }
+      repository Items for Item { }
+    }
+  }
+  ui WebApp with scaffold(subdomains: [Core]) { }
+  storage primary { type: postgres }
+  resource st { for: Sales, kind: state, use: primary }
+  deployable writer { platform: node, contexts: [Sales], dataSources: [st], port: 3000 }
+  deployable reader { platform: node, contexts: [Sales], dataSources: [st], port: 3002 }
+  deployable shopWeb { platform: react, targets: reader, ui: WebApp, port: 3003 }
+  deployable adminWeb { platform: react, targets: writer, ui: WebApp, port: 3001 }
+}`;
+    const out = analyzeDeployables(await tree(source));
+    expect(out.frontends).toEqual([
+      { slug: "admin_web", entry: "admin_web/src/main.tsx", apiTarget: "writer" },
+      { slug: "shop_web", entry: "shop_web/src/main.tsx", apiTarget: "reader" },
+    ]);
+    // The first frontend's backend leads the boot order (the console's
+    // default target).
+    expect(out.backends).toEqual(["writer/http/index.ts", "reader/http/index.ts"]);
   });
 });
 
@@ -121,7 +151,7 @@ describe("analyzeDeployables names every toolchain the browser does not run", ()
 }`;
     const out = analyzeDeployables(await tree(source));
     expect(out.backends).toEqual([]);
-    expect(out.react).toBeNull();
+    expect(out.frontends).toEqual([]);
     expect(out.unsupported).toEqual([
       { slug: "fl_web", platform: "flutter" },
       { slug: "fz_web", platform: "feliz" },
