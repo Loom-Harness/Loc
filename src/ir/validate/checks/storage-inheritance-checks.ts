@@ -385,16 +385,11 @@ export function validatePolymorphicReadRouting(
     diags.push({
       severity: "warning",
       code: "loom.polymorphic-read-unrouted",
-      message:
-        closure.reason === "mask"
-          ? diagMessage("loom.polymorphic-read-unrouted#mask", {
-              base: base.name,
-              concrete: closure.aggregate,
-            })
-          : diagMessage("loom.polymorphic-read-unrouted#requires", {
-              base: base.name,
-              concrete: closure.aggregate,
-            }),
+      message: diagMessage("loom.polymorphic-read-unrouted", {
+        base: base.name,
+        concrete: closure.aggregate,
+        mask: closure.reason === "mask",
+      }),
       source: `${ctx.name}/${base.name}`,
       origin: base.origin,
     });
