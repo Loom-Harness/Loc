@@ -9,7 +9,7 @@
 // Both halves are derived, so neither can drift from the callee:
 //   - paths from `contextOperations` (what the callee actually mounts, its
 //     abstract bases' polymorphic reads included),
-//   - the response model from `forApiRead(wireFieldsForAggregate(...))` (the
+//   - the response model from the callee's declared response record (the
 //     field list the callee serializes).
 //
 // pydantic's `model_validate` is the direct analogue of the Hono client's
@@ -19,7 +19,6 @@
 // ---------------------------------------------------------------------------
 
 import { apiCallPrincipal } from "../../ir/enrich/hosting-facts.js";
-import { forApiRead, wireFieldsForAggregate } from "../../ir/enrich/wire-projection.js";
 import { contextOperations } from "../../ir/plan/index.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { type ApiResourceBinding, servedContextsFor } from "../../ir/util/api-resource-binding.js";
@@ -28,6 +27,7 @@ import {
   absenceUnionSuccess,
   collectionSuccess,
 } from "../../ir/util/api-surface.js";
+import { responseWireIn } from "../../ir/util/response-wire.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
@@ -90,9 +90,9 @@ function pathExpr(op: ApiOperationIR): string {
  *  `| None` off the flag on top of that emitted `FileRef | None | None` — not
  *  a type pydantic can build.  So the annotation is rendered from the UNWRAPPED
  *  type and the suffix applied exactly once, from either channel. */
-function responseModel(agg: AggregateIR, modelName: string): string[] {
+function responseModel(sys: SystemIR, agg: AggregateIR, modelName: string): string[] {
   const out: string[] = [`class ${modelName}(BaseModel):`];
-  const fields = forApiRead(wireFieldsForAggregate(agg));
+  const fields = responseWireIn(sys, agg);
   if (fields.length === 0) out.push("    pass");
   for (const wf of fields) {
     const nullable = wf.optional || wf.type.kind === "optional";
@@ -113,7 +113,7 @@ function responseModel(agg: AggregateIR, modelName: string): string[] {
  *  (pydantic refuses a discriminator on a single-member union, so a lone
  *  concrete is the alias itself).  The by-id read validates through
  *  `rowAdapter`, since an `Annotated` union is no model of its own. */
-function taggedRowModels(poly: PolymorphicRow, modelName: string): string[] {
+function taggedRowModels(sys: SystemIR, poly: PolymorphicRow, modelName: string): string[] {
   const item = (agg: AggregateIR): string => `${poly.base.name}${agg.name}Item`;
   const out: string[] = [];
   for (const v of poly.variants) {
@@ -210,13 +210,13 @@ export function emitPythonApiClients(
             const variantName = `${v.aggregate.name}Response`;
             if (emittedModels.has(variantName)) continue;
             emittedModels.add(variantName);
-            body.push(...responseModel(v.aggregate, variantName), "", "");
+            body.push(...responseModel(sys, v.aggregate, variantName), "", "");
           }
         }
         if (agg && modelName && !emittedModels.has(modelName)) {
           emittedModels.add(modelName);
           body.push(
-            ...(poly ? taggedRowModels(poly, modelName) : responseModel(agg, modelName)),
+            ...(poly ? taggedRowModels(sys, poly, modelName) : responseModel(sys, agg, modelName)),
             "",
             "",
           );

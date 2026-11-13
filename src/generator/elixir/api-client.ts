@@ -6,7 +6,7 @@
 // `<resource>_<operation_id>/N` per operation the CALLEE exposes, replacing the
 // untyped `get(path)` / `post(path, body)` verbs the `storage restApi` binding
 // carries.  Paths come from `contextOperations`, the response shape from
-// `forApiRead(wireFieldsForAggregate(...))` — the same two derivations every
+// the callee's declared response record — the same two derivations every
 // other client reads, so none of them can drift from the callee.
 //
 // The boundary check is a PROJECTION, not a schema parse.  `Req` decodes JSON
@@ -27,7 +27,6 @@
 // ---------------------------------------------------------------------------
 
 import { apiCallPrincipal } from "../../ir/enrich/hosting-facts.js";
-import { forApiRead, wireFieldsForAggregate } from "../../ir/enrich/wire-projection.js";
 import { contextOperations } from "../../ir/plan/index.js";
 import type { AggregateIR, SystemIR } from "../../ir/types/loom-ir.js";
 import { type ApiResourceBinding, servedContextsFor } from "../../ir/util/api-resource-binding.js";
@@ -36,6 +35,7 @@ import {
   absenceUnionSuccess,
   collectionSuccess,
 } from "../../ir/util/api-surface.js";
+import { responseWireIn } from "../../ir/util/response-wire.js";
 import { escapeElixirIdent, snake } from "../../util/naming.js";
 import { resourceEnvUrlVar } from "../../util/resource-env.js";
 import { type PolymorphicRow, polymorphicRowOf } from "../_api/polymorphic-row.js";
@@ -76,10 +76,15 @@ function pathExpr(op: ApiOperationIR): string {
  *  callee's wire fields of `agg`.  No trailing comma on the last entry —
  *  Elixir map literals reject one, and it is a parse error the emitter cannot
  *  see. */
-function fieldProjection(agg: AggregateIR, src: string, lead: string[] = []): string[] {
+function fieldProjection(
+  sys: SystemIR,
+  agg: AggregateIR,
+  src: string,
+  lead: string[] = [],
+): string[] {
   const entries = [
     ...lead,
-    ...forApiRead(wireFieldsForAggregate(agg)).map(
+    ...responseWireIn(sys, agg).map(
       (wf) => `  ${snake(wf.name)}: Map.get(${src}, ${JSON.stringify(wf.name)})`,
     ),
   ];
@@ -90,12 +95,12 @@ function fieldProjection(agg: AggregateIR, src: string, lead: string[] = []): st
  *  its `type` tag to that concrete's wire fields, keeping the tag as `:type`
  *  so a caller reads the subtype off it.  A tag the callee's hierarchy does
  *  not name is a contract violation, raised at the boundary. */
-function taggedRowProjection(poly: PolymorphicRow, src: string): string[] {
+function taggedRowProjection(sys: SystemIR, poly: PolymorphicRow, src: string): string[] {
   return [
     `case Map.get(${src}, "type") do`,
     ...poly.variants.flatMap((v) => [
       `  ${JSON.stringify(v.tag)} ->`,
-      ...fieldProjection(v.aggregate, src, [`  type: ${JSON.stringify(v.tag)}`]).map(
+      ...fieldProjection(sys, v.aggregate, src, [`  type: ${JSON.stringify(v.tag)}`]).map(
         (l) => `    ${l}`,
       ),
     ]),
@@ -241,7 +246,7 @@ export function emitElixirApiClients(
           // callee's wire fields — `o.code` in domain code is map-dot, which
           // only resolves atom keys.  Every key here is a compile-time literal.
           const project = (src: string): string[] =>
-            poly ? taggedRowProjection(poly, src) : fieldProjection(agg, src);
+            poly ? taggedRowProjection(sys, poly, src) : fieldProjection(sys, agg, src);
           // A collection projects EACH row through the same atom-key map, so
           // the row projection is built once and mapped.  `payload` is the
           // decoded body: the envelope for `paged`, the array itself otherwise.
