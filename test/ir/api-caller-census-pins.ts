@@ -805,6 +805,7 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   ],
   "corpus/match-op-result": [
     "api.pay.run (no such aggregate)",
+    "api.payWithReceipt.run (no such aggregate)",
     "api.tryPay.run (no such aggregate)",
   ],
   "corpus/projection-implicit-sub": [
