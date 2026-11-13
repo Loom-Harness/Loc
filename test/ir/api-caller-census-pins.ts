@@ -362,7 +362,8 @@ export const R = {
    * endpoint a UI polls is never called.
    */
   gateProbe:
-    "unreachable: e2e has no can_<op> probe verb (the gate's 409 is exercised via the operation)",
+    "unreachable: e2e has no can_<op> probe verb (the gate's 409 is exercised via the operation; " +
+    "a fixture's authz ladder may request the probe, which is not an e2e call)",
   /**
    * UNRECORDABLE — a `find` whose predicate reads `now()`, so its answer is a
    * function of wall-clock time.  The wire golden compares whole response
@@ -538,6 +539,12 @@ export const UNCALLED_PINS: Record<string, Record<string, string>> = {
   },
   "corpus/exists-quantifier": {
     canRelabelRack: R.gateProbe,
+  },
+  "corpus/auth-simple": {
+    canReopenTicket: R.gateProbe,
+  },
+  "corpus/read-gates": {
+    canReopenOrder: R.gateProbe,
   },
   // ── The ROUTED-HANDLER fixture's two id-taking aggregate routes ──────────
   // `handler-triad`'s whole api is explicit `route … -> Sales.<Handler>`
@@ -1265,7 +1272,7 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   tenantRegistryRow: 20,
   seededListReadUnwritten: 2,
-  gateProbe: 3,
+  gateProbe: 5,
   // +2 — `corpus/handler-triad` joined the census when the routed-handler call
   // form made its api addressable, and brought its aggregate's two id-taking
   // routes with it.  A pin count that goes UP is not a regression when the

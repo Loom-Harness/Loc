@@ -151,5 +151,8 @@ system ReadGates {
     expect(api.orders.getById(a)).toThrow(404)
     let remaining = api.orders.all()
     expect(remaining.total).toBe(1)
+    // The placed order is closed, so `when !open` admits `reopen()`.
+    api.orders.reopen(b)
+    expect(api.orders.getById(b).open).toBe(true)
   }
 }

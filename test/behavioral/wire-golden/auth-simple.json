@@ -33,7 +33,7 @@
     {
       "seq": 3,
       "method": "POST",
-      "path": "/api/tickets/{id}/update",
+      "path": "/api/tickets/{id}/reopen",
       "status": 204,
       "body": ""
     },
@@ -46,11 +46,30 @@
         "id": "<volatile:key>",
         "open": true,
         "rowVersion": 3,
-        "subject": "Login restored"
+        "subject": "Broken login"
       }
     },
     {
       "seq": 5,
+      "method": "POST",
+      "path": "/api/tickets/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "open": true,
+        "rowVersion": 4,
+        "subject": "Login restored"
+      }
+    },
+    {
+      "seq": 7,
       "method": "GET",
       "path": "/api/tickets",
       "status": 200,
@@ -59,7 +78,7 @@
           {
             "id": "<volatile:key>",
             "open": true,
-            "rowVersion": 3,
+            "rowVersion": 4,
             "subject": "Login restored"
           }
         ],
@@ -70,14 +89,14 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 8,
       "method": "DELETE",
       "path": "/api/tickets/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 7,
+      "seq": 9,
       "method": "GET",
       "path": "/api/tickets/{id}",
       "status": 404,
@@ -94,7 +113,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 10,
       "method": "GET",
       "path": "/api/tickets",
       "status": 200,
@@ -107,7 +126,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 11,
       "method": "POST",
       "path": "/api/memos",
       "status": 201,
@@ -116,14 +135,14 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 12,
       "method": "POST",
       "path": "/api/memos/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 11,
+      "seq": 13,
       "method": "GET",
       "path": "/api/memos/{id}",
       "status": 200,
@@ -134,7 +153,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 14,
       "method": "POST",
       "path": "/api/notes",
       "status": 201,
@@ -143,14 +162,14 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 15,
       "method": "POST",
       "path": "/api/notes/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 14,
+      "seq": 16,
       "method": "GET",
       "path": "/api/notes/{id}",
       "status": 200,
@@ -161,7 +180,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 17,
       "method": "GET",
       "path": "/api/memos",
       "status": 200,
@@ -180,7 +199,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 18,
       "method": "GET",
       "path": "/api/notes",
       "status": 200,
@@ -199,14 +218,14 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 19,
       "method": "DELETE",
       "path": "/api/notes/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 18,
+      "seq": 20,
       "method": "GET",
       "path": "/api/notes",
       "status": 200,
@@ -219,7 +238,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 21,
       "method": "PATCH",
       "path": "/api/tickets",
       "status": 405,
@@ -233,7 +252,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 22,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -247,7 +266,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 23,
       "method": "POST",
       "path": "/api/tickets",
       "status": 400,
@@ -261,7 +280,7 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 24,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,
@@ -271,41 +290,41 @@
       }
     },
     {
-      "seq": 23,
-      "method": "POST",
-      "path": "/api/tickets/{id}/close",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Ticket {id} not found",
-        "instance": "/api/tickets/{id}/close",
-        "params": {
-          "type": "Tickets.Ticket"
-        },
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
-      }
-    },
-    {
-      "seq": 24,
-      "method": "POST",
-      "path": "/api/tickets/{id}/close",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Ticket {id} not found",
-        "instance": "/api/tickets/{id}/close",
-        "params": {
-          "type": "Tickets.Ticket"
-        },
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
-      }
-    },
-    {
       "seq": 25,
+      "method": "POST",
+      "path": "/api/tickets/{id}/close",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Ticket {id} not found",
+        "instance": "/api/tickets/{id}/close",
+        "params": {
+          "type": "Tickets.Ticket"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/tickets/{id}/close",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Ticket {id} not found",
+        "instance": "/api/tickets/{id}/close",
+        "params": {
+          "type": "Tickets.Ticket"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 27,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 415,
@@ -319,7 +338,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 28,
       "method": "POST",
       "path": "/api/memos/{id}/update",
       "status": 404,
@@ -336,7 +355,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 29,
       "method": "POST",
       "path": "/api/tickets",
       "status": 201,
@@ -345,7 +364,7 @@
       }
     },
     {
-      "seq": 28,
+      "seq": 30,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 403,
@@ -359,14 +378,14 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 31,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 30,
+      "seq": 32,
       "method": "POST",
       "path": "/api/memos",
       "status": 201,
@@ -375,7 +394,7 @@
       }
     },
     {
-      "seq": 31,
+      "seq": 33,
       "method": "POST",
       "path": "/api/memos/{id}/update",
       "status": 403,
@@ -389,14 +408,14 @@
       }
     },
     {
-      "seq": 32,
+      "seq": 34,
       "method": "POST",
       "path": "/api/memos/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 33,
+      "seq": 35,
       "method": "POST",
       "path": "/api/notes",
       "status": 201,
@@ -405,7 +424,7 @@
       }
     },
     {
-      "seq": 34,
+      "seq": 36,
       "method": "POST",
       "path": "/api/notes/{id}/update",
       "status": 403,
@@ -419,14 +438,14 @@
       }
     },
     {
-      "seq": 35,
+      "seq": 37,
       "method": "POST",
       "path": "/api/notes/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 36,
+      "seq": 38,
       "method": "POST",
       "path": "/api/notes",
       "status": 403,
@@ -440,25 +459,25 @@
       }
     },
     {
-      "seq": 37,
-      "method": "POST",
-      "path": "/api/notes",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
-    },
-    {
-      "seq": 38,
-      "method": "POST",
-      "path": "/api/notes",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
-    },
-    {
       "seq": 39,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 40,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 41,
       "method": "DELETE",
       "path": "/api/notes/{id}",
       "status": 403,
@@ -472,14 +491,14 @@
       }
     },
     {
-      "seq": 40,
+      "seq": 42,
       "method": "DELETE",
       "path": "/api/notes/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 41,
+      "seq": 43,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 403,
@@ -493,7 +512,7 @@
       }
     },
     {
-      "seq": 42,
+      "seq": 44,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 404,
@@ -510,7 +529,7 @@
       }
     },
     {
-      "seq": 43,
+      "seq": 45,
       "method": "POST",
       "path": "/api/memos",
       "status": 201,
@@ -519,7 +538,7 @@
       }
     },
     {
-      "seq": 44,
+      "seq": 46,
       "method": "POST",
       "path": "/api/memos/{id}/update",
       "status": 403,
@@ -533,7 +552,7 @@
       }
     },
     {
-      "seq": 45,
+      "seq": 47,
       "method": "POST",
       "path": "/api/memos/{id}/update",
       "status": 409,
@@ -550,7 +569,7 @@
       }
     },
     {
-      "seq": 46,
+      "seq": 48,
       "method": "POST",
       "path": "/api/tickets",
       "status": 201,
@@ -559,7 +578,7 @@
       }
     },
     {
-      "seq": 47,
+      "seq": 49,
       "method": "POST",
       "path": "/api/tickets/{id}/reopen",
       "status": 403,
@@ -573,7 +592,7 @@
       }
     },
     {
-      "seq": 48,
+      "seq": 50,
       "method": "POST",
       "path": "/api/tickets/{id}/reopen",
       "status": 409,
@@ -590,7 +609,7 @@
       }
     },
     {
-      "seq": 49,
+      "seq": 51,
       "method": "POST",
       "path": "/api/tickets",
       "status": 201,
@@ -599,7 +618,7 @@
       }
     },
     {
-      "seq": 50,
+      "seq": 52,
       "method": "GET",
       "path": "/api/tickets/{id}/can_reopen",
       "status": 200,
@@ -608,7 +627,7 @@
       }
     },
     {
-      "seq": 51,
+      "seq": 53,
       "method": "GET",
       "path": "/api/tickets/{id}/can_reopen",
       "status": 200,

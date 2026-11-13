@@ -619,7 +619,11 @@ export function deriveAggregateOperations(
         `${base}/{id}/can_${slug}`,
         [idParam()],
         { kind: "primitive", name: "bool" },
-        errorStatuses("getById", false, resolveStatus),
+        // The probe reads the row exactly as `GET /{id}` does, so it refuses
+        // exactly as that read does (the gate ladder, docs/auth.md): the read
+        // gate's 403, the read scope's 404.  The operation's own `requires`
+        // and `when` answer `{ allowed: false }`.
+        errorStatuses("getById", byId?.requires !== undefined, resolveStatus),
         { operation: op },
       );
     }

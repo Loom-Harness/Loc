@@ -66,6 +66,10 @@ system SimpleAuth {
     api.tickets.close(t)
     let read = api.tickets.getById(t)
     expect(read.open).toBe(false)
+    // `reopen()` is gated by the same `requires` and by `when !open`: the
+    // agent may reopen the closed ticket.
+    api.tickets.reopen(t)
+    expect(api.tickets.getById(t).open).toBe(true)
 
     // The canonical `update` carries NO `requires` clause, so it proves the
     // dev-stub principal reaches an unguarded write on an `auth: required`
