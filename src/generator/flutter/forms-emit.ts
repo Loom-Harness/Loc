@@ -72,6 +72,7 @@ import {
   renderFormField,
 } from "../_frontend/form-spec.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
+import { workflowResultSegment } from "../_frontend/workflow-result.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { chromeKey, chromeMessage, sentenceChromeName } from "../_walker/i18n-chrome.js";
 import {
@@ -244,6 +245,9 @@ export interface FlutterFormSpec {
   /** A workflow run may write any aggregate, so its success drops every cached
    *  read rather than one aggregate's. */
   invalidatesAllReads?: boolean;
+  /** A workflow run whose start route answers with the created record's id:
+   *  the route segment of that record, which the form opens on success. */
+  resultSegment?: string;
   /** Whether the widget takes a `required String id` ctor arg (op / destroy). */
   needsId: boolean;
   /** Fully-built request path (a Dart string-literal body, e.g. `/products` or
@@ -1036,6 +1040,7 @@ export function flutterWorkflowForm(
     needsId: false,
     pathExpr: `/workflows/${snake(wf.name)}`,
     invalidatesAllReads: true,
+    ...(workflowResultSegment(wf) ? { resultSegment: workflowResultSegment(wf) } : {}),
     submitLabel: run ? run.defaultText : opDefaultText(wf.name, "run"),
     ...(text && run ? { submitExpr: dartTranslate(run.key, run.defaultText) } : {}),
     fields,
@@ -2262,7 +2267,10 @@ function submitMethod(spec: FlutterFormSpec, invalidates: boolean): string[] {
     "      if (res.statusCode >= 200 && res.statusCode < 300) {",
     "        if (!mounted) return;",
     ...invalidateCall(spec, invalidates),
-    "        Navigator.of(context).pop();",
+    // A run that created a record opens it in place of the form.
+    spec.resultSegment
+      ? `        Navigator.of(context).pushReplacementNamed('/${spec.resultSegment}/\${jsonDecode(res.body) as String}');`
+      : "        Navigator.of(context).pop();",
     "        return;",
     "      }",
     // A rejection lands at the fields its ProblemDetails pointers name; the
