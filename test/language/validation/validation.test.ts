@@ -2873,7 +2873,7 @@ describe("Loom IR validation (post-lowering)", async () => {
   // believe a no-op value has effect.
   // -------------------------------------------------------------------
 
-  it("refuses 'ttl' on a kind: cache dataSource", async () => {
+  it("accepts 'ttl' on a kind: cache dataSource where the backend caches (node)", async () => {
     const loom = await loomFrom(`
       system S {
         subdomain M { context C { aggregate A { x: int } } }
@@ -2888,12 +2888,7 @@ describe("Loom IR validation (post-lowering)", async () => {
       }
     `);
     const errors = validateLoomModel(loom).filter((d) => d.code === "loom.target-unsupported");
-    expect(
-      errors.some(
-        (d) => /resource 'cCache' \(sets `ttl:`/.test(d.message) && /can't realize/.test(d.message),
-      ),
-      JSON.stringify(errors),
-    ).toBe(true);
+    expect(errors, JSON.stringify(errors)).toEqual([]);
   });
 
   it("refuses 'every' and 'retain' on a kind: eventLog dataSource", async () => {
@@ -2943,7 +2938,7 @@ describe("Loom IR validation (post-lowering)", async () => {
     ).toEqual([]);
   });
 
-  it("refuses 'keyPrefix' on a kind: cache dataSource", async () => {
+  it("refuses a wired kind: cache dataSource (with keyPrefix) on a backend that does not cache", async () => {
     const loom = await loomFrom(`
       system S {
         subdomain M { context C { aggregate A { x: int } } }
@@ -2952,14 +2947,14 @@ describe("Loom IR validation (post-lowering)", async () => {
         resource cState { for: C, kind: state, use: pg }
         resource cCache { for: C, kind: cache, use: r, keyPrefix: "x:" }
         deployable api {
-          platform: node, contexts: [C],
+          platform: python, contexts: [C],
           dataSources: [cState, cCache], port: 3000
         }
       }
     `);
     const errors = validateLoomModel(loom).filter((d) => d.code === "loom.target-unsupported");
     expect(
-      errors.some((d) => /resource 'cCache' \(sets `keyPrefix:`/.test(d.message)),
+      errors.some((d) => /resource 'cCache' \(kind: cache/.test(d.message)),
       JSON.stringify(errors),
     ).toBe(true);
   });
