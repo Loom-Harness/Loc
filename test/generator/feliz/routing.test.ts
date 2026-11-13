@@ -89,7 +89,7 @@ describe("feliz multi-page routing", () => {
     // The list loads when its page is entered, from `init` and every `UrlChanged`.
     expect(app).toContain("  | Products -> Cmd.OfAsync.perform");
     expect(app).toContain(
-      "  | UrlChanged segments ->\n      let page = parseUrl segments\n      let __m = { model with CurrentPage = page }\n      __m, pageCmd __m page",
+      "  | UrlChanged segments ->\n      let page = parseUrl segments\n      if page = model.CurrentPage then model, Cmd.none\n      else\n        let __m = { model with CurrentPage = page }\n        __m, pageCmd __m page",
     );
   });
 

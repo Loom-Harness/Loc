@@ -892,16 +892,20 @@ export function renderUpdate(
   // must refetch: reset every byId field to `Loading` and fire `pageCmd` (which
   // issues the fetches for the newly-active page, or `Cmd.none`).  Under an auth
   // gate nothing fires until the session is `Authed` — `SessionChecked` fires the
-  // current page's reads when it resolves.
+  // current page's reads when it resolves.  The router also reports the URL the
+  // app STARTED on; that page's reads are already in flight from startup, so a
+  // URL naming the current page fetches nothing.
   const routeArms = routed
     ? hasPageCmd
       ? [
           "  | UrlChanged segments ->\n" +
             "      let page = parseUrl segments\n" +
-            `      let __m = { model with CurrentPage = page${byIdReads
+            "      if page = model.CurrentPage then model, Cmd.none\n" +
+            "      else\n" +
+            `        let __m = { model with CurrentPage = page${byIdReads
               .map((r) => `; ${r.field} = Loading`)
               .join("")} }\n` +
-            `      __m, ${authUi ? "(if __m.Session = Authed then pageCmd __m page else Cmd.none)" : "pageCmd __m page"}`,
+            `        __m, ${authUi ? "(if __m.Session = Authed then pageCmd __m page else Cmd.none)" : "pageCmd __m page"}`,
         ]
       : ["  | UrlChanged segments -> { model with CurrentPage = parseUrl segments }, Cmd.none"]
     : [];

@@ -98,11 +98,13 @@ describe("feliz byId detail-page reads", () => {
     expect(app).toContain("let init () =\n  let page = parseUrl (Router.currentPath ())");
     expect(app).toContain("      CurrentPage = page");
     expect(app).toContain("  __m, pageCmd __m page");
-    // UrlChanged re-parses, resets the byId field to Loading, and re-fires pageCmd.
+    // UrlChanged re-parses; a different page resets the byId field to Loading
+    // and re-fires pageCmd, while the startup URL's own report fetches nothing.
     expect(app).toContain(
       "  | UrlChanged segments ->\n      let page = parseUrl segments\n" +
-        "      let __m = { model with CurrentPage = page; ProductById = Loading }\n" +
-        "      __m, pageCmd __m page",
+        "      if page = model.CurrentPage then model, Cmd.none\n      else\n" +
+        "        let __m = { model with CurrentPage = page; ProductById = Loading }\n" +
+        "        __m, pageCmd __m page",
     );
   });
 
