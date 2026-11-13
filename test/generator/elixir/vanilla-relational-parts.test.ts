@@ -175,6 +175,6 @@ describe("vanilla containment removal persists (M-T6.94)", () => {
       "Ecto.Changeset.put_assoc(:charges, __put_value_rows(record.charges, record.__struct__, :charges))",
     );
     expect(ctx).not.toContain("force_change(:charges");
-    expect(ctx).toContain("defp __put_value_rows(list, owner, field) when is_list(list) do");
+    expect(ctx).toContain("defp __put_value_rows(list, owner, field) do");
   });
 });

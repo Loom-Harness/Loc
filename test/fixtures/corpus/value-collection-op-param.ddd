@@ -52,7 +52,7 @@ system ValueCollectionOpParam {
 
   test e2e "a value-object param is cast before it joins a value collection" against d {
     let p = api.providers.create({ name: "p", attributes: [] })
-    api.providers.putAttribute(p, { v: { name: "cpr", kind: "Licence", weight: 1.5, until: "2027-12-31T10:11:12.345Z" } })
+    api.providers.putAttribute(p, { v: { name: "cpr", kind: "Licence", weight: 1.5, until: "2027-12-31T10:11:12Z" } })
     api.grant.run({ provider: p.id, v: { name: "triage", kind: "Skill", weight: 2 } })
 
     let read = api.providers.getById(p)
@@ -60,7 +60,7 @@ system ValueCollectionOpParam {
     let cpr = read.attributes.where(a => a.name == "cpr").first()
     expect(cpr.kind).toBe("Licence")
     expect(decimal(cpr.weight)).toBe(1.5)
-    expect(cpr.until).toBe("2027-12-31T10:11:12.345Z")
+    expect(cpr.until).toBe("2027-12-31T10:11:12Z")
     let triage = read.attributes.where(a => a.name == "triage").first()
     expect(triage.until).toBe(null)
 

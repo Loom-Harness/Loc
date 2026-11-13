@@ -1494,15 +1494,14 @@ function renderPutValueRowsHelper(): string {
   # is cast through the element schema's own \`changeset/2\`, so it is typed the
   # way a create body is and its invariants run: bad input is a 422, not an
   # \`ArgumentError\` / \`Ecto.ChangeError\` 500.
-  defp __put_value_rows(list, owner, field) when is_list(list) do
+  defp __put_value_rows(list, owner, field) do
     related = owner.__schema__(:association, field).related
 
     list
+    |> List.wrap()
     |> Enum.with_index()
     |> Enum.map(fn {el, i} -> __value_row(el, i, related) end)
   end
-
-  defp __put_value_rows(nil, _owner, _field), do: []
 
   defp __value_row(%{__struct__: _} = el, i, _related) do
     el
