@@ -122,6 +122,10 @@ system MatchOpResult {
     let receipts = api.receipts.all()
     expect(receipts.items.length).toBe(1)
     expect(receipts.items.first().left).toBe(25)
+    let rc = api.receipts.create({ left: 1 })
+    api.receipts.update(rc, { left: 2 })
+    expect(api.receipts.getById(rc).left).toBe(2)
+    api.receipts.destroy(rc)
 
     // The remaining generated routes.
     api.accounts.update(a, { owner: "bea", balance: 40 })
