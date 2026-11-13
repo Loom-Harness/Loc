@@ -1,6 +1,6 @@
 import { plural } from "../../../util/naming.js";
 import { csUsing } from "../../_imports/dotnet.js";
-import { noNulCharUsing } from "../dto-mapping.js";
+import { csSchemaRequiredAttr, noNulCharUsing } from "../dto-mapping.js";
 
 // Request + response DTO records.  Both are flat record-types in the
 // `Application.<Aggregates>.Requests` / `.Responses` namespaces.
@@ -41,7 +41,10 @@ function renderDtoFile(
   group: "Requests" | "Responses",
 ): string {
   const recs = args.records
-    .map((r) => `${r.decl ?? `public sealed record ${r.name}(${r.params});`}\n\n`)
+    .map(
+      (r) =>
+        `${r.decl ?? `${group === "Requests" ? csSchemaRequiredAttr(r.params) : ""}public sealed record ${r.name}(${r.params});`}\n\n`,
+    )
     .join("");
   const extra = (args.extraUsings ?? []).map((u) => `using ${u};\n`).join("");
   // `using …Domain.Enums` lets a DTO field carry the enum TYPE (paired

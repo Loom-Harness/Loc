@@ -159,7 +159,7 @@ describe(".NET wire ingress — a malformed money/datetime is 422, not 500", () 
       expect(
         b,
         `an action throws WireFormatException but declares no 422:\n${b.slice(0, 400)}`,
-      ).toContain("ProducesResponseType(typeof(ProblemDetails), 422)");
+      ).toContain('ProducesResponseType(typeof(ProblemResponse), 422, "application/problem+json")');
     }
   });
 });

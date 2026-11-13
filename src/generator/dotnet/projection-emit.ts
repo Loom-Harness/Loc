@@ -22,6 +22,7 @@ import {
   projectionRowTable,
 } from "./projection-state-emit.js";
 import { collectCsExprUsings, renderCsExpr } from "./render-expr.js";
+import { csProblemResponseAttr } from "./wire-policy-cs.js";
 import { renderExprWithEventParam } from "./workflow-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -426,7 +427,7 @@ function renderProjectionsController(
         )});\n`
       : "";
     const forbiddenAttr = gate
-      ? `    [ProducesResponseType(typeof(ProblemDetails), ${wireStatus("forbidden", ctx.structuralErrorStatuses)})]\n`
+      ? `    ${csProblemResponseAttr(wireStatus("forbidden", ctx.structuralErrorStatuses), "")}\n`
       : "";
     blocks.push(
       `    [HttpGet("${slug}")]\n` +
@@ -440,7 +441,7 @@ function renderProjectionsController(
         `    [HttpGet("${slug}/{key}")]\n` +
         `    [ProducesResponseType(typeof(${T}Response), 200)]\n` +
         forbiddenAttr +
-        `    [ProducesResponseType(typeof(ProblemDetails), ${wireStatus("not-found", ctx.structuralErrorStatuses)})]\n` +
+        `    ${csProblemResponseAttr(wireStatus("not-found", ctx.structuralErrorStatuses), "")}\n` +
         `    public async Task<IActionResult> Get${T}(${corrClr} key)\n` +
         `    {\n` +
         gateLines +

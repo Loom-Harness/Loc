@@ -16,20 +16,22 @@ engine — against an app mounted in an iframe.
   chain, resolves it against the live document with Playwright-like actionability/auto-wait, and
   acts.
 - **Transport** is pluggable. `makeIframeTransport` runs ops directly against a same-origin
-  iframe's document; a postMessage transport can be supplied for a cross-origin sandbox without
-  changing the `RemotePage` contract.
+  iframe's document; `makePostMessageTransport` (parent side) paired with `serveDriverOps`
+  (sandbox side) drives a cross-origin sandbox over `postMessage` without changing the
+  `RemotePage` contract.
 - **No host coupling.** Environment specifics (router basename, in-flight network state for
   network-idle waits) are passed in as accessor functions via options — the package names no
   application globals.
 
 ## Supported Playwright API (subset)
 
-This is the closed subset needed to drive generated page objects. It is **not** full Playwright.
+The table lists the closed subset that drives generated page objects (see `remote-page.ts` and `locator-assertions.ts` for the exact surface). It is **not** full Playwright.
 
 | Surface | Supported |
 |---|---|
-| `Page` | `goto`, `getByTestId`, `getByRole`, `locator`, `url`, `waitForURL`, `waitForLoadState("networkidle")`, `screenshot` |
-| `Locator` | `getByTestId`, `getByRole({ name, exact })`, `locator`, `filter({ has })`, `first`, `click`, `fill`, `innerText`, `count`, `waitFor({ state })` |
+| `Page` | `goto`, `url`, `locator`, `getByTestId`, `getByRole`, `getByText`, `getByLabel`, `getByPlaceholder`, `getByAltText`, `getByTitle`, `waitForURL`, `waitForLoadState`, `screenshot` |
+| `Locator` | the same `getBy*` selectors and `locator`, plus `filter`, `first`, `last`, `nth`, `click`, `dblclick`, `hover`, `press`, `fill`, `clear`, `focus`, `blur`, `check`, `uncheck`, `selectOption`, `innerText`, `inputValue`, `count`, `isVisible`, `isEnabled`, `isChecked`, `waitFor({ state })` |
+| Web-first assertions | `expect(locator)` via `createLocatorMatchers`: `toBeVisible`, `toBeHidden`, `toHaveText`, `toContainText`, `toHaveValue`, `toHaveCount`, `toBeEnabled`, `toBeDisabled`, `toBeChecked`, each with `.not` |
 
 Notable semantics modelled: strict single-match resolution (throws on multiple matches —
 use `.first()`), actionability gates (`visible` / `enabled` / `editable`), React-aware `fill`
@@ -37,8 +39,7 @@ use `.first()`), actionability gates (`visible` / `enabled` / `editable`), React
 required, so it runs under happy-dom). Hit-testing / stability checks that need a real layout
 engine are intentionally not modelled.
 
-Anything outside the table (e.g. `hover`, `press`, `selectOption`, `getByText`, web-first
-`expect(locator).toBeVisible()` assertions) is **not yet implemented** — contributions welcome.
+Anything outside the table is outside the closed subset.
 
 ## Status
 

@@ -35,6 +35,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
+import { javaRequiredSets } from "../_helpers/java-openapi-annotations.js";
 
 const system = (platform: string) => `
   system ClaimIntake {
@@ -162,9 +163,12 @@ describe("a command-typed workflow create param carries a wire type (#2864 D7/T2
     // .NET carries `[Required]`).  Without this the component lands as a fresh
     // `required-only-java` row in the 5-way parity diff.  `note` is optional
     // and must be absent from the set.
-    expect(await allFiles("java")).toContain(
-      `new RequiredSet("FileClaimResponse", List.of("amount", "cargo", "description")),`,
-    );
+    const files = await generateSystemFiles(system("java"));
+    expect(javaRequiredSets(files).get("FileClaimResponse")).toEqual([
+      "amount",
+      "cargo",
+      "description",
+    ]);
   });
 
   it("dotnet: BOTH the wire record and the domain record are emitted", async () => {

@@ -53,33 +53,12 @@ const MAX_DEFERRAL_DAYS = 180;
 
 /** One waiver per backend directory that still post-processes its document. */
 const WAIVERS: Record<string, Waiver> = {
-  "src/generator/java/": {
-    deferred:
-      "springdoc OpenApiCustomizer rewrites the document from a baked per-route table; " +
-      "replaced by config, @ApiResponse/@Schema metadata and sealed-interface unions",
-    reviewUntil: "2027-03-31",
-    blockedBy: "#4870",
-  },
   "src/generator/dotnet/": {
     deferred:
-      "Swashbuckle document/operation/schema filters; replaced by [ProducesResponseType], " +
-      "C# required members and [JsonPolymorphic] with UseOneOfForPolymorphism",
+      "ValueObjectSchemaMergeFilter folds each value object's per-direction, per-aggregate " +
+      "wire records into one component; replaced by one shared wire record per value object",
     reviewUntil: "2027-03-31",
-    blockedBy: "#4871",
-  },
-  "src/generator/python/": {
-    deferred:
-      "custom_openapi() rewrites 4xx/5xx content after get_openapi(); replaced by " +
-      "per-route responses= and Pydantic discriminated unions",
-    reviewUntil: "2027-03-31",
-    blockedBy: "#4872",
-  },
-  "src/generator/elixir/": {
-    deferred:
-      "ApiSpec builds its paths map by hand; replaced by ControllerSpecs operations " +
-      "and OpenApiSpex.Paths.from_router",
-    reviewUntil: "2027-03-31",
-    blockedBy: "#4873",
+    blockedBy: "#5321",
   },
 };
 

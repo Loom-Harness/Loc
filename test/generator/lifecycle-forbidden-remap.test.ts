@@ -20,8 +20,8 @@
 // while 403 appears on both rungs.
 //
 // Per backend the declaration is read ROUTE-SCOPED rather than project-wide:
-// java and python declare the whole per-route status set on one line, and
-// node / dotnet / elixir are sliced between their own route markers. A test
+// python declares the whole per-route status set on one line, and node /
+// dotnet / java / elixir are sliced between their own route markers. A test
 // that only counted 451s across the project would pass if both of them landed
 // on the same route.
 
@@ -90,11 +90,11 @@ const SPELLINGS: Record<string, Spelling> = {
     arm: (s, t) => `Problem(context, ${s}, "${t}", "Forbidden", trace_id, "problem.forbidden");`,
   },
   java: {
-    declFile: "api/src/main/java/com/loom/api/config/OpenApiContractCustomizer.java",
-    // springdoc has no per-route annotations; the customizer bakes each route's
-    // declared set as its own `new Route(...)` literal, which IS route-scoped.
-    createSlice: ['new Route("post", "/api/orders",', "),"],
-    destroySlice: ['new Route("delete", "/api/orders/{id}",', "),"],
+    declFile: "OrdersController.java",
+    // springdoc reads each method's `@ApiResponse` annotations, between its
+    // mapping and its signature — route-scoped.
+    createSlice: ["@PostMapping\n", "createOrder("],
+    destroySlice: ['@DeleteMapping("/{id}")', "destroyOrder("],
     arm: (s, t) =>
       `return respond(problem(${s}, "${t}", "Forbidden", "problem.forbidden", request), ${s});`,
   },
@@ -105,9 +105,10 @@ const SPELLINGS: Record<string, Spelling> = {
     arm: (s, t) => `return problem(request, ${s}, "${t}", "Forbidden", code="problem.forbidden")`,
   },
   elixir: {
-    declFile: "api/lib/api_web/api/sales_api_spec.ex",
-    createSlice: ['operationId: "createOrder"', "operationId:"],
-    destroySlice: ['operationId: "destroyOrder"', "operationId:"],
+    // Each action's `operation` spec sits on the controller; a blank line ends it.
+    declFile: "api/lib/api_web/controllers/order_controller.ex",
+    createSlice: ['operation_id: "createOrder"', "\n\n"],
+    destroySlice: ['operation_id: "destroyOrder"', "\n\n"],
     // Phoenix gates in the CONTEXT and the controller maps the typed tuple.
     arm: (s, t) => `ProblemDetails.problem_response(conn, ${s}, "${t}", `,
   },
