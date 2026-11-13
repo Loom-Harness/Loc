@@ -1,7 +1,10 @@
 // Playwright e2e harness scaffolding — framework-neutral (the specs
-// drive the browser through testid-keyed page objects); shared by the
-// React and Svelte frontends.  Extracted from
-// src/generator/react/emit-templates.ts.
+// drive the browser through testid-keyed page objects); shared by every
+// SPA frontend.
+
+import type { SystemIR, UiIR } from "../../ir/types/loom-ir.js";
+import type { PageNameCtx } from "../../ir/util/page-kind.js";
+import { smokeSpec } from "./smoke-spec.js";
 
 export const E2E_FIXTURES_TS = `// Auto-generated.
 import { test as base, expect } from "@playwright/test";
@@ -107,6 +110,105 @@ export default defineConfig({
   ],
 });
 `;
+
+// ---------------------------------------------------------------------------
+// Signed-in suites.
+//
+// A frontend whose routes sit behind the session guard (`auth: ui`) and whose
+// backend authenticates through an OIDC provider renders only its Sign in
+// screen until a session exists.  Its suite therefore signs in ONCE, in a
+// Playwright global setup, and every test reuses that session through
+// `storageState`.  The setup drives the real login: it reads the API origin off
+// the app's own session probe (`…/auth/me`), starts the backend's `/login`
+// there, fills the IdP's login form and keeps the cookies the callback sets.
+// The form field ids are Keycloak's, which the generated dev realm serves and
+// the playground's emulated provider serves too.
+// ---------------------------------------------------------------------------
+
+/** Whether a frontend's Playwright suite signs in before it runs: its routes
+ *  are guarded (`authUi`) and the system authenticates through OIDC.  The one
+ *  decision the config, the global setup and the smoke spec all follow. */
+export function e2eSignsIn(authUi: boolean, sys: Pick<SystemIR, "auth">): boolean {
+  return authUi && sys.auth !== undefined;
+}
+
+/** Where the global setup saves the signed-in session (git-ignored). */
+const STORAGE_STATE = ".auth/state.json";
+
+/** The Playwright config of a signed-in suite: the SPA config plus the global
+ *  setup and the saved session every test starts from. */
+const PLAYWRIGHT_CONFIG_SIGN_IN_TS = PLAYWRIGHT_CONFIG_TS.replace(
+  '  reporter: [["list"]],\n',
+  `  reporter: [["list"]],\n  // Signs in once through the IdP; every test reuses the saved session.\n  globalSetup: "./global-setup.ts",\n`,
+).replace(
+  '    baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3001",\n',
+  `    baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3001",\n    storageState: process.env.E2E_STORAGE_STATE ?? ${JSON.stringify(STORAGE_STATE)},\n`,
+);
+
+/** `e2e/global-setup.ts` of a signed-in suite.  Credentials come only from
+ *  E2E_OIDC_USERNAME / E2E_OIDC_PASSWORD — the same variables the api suite's
+ *  password grant reads — defaulting to the generated dev realm's `demo` user. */
+const E2E_GLOBAL_SETUP_TS = `// Auto-generated.
+import { type FullConfig, chromium } from "@playwright/test";
+
+const ME = /\\/auth\\/me(?:\\?.*)?$/;
+
+/** Sign in through the IdP once and save the session for every test. */
+export default async function globalSetup(config: FullConfig): Promise<void> {
+  const { baseURL, storageState } = config.projects[0].use;
+  if (!baseURL || typeof storageState !== "string") {
+    throw new Error("playwright.config needs use.baseURL and use.storageState");
+  }
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ baseURL });
+    // The app probes its session on mount; that request names the API origin
+    // the backend's /login and /callback live on (it may not be baseURL's).
+    const probe = page.waitForResponse((r) => ME.test(new URL(r.url()).pathname));
+    await page.goto("/");
+    const meUrl = (await probe).url();
+    await page.goto(meUrl.replace(ME, "/auth/login"));
+    await page.locator("#username").fill(process.env.E2E_OIDC_USERNAME ?? "demo");
+    await page.locator("#password").fill(process.env.E2E_OIDC_PASSWORD ?? "demo");
+    await page.locator("#kc-login").click();
+    await page.waitForURL((u) => u.origin === new URL(baseURL).origin, { timeout: 30_000 });
+    const me = await page.request.get(meUrl);
+    const principal = me.ok() ? await me.json().catch(() => null) : null;
+    if (principal === null) {
+      throw new Error(
+        \`Signing in did not establish a session: GET \${meUrl} → \${me.status()}. \` +
+          "Check the IdP user (E2E_OIDC_USERNAME / E2E_OIDC_PASSWORD) and the backend's OIDC_REDIRECT_URI.",
+      );
+    }
+    await page.context().storageState({ path: storageState });
+  } finally {
+    await browser.close();
+  }
+}
+`;
+
+/** `e2e/.gitignore` of a signed-in suite: the saved session holds live tokens. */
+const E2E_SIGN_IN_GITIGNORE = `${STORAGE_STATE.split("/")[0]}/\n`;
+
+/** The Playwright harness files every SPA frontend emits under `e2e/`, minus
+ *  its package manifest: the smoke spec, the fixtures, the config, and — for a
+ *  signed-in suite — the global setup and the ignore file for its session. */
+export function e2eHarnessFiles(
+  ui: UiIR,
+  nameCtx: PageNameCtx,
+  signIn: boolean,
+): [path: string, content: string][] {
+  const files: [string, string][] = [
+    ["e2e/smoke.spec.ts", smokeSpec(ui, nameCtx, signIn)],
+    ["e2e/fixtures.ts", E2E_FIXTURES_TS],
+    ["e2e/playwright.config.ts", signIn ? PLAYWRIGHT_CONFIG_SIGN_IN_TS : PLAYWRIGHT_CONFIG_TS],
+  ];
+  if (signIn) {
+    files.push(["e2e/global-setup.ts", E2E_GLOBAL_SETUP_TS]);
+    files.push(["e2e/.gitignore", E2E_SIGN_IN_GITIGNORE]);
+  }
+  return files;
+}
 
 // The Playwright suite has its own package.json so the runtime image
 // builds fast (no @playwright/test in the production install).  Run

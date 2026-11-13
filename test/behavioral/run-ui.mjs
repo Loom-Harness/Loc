@@ -38,6 +38,7 @@
 import { build } from "esbuild";
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -61,6 +62,7 @@ import {
 } from "./form-spec-ui.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE } from "./money-compare-ui.mjs";
 import { NUMERIC_FIELDS, numericSeedBody } from "./numeric-ui-contract.mjs";
+import { startLoginIssuer } from "./oidc-mock.mjs";
 import {
   buildFrontend,
   buildServerModule,
@@ -332,11 +334,25 @@ async function formSpecProbe(origin) {
   return { tier: "ui-probe", name, status: why.length ? "fail" : "pass", error: why.join("; ") };
 }
 
+/** A loopback port nothing listens on right now. */
+function freePort() {
+  return new Promise((res, rej) => {
+    const srv = createNetServer();
+    srv.on("error", rej);
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address();
+      srv.close(() => res(port));
+    });
+  });
+}
+
 async function runCase(c) {
   const genDir = mkdtempSync(join(tmpdir(), `loom-bhui-${c.name}-`));
   const workDir = join(WORK, c.name);
   mkdirSync(workDir, { recursive: true });
   let server;
+  let issuer;
+  const savedEnv = { ...process.env };
   try {
     // A `frontend` case is one fixture built once per frontend: its
     // `__FRONTEND__` placeholder names the `platform:` of the ui deployable.
@@ -381,8 +397,23 @@ async function runCase(c) {
 
     // 2. Boot ONE in-process server: built SPA + the generated Hono
     //    backend on PGlite (/api), same origin.
-    const { startServer } = await buildServerModule(deplDir, workDir);
-    server = await startServer({ distDir });
+    //    An `oidcLogin` case runs the backend's own OIDC verifier and login
+    //    handshake against the emulated provider, whose login page the
+    //    emitted suite's global setup fills.  The handshake reads its redirect
+    //    URIs when the bundle loads, so the port is chosen first.
+    let port = 0;
+    if (c.oidcLogin) {
+      issuer = await startLoginIssuer();
+      port = await freePort();
+      Object.assign(process.env, issuer.env, {
+        OIDC_REDIRECT_URI: `http://127.0.0.1:${port}/api/auth/callback`,
+        OIDC_POST_LOGIN_REDIRECT: `http://127.0.0.1:${port}/`,
+        // Plain-http origin: the session cookies must not be `Secure`.
+        LOOM_SECURE_TRANSPORT: "off",
+      });
+    }
+    const { startServer } = await buildServerModule(deplDir, workDir, { oidc: !!c.oidcLogin });
+    server = await startServer({ distDir, port });
     process.stdout.write(`    stack on :${server.port}\n`);
 
     if (uiSpecs.length === 0) {
@@ -456,6 +487,11 @@ async function runCase(c) {
     return { results, verification };
   } finally {
     if (server) await server.close().catch(() => {});
+    if (issuer) {
+      await issuer.stop();
+      for (const k of Object.keys(process.env)) if (!(k in savedEnv)) delete process.env[k];
+      Object.assign(process.env, savedEnv);
+    }
     // Rescue Playwright's evidence BEFORE the generated tree is unlinked.
     // The traces, screenshots and error-context the reporter names live under
     // <frontend>/e2e/test-results — inside the mkdtemp this `finally` deletes,
