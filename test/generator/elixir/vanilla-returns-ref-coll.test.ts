@@ -59,7 +59,7 @@ describe("vanilla returning op — reference-collection add/remove (DEBT-03)", (
     expect(ctx!).toMatch(/members = __ref_id_list\(record\.members\) \+\+ \[t\]/);
     // `remove` drops from the id list.
     expect(ctx!).toMatch(
-      /members = Enum\.reject\(__ref_id_list\(record\.members\), fn __e -> __e == t end\)/,
+      /members = Enum\.reject\(__ref_id_list\(record\.members\), fn loom_e -> loom_e == t end\)/,
     );
     // The success path persists the join table via a put_assoc changeset.
     expect(ctx!).toMatch(

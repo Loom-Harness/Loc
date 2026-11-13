@@ -1515,10 +1515,10 @@ export function renderReturningStmt(
       const field = snake(s.target.segments[0] ?? "");
       const value = renderExpr(s.value, rc);
       if (s.collection && rc.agg && isRefCollFieldName(rc.agg, field)) {
-        return `    ${field} = Enum.reject(__ref_id_list(record.${field}), fn __e -> __e == ${value} end)`;
+        return `    ${field} = Enum.reject(__ref_id_list(record.${field}), fn loom_e -> loom_e == ${value} end)`;
       }
       return s.collection
-        ? `    record = %{record | ${field}: Enum.reject(record.${field} || [], fn __e -> __e == ${value} end)}`
+        ? `    record = %{record | ${field}: Enum.reject(record.${field} || [], fn loom_e -> loom_e == ${value} end)}`
         : `    record = %{record | ${field}: record.${field} - ${value}}`;
     }
     case "emit": {

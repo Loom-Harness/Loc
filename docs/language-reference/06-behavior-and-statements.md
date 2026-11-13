@@ -485,7 +485,7 @@ self._notes[:] = [__e for __e in self._notes if __e != __rm]
 # the struct is rebuilt, then every touched field is force_change'd onto the changeset
 record = %{record | status: :Placed}
 record = %{record | notes: (record.notes || []) ++ ["line"]}
-record = %{record | notes: Enum.reject(record.notes || [], fn __e -> __e == "draft" end)}
+record = %{record | notes: Enum.reject(record.notes || [], fn loom_e -> loom_e == "draft" end)}
 changeset =
   record
   |> Ecto.Changeset.change(%{})

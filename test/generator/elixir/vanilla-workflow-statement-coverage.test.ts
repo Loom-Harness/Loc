@@ -148,7 +148,7 @@ describe("vanilla exception-less returning op — collection mutations + call", 
     // `tags += t` / `tags -= t` collection rebinds.
     expect(fn).toMatch(/record = %\{record \| tags: \(record\.tags \|\| \[\]\) \+\+ \[t\]\}/);
     expect(fn).toMatch(
-      /record = %\{record \| tags: Enum\.reject\(record\.tags \|\| \[\], fn __e -> __e == t end\)\}/,
+      /record = %\{record \| tags: Enum\.reject\(record\.tags \|\| \[\], fn loom_e -> loom_e == t end\)\}/,
     );
     // `total := total + 1` scalar arithmetic (`+=` is collection-only).
     expect(uncheckedInt(fn)).toMatch(/record = %\{record \| total: record\.total \+ 1\}/);

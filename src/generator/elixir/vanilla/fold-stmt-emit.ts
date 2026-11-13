@@ -73,7 +73,7 @@ export function renderFoldStatement(s: StmtIR, ctx: RenderCtx, opts: FoldOpts = 
       const field = snake(s.target.segments[0] ?? "");
       const value = renderFoldValue(s.value, ctx, opts);
       return s.collection
-        ? `    ${state} = %{${state} | ${field}: Enum.reject(${state}.${field} || [], fn __e -> __e == ${value} end)}`
+        ? `    ${state} = %{${state} | ${field}: Enum.reject(${state}.${field} || [], fn loom_e -> loom_e == ${value} end)}`
         : `    ${state} = %{${state} | ${field}: ${state}.${field} - ${value}}`;
     }
     case "let":
