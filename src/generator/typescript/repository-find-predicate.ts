@@ -822,7 +822,8 @@ export function scopeImportLine(
   const fns = [...new Set(list.map(drizzleScopeFnName))].filter((fn) =>
     new RegExp(`\\b${fn}\\(`).test(bodyScan),
   );
-  return fns.length > 0 ? `import { ${fns.join(", ")} } from "${READ_SCOPES_MODULE}";` : false;
+  const line = `import { ${fns.join(", ")} } from "${READ_SCOPES_MODULE}";`;
+  return fns.length > 0 ? line : false;
 }
 
 /** True when `agg` has a scope helper: some restriction applies to a plain read of it. */

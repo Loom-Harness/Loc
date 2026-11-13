@@ -18,6 +18,7 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { admittedReferences } from "../../src/ir/plan/ref-scope.js";
 import { aggregateIsEventSourced } from "../../src/ir/util/resolve-datasource.js";
+import { expectReach } from "../_helpers/census-reach.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { buildLoomModel, enrichedContexts } from "../_helpers/ir.js";
 import { corpusSourceFor } from "../fixtures/corpus/harness.js";
@@ -84,6 +85,7 @@ describe("reference admission census — every admitting save probes", () => {
     for (const backend of BACKENDS) {
       it(`${fixture} × ${backend}: each admitting repository spells the probe`, async () => {
         const aggs = await admittingAggregates(fixture);
+        expectReach(`${fixture} admitting aggregates`, aggs.length, 1);
         const files = await generateSystemFiles(corpusSourceFor(fixture, backend));
         for (const agg of aggs) {
           const hits = [...files.entries()].filter(([p]) => PROBE[backend].file(agg).test(`/${p}`));
