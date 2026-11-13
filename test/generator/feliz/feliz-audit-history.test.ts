@@ -130,7 +130,7 @@ describe("feliz entity-history read — MVU projection", () => {
     // Init seeds it Loading; UrlChanged resets BOTH page-entry fields.
     expect(app).toContain("      OrderHistory = Loading");
     expect(app).toContain(
-      "{ model with CurrentPage = page; OrderById = Loading; OrderHistory = Loading }, pageCmd page",
+      "let __m = { model with CurrentPage = page; OrderById = Loading; OrderHistory = Loading }\n      __m, pageCmd __m page",
     );
   });
 

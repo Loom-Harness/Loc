@@ -27,6 +27,7 @@ import type {
   FelizMutation,
   FelizOperationForm,
   FelizRead,
+  FelizSubmit,
   FelizWorkflowForm,
   FormRecord,
 } from "./wire.js";
@@ -39,7 +40,10 @@ import {
   formFileSelectMsg,
   formFileUploadedMsg,
   formHasFieldErrors,
+  formOpenField,
+  formPendingField,
   formServerField,
+  formToggleMsg,
   formTouchedField,
   formTouchMsg,
   ifMatchVersionExpr,
@@ -244,6 +248,9 @@ export function renderModel(
   /** Two or more locales ship: the Model carries the active locale, so a
    *  switch (a `LocaleChanged` message) changes it and re-renders every view. */
   locale = false,
+  /** Every submit-capable form (record-less ones included): each carries a
+   *  `Pending` flag, and a record-less one its own `Server` cell. */
+  submits: readonly FelizSubmit[] = [],
 ): string {
   const fields = [
     ...(locale ? ["    Locale: string"] : []),
@@ -267,40 +274,106 @@ export function renderModel(
       // JSON pointers name, the rest above the submit.
       `    ${formServerField(f.formField)}: ServerErrors`,
     ]),
+    ...submits.flatMap((f) => [
+      `    ${formPendingField(f.formField)}: bool`,
+      ...(f.hasRecord ? [] : [`    ${formServerField(f.formField)}: ServerErrors`]),
+      ...(f.hasOpen ? [`    ${formOpenField(f.formField)}: bool`] : []),
+    ]),
   ];
   if (fields.length === 0) return "type Model = { Unit: unit }";
   return `type Model =\n  {\n${fields.join("\n")}\n  }`;
 }
 
-/** The page-entry `Cmd` dispatcher — one arm per byId read, firing its fetch
- *  keyed off the route `id` bound by the hosting `Page` case.  Emitted only
- *  when byId reads exist (they fetch on page entry, not at init); returns "".
+/** Whether any read fires from a page-entry arm — a byId read, or a list read a
+ *  routed page hosts.  Under a non-routed ui nothing is page-entry. */
+export function hasPageEntryReads(reads: readonly FelizRead[], routed: boolean): boolean {
+  return routed && reads.some((r) => r.single || (r.hostPages?.length ?? 0) > 0);
+}
+
+/** A routed list read with no hosting page (or any read of a non-routed ui)
+ *  fires eagerly: from `init`, or once the session resolves under an auth gate. */
+function eagerReads(reads: readonly FelizRead[], routed: boolean): FelizRead[] {
+  return reads.filter((r) => !r.single && (!routed || (r.hostPages?.length ?? 0) === 0));
+}
+
+/** The `Cmd` that (re-)issues a list read from a model expression. */
+function listReadCmd(r: FelizRead, modelExpr: string): string {
+  return r.paging?.controls
+    ? pagedReadCmd(r, modelExpr)
+    : `Cmd.OfAsync.perform Api.${r.apiFn} () ${r.msgCase}`;
+}
+
+/** `Cmd.none`, the lone command, or a `Cmd.batch` of several. */
+function batchCmds(cmds: readonly string[]): string {
+  return cmds.length === 0
+    ? "Cmd.none"
+    : cmds.length === 1
+      ? cmds[0]!
+      : `Cmd.batch [ ${cmds.join("; ")} ]`;
+}
+
+/** The commands that run when the app is first allowed to talk to the backend:
+ *  the eager list reads plus the entry reads of the page the URL names.  Fired
+ *  from `init`, or from the session probe's result under an auth gate. */
+function startupCmds(
+  reads: readonly FelizRead[],
+  routed: boolean,
+  modelExpr: string,
+  pageExpr: string,
+): string[] {
+  return [
+    ...eagerReads(reads, routed).map((r) => listReadCmd(r, modelExpr)),
+    ...(hasPageEntryReads(reads, routed) ? [`pageCmd ${modelExpr} ${pageExpr}`] : []),
+  ];
+}
+
+/** The page-entry `Cmd` dispatcher — one arm per hosting `Page` case, firing
+ *  every read that case needs when its route is ENTERED: a byId read keyed off
+ *  the route `id` bound by the case, plus each list read the page's view names
+ *  (so a list loads on its own page, off the model's CURRENT page/sort state,
+ *  and is fresh after SPA navigation rather than fetched once at `init`).
+ *  Emitted only when such reads exist; returns "".
  *
- *      let pageCmd (page: Page) : Cmd<Msg> =
+ *      let pageCmd (model: Model) (page: Page) : Cmd<Msg> =
  *        match page with
  *        | ProductDetail id -> Cmd.OfAsync.perform Api.productById id ProductByIdLoaded
+ *        | ProductList -> Cmd.OfAsync.perform (fun () -> Api.allProducts …) () AllProductsLoaded
  *        | _ -> Cmd.none
  */
 export function renderPageCmd(reads: readonly FelizRead[] = []): string {
-  const byId = reads.filter((r) => r.single);
-  if (byId.length === 0) return "";
   // Two page-entry reads can share ONE hosting `Page` case — a detail page's
-  // byId read plus its entity-history read.  One arm per CASE, batching the
-  // fetches: a second `| OrderDetail id ->` arm would be unreachable (FS0026)
-  // and its fetch would silently never fire.  A lone read keeps the unbatched
-  // arm, byte-identical to before.
-  const byCase = new Map<string, FelizRead[]>();
-  for (const r of byId) {
-    const key = r.pageCase ?? "";
-    byCase.set(key, [...(byCase.get(key) ?? []), r]);
+  // byId read plus its entity-history read, or a list beside a select's option
+  // source.  One arm per CASE, batching the fetches: a second `| OrderDetail id
+  // ->` arm would be unreachable (FS0026) and its fetch would silently never
+  // fire.  A lone read keeps the unbatched arm.
+  const byCase = new Map<string, { binder: string; cmds: string[] }>();
+  const armFor = (pageCase: string, binder: string): { binder: string; cmds: string[] } => {
+    let arm = byCase.get(pageCase);
+    if (!arm) {
+      arm = { binder, cmds: [] };
+      byCase.set(pageCase, arm);
+    }
+    // A byId read binds the route id by name; a list-only case ignores it.
+    if (binder === " id") arm.binder = binder;
+    return arm;
+  };
+  const ignored = (n: number): string =>
+    n === 0 ? "" : n === 1 ? " _" : ` (${Array.from({ length: n }, () => "_").join(", ")})`;
+  for (const r of reads) {
+    if (r.single) {
+      armFor(r.pageCase ?? "", " id").cmds.push(
+        `Cmd.OfAsync.perform Api.${r.apiFn} id ${r.msgCase}`,
+      );
+      continue;
+    }
+    for (const h of r.hostPages ?? [])
+      armFor(h.pageCase, ignored(h.paramCount)).cmds.push(listReadCmd(r, "model"));
   }
-  const arms = [...byCase.entries()].map(([pageCase, rs]) => {
-    const cmds = rs.map((r) => `Cmd.OfAsync.perform Api.${r.apiFn} id ${r.msgCase}`);
-    return cmds.length === 1
-      ? `  | ${pageCase} id -> ${cmds[0]}`
-      : `  | ${pageCase} id -> Cmd.batch [ ${cmds.join("; ")} ]`;
-  });
-  return `let pageCmd (page: Page) : Cmd<Msg> =\n  match page with\n${arms.join("\n")}\n  | _ -> Cmd.none`;
+  if (byCase.size === 0) return "";
+  const arms = [...byCase.entries()].map(
+    ([pageCase, { binder, cmds }]) => `  | ${pageCase}${binder} -> ${batchCmds(cmds)}`,
+  );
+  return `let pageCmd (model: Model) (page: Page) : Cmd<Msg> =\n  match page with\n${arms.join("\n")}\n  | _ -> Cmd.none`;
 }
 
 /** `let init () = { … }, <Cmd>` — every read field starts `Loading`.  List reads
@@ -330,9 +403,12 @@ export function renderInit(
   i18n = false,
   /** Two or more locales ship: seed `Model.Locale` from the negotiated locale. */
   locale = false,
+  /** Every submit-capable form — seeds each `Pending` flag (and a record-less
+   *  form's `Server` cell). */
+  submits: readonly FelizSubmit[] = [],
 ): string {
   const i18nFlag: Pick<FsExprCtx, "i18n"> = i18n ? { i18n: true } : {};
-  const hasPageCmd = routed && reads.some((r) => r.single);
+  const hasPageCmd = hasPageEntryReads(reads, routed);
   const inits = [
     ...(locale ? ["      Locale = I18n.getLocale ()"] : []),
     ...(authUi ? ["      Session = Checking"] : []),
@@ -385,18 +461,19 @@ export function renderInit(
       ...(formHasFieldErrors(f) ? [`      ${formTouchedField(f.formField)} = Set.empty`] : []),
       `      ${formServerField(f.formField)} = ServerErrors.empty`,
     ]),
+    ...submits.flatMap((f) => [
+      `      ${formPendingField(f.formField)} = false`,
+      ...(f.hasRecord ? [] : [`      ${formServerField(f.formField)} = ServerErrors.empty`]),
+      ...(f.hasOpen ? [`      ${formOpenField(f.formField)} = false`] : []),
+    ]),
   ];
-  // List reads fire eagerly; byId reads fire on page entry via `pageCmd page`.
-  const cmds = reads
-    .filter((r) => !r.single)
-    .map((r) =>
-      // A paged read's first fetch already carries the state's initial page and
-      // sort, so it can't disagree with what the pager renders.
-      r.paging?.controls
-        ? pagedReadCmd(r, "__m")
-        : `Cmd.OfAsync.perform Api.${r.apiFn} () ${r.msgCase}`,
-    );
-  if (hasPageCmd) cmds.push("pageCmd page");
+  // Reads fire only once the app may talk to the backend: at `init`, or — under
+  // an auth gate — from the session probe's result, so an unauthenticated visit
+  // issues no 401/403 noise.  The eager list reads (no hosting page) and the
+  // entry reads of the page the URL names go together (`startupCmds`).  A paged
+  // read's first fetch already carries the state's initial page and sort, so it
+  // can't disagree with what the pager renders.
+  const cmds = authUi ? [] : startupCmds(reads, routed, "__m", "page");
   // `I18n.setLocale` -> `LocaleChanged`: one listener for the life of the app.
   if (locale) {
     cmds.push(
@@ -418,7 +495,7 @@ export function renderInit(
   // A paged read's init `Cmd` reads the model's own page/sort cells, so the
   // record has to be BOUND before the `Cmd` is built rather than returned
   // inline as the tuple's first element.
-  if (reads.some((r) => r.paging?.controls)) {
+  if (reads.some((r) => r.paging?.controls) || hasPageCmd) {
     const body = inits.map((l) => `  ${l}`).join("\n");
     return `${prefix}  let __m =\n    {\n${body}\n    }\n  __m, ${cmd}`;
   }
@@ -497,6 +574,7 @@ export function renderMsg(
       ...formFieldMsgs(f),
       ...(formHasFieldErrors(f) ? [`  | ${formTouchMsg(f.formType)} of string`] : []),
       ...fieldArrayMsgs(f),
+      `  | ${formToggleMsg(f.formType)}`,
       `  | ${f.submitMsg} of string`,
       `  | ${f.doneMsg} of Result<unit, ServerErrors>`,
     ]),
@@ -788,33 +866,42 @@ export function renderUpdate(
     );
   });
   const byIdReads = reads.filter((r) => r.single);
+  const hasPageCmd = hasPageEntryReads(reads, routed);
   // The auth gate: the session probe resolves to Authed / Anon.  Under a page
   // gate it also stashes the decoded claims (`Some user`) so a gated view can
-  // test them; `None` (401 / decode failure) falls to Anon.
+  // test them; `None` (401 / decode failure) falls to Anon.  Authed is also the
+  // moment the app's reads may first fire (`init` issues none under a gate): the
+  // eager lists plus the entry reads of the page the URL names.
+  const startup = startupCmds(reads, routed, "__m", "__m.CurrentPage");
+  const authed = (fields: string): string =>
+    startup.length === 0
+      ? `{ model with ${fields} }, Cmd.none`
+      : `(let __m = { model with ${fields} } in __m, ${batchCmds(startup)})`;
   const authArms = authUi
     ? pageGate
       ? [
-          "  | SessionChecked (Some user) ->\n" +
-            "      { model with Session = Authed; CurrentUser = Some user }, Cmd.none\n" +
+          `  | SessionChecked (Some user) -> ${authed("Session = Authed; CurrentUser = Some user")}\n` +
             "  | SessionChecked None -> { model with Session = Anon }, Cmd.none",
         ]
       : [
-          "  | SessionChecked true -> { model with Session = Authed }, Cmd.none\n" +
+          `  | SessionChecked true -> ${authed("Session = Authed")}\n` +
             "  | SessionChecked false -> { model with Session = Anon }, Cmd.none",
         ]
     : [];
-  const hasPageCmd = routed && byIdReads.length > 0;
-  // On navigation, re-parse the URL.  With byId reads, entering a detail page
+  // On navigation, re-parse the URL.  With page-entry reads, entering a page
   // must refetch: reset every byId field to `Loading` and fire `pageCmd` (which
-  // issues the fetch for the newly-active detail page, or `Cmd.none`).
+  // issues the fetches for the newly-active page, or `Cmd.none`).  Under an auth
+  // gate nothing fires until the session is `Authed` — `SessionChecked` fires the
+  // current page's reads when it resolves.
   const routeArms = routed
     ? hasPageCmd
       ? [
           "  | UrlChanged segments ->\n" +
             "      let page = parseUrl segments\n" +
-            `      { model with CurrentPage = page; ${byIdReads
-              .map((r) => `${r.field} = Loading`)
-              .join("; ")} }, pageCmd page`,
+            `      let __m = { model with CurrentPage = page${byIdReads
+              .map((r) => `; ${r.field} = Loading`)
+              .join("")} }\n` +
+            `      __m, ${authUi ? "(if __m.Session = Authed then pageCmd __m page else Cmd.none)" : "pageCmd __m page"}`,
         ]
       : ["  | UrlChanged segments -> { model with CurrentPage = parseUrl segments }, Cmd.none"]
     : [];
@@ -925,6 +1012,17 @@ export function renderUpdate(
   // decoded `ServerErrors` on the Model for the view to render.
   const clearServer = (f: FormRecord): string =>
     `${formServerField(f.formField)} = ServerErrors.empty`;
+  // A submit runs through `Cmd.OfAsync.either`, not `perform`: a network failure
+  // (the request never produced a response) is an exception inside the async,
+  // and `perform` would drop it — the form would sit pending, with nothing said.
+  // It lands as the form-level message instead.
+  const submitCmd = (task: string, arg: string, resultMsg: string): string =>
+    `Cmd.OfAsync.either ${task} ${arg} ${resultMsg} (fun ex -> ${resultMsg} (Error (ServerErrors.formLevel ex.Message)))`;
+  // The in-flight bracket: set at submit, cleared by the result.
+  const pendingOn = (f: FormRecord): string => `${formPendingField(f.formField)} = true`;
+  const pendingOff = (f: FormRecord): string => `${formPendingField(f.formField)} = false`;
+  const ignoreWhilePending = (f: FormRecord, msgPattern: string): string =>
+    `  | ${msgPattern} when model.${formPendingField(f.formField)} -> model, Cmd.none`;
   // A create form: per-field setters (functional record update), a submit that
   // fires the POST `Cmd`, and a `Created` result that resets the form + navigates.
   const formArms = forms.map((f) => {
@@ -940,9 +1038,10 @@ export function renderUpdate(
       ...setters,
       ...touchArm(f),
       ...fieldArrayUpdateArms(f),
-      `  | ${f.submitMsg} -> { model with ${clearServer(f)} }, Cmd.OfAsync.perform Api.${f.apiFn} model.${f.formField} ${f.resultMsg}`,
-      `  | ${f.resultMsg} (Ok created) -> { model with ${f.formField} = ${f.emptyBinding} }, ${nav}`,
-      `  | ${f.resultMsg} (Error e) -> { model with ${formServerField(f.formField)} = e }, Cmd.none`,
+      ignoreWhilePending(f, f.submitMsg),
+      `  | ${f.submitMsg} -> { model with ${clearServer(f)}; ${pendingOn(f)} }, ${submitCmd(`Api.${f.apiFn}`, `model.${f.formField}`, f.resultMsg)}`,
+      `  | ${f.resultMsg} (Ok created) -> { model with ${f.formField} = ${f.emptyBinding}; ${pendingOff(f)} }, ${nav}`,
+      `  | ${f.resultMsg} (Error e) -> { model with ${formServerField(f.formField)} = e; ${pendingOff(f)} }, Cmd.none`,
     ].join("\n");
   });
   // An operation form: per-field setters, a submit that fires the id-qualified
@@ -959,23 +1058,34 @@ export function renderUpdate(
       : "";
   const operationArms = operationForms.map((f) => {
     const setters = formFieldSetterArms(f);
-    const nav = `Cmd.navigatePath(${f.navigateSegs.map((s) => `"${s}"`).join(", ")})`;
+    // The op acts on the record the user is looking at, so success stays on its
+    // page and reloads what the page shows (the record's fields, its `can_<op>`
+    // probe, the lists it hosts) instead of navigating away from it.
+    const reload = hasPageCmd ? "pageCmd model model.CurrentPage" : "Cmd.none";
+    const pending = ignoreWhilePending(f, `${f.submitMsg} _`);
+    const server = formServerField(f.formField);
+    const toggle = `  | ${formToggleMsg(f.formType)} -> { model with ${formOpenField(f.formField)} = not model.${formOpenField(f.formField)} }, Cmd.none`;
+    const close = `${formOpenField(f.formField)} = false`;
     // A PARAM-LESS op (`confirm()`) has no form record: the submit posts `()`
     // (empty body) and the done arm doesn't reset a form field.
     if (!opHasForm(f)) {
       return [
-        `  | ${f.submitMsg} id -> model, Cmd.OfAsync.perform (Api.${f.apiFn} id${ifMatchArg(f)}) () ${f.doneMsg}`,
-        `  | ${f.doneMsg} (Ok ()) -> model, ${nav}`,
-        `  | ${f.doneMsg} (Error _) -> model, Cmd.none`,
+        toggle,
+        pending,
+        `  | ${f.submitMsg} id -> { model with ${server} = ServerErrors.empty; ${pendingOn(f)} }, ${submitCmd(`(Api.${f.apiFn} id${ifMatchArg(f)})`, "()", f.doneMsg)}`,
+        `  | ${f.doneMsg} (Ok ()) -> { model with ${pendingOff(f)}; ${close} }, ${reload}`,
+        `  | ${f.doneMsg} (Error e) -> { model with ${server} = e; ${pendingOff(f)} }, Cmd.none`,
       ].join("\n");
     }
     return [
       ...setters,
       ...touchArm(f),
       ...fieldArrayUpdateArms(f),
-      `  | ${f.submitMsg} id -> { model with ${clearServer(f)} }, Cmd.OfAsync.perform (Api.${f.apiFn} id${ifMatchArg(f)}) model.${f.formField} ${f.doneMsg}`,
-      `  | ${f.doneMsg} (Ok ()) -> { model with ${f.formField} = ${f.emptyBinding} }, ${nav}`,
-      `  | ${f.doneMsg} (Error e) -> { model with ${formServerField(f.formField)} = e }, Cmd.none`,
+      toggle,
+      pending,
+      `  | ${f.submitMsg} id -> { model with ${clearServer(f)}; ${pendingOn(f)} }, ${submitCmd(`(Api.${f.apiFn} id${ifMatchArg(f)})`, `model.${f.formField}`, f.doneMsg)}`,
+      `  | ${f.doneMsg} (Ok ()) -> { model with ${f.formField} = ${f.emptyBinding}; ${pendingOff(f)}; ${close} }, ${reload}`,
+      `  | ${f.doneMsg} (Error e) -> { model with ${server} = e; ${pendingOff(f)} }, Cmd.none`,
     ].join("\n");
   });
   // A workflow form: per-field setters, a PARAMLESS submit firing the POST
@@ -983,22 +1093,26 @@ export function renderUpdate(
   const workflowArms = workflowForms.map((f) => {
     const setters = formFieldSetterArms(f);
     const nav = `Cmd.navigatePath(${f.navigateSegs.map((s) => `"${s}"`).join(", ")})`;
+    const pending = ignoreWhilePending(f, f.submitMsg);
+    const server = formServerField(f.formField);
     // A PARAM-LESS workflow (`run()`) has no form record: the submit posts `()`
     // (empty body) and the done arm doesn't reset a form field.
     if (!wfHasForm(f)) {
       return [
-        `  | ${f.submitMsg} -> model, Cmd.OfAsync.perform Api.${f.apiFn} () ${f.doneMsg}`,
-        `  | ${f.doneMsg} (Ok ()) -> model, ${nav}`,
-        `  | ${f.doneMsg} (Error _) -> model, Cmd.none`,
+        pending,
+        `  | ${f.submitMsg} -> { model with ${server} = ServerErrors.empty; ${pendingOn(f)} }, ${submitCmd(`Api.${f.apiFn}`, "()", f.doneMsg)}`,
+        `  | ${f.doneMsg} (Ok ()) -> { model with ${pendingOff(f)} }, ${nav}`,
+        `  | ${f.doneMsg} (Error e) -> { model with ${server} = e; ${pendingOff(f)} }, Cmd.none`,
       ].join("\n");
     }
     return [
       ...setters,
       ...touchArm(f),
       ...fieldArrayUpdateArms(f),
-      `  | ${f.submitMsg} -> { model with ${clearServer(f)} }, Cmd.OfAsync.perform Api.${f.apiFn} model.${f.formField} ${f.doneMsg}`,
-      `  | ${f.doneMsg} (Ok ()) -> { model with ${f.formField} = ${f.emptyBinding} }, ${nav}`,
-      `  | ${f.doneMsg} (Error e) -> { model with ${formServerField(f.formField)} = e }, Cmd.none`,
+      pending,
+      `  | ${f.submitMsg} -> { model with ${clearServer(f)}; ${pendingOn(f)} }, ${submitCmd(`Api.${f.apiFn}`, `model.${f.formField}`, f.doneMsg)}`,
+      `  | ${f.doneMsg} (Ok ()) -> { model with ${f.formField} = ${f.emptyBinding}; ${pendingOff(f)} }, ${nav}`,
+      `  | ${f.doneMsg} (Error e) -> { model with ${server} = e; ${pendingOff(f)} }, Cmd.none`,
     ].join("\n");
   });
   // An async effect (`match await`) projects to four arms: the trigger fires the
@@ -1055,14 +1169,12 @@ export function renderUpdate(
   // query invalidation.  On error it stays put.
   const opActionArms = opActions.map((a) => {
     const refetches = [
-      ...(hasPageCmd ? ["pageCmd model.CurrentPage"] : []),
-      ...reads
-        .filter((r) => !r.single && r.aggregate === a.aggregate)
-        .map((r) =>
-          r.paging?.controls
-            ? pagedReadCmd(r, "model")
-            : `Cmd.OfAsync.perform Api.${r.apiFn} () ${r.msgCase}`,
-        ),
+      ...(hasPageCmd ? ["pageCmd model model.CurrentPage"] : []),
+      // The lists of the aggregate no page hosts (a hosted list is refetched by
+      // `pageCmd` when its page is current, and on its next entry otherwise).
+      ...eagerReads(reads, routed)
+        .filter((r) => r.aggregate === a.aggregate)
+        .map((r) => listReadCmd(r, "model")),
     ];
     const refetch =
       refetches.length === 0

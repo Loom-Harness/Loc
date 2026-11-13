@@ -89,7 +89,7 @@ describe("feliz byId detail-page reads", () => {
   it("fires the byId read on page entry via pageCmd (init + UrlChanged)", async () => {
     const app = await appFs(DETAIL);
     // pageCmd dispatcher — one arm per byId read, keyed by the hosting Page case.
-    expect(app).toContain("let pageCmd (page: Page) : Cmd<Msg> =");
+    expect(app).toContain("let pageCmd (model: Model) (page: Page) : Cmd<Msg> =");
     expect(app).toContain(
       "  | ProductDetail id -> Cmd.OfAsync.perform Api.productById id ProductByIdLoaded",
     );
@@ -97,11 +97,12 @@ describe("feliz byId detail-page reads", () => {
     // init binds `let page` and batches pageCmd alongside the list read.
     expect(app).toContain("let init () =\n  let page = parseUrl (Router.currentPath ())");
     expect(app).toContain("      CurrentPage = page");
-    expect(app).toContain("    pageCmd page");
+    expect(app).toContain("  __m, pageCmd __m page");
     // UrlChanged re-parses, resets the byId field to Loading, and re-fires pageCmd.
     expect(app).toContain(
       "  | UrlChanged segments ->\n      let page = parseUrl segments\n" +
-        "      { model with CurrentPage = page; ProductById = Loading }, pageCmd page",
+        "      let __m = { model with CurrentPage = page; ProductById = Loading }\n" +
+        "      __m, pageCmd __m page",
     );
   });
 
@@ -127,7 +128,7 @@ describe("feliz byId detail-page reads", () => {
 
   // A list-only (no byId) multi-page ui gets no pageCmd / remoteOne — the byId
   // machinery is strictly additive.
-  it("a list-only ui emits no pageCmd or remoteOne", async () => {
+  it("a list-only ui fires its list on page entry and emits no remoteOne", async () => {
     const app = await appFs(`
       system Shop {
         api ShopApi from Catalog
@@ -155,10 +156,10 @@ describe("feliz byId detail-page reads", () => {
         deployable web { platform: feliz targets: api ui: WebApp { Shop: api } port: 3005 }
       }
     `);
-    expect(app).not.toContain("pageCmd");
+    // The list loads when its page is entered, not from init.
+    expect(app).toContain("  | Products -> Cmd.OfAsync.perform");
     expect(app).not.toContain("remoteOne");
-    // The list-only routing stays on the inline-parse init form.
-    expect(app).toContain("CurrentPage = parseUrl (Router.currentPath ())");
+    expect(app).toContain("CurrentPage = page");
   });
 
   // Reachability — the detail system must PARSE + VALIDATE cleanly
