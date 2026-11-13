@@ -42,7 +42,7 @@ const CLASSIFICATION = new RegExp(
 /** Files allowed some classification sites, each at exactly its count.  Every
  *  entry is tracked work: the JS frontends' remaining sites are #5601. */
 const CEILINGS: Record<string, number> = {
-  "src/generator/_frontend/form-helpers.ts": 26,
+  "src/generator/_frontend/form-helpers.ts": 25,
   "src/generator/_walker/primitives/forms.ts": 3,
   "src/generator/angular/form-fields.ts": 53,
   "src/generator/svelte/walker/page-shell.ts": 15,
