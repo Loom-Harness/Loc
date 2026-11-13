@@ -91,6 +91,145 @@
     },
     {
       "seq": 6,
+      "method": "GET",
+      "path": "/api/cars/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "plate": "C-1",
+        "rowVersion": 1,
+        "seats": 4
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/cars",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "plate": "C-1",
+            "rowVersion": 1,
+            "seats": 4
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/trucks",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "payloadKg": 900,
+            "plate": "T-1",
+            "rowVersion": 1,
+            "vin": null
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/trucks/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "payloadKg": 900,
+        "plate": "T-1",
+        "rowVersion": 1,
+        "vin": null
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/cars/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/cars/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "plate": "C-1",
+        "rowVersion": 2,
+        "seats": 5
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/trucks/{id}/update",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/trucks/{id}/update",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/trucks/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "payloadKg": 900,
+        "plate": "T-1",
+        "rowVersion": 1,
+        "vin": null
+      }
+    },
+    {
+      "seq": 14,
+      "method": "DELETE",
+      "path": "/api/cars/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
+      "method": "DELETE",
+      "path": "/api/trucks/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/vehicles",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 17,
       "method": "POST",
       "path": "/api/drivers",
       "status": 201,
@@ -99,7 +238,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 18,
       "method": "POST",
       "path": "/api/dispatchers",
       "status": 201,
@@ -108,7 +247,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 19,
       "method": "GET",
       "path": "/api/drivers/{id}",
       "status": 200,
@@ -120,7 +259,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 20,
       "method": "GET",
       "path": "/api/dispatchers/{id}",
       "status": 200,
@@ -132,7 +271,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 21,
       "method": "GET",
       "path": "/api/crews",
       "status": 200,
@@ -160,7 +299,107 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 22,
+      "method": "GET",
+      "path": "/api/drivers",
+      "status": 200,
+      "body": [
+        {
+          "id": "<volatile:key>",
+          "licence": null,
+          "name": "Ada",
+          "rowVersion": 1
+        }
+      ]
+    },
+    {
+      "seq": 23,
+      "method": "GET",
+      "path": "/api/dispatchers",
+      "status": 200,
+      "body": [
+        {
+          "desk": 3,
+          "id": "<volatile:key>",
+          "name": "Bob",
+          "rowVersion": 1
+        }
+      ]
+    },
+    {
+      "seq": 24,
+      "method": "GET",
+      "path": "/api/drivers/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "licence": null,
+        "name": "Ada",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 25,
+      "method": "POST",
+      "path": "/api/drivers/{id}/update",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/drivers/{id}/update",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/dispatchers/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/api/dispatchers/{id}",
+      "status": 200,
+      "body": {
+        "desk": 4,
+        "id": "<volatile:key>",
+        "name": "Bob",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 28,
+      "method": "DELETE",
+      "path": "/api/drivers/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 29,
+      "method": "DELETE",
+      "path": "/api/dispatchers/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 30,
+      "method": "GET",
+      "path": "/api/crews",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 31,
       "method": "PATCH",
       "path": "/api/cars",
       "status": 405,
@@ -174,7 +413,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 32,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -188,7 +427,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 33,
       "method": "POST",
       "path": "/api/cars",
       "status": 400,
@@ -202,7 +441,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 34,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,
@@ -212,7 +451,24 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 35,
+      "method": "POST",
+      "path": "/api/cars/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Car {id} not found",
+        "instance": "/api/cars/{id}/update",
+        "params": {
+          "type": "Fleet.Car"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 36,
       "method": "POST",
       "path": "/api/cars",
       "status": 201,
@@ -221,7 +477,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 37,
       "method": "GET",
       "path": "/api/vehicles",
       "status": 403,
@@ -235,27 +491,12 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 38,
       "method": "GET",
       "path": "/api/vehicles",
       "status": 200,
       "body": {
         "items": [
-          {
-            "id": "<volatile:key>",
-            "plate": "C-1",
-            "rowVersion": 1,
-            "seats": 4,
-            "type": "Car"
-          },
-          {
-            "id": "<volatile:key>",
-            "payloadKg": 900,
-            "plate": "T-1",
-            "rowVersion": 1,
-            "type": "Truck",
-            "vin": null
-          },
           {
             "id": "<volatile:key>",
             "plate": "LADDER-C",
@@ -266,12 +507,12 @@
         ],
         "page": 1,
         "pageSize": 20,
-        "total": 3,
+        "total": 1,
         "totalPages": 1
       }
     },
     {
-      "seq": 18,
+      "seq": 39,
       "method": "GET",
       "path": "/api/vehicles/{id}",
       "status": 403,
@@ -285,7 +526,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 40,
       "method": "GET",
       "path": "/api/vehicles/{id}",
       "status": 200,
@@ -298,7 +539,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 41,
       "method": "POST",
       "path": "/api/dispatchers",
       "status": 201,
@@ -307,7 +548,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 42,
       "method": "GET",
       "path": "/api/crews",
       "status": 403,
@@ -321,26 +562,12 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 43,
       "method": "GET",
       "path": "/api/crews",
       "status": 200,
       "body": {
         "items": [
-          {
-            "id": "<volatile:key>",
-            "licence": null,
-            "name": "Ada",
-            "rowVersion": 1,
-            "type": "Driver"
-          },
-          {
-            "desk": 3,
-            "id": "<volatile:key>",
-            "name": "Bob",
-            "rowVersion": 1,
-            "type": "Dispatcher"
-          },
           {
             "desk": 1,
             "id": "<volatile:key>",
@@ -351,8 +578,243 @@
         ],
         "page": 1,
         "pageSize": 20,
-        "total": 3,
+        "total": 1,
         "totalPages": 1
+      }
+    },
+    {
+      "seq": 44,
+      "method": "GET",
+      "path": "/api/cars",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/cars",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 45,
+      "method": "GET",
+      "path": "/api/cars",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "plate": "LADDER-C",
+            "rowVersion": 1,
+            "seats": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 46,
+      "method": "GET",
+      "path": "/api/cars/{id}",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/cars/{id}",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 47,
+      "method": "GET",
+      "path": "/api/cars/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "plate": "LADDER-C",
+        "rowVersion": 1,
+        "seats": 2
+      }
+    },
+    {
+      "seq": 48,
+      "method": "POST",
+      "path": "/api/dispatchers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 49,
+      "method": "GET",
+      "path": "/api/dispatchers",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/dispatchers",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 50,
+      "method": "GET",
+      "path": "/api/dispatchers",
+      "status": 200,
+      "body": [
+        {
+          "desk": 1,
+          "id": "<volatile:key>",
+          "name": "LADDER-D",
+          "rowVersion": 1
+        },
+        {
+          "desk": 2,
+          "id": "<volatile:key>",
+          "name": "LADDER-D2",
+          "rowVersion": 1
+        }
+      ]
+    },
+    {
+      "seq": 51,
+      "method": "POST",
+      "path": "/api/dispatchers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 52,
+      "method": "GET",
+      "path": "/api/dispatchers/{id}",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/dispatchers/{id}",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 53,
+      "method": "GET",
+      "path": "/api/dispatchers/{id}",
+      "status": 200,
+      "body": {
+        "desk": 3,
+        "id": "<volatile:key>",
+        "name": "LADDER-D3",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 54,
+      "method": "POST",
+      "path": "/api/trucks",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 55,
+      "method": "POST",
+      "path": "/api/trucks/{id}/update",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/trucks/{id}/update",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 56,
+      "method": "POST",
+      "path": "/api/trucks/{id}/update",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/trucks/{id}/update",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 57,
+      "method": "POST",
+      "path": "/api/trucks",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 58,
+      "method": "POST",
+      "path": "/api/trucks/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 59,
+      "method": "POST",
+      "path": "/api/trucks/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 60,
+      "method": "POST",
+      "path": "/api/drivers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 61,
+      "method": "POST",
+      "path": "/api/drivers/{id}/update",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/drivers/{id}/update",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 62,
+      "method": "POST",
+      "path": "/api/drivers/{id}/update",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/drivers/{id}/update",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
       }
     }
   ]

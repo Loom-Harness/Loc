@@ -194,6 +194,8 @@ const DERIVED_FALLBACK = [
   "audit-history-guarded.ddd Staff.Employee",
   "audit-history-guarded.ddd Staff.Payslip",
   "field-mask.ddd Staff.Employee",
+  "inheritance-read-gates.ddd Fleet.Driver",
+  "inheritance-read-gates.ddd Fleet.Truck",
   "shareable.ddd Catalog.Category",
 ];
 
