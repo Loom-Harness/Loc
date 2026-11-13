@@ -79,6 +79,7 @@ import {
   workflowNeedsCurrentUser,
   workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
+import { valueObjectParams } from "../../../ir/plan/value-object-params.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -1478,12 +1479,14 @@ function renderWorkflowModule(
   // four backends answer at the wire — the workflow twin of the operation
   // param guard (`op-param-guards.ts`).  Only the context's own value objects
   // carry a module here, the same scope the aggregate changeset reads.
-  const voRuleChecks = params.flatMap((n) => {
-    const t = (wf.params ?? []).find((p) => p.name === n)?.type;
-    const inner = t?.kind === "optional" ? t.inner : t;
-    if (!ctx || inner?.kind !== "valueobject") return [];
-    const vo = ctx.valueObjects.find((v) => v.name === inner.name);
+  const voRuleChecks = valueObjectParams(
+    (wf.params ?? []).filter((p) => params.includes(p.name)),
+  ).flatMap(({ param, vo: voName, each }) => {
+    // A list of value objects is cast row by row with its column; only a single
+    // value runs the constructor here.
+    const vo = !each && ctx ? ctx.valueObjects.find((v) => v.name === voName) : undefined;
     if (!vo || !voHasConstraints(vo)) return [];
+    const n = param.name;
     return [
       `{:${snake(n)}, ${escapeElixirIdent(snake(n))}, &${contextModuleFq}.${upperFirst(vo.name)}.new/1}`,
     ];
