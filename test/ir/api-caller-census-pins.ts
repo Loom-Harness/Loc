@@ -750,6 +750,9 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   "corpus/reactor-failure-order": ["api.askForRating.instance (no such aggregate)"],
   "corpus/eventsourced-workflow-body": ["api.billing.instance (no such aggregate)"],
   "corpus/workflow-vo-param-enum": ["api.quoteMotor.run (no such aggregate)"],
+  // The transactional workflow that emits the durable event; same not-lifted
+  // workflow-route class.
+  "corpus/saga-durable-cross-context": ["api.relog.run (no such aggregate)"],
   "corpus/workflow-create-result": [
     "api.openAccount.run (no such aggregate)",
     "api.topUp.run (no such aggregate)",
