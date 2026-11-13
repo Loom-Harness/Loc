@@ -274,6 +274,12 @@ such flag.
   `-- TODO backfill …` comment in place of the `UPDATE`: add the column
   *nullable* → TODO → `SET NOT NULL` (`alterColumnNullable`). Fill in the
   backfill before applying to real data.
+- **The first TPH subtype's `kind`.** A `sharedTable` base with no shared-table
+  subtype owns a plain table with no `kind` column ([inheritance](inheritance.md#storage-strategies)).
+  When the first subtype arrives, `kind TEXT NOT NULL` is added with no flag and
+  no default: until then nothing could write that table, so it is empty, and a
+  row written out of band fails the add instead of acquiring a subtype. Dropping
+  the last subtype drops `kind` again, a destructive drop like any other.
 - **Value collections add empty.** A NOT-NULL inline collection column —
   `tags: string[]`, `skills: Skill[]`, any primitive or enum array — needs no
   backfill, no default and no flag: its empty value is derivable from the type,

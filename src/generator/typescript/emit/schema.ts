@@ -19,6 +19,7 @@ import type {
 import { directParentName } from "../../../ir/util/containment-parent.js";
 import { fkIndexedFields } from "../../../ir/util/fk-index-fields.js";
 import {
+  isDiscriminatedTphBase,
   isTphBase,
   isTphConcrete,
   ownFieldsOf,
@@ -700,7 +701,8 @@ function emitTphTable(
   const lines: string[] = [];
   lines.push(`export const ${lowerFirst(plural(base.name))} = ${tableFactory}("${tableName}", {`);
   lines.push(`  id: ${drizzleIdColumn("id")}.primaryKey(),`);
-  lines.push(`  kind: text("kind").notNull(),`);
+  // A childless base's table is concrete-shaped: no `kind` column.
+  if (isDiscriminatedTphBase(base, ctx.aggregates)) lines.push(`  kind: text("kind").notNull(),`);
   for (const f of base.fields) {
     lines.push(...drizzleColumnLines(f, ctx).map((s) => `  ${s}`));
   }

@@ -35,6 +35,7 @@ import { isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import {
   discriminatorValue,
+  isDiscriminatedTphBase,
   isTphBase,
   isTphConcrete,
   ownFieldsOf,
@@ -257,15 +258,22 @@ function columnsOf(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): Mik
 }
 
 /** TPH root columns (aggregate-inheritance.md, sharedTable): `id`, the `kind`
- *  discriminator, then the abstract base's own columns with their declared
- *  nullability.  Every concrete's own columns live on its subclass schema
- *  (`tphConcreteColumns`) — only rows of that `kind` populate them, so they are
- *  nullable in the shared table. */
+ *  discriminator (only when the base has a shared-table concrete —
+ *  `isDiscriminatedTphBase`), then the abstract base's own columns with their
+ *  declared nullability.  Every concrete's own columns live on its subclass
+ *  schema (`tphConcreteColumns`) — only rows of that `kind` populate them, so
+ *  they are nullable in the shared table. */
 
-function tphRootColumns(base: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): MikroColumn[] {
+function tphRootColumns(
+  base: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+  discriminated: boolean,
+): MikroColumn[] {
   const cols: MikroColumn[] = [
     { prop: "id", mikroType: "string", tsType: "string", nullable: false, primary: true },
-    { prop: "kind", mikroType: "string", tsType: "string", nullable: false, primary: false },
+    ...(discriminated
+      ? [{ prop: "kind", mikroType: "string", tsType: "string", nullable: false, primary: false }]
+      : []),
   ];
   const seen = new Set(cols.map((c) => c.prop));
   for (const f of base.fields) {
@@ -955,8 +963,9 @@ export function renderMikroEntities(
     const embedded = shape === "embedded";
     const document = shape === "document";
     const tph = isTphBase(agg, aggs);
+    const discriminated = isDiscriminatedTphBase(agg, aggs);
     const cols = tph
-      ? tphRootColumns(agg, ctx)
+      ? tphRootColumns(agg, ctx, discriminated)
       : document
         ? documentColumnsOf()
         : embedded
@@ -976,9 +985,10 @@ export function renderMikroEntities(
     // A TPH root is the ABSTRACT parent of one subclass schema per concrete
     // (single-table inheritance): the discriminator column and its map live
     // here, so the ORM scopes `find(CarRow)` to `kind = 'Car'` and hydrates
-    // `find(VehicleRow)` as the right subclass.
+    // `find(VehicleRow)` as the right subclass.  A childless base maps a plain
+    // table: no discriminator, nothing to be abstract over.
     const concretes = tph ? tphConcreteAggregates(agg, aggs) : [];
-    const stiLines = tph
+    const stiLines = discriminated
       ? [
           `  abstract: true,`,
           `  discriminatorColumn: "kind",`,
