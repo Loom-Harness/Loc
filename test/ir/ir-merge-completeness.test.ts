@@ -55,25 +55,6 @@ const DELIBERATELY_DROPPED: Readonly<Record<string, string>> = {
   // member's origin would mis-attribute every diagnostic raised against the
   // merge.
   origin: "synthetic context has no single source span",
-
-  // The `policy { … }` ladders are CONSUMED BY ENRICHMENT (applyPolicyReadLevels
-  // / applyPolicyWriteLevels) into per-aggregate filters, which the merge does
-  // carry, and read by the validator off the PER-CONTEXT IR.  Nothing
-  // downstream of the merge reads them today — verified by grep over
-  // src/generator/** and src/platform/**.
-  //
-  // This is luck rather than design, so it is written down: an emitter that
-  // starts reading `merged.policyReadLevels` gets `undefined` and silently
-  // applies NO policy, which on an authorization feature is the worst possible
-  // direction to fail.  If that day comes, carry them instead of extending this
-  // note.
-  policyReadLevels: "consumed by enrichment before the merge; no post-merge reader",
-  policyWriteLevels: "consumed by enrichment before the merge; no post-merge reader",
-  policyRowRules: "consumed by enrichment before the merge; no post-merge reader",
-  policyDenies: "consumed by enrichment before the merge; no post-merge reader",
-  policyReadGates: "consumed by enrichment (onto every find's `requires`) before the merge",
-  policyShareGates:
-    "consumed by enrichment (onto the share aggregate's create / revoke `requires`) before the merge",
 };
 
 /** Field names a top-level IR interface / object type declares, including
@@ -162,20 +143,11 @@ describe("mergeContexts accounts for every BoundedContextIR field", () => {
 // and fails only on a real multi-file project — the shape users actually write
 // and the shape CI fixtures mostly don't.
 //
-// It is complete TODAY, and the one field it doesn't carry is correct not to:
-// `traceability` is populated by `enrichLoomModel`, which runs AFTER the merge,
-// so on a `RawLoomModel` it is absent by definition. That is exactly the kind of
-// reasoning that should be pinned rather than re-derived — the next field added
-// to `LoomModel` may well be populated during LOWERING, and then dropping it is
-// silent data loss on every multi-file project.
+// `traceability` is declared only on `EnrichedLoomModel` (enrichment runs after
+// the merge), so `LoomModel` declares no field the merge may drop.
 
 /** Fields `mergeLoomModels` deliberately does NOT carry, each with the reason. */
-const MODEL_DELIBERATELY_DROPPED: Readonly<Record<string, string>> = {
-  // Derived by `enrichLoomModel` (phase ⑥), which runs after this merge (phase
-  // ⑤). Absent on every `RawLoomModel` by construction, so there is nothing to
-  // carry. If lowering ever populates it, carry it instead of extending this.
-  traceability: "derived in enrichment, after this merge runs — absent on RawLoomModel",
-};
+const MODEL_DELIBERATELY_DROPPED: Readonly<Record<string, string>> = {};
 
 function modelDeclaredFields(): string[] {
   return membersOf(irTypesSource(), "LoomModel");

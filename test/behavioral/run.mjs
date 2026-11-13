@@ -186,6 +186,7 @@ import { computeVerification } from ${J(join(REPO, "src/verify/verification.ts")
 ${appImport}
 import * as schema from ${J(join(deplDir, "db/schema.ts"))};
 ${authImport}
+${authMode === "oidc" ? `import { probeCodeFlow } from ${J(join(REPO, "test/support/oidc-code-flow.mjs"))};` : ""}
 ${seedImport}
 import { drizzle } from "drizzle-orm/pglite";
 import { PGlite } from "@electric-sql/pglite";
@@ -236,6 +237,9 @@ export async function run() {
     // golden; runs last, after the framework probes, so it only appends trailing
     // ordinals rather than shifting the ones the golden already aligns on.
     ${authzLadderTail("out")}
+    // The OIDC authorization-code handshake against the fake issuer — straight
+    // into app.fetch, off the recorder, so it adds no wire ordinals.
+    ${authMode === "oidc" ? `for (const r of await probeCodeFlow({ request: (p, init) => app.fetch(new Request("http://localhost:3000" + p, init)), oidc: ${J({ issuer: oidc?.issuer, principals: oidc?.principals })} })) out.push(r);` : ""}
   }
 
   const req = createRequire(import.meta.url);
@@ -458,7 +462,7 @@ const corpus = [...features, ...shared, ...exampleCases].filter(
 // lets its boot-time `const ISSUER = process.env.OIDC_ISSUER` capture the mock.
 if (corpus.some((c) => /\n\s*auth\s*\{/.test(c.source))) {
   oidc = await startMockIssuer();
-  process.env.OIDC_ISSUER = oidc.issuer;
+  Object.assign(process.env, oidc.env);
 }
 
 // Both tiers gate: `api` (emitted `test e2e`) and `unit` (emitted

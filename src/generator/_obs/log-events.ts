@@ -183,6 +183,9 @@ export const LogEvents = {
   // Outbox relay lifecycle (dispatch-delivery-semantics.md).  The background
   // relay that drains __loom_outbox announces its start, and logs a recoverable
   // error (warn) when a drain pass throws — the relay keeps running.
+  /** A required setting (an \`env(…)\`-bound auth value) is missing at boot:
+   *  the service exits non-zero instead of serving without it. */
+  configMissing: { event: "config_missing", level: "error", fields: ["setting", "vars"] },
   outboxRelayStarted: { event: "outbox_relay_started", level: "info", fields: [] },
   outboxRelayError: { event: "outbox_relay_error", level: "warn", fields: ["error"] },
 

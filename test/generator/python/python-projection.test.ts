@@ -21,9 +21,9 @@ const SRC = `system Shop { subdomain Sales { context Orders {
   channel Lifecycle { carries: OrderPlaced, OrderShipped  retention: log  key: order }
   projection OrderBook keyed by order {
     order: Order id
-    customer: Customer id
-    status: OrderStatus
-    on(e: OrderPlaced)  { order := e.order  customer := e.customer  status := Placed }
+    customer: Customer id?
+    status: OrderStatus?
+    on(e: OrderPlaced)  { customer := e.customer  status := Placed }
     on(e: OrderShipped) { status := Shipped }
   }
 } } storage pg { type: postgres }

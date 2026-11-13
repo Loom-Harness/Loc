@@ -88,8 +88,8 @@ describe("fold tenancy — refusals", () => {
 
   it("refuses a fold mixing crossTenant and tenantOwned producers", async () => {
     const mixed = FIXTURE.replace(
-      "on(e: Booked) { plan := e.plan  seats := e.seats }",
-      "on(e: Booked) { plan := e.plan  seats := e.seats }\n        on(e: Paid) { seats := e.amount }",
+      "on(e: Booked) { seats := e.seats }",
+      "on(e: Booked) { seats := e.seats }\n        on(e: Paid) { seats := e.amount }",
     )
       .replace(
         "event Paid { acct: Acct id, amount: int }",

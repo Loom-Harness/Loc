@@ -51,7 +51,7 @@ const EXPECTED: Record<Backend, { fold: string; reactor: string }> = {
     reactor: "async def _fulfilment_on_order_shipped(",
   },
   vanilla: {
-    fold: "D.Orders.Projections.OrderBoard.OnOrderShipped.handle(event)",
+    fold: "fold(D.Orders.Projections.OrderBoard.OnOrderShipped, event)",
     reactor: "D.Orders.Workflows.Fulfilment.OnOrderShipped.handle(event)",
   },
 };

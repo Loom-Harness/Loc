@@ -24,7 +24,7 @@ import type { DeclaredRenames } from "../../i18n/renames.js";
 import { enrichLoomModel } from "../../ir/enrich/enrichments.js";
 import { aggregateProblemKeys } from "../../ir/enrich/wire-policy.js";
 import { lowerProject } from "../../ir/lower/lower.js";
-import { sourceLocaleOf } from "../../ir/types/loom-ir.js";
+import { DEFAULT_SOURCE_LOCALE, sourceLocaleOf } from "../../ir/types/loom-ir.js";
 import { createDddServices } from "../../language/ddd-module.js";
 import type { Model } from "../../language/generated/ast.js";
 import { loadProject } from "../../language/project-loader.js";
@@ -116,7 +116,7 @@ export async function extractProject(
         "A translator tree has one source language: give every system the same `i18n { source }`, or run `ddd i18n` over each system's own file.",
     );
   }
-  const source = loom.systems[0] ? sourceLocaleOf(loom.systems[0]) : sourceLocaleOf({});
+  const source = loom.systems[0] ? sourceLocaleOf(loom.systems[0]) : DEFAULT_SOURCE_LOCALE;
   const overrides = loadSourceOverrides(entryFile, { ...options, source });
   const names = new Set<string>();
   const uiNames = new Set<string>();

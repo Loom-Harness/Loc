@@ -5,7 +5,7 @@ import type {
   FunctionIR,
   StmtIR,
 } from "../../../ir/types/loom-ir.js";
-import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
+import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { exprUsesParam, exprUsesReceiver } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr, renderTypespec } from "../render-expr.js";
@@ -285,4 +285,56 @@ function renderFunction(
     spec: `  @spec ${fnSnake}(${specArgs}) :: ${ret}`,
     def: [`  def ${fnSnake}(${sig}) do`, ...bodyLines, "  end"],
   };
+}
+
+// ---------------------------------------------------------------------------
+// Value-object `function` members.
+//
+// A value object is a plain map on this backend, so `total.plus(other)` has no
+// method to dispatch to.  Each VO function is a module function on the value
+// object's own module (`<App>.<Ctx>.<Vo>`), taking the value as its first
+// argument; the call site (render-expr's value-object method-call arm) renders
+// `<App>.<Ctx>.<Vo>.plus(total, other)`.  The body reads the VO's own fields
+// off that first argument (`vo.amount`): a value object reaching a domain body
+// is atom-keyed (a loaded column, a constructor literal, a cast param).
+// ---------------------------------------------------------------------------
+
+/** Every `function` of a value object as a module function on the VO's own
+ *  module, two-space indented.  `[]` when the value object declares none. */
+export function renderValueObjectFunctions(
+  facadeMod: string,
+  vo: { name: string; functions?: readonly FunctionIR[] },
+): string[] {
+  const out: string[] = [];
+  for (const fn of vo.functions ?? []) {
+    const rc: RenderCtx = { thisName: "vo", contextModule: facadeMod };
+    const params = fn.params.map((p) =>
+      bodyUsesParam(fn.body, p.name) ? elixirLocal(p.name) : `_${snake(p.name)}`,
+    );
+    const recv = bodyUsesValueObjectSelf(fn.body) ? "vo" : "_vo";
+    const sig = [recv, ...params].join(", ");
+    out.push(
+      "",
+      `  @doc "Pure domain function \`${fn.name}\` on \`${upperFirst(vo.name)}\`."`,
+      `  def ${snake(fn.name)}(${sig}) do`,
+      ...renderFunctionBodyLines(fn.body, rc),
+      "  end",
+    );
+  }
+  return out;
+}
+
+/** True when a value-object function body reads the value itself — one of its
+ *  own fields, or another of its functions (which takes the value first). */
+function bodyUsesValueObjectSelf(body: FunctionBodyIR): boolean {
+  return bodyExprs(body).some((e) => {
+    let found = false;
+    walkExprDeep(e, (x) => {
+      if (x.kind === "this") found = true;
+      if (x.kind === "ref" && (x.refKind === "this-vo-prop" || x.refKind === "this-prop"))
+        found = true;
+      if (x.kind === "call" && x.callKind === "function") found = true;
+    });
+    return found;
+  });
 }

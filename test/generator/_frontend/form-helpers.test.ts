@@ -52,7 +52,15 @@ const enumOf = (name: string): TypeIR => ({ kind: "enum", name });
 const voOf = (name: string): TypeIR => ({ kind: "valueobject", name });
 
 const vo = (name: string, fields: { name: string; type: TypeIR; optional: boolean }[]) =>
-  ({ name, fields, derived: [], invariants: [], functions: [], tests: [] }) as ValueObjectIR;
+  ({
+    name,
+    fields,
+    systemLevel: false,
+    derived: [],
+    invariants: [],
+    functions: [],
+    tests: [],
+  }) as ValueObjectIR;
 
 const ctxOf = (valueObjects: ValueObjectIR[] = [], enums: EnumIR[] = []): BoundedContextIR =>
   ({ valueObjects, enums }) as unknown as BoundedContextIR;
@@ -232,7 +240,7 @@ describe("idTargetsInFields", () => {
 // ---------------------------------------------------------------------------
 
 describe("initialValuesTs", () => {
-  const status: EnumIR = { name: "Status", values: ["Draft", "Open"] };
+  const status: EnumIR = { name: "Status", systemLevel: false, values: ["Draft", "Open"] };
   const address = vo("Address", [
     { name: "line1", type: prim("string"), optional: false },
     { name: "zip", type: prim("int"), optional: false },

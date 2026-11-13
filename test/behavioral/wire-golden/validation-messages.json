@@ -109,6 +109,30 @@
     },
     {
       "seq": 5,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.min",
+            "message": "Reorder Level must be at least 1",
+            "params": {
+              "min": 1
+            },
+            "pointer": "/reorderLevel"
+          }
+        ],
+        "instance": "/api/products",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 6,
       "method": "GET",
       "path": "/api/products",
       "status": 200,
@@ -132,7 +156,7 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 7,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 200,
@@ -148,14 +172,14 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 8,
       "method": "POST",
       "path": "/api/products/{id}/restock",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 8,
+      "seq": 9,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 200,
@@ -171,14 +195,14 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 10,
       "method": "POST",
       "path": "/api/products/{id}/ship",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 10,
+      "seq": 11,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 200,
@@ -194,7 +218,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 12,
       "method": "GET",
       "path": "/api/products?dir=asc&sort=name",
       "status": 200,
@@ -218,7 +242,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 13,
       "method": "GET",
       "path": "/api/products/by_name/Widget",
       "status": 200,
@@ -236,7 +260,7 @@
       ]
     },
     {
-      "seq": 13,
+      "seq": 14,
       "method": "POST",
       "path": "/api/products/{id}/restock",
       "status": 422,
@@ -260,7 +284,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 15,
       "method": "POST",
       "path": "/api/products/{id}/rename",
       "status": 422,
@@ -284,14 +308,14 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 16,
       "method": "POST",
       "path": "/api/products/{id}/rename",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 16,
+      "seq": 17,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 200,
@@ -307,7 +331,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 18,
       "method": "POST",
       "path": "/api/products/{id}/ship",
       "status": 422,
@@ -331,7 +355,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 19,
       "method": "POST",
       "path": "/api/products/{id}/retag",
       "status": 422,
@@ -352,14 +376,14 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 20,
       "method": "POST",
       "path": "/api/products/{id}/retag",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 20,
+      "seq": 21,
       "method": "PATCH",
       "path": "/api/products",
       "status": 405,
@@ -373,7 +397,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 22,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -387,7 +411,7 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 23,
       "method": "POST",
       "path": "/api/products",
       "status": 400,
@@ -401,7 +425,7 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 24,
       "method": "POST",
       "path": "/api/products/{id}/restock",
       "status": 422,
