@@ -91,7 +91,7 @@ function findNodeDeployable(genDir) {
 }
 
 /** Synthesise the per-case boot+run entry (bundled by esbuild). */
-function entrySource({ deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, authMode, bearerToken, unauthorizedToken, authzLadder, seedFile, mountsFiles }) {
+function entrySource({ deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, authMode, bearerToken, unauthorizedToken, authzLadder, seedFile, mountsFiles, channelBoot }) {
   const J = JSON.stringify;
   // When the deployable is `auth: required` the generated boot module
   // (index.ts) registers a verifier before serving — but we boot via
@@ -142,8 +142,30 @@ function entrySource({ deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, aut
   // Running the EMITTED seeder — not a re-implementation — is what makes the
   // oracle leg start from the same table as the others; it also gives `seed`
   // datasets their first runtime coverage on this leg at all.
-  const seedImport = seedFile ? `import { runSeeds } from ${J(seedFile)};` : "";
-  const seedRun = seedFile ? "await runSeeds(db);" : "";
+  // CHANNEL BINDINGS.  A broker-bound event reaches the broker only through
+  // the transports the generated `bootApp` (boot.ts) creates — `createApp`
+  // alone hands every event to the in-process dispatcher, so the oracle would
+  // record no publish where the four entrypoint-booted legs record one.  A
+  // deployable with channel bindings therefore boots through `bootApp`, like
+  // its entrypoint; every other deployable keeps `createApp`, byte-identical.
+  // `bootApp` runs the first-boot seeds and registers its own verifier, so
+  // the harness skips its seed call there and registers its verifier AFTER,
+  // which keeps the harness's verifier the one in force.
+  const seedImport = seedFile && !channelBoot ? `import { runSeeds } from ${J(seedFile)};` : "";
+  const seedRun = seedFile && !channelBoot ? "await runSeeds(db);" : "";
+  const appImport = channelBoot
+    ? `import { bootApp } from ${J(join(deplDir, "boot.ts"))};`
+    : `import { createApp } from ${J(join(deplDir, "http/index.ts"))};`;
+  const bootedDecl = channelBoot ? "\n  let booted;" : "";
+  // A producer-only deployable's broker publisher connects asynchronously
+  // and nothing holds boot for it, so the harness gives it a moment
+  // before the first request, as the slower process boot of the other legs
+  // does by accident.
+  const appBoot = channelBoot
+    ? "\n  booted = await bootApp(db);\n  await new Promise((r) => setTimeout(r, 1000));\n  const app = booted.app;"
+    : "";
+  const appCreate = channelBoot ? "" : "\n  const app = createApp(db);";
+  const appStop = channelBoot ? "\n    await booted?.stop();" : "";
   return `
 ${recorderPreamble()}
 ${MIGRATOR_IMPORT}
@@ -151,7 +173,7 @@ ${SCHEMA_AGREEMENT_IMPORT}
 import { loadApiTests } from ${J(join(REPO, "web/src/testing/run-api-tests.ts"))};
 import { createHarness, runTests } from ${J(join(REPO, "web/src/testing/harness.ts"))};
 import { computeVerification } from ${J(join(REPO, "src/verify/verification.ts"))};
-import { createApp } from ${J(join(deplDir, "http/index.ts"))};
+${appImport}
 import * as schema from ${J(join(deplDir, "db/schema.ts"))};
 ${authImport}
 ${seedImport}
@@ -173,15 +195,14 @@ const SHIM = ${J(SHIM)};
 
 export async function run() {
   const pglite = new PGlite();
-  const out = [];
+  const out = [];${bootedDecl}
   // try/finally: a case that throws must still release its WASM Postgres.
   try {
   const db = drizzle(pglite, { schema });
   ${applyMigrationsStmt(deplDir)}
   ${schemaAgreementStmt()}
-  ${seedRun}
-  ${authRegister}
-  const app = createApp(db);
+  ${seedRun}${appBoot}
+  ${authRegister}${appCreate}
 
   // Recorded at the ONE dispatch chokepoint — see wire-differential.mjs.
   const dispatch = __record(async (req) => {
@@ -220,7 +241,7 @@ export async function run() {
     delete globalThis.__loomUnit;
   }
   } finally {
-    __releaseDispatch();
+    __releaseDispatch();${appStop}
     await pglite.close?.();
   }
 
@@ -363,12 +384,19 @@ async function runCase(c) {
     // seeds boots byte-identically to before.
     const seedPath = join(deplDir, "db", "seed.ts");
     const seedFile = existsSync(seedPath) ? seedPath : null;
+    // Channel-bound deployables boot through the generated `bootApp` (see
+    // entrySource): the transports exist only there.
+    const channelsPath = join(deplDir, "http", "channels.ts");
+    const channelBoot =
+      existsSync(channelsPath) &&
+      /export function createChannelTransports\b/.test(readFileSync(channelsPath, "utf8")) &&
+      existsSync(join(deplDir, "boot.ts"));
     const entry = join(workDir, "entry.mts");
     const bundle = join(workDir, "bundle.mjs");
     writeFileSync(entry, entrySource({
       deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, authMode, bearerToken, unauthorizedToken,
       authzLadder: AUTHZ_LADDERS[c.name] ?? null,
-      seedFile, mountsFiles,
+      seedFile, mountsFiles, channelBoot,
     }));
     await build({ entryPoints: [entry], outfile: bundle, bundle: true, platform: "node", format: "esm", target: "node20", packages: "external", logLevel: "warning" });
     const out = await runInWorker(bundle, fakes.env);
