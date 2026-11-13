@@ -873,6 +873,7 @@ function workflowChildBlocks(s: WorkflowStmtIR): (readonly WorkflowStmtIR[])[] {
     case "for-each":
       return [s.body];
     case "if-let":
+    case "if":
       return [s.thenBody, s.elseBody ?? []];
     case "variant-match":
       return [...s.arms.map((a) => a.body), s.elseBody ?? []];
