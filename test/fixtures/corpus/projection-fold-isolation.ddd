@@ -1,5 +1,5 @@
 // A projection fold that fails at runtime must not fail the command that
-// raised its event (D-PROJECTION-FOLD): a fold runs after the command
+// raised its event (D-PROJECTION-FOLD-AFTER-COMMIT): a fold runs after the command
 // committed, isolated per handler, and its failure is logged
 // `reactor_failed`.
 //

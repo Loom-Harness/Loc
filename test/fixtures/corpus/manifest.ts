@@ -463,7 +463,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "folded-projection fold failure — a fold whose write fails in the database leaves the command committed and the read model as it was (after commit, isolated per handler)",
     doc: "language",
     backends: ALL,
-    note: "D-PROJECTION-FOLD rule 1.  java folded inside the command transaction (a fold failure rolled the command back) and node awaited the fold outside the reactor isolation (the committed command answered 500).  The failure is a `numeric(19,4)` overflow on the second charge, which every backend's database write refuses.",
+    note: "D-PROJECTION-FOLD-AFTER-COMMIT.  java folded inside the command transaction (a fold failure rolled the command back) and node awaited the fold outside the reactor isolation (the committed command answered 500).  The failure is a `numeric(19,4)` overflow on the second charge, which every backend's database write refuses.",
   },
   {
     id: "projection-fold-initial-values",
@@ -471,7 +471,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "folded-projection fresh row — every column a fold has not written starts at its declared default, its type's neutral zero, or null",
     doc: "language",
     backends: ALL,
-    note: "D-PROJECTION-FOLD rule 4.  java started a required int/bool column at 0/false and every other backend at null, so the same unwritten column read differently per backend.  The fold writes one column; the wire golden records every other column's starting value.",
+    note: "D-PROJECTION-ROW-SEED.  java started a required int/bool column at 0/false and every other backend at null, so the same unwritten column read differently per backend.  The fold writes one column; the wire golden records every other column's starting value.",
   },
   {
     id: "projection-fold-statements",

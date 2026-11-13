@@ -1,4 +1,4 @@
-// Folded projection — what a freshly allocated row starts at (D-PROJECTION-FOLD).
+// Folded projection — what a freshly allocated row starts at (D-PROJECTION-ROW-SEED).
 //
 // A fold writes only the columns its event carries, so every other column of a
 // new row holds its starting value until some later event writes it.  The rule
@@ -14,19 +14,19 @@
 // starting value.  The wire golden records all of them; the `test e2e` block
 // asserts the ones with a portable spelling.
 system FoldInitialValuesSys {
-  subdomain Visits {
-    context Visits {
-      aggregate Page with crudish {
+  subdomain Reading {
+    context Reading {
+      aggregate Article with crudish {
         path: string
-        operation visit() { emit PageVisited { pageRef: id } }
+        operation view() { emit ArticleViewed { articleRef: id } }
       }
-      repository Pages for Page { }
+      repository Articles for Article { }
 
-      event PageVisited { pageRef: Page id }
+      event ArticleViewed { articleRef: Article id }
 
-      projection PageStats keyed by pageRef {
-        pageRef: Page id
-        visits: int
+      projection ArticleStats keyed by articleRef {
+        articleRef: Article id
+        views: int
         spent: money
         flagged: bool
         label: string
@@ -34,29 +34,29 @@ system FoldInitialValuesSys {
         note: string?
         bonus: int? = 5
         lastSeen: datetime
-        on(e: PageVisited) {
-          visits += 1
+        on(e: ArticleViewed) {
+          views += 1
           bonus += 1
         }
       }
     }
   }
-  api VisitsApi from Visits
+  api ReadingApi from Reading
   storage pg { type: postgres }
-  resource visitsState { for: Visits, kind: state, use: pg }
+  resource readingState { for: Reading, kind: state, use: pg }
   deployable d {
     platform: __PLATFORM__
-    contexts: [Visits]
-    dataSources: [visitsState]
-    serves: VisitsApi
+    contexts: [Reading]
+    dataSources: [readingState]
+    serves: ReadingApi
     port: 4000
   }
 
   test e2e "a fresh folded row starts every unwritten column at its seed" against d {
-    let p = api.pages.create({ path: "/home" })
-    api.pages.visit(p)
-    let stats = api.pageStats.byKey(p.id)
-    expect(stats.visits).toBe(1)
+    let p = api.articles.create({ path: "/home" })
+    api.articles.view(p)
+    let stats = api.articleStats.byKey(p.id)
+    expect(stats.views).toBe(1)
     expect(stats.bonus).toBe(6)
     expect(stats.flagged).toBe(false)
     expect(stats.label).toBe("")
@@ -65,10 +65,10 @@ system FoldInitialValuesSys {
     expect(stats.lastSeen).toBeNull()
 
     // The derived surface, so each derived route has a runtime caller.
-    expect(api.pages.getById(p).path).toBe("/home")
-    api.pages.update(p, { path: "/start" })
-    expect(api.pages.all().items.length).toBe(1)
-    api.pages.destroy(p)
-    expect(api.pages.getById(p)).toThrow(404)
+    expect(api.articles.getById(p).path).toBe("/home")
+    api.articles.update(p, { path: "/start" })
+    expect(api.articles.all().items.length).toBe(1)
+    api.articles.destroy(p)
+    expect(api.articles.getById(p)).toThrow(404)
   }
 }

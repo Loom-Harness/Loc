@@ -6819,3 +6819,38 @@ disagreed: two backends moved the row on a key assignment, two removed every
 match while three removed the first, and one built its write from the
 pre-fold row so a later statement read a stale value. A fact computed once
 cannot disagree with itself.
+
+## D-PROJECTION-FOLD-AFTER-COMMIT — a fold runs after the command commits, isolated per handler
+
+**Status:** owner ruling, 2026-11-13.
+
+**Decision.** A projection fold delivered in-process runs after the command
+that raised its event has committed, in its own transaction, like a workflow
+reactor. A fold that fails is logged `reactor_failed`; the command stays
+committed, its response is unchanged, and the row keeps its last good state.
+The other folds and reactors for the same event still run.
+
+**Why.** A read model is derived. Letting its write fail or roll back the
+command would make the source of truth depend on the view of it.
+
+## D-PROJECTION-ROW-SEED — what a fresh projection row starts at
+
+**Status:** owner ruling, 2026-11-13.
+
+**Decision.** When a fold allocates a row for a new key, each non-key column
+starts at a value `foldRowSeeds` (`src/ir/plan/projection-fold.ts`) decides:
+
+- a field with a declared default starts at it;
+- a required field whose type has a neutral zero starts at it: `0` for an
+  int, long, decimal or money, `false`, `""`, the empty list;
+- an optional field, and a required field whose type has no neutral zero (a
+  datetime, a date, an enum, an id, a value object), starts null until a fold
+  writes it.
+
+A `+=` or `-=` on an optional field without a default is refused
+(`loom.projection-accumulate-optional`): it has no value to start from.
+
+**Why.** One backend started an unwritten int at `0` and the others at null,
+so the same read answered differently. A running total also needs a defined
+start. A datetime, enum or id has no value that means "nothing yet", so
+inventing one (the current instant, the first member) would read as data.

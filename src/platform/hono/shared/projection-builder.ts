@@ -523,7 +523,7 @@ function emitProjectionTee(
     for (const h of foldHandlers(p)) {
       const fn = `fold${h.event}Into${upperFirst(p.name)}`;
       // A fold runs after the command committed and is isolated per handler
-      // (D-PROJECTION-FOLD): its failure is logged `reactor_failed` and never
+      // (D-PROJECTION-FOLD-AFTER-COMMIT): its failure is logged `reactor_failed` and never
       // reaches the command or the folds and reactors after it.
       const call = [
         `try {`,
