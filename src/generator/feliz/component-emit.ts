@@ -123,7 +123,8 @@ import {
 import { fsIdent } from "./fs-ident.js";
 import { felizPack } from "./pack.js";
 import { msgCase } from "./update-emit.js";
-import { pageMetaFieldName, wireFieldType } from "./wire.js";
+import { pageMetaFieldName } from "./wire.js";
+import { wireFieldType } from "./wire-codec.js";
 
 /** Everything a component walk needs — the same lookups a page view walk gets
  *  from `renderAppFs`. */

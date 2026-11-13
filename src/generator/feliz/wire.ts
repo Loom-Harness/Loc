@@ -72,7 +72,13 @@ import { felizFieldArrays, felizFormFields } from "./form-fields.js";
 import { CODE_POINT_LEN_HELPER, type FelizFieldRule, felizFieldRules } from "./form-validators.js";
 import { fsString } from "./fs-expr.js";
 import { fsIdent } from "./fs-ident.js";
-import { typeToFs } from "./type-fs.js";
+import {
+  decoderExprFor,
+  FS_PROVENANCED,
+  FS_PROVENANCED_DECODER,
+  paramEncoder,
+  wireFieldType,
+} from "./wire-codec.js";
 /** A read the page view issues, projected to everything the MVU wiring + api
  *  module need.  Two shapes:
  *   - LIST (`<param>.<agg>.all`) — a `Remote<'T list>` fired at `init`.
@@ -965,13 +971,6 @@ export function felizAction(aggregate: string, op: OperationIR): FelizAction {
     opPath: snake(op.routeSlug ?? op.name),
     label: humanize(op.name),
   };
-}
-
-/** The scalar base of a type, peeling `optional` — an optional field renders
- *  the same widget + encodes as the same wire type as its required twin (the
- *  optionality only changes the empty→null encoding + validation exemption). */
-function scalarBase(t: TypeIR): TypeIR {
-  return t.kind === "optional" ? t.inner : t;
 }
 
 /** Build the `FelizForm` for a `CreateForm(of: agg)` from the aggregate's
@@ -2117,35 +2116,6 @@ export interface FelizAsyncEffect {
   extraErrorPayloads: string[];
 }
 
-/** Thoth encoder function for a scalar op-param type (peeling `optional`).  Non-
- *  scalar params fall back to `Encode.string`, which fails loud at the Fable
- *  compile (a type mismatch) rather than silently mis-encoding. */
-function paramEncoder(t: TypeIR): string {
-  const base = scalarBase(t);
-  if (base.kind === "primitive") {
-    switch (base.name) {
-      case "int":
-        return "Encode.int";
-      // The param is already `int64`-typed (`wireFieldType`); `Encode.int64`
-      // would render it as a JSON string, so widen to a JSON number instead.
-      case "long":
-        return "(fun (v: int64) -> Encode.float (float v))";
-      // Same RS-12/RS-24 split as the form encoders: money is a wire string,
-      // a plain decimal is a wire number.  The op-param value is already
-      // `decimal`-typed here (`wireFieldType`), so the number arm converts.
-      case "money":
-        return "Encode.decimal";
-      case "decimal":
-        return "(fun (v: decimal) -> Encode.float (float v))";
-      case "bool":
-        return "Encode.bool";
-      default:
-        return "Encode.string";
-    }
-  }
-  return "Encode.string";
-}
-
 /** Build the `FelizAsyncEffect` for a supported `match await` shape on `action`.
  *  `errorPayloadNames` classifies an arm as an error variant (authoritative over
  *  the lowered `isError` hint, which a UI body can't always resolve). */
@@ -2345,100 +2315,6 @@ export function renderAsyncOutcomeTypes(effects: readonly FelizAsyncEffect[]): s
 // Domain records + Thoth decoders (off wireShape)
 // ---------------------------------------------------------------------------
 
-/** Guard the wire path against a `duration`-typed field.
- *
- *  `typeToFs` spells a duration `System.TimeSpan` (the type `FS_LEAVES.duration`
- *  builds and the temporal binary arms consume), but `decoderExprFor` has no
- *  `Decode.timespan` — Thoth ships none, and no backend puts a duration on the
- *  wire to decode: `duration` is EXPRESSION-ONLY, with no spelling in the
- *  grammar's `PrimitiveType` rule, so no declared property, `derived <name>:
- *  <TypeRef>`, or action param can be duration-typed and `wireShape` (built from
- *  declared types alone) can never carry one.  Rather than let the record field
- *  say `System.TimeSpan` while its decoder falls through to `Decode.string` — a
- *  Fable type error in the emitted `App.fs`, and the reason an earlier attempt at
- *  the `typeToFs` arm was reverted — the pair fails loudly at GENERATE time here.
- *  Same stance the node backend takes for its column mapper
- *  (`typescript/emit/schema.ts`).  Delete this guard only together with a real
- *  wire representation + matching decoder/encoder arms. */
-function assertNotDurationWireField(t: TypeIR): void {
-  if (t.kind === "primitive" && t.name === "duration") {
-    throw new Error("internal: 'duration' is expression-only and never reaches a wire field");
-  }
-}
-
-/** F# type spelling of a wire field's declared type, honouring the wire
- *  contract: an enum value arrives as its string name, so it decodes to a
- *  plain `string` (a proper DU decoder is a follow-up). */
-export function wireFieldType(t: TypeIR): string {
-  // A `File` wire field is the fixed `FileRef` record (`renderFileRefType`),
-  // not a scalar — decoded via `fileRefDecoder`.
-  if (t.kind === "primitive" && t.name === "File") return "FileRef";
-  assertNotDurationWireField(t);
-  switch (t.kind) {
-    case "enum":
-      return "string";
-    case "array":
-      return `${wireFieldType(t.element)} list`;
-    case "optional":
-      return `${wireFieldType(t.inner)} option`;
-    case "genericInstance":
-      // `Provenanced<int>` (M-T6.12).  Without this arm the carrier fell
-      // through to `typeToFs`'s `obj` and the field decoded as an untyped
-      // blob — a SILENT degradation of exactly the shape the carrier exists
-      // to make uniform.
-      if (t.ctor === "provenanced") return `${FS_PROVENANCED}<${wireFieldType(t.arg)}>`;
-      return typeToFs(t);
-    default:
-      return typeToFs(t);
-  }
-}
-
-/** Thoth decoder expression for a wire field's declared type. */
-export function decoderExprFor(t: TypeIR): string {
-  assertNotDurationWireField(t);
-  switch (t.kind) {
-    case "primitive":
-      switch (t.name) {
-        case "int":
-          return "Decode.int";
-        // `Decode.int` bounds-checks against Int32.MIN/MAX and fails the WHOLE
-        // record decode on anything past int32 — so a `long` field decoded
-        // through it rejected every value it exists to carry.
-        case "long":
-          return "Decode.int64";
-        case "decimal":
-        case "money":
-          return "Decode.decimal";
-        case "bool":
-          return "Decode.bool";
-        case "datetime":
-          return "Decode.datetimeUtc";
-        case "File":
-          return "fileRefDecoder"; // the fixed FileRef record (renderFileRefType)
-        default:
-          return "Decode.string"; // string, json
-      }
-    case "id":
-      return "Decode.string";
-    case "enum":
-      return "Decode.string"; // wire carries the enum's string name
-    case "valueobject":
-    case "entity":
-      return `Decoders.${fsIdent(lowerFirst(t.name))}`;
-    case "array":
-      return `(Decode.list ${decoderExprFor(t.element)})`;
-    case "optional":
-      return decoderExprFor(t.inner); // handled at the field via get.Optional
-    case "genericInstance":
-      if (t.ctor === "provenanced") {
-        return `(${FS_PROVENANCED_DECODER} ${decoderExprFor(t.arg)})`;
-      }
-      return "Decode.string";
-    default:
-      return "Decode.string";
-  }
-}
-
 /** A record + decoder the emitted wire layer needs — an aggregate, one of its
  *  entity parts, or a value object, keyed by its F# type name. */
 interface WireRecord {
@@ -2509,10 +2385,6 @@ export function renderProvLineageType(): string {
     "    })",
   );
 }
-
-/** The Feliz spelling of the shared wire carrier + its Thoth decoder factory. */
-const FS_PROVENANCED = "Provenanced";
-const FS_PROVENANCED_DECODER = "provenancedDecoder";
 
 /** The F# type name a wire field references (an entity part / value object),
  *  peeling arrays + optionals; undefined for scalar/enum leaves. */
