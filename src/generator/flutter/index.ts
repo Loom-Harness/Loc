@@ -41,6 +41,7 @@ import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, upperFirst } from "../../util/naming.js";
+import { DEBIAN_CERTS_BLOCK } from "../_docker/node-stage.js";
 import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { usesValueEquals } from "../_frontend/value-equals.js";
@@ -514,6 +515,7 @@ export function generateFlutterForContexts(
   out.set("web/index.html", renderWebIndexHtml(title));
   out.set("web/manifest.json", renderWebManifest(pkg, title));
   out.set("Dockerfile", DOCKERFILE);
+  out.set("certs/.gitkeep", "");
   // Native mobile surface.  The emitted project is a plain Flutter app
   // — it builds for web (served by the Dockerfile above) AND, with the platform
   // folders materialised, for Android/iOS.  We deliberately do NOT vendor the
@@ -2108,10 +2110,10 @@ function renderWebManifest(pkg: string, title: string): string {
 // nginx runtime serving the static bundle on :3000 with SPA fallback).  The
 // compose service references \`build: ./\`, so the Flutter bundle is produced at
 // image-build time, not fetched.
-const DOCKERFILE = `# syntax=docker/dockerfile:1
+export const DOCKERFILE = `# syntax=docker/dockerfile:1
 FROM ghcr.io/cirruslabs/flutter:stable AS build
 WORKDIR /app
-COPY pubspec.yaml ./
+${DEBIAN_CERTS_BLOCK}COPY pubspec.yaml ./
 RUN flutter pub get
 COPY . .
 RUN flutter build web --release
