@@ -32,7 +32,7 @@ const MAKE_INTERVAL_ARG: Record<DurationUnit, string> = {
 // deliberately NOT an `ExprTarget` implementation: that contract exists for
 // full-language backends; this is a small validated subset where most of the
 // ExprIR kinds are *rejected up front* by `sqlRenderableExpr` (the honest
-// gate backing `loom.migration-expr-unsupported`) rather than rendered.
+// gate backing `loom.migration-expr-invalid`) rather than rendered.
 //
 // Supported: literals (string/int/long/decimal/money/bool/null/now), enum
 // values (their stored text), sibling-field refs (`this-prop` → the quoted

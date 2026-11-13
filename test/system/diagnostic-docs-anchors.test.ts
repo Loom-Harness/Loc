@@ -187,7 +187,7 @@ describe("the undocumented-codes ratchet", () => {
 // 343 -> 342: `loom.datasource-knob-unwired` retired (now target-unsupported rows).
 // 335 -> 336: `loom.ir-ill-formed`, an internal compiler error like `loom.ir-internal`;
 // it explains no construct of the language, so there is no section to anchor.
-const UNDOCUMENTED_BASELINE = 336;
+const UNDOCUMENTED_BASELINE = 335;
 
 describe("the undocumented-codes LENGTH ratchet", () => {
   it("only shrinks", () => {

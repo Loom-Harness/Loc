@@ -89,7 +89,7 @@ describe("migration data steps — IR validation (M-T2.3)", () => {
       Order.quantity = quantity + 1
       Order.note = null
     }`);
-    expect(found).not.toContain("loom.migration-expr-unsupported");
+    expect(found).not.toContain("loom.migration-expr-invalid");
     expect(found).not.toContain("loom.backfill-type-mismatch");
     expect(found).not.toContain("loom.backfill-target-invalid");
     expect(found).not.toContain("loom.migration-data-steps-unsupported");
@@ -97,7 +97,7 @@ describe("migration data steps — IR validation (M-T2.3)", () => {
 
   it("rejects an expression outside the SQL-renderable subset", async () => {
     expect(await irCodes(`migration "x" { Order.quantity = [1, 2].count }`)).toContain(
-      "loom.migration-expr-unsupported",
+      "loom.migration-expr-invalid",
     );
   });
 
@@ -169,13 +169,13 @@ describe("migration data steps — IR validation (M-T2.3)", () => {
       Order.dueAt = placedAt + hours(24)
       Order.placedAt = dueAt - days(quantity)
     }`);
-    expect(found).not.toContain("loom.migration-expr-unsupported");
+    expect(found).not.toContain("loom.migration-expr-invalid");
     expect(found).not.toContain("loom.backfill-type-mismatch");
   });
 
   it("still refuses a duration that is not added to a datetime", async () => {
     expect(await irCodes(`migration "x" { Order.quantity = quantity + hours(1) }`)).toContain(
-      "loom.migration-expr-unsupported",
+      "loom.migration-expr-invalid",
     );
   });
 

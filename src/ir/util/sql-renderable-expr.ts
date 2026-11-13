@@ -5,7 +5,7 @@ import { type DurationExprIR, durationCtorOperand, isDatetimeTypedIR } from "./t
 // The SQL-renderable expression subset (M-T2.3 data-migration surface).
 //
 // Pure predicate over ExprIR — the honest gate backing
-// `loom.migration-expr-unsupported`.  Lives in `ir/util` (not next to the
+// `loom.migration-expr-invalid`.  Lives in `ir/util` (not next to the
 // renderer in `generator/`) because the IR validator consumes it and
 // `ir → generator` is a forbidden backward edge; the renderer
 // (`src/generator/sql-pg-expr.ts`) imports it forward and MUST stay in
@@ -14,7 +14,7 @@ import { type DurationExprIR, durationCtorOperand, isDatetimeTypedIR } from "./t
 
 /** Is `e` inside the SQL-renderable subset a backfill expression may use?
  *  `true`, or the reason it is not — surfaced verbatim by the
- *  `loom.migration-expr-unsupported` validator so the user sees *why* the
+ *  `loom.migration-expr-invalid` validator so the user sees *why* the
  *  expression can't backfill.
  *
  *  Supported: literals, enum values, sibling-field refs (`this-prop`),

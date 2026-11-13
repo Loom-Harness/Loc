@@ -21,7 +21,7 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 // (live field, per-block duplicates, empty sql).  Here, with the fully-typed
 // ExprIR in hand, we gate what the phase-⑨ builder can actually render:
 //
-//   - `loom.migration-expr-unsupported`   — backfill expression outside the
+//   - `loom.migration-expr-invalid`   — backfill expression outside the
 //     SQL-renderable subset (`sqlRenderableExpr`, ir/util).
 //   - `loom.backfill-target-invalid`  — the target field has no single
 //     scalar column: value-object / collection / entity fields, and
@@ -91,8 +91,8 @@ export function validateMigrationDataSteps(loom: EnrichedLoomModel, diags: LoomD
     if (renderable !== true) {
       diags.push({
         severity: "error",
-        code: "loom.migration-expr-unsupported",
-        message: diagMessage("loom.migration-expr-unsupported", {
+        code: "loom.migration-expr-invalid",
+        message: diagMessage("loom.migration-expr-invalid", {
           aggregate: intent.aggregate,
           field: intent.field,
           reason: renderable.reason,
@@ -205,7 +205,7 @@ function sqlExprFamily(e: ExprIR): string | undefined {
     // No family — and that is SAFE here by construction: this classifier only
     // ever sees a backfill expression, and `sqlRenderableExpr`
     // (`src/ir/util/sql-renderable-expr.ts`) has already refused every kind
-    // below with `loom.migration-expr-unsupported`, so reaching one of these is
+    // below with `loom.migration-expr-invalid`, so reaching one of these is
     // dead code rather than an unchecked value.  `undefined` means "type
     // unknown → skip the family comparison", never "types agree".  Named
     // rather than left to a `default:` so a new `ExprIR` kind is a decision
