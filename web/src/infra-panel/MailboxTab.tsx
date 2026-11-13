@@ -103,7 +103,7 @@ export default function MailboxTab({ env, active }: InfraTabProps): JSX.Element 
               ))}
             </Stack>
           </ScrollArea>
-          {open ? <MailView mail={open} /> : <Text size="xs" c="dimmed" p="sm">Pick a message to read it.</Text>}
+          {open ? <MailView key={open.id} mail={open} /> : <Text size="xs" c="dimmed" p="sm">Pick a message to read it.</Text>}
         </Box>
       )}
     </Stack>
