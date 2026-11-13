@@ -1206,8 +1206,8 @@ function renderWorkflowModule(
   const contextModuleFq = `${appModule}.${ctxModule}`;
   const repoMod = `${appModule}.Repo`;
   const writeScope = ctx ? writeScopeContext(wf.statements, ctx) : undefined;
-  const transactional = ctx ? workflowRunsInTransaction(wf, ctx) : !!wf.transactional;
-  const isolation = ctx ? workflowIsolation(wf, ctx, sys) : wf.isolation;
+  const transactional = workflowRunsInTransaction(wf, ctx);
+  const isolation = workflowIsolation(wf, ctx, sys);
 
   // F58 — a state-bearing workflow's COMMAND route addresses the SAME persisted
   // saga row its event-triggered starter does (`dispatch-emit.ts`

@@ -753,6 +753,12 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // The transactional workflow that emits the durable event; same not-lifted
   // workflow-route class.
   "corpus/saga-durable-cross-context": ["api.relog.run (no such aggregate)"],
+  // The two workflows the transaction-boundary fixture runs; same not-lifted
+  // workflow-route class.
+  "corpus/workflow-partial-commit": [
+    "api.bumpThenFail.run (no such aggregate)",
+    "api.bumpThenFailAtomically.run (no such aggregate)",
+  ],
   "corpus/workflow-create-result": [
     "api.openAccount.run (no such aggregate)",
     "api.topUp.run (no such aggregate)",
