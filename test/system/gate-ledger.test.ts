@@ -111,12 +111,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "assert — a projection count — `projection-agg-filters` already boots on one",
   "tenancy-hierarchy":
     "flat visibility inside a registry tree is a runtime row-visibility question; `test:tenancy-hierarchy-*` boots it outside the corpus tier.  The corpus cell needs a principal whose claim is a registry ROW id (a registry read narrows to `this.id == currentUser.<claim>`), which the behavioural harness does not mint — #3422",
-  "handler-resource-ops":
-    "outbound I/O inside a handler body, to an objectStore and a queue as well as a mailer; the kit has no S3 or broker fake yet, and a leg cannot boot the fixture without them.  The mailer and api calls from a handler body and the event dispatcher are booted on every leg by `resource-mail-api` — #4212",
   "optional-let":
     "the emitted null-handling form of a `let`-bound optional read is a compile-tier fact (an unwrapped java `Optional`, a .NET `GetByIdAsync`, an elixir nil match); the booted block over the absent-row and present-row branches is #4335",
-  resources:
-    "the objectStore and queue clients need an S3 and a broker fake the kit does not have yet.  The api and mailer clients are booted on every leg by `resource-mail-api` against the in-process fakes — #4212",
   "api-call-auth":
     "in-system api call to an `auth: required` callee; needs both deployables booted.  BY DESIGN for the corpus tier, which boots one deployable per case: the `api-call-e2e` leg boots both, with auth required on each, and asserts the callee stamps the forwarded principal",
   "api-call":

@@ -240,6 +240,19 @@ export const BEHAVIOURAL_XFAIL = {
   node: {},
   mikroorm: {},
   dotnet: {
+    // .NET's `ToJson` passes a string through raw, so `salesFiles.put(k, "x")`
+    // stores `x` under content-type application/json where every other
+    // backend stores the JSON text `"x"`: the golden's object sizes differ.
+    resources: {
+      issue: "#5685",
+      expect: "wire",
+      reason: "the .NET objectStore put stores a string body raw under a JSON content type",
+    },
+    "handler-resource-ops": {
+      issue: "#5685",
+      expect: "wire",
+      reason: "the .NET objectStore put stores a string body raw under a JSON content type",
+    },
     "contained-part-rebuild": {
       issue: "#4136",
       expect: "fail",
@@ -252,9 +265,34 @@ export const BEHAVIOURAL_XFAIL = {
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
   dapper: {
+    // .NET's `ToJson` passes a string through raw, so `salesFiles.put(k, "x")`
+    // stores `x` under content-type application/json where every other
+    // backend stores the JSON text `"x"`: the golden's object sizes differ.
+    resources: {
+      issue: "#5685",
+      expect: "wire",
+      reason: "the .NET objectStore put stores a string body raw under a JSON content type",
+    },
+    "handler-resource-ops": {
+      issue: "#5685",
+      expect: "wire",
+      reason: "the .NET objectStore put stores a string body raw under a JSON content type",
+    },
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
   java: {
+    // `toJson` returns a String as-is, so a string is stored raw under
+    // content-type application/json; the golden's object sizes differ.
+    resources: {
+      issue: "#5697",
+      expect: "wire",
+      reason: "the Java objectStore put stores a string body raw under a JSON content type",
+    },
+    "handler-resource-ops": {
+      issue: "#5697",
+      expect: "wire",
+      reason: "the Java objectStore put stores a string body raw under a JSON content type",
+    },
   },
   python: {
     // A routed command handler's body model takes snake_case keys.
@@ -271,6 +309,18 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
+    // The S3 put hands ExAws the body unencoded, so a string is stored raw
+    // under content-type application/json; the golden's object sizes differ.
+    resources: {
+      issue: "#5696",
+      expect: "wire",
+      reason: "the Elixir s3 objectStore put stores a string body raw under a JSON content type",
+    },
+    "handler-resource-ops": {
+      issue: "#5696",
+      expect: "wire",
+      reason: "the Elixir s3 objectStore put stores a string body raw under a JSON content type",
+    },
     // A value object whose invariants are all cross-field gets no `new/1`
     // validator, so the out-of-order stay is stored (201, not 422).
     "vo-date-invariant": {

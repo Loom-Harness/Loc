@@ -38,7 +38,7 @@ system RC {
     port: 4000
   }
   test e2e "the archive workflow reaches every resource kind" against d {
-    api.archive.run({ name: "n1" })
-    api.archive.run({ name: "n2" })
+    api.archive.run({ name: "ada@rc.test" })
+    api.archive.run({ name: "bo@rc.test" })
   }
 }

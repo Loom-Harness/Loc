@@ -110,7 +110,7 @@ export const COVERAGE: readonly CoverageRow[] = [
     kind: "queue",
     fake: "real-sidecar",
     module: "broker-sidecar.mjs",
-    pending: pending("#5613"),
+    witness: { fixture: "resources", effects: "broker" },
   },
   {
     sourceType: "rabbitmq",
@@ -127,7 +127,7 @@ export const COVERAGE: readonly CoverageRow[] = [
     kind: "objectStore",
     fake: "real-sidecar",
     module: "s3-sidecar.mjs",
-    pending: pending("#5613"),
+    witness: { fixture: "resources", effects: "objects" },
   },
   { sourceType: "localDisk", kind: "objectStore", fake: "n/a", pending: pending("#5613") },
   // ── outbound apis and mail ─────────────────────────────────────────────

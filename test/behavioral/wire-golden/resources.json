@@ -1,0 +1,74 @@
+{
+  "case": "resources",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/workflows/archive",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/workflows/archive",
+      "status": 204,
+      "body": ""
+    }
+  ],
+  "effects": {
+    "broker": [
+      {
+        "exchange": "",
+        "routingKey": "salesJobs",
+        "type": null,
+        "count": 2
+      }
+    ],
+    "http": [
+      {
+        "method": "GET",
+        "path": "/customers",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "path": "/customers",
+        "body": null
+      }
+    ],
+    "mail": [
+      {
+        "from": "no-reply@rc.test",
+        "to": [
+          "ada@rc.test"
+        ],
+        "subject": "Order archived",
+        "text": "Your order ada@rc.test was archived."
+      },
+      {
+        "from": "no-reply@rc.test",
+        "to": [
+          "bo@rc.test"
+        ],
+        "subject": "Order archived",
+        "text": "Your order bo@rc.test was archived."
+      }
+    ],
+    "objects": [
+      {
+        "bucket": "app-files",
+        "key": "orders/ada@rc.test",
+        "size": 13,
+        "contentType": "application/json"
+      },
+      {
+        "bucket": "app-files",
+        "key": "orders/bo@rc.test",
+        "size": 12,
+        "contentType": "application/json"
+      }
+    ]
+  }
+}
