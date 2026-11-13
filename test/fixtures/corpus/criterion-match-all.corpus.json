@@ -1,0 +1,12 @@
+{
+  "title": "the match-everything criterion (`criterion All of T = true`) read by a workflow",
+  "doc": "criterion",
+  "backends": "ALL",
+  "note": "The whole body `true` is the one literal a query filter admits; every backend reads it as no filter (Drizzle sql`true`, EF x => true, JPA cb.conjunction(), SQLAlchemy .where(true()), Ecto where: true, Dapper WHERE TRUE, MikroORM {}).",
+  "apiCaller": {
+    "//": "A workflow run — the not-lifted workflow-route class.",
+    "unattributed": [
+      "api.bumpAll.run (no such aggregate)"
+    ]
+  }
+}

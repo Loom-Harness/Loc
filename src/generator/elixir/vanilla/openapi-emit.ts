@@ -1560,7 +1560,8 @@ function declaredResponseProps(
       type: provenanced.has(f.name)
         ? { kind: "genericInstance", ctor: "provenanced", arg: declaredType }
         : declaredType,
-      optional: f.optional,
+      // A masked field is redacted to null, so it is never `required`.
+      optional: f.optional || f.maskUnless !== undefined,
     });
   }
   return props;

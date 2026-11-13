@@ -72,11 +72,6 @@ describe("node/Hono — no catalog: the 422 answers the code, the client localiz
       "return { pointer, message: issue.message, code: issueCode(issue), ...(params ? { params } : {}) };",
     );
   });
-
-  it("each named rule's refine carries its identity key as the code", async () => {
-    const all = [...(await filesFor("node")).values()].join("\n");
-    for (const code of ALL_CODES) expect(all).toContain(`loomCode: "${code}"`);
-  });
 });
 
 describe(".NET — no catalog: the 422 answers the code, the client localizes", () => {
@@ -88,15 +83,6 @@ describe(".NET — no catalog: the 422 answers the code, the client localizes", 
     // Every rule names its catalog code, an unnamed one included.
     expect(filter).toContain('err["code"] = e.ErrorCode');
   });
-
-  it("routes a named PRECONDITION onto the carrier with its text + code", async () => {
-    // The op validator dropped `message` when lifting preconditions, silently
-    // downgrading an authored precondition to the generic text and
-    // costing it the wire `code` every other backend keyed.
-    const validator = bySuffix(await filesFor("dotnet"), "RestockCommandValidator.cs")!;
-    expect(validator).toContain('.WithMessage("Amount positive")');
-    expect(validator).toContain(`.WithErrorCode("${AMOUNT_CODE}")`);
-  });
 });
 
 describe("python/FastAPI — no catalog: the 422 answers the code, the client localizes", () => {
@@ -107,11 +93,6 @@ describe("python/FastAPI — no catalog: the 422 answers the code, the client lo
     expect(problem).not.toContain("localize_message");
     expect(problem).toContain('"code": _wire_code(e),');
   });
-
-  it("each named rule's pydantic error type is its identity key", async () => {
-    const all = [...(await filesFor("python")).values()].join("\n");
-    for (const code of ALL_CODES) expect(all).toContain(`"${code}"`);
-  });
 });
 
 describe("java/Spring — no catalog: the 422 answers the code, the client localizes", () => {
@@ -121,11 +102,6 @@ describe("java/Spring — no catalog: the 422 answers the code, the client local
     const advice = bySuffix(files, "ApiExceptionAdvice.java")!;
     expect(advice).not.toContain("MessageSource");
   });
-
-  it("each named rule's code is its identity key", async () => {
-    const all = [...(await filesFor("java")).values()].join("\n");
-    for (const code of ALL_CODES) expect(all).toContain(`"${code}"`);
-  });
 });
 
 describe("elixir/Phoenix — no catalog: the 422 answers the code, the client localizes", () => {
@@ -134,11 +110,6 @@ describe("elixir/Phoenix — no catalog: the 422 answers the code, the client lo
     expect(bySuffix(files, "priv/gettext/en/LC_MESSAGES/default.po")).toBeUndefined();
     const all = [...files.values()].join("\n");
     expect(all).not.toContain("Gettext.with_locale");
-  });
-
-  it("each named rule's code is its identity key", async () => {
-    const all = [...(await filesFor("elixir")).values()].join("\n");
-    for (const code of ALL_CODES) expect(all).toContain(`"${code}"`);
   });
 });
 

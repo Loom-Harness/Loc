@@ -613,11 +613,11 @@ export const flutterTarget: WalkerTarget = {
    *  its text and `onChanged` mirrors it into the Notifier, which is what the
    *  rows expression below reads.  Emitting `notifier.` here is also the signal
    *  the page shell greps for to bind that local (`index.ts`). */
-  renderFilterInput(filter) {
+  renderFilterInput(filter, labels) {
     const set = setterName(filter.name);
     return (
       `TextField(decoration: const InputDecoration(isDense: true, ` +
-      `prefixIcon: Icon(Icons.search), labelText: 'Filter table', hintText: 'Filter…'), ` +
+      `prefixIcon: Icon(Icons.search), labelText: ${labels.ariaValue}, hintText: ${labels.placeholderValue}), ` +
       `onChanged: (value) => notifier.${set}(value))`
     );
   },

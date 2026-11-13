@@ -91,12 +91,13 @@ describe("java generator — auth surface (S6)", () => {
     expect(svc).toContain("throw new ForbiddenException(");
     expect(svc).toContain("aggregate.rename(newName);");
     expect(svc).not.toContain("aggregate.rename(newName, currentUser);");
-    // Post-load and pre-call.
+    // `requires currentUser.role` reads no row: it runs BEFORE the load (the
+    // gate ladder), and before the call.
     const load = svc.indexOf("var aggregate = repository.getById(id);");
     const gate = svc.indexOf("throw new ForbiddenException(");
     const call = svc.indexOf("aggregate.rename(newName);");
-    expect(load).toBeLessThan(gate);
-    expect(gate).toBeLessThan(call);
+    expect(gate).toBeLessThan(load);
+    expect(load).toBeLessThan(call);
     // Authorization is not an invariant — the aggregate is clean.
     const entity = f.get(`${ROOT}/features/projects/Project.java`)!;
     expect(entity).not.toContain("ForbiddenException");

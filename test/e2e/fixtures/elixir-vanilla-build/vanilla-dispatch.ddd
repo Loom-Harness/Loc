@@ -43,9 +43,9 @@ system FulfillmentSys {
       // fold handler, and the projections read controller under mix compile.
       projection OrderBoard keyed by order {
         order: Order id
-        status: BoardStatus
-        at: datetime
-        on(e: OrderPlaced)       { order := e.order  status := Placed   at := e.at }
+        status: BoardStatus?
+        at: datetime?
+        on(e: OrderPlaced)       { status := Placed   at := e.at }
         on(e: ShipmentRequested) { status := Shipped  at := e.at }
       }
 

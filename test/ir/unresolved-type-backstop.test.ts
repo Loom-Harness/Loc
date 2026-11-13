@@ -34,7 +34,7 @@ const SRC = `system S {
 describe("an unresolved type never reaches codegen", () => {
   it("lowering records each read of an expression the pass left unresolved", async () => {
     const { model } = await parseString(SRC, { validate: false });
-    const sites = lowerModel(model).unresolvedTypes ?? [];
+    const sites = lowerModel(model).unresolvedTypes;
     expect(sites.map((s) => [s.text, s.cause])).toContainEqual(["nope", "unresolved-name"]);
     expect(sites.find((s) => s.text === "nope")?.origin).toBeDefined();
   });
@@ -43,7 +43,7 @@ describe("an unresolved type never reaches codegen", () => {
     const { model } = await parseString(SRC.replace("let n = nope", "let n = qty"), {
       validate: false,
     });
-    expect(lowerModel(model).unresolvedTypes).toBeUndefined();
+    expect(lowerModel(model).unresolvedTypes).toEqual([]);
   });
 
   it("the IR layer refuses the model when nothing else does", async () => {
@@ -74,6 +74,6 @@ describe("an unresolved type never reaches codegen", () => {
     );
     expect(src).toContain(".not.toBeNull()");
     const { model } = await parseString(src, { validate: false });
-    expect(lowerModel(model).unresolvedTypes).toBeUndefined();
+    expect(lowerModel(model).unresolvedTypes).toEqual([]);
   });
 });

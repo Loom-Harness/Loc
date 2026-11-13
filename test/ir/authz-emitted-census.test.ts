@@ -775,10 +775,20 @@ const NOOP_GATE: Record<VariantId, Edit[]> = {
       deleteLine: true,
     },
   ],
+  // The gate is rendered twice: ahead of the load (`close_ticket_gate/2`, the
+  // gate ladder's row-free rung) and inside the operation function (every
+  // other caller of the context).  The no-op seed empties both.
   elixir: [
     {
       file: /lib\/d\/support\.ex$/,
-      after: "def close_ticket",
+      after: "def close_ticket_gate(",
+      from: CLOSE_GUARD,
+      to: "",
+      deleteLine: true,
+    },
+    {
+      file: /lib\/d\/support\.ex$/,
+      after: "def close_ticket(",
       from: CLOSE_GUARD,
       to: "",
       deleteLine: true,

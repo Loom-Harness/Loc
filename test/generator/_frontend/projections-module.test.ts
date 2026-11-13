@@ -76,7 +76,7 @@ system Shop {
       projection OrderBook keyed by order {
         order: Order id
         code: string
-        on(e: OrderPlaced) { order := e.order  code := e.code }
+        on(e: OrderPlaced) { code := e.code }
       }
     }
   }

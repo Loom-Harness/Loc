@@ -285,6 +285,35 @@ export const messages = {
     `<id field>', or drop the 'on(...)' handlers and make it a query-time ` +
     `projection (a 'from'/'where'/'select' comprehension), which is what a keyless ` +
     `projection means.`,
+  "loom.projection-accumulate-optional": (p: {
+    name: unknown;
+    param: unknown;
+    event: unknown;
+    field: unknown;
+    op: unknown;
+  }) =>
+    `projection '${p.name}' fold 'on(${p.param}: ${p.event})' applies '${p.op}' to ` +
+    `'${p.field}', which is optional and declares no default.  A new row's ` +
+    `optional field starts absent, and an absent value has no sum.  Make ` +
+    `'${p.field}' required (it then starts at its type's zero), or give it a ` +
+    `default.`,
+  "loom.projection-field-no-start": (p: { name: unknown; field: unknown; type: unknown }) =>
+    `projection '${p.name}' field '${p.field}' is required, but a new row has no ` +
+    `value to start it at: '${p.type}' has no zero and the field declares no ` +
+    `default.  A fold creates the row on the first event for a key, before any ` +
+    `statement writes '${p.field}'.  Give it a default ('${p.field}: ${p.type} = …'), ` +
+    `or make it optional ('${p.field}: ${p.type}?') so it starts absent.`,
+  "loom.projection-key-assign": (p: {
+    name: unknown;
+    param: unknown;
+    event: unknown;
+    key: unknown;
+  }) =>
+    `projection '${p.name}' fold 'on(${p.param}: ${p.event})' assigns its key field ` +
+    `'${p.key}'.  The key is immutable: the row is created with the key the fold ` +
+    `routes by (\`e.${p.key}\`, or the handler's \`by <expr>\`), so the assignment is ` +
+    `redundant at best and would move the row at worst.  Remove it; route by ` +
+    `\`by <expr>\` if the event names the key differently.`,
   "loom.projection-fold-impure": (p: {
     name: unknown;
     param: unknown;

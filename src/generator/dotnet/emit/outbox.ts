@@ -10,6 +10,7 @@
 // path byte-identically.
 
 import {
+  OUTBOX_PENDING_PREDICATE,
   OUTBOX_PURGE_INTERVAL_SECONDS,
   OUTBOX_RETENTION_DEFAULT_DAYS,
   OUTBOX_RETENTION_ENV,
@@ -122,9 +123,10 @@ ${purge}
  *  halts there without spending the row's attempt (the shared relay policy),
  *  and \`ExecuteAsync\` backs off. */
 export const DOTNET_RELAY_HALT_ON_BROKER_DOWN = `
-            catch (BrokerUnavailableException)
+            catch (BrokerUnavailableException ex)
             {
-                throw;
+                halted = ex;
+                break;
             }`;
 
 export function outboxExecuteLoop(): string {
@@ -324,7 +326,7 @@ export function renderOutboxRelay(
     : `IServiceScopeFactory scopes, ILogger<OutboxRelayService> log`;
   const ctorAssign = opts.durableBroker ? "\n        _transports = transports;" : "";
   const innerResolve = opts.hasSubscriptions
-    ? "\n        var inner = scope.ServiceProvider.GetRequiredService<InProcessDomainEventDispatcher>();\n        // The relay retries / dead-letters on a reactor throw — never isolate here.\n        inner.IsolateReactorFailures = false;"
+    ? "\n        // Reactors run on their own scope's DbContext, never inside the claim.\n        await using var deliveryScope = _scopes.CreateAsyncScope();\n        var inner = deliveryScope.ServiceProvider.GetRequiredService<InProcessDomainEventDispatcher>();\n        // The relay retries / dead-letters on a reactor throw — never isolate here.\n        inner.IsolateReactorFailures = false;"
     : "";
   const localDispatch = `// The row id rides on an AsyncLocal so saga handlers'
                 // idempotent-consumer markers can no-op on redelivery
@@ -399,11 +401,14 @@ ${outboxExecuteLoop()}
     {
         await using var scope = _scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();${innerResolve}
+        // The pass claims its batch: one transaction locks the rows it takes
+        // and skips the ones another relay holds, so competing replicas never
+        // publish the same row.
+        await using var claim = await db.Database.BeginTransactionAsync(cancellationToken);
         var rows = await db.LoomOutbox
-            .Where(m => m.DispatchedAt == null && m.DeadAt == null)
-            .OrderBy(m => m.OccurredAt)
-            .Take(BatchSize)
+            .FromSqlRaw("SELECT * FROM __loom_outbox WHERE ${OUTBOX_PENDING_PREDICATE} ORDER BY occurred_at LIMIT {0} ${OUTBOX_RELAY.claimLock}", BatchSize)
             .ToListAsync(cancellationToken);
+        Exception? halted = null;
         foreach (var row in rows)
         {
             try
@@ -427,6 +432,8 @@ ${outboxExecuteLoop()}
             }
             await db.SaveChangesAsync(cancellationToken);
         }
+        await claim.CommitAsync(cancellationToken);
+        if (halted is not null) throw halted;
     }
 
     private static IDomainEvent? Deserialize(string type, string payload) =>

@@ -62,7 +62,7 @@ system AcronymNames {
       projection StockPerSKU keyed by sku {
         sku: ProductSKU id
         qty: int
-        on(e: StockedSKU) { sku := e.sku  qty := e.qty }
+        on(e: StockedSKU) { qty := e.qty }
       }
 
       workflow RestockSKU {
