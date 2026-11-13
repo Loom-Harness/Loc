@@ -102,7 +102,7 @@ test("infrastructure panel: mailbox, object store and REST mocks follow the depl
 
     await openTab(page, "storage");
     await page.getByTestId("storage-store").filter({ hasText: "s3://desk-files" }).click();
-    await page.getByTestId("storage-folder").filter({ hasText: "notes/" }).getByRole("link").click();
+    await page.getByTestId("storage-folder").filter({ hasText: "notes/" }).getByRole("button").click();
     const alpha = page.locator('[data-testid=storage-object][data-key="notes/alpha"]');
     await expect(alpha).toBeVisible();
     await expect(alpha.getByTestId("storage-object-size")).toHaveText(`${JSON.stringify("alpha").length} B`);
@@ -139,7 +139,7 @@ test("infrastructure panel: mailbox, object store and REST mocks follow the depl
     await page.getByTestId("storage-store").filter({ hasText: "localDisk" }).click();
     const doc = page.locator('[data-testid=storage-object][data-key$="docs_alpha"]');
     for (let depth = 0; depth < 8 && !(await doc.isVisible()); depth++) {
-      await page.getByTestId("storage-folder").first().getByRole("link").click();
+      await page.getByTestId("storage-folder").first().getByRole("button").click();
     }
     await expect(doc).toBeVisible();
     await doc.getByTestId("storage-object-name").click();

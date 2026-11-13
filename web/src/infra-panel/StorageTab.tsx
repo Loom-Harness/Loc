@@ -135,11 +135,11 @@ export default function StorageTab({ env, active }: InfraTabProps): JSX.Element 
         <Stack gap={0} style={{ minWidth: 0, gridColumn: "span 2" }}>
           {store && (
             <Breadcrumbs px="sm" py={4} separator="/" data-testid="storage-crumbs" style={{ fontSize: 12 }}>
-              <Anchor size="xs" onClick={() => setPrefix("")}>
+              <Anchor component="button" size="xs" onClick={() => setPrefix("")}>
                 {store.label}
               </Anchor>
               {crumbs.map((c, i) => (
-                <Anchor key={`${i}:${c}`} size="xs" onClick={() => setPrefix(`${crumbs.slice(0, i + 1).join("/")}/`)}>
+                <Anchor component="button" key={`${i}:${c}`} size="xs" onClick={() => setPrefix(`${crumbs.slice(0, i + 1).join("/")}/`)}>
                   {c}
                 </Anchor>
               ))}
@@ -156,7 +156,7 @@ export default function StorageTab({ env, active }: InfraTabProps): JSX.Element 
                   {folders.map((f) => (
                     <Table.Tr key={`d:${f}`} data-testid="storage-folder" data-name={f}>
                       <Table.Td colSpan={3}>
-                        <Anchor size="xs" onClick={() => setPrefix(`${prefix}${f}/`)}>
+                        <Anchor component="button" size="xs" onClick={() => setPrefix(`${prefix}${f}/`)}>
                           {f}/
                         </Anchor>
                       </Table.Td>
@@ -245,7 +245,7 @@ function FileRow({
   return (
     <Table.Tr data-testid="storage-object" data-key={entry.key}>
       <Table.Td style={{ wordBreak: "break-all" }}>
-        <Anchor size="xs" onClick={onView} data-testid="storage-object-name">
+        <Anchor component="button" size="xs" onClick={onView} data-testid="storage-object-name">
           {name}
         </Anchor>
         {error && (
