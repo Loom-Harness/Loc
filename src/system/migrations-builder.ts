@@ -428,7 +428,7 @@ export function schemaFromModule(
   // `diffSchema` reorders the emitted `createTable` steps by FK
   // dependency so the SQL applies cleanly.
   tables.sort((a, b) => a.name.localeCompare(b.name));
-  return { schemaVersion: 1, tables };
+  return { schemaVersion: 1, tables: tables.map((t) => withEnumMembers(t, enumLookup)) };
 }
 
 /** Append the co-located provenance lineage columns to an aggregate's ROOT
@@ -466,6 +466,19 @@ function withLineageColumns(agg: AggregateIR, table: TableShape): TableShape {
  *  `text_pattern_ops` prefix index answers `LIKE` the default opclass can't).
  *  On an existing project the delta is a plain `DROP INDEX` — not a
  *  destructive step. */
+/** Stamp every enum-storing column with its enum's member list (see
+ *  `ColumnShape.enumMembers`). */
+function withEnumMembers(t: TableShape, enumLookup: EnumLookup): TableShape {
+  if (!t.columns.some((c) => c.enumOf !== undefined)) return t;
+  return {
+    ...t,
+    columns: t.columns.map((c) => {
+      const members = c.enumOf !== undefined ? enumLookup.get(c.enumOf) : undefined;
+      return members ? { ...c, enumMembers: [...members] } : c;
+    }),
+  };
+}
+
 function withoutIndexesImpliedByUnique(indexes: IndexShape[]): IndexShape[] {
   const key = (i: IndexShape): string => JSON.stringify(i.columns);
   const uniqueKeys = new Set(indexes.filter((i) => i.unique && !i.predicate).map(key));
@@ -1501,7 +1514,9 @@ function enumCheckValues(expression: string): string[] | undefined {
 export interface EnumNarrowing {
   readonly table: string;
   readonly column: string;
-  readonly check: string;
+  /** The `enumValues` CHECK that lost the member; absent for a column no
+   *  CHECK constrains (see {@link uncheckedEnumChanges}). */
+  readonly check?: string;
   readonly enumOf: string | undefined;
   readonly removed: readonly string[];
   readonly kept: readonly string[];
@@ -1544,6 +1559,75 @@ function enumNarrowings(
     });
   }
   return out;
+}
+
+/** The enum value-set changes on columns no `enumValues` CHECK constrains —
+ *  an enum array (`TEXT[]`), a projection or workflow-state column — read off
+ *  `ColumnShape.enumMembers` on both sides.  Only a column the baseline
+ *  already has, with a recorded member list, is compared: a baseline recorded
+ *  before member lists were kept has no value set to compare against.  A
+ *  column whose next table carries an `enumValues` CHECK on it is left to
+ *  {@link enumNarrowings}, which reads the CHECK itself. */
+export interface EnumMemberChange {
+  readonly table: string;
+  readonly schema: string | undefined;
+  readonly column: string;
+  readonly enumOf: string | undefined;
+  readonly removed: readonly string[];
+  readonly added: readonly string[];
+  readonly kept: readonly string[];
+}
+
+function uncheckedEnumChanges(
+  baseline: SchemaSnapshot | null,
+  next: SchemaSnapshot,
+): EnumMemberChange[] {
+  if (baseline === null) return [];
+  const before = new Map(baseline.tables.map((t) => [qkey(t.schema, t.name), t]));
+  const out: EnumMemberChange[] = [];
+  for (const t of next.tables) {
+    const prev = before.get(qkey(t.schema, t.name));
+    if (!prev) continue;
+    const checked = new Set(
+      (t.checks ?? [])
+        .filter((c) => c.kind === "enumValues")
+        .map((c) => /^"((?:[^"]|"")+)"/.exec(c.expression ?? "")?.[1]),
+    );
+    for (const c of t.columns) {
+      if (!c.enumMembers || checked.has(c.name)) continue;
+      const old = prev.columns.find((p) => p.name === c.name)?.enumMembers;
+      if (!old) continue;
+      const kept = new Set(c.enumMembers);
+      const had = new Set(old);
+      const removed = old.filter((v) => !kept.has(v));
+      const added = c.enumMembers.filter((v) => !had.has(v));
+      if (removed.length === 0 && added.length === 0) continue;
+      out.push({
+        table: t.name,
+        schema: t.schema,
+        column: c.name,
+        enumOf: c.enumOf,
+        removed,
+        added,
+        kept: [...c.enumMembers],
+      });
+    }
+  }
+  return out;
+}
+
+/** The comment step recording a value-set change on an unchecked column: the
+ *  database needs no statement, but the generation must still be recorded so
+ *  the chain's baseline carries the new member list. */
+function enumMemberComment(c: EnumMemberChange): MigrationStep {
+  const parts = [
+    c.added.length > 0 ? `adds ${c.added.join(", ")}` : undefined,
+    c.removed.length > 0 ? `drops ${c.removed.join(", ")}` : undefined,
+  ].filter((p) => p !== undefined);
+  return {
+    op: "sqlComment",
+    comment: `enum ${c.enumOf ?? "<Enum>"} stored in ${qualifiedName(c.schema, c.table)}.${c.column} ${parts.join(" and ")}`,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1596,16 +1680,26 @@ export class MigrationEnumNarrowedError extends MigrationDestructiveError {
     this.name = "MigrationEnumNarrowedError";
     this.message = narrowings
       .map((n) =>
-        diagMessage("loom.migration-enum-narrowed", {
-          module,
-          enumName: n.enumOf ?? "<Enum>",
-          table: n.table,
-          column: n.column,
-          check: n.check,
-          removed: n.removed.map(sqlStringLiteral).join(", "),
-          kept: n.kept.join(", "),
-          firstRemoved: n.removed[0],
-        }),
+        n.check
+          ? diagMessage("loom.migration-enum-narrowed", {
+              module,
+              enumName: n.enumOf ?? "<Enum>",
+              table: n.table,
+              column: n.column,
+              check: n.check,
+              removed: n.removed.map(sqlStringLiteral).join(", "),
+              kept: n.kept.join(", "),
+              firstRemoved: n.removed[0],
+            })
+          : diagMessage("loom.migration-enum-narrowed#unchecked", {
+              module,
+              enumName: n.enumOf ?? "<Enum>",
+              table: n.table,
+              column: n.column,
+              removed: n.removed.map(sqlStringLiteral).join(", "),
+              kept: n.kept.join(", "),
+              firstRemoved: n.removed[0],
+            }),
       )
       .join("\n");
   }
@@ -2897,9 +2991,23 @@ export function buildMigrations(
     // check or after it — the remapped row satisfies the new check either
     // way).
     const remapsBySql = sqlForModule.some((st) => !applied.has(`${st.migration}#${st.index}`));
+    const memberChanges = uncheckedEnumChanges(baseline, next);
     const uncovered = remapsBySql
       ? []
-      : enumNarrowings(structuralSteps, baseline, next)
+      : [
+          ...enumNarrowings(structuralSteps, baseline, next),
+          ...memberChanges
+            .filter((c) => c.removed.length > 0)
+            .map(
+              (c): EnumNarrowing => ({
+                table: qualifiedName(c.schema, c.table),
+                column: c.column,
+                enumOf: c.enumOf,
+                removed: c.removed,
+                kept: c.kept,
+              }),
+            ),
+        ]
           .map((n) => ({
             ...n,
             removed: n.removed.filter(
@@ -2925,6 +3033,7 @@ export function buildMigrations(
         ...newData.filter((d) => d.before).map(toExec),
         ...structuralSteps,
         ...reshapeComments,
+        ...memberChanges.map(enumMemberComment),
         ...[...(leaving?.values() ?? [])].map(
           (comment): MigrationStep => ({ op: "sqlComment", comment }),
         ),
