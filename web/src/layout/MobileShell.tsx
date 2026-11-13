@@ -18,7 +18,6 @@ import { type LayoutCtx, type MobileCodeView, type MobileTab } from "./ctx";
 import {
   agentMark,
   authMark,
-  infraMark,
   type Mark,
   migrationsMark,
   runtimeMark,
@@ -95,7 +94,7 @@ function MobileShellView({ ctx }: Props): JSX.Element {
     history: null,
     agent: agentMark(ctx),
     auth: authMark(ctx),
-    infra: infraMark(ctx),
+    infra: null,
   };
   const secondaryActive = SECONDARY.find((s) => s.id === activeTab) ?? null;
   const moreMark = worstMark(SECONDARY.map((s) => marks[s.id]));
