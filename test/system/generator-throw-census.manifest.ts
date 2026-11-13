@@ -1057,12 +1057,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "renderJavaChannelFiles is only called when channelBindings.length > 0, and every BrokerBinding.transport is one of redis|rabbitmq|kafka, so at least one driver is always wired. (src/generator/java/index.ts:389,1319; src/generator/_channels/bindings.ts:22)",
   },
 
-  // src/generator/java/emit/dispatch.ts
-  "src/generator/java/emit/dispatch.ts#renderProjectionFoldStmt": {
-    guardedBy: ["loom.projection-fold-impure"],
-    note: "foldImpurity fails closed: every statement kind except assign/add/remove/let in a projection on() handler is an error, which is exactly the set this arm throws on.",
-  },
-
   // src/generator/java/emit/integration-tests.ts
   "src/generator/java/emit/integration-tests.ts#renderStmt": {
     guardedBy: ["loom.test-statement-invalid", "loom.aggregate-test-context"],

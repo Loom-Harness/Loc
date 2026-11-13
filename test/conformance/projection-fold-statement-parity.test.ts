@@ -83,7 +83,7 @@ const ARMS: Record<string, Record<string, RegExp>> = {
     "add (money)":
       /state\.setCharged\(\(state\.charged\(\) == null \? [\w.]*BigDecimal\.ZERO : state\.charged\(\)\)\.add\(e\.fee\(\)\)\)/,
     "remove (int)": /state\.setEntries\(state\.entries\(\) - e\.amount\(\)\)/,
-    "remove (collection)": /state\.tags\(\)\.remove\(e\.tag\(\)\)/,
+    "remove (collection)": /state\.tags\(\)\.removeIf\(__x -> java\.util\.Objects\.equals\(__x, e\.tag\(\)\)\)/,
   },
   python: {
     let: /\n {4}stamped = e\.at\n[\s\S]*state\.at = stamped/,
