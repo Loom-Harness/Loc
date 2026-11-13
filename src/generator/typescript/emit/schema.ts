@@ -16,6 +16,7 @@ import type {
   TypeIR,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
+import { isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
 import { fkIndexedFields } from "../../../ir/util/fk-index-fields.js";
 import {
@@ -290,10 +291,13 @@ export function renderSchema(
     if (hasStateRow(wf)) tables.push(emitWorkflowStateTable(wf, ctx, wfSchema));
   }
   // Projection read models (projection.md): one context-owned state table per
-  // projection, keyed by its correlation column — the fold dispatcher upserts
-  // rows here and the read routes select from it.  Shares the workflow saga
-  // schema resolution (a projection is a context member like a workflow).
+  // MATERIALIZED (folded) projection, keyed by its correlation column — the
+  // fold dispatcher upserts rows here and the read routes select from it.  A
+  // query-time projection is aggregated from its source tables at read time
+  // and has no table, exactly as in the migration chain.  Shares the workflow
+  // saga schema resolution (a projection is a context member like a workflow).
   for (const proj of ctx.projections) {
+    if (!isMaterializedProjection(proj)) continue;
     const projSchema = registerSchema(opts.resolveProjectionSchema?.(proj));
     tables.push(emitProjectionTable(proj, ctx, projSchema));
   }
