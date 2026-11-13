@@ -522,9 +522,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // task. adds the workflow-less durable-broker PRODUCER
   // (design §5): no subscription, but the relay must still drain the outbox
   // to publish.  No durable channel → byte-identical boot.
-  const startsRelay =
-    hasDurableEvents(merged) &&
-    (dispatchSubscriptionsOf(merged).length > 0 || durableBrokerEvents.size > 0);
+  const startsRelay = chPlan.hasOutbox;
   // Explicit transport layer (unfoldable-api-derivation.md, A2): one APIRouter
   // per served api whose `route` list resolves to a hosted handler, dispatching
   // each route to its `app/application/<handler>.py` function.  Emitted before

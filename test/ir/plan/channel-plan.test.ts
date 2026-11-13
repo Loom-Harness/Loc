@@ -131,11 +131,22 @@ describe("channelPlan", () => {
 
   it("without a system nothing is wired and every route is local", async () => {
     const loom = await buildLoomModel(SOURCE);
-    const orders = loom.systems[0].subdomains[0].contexts;
-    const plan = channelPlan(orders);
+    const all = loom.systems[0].subdomains.flatMap((d) => d.contexts);
+    const plan = channelPlan(all);
     expect(plan.bindings).toEqual([]);
+    expect(plan.hasOutbox).toBe(true);
     expect(eventRoute(plan, "OrderPlaced")).toBe("outbox-local");
     expect(eventRoute(plan, "OrderNoted")).toBe("inline-local");
+  });
+
+  it("a durable event nobody consumes and no broker carries needs no outbox", async () => {
+    const loom = await buildLoomModel(SOURCE);
+    const orders = loom.systems[0].subdomains[0].contexts;
+    const plan = channelPlan(orders);
+    expect(plan.hostedDurable.size).toBe(2);
+    expect(plan.hasOutbox).toBe(false);
+    expect(plan.outboxEvents.size).toBe(0);
+    expect(eventRoute(plan, "OrderPlaced")).toBe("inline-local");
   });
 
   it("a projection fold over a broker-carried event makes the deployable a broker consumer", async () => {

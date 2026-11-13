@@ -64,10 +64,15 @@ export interface ChannelPlan {
   /** The deployable runs a broker consumer: it wires a binding and consumes
    *  some event that binding carries. */
   consumesFromBroker: boolean;
-  /** The deployable owns an outbox tier (table, capture, relay): some event
-   *  it raises is durable. */
+  /** The deployable runs an outbox tier (capture and relay): some hosted
+   *  durable event is consumed here (the relay redelivers it in-process) or
+   *  carried by a wired binding (the relay publishes it).  A durable event
+   *  nobody here or on the broker consumes needs no relay. */
   hasOutbox: boolean;
-  /** The outbox tier runs with no in-process subscriber — every drained row
+  /** The events the outbox captures: every hosted durable event, once the
+   *  deployable has an outbox tier; none without one. */
+  outboxEvents: ReadonlySet<string>;
+  /** The outbox tier runs with no in-process consumer — every drained row
    *  goes to the broker. */
   producerOnly: boolean;
   /** Consumed events whose redelivery the consumer must dedupe on the
@@ -133,8 +138,9 @@ export function channelPlan(
   const brokerConsumedEvents = new Set([...consumed].filter((ev) => brokerEvents.has(ev)));
   const consumesFromBroker = brokerConsumedEvents.size > 0;
 
-  const hasOutbox = hostedDurable.size > 0;
-  const producerOnly = hasOutbox && subscriptions.length === 0;
+  const hasOutbox = [...hostedDurable].some((ev) => consumed.has(ev) || brokerEvents.has(ev));
+  const outboxEvents: ReadonlySet<string> = hasOutbox ? hostedDurable : new Set();
+  const producerOnly = hasOutbox && consumed.size === 0;
   const dedupedEvents = new Set(
     [...consumed].filter((ev) => hostedDurable.has(ev) || foreignDurable.has(ev)),
   );
@@ -151,6 +157,7 @@ export function channelPlan(
     brokerConsumedEvents,
     consumesFromBroker,
     hasOutbox,
+    outboxEvents,
     producerOnly,
     dedupedEvents,
   };
@@ -158,7 +165,7 @@ export function channelPlan(
 
 /** How `event`, raised by a hosted context, leaves its transaction. */
 export function eventRoute(plan: ChannelPlan, event: string): EventRoute {
-  const durable = plan.hostedDurable.has(event);
+  const durable = plan.outboxEvents.has(event);
   if (plan.brokerEvents.has(event)) return durable ? "broker-outbox" : "broker-inline";
   return durable ? "outbox-local" : "inline-local";
 }
