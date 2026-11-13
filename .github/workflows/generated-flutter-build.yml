@@ -39,6 +39,7 @@ on:
       - 'src/util/**'
       - 'src/generator/flutter/**'
       - 'src/generator/_frontend/**'
+      - 'src/generator/_docker/**'
       - 'src/generator/_openapi/**'
       - 'src/generator/_walker/**'
       - 'src/generator/_packs/required-primitives.ts'
