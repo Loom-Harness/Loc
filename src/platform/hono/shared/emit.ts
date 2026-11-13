@@ -56,7 +56,7 @@ import {
   MIKRO_INDEX_IMPORTS,
   MIKRO_ORM_VERSION,
   mikroConnectionSetup,
-  mikroForeignKeyDdl,
+  mikroPostUpdateDdl,
   renderMikroConfig,
   renderMikroDocumentRepository,
   renderMikroEmbeddedRepository,
@@ -1126,7 +1126,13 @@ export function generateTypeScriptForContexts(
     effectiveSavingShape(agg, resolveDataSource(agg));
   const mikroForeignKeys =
     usingMikro &&
-    mikroForeignKeyDdl(merged.aggregates, merged, mikroShapeOf, resolveStreamContext).length > 0;
+    mikroPostUpdateDdl(
+      merged.aggregates,
+      merged,
+      mikroShapeOf,
+      resolveStreamContext,
+      hasDurableEvents(merged),
+    ).length > 0;
   if (usingMikro) {
     out.set(
       "db/entities.ts",

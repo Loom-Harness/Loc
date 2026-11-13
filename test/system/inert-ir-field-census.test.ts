@@ -58,6 +58,8 @@ const NO_READER_ALLOWED: Readonly<Record<string, string>> = {
     "consumed in the IR by `fieldRedactedInInspect` (src/ir/enrich/mask-taint.ts): `synthesizeInspect` redacts the leaf for every target, and Phoenix's Inspect-impl gate calls the same predicate",
   foldTenantClaim:
     "read through `foldTenancyFor` in `src/ir/enrich/fold-tenancy.ts` (an enrich helper the scan does not cover), which every backend's projection emitter and the migrations builder import",
+  loweringViolations:
+    "consumed in the IR by `validateLoweringViolations` (src/ir/validate/checks/lowering-checks.ts): a model carrying one is refused as `loom.ir-ill-formed` before any target runs",
   timezone:
     "has a RESERVED_SURFACES row (`timer-source-timezone`), so the author is told no target honours it",
   unresolvedTypes:

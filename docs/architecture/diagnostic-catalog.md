@@ -67,6 +67,7 @@ tightening rule. Document the promotion phase in the registry row.
 | `loom.ui-framework-unhostable` | error | the bound `ui`'s `framework:` is not in the host deployable's hostable set |
 | `loom.react-deployable-missing-ui` | error | react deployable with no `ui:` (post-#606) |
 | `loom.provenanced-never-written` | warning | `provenanced` field never assigned |
+| `loom.provenanced-part-field` | error | `provenanced` on an entity part's field (lineage is root-only) |
 | `loom.token-nullable` | error | nullable token field |
 | `loom.slot-member-access` / `loom.slot-out-of-position` | error | component slot misuse |
 | `loom.legacy-part-call` / `loom.legacy-vo-call` | warning | legacy call form |
@@ -97,14 +98,15 @@ of truth, and they must not drift.
 ## Mechanics
 
 Codes attach via Langium's diagnostic `code` property on the
-`ValidationAcceptor` call:
+`ValidationAcceptor` call; the wording comes from the catalog by the same key
+(`src/diagnostics/messages/<family>.ts`), never an inline string:
 
 ```ts
-accept("error", "Cross-aggregate reference must use `X id`.", {
-  node, property: "type", code: "loom.bare-aggregate-in-type",
+accept("error", diagMessage("loom.bare-aggregate-in-type", { aggName }), {
+  node, property: "target", code: "loom.bare-aggregate-in-type",
 });
 ```
 
-A small `test/language/diagnostic-codes.test.ts` (to add) can assert
-every `accept(...)` site passes a `code:` and that every code matches
-`loom.<area>-<symptom>` — turning this convention into a gate.
+`test/system/diagnostic-catalog.test.ts` is the gate: it fails on a site with
+no `code:`, an inline message literal, a dynamic code, a key that belongs to a
+different code, an orphaned catalog entry, and a key filed in the wrong family.

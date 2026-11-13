@@ -1150,7 +1150,7 @@ describe("mikroorm — shape: document (wave 3)", () => {
     expect(entities).toContain("export class ArticleRow {");
     expect(entities).toContain('id: { type: "string", primary: true }');
     expect(entities).toContain('data: { type: "json", columnType: "jsonb" }');
-    expect(entities).toContain('rowVersion: { type: "number" }');
+    expect(entities).toContain('rowVersion: { type: "number", default: 1 }');
     // The contained Section part rides inside the blob — no relational child Row.
     expect(entities).not.toContain("SectionRow");
     expect(entities).toContain("export const entities = [ArticleRowSchema];");

@@ -30,6 +30,7 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { discriminatorValue } from "../../ir/util/inheritance.js";
+import { upperFirst } from "../../util/naming.js";
 
 /** A bare numeric literal written into a `money` seed field (`minRent: 500.00`)
  *  is a money value, not a float: retag it so each backend's money-literal
@@ -55,7 +56,25 @@ export interface Entry {
 /** One dataset's merged entries (across all `seed <dataset>` blocks). */
 export interface Dataset {
   name: string;
+  /** The dataset's key in the `__loom_seed` ship-once marker table — see
+   *  {@link seedMarkerKey}. */
+  marker: string;
+  /** The identifier the backend's seeder function is named from (cased per
+   *  backend): the dataset name, or `<context><Dataset>` when another hosted
+   *  context declares a dataset of the same name. */
+  ident: string;
   entries: Entry[];
+}
+
+/** The `__loom_seed` marker key of one context's dataset: `<Context>/<dataset>`.
+ *  Deployables bound to one `storage` share its database, and with it one
+ *  marker table, so a key of the dataset name alone would let the first
+ *  context to seed `demo` mark every other context's `demo` as applied.  Each
+ *  backend's `alreadySeeded` also honours a bare `<dataset>` row — the key a
+ *  database seeded before the context was part of it holds — so an upgraded
+ *  database never re-seeds a dataset it already has. */
+export function seedMarkerKey(context: string, dataset: string): string {
+  return `${context}/${dataset}`;
 }
 
 /** A raw row for a TPH concrete lands in the hierarchy's one shared table, whose
@@ -88,14 +107,13 @@ function withDiscriminator(
  *  safe is enforced upstream by `loom.seed-dataset-name-collision`
  *  (src/language/validators/seed.ts), not here. */
 export function groupByDataset(ctx: EnrichedBoundedContextIR): Dataset[] {
-  const byName = new Map<string, Dataset>();
-  const order: string[] = [];
+  const byKey = new Map<string, Dataset>();
   for (const seed of ctx.seeds) {
-    let ds = byName.get(seed.dataset);
+    const key = seedMarkerKey(seed.context, seed.dataset);
+    let ds = byKey.get(key);
     if (!ds) {
-      ds = { name: seed.dataset, entries: [] };
-      byName.set(seed.dataset, ds);
-      order.push(seed.dataset);
+      ds = { name: seed.dataset, marker: key, ident: seed.dataset, entries: [] };
+      byKey.set(key, ds);
     }
     for (const row of seed.rows) {
       const raw = seed.path === "raw";
@@ -106,7 +124,17 @@ export function groupByDataset(ctx: EnrichedBoundedContextIR): Dataset[] {
       });
     }
   }
-  return order.map((n) => byName.get(n)!);
+  const datasets = [...byKey.values()];
+  // A merged context (a deployable hosting several contexts) can hold two
+  // contexts' datasets of one name: each keeps its own marker, and its
+  // function is named for its context too.
+  for (const ds of datasets) {
+    if (datasets.some((o) => o !== ds && o.name === ds.name)) {
+      const context = ds.marker.slice(0, ds.marker.indexOf("/"));
+      ds.ident = `${context.charAt(0).toLowerCase()}${context.slice(1)}${upperFirst(ds.name)}`;
+    }
+  }
+  return datasets;
 }
 
 /** Aggregate names whose domain class/repository are imported — `raw` rows

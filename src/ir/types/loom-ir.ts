@@ -12,10 +12,9 @@
 //                            Loom IR  (the modules re-exported below)
 //                                │
 //                                ▼
-//                  per-platform shaping  (typescript-ir, dotnet-ir)
-//                                │
-//                                ▼
-//                  procedural builders  ──▶  source files
+//                  per-platform emitters  ──▶  source files
+//                  (every backend consumes this IR directly; there is no
+//                  target-backend IR)
 //
 // All implicit DDD plumbing — entity ids, parent FKs, name resolution of
 // expression references, enum-value qualification, value-object constructor

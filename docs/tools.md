@@ -48,7 +48,10 @@ ddd breakpoints <file.ddd> --line <n>             # resolve a .ddd source line t
 output, e.g. an `enum-value` ref that lost its `enumName`) before phase ⑦ and exits
 non-zero, listing each violation, if any invariant is broken. A violation is a
 compiler bug, never a model error; off by default. The same check is
-`GenerateSystemOptions.verifyIr` for in-process callers (throws).
+`GenerateSystemOptions.verifyIr` for in-process callers (throws). Its semantic
+twin, the post-lowering well-formedness verifier (`src/ir/verify/verify-lowered.ts`,
+see `docs/technical.md`), always runs and refuses an ill-formed lowering as
+`loom.ir-ill-formed`.
 
 `generate system` additionally accepts `--sourcemap`, which also emits
 `.loom/sourcemap.json` (construct- and statement-granular `.ddd` ↔ generated-line
@@ -116,7 +119,7 @@ ddd new acme --platform python                 # FastAPI backend + React (mantin
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--platform <node\|dotnet\|elixir\|java\|python>` | `node` | Backend platform (ports: node 3000, dotnet 8080, elixir 4000, java 8081, python 8000). Prints a hint listing the alternatives when defaulted. |
-| `--template <blank\|crud>` | `crud` | `blank` = one aggregate; `crud` = two aggregates with a repository `find`. |
+| `--template <blank\|crud>` | `crud` | `blank` = one aggregate; `crud` = two aggregates with a `criterion` + `retrieval` list read. |
 | `--design <pack>` | `mantine` (`coreComponents` for elixir) | Frontend design pack — **every** built-in family (the list is derived from the pack registry, `src/util/builtin-formats.ts`, so `ddd new --help` and `designs/` cannot disagree): React `mantine`/`shadcn`/`mui`/`chakra`, Vue `vuetify`/`shadcnVue`, Svelte `shadcnSvelte`/`flowbite`, Angular `angularMaterial`/`primeng`/`spartanNg`, Phoenix LiveView `coreComponents`/`daisyui`. The pack's FORMAT picks the frontend deployable: a Vue pack scaffolds `platform: vue`, an Angular pack `platform: angular`, and a HEEx pack makes Phoenix a single LiveView fullstack (so it requires `--platform elixir`). |
 | `-o, --out <dir>` | `./<name>` | Output directory. |
 | `--force` | off | Scaffold into an existing, non-empty directory. |
@@ -182,10 +185,15 @@ project the .NET namespace and `.csproj` keep the capitalised form.
 
 | Flag | Applies to | Effect |
 | --- | --- | --- |
-| `-o, --out <dir>` | every `generate`, `verify`, `snapshot` | Output directory.  Created if missing.  Required on `generate system` (unless `--json`) and `snapshot`; optional on `verify` (defaults to the `.ddd` file's directory). |
-| `-w, --watch` | every `generate` | Re-run the generator whenever the source `.ddd` file changes (see [Watch mode](#watch-mode) below). |
-| `--dry-run` | every `generate`, `snapshot` | List every path that would be written (plus any paths skipped via `.loomignore`).  Writes nothing. |
-| `--trace` | every `generate` | Emit trace-level domain instrumentation (`value_computed`, `precondition_evaluated`, …) into the generated project.  Off by default — see [`observability.md`](observability.md). |
+| `-o, --out <dir>` | `generate system`, `snapshot`, `new`, `trace`, `breakpoints`, `i18n extract` | Output directory.  Created if missing.  Required on `generate system` (unless `--json`) and `snapshot`.  `verify` takes `--out <dir>` (long form only; defaults to the `.ddd` file's directory). |
+| `-w, --watch` | `generate system` | Re-run the generator whenever the source `.ddd` file changes (see [Watch mode](#watch-mode) below). |
+| `--dry-run` | `generate system`, `snapshot` | List every path that would be written (plus any paths skipped via `.loomignore`).  Writes nothing. |
+| `--json` | `parse`, `generate system`, `patch`, `diff`, `migrate status`, `verify` | Print the structured result (diagnostics + outline, deployable manifest, patch result, report, verification) as JSON instead of the human summary.  On `generate system` it writes no files. |
+| `--k8s` | `generate system` | Also emit a Helm chart (`helm/`) and raw manifests (`k8s/`) beside `docker-compose.yml` — see [`kubernetes.md`](kubernetes.md). |
+| `--sourcemap`, `--inline-sources` | `generate system` | Emit `.loom/sourcemap.json` mapping generated code back to `.ddd` spans; `--inline-sources` also inlines each `.ddd`'s text into every v3 sidecar — see [`debugging.md`](debugging.md). |
+| `--locales <dir>` | `generate system` | Translator tree root to read locale catalogs from (default `<.ddd dir>/locales`); each locale found is emitted into every frontend with a translation runtime — see [i18n](#i18n-translator-workflow-ddd-i18n). |
+| `--verify-ir` | `generate system` | Run the IR verifier (a compiler self-check of the lowering/enrichment output) before validation and exit non-zero on a violation. |
+| `--trace` | `generate system` | Emit trace-level domain instrumentation (`value_computed`, `precondition_evaluated`, …) into the generated project.  Off by default — see [`observability.md`](observability.md). |
 | `--allow-destructive` | `migrate add` | Permit destructive steps (column/table drops, NOT-NULL column adds without a default on an existing table, reshapes) in the recorded migration.  Off by default a destructive delta aborts with a `loom.migration-destructive` error — see [`migrations.md`](migrations.md) § Destructive changes. |
 | `--all-warnings` | `parse`, `generate system` | Print every IR-level warning in full.  By default a warning code that fires more than three times (the per-aggregate `denyByDefault` read-gate warnings, typically) prints its first occurrence plus one line naming the rest — `… and 3 more loom.default-deny-by-id-ungated warning(s): Desk/Agent, Desk/Queue, Desk/Tag`.  The `N warning(s)` count and `--json` output always carry every diagnostic. |
 
@@ -533,8 +541,8 @@ There is no separate `db:generate` / `dotnet ef migrations add` step
 | Backend | Files emitted | Applied by |
 |---|---|---|
 | Hono (Drizzle) | `<deployable>/db/migrations/<ts>_<name>.sql` + `db/migrations/meta/_journal.json` | `migrate()` from the generated `db/migrate.ts` (Drizzle's migrator over the same `__drizzle_migrations` ledger, plus the non-transactional `CREATE INDEX CONCURRENTLY` files, see [migrations.md](migrations.md#locks-on-a-populated-table)) called from `index.ts` at startup; `npm run db:migrate` runs the same `migrate()` out of band (`tsx db/migrate-cli.ts` against `DATABASE_URL`). |
-| .NET (EF Core) | `<deployable>/Infrastructure/Persistence/Migrations/<Ts>_<Name>.cs` with `b.Sql(...)` raw-SQL `Up` / `Down` bodies | `db.Database.Migrate()` in `Program.cs` at startup (idempotent — EF's `__EFMigrationsHistory` table tracks what's been applied). |
-| Phoenix (Ecto) | `<deployable>/priv/repo/migrations/<ts>_<name>.exs` Ecto migrations | `mix ecto.migrate` from the entrypoint script; `mix ecto.setup` on first boot. |
+| .NET (EF Core) | `<deployable>/Migrations/<Ts>_<Module>_<Name>.cs` with `b.Sql(...)` raw-SQL `Up` / `Down` bodies | `db.Database.Migrate()` in `Program.cs` at startup (idempotent — EF's `__EFMigrationsHistory` table tracks what's been applied). |
+| Phoenix (Ecto) | `<deployable>/priv/repo/migrations/<ts>_<name>.exs` Ecto migrations | the release entrypoint `rel/overlays/bin/server` runs `./bin/<app> eval "<App>.Release.migrate()"` before `start`. |
 | Python (SQLAlchemy) | `<deployable>/migrations/<version>_<module>_<name>.sql` raw-SQL files | `run_migrations()` from the FastAPI lifespan applies pending files in order, tracking applied tags in a `__loom_migrations` table (the Drizzle-runtime-migrator pattern). |
 | Java (Spring/Flyway) | `<deployable>/src/main/resources/db/migration/V<version>.<n>__<Module>_<Name>.sql` Flyway scripts | Flyway runs them on Spring Boot startup (tracked in `flyway_schema_history`). |
 
@@ -627,9 +635,9 @@ docker run --rm -p 3000:3000 \
     my-sales:latest
 ```
 
-The image uses `node:22-alpine` for both build and runtime stages.
+The image uses `node:24-alpine` for both build and runtime stages.
 Build runs `npm install` + `npm run build`; runtime starts
-`node out/index.js` on port 3000.
+`node --enable-source-maps dist/index.js` on port 3000.
 
 ### .NET
 
@@ -654,16 +662,17 @@ images, pin the `Dockerfile` in `.loomignore` and edit freely.
 
 ### `/health`
 
-Every generated deployable mounts a `/health` endpoint that returns
-`{"status":"ok"}` (port 3000 on Hono, 8080 on .NET).  It's used by
-the compose healthchecks below and is the natural target for any
-external smoke test.
+Every generated deployable mounts a `/health` liveness endpoint that returns
+`{"status":"ok"}` (port 3000 on Hono, 8080 on .NET).  Hono, .NET, Java and
+Python also mount `/ready`, which checks the database; their compose
+healthchecks poll `/ready` (Phoenix polls `/health` on :4000).  Either is a
+natural target for an external smoke test.
 
 ### `docker-compose.yml` (system mode)
 
 `ddd generate system` emits a `docker-compose.yml` at the output
 root that wires every deployable to a postgres service, with a
-healthcheck on `/health` per deployable:
+healthcheck per deployable (`/ready`, or `/health` on Phoenix):
 
 ```bash
 cd ./out                # the generator's output dir
@@ -688,16 +697,14 @@ directory as `/docker-entrypoint-initdb.d/`, and the `db-bootstrap` one-shot
 re-applies it on every `up`.  The first deployable on a database applies its
 migrations at boot; the others wait for it to be healthy and apply none.
 
-To start fresh after schema changes that EF Core's `EnsureCreated`
-won't pick up (it only creates; it never alters), drop the volume:
+To start fresh, drop the volume:
 
 ```bash
 docker compose down -v && docker compose up -d
 ```
 
-For production, use the per-backend migration tools instead of the
-init script + `EnsureCreated` combo (see *Migrations workflow*
-above).
+For production, record schema changes with `ddd migrate add` (see
+*Migrations workflow* above): every backend applies its migrations at boot.
 
 Compose is the inner-loop story.  For a cluster, `ddd generate system
 --k8s` *additionally* emits a Helm chart (`helm/`) plus the raw manifests
@@ -723,7 +730,7 @@ Roughly 90 seconds end-to-end with cached base images.  Stays out of
 the default `npm test` so the unit / generator suite remains fast:
 
 ```bash
-npm test         # unit + parser + generator + CLI tests, ~5s
+npm test         # unit + parser + generator + CLI tests, ~6 min on 4 cores
 npm run test:e2e # the full Docker smoke, ~90s
 ```
 
@@ -751,11 +758,34 @@ toolchains are older than what the emitted projects target:
 | `test:phoenix` | `mix` (Elixir/Ecto) | — | **`hexpm/elixir` container** |
 | `test:python` | `uv` + ruff + mypy + pytest | `uv` | host |
 
-A managed remote/sandbox environment usually ships the Docker **client**
-but not a running daemon — start one with `dockerd` (root /
-passwordless-sudo) before any Docker-backed suite, e.g. `sudo dockerd
->/tmp/dockerd.log 2>&1 &`.  Image pulls from Docker Hub / `mcr.microsoft.com`
-work through the standard egress.
+A managed remote/sandbox environment ships the Docker **client** but no
+running daemon.  `scripts/sandbox-bootstrap.sh` starts one and, in the same
+step, puts the toolchains the table lists on the **host**:
+
+```bash
+scripts/sandbox-bootstrap.sh            # all targets; or: java dotnet elixir node24 flutter
+source /opt/loom-tc/env.sh              # PATH, JAVA_HOME, DOTNET_ROOT, ELIXIR_ERL_OPTIONS
+```
+
+| Target | Lifted out of | Lands in `/opt/loom-tc/` | Serves |
+|---|---|---|---|
+| `java` | `gradle:9-jdk25` (`/opt/java/openjdk`, `/opt/gradle`) | `java/{jdk,gradle}` | `run-java.mjs`, `test:java` |
+| `dotnet` | `mcr.microsoft.com/dotnet/sdk:10.0` (`/usr/share/dotnet`) | `dotnet/dotnet` | `run-dotnet.mjs`, `test:dotnet`, Feliz (`sdk:9.0` fails `NETSDK1045` against `net10.0`) |
+| `elixir` | the generated Dockerfile's `hexpm/elixir` image (`/usr/local/lib/{elixir,erlang}`) | `elixir/{elixir,erlang}` | `run-elixir.mjs`, `phoenix-ui-e2e` |
+| `node24` | `node:24` (`/usr/local/bin/node`, `lib/node_modules`) | `node24/` | Angular CLI (needs Node ≥ 22.22.3; the host has 22.22.0) |
+| `flutter` | `ghcr.io/cirruslabs/flutter:stable` (`/sdks/flutter`) | `flutter/flutter` | the Flutter suites; also `npm install` in `test/behavioral` (else `Cannot find package 'esbuild'`) |
+
+The image tags are read from the constants the generators pin (the Java
+version, the Phoenix Dockerfile `ARG`s, the .NET SDK tag), so a bump moves
+the script with it.  The script is idempotent (a `.ok` marker per target;
+`LOOM_TC_FORCE=1` re-extracts) and fail-soft: a target that cannot pull or
+extract is reported and the rest still run, and the exit code is 1 when any
+requested target failed.  Each image is removed after extraction;
+`LOOM_TC_KEEP_IMAGES=1` keeps them.  The extracted toolchains take about
+3 GB (Flutter is 1.8 GB) of the per-session disk allowance; on
+`no space left on device`, run `docker system prune -af` and re-run.  The
+`elixir:1.18` image does not work as a source: its crypto NIF needs
+`OPENSSL_3.4.0` and the host has 3.0.
 
 An agent verifying a backend change can generate a project
 (`node bin/cli.js generate system <f.ddd> -o out`) and compile it directly:
@@ -771,8 +801,8 @@ docker run --rm --network host -v <deployable>:/src -w /src \
 # .NET — mounting /root/.ccr is NOT enough; see the CA note below.
 docker run --rm --network host -v <deployable>:/src -w /src \
   -v /root/.ccr:/root/.ccr:ro mcr.microsoft.com/dotnet/sdk:10.0 bash -c \
-  'cp /root/.ccr/ca-bundle.crt /usr/local/share/ca-certificates/proxy.crt \
-   && update-ca-certificates >/dev/null && dotnet build /warnaserror'
+  'cat /root/.ccr/ca-bundle.crt >> /etc/ssl/certs/ca-certificates.crt \
+   && dotnet build /warnaserror'
 
 # Phoenix
 docker run --rm -v <deployable>:/app -w /app hexpm/elixir:… bash -c \
@@ -783,7 +813,10 @@ docker run --rm -v <deployable>:/app -w /app hexpm/elixir:… bash -c \
 from the mounted `JAVA_TOOL_OPTIONS` truststore and Elixir has its own
 `LOOM_HEX_MIRROR` path (below), but NuGet trusts only the container's
 **system** certificate store.  Mounting `/root/.ccr` without installing
-the bundle into it fails restore before a single file compiles:
+the bundle into it fails restore before a single file compiles.  Appending the
+bundle to `/etc/ssl/certs/ca-certificates.crt` (the store NuGet reads) needs no
+extra tool; `update-ca-certificates` is not installed in every `dotnet/sdk`
+variant.  Without the append, restore fails with:
 
 ```
 error NU1301: Unable to load the service index for source https://api.nuget.org/v3/index.json.
@@ -805,8 +838,7 @@ docker run --rm --network host -v /home/user/Loc:/home/user/Loc -w <worktree> \
   -e HTTPS_PROXY -e HTTP_PROXY -e NO_PROXY -e NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt \
   -e LOOM_DOTNET_BUILD=1 -e PATH=/opt/node22/bin:/usr/share/dotnet:/usr/bin:/bin \
   mcr.microsoft.com/dotnet/sdk:10.0 bash -c \
-  'cp /root/.ccr/ca-bundle.crt /usr/local/share/ca-certificates/proxy.crt \
-   && update-ca-certificates >/dev/null \
+  'cat /root/.ccr/ca-bundle.crt >> /etc/ssl/certs/ca-certificates.crt \
    && npx vitest run test/e2e/generated-dotnet-build.test.ts'
 ```
 
@@ -827,20 +859,12 @@ repo, the host Node and a postgres route into the container just to reach
 the same `mix`.
 
 The simpler route is to lift the toolchain out of the image and run it
-natively.  The `hexpm/elixir` binaries are built for Debian bookworm and
-run unmodified on the Ubuntu 24.04 host (newer glibc, backward
-compatible):
+natively: `scripts/sandbox-bootstrap.sh elixir` does it (the `hexpm/elixir`
+binaries are built for Debian bookworm and run unmodified on the Ubuntu 24.04
+host), then:
 
 ```bash
-IMG=hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-20260610-slim
-CID=$(docker create "$IMG")
-mkdir -p /opt/elixir-toolchain
-docker cp "$CID":/usr/local/lib/elixir  /opt/elixir-toolchain/elixir
-docker cp "$CID":/usr/local/lib/erlang  /opt/elixir-toolchain/erlang
-docker rm "$CID"
-
-export PATH=/opt/elixir-toolchain/erlang/bin:/opt/elixir-toolchain/elixir/bin:$PATH
-export ELIXIR_ERL_OPTIONS="+fnu"     # else the VM warns about latin1 name encoding
+source /opt/loom-tc/env.sh
 elixir --version                     # Elixir 1.18.4 (compiled with Erlang/OTP 27)
 ```
 
@@ -867,12 +891,8 @@ with Gradle 8.x + JDK 21 fails it outright:
 Cannot find a Java installation … {languageVersion=25}
 ```
 
-Install both to the host and point the run at them:
-
-```bash
-# Temurin JDK 25 -> /opt/jdk25, Gradle 9.6.1 -> /opt/gradle-9.6.1
-JAVA_HOME=/opt/jdk25 PATH=/opt/gradle-9.6.1/bin:$PATH node run-java.mjs [case…]
-```
+`scripts/sandbox-bootstrap.sh java` installs both (JDK 25 + Gradle 9) on the
+host; after `source /opt/loom-tc/env.sh`, `node run-java.mjs [case…]` works.
 
 **Port collision when running adapter legs side by side.** `run-java.mjs`,
 `run-dapper.mjs` and `run-mikroorm.mjs` all default to **8125**
@@ -934,9 +954,13 @@ signature and tarball checksums still verify.
 ```bash
 # Phoenix build behind a TLS-fingerprinting proxy (needs python3 + openssl
 # on the host and the privilege to bind :443):
-LOOM_PHOENIX_BUILD=1 LOOM_HEX_MIRROR=1 npx vitest run \
-  test/e2e/generated-phoenix-build.test.ts -t "paged.ddd"
+LOOM_PHOENIX_VANILLA_BUILD=1 LOOM_HEX_MIRROR=1 \
+  LOOM_PHOENIX_VANILLA_BUILD_CASE=key-lookup.ddd \
+  npx vitest run test/e2e/generated-elixir-vanilla-build.test.ts
 ```
+
+In the sandbox the suite's container receives no proxy CA, so without the flag
+`mix local.hex` fails with `unknown_ca`.
 
 Unset (the default, and every CI runner with direct hex.pm access) the
 flag is a no-op and the suite runs `docker run` exactly as before.
@@ -948,7 +972,7 @@ dies in `mix local.hex` with `** (Mix) request timed out after 60000ms`, a
 uniform ~63s per case, *before* any generated Elixir is compiled.  A whole-file
 `LOOM_PHOENIX_VANILLA_BUILD=1 npm run test:phoenix` therefore reports something
 like `67 failed | 1 passed` that says nothing about the emitted code — the one
-pass is case 1, and the rest never got their dependencies.  Use `-t "<fixture>"`
+pass is case 1, and the rest never got their dependencies.  Use `LOOM_PHOENIX_VANILLA_BUILD_CASE=<fixture>.ddd[,…]`
 to run the cases a change actually touches (each gets a fresh mirror), and
 leave the full sweep to CI, which shards `elixir-vanilla-build.yml` and has
 direct hex.pm access.
@@ -973,10 +997,10 @@ cd out/<java-deployable>
 # NOT the sandbox host's JDK 21 / Gradle 8.14.  Either a host with those
 # versions, or the `gradle:9-jdk25` container from the table above.
 gradle bootJar
-cp build/libs/app.jar app.jar                   # .dockerignore excludes build/,
+cp build/libs/*.jar app.jar                     # .dockerignore excludes build/,
                                                 # so copy the jar INTO the context
 cat > Dockerfile.local <<'EOF'
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:25-jre
 WORKDIR /app
 COPY app.jar app.jar
 ENTRYPOINT ["java", "-jar", "app.jar"]
@@ -988,6 +1012,74 @@ Point the service at the local image (edit the compose service's `image:` /
 drop its `build:`) and the rest of the stack boots normally.  This is a
 sandbox-only workaround, not a generator concern — CI runners and normal dev
 machines run the in-container Gradle stage as-is.
+
+### Behind the sandbox proxy: Docker Hub, Maven Central, apt, Hex
+
+Four failure shapes recur when compiling generated backends in the cloud
+sandbox.  Each recipe below was run there.
+
+**Docker Hub `429 Too Many Requests` on `docker pull`** (seen on `postgres`,
+`hexpm/elixir`).  Pull the same image through `mirror.gcr.io` and tag it back:
+
+```bash
+docker pull mirror.gcr.io/library/postgres:16-alpine
+docker tag  mirror.gcr.io/library/postgres:16-alpine postgres:16-alpine
+docker pull mirror.gcr.io/hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-20260610-slim   # non-library images work too
+```
+
+`scripts/sandbox-bootstrap.sh` retries a failed pull, then falls back to
+`mirror.gcr.io` for Docker Hub images.
+
+**Maven Central `429` inside `gradle:9-jdk25`** (`Could not GET
+'https://repo.maven.apache.org/maven2/…'. Received status code 429`).  The
+429 is intermittent.  Resolve through Google's Maven Central mirror with the
+init script `scripts/gradle-central-mirror.init.gradle.kts`, which rewrites
+every `repo.maven.apache.org` repository URL (build, settings and plugin
+repositories) to `maven-central.storage-download.googleapis.com`:
+
+```bash
+docker run --rm --network host -v <deployable>:/src -w /src \
+  -v "$PWD/scripts":/init:ro -v /root/.ccr:/root/.ccr:ro \
+  -e JAVA_TOOL_OPTIONS="$JAVA_TOOL_OPTIONS" \
+  gradle:9-jdk25 gradle --no-daemon -I /init/gradle-central-mirror.init.gradle.kts testClasses bootJar
+# host Gradle (after scripts/sandbox-bootstrap.sh java):
+gradle -I scripts/gradle-central-mirror.init.gradle.kts bootJar
+```
+
+The script also puts the mirror first among the plugin repositories, because `plugins.gradle.org` redirects back to the throttled host.  A generated Java deployable's `bootJar` builds with it on a cold Gradle cache.  `gradle --info` then prints `Downloading https://maven-central.storage-download.googleapis.com/maven2/…`.
+The container prints `Trust store file /etc/ssl/certs/java/cacerts does not
+exist` (the host path in `JAVA_TOOL_OPTIONS`); the proxy CA is still trusted
+and the build proceeds.
+
+**apt in an image build.**  A plain `apt-get update && apt-get install` in a
+`debian:bookworm-slim` build succeeds in the sandbox, with or without
+`--network host`.  When a build's apt traffic is refused by the proxy
+(`405 Method Not Allowed`, the signature of plain-`http` requests), switch apt
+to `https` and give it the proxy CA through the build context:
+
+```dockerfile
+FROM debian:bookworm-slim
+COPY ca-bundle.crt /usr/local/share/ca-certificates/proxy.crt   # cp /root/.ccr/ca-bundle.crt next to the Dockerfile
+RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/debian.sources \
+ && apt-get -o Acquire::https::CaInfo=/usr/local/share/ca-certificates/proxy.crt update \
+ && apt-get -o Acquire::https::CaInfo=/usr/local/share/ca-certificates/proxy.crt \
+      install -y --no-install-recommends ca-certificates curl
+```
+
+**Hex in the `hexpm/elixir` container.**  `mix local.hex` and `mix deps.get`
+work through the proxy by passing the proxy and its CA, without
+`LOOM_HEX_MIRROR`:
+
+```bash
+docker run --rm --network host -e HTTPS_PROXY \
+  -e HEX_CACERTS_PATH=/root/.ccr/ca-bundle.crt -e SSL_CERT_FILE=/root/.ccr/ca-bundle.crt \
+  -v /root/.ccr:/root/.ccr:ro -v <deployable>:/w -w /w \
+  hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-20260610-slim \
+  bash -c 'mix local.hex --force && mix local.rebar --force && mix deps.get'
+```
+
+Use `LOOM_HEX_MIRROR=1` (above) only when Hex is refused with a bare `503`
+despite this.
 
 ### Generated DSL-level e2e suite
 
@@ -1530,8 +1622,21 @@ LOOM_SKIP_PUSH_TYPECHECK=1 git push …   # skips gate 2 (and the censuses); gat
 LOOM_SKIP_PUSH_CENSUS=1 git push …      # skips only the censuses
 ```
 
+**Docs-only branches skip the code gates.** When every file the branch changes
+against its merge base with `origin/main` is prose (`docs/`, a `*.md` file,
+`LICENSE*`), the typecheck and the code censuses cannot fail, so the hook runs
+only the two censuses that scan every tracked text file
+(`conflict-marker-census`, `nul-byte-census`). Any other path counts as code.
+`LOOM_PREFLIGHT_TRACE=1` prints which gate set a push gets. Census tests run
+with a 120 s per-test timeout, since a whole-tree scan can outlast vitest's
+30 s default on a loaded machine.
+
+**A deny skips the whole Bash call.** Every step chained before the push
+(`edit && commit && push`) did not run either, and the deny reason says so.
+
 **Cost, measured:** ~51 s for the typecheck gates on a warm `node_modules`,
-plus ~85–100 s for the censuses on 4 cores; ~1 s with `LOOM_SKIP_PUSH_TYPECHECK`. The throwaway worktree is removed by a top-level
+plus ~85–100 s for the censuses on 4 cores (~130 s in all on a code branch);
+~4 s on a docs-only branch; ~1 s with `LOOM_SKIP_PUSH_TYPECHECK`. The throwaway worktree is removed by a top-level
 `EXIT` trap — top-level rather than function-scoped `RETURN`, because the deny
 path `exit`s the script and an `exit` from inside a function never runs that
 function's `RETURN` trap.

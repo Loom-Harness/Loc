@@ -255,6 +255,18 @@ export const messages = {
     `migration for module "${p.module}": enum check ${p.check} on existing table ${p.table} no longer admits ${p.removed} in column ${p.column}. Rows already stored may still hold a removed value: such a row fails to load on every backend except node (python/java/.NET/elixir map the stored string onto the enum; a list route that reads it fails as a whole), node serves it off-contract, and any UPDATE of it is refused by the new check. Declare what the stored values become — a value rename updates every column that stores the enum:\n` +
     `    migration "rename-…" { ${p.enumName}.${p.firstRemoved} -> <one of ${p.kept}> }\n` +
     `or remap them yourself with a \`sql\` step in the same generation, or — when no row can hold a removed value — record it with --allow-destructive.`,
+  "loom.migration-enum-narrowed#unchecked": (p: {
+    module: unknown;
+    enumName: unknown;
+    table: unknown;
+    column: unknown;
+    removed: unknown;
+    kept: unknown;
+    firstRemoved: unknown;
+  }) =>
+    `migration for module "${p.module}": enum ${p.enumName} no longer has ${p.removed}, which column ${p.column} of existing table ${p.table} may still store. Such a row fails to load on every backend except node (python/java/.NET/elixir map the stored string onto the enum; a list route that reads it fails as a whole), and node serves it off-contract. Declare what the stored values become — a value rename updates every column that stores the enum:\n` +
+    `    migration "rename-…" { ${p.enumName}.${p.firstRemoved} -> <one of ${p.kept}> }\n` +
+    `or remap them yourself with a \`sql\` step in the same generation, or — when no row can hold a removed value — record it with --allow-destructive.`,
   /** A declared enum value rename whose enum is also stored where the
    *  generated UPDATEs cannot reach — inside a JSON column (a document-shaped
    *  aggregate's `data`, an embedded containment, a value object collapsed to

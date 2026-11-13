@@ -85,7 +85,7 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   write scope); the handler runs it as a single-row read on `Doc`'s repository
   before the 403/409 decision.  A policy `read X requires` gate stays
   `currentUser`-only: use a row rule to make visibility depend on another row.
-  See [Migration: the synthesised reads fail closed](#migration-the-synthesised-reads-fail-closed-m-t319)
+  See [Migration: the synthesised reads fail closed](#migration-the-synthesised-reads-fail-closed)
   for what changes for an existing model.
 - **an event-sourced `create` is the one remaining exception — on the four backends that
   cannot gate it.**  A `persistedAs: eventLog` aggregate's create body renders
@@ -171,7 +171,7 @@ backend legs — which is the point, since the list-read drop was a
 java/python/elixir defect that a node-only probe could not have seen.  See
 `test/behavioral/README.md` § "Principals — and the authorization ladder".
 
-### Migration: the synthesised reads fail closed (M-T3.19)
+### Migration: the synthesised reads fail closed
 
 Under `denyByDefault`, the two compiler-derived reads of every aggregate — the
 list `GET /api/<plural>` and the by-id `GET /api/<plural>/{id}` — are **refused
@@ -398,7 +398,7 @@ It's available on any array — not just `currentUser.permissions`
 — so the same vocabulary covers any membership check the domain
 needs.
 
-### Row-level visibility (slice 1C)
+### Row-level visibility
 
 `currentUser` is admissible inside a `criterion` body (and a
 single-row find's `where`); the renderer reads the resolved User
@@ -433,7 +433,7 @@ reads; the validator points users at `getById` (with an explicit
 id parameter) or asks them to call the user-aware read from the
 route layer.
 
-### `requires` clauses (slice 2)
+### `requires` clauses
 
 `requires <expr>` is a declarative authorization gate at the top
 of an operation or workflow body.  Failure surfaces as HTTP 403,
@@ -576,12 +576,11 @@ under any verifier.
 | any (dev stub, `auth { oidc … }`, or none) | `Forbidden` | `problem.forbidden` | `Forbidden: currentUser.role == "manager" && reason != ""` |
 
 So a caller learns that it was forbidden, not which predicate it failed; the
-developer wiring claims reads the predicate from the server log. Node's
-`ForbiddenError.detail` (read by every `onError` arm), .NET's
-`DomainExceptionFilter` and Python's `install_error_handlers` carry the constant
-today; Java's `ApiExceptionAdvice` and Phoenix's `ProblemDetails.problem_response/4`
-(plus the LiveView create form's flash) still echo under the dev stub until their
-#4473 slices land.
+developer wiring claims reads the predicate from the server log. Every backend
+carries the constant: Node's `ForbiddenError.detail` (read by every `onError`
+arm), .NET's `DomainExceptionFilter`, Python's `install_error_handlers`, Java's
+`ApiExceptionAdvice` and Phoenix's `ProblemDetails.problem_response/4` — plus
+the LiveView forms' flash.
 
 Consequences worth knowing:
 
@@ -773,7 +772,7 @@ body renders its `precondition`s (the domain-floor 422) and `emit`s; the rest �
 a computed `assign`, a destroy's `precondition` / `emit` — is a
 `loom.lifecycle-body-dropped` error, not a silent drop.
 
-### Named policy functions (P3.2)
+### Named policy functions
 
 A **named policy function** names a reusable `requires` predicate once so a
 non-trivial gate isn't re-typed at every operation it guards.  It is a
@@ -1254,9 +1253,8 @@ The gate is a hoisted `requires`, so it runs wherever the operation's gates run
 form also calls).  A client that echoes a whole read body back sends the masked
 key as `null`, so it is refused: send only the keys you mean to change.
 
-**Status (M-T3.2 item 6).** Grammar + IR + printer + wire contract + validation,
-plus read redaction on **all five backends** (node, .NET, Python, Java, Elixir),
-have shipped — a `mask unless` field now redacts fail-closed on every backend.
+Read redaction is emitted on **all five backends** (node, .NET, Python, Java,
+Elixir): a `mask unless` field redacts fail-closed on every one.
 The write side inherits the mask as a hoisted gate (above); a gate of your own
 on another field has the same shape:
 `operation update(…) requires <field> == this.<field> || <caller-check>`.
@@ -1384,7 +1382,7 @@ request**:
 | Operation body (preconditions, assignments, calls, emits) | ✅ |
 | Workflow body | ✅ |
 | Aggregate-level `test` body | ✅ |
-| Repository `find` `where` clause | ✅ (slice 1C) |
+| Repository `find` `where` clause | ✅ |
 | `policy { read X requires … }` gate | ✅ (`currentUser` + constants only) |
 | Aggregate / part / value-object invariant | ❌ |
 | Derived property | ❌ |

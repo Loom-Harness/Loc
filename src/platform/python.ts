@@ -1,6 +1,16 @@
 import { generatePythonForContexts } from "../generator/python/index.js";
 import { databaseOf } from "../ir/util/databases.js";
+import { serviceSlug } from "../util/service-slug.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
+import {
+  BACKEND_HEALTH,
+  BROKER_BASELINE,
+  BROKER_BASELINE_GAPS,
+  MIGRATIONS_BASELINE,
+  wgetHealthcheck,
+  withoutGaps,
+} from "./operations.js";
+import { backendEnvContract } from "./operations-env.js";
 import {
   type ComposeServiceShape,
   EMBEDDABLE_FRAMEWORKS,
@@ -58,6 +68,22 @@ const pythonPlatform: PlatformSurface = {
       sourcemap,
     });
   },
+  operations: {
+    health: BACKEND_HEALTH,
+    healthcheck: wgetHealthcheck,
+    healthcheckBinaries: ["wget"],
+    env: (args) =>
+      backendEnvContract(
+        args,
+        pythonPlatform.composeService({ ...args, slug: serviceSlug(args.deployable.name) }),
+      ),
+    listen: "ipv4",
+    log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
+    // The FastAPI relay backs off on an unreachable broker without spending attempts.
+    broker: { ...BROKER_BASELINE, outboxRidesOutOutage: true },
+    migrations: MIGRATIONS_BASELINE,
+    gaps: withoutGaps(BROKER_BASELINE_GAPS, "broker.outboxRidesOutOutage"),
+  },
   composeService({ slug, deployable, sys }): ComposeServiceShape {
     const database = databaseOf(sys, deployable)?.name ?? slug;
     return {
@@ -69,7 +95,6 @@ const pythonPlatform: PlatformSurface = {
       dependsOnDb: true,
       // Compose healthcheck → /ready (DB-aware), /health stays for
       // cheap liveness probing — same split as dotnet/hono.
-      healthPath: "/ready",
       internalPort: 8000,
     };
   },

@@ -24,9 +24,9 @@ describe("groupByDataset", () => {
   it("groups rows by dataset name, preserving first-seen dataset order", () => {
     const datasets = groupByDataset(
       ctxWith([
-        { dataset: "default", path: "domain", rows: [row("Order")] },
-        { dataset: "demo", path: "domain", rows: [row("Customer")] },
-        { dataset: "default", path: "domain", rows: [row("Product")] },
+        { dataset: "default", context: "C", path: "domain", rows: [row("Order")] },
+        { dataset: "demo", context: "C", path: "domain", rows: [row("Customer")] },
+        { dataset: "default", context: "C", path: "domain", rows: [row("Product")] },
       ]),
     );
 
@@ -39,7 +39,9 @@ describe("groupByDataset", () => {
 
   it("preserves row order within a single seed block", () => {
     const [ds] = groupByDataset(
-      ctxWith([{ dataset: "default", path: "domain", rows: [row("A"), row("B"), row("C")] }]),
+      ctxWith([
+        { dataset: "default", context: "C", path: "domain", rows: [row("A"), row("B"), row("C")] },
+      ]),
     );
     expect(ds.entries.map((e) => e.row.aggregate)).toEqual(["A", "B", "C"]);
   });
@@ -47,12 +49,25 @@ describe("groupByDataset", () => {
   it("marks entries raw iff their seed block's path is `raw`", () => {
     const [ds] = groupByDataset(
       ctxWith([
-        { dataset: "default", path: "raw", rows: [row("Ledger")] },
-        { dataset: "default", path: "domain", rows: [row("Order")] },
+        { dataset: "default", context: "C", path: "raw", rows: [row("Ledger")] },
+        { dataset: "default", context: "C", path: "domain", rows: [row("Order")] },
       ]),
     );
     const byAgg = Object.fromEntries(ds.entries.map((e) => [e.row.aggregate, e.raw]));
     expect(byAgg).toEqual({ Ledger: true, Order: false });
+  });
+
+  it("keeps two contexts' same-named datasets apart in a merged context", () => {
+    const datasets = groupByDataset(
+      ctxWith([
+        { dataset: "default", context: "Catalog", path: "domain", rows: [row("Product")] },
+        { dataset: "default", context: "Orders", path: "domain", rows: [row("Order")] },
+      ]),
+    );
+    expect(datasets.map((d) => [d.name, d.marker, d.ident])).toEqual([
+      ["default", "Catalog/default", "catalogDefault"],
+      ["default", "Orders/default", "ordersDefault"],
+    ]);
   });
 
   it("returns no datasets when the context has no seeds", () => {
@@ -63,8 +78,13 @@ describe("groupByDataset", () => {
 describe("usedAggregates", () => {
   const datasets = groupByDataset(
     ctxWith([
-      { dataset: "default", path: "domain", rows: [row("Order"), row("Order"), row("Customer")] },
-      { dataset: "default", path: "raw", rows: [row("Ledger")] },
+      {
+        dataset: "default",
+        context: "C",
+        path: "domain",
+        rows: [row("Order"), row("Order"), row("Customer")],
+      },
+      { dataset: "default", context: "C", path: "raw", rows: [row("Ledger")] },
     ]),
   );
 

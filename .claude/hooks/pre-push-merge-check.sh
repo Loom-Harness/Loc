@@ -18,6 +18,8 @@
 #      later and after a runner slot. `LOOM_SKIP_PUSH_TYPECHECK=1` opts out.
 #      Then the fast whole-tree censuses/ratchets in the same worktree (see
 #      census_merged); `LOOM_SKIP_PUSH_CENSUS=1` opts out of those alone.
+#      A docs-only branch (see docs_only) skips the typecheck and runs only
+#      the censuses that scan prose.
 #
 # Design: this hook is conservative in both gates. It denies only on a DEFINITE
 # conflict or a gate that RAN and FAILED; on any uncertainty (not a git repo,
@@ -77,8 +79,14 @@ cleanup_preflight() {
 trap cleanup_preflight EXIT
 
 # --- deny helper -----------------------------------------------------------
+# A PreToolUse deny skips the WHOLE Bash call, so every step chained before the
+# push (`edit && commit && push`) did not run either; the reason says so, or the
+# caller assumes its edit and commit landed.
 deny() {
-  jq -n --arg r "$1" '{
+  local reason="$1
+
+Nothing in this Bash command ran: the whole call was skipped, including every step chained before the push. Re-run those steps on their own, then push."
+  jq -n --arg r "$reason" '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
@@ -86,6 +94,27 @@ deny() {
     }
   }'
   exit 0
+}
+
+# `LOOM_PREFLIGHT_TRACE=1` reports which gates a push gets, on stderr.
+trace() {
+  [ -n "${LOOM_PREFLIGHT_TRACE:-}" ] && printf 'preflight: %s\n' "$*" >&2
+  return 0
+}
+
+# --- docs-only pushes ------------------------------------------------------
+# A push whose branch changes only prose (`docs/`, Markdown files, LICENSE*)
+# cannot break the build, the `test/` typecheck or any census that reads code,
+# so it skips them; only the censuses that scan every tracked text file still
+# run (TEXT_CENSUSES). Any other path, an empty diff or an unreadable diff
+# counts as code and gets the full gates.
+DOCS_ONLY_PATHS='^docs/|\.md$|^LICENSE[^/]*$'
+docs_only() {
+  local base files
+  base="$(git merge-base origin/main HEAD 2>/dev/null)" || return 1
+  files="$(git diff --name-only "$base" HEAD 2>/dev/null)" || return 1
+  [ -n "$files" ] || return 1
+  ! printf '%s\n' "$files" | grep -qvE "$DOCS_ONLY_PATHS"
 }
 
 # --- typecheck the MERGED tree (improvement-waves 4.1) ----------------------
@@ -102,13 +131,19 @@ deny() {
 # `LOOM_SKIP_PUSH_TYPECHECK=1`.  It denies on exactly one thing — a gate that
 # ran to completion on the merged tree and FAILED.
 typecheck_merged() {
-  local tree="$1"
+  local tree="$1" mode=code
   [ -n "${LOOM_SKIP_PUSH_TYPECHECK:-}" ] && return 0
   # A tree OID is 40 (sha1) or 64 (sha256) hex chars; anything else means
   # `merge-tree` printed something this script does not understand.
   [[ "$tree" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 0
+  if docs_only; then
+    mode=docs
+    trace "docs-only push: typecheck skipped, text censuses only"
+  else
+    trace "code push: typecheck + censuses"
+  fi
   command -v npx >/dev/null 2>&1 || return 0
-  [ -f "scripts/test-typecheck.mjs" ] || return 0
+  [ "$mode" = docs ] || [ -f "scripts/test-typecheck.mjs" ] || return 0
 
   local repo mods commit dir rc out
   repo="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
@@ -123,6 +158,11 @@ typecheck_merged() {
   PREFLIGHT_DIR="$dir"   # cleaned by the top-level EXIT trap, deny path included
   git worktree add --detach --quiet "$dir" "$commit" >/dev/null 2>&1 || return 0
   ln -s "$(cd "$mods" && pwd)" "$dir/node_modules" 2>/dev/null || return 0
+
+  if [ "$mode" = docs ]; then
+    census_merged "$dir" docs
+    return 0
+  fi
 
   # 15 minutes each: a cold composite build, then the `test/` typecheck. A
   # timeout is "we don't know", so it allows.
@@ -160,14 +200,24 @@ $(printf '%s' "$out" | tail -25)"
 # `LOOM_SKIP_PUSH_CENSUS=1` opts out.  Denies only when vitest ran and reported
 # failed tests; a timeout or a vitest that never got that far allows.
 CENSUS_SLOW='diagnostic-firing-census|openapi-component-uniqueness-census|/ddd-source-census'
+# The censuses that scan every tracked text file, prose included — the only
+# ones a docs-only push can trip.
+TEXT_CENSUSES='test/system/conflict-marker-census.test.ts test/system/nul-byte-census.test.ts'
 census_merged() {
-  local dir="$1" files out rc
+  local dir="$1" mode="${2:-code}" files out rc
   [ -n "${LOOM_SKIP_PUSH_CENSUS:-}" ] && return 0
-  files="$(cd "$dir" && ls test/system/*census*.test.ts test/system/*ratchet*.test.ts \
-    test/system/typing-differential.test.ts 2>/dev/null | grep -vE "$CENSUS_SLOW")"
+  if [ "$mode" = docs ]; then
+    # shellcheck disable=SC2086  # one path per word, none with spaces
+    files="$(cd "$dir" && ls $TEXT_CENSUSES 2>/dev/null)"
+  else
+    files="$(cd "$dir" && ls test/system/*census*.test.ts test/system/*ratchet*.test.ts \
+      test/system/typing-differential.test.ts 2>/dev/null | grep -vE "$CENSUS_SLOW")"
+  fi
   [ -n "$files" ] || return 0
+  # A whole-tree scan can outlast vitest's 30 s default per-test timeout on a
+  # loaded sandbox; a timed-out test reads as a failure and would deny.
   # shellcheck disable=SC2086  # one path per word, none with spaces
-  out="$(cd "$dir" && timeout 600 npx vitest run $files 2>&1)"; rc=$?
+  out="$(cd "$dir" && timeout 600 npx vitest run --testTimeout=120000 $files 2>&1)"; rc=$?
   [ "$rc" -eq 124 ] && return 0
   if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qE 'Tests +[0-9]+ failed'; then
     deny "git push blocked: '${branch}' merges cleanly into origin/main but the MERGED tree fails a census/ratchet test.

@@ -35,15 +35,21 @@
 // (`icuFromConcat`), and the runtime locale-formats the raw value.
 // ---------------------------------------------------------------------------
 
-import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR, PageIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { richTextMessage } from "../../ir/util/icu-message.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { ariaLabelAttr, escapeHtmlAttr } from "./a11y-emit.js";
 import { chromeKey, chromeMessage } from "./i18n-chrome.js";
-import { icuFromConcat, literalString, messageKey, RICH_TEXT_ROLE } from "./i18n-extract.js";
+import {
+  icuFromConcat,
+  literalString,
+  messageKey,
+  pageNameEntry,
+  RICH_TEXT_ROLE,
+} from "./i18n-extract.js";
 import { registerI18nImport, registerI18nRichImport } from "./render-primitive.js";
 import { namedArgValue, positionalArgs, unwrapTextLiteral } from "./shared/args.js";
-import type { StringPart } from "./target.js";
+import type { StringPart, WalkerTarget } from "./target.js";
 import { emitExpr, renderTextContent, type WalkContext } from "./walker-core.js";
 
 export { sourceText, withSourceOverrides } from "../_i18n/source-text.js";
@@ -204,6 +210,21 @@ export function localizedPageTitle(title: ExprIR, ctx: WalkContext): string {
     return translateCall(ctx, messageKey(ctx.i18nPrefix, "title", literal), literal);
   }
   return icuTranslateCall(title, ctx, "title") ?? emitExpr(title, ctx);
+}
+
+/** The label of an UNTITLED page, in the target's own translation spelling —
+ *  the read-back of the `name` entry {@link pageNameEntry} catalogs.  The same
+ *  `translateExpr` seam as every other chrome string, so the key, the bound
+ *  default and the catalog message are one value.  A page with a `title:` has no
+ *  name entry; its label is the title's. */
+export function localizedPageName(
+  ui: { name: string },
+  page: PageIR,
+  target: Pick<WalkerTarget, "renderTranslate">,
+): string | undefined {
+  const entry = pageNameEntry(ui, page);
+  if (entry === undefined || target.renderTranslate === undefined) return undefined;
+  return target.renderTranslate({ key: entry.key, message: sourceText(entry.key, entry.message) });
 }
 
 /** The NAMED-arg twin of {@link localizedRaw} (`Alert.title` → `alertTitle`,

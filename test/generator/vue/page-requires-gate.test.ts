@@ -53,7 +53,7 @@ describe("vue page requires gate", () => {
     );
     expect(page).toContain('const loomPageAllowed = currentUser.role === "agent";');
     expect(page).toContain('<div v-if="!loomPageAllowed"');
-    expect(page).toContain("<h2>Forbidden</h2>");
+    expect(page).toContain('<h2>{{ t("chrome.forbiddenTitle", "Forbidden") }}</h2>');
     expect(page).toContain("<template v-else>");
     // The guard opens before the body.
     const guardIdx = page.indexOf("Forbidden");

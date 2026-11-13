@@ -850,6 +850,11 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // deployables, so the behavioural runner cannot pick one.  Signed with its
   // reason in gate-ledger's BEHAVIOURAL_ABSENT.
   "tenancy-registry-split",
+  // The defect is a COMPILE failure on node / .NET / python (a domain name
+  // colliding with a symbol the target already binds); every fix is a
+  // host-source spelling the wire cannot see.  Signed with its reason in
+  // gate-ledger's BEHAVIOURAL_ABSENT.
+  "domain-symbol-collisions",
   // The defect is a COMPILE failure (`aggregate Task` made the emitted .NET
   // project unbuildable), so `corpus-dotnet-build` is its oracle; a `test e2e`
   // block would boot a CRUD round-trip other fixtures already record and mint a

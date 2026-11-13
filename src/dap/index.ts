@@ -14,7 +14,7 @@
 // lives here.
 // ---------------------------------------------------------------------------
 
-export type { BreakpointTarget } from "./breakpoints.js";
+export type { BreakpointTarget, TranslateBreakpointOptions } from "./breakpoints.js";
 export { translateBreakpoint } from "./breakpoints.js";
 export type {
   DapBreakpoint,

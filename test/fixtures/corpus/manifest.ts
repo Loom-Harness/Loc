@@ -679,6 +679,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by #3024.  `ddd new --platform dotnet --template crud` emits an aggregate named `Task`, and the generated project did not build AT ALL: `generate system` reported `0 error(s), 0 warning(s)` and `dotnet build` then produced 17 errors — CS0104 in every file that wildcard-imports the domain namespace, plus CS0535/CS0738 because the repository INTERFACE *declares* that namespace, so its bare `Task SaveAsync` return silently meant the DOMAIN type and disagreed with its own impl.  Repaired rather than refused (a file-scoped `using Task = <ns>.Domain.Tasks.Task;` outranks the wildcard import and, being non-generic, leaves `Task<…>` alone; only NON-GENERIC async returns are additionally qualified, and only for the name `Task`).  `Queue` is the second aggregate on purpose — it proves the alias is general, not `Task`-special-cased: aliasing only `Task` left `aggregate Type` failing with the identical triple against `System.Type`.  The row is ALL because the other four backends have no such ambiguity and must stay byte-identical — verified across 84 corpus/example models, where this shape is the only one whose output moves.",
   },
   {
+    id: "domain-symbol-collisions",
+    title:
+      "domain names that collide with a symbol the target already binds: a domain-service operation calling its sibling by bare name, an enum / aggregate named after a .NET implicit-using type (`TaskStatus`, `ServiceProvider`), a value-object function naming its own class, a python field `property`, and a python-keyword operation (`raise`) called from a workflow",
+    doc: "language",
+    backends: ALL,
+    note: "The gate of the per-target symbol plan (`src/generator/_symbols/`): each declaration was fatal on at least one backend's compile or import, and the compile legs are the oracle.  The plan escapes or aliases only colliding names, so the rest of the corpus is byte-identical.",
+  },
+  {
     id: "factory-param-local-collision",
     title:
       "a create-input field (`e: int`) and an event-sourced `create(e: int)` parameter named like the .NET construction factory's instance local",
