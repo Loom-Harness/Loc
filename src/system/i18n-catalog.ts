@@ -6,6 +6,7 @@ import { packChromeCatalog } from "../generator/_packs/pack-chrome.js";
 import {
   chromeMergedWhenEnabled,
   HAND_BUILT_FORM_SENTENCES,
+  HEEX_SENTENCES,
 } from "../generator/_walker/i18n-chrome.js";
 import { collectUiMessages } from "../generator/_walker/i18n-extract.js";
 import type { BoundedContextIR, EnrichedSystemIR, UiIR } from "../ir/types/loom-ir.js";
@@ -88,6 +89,7 @@ function packSentencesForUi(sys: EnrichedSystemIR, ui: UiIR): string[] {
     if (packFormatForBuiltin(design) === undefined) continue;
     const manifest = loadPack(resolvePackDir(design, dep.designBaseDir)).manifest;
     for (const base of manifest.sentenceChrome ?? []) out.add(base);
+    if (packFormatForBuiltin(design) === "heex") for (const base of HEEX_SENTENCES) out.add(base);
   }
   return [...out].sort();
 }
@@ -192,6 +194,7 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
         // The HEEx create form renders optional inputs too (it has no update
         // flow to defer them to), so their labels are catalogued.
         optionalCreateInputs: formats.has("heex"),
+        flashOnCustomSubmit: formats.has("heex"),
         authGate: uiDrawsAuthGate(sys, ui),
         sessionView: uiDrawsSessionView(sys, ui),
         fallbackLabels: formats.has("heex"),

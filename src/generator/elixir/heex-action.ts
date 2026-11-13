@@ -63,7 +63,7 @@ export function renderHeexAction(
     ctx.actionBindings.push({
       agg: aggName,
       op: snake(opName),
-      opHuman: humanize(opName),
+      opName,
       eventName,
       thenRoute,
     });

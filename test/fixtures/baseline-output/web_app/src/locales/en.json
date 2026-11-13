@@ -106,6 +106,7 @@
   "chrome.skipToContent": "Skip to content",
   "chrome.somethingWentWrong": "Something went wrong",
   "chrome.toggleNavigation": "Toggle navigation",
+  "chrome.toolbarActions": "Actions",
   "field.greater-than": "Must be greater than {min}",
   "field.integer-range": "Must be between {min} and {max}",
   "field.length": "{length, plural, one {Must be exactly # character} other {Must be exactly # characters}}",

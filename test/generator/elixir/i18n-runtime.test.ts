@@ -180,7 +180,10 @@ describe("Phoenix HEEx i18n runtime", () => {
     // The other half of "defaults, not overrides": nothing derived the
     // attribute, so the contract's fallback name still ships.
     const live = await homeLive(SYSTEM(`Toolbar { Text { "Hello" } }`));
-    expect(live).toContain(`role="toolbar" aria-label="Actions"`);
+    // ...now read through the catalog, so a locale can translate it.
+    expect(live).toContain(
+      `role="toolbar" aria-label={pgettext("chrome.toolbarActions", "Actions")}`,
+    );
   });
 
   it("keeps a decorative Icon hidden and byte-identical", async () => {
