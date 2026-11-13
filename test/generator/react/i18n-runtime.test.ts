@@ -171,12 +171,12 @@ describe("React i18n runtime", () => {
     );
   });
 
-  it("keeps the Toolbar's DEFAULT accessible name a static attribute", async () => {
-    // "Actions" is the a11y contract's fallback — no source literal, so it is not
-    // in the catalog and must never bind through `t()` (its key would resolve to
-    // nothing).  Byte-identical to the pre-i18n emission.
+  it("reads the Toolbar's DEFAULT accessible name through the catalog", async () => {
+    // The a11y contract's fallback name has no source literal; it reads the
+    // `chrome.toolbarActions` catalog entry so a locale can translate it.
     const files = await generateSystemFiles(SYSTEM(`Toolbar { Heading { "Orders" } }`));
-    expect(await pageOf(files)).toContain(`role="toolbar" aria-label="Actions"`);
+    expect(await pageOf(files)).toContain("chrome.toolbarActions");
+    expect(await pageOf(files)).not.toContain(`role="toolbar" aria-label="Actions"`);
   });
 
   it("renders the translated Divider label on the chakra packs too", async () => {

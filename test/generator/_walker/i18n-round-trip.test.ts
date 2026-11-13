@@ -39,9 +39,9 @@
 
 import { describe, expect, it } from "vitest";
 import { WIRE_ERROR_MESSAGES } from "../../../src/generator/_i18n/wire-error-text.js";
-import { USER_VISIBLE_SLOTS } from "../../../src/util/user-visible-slots.js";
 import { loadPack, resolvePackDir } from "../../../src/generator/_packs/loader-fs.js";
 import { shellChromeAria, shellChromeText } from "../../../src/generator/elixir/i18n.js";
+import { USER_VISIBLE_SLOTS } from "../../../src/util/user-visible-slots.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
 // --- the fixture -------------------------------------------------------------
@@ -234,8 +234,8 @@ function frontendSystem(t: FrontendTarget, menu: MenuShape): string {
       design: "${t.pack}", ui: WebApp { Shop: phoenixApp }, port: 4000
     }`
       : `deployable api { platform: node contexts: [Cat] dataSources: [s, f] serves: ShopApi port: 3000${
-      SIGN_OUT_PLATFORMS.has(t.platform) ? " auth: required" : ""
-    } }
+          SIGN_OUT_PLATFORMS.has(t.platform) ? " auth: required" : ""
+        } }
     deployable web {
       platform: ${t.platform}
       ${t.pack ? `design: "${t.pack}"` : ""}

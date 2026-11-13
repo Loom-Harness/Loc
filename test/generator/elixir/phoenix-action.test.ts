@@ -75,7 +75,9 @@ describe("Phoenix Action — instance-qualified operation button", () => {
     expect(live).toMatch(/def handle_event\("confirm_customer", %\{"id" => id\}, socket\) do/);
     expect(live).toMatch(/record = PhoenixApp\.Sales\.get_customer!\(id\)/);
     expect(live).toMatch(/PhoenixApp\.Sales\.confirm_customer!\(record\)/);
-    expect(live).toMatch(/put_flash\(:info, "Confirm succeeded"\)/);
+    expect(live).toContain(
+      'put_flash(:info, pgettext("chrome.actionSucceeded.confirm", "Confirm succeeded"))',
+    );
     // then: navigate(Home) → push_navigate to Home's route.
     expect(live).toMatch(/push_navigate\(to: ~p"\/home"\)/);
   });
