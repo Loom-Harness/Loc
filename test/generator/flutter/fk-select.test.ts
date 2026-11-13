@@ -69,3 +69,20 @@ describe("flutter FK-loaded select", () => {
     expect(src).not.toContain("_loadTotalOptions");
   });
 });
+
+// String assertions: the Dart is compiled by `generated-flutter-build`, but no
+// tier boots a Flutter row picker; the census pins that the array renders at all.
+describe("flutter fk-select cell in an object-array row", () => {
+  it("loads the target's options once and renders each row's cell as a dropdown", async () => {
+    const src = SRC.replace(
+      "aggregate Order {\n      customer: Customer id",
+      "valueobject Line { sku: string, supplier: Customer id? }\n    aggregate Order {\n      lines: Line[]\n      customer: Customer id",
+    );
+    const files = await generateSystemFiles(src);
+    const forms = [...files].find(([p]) => p.endsWith("lib/forms.dart"))?.[1] ?? "";
+    expect(forms).toContain("_linesOptionsSupplier");
+    expect(forms).toContain("_loadLinesOptionsSupplier();");
+    expect(forms).toContain("/customers?page=");
+    expect(forms).not.toContain("non-renderable sub-field");
+  });
+});

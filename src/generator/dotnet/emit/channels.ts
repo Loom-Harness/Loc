@@ -1,6 +1,10 @@
 import type { EventIR, FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { upperFirst } from "../../../util/naming.js";
-import { type BrokerBinding, kafkaStartsAtEarliest } from "../../_channels/bindings.js";
+import {
+  type BrokerBinding,
+  kafkaStartsAtEarliest,
+  uniqueBindings,
+} from "../../_channels/bindings.js";
 import { CHANNEL_CONSUMER } from "../../_channels/delivery-policy.js";
 import {
   decodeField,
@@ -43,15 +47,6 @@ import { CS_NUMERIC } from "../numeric-codec.js";
 // `ChannelRelayPublisher`, with the outbox row id as the envelope id — the
 // stable consumer-side idempotency key across broker redeliveries.
 // ---------------------------------------------------------------------------
-
-function uniqueBindings(bindings: BrokerBinding[]): BrokerBinding[] {
-  const seen = new Set<string>();
-  return bindings.filter((b) => {
-    if (seen.has(b.csName)) return false;
-    seen.add(b.csName);
-    return true;
-  });
-}
 
 /** C# expression serialising one event property into its envelope-data value
  *  (DSL-keyed JSON; parity with the Hono/Python codecs). */

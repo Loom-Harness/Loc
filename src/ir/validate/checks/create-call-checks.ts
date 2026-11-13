@@ -146,9 +146,7 @@ export function validateCreateCallSites(loom: LoomModel, diags: LoomDiagnostic[]
       }
 
       // --- 2. a required create-input field is missing ---------------------
-      // `createInput` is the enriched projection; `buildCreateInput` is the same
-      // derivation, kept as the fallback for a programmatically-built IR.
-      const input = agg.createInput ?? buildCreateInput(agg);
+      const input = buildCreateInput(agg);
 
       const supplied = new Set(call.fields);
       const missing = input

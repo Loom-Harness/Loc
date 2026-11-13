@@ -38,6 +38,7 @@ ddd verify <file.ddd> --results <results.json>    # join test results onto the r
 ddd verify <file.ddd> --from-vitest <report.json> # …the same, straight from `vitest run --reporter=json`
 ddd verify <file.ddd> --from-vitest unit.json --from-vitest e2e.json --from-playwright ui.json  # every flag repeatable — one per runner report
 ddd snapshot <file.ddd> -o <outdir>               # capture provenance rule snapshots
+ddd emit-frontend-contract <file.ddd> [-o <outdir>] [--system <name>]  # the Frontend Contract (resolved UI + exposed wire surface) as JSON; stdout, or <outdir>/.loom/frontend-contract.json
 ddd patch <file.ddd> --patches <patches.json>     # apply node-addressed model patches
 ddd trace <logfile>                               # translate a runtime stack-trace back to .ddd source
 ddd breakpoints <file.ddd> --line <n>             # resolve a .ddd source line to the generated file:line(s), or file:line:col when the construct maps to a fine expression region — the reverse of `trace`
@@ -1576,7 +1577,9 @@ worktrees and `settings.local.json` stay local.
    a push changes nothing a reviewer reads but re-runs the whole per-PR check
    set; dozens at once starve the shared runner pool. The merge queue re-tests
    every entry on current `main` anyway. Merging another PR's branch (a stack),
-   a rebase, or any push with a commit of its own passes. Pinned by
+   a rebase, or any push with a commit of its own passes, and so does a sync
+   whose old head has several merge bases with `main` (git and GitHub can
+   disagree on whether that merge conflicts). Pinned by
    `test/system/pre-push-sync-gate.test.ts`. The rules behind it are in
    `.claude/skills/steward/SKILL.md`.
 1. **Textual** — `git merge-tree --write-tree origin/main HEAD`. A definite
