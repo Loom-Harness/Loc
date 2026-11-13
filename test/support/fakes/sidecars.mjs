@@ -25,13 +25,16 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
  * reset(), stop() }`; `kind` names the `effects` section its observations land
  * in, and `observe()` / `reset()` may be async.  A sidecar fronts a real,
  * digest-pinned service (`smtp` → Mailpit); an in-process fake serves an
- * emulation-core model for a service that cannot run (`restApi`).  `s3`,
+ * emulation-core model for a service that cannot run (`restApi`, and the SaaS
+ * mailers `ses` and `sendgrid`).  `s3`,
  * `rabbitmq` and `redis` take their start options from the case's generated
  * tree, and are wired by the object-store / broker sidecars.
  */
 export const STORAGE_FAKES = {
   smtp: () => import("./mailpit-sidecar.mjs"),
   restApi: () => import("./http.mjs"),
+  ses: () => import("./ses.mjs"),
+  sendgrid: () => import("./sendgrid.mjs"),
   s3: null,
   rabbitmq: null,
   redis: null,

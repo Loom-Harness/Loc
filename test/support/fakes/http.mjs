@@ -14,7 +14,7 @@
 
 import { createServer } from "node:http";
 import { createHttpMock } from "./emulation.mjs";
-import { resourceEnvUrlVar } from "./resource-env.mjs";
+import { resourceHostEnvVar } from "./resource-env.mjs";
 
 /** The run-stable projection of a recorded request body. */
 export function bodyShape(raw) {
@@ -59,7 +59,7 @@ export async function start(opts = {}) {
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const url = `http://127.0.0.1:${server.address().port}`;
   const env = {};
-  for (const r of opts.resources ?? []) env[resourceEnvUrlVar(r.name)] = url;
+  for (const r of opts.resources ?? []) env[resourceHostEnvVar("restApi", r.name)] = url;
   return {
     kind: "http",
     env,

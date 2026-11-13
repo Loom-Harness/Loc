@@ -180,6 +180,7 @@ const NODE_KIT_CLASSES = {
     "quiesce.mjs",
     "resource-env.mjs",
     "emulation.mjs",
+    "loopback.mjs",
   ]),
 };
 

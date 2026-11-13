@@ -8,6 +8,7 @@ import {
   createMailbox,
   createOidcProvider,
   createS3,
+  createSendgrid,
   createSes,
 } from "../../src/emulation/index.js";
 import { emulationContract } from "./contract.js";
@@ -16,6 +17,7 @@ emulationContract("in-process core", {
   mailbox: (o) => createMailbox(o),
   s3: (o) => createS3(o),
   ses: (o) => createSes(o),
+  sendgrid: (o) => createSendgrid(o),
   disk: (o) => createDisk(o),
   httpMock: (o) => createHttpMock(o),
   oidc: () => createOidcProvider(),

@@ -191,11 +191,12 @@ runs the kit's own container tests.
 The behavioural legs boot a backend against **the external services its model
 declares**, real wherever they can run: a digest-pinned Mailpit for `smtp`, the
 broker and object-store sidecars above. A service that cannot run for real (a
-third-party `restApi`) is an **in-process fake**: a loopback transport over a
-model of the emulation core (`src/emulation/`, see "Test infrastructure /
+third-party `restApi`, the SaaS mailers `ses` and `sendgrid`) is an
+**in-process fake**: a loopback transport over a model of the emulation core (`src/emulation/`, see "Test infrastructure /
 emulation"). `test/support/fakes/sidecars.mjs` reads which services a case needs
 off its model, starts them, and hands the backend the env its emitted client
-already reads (`src/util/resource-env.ts`). What the backend sent — the mail in
+already reads — the host override `resourceHostEnvVar` names in
+`src/util/resource-env.ts`. What the backend sent — the mail in
 Mailpit's inbox, the requests the restApi fake answered, the broker publishes,
 the objects stored — lands in the wire recording's `effects` section and is
 diffed against the golden on every leg, so a mail's envelope or a remote call's

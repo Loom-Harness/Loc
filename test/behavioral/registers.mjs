@@ -285,6 +285,14 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
+    // Swoosh's AmazonSES adapter encodes its raw MIME with `:mimemail`
+    // (gen_smtp), which the generated mix.exs does not declare.
+    "resource-mailer-ses": {
+      issue: "#5759",
+      expect: "fail",
+      tests: { "the mailer reaches its provider": "workflows/issue → 500" },
+      reason: "an `ses`-only system's SES send raises UndefinedFunctionError :mimemail.encode/2",
+    },
     // An expected-failure entry point (`T or E`) is refused on Phoenix, so
     // generation stops at phase ⑦ (unsupported register).
     "workflow-expected-failure": {
