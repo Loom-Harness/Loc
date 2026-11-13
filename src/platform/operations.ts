@@ -151,14 +151,13 @@ export const FRONTEND_OPERATIONS: PlatformOperations = {
  *  ones not met yet.  A backend spreads these and overrides its own rows. */
 export const BROKER_BASELINE: BrokerResilience = {
   reconnects: true,
-  outboxRidesOutOutage: false,
+  outboxRidesOutOutage: true,
   publishFailureKeepsCommit: true,
   deadLettersUnderAcl: true,
   propagatesTrace: false,
   exportsMetrics: false,
 };
 export const BROKER_BASELINE_GAPS: Readonly<Record<string, string>> = {
-  "broker.outboxRidesOutOutage": "#4741",
   "broker.propagatesTrace": "#3582",
   "broker.exportsMetrics": "#3583",
 };
@@ -169,11 +168,3 @@ export const MIGRATIONS_BASELINE: MigrationRunnerFacts = {
   idempotentReboot: true,
   multiModule: true,
 };
-
-/** `gaps` minus the facts a platform meets. */
-export function withoutGaps(
-  gaps: Readonly<Record<string, string>>,
-  ...met: string[]
-): Readonly<Record<string, string>> {
-  return Object.fromEntries(Object.entries(gaps).filter(([k]) => !met.includes(k)));
-}

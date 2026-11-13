@@ -10,7 +10,7 @@ import {
 import { emissionSink } from "../../util/emission-sink.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { type BrokerBinding, kafkaStartsAtEarliest } from "../_channels/bindings.js";
-import { CHANNEL_RECONNECT } from "../_channels/delivery-policy.js";
+import { CHANNEL_CONSUMER, CHANNEL_RECONNECT, OUTBOX_RELAY } from "../_channels/delivery-policy.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
@@ -338,13 +338,13 @@ function elixirOutboxRelayModule(
   import Ecto.Query
   require Logger
 
-  @interval_ms 500
-  @max_attempts 5
-  @batch 50
+  @interval_ms ${OUTBOX_RELAY.intervalMs}
+  @max_attempts ${OUTBOX_RELAY.maxAttempts}
+  @batch ${OUTBOX_RELAY.batchSize}
   @purge_interval_ms ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000}
   @purge_batch ${OUTBOX_PURGE_BATCH}
   @default_retention_days ${OUTBOX_RETENTION_DEFAULT_DAYS}
-  @max_backoff_ms 30_000
+  @max_backoff_ms ${OUTBOX_RELAY.maxBackoffMs}
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
@@ -379,7 +379,7 @@ function elixirOutboxRelayModule(
     {:noreply, state}
   end
 
-  defp backoff_ms(failures), do: min(@interval_ms * Integer.pow(2, min(failures, 6)), @max_backoff_ms)
+  defp backoff_ms(failures), do: min(@interval_ms * Integer.pow(2, min(failures, ${OUTBOX_RELAY.maxBackoffDoublings})), @max_backoff_ms)
 
   defp drain do
     ${appModule}.Repo.all(
@@ -1547,7 +1547,7 @@ ${headerDesc}
 defmodule ${appModule}.ChannelConsumer do
   use GenServer
   require Logger
-${hasRabbitConsumer ? `\n  @max_attempts 5\n  @reconnect_base_ms ${CHANNEL_RECONNECT.baseDelayMs}\n  @reconnect_max_ms ${CHANNEL_RECONNECT.maxDelayMs}\n` : ""}
+${hasRabbitConsumer ? `\n  @max_attempts ${CHANNEL_CONSUMER.maxAttempts}\n  @reconnect_base_ms ${CHANNEL_RECONNECT.baseDelayMs}\n  @reconnect_max_ms ${CHANNEL_RECONNECT.maxDelayMs}\n` : ""}
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   @impl true
