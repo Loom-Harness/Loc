@@ -1,0 +1,84 @@
+// shape: a reference collection (`X id[]`) read off a LOADED aggregate and
+// handed to a domain service.
+//
+// The read `p.specialities` must yield ids on every backend.  On elixir the
+// field is a `many_to_many`, so the loaded struct carries the preloaded target
+// STRUCTS: passed on as-is, the service's `has.contains(w)` compared an id
+// against structs and was always false — a silently wrong count, no error.
+// The workflow persists the service's answers on a `Match` row the e2e reads.
+system RefCollectionService {
+  subdomain Matching {
+    context Matching {
+      aggregate Speciality with crudish {
+        name: string
+      }
+      aggregate Provider with crudish {
+        name: string
+        specialities: Speciality id[]
+      }
+      repository Providers for Provider { }
+
+      domainService Coverage {
+        operation matched(wanted: Speciality id[], has: Speciality id[]): int {
+          return wanted.where(w => has.contains(w)).count
+        }
+        operation offers(p: Provider, s: Speciality id): bool {
+          return p.specialities.contains(s)
+        }
+      }
+
+      aggregate Match {
+        provider: Provider id
+        matched: int
+        offersFirst: bool
+      }
+
+      workflow matchProvider {
+        create(provider: Provider id, first: Speciality id, second: Speciality id): Match id {
+          let p = Providers.get(provider)
+          let m = Match.create(provider: provider, matched: Coverage.matched([first, second], p.specialities), offersFirst: Coverage.offers(p, first))
+          return m.id
+        }
+      }
+    }
+  }
+
+  api MatchingApi from Matching
+  storage primary { type: postgres }
+  resource matchingState { for: Matching, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Matching]
+    dataSources: [matchingState]
+    serves: MatchingApi
+    port: 4000
+  }
+
+  test e2e "a loaded reference collection reaches a domain service as ids" against d {
+    let cardio = api.specialities.create({ name: "cardio" })
+    let neuro = api.specialities.create({ name: "neuro" })
+    let derm = api.specialities.create({ name: "derm" })
+    let p = api.providers.create({ name: "p", specialities: [cardio.id, derm.id] })
+
+    let both = api.matches.getById(api.matchProvider.run({ provider: p.id, first: cardio.id, second: derm.id }))
+    expect(both.matched).toBe(2)
+    expect(both.offersFirst).toBe(true)
+
+    let one = api.matches.getById(api.matchProvider.run({ provider: p.id, first: neuro.id, second: derm.id }))
+    expect(one.matched).toBe(1)
+    expect(one.offersFirst).toBe(false)
+
+    expect(api.specialities.getById(neuro.id).name).toBe("neuro")
+    api.specialities.update(neuro.id, { name: "neurology" })
+    expect(api.providers.getById(p.id).specialities.count()).toBe(2)
+    api.providers.update(p.id, { name: "p", specialities: [neuro.id] })
+    expect(api.matches.all().total).toBe(2)
+    let spare = api.providers.create({ name: "spare", specialities: [] })
+    expect(api.providers.all().total).toBe(2)
+    api.providers.destroy(spare.id)
+    let gone = api.specialities.create({ name: "gone" })
+    expect(api.specialities.all().total).toBe(4)
+    api.specialities.destroy(gone.id)
+    expect(api.specialities.getById(gone.id)).toThrow(404)
+  }
+}

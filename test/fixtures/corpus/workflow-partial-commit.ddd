@@ -1,0 +1,81 @@
+// A workflow without `transactional` commits each save on its own: when it
+// fails after a save, the saved row stays (so a retry must be idempotent).
+// Its `transactional` twin is all-or-nothing: the same failure leaves nothing.
+system WorkflowPartialCommit {
+  subdomain Shop {
+    context Shop {
+      aggregate Order with crudish {
+        note: string
+        operation boom() {
+          precondition note == "never"
+        }
+      }
+      repository Orders for Order { }
+
+      aggregate Counter with crudish {
+        order: Order id
+        n: int
+        operation bump() {
+          n := n + 1
+        }
+      }
+      repository Counters for Counter { }
+
+      criterion ForOrder(o: Order id) of Counter = order == o
+
+      // Bumps the order's counter (saved at the end of the branch), then fails.
+      workflow BumpThenFail {
+        create(o: Order id) {
+          if let c = Counters.find(ForOrder(o)) { c.bump() }
+          let x = Orders.get(o)
+          x.boom()
+        }
+      }
+
+      workflow BumpThenFailAtomically transactional {
+        create(o: Order id) {
+          if let c = Counters.find(ForOrder(o)) { c.bump() }
+          let x = Orders.get(o)
+          x.boom()
+        }
+      }
+    }
+  }
+
+  api ShopApi from Shop
+  storage pg { type: postgres }
+  resource shopState { for: Shop, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Shop]
+    dataSources: [shopState]
+    serves: ShopApi
+    port: 4000
+  }
+
+  test e2e "a failing workflow keeps its earlier saves unless it is transactional" against d {
+    let o = api.orders.create({ note: "x" })
+    let c = api.counters.create({ order: o.id, n: 0 })
+
+    // Non-transactional: the counter's save committed before the failure.
+    expect(api.bumpThenFail.run({ o: o.id })).toThrow(422)
+    let afterPartial = api.counters.getById(c)
+    expect(afterPartial.n).toBe(1)
+
+    // Transactional: the failure rolls the counter's save back.
+    expect(api.bumpThenFailAtomically.run({ o: o.id })).toThrow(422)
+    let afterAtomic = api.counters.getById(c)
+    expect(afterAtomic.n).toBe(1)
+
+    // The remaining CRUD routes.
+    expect(api.orders.boom(o)).toThrow(422)
+    api.counters.bump(c)
+    api.orders.update(o, { note: "y" })
+    api.counters.update(c, { order: o.id, n: 5 })
+    expect(api.orders.all().total).toBe(1)
+    expect(api.counters.all().total).toBe(1)
+    api.counters.destroy(c)
+    api.orders.destroy(o)
+    expect(api.orders.getById(o)).toThrow(404)
+  }
+}

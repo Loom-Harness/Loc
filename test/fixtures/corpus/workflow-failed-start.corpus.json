@@ -1,0 +1,13 @@
+{
+  "title": "a correlated workflow whose start fails leaves no instance; a later successful start creates it",
+  "doc": "workflow",
+  "backends": "ALL",
+  "note": "Elixir inserted the instance row before the body ran, so a failing non-transactional start left a default-valued instance that the instance read answered with 200; node, .NET, java and python write the row only after the body succeeds.",
+  "apiCaller": {
+    "//": "The start and the instance read; same not-lifted workflow-route class.",
+    "unattributed": [
+      "api.onboarding.run (no such aggregate)",
+      "api.onboarding.instance (no such aggregate)"
+    ]
+  }
+}
