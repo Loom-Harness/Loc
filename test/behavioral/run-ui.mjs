@@ -41,6 +41,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { playwrightFallbackArgs } from "./browser-fallback.mjs";
 import { copyLocales, localesBeside } from "./case-source.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE } from "./money-compare-ui.mjs";
 import { NUMERIC_FIELDS, numericSeedBody } from "./numeric-ui-contract.mjs";
@@ -318,7 +319,7 @@ async function runCase(c) {
     });
     const reportFile = join(workDir, "report.json");
     await new Promise((res) => {
-      const cp = spawn(npx, ["playwright", "test", "--reporter=list,json"], {
+      const cp = spawn(npx, ["playwright", "test", ...playwrightFallbackArgs(e2eDir), "--reporter=list,json"], {
         cwd: e2eDir,
         stdio: "inherit",
         env: {

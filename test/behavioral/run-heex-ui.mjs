@@ -70,6 +70,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { playwrightFallbackArgs } from "./browser-fallback.mjs";
 import { mixDepsGetShell, mixLocalInstallShell } from "./mix-retry.mjs";
 import { stopServer, waitForPort } from "./proc.mjs";
 import { outcomesFromPlaywrightJson } from "./ui-stack.mjs";
@@ -374,7 +375,7 @@ async function main() {
       // The i18n case runs only its own spec: the emitted smoke spec is the
       // `ui` case's concern, and its routes carry no locale.
       const only = CASE === "i18n" ? [HAND_SPEC] : [];
-      const cp = spawn(npx, ["playwright", "test", ...only, "--workers=1", "--reporter=list,json"], {
+      const cp = spawn(npx, ["playwright", "test", ...playwrightFallbackArgs(e2eDir), ...only, "--workers=1", "--reporter=list,json"], {
         cwd: e2eDir,
         stdio: "inherit",
         env: { ...process.env, E2E_BASE_URL: base, PLAYWRIGHT_JSON_OUTPUT_NAME: reportFile },
