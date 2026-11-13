@@ -987,11 +987,14 @@ ${sseLines}
       return `      live ${JSON.stringify(r.route)}, ${local}`;
     })
     .join("\n");
-  // OIDC only: seed the Phoenix session's `current_user` from the verified
-  // `session` cookie so LiveAuth.on_mount can gate LiveViews (the `auth: ui`
-  // frontend guard).  Runs right after `:fetch_session`.  The dev stub needs
-  // none — LiveAuth's dev_user fallback grants LiveViews out of the box.
-  const browserAuthPlug = authEnabled && oidc ? `\n    plug ${webModule}.BrowserAuth` : "";
+  // Seed the Phoenix session's `current_user` so LiveAuth.on_mount can gate
+  // LiveViews: under OIDC from the verified `session` cookie (the `auth: ui`
+  // frontend guard); under the dev stub from an `x-loom-dev-claims` header,
+  // when one is sent (LiveAuth's dev_user fallback covers the rest).  Runs
+  // right after `:fetch_session`.
+  const browserAuthPlug = authEnabled
+    ? `\n    plug ${webModule}.${oidc ? "BrowserAuth" : "DevBrowserAuth"}`
+    : "";
   // The locale plug runs right after the session loads (it stores the result in
   // it) and before the root layout renders `<html lang dir>`.
   const localePlug = localeNegotiation ? `\n    plug ${webModule}.LocalePlug` : "";

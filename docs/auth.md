@@ -1654,6 +1654,11 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
   http://localhost:8080/api/orders
 ```
 
+On Phoenix LiveView the same header also names the **page** principal. The
+dev-stub `:browser` pipeline (`DevBrowserAuth`) writes it into the session, so
+the LiveView mounts as that principal. A browser that sends no header runs as
+the stub's built-in identity.
+
 > **The stub exists only without an `auth { oidc … }` block.** Declaring one
 > replaces the stub with the generated OIDC verifier on every backend
 > (D-AUTH-OIDC): .NET, Java, Python and Phoenix emit no dev stub at all, and

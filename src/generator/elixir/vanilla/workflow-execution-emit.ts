@@ -1245,7 +1245,7 @@ function opCallThreadsUser(
  *  of these means the workflow function threads `current_user \\ nil` so the
  *  binding is in scope for the rendered guard / op-call / create call, at any
  *  nesting depth (`for-each` / `if-let` / `variant-match` bodies). */
-function workflowThreadsActor(wf: WorkflowIR, ctx: BoundedContextIR): boolean {
+export function workflowThreadsActor(wf: WorkflowIR, ctx: BoundedContextIR): boolean {
   if (workflowNeedsCurrentUser(wf, ctx)) return true;
   if (bodyReadsActor([wf.statements], ctx)) return true;
   let needs = false;
