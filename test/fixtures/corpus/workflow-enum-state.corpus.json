@@ -2,5 +2,14 @@
   "title": "workflow whose persisted state field is an enum — the instance-response DTO names <Enum>Schema",
   "doc": "workflow",
   "backends": "ALL",
-  "note": "No corpus .ddd carried an enum-typed workflow STATE field before this one, so the compile tier never reached the emitters that name <Enum>Schema off instanceWireShape: node emitted 'claimState: ClaimStateSchema' with that name bound nowhere in the tree (TS2304), and react/vue/svelte imported it from whichever aggregate happened to be declared first (#2864 D4/T3)."
+  "note": "No corpus .ddd carried an enum-typed workflow STATE field before this one, so the compile tier never reached the emitters that name <Enum>Schema off instanceWireShape: node emitted 'claimState: ClaimStateSchema' with that name bound nowhere in the tree (TS2304), and react/vue/svelte imported it from whichever aggregate happened to be declared first (#2864 D4/T3).",
+  "apiCaller": {
+    "//": "Wave C3 packet 3g: the three workflow/projection blocks packet 3a held, drained with their elixir fixes (D6/D7/D8) — the same `notLifted` classes (workflow accessor, projection read) as the entries above.",
+    "unattributed": [
+      "api.review.instance (no such aggregate)",
+      "api.review.instances (no such aggregate)",
+      "api.triage.instance (no such aggregate)",
+      "api.triage.instances (no such aggregate)"
+    ]
+  }
 }

@@ -81,9 +81,9 @@ const javaPlatform: PlatformSurface = {
       ),
     listen: "dual-stack",
     log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
-    broker: { ...BROKER_BASELINE, reconnects: false },
+    broker: BROKER_BASELINE,
     migrations: MIGRATIONS_BASELINE,
-    gaps: { ...BROKER_BASELINE_GAPS, "broker.reconnects": "#5450" },
+    gaps: BROKER_BASELINE_GAPS,
   },
   composeService({ slug, deployable, sys }): ComposeServiceShape {
     const database = databaseOf(sys, deployable)?.name ?? slug;

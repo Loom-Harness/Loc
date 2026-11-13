@@ -6,5 +6,8 @@
   "deployables": [
     "orgs",
     "catalog"
-  ]
+  ],
+  "apiCaller": {
+    "e2eLess": "The defect is a COMPILE failure on the deployable that does NOT host the tenant registry (node TS2339 `schema.orgs`, .NET CS0246/CS1061, elixir an undefined schema module), so the corpus compile legs are its oracle.  Two deployables, so the behavioural runner cannot pick one.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT."
+  }
 }

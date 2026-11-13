@@ -2,5 +2,10 @@
   "title": "a workflow value-object param is read as the value object — its enum field compares to an enum value, its int field takes arithmetic",
   "doc": "workflow",
   "backends": "ALL",
-  "note": "Insurance eval #5197: elixir handed a value-object workflow param to the body as raw string-keyed JSON, so `vehicle.usage == Usage.Commercial` compared a string to an atom and never matched — every commercial quote priced as private, with no error."
+  "note": "Insurance eval #5197: elixir handed a value-object workflow param to the body as raw string-keyed JSON, so `vehicle.usage == Usage.Commercial` compared a string to an atom and never matched — every commercial quote priced as private, with no error.",
+  "apiCaller": {
+    "unattributed": [
+      "api.quoteMotor.run (no such aggregate)"
+    ]
+  }
 }

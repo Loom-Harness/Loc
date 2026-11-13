@@ -40,6 +40,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { chromiumLaunchOptions } from "./browser-fallback.mjs";
 import {
   buildFrontend,
   buildServerModule,
@@ -326,11 +327,12 @@ async function runFrontend(fw) {
       stdio: "pipe",
     });
     const { chromium } = await import("playwright");
-    browser = await chromium.launch(
-      fw === "flutter"
+    browser = await chromium.launch({
+      ...(fw === "flutter"
         ? { channel: "chromium", args: ["--no-sandbox", "--enable-unsafe-swiftshader"] }
-        : {},
-    );
+        : {}),
+      ...chromiumLaunchOptions(chromium.executablePath()),
+    });
     for (const p of probes(fw, jobId)) {
       let v;
       try {

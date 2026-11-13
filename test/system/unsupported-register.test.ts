@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import {
   latentSeams,
@@ -529,6 +530,43 @@ function walk(dir: string, out: string[] = []): string[] {
  *  existence scan below and the per-row site-resolution check. */
 const EMIT_RE = /code\s*[:=]\s*["'`](loom\.[a-zA-Z0-9-]+)["'`]/;
 
+/** `src/<file>.ts#<declaration>`. */
+const SITE_RE = /^(src\/.+\.tsx?)#([A-Za-z_$][\w$]*)$/;
+
+/** The names a top-level statement declares (function, class, variable). */
+function declaredNames(st: ts.Statement): string[] {
+  if ((ts.isFunctionDeclaration(st) || ts.isClassDeclaration(st)) && st.name) return [st.name.text];
+  if (ts.isVariableStatement(st))
+    return st.declarationList.declarations.flatMap((d) =>
+      ts.isIdentifier(d.name) ? [d.name.text] : [],
+    );
+  return [];
+}
+
+/** Why `site` does not resolve to a top-level declaration raising `code`,
+ *  or null when it does. */
+function siteProblem(code: string, site: string, read: (rel: string) => string): string | null {
+  const m = SITE_RE.exec(site);
+  if (!m) return `malformed site ${site}`;
+  const [, rel, name] = m;
+  let text: string;
+  try {
+    text = read(rel);
+  } catch {
+    return `site file does not exist (${site})`;
+  }
+  const sf = ts.createSourceFile(rel, text, ts.ScriptTarget.ES2022, true);
+  const decls = sf.statements.filter((st) => declaredNames(st).includes(name));
+  if (decls.length === 0) return `no top-level declaration \`${name}\` in ${rel}`;
+  const raises = decls.some((st) =>
+    st
+      .getText(sf)
+      .split("\n")
+      .some((line) => EMIT_RE.exec(line)?.[1] === code),
+  );
+  return raises ? null : `\`${name}\` in ${rel} does not raise ${code}`;
+}
+
 /** Codes actually emitted from a `code:`/`code =` position in src/. */
 function emittedSuffixedCodes(): Map<string, string> {
   const found = new Map<string, string>();
@@ -620,59 +658,62 @@ describe("`*-unsupported` register (M-T9.27)", () => {
   });
 
   it("cites a site for every row", () => {
-    const bad = UNSUPPORTED_REGISTER.filter((e) => !/^src\/.+:\d+$/.test(e.site)).map(
-      (e) => e.code,
-    );
-    expect(bad, "Every row needs a `file:line` emission site for the reviewer.").toEqual([]);
+    const bad = UNSUPPORTED_REGISTER.filter((e) => !SITE_RE.test(e.site)).map((e) => e.code);
+    expect(
+      bad,
+      "Every row needs a `src/<file>.ts#<declaration>` site naming the top-level declaration " +
+        "that raises its code.",
+    ).toEqual([]);
   });
 
-  // `site` used to be validated only by REGEX SHAPE (`^src\/.+:\d+$`) — never
-  // opened, so a raiser that MOVED (a sibling check grew/shrank above it in
-  // the same file, the check was extracted to a new file, …) left a
-  // perfectly-shaped, perfectly wrong citation and nothing caught it.  Six
-  // adapter rows drifted this way by 200+ lines apiece before a wholesale
-  // correction (see the mismatches this test found on the pre-fix tree,
-  // quoted in the mission hand-off).  This resolves the file and asserts the
-  // row's OWN code is actually raised near the cited line.
-  it("resolves every row's site to its own code nearby (the register cannot notice a moved raiser otherwise)", () => {
-    // N=20. Reading every row against the current tree (this PR's own
-    // wholesale re-verification) found two clusters: rows already accurate to
-    // within 0-9 lines (trivial reformatting — a comment grew, a blank line
-    // moved) and rows that had drifted 23 to 782 lines (a sibling check's body
-    // grew above the cited one, or the citation was never updated after the
-    // file reorganized). Nothing fell in between. N=20 sits above the first
-    // cluster with better than 2x headroom and far below the second, so it
-    // absorbs incidental reformatting while still catching a raiser that
-    // moved to a different function, a different file region, or was deleted
-    // outright — exactly the "moved raiser" shape this check exists to catch,
-    // proved below by seeding that shape and reverting the seed by file copy.
-    const N = 20;
+  // A site names the top-level declaration that raises the row's code, not a
+  // line.  A line pin moved whenever anything above it in the same file grew,
+  // so two unrelated changes to one validator file each passed alone and
+  // failed together in the merge queue.  A symbol pin moves only when the
+  // raiser itself is renamed, moved to another file, deleted, or stops
+  // raising the code — each of which is exactly the drift this check exists
+  // to catch.
+  it("resolves every row's site to a declaration that raises its own code", () => {
     const bad: string[] = [];
     for (const e of UNSUPPORTED_REGISTER) {
-      const m = /^(src\/.+):(\d+)$/.exec(e.site);
-      if (!m) continue; // malformed shape is the previous assertion's job
-      const [, relPath, lineStr] = m;
-      const abs = path.join(repoRoot, relPath);
-      let fileLines: string[];
-      try {
-        fileLines = fs.readFileSync(abs, "utf8").split("\n");
-      } catch {
-        bad.push(`${e.code}: site file does not exist (${e.site})`);
-        continue;
-      }
-      const lineNo = Number(lineStr);
-      const lo = Math.max(0, lineNo - 1 - N);
-      const hi = Math.min(fileLines.length, lineNo - 1 + N + 1);
-      const resolved = fileLines.slice(lo, hi).some((line) => EMIT_RE.exec(line)?.[1] === e.code);
-      if (!resolved) {
-        bad.push(`${e.code}: no emission of its own code within ±${N} lines of ${e.site}`);
-      }
+      const problem = siteProblem(e.code, e.site, (rel) =>
+        fs.readFileSync(path.join(repoRoot, rel), "utf8"),
+      );
+      if (problem) bad.push(`${e.code}: ${problem}`);
     }
     expect(
       bad,
-      "Row(s) whose site does not resolve to their own code nearby — the citation has drifted " +
-        "from the raiser it names. Re-point `site` at the code's current file:line.",
+      "Row(s) whose site does not resolve to a declaration raising their own code — re-point " +
+        "`site` at the top-level declaration that raises it now.",
     ).toEqual([]);
+  });
+
+  it("the site resolver follows a moved raiser and refuses a deleted or silent one (positive control)", () => {
+    const raiser = (name: string, code: string) =>
+      `export function ${name}(out: unknown[]): void {\n  out.push({ code: "${code}" });\n}\n`;
+    const file = (body: string) => () => body;
+    const code = "loom.probe-unsupported";
+    const site = "src/probe.ts#validateProbe";
+    // The same raiser, 500 lines further down the file: still resolves.
+    expect(
+      siteProblem(code, site, file(`${"// pad\n".repeat(500)}${raiser("validateProbe", code)}`)),
+    ).toBeNull();
+    // An arrow-function const is a declaration too.
+    expect(
+      siteProblem(code, site, file(`const validateProbe = () => ({ code: "${code}" });\n`)),
+    ).toBeNull();
+    // Deleted (only a different declaration remains): refused.
+    expect(siteProblem(code, site, file(raiser("validateOther", code)))).toMatch(/no top-level/);
+    // Still there, but raising another code: refused.
+    expect(siteProblem(code, site, file(raiser("validateProbe", "loom.other")))).toMatch(
+      /does not raise/,
+    );
+    // The file is gone: refused.
+    expect(
+      siteProblem(code, site, () => {
+        throw new Error("ENOENT");
+      }),
+    ).toMatch(/does not exist/);
   });
 
   // --- ownership (slice 3) -------------------------------------------------

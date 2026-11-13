@@ -47,7 +47,7 @@ describe("dotnet outbox relay — poll-loop resilience", () => {
       // ...and the delay (poll interval, or the capped backoff) is awaited
       // with the stopping token.
       expect(relay).toContain("await Task.Delay(delay, stoppingToken);");
-      expect(relay).toContain("Math.Min(30, 1 << Math.Min(failures, 5))");
+      expect(relay).toContain("Interval.TotalMilliseconds * (1 << Math.Min(failures, 6)), 30000)");
     });
   }
 });
