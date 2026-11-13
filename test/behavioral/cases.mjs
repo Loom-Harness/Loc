@@ -326,6 +326,46 @@ export const AUTHZ_LADDERS = {
         method: "DELETE",
         path: "/api/notes/{id}",
       },
+      // The gate order (docs/auth.md → "Gate order", #4861): a caller the
+      // row-independent \`requires\` refuses gets 403 whatever the row — a
+      // missing id, a stale \`If-Match\`, a row in the wrong state — so the
+      // refusal is no existence, version or state oracle.  The authorized arm
+      // shows each request WOULD have failed on its own rung.
+      {
+        label: "gate order — a missing id answers the caller's 403, not 404",
+        method: "POST",
+        path: "/api/tickets/00000000-0000-4000-8000-0000000000aa/close",
+        body: {},
+        arms: { anonymous: null, unauthorized: 403, authorized: 404 },
+      },
+      {
+        label: "gate order — a stale If-Match answers the caller's 403, not 409",
+        seed: { path: "/api/memos", body: { body: "ladder stale" } },
+        method: "POST",
+        path: "/api/memos/{id}/update",
+        body: { body: "rewritten" },
+        headers: { "if-match": '"999"' },
+        arms: { anonymous: null, unauthorized: 403, authorized: 409 },
+      },
+      {
+        label: "gate order — a row in the wrong state answers the caller's 403, not 409",
+        seed: { path: "/api/tickets", body: { subject: "ladder open", open: true } },
+        method: "POST",
+        path: "/api/tickets/{id}/reopen",
+        body: {},
+        arms: { anonymous: null, unauthorized: 403, authorized: 409 },
+      },
+      // \`can_<op>\` runs the operation's ladder (#5194) and answers its outcome
+      // as \`{ allowed }\`: a caller the operation's \`requires\` refuses gets
+      // \`allowed: false\` (the recorded golden pins the body), not the row's
+      // state.
+      {
+        label: "can_<op> — the operation's requires answers allowed: false",
+        seed: { path: "/api/tickets", body: { subject: "ladder can", open: false } },
+        method: "GET",
+        path: "/api/tickets/{id}/can_reopen",
+        arms: { anonymous: null, unauthorized: 200, authorized: 200 },
+      },
     ],
     arms: { anonymous: null, unauthorized: 403, authorized: 204 },
     anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
@@ -385,6 +425,10 @@ export const AUTHZ_LADDERS = {
       // The compiler-derived by-id read, gated by the fixture's
       // `policy { read Order requires … }`.
       { label: "gated by-id read", method: "GET", path: "/api/orders/{id}" },
+      // \`can_<op>\` reads the row exactly as the by-id read does (#5194), so
+      // the read gate refuses it too — it never reports a row's state to a
+      // caller who may not read the row.
+      { label: "can_<op> probe behind the read gate", method: "GET", path: "/api/orders/{id}/can_reopen" },
     ],
     arms: { anonymous: null, unauthorized: 403, authorized: 200 },
     anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",

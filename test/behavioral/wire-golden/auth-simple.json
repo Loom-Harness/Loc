@@ -477,6 +477,144 @@
       "path": "/api/notes/{id}",
       "status": 204,
       "body": ""
+    },
+    {
+      "seq": 41,
+      "method": "POST",
+      "path": "/api/tickets/{id}/close",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/tickets/{id}/close",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 42,
+      "method": "POST",
+      "path": "/api/tickets/{id}/close",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Ticket {id} not found",
+        "instance": "/api/tickets/{id}/close",
+        "params": {
+          "type": "Tickets.Ticket"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 43,
+      "method": "POST",
+      "path": "/api/memos",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 44,
+      "method": "POST",
+      "path": "/api/memos/{id}/update",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/memos/{id}/update",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 45,
+      "method": "POST",
+      "path": "/api/memos/{id}/update",
+      "status": 409,
+      "body": {
+        "code": "problem.version-conflict",
+        "detail": "Memo {id} was modified by another request",
+        "instance": "/api/memos/{id}/update",
+        "params": {
+          "type": "Tickets.Memo"
+        },
+        "status": 409,
+        "title": "Conflict",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 46,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 47,
+      "method": "POST",
+      "path": "/api/tickets/{id}/reopen",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/tickets/{id}/reopen",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 48,
+      "method": "POST",
+      "path": "/api/tickets/{id}/reopen",
+      "status": 409,
+      "body": {
+        "code": "problem.state-gate",
+        "detail": "operation 'reopen' is not allowed in the current state of Ticket.",
+        "instance": "/api/tickets/{id}/reopen",
+        "params": {
+          "type": "Tickets.Ticket"
+        },
+        "status": 409,
+        "title": "Disallowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 49,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 50,
+      "method": "GET",
+      "path": "/api/tickets/{id}/can_reopen",
+      "status": 200,
+      "body": {
+        "allowed": false
+      }
+    },
+    {
+      "seq": 51,
+      "method": "GET",
+      "path": "/api/tickets/{id}/can_reopen",
+      "status": 200,
+      "body": {
+        "allowed": true
+      }
     }
   ]
 }

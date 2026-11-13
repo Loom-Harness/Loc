@@ -445,6 +445,29 @@
         "rowVersion": 2,
         "total": "10.0000"
       }
+    },
+    {
+      "seq": 34,
+      "method": "GET",
+      "path": "/api/orders/{id}/can_reopen",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/orders/{id}/can_reopen",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 35,
+      "method": "GET",
+      "path": "/api/orders/{id}/can_reopen",
+      "status": 200,
+      "body": {
+        "allowed": true
+      }
     }
   ]
 }

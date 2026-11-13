@@ -11,6 +11,15 @@ system SimpleAuth {
           requires currentUser.role == "agent"
           open := false
         }
+        // Gate order (docs/auth.md → "Gate order"): the row-independent
+        // `requires` refuses before the load, the version check and `when`, so
+        // a refused caller learns nothing about the row — not that it exists,
+        // its version, or its state.  Its `can_reopen` probe runs the same
+        // gate.
+        operation reopen() when !open {
+          requires currentUser.role == "agent"
+          open := true
+        }
       }
       repository Tickets for Ticket { }
 
