@@ -5987,7 +5987,7 @@ message-less domain-floor rule carries no `errors[]`.
 
 ## D-GATE-LADDER — one refusal order for every request on an aggregate row, on every backend
 
-**Status:** owner ruling, 2026-11-13; applied to operation routes and `can_<op>` on all five backends.
+**Status:** owner ruling, 2026-11-13; applied to operation routes, `can_<op>`, the canonical `destroy` and the generic `update` on all five backends.
 
 **Decision.** A request on an aggregate row is refused in one order:
 authn (401) → request shape (422) → a `requires` that reads no row (403) →

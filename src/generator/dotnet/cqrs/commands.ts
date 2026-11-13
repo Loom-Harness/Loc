@@ -21,6 +21,7 @@ import {
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
+  type RequiresStmtIR,
 } from "../../../ir/util/op-gates.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { ROW_VERSION_PASCAL } from "../../../util/row-version.js";
@@ -106,10 +107,20 @@ function lifecycleGate(
    *  `<ns>.Auth`. */
   ns: string,
   thisName?: string,
+  /** The gates to render (default: every lifecycle gate of `action`), and
+   *  whether to bind `currentUser` ahead of them (default: when any gate of
+   *  `action` reads it). */
+  opts: { only?: (g: RequiresStmtIR) => boolean; bindUser?: boolean } = {},
 ): { readonly body: string; readonly deps: DepList; readonly usings: string[] } {
-  const gates = lifecycleGates(action);
-  if (gates.length === 0) return { body: "", deps: [], usings: [] };
+  const gates = lifecycleGates(action).filter(opts.only ?? (() => true));
   const usesUser = lifecycleGatesUseCurrentUser(action);
+  if (gates.length === 0) {
+    return {
+      body: opts.bindUser && usesUser ? "        var currentUser = _currentUser.User;\n" : "",
+      deps: [],
+      usings: [],
+    };
+  }
   // A create gate's parameters are the create-input fields the command
   // carries (`loom.lifecycle-guard-unreadable` admits no other).
   const params = new Set((action?.params ?? []).map((p) => p.name));
@@ -119,7 +130,8 @@ function lifecycleGate(
   // do NOT carry — the operation handler adds it the same way.  Without it the
   // emitted handler is CS0246, which no tsc-level test can see.
   if (usesUser) usings.add(`${ns}.Auth`);
-  const bind = usesUser ? "        var currentUser = _currentUser.User;\n" : "";
+  const bind =
+    (opts.bindUser ?? usesUser) && usesUser ? "        var currentUser = _currentUser.User;\n" : "";
   const body =
     bind +
     gates
@@ -393,8 +405,18 @@ export function emitDestroyCommandAndHandler(
     : [];
   // `Domain.Common` is already in the base handler usings — don't repeat it
   // here (CS0105 duplicate-using is an error under /warnaserror).
-  // The canonical destroy's gate reads the row the handler just loaded.
+  // The canonical destroy's gates in ladder order (`destroyLadder`): one that
+  // reads no row refuses before the load, so a missing id answers the refused
+  // caller's 403; one that reads the row runs against the loaded aggregate.
   const destroyGate = lifecycleGate(canonicalDestroy(agg), ns, "aggregate");
+  const destroyPre = lifecycleGate(canonicalDestroy(agg), ns, undefined, {
+    only: (g) => !gateReadsRow(g),
+    bindUser: true,
+  });
+  const destroyPost = lifecycleGate(canonicalDestroy(agg), ns, "aggregate", {
+    only: gateReadsRow,
+    bindUser: false,
+  });
   const destroyAuditUsings = auditDestroy
     ? [
         `${ns}.Application.Common`,
@@ -413,13 +435,12 @@ export function emitDestroyCommandAndHandler(
       extraDeps: [...destroyAuditDeps, ...destroyGate.deps],
       extraUsings: [...destroyAuditUsings, ...destroyGate.usings],
       body:
+        destroyPre.body +
         `        var aggregate = await _repo.${writeCmdLoad(agg)}(command.Id, cancellationToken)\n` +
         `            ?? throw ${csNotFoundException(null, `${agg.name} {command.Id}`)};\n` +
-        // AFTER the load (so an unreachable id is a 404, not a 403) and BEFORE
-        // the audit stage AND the delete.  The ordering is the security
-        // property: #2450's gate passed a mutation that moved this line below
-        // `DeleteAsync`, which denies a delete that already happened.
-        destroyGate.body +
+        // Every gate runs BEFORE the audit stage AND the delete: a gate below
+        // `DeleteAsync` would deny a delete that already happened.
+        destroyPost.body +
         destroyIfMatchCheck(agg, usingDapper) +
         destroyAuditStage +
         `        await _repo.DeleteAsync(aggregate, cancellationToken);\n` +
