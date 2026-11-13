@@ -723,15 +723,6 @@ function emitEnumSchema(e: EnumIR): string[] {
   return [`export const ${e.name}Schema = z.enum([${values}]);`];
 }
 
-function emitValueObjectSchema(vo: ValueObjectIR): string[] {
-  return emitObjectWithRefines(
-    `${vo.name}Schema`,
-    vo.fields.map((f) => ({ name: f.name, base: zodForResponseInner(f.type) })),
-    vo.invariants,
-    new Set(vo.fields.map((f) => f.name)),
-  );
-}
-
 // ---------------------------------------------------------------------------
 // `z.object({ ... }).refine(...)` emitter shared by request / VO schemas.
 //
