@@ -1034,6 +1034,12 @@ function renderLiveView(a: RenderArgs): {
       contextModuleByAggName,
       a.listReadGateByAggName,
       refreshLabels,
+    ) +
+    // After every `handle_event/3` clause: Elixir requires a function's
+    // clauses to be contiguous, and the page may carry more after the op forms.
+    renderOpParamCoercer(
+      walked.formBindings.filter((fb) => fb.kind === "operation"),
+      aggregatesByName,
     );
   // Realtime `handle_info` clauses — one per subscribed event type, each
   // rendering the handler's `toast(…)` as `put_flash(:info, …)` and re-loading
@@ -2109,8 +2115,7 @@ function renderOperationEventClauses(
     end
   end\n`;
       })
-      .join("\n") +
-    renderOpParamCoercer(ops, aggregatesByName)
+      .join("\n")
   );
 }
 
