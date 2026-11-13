@@ -295,14 +295,22 @@ function describeSeedValue(e: ExprIR): string {
 // is nothing to check for it.
 // ---------------------------------------------------------------------------
 
+/** The literal `true` as a whole `where` — the match-everything filter. */
+export function isMatchAll(e: ExprIR): boolean {
+  const inner = e.kind === "paren" ? isMatchAll(e.inner) : false;
+  return inner || (e.kind === "literal" && e.lit === "bool" && e.value === "true");
+}
+
 export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
   for (const r of ctx.retrievals) {
     const targetName = r.targetType.kind === "entity" ? r.targetType.name : undefined;
     const agg = targetName ? ctx.aggregates.find((a) => a.name === targetName) : undefined;
     const src = `${ctx.name}/retrieval ${r.name}`;
 
-    // `where` — same queryable-subset enforcement as find filters.
-    const offending = firstNonQueryablePredicate(r.where);
+    // `where` — same queryable-subset enforcement as find filters.  The bare
+    // literal `true` (`criterion All of T = true`) is the match-everything
+    // filter: it tests no column, and is admitted as the read of every row.
+    const offending = isMatchAll(r.where) ? null : firstNonQueryablePredicate(r.where);
     if (offending) {
       diags.push({
         severity: "error",

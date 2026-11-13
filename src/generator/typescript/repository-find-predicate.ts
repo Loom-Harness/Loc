@@ -176,6 +176,14 @@ export function lowerToDrizzle(
   const ops = new Set<string>();
   /** The table each in-scope `exists … as <row>` binding reads. */
   const rows = new Map<string, string>();
+  // The match-everything filter (`criterion All of T = true`): a whole `where`
+  // that is the literal `true` reads every row.  Only at the top — the IR
+  // validator admits it nowhere else.
+  const whole = expr.kind === "paren" ? expr.inner : expr;
+  if (whole.kind === "literal" && whole.lit === "bool" && whole.value === "true") {
+    ops.add("sql");
+    return { expr: "sql`true`", ops };
+  }
   const text = lowerExpr(expr);
   if (text === null) return null;
   return { expr: text, ops };
