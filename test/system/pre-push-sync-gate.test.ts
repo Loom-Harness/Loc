@@ -180,11 +180,15 @@ describe.skipIf(!hasTools)("pre-push sync-only gate", () => {
     }
 
     it("ignores a push mentioned inside a double-quoted string", () => {
-      expect(denied(runHook(syncOnly(), 'echo "the proxy refuses git push --delete" >> log.md'))).toBe(false);
+      expect(
+        denied(runHook(syncOnly(), 'echo "the proxy refuses git push --delete" >> log.md')),
+      ).toBe(false);
     });
 
     it("ignores a push mentioned inside a single-quoted string", () => {
-      expect(denied(runHook(syncOnly(), "printf '%s\\n' 'never git push from here' > note.txt"))).toBe(false);
+      expect(
+        denied(runHook(syncOnly(), "printf '%s\\n' 'never git push from here' > note.txt")),
+      ).toBe(false);
     });
 
     it("ignores a push mentioned inside a heredoc body", () => {
@@ -193,7 +197,9 @@ describe.skipIf(!hasTools)("pre-push sync-only gate", () => {
     });
 
     it("still gates a real push chained after quoted text", () => {
-      expect(denied(runHook(syncOnly(), 'git commit -q --allow-empty -m "wip" ; git push'))).toBe(true);
+      expect(denied(runHook(syncOnly(), 'git commit -q --allow-empty -m "wip" ; git push'))).toBe(
+        true,
+      );
     });
 
     it("still gates a real push after a heredoc", () => {
