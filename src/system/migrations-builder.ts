@@ -240,11 +240,21 @@ export function schemaFromModule(
       // Its `X id[]` reference collections need their join tables too — the
       // owner FK points at the shared base table, whose row id the concrete's
       // id IS (every backend's TPH repository writes the base row id there).
+      // Its value-object array fields (`lines: Line[]`) keep their id-less
+      // child tables, FK'd to the shared base table for the same reason.
       return [
         ...agg.parts.map((part) =>
           tableForPart(part, agg, module.name, voLookup, enumLookup, owner),
         ),
         ...agg.associations.map((assoc) => tableForAssociation(assoc, module.name, pool)),
+        ...valueCollectionsFor(agg).map((vc) =>
+          valueCollectionTableShape(vc, agg, module.name, voLookup, enumLookup, undefined, owner),
+        ),
+        ...agg.parts.flatMap((part) =>
+          valueCollectionsFor(part).map((vc) =>
+            valueCollectionTableShape(vc, agg, module.name, voLookup, enumLookup, part.name),
+          ),
+        ),
       ];
     }
     if (isTphBase(agg, pool)) {
@@ -4207,8 +4217,13 @@ function valueCollectionTableShape(
   // NO `enumValues` CHECK, which is exactly the silent gap this closes.
   enumLookup: EnumLookup,
   partName?: string,
+  /** The aggregate whose table holds the owning row, when it is not
+   *  `parentAgg` itself — a TPH concrete's rows live in its base's table. */
+  ownerAggName?: string,
 ): TableShape {
-  const ownerTable = partName ? tableNameFor(partName) : tableNameFor(parentAgg.name);
+  const ownerTable = partName
+    ? tableNameFor(partName)
+    : tableNameFor(ownerAggName ?? parentAgg.name);
   const idType = idColumnType();
   const elementFields = voLookup.get(vc.voName) ?? [];
   const columns: ColumnShape[] = [
