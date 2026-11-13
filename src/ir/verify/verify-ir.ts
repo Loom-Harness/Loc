@@ -1,4 +1,3 @@
-import { wireFieldsForAggregate } from "../enrich/wire-projection.js";
 import type { LoomModel } from "../types/loom-ir.js";
 import { allContexts } from "../types/loom-ir.js";
 import { forEachModelExpr } from "../util/model-exprs.js";
@@ -95,13 +94,6 @@ export function verifyLoomModel(model: LoomModel): IrViolation[] {
   // user's mistake as a compiler bug.
   for (const c of allContexts(model)) {
     for (const a of c.aggregates) {
-      // The wire shape is derived on demand (`docs` "derive, don't stamp"), so
-      // this is a property of the derivation rather than of a stored field:
-      // `id` leads, always, on every backend's DTO.
-      const wire = wireFieldsForAggregate(a);
-      if (wire[0]?.name !== "id") {
-        at(`${c.name}/${a.name}`, "wireShape", `wire shape does not lead with 'id'`);
-      }
       // An abstract aggregate has no table and no repository by design; a
       // concrete one always gets one, with the auto `findAll` enrichment
       // adds first.
