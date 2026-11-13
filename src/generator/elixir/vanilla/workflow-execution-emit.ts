@@ -414,7 +414,7 @@ function chainLine(step: PipelineStep): BodyLine {
 }
 
 /** A step as a link of a `with` chain; an effect is not a link. */
-export function chainLink(step: Exclude<PipelineStep, { kind: "effect" }>): string {
+function chainLink(step: Exclude<PipelineStep, { kind: "effect" }>): string {
   switch (step.kind) {
     case "clause":
       return step.text;
@@ -428,7 +428,7 @@ export function chainLink(step: Exclude<PipelineStep, { kind: "effect" }>): stri
 /** Does `assembleChain` render these steps as a `with` chain?  Only when a
  *  fallible link precedes the body's end; otherwise its bindings render as
  *  plain sequential `pattern = expr` lines. */
-export function isChained(steps: readonly PipelineStep[]): boolean {
+function isChained(steps: readonly PipelineStep[]): boolean {
   const body = steps.at(-1)?.kind === "fail" ? steps.slice(0, -1) : steps;
   return body.some((step) => step.kind === "clause" || step.kind === "fail");
 }
