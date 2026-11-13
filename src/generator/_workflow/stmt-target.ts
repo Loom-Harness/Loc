@@ -156,7 +156,7 @@ export function presenceSides(
   return { ...(present ? { present } : {}), ...(absent ? { absent } : {}) };
 }
 
-type SaveEntry = { name: string; aggName: string; repoName: string };
+export type SaveEntry = { name: string; aggName: string; repoName: string };
 
 /** The saves a NESTING statement stages at the end of its own branches — a
  *  `for` iteration's, each `if let` branch's, each `match` arm's — in source
@@ -164,13 +164,35 @@ type SaveEntry = { name: string; aggName: string; repoName: string };
  *  repositories a body saves through reads them here instead of re-listing
  *  the nesting kinds. */
 export function nestedSaves(st: WorkflowStmtIR): SaveEntry[] {
+  return nestedSaveScopes(st).flatMap((scope) => scope.saves);
+}
+
+/** One body a NESTING statement runs and the saves it stages at that body's
+ *  end.  `iteration` is a `for` body, which runs once per element; `branch` is
+ *  an `if let` branch or a `match` arm, which runs at most once. */
+export interface SaveScope {
+  readonly kind: "iteration" | "branch";
+  readonly body: readonly WorkflowStmtIR[];
+  readonly saves: readonly SaveEntry[];
+}
+
+/** The bodies a NESTING statement runs, each with the saves it stages at its
+ *  end, in source order; empty for every other kind.  A missing `else` is an
+ *  empty body that saves nothing. */
+export function nestedSaveScopes(st: WorkflowStmtIR): SaveScope[] {
   switch (st.kind) {
     case "for-each":
-      return st.savesPerIteration;
+      return [{ kind: "iteration", body: st.body, saves: st.savesPerIteration }];
     case "if-let":
-      return [...st.savesInThen, ...st.savesInElse];
+      return [
+        { kind: "branch", body: st.thenBody, saves: st.savesInThen },
+        { kind: "branch", body: st.elseBody ?? [], saves: st.savesInElse },
+      ];
     case "variant-match":
-      return [...st.arms.flatMap((a) => a.savesInArm), ...st.savesInElse];
+      return [
+        ...st.arms.map((a) => ({ kind: "branch" as const, body: a.body, saves: a.savesInArm })),
+        { kind: "branch", body: st.elseBody ?? [], saves: st.savesInElse },
+      ];
     case "precondition":
     case "requires":
     case "emit":
