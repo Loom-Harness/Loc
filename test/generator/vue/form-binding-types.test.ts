@@ -76,7 +76,11 @@ describe("vue form runtime — the bound value type", () => {
     // The nested arm is the whole point: a one-level strip left
     // `values.shipping.line2` nullish, one level below where it stopped.
     const form = (await files()).get("src/lib/form.ts")!;
-    expect(form).toContain("{ [K in keyof T]-?: FormValues<NonNullable<T[K]>> }");
+    expect(form).toContain("{ [K in keyof T]-?: BoundField<T[K]> }");
+    expect(form).toContain("FormValues<NonNullable<V>>");
+    // An OPTIONAL value object is the one nullable bound field: its group is
+    // opt-in, and `null` is how the form holds "not added".
+    expect(form).toContain("FormValues<NonNullable<V>> | null");
   });
 
   it("stops the recursion at class instances so a `Decimal` survives", async () => {

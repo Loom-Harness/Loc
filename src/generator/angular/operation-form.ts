@@ -17,7 +17,7 @@ import {
   formButton,
   partitionAngularFields,
 } from "./form-fields.js";
-import { angularOpFormSpec, nullableTextFields } from "./form-seed.js";
+import { angularOpFormSpec, nullableTextFields } from "./form-prefill.js";
 import { angularRuleCodes, applyAngularValidators } from "./form-validators.js";
 import { angularSink } from "./walker/sink.js";
 // ---------------------------------------------------------------------------

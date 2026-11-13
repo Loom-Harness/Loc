@@ -105,7 +105,7 @@ const MISSING: Record<string, readonly string[]> = {
   svelte: ["id-ref-optional", "scalar-array"],
   // `scalar-array` deleted by the PR that fixed F-033: the SCAFFOLD case
   // now carries `tags: string[]`, so the angular build gate BUILDS the shape.
-  angular: ["id-ref", "id-ref-optional", "file"],
+  angular: ["file"],
 };
 
 // Read the three lists above together and they say something sharper than any

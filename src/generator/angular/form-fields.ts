@@ -1147,7 +1147,7 @@ function splitSubFields(
 function subControlInit(t: TypeIR, bc: BoundedContextIR): string {
   const inner = unwrapOpt(t);
   if (t.kind !== "optional" && inner.kind === "enum") {
-    const first = bc.enums.find((e) => e.name === inner.name)?.values[0];
+    const first = enumPool(bc).find((e) => e.name === inner.name)?.values[0];
     if (first !== undefined) return JSON.stringify(first);
   }
   return controlInit(t);

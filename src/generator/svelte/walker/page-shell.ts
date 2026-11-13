@@ -312,7 +312,7 @@ function renderFormOpWiring(
     // snippet's trigger — handed the record — writes the record seed
     // (`record.<field>`, see `formSeedTs`) into it each time the dialog opens.
     defaultValuesTs: state.recordVar
-      ? formSeedTs(operationFormSpec(agg, op, formSpecEnvOf(state.bc, new Map())), state.bc)
+      ? formSeedTs(operationFormSpec(agg, op, formSpecEnvOf(state.bc, new Map())), state.bc, {})
       : defaultValuesTs,
     recordType: state.recordVar ? state.recordType : undefined,
     recordSeed: state.recordVar ? defaultValuesTs : undefined,

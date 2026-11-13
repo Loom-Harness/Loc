@@ -1813,9 +1813,9 @@ function validatorArg(f: FlutterFormField): string {
 
 /** The presence switch of an opt-in value-object group. */
 function presenceSwitch(g: FlutterPresenceGroup): string {
-  const label = dartStr(g.label);
+  const label = dartStringLit(g.label);
   const flag = presenceId(g);
-  return `Semantics(label: '${label}', child: SwitchListTile(key: const ValueKey('${dartStr(g.path.join("."))}-present'), title: const Text('${label}'), value: ${flag}, onChanged: (v) => setState(() => ${flag} = v)))`;
+  return `Semantics(label: ${label}, child: SwitchListTile(key: const ValueKey(${dartStringLit(`${g.path.join(".")}-present`)}), title: const Text(${label}), value: ${flag}, onChanged: (v) => setState(() => ${flag} = v)))`;
 }
 
 /** The Flutter input widget for one field (a single build-children element). */
