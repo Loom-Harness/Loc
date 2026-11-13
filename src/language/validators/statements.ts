@@ -16,6 +16,7 @@ import type {
   Create,
   Criterion,
   Destroy,
+  DomainServiceOperation,
   EmitStmt,
   Expression,
   FunctionDecl,
@@ -35,6 +36,7 @@ import {
   isComponent,
   isCriterion,
   isDerivedProp,
+  isDomainService,
   isEmitStmt,
   isFilterDecl,
   isForStmt,
@@ -500,6 +502,27 @@ export function checkExprCallArgs(
       }
       continue;
     }
+    // Domain-service call (`Scoring.share(a, b)`): the head names a
+    // declaration, not a value, so it has no receiver type to step into —
+    // resolve the operation by name and check its params like any other call.
+    // Without this a `Speciality id[]` argument reached a `guid[]` param
+    // unchecked and every typed backend failed to compile the call.
+    const head = n.head;
+    if (first && isMemberSuffix(first) && first.call && isNameRef(head)) {
+      const op = domainServiceOperation(n, head.name, first.member);
+      if (op) {
+        checkCallArgs(
+          op.params,
+          first.args.map((a) => a.value),
+          env,
+          `'${head.name}.${first.member}'`,
+          first,
+          accept,
+          admit,
+        );
+        continue;
+      }
+    }
     // Member-call chain (`recv.method(args)`): thread the running receiver type.
     let curType: Ty = typeOf(n.head, env);
     for (const s of n.suffixes) {
@@ -520,6 +543,23 @@ export function checkExprCallArgs(
       curType = suffixType(s);
     }
   }
+}
+
+/** The operation `<service>.<op>` names, when `service` is a `domainService`
+ *  declared in `node`'s document (a cross-document service resolves to
+ *  nothing, and the call stays unchecked). */
+function domainServiceOperation(
+  node: AstNode,
+  service: string,
+  op: string,
+): DomainServiceOperation | undefined {
+  const root = AstUtils.findRootNode(node);
+  for (const n of AstUtils.streamAst(root)) {
+    if (isDomainService(n) && n.name === service) {
+      return n.operations.find((o) => o.name === op);
+    }
+  }
+  return undefined;
 }
 
 /** Arg-type + construction-value checking at the EXPRESSION
