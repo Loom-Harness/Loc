@@ -1,0 +1,70 @@
+// shape: `money` LITERALS written in a unit-test body — an operation argument,
+// a create input, a domain-service argument and a matcher's expected value —
+// the witness that each one reaches the backend's exact decimal, never a
+// binary float.
+//
+// node passed the bare number `0.10` where the domain takes a decimal.js
+// `Decimal` (`subtotal.plus` is not a function on a number), and python
+// passed a float (`Decimal + float` raises TypeError; `Decimal("0.3") == 0.3`
+// is False).  The values are ones a double cannot hold, so an assertion that
+// held only by binary-float luck is not possible: 0.10 + 0.20 is 0.30 exactly,
+// and 0.30000000000000004 in floating point.
+system MoneyTestLiterals {
+  subdomain Billing {
+    context Billing {
+      domainService Pricing {
+        operation withFee(subtotal: money, fee: money): money {
+          return subtotal + fee
+        }
+        test "a service call takes money literals exactly" {
+          expect(Pricing.withFee(0.10, 0.20)).toBe(0.30)
+        }
+      }
+
+      aggregate Line with crudish {
+        unitPrice: money
+        qty: int
+
+        operation reprice(p: money) {
+          unitPrice := p
+        }
+
+        operation addSurcharge(s: money) {
+          unitPrice := unitPrice + s
+        }
+
+        test "an operation and a create take money literals exactly" {
+          let l = Line.create(unitPrice: 0.10, qty: 1)
+          l.addSurcharge(0.20)
+          expect(l.unitPrice).toBe(0.30)
+          l.reprice(2)
+          expect(l.unitPrice).toBe(2.00)
+        }
+      }
+      repository Lines for Line { }
+    }
+  }
+
+  api BillingApi from Billing
+  storage primary { type: postgres }
+  resource billingState { for: Billing, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Billing]
+    dataSources: [billingState]
+    serves: BillingApi
+    port: 4000
+  }
+
+  test e2e "money crosses the wire as its fixed-scale string" against d {
+    let l = api.lines.create({ unitPrice: "0.10", qty: 1 })
+    api.lines.addSurcharge(l, { s: "0.20" })
+    expect(api.lines.getById(l).unitPrice).toBe("0.3000")
+    api.lines.reprice(l, { p: "2" })
+    api.lines.update(l, { unitPrice: "1.25", qty: 2 })
+    let all = api.lines.all()
+    expect(all.items.first().unitPrice).toBe("1.2500")
+    api.lines.destroy(l)
+    expect(api.lines.getById(l)).toThrow(404)
+  }
+}

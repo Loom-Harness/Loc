@@ -1,0 +1,155 @@
+{
+  "case": "money-test-literals",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/lines",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/lines/{id}/add_surcharge",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/lines/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "qty": 1,
+        "rowVersion": 2,
+        "unitPrice": "0.3000"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/lines/{id}/reprice",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/lines/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/lines",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "qty": 2,
+            "rowVersion": 4,
+            "unitPrice": "1.2500"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "DELETE",
+      "path": "/api/lines/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/lines/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Line {id} not found",
+        "instance": "/api/lines/{id}",
+        "params": {
+          "type": "Billing.Line"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "PATCH",
+      "path": "/api/lines",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/lines",
+        "instance": "/api/lines",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/lines",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/lines",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/lines/{id}/add_surcharge",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.missing",
+            "message": "s is required",
+            "pointer": "/s"
+          }
+        ],
+        "instance": "/api/lines/{id}/add_surcharge",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

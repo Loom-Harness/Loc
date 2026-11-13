@@ -1071,6 +1071,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: ".NET judged it on the `<VO>Request` record, whose `date` members are the wire string, as `x.CheckOut > x.CheckIn` (CS0019 — the project did not build).  It now compares the exact `yyyy-MM-dd` strings ordinally, which is calendar order.",
   },
   {
+    id: "money-test-literals",
+    title:
+      "`money` literals in a unit-test body — operation argument, create input, domain-service argument, matcher expected — reach each backend's exact decimal",
+    doc: "language",
+    backends: ALL,
+    note: "node passed the bare number where the domain takes a decimal.js `Decimal`, and python a float (`Decimal + float` raises; `Decimal(\"0.3\") == 0.3` is False).  The shared test-literal rule (`_test/arg-coercion.ts`) decides the money position; each backend spells the literal through its own expression renderer.",
+  },
+  {
     id: "domain-floor-messages",
     title:
       "M-T1.11 (c) — a named invariant / precondition tripped at the DOMAIN FLOOR answers 422 with an `errors[]` entry carrying the rule's `<Ctx>.<Owner>.rule.<name>` code",

@@ -31,6 +31,7 @@ export type LiteralCoercion =
   | { kind: "id"; targetName: string }
   | { kind: "datetime" }
   | { kind: "date" }
+  | { kind: "money"; digits: string }
   | { kind: "none" };
 
 /** Decide the coercion for `value` written in a position declared `type`.
@@ -41,6 +42,9 @@ export type LiteralCoercion =
  *  let-binding or parameter is already branded.  That guard is the rule's load-bearing half — it is why this
  *  is a decision function and not a type lookup. */
 export function decideLiteralCoercion(type: TypeIR | undefined, value: ExprIR): LiteralCoercion {
+  if (value.kind === "literal" && isMoneyPosition(type) && NUMERIC_LITS.has(value.lit)) {
+    return { kind: "money", digits: value.value };
+  }
   if (value.kind !== "literal" || value.lit !== "string") return { kind: "none" };
   // An OPTIONAL position (`ownerId: Owner id?`, `scheduledAt: datetime?`) is
   // still that position: `X?` reaches the create input / parameter as
@@ -55,6 +59,45 @@ export function decideLiteralCoercion(type: TypeIR | undefined, value: ExprIR): 
   return { kind: "none" };
 }
 
+/** The numeric literal kinds a `money` position takes as written. */
+const NUMERIC_LITS: ReadonlySet<string> = new Set(["int", "long", "decimal", "money"]);
+
+/** A `money` position, optional or not. */
+function isMoneyPosition(type: TypeIR | undefined): boolean {
+  const t = type?.kind === "optional" ? type.inner : type;
+  return t?.kind === "primitive" && t.name === "money";
+}
+
+/** `value` retyped as an exact `money` literal when it is a numeric literal
+ *  in a `money` position, else undefined.  For a call whose arguments render
+ *  through the backend's ordinary expression renderer (a domain-service call):
+ *  every renderer already spells a `money` literal exactly. */
+export function moneyLiteralFor(type: TypeIR | undefined, value: ExprIR): ExprIR | undefined {
+  if (value.kind === "literal" && value.lit === "money") return undefined;
+  const c = decideLiteralCoercion(type, value);
+  return c.kind === "money" ? { kind: "literal", lit: "money", value: c.digits } : undefined;
+}
+
+/** A domain-service call with each numeric literal argument in a `money`
+ *  parameter retyped as an exact `money` literal (`moneyLiteralFor`); `e`
+ *  itself when nothing changes.  A service call renders through the backend's
+ *  ordinary expression renderer, which spells the retyped literal exactly. */
+export function withServiceMoneyArgs(e: ExprIR, ctx: BoundedContextIR): ExprIR {
+  if (e.kind !== "call" || e.callKind !== "domain-service") return e;
+  const { service, op } = e.serviceRef;
+  const params = ctx.domainServices
+    .find((s) => s.name === service)
+    ?.operations.find((o) => o.name === op)?.params;
+  if (!params) return e;
+  let changed = false;
+  const args = e.args.map((a, i) => {
+    const m = moneyLiteralFor(params[i]?.type, a);
+    if (m) changed = true;
+    return m ?? a;
+  });
+  return changed ? { ...e, args } : e;
+}
+
 /** Per-backend rendering leaves.  `rendered` is the argument already rendered
  *  by the backend's own expression renderer (so escaping/quoting stays that
  *  backend's business); each leaf wraps it in the target-language constructor. */
@@ -65,6 +108,11 @@ export interface TestLiteralTarget {
   datetime(rendered: string): string;
   /** `"…"` (ISO `YYYY-MM-DD`) in a `date` position → the backend's calendar-date type. */
   date(rendered: string): string;
+  /** A numeric literal in a `money` position → the backend's exact decimal,
+   *  built from the literal's DIGITS as written (`"2.50"`), never from a
+   *  binary float.  Each leaf is its expression renderer's own `money`
+   *  literal spelling. */
+  money(digits: string): string;
 }
 
 /** Apply the decided coercion through a backend's leaf table.  Returns
@@ -79,6 +127,7 @@ export function coerceTestLiteral(
   if (c.kind === "id") return target.id(rendered, c.targetName);
   if (c.kind === "datetime") return target.datetime(rendered);
   if (c.kind === "date") return target.date(rendered);
+  if (c.kind === "money") return target.money(c.digits);
   return rendered;
 }
 
@@ -148,10 +197,14 @@ export function matcherSubjectType(expr: ExprIR & { kind: "method-call" }): Type
  *  string would equal it — hiding exactly the defect such an assertion exists
  *  to catch.
  *
- *  Equality only, and `datetime` / `date` only: an ordering matcher over a date has no
- *  uniform operator spelling across the backends (Elixir's `<` is term order
- *  on a struct), and an `<Agg> id` subject already compares equal to its raw
- *  string on the backends whose tests assert ids.  Returns the coerced
+ *  A numeric literal expected of a `money` subject (`toBe(2.50)`) is built as
+ *  the backend's exact decimal from its digits: python's `Decimal == float`
+ *  is false for any value a double cannot hold (`Decimal("0.1") == 0.1`).
+ *
+ *  Equality only, and `datetime` / `date` / `money` only: an ordering matcher
+ *  over a date has no uniform operator spelling across the backends (Elixir's
+ *  `<` is term order on a struct), and an `<Agg> id` subject already compares
+ *  equal to its raw string on the backends whose tests assert ids.  Returns the coerced
  *  expected text, or `undefined` when the rule does not apply — the caller
  *  then renders its ordinary matcher, so every other emission is unchanged. */
 export function coerceMatcherExpected(
@@ -164,5 +217,6 @@ export function coerceMatcherExpected(
   const c = decideLiteralCoercion(matcherSubjectType(expr), arg);
   if (c.kind === "datetime") return target.datetime(rendered);
   if (c.kind === "date") return target.date(rendered);
+  if (c.kind === "money") return target.money(c.digits);
   return undefined;
 }
