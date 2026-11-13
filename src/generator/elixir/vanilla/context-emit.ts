@@ -468,9 +468,9 @@ function renderNumericParamHelpers(
   // A value-object param is cast against its declared fields; each member error
   // keeps its own key on `loom_path`, so the 422 points at `/<param>/<member>`.
   const vo = `
-  defp __loom_vo_param(_record, _field, nil, _types, _required), do: {:ok, nil}
+  defp __loom_vo_param(_record, _field, nil, _types, _required, _rules), do: {:ok, nil}
 
-  defp __loom_vo_param(record, field, value, types, required)
+  defp __loom_vo_param(record, field, value, types, required, rules)
        when is_map(value) and not is_struct(value) do
     attrs = Map.new(value, fn {k, v} -> {Macro.underscore(to_string(k)), v} end)
 
@@ -479,18 +479,25 @@ function renderNumericParamHelpers(
       |> Ecto.Changeset.cast(attrs, Map.keys(types), empty_values: [])
       |> Ecto.Changeset.validate_required(required)
 
-    if cs.valid? do
-      {:ok, Ecto.Changeset.apply_changes(cs)}
+    # The value object's own rules (its validating constructor) run on the
+    # cast value, so a violation is a 422 at \`/<param>/<member>\`.
+    with true <- cs.valid?,
+         {:ok, vo} <- rules.(Ecto.Changeset.apply_changes(cs)) do
+      {:ok, vo}
     else
-      {:error,
-       Enum.reduce(cs.errors, Ecto.Changeset.change(record, %{}), fn {key, {msg, opts}}, acc ->
-         Ecto.Changeset.add_error(acc, field, msg, Keyword.put(opts, :loom_path, [key]))
-       end)}
+      false -> {:error, __loom_vo_param_errors(record, field, cs.errors)}
+      {:error, %Ecto.Changeset{errors: errors}} -> {:error, __loom_vo_param_errors(record, field, errors)}
     end
   end
 
-  defp __loom_vo_param(record, field, value, _types, _required),
+  defp __loom_vo_param(record, field, value, _types, _required, _rules),
     do: {:error, __loom_param_error(record, field, value, "Invalid value", ${exFieldCode("type-mismatch")}, nil)}
+
+  defp __loom_vo_param_errors(record, field, errors) do
+    Enum.reduce(errors, Ecto.Changeset.change(record, %{}), fn {key, {msg, opts}}, acc ->
+      Ecto.Changeset.add_error(acc, field, msg, Keyword.put(opts, :loom_path, [key]))
+    end)
+  end
 `;
   // `__loom_id_param` builds its own changeset, so an id-only context must not
   // carry the shared error helper (`--warnings-as-errors` rejects it unused).
