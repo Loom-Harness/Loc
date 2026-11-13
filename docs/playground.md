@@ -194,7 +194,8 @@ kit serves over loopback ports. `src/runtime/infra/` holds one thin
 one instance of its model, routes the infra ops to it and hands it the OPFS
 `BlobStore`; it carries no state or wire behaviour of its own
 (`test/emulation/emulation-census.test.ts` holds it to that).
-`examples/resource-fakes-system.ddd` wires every kind.
+`examples/resource-fakes-system.ddd` wires every kind.  How the shared core is gated is in
+[`testing.md`](testing.md#test-infrastructure--emulation).
 
 | sourceType | In the bundle | In the infra worker |
 |---|---|---|
