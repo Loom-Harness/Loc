@@ -14,7 +14,7 @@ import type { BrokerInspectResult } from "../../../src/emulation/broker-protocol
 import type { QueryResult, WipeResult } from "./protocol.js";
 
 /** The registered services of `infra/services.ts`. */
-export type ResourceService = "s3" | "ses" | "mailbox" | "disk" | "httpMock" | "oidc" | "broker";
+export type ResourceService = "s3" | "ses" | "mailbox" | "disk" | "httpMock" | "oidc" | "broker" | "cache";
 
 type DistributiveOmit<T, K extends keyof never> = T extends unknown ? Omit<T, K> : never;
 

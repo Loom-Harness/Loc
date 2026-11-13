@@ -23,4 +23,23 @@ export const INFRA_TABS: readonly InfraTabDef[] = [
     types: ["restApi"],
     component: lazy(() => import("./RestApiTab")),
   },
+  {
+    id: "broker",
+    label: "Broker",
+    types: ["redis", "rabbitmq", "kafka"],
+    component: lazy(() => import("./BrokerTab")),
+  },
+  {
+    id: "oidc",
+    label: "OIDC",
+    types: [],
+    declared: (env) => env.oidc,
+    component: lazy(() => import("./OidcTab")),
+  },
+  {
+    id: "cache",
+    label: "Cache",
+    types: ["redis"],
+    component: lazy(() => import("./CacheTab")),
+  },
 ];

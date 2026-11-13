@@ -11,7 +11,8 @@ export function createBrokerService(host: InfraServiceHost): InfraService<Broker
     handle(req, { client }) {
       switch (req.op) {
         case "publish":
-          model.publish(client, req.params);
+          // The main thread publishes from the infra panel.
+          model.publish(client ?? "panel", req.params);
           return { ok: true };
         case "subscribe":
           if (client === null) throw new Error("broker.subscribe needs a connected deployable");
