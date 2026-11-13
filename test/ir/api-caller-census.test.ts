@@ -52,8 +52,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type { LoomModel } from "../../src/ir/types/loom-ir.js";
 import { contextOperations } from "../../src/ir/plan/repo-polymorphic.js";
+import type { LoomModel } from "../../src/ir/types/loom-ir.js";
 import { aggregateSegment } from "../../src/ir/util/api-surface.js";
 import {
   camelId,

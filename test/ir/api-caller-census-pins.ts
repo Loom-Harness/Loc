@@ -689,9 +689,7 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // The polymorphic base reads of #3954 / #3959: a TPH base's by-id read has
   // no derived operation (the base owns no repository — nothing routes it on
   // node yet), and the projection read is the not-yet-lifted route class.
-  "corpus/inheritance-base-reads": [
-    "api.equipmentCount.list (no such aggregate)",
-  ],
+  "corpus/inheritance-base-reads": ["api.equipmentCount.list (no such aggregate)"],
   "corpus/projection-tph-source": [
     "api.autoClaimVolume.list (no such aggregate)",
     "api.autoClaimsByStatus.list (no such aggregate)",

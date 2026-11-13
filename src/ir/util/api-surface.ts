@@ -659,7 +659,7 @@ export function deriveAggregateOperations(
 export function derivePolymorphicReadOperations(
   base: AggregateIR,
   layout: "sharedTable" | "ownTable",
-  statuses?: ApiStatusContext,
+  statuses: ApiStatusContext,
 ): ApiOperationIR[] {
   const path = aggregateBase(base.name);
   const resolve = (name: string): number => resolveErrorStatus(name, denialOverridesFor(statuses));

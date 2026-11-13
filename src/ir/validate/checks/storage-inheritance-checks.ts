@@ -12,6 +12,7 @@ import {
   maskLaunderingEvents,
   partDerivedNestedMaskReads,
 } from "../../enrich/mask-taint.js";
+import { polymorphicReadClosure } from "../../plan/repo-polymorphic.js";
 import type { BoundedContextIR, EnrichedLoomModel } from "../../types/loom-ir.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { firstNonGateRef, GATE_ALLOWED_REFS } from "./query-checks.js";
@@ -89,6 +90,39 @@ export function validateInheritanceStorage(
       }),
       source: `${ctx.name}/${agg.name}`,
       origin: agg.origin,
+    });
+  }
+}
+
+/** A polymorphic base whose read stays unrouted.  The base reader is emitted,
+ *  but `GET /api/<bases>` is not mounted, because routing it would bypass a
+ *  concrete's list-read gate or field mask.  Said here so the missing route
+ *  is a stated fact of the model rather than a silent hole. */
+export function validatePolymorphicReadRouting(
+  ctx: BoundedContextIR,
+  diags: LoomDiagnostic[],
+  backendPlatforms: Set<string>,
+): void {
+  if (backendPlatforms.size === 0) return;
+  for (const base of ctx.aggregates) {
+    if (!base.isAbstract) continue;
+    const closure = polymorphicReadClosure(base, ctx);
+    if (!closure) continue;
+    diags.push({
+      severity: "warning",
+      code: "loom.polymorphic-read-unrouted",
+      message:
+        closure.reason === "mask"
+          ? diagMessage("loom.polymorphic-read-unrouted#mask", {
+              base: base.name,
+              concrete: closure.aggregate,
+            })
+          : diagMessage("loom.polymorphic-read-unrouted#requires", {
+              base: base.name,
+              concrete: closure.aggregate,
+            }),
+      source: `${ctx.name}/${base.name}`,
+      origin: base.origin,
     });
   }
 }

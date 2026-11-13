@@ -447,6 +447,8 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "destroy DELETE /api/dispatchers/{id}": R.sharedTenancyIdentity,
     "destroy DELETE /api/trucks/{id}": R.sharedTenancyIdentity,
     "find GET /api/cars": R.sharedTenancyIdentity,
+    "find GET /api/crews": R.sharedTenancyIdentity,
+    "find GET /api/vehicles": R.sharedTenancyIdentity,
     "explicitHandler GET /api/cars/by_plate_any_tenant": R.sharedTenancyIdentity,
     "explicitHandler GET /api/cars/by_plate_all": R.sharedTenancyIdentity,
     "find GET /api/dispatchers": R.sharedTenancyIdentity,
@@ -541,6 +543,10 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   importGateOnly: 1,
   principalFreeGate: 20,
   rowDataGate: 4,
-  sharedTenancyIdentity: 105,
+  // The two polymorphic base list reads of `inheritance-read-restrictions`
+  // joined the population when the base reads became derived operations; their
+  // refusals are the ladder's cross-tenant `rowVisible` rungs, like every
+  // other collection read in that pin block.
+  sharedTenancyIdentity: 107,
   oneSeededId: 6,
 };

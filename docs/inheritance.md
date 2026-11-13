@@ -84,6 +84,15 @@ wire fields }`. Under TPH `GET /api/<bases>/{id}` answers one tagged row, or 404
 when a restriction hides it. The route is served only where every concrete's own
 list read is open — a concrete whose `all` carries a `requires` gate (including
 the `denyByDefault` one) or whose wire masks a field keeps the reader unrouted.
+That decision is `routedPolymorphicRead` (`src/ir/plan/repo-polymorphic.ts`), and
+the operations a routed base serves are `polymorphicReadOperations` there: the
+e2e DSL's `api.<base>.all()` and `api.<base>.getById(id)` (TPH only) resolve
+against them, and an unrouted base refuses both (`loom.e2e-unrouted-verb`).
+
+A concrete's own list read, `GET /api/<concretes>`, pages like any relational
+aggregate under TPH (one `kind`-scoped query over the shared table). Under TPC it
+answers the whole scoped read as a bare array, because the TPC base reader merges
+those reads in the global order before it pages.
 
 | Backend (`platform:`) | polymorphic base reader |
 |---|---|

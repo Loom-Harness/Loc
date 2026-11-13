@@ -45,6 +45,7 @@ import {
   isRequiredCreateInput,
   wireFieldsForAggregate,
 } from "../../enrich/wire-projection.js";
+import { polymorphicReadOperations } from "../../plan/repo-polymorphic.js";
 import { PAGED_QUERY_PARAMS } from "../../stdlib/generics.js";
 import type {
   AggregateIR,
@@ -77,7 +78,6 @@ import {
 import { walkTestStmtExprsDeep } from "../../util/walk.js";
 import { emitsCommandRoute } from "../../util/workflow-command-route.js";
 import { emitsInstanceRoutes } from "../../util/workflow-instances.js";
-import { polymorphicReadOperations } from "../../plan/repo-polymorphic.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 /** One `<magicId>.<slug>.<verb>(…)` call found in an e2e body. */
