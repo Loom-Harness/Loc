@@ -53,6 +53,8 @@ export function readFixture(
     | "field-default-base"
     | "field-default-evolved"
     | "guid-backfill-evolved"
+    | "single-child-base"
+    | "single-child-evolved"
     | "journal-order-base"
     | "journal-order-evolved"
     | "unique-evo-base"
@@ -922,6 +924,91 @@ export async function runGuidBackfillEvolutionGate(): Promise<void> {
           `WHERE table_schema = 'ord' AND table_name = 'orders' AND column_name = 'ref'`,
       ),
     ).toBe("uuid null=NO");
+  } finally {
+    server?.stop();
+    try {
+      fs.rmSync(tree, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Single-child uniqueness gate.
+//
+// A single containment (`contains shipment: Shipment`) holds at most one child
+// per parent, so its parent FK index is UNIQUE.  Two claims, settled on a real
+// Postgres: a schema that grew from a COLLECTION containment (plain index) to
+// a single one applies the rebuilt index to a populated table, and the
+// database then refuses a second child row for the same parent.
+// ---------------------------------------------------------------------------
+export async function runSingleChildUniqueGate(): Promise<void> {
+  const v1 = readFixture("single-child-base");
+  const v2 = readFixture("single-child-evolved");
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-single-child-"));
+  let server: PgServer | undefined;
+  // A generation's non-transactional unit holds `CREATE INDEX CONCURRENTLY`,
+  // which Postgres refuses inside the implicit transaction of a
+  // multi-statement query: it is applied one statement at a time, as the
+  // generated runner does.
+  const applyFile = (pg: PgServer, db: string, sql: string): void => {
+    if (!sql.startsWith("-- loom:no-transaction")) {
+      psql(pg, db, sql);
+      return;
+    }
+    for (const stmt of sql.split("--> statement-breakpoint")) {
+      const body = stmt.replace("-- loom:no-transaction", "").trim();
+      if (body) psql(pg, db, body);
+    }
+  };
+  try {
+    generate(v1, "node", tree);
+    const migDir = path.join(tree, "d", "db", "migrations");
+    const before = new Set(fs.readdirSync(migDir).filter((f) => f.endsWith(".sql")));
+    const pg = await startPgServer();
+    server = pg;
+    resetDatabase(pg, "singlechild");
+    for (const f of [...before].sort()) {
+      applyFile(pg, "singlechild", fs.readFileSync(path.join(migDir, f), "utf8"));
+    }
+    const order = "11111111-1111-4111-8111-111111111111";
+    psql(
+      pg,
+      "singlechild",
+      `INSERT INTO "ord"."orders" ("id", "code", "row_version") VALUES ('${order}', 'O-1', 1); ` +
+        `INSERT INTO "ord"."shipments" ("id", "order_id", "carrier") ` +
+        `VALUES ('22222222-2222-4222-8222-222222222222', '${order}', 'UPS')`,
+    );
+
+    generate(v2, "node", tree);
+    const deltas = fs
+      .readdirSync(migDir)
+      .filter((f) => f.endsWith(".sql") && !before.has(f))
+      .sort();
+    if (deltas.length === 0) throw new Error("expected a delta migration rebuilding the index");
+    for (const f of deltas) {
+      applyFile(pg, "singlechild", fs.readFileSync(path.join(migDir, f), "utf8"));
+    }
+    expect(
+      psql(
+        pg,
+        "singlechild",
+        `SELECT indexdef FROM pg_indexes WHERE schemaname = 'ord' AND indexname = 'shipments_order_id_idx'`,
+      ),
+    ).toMatch(/^CREATE UNIQUE INDEX/);
+    let refused = "";
+    try {
+      psql(
+        pg,
+        "singlechild",
+        `INSERT INTO "ord"."shipments" ("id", "order_id", "carrier") ` +
+          `VALUES ('33333333-3333-4333-8333-333333333333', '${order}', 'DHL')`,
+      );
+    } catch (e) {
+      refused = e instanceof Error ? e.message : String(e);
+    }
+    expect(refused, "a second child row for one parent").toMatch(/duplicate key value/);
   } finally {
     server?.stop();
     try {
