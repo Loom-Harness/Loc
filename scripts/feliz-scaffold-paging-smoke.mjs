@@ -71,6 +71,8 @@ async function untilRequests(n) {
   throw new Error(`expected ${n} list requests, saw ${queries.length}: ${queries.join(" | ")}`);
 }
 
+const PICKER_PAGE_SIZE = 500;
+
 try {
   // The auth gate probes the session; the preview server's SPA fallback would
   // answer with HTML, so answer it explicitly.
@@ -83,7 +85,10 @@ try {
   );
   await page.route("**/api/products?*", (r) => {
     const url = new URL(r.request().url());
-    queries.push(url.search);
+    // A form's reference picker reads every row of the same collection by
+    // walking its pages at the route's largest page size; only the LIST's
+    // requests are the pager's.
+    if (url.searchParams.get("pageSize") !== String(PICKER_PAGE_SIZE)) queries.push(url.search);
     r.fulfill({
       status: 200,
       contentType: "application/json",
