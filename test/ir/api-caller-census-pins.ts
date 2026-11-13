@@ -1222,6 +1222,10 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // but they would re-assert crudish round-trips, and the one route that is
   // this fixture's subject (`POST /archive`) is sidecar I/O on every leg.
   "resources",
+  // A compile witness for the resource clients' host overrides: its workflows
+  // dial S3, RabbitMQ, a REST api and three mailers, so a behavioural block
+  // needs the provider fakes that answer on those overrides.
+  "resource-endpoints",
   // NEEDS THE REGISTRY-PRINCIPAL HARNESS FIX — subtree scoping is a statement
   // about two principals in different parts of the tree, and the behavioural
   // suite authenticates as one whose claim is not a registry id at all.  Same

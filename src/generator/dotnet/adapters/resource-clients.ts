@@ -482,7 +482,7 @@ const smtpDotnetAdapter: DotnetResourceAdapter = {
 
 const sesDotnetAdapter: DotnetResourceAdapter = {
   name: "ses",
-  nugetDeps: () => ({ "AWSSDK.SimpleEmail": "3.7.400.108" }),
+  nugetDeps: () => ({ "AWSSDK.SimpleEmail": "3.7.401" }),
   emitClientClass(resources, stores, ns): string {
     const lines: string[] = [
       "// Auto-generated.",
