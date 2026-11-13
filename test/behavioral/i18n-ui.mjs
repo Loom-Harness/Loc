@@ -2,7 +2,8 @@
 // static-bundle frontends (react, vue, svelte, angular).
 //
 // The i18n chrome claims (the page-`requires` Forbidden view, a `money` ICU
-// hole, nav labels, the ProvenanceInfo disclosure, an `Action { x.op }` label)
+// hole, nav labels, the ProvenanceInfo disclosure, an `Action { x.op }` label,
+// a `Table { filter: … }` search box's placeholder and accessible name)
 // are pinned at generator level by emitted-text tests, which cannot say the
 // translated sentence reaches a screen: a `t()` call whose key the catalog
 // builder does not know, a Decimal the ICU formatter rejects, or a label read
@@ -170,6 +171,22 @@ function probes(invoiceId) {
         ...(/Rule|Value/.test(v.prov.text) ? ["English provenance row labels under fr"] : []),
       ],
     },
+    {
+      name: "(e) Table filter: the search box's placeholder and accessible name read the fr catalog",
+      principal: PRINCIPAL.admin,
+      path: "/invoices",
+      until: (t) => /Libellé|Label/.test(t),
+      filter: true,
+      check: (v) => [
+        ...sawSession(v),
+        ...(v.filter.placeholder === "Filtrer…"
+          ? []
+          : [`filter placeholder is ${JSON.stringify(v.filter.placeholder)}`]),
+        ...(v.filter.aria === "Filtrer le tableau"
+          ? []
+          : [`filter aria-label is ${JSON.stringify(v.filter.aria)}`]),
+      ],
+    },
   ];
 }
 
@@ -239,6 +256,14 @@ async function runFrontend(platform) {
               (e.getAttribute("aria-label") || e.textContent || "").trim(),
             ),
           );
+        }
+        if (p.filter) {
+          const box = v.page.locator('[data-testid="table-filter"]').first();
+          await box.waitFor({ timeout: 15_000 });
+          v.filter = {
+            placeholder: await box.getAttribute("placeholder"),
+            aria: await box.getAttribute("aria-label"),
+          };
         }
         if (p.provenance) {
           const details = v.page.locator("details").first();
