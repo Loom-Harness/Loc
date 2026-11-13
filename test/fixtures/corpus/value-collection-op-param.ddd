@@ -5,7 +5,9 @@
 // string.  Elixir rewrites the collection with `put_assoc`, which takes typed,
 // atom-keyed rows, and handed it the raw map — `ArgumentError: field names
 // given to change/put_change must be atoms`, then `Ecto.ChangeError` on the
-// datetime: a 500 where every other backend answers 204.
+// datetime: a 500 where every other backend answers 204.  A param breaking the
+// value object's own rule (`weight` below its floor) is refused at the wire on
+// every backend — a 422 pointing at `/v/weight`, before the body runs.
 system ValueCollectionOpParam {
   subdomain Matching {
     context Matching {
@@ -62,6 +64,9 @@ system ValueCollectionOpParam {
     expect(cpr.until).toBe("2027-12-31T10:11:12Z")
     let triage = read.attributes.where(a => a.name == "triage").first()
     expect(triage.until).toBe(null)
+
+    expect(api.providers.putAttribute(p, { v: { name: "bad", kind: "Skill", weight: -1 } })).toThrow(422)
+    expect(api.providers.getById(p).attributes.count()).toBe(2)
 
     api.providers.update(p, { name: "p2", attributes: [] })
     expect(api.providers.getById(p).attributes.count()).toBe(0)
