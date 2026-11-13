@@ -116,8 +116,8 @@ describe("elixir/vanilla generator — first-boot seeding", () => {
     const seeds = (await generateSystemFiles(SEEDED)).get(SEEDS)!;
     // D-SEED-IDEMPOTENCY: the marker table + the two guards on every dataset.
     expect(seeds).toContain(`CREATE TABLE IF NOT EXISTS \\"__loom_seed\\"`);
-    expect(seeds).toContain(`not already_seeded?("default")`);
-    expect(seeds).toContain(`mark_seeded("default")`);
+    expect(seeds).toContain(`not already_seeded?("Catalog/default")`);
+    expect(seeds).toContain(`mark_seeded("Catalog/default")`);
     // `default` always runs; everything else opts in via LOOM_SEED.
     expect(seeds).toContain(`System.get_env("LOOM_SEED", "")`);
     expect(seeds).toContain(`dataset == "default" or MapSet.member?(requested, dataset)`);
@@ -138,8 +138,8 @@ describe("elixir/vanilla generator — first-boot seeding", () => {
       const txStart = body.indexOf("Repo.transaction(fn ->");
       const txEnd = body.indexOf("        end)");
       expect(txStart, `seed_${ds} opens no transaction`).toBeGreaterThan(-1);
-      expect(body.indexOf(`mark_seeded("${ds}")`)).toBeGreaterThan(txStart);
-      expect(body.indexOf(`mark_seeded("${ds}")`)).toBeLessThan(txEnd);
+      expect(body.indexOf(`mark_seeded("Catalog/${ds}")`)).toBeGreaterThan(txStart);
+      expect(body.indexOf(`mark_seeded("Catalog/${ds}")`)).toBeLessThan(txEnd);
     }
     // The two `default` rows are inside the same transaction as its marker —
     // the partial-apply window the per-row commit left open.
@@ -211,7 +211,7 @@ describe("elixir/vanilla generator — first-boot seeding", () => {
       expect(txEnd, `${fn} closes its transaction`).toBeGreaterThan(txStart);
       const tx = clause.slice(txStart, txEnd);
       expect(tx, `${fn} marks '${dataset}' seeded inside the transaction`).toContain(
-        `mark_seeded("${dataset}")`,
+        `mark_seeded("Catalog/${dataset}")`,
       );
       // Every write of this dataset is inside it too — a row left outside would
       // commit on its own and reintroduce the partial-seed window.

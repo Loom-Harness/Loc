@@ -220,6 +220,8 @@ export const messages = {
     `Reference an aggregate or an entity part instead${p.hint}.`,
   "loom.provenanced-never-written": (p: { name: unknown; aggName: unknown }) =>
     `Provenanced field '${p.name}' on aggregate '${p.aggName}' is never written; no trace records will be produced.`,
+  "loom.provenanced-part-field": (p: { name: unknown; partName: unknown; aggName: unknown }) =>
+    `Field '${p.name}' of entity '${p.partName}' cannot be provenanced: lineage is recorded only for fields of the aggregate root '${p.aggName}'. Move the field onto '${p.aggName}', or drop 'provenanced'.`,
   "loom.entity-field-modifier": (p: {
     name: unknown;
     label: unknown;

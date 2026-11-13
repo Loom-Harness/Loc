@@ -11,19 +11,15 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
-import {
-  enumPool,
-  findValueObjectInScope,
-  valueObjectPool,
-} from "../../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { bodyTypeOf } from "../../../util/expr-body-type.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { tsImportSlot } from "../../_imports/ts.js";
 import {
   coerceMatcherExpected,
   coerceTestArgs,
-  coerceTestLiteral,
-  type TestLiteralTarget,
+  coerceTestValue,
+  type TestValueTarget,
 } from "../../_test/arg-coercion.js";
 import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
 import { renderTsExpr } from "../render-expr.js";
@@ -32,11 +28,13 @@ import { T } from "../ts-symbols.js";
 /** TypeScript leaves for the shared test-literal coercion rule
  *  (`_test/arg-coercion.ts`).  `Ids.<X>Id(…)` is the brand constructor the
  *  generator already emits into `domain/ids.ts`; `datetime` is a `Date`. */
-const TS_TEST_LITERAL: TestLiteralTarget = {
+const TS_TEST_LITERAL: TestValueTarget = {
   id: (rendered, targetName) => `${T.Ids}.${targetName}Id(${rendered})`,
   datetime: (rendered) => `new Date(${rendered})`,
   // A `date` is its ISO text on this backend — the literal already is one.
   date: (rendered) => rendered,
+  valueObject: (name, args) => `new ${name}(${args.join(", ")})`,
+  omitted: "null",
 };
 
 // A currentUser-gated operation's method signature picks up a trailing
@@ -338,25 +336,11 @@ export function renderCreateInput(
   return parts.length === 0 ? "{}" : `{ ${parts.join(", ")} }`;
 }
 
-/** Coerce one create-input value to its declared type for a domain test:
- *  `X id` string → `Ids.XId(…)`, value-object object literal → `new VO(…)`
- *  (declared field order, omitted optionals filled with `null`), datetime
- *  literal → `new Date(…)`.  Everything else renders unchanged. */
+/** Coerce one create-input value to its declared type for a domain test —
+ *  the shared rule (`_test/arg-coercion.ts`): VO literal → `new VO(…)`,
+ *  `X id` / datetime literal → its strong type. */
 function coerceCreateValue(value: ExprIR, type: TypeIR | undefined, ctx: BoundedContextIR): string {
-  if (type?.kind === "valueobject" && value.kind === "object") {
-    const vo = findValueObjectInScope(ctx, type.name);
-    if (vo) {
-      const byName = new Map(value.fields.map((f) => [f.name, f.value] as const));
-      const args = vo.fields.map((vf) => {
-        const v = byName.get(vf.name);
-        return v ? coerceCreateValue(v, vf.type, ctx) : "null";
-      });
-      return `new ${vo.name}(${args.join(", ")})`;
-    }
-  }
-  // The id / datetime arms are the SHARED rule (`_test/arg-coercion.ts`) — the
-  // same one the operation-call path above applies to a declared param type.
-  return coerceTestLiteral(type, value, renderTestExpr(value, ctx), TS_TEST_LITERAL);
+  return coerceTestValue(type, value, ctx, (e) => renderTestExpr(e, ctx), TS_TEST_LITERAL);
 }
 
 /** Detect `expect(x).<matcher>(y)` / `expect(x).not.<matcher>(y)` — an

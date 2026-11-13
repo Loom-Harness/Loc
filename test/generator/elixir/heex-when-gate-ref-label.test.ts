@@ -90,9 +90,8 @@ describe.each([
 
     it("names each op form so its submit reaches the clause (schema-named forms never matched)", async () => {
       const live = file(await files(), "/live/task_detail_live.ex");
-      expect(live).toContain('change_task(record) |> to_form(as: "complete")');
-      expect(live).toContain('def handle_event("submit_complete", params, socket) do');
-      expect(live).toContain('params = Map.get(params, "complete", %{})');
+      expect(live).toContain('to_form(%{}, as: "complete")');
+      expect(live).toContain('def handle_event("submit_complete", _submitted, socket) do');
       expect(live).not.toContain('%{"complete" => params}');
     });
 

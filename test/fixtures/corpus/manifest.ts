@@ -449,6 +449,38 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
     note: "Banking eval B-03: a workflow POST could only answer 204, so `openAccount` could never tell its caller the new account's id.  The fixture pins the three per-backend hazards: an id result crossing as its raw value (not the java/.NET id record), a transactional result read after two operations (elixir must rebind the updated struct, not return the one its `with`-chain loaded), and a sibling result-less create still answering 204.",
   },
+  {
+    id: "eventsourced-workflow-body",
+    title:
+      "an event-sourced workflow handler loads a row, calls an operation on it and emits a value it read — one transaction, rolled back by a later guard",
+    doc: "workflow",
+    backends: ALL,
+    note: "Elixir's event-sourced handler rendered only guards, `let x = <expr>` and emits: a `let o = Orders.get(…)`, an operation call and a create were dropped with no diagnostic, so an emit reading `o` did not compile.  It also ran without a transaction, so nothing rolled back a failure after a write.",
+  },
+  {
+    id: "workflow-vo-param-enum",
+    title:
+      "a workflow value-object param is read as the value object — its enum field compares to an enum value, its int field takes arithmetic",
+    doc: "workflow",
+    backends: ALL,
+    note: "Insurance eval #5197: elixir handed a value-object workflow param to the body as raw string-keyed JSON, so `vehicle.usage == Usage.Commercial` compared a string to an atom and never matched — every commercial quote priced as private, with no error.",
+  },
+  {
+    id: "reactor-failure-order",
+    title:
+      "a reactor that fails AFTER writing — a guard reading an earlier binding, or an operation's own precondition — leaves none of its effects",
+    doc: "workflow",
+    backends: ALL,
+    note: "A reactor body runs in source order and is one transaction: a guard after a create (reading the created row) and an operation precondition after both refuse the reaction, and neither the Survey nor the saga row survives, while the triggering command keeps its 2xx.  Elixir hoisted a top-level reactor guard ahead of the chain (so a guard reading a let-bound row did not compile) and answered an op failure as a returned `{:error, _}`, which committed the transaction with the create in it.",
+  },
+  {
+    id: "workflow-loop-carried",
+    title:
+      "workflow loop whose body mutates an aggregate loaded outside it, inside a nested loop — every iteration sees the previous one's write",
+    doc: "workflow",
+    backends: ALL,
+    note: "Insurance eval #5178 (#5210): on elixir a loop body rebinds instead of mutating, so the outer handle must ride `Enum.reduce_while`'s accumulator (else each iteration saves over the loaded record), and a nested body's unread op result must bind no name (`mix compile --warnings-as-errors`).",
+  },
   { id: "projection", title: "folded projection — read model folded from aggregate events (keyed row + on() folds)", backends: ALL },
   {
     id: "projection-valueobject-row",
@@ -1061,6 +1093,22 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "payloads",
     backends: ALL,
     note: "M-T5.1 (VO→422 + A4).  Every other VO invariant in the corpus is exercised at the WIRE, where the request schema carries the rule; a value object constructed from a scalar parameter inside an operation reaches the constructor instead.  Before M-T5.1 that answered the domain-floor 422 with no `errors[]` on node/.NET/java/python — and on elixir the in-body construction was not checked at all (`resize(0)` persisted `{\"value\": 0}` and answered 204).  Carries a named and an unnamed rule, and both body routers (aggregate operation, workflow step).",
+  },
+  {
+    id: "rule-params-scalar",
+    title:
+      "a NAMED rule reading an entity-part collection — its wire `params` carry the scalar it read (`reason`), never the collection (`holds`)",
+    doc: "language",
+    backends: ALL,
+    note: "python serialized the whole part collection (each part's private fields, every other row's data) into the 422 body's `params`.  The rule's placeholder candidates (`ruleParamRefs`) are now the echoable reads only — a scalar, id, enum or value object — on every backend.",
+  },
+  {
+    id: "vo-date-invariant",
+    title:
+      "a value-object invariant ORDERING two `date` fields (`checkOut > checkIn`) — compiled and judged at the wire boundary in calendar order",
+    doc: "language",
+    backends: ALL,
+    note: ".NET judged it on the `<VO>Request` record, whose `date` members are the wire string, as `x.CheckOut > x.CheckIn` (CS0019 — the project did not build).  It now compares the exact `yyyy-MM-dd` strings ordinally, which is calendar order.",
   },
   {
     id: "domain-floor-messages",

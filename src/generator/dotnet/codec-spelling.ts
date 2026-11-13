@@ -152,6 +152,15 @@ export function csInstantIngressTruncate(parsed: string): string {
   return `${parsed}.AddTicks(-(${parsed}.Ticks % TimeSpan.TicksPerMillisecond))`;
 }
 
+/** `DateTime.TryParse` over a wire instant, read as UTC whether or not the
+ *  text carries an offset — the request boundary's one instant parse. */
+export function csInstantTryParse(expr: string, outVar: string): string {
+  return (
+    `DateTime.TryParse(${expr}, ${CS.CultureInfo}.InvariantCulture, ` +
+    `${CS.DateTimeStyles}.AssumeUniversal | ${CS.DateTimeStyles}.AdjustToUniversal, out var ${outVar})`
+  );
+}
+
 /** The `date` format: `YYYY-MM-DD`, no zone, no time of day. */
 function calendarDateFormat(): string {
   if (scalarCodec("date").wire.form !== "calendar-date")

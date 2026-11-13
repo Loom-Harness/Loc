@@ -165,7 +165,7 @@ Every one of those runner legs ALSO gates the **cross-backend runtime wire diffe
 **Docker is runnable in the remote/sandbox environment** — the Docker-backed suites above (`test:e2e`, `test:phoenix`, the `obs-*` / `auth-e2e-*` legs, `test:k8s-e2e`) are *not* off-limits. The container ships the Docker **client** but **no running daemon by default, and the daemon is intentionally not auto-started** — bring it up yourself when a task needs it:
 
 ```bash
-dockerd >/tmp/dockerd.log 2>&1 &     # root + passwordless sudo; backgrounded
+dockerd --registry-mirror=https://mirror.gcr.io >/tmp/dockerd.log 2>&1 &   # root + passwordless sudo; backgrounded; the mirror avoids Docker Hub's 429 pull limit
 until docker info >/dev/null 2>&1; do sleep 1; done   # readiness gate
 ```
 
