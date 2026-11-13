@@ -2,9 +2,7 @@ import type { ThrowKindName } from "../../util/intrinsic-matchers.js";
 import type { ExprIR } from "./expr.js";
 import type {
   ApplyIR,
-  AssociationIR,
   ContainmentIR,
-  CreateInputFieldIR,
   DerivedIR,
   EntityPartIR,
   FieldIR,
