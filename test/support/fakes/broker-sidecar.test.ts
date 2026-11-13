@@ -12,6 +12,11 @@ import { resourceEnvUrlVar } from "../../../src/util/resource-env.js";
 import {
   BROKER_IMAGES,
   cloudEventType,
+  docker,
+  KAFKA_DEFAULT_ENV,
+  kafkaContainerEnv,
+  listenerPorts,
+  parseKafkaOffsets,
   parseResp,
   rehost,
   start,
@@ -82,10 +87,45 @@ describe("broker sidecar — pure helpers", () => {
     for (const [, image] of found) expect(image).toBe(BROKER_IMAGES.rabbitmq);
   });
 
-  it("refuses a broker type it has no sidecar for", async () => {
-    await expect(start({ storage: { name: "k", type: "kafka" as never } })).rejects.toThrow(
-      /kafka/,
+  it("re-advertises only the backend's kafka listener on loopback, keeping the case's SASL setup", () => {
+    // The shape `generate system` writes for a SASL-guarded kafka storage.
+    const compose = {
+      ...KAFKA_DEFAULT_ENV,
+      KAFKA_ADVERTISED_LISTENERS: "CLIENT://bus:9092,PLAINTEXT://bus:9094",
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@bus:9093",
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP:
+        "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,CLIENT:SASL_PLAINTEXT",
+      KAFKA_LISTENER_NAME_CLIENT_PLAIN_SASL_JAAS_CONFIG: '…user_d="pw";',
+    };
+    const { env, client } = kafkaContainerEnv(compose, 9092, 41234);
+    expect(client).toBe("CLIENT");
+    expect(env.KAFKA_ADVERTISED_LISTENERS).toBe(
+      "CLIENT://127.0.0.1:41234,PLAINTEXT://localhost:9094",
     );
+    expect(env.KAFKA_CONTROLLER_QUORUM_VOTERS).toBe("1@localhost:9093");
+    expect(env.KAFKA_LISTENER_SECURITY_PROTOCOL_MAP).toBe(
+      compose.KAFKA_LISTENER_SECURITY_PROTOCOL_MAP,
+    );
+    expect(env.KAFKA_LISTENER_NAME_CLIENT_PLAIN_SASL_JAAS_CONFIG).toBe(
+      compose.KAFKA_LISTENER_NAME_CLIENT_PLAIN_SASL_JAAS_CONFIG,
+    );
+    expect(() => kafkaContainerEnv(compose, 9999, 1)).toThrow(/no listener on :9999/);
+    expect(listenerPorts("A://:1,B://h:2")).toEqual({ A: 1, B: 2 });
+  });
+
+  it("counts records per user topic from kafka-get-offsets, skipping internal topics", () => {
+    expect([
+      ...parseKafkaOffsets(
+        "loom.A.Ch:0:5\nloom.A.Ch:1:0\nloom.A.Ch:2:4\n__consumer_offsets:0:9\nx:0:0\n",
+      ),
+    ]).toEqual([
+      ["loom.A.Ch", 9],
+      ["x", 0],
+    ]);
+  });
+
+  it("refuses a broker type it has no sidecar for", async () => {
+    await expect(start({ storage: { name: "k", type: "nats" as never } })).rejects.toThrow(/nats/);
   });
 });
 
@@ -186,4 +226,53 @@ describe.skipIf(!DOCKER)(
     });
   },
   240_000,
+);
+
+describe.skipIf(!DOCKER)(
+  "broker sidecar — kafka container",
+  () => {
+    let fake: Awaited<ReturnType<typeof start>>;
+    let id: string;
+    beforeAll(async () => {
+      fake = await start({
+        storage: { name: "bus", type: "kafka" },
+        channelSources: [{ name: "lifecycleBus" }],
+      });
+      id = (fake as unknown as { containerId: string }).containerId;
+    }, 180_000);
+    afterAll(() => fake?.stop());
+
+    const produce = (topic: string, lines: string[]) =>
+      docker([
+        "exec",
+        id,
+        "sh",
+        "-c",
+        `printf '%s\\n' ${lines.map((l) => `'${l}'`).join(" ")} | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9094 --topic ${topic}`,
+      ]);
+
+    it("hands the backend a loopback kafka URL under the channel's env name", () => {
+      expect(fake.env[channelSourceEnvVar("lifecycleBus")]).toMatch(/^kafka:\/\/127\.0\.0\.1:\d+$/);
+    });
+
+    it("observes every record per topic with its CloudEvent type", async () => {
+      const ev = JSON.stringify({
+        specversion: "1.0",
+        id: "1",
+        type: "Orders.OrderPlaced",
+        data: {},
+      });
+      produce("loom.Orders.Lifecycle", [ev, ev, ev, '"plain"']);
+      expect(await fake.observe()).toEqual([
+        { exchange: "loom.Orders.Lifecycle", routingKey: "", type: "Orders.OrderPlaced", count: 3 },
+        { exchange: "loom.Orders.Lifecycle", routingKey: "", type: null, count: 1 },
+      ]);
+    });
+
+    it("reset deletes the topics", async () => {
+      await fake.reset();
+      expect(await fake.observe()).toEqual([]);
+    });
+  },
+  300_000,
 );

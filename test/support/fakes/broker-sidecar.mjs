@@ -36,6 +36,7 @@ export const BROKER_IMAGES = {
   rabbitmq:
     "rabbitmq:4.1-management-alpine@sha256:42c6214e0e2093caa2484718faacb733631cc9ddc869b3298397613237dbea4a",
   redis: "valkey/valkey:8-alpine@sha256:2602ace2be6569bc2bbb06f873776516ab9089821525be34f4305c67eb9db02a",
+  kafka: "apache/kafka:4.1.0@sha256:bff074a5d0051dbc0bbbcd25b045bb1fe84833ec0d3c7c965d1797dd289ec88f",
 };
 
 /** RabbitMQ refuses the default `guest` account from anything but loopback,
@@ -441,11 +442,189 @@ async function startRedis(opts) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Kafka (KRaft, single node)
+// ---------------------------------------------------------------------------
+
+/** The broker env when the case brings none: one plaintext listener for the
+ *  backend (re-advertised on the host port) and one inside the container for
+ *  the harness's own tools. */
+export const KAFKA_DEFAULT_ENV = {
+  KAFKA_NODE_ID: "1",
+  KAFKA_PROCESS_ROLES: "broker,controller",
+  KAFKA_LISTENERS: "CLIENT://:9092,PLAINTEXT://:9094,CONTROLLER://:9093",
+  KAFKA_ADVERTISED_LISTENERS: "CLIENT://localhost:9092,PLAINTEXT://localhost:9094",
+  KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER",
+  KAFKA_CONTROLLER_QUORUM_VOTERS: "1@localhost:9093",
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,CLIENT:PLAINTEXT",
+  KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT",
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1",
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1",
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1",
+  KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0",
+  KAFKA_NUM_PARTITIONS: "3",
+};
+
+/** `NAME://host:port,…` → `{ NAME: port }`. */
+export function listenerPorts(spec) {
+  const out = {};
+  for (const part of String(spec).split(",")) {
+    const m = /^\s*([A-Za-z_]+):\/\/[^:]*:(\d+)\s*$/.exec(part);
+    if (m) out[m[1]] = Number(m[2]);
+  }
+  return out;
+}
+
+/** Re-point a case's compose kafka env at a host process: the listener the
+ *  backend dials (the one bound to `clientPort`) is advertised on loopback at
+ *  `hostPort`; every other listener and the controller quorum stay inside
+ *  the container on `localhost`.  Everything else — the SASL users, the
+ *  security protocol map, partitions — is the case's, unchanged. */
+export function kafkaContainerEnv(composeEnv, clientPort, hostPort) {
+  const env = { ...composeEnv };
+  const ports = listenerPorts(env.KAFKA_LISTENERS);
+  const client = Object.keys(ports).find((n) => ports[n] === clientPort);
+  if (!client) throw new Error(`kafka sidecar: no listener on :${clientPort} in ${env.KAFKA_LISTENERS}`);
+  const controllers = String(env.KAFKA_CONTROLLER_LISTENER_NAMES ?? "").split(",");
+  env.KAFKA_ADVERTISED_LISTENERS = Object.entries(ports)
+    .filter(([n]) => !controllers.includes(n))
+    .map(([n, port]) => (n === client ? `${n}://127.0.0.1:${hostPort}` : `${n}://localhost:${port}`))
+    .join(",");
+  env.KAFKA_CONTROLLER_QUORUM_VOTERS = String(env.KAFKA_CONTROLLER_QUORUM_VOTERS).replace(
+    /@[^:,]+:/g,
+    "@localhost:",
+  );
+  return { env, client };
+}
+
+/** The listener the harness's own tools use inside the container: the
+ *  inter-broker one, which a case never puts behind SASL. */
+function internalBootstrap(env) {
+  const ports = listenerPorts(env.KAFKA_LISTENERS);
+  const name = env.KAFKA_INTER_BROKER_LISTENER_NAME ?? "PLAINTEXT";
+  if (!ports[name]) throw new Error(`kafka sidecar: no inter-broker listener '${name}'`);
+  return `localhost:${ports[name]}`;
+}
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.once("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+/** `kafka-get-offsets.sh` lines (`topic:partition:endOffset`) → records per
+ *  user topic.  Topics start empty after a reset, so the end offset summed
+ *  over partitions is the topic's record count. */
+export function parseKafkaOffsets(text) {
+  const counts = new Map();
+  for (const line of text.split("\n")) {
+    const m = /^(.+):(\d+):(\d+)$/.exec(line.trim());
+    if (!m || m[1].startsWith("__")) continue;
+    counts.set(m[1], (counts.get(m[1]) ?? 0) + Number(m[3]));
+  }
+  return counts;
+}
+
+async function startKafka(opts) {
+  const clientPort = opts.channelSources?.find((c) => c.url)
+    ? Number(new URL(opts.channelSources.find((c) => c.url).url).port || 9092)
+    : 9092;
+  const hostPort = await freePort();
+  const { env } = kafkaContainerEnv(opts.containerEnv ?? KAFKA_DEFAULT_ENV, clientPort, hostPort);
+  const args = ["run", "-d", "--rm", "--label", "loom.fake=kafka", "-p", `127.0.0.1:${hostPort}:${clientPort}`];
+  for (const [k, v] of Object.entries(env)) args.push("-e", `${k}=${v}`);
+  const id = docker([...args, BROKER_IMAGES.kafka]);
+  const bootstrap = internalBootstrap(env);
+  const kafkaBin = (tool, ...a) =>
+    docker(["exec", id, `/opt/kafka/bin/${tool}`, "--bootstrap-server", bootstrap, ...a]);
+  try {
+    await until(
+      "the kafka broker",
+      () => {
+        kafkaBin("kafka-topics.sh", "--list");
+        return true;
+      },
+      { timeoutMs: 120_000, everyMs: 1000 },
+    );
+    await until("the kafka client listener", () => tcpOpen("127.0.0.1", hostPort));
+  } catch (e) {
+    docker(["rm", "-f", id]);
+    throw e;
+  }
+
+  const names = await envNames();
+  const outEnv = {};
+  for (const c of opts.channelSources ?? []) {
+    outEnv[names.channelUrlVar(c.name)] = c.url
+      ? rehost(c.url, "127.0.0.1", hostPort)
+      : `kafka://127.0.0.1:${hostPort}`;
+  }
+
+  const userTopics = () =>
+    kafkaBin("kafka-topics.sh", "--list")
+      .split("\n")
+      .map((t) => t.trim())
+      .filter((t) => t && !t.startsWith("__"));
+
+  return {
+    env: outEnv,
+    url: `kafka://127.0.0.1:${hostPort}`,
+    containerId: id,
+    captured: [],
+    /** Every record retained on every user topic, read from the beginning by
+     *  a throwaway consumer (no group, so nothing is committed). */
+    async observe() {
+      const publishes = [];
+      for (const [topic, count] of parseKafkaOffsets(kafkaBin("kafka-get-offsets.sh"))) {
+        if (count === 0) continue;
+        const dump = kafkaBin(
+          "kafka-console-consumer.sh",
+          "--topic",
+          topic,
+          "--from-beginning",
+          "--max-messages",
+          String(count),
+          "--timeout-ms",
+          "15000",
+        );
+        for (const value of dump.split("\n").filter((l) => l !== "")) {
+          publishes.push({ exchange: topic, routingKey: "", type: cloudEventType(value) });
+        }
+      }
+      return summarise(publishes);
+    },
+    async load() {
+      await this.reset();
+    },
+    /** Delete every user topic and consumer group. */
+    async reset() {
+      for (const t of userTopics()) kafkaBin("kafka-topics.sh", "--delete", "--topic", t);
+      try {
+        kafkaBin("kafka-consumer-groups.sh", "--delete", "--all-groups");
+      } catch {
+        // no groups to delete
+      }
+    },
+    async stop() {
+      try {
+        docker(["rm", "-f", id]);
+      } catch {
+        // already gone
+      }
+    },
+  };
+}
+
 /**
- * Start a broker sidecar for one `storage` of type `rabbitmq` or `redis`.
+ * Start a broker sidecar for one `storage` of type `rabbitmq`, `redis` or `kafka`.
  *
- * @param {{ storage: { name: string, type: "rabbitmq" | "redis" },
- *           definitions?: object, password?: string,
+ * @param {{ storage: { name: string, type: "rabbitmq" | "redis" | "kafka" },
+ *           definitions?: object, password?: string, containerEnv?: Record<string, string>,
  *           channelSources?: Array<{ name: string, url?: string }>,
  *           resources?: Array<{ name: string, url?: string }> }} opts
  */
@@ -453,5 +632,6 @@ export async function start(opts) {
   const type = opts?.storage?.type;
   if (type === "rabbitmq") return startRabbit(opts);
   if (type === "redis") return startRedis(opts);
-  throw new Error(`broker fake: storage type '${type}' has no fake (kafka stays on the channels-e2e legs)`);
+  if (type === "kafka") return startKafka(opts);
+  throw new Error(`broker fake: storage type '${type}' has no sidecar`);
 }

@@ -147,7 +147,7 @@ runner mechanics (one-origin serving, async-spawn, the DoD rollup).
 
 ### Broker and object-store sidecars for the behavioural legs
 
-A corpus case whose model declares a `rabbitmq` or `redis` storage runs against
+A corpus case whose model declares a `rabbitmq`, `redis` or `kafka` storage runs against
 a real, digest-pinned broker (`test/support/fakes/broker-sidecar.mjs`). The kit starts
 it with `docker run` locally, or uses the workflow's `services: rabbitmq`
 container when `LOOM_FAKE_AMQP_URL` names one. The case's generated
