@@ -140,3 +140,58 @@ describe("apiResourceBindings", () => {
     expect(apiResourceBindings(caller, sys)).toEqual([]);
   });
 });
+
+// A `resource` declared at the ROOT of a file composes into the project's
+// system exactly like one nested in `system { }` — workflow bodies included.
+// The handle set a context's bodies resolve against comes from the composed
+// member list, not from the syntactic `system` container.
+describe("resource { kind: api } declared at the file root", () => {
+  const nestedSystem = (rootMembers: boolean): string => {
+    const deployment = `
+  api CatalogApi from Cat
+  storage primary { type: postgres }
+  resource productsState { for: Products, kind: state, use: primary }
+  resource policiesState { for: Policies, kind: state, use: primary }
+  resource catalog { for: Policies, kind: api, use: CatalogApi }
+  deployable catSvc { platform: node contexts: [Products] dataSources: [productsState] serves: CatalogApi port: 3000 }
+  deployable polSvc { platform: node contexts: [Policies] dataSources: [policiesState, catalog] port: 3001 }`;
+    const domain = `
+  subdomain Cat { context Products {
+    aggregate Product with crudish { code: string  rate: decimal }
+    repository Products for Product { }
+  } }
+  subdomain Pol { context Policies {
+    aggregate Policy with crudish { code: string  premium: decimal }
+    repository Policies for Policy { }
+    workflow quote {
+      create(pid: Product id): Policy id {
+        let pr = catalog.getProductById(pid)
+        let p = Policy.create(code: pr.code, premium: pr.rate)
+        return p.id
+      }
+    }
+  } }`;
+    return rootMembers
+      ? `system Acme {${domain}\n}\n${deployment}\n`
+      : `system Acme {${domain}\n${deployment}\n}\n`;
+  };
+
+  it("a workflow body resolves the root-level handle (no loom.workflow-unknown-name)", async () => {
+    expect(await irDiagnostics(nestedSystem(true))).toEqual([]);
+  });
+
+  it("lowers the call exactly as the nested spelling does", async () => {
+    const quote = async (root: boolean) => {
+      const loom = await lower(nestedSystem(root));
+      const ctx = loom.systems[0]!.subdomains.flatMap((s) => s.contexts).find(
+        (c) => c.name === "Policies",
+      )!;
+      return JSON.stringify(ctx.workflows.find((w) => w.name === "quote")!.creates, (k, v) =>
+        k === "origin" ? undefined : v,
+      );
+    };
+    const root = await quote(true);
+    expect(root).toContain('"callKind":"remote-api-op"');
+    expect(root).toBe(await quote(false));
+  });
+});
