@@ -105,7 +105,7 @@ describe("field access — enrichment defaults", () => {
     // Declared `X id` is a foreign-key reference (the client supplies
     // it on create, e.g. `holder: Customer id`).  It is NOT a token —
     // tokens are the aggregate's synthetic identity (added separately
-    // in `wireFieldsForAggregate`) and explicit concurrency tokens
+    // in the declared response record) and explicit concurrency tokens
     // (opt-in via the `token` modifier in source).
     const src = SYSTEM(`        author: Post id
 `);

@@ -2,10 +2,10 @@
 //
 // The generated frontend's zod Response schemas and the canonical wire contract
 // (`.loom/wire-spec.json`, the shape every backend serializes) both derive from
-// the same `wireFieldsFor` projection today — so they agree BY CONSTRUCTION.
+// the same declared response records (`responseWireFor`) — so they agree BY CONSTRUCTION.
 // Nothing PINS that coupling, though: a refactor that makes the frontend zod
 // emitter (`src/generator/_frontend/api-module.ts`) drop a field, reorder into a
-// transform, or stop consuming `wireFieldsFor` would silently ship a UI whose
+// transform, or stop consuming `responseWireFor` would silently ship a UI whose
 // parse shape disagrees with the API it calls — a wire-contract break that keeps
 // BOTH halves compiling and each half booting independently, so it sails through
 // every per-PR compile gate and only surfaces in the nightly full-stack e2e.

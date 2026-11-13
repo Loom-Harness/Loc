@@ -34,7 +34,7 @@ const SRC = `system S {
 // nested projection is inlined into the parent's, inside a lambda.  Each is a
 // place C# would otherwise see the same pattern variable declared twice in one
 // scope.  (A masked field ON the contained part is deliberately absent —
-// `wireFieldsForPart` drops `maskUnless`, so no backend redacts one today.)
+// the part's response rows drop `maskUnless`, so no backend redacts one today.)
 const AUDITED_SRC = `system S {
   user { id: string  role: string  permissions: string[] }
   subdomain M {
