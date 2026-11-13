@@ -180,5 +180,10 @@ system DatetimeWire {
     expect(roster.windows.where(w => w.label == "ms").first().until).toBe("2027-12-31T10:11:12.345Z")
     expect(roster.windows.where(w => w.label == "open").first().until).toBe(null)
     expect(roster.main.until).toBe("2027-12-31T10:11:12.345Z")
+    api.rosters.update(rost, { name: "R2", windows: [{ label: "late", until: "2028-01-02T03:04:05.006Z" }] })
+    expect(api.rosters.getById(rost).windows.first().until).toBe("2028-01-02T03:04:05.006Z")
+    expect(api.rosters.all().total).toBe(1)
+    api.rosters.destroy(rost)
+    expect(api.rosters.getById(rost)).toThrow(404)
   }
 }

@@ -335,6 +335,87 @@
     },
     {
       "seq": 25,
+      "method": "POST",
+      "path": "/api/rosters/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 26,
+      "method": "GET",
+      "path": "/api/rosters/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "main": {
+          "label": "m",
+          "until": "<timestamp>"
+        },
+        "name": "R2",
+        "rowVersion": 2,
+        "windows": [
+          {
+            "label": "late",
+            "until": "<timestamp>"
+          }
+        ]
+      }
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/api/rosters",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "main": {
+              "label": "m",
+              "until": "<timestamp>"
+            },
+            "name": "R2",
+            "rowVersion": 2,
+            "windows": [
+              {
+                "label": "late",
+                "until": "<timestamp>"
+              }
+            ]
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 28,
+      "method": "DELETE",
+      "path": "/api/rosters/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 29,
+      "method": "GET",
+      "path": "/api/rosters/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Roster {id} not found",
+        "instance": "/api/rosters/{id}",
+        "params": {
+          "type": "Booking.Roster"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 30,
       "method": "PATCH",
       "path": "/api/venues",
       "status": 405,
@@ -348,7 +429,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 31,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -362,7 +443,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 32,
       "method": "POST",
       "path": "/api/venues",
       "status": 400,
@@ -376,7 +457,7 @@
       }
     },
     {
-      "seq": 28,
+      "seq": 33,
       "method": "POST",
       "path": "/api/venues/{id}/soft_delete",
       "status": 404,
@@ -393,7 +474,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 34,
       "method": "POST",
       "path": "/api/venues/{id}/soft_delete",
       "status": 404,
@@ -410,7 +491,7 @@
       }
     },
     {
-      "seq": 30,
+      "seq": 35,
       "method": "POST",
       "path": "/api/venues/{id}/soft_delete",
       "status": 415,
@@ -424,7 +505,7 @@
       }
     },
     {
-      "seq": 31,
+      "seq": 36,
       "method": "POST",
       "path": "/api/slots/{id}/reschedule",
       "status": 422,
