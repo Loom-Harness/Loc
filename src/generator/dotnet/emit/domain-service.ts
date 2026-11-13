@@ -290,11 +290,15 @@ function renderDomainUnion(name: string, members: UnionMember[], ns: string): st
     if (m.shape === "scalar") return `${renderCsType(m.type)} Value`;
     return m.fields.map((f) => `${renderCsType(f.type)} ${upperFirst(f.name)}`).join(", ");
   };
+  const typeOf = (m: UnionMember): TypeIR[] =>
+    m.shape === "scalar" ? [m.type] : m.shape === "record" ? m.fields.map((f) => f.type) : [];
+  const namesVo = members.some((m) => typeOf(m).some((t) => typeNamesValueObject(t)));
   return lines(
     "// Auto-generated — domain-service union return (domain-services.md).",
     "using System;",
     "using System.Collections.Generic;",
     `using ${ns}.Domain.Enums;`,
+    ...(namesVo ? [`using ${ns}.Domain.ValueObjects;`] : []),
     "",
     `namespace ${ns}.Domain.Services;`,
     "",
@@ -302,4 +306,11 @@ function renderDomainUnion(name: string, members: UnionMember[], ns: string): st
     "",
     ...members.map((m) => `public sealed record ${name}_${m.tag}(${memberParams(m)}) : ${name};`),
   );
+}
+
+/** True when `t` names a value object, through any array / optional wrapper. */
+function typeNamesValueObject(t: TypeIR): boolean {
+  if (t.kind === "array") return typeNamesValueObject(t.element);
+  if (t.kind === "optional") return typeNamesValueObject(t.inner);
+  return t.kind === "valueobject";
 }

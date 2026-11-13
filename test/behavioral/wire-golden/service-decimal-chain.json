@@ -1,0 +1,170 @@
+{
+  "case": "service-decimal-chain",
+  "oracle": "python",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/policies",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/policies/{id}/rate",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/policies/{id}",
+      "status": 200,
+      "body": {
+        "base": 0.1,
+        "id": "<volatile:key>",
+        "premium": 0.007,
+        "rowVersion": 2,
+        "usage": 0.1
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/policies/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/policies/{id}/rate",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/policies/{id}",
+      "status": 200,
+      "body": {
+        "base": 0.2,
+        "id": "<volatile:key>",
+        "premium": 0.014,
+        "rowVersion": 4,
+        "usage": 0.1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/policies",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "base": 0.2,
+            "id": "<volatile:key>",
+            "premium": 0.014,
+            "rowVersion": 4,
+            "usage": 0.1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "DELETE",
+      "path": "/api/policies/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/policies/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Policy {id} not found",
+        "instance": "/api/policies/{id}",
+        "params": {
+          "type": "Underwriting.Policy"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "PATCH",
+      "path": "/api/policies",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/policies",
+        "instance": "/api/policies",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/policies",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/policies",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/policies/{id}/rate",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.missing",
+            "message": "level is required",
+            "pointer": "/level"
+          }
+        ],
+        "instance": "/api/policies/{id}/rate",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
