@@ -1792,12 +1792,13 @@ the token with 401. Value-object, enum, `money` and `json` claims are not decode
 The playground preview runs the generated **OIDC verifier** of an
 `auth { oidc }` system unchanged — discovery, JWKS, signature, `iss`, `aud`,
 `exp` and the claim projection — against an identity provider that runs in the
-browser's infra worker (`web/src/runtime/infra/oidc.ts`):
+browser's infra worker — the emulation core's provider (`src/emulation/oidc.ts`),
+wrapped by `web/src/runtime/infra/oidc.ts`:
 
 - **Realm.** The provider answers under the `OIDC_ISSUER` the backend's compose
   service names, with Keycloak's endpoint paths
   (`/.well-known/openid-configuration`, `/protocol/openid-connect/certs`,
-  `…/token`, `…/userinfo`). Tokens are RS256, signed with a WebCrypto key whose
+  `…/token`, `…/userinfo`, `…/logout`). Tokens are RS256, signed with a WebCrypto key whose
   public half is the JWKS. `aud` is `OIDC_AUDIENCE` when compose sets it,
   otherwise what the dev realm's audience mapper mints (the declared
   `audience:`), otherwise the client id.

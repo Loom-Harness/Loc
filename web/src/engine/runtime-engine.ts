@@ -21,7 +21,7 @@
 import type { NavigationOutcome } from "../preview/auth-navigation.js";
 import type { VirtualFile } from "../build/protocol.js";
 import type { BundleResult } from "../bundle/protocol.js";
-import type { BrokerInspectResult } from "../runtime/infra/broker-protocol.js";
+import type { BrokerInspectResult } from "../../../src/emulation/broker-protocol.js";
 import type {
   BootPlan,
   BootResult,
