@@ -21,6 +21,7 @@
 //                    seeded row keeps its enum, reference and flag through an
 //                    update, and an added row saves its defaults (first enum
 //                    value, unchecked flag, unset reference as null).
+//   detail arrays    the Detail page shows the record's array fields.
 //
 // Inputs are found by the shared test ids (`<slug>-op-<op>-input-<field>`);
 // where a pack puts the id on a wrapper, the probe reaches the input inside it.
@@ -293,6 +294,30 @@ export function judgeRiderAdded(before, after) {
   if (added.waived !== false) why.push(`riders[1].waived: expected false, got ${JSON.stringify(added.waived)}`);
   if (added.insurer !== null && added.insurer !== undefined) {
     why.push(`riders[1].insurer: an unset reference must submit null, got ${JSON.stringify(added.insurer)}`);
+  }
+  return why;
+}
+
+/** The Detail page shows the record's array fields: the joined strings, the
+ *  enum items and the value-object rows, each where its test id says. */
+export async function judgeDetailCollections(page, origin, id) {
+  const record = await readPolicy(origin, id);
+  await page.goto(`${origin}/policies/${id}`);
+  const why = [];
+  const expect = [
+    ["policies-detail-tags", record.tags.join(", ")],
+    ["policies-detail-perils", record.perils[0]],
+    ["policies-detail-riders", record.riders[0].code],
+  ];
+  for (const [testId, text] of expect) {
+    const el = page.locator(`[data-testid="${testId}"]`).first();
+    const shown = await el
+      .waitFor({ state: "attached", timeout: 15000 })
+      .then(() => el.innerText())
+      .catch(() => "(absent)");
+    if (!shown.includes(text)) {
+      why.push(`${testId}: the detail page shows ${JSON.stringify(shown)}, not "${text}"`);
+    }
   }
   return why;
 }

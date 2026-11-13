@@ -46,6 +46,7 @@ import {
   driveAddRider,
   driveAddVehicle,
   driveUpdate,
+  judgeDetailCollections,
   judgeFormSpec,
   judgeRiderAdded,
   judgeVehicleAdded,
@@ -317,6 +318,7 @@ async function formSpecProbe(origin, opensWorkflowResult) {
       }
       why.push(...widgetWhy, ...judgeRiderAdded(withVehicle, after));
     }
+    if (why.length === 0) why.push(...(await judgeDetailCollections(page, origin, before.id)));
     if (why.length === 0) {
       await seedCoverage(origin, before.id);
       why.push(...(await judgePartTable(page, origin, before.id)));
