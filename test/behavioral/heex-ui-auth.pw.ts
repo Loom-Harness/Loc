@@ -81,15 +81,13 @@ async function craftedSubmit(
         input.value = value;
         form.appendChild(input);
       }
-      const button = document.createElement("button");
-      button.type = "submit";
-      button.id = `crafted-${op}-submit`;
-      form.appendChild(button);
       root.appendChild(form);
+      // LiveView binds `submit` on the document; `requestSubmit` fires it
+      // without needing a visible control.
+      form.requestSubmit();
     },
     { op, fields },
   );
-  await page.locator(`#crafted-${op}-submit`).click();
 }
 
 test.describe.configure({ mode: "serial" });
