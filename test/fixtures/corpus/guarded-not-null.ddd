@@ -1,0 +1,54 @@
+// shape: a GUARDED not-null rule (`x != null when …`) whose field the request
+// leaves out — on the aggregate and on a value-collection element.
+//
+// Every backend answers 422 with the rule's own entry: `problem.domain-floor`
+// pointing at the field.  Node's issue mapper used to read any issue on an
+// absent key as a missing field (`field.missing`, "<field> is required"), so its
+// answer diverged from the other four for exactly this shape.
+system GuardedNotNull {
+  subdomain Rules {
+    context Rules {
+      enum Kind { Scale, Equals }
+
+      valueobject Condition {
+        kind: Kind
+        label: string?
+        invariant label != null when kind == Equals
+      }
+
+      aggregate RuleSet with crudish {
+        name: string
+        kind: Kind
+        note: string?
+        conditions: Condition[]
+        invariant note != null when kind == Equals
+      }
+      repository RuleSets for RuleSet { }
+    }
+  }
+
+  api RulesApi from Rules
+  storage primary { type: postgres }
+  resource rulesState { for: Rules, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Rules]
+    dataSources: [rulesState]
+    serves: RulesApi
+    port: 4000
+  }
+
+  test e2e "a guarded not-null rule answers with its own code when the field is left out" against d {
+    expect(api.ruleSets.create({ name: "a", kind: "Equals", conditions: [] })).toThrow(422)
+    expect(api.ruleSets.create({ name: "b", kind: "Scale", conditions: [{ kind: "Equals" }] })).toThrow(422)
+
+    let ok = api.ruleSets.create({ name: "ok", kind: "Equals", note: "n", conditions: [{ kind: "Equals", label: "x" }, { kind: "Scale" }] })
+    let read = api.ruleSets.getById(ok)
+    expect(read.conditions.count()).toBe(2)
+    api.ruleSets.update(ok, { name: "ok2", kind: "Scale", conditions: [] })
+    expect(api.ruleSets.getById(ok).name).toBe("ok2")
+    expect(api.ruleSets.all().total).toBe(1)
+    api.ruleSets.destroy(ok)
+    expect(api.ruleSets.getById(ok)).toThrow(404)
+  }
+}
