@@ -9,7 +9,7 @@ import { S3_IMAGE, start } from "./s3-sidecar.mjs";
 
 describe("s3 sidecar — pins", () => {
   it("pins its image by digest", () => {
-    expect(S3_IMAGE).toMatch(/^adobe\/s3mock:[\w.]+@sha256:[0-9a-f]{64}$/);
+    expect(S3_IMAGE).toMatch(/^mirror\.gcr\.io\/adobe\/s3mock:[\w.]+@sha256:[0-9a-f]{64}$/);
   });
 
   it("every behavioural workflow's s3 service runs the image the kit pins", () => {
@@ -17,7 +17,7 @@ describe("s3 sidecar — pins", () => {
     const found = readdirSync(dir)
       .filter((f) => f.startsWith("behavioral-e2e-"))
       .flatMap((f) =>
-        [...readFileSync(join(dir, f), "utf8").matchAll(/image:\s*(adobe\/s3mock\S*)/g)].map(
+        [...readFileSync(join(dir, f), "utf8").matchAll(/image:\s*(\S*adobe\/s3mock\S*)/g)].map(
           (m) => m[1],
         ),
       );

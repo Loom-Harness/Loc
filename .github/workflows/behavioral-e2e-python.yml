@@ -86,7 +86,7 @@ jobs:
       # `rabbitmq` storage gets its generated definitions imported here and
       # its publishes tapped.  Pinned to the same digest as BROKER_IMAGES.
       rabbitmq:
-        image: rabbitmq:4.1-management-alpine@sha256:42c6214e0e2093caa2484718faacb733631cc9ddc869b3298397613237dbea4a
+        image: mirror.gcr.io/library/rabbitmq:4.1-management-alpine@sha256:42c6214e0e2093caa2484718faacb733631cc9ddc869b3298397613237dbea4a
         env:
           RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit loopback_users []"
         ports:
@@ -102,7 +102,7 @@ jobs:
       # (test/support/fakes/s3-sidecar.mjs): an S3-compatible server a case's
       # `s3` storage is pointed at.  Pinned to the same digest as S3_IMAGE.
       s3:
-        image: adobe/s3mock:4.7.0@sha256:468ba0b0e87f20ad54fbb6085e98c143f5bd1e384a844fa12a58535b4e39d4aa
+        image: mirror.gcr.io/adobe/s3mock:4.7.0@sha256:468ba0b0e87f20ad54fbb6085e98c143f5bd1e384a844fa12a58535b4e39d4aa
         ports:
           - 9090:9090
 
