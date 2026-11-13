@@ -49,9 +49,9 @@ system V {
       event OrderPlaced { orderRef: Order id, st: Stamp, au: Audit }
       projection OrderBoard keyed by orderRef {
         orderRef: Order id
-        st: Stamp
+        st: Stamp = Stamp { atTime: now(), who: "" }
         seen: Stamp?
-        au: Audit
+        au: Audit = Audit { made: Stamp { atTime: now(), who: "" }, note: "" }
         on(e: OrderPlaced) { st := e.st  seen := e.st  au := e.au }
       }
     }
@@ -149,7 +149,7 @@ system N {
       event OrderPlaced { orderRef: Order id, at: datetime }
       projection Plain keyed by orderRef {
         orderRef: Order id
-        at: datetime
+        at: datetime?
         on(e: OrderPlaced) { at := e.at }
       }
     }

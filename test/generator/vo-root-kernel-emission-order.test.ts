@@ -48,7 +48,7 @@ system Kernel {
       }
       projection LastRoute keyed by shipment {
         shipment: Shipment id
-        route: Outer
+        route: Outer?
         on(e: Rerouted) {
           route := e.route
         }

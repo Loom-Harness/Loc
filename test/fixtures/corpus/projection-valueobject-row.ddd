@@ -61,10 +61,10 @@ system ProjectionVoRow {
 
       projection OrderBoard keyed by orderRef {
         orderRef: Order id
-        stamp: Stamp?
+        stamp: Stamp = Stamp { atTime: now(), who: "" }
         // Never folded by any handler, so it stays absent — the wire `null` arm.
         seen: Stamp?
-        audit: Audit?
+        audit: Audit = Audit { made: Stamp { atTime: now(), who: "" } }
         on(e: OrderPlaced) {
           stamp := e.stamp
           audit := e.audit

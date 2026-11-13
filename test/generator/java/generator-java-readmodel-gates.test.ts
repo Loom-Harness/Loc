@@ -87,7 +87,7 @@ system S {
       }
       projection OrderBoard keyed by order {
         order: Order id
-        cost: Money
+        cost: Money?
         on(e: OrderPlaced) { cost := Money { amount: 0, currency: "USD" } }
       }
     }
@@ -173,7 +173,7 @@ describe("entity-typed read-model fields are unreachable (M-T6.36)", () => {
       "projection row",
       `      projection OrderBoard keyed by order {
         order: Order id
-        line: Line
+        line: Line?
         on(e: OrderPlaced) { }
       }`,
     ],
