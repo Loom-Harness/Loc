@@ -16,7 +16,12 @@ import {
 
 function clock() {
   let t = 1_000_000;
-  return { now: () => t, advance: (ms: number) => void (t += ms) };
+  return {
+    now: () => t,
+    advance: (ms: number): void => {
+      t += ms;
+    },
+  };
 }
 
 describe("cache model — the redis commands the generated cache module sends", () => {
