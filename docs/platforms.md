@@ -292,7 +292,7 @@ promises whatever runs it — compose, the k8s manifests, the Helm chart:
 | `healthcheck(port, path)` / `healthcheckBinaries` | The compose `test:` command and the binaries it needs in the runtime image. |
 | `listen` | Address families the listener accepts — `ipv4`, `dual-stack`, or the defect `ipv6-required` (k8s probes dial IPv4). |
 | `log` | `loom-json` (the shared envelope, `docs/observability.md`), `framework-json` or `text`, plus the log-level env var. |
-| `broker` | Broker-client resilience: reconnect, a post-commit publish failure keeps the commit, bounded retry dead-letters under the generated ACL, trace propagation, messaging metrics. |
+| `broker` | Broker-client resilience: reconnect, the outbox rides out a broker outage without spending attempts, a post-commit publish failure keeps the commit, bounded retry dead-letters under the generated ACL, competing relays publish each row once, trace propagation, messaging metrics. The retry, backoff and claim numbers every backend uses live in `src/generator/_channels/delivery-policy.ts`. |
 | `migrations` | The boot migrator is idempotent on reboot and applies a changed non-last module. |
 | `gaps` | The open issue behind every fact above a platform does not meet yet. |
 

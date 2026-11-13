@@ -11,7 +11,11 @@
 import type { DataSourceIR, StorageIR } from "../../../ir/types/loom-ir.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { upperFirst } from "../../../util/naming.js";
-import { resourceEnvUrlVar, resourceSidecarUrl } from "../../../util/resource-env.js";
+import {
+  resourceEnvEndpointVar,
+  resourceEnvUrlVar,
+  resourceSidecarUrl,
+} from "../../../util/resource-env.js";
 
 export interface DotnetResourceAdapter {
   readonly name: string;
@@ -78,15 +82,25 @@ const s3DotnetAdapter: DotnetResourceAdapter = {
       "public static class S3Resources",
       "{",
       ...csJsonHelper,
+      "",
+      "    // An S3-compatible endpoint (the dev MinIO sidecar, or the storage's",
+      "    // declared one) is addressed path-style; none set means AWS proper.",
+      "    private static AmazonS3Client S3ClientFor(string? endpoint) =>",
+      "        string.IsNullOrEmpty(endpoint)",
+      "            ? new AmazonS3Client()",
+      "            : new AmazonS3Client(new AmazonS3Config { ServiceURL = endpoint, ForcePathStyle = true });",
     ];
     for (const r of resources) {
       const store = storeOf(r, stores);
       const bucket = cfg(store, "bucket") ?? "";
+      const endpoint = cfg(store, "endpoint");
       const cls = upperFirst(r.name);
       lines.push(
         `    private static readonly string ${cls}Bucket =`,
         `        Environment.GetEnvironmentVariable("${envVar(r.name)}_BUCKET") ?? ${JSON.stringify(bucket)};`,
-        `    private static readonly AmazonS3Client ${cls}Client = new AmazonS3Client();`,
+        `    private static readonly string? ${cls}Endpoint =`,
+        `        Environment.GetEnvironmentVariable("${resourceEnvEndpointVar(r.name)}")${endpoint ? ` ?? ${JSON.stringify(endpoint)}` : ""};`,
+        `    private static readonly AmazonS3Client ${cls}Client = S3ClientFor(${cls}Endpoint);`,
         "",
         `    public static async Task ${cls}_Put(string key, object body)`,
         "    {",
@@ -128,6 +142,7 @@ const s3DotnetAdapter: DotnetResourceAdapter = {
         `            BucketName = ${cls}Bucket,`,
         "            Key = key,",
         "            Expires = DateTime.UtcNow.AddHours(1),",
+        `            Protocol = ${cls}Endpoint?.StartsWith("http://", StringComparison.Ordinal) == true ? Protocol.HTTP : Protocol.HTTPS,`,
         "        });",
         "        return Task.FromResult(url);",
         "    }",

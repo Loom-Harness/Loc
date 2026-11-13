@@ -61,11 +61,21 @@ export interface BrokerResilience {
   /** A consumer that keeps failing is retried a bounded number of times and
    *  then dead-lettered — through an exchange the generated broker ACL allows. */
   readonly deadLettersUnderAcl: boolean;
+  /** Two replicas' outbox relays drain one backlog and publish each row
+   *  once: a pass claims its rows, skipping rows the other holds. */
+  readonly relaysCompete: boolean;
   /** A channel message carries the W3C trace context across the broker. */
   readonly propagatesTrace: boolean;
   /** The messaging tier exports metrics (published / consumed / retried /
    *  dead-lettered / outbox lag). */
   readonly exportsMetrics: boolean;
+}
+
+/** What a backend's resource clients guarantee on the dev stack. */
+export interface ResourceFacts {
+  /** An \`objectStore\` on an \`s3\` storage writes to the dev compose's MinIO
+   *  sidecar (endpoint, credentials and bucket wired), never to AWS. */
+  readonly objectStoreReachesSidecar: boolean;
 }
 
 /** What a backend guarantees about its security configuration. */
@@ -123,6 +133,8 @@ export interface PlatformOperations {
   env(args: EnvContractArgs): readonly EnvRequirement[];
   /** Present on a backend that emits a broker client. */
   readonly broker?: BrokerResilience;
+  /** Present on a backend that emits resource clients. */
+  readonly resources?: ResourceFacts;
   /** Present on a backend that verifies tokens. */
   readonly security?: SecurityFacts;
   /** Present on a backend that migrates a database at boot. */
@@ -161,14 +173,14 @@ export const FRONTEND_OPERATIONS: PlatformOperations = {
  *  ones not met yet.  A backend spreads these and overrides its own rows. */
 export const BROKER_BASELINE: BrokerResilience = {
   reconnects: true,
-  outboxRidesOutOutage: false,
+  outboxRidesOutOutage: true,
   publishFailureKeepsCommit: true,
   deadLettersUnderAcl: true,
+  relaysCompete: true,
   propagatesTrace: false,
   exportsMetrics: false,
 };
 export const BROKER_BASELINE_GAPS: Readonly<Record<string, string>> = {
-  "broker.outboxRidesOutOutage": "#4741",
   "broker.propagatesTrace": "#3582",
   "broker.exportsMetrics": "#3583",
 };
@@ -180,13 +192,10 @@ export const MIGRATIONS_BASELINE: MigrationRunnerFacts = {
   multiModule: true,
 };
 
-/** `gaps` minus the facts a platform meets. */
-export function withoutGaps(
-  gaps: Readonly<Record<string, string>>,
-  ...met: string[]
-): Readonly<Record<string, string>> {
-  return Object.fromEntries(Object.entries(gaps).filter(([k]) => !met.includes(k)));
-}
+/** The resource-client facts every backend meets. */
+export const RESOURCES_BASELINE: ResourceFacts = {
+  objectStoreReachesSidecar: true,
+};
 
 /** The security facts every backend meets. */
 export const SECURITY_BASELINE: SecurityFacts = {
