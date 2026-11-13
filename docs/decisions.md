@@ -5028,10 +5028,11 @@ cannot describe a response its serializer cannot produce.
 `.loom/wire-spec.json` is not retired but rebuilt from the records, and it
 now carries the request contracts too (the `command` / `query` records and
 each command-started workflow's create parameters); `ddd diff` classifies a
-removed or newly required request field as breaking. One gap remains and is
-pinned exactly by `test/system/wire-spec-requests-census.test.ts`: an
-aggregate with no `repository` in source is served through the repository
-enrichment adds, but the scaffold splices no command record for it. The divergence census the rationale above cites is retired with the
+removed or newly required request field as breaking. The scaffold splices the
+request records for every concrete aggregate, served through a declared or
+an enrichment-added repository alike, and
+`test/system/wire-spec-requests-census.test.ts` proves every served create,
+operation and command-started workflow has one. The divergence census the rationale above cites is retired with the
 derived shape: both sides it compared are now the same rows.
 
 **Affects.** `src/ir/enrich/wire-projection.ts`; `src/system/wire-spec.ts`;

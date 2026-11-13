@@ -47,47 +47,6 @@ function expectedRequests(sys: EnrichedSystemIR): { want: string[]; have: Set<st
   return { want, have };
 }
 
-/** Requests the deployable serves with no declared contract record: an
- *  aggregate with no `repository` in source is served through the repository
- *  enrichment adds, but the scaffold — which runs before enrichment — splices
- *  no command record for it.  Pinned exactly; a fix deletes its rows. */
-const UNCONTRACTED_REQUESTS = [
-  "test/fixtures/corpus/exists-quantifier.ddd: CreateCategoryCommand",
-  "test/fixtures/corpus/exists-quantifier.ddd: UpdateCategoryCommand",
-  "test/fixtures/corpus/exists-quantifier.ddd: CreateCategoryShareCommand",
-  "test/fixtures/corpus/exists-quantifier.ddd: UpdateCategoryShareCommand",
-  "test/fixtures/corpus/exists-quantifier.ddd: CreateSealCommand",
-  "test/fixtures/corpus/exists-quantifier.ddd: UpdateSealCommand",
-  "test/fixtures/corpus/org-context.ddd: CreateMemoCommand",
-  "test/fixtures/corpus/org-context.ddd: UpdateMemoCommand",
-  "test/fixtures/corpus/org-context.ddd: CreateMemoGrantCommand",
-  "test/fixtures/corpus/org-context.ddd: UpdateMemoGrantCommand",
-  "test/fixtures/corpus/part-rules-private-op.ddd: CreateInvoiceCommand",
-  "test/fixtures/corpus/part-rules-private-op.ddd: BumpInvoiceCommand",
-  "test/fixtures/corpus/policy-row-rules.ddd: CreateOrgCommand",
-  "test/fixtures/corpus/policy-row-rules.ddd: UpdateOrgCommand",
-  "test/fixtures/corpus/policy-row-rules.ddd: CreateCategoryCommand",
-  "test/fixtures/corpus/policy-row-rules.ddd: UpdateCategoryCommand",
-  "test/fixtures/corpus/policy-row-rules.ddd: CreateCategoryShareCommand",
-  "test/fixtures/corpus/policy-row-rules.ddd: UpdateCategoryShareCommand",
-  "test/fixtures/corpus/policy-row-rules.ddd: CreateProductCommand",
-  "test/fixtures/corpus/policy-row-rules.ddd: UpdateProductCommand",
-  "test/fixtures/corpus/policy-row-rules.ddd: CreateNoteCommand",
-  "test/fixtures/corpus/policy-row-rules.ddd: UpdateNoteCommand",
-  "test/fixtures/corpus/projection-agg-filters.ddd: CreateOrganizationCommand",
-  "test/fixtures/corpus/projection-agg-filters.ddd: UpdateOrganizationCommand",
-  "test/fixtures/corpus/ref-collection-service.ddd: CreateSpecialityCommand",
-  "test/fixtures/corpus/ref-collection-service.ddd: UpdateSpecialityCommand",
-  "test/fixtures/corpus/shareable.ddd: CreateCategoryShareCommand",
-  "test/fixtures/corpus/shareable.ddd: RevokeCategoryShareCommand",
-  "test/fixtures/corpus/tenancy-claim-name.ddd: CreateOrganizationCommand",
-  "test/fixtures/corpus/tenancy-claim-name.ddd: UpdateOrganizationCommand",
-  "test/fixtures/corpus/tenancy-owned.ddd: CreatePlanCommand",
-  "test/fixtures/corpus/tenancy-owned.ddd: UpdatePlanCommand",
-  "test/fixtures/corpus/tenancy-owned.ddd: CreateOrganizationCommand",
-  "test/fixtures/corpus/tenancy-owned.ddd: UpdateOrganizationCommand",
-];
-
 describe("wire-spec request contracts (corpus census)", () => {
   it("carries a request contract for every create, operation and command-started workflow", async () => {
     const missing: string[] = [];
@@ -115,6 +74,6 @@ describe("wire-spec request contracts (corpus census)", () => {
     // The denominator: a census over an empty population proves nothing.
     expectReach("served requests", requests, 900);
     expectReach("command-started workflows", workflows, 50);
-    expect(missing.sort()).toEqual([...UNCONTRACTED_REQUESTS].sort());
+    expect(missing).toEqual([]);
   }, 180_000);
 });

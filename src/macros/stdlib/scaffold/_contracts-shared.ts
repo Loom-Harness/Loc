@@ -40,9 +40,9 @@ import {
   response,
 } from "../../api/index.js";
 import {
-  type HandlerTarget,
-  handlerTargets,
   idParamName,
+  type RequestTarget,
+  requestTargets,
   targetHandlerName,
 } from "./_handlers-shared.js";
 
@@ -68,9 +68,10 @@ export function contractRecords(ctx: BoundedContext): ContractRecord[] {
     for (const partRec of partResponses(agg)) emit(partRec);
   }
 
-  // Command / query records — the request contracts, one per handler target so
-  // they stay in lock-step with the handlers `scaffoldHandlers` emits.
-  for (const t of handlerTargets(ctx)) {
+  // Command / query records — the request contracts, one per request the
+  // context serves.  A handler target is a request target with a declared
+  // repository, so every handler `scaffoldHandlers` emits names one of these.
+  for (const t of requestTargets(ctx)) {
     emit(contractForTarget(t));
   }
 
@@ -83,7 +84,7 @@ export function contractRecords(ctx: BoundedContext): ContractRecord[] {
  *   - destroy  → `command <Destroy<Agg>>Command`  empty (id is a route param)
  *   - getById  → `query   <Get<Agg>>Query`        over the single `<agg>Id` id
  * The `*Command` name matches the .NET Mediator record name a later PR wires up. */
-function contractForTarget(t: HandlerTarget): ContractRecord {
+function contractForTarget(t: RequestTarget): ContractRecord {
   const base = targetHandlerName(t);
   switch (t.kind) {
     case "create":
