@@ -498,10 +498,21 @@ SIGTERM. Left to these legs, a race is only tested when it is lost.
 
 The real-process legs speak AMQP and RESP to a real broker, not to an emulation.
 `broker-sidecar.mjs` starts one digest-pinned container per broker type
-(`BROKER_IMAGES`: `rabbitmq:4.1-management-alpine`, `valkey/valkey:8-alpine`)
-with `docker run`. In CI it uses the workflow's `services: rabbitmq` entry,
-named by `LOOM_FAKE_AMQP_URL` and `LOOM_FAKE_AMQP_MGMT_URL`. Kafka is not
-covered here; it stays on the `channels-e2e` legs.
+(`BROKER_IMAGES`: `rabbitmq:4.1-management-alpine`, `valkey/valkey:8-alpine`,
+`apache/kafka:4.1.0`) with `docker run`. In CI the rabbitmq one comes from the
+workflow's `services: rabbitmq` entry, named by `LOOM_FAKE_AMQP_URL` and
+`LOOM_FAKE_AMQP_MGMT_URL`.
+
+Kafka always runs as its own container, one per case, because a case's SASL
+users are fixed when the broker starts. The kit starts it from the case's
+compose `environment:` (`containerEnv`), with three changes:
+- the listener the backend dials is re-advertised on a loopback host port;
+- the controller quorum points at `localhost`;
+- the harness's own tools use the plaintext inter-broker listener inside the
+  container.
+
+`observe()` takes each user topic's record count from `kafka-get-offsets.sh`,
+then reads exactly that many records with the image's console consumer.
 
 - **Topology and grants.** `start({ storage, definitions })` imports the case's
   generated `broker-init/<storage>-definitions.json` through the management
@@ -514,7 +525,8 @@ covered here; it stays on the `channels-e2e` legs.
 - **Observation.** Tracing is on for every vhost, and a tap queue bound to
   `amq.rabbitmq.trace` with `publish.#` copies each publish. A message published
   to an exchange that no consumer has bound is still seen. On valkey, a
-  `PSUBSCRIBE *` connection is the tap. `await observe()` drains the tap into
+  `PSUBSCRIBE *` connection is the tap. On kafka, the topics are read back,
+  and the topic name stands in for the exchange. `await observe()` drains the tap into
   sorted `{ exchange, routingKey, type, count }` rows, where `type` is the
   CloudEvent `type` (`null` for a plain queue message).
 - **Between cases.** `load(definitions)` and `reset()` delete every vhost and
