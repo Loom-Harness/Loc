@@ -12,7 +12,7 @@
 // `npm install` would ERESOLVE.  vee-validate core carries no zod peer,
 // and the `TypedSchema` contract is tiny + stable, so wrapping the zod
 // schema here keeps the dependency graph clean.
-import { reactive } from "vue";
+import { reactive, watch } from "vue";
 import { type TypedSchema, useForm } from "vee-validate";
 import type { z } from "zod";
 {{{tBinding}}}
@@ -146,6 +146,22 @@ function toTypedSchema<T>(
   };
 }
 
+/** Leaf paths of a draft value map, each with its string form.  Plain objects
+ *  and arrays are walked; anything else (a `Decimal`, a `Date`, a scalar) is a
+ *  leaf. */
+function flattenLeaves(v: unknown, prefix: string, out: Map<string, string>): Map<string, string> {
+  const isPlain =
+    v !== null && typeof v === "object" && (Array.isArray(v) || Object.getPrototypeOf(v) === Object.prototype);
+  if (!isPlain) {
+    out.set(prefix, String(v));
+    return out;
+  }
+  for (const [k, child] of Object.entries(v as Record<string, unknown>)) {
+    flattenLeaves(child, prefix === "" ? k : `${prefix}.${k}`, out);
+  }
+  return out;
+}
+
 export function useLoomForm<T extends Record<string, unknown>>(
   schema: z.ZodType<T>,
   // DRAFT values, deliberately looser than T: an enum field starts
@@ -157,10 +173,29 @@ export function useLoomForm<T extends Record<string, unknown>>(
 ): LoomForm<T> {
   const values = reactive(initialValues) as unknown as FormValues<T>;
   const meta = reactive<Record<string, ErrorMeta>>({});
+  // A schema error shows only once its field was edited or a submit was
+  // attempted (the React/Svelte forms' touched gate); a server rejection
+  // (`setError`) shows at once.  `shown` holds the edited leaf paths and the
+  // server-placed paths; `attempted` flips on the first submit.
+  const initialLeaves = flattenLeaves(initialValues, "", new Map());
+  const shown = reactive(new Set<string>());
+  const attempted = reactive({ value: false });
   const form = useForm({
     validationSchema: toTypedSchema(schema, meta),
     initialValues: initialValues as Record<string, unknown>,
   });
+  watch(
+    () => flattenLeaves(values, "", new Map()),
+    (now) => {
+      for (const [path, text] of now) if (initialLeaves.get(path) !== text) shown.add(path);
+    },
+    { deep: true, flush: "sync" },
+  );
+  const isShown = (key: string): boolean => {
+    if (attempted.value || key === "__global" || shown.has(key)) return true;
+    for (const p of shown) if (p.startsWith(`${key}.`)) return true;
+    return false;
+  };
 
   // `form.errors` is a ComputedRef keyed by dot-path (only errored
   // fields present).  Expose it as a plain lookup so the pack markup's
@@ -168,6 +203,7 @@ export function useLoomForm<T extends Record<string, unknown>>(
   const errors = new Proxy({} as Record<string, string | undefined>, {
     get: (_target, key: string | symbol): string | undefined => {
       if (typeof key !== "string") return undefined;
+      if (!isShown(key)) return undefined;
       const text = form.errors.value[key];
       const m = meta[key];
       return text !== undefined && m !== undefined && m.message === text
@@ -179,9 +215,11 @@ export function useLoomForm<T extends Record<string, unknown>>(
   function clearErrors(): void {
     form.setErrors({});
     for (const k of Object.keys(meta)) delete meta[k];
+    shown.clear();
   }
   function setError(path: string, message: string, code?: string, params?: Record<string, unknown>): void {
     form.setFieldError(path, message);
+    shown.add(path);
     if (code !== undefined) meta[path] = { code, message, params };
     else delete meta[path];
   }
@@ -196,6 +234,7 @@ export function useLoomForm<T extends Record<string, unknown>>(
     });
     return async (e?: Event): Promise<void> => {
       e?.preventDefault();
+      attempted.value = true;
       // Feed the locally-held draft into vee-validate, then validate +
       // dispatch through its submit runner (which short-circuits when
       // invalid, leaving `errors` populated).

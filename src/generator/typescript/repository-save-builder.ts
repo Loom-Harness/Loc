@@ -11,6 +11,7 @@ import { rowVersionGuarded } from "../../ir/enrich/version-check.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
+  EnrichedBoundedContextIR,
   EntityPartIR,
   FieldIR,
   TypeIR,
@@ -26,6 +27,7 @@ import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { aggregateIsAudited, stampInsertCall, stampUpdateCall } from "./emit/audit-stamp.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
+import { refAdmissionLines } from "./ref-admission.js";
 import { associationsOf } from "./repository-associations-builder.js";
 import { drizzleKindPredicate } from "./repository-find-predicate.js";
 import { inRowTenant } from "./row-tenant.js";
@@ -272,13 +274,15 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
 
 export function saveMethod(
   agg: EnrichedAggregateIR,
-  ctx: BoundedContextIR,
+  ctx: EnrichedBoundedContextIR,
   emitTrace = false,
 ): string {
   // Inner body of the save transaction at 6-space indent.  Built into a
   // local array so the trace-on variant can wrap it with try/catch +
   // tx_* logs without duplicating the body.
-  const body = saveTxBody(agg, ctx, emitTrace);
+  // Reference admission (ref-admission.ts) runs first, so a refused reference
+  // rolls the transaction back before anything is written.
+  const body = [...refAdmissionLines(agg, ctx), ...saveTxBody(agg, ctx, emitTrace)];
   // A versioned aggregate's save accepts the client's expected version
   // (threaded from the route's `If-Match` header) as an optional second
   // arg — optional so every other mutate route, which only ever loaded
