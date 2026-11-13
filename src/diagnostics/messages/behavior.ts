@@ -295,7 +295,7 @@ export const messages = {
   // src/ir/validate/checks/domain-service-checks.ts
   // ----------------------------------------------------------------------
   "loom.domain-service-no-principal": (p: { where: unknown; what: unknown }) =>
-    `${p.where}: ${p.what} needs the caller's principal, but a stateless domain service is never handed one.  Gate in the operation or workflow that calls the service, or pass the value the calculation needs as a parameter.`,
+    `A stateless domain service is never handed the caller's principal, so ${p.what} in ${p.where} has nothing to read.  Gate in the operation or workflow that calls the service, or pass the value the calculation needs as a parameter.`,
   "loom.domain-service-no-emit": (p: { where: unknown; eventName: unknown }) =>
     `${p.where}: 'emit ${p.eventName}' is not allowed — a stateless domain service has no identity to attribute an event to.  Emit from the aggregate or workflow that owns the fact.`,
   "loom.domain-service-no-mutation": (p: { where: unknown; segments: unknown; kind: unknown }) =>
