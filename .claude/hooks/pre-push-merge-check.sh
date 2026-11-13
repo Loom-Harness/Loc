@@ -278,6 +278,10 @@ sync_only_gate() {
   # The old head conflicted with main → the sync is required to enter the
   # queue. A merge-tree error (old git) is "don't know" → allow.
   git merge-tree --write-tree origin/main "$old" >/dev/null 2>&1 || return 0
+  # Several merge bases (a criss-cross of earlier syncs): git's merge resolves
+  # them into a virtual base, while GitHub's mergeability check does not, so
+  # a "clean" here can be a conflict there. Don't know → allow.
+  [ "$(git merge-base --all origin/main "$old" 2>/dev/null | wc -l)" -le 1 ] || return 0
   deny "git push blocked: this push only merges origin/main into '${branch}' — it adds no commit of its own.
 The old head merges cleanly into main, and the merge queue re-tests every entry on top of current main, so the sync buys nothing and re-runs ~100 CI checks on a shared ~20-runner pool.
 Don't push it. Leave the branch as it is.
