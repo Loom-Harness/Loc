@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { channelPlan, deliversLocally, eventRoute } from "../../../src/ir/plan/index.js";
 import type { EnrichedSystemIR } from "../../../src/ir/types/loom-ir.js";
 import { buildLoomModel } from "../../_helpers/index.js";
+import { corpusSourceFor } from "../../fixtures/corpus/harness.js";
 
 const SOURCE = `
 system Acme {
@@ -135,5 +136,19 @@ describe("channelPlan", () => {
     expect(plan.bindings).toEqual([]);
     expect(eventRoute(plan, "OrderPlaced")).toBe("outbox-local");
     expect(eventRoute(plan, "OrderNoted")).toBe("inline-local");
+  });
+
+  it("a projection fold over a broker-carried event makes the deployable a broker consumer", async () => {
+    const loom = await buildLoomModel(corpusSourceFor("channels-broker-projection", "node"));
+    const sys = loom.systems[0] as EnrichedSystemIR;
+    const deployable = sys.deployables.find((d) => d.name === "shipApi");
+    if (!deployable) throw new Error("no shipApi");
+    const contexts = sys.subdomains
+      .flatMap((d) => d.contexts)
+      .filter((c) => deployable.contextNames.includes(c.name));
+    const plan = channelPlan(contexts, { deployable, sys });
+    expect(plan.subscriptions.every((s) => s.projection)).toBe(true);
+    expect(plan.consumesFromBroker).toBe(true);
+    expect([...plan.brokerConsumedEvents]).toEqual(["OrderPlaced"]);
   });
 });

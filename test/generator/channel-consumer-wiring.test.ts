@@ -1,0 +1,60 @@
+// Wiring no booted tier reaches yet: the broker consumer each backend starts on
+// a deployable whose only consumer of a broker event is a projection fold.
+//
+// Why the string tier: observing it means booting two deployables around a
+// broker, which the behavioural legs do not do yet (#5613).  The claim moves to
+// `channels-broker-projection`'s behavioural block once they do.  (That the
+// node boot chain folds is behavioural already: `projection-explicit-dispatcher`
+// on the mikroorm leg, which boots the generated entrypoint.)
+
+import { describe, expect, it } from "vitest";
+import { generateSystemFiles } from "../_helpers/index.js";
+import type { Backend } from "../fixtures/corpus/backends.js";
+import { corpusSourceFor } from "../fixtures/corpus/harness.js";
+
+async function files(fixture: string, backend: Backend): Promise<Map<string, string>> {
+  return generateSystemFiles(corpusSourceFor(fixture, backend));
+}
+
+function file(out: Map<string, string>, path: string): string {
+  const text = out.get(path);
+  if (text === undefined) throw new Error(`not emitted: ${path}`);
+  return text;
+}
+
+describe("a projection-only broker consumer runs a broker consumer on every backend", () => {
+  const fixture = "channels-broker-projection";
+
+  it("node: boot starts the consumer into a chain that folds", async () => {
+    const boot = file(await files(fixture, "node"), "ship_api/boot.ts");
+    expect(boot).toMatch(/startChannelConsumers\(channelTransports, inProcessEvents\)/);
+    expect(boot).toMatch(/const inProcessEvents = projectionTee\(db, /);
+  });
+
+  it("dotnet: the consumer service is hosted", async () => {
+    const program = file(await files(fixture, "dotnet"), "ship_api/Program.cs");
+    expect(program).toContain("AddHostedService<ChannelConsumerService>()");
+  });
+
+  it("python: main starts the consumer task", async () => {
+    const main = file(await files(fixture, "python"), "ship_api/app/main.py");
+    expect(main).toContain("await start_channel_consumers()");
+  });
+
+  it("java: the consumer routes the event to the fold", async () => {
+    const out = await files(fixture, "java");
+    const path = [...out.keys()].find(
+      (p) => p.startsWith("ship_api/") && p.endsWith("/ChannelConsumerService.java"),
+    );
+    expect(path, "ChannelConsumerService.java").toBeDefined();
+    expect(file(out, path as string)).toContain("onOrderBookOnOrderPlaced(");
+  });
+
+  it("elixir: the consumer routes the event", async () => {
+    const consumer = file(
+      await files(fixture, "vanilla"),
+      "ship_api/lib/ship_api/channel_consumer.ex",
+    );
+    expect(consumer).toContain("Events.OrderPlaced{}");
+  });
+});

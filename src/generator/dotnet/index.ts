@@ -366,7 +366,9 @@ function emitProjectFromContexts(
   const channelBindings = chPlan.bindings;
   const mergedSubscriptions = chPlan.subscriptions;
   const hasChannels = channelBindings.length > 0;
-  const hasChannelConsumers = hasChannels && mergedSubscriptions.some((sub) => !sub.projection);
+  // A broker consumer runs when a hosted reactor, event-triggered create or
+  // projection fold consumes an event a wired binding carries.
+  const hasChannelConsumers = chPlan.consumesFromBroker;
   const hasSubscriptions =
     contexts.some((c) => c.eventSubscriptions.length > 0 || (c.projections?.length ?? 0) > 0) ||
     hasChannelConsumers;

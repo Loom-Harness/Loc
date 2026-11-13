@@ -1,0 +1,6 @@
+{
+  "title": "durable broker channel whose only consumer is a projection fold on another deployable",
+  "doc": "channels",
+  "backends": "ALL",
+  "note": "the consumer deployable has a fold and no reactor.  The channel plan's `consumesFromBroker` counts the fold, so every backend emits and starts a broker consumer on `shipApi`; a backend that keys the consumer on a non-projection subscription emits none and the projection never folds.  The behavioural cell (place on salesApi → OrderBook row on shipApi) needs the broker sidecar."
+}

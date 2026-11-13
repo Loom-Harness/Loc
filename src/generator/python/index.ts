@@ -253,9 +253,9 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     events: [...mergedBase.events, ...foreignConsumedEvents],
   };
   const hasChannels = channelBindings.length > 0;
-  // Consumer side only when a hosted WORKFLOW reactor subscribes (slice-2
-  // scope: projection folds stay on the in-process path).
-  const hasChannelConsumers = hasChannels && mergedSubscriptions.some((s) => !s.projection);
+  // A broker consumer runs when a hosted reactor, event-triggered create or
+  // projection fold consumes an event a wired binding carries.
+  const hasChannelConsumers = chPlan.consumesFromBroker;
   // Durable broker-bound events (M-T4.4): carried by a wired
   // `queue`/`work` (or future `log`) channel — the producer path for these
   // rides the outbox relay (design §5), never the inline tee.  Intersected

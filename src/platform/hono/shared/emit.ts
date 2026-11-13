@@ -1688,10 +1688,10 @@ export function generateTypeScriptForContexts(
       renderChannelsModule(channelBindings, merged.events, valueObjectPool(merged), authRequired),
     );
   }
-  // Consumer side only when a hosted workflow actually subscribes (via a
-  // hosted OR wired channel); a pure producer skips the loop and the
-  // in-process dispatcher import.
-  const hasChannelConsumers = hasChannels && merged.eventSubscriptions.some((s) => !s.projection);
+  // A broker consumer runs when a hosted reactor, event-triggered create or
+  // projection fold consumes an event a wired binding carries; a pure
+  // producer skips the loop and the in-process dispatcher import.
+  const hasChannelConsumers = chPlan.consumesFromBroker;
   // A tick whose channel this deployable binds to a broker is published
   // through the tee like any other event, so a consumer on another deployable
   // receives it; otherwise the scheduler keeps dispatching in-process.
@@ -1784,6 +1784,10 @@ export function generateTypeScriptForContexts(
     // the in-process dispatcher.
     hasChannels,
     hasChannelConsumers,
+    // Folds run on every dispatcher boot builds, as they do on createApp's
+    // default chain: the relay, the consumers and the scheduler all deliver
+    // events a projection may fold.
+    foldsProjections: merged.projections.some(isMaterializedProjection),
     // A native run (`npm run dev`) listens on the deployable's declared
     // port; the image sets PORT to its container port.
     nativePort: system.deployable.port,
@@ -2244,6 +2248,7 @@ interface ProjectEntryConfig {
   readonly usingMikro: boolean;
   readonly outboxRelay: boolean;
   readonly hasRealtime: boolean;
+  readonly foldsProjections: boolean;
   readonly oidc: boolean;
   readonly hasTimers: boolean;
   readonly hasChannels: boolean;
@@ -2309,7 +2314,16 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
     hasChannelConsumers,
     timerTicksOverBroker,
     inProcessDispatcherEmitted,
+    foldsProjections,
   } = cfg;
+  // The dispatcher chain boot builds, innermost first: the workflow fan-out
+  // (or Noop), the projection folds, then the SSE copy — the same order as
+  // createApp's default chain, so an event folds once whichever path
+  // delivers it.
+  const chain = (base: string): string => {
+    const folded = foldsProjections ? `${T.projectionTee}(db, ${base})` : base;
+    return hasRealtime ? `${T.realtimeTee}(${folded})` : folded;
+  };
   const seedCall = runSeedsAtBoot
     ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the __loom_seed marker; idempotent across boots.\nawait ${T.runSeeds}(db);\n`
     : "";
@@ -2403,26 +2417,16 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
           : `// In-process event dispatcher — shared with the timer scheduler
 // (scheduling.md): tick events dispatch through the same routing sagas use.
 `
-      }const inProcessEvents = ${
-        withInProcess
-          ? hasRealtime
-            ? `${T.realtimeTee}(${T.createInProcessDispatcher}(db))`
-            : `${T.createInProcessDispatcher}(db)`
-          : hasRealtime
-            ? `${T.realtimeTee}(${T.NoopDomainEventDispatcher})`
-            : `${T.NoopDomainEventDispatcher}`
-      };
+      }const inProcessEvents = ${chain(
+        withInProcess ? `${T.createInProcessDispatcher}(db)` : `${T.NoopDomainEventDispatcher}`,
+      )};
 ${
   withInProcess
     ? `// The request path's twin (workflow.md § Reactor failures): its reactors
 // run after the command committed, so a reactor failure is retried, then
 // logged \`reactor_failed\` — it never fails the committed command.  The
 // instance above keeps throwing: the relay / consumers / scheduler retry on it.
-const requestEvents = ${
-        hasRealtime
-          ? `${T.realtimeTee}(${T.createInProcessDispatcher}(db, { isolateReactorFailures: true }))`
-          : `${T.createInProcessDispatcher}(db, { isolateReactorFailures: true })`
-      };
+const requestEvents = ${chain(`${T.createInProcessDispatcher}(db, { isolateReactorFailures: true })`)};
 `
     : ""
 }${
