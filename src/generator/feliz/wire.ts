@@ -59,6 +59,7 @@ import { errorTypeUri } from "../../util/error-defaults.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { type FormFieldArms, formFieldSpec, renderFormField } from "../_frontend/form-spec.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
 import { provenancedTypeMembers } from "../_payload/provenanced-wire.js";
@@ -940,35 +941,50 @@ function inputKindFor(
   enumsByName: ReadonlyMap<string, string[]>,
   idLabels: ReadonlyMap<string, string>,
 ): FelizInputKind {
-  const base = scalarBase(t);
-  if (base.kind === "enum" && enumsByName.has(base.name)) return "select";
-  if (base.kind === "id" && idLabels.has(base.targetName)) return "idselect";
-  if (base.kind === "primitive") {
-    switch (base.name) {
-      case "int":
-      case "long":
-      case "decimal":
-      case "money":
-        return "number";
-      case "bool":
-        return "checkbox";
-      // A calendar `date` renders a date picker; its string value is already
-      // the wire's `YYYY-MM-DD`, so the form cell and the encoder stay strings.
-      case "date":
-        return "date";
-      // A `File` is not typeable: it renders a file picker whose pick uploads
-      // (multipart POST /files) and whose RESULT — the `FileRef` — is what the
-      // form submits.  Without this arm the field fell to `text` and encoded
-      // `Encode.string form.<f>` — a guaranteed 422 (the backend expects the
-      // FileRef object `{ url, key, contentType, size }`).
-      case "File":
-        return "file";
-      default:
-        return "text";
-    }
-  }
-  return "text"; // id / unresolved enum (string name) / everything else
+  // This projection holds no bounded context: the spec reads the maps it
+  // carries (resolvable enums; ids whose target has a label).
+  const spec = formFieldSpec(
+    { name: "", type: t },
+    {
+      enumValues: (name) => enumsByName.get(name),
+      valueObjectFields: () => undefined,
+      hasDisplay: (aggregate) => idLabels.has(aggregate),
+      isPaged: () => false,
+    },
+  );
+  return renderFormField(spec, FELIZ_FORM_FIELD_ARMS, undefined);
 }
+
+const felizText = (): FelizInputKind => "text";
+const felizNumber = (): FelizInputKind => "number";
+
+/** The Feliz input widget per form field kind.  A value object, an array or an
+ *  unresolved enum is plain text: the Feliz form record is all-string and
+ *  nested shapes are flattened by the caller before classification. */
+export const FELIZ_FORM_FIELD_ARMS: FormFieldArms<FelizInputKind> = {
+  string: felizText,
+  int: felizNumber,
+  decimal: felizNumber,
+  money: felizNumber,
+  bool: () => "checkbox",
+  // A calendar `date` renders a date picker; its string value is already
+  // the wire's `YYYY-MM-DD`, so the form cell and the encoder stay strings.
+  date: () => "date",
+  datetime: felizText,
+  // A `File` is not typeable: it renders a file picker whose pick uploads
+  // (multipart POST /files) and whose RESULT — the `FileRef` — is what the
+  // form submits.
+  file: () => "file",
+  enum: () => "select",
+  ref: (f) => (f.picker?.hasDisplay ? "idselect" : "text"),
+  optionalRef: (f) => (f.picker?.hasDisplay ? "idselect" : "text"),
+  valueObject: felizText,
+  optionalValueObject: felizText,
+  scalarArray: felizText,
+  enumArray: felizText,
+  refArray: felizText,
+  objectArray: felizText,
+};
 
 /** The BARE string a constant/enum `= default` seeds into the all-string Feliz
  *  form model (`Model.<field> = "<seed>"`), or `undefined` when the default is

@@ -12,6 +12,13 @@ import { modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
 import { humanize, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { renderDefaultSeed } from "../_frontend/default-seed.js";
 import { unwrapOpt } from "../_frontend/form-helpers.js";
+import {
+  type FormFieldArms,
+  type FormFieldSpec,
+  formFieldSpec,
+  formSpecEnvOf,
+  renderFormField,
+} from "../_frontend/form-spec.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
 import { localizedModelText, localizedPageChromeText } from "../_walker/i18n-emit.js";
 import { enumLabelEntries, implicitModelTextOn } from "../_walker/model-text-sites.js";
@@ -560,6 +567,42 @@ export function fieldInput(
   // an unimported `FileRef` and an unimported `api` in the emitted
   // `onFileUpload` method.
   const inner = unwrapOpt(t);
+  const c: AngularArmCtx = {
+    name,
+    t,
+    bc,
+    ctx,
+    testidBase,
+    formVar,
+    label,
+    testid,
+    cn,
+    style,
+    inner,
+  };
+  const spec = formFieldSpec(
+    { name, type: t },
+    formSpecEnvOf(bc, ctx.aggregatesByName, ctx.bcByAggregate),
+  );
+  return renderFormField(spec, ANGULAR_FORM_FIELD_ARMS, c);
+}
+
+interface AngularArmCtx {
+  name: string;
+  t: TypeIR;
+  bc: BoundedContextIR;
+  ctx: WalkContext;
+  testidBase: string;
+  formVar: string | undefined;
+  label: string;
+  testid: string;
+  cn: string;
+  style: ReturnType<typeof formStyle>;
+  inner: TypeIR;
+}
+
+function angularFileInput(_f: FormFieldSpec, c: AngularArmCtx): string {
+  const { name, ctx, formVar, label, testid } = c;
   // A `File` field renders a native file input that multipart-POSTs the chosen
   // file to `/files` (`api.upload`) and writes the returned `FileRef` back into
   // the reactive-form control — file inputs can't use `formControlName` (the
@@ -567,14 +610,16 @@ export function fieldInput(
   // the control off the form group and `setValue`s it via `onFileUpload`.  A
   // plain input across all packs (no design-system file component exists in
   // Material/PrimeNG/spartanNg); mirrors the JSX frontends' `field-input-file`.
-  if (inner.kind === "primitive" && inner.name === "File") {
-    registerFileUploadImports(ctx);
-    // The control name is single-quoted: it sits inside the double-quoted
-    // `(change)="…"` attribute, so `JSON.stringify`'s double quotes would close
-    // the attribute early.  Field names are safe identifiers (no escaping needed).
-    const change = formVar ? ` (change)="onFileUpload($event, ${formVar}.get('${name}'))"` : "";
-    return `<label class="loom-field"><span class="loom-label">${label}</span><input type="file" class="loom-input"${testid}${change} /></label>`;
-  }
+  registerFileUploadImports(ctx);
+  // The control name is single-quoted: it sits inside the double-quoted
+  // `(change)="…"` attribute, so `JSON.stringify`'s double quotes would close
+  // the attribute early.  Field names are safe identifiers (no escaping needed).
+  const change = formVar ? ` (change)="onFileUpload($event, ${formVar}.get('${name}'))"` : "";
+  return `<label class="loom-field"><span class="loom-label">${label}</span><input type="file" class="loom-input"${testid}${change} /></label>`;
+}
+
+function angularArrayStub(_f: FormFieldSpec, c: AngularArmCtx): string {
+  const { ctx, label, testid, style } = c;
   // An array-valued field that the VO-row `FormArray` path did not claim (a
   // reference collection `Tag id[]`, a primitive/enum collection).  Rendered
   // like the JSX frontends' `field-input-array` fallback: a DISABLED,
@@ -583,58 +628,65 @@ export function fieldInput(
   // control, so the form would POST `"a,b"` where the wire wants `["a","b"]`.
   // Left unbound, the control keeps its `[]` seed and the submit path sends an
   // array.  (Same reasoning as the `File` branch above.)
-  if (inner.kind === "array") {
-    const ph = ARRAY_UNSUPPORTED_PLACEHOLDER;
-    if (style === "material") {
-      addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
-      addNg(ctx, "@angular/material/input", "MatInputModule");
-      return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><input matInput placeholder="${ph}" disabled${testid}></mat-form-field>`;
-    }
-    if (style === "primeng") {
-      addNg(ctx, "primeng/inputtext", "InputTextModule");
-      return `<label class="loom-field"><span class="loom-label">${label}</span><input pInputText class="loom-input" placeholder="${ph}" disabled${testid} /></label>`;
-    }
-    return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input" placeholder="${ph}" disabled${testid} /></label>`;
+  const ph = ARRAY_UNSUPPORTED_PLACEHOLDER;
+  if (style === "material") {
+    addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
+    addNg(ctx, "@angular/material/input", "MatInputModule");
+    return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><input matInput placeholder="${ph}" disabled${testid}></mat-form-field>`;
   }
-  if (inner.kind === "enum") {
-    const en = enumPool(bc).find((e) => e.name === inner.name);
-    const values = en?.values ?? [];
-    // Each option's text: the identity-keyed translation of the value, else the
-    // raw wire value.
-    const optionLabels = enumOptionLabels(ctx, bc, inner.name, values);
-    const optionText = (v: string): string =>
-      optionLabels ? ctx.target.renderInterpolation(optionLabels.get(v)!, STRING) : v;
-    if (style === "material") {
-      addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
-      addNg(ctx, "@angular/material/select", "MatSelectModule");
-      const opts = values
-        .map((v) => `<mat-option value=${JSON.stringify(v)}>${optionText(v)}</mat-option>`)
-        .join("");
-      return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><mat-select formControlName=${cn}${testid}>${opts}</mat-select></mat-form-field>`;
-    }
-    if (style === "primeng") {
-      addNg(ctx, "primeng/select", "SelectModule");
-      const opts = optionLabels
-        ? `[${values.map((v) => `{ "label": ${optionLabels.get(v)}, "value": ${JSON.stringify(v)} }`).join(", ")}]`
-        : JSON.stringify(values.map((v) => ({ label: v, value: v })));
-      return `<label class="loom-field"><span class="loom-label">${label}</span><p-select [options]='${opts}' optionLabel="label" optionValue="value" styleClass="loom-input" formControlName=${cn}${testid}></p-select></label>`;
-    }
+  if (style === "primeng") {
+    addNg(ctx, "primeng/inputtext", "InputTextModule");
+    return `<label class="loom-field"><span class="loom-label">${label}</span><input pInputText class="loom-input" placeholder="${ph}" disabled${testid} /></label>`;
+  }
+  return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input" placeholder="${ph}" disabled${testid} /></label>`;
+}
+
+function angularEnumInput(_f: FormFieldSpec, c: AngularArmCtx): string {
+  const { bc, ctx, label, testid, cn, style, inner } = c;
+  if (inner.kind !== "enum") return angularTextInput(_f, c);
+  const en = enumPool(bc).find((e) => e.name === inner.name);
+  const values = en?.values ?? [];
+  // Each option's text: the identity-keyed translation of the value, else the
+  // raw wire value.
+  const optionLabels = enumOptionLabels(ctx, bc, inner.name, values);
+  const optionText = (v: string): string =>
+    optionLabels ? ctx.target.renderInterpolation(optionLabels.get(v)!, STRING) : v;
+  if (style === "material") {
+    addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
+    addNg(ctx, "@angular/material/select", "MatSelectModule");
     const opts = values
-      .map((v) => `<option value=${JSON.stringify(v)}>${optionText(v)}</option>`)
+      .map((v) => `<mat-option value=${JSON.stringify(v)}>${optionText(v)}</mat-option>`)
       .join("");
-    return `<label class="loom-field"><span class="loom-label">${label}</span><select class="loom-input" formControlName=${cn}${testid}>${opts}</select></label>`;
+    return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><mat-select formControlName=${cn}${testid}>${opts}</mat-select></mat-form-field>`;
   }
-  if (inner.kind === "primitive" && inner.name === "bool") {
-    if (style === "material") {
-      addNg(ctx, "@angular/material/checkbox", "MatCheckboxModule");
-      return `<mat-checkbox formControlName=${cn}${testid}>${label}</mat-checkbox>`;
-    }
-    if (style === "primeng") {
-      addNg(ctx, "primeng/checkbox", "CheckboxModule");
-      return `<label class="loom-toggle"><p-checkbox [binary]="true" formControlName=${cn}${testid}></p-checkbox><span>${label}</span></label>`;
-    }
-    return `<label class="loom-toggle"><input type="checkbox" formControlName=${cn}${testid} />${label}</label>`;
+  if (style === "primeng") {
+    addNg(ctx, "primeng/select", "SelectModule");
+    const opts = optionLabels
+      ? `[${values.map((v) => `{ "label": ${optionLabels.get(v)}, "value": ${JSON.stringify(v)} }`).join(", ")}]`
+      : JSON.stringify(values.map((v) => ({ label: v, value: v })));
+    return `<label class="loom-field"><span class="loom-label">${label}</span><p-select [options]='${opts}' optionLabel="label" optionValue="value" styleClass="loom-input" formControlName=${cn}${testid}></p-select></label>`;
   }
+  const opts = values
+    .map((v) => `<option value=${JSON.stringify(v)}>${optionText(v)}</option>`)
+    .join("");
+  return `<label class="loom-field"><span class="loom-label">${label}</span><select class="loom-input" formControlName=${cn}${testid}>${opts}</select></label>`;
+}
+
+function angularBoolInput(_f: FormFieldSpec, c: AngularArmCtx): string {
+  const { ctx, label, testid, cn, style } = c;
+  if (style === "material") {
+    addNg(ctx, "@angular/material/checkbox", "MatCheckboxModule");
+    return `<mat-checkbox formControlName=${cn}${testid}>${label}</mat-checkbox>`;
+  }
+  if (style === "primeng") {
+    addNg(ctx, "primeng/checkbox", "CheckboxModule");
+    return `<label class="loom-toggle"><p-checkbox [binary]="true" formControlName=${cn}${testid}></p-checkbox><span>${label}</span></label>`;
+  }
+  return `<label class="loom-toggle"><input type="checkbox" formControlName=${cn}${testid} />${label}</label>`;
+}
+
+function angularRefInput(f: FormFieldSpec, c: AngularArmCtx): string {
+  const { t, bc, ctx, testidBase, label, testid, cn, style } = c;
   // `X id` (cross-aggregate reference) → a Select populated from the target's
   // `useAll<X>()` collection (parity with React/Vue/Svelte's
   // `field-input-id-select`).  Gated exactly like `form-fields-vm.ts`: emit a
@@ -658,6 +710,11 @@ export function fieldInput(
     }
     return `<label class="loom-field"><span class="loom-label">${label}</span><select class="loom-input" formControlName=${cn}${testid}>@for (__o of ${optionsExpr}; track __o.id) {<option [value]="__o.id" [attr.data-testid]="'${optionTestid}-' + __o.id">{{ __o.display }}</option>}</select></label>`;
   }
+  return angularTextInput(f, c);
+}
+
+function angularTextInput(_f: FormFieldSpec, c: AngularArmCtx): string {
+  const { ctx, label, testid, cn, style, inner } = c;
   // `money` is deliberately NOT numeric input: its control holds a decimal
   // STRING (see `controlInit`), and a numeric widget — `type="number"` or
   // PrimeNG's `p-inputnumber` — would bind a JS number back into it, losing the
@@ -702,6 +759,30 @@ export function fieldInput(
   }
   return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input"${inputType}${moneyMode} formControlName=${cn}${testid} /></label>`;
 }
+
+/** The Angular arm per form field kind.  Value objects and value-object arrays
+ *  never reach `fieldInput` — `partitionAngularFields` claims them as a nested
+ *  `FormGroup` / `FormArray` first — so their arms here are the text fallback
+ *  the dispatch has always had for an unclaimed field. */
+export const ANGULAR_FORM_FIELD_ARMS: FormFieldArms<string, AngularArmCtx> = {
+  string: angularTextInput,
+  int: angularTextInput,
+  decimal: angularTextInput,
+  money: angularTextInput,
+  bool: angularBoolInput,
+  date: angularTextInput,
+  datetime: angularTextInput,
+  file: angularFileInput,
+  enum: angularEnumInput,
+  ref: angularRefInput,
+  optionalRef: angularRefInput,
+  valueObject: angularTextInput,
+  optionalValueObject: angularTextInput,
+  scalarArray: angularArrayStub,
+  enumArray: angularArrayStub,
+  refArray: angularArrayStub,
+  objectArray: angularArrayStub,
+};
 
 // ---------------------------------------------------------------------------
 // Dynamic sub-form rows — an `X[]`-of-value-object input renders as a
