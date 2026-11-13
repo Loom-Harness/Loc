@@ -23,8 +23,11 @@
 //                              the shared envelope.
 //   7. dead letter           — a reactor that fails every delivery is retried,
 //                              then parked in its DLQ under the generated broker
-//                              ACL.  Last, because the unmet form of this fact
-//                              can crash-loop the consumer.
+//                              ACL.  After the checks above, because the unmet
+//                              form of this fact can crash-loop the consumer.
+//   8. competing relays      — a second replica joins; a backlog built while
+//                              the broker is down is drained by both relays at
+//                              once, and every envelope is published once.
 //
 // The claims come from the platform's operations contract
 // (`src/platform/operations.ts`).  A fact the contract states as unmet (with
@@ -527,6 +530,64 @@ describe.runIf(RUN)("lifecycle: reboot, regenerate, broker outage, DB pause", ()
             });
           },
         );
+
+        // ── 8. competing relays ────────────────────────────────────────────
+        await claim(
+          ops,
+          "broker.relaysCompete",
+          broker.relaysCompete,
+          "two relays draining one backlog publish each envelope once",
+          async () => {
+            // The replica is the same image and environment, minus the
+            // published port.
+            fs.writeFileSync(
+              path.join(out, "lifecycle.replica.yml"),
+              [
+                "services:",
+                "  d2:",
+                "    extends:",
+                "      service: d",
+                `    image: ${sh(`docker inspect -f '{{.Config.Image}}' ${container()}`, out).trim()}`,
+                "    ports: !reset []",
+                "",
+              ].join("\n"),
+            );
+            const both = `${compose} -f docker-compose.yml -f lifecycle.replica.yml`;
+            sh(`${both} up -d --no-build --wait d2`, out, 600_000);
+            // Rows pile up while the broker is down (the relays halt), so both
+            // relays race over the same backlog the moment it returns.
+            sh(`${compose} stop bus`, out);
+            const backlog: string[] = [];
+            for (let i = 0; i < 20; i++) backlog.push((await placeOrder(`c-race-${i}`)).orderId);
+            sh(`${compose} start bus`, out);
+            for (const orderId of backlog) await shipped(orderId, 180_000);
+            const published = new Map<string, number>();
+            for (const svc of ["d", "d2"]) {
+              for (const line of sh(
+                `${both} logs --no-color --no-log-prefix ${svc}`,
+                out,
+                120_000,
+              ).split("\n")) {
+                if (!line.trim().startsWith("{")) continue;
+                try {
+                  const o = JSON.parse(line) as { event?: string; type?: string; id?: string };
+                  if (o.event === "channel_published" && o.type?.endsWith("OrderPlaced") && o.id)
+                    published.set(o.id, (published.get(o.id) ?? 0) + 1);
+                } catch {
+                  // not a log line
+                }
+              }
+            }
+            expect(published.size, "the relays logged their publishes").toBeGreaterThanOrEqual(
+              backlog.length,
+            );
+            const twice = [...published].filter(([, n]) => n > 1);
+            if (twice.length > 0)
+              throw new Error(
+                `${twice.length} envelope(s) published more than once, e.g. ${twice[0]![0]}`,
+              );
+          },
+        );
       } catch (err) {
         try {
           console.error(sh(`${compose} logs --no-color --tail=120`, out, 120_000));
@@ -536,7 +597,11 @@ describe.runIf(RUN)("lifecycle: reboot, regenerate, broker outage, DB pause", ()
         throw err;
       } finally {
         try {
-          execSync(`${compose} down -v`, { cwd: out, stdio: "ignore", timeout: 300_000 });
+          execSync(`${compose} down -v --remove-orphans`, {
+            cwd: out,
+            stdio: "ignore",
+            timeout: 300_000,
+          });
         } catch {
           // best-effort teardown
         }

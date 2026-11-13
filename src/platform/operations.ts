@@ -61,6 +61,9 @@ export interface BrokerResilience {
   /** A consumer that keeps failing is retried a bounded number of times and
    *  then dead-lettered — through an exchange the generated broker ACL allows. */
   readonly deadLettersUnderAcl: boolean;
+  /** Two replicas' outbox relays drain one backlog and publish each row
+   *  once: a pass claims its rows, skipping rows the other holds. */
+  readonly relaysCompete: boolean;
   /** A channel message carries the W3C trace context across the broker. */
   readonly propagatesTrace: boolean;
   /** The messaging tier exports metrics (published / consumed / retried /
@@ -154,6 +157,7 @@ export const BROKER_BASELINE: BrokerResilience = {
   outboxRidesOutOutage: true,
   publishFailureKeepsCommit: true,
   deadLettersUnderAcl: true,
+  relaysCompete: true,
   propagatesTrace: false,
   exportsMetrics: false,
 };
