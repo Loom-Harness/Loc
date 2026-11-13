@@ -5,7 +5,7 @@
 // identical specs across backends.
 
 import { carriesFieldMask } from "../../ir/enrich/mask-taint.js";
-import type { WireMaskPlan } from "../../ir/enrich/wire-projection.js";
+import type { WireMaskPlan } from "../../ir/util/response-wire.js";
 import type {
   AggregateIR,
   BoundedContextIR,

@@ -28,7 +28,8 @@
 // the aggregate has ref-collection fields).
 // ---------------------------------------------------------------------------
 
-import { forApiRead, type WireMaskPlan } from "../../../ir/enrich/wire-projection.js";
+import { forApiRead } from "../../../ir/enrich/wire-projection.js";
+import type { WireMaskPlan } from "../../../ir/util/response-wire.js";
 import { provenancedCarrier } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,

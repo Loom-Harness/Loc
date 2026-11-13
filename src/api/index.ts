@@ -25,9 +25,10 @@ import type {
 } from "../diagnostics/contract.js";
 import { diagMessage } from "../diagnostics/messages.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
-import { wireFieldsForAggregate } from "../ir/enrich/wire-projection.js";
 import { lowerModel, mergeLoomModels } from "../ir/lower/lower.js";
 import type { EnrichedBoundedContextIR } from "../ir/types/loom-ir.js";
+import { declaredResponseFor } from "../ir/util/declared-response.js";
+import { responseWireFor } from "../ir/util/response-wire.js";
 import { typeLabel } from "../ir/util/type-label.js";
 import { IR_ILL_FORMED_CODE } from "../ir/validate/checks/lowering-checks.js";
 import { UNRESOLVED_TYPE_CODE } from "../ir/validate/checks/unresolved-type-checks.js";
@@ -260,14 +261,17 @@ function aggregatesOf(ctx: EnrichedBoundedContextIR): ModelAggregate[] {
   return ctx.aggregates.map((agg) => ({
     name: agg.name,
     context: ctx.name,
-    // The canonical wire shape is DERIVED on demand (never stamped) — the same
-    // `wireFieldsForAggregate` every backend's DTO emitter consumes.
-    wire: wireFieldsForAggregate(agg).map((f) => ({
-      name: f.name,
-      type: typeLabel(f.type),
-      optional: f.optional,
-      source: f.source,
-    })),
+    // The declared response record's rows — the read contract every backend's
+    // DTO renders.  A context no deployable exposes declares no record and
+    // serves no wire.
+    wire: (declaredResponseFor(ctx.payloads, agg) ? responseWireFor(ctx.payloads, agg) : []).map(
+      (f) => ({
+        name: f.name,
+        type: typeLabel(f.type),
+        optional: f.optional,
+        source: f.source,
+      }),
+    ),
   }));
 }
 
