@@ -201,8 +201,8 @@ export function judgeStaysOnRecord(page, id) {
 
 /** A fresh create form shows no field error before the user touched anything. */
 export async function judgeNoEarlyErrors(page, origin) {
-  await page.goto(`${origin}/providers/new`);
-  await page.locator('[data-testid="providers-new-submit"]').first().waitFor({ timeout: 20000 });
+  await page.goto(`${origin}/policies/new`);
+  await page.locator('[data-testid="policies-new-submit"]').first().waitFor({ timeout: 20000 });
   const text = await page.locator("body").innerText().catch(() => "");
   return /invalid|required|must match/i.test(text)
     ? [`the create form shows errors before any touch: ${JSON.stringify(text.slice(0, 300))}`]
