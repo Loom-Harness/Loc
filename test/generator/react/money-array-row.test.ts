@@ -25,7 +25,7 @@
 // Decimal from the raw input string, and the fresh-row seed must be
 // `new Decimal("0")` — never `0` (seam 2's defect) and never `"0"` (P8's).
 //
-// The `int` sibling in the same row is the control: it keeps `valueAsNumber`
+// The `int` sibling in the same row is the control: it keeps its own int input
 // and the numeric `0` seed, so this stays a money-only change.
 
 import { describe, expect, it } from "vitest";
@@ -62,32 +62,34 @@ async function newPage(platform: string, design: string, suffix: string): Promis
  *  `amount: new Decimal("0")`, can't accidentally satisfy it. */
 const BAD_MONEY_SEED = /amount: (?:0|"0")\s*[,}]/;
 
-/** `valueAsNumber` anywhere in the money cell's `register(...)` option list. */
-const MONEY_REGISTERED_AS_NUMBER = /fees\.\$\{index\}\.amount`,\s*\{ valueAsNumber/;
+/** The text of the row cell bound at `fees.${index}.<sub>`: from its `name=`
+ *  binding to the next bound cell / the row's Remove button, so a sibling's
+ *  text can't leak in. */
+function rowCell(tsx: string, sub: string): string {
+  const at = tsx.indexOf(`name={\`fees.\${index}.${sub}\`}`);
+  expect(at, `no row cell bound at fees.\${index}.${sub}`).toBeGreaterThan(-1);
+  const stops = [tsx.indexOf("name={`", at + 1), tsx.indexOf("removeFees(index)", at)].filter(
+    (i) => i > -1,
+  );
+  return tsx.slice(at, Math.min(at + 900, ...stops));
+}
 
-// mantine / mui / chakra destructure `register` off `useForm`; shadcn keeps the
-// whole `form` object and registers through `form.register`.
-const REACT_PACKS: { design: string; reg: string }[] = [
-  { design: "mantine", reg: "register" },
-  { design: "mui", reg: "register" },
-  { design: "chakra", reg: "register" },
-  { design: "shadcn", reg: "form.register" },
-];
+const REACT_PACKS = ["mantine", "mui", "chakra", "shadcn"];
 
-describe.each(REACT_PACKS)("react money array row — $design", ({ design, reg }) => {
+describe.each(REACT_PACKS)("react money array row — %s", (design) => {
   const page = () => newPage("react", design, "pages/invoices/new.tsx");
 
-  it("registers the money sub-field through a Decimal setValueAs, not valueAsNumber", async () => {
+  it("binds the money sub-field through the pack's Decimal-producing money input, not valueAsNumber", async () => {
     const tsx = await page();
-    // RHF hands `register` the raw input string; `setValueAs` is what turns it
-    // into the `Decimal` form state is declared to hold.
-    expect(tsx).toContain(
-      `{...${reg}(\`fees.\${index}.amount\`, { setValueAs: (v: string) => { try { return new Decimal(v || "0"); } catch { return new Decimal("0"); } } })}`,
+    // The row cell is the pack's `field-input-money` Controller: its onChange
+    // constructs the `Decimal` form state is declared to hold.
+    const cell = rowCell(tsx, "amount");
+    expect(cell).toMatch(
+      /field\.onChange\(new Decimal\(e\.(?:currentTarget|target)\.value \|\| "0"\)\)/,
     );
-    expect(tsx).not.toMatch(MONEY_REGISTERED_AS_NUMBER);
-    // The generic string arm the cell used to fall through to registers with no
-    // options at all.
-    expect(tsx).not.toContain(`{...${reg}(\`fees.\${index}.amount\`)}`);
+    expect(cell).toContain("-input-fees-${index}-amount");
+    expect(cell).not.toContain("valueAsNumber");
+    expect(tsx).not.toContain("register(`fees.${index}.amount`");
   });
 
   it("imports the Decimal the row cell constructs", async () => {
@@ -95,9 +97,12 @@ describe.each(REACT_PACKS)("react money array row — $design", ({ design, reg }
     expect(tsx).toMatch(/import (\{ )?Decimal( \})? from "decimal\.js"/);
   });
 
-  it("still coerces the int sibling via valueAsNumber", async () => {
+  it("binds the int sibling through the pack's int input, not a money one", async () => {
     const tsx = await page();
-    expect(tsx).toContain(`{...${reg}(\`fees.\${index}.qty\`, { valueAsNumber: true })}`);
+    const cell = rowCell(tsx, "qty");
+    expect(cell).toContain("-input-fees-${index}-qty");
+    expect(cell).not.toContain("new Decimal(");
+    expect(tsx).not.toContain("register(`fees.${index}.qty`");
   });
 
   it("seeds a fresh row with a constructed Decimal for money and the number 0 for int", async () => {
