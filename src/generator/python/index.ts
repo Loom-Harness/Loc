@@ -13,6 +13,7 @@ import {
   wireTitle,
 } from "../../ir/enrich/wire-policy.js";
 import {
+  channelPlan,
   hasDurableEvents,
   observableWorkflows,
   routedPolymorphicRead,
@@ -80,7 +81,6 @@ import {
 } from "../../util/test-reset.js";
 import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV, devClaimFields } from "../_auth/dev-claims.js";
-import { brokerChannelBindings } from "../_channels/bindings.js";
 import { DEBIAN_CERTS_BLOCK, NODE_CERTS_BLOCK, NPM_INSTALL_BLOCK } from "../_docker/node-stage.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
@@ -204,8 +204,8 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // HOST the channel's owning context to react to its events; the wired
   // binding carries the routing knowledge across deployables (mirrors the
   // Hono orchestrator).
-  const channelBindings = brokerChannelBindings(args.deployable, args.sys);
-  const hostedChannelNames = new Set(args.contexts.flatMap((c) => c.channels).map((ch) => ch.name));
+  const chPlan = channelPlan(args.contexts, { deployable: args.deployable, sys: args.sys });
+  const channelBindings = chPlan.bindings;
   // Wired-but-foreign channels join the carrier set as minimal ChannelIR
   // stubs, so the dispatch derivation routes a hosted reactor off a channel
   // declared in a non-hosted context.  The stub knobs stay PINNED to
@@ -214,14 +214,11 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // outbox table and the saga `last_event_id` column, and they can't see a
   // foreign wiring.  A foreign `queue`/`work` consumer relies on broker ack
   // semantics + idempotent reactors instead (the slice-3 stance).
-  const wiredForeignChannels = channelBindings
-    .filter((b) => !hostedChannelNames.has(b.channelName))
-    .map((b) => ({
-      name: b.channelName,
-      carries: b.events,
-      delivery: "broadcast" as const,
-      retention: "ephemeral" as const,
-    }));
+  const wiredForeignChannels = chPlan.foreignChannels.map((ch) => ({
+    ...ch,
+    delivery: "broadcast" as const,
+    retention: "ephemeral" as const,
+  }));
   const mergedPre: EnrichedBoundedContextIR = {
     ...mergedBase,
     channels: [...mergedBase.channels, ...wiredForeignChannels],

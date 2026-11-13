@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canOpLadder,
+  destroyLadder,
   GATE_ORDER,
   gateRank,
   operationLadder,
@@ -26,6 +27,15 @@ system G {
         }
       }
       repository Tickets for Ticket { }
+      aggregate Shipment {
+        quantity: int
+        create(quantity: int) { quantity := quantity }
+        destroy {
+          requires currentUser.role == "agent"
+          requires quantity == 0
+        }
+      }
+      repository Shipments for Shipment { }
     }
   }
 }
@@ -63,5 +73,11 @@ describe("gate-ladder plan", () => {
       "row-requires",
       "when",
     ]);
+  });
+
+  it("puts a destroy's principal-only gate before the load and its row gate after it", async () => {
+    const sh = enrichedAggregates(await buildLoomModel(SRC)).find((a) => a.name === "Shipment")!;
+    const ladder = destroyLadder(sh.destroys?.[0], { readsIfMatch: true });
+    expect(ladder.map((c) => c.step)).toEqual(["requires", "load", "row-requires", "version"]);
   });
 });

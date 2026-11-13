@@ -25,6 +25,7 @@
 // generated OpenAPI document.
 
 import { describe, expect, it } from "vitest";
+import { buildCreateInput } from "../../src/ir/enrich/wire-projection.js";
 import { buildLoomModel } from "../_helpers/ir.js";
 import { javaRequiredSets } from "../_helpers/java-openapi-annotations.js";
 
@@ -88,7 +89,7 @@ describe("create-input required set — cross-backend parity", () => {
       .flatMap((c) => c.aggregates)
       .find((a) => a.name === "Thing");
     expect(agg).toBeDefined();
-    const required = (agg!.createInput ?? [])
+    const required = buildCreateInput(agg!)
       .filter((c) => c.requiredInput)
       .map((c) => c.field.name);
     expect(required).toEqual(EXPECTED_REQUIRED);

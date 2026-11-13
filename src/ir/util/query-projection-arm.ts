@@ -54,6 +54,7 @@ import type {
   ProjectionQueryIR,
   SystemIR,
 } from "../types/loom-ir.js";
+import { aggregateArg } from "../types/loom-ir.js";
 import { groupedAggregates, wholeTableAggregates } from "./projection-aggregate.js";
 import { resolveProjectionColumn, sourceMemberChain } from "./projection-column.js";
 import { projectionSourceAggregate } from "./projection-source.js";
@@ -99,7 +100,7 @@ function directTablePositions(q: ProjectionQueryIR): (ExprIR | undefined)[] {
   return [
     q.filter,
     ...(q.groupBy ?? []),
-    ...(q.selects ?? []).map((sel) => (sel.aggregate ? sel.aggregate.arg : sel.expr)),
+    ...(q.selects ?? []).map((sel) => (sel.aggregate ? aggregateArg(sel.aggregate) : sel.expr)),
   ];
 }
 
