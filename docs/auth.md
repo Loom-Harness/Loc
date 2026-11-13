@@ -1172,6 +1172,14 @@ only its own members; compute it on the root), and a mask on a value-object
 field (`loom.field-mask-on-value-object` — a value has no read boundary of its
 own; mask the field that holds it).
 
+A declared `response <Agg>Response` (or `<Part>Response`) record — the read
+contract `scaffoldHandlers` and `api X from <Subdomain>` splice, or one written
+by hand — takes its masks from the aggregate: each record field the aggregate
+masks (a `mask unless` field, or a `derived` the taint marks) renders nullable
+and redacts under the same predicate, so a record can never drop a mask.  A
+payload field cannot declare `mask unless` itself (`loom.field-mask-on-payload`):
+no serializer would apply it.
+
 #### Where a masked value flows — the visibility taint
 
 A mask protects the field only if every place its value reaches applies it.
