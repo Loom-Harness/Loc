@@ -80,6 +80,8 @@ export const CHROME_MESSAGES: Record<string, string> = {
   // reason `openMenu` and `toggleNavigation` stayed apart.  "Next" IS shared,
   // because both spell it identically.
   [chromeKey("prev")]: "Prev",
+  [chromeKey("tableFilterPlaceholder")]: "Filter…",
+  [chromeKey("tableFilterAria")]: "Filter table",
   // The per-column sort button takes its accessible name from its own content
   // (the column header), and the per-column filter input is named by
   // `filter`: neither inserts the header into a sentence frame, because a
@@ -263,8 +265,6 @@ const FALLBACK_LABEL_CHROME: Record<string, string> = {
   [chromeKey("fieldFallback")]: "Field",
   [chromeKey("dataFallback")]: "Data",
   [chromeKey("submitFallback")]: "Submit",
-  // The accessible name of a `Table { filter: … }` box (HEEx).
-  [chromeKey("tableFilterAria")]: "Filter table",
 };
 
 function sentenceChromeMessage(name: string): string | undefined {
@@ -350,7 +350,6 @@ function fallbackLabelNamesForUi(ui: UiIR, contexts: readonly BoundedContextIR[]
     walkExprDeep(body, (e) => {
       if (e.kind !== "call") return;
       const positionals = e.args.filter((_, i) => !e.argNames?.[i]);
-      if (e.name === "Table" && refArgName(e, "filter") !== undefined) names.add("tableFilterAria");
       if (e.name === "Table" && positionals.length === 0) names.add("dataFallback");
       else if (e.name === "KeyValueRow" && positionals.length === 0) names.add("fieldFallback");
       else if (e.name === "CreateForm" || e.name === "WorkflowForm") {
@@ -770,6 +769,12 @@ export const TABLE_CONTROLS_CHROME: Record<string, string> = {
   [chromeKey("prev")]: "Prev",
   [chromeKey("next")]: "Next",
   [chromeKey("pageOf")]: "Page {page} of {pages}",
+  // The search box a `Table { filter: … }` renders: its placeholder and its
+  // accessible name.  Merged with the pager chrome for the same reason — whether
+  // a `Table` carries a filter that survives (`serverPaged` drops it) is a
+  // walk-context fact the extraction pass cannot see.
+  [chromeKey("tableFilterPlaceholder")]: "Filter…",
+  [chromeKey("tableFilterAria")]: "Filter table",
 };
 
 /** Chrome a `ProvenanceInfo` disclosure renders: the summary's accessible name

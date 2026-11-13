@@ -1533,12 +1533,12 @@ export const felizTarget: WalkerTarget = {
 
   /** The search box above a filterable table — the same controlled-input idiom
    *  the pack's `Field` uses (`prop.value` + `onChange` dispatching `Set…`). */
-  renderFilterInput(filter) {
+  renderFilterInput(filter, labels) {
     const v = `model.${upperFirst(filter.name)}`;
     const set = `Set${upperFirst(filter.name)}`;
     return (
       `Html.input [ prop.className "input input-bordered input-sm w-full max-w-xs mb-3"; ` +
-      `prop.type'.search; prop.placeholder "Filter…"; prop.ariaLabel "Filter table"; ` +
+      `prop.type'.search; prop.placeholder (${labels.placeholderValue}); prop.ariaLabel (${labels.ariaValue}); ` +
       `prop.custom("data-testid", "table-filter"); prop.value ${v}; ` +
       `prop.onChange (fun (s: string) -> dispatch (${set} s)) ]`
     );
