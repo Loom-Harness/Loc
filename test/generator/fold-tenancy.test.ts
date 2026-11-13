@@ -283,7 +283,9 @@ describe("elixir: tenant-scoped fold", async () => {
     expect(fold).toContain(
       "Repo.get_by(Api.Main.Projections.TotalsRow, acct: key, tenant_id: tenant)",
     );
-    expect(fold).toContain("nil -> %Api.Main.Projections.TotalsRow{acct: key, tenant_id: tenant}");
+    expect(fold).toContain(
+      "nil -> %Api.Main.Projections.TotalsRow{acct: key, tenant_id: tenant, paid: 0, deposited: 0}",
+    );
   });
 
   it("every read applies the floor; the exempt fold does not", () => {

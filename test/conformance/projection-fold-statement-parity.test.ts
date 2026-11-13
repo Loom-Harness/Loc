@@ -95,13 +95,14 @@ const ARMS: Record<string, Record<string, RegExp>> = {
       /state\.tags = \[__e for __e in \(state\.tags or \[\]\) if __e != \(e\.tag\)\]/,
   },
   vanilla: {
-    // The `let` is a real local BEFORE the changeset, not a change entry.
+    // The `let` is a real local between the rebindings of `state`.
     let: /\n {4}stamped = event\.at\n[\s\S]*at: \(stamped\)/,
     "add (int)": /entries: \(state\.entries \|\| 0\) \+ event\.amount/,
     // Decimal structs have no `+` — the money arm must reach `Decimal.add/2`.
     "add (money)": /charged: Decimal\.add\(state\.charged \|\| Decimal\.new\(0\), event\.fee\)/,
     "remove (int)": /entries: \(state\.entries \|\| 0\) - event\.amount/,
-    "remove (collection)": /tags: List\.delete\(state\.tags \|\| \[\], event\.tag\)/,
+    "remove (collection)":
+      /tags: Enum\.reject\(state\.tags \|\| \[\], fn __x -> __x == event\.tag end\)/,
   },
 };
 

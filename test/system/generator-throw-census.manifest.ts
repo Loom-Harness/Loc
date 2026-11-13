@@ -647,12 +647,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "The elixir byFeature layout adapter's pathFor is never invoked: the platform's emitProject drops the layout axis ('the layout axis has no Phoenix consumer') and no elixir emitter calls layout.pathFor, so no artifact ever reaches pathForCategory. (src/platform/elixir.ts:63-74 (emitProject never forwards layoutAdapter to generateElixirProject); no src/generator/elixir code calls pathFor)",
   },
 
-  // src/generator/elixir/dispatch-emit.ts
-  "src/generator/elixir/dispatch-emit.ts#renderProjectionFoldStmt": {
-    guardedBy: ["loom.projection-fold-impure"],
-    note: "foldImpurity is a fail-closed allowlist of assign/add/remove/let applied to every projection on() statement, so every kind in this throw arm is an error at validation.",
-  },
-
   // src/generator/elixir/domain-service-emit.ts
   "src/generator/elixir/domain-service-emit.ts#renderOperation": {
     invariant:
