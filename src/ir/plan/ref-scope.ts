@@ -16,23 +16,21 @@
 //     reports when that target is tenant-scoped.
 //
 // Every backend renders the same step from this fact: before the row is
-// written, each `row-tenant` / `tenant-registry` reference is probed, and a
+// written, each `row-tenant` / `tenant-registry` reference is probed against
+// its target under the TARGET's read scope — the restriction every read of
+// that target already applies (the `tenantOwned` floor on the operating org,
+// the registry's self-scope, and any row rules or `deny` it carries).  A
 // reference that does not resolve is refused exactly as a reference to a row
-// that does not exist (the dangling-reference refusal) — so the refusal tells
-// a caller nothing about rows outside its scope.
+// that does not exist (the dangling-reference refusal), so the refusal tells a
+// caller nothing about rows outside its scope.
 //
 // The scope follows the ROW, not the principal: a reference is admitted when
 // it lives where the row lives.  That is the locality rule
 // (D-TENANCY-FLAT §7) made checkable, and it holds for a system-principal
 // write (a reactor, a timer) as much as for a request.
 
-import type { AggregateIR, ContainmentIR, ExprIR, TypeIR } from "../types/loom-ir.js";
-import {
-  buildTenantFloorFilter,
-  hasTenantOwned,
-  TENANCY_SELF_SCOPE_ORIGIN,
-  TENANT_OWNED_CAPABILITY,
-} from "../util/tenant-stance.js";
+import type { AggregateIR, ContainmentIR, TypeIR } from "../types/loom-ir.js";
+import { hasTenantOwned, TENANCY_SELF_SCOPE_ORIGIN } from "../util/tenant-stance.js";
 
 /** Where a persisted reference must resolve. */
 export type RefScope =
@@ -178,29 +176,4 @@ function referenceShape(
     }
   }
   return cur.kind === "id" ? { target: cur.targetName, collection, optional } : undefined;
-}
-
-/** The predicate a probed reference's target row must satisfy, over the
- *  TARGET's own row (`this`): its tenant restriction exactly as its read scope
- *  carries it — the `tenantOwned` floor for `row-tenant`, the registry's
- *  derived self-scope for `tenant-registry`.  A backend lowers it with the same
- *  filter lowering its read scope uses, so the probe and the target's reads
- *  agree on which tenant is the caller's (the operating org).  `undefined`
- *  for a reference that is not probed. */
-export function admissionFilter(
-  ref: ScopedReference,
-  hosted: readonly AggregateIR[],
-): ExprIR | undefined {
-  const origin =
-    ref.scope === "row-tenant"
-      ? TENANT_OWNED_CAPABILITY
-      : ref.scope === "tenant-registry"
-        ? TENANCY_SELF_SCOPE_ORIGIN
-        : undefined;
-  if (origin === undefined) return undefined;
-  const target = hosted.find((a) => a.name === ref.target);
-  if (!target) return undefined;
-  const at = target.contextFilterOrigins.indexOf(origin);
-  if (at >= 0) return target.contextFilters[at];
-  return ref.scope === "row-tenant" ? buildTenantFloorFilter(target) : undefined;
 }

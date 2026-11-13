@@ -814,10 +814,15 @@ export function drizzleScopeCall(
 /** The import of `agg`'s scope helper into a repository file, derived from the
  *  rendered body (`bodyScan`: string contents blanked): present exactly when the
  *  body calls it, so an import and its use cannot drift. */
-export function scopeImportLine(agg: { name: string }, bodyScan: string): string | false {
-  const fn = drizzleScopeFnName(agg);
-  const line = `import { ${fn} } from "${READ_SCOPES_MODULE}";`;
-  return new RegExp(`\\b${fn}\\(`).test(bodyScan) ? line : false;
+export function scopeImportLine(
+  aggs: { name: string } | readonly { name: string }[],
+  bodyScan: string,
+): string | false {
+  const list = Array.isArray(aggs) ? aggs : [aggs as { name: string }];
+  const fns = [...new Set(list.map(drizzleScopeFnName))].filter((fn) =>
+    new RegExp(`\\b${fn}\\(`).test(bodyScan),
+  );
+  return fns.length > 0 ? `import { ${fns.join(", ")} } from "${READ_SCOPES_MODULE}";` : false;
 }
 
 /** True when `agg` has a scope helper: some restriction applies to a plain read of it. */

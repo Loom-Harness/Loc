@@ -14,7 +14,7 @@ import { lowerFirst, plural } from "../../util/naming.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { aggregateIsAudited, stampImportLine } from "./emit/audit-stamp.js";
 import { synthProjectionFinds } from "./projection-finds.js";
-import { refAdmissionHelper } from "./ref-admission.js";
+import { admittedTargets, refAdmissionHelper } from "./ref-admission.js";
 import {
   contextFilterPredicate,
   findByIdMethod,
@@ -243,7 +243,8 @@ export function buildRepositoryFile(
     /\bAnyPgColumn\b/.test(bodyScan) && `import type { AnyPgColumn } from "drizzle-orm/pg-core";`,
     drizzleImportLine(renderedBody),
     `import * as schema from "../schema";`,
-    scopeImportLine(agg, bodyScan),
+    // Its own scope helper, plus each target's a reference-admission probe reads.
+    scopeImportLine([agg, ...admittedTargets(agg, ctx)], bodyScan),
     repoUsesUser && `import type { User } from "../../auth/user-types";`,
     // …or a reified criterion fn (a tenancy `criterion` used by a
     // find/retrieval) binds the principal through the same accessor — detected
