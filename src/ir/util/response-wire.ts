@@ -28,6 +28,7 @@ import type {
   PayloadIR,
   SystemIR,
   TypeIR,
+  ValueObjectIR,
   WireField,
 } from "../types/loom-ir.js";
 import { declaredResponseFor } from "./declared-response.js";
@@ -136,4 +137,33 @@ export function aggregateHome(
     }
   }
   return undefined;
+}
+
+/** The wire rows of a value object: its declared fields, then its derived
+ *  values.  A value object has no identity and no response record of its own
+ *  — it crosses inside the record of whatever holds it — so its declaration
+ *  is its wire.  A field keeps its domain type: a value object has no row and
+ *  no write-site instrumentation, so no backend emits a lineage carrier for a
+ *  VO member. */
+export function valueObjectWire(vo: ValueObjectIR): WireField[] {
+  return [
+    ...vo.fields.map(
+      (f): WireField => ({
+        name: f.name,
+        type: f.type,
+        optional: f.optional,
+        source: "property",
+        access: f.access ?? "editable",
+      }),
+    ),
+    ...vo.derived.map(
+      (d): WireField => ({
+        name: d.name,
+        type: d.type,
+        optional: d.type.kind === "optional",
+        source: "derived",
+        access: "editable",
+      }),
+    ),
+  ];
 }

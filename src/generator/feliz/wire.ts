@@ -16,7 +16,7 @@
 // lands on the record field with no casing seam, and Thoth's `Decode.field
 // "name"` maps the JSON key straight onto it.
 
-import { createInputFields, wireFieldsForValueObject } from "../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import { PAGED_MAX_PAGE_SIZE, PAGED_META_MEMBERS } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
@@ -44,7 +44,7 @@ import { operationFormParams } from "../../ir/util/op-gates.js";
 import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { projectionReadShape } from "../../ir/util/projection-read.js";
-import { responseWireFor } from "../../ir/util/response-wire.js";
+import { responseWireFor, valueObjectWire } from "../../ir/util/response-wire.js";
 import { walkExprChildren } from "../../ir/util/walk.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
@@ -2978,7 +2978,7 @@ function collectRecords(
     for (const vo of c.valueObjects) {
       voWireByName.set(vo.name, {
         name: { kind: "valueobject", name: vo.name },
-        fields: wireFieldsForValueObject(vo).map((w) => ({
+        fields: valueObjectWire(vo).map((w) => ({
           name: w.name,
           type: w.type,
           optional: w.optional,
