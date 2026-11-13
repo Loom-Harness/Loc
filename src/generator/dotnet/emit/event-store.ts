@@ -78,6 +78,29 @@ export function streamOriginFrameLines(ns: string, indent: string): string[] {
   ];
 }
 
+/** `__afterCommit = await <call>;` — the durable capture of an event-sourced
+ *  append, in the STREAM's tenant frame when its events carry one (as the
+ *  post-commit dispatch is), so the outbox envelope carries the stream's
+ *  tenant.  The frame closes with the capture: the append itself runs in the
+ *  request's own frame. */
+export function streamCaptureLines(
+  ns: string,
+  indent: string,
+  call: string,
+  tenancy: boolean,
+): string[] {
+  if (!tenancy) return [`${indent}__afterCommit = await ${call};`];
+  return [
+    `${indent}var __captureOrigin = global::${ns}.Auth.User.CurrentEventOrigin();`,
+    `${indent}using (__captureOrigin?.Tenant == aggregate.TenantId`,
+    `${indent}    ? null`,
+    `${indent}    : global::${ns}.Auth.User.EnterEventOrigin(new global::${ns}.Auth.EventOrigin(aggregate.TenantId, __captureOrigin?.CausedBy)))`,
+    `${indent}{`,
+    `${indent}    __afterCommit = await ${call};`,
+    `${indent}}`,
+  ];
+}
+
 /** The row-tenant event origin of a state `tenantOwned` save
  *  (`eventsCarryRowTenant`): `__rowOrigin` is null when the raising
  *  principal's operating org is the row's tenant (the common case keeps the

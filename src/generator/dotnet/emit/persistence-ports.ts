@@ -31,6 +31,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using ${ns}.Domain.Common;
+using ${ns}.Domain.Events;
 
 namespace ${ns}.Infrastructure.Persistence;
 
@@ -44,20 +45,37 @@ public sealed class EfUnitOfWork : IUnitOfWork
     public EfUnitOfWork(AppDbContext db) => _db = db;
 
     public async Task<IDomainTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
-        => new EfDomainTransaction(await _db.Database.BeginTransactionAsync(cancellationToken));
+        => new EfDomainTransaction(await _db.Database.BeginTransactionAsync(cancellationToken), _db);
 
     public async Task<IDomainTransaction> BeginTransactionAsync(IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
-        => new EfDomainTransaction(await _db.Database.BeginTransactionAsync(isolationLevel, cancellationToken));
+        => new EfDomainTransaction(await _db.Database.BeginTransactionAsync(isolationLevel, cancellationToken), _db);
 }
 
 /// <summary>Wraps an EF <see cref="IDbContextTransaction"/> as an <see cref="IDomainTransaction"/>.</summary>
 public sealed class EfDomainTransaction : IDomainTransaction
 {
     private readonly IDbContextTransaction _tx;
-    public EfDomainTransaction(IDbContextTransaction tx) => _tx = tx;
+    private readonly AppDbContext _db;
+    public EfDomainTransaction(IDbContextTransaction tx, AppDbContext db)
+    {
+        _tx = tx;
+        _db = db;
+    }
     public Task CommitAsync(CancellationToken cancellationToken = default) => _tx.CommitAsync(cancellationToken);
     public Task RollbackAsync(CancellationToken cancellationToken = default) => _tx.RollbackAsync(cancellationToken);
     public ValueTask DisposeAsync() => _tx.DisposeAsync();
+
+    /// <summary>The dispatcher stages the outbox rows on the shared change
+    /// tracker; one SaveChangesAsync writes them inside this transaction.</summary>
+    public async Task<IReadOnlyList<IDomainEvent>> CaptureDurableAsync(
+        IDomainEventDispatcher dispatcher,
+        IReadOnlyList<IDomainEvent> events,
+        CancellationToken cancellationToken = default)
+    {
+        var rest = await dispatcher.RecordDurableAsync(events, null, cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+        return rest;
+    }
 }
 
 /// <summary>EF adapter for <see cref="IWorkflowEventStore{TRow}"/> — 1:1 over the

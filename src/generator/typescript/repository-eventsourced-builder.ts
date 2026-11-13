@@ -2,6 +2,7 @@ import {
   type StreamTenantMetadataField,
   streamTenancyFor,
 } from "../../ir/enrich/stream-tenancy.js";
+import { hasDurableEvents } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
@@ -87,6 +88,14 @@ export function buildEventSourcedRepositoryFile(
   // Every load is scoped by the generated `<agg>StreamScope` helper
   // (`db/read-scopes.ts`), rendered from the fact's tenancy restrictions.
   const tenancy = streamTenancyFor(agg, ctx.aggregates);
+  // With a durable channel in the context, the append and the outbox capture
+  // share one transaction.  The capture runs in the STREAM's tenant frame, as
+  // the dispatch does, so the outbox envelope carries the stream's tenant.
+  const durable = hasDurableEvents(ctx);
+  const recordCall = "this.events.recordDurable?.(pending, tx)";
+  const captureCall = tenancy
+    ? `((origin?.tenant ?? null) === aggregate.tenantId ? ${recordCall} : ${T.runAsEventOrigin}({ tenant: aggregate.tenantId, causedBy: origin?.causedBy ?? null }, async () => ${recordCall}))`
+    : recordCall;
   const scoped = aggregateHasStreamScope(agg, ctx);
   const streamScope = drizzleStreamScopeCall(agg, ctx);
   const metaOf = (row: string): string =>
@@ -156,6 +165,8 @@ export function buildEventSourcedRepositoryFile(
     "",
     `  async save(aggregate: ${agg.name}): Promise<void> {`,
     `    const pending = aggregate.pullEvents();`,
+    ...(durable ? [`    let dispatchAfterCommit = pending;`] : []),
+    ...(durable && tenancy ? [`    const origin = ${T.currentEventOrigin}();`] : []),
     `    if (pending.length > 0) {`,
     // Expected-version append (M-T6.98): continue from the version THIS handle
     // was folded to, not from a `max(version)` re-read here — a re-read lets a
@@ -192,7 +203,17 @@ export function buildEventSourcedRepositoryFile(
     // the `unique (...)` arm) — reading `.code` alone never matched, so a lost
     // append surfaced as a 500.
     `      try {`,
-    `        await this.db.insert(schema.${table}).values(rows);`,
+    ...(durable
+      ? [
+          // Transactional outbox: the stream rows and the durable events'
+          // outbox rows commit in ONE transaction, so an appended event is
+          // always also owed to the relay; only the rest dispatch after.
+          `        await this.db.transaction(async (tx) => {`,
+          `          await tx.insert(schema.${table}).values(rows);`,
+          `          dispatchAfterCommit = (await ${captureCall}) ?? pending;`,
+          `        });`,
+        ]
+      : [`        await this.db.insert(schema.${table}).values(rows);`]),
     `      } catch (err) {`,
     `        if (err && typeof err === "object" && ((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505") {`,
     `          throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
@@ -210,12 +231,12 @@ export function buildEventSourcedRepositoryFile(
           // the stream's the dispatch runs in the stream tenant's frame.  The
           // common case — same tenant — keeps the request's own frame.
           `    const dispatchAll = async (): Promise<void> => {`,
-          `      for (const event of pending) {`,
+          `      for (const event of ${durable ? "dispatchAfterCommit" : "pending"}) {`,
           `        ${renderHonoStoreLogCall("eventDispatched", `event_type: event.type, aggregate: "${agg.name}", id: aggregate.id as string`)}`,
           `        await this.events.dispatch(event);`,
           `      }`,
           `    };`,
-          `    const origin = ${T.currentEventOrigin}();`,
+          ...(durable ? [] : [`    const origin = ${T.currentEventOrigin}();`]),
           `    if ((origin?.tenant ?? null) === aggregate.tenantId) {`,
           `      await dispatchAll();`,
           `    } else {`,
@@ -223,7 +244,7 @@ export function buildEventSourcedRepositoryFile(
           `    }`,
         ]
       : [
-          `    for (const event of pending) {`,
+          `    for (const event of ${durable ? "dispatchAfterCommit" : "pending"}) {`,
           `      ${renderHonoStoreLogCall("eventDispatched", `event_type: event.type, aggregate: "${agg.name}", id: aggregate.id as string`)}`,
           `      await this.events.dispatch(event);`,
           `    }`,
