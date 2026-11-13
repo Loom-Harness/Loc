@@ -64,9 +64,19 @@ const pending = (issue: `#${number}`) => ({ issue, reviewUntil: REVIEW });
 
 export const COVERAGE: readonly CoverageRow[] = [
   // ── relational / event-log engines: the engine runs, no fake ──────────
-  { sourceType: "postgres", kind: "state", fake: "n/a", witness: { fixture: "core-domain", effects: "wire" } },
+  {
+    sourceType: "postgres",
+    kind: "state",
+    fake: "n/a",
+    witness: { fixture: "core-domain", effects: "wire" },
+  },
   { sourceType: "postgres", kind: "snapshot", fake: "n/a", pending: pending("#5617") },
-  { sourceType: "postgres", kind: "eventLog", fake: "n/a", witness: { fixture: "event-sourcing", effects: "wire" } },
+  {
+    sourceType: "postgres",
+    kind: "eventLog",
+    fake: "n/a",
+    witness: { fixture: "event-sourcing", effects: "wire" },
+  },
   { sourceType: "postgres", kind: "replica", fake: "n/a", pending: pending("#5617") },
   { sourceType: "mysql", kind: "state", fake: "real-sidecar", pending: pending("#5617") },
   { sourceType: "mysql", kind: "snapshot", fake: "real-sidecar", pending: pending("#5617") },
@@ -81,14 +91,44 @@ export const COVERAGE: readonly CoverageRow[] = [
   { sourceType: "inMemory", kind: "eventLog", fake: "n/a", pending: pending("#5617") },
   { sourceType: "inMemory", kind: "cache", fake: "n/a", pending: pending("#4440") },
   // ── brokers, caches, logs: real, pinned sidecars ──────────────────────
-  { sourceType: "redis", kind: "cache", fake: "real-sidecar", module: "broker-sidecar.mjs", pending: pending("#5613") },
-  { sourceType: "redis", kind: "channel", fake: "real-sidecar", module: "broker-sidecar.mjs", pending: pending("#5613") },
-  { sourceType: "rabbitmq", kind: "queue", fake: "real-sidecar", module: "broker-sidecar.mjs", pending: pending("#5613") },
-  { sourceType: "rabbitmq", kind: "channel", fake: "real-sidecar", module: "broker-sidecar.mjs", pending: pending("#5613") },
+  {
+    sourceType: "redis",
+    kind: "cache",
+    fake: "real-sidecar",
+    module: "broker-sidecar.mjs",
+    pending: pending("#5613"),
+  },
+  {
+    sourceType: "redis",
+    kind: "channel",
+    fake: "real-sidecar",
+    module: "broker-sidecar.mjs",
+    pending: pending("#5613"),
+  },
+  {
+    sourceType: "rabbitmq",
+    kind: "queue",
+    fake: "real-sidecar",
+    module: "broker-sidecar.mjs",
+    pending: pending("#5613"),
+  },
+  {
+    sourceType: "rabbitmq",
+    kind: "channel",
+    fake: "real-sidecar",
+    module: "broker-sidecar.mjs",
+    pending: pending("#5613"),
+  },
   { sourceType: "kafka", kind: "eventLog", fake: "real-sidecar", pending: pending("#5615") },
   { sourceType: "kafka", kind: "channel", fake: "real-sidecar", pending: pending("#5615") },
   // ── object stores ──────────────────────────────────────────────────────
-  { sourceType: "s3", kind: "objectStore", fake: "real-sidecar", module: "s3-sidecar.mjs", pending: pending("#5613") },
+  {
+    sourceType: "s3",
+    kind: "objectStore",
+    fake: "real-sidecar",
+    module: "s3-sidecar.mjs",
+    pending: pending("#5613"),
+  },
   { sourceType: "localDisk", kind: "objectStore", fake: "n/a", pending: pending("#5613") },
   // ── outbound apis and mail ─────────────────────────────────────────────
   {

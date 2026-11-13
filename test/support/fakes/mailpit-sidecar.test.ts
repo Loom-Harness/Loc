@@ -12,14 +12,20 @@ const WORKFLOWS = join(__dirname, "..", "..", "..", ".github", "workflows");
 
 describe("mailpit sidecar — pins", () => {
   it("pins its image by digest", () => {
-    expect(MAILPIT_IMAGE).toMatch(/^axllent\/mailpit:v[\d.]+@sha256:[0-9a-f]{64}$/);
+    expect(MAILPIT_IMAGE).toMatch(
+      /^mirror\.gcr\.io\/axllent\/mailpit:v[\d.]+@sha256:[0-9a-f]{64}$/,
+    );
   });
 
   it("every workflow's mailpit service runs the image the kit pins", () => {
     const found = readdirSync(WORKFLOWS)
       .filter((f) => f.startsWith("behavioral-e2e") || f === "email-e2e.yml")
       .flatMap((f) =>
-        [...readFileSync(join(WORKFLOWS, f), "utf8").matchAll(/image:\s*(axllent\/mailpit\S*)/g)].map((m) => [f, m[1]]),
+        [
+          ...readFileSync(join(WORKFLOWS, f), "utf8").matchAll(
+            /image:\s*(\S*axllent\/mailpit\S*)/g,
+          ),
+        ].map((m) => [f, m[1]]),
       );
     expect(found.length).toBeGreaterThanOrEqual(8);
     for (const [, image] of found) expect(image).toBe(MAILPIT_IMAGE);

@@ -21,7 +21,7 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
  * Storage type → fake module loader.  A `null` entry is a type the kit knows
  * about but has no fake for yet; it is skipped like an unknown one.
  *
- * Every module exports `start({ storage, resources }) → { kind, env, observe(),
+ * Every module exports `start({ storage, resources, genDir }) → { kind, env, observe(),
  * reset(), stop() }`; `kind` names the `effects` section its observations land
  * in, and `observe()` / `reset()` may be async.  A sidecar fronts a real,
  * digest-pinned service (`smtp` → Mailpit); an in-process fake serves an
@@ -107,11 +107,14 @@ export function mayNeedSidecars(source) {
  * @param {string} srcPath  the case's `.ddd` on disk (platform-swapped)
  * @param {string} [source] its text — when given, a case with nothing to fake
  *   returns at once without lowering the model
+ * @param {{ genDir?: string }} [opts] `genDir` — the case's generated tree,
+ *   handed to every fake's `start` (a broker sidecar imports its
+ *   `broker-init` definitions from it)
  * @returns {Promise<{ env: Record<string,string>, effects(): Promise<Record<string, unknown[]>>, reset(): void, stop(): Promise<void>, kinds: string[] }>}
  */
-export async function startSidecars(srcPath, source) {
+export async function startSidecars(srcPath, source, opts = {}) {
   if (source !== undefined && !mayNeedSidecars(source)) return NONE;
-  const plan = plannedFakes(await loadModel(srcPath));
+  const plan = plannedFakes(await loadModel(srcPath)).map((p) => ({ ...p, genDir: opts.genDir }));
   if (!plan.length) return NONE;
   const running = [];
   try {

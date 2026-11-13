@@ -11,14 +11,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { DataSourceKind } from "../../../src/ir/types/loom-ir.js";
 import {
+  _unregisterSourceTypeForTests,
   registeredSourceTypes,
   registerSourceType,
   SURFACE_KIND_MAP,
   supportsSurfaceKind,
-  _unregisterSourceTypeForTests,
 } from "../../../src/util/source-types.js";
-import type { DataSourceKind } from "../../../src/ir/types/loom-ir.js";
 import { COVERAGE, type CoverageRow, MAX_PENDING_DAYS, OPEN_TRACKING_ISSUES } from "./coverage.js";
 
 const HERE = __dirname;
@@ -34,7 +34,9 @@ const key = (sourceType: string, kind: string): string => `${sourceType} × ${ki
 export function requiredPairs(): { pair: string; unbindable: boolean }[] {
   return registeredSourceTypes().flatMap((t) => {
     const kinds = KINDS.filter((k) => supportsSurfaceKind(t, k));
-    return kinds.length ? kinds.map((k) => ({ pair: key(t, k), unbindable: false })) : [{ pair: key(t, "state"), unbindable: true }];
+    return kinds.length
+      ? kinds.map((k) => ({ pair: key(t, k), unbindable: false }))
+      : [{ pair: key(t, "state"), unbindable: true }];
   });
 }
 
@@ -49,12 +51,15 @@ export function censusProblems(
     const row = byPair.get(pair);
     if (!row) out.push(`${pair}: no coverage row`);
     else if (unbindable !== !!row.unbindable) {
-      out.push(`${pair}: ${unbindable ? "binds no kind, so its row must be `unbindable`" : "binds a kind now — replace `unbindable` with a real row"}`);
+      out.push(
+        `${pair}: ${unbindable ? "binds no kind, so its row must be `unbindable`" : "binds a kind now — replace `unbindable` with a real row"}`,
+      );
     }
   }
   for (const r of rows) {
     const at = key(r.sourceType, r.kind);
-    if (r.module && !existsSync(join(HERE, r.module))) out.push(`${at}: module ${r.module} does not exist`);
+    if (r.module && !existsSync(join(HERE, r.module)))
+      out.push(`${at}: module ${r.module} does not exist`);
     if (r.unbindable) continue;
     if (!r.witness && !r.pending) out.push(`${at}: neither witnessed nor pending`);
     if (r.witness) {
@@ -64,18 +69,23 @@ export function censusProblems(
       } else if (r.witness.effects === "wire") {
         const src = readFileSync(join(CORPUS, `${r.witness.fixture}.ddd`), "utf8");
         if (!src.includes(`type: ${r.sourceType}`) || !src.includes(`kind: ${r.kind}`)) {
-          out.push(`${at}: witness ${r.witness.fixture} declares no ${r.kind} on a ${r.sourceType} storage`);
+          out.push(
+            `${at}: witness ${r.witness.fixture} declares no ${r.kind} on a ${r.sourceType} storage`,
+          );
         }
       } else {
         const effects = JSON.parse(readFileSync(golden, "utf8")).effects ?? {};
         if (!Array.isArray(effects[r.witness.effects]) || effects[r.witness.effects].length === 0) {
-          out.push(`${at}: the ${r.witness.fixture} golden carries no \`effects.${r.witness.effects}\``);
+          out.push(
+            `${at}: the ${r.witness.fixture} golden carries no \`effects.${r.witness.effects}\``,
+          );
         }
       }
     }
     if (r.pending) {
       const { issue, reviewUntil } = r.pending;
-      if (!opts.open.has(issue)) out.push(`${at}: pending on ${issue}, which is not in OPEN_TRACKING_ISSUES`);
+      if (!opts.open.has(issue))
+        out.push(`${at}: pending on ${issue}, which is not in OPEN_TRACKING_ISSUES`);
       if (opts.isClosed?.(issue)) out.push(`${at}: pending on ${issue}, which is closed`);
       const due = new Date(`${reviewUntil}T00:00:00Z`);
       if (Number.isNaN(due.getTime())) out.push(`${at}: reviewUntil ${reviewUntil} is not a date`);
@@ -86,7 +96,8 @@ export function censusProblems(
     }
   }
   const used = new Set(rows.flatMap((r) => (r.pending ? [r.pending.issue] : [])));
-  for (const i of OPEN_TRACKING_ISSUES) if (!used.has(i)) out.push(`${i}: in OPEN_TRACKING_ISSUES but no row is pending on it`);
+  for (const i of OPEN_TRACKING_ISSUES)
+    if (!used.has(i)) out.push(`${i}: in OPEN_TRACKING_ISSUES but no row is pending on it`);
   return out;
 }
 
@@ -98,9 +109,14 @@ describe("coverage census", () => {
   });
 
   it("a newly registered sourceType fails until it has a row", () => {
-    registerSourceType({ name: "loomFakeStore", supports: { objectStore: { capabilities: new Set(), interfaces: new Set() } } });
+    registerSourceType({
+      name: "loomFakeStore",
+      supports: { objectStore: { capabilities: new Set(), interfaces: new Set() } },
+    });
     try {
-      expect(censusProblems(COVERAGE, { today, open: OPEN_TRACKING_ISSUES })).toContain("loomFakeStore × objectStore: no coverage row");
+      expect(censusProblems(COVERAGE, { today, open: OPEN_TRACKING_ISSUES })).toContain(
+        "loomFakeStore × objectStore: no coverage row",
+      );
     } finally {
       _unregisterSourceTypeForTests("loomFakeStore");
     }
@@ -110,9 +126,9 @@ describe("coverage census", () => {
     const row = COVERAGE.find((r) => r.pending) as CoverageRow;
     const at = key(row.sourceType, row.kind);
     const issue = row.pending?.issue as string;
-    expect(censusProblems(COVERAGE, { today, open: OPEN_TRACKING_ISSUES, isClosed: (i) => i === issue })).toContain(
-      `${at}: pending on ${issue}, which is closed`,
-    );
+    expect(
+      censusProblems(COVERAGE, { today, open: OPEN_TRACKING_ISSUES, isClosed: (i) => i === issue }),
+    ).toContain(`${at}: pending on ${issue}, which is closed`);
     const later = new Date(`${row.pending?.reviewUntil}T00:00:00Z`);
     later.setUTCDate(later.getUTCDate() + 1);
     expect(censusProblems(COVERAGE, { today: later, open: OPEN_TRACKING_ISSUES })).toContain(
@@ -120,15 +136,29 @@ describe("coverage census", () => {
     );
   });
 
-  it.runIf(process.env.LOOM_CENSUS_ONLINE === "1")("no pending row leans on an issue GitHub reports closed", async () => {
-    const closed = new Set<string>();
-    for (const issue of OPEN_TRACKING_ISSUES) {
-      const res = await fetch(`https://api.github.com/repos/Loom-Harness/Loc/issues/${issue.slice(1)}`, {
-        headers: process.env.GITHUB_TOKEN ? { authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {},
-      });
-      expect(res.ok, `GitHub answered ${res.status} for ${issue}`).toBe(true);
-      if ((await res.json()).state === "closed") closed.add(issue);
-    }
-    expect(censusProblems(COVERAGE, { today, open: OPEN_TRACKING_ISSUES, isClosed: (i) => closed.has(i) })).toEqual([]);
-  });
+  it.runIf(process.env.LOOM_CENSUS_ONLINE === "1")(
+    "no pending row leans on an issue GitHub reports closed",
+    async () => {
+      const closed = new Set<string>();
+      for (const issue of OPEN_TRACKING_ISSUES) {
+        const res = await fetch(
+          `https://api.github.com/repos/Loom-Harness/Loc/issues/${issue.slice(1)}`,
+          {
+            headers: process.env.GITHUB_TOKEN
+              ? { authorization: `Bearer ${process.env.GITHUB_TOKEN}` }
+              : {},
+          },
+        );
+        expect(res.ok, `GitHub answered ${res.status} for ${issue}`).toBe(true);
+        if ((await res.json()).state === "closed") closed.add(issue);
+      }
+      expect(
+        censusProblems(COVERAGE, {
+          today,
+          open: OPEN_TRACKING_ISSUES,
+          isClosed: (i) => closed.has(i),
+        }),
+      ).toEqual([]);
+    },
+  );
 });
