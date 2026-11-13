@@ -12,9 +12,11 @@
 
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type { ExprIR, PageIR, StmtIR } from "../../ir/types/loom-ir.js";
+import { detectAwaitedOp } from "../../ir/util/awaited-op.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../ir/util/denial-detail.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";
 import { floorRuleText } from "../_i18n/rule-text.js";
+import { sentenceChromeName } from "../_walker/i18n-chrome.js";
 import { heexTarget } from "./heex-target.js";
 import {
   hostStateAssignIfOwned,
@@ -23,6 +25,7 @@ import {
   renderToastArgs,
   type WalkContext,
 } from "./heex-walker-core.js";
+import { chromeExpr } from "./i18n.js";
 
 /** Pre-hoist the handlers a body's markup refers to by name: its declared
  *  `action`s and its bare store-action handler refs.  Runs before the body
@@ -370,36 +373,6 @@ export function renderStmt(stmt: StmtIR, ctx: WalkContext): string {
   }
 }
 
-/** Extract `{aggregate, operation, args}` from an awaited variant-match subject.
- *  Handles both the api-param-prefixed form (`<api>.<Agg>.<op>(args)`, Pattern
- *  B/A) and the bare-aggregate form (`<Agg>.<op>(args)`, Pattern E/D) — for the
- *  awaited match the aggregate name is all we need (the api handle only selected
- *  the bounded context, which `contextModuleByAggName` already resolves). */
-function detectAwaitedOp(
-  subject: ExprIR,
-): { aggName: string; opName: string; args: ExprIR[] } | null {
-  if (subject.kind === "method-call") {
-    const aggName = qualifierName(subject.receiver);
-    if (aggName) return { aggName, opName: subject.member, args: subject.args };
-  }
-  if (subject.kind === "member") {
-    const aggName = qualifierName(subject.receiver);
-    if (aggName) return { aggName, opName: subject.member, args: [] };
-  }
-  return null;
-}
-
-/** The aggregate name a `match await` subject is qualified by: the LAST segment
- *  of the receiver chain, whatever its depth.  `Order` in each of `Order.op()`,
- *  `Api.Order.op()` and any deeper `a.b.Order.op()` qualification — only the
- *  aggregate matters here, since `contextModuleByAggName` already resolves the
- *  bounded context the api handle would have selected. */
-function qualifierName(recv: ExprIR): string | null {
-  if (recv.kind === "member") return recv.member;
-  if (recv.kind === "ref") return recv.name;
-  return null;
-}
-
 /** Render an awaited `match await <op>() { … }` as a socket-piped `then/2` step.
  *  Mirrors the returning-op controller action (operation-returns-emit): load the
  *  route-id record, run the op's context fn, `case` on the `{:ok, v}` /
@@ -494,7 +467,10 @@ function renderVariantMatchStmt(
   // audited-op `{:error, %Ecto.Changeset{}}`): run the `else` body if present,
   // else thread the socket through unchanged.
   clauses.push(armClause("_", stmt.elseBody ?? []));
-  const notFoundMsg = JSON.stringify(`${upperFirst(aggName)} not found`);
+  const notFoundMsg = chromeExpr(
+    sentenceChromeName("entityNotFound", aggName),
+    Boolean(ctx.i18nPrefix),
+  );
   return [
     `|> then(fn socket ->`,
     `        case ${ctxModule}.get_${aggSnake}(socket.assigns.id) do`,

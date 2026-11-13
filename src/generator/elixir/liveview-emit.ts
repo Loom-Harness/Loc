@@ -63,6 +63,7 @@ import type { LocaleEntry } from "../_frontend/locale-meta.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { wireErrorMessage } from "../_i18n/wire-error-text.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
+import { sentenceChromeName } from "../_walker/i18n-chrome.js";
 import { componentKeyPrefix, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { opUsesCurrentUser } from "./domain/predicates.js";
 import {
@@ -77,7 +78,7 @@ import {
   type UploadBinding,
   walkBodyToHeex,
 } from "./heex-walker.js";
-import { heexI18nEnabled, pgettextCall } from "./i18n.js";
+import { chromeExpr, heexI18nEnabled, pgettextCall } from "./i18n.js";
 import { buildPlaywrightPageObject, pageObjectPathFor } from "./page-objects-emit.js";
 import { exprUsesBind, REALTIME_TOPIC, renderMessageExprElixir } from "./realtime-liveview.js";
 import { renderExpr as renderDomainExpr } from "./render-expr.js";
@@ -817,6 +818,7 @@ function buildActionHandlers(
   bindings: readonly ActionBinding[],
   contextModuleByAggName: ReadonlyMap<string, string>,
   aggregatesByName: ReadonlyMap<string, AggregateIR>,
+  i18nEnabled: boolean,
 ): HandleEventClause[] {
   return bindings.map((b) => {
     const ctxModule = contextModuleByAggName.get(b.agg);
@@ -844,16 +846,22 @@ function buildActionHandlers(
     // `byId` actions (DestroyForm) call the code interface with the id
     // directly — the `get_by: [:id]` interface does the lookup.  Other
     // actions load the record first, then invoke the op on it.
+    const flash = chromeExpr(
+      b.byId
+        ? sentenceChromeName("deleteSucceeded", b.agg)
+        : sentenceChromeName("actionSucceeded", b.opName ?? b.op),
+      i18nEnabled,
+    );
     const body = b.byId
       ? [
           ...(destroyUsesUser ? ["    current_user = Map.get(socket.assigns, :current_user)"] : []),
           `    ${ctxModule}.${b.eventName}!(id${destroyUsesUser ? ", current_user" : ""})`,
-          `    {:noreply, socket |> put_flash(:info, "${b.opHuman} succeeded")${navPipe}}`,
+          `    {:noreply, socket |> put_flash(:info, ${flash})${navPipe}}`,
         ]
       : [
           `    record = ${ctxModule}.get_${aggSnake}!(id)`,
           `    ${ctxModule}.${b.eventName}!(record${actorArg})`,
-          `    {:noreply, socket |> put_flash(:info, "${b.opHuman} succeeded")${navPipe}}`,
+          `    {:noreply, socket |> put_flash(:info, ${flash})${navPipe}}`,
         ];
     return {
       name: b.eventName,
@@ -980,6 +988,7 @@ function renderLiveView(a: RenderArgs): {
     gatherActionBindings(walked.actionBindings, walked.usedComponents, componentInfo),
     contextModuleByAggName,
     aggregatesByName,
+    a.i18nEnabled === true,
   );
   // Component named-action + inline-lambda handlers hoist to the host page's
   // LiveView — the component is a stateless function component, so its
@@ -1022,6 +1031,7 @@ function renderLiveView(a: RenderArgs): {
       refreshLabels,
       aggregatesByName,
       walked.queryBindings,
+      a.i18nEnabled === true,
     ) +
     renderWorkflowEventClauses(
       walked.formBindings,
@@ -2029,6 +2039,7 @@ function renderOperationEventClauses(
   refreshLabels = false,
   aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
   queryBindings: readonly QueryBinding[] = [],
+  i18nEnabled = false,
 ): string {
   const ops = formBindings.filter((fb) => fb.kind === "operation");
   if (ops.length === 0) return "";
@@ -2038,6 +2049,10 @@ function renderOperationEventClauses(
       .map((fb) => {
         const op = fb.op!;
         const human = humanizeOp(op);
+        const succeeded = chromeExpr(
+          sentenceChromeName("operationSucceeded", fb.opName ?? op),
+          i18nEnabled,
+        );
         const reload = detailBaseRoute
           ? `\n         |> push_patch(to: ~p"${detailBaseRoute}/#{record.id}")`
           : "";
@@ -2072,6 +2087,7 @@ function renderOperationEventClauses(
         if (fb.callsOp && opIR) {
           return renderNamedOpClauses(fb, opIR, ctxModule, aggSnake, rec, {
             human,
+            succeeded,
             gateRefresh,
             labelRefresh,
             reload,
@@ -2106,7 +2122,7 @@ function renderOperationEventClauses(
       {:ok, record} ->
         {:noreply,
          socket
-         |> put_flash(:info, "${human} succeeded")
+         |> put_flash(:info, ${succeeded})
          |> assign(:${rec}, record)
          |> assign(:${op}_form, ${opFormExpr(fb, ctxModule, aggSnake, "record")})${gateRefresh}${labelRefresh}${reload}}
 
@@ -2135,6 +2151,8 @@ function renderNamedOpClauses(
   rec: string,
   parts: {
     human: string;
+    /** The rendered success flash (a catalogued sentence under i18n). */
+    succeeded: string;
     gateRefresh: string;
     labelRefresh: string;
     reload: string;
@@ -2142,7 +2160,7 @@ function renderNamedOpClauses(
   },
 ): string {
   const op = fb.op!;
-  const { human, gateRefresh, labelRefresh, reload } = parts;
+  const { human, succeeded, gateRefresh, labelRefresh, reload } = parts;
   const guardErrorModule = `${ctxModule.slice(0, ctxModule.lastIndexOf("."))}.GuardError`;
   const cu = opUsesCurrentUser(opIR);
   const params = opIR.params;
@@ -2166,17 +2184,17 @@ function renderNamedOpClauses(
           {:ok, record} ->
             {:noreply,
              socket
-             |> put_flash(:info, "${human} succeeded")
+             |> put_flash(:info, ${succeeded})
              |> assign(:${rec}, record)
              |> assign(:${op}_form, ${opFormExpr(fb, ctxModule, aggSnake, "record")})${gateRefresh.replace(/\n/g, "\n    ")}${labelRefresh.replace(/\n/g, "\n    ")}${reload.replace(/\n/g, "\n    ")}}
 
           _ ->
-            {:noreply, put_flash(socket, :info, "${human} succeeded")}
+            {:noreply, put_flash(socket, :info, ${succeeded})}
         end`
     : `{:ok, record} ->
         {:noreply,
          socket
-         |> put_flash(:info, "${human} succeeded")
+         |> put_flash(:info, ${succeeded})
          |> assign(:${rec}, record)
          |> assign(:${op}_form, ${opFormExpr(fb, ctxModule, aggSnake, "record")})${gateRefresh}${labelRefresh}${reload}}`;
   const tagArm = fb.reloads
@@ -2353,7 +2371,7 @@ function renderCreateEventClauses(
   const ctxModule = contextModuleByAggName.get(fb.name);
   if (!ctxModule) return "";
   const aggSnake = snake(fb.name);
-  const human = humanizeOp(`create_${aggSnake}`);
+  const created = chromeExpr(sentenceChromeName("created", fb.name), i18nEnabled);
   // Success lands on the CREATED RECORD's detail page, not back on the list.
   // Two reasons, and the second is the load-bearing one:
   //   * parity — the React/Vue/Svelte/Angular scaffolds all navigate to the new
@@ -2388,7 +2406,7 @@ ${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}
       {:ok, ${okBinding}} ->
         {:noreply,
          socket
-         |> put_flash(:info, "${human} succeeded")${nav}}
+         |> put_flash(:info, ${created})${nav}}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign(socket, :form, to_form(changeset))}${

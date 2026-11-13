@@ -36,6 +36,7 @@ import {
 } from "../../util/channels.js";
 import { lines } from "../../util/code-builder.js";
 import { escapePythonIdent, pythonIdent, snake } from "../../util/naming.js";
+import { OUTBOX_RELAY } from "../_channels/delivery-policy.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { PY_IMPORTS, pyModule, pyRef } from "../_imports/python.js";
 import { ref } from "../_imports/symbol.js";
@@ -93,6 +94,15 @@ const DELETE = pyRef("sqlalchemy", "delete");
 const OS = ref(pyModule("os"));
 const PUBLISH = pyRef("app.channels", "publish_event");
 const PUBLISH_RELAY = pyRef("app.channels", "publish_event_from_relay");
+const BROKER_UNAVAILABLE = pyRef("app.channels", "BrokerUnavailable");
+
+/** A row whose publish found the broker unreachable is not at fault: the pass
+ *  halts there without spending the row's attempt (the shared relay policy),
+ *  and the relay loop backs off. */
+const PY_RELAY_HALT_ON_BROKER_DOWN: readonly string[] = [
+  `        except ${BROKER_UNAVAILABLE}:`,
+  "            raise",
+];
 const REALTIME = pyRef("app.realtime", "RealtimeDispatcher");
 const NOOP = pyRef("app.domain.events", "NoopDomainEventDispatcher");
 const IN_CHILD = pyRef("app.obs.log", "in_child_context");
@@ -1154,6 +1164,7 @@ function outboxBlock(
           "                )",
           "                await session.commit()",
         ]),
+    ...(opts.durableBroker ? PY_RELAY_HALT_ON_BROKER_DOWN : []),
     "        except Exception as exc:  # noqa: BLE001 — relay isolates one row's failure",
     ...OUTBOX_FAIL_BLOCK,
     "        finally:",
@@ -1162,22 +1173,29 @@ function outboxBlock(
     "",
     ...OUTBOX_PURGE_FNS,
     "async def _run_outbox_relay(",
-    "    interval: float = 0.5, max_attempts: int = 5, batch_size: int = 50",
+    `    interval: float = ${OUTBOX_RELAY.intervalMs / 1000}, max_attempts: int = ${OUTBOX_RELAY.maxAttempts}, batch_size: int = ${OUTBOX_RELAY.batchSize}`,
     ") -> None:",
     `    """Background relay: drains pending __loom_outbox rows in`,
     "    occurred_at order through the in-process dispatcher (at-least-once).",
     `    """`,
     `    loop = ${ASYNCIO}.get_running_loop()`,
     "    last_purge = loop.time()",
+    "    failures = 0",
     "    while True:",
     "        try:",
     `            if loop.time() - last_purge >= ${OUTBOX_PURGE_INTERVAL_SECONDS}:`,
     "                last_purge = loop.time()",
     "                await _purge_outbox()",
     "            await _drain_outbox(max_attempts, batch_size)",
+    "            failures = 0",
     "        except Exception as exc:  # noqa: BLE001 — keep the relay alive",
     `            ${PY.log}("warn", "outbox_relay_error", error=str(exc))`,
-    `        await ${ASYNCIO}.sleep(interval)`,
+    "            failures += 1",
+    "        # A failed pass (database or broker unreachable) backs off, capped;",
+    "        # a clean pass resets it.",
+    `        await ${ASYNCIO}.sleep(`,
+    `            interval if failures == 0 else min(interval * 2 ** min(failures, ${OUTBOX_RELAY.maxBackoffDoublings}), ${OUTBOX_RELAY.maxBackoffMs / 1000})`,
+    "        )",
     "",
     "",
     `def start_outbox_relay() -> "${ASYNCIO}.Task[None]":`,
@@ -1270,28 +1288,36 @@ function pureProducerOutboxBlock(
     `                    .values(dispatched_at=${PY.datetime}.now(${PY.UTC}))`,
     "                )",
     "                await session.commit()",
+    ...PY_RELAY_HALT_ON_BROKER_DOWN,
     "        except Exception as exc:  # noqa: BLE001 — relay isolates one row's failure",
     ...OUTBOX_FAIL_BLOCK,
     "",
     "",
     ...OUTBOX_PURGE_FNS,
     "async def _run_outbox_relay(",
-    "    interval: float = 0.5, max_attempts: int = 5, batch_size: int = 50",
+    `    interval: float = ${OUTBOX_RELAY.intervalMs / 1000}, max_attempts: int = ${OUTBOX_RELAY.maxAttempts}, batch_size: int = ${OUTBOX_RELAY.batchSize}`,
     ") -> None:",
     `    """Background relay: drains pending __loom_outbox rows in`,
     "    occurred_at order to the broker (at-least-once).",
     `    """`,
     `    loop = ${ASYNCIO}.get_running_loop()`,
     "    last_purge = loop.time()",
+    "    failures = 0",
     "    while True:",
     "        try:",
     `            if loop.time() - last_purge >= ${OUTBOX_PURGE_INTERVAL_SECONDS}:`,
     "                last_purge = loop.time()",
     "                await _purge_outbox()",
     "            await _drain_outbox(max_attempts, batch_size)",
+    "            failures = 0",
     "        except Exception as exc:  # noqa: BLE001 — keep the relay alive",
     `            ${PY.log}("warn", "outbox_relay_error", error=str(exc))`,
-    `        await ${ASYNCIO}.sleep(interval)`,
+    "            failures += 1",
+    "        # A failed pass (database or broker unreachable) backs off, capped;",
+    "        # a clean pass resets it.",
+    `        await ${ASYNCIO}.sleep(`,
+    `            interval if failures == 0 else min(interval * 2 ** min(failures, ${OUTBOX_RELAY.maxBackoffDoublings}), ${OUTBOX_RELAY.maxBackoffMs / 1000})`,
+    "        )",
     "",
     "",
     `def start_outbox_relay() -> "${ASYNCIO}.Task[None]":`,

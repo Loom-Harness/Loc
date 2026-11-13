@@ -41,6 +41,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { chromiumLaunchOptions, playwrightFallbackArgs } from "./browser-fallback.mjs";
 import { copyLocales, localesBeside } from "./case-source.mjs";
 import {
   driveAddRider,
@@ -167,7 +168,7 @@ async function numericListProbe(origin, cfg) {
     stdio: "pipe",
   });
   const { chromium } = await import("playwright");
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ ...chromiumLaunchOptions(chromium.executablePath()) });
   try {
     const page = await browser.newPage();
     const api = [];
@@ -233,7 +234,7 @@ async function moneyCompareProbe(origin) {
     stdio: "pipe",
   });
   const { chromium } = await import("playwright");
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ ...chromiumLaunchOptions(chromium.executablePath()) });
   const why = [];
   try {
     const page = await browser.newPage();
@@ -419,7 +420,7 @@ async function runCase(c) {
     });
     const reportFile = join(workDir, "report.json");
     await new Promise((res) => {
-      const cp = spawn(npx, ["playwright", "test", "--reporter=list,json"], {
+      const cp = spawn(npx, ["playwright", "test", ...playwrightFallbackArgs(e2eDir), "--reporter=list,json"], {
         cwd: e2eDir,
         stdio: "inherit",
         env: {
