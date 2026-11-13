@@ -1622,7 +1622,13 @@ function renderController(ctx: BoundedContextIR, ns: string, routePrefix?: strin
 using System.Threading.Tasks;
 using Mediator;
 using Microsoft.AspNetCore.Mvc;
-using ${ns}.Application.Projections;
+using ${ns}.Application.Projections;${
+    // A declared `X id` / enum parameter crosses into the query record as its
+    // domain type (`new RunId(r)`), named in these namespaces.
+    projections.some((p) => projectionQueryParams(p, ctx).length > 0)
+      ? `\nusing ${ns}.Domain.Ids;\nusing ${ns}.Domain.Enums;`
+      : ""
+  }
 
 namespace ${ns}.Api;
 
