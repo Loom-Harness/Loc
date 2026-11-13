@@ -96,10 +96,13 @@ describe("python TPC inheritance", () => {
 });
 
 // A base whose concrete masks a field (or gates its `all` behind `requires`)
-// has no `GET /<bases>` route, so nothing pages it: its reader renders no
-// `find_page` and no `app.domain.paging` import.  Whichever way that predicate
-// falls, every module importing `app.domain.paging` must find it emitted.
-const MASKED_BASE = (inheritance: "sharedTable" | "ownTable") => `
+// is routed like any other: the route checks every concrete's list gate before
+// the load and the reader masks that concrete's rows.  A base with a concrete
+// that serves no list read of its own (no repository) has no `GET /<bases>`
+// route, so nothing pages it: its reader renders no `find_page` and no
+// `app.domain.paging` import.  Whichever way that predicate falls, every module
+// importing `app.domain.paging` must find it emitted.
+const MASKED_BASE = (inheritance: "sharedTable" | "ownTable", withRepository = true) => `
 system S {
   user { id: guid  role: string  permissions: string[] }
   subdomain Core {
@@ -110,7 +113,7 @@ system S {
         label: string
         ssn: string mask unless currentUser.permissions.contains(permissions.unmask)
       }
-      repository Things for Thing { }
+      ${withRepository ? "repository Things for Thing { }" : ""}
     }
   }
   api MainApi from Core
@@ -129,8 +132,19 @@ function pagingImportersWithoutModule(files: Map<string, string>, root: string):
 
 describe("python base reader paging", () => {
   for (const inheritance of ["sharedTable", "ownTable"] as const) {
-    it(`an unrouted ${inheritance} base reader imports no paging module that is not emitted`, async () => {
+    it(`a masked ${inheritance} base is routed: it pages, masks per row, and its paging module is emitted`, async () => {
       const files = await generateSystemFiles(MASKED_BASE(inheritance));
+      const reader = files.get("d/app/db/repositories/thing_base_repository.py")!;
+      expect(files.has("d/app/http/thing_base_routes.py")).toBe(true);
+      expect(files.has("d/app/domain/paging.py")).toBe(true);
+      expect(reader).toContain("def find_page(");
+      // String tier: the wire effect (a null `ssn` for a caller without the
+      // permission) is the inheritance-read-gates corpus fixture's.
+      expect(reader).toContain(".to_wire_masked(root)");
+    });
+
+    it(`an unrouted ${inheritance} base reader imports no paging module that is not emitted`, async () => {
+      const files = await generateSystemFiles(MASKED_BASE(inheritance, false));
       const reader = files.get("d/app/db/repositories/thing_base_repository.py")!;
       expect(reader).toContain("class ThingBaseRepository:");
       expect(files.has("d/app/http/thing_base_routes.py")).toBe(false);
