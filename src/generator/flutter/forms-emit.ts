@@ -221,6 +221,9 @@ export interface FlutterFormSpec {
   kind: "create" | "operation" | "destroy";
   /** The aggregate operated on (`Product`). */
   aggregate: string;
+  /** A workflow run may write any aggregate, so its success drops every cached
+   *  read rather than one aggregate's. */
+  invalidatesAllReads?: boolean;
   /** Whether the widget takes a `required String id` ctor arg (op / destroy). */
   needsId: boolean;
   /** Fully-built request path (a Dart string-literal body, e.g. `/products` or
@@ -859,6 +862,7 @@ export function flutterWorkflowForm(
     aggregate: wf.name,
     needsId: false,
     pathExpr: `/workflows/${snake(wf.name)}`,
+    invalidatesAllReads: true,
     submitLabel: run ? run.defaultText : opDefaultText(wf.name, "run"),
     ...(text && run ? { submitExpr: dartTranslate(run.key, run.defaultText) } : {}),
     fields,
@@ -1891,7 +1895,7 @@ class ServerErrors {
 }
 
 /** The `_submit` method for a fields-bearing (create / operation) form. */
-function submitMethod(spec: FlutterFormSpec): string[] {
+function submitMethod(spec: FlutterFormSpec, invalidates: boolean): string[] {
   // A param-less form has no field to point at: its rejection is all banner.
   const hasSlots = spec.fields.length > 0;
   const gate =
@@ -1917,6 +1921,7 @@ function submitMethod(spec: FlutterFormSpec): string[] {
     "          body: jsonEncode(body));",
     "      if (res.statusCode >= 200 && res.statusCode < 300) {",
     "        if (!mounted) return;",
+    ...invalidateCall(spec, invalidates),
     "        Navigator.of(context).pop();",
     "        return;",
     "      }",
@@ -1942,8 +1947,20 @@ function submitMethod(spec: FlutterFormSpec): string[] {
   ];
 }
 
+/** The cache drop a successful write runs before it closes: the operated-on
+ *  aggregate's reads, or every read for a workflow.  Absent when the ui issues
+ *  no reads (`lib/reads.dart` does not exist). */
+function invalidateCall(spec: FlutterFormSpec, invalidates: boolean): string[] {
+  if (!invalidates) return [];
+  return [
+    spec.invalidatesAllReads
+      ? "        invalidateReads(context);"
+      : `        invalidateReads(context, '${dartStr(spec.aggregate)}');`,
+  ];
+}
+
 /** The `_submit` method for a destroy form (no fields, a DELETE). */
-function destroySubmitMethod(spec: FlutterFormSpec): string[] {
+function destroySubmitMethod(spec: FlutterFormSpec, invalidates: boolean): string[] {
   return [
     "  Future<void> _submit() async {",
     "    setState(() {",
@@ -1954,6 +1971,7 @@ function destroySubmitMethod(spec: FlutterFormSpec): string[] {
     `      final res = await http.delete(apiUri('${spec.pathExpr}'));`,
     "      if (res.statusCode >= 200 && res.statusCode < 300) {",
     "        if (!mounted) return;",
+    ...invalidateCall(spec, invalidates),
     "        Navigator.of(context).pop();",
     "        return;",
     "      }",
@@ -1982,7 +2000,7 @@ function submitButton(spec: FlutterFormSpec): string {
 }
 
 /** Emit one form widget class (a `StatefulWidget` + its `State`). */
-export function renderFormWidget(spec: FlutterFormSpec): string {
+export function renderFormWidget(spec: FlutterFormSpec, invalidates = false): string {
   const w = spec.widgetName;
   const ctorArgs =
     spec.needsId || spec.gateProbe
@@ -2055,7 +2073,10 @@ export function renderFormWidget(spec: FlutterFormSpec): string {
       ? ["", "  @override", "  void dispose() {", ...dispose, "    super.dispose();", "  }"]
       : [];
 
-  const submit = spec.kind === "destroy" ? destroySubmitMethod(spec) : submitMethod(spec);
+  const submit =
+    spec.kind === "destroy"
+      ? destroySubmitMethod(spec, invalidates)
+      : submitMethod(spec, invalidates);
   const pickers = filePickers(spec.fields);
 
   return lines(
@@ -2106,9 +2127,12 @@ export function renderFormsFile(
   /** True when the ui ships `lib/i18n.dart`: the server's refusals localize by
    *  code through its `t`. */
   i18n = false,
+  /** True when the ui issues reads (`lib/reads.dart` exists): a successful write
+   *  drops the cached reads it made stale. */
+  invalidatesReads = false,
 ): string {
   if (forms.length === 0) return "";
-  const blocks = forms.map(renderFormWidget);
+  const blocks = forms.map((f) => renderFormWidget(f, invalidatesReads));
   // A `file` input picks through `file_picker` and reifies the uploaded
   // `FileRef` from `models.dart`; a File-free form set keeps its old import
   // list byte-identical.
@@ -2128,6 +2152,7 @@ export function renderFormsFile(
     "import 'config.dart';",
     ...(i18n || blocks.some(callsTranslate) ? ["import 'i18n.dart';"] : []),
     ...(usesFile ? ["import 'models.dart';"] : []),
+    ...(invalidatesReads ? ["import 'reads.dart';"] : []),
     "",
     ...blocks.flatMap((b, i) => (i === 0 ? [b] : ["", b])),
     "",
