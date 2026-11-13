@@ -80,7 +80,7 @@ function cellText(f: FormFieldSpec, acc: string): string | undefined {
 }
 
 /** The seed assignments for one spec field: `[cell name, F# value]` pairs. */
-function fieldCells(f: FormFieldSpec, acc: string): Cell[] {
+function fieldCells(f: FormFieldSpec, acc: string, emptyBinding: string): Cell[] {
   switch (f.kind) {
     case "valueObject":
     case "optionalValueObject": {
@@ -98,20 +98,18 @@ function fieldCells(f: FormFieldSpec, acc: string): Cell[] {
       return [
         ...presence,
         ...(f.children ?? []).flatMap((c) => {
-          const sub = fieldCells(c, `${optional ? "__vo" : acc}.${fsIdent(c.name)}`);
-          // An absent optional VO seeds each sub-cell with its form default: a
-          // required enum's select always holds a value (its first), so a blank
-          // seed would make the opt-in group unsubmittable.
-          const absent =
-            c.kind === "enum" && !c.optional && c.enumValues?.[0] !== undefined
-              ? JSON.stringify(c.enumValues[0])
-              : '""';
-          return sub.map((s) => ({
-            name: `${f.name}${upperFirst(s.name)}`,
-            value: optional
-              ? `(match ${acc} with | Some __vo -> ${s.value} | None -> ${absent})`
-              : s.value,
-          }));
+          const sub = fieldCells(c, `${optional ? "__vo" : acc}.${fsIdent(c.name)}`, emptyBinding);
+          return sub.map((s) => {
+            const name = `${f.name}${upperFirst(s.name)}`;
+            // An absent optional VO keeps the empty form's starting cell (a
+            // required enum sub-field starts at its first member, not "").
+            return {
+              name,
+              value: optional
+                ? `(match ${acc} with | Some __vo -> ${s.value} | None -> ${emptyBinding}.${fsIdent(name)})`
+                : s.value,
+            };
+          });
         }),
       ];
     }
@@ -142,7 +140,7 @@ export function felizOperationFormSeed(
   const assigns: string[] = [];
   for (const f of spec.fields) {
     if (f.prefill.from !== "record") continue;
-    for (const c of fieldCells(f, `__r.${fsIdent(f.name)}`)) {
+    for (const c of fieldCells(f, `__r.${fsIdent(f.name)}`, form.emptyBinding)) {
       if (cellNames.has(c.name)) assigns.push(`${fsIdent(c.name)} = ${c.value}`);
     }
     if (f.kind === "objectArray") {

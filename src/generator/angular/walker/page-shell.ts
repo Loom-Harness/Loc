@@ -41,7 +41,7 @@ import {
   listInputMethodLines,
   optionalGroupNames,
 } from "../form-fields.js";
-import { submitInputExpr } from "../form-seed.js";
+import { submitInputExpr } from "../form-prefill.js";
 import { ANGULAR_LOCALE_SWITCHER_CLASS } from "../locale-switcher.js";
 import { ANGULAR_REF_LABEL_CLASS } from "../ref-label-runtime.js";
 import { storeClassName, storeFileSlug } from "../store-builder.js";

@@ -168,11 +168,7 @@ export function initialValuesTs(
  * form opens on the current values; otherwise a field seeds from its declared
  * default when the client can evaluate it, else its kind's zero.
  */
-export function formSeedTs(
-  spec: FormSpec,
-  ctx: BoundedContextIR,
-  seedCtx: DefaultSeedCtx = {},
-): string {
+export function formSeedTs(spec: FormSpec, ctx: BoundedContextIR, seedCtx: DefaultSeedCtx): string {
   const entries = spec.fields.map((f) => {
     const fromRecord =
       seedCtx.recordVar !== undefined && f.prefill.from === "record"

@@ -160,7 +160,7 @@ function opFormSeeds(
   }
   const spec = operationFormSpec(st.agg, st.op, formSpecEnvOf(st.bc, new Map()));
   return {
-    setup: formSeedTs(spec, st.bc),
+    setup: formSeedTs(spec, st.bc, {}),
     recordParam: `, record?: ${st.recordType}`,
     onOpen: `if (record) Object.assign(${formVar}.values, ${st.defaultValuesTs}); `,
   };

@@ -248,6 +248,7 @@ export function formFieldSpec(
     optional,
     absence,
     prefill,
+    ...(f.default ? { default: f.default } : {}),
   };
   switch (kind) {
     case "enum":

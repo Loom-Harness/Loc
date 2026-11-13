@@ -1098,7 +1098,9 @@ function buildField(
     encodeExpr: encodeExprFor(type, `form.${fsIdent(wireName)}`, optional),
     inputKind,
     numeric: numericKind(base),
-    required: !optional,
+    // An array cell is a comma-separated list: empty is the empty list, a
+    // legitimate value (the wire schema carries no minimum), never "unfilled".
+    required: !optional && base.kind !== "array",
     enumValues,
     idTarget,
     idLabelField,
@@ -1146,7 +1148,15 @@ function formFieldsFrom(
             sub.default,
             f.name,
           );
-          return voOptional ? { ...cell, presentCell: fsIdent(presentCell) } : cell;
+          // The group's optionality relaxes `required`, not the cell's starting
+          // value: a sub-field that is itself a required enum starts at its first
+          // value, so ticking the opt-in box submits a valid member.
+          const ownOptional = sub.optional === true || sub.type.kind === "optional";
+          const start =
+            voOptional && !ownOptional && cell.inputKind === "select" && cell.enumValues?.length
+              ? { ...cell, emptyValue: cell.enumValues[0]! }
+              : cell;
+          return voOptional ? { ...start, presentCell: fsIdent(presentCell) } : start;
         });
       if (!voOptional) return subs;
       // An optional VO is opt-in: a presence checkbox leads its sub-fields; the

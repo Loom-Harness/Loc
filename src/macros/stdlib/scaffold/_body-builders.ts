@@ -839,7 +839,12 @@ function relatedCard(
     const cols = partColumns(part).map((col) => ({
       value: callExpr("Column", [
         { value: col.label },
-        { value: lambda("row", col.cell(() => nameRefExpr("row"))) },
+        {
+          value: lambda(
+            "row",
+            col.cell(() => nameRefExpr("row")),
+          ),
+        },
       ]),
     }));
     const table = callExpr("Table", [
