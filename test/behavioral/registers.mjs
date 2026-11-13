@@ -332,10 +332,6 @@ export const BEHAVIOURAL_XFAIL = {
       expect: "wire",
       reason: "the workflow 409 `detail` names no aggregate or id (M-T6.94's removal half is fixed)",
     },
-    // Every test passes; the recording diverges from the golden in five
-    // values — the 409 `detail` names no aggregate/id (#3838), and each op call
-    // inside the workflow is persisted, so a document's `version` reads one
-    // higher (#4089).
     // Every test passes; the refused deposit's 422 carries no `errors[]`
     // entry on elixir's event-sourced operation path.
     "eventsourced-durable-outbox": {
@@ -343,26 +339,12 @@ export const BEHAVIOURAL_XFAIL = {
       expect: "wire",
       reason: "an event-sourced operation's refused precondition answers 422 without `errors[]`",
     },
+    // Every test passes; the recording diverges from the golden in the two
+    // stale-save 409s, whose `detail` names no aggregate or id.
     "workflow-two-handles-document-eventlog": {
-      issue: "#3838, #4089",
+      issue: "#3838",
       expect: "wire",
-      reason:
-        "the workflow 409 `detail` names no aggregate or id, and per-call persistence bumps the document `version` twice",
-    },
-    // Every test passes; the tally's `rowVersion` reads one higher per bump
-    // than the golden, because each op call inside the workflow is persisted
-    // (RS-20 counts one per command).
-    "workflow-loop-carried": {
-      issue: "#4089",
-      expect: "wire",
-      reason: "per-call persistence bumps `rowVersion` once per loop iteration instead of once per workflow run",
-    },
-    // Every test passes; the rated Survey's `rowVersion` reads 2, not 1: the
-    // reactor's create and its `rate` op each persist.
-    "reactor-failure-order": {
-      issue: "#4089",
-      expect: "wire",
-      reason: "per-call persistence bumps the Survey's `rowVersion` for the reactor's create and again for its op",
+      reason: "the workflow 409 `detail` names no aggregate or id",
     },
   },
 };

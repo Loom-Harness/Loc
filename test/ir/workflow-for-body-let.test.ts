@@ -97,9 +97,13 @@ describe("a `let` in a workflow `for` body is in scope after it", () => {
     dotnet: [/_parts\.GetByIdAsync\(/, /p\.Consume\(/, /_parts\.SaveAsync\(p/],
     java: [/partsRepository\.getById\(/, /p\.consume\(/, /partsRepository\.save\(p\)/],
     python: [/parts\.get_by_id\(/, /p\.consume\(/, /parts\.save\(p\)/],
-    // Phoenix: the `with` chain loads, and the context function it calls both
-    // mutates and persists.
-    elixir: [/Context\.get_part\(/, /Context\.consume_part\(p/, /persist_change\(\)/],
+    // Phoenix: the `with` chain loads, runs the op on the struct, and saves it
+    // once per iteration.
+    elixir: [
+      /Context\.get_part\(/,
+      /Context\.__apply_consume_part\(p/,
+      /Context\.__save_part\(p\)/,
+    ],
   };
 
   it.each(

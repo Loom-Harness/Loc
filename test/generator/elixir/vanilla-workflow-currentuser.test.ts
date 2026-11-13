@@ -114,7 +114,7 @@ describe("vanilla — workflow-level currentUser threading (§11a)", () => {
 
   it("passes current_user through to the currentUser-gated op call", async () => {
     const { approve } = await loadWorkflows();
-    expect(approve).toContain("Context.confirm_order(o, %{}, current_user)");
+    expect(approve).toContain("Context.__apply_confirm_order(o, %{}, current_user)");
   });
 
   it("threads current_user even when only a gated op (not the body) uses it", async () => {
@@ -125,7 +125,7 @@ describe("vanilla — workflow-level currentUser threading (§11a)", () => {
     expect(auto).toContain(
       'def run(params, current_user) when is_map(params) and is_map_key(params, "orderId") do',
     );
-    expect(auto).toContain("Context.confirm_order(o, %{}, current_user)");
+    expect(auto).toContain("Context.__apply_confirm_order(o, %{}, current_user)");
   });
 
   it("the controller binds conn.assigns[:current_user] and passes it through", async () => {
