@@ -26,6 +26,13 @@ export function createBrokerService(host: InfraServiceHost): InfraService<Broker
           return model.nack(req.params.deliveryId, req.params.error, req.params.poison === true);
         case "inspect":
           return model.inspect();
+        case "browse":
+          return model.browse(req.params);
+        case "seek":
+          model.seek(req.params);
+          return { ok: true };
+        case "redrive":
+          return model.redrive(req.params);
       }
     },
     disconnect(client) {

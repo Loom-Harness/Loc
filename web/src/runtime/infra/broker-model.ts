@@ -26,7 +26,11 @@
 // port; tests drive the model directly.
 
 import {
+  type BrokerBrowseMessage,
+  type BrokerBrowseParams,
   type BrokerDelivery,
+  type BrokerRedriveResult,
+  type BrokerSeekParams,
   type BrokerInspectResult,
   type BrokerJournalEntry,
   type BrokerKind,
@@ -51,6 +55,14 @@ export const BROKER_EMULATION_NOTES: BrokerInspectResult["emulated"] = [
   { transport: "kafka", note: "a topic is created on its first publish or subscribe" },
   { transport: "rabbitmq", note: "queues and messages live in memory: a Reset or a reload loses them (no disk persistence)" },
   { transport: "redis", note: "no connection loss: a subscriber never misses a message while subscribed" },
+  {
+    transport: "kafka",
+    note: "an offset reset applies while the group has members (the real broker refuses it for an active group)",
+  },
+  {
+    transport: "rabbitmq",
+    note: "a re-drive republishes dead letters to the address's exchange, so every bound queue receives them again",
+  },
 ];
 
 interface Sub {
@@ -428,6 +440,86 @@ export class BrokerModel {
         return { outcome: "dead-lettered", attempts: 1, parkedAt };
       }
     }
+  }
+
+  /** The messages a rabbitmq queue holds (ready, then unacked) or the newest
+   *  `limit` records of each partition of a kafka topic, bodies included. */
+  browse(p: BrokerBrowseParams): BrokerBrowseMessage[] {
+    if (p.transport === "rabbitmq") {
+      const q = this.queues.get(p.name);
+      if (!q) return [];
+      return [
+        ...q.ready.map((m) => ({ ...peek(m.body), body: m.body, attempts: m.attempts, unacked: false })),
+        ...[...q.unacked.values()].map((u) => ({
+          ...peek(u.msg.body),
+          body: u.msg.body,
+          attempts: u.msg.attempts,
+          unacked: true,
+        })),
+      ];
+    }
+    const topic = this.topics.get(p.name);
+    if (!topic) return [];
+    const limit = p.limit ?? 50;
+    return topic.partitions.flatMap((part, partition) =>
+      part.records.slice(-limit).map((r) => ({
+        ...peek(r.body),
+        body: r.body,
+        attempts: 1,
+        partition,
+        offset: r.offset,
+        key: r.key,
+      })),
+    );
+  }
+
+  /** Move a kafka group's committed offset: the group re-consumes from there
+   *  (kafka's `--reset-offsets`).  A record in flight on a moved partition is
+   *  abandoned — its ack no longer commits. */
+  seek(p: BrokerSeekParams): void {
+    const topic = this.topics.get(p.topic);
+    const group = topic?.groups.get(p.group);
+    if (!topic || !group) throw new Error(`broker.seek: no group "${p.group}" on topic "${p.topic}"`);
+    topic.partitions.forEach((part, i) => {
+      if (p.partition !== undefined && p.partition !== i) return;
+      const end = part.start + part.records.length;
+      const target = p.offset === "earliest" ? part.start : p.offset === "latest" ? end : p.offset;
+      group.committed[i] = Math.min(Math.max(target, part.start), end);
+      const d = group.inflight[i];
+      if (d !== null && d !== undefined) this.inflight.delete(d);
+      group.inflight[i] = null;
+    });
+    this.record({
+      transport: "kafka",
+      kind: "seeked",
+      address: topic.name,
+      id: String(p.offset),
+      type: p.partition === undefined ? "all partitions" : `partition ${p.partition}`,
+      client: null,
+      group: group.name,
+    });
+    this.pumpGroup(topic, group);
+  }
+
+  /** Put an address's dead letters back on it.  Rabbitmq drains
+   *  `loom.dlq.<address>` and republishes each message to the address's
+   *  exchange with its attempts reset; kafka copies every retained record of
+   *  `<address>.dlq` onto `<address>` (the dead-letter log is kept). */
+  redrive(p: { transport: "rabbitmq" | "kafka"; address: string }): BrokerRedriveResult {
+    let bodies: { key: string | null; body: string }[];
+    if (p.transport === "rabbitmq") {
+      const dlq = this.queues.get(`loom.dlq.${p.address}`);
+      bodies = (dlq?.ready ?? []).map((m) => ({ key: null, body: m.body }));
+      if (dlq) dlq.ready.length = 0;
+    } else {
+      const dlq = this.topics.get(`${p.address}.dlq`);
+      bodies = (dlq?.partitions ?? []).flatMap((part) => part.records.map((r) => ({ key: r.key, body: r.body })));
+    }
+    for (const b of bodies) {
+      this.record({ transport: p.transport, kind: "redriven", address: p.address, ...peek(b.body), client: null });
+      this.publish(null, { transport: p.transport, address: p.address, body: b.body, key: b.key });
+    }
+    return { moved: bodies.length };
   }
 
   reset(): void {

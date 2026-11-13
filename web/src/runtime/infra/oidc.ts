@@ -27,6 +27,8 @@
 //                                   redirect back to the client, with a code
 //   settings { accessTokenLifetime? }  seconds a token minted by a grant lives
 //   grants {}                       the grants the token endpoint served, oldest first
+//   tokens {}                       every token set issued (minted or served), oldest
+//                                   first, and where the provider differs from Keycloak
 //   http { method, url, headers, body }   an endpoint request from a deployable
 
 import type { HttpRequestData, HttpResponseData, ResourceOp } from "./resource-types.js";
@@ -327,6 +329,47 @@ function subjectOf(jwt: string): string | null {
   }
 }
 
+/** One token set the provider issued: minted for the main thread, or served by
+ *  the token endpoint to a deployable. */
+export interface IssuedToken {
+  seq: number;
+  /** Epoch ms. */
+  at: number;
+  /** `mint`, or the grant type the token endpoint served. */
+  source: "mint" | "password" | "authorization_code" | "refresh_token";
+  persona: string;
+  access_token: string;
+  id_token: string;
+  /** Epoch seconds. */
+  expiresAt: number;
+}
+
+/** Where the provider knowingly differs from the dev Keycloak realm. */
+export const OIDC_EMULATION_NOTES: readonly string[] = [
+  "the authorization page is the preview's persona picker: no password check, no consent screen",
+  "one signing key per browser session (no key rotation); a forged token is signed with a second, unpublished key",
+  "no session or logout endpoint: signing out only drops the client's tokens",
+];
+
+/** The newest issued tokens kept for inspection. */
+const ISSUED_KEPT = 100;
+const issued: IssuedToken[] = [];
+let issuedSeq = 0;
+
+function logIssued(source: IssuedToken["source"], persona: string, set: TokenSet): void {
+  const at = Date.now();
+  issued.push({
+    seq: ++issuedSeq,
+    at,
+    source,
+    persona,
+    access_token: set.access_token,
+    id_token: set.id_token,
+    expiresAt: Math.floor(at / 1000) + set.expires_in,
+  });
+  if (issued.length > ISSUED_KEPT) issued.splice(0, issued.length - ISSUED_KEPT);
+}
+
 export const oidcService: InfraService<ResourceOp> = {
   name: "oidc",
   async handle({ op, params }) {
@@ -341,8 +384,12 @@ export const oidcService: InfraService<ResourceOp> = {
         return personas;
       case "realms":
         return realms;
-      case "mint":
-        return mint(params as MintParams);
+      case "mint": {
+        const p = params as MintParams;
+        const set = await mint(p);
+        logIssued("mint", p.persona, set);
+        return set;
+      }
       case "authorize": {
         const p = params as { url: string; persona: string };
         return { location: authorize(p.url, p.persona) };
@@ -356,8 +403,17 @@ export const oidcService: InfraService<ResourceOp> = {
         return [...grants];
       case "jwks":
         return { keys: [(await keyOf("realm")).jwk] };
-      case "http":
-        return serve(params as HttpRequestData);
+      case "tokens":
+        return { tokens: [...issued], emulated: OIDC_EMULATION_NOTES };
+      case "http": {
+        const served = grants.length;
+        const res = await serve(params as HttpRequestData);
+        const grant = grants[served];
+        if (res.status === 200 && grant) {
+          logIssued(grant.grant as IssuedToken["source"], grant.persona, JSON.parse(dec.decode(res.body)) as TokenSet);
+        }
+        return res;
+      }
       default:
         throw new Error(`oidc: unknown op "${op}"`);
     }
@@ -368,6 +424,7 @@ export const oidcService: InfraService<ResourceOp> = {
     refreshTokens.clear();
     codes.clear();
     grants.length = 0;
+    issued.length = 0;
     grantLifetime = DEFAULT_LIFETIME_S;
   },
 };

@@ -40,7 +40,48 @@ export type BrokerOp =
   | { op: "ack"; params: { deliveryId: number } }
   /** The handler threw (or the body did not parse). */
   | { op: "nack"; params: { deliveryId: number; error: string; poison?: boolean } }
-  | { op: "inspect"; params: Record<string, never> };
+  | { op: "inspect"; params: Record<string, never> }
+  /** The messages a queue or topic holds, bodies included (the infra panel). */
+  | { op: "browse"; params: BrokerBrowseParams }
+  /** Move a kafka group's committed offset (replay from an offset). */
+  | { op: "seek"; params: BrokerSeekParams }
+  /** Re-drive an address's dead letters onto the address. */
+  | { op: "redrive"; params: { transport: "rabbitmq" | "kafka"; address: string } };
+
+export interface BrokerBrowseParams {
+  transport: "rabbitmq" | "kafka";
+  /** A rabbitmq queue or a kafka topic. */
+  name: string;
+  /** Kafka: the newest `limit` records per partition (default 50). */
+  limit?: number;
+}
+
+export interface BrokerBrowseMessage {
+  id: string;
+  type: string;
+  body: string;
+  attempts: number;
+  /** Kafka only. */
+  partition?: number;
+  offset?: number;
+  key?: string | null;
+  /** Rabbitmq only: delivered and awaiting an ack. */
+  unacked?: boolean;
+}
+
+export interface BrokerSeekParams {
+  topic: string;
+  group: string;
+  /** Every partition when absent. */
+  partition?: number;
+  /** An offset, or the earliest / latest retained one. */
+  offset: number | "earliest" | "latest";
+}
+
+export interface BrokerRedriveResult {
+  /** Messages put back on the address. */
+  moved: number;
+}
 
 export interface BrokerSubscribeResult {
   subId: string;
@@ -112,7 +153,16 @@ export interface BrokerJournalEntry {
   seq: number;
   at: number;
   transport: BrokerKind;
-  kind: "published" | "delivered" | "acked" | "nacked" | "retried" | "dead-lettered" | "dropped";
+  kind:
+    | "published"
+    | "delivered"
+    | "acked"
+    | "nacked"
+    | "retried"
+    | "dead-lettered"
+    | "dropped"
+    | "seeked"
+    | "redriven";
   address: string;
   /** Envelope id. */
   id: string;
