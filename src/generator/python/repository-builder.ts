@@ -5,7 +5,7 @@ import {
   readScopeFor,
   readSortFor,
 } from "../../ir/enrich/read-scope.js";
-import type { WireMaskPlan } from "../../ir/enrich/wire-projection.js";
+import type { WireMaskPlan } from "../../ir/util/response-wire.js";
 import { clientSortTieBreak, singleReadOrder } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type { PayloadIR } from "../../ir/types/loom-ir.js";

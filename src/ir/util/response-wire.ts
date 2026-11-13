@@ -20,10 +20,10 @@
 // An entity with no declared record has no read contract, and asking for its
 // rows is an internal error: a hosted context always carries the records.
 
-import type { WireMaskPlan } from "../enrich/wire-projection.js";
 import type {
   AggregateIR,
   EntityPartIR,
+  ExprIR,
   FieldAccess,
   PayloadIR,
   SystemIR,
@@ -94,6 +94,15 @@ export function responseWireFor(
     });
   }
   return rows;
+}
+
+/** Where a response serializer redacts: the masked wire members of one entity
+ *  (each nulled unless the caller satisfies its predicate) and the
+ *  containments whose part carries a mask somewhere below.  Every map-shaped
+ *  backend serializer (node, python, elixir) walks it. */
+export interface WireMaskPlan {
+  fields: { name: string; pred: ExprIR }[];
+  nested: { name: string; collection: boolean; plan: WireMaskPlan }[];
 }
 
 /** Where a response serializer redacts, read from the declared records: the
