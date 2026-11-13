@@ -312,6 +312,7 @@ export function emitDispatch(
       ps.projection,
       ps.on,
       foldsDedupe(ctx, durable),
+      channels?.foreignEventModules.get(ps.event) ?? contextModule,
     );
     const path = `lib/${appName}/${ctxSnake}/projections/${snake(ps.projection.name)}/on_${snake(ps.event)}.ex`;
     out.set(path, content);
@@ -786,6 +787,10 @@ function renderProjectionFoldHandler(
   on: ProjectionOnIR,
   /** Folds claim each durably delivered event in the fold inbox (`foldsDedupe`). */
   dedupe = false,
+  /** The module the event struct lives under: its owning context's, which
+   *  differs from this context's when the fold consumes another context's
+   *  event. */
+  eventModule = contextModule,
 ): string {
   const corr = proj.correlationField as string;
   const rowMod = projectionRowModule(contextModule, proj);
@@ -855,7 +860,7 @@ function renderProjectionFoldHandler(
     `    {:ok, _} = ${appModule}.Repo.insert_or_update(${changeset})`,
     `    :ok`,
   ];
-  const event = `%${contextModule}.Events.${upperFirst(on.event)}{} = event`;
+  const event = `%${eventModule}.Events.${upperFirst(on.event)}{} = event`;
   const args = cols ? "event, tenant" : "event";
   // A durably delivered event folds once: the claim on `(projection, event_id)`
   // in the fold inbox commits with the row write, in one transaction.  An
