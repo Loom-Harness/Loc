@@ -407,6 +407,7 @@ interface V2Product {
   sku: string;
   label: string;
   description: string | null;
+  shelf?: unknown;
   status: string;
   stage: string;
 }
@@ -431,6 +432,7 @@ export async function assertForwardMigrated(base: string, id: string): Promise<v
   // transaction, then made NOT NULL.
   expect(p.label, "NOT-NULL add back-filled from an expression").toBe(SEED.name);
   expect(p.description, "nullable add is NULL").toBeNull();
+  expect(p.shelf ?? null, "optional value-object add is absent").toBeNull();
   // The enum narrowing (`status: string` → `status: Status`) did not touch the
   // stored value: the CHECK the migration adds is `NOT VALID`, so the seeded
   // row rides through untouched.

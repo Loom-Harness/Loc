@@ -12,6 +12,10 @@
 //     transaction and filled + proved NOT NULL in the generation's
 //     non-transactional unit (no ACCESS EXCLUSIVE lock held over the UPDATE).
 //   • `description: string?` added     — a plain nullable column.
+//   • `shelf: Shelf?` added            — an optional value object holding an
+//     enum, so the delta adds the enum's value-set CHECK on its leaf column.
+//     A backend that stores the value object as one json column (Ecto, the
+//     Dapper adapter) has no leaf column, and must add no CHECK naming one.
 //   • `status: string` narrowed to `status: Status` — same TEXT column, new
 //     value set.  Non-destructive: the constraint is added `NOT VALID`, so the
 //     seeded v1 row survives whatever it holds (the harness seeds a value the
@@ -26,12 +30,15 @@ system ShopEvo {
     context Catalog {
       enum Status { draft, live }
       enum Stage { drafted, done }
+      enum Aisle { front, back }
+      valueobject Shelf { row: int  aisle: Aisle }
       aggregate Product with crudish {
         name: string
         unitPrice: money
         sku: string
         label: string
         description: string?
+        shelf: Shelf?
         status: Status
         stage: Stage
       }
