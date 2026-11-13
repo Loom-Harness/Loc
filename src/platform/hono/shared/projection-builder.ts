@@ -191,8 +191,6 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
       // decorator, so nothing names it — and an unused import is an error under
       // the generated-project Biome config (`noUnusedImports`).
       bodyText.includes("Events.") ? 'import type * as Events from "../domain/events";' : null,
-      bodyText.includes("randomUUID()") ? 'import { randomUUID } from "node:crypto";' : null,
-      bodyText.includes("requestLog()") ? 'import { requestLog } from "../obs/als";' : null,
       // `ForbiddenError` only when a projection actually declares a `requires`
       // gate — an unused import fails the generated-code Biome gate.
       bodyText.includes("ForbiddenError")
@@ -499,8 +497,8 @@ function emitProjectionTee(
         `try {`,
         `            await ${fn}(db, event as Events.${h.event});`,
         `          } catch (err) {`,
-        `            const event_id = (event as { __loomEventId?: string }).__loomEventId ?? randomUUID();`,
-        `            ${renderHonoStoreLogCall("reactorFailed", `handler: "${fn}", event_type: event.type, event_id, error: err instanceof Error ? err.message : String(err)`)}`,
+        `            const event_id = (event as { __loomEventId?: string }).__loomEventId ?? ${TS.randomUUID}();`,
+        `            ${renderHonoStoreLogCall("reactorFailed", `handler: "${fn}", event_type: event.type, event_id, error: err instanceof Error ? err.message : String(err)`).replace(/^requestLog\(\)/, `${TS.requestLog}()`)}`,
         `          }`,
       ].join("\n");
       const calls = byEvent.get(h.event) ?? [];

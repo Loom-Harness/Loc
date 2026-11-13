@@ -554,12 +554,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "A unit-test statement outside let/expression/call/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
   },
 
-  // src/generator/dotnet/projection-emit.ts
-  "src/generator/dotnet/projection-emit.ts#renderProjectionFoldStmt": {
-    guardedBy: ["loom.projection-fold-impure"],
-    note: "foldImpurity rejects every fold statement kind except assign/add/remove/let, which is exactly the set listed in the throw's case arms.",
-  },
-
   // src/generator/dotnet/query-projection-emit.ts
   "src/generator/dotnet/query-projection-emit.ts#dapperAggregationWhere": {
     invariant:
@@ -1588,12 +1582,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/platform/hono/shared/adapters/by-layer-layout.ts#pathForCategory$5": {
     invariant:
       "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'http-routes'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
-  },
-
-  // src/platform/hono/shared/projection-builder.ts
-  "src/platform/hono/shared/projection-builder.ts#renderFoldStatement": {
-    guardedBy: ["loom.projection-fold-impure"],
-    note: "foldImpurity is a fail-closed allowlist (assign/add/remove/let) applied to every projection on() statement, so every kind in the throwing arm is rejected as an error.",
   },
 
   // src/platform/hono/shared/projection-query-routes-builder.ts
