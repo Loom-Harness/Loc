@@ -287,11 +287,12 @@ verb call sites dispatch to it:
 
 An `objectStore` bound to a `localDisk` storage needs no SDK or sidecar: every
 backend emits a dependency-free client over a directory in the container
-(`<RESOURCE>_URL_DIR`).
+(`<RESOURCE>_DIR`, default `data/<resource>`).
 
-The `mailer` client also has `ses` (AWS SES SDK / `AmazonSES` / SendGrid-style)
-and `sendgrid` (`@sendgrid/mail` etc.) sourceType variants; `smtp` is the one
-with a dev sidecar.
+The `mailer` client also has `ses` (the AWS SES SDK; Swoosh's `AmazonSES` on
+Phoenix) and `sendgrid` (`@sendgrid/mail` on hono, the `SendGrid` package on
+.NET, Swoosh's `Sendgrid` on Phoenix, a plain HTTP post of the v3 mail body on
+Python and Java) sourceType variants; `smtp` is the one with a dev sidecar.
 
 Dev `docker-compose` gains a sidecar per object-store / queue / smtp-mailer /
 cache storage (MinIO for `s3`, `rabbitmq`, **Mailpit** for `smtp`, valkey for a
@@ -351,6 +352,29 @@ Each backend's S3 client dials `<RESOURCE>_URL_ENDPOINT` path-style when it
 is set (falling back to the storage's declared `endpoint`). With neither, it
 talks to AWS with the ambient credentials. `<RESOURCE>_URL_BUCKET` and
 `<RESOURCE>_URL_REGION` override the declared bucket and region.
+
+### Endpoint overrides
+
+Every resource client reads the host it dials from one env var, decided per
+sourceType in `src/util/resource-env.ts` (`RESOURCE_HOST_ENV`) and read alike by
+all five backends. Point it at a fake, a sidecar or a regional endpoint;
+unset or empty, the client dials the real provider.
+
+| sourceType | host env var | unset |
+|---|---|---|
+| `s3` | `<RESOURCE>_URL_ENDPOINT` (path-style) | the storage's `endpoint`, else AWS |
+| `ses` | `<RESOURCE>_URL_ENDPOINT` (the SES API base) | AWS SES in `<RESOURCE>_REGION` |
+| `sendgrid` | `<RESOURCE>_URL_ENDPOINT` (the API root; the client posts to `<root>/v3/mail/send`) | `https://api.sendgrid.com` |
+| `restApi` | `<RESOURCE>_URL` | the storage's `baseUrl` |
+| `smtp` | `<RESOURCE>_URL` | the storage's Mailpit sidecar |
+| `rabbitmq` | `<RESOURCE>_URL` | the storage's broker sidecar |
+| `localDisk` | `<RESOURCE>_DIR` (a directory, not a host) | `data/<resource>` |
+
+Credentials stay on each provider's standard variables (`AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY` / `AWS_REGION`, `SENDGRID_API_KEY`) or in the
+connection URL's userinfo. `test/system/resource-endpoint-env-census.test.ts`
+fails on a client sourceType with no row, on a backend client that does not
+read its row, and on a provider host spelled in an emitter.
 
 ## The by-id read cache — `kind: cache`
 

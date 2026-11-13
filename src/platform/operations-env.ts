@@ -15,7 +15,12 @@ import {
 import { OTEL_ENDPOINT_ENV, OTEL_SERVICE_NAME_ENV } from "../generator/_obs/tracing.js";
 import { cacheStoragesOf } from "../ir/plan/cache.js";
 import { apiResourceBindings } from "../ir/util/api-resource-binding.js";
-import { resourceEnvBase, resourceEnvUrlVar, resourceSidecarUrl } from "../util/resource-env.js";
+import {
+  resourceEnvBase,
+  resourceEnvUrlVar,
+  resourceHostEnvVar,
+  resourceSidecarUrl,
+} from "../util/resource-env.js";
 import { SECURE_TRANSPORT_ENV } from "../util/security-headers.js";
 import type { EnvContractArgs, EnvRequirement } from "./operations.js";
 import type { ComposeServiceShape } from "./surface.js";
@@ -72,24 +77,32 @@ function resourceEnv({ deployable, sys }: EnvContractArgs): EnvRequirement[] {
   return out;
 }
 
-/** The per-resource overrides a resource client reads beside its URL, each
- *  with the model's value as its default: an object store's bucket / region,
- *  a mailer's sender, a REST api's base URL. */
+const RESOURCE_CLIENT_KINDS: ReadonlySet<string> = new Set([
+  "objectStore",
+  "queue",
+  "api",
+  "mailer",
+]);
+
+/** The per-resource overrides a resource client reads, each with the model's
+ *  value (or the provider) as its default: the host override its sourceType
+ *  reads (`RESOURCE_HOST_ENV`), plus an S3 store's bucket / region and a
+ *  mailer's sender (and an SES mailer's region). */
 function resourceKnobs({ deployable, sys }: EnvContractArgs): EnvRequirement[] {
   const out: EnvRequirement[] = [];
   for (const name of deployable.dataSourceNames) {
     const r = sys.dataSources.find((x) => x.name === name);
-    if (!r) continue;
+    if (!r || !RESOURCE_CLIENT_KINDS.has(r.kind)) continue;
+    const type = sys.storages.find((s) => s.name === r.storageName)?.type;
+    const host = type ? resourceHostEnvVar(type, r.name) : undefined;
     const base = resourceEnvBase(r.name);
-    const names =
-      r.kind === "objectStore"
-        ? [`${base}_URL_BUCKET`, `${base}_URL_REGION`, `${base}_URL_ENDPOINT`]
+    const extra =
+      type === "s3"
+        ? [`${base}_URL_BUCKET`, `${base}_URL_REGION`]
         : r.kind === "mailer"
-          ? [`${base}_URL`, `${base}_FROM`]
-          : r.kind === "api" || r.kind === "queue"
-            ? [`${base}_URL`]
-            : [];
-    for (const n of names) out.push({ name: n, need: "optional" });
+          ? [`${base}_FROM`, ...(type === "ses" ? [`${base}_REGION`] : [])]
+          : [];
+    for (const n of [...(host ? [host] : []), ...extra]) out.push({ name: n, need: "optional" });
   }
   return out;
 }
