@@ -305,7 +305,13 @@ export function emitDispatch(
 
   // --- Projection fold modules — a pure read-model upsert per (proj, event). --
   for (const ps of projSubs) {
-    const content = renderProjectionFoldHandler(appModule, contextModule, ps.projection, ps.on);
+    const content = renderProjectionFoldHandler(
+      appModule,
+      contextModule,
+      ps.projection,
+      ps.on,
+      channels?.foreignEventModules.get(ps.event) ?? contextModule,
+    );
     const path = `lib/${appName}/${ctxSnake}/projections/${snake(ps.projection.name)}/on_${snake(ps.event)}.ex`;
     out.set(path, content);
     sourcemap?.file(path, content, ps.projection.origin, `${ctx.name}.${ps.projection.name}`);
@@ -777,6 +783,10 @@ function renderProjectionFoldHandler(
   contextModule: string,
   proj: ProjectionIR,
   on: ProjectionOnIR,
+  /** The module the event struct lives under: its OWNING context's, which
+   *  differs from `contextModule` for an event consumed off a wired channel
+   *  declared in a context this deployable does not host. */
+  eventModule: string,
 ): string {
   const corr = proj.correlationField as string;
   const rowMod = projectionRowModule(contextModule, proj);
@@ -846,7 +856,7 @@ function renderProjectionFoldHandler(
     `    {:ok, _} = ${appModule}.Repo.insert_or_update(${changeset})`,
     `    :ok`,
   ];
-  const event = `%${contextModule}.Events.${upperFirst(on.event)}{} = event`;
+  const event = `%${eventModule}.Events.${upperFirst(on.event)}{} = event`;
   const handle = cols
     ? `  def handle(${event}) do
     origin = ${appModule}Web.Auth.current_event_origin() || %{}
