@@ -197,6 +197,15 @@ function uiBlock(t: FrontendTarget, menu: MenuShape): string {
     }`
         : ""
     }
+    ${
+      SIGN_OUT_PLATFORMS.has(t.platform)
+        ? `page Gated {
+      route: "/gated"
+      requires currentUser.role == "agent"
+      body: Text { "SlotGatedBody" }
+    }`
+        : ""
+    }
     page ProductAdmin(id: Product id) {
       route: "/products/:id/admin"
       body: Stack {
