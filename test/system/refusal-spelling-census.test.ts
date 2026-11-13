@@ -20,7 +20,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
-import { expectReach } from "../_helpers/census-reach.js";
 import {
   FIELD_REASONS,
   type FieldRejectionReason,
@@ -29,6 +28,7 @@ import {
   wireFixedDetail,
 } from "../../src/ir/enrich/wire-policy.js";
 import { QUERY_PARAM_MISMATCH_MESSAGES } from "../../src/ir/plan/projection-params.js";
+import { expectReach } from "../_helpers/census-reach.js";
 
 const ROOT = join(__dirname, "../..");
 
