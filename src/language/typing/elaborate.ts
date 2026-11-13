@@ -96,6 +96,7 @@ import {
   isDecLit,
   isDerivedProp,
   isDestroy,
+  isDomainService,
   isDomainServiceOperation,
   isEntityPart,
   isEnumDecl,
@@ -1811,6 +1812,13 @@ export class Elaborator {
         }
       }
     }
+    // A domain service's SIBLING operation (`ageFactor(age)` inside
+    // `motorPremium`) — the service holds no members chain, so it is not an
+    // owner above; its call types as the sibling's declared return.
+    const sibling = AstUtils.getContainerOfType(node, isDomainService)?.operations.find(
+      (o) => o.name === name,
+    );
+    if (sibling) return sibling.returnType ? this.resolveType(sibling.returnType, scope) : Ty.never;
     const vo = this.index.find("valueobject", name, node);
     if (vo) return { kind: "valueobject", ref: vo, name };
     if (this.index.find("criterion", name, node) || this.index.find("policy", name, node)) {

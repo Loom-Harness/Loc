@@ -1,0 +1,242 @@
+{
+  "case": "tph-value-collection",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/customers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/customers/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "lines": [
+          {
+            "qty": 2,
+            "sku": "A-1"
+          },
+          {
+            "qty": 1,
+            "sku": "B-2"
+          }
+        ],
+        "name": "Acme",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/customers/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/customers/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "lines": [
+          {
+            "qty": 5,
+            "sku": "C-3"
+          }
+        ],
+        "name": "Acme",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/customers",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "lines": [
+              {
+                "qty": 5,
+                "sku": "C-3"
+              }
+            ],
+            "name": "Acme",
+            "rowVersion": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/sponsors",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/parties",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "lines": [
+              {
+                "qty": 5,
+                "sku": "C-3"
+              }
+            ],
+            "name": "Acme",
+            "rowVersion": 2,
+            "type": "Customer"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/parties/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "lines": [
+          {
+            "qty": 5,
+            "sku": "C-3"
+          }
+        ],
+        "name": "Acme",
+        "rowVersion": 2,
+        "type": "Customer"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/sponsors/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Sponsor {id} not found",
+        "instance": "/api/sponsors/{id}",
+        "params": {
+          "type": "Parties.Sponsor"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "DELETE",
+      "path": "/api/customers/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/customers/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Customer {id} not found",
+        "instance": "/api/customers/{id}",
+        "params": {
+          "type": "Parties.Customer"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "PATCH",
+      "path": "/api/customers",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/customers",
+        "instance": "/api/customers",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/customers",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/customers",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/customers/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Customer {id} not found",
+        "instance": "/api/customers/{id}/update",
+        "params": {
+          "type": "Parties.Customer"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

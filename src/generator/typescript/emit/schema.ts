@@ -164,6 +164,17 @@ export function renderSchema(
           ),
         );
       }
+      // …and its value-object array fields keep their child tables, FK'd to
+      // the shared base table like the parts (the migration builder's TPH
+      // branch derives the same tables).
+      for (const vc of valueCollectionsFor(agg)) {
+        tables.push(emitValueCollectionTable(vc, owner, ctx, { schema, prefix }));
+      }
+      for (const part of agg.parts) {
+        for (const vc of valueCollectionsFor(part)) {
+          tables.push(emitValueCollectionTable(vc, part.name, ctx, { schema, prefix }));
+        }
+      }
       continue;
     }
     if (isTphBase(agg, ctx.aggregates)) {

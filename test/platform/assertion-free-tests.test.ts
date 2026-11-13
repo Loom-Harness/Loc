@@ -91,7 +91,7 @@ const PINNED: Record<string, number> = {
   // leg here, Ecto's own migrations in the elixir file).  The childless-TPH
   // gate delegates to `runChildlessTphEvolutionGate`, which `expect`s each
   // generation's `kind` column set against a fresh create's.
-  "test/e2e/migration-evolution.test.ts": 9,
+  "test/e2e/migration-evolution.test.ts": 11,
   // dotnet: the EF evolution gate and its unique-index gate, then the Dapper
   // leg's evolution gate — each delegates to a harness function that
   // `expect`s the rows and the history.
