@@ -80,6 +80,22 @@ system InheritanceReadGates {
     expect(api.vehicles.all().total).toBe(2)
     expect(api.vehicles.getById(car).plate).toBe("C-1")
     expect(api.vehicles.getById(truck).plate).toBe("T-1")
+
+    // Each concrete's own routes, under the same principal: the gated Car
+    // serves it, the masked Truck answers its masked field as null.
+    expect(api.cars.getById(car).seats).toBe(4)
+    expect(api.cars.all().total).toBe(1)
+    expect(api.trucks.all().total).toBe(1)
+    expect(api.trucks.getById(truck).vin).toBe(null)
+    api.cars.update(car, { seats: 5 })
+    expect(api.cars.getById(car).seats).toBe(5)
+    // A write of a masked field is gated like its read: the non-auditor is
+    // refused, and the row is unchanged.
+    expect(api.trucks.update(truck, { payloadKg: 950, vin: "VIN-2" })).toThrow(403)
+    expect(api.trucks.getById(truck).payloadKg).toBe(900)
+    api.cars.destroy(car)
+    api.trucks.destroy(truck)
+    expect(api.vehicles.all().total).toBe(0)
   }
 
   test e2e "TPC: the base read serves a caller who passes every concrete's gate, masked per row" against d {
@@ -88,5 +104,15 @@ system InheritanceReadGates {
     expect(api.drivers.getById(d1).name).toBe("Ada")
     expect(api.dispatchers.getById(disp).desk).toBe(3)
     expect(api.crews.all().total).toBe(2)
+
+    expect(api.drivers.all().length).toBe(1)
+    expect(api.dispatchers.all().length).toBe(1)
+    expect(api.drivers.getById(d1).licence).toBe(null)
+    expect(api.drivers.update(d1, { licence: "L-2" })).toThrow(403)
+    api.dispatchers.update(disp, { desk: 4 })
+    expect(api.dispatchers.getById(disp).desk).toBe(4)
+    api.drivers.destroy(d1)
+    api.dispatchers.destroy(disp)
+    expect(api.crews.all().total).toBe(0)
   }
 }
