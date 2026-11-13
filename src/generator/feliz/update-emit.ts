@@ -40,8 +40,10 @@ import {
   formFileSelectMsg,
   formFileUploadedMsg,
   formHasFieldErrors,
+  formOpenField,
   formPendingField,
   formServerField,
+  formToggleMsg,
   formTouchedField,
   formTouchMsg,
   ifMatchVersionExpr,
@@ -275,6 +277,7 @@ export function renderModel(
     ...submits.flatMap((f) => [
       `    ${formPendingField(f.formField)}: bool`,
       ...(f.hasRecord ? [] : [`    ${formServerField(f.formField)}: ServerErrors`]),
+      ...(f.hasOpen ? [`    ${formOpenField(f.formField)}: bool`] : []),
     ]),
   ];
   if (fields.length === 0) return "type Model = { Unit: unit }";
@@ -461,6 +464,7 @@ export function renderInit(
     ...submits.flatMap((f) => [
       `      ${formPendingField(f.formField)} = false`,
       ...(f.hasRecord ? [] : [`      ${formServerField(f.formField)} = ServerErrors.empty`]),
+      ...(f.hasOpen ? [`      ${formOpenField(f.formField)} = false`] : []),
     ]),
   ];
   // Reads fire only once the app may talk to the backend: at `init`, or — under
@@ -570,6 +574,7 @@ export function renderMsg(
       ...formFieldMsgs(f),
       ...(formHasFieldErrors(f) ? [`  | ${formTouchMsg(f.formType)} of string`] : []),
       ...fieldArrayMsgs(f),
+      `  | ${formToggleMsg(f.formType)}`,
       `  | ${f.submitMsg} of string`,
       `  | ${f.doneMsg} of Result<unit, ServerErrors>`,
     ]),
@@ -1047,13 +1052,16 @@ export function renderUpdate(
     const reload = hasPageCmd ? "pageCmd model model.CurrentPage" : "Cmd.none";
     const pending = ignoreWhilePending(f, `${f.submitMsg} _`);
     const server = formServerField(f.formField);
+    const toggle = `  | ${formToggleMsg(f.formType)} -> { model with ${formOpenField(f.formField)} = not model.${formOpenField(f.formField)} }, Cmd.none`;
+    const close = `${formOpenField(f.formField)} = false`;
     // A PARAM-LESS op (`confirm()`) has no form record: the submit posts `()`
     // (empty body) and the done arm doesn't reset a form field.
     if (!opHasForm(f)) {
       return [
+        toggle,
         pending,
         `  | ${f.submitMsg} id -> { model with ${server} = ServerErrors.empty; ${pendingOn(f)} }, ${submitCmd(`(Api.${f.apiFn} id${ifMatchArg(f)})`, "()", f.doneMsg)}`,
-        `  | ${f.doneMsg} (Ok ()) -> { model with ${pendingOff(f)} }, ${reload}`,
+        `  | ${f.doneMsg} (Ok ()) -> { model with ${pendingOff(f)}; ${close} }, ${reload}`,
         `  | ${f.doneMsg} (Error e) -> { model with ${server} = e; ${pendingOff(f)} }, Cmd.none`,
       ].join("\n");
     }
@@ -1061,9 +1069,10 @@ export function renderUpdate(
       ...setters,
       ...touchArm(f),
       ...fieldArrayUpdateArms(f),
+      toggle,
       pending,
       `  | ${f.submitMsg} id -> { model with ${clearServer(f)}; ${pendingOn(f)} }, ${submitCmd(`(Api.${f.apiFn} id${ifMatchArg(f)})`, `model.${f.formField}`, f.doneMsg)}`,
-      `  | ${f.doneMsg} (Ok ()) -> { model with ${f.formField} = ${f.emptyBinding}; ${pendingOff(f)} }, ${reload}`,
+      `  | ${f.doneMsg} (Ok ()) -> { model with ${f.formField} = ${f.emptyBinding}; ${pendingOff(f)}; ${close} }, ${reload}`,
       `  | ${f.doneMsg} (Error e) -> { model with ${server} = e; ${pendingOff(f)} }, Cmd.none`,
     ].join("\n");
   });

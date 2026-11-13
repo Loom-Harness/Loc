@@ -1699,7 +1699,11 @@ function renderAppFs(
   // workflow too, with its own `Server` cell).
   const submits: FelizSubmit[] = [
     ...forms.map((f) => ({ formField: f.formField, hasRecord: true })),
-    ...operationForms.map((f) => ({ formField: f.formField, hasRecord: opHasForm(f) })),
+    ...operationForms.map((f) => ({
+      formField: f.formField,
+      hasRecord: opHasForm(f),
+      hasOpen: true,
+    })),
     ...workflowForms.map((f) => ({ formField: f.formField, hasRecord: wfHasForm(f) })),
   ];
   const model = renderModel(

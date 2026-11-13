@@ -68,8 +68,10 @@ import {
   fieldErrorFn,
   formFieldServerKey,
   formFileSelectMsg,
+  formOpenField,
   formPendingField,
   formServerField,
+  formToggleMsg,
   formTouchedField,
   formTouchMsg,
   historyFieldName,
@@ -1023,9 +1025,27 @@ export const felizTarget: WalkerTarget = {
     // never opens) and the summary carries `aria-disabled` + the reason.  The
     // inner submit is disabled too (`renderOperationForm`).
     const gate = modalOpGate(formChild, ctx);
+    // The disclosure is CONTROLLED: the summary click is taken over (the browser's
+    // own toggle is cancelled) and flips the form's `Open` flag, which drives
+    // both `open` and whether the form is rendered at all.  That is what lets a
+    // successful submit close it — the form leaves the page, as the other
+    // frontends' modal does — instead of navigating the user away.
+    const found0 = modalOp(formChild, ctx);
+    const opForm = found0
+      ? felizOperationForm(
+          found0.agg,
+          found0.op,
+          enumsFromBc(ctx.bcByAggregate.get(found0.agg.name)),
+          idLabelsFrom(ctx.aggregatesByName.values()),
+          vosFromBc(ctx.bcByAggregate.get(found0.agg.name)),
+        )
+      : undefined;
+    if (!opForm) return null;
+    const open = `model.${formOpenField(opForm.formField)}`;
+    const toggle = `dispatch ${formToggleMsg(opForm.formType)}`;
     const summaryGate = gate
-      ? `prop.ariaDisabled ${gate.disabledExpr}; prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); prop.onClick (fun e -> if ${gate.disabledExpr} then e.preventDefault()); `
-      : "";
+      ? `prop.ariaDisabled ${gate.disabledExpr}; prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); prop.onClick (fun e -> e.preventDefault(); if not ${gate.disabledExpr} then ${toggle}); `
+      : `prop.onClick (fun e -> e.preventDefault(); ${toggle}); `;
     // The trigger label is the `button` user-visible slot — already extracted
     // into the catalog as `page.<Page>.button.<hash>`, and read RAW here, so the
     // key was dead and the summary shipped in English at every locale (A13).
@@ -1078,7 +1098,7 @@ export const felizTarget: WalkerTarget = {
     // the enclosing Group's children list; paren-wrapped against sibling absorption.
     // A native <details> styled as a daisyUI `collapse` disclosure — the summary
     // is the trigger, the operation form the revealed `collapse-content`.
-    const disclosure = `(Html.details [ prop.className "collapse collapse-arrow border border-base-300 bg-base-200"; prop.children [ Html.summary [ ${summaryTid}${summaryGate}prop.className "collapse-title font-medium"; ${summaryText} ]; Html.div [ prop.className "collapse-content"; prop.children [ ${title}${form} ] ] ] ])`;
+    const disclosure = `(Html.details [ prop.className "collapse collapse-arrow border border-base-300 bg-base-200"; prop.isOpen ${open}; prop.children [ Html.summary [ ${summaryTid}${summaryGate}prop.className "collapse-title font-medium"; ${summaryText} ]; Html.div [ prop.className "collapse-content"; prop.children [ (if ${open} then Html.div [ prop.children [ ${title}${form} ] ] else Html.none) ] ] ] ])`;
     // A currentUser-only `requires` hides the disclosure for a principal it
     // refuses — the same one-line `match` over the decoded claims `Action` uses.
     const found = ctx.authUi ? modalOp(formChild, ctx) : undefined;

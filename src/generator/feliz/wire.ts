@@ -3206,6 +3206,19 @@ export function formPendingField(formField: string): string {
   return `${formField}Pending`;
 }
 
+/** The `<Form>Open: bool` Model field: whether an operation form's `Modal`
+ *  disclosure is showing its form.  The form is only RENDERED while open, so a
+ *  successful submit closes it (the form leaves the page) and the user stays on
+ *  the record rather than being navigated away. */
+export function formOpenField(formField: string): string {
+  return `${formField}Open`;
+}
+
+/** The `Msg` that opens / closes an operation form's `Modal` disclosure. */
+export function formToggleMsg(formType: string): string {
+  return `Toggle${formType}`;
+}
+
 /** A submit-capable form (create / operation / workflow), reduced to what the
  *  Model needs: its field name and whether it has a form RECORD.  A param-less
  *  op or workflow has none, but still submits — so it still carries a Pending
@@ -3213,6 +3226,8 @@ export function formPendingField(formField: string): string {
 export interface FelizSubmit {
   formField: string;
   hasRecord: boolean;
+  /** An operation form: it carries the `Open` flag its `Modal` reads. */
+  hasOpen?: boolean;
 }
 
 /** The `<Form>Server: ServerErrors` Model field holding a form's last rejected
