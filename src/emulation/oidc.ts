@@ -10,6 +10,15 @@
 //                                               preview's login page picks the persona)
 //   <issuer>/protocol/openid-connect/token      grant_type=authorization_code (PKCE) | password | refresh_token
 //   <issuer>/protocol/openid-connect/userinfo   the persona's profile claims
+//   <issuer>/protocol/openid-connect/logout     end_session: back to
+//                                               post_logout_redirect_uri
+//
+// The endpoint paths are the provider's `routes` (Keycloak's by default, the
+// playground's realm shape); a host serving another layout passes its own.
+// The authorization endpoint answers over HTTP too: it signs the
+// `autoLogin` persona (or the one `login_hint` names) straight back in, or
+// renders a login page with one button per persona plus a username/password
+// form whose field ids are Keycloak's (`#username`, `#password`, `#kc-login`).
 //
 // A host routes endpoint requests to `serve` (the playground from a
 // deployable's `fetch`, a Node host from a loopback server) and mints tokens
@@ -39,12 +48,42 @@ export interface OidcRealm {
   issuer: string;
   clientId: string;
   /** What the realm's audience mapper puts in an access token's `aud`; the
-   *  client id when the realm maps none. */
+   *  client id when the realm maps none.  Empty: the token carries no `aud`. */
   audience: string;
+  /** A confidential client's secret: the token endpoint then requires it
+   *  (`client_secret_basic` or `client_secret_post`).  Absent: a public client. */
+  clientSecret?: string;
+}
+
+/** Endpoint paths under the issuer. */
+export interface OidcRoutes {
+  authorize: string;
+  token: string;
+  userinfo: string;
+  jwks: string;
+  logout: string;
+}
+
+/** The paths a Keycloak realm serves. */
+export const KEYCLOAK_ROUTES: OidcRoutes = {
+  authorize: "/protocol/openid-connect/auth",
+  token: "/protocol/openid-connect/token",
+  userinfo: "/protocol/openid-connect/userinfo",
+  jwks: "/protocol/openid-connect/certs",
+  logout: "/protocol/openid-connect/logout",
+};
+
+export interface OidcProviderOptions {
+  routes?: OidcRoutes;
+  /** Milliseconds since the epoch; the host's clock by default. */
+  now?: () => number;
 }
 
 export interface OidcPersona {
   username: string;
+  /** The login page's and the password grant's password; any password signs
+   *  the persona in when unset. */
+  password?: string;
   /** The claims the realm's mappers put in an access token for this user
    *  (everything except `iss` / `aud` / `iat` / `exp` / `azp`). */
   claims: Record<string, unknown>;
@@ -75,6 +114,18 @@ export interface TokenSet {
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 const DEFAULT_LIFETIME_S = 3600;
+/** How many issued tokens `issued()` keeps (the oldest drop off). */
+const ISSUED_CAP = 100;
+
+/** Where this provider differs from a Keycloak realm — what a test or a
+ *  preview against it does not exercise. */
+export const OIDC_EMULATION_NOTES: readonly string[] = [
+  "The authorization endpoint signs a persona in directly (auto-login, login_hint) or shows one login page: a username/password form plus one button per persona. There is no consent screen, MFA or required action.",
+  "Passwords are checked only for a persona that declares one; any password signs in a persona without one.",
+  'One signing key per provider, never rotated; a forged token (signWith: "foreign") is signed with a second key the JWKS does not publish.',
+  "end_session redirects to post_logout_redirect_uri (or answers a signed-out page); there is no IdP session, so the next authorization asks again or signs the auto-login persona straight back in.",
+  "Refresh tokens rotate (each redeems once) and do not expire; access tokens are not revocable.",
+];
 
 const b64url = (bytes: Uint8Array): string => {
   let bin = "";
@@ -128,17 +179,28 @@ const json = (
   body: enc.encode(JSON.stringify(body)),
 });
 
+const html = (status: number, body: string): HttpResponseData => ({
+  status,
+  headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+  body: enc.encode(body),
+});
+
+const esc = (s: string): string => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+
 const oauthError = (status: number, error: string, description: string): HttpResponseData =>
   json(status, { error, error_description: description });
 
-export function discovery(issuer: string): Record<string, unknown> {
-  const oc = `${issuer}/protocol/openid-connect`;
+export function discovery(
+  issuer: string,
+  routes: OidcRoutes = KEYCLOAK_ROUTES,
+): Record<string, unknown> {
   return {
     issuer,
-    authorization_endpoint: `${oc}/auth`,
-    token_endpoint: `${oc}/token`,
-    userinfo_endpoint: `${oc}/userinfo`,
-    jwks_uri: `${oc}/certs`,
+    authorization_endpoint: `${issuer}${routes.authorize}`,
+    token_endpoint: `${issuer}${routes.token}`,
+    userinfo_endpoint: `${issuer}${routes.userinfo}`,
+    jwks_uri: `${issuer}${routes.jwks}`,
+    end_session_endpoint: `${issuer}${routes.logout}`,
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token", "password"],
     subject_types_supported: ["public"],
@@ -178,6 +240,20 @@ function subjectOf(jwt: string): string | null {
   }
 }
 
+/** One token set the provider issued: a `mint()` or a token-endpoint grant. */
+export interface IssuedToken {
+  /** 1, 2, … in issue order; keeps counting across the cap. */
+  seq: number;
+  /** Epoch milliseconds, from the provider's clock. */
+  at: number;
+  source: "mint" | "password" | "authorization_code" | "refresh_token";
+  persona: string;
+  access_token: string;
+  id_token: string;
+  /** Epoch seconds. */
+  expiresAt: number;
+}
+
 /** One grant the token endpoint served. */
 export interface OidcGrant {
   grant: string;
@@ -191,10 +267,18 @@ export interface OidcProvider {
   mint(params: MintParams): Promise<TokenSet>;
   /** Sign `persona` in at an authorization URL; the redirect back to the client. */
   authorize(url: string, persona: string): string;
-  /** Seconds a token minted by a grant lives; answers the current setting. */
-  settings(params: { accessTokenLifetime?: number }): { accessTokenLifetime: number };
+  /** Seconds a token minted by a grant lives, and the persona the authorization
+   *  endpoint signs in without a login page (null: always the page); answers
+   *  the current settings. */
+  settings(params: { accessTokenLifetime?: number; autoLogin?: string | null }): {
+    accessTokenLifetime: number;
+    autoLogin: string | null;
+  };
   /** The grants the token endpoint served, oldest first. */
   grants(): OidcGrant[];
+  /** Every token set issued — `mint()` and each token-endpoint grant — oldest
+   *  first, the newest 100 kept. */
+  issued(): IssuedToken[];
   jwks(): Promise<{ keys: JsonWebKey[] }>;
   /** Sign a payload with the realm key (or a key the JWKS does not publish). */
   signJwt(payload: Record<string, unknown>, which?: "realm" | "foreign"): Promise<string>;
@@ -204,7 +288,9 @@ export interface OidcProvider {
   reset(): void;
 }
 
-export function createOidcProvider(): OidcProvider {
+export function createOidcProvider(options: OidcProviderOptions = {}): OidcProvider {
+  const routes = options.routes ?? KEYCLOAK_ROUTES;
+  const nowMs = options.now ?? (() => Date.now());
   let realmKey: Promise<SigningKey> | null = null;
   let foreignKey: Promise<SigningKey> | null = null;
   const keyOf = (which: "realm" | "foreign"): Promise<SigningKey> => {
@@ -247,8 +333,13 @@ export function createOidcProvider(): OidcProvider {
   >();
   /** Seconds a token minted by a token-endpoint grant lives. */
   let grantLifetime = DEFAULT_LIFETIME_S;
+  /** The persona the authorization endpoint signs in without a login page. */
+  let autoLogin: string | null = null;
   /** The grants the token endpoint served, oldest first. */
   const grants: OidcGrant[] = [];
+  /** Every token set issued, oldest first (capped). */
+  const issuedLog: IssuedToken[] = [];
+  let issuedSeq = 0;
 
   /** Refresh tokens still redeemable → who they were issued to.  Single use:
    *  redeeming one replaces it (rotation). */
@@ -279,10 +370,26 @@ export function createOidcProvider(): OidcProvider {
     return p;
   }
 
-  async function mint(params: MintParams): Promise<TokenSet> {
+  /** Mint a token set and record it as issued by `source`. */
+  async function issue(source: IssuedToken["source"], params: MintParams): Promise<TokenSet> {
+    const set = await mintTokens(params);
+    issuedLog.push({
+      seq: ++issuedSeq,
+      at: nowMs(),
+      source,
+      persona: params.persona,
+      access_token: set.access_token,
+      id_token: set.id_token,
+      expiresAt: Math.floor(nowMs() / 1000) + set.expires_in,
+    });
+    if (issuedLog.length > ISSUED_CAP) issuedLog.splice(0, issuedLog.length - ISSUED_CAP);
+    return set;
+  }
+
+  async function mintTokens(params: MintParams): Promise<TokenSet> {
     const realm = realmFor(params.issuer);
     const persona = personaFor(params.persona);
-    const now = Math.floor(Date.now() / 1000);
+    const now = Math.floor(nowMs() / 1000);
     const lifetime = params.expiresIn ?? DEFAULT_LIFETIME_S;
     const claims = { ...persona.claims, ...(params.claims ?? {}) };
     const sign = params.signWith ?? "realm";
@@ -298,7 +405,7 @@ export function createOidcProvider(): OidcProvider {
       {
         ...persona.claims,
         ...common,
-        aud: params.audience ?? realm.audience,
+        ...((params.audience ?? realm.audience) ? { aud: params.audience ?? realm.audience } : {}),
         typ: "Bearer",
         scope: "openid profile email",
         ...params.claims,
@@ -344,7 +451,7 @@ export function createOidcProvider(): OidcProvider {
    *  or `?error=…` for a request it refuses. */
   function authorize(url: string, persona: string): string {
     const u = new URL(url);
-    const realm = realms.find((r) => url.startsWith(`${r.issuer}/protocol/openid-connect/auth`));
+    const realm = realms.find((r) => url.startsWith(`${r.issuer}${routes.authorize}`));
     if (!realm)
       throw new Error(`oidc: ${u.origin + u.pathname} is no realm's authorization endpoint`);
     const q = u.searchParams;
@@ -373,16 +480,55 @@ export function createOidcProvider(): OidcProvider {
     return back.toString();
   }
 
-  async function token(realm: OidcRealm, form: URLSearchParams): Promise<HttpResponseData> {
+  /** The client a token request authenticates as — `client_secret_basic`
+   *  (Authorization header) or `client_secret_post`/public (form) — or null
+   *  when the realm's secret is required and missing or wrong. */
+  function clientOf(
+    realm: OidcRealm,
+    form: URLSearchParams,
+    authorization: string | undefined,
+  ): string | null {
+    let id = form.get("client_id");
+    let secret = form.get("client_secret");
+    const basic = /^Basic\s+(.+)$/i.exec(authorization ?? "")?.[1];
+    if (basic) {
+      const decoded = atob(basic);
+      const colon = decoded.indexOf(":");
+      id = decodeURIComponent(colon < 0 ? decoded : decoded.slice(0, colon));
+      secret = colon < 0 ? "" : decodeURIComponent(decoded.slice(colon + 1));
+    }
+    if (realm.clientSecret !== undefined && secret !== realm.clientSecret) return null;
+    return id ?? "";
+  }
+
+  /** The persona a username/password pair signs in as, or null. */
+  function checkPassword(username: string, password: string | null): string | null {
+    const p = personas.find((x) => x.username === username);
+    if (!p) return null;
+    if (p.password !== undefined && password !== p.password) return null;
+    return p.username;
+  }
+
+  async function token(
+    realm: OidcRealm,
+    form: URLSearchParams,
+    authorization: string | undefined,
+  ): Promise<HttpResponseData> {
+    const client = clientOf(realm, form, authorization);
+    if (client === null) return oauthError(401, "invalid_client", "Invalid client credentials");
     const grant = form.get("grant_type");
     if (grant === "password") {
       const username = form.get("username") ?? "";
-      if (!personas.some((p) => p.username === username))
+      if (!checkPassword(username, form.get("password")))
         return oauthError(401, "invalid_grant", "Invalid user credentials");
       grants.push({ grant: "password", persona: username });
       return json(
         200,
-        await mint({ persona: username, issuer: realm.issuer, expiresIn: grantLifetime }),
+        await issue("password", {
+          persona: username,
+          issuer: realm.issuer,
+          expiresIn: grantLifetime,
+        }),
       );
     }
     if (grant === "authorization_code") {
@@ -393,8 +539,7 @@ export function createOidcProvider(): OidcProvider {
         return oauthError(400, "invalid_grant", "Code not valid");
       if (form.get("redirect_uri") !== held.redirectUri)
         return oauthError(400, "invalid_grant", "Incorrect redirect_uri");
-      if (form.get("client_id") !== held.clientId)
-        return oauthError(400, "invalid_client", "Client mismatch");
+      if (client !== held.clientId) return oauthError(400, "invalid_client", "Client mismatch");
       if (held.challenge !== null) {
         const verifier = form.get("code_verifier") ?? "";
         const derived = held.method === "plain" ? verifier : await s256(verifier);
@@ -405,7 +550,11 @@ export function createOidcProvider(): OidcProvider {
       grants.push({ grant: "authorization_code", persona: held.persona });
       return json(
         200,
-        await mint({ persona: held.persona, issuer: realm.issuer, expiresIn: grantLifetime }),
+        await issue("authorization_code", {
+          persona: held.persona,
+          issuer: realm.issuer,
+          expiresIn: grantLifetime,
+        }),
       );
     }
     if (grant === "refresh_token") {
@@ -417,7 +566,7 @@ export function createOidcProvider(): OidcProvider {
       grants.push({ grant: "refresh_token", persona: held.persona });
       return json(
         200,
-        await mint({
+        await issue("refresh_token", {
           persona: held.persona,
           claims: held.claims,
           issuer: realm.issuer,
@@ -426,6 +575,71 @@ export function createOidcProvider(): OidcProvider {
       );
     }
     return oauthError(400, "unsupported_grant_type", `Unsupported grant_type ${grant ?? "(none)"}`);
+  }
+
+  /** The authorization endpoint over HTTP.  GET signs the `login_hint`
+   *  persona, else the `autoLogin` one, straight back in (`prompt=login` always
+   *  shows the page); otherwise, and on a failed submit, it renders the login
+   *  page.  POST is that page's submit: a persona button, or username/password. */
+  async function authorizeEndpoint(
+    realm: OidcRealm,
+    req: HttpRequestData,
+  ): Promise<HttpResponseData> {
+    const query =
+      req.method === "POST"
+        ? new URLSearchParams(dec.decode(req.body))
+        : new URL(req.url).searchParams;
+    const params = new URLSearchParams(
+      [...query].filter(([k]) => !["persona", "username", "password"].includes(k)),
+    );
+    const authUrl = `${realm.issuer}${routes.authorize}?${params}`;
+    const redirect = (persona: string): HttpResponseData => ({
+      status: 302,
+      headers: { location: authorize(authUrl, persona) },
+      body: new Uint8Array(),
+    });
+    if (!params.get("redirect_uri"))
+      return oauthError(400, "invalid_request", "Missing parameter: redirect_uri");
+    let who: string | null = null;
+    if (req.method === "POST") {
+      const button = query.get("persona");
+      who =
+        button && personas.some((p) => p.username === button)
+          ? button
+          : checkPassword(query.get("username") ?? "", query.get("password") ?? "");
+    } else if (params.get("prompt") !== "login") {
+      const hint = params.get("login_hint");
+      who = personas.some((p) => p.username === hint) ? hint : autoLogin;
+      if (who !== null && !personas.some((p) => p.username === who)) who = null;
+    }
+    return who ? redirect(who) : loginPage(realm, params);
+  }
+
+  function loginPage(realm: OidcRealm, params: URLSearchParams): HttpResponseData {
+    const hidden = [...params]
+      .map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`)
+      .join("\n    ");
+    const buttons = personas
+      .map(
+        (p) =>
+          `<button type="submit" name="persona" value="${esc(p.username)}" data-testid="login-${esc(p.username)}">Sign in as ${esc(p.username)}</button>`,
+      )
+      .join("\n    ");
+    return html(
+      200,
+      `<!doctype html>
+<html><head><meta charset="utf-8"><title>Sign in</title></head>
+<body>
+  <h1>Sign in</h1>
+  <form method="post" action="${esc(`${realm.issuer}${routes.authorize}`)}">
+    ${hidden}
+    <label for="username">Username</label> <input id="username" name="username" autocomplete="username">
+    <label for="password">Password</label> <input id="password" name="password" type="password" autocomplete="current-password">
+    <button type="submit" id="kc-login" data-testid="login-submit">Sign in</button>
+    ${buttons}
+  </form>
+</body></html>`,
+    );
   }
 
   /** Answer one endpoint request.  The issuer is the configured one the URL
@@ -440,13 +654,20 @@ export function createOidcProvider(): OidcProvider {
     );
     switch (path) {
       case "/.well-known/openid-configuration":
-        return json(200, discovery(realm.issuer));
-      case "/protocol/openid-connect/certs":
+        return json(200, discovery(realm.issuer, routes));
+      case routes.jwks:
         return json(200, { keys: [(await keyOf("realm")).jwk] });
-      case "/protocol/openid-connect/token":
+      case routes.token:
         if (req.method !== "POST") return oauthError(405, "invalid_request", "POST only");
-        return token(realm, new URLSearchParams(dec.decode(req.body)));
-      case "/protocol/openid-connect/userinfo": {
+        return token(realm, new URLSearchParams(dec.decode(req.body)), req.headers.authorization);
+      case routes.authorize:
+        return authorizeEndpoint(realm, req);
+      case routes.logout: {
+        const back = new URL(req.url).searchParams.get("post_logout_redirect_uri");
+        if (back) return { status: 302, headers: { location: back }, body: new Uint8Array() };
+        return html(200, "<!doctype html><title>Signed out</title><p>Signed out.</p>");
+      }
+      case routes.userinfo: {
         const bearer = /^Bearer (.+)$/i.exec(req.headers.authorization ?? "")?.[1];
         const sub = bearer ? subjectOf(bearer) : null;
         const persona = personas.find((p) => p.claims.sub === sub);
@@ -476,13 +697,15 @@ export function createOidcProvider(): OidcProvider {
     },
     realms: () => realms,
     personas: () => personas,
-    mint,
+    mint: (params) => issue("mint", params),
     authorize,
     settings(p) {
       if (p.accessTokenLifetime !== undefined) grantLifetime = p.accessTokenLifetime;
-      return { accessTokenLifetime: grantLifetime };
+      if (p.autoLogin !== undefined) autoLogin = p.autoLogin;
+      return { accessTokenLifetime: grantLifetime, autoLogin };
     },
     grants: () => [...grants],
+    issued: () => issuedLog.map((t) => ({ ...t })),
     jwks: async () => ({ keys: [(await keyOf("realm")).jwk] }),
     signJwt,
     serve,
@@ -492,7 +715,9 @@ export function createOidcProvider(): OidcProvider {
       refreshTokens.clear();
       codes.clear();
       grants.length = 0;
+      issuedLog.length = 0;
       grantLifetime = DEFAULT_LIFETIME_S;
+      autoLogin = null;
     },
   };
 }
