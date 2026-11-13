@@ -30,6 +30,7 @@ import {
 import { frontendRequestNames } from "../../_frontend/request-names.js";
 import { serverSourcedDefaultFields } from "../../_frontend/server-default.js";
 import type { FormFieldVM } from "../../_frontend/view-models.js";
+import { workflowResultSegment } from "../../_frontend/workflow-result.js";
 import { FIELD_ERROR_TEXT, prepareFormFieldVM } from "../form-fields-vm.js";
 import { GIVE_UP_SENTINEL, giveUp } from "../give-up.js";
 import { opDialogChrome, sentenceChromeName } from "../i18n-chrome.js";
@@ -847,6 +848,7 @@ function emitFormRuns(
   );
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
   const onSubmitJs = emitFormOnSubmit(ctx, call, prepared.idTargets, "run");
+  const resultSegment = workflowResultSegment(workflow);
   const wfFormStateType = formStateTypeFor(wfPascalForImport, fields, bc);
   if (wfFormStateType) addTypeImport(ctx, "../api/workflows", wfFormStateType);
   ctx.formOfs.push({
@@ -865,12 +867,18 @@ function emitFormRuns(
     onSubmitJs,
   });
   return renderFormOfPrimitive(ctx, call, depth, testidNamespace, prepared.fieldHtmls, onSubmitJs, {
-    mutationCall: "await run.mutateAsync(vals);",
+    // A run that answers the created record's id opens it; otherwise the
+    // workflows index.
+    mutationCall: resultSegment
+      ? "const out = await run.mutateAsync(vals);"
+      : "await run.mutateAsync(vals);",
     successMessage:
       onSubmitJs === null
         ? localizedPageChromeValue(ctx, sentenceChromeName("completed", workflow.name))
         : "",
-    redirectStmt: `navigate("/workflows")`,
+    redirectStmt: resultSegment
+      ? `navigate(\`/${resultSegment}/\${out}\`)`
+      : `navigate("/workflows")`,
     submitPendingExpr: "run.isPending",
     submitLabel: workflowRunModelText(ctx, bc, workflow.name) ?? "Run",
   });

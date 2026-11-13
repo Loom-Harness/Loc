@@ -910,9 +910,8 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   // `WorkflowForm(runs: …)` — the Angular renderer recorded one spec per form on
   // `angularWorkflowForms`.  Each hoists the `use<Wf>Workflow` mutation, builds
   // the typed Reactive `FormGroup` over the command params, and declares the
-  // submit handler (`mutateAsync(getRawValue())` → navigate `/workflows`).  The
-  // workflow command returns `void`, so the redirect is a fixed list route (no
-  // `out.id`).
+  // submit handler (`mutateAsync(getRawValue())`, then open the record the run
+  // created when the start route answers its id, else the workflows index).
   const angularWorkflowForms = sink.workflowForms;
   for (const form of angularWorkflowForms) {
     members.push(`  readonly ${form.mutationVar} = ${form.mutationFn}();`);
@@ -923,8 +922,15 @@ export function renderAngularPage(input: AngularPageShellInput): string {
         `  async ${form.submitMethod}(): Promise<void> {`,
         `    if (this.${form.formVar}.invalid) return;`,
         ...submitBody(form.formVar, [
-          `    await this.${form.mutationVar}.mutateAsync(this.${form.formVar}.getRawValue());`,
-          '    this.router.navigateByUrl("/workflows");',
+          ...(form.resultSegment
+            ? [
+                `    const out = await this.${form.mutationVar}.mutateAsync(this.${form.formVar}.getRawValue());`,
+                `    this.router.navigateByUrl(\`/${form.resultSegment}/\${out}\`);`,
+              ]
+            : [
+                `    await this.${form.mutationVar}.mutateAsync(this.${form.formVar}.getRawValue());`,
+                '    this.router.navigateByUrl("/workflows");',
+              ]),
         ]),
         "  }",
       ].join("\n"),
