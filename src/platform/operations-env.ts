@@ -35,9 +35,11 @@ function oidcEnv({ deployable, sys }: EnvContractArgs): EnvRequirement[] {
   const fromModel = (v: { kind: string } | undefined) =>
     v?.kind === "literal" ? "optional" : "deploy";
   return [
-    { name: "OIDC_ISSUER", need: fromModel(oidc.issuer) },
+    // An env(…)-bound issuer / audience is boot-required: the service exits
+    // at boot without it (bootRequiredAuthEnv).
+    { name: "OIDC_ISSUER", need: oidc.issuer?.kind === "env" ? "boot" : "optional" },
     { name: "OIDC_CLIENT_ID", need: fromModel(oidc.clientId) },
-    { name: "OIDC_AUDIENCE", need: oidc.audience?.kind === "env" ? "deploy" : "optional" },
+    { name: "OIDC_AUDIENCE", need: oidc.audience?.kind === "env" ? "boot" : "optional" },
     { name: "OIDC_CLIENT_SECRET", need: "optional" },
     { name: "OIDC_REDIRECT_URI", need: "deploy" },
     { name: "OIDC_POST_LOGIN_REDIRECT", need: "optional" },

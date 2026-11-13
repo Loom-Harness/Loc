@@ -1,4 +1,5 @@
 import { audienceDeclared, audienceUnsetReason } from "../../../generator/_auth/audience.js";
+import { bootRequiredAuthEnv } from "../../../generator/_auth/boot-required.js";
 import { claimShapes, UUID_PATTERN } from "../../../generator/_auth/claim-decode.js";
 import { claimEnumNames, claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
 import {
@@ -833,6 +834,7 @@ function systemValueFor(f: FieldIR): string {
 // ---------------------------------------------------------------------------
 
 function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
+  const bootRequired = bootRequiredAuthEnv(auth);
   // Deploy env overrides the declared value — see envOverridableExpr (the
   // 401-from-the-bundled-IdP failure mode caught live by the parity 403 test).
   const issuerExpr = envOverridableExpr("OIDC_ISSUER", auth.oidc.issuer);
@@ -943,14 +945,28 @@ function claimList(value: unknown, format: ClaimFormat): string[] {
     : "claim(payload, path) == null";
   return `// Auto-generated.
 import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose";
-${idsImport(user).join("\n")}import { requestLog } from "../obs/als";
+${idsImport(user).join("\n")}import { requestLog } from "../obs/als";${bootRequired.length > 0 ? `\nimport { baseLogger } from "../obs/log";` : ""}
 import type { UserClaims } from "./user-types";
 import { registerUserVerifier } from "./verifier";
 
 // Resolved from the system \`auth { oidc { … } }\` block.  Env-bound values
 // read process.env at boot; an empty issuer fails loudly at first verify.
 const ISSUER = ${issuerExpr};${audienceConst}
-
+${
+  bootRequired.length > 0
+    ? `
+// The model binds these settings to env(…), so there is no fallback: refuse to
+// boot without them rather than answer every request with a 401.
+const REQUIRED_AUTH_ENV: readonly (readonly [string, readonly string[]])[] = ${JSON.stringify(bootRequired.map((r) => [r.setting, r.vars]))};
+for (const [setting, vars] of REQUIRED_AUTH_ENV) {
+  if (!vars.some((v) => process.env[v])) {
+    baseLogger.error({ event: "config_missing", setting, vars: vars.join(", ") });
+    process.exit(1);
+  }
+}
+`
+    : ""
+}
 ${
   declared
     ? `// The model declares an audience, so \`aud\` is always validated: a token minted

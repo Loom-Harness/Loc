@@ -636,3 +636,100 @@ describe.runIf(RUN)("lifecycle: reboot, regenerate, broker outage, DB pause", ()
     });
   }
 });
+
+/** An auth-enabled deployable whose OIDC issuer and audience are bound to
+ *  env(…) — no fallback, so a missing variable must stop the service. */
+function authFixture(cell: Cell): string {
+  const platform = cell.persistence
+    ? `${cell.backend} { persistence: ${cell.persistence} }`
+    : cell.backend;
+  return `
+system Gate {
+  user { id: string  role: string }
+  auth {
+    enforcement: opt
+    oidc { issuer: env("OIDC_ISSUER") clientId: "gate" audience: env("OIDC_AUDIENCE") }
+  }
+  subdomain M { context C {
+    aggregate Doc with crudish { title: string }
+    repository Docs for Doc { }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d {
+    platform: ${platform}
+    contexts: [C]
+    dataSources: [st]
+    port: ${PORT}
+    auth: required
+  }
+}
+`;
+}
+
+describe.runIf(RUN)("lifecycle: fail closed on security env", () => {
+  for (const cell of CELLS) {
+    const id = cell.persistence ? `${cell.backend}:${cell.persistence}` : cell.backend;
+    it(`${id}: refuses to boot without its env-bound auth settings`, {
+      timeout: 1_800_000,
+    }, async () => {
+      const ops = platformFor(cell.backend).operations;
+      if (!ops.security) return;
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), `loom-failclosed-${cell.backend}-`));
+      const project = `loomfc${cell.backend}${cell.persistence ?? ""}`;
+      const src = path.join(dir, "gate.ddd");
+      const out = path.join(dir, "out");
+      const compose = `docker compose -p ${project}`;
+      fs.writeFileSync(src, authFixture(cell));
+      sh(`node ${cli} migrate add initial ${src}`, dir);
+      sh(`node ${cli} generate system ${src} -o ${out}`, dir);
+      try {
+        const build = prebuildBehindProxy(out, project);
+        if (build === "--build") sh(`${compose} build d`, out, 1_800_000);
+        sh(`${compose} up -d --wait db`, out, 600_000);
+        await claim(
+          ops,
+          "security.refusesBootWithoutAuthEnv",
+          ops.security.refusesBootWithoutAuthEnv,
+          "a missing env-bound OIDC issuer stops the service at boot",
+          async () => {
+            let output = "";
+            let exited = 0;
+            let timedOut = false;
+            try {
+              output = execSync(
+                `${compose} run --rm --no-deps -e OIDC_ISSUER= -e OIDC_AUDIENCE=gate d`,
+                { cwd: out, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 180_000 },
+              );
+            } catch (err) {
+              const e = err as {
+                status?: number | null;
+                signal?: string | null;
+                stdout?: string;
+                stderr?: string;
+              };
+              // A service still running when the timeout kills it booted:
+              // that is the failure, not a refusal.
+              timedOut = e.signal != null;
+              exited = e.status ?? 1;
+              output = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+            }
+            expect(timedOut, "the service kept running instead of exiting").toBe(false);
+            expect(exited, "the service refused to boot").not.toBe(0);
+            expect(output, "it logged config_missing").toContain("config_missing");
+          },
+        );
+      } finally {
+        try {
+          execSync(`${compose} down -v --remove-orphans`, {
+            cwd: out,
+            stdio: "ignore",
+            timeout: 300_000,
+          });
+        } catch {
+          // best-effort teardown
+        }
+      }
+    });
+  }
+});

@@ -8,6 +8,7 @@ import {
   BROKER_BASELINE_GAPS,
   MIGRATIONS_BASELINE,
   RESOURCES_BASELINE,
+  SECURITY_BASELINE,
   wgetHealthcheck,
 } from "./operations.js";
 import { backendEnvContract } from "./operations-env.js";
@@ -82,6 +83,7 @@ const pythonPlatform: PlatformSurface = {
     // The FastAPI relay backs off on an unreachable broker without spending attempts.
     broker: BROKER_BASELINE,
     migrations: MIGRATIONS_BASELINE,
+    security: SECURITY_BASELINE,
     resources: RESOURCES_BASELINE,
     gaps: BROKER_BASELINE_GAPS,
   },

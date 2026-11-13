@@ -78,6 +78,14 @@ export interface ResourceFacts {
   readonly objectStoreReachesSidecar: boolean;
 }
 
+/** What a backend guarantees about its security configuration. */
+export interface SecurityFacts {
+  /** An auth setting the model binds to \`env(…)\` (issuer, audience) that is
+   *  missing at boot stops the service: it logs \`config_missing\` and exits
+   *  non-zero instead of serving 401s while reporting ready. */
+  readonly refusesBootWithoutAuthEnv: boolean;
+}
+
 /** What a backend's boot-time schema migrator guarantees. */
 export interface MigrationRunnerFacts {
   /** A second boot against an already-migrated database applies nothing and
@@ -127,6 +135,8 @@ export interface PlatformOperations {
   readonly broker?: BrokerResilience;
   /** Present on a backend that emits resource clients. */
   readonly resources?: ResourceFacts;
+  /** Present on a backend that verifies tokens. */
+  readonly security?: SecurityFacts;
   /** Present on a backend that migrates a database at boot. */
   readonly migrations?: MigrationRunnerFacts;
   /** The open issue behind every runtime fact above that is not met yet,
@@ -185,4 +195,9 @@ export const MIGRATIONS_BASELINE: MigrationRunnerFacts = {
 /** The resource-client facts every backend meets. */
 export const RESOURCES_BASELINE: ResourceFacts = {
   objectStoreReachesSidecar: true,
+};
+
+/** The security facts every backend meets. */
+export const SECURITY_BASELINE: SecurityFacts = {
+  refusesBootWithoutAuthEnv: true,
 };

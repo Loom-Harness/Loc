@@ -13,6 +13,7 @@ import {
   BROKER_BASELINE_GAPS,
   MIGRATIONS_BASELINE,
   RESOURCES_BASELINE,
+  SECURITY_BASELINE,
   wgetHealthcheck,
 } from "./operations.js";
 import { backendEnvContract } from "./operations-env.js";
@@ -105,6 +106,7 @@ const elixirPlatform: PlatformSurface = {
     // The Phoenix relay halts its pass and backs off on an unreachable broker.
     broker: BROKER_BASELINE,
     migrations: MIGRATIONS_BASELINE,
+    security: SECURITY_BASELINE,
     resources: RESOURCES_BASELINE,
     gaps: BROKER_BASELINE_GAPS,
   },
