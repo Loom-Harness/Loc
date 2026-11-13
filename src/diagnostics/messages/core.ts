@@ -378,6 +378,11 @@ export const messages = {
   // ----------------------------------------------------------------------
   "loom.ir-internal#generation": (p: { err: unknown }) =>
     `IR phase failed before generation: ${p.err}`,
+  // The well-formedness backstop (`ir/validate/checks/lowering-checks.ts`):
+  // lowering produced an IR that disagrees with itself.
+  "loom.ir-ill-formed": (p: { violation: unknown }) =>
+    `Internal compiler error: lowering produced an ill-formed IR (${p.violation}). ` +
+    "The model validated, so this is a Loom defect, not a problem in your source — please report it.",
 
   // ----------------------------------------------------------------------
   // src/language/parse-errors.ts  (phase ①)

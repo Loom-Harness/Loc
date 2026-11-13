@@ -281,7 +281,7 @@ describe("validate-expr-integrity — A4 collection-op-in-UI gate", () => {
   // verbatim (`[...arr].sort(…)` / `.slice(0, n)` / `.slice(n)` on the JS
   // frontends, `List.sortBy` / `List.truncate` / a clamped `List.skip` on Feliz,
   // `..sort` / `.take().toList()` / `.skip().toList()` on Flutter,
-  // `Enum.sort_by` / `Enum.take` / `Enum.drop` on the HEEx parallel walker).
+  // `Enum.sort_by` / `Enum.take` / `Enum.drop` in the HEEx expression renderer).
   //
   // The *narrower* remainder is owned by `loom.frontend-collection-op-unsupported`
   // (`test/ir/frontend-collection-op.test.ts`), which this set is a subset of;

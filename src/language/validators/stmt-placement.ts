@@ -56,7 +56,7 @@
 //     statement after it can never run; Java rejects the emitted throw-then-
 //     statement outright, and on the other four backends it is dead code.
 
-import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
+import type { AstNode, ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import {
   type Expression,
@@ -86,6 +86,7 @@ import {
   isWorkflowCreateDecl,
   type Model,
 } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 /** Which lowerer owns the body a statement sits in.
  *
@@ -206,7 +207,7 @@ function checkNotFound(
 }
 
 export function checkStatementPlacement(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (isNotFoundStmt(node)) {
       checkNotFound(node, accept);
       continue;

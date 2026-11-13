@@ -1,8 +1,8 @@
 import { eventsKeepOriginFrame } from "../../../ir/enrich/stream-tenancy.js";
 import type { BoundedContextIR, EventIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { pythonIdent } from "../../../util/naming.js";
 import { PY_IMPORTS, pyRef } from "../../_imports/python.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { PY } from "../py-symbols.js";
 import { renderPyType } from "../render-expr.js";
 
@@ -140,6 +140,6 @@ function renderPyEvent(ev: EventIR): string[] {
     `@${PY.dataclass}(frozen=True)`,
     `class ${ev.name}:`,
     `    type: ${PY.ClassVar}[str] = "${ev.name}"`,
-    ...ev.fields.map((f) => `    ${pythonIdent(f.name)}: ${renderPyType(f.type)}`),
+    ...ev.fields.map((f) => `    ${DOMAIN_NAMES.python.binding(f.name)}: ${renderPyType(f.type)}`),
   ];
 }

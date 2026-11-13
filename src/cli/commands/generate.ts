@@ -23,6 +23,7 @@ import {
   planPrune,
   serializeManifest,
 } from "../../system/manifest.js";
+import { refusalText } from "../../system/migration-diff.js";
 import type { MigrationWarning } from "../../system/migrations-builder.js";
 import { isScaffoldOnce } from "../../util/scaffold-once.js";
 import { loadSourceOverrides, loadTranslations } from "../i18n/index.js";
@@ -236,11 +237,6 @@ async function runGenerate(
     if (!options.continueOnError) process.exit(1);
     return { hadError: true };
   }
-  // No `printLoomWarnings(loomDiags)` here: `printIrDiagnostics` above already
-  // printed the warnings — and printed the index-suggestions SEPARATELY, which
-  // is the half `printLoomWarnings` still gets wrong (it lumps them in with the
-  // real warnings under one count, so `generate`'s footer disagreed with
-  // `parse`'s for the same file).  Calling both would double-print.
   // Directory creation is deferred to the write loop below (and guarded by
   // `!options.dryRun`) so a `--dry-run` touches nothing on disk — not even
   // `mkdir`-ing the output dir.
@@ -297,7 +293,7 @@ async function runGenerate(
     // crash — report it as a clean CLI failure (with the recovery hint from
     // the error message).  Re-throw anything else for the top-level handler.
     if (isMigrationRefusal(err)) {
-      console.error(`${file}: ${err.message}`);
+      console.error(`${file}: ${refusalText(err)}`);
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
     }

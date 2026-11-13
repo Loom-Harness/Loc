@@ -39,6 +39,7 @@ import {
   listValidApiOperations,
   pagePropDisplayName,
 } from "./_shared.js";
+import { modelContents } from "./model-contents.js";
 
 /** `component` declarations — enforce the `extern` ↔ `body`
  *  exclusivity that the grammar admits but cannot constrain:
@@ -52,7 +53,7 @@ import {
  *  Covers both ui-scope and top-level components (one stream over the
  *  whole model). */
 export function checkComponent(model: Model, accept: ValidationAcceptor): void {
-  for (const c of AstUtils.streamAllContents(model)) {
+  for (const c of modelContents(model)) {
     if (!isComponent(c)) continue;
     const comp = c as Component;
     if (comp.extern) {
@@ -459,7 +460,7 @@ export function checkUiNotification(n: UiNotification, ui: Ui, accept: Validatio
   // `["<snake-plural-of-aggregate>"]`, so a refetch target must name a
   // real aggregate for the invalidation to hit anything.
   const aggregateNames = new Set<string>();
-  for (const node of AstUtils.streamAllContents(AstUtils.findRootNode(ui))) {
+  for (const node of modelContents(AstUtils.findRootNode(ui))) {
     if (isAggregate(node)) aggregateNames.add(node.name);
   }
   const where = `'on ${n.param?.$refText}.${n.event?.$refText}' handler`;

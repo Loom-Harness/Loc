@@ -58,8 +58,8 @@ describe("java generator — seed runner", () => {
     const s = await runner();
     expect(s).toContain('jdbc.execute("CREATE TABLE IF NOT EXISTS \\"__loom_seed\\"');
     expect(s).toContain('return "default".equals(dataset) || requested.contains(dataset);');
-    expect(s).toContain('if (alreadySeeded("demo")) return;');
-    expect(s).toContain('markSeeded("wired");');
+    expect(s).toContain('if (alreadySeeded("Catalog/demo")) return;');
+    expect(s).toContain('markSeeded("Catalog/wired");');
     expect(s).toContain('System.getenv().getOrDefault("LOOM_SEED", "")');
   });
 

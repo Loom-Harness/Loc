@@ -470,7 +470,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "EIGHT of the seventeen stdlib collection ops over a collection receiver in a " +
       "walker-rendered page/component/store expression. The nine that RESHAPE a collection " +
       "(count / where / any / all / map / sortBy / take / skip / join) render on all six " +
-      "frontends AND on the HEEx parallel walker. The eight refused are the ones the " +
+      "frontends, Phoenix LiveView included. The eight refused are the ones the " +
       "frontends genuinely disagree about, all on REPRESENTATION: `sum`/`min`/`max`/`avg` " +
       "fold arithmetic and money is a decimal.js/Elixir `Decimal` object on JS+HEEx but a " +
       "native scalar on feliz/flutter; `first`/`firstOrNull` differ on partiality and on the " +
@@ -502,7 +502,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.mikroorm-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/migration-checks.ts:314",
+    site: "src/ir/validate/checks/migration-checks.ts:379",
     what:
       "on MikroORM: the two self-provisioning limits — declared migration steps and Postgres " +
       "schema placement (migration-checks.ts, `#migrations` / `#schema-split` / " +
@@ -594,7 +594,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "`Table { filter: <state> }` on a framework with no filter seam.  LATENT seam for a NEW " +
       "frontend: `TABLE_FILTER_FRAMEWORKS` now names every `framework:` the grammar admits.  " +
       "The six `walkBody` targets declare `renderFilteredRows` + `renderFilterInput`, and wave " +
-      "C2 packet 2m gave the parallel HEEx engine the same pair — `renderTable` emits the bound " +
+      "HEEx's `renderTable` override renders the same pair — the bound " +
       '`<.input type="search">` (same `data-testid="table-filter"` the React seam uses) plus ' +
       "`LoomTable.filter_rows/2` around the bound rows, which walks every row value " +
       "case-insensitively exactly as React's `Object.values(row)` filter does.  No server-side " +

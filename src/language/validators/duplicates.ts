@@ -46,7 +46,7 @@
 //      aggregate, so the alias would either crash an emitter or quietly share
 //      the first one's class.
 
-import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
+import type { AstNode, ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import type {
   Aggregate,
@@ -75,6 +75,7 @@ import {
   isRepository,
   isValueObject,
 } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 /** A named member paired with the node the diagnostic should attach to. */
 interface Named {
@@ -270,7 +271,7 @@ function checkParamNames(
 }
 
 export function checkDuplicateNames(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (isBoundedContext(node)) {
       checkContextTypeNames(node, accept);
       checkHandlerNames(node, accept);

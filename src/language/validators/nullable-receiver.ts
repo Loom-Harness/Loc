@@ -31,6 +31,7 @@ import {
 import { typeToString } from "../type-system.js";
 import { typingFor } from "../typing/shared.js";
 import type { Ty } from "../typing/ty.js";
+import { modelContents } from "./model-contents.js";
 
 function inFrontend(node: AstNode): boolean {
   return (
@@ -53,7 +54,7 @@ function isDereference(recv: Ty & { kind: "optional" }, ms: MemberSuffix, fronte
 }
 
 export function checkNullableReceivers(model: Model, accept: ValidationAcceptor): void {
-  for (const chain of AstUtils.streamAllContents(model).filter(isPostfixChain)) {
+  for (const chain of modelContents(model).filter(isPostfixChain)) {
     if (inTest(chain)) continue;
     const typing = typingFor(chain);
     const frontend = inFrontend(chain);

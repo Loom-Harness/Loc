@@ -24,7 +24,8 @@ import {
   VERDICT_LEGEND,
 } from "./vocabulary";
 import { OutputStreamLink } from "./OutputStreamLink";
-import { TsTransformClient } from "../testing/transform-client";
+import { TsTransformClient, type EsbuildBuild } from "../testing/transform-client";
+import { nearestPackageDeps } from "../testing/suite-deps";
 import { findApiTestFile, loadApiTests } from "../testing/run-api-tests";
 import { findUiTestFile, loadUiSuite, uiSuiteFiles } from "../testing/run-ui-tests";
 import {
@@ -202,8 +203,7 @@ function TestsBodyView({
     void (async () => {
       try {
         const c = client();
-        const build = (e: string, f: Record<string, string>, a: Record<string, string>) =>
-          c.build(e, f, a);
+        const build: EsbuildBuild = (e, f, a, d) => c.build(e, f, a, d);
         const units: UnitSuite[] = [];
         for (const f of unitFiles) {
           if (token.cancelled) return;
@@ -213,13 +213,19 @@ function TestsBodyView({
             entry: f.path,
             files: unitSuiteFiles(files, f),
             build,
+            deps: nearestPackageDeps(files, f.path),
           });
           units.push({ id: `unit\0${f.path}`, label: base, cases });
         }
         if (token.cancelled) return;
         if (uiFile) step("UI");
         const ui = uiFile
-          ? await loadUiSuite({ entry: uiFile.path, files: uiSuiteFiles(files, uiFile), build })
+          ? await loadUiSuite({
+              entry: uiFile.path,
+              files: uiSuiteFiles(files, uiFile),
+              build,
+              deps: nearestPackageDeps(files, uiFile.path),
+            })
           : null;
         if (token.cancelled) return;
         if (apiFile && engine) step("API");
@@ -595,7 +601,7 @@ function TestError({
       <Group gap={6} wrap="wrap" align="baseline">
         <Text size="xs" c="red" data-testid="test-error-hint" style={{ flex: 1, minWidth: 200 }}>
           {error.kind === "discovery"
-            ? TEST_DISCOVERY.errorHint(ctx.isDesktop)
+            ? TEST_DISCOVERY.errorHint(error.message)
             : "The run stopped before it produced results — a harness or runtime error, not a failing assertion."}
         </Text>
         {error.kind === "run" && <OutputStreamLink ctx={ctx} stream="backend" label={seeStream(STREAM.runtimeLogs)} />}

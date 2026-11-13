@@ -16,8 +16,8 @@ const generateSystemFiles = (src: string) =>
 //
 // `orders.filter(o => …)` / `.map(o => …)` in page-body expression
 // position render on the JS frontends via the shared `emitExpr` (native
-// `Array.prototype` methods).  HEEx runs a PARALLEL engine
-// (`heex-walker-core.ts`); these ops aren't in the shared `isCollectionOp`
+// `Array.prototype` methods).  HEEx renders expressions through its own
+// renderer (`heex-walker-core.ts`); these ops aren't in the shared `isCollectionOp`
 // catalogue, so they used to fall through to the generic method-call path
 // — the callback lambda was hoisted into a `handle_event` clause and the
 // op emitted as an invalid `recv.filter(event_1)` chain.  They now route

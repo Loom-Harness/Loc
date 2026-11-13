@@ -3,10 +3,8 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
 // HEEx inline-emphasis primitives — Bold / Italic / InlineCode (parity
-// finding #5).  These were TSX-only (the Phoenix walker fell through to the
-// "not supported" comment); they now render as the plain inline HTML tags
-// `<strong>` / `<em>` / `<code>`, matching the TSX `<strong>`/`<em>`/`<code>`
-// spans.  The pin for each was removed from heex-parity.test.ts.
+// finding #5).  They render as the plain inline HTML tags `<strong>` / `<em>` /
+// `<code>`, matching the TSX `<strong>`/`<em>`/`<code>` spans.
 // ---------------------------------------------------------------------------
 
 const phoenixSystem = (uiBody: string): string => `

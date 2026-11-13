@@ -114,10 +114,9 @@ describe("Card keeps every body child", () => {
     expect(src).toMatch(/Text\([^\n]*\), \(child \?\? const SizedBox\.shrink\(\)\)\]/);
   });
 
-  it("CONTROL: HEEx was already correct — its own engine renders every child", async () => {
-    // Phoenix/LiveView does not consume `walkBody`; `heex-walker-core.ts` walks
-    // Card as a `takesChildren` container, so the second child never went
-    // missing there.  Pinned so the two engines cannot drift apart again.
+  it("HEEx renders every child too", async () => {
+    // Phoenix/LiveView renders `Card` through the shared emitter and the HEEx
+    // pack; pinned so its body keeps every child.
     const files = await generateSystemFiles(`
 system CardSlotHeex {
   subdomain M {

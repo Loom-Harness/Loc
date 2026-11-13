@@ -104,11 +104,11 @@ const SEEN = new Set<string>();
  *   * `loom.page-ref-unreachable` needs a primitive that NAMES something
  *     (`CreateForm { of: "Ghost" }`); argless spellings stop one step earlier,
  *     at the missing argument.  Driven by the corpus witness beside this file.
- *   * `loom.page-primitive-target-gap` fires per-FRONTEND, from the two
- *     procedural packs' missing-renderer fallback and the HEEx engine's
- *     unsupported-primitive arm — neither reachable by varying the BODY.
- *     Driven by `test/generator/elixir/heex-unsupported-primitive.test.ts` and
- *     the two `*-pack-groundwork` tests.
+ *   * `loom.page-primitive-target-gap` fires per-FRONTEND, from the three
+ *     procedural packs' missing-renderer fallback and the HEEx form override's
+ *     instance-qualified operation form — not reachable by varying the BODY.
+ *     Driven by `test/generator/elixir/heex-standalone-op-form-marker.test.ts`
+ *     and the two `*-pack-groundwork` tests.
  *   * `loom.page-expr-unrenderable` is `walker-core.ts`'s markup-position
  *     expression backstop and has no known authored shape at all; it is pinned
  *     as unreachable in `test/system/diagnostic-firing-census.test.ts`.

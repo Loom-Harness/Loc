@@ -42,12 +42,12 @@ Investigate and report:
 
 4. **Backends/frontends in scope.** Given the feature kind (domain-logic expr/stmt
    vs wire-shape vs UI primitive vs persistence-capability vs validate-only),
-   list exactly which of the 5 backends + 5 frontends must change, and whether a
+   list exactly which of the 5 backends + 6 frontends (+ the HEEx render path) must change, and whether a
    shared seam (`ExprTarget` / `WalkerTarget`) carries it or each target needs
    bespoke work.
 
 5. **Completeness gates it will trip** (print-completeness, walker-stdlib,
-   heex-parity, diagnostic-codes, queryable-subset, corpus-coverage) — see
+   heex-coverage, diagnostic-codes, queryable-subset, corpus-coverage) — see
    `references/test-placement.md`.
 
 6. **Risks / unknowns.** Anything that looks harder than the analog: divergent

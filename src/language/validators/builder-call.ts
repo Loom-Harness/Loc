@@ -44,6 +44,7 @@ import {
 } from "../generated/ast.js";
 import { envForNode, resolveTypeRef, T, type Ty, typeOf, typeToString } from "../type-system.js";
 import { isWalkerPrimitive } from "../walker-stdlib.js";
+import { modelContents } from "./model-contents.js";
 
 /** Bindable page-body inputs — they wire to a `state` field via `bind:`. */
 const BINDABLE_INPUTS: ReadonlySet<string> = new Set([
@@ -61,7 +62,7 @@ const BINDABLE_INPUTS: ReadonlySet<string> = new Set([
  *  by the walker: the input renders uncontrolled and no `useState` is emitted.
  *  Warn and suggest `bind:` so the silent no-op can't recur. */
 export function checkBindableInputArgs(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (node.$type !== "BuilderCall") continue;
     const bc = node as BuilderCall;
     if (!BINDABLE_INPUTS.has(bc.type)) continue;
@@ -101,7 +102,7 @@ function bareBindName(value: Expression | undefined): string | undefined {
  *  be resolved to a declared state field (an out-of-scope or dynamic ref),
  *  it stays silent — that's a different diagnostic's concern. */
 export function checkFileUploadBinding(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (node.$type !== "BuilderCall") continue;
     const bc = node as BuilderCall;
     if (bc.type !== "FileUpload") continue;
@@ -148,7 +149,7 @@ function describeType(t: Ty): string {
  *  EntityPart in the enclosing context, those constructions must use
  *  `Name { slot: value, ... }` syntax now. */
 export function checkLegacyConstructorCalls(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isPostfixChain(node)) continue;
     const first = node.suffixes[0];
     if (!first || !isCallSuffix(first)) continue;
@@ -339,7 +340,7 @@ function requiredFieldNames(decl: ValueObject | EntityPart | PayloadDecl): Set<s
  *  construction gap: name + value type + presence).  Both are pure name-set
  *  checks over the model stream, so no lexical env is needed. */
 export function checkConstructionFields(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (node.$type !== "BuilderCall") continue;
     const bc = node as BuilderCall;
     const decl = resolveRecordDecl(bc, model);
@@ -429,7 +430,7 @@ function resolveAggregateByName(name: string, from: AstNode, model: Model): Aggr
 const SERVER_OWNED_ACCESS: ReadonlySet<string> = new Set(["managed", "token", "internal"]);
 
 export function checkFactoryCreateFields(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     const fc = factoryCallOf(node);
     if (!fc || isRecordFormCreate(fc.call.args)) continue;
     const agg = fc.agg;
@@ -540,7 +541,7 @@ function wireFamily(t: Ty): WireFamily {
 }
 
 export function checkFactoryCreateFieldTypes(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     const fc = factoryCallOf(node);
     if (!fc || isRecordFormCreate(fc.call.args)) continue;
     const mapped = factoryArgs(fc.agg, fc.call.args);
@@ -670,7 +671,7 @@ export function checkBuilderCallType(
   accept: ValidationAcceptor,
   services?: DddServices,
 ): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (node.$type !== "BuilderCall") continue;
     const bc = node as BuilderCall;
     const name = bc.type;

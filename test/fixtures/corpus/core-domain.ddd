@@ -4,7 +4,16 @@ system CoreShop {
   subdomain Sales {
     context Orders {
       enum Status { Draft, Placed, Cancelled }
-      valueobject Money { amount: decimal  currency: string }
+      valueobject Money {
+        amount: decimal
+        currency: string
+        // A VO function naming its OWN type, inside that type's body.  Python
+        // evaluated the annotation eagerly there (`def plus(self, other:
+        // Money) -> Money` before `Money` is bound), so the domain module
+        // raised NameError at import and the app never booted.  Declared, not
+        // called: the import alone is the proof, on every python tier.
+        function plus(other: Money): Money = Money { amount: amount + other.amount, currency: currency }
+      }
       event OrderPlaced { code: string }
       aggregate Order with crudish {
         code: string
@@ -14,7 +23,14 @@ system CoreShop {
         entity Line { sku: string  qty: int }
         derived isDraft: bool = status == Status.Draft
         invariant total.amount >= 0
-        operation place() { status := Status.Placed }
+        // A precondition reading a DERIVED field.  Elixir's pure domain core
+        // (the module the unit test drives) rendered it as the struct key
+        // `record.is_draft`, which the schema does not define — KeyError on
+        // the unit test's `o.place()`.
+        operation place() {
+          precondition isDraft
+          status := Status.Placed
+        }
         operation addLine(sku: string, qty: int) { lines += Line { sku: sku, qty: qty } }
 
         // Pure-domain (unit) test — exercised on every backend's unit tier.
@@ -32,6 +48,16 @@ system CoreShop {
           expect(o.isDraft).toBe(false)
           expect(o.lines.count).toBe(1)
           expect(o.total.amount).toBe(10.00)
+        }
+
+        // A value object written as an OBJECT LITERAL in a create position.
+        // java rendered it `Map.of("amount", …)` and .NET an anonymous
+        // `new { … }` — neither converts to `Money`, so the test projects did
+        // not compile.
+        test "a value object passed as an object literal is constructed" {
+          let o = Order.create(code: "CD9", status: Draft, total: { amount: 5.00, currency: "EUR" })
+          expect(o.total.currency).toBe("EUR")
+          expect(o.total.amount).toBe(5.00)
         }
       }
       repository Orders for Order { }

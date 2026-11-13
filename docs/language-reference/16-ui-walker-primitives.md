@@ -1,6 +1,6 @@
 # 16. UI: the walker primitive library
 
-Page bodies are written in a **closed primitive library** — 56 top-level primitives (`Stack`, `Heading`, `Field`, `Table`, `CreateForm`, `QueryView`, `Chart`, `For`, …) plus the two sub-elements `Tab` and `Column`, and the `match` expression. There is no escape hatch to raw markup; every primitive is dispatched by the body walker into the page's active **design pack**, so one `.ddd` body renders as Mantine, shadcn, Vuetify, Angular Material, daisyUI (Feliz), Material 3 (Flutter) or HEEx depending on the hosting frontend. Reach for this chapter to see what each primitive takes, what it emits, and where a target honestly declines.
+Page bodies are written in a **closed primitive library** — 57 top-level primitives (`Stack`, `Heading`, `Field`, `Table`, `CreateForm`, `QueryView`, `Chart`, `For`, …) plus the two sub-elements `Tab` and `Column`, and the `match` expression. There is no escape hatch to raw markup; every primitive is dispatched by the body walker into the page's active **design pack**, so one `.ddd` body renders as Mantine, shadcn, Vuetify, Angular Material, daisyUI (Feliz), Material 3 (Flutter) or HEEx depending on the hosting frontend. Reach for this chapter to see what each primitive takes, what it emits, and where a target honestly declines.
 
 > **Grammar:** primitives are `BuilderCall`s whose names come from the registry `src/generator/_walker/registry.ts` (`WALKER_PRIMITIVES`), mirrored for the validator by `src/util/walker-primitive-names.ts` (`WALKER_LAYOUT_PRIMITIVES`, `WALKER_SUB_PRIMITIVES`, `WALKER_PRIMITIVE_SLOTS`) and `src/util/walker-primitive-args.ts` (`WALKER_PRIMITIVE_NAMED_ARGS`) / `src/util/walker-primitive-arg-values.ts` (`WALKER_PRIMITIVE_ARG_VALUES`) · **Validators:** `loom.unknown-page-element` · `loom.unresolved-page-ref` · `loom.page-primitive-unknown-arg` · `loom.page-primitive-unknown-arg-value` · `loom.page-primitive-extra-children` · `loom.sub-primitive-misplaced` · `loom.slot-outside-component` · `loom.component-prop-type` · `loom.a11y-missing-alt` · `loom.a11y-icon-only-no-name` · `loom.file-upload-not-file-field` · `loom.frontend-collection-op-unsupported` · `loom.user-visible-concat` · `loom.chart-kind-invalid` · `loom.chart-of-not-grouped` · `loom.chart-accessor-not-field` · `loom.datagrid-selection-not-state` · `loom.datagrid-selection-not-array` · `loom.table-filter-server-paged` · `loom.op-form-needs-route-id` · `loom.destroy-form-of-unresolved` · `loom.create-unknown-field` · `loom.create-server-field` · `loom.create-field-type` · per-target: `loom.target-unsupported#datagrid` · `loom.target-unsupported#chart` · `loom.target-unsupported#money-locale-format` · `loom.table-filter-unsupported` · `loom.modal-controlled-op-form-unsupported` · `loom.flutter-primitive-unsupported` · **Docs:** [`../page-metamodel.md`](../page-metamodel.md) §9, [`../design-packs.md`](../design-packs.md), [`../actions.md`](../actions.md)
 
@@ -8,7 +8,7 @@ Every output block below is **real generated output** from one fixture — a `ui
 
 ## The dispatch model
 
-A page `body:` is one primitive call whose children are nested primitive calls. The shared walker (`walkBody`, `src/generator/_walker/walker-core.ts`) recurses the body `ExprIR`; for each `call` it looks the name up in `WALKER_PRIMITIVES` and invokes the renderer through the active `WalkerTarget`. **Six** targets ride that one core — `react`, `vue`, `svelte`, `angular` (`src/generator/<fw>/walker/*-target.ts`), `feliz` (`feliz-target.ts`, emits F#) and `flutter` (`flutter-target.ts`, emits Dart). **Phoenix LiveView does not**: `src/generator/elixir/heex-walker-core.ts` is a parallel engine dispatching off the same registry's `heex` renderers, because LiveView's topology (hoisted `handle_event` clauses, `for` comprehensions, `cond` blocks) diverges too far to share.
+A page `body:` is one primitive call whose children are nested primitive calls. The shared walker (`walkBody`, `src/generator/_walker/walker-core.ts`) recurses the body `ExprIR`; for each `call` it looks the name up in `WALKER_PRIMITIVES` and invokes the renderer through the active `WalkerTarget`. All **seven** targets ride that one core — `react`, `vue`, `svelte`, `angular` (`src/generator/<fw>/walker/*-target.ts`), `feliz` (`feliz-target.ts`, emits F#), `flutter` (`flutter-target.ts`, emits Dart) and Phoenix LiveView (`src/generator/elixir/heex-target.ts`, emits HEEx). LiveView's differences are seams, not a second walker: its expressions render as Elixir (`@x` in a template, `socket.assigns.x` in a handler), its handlers hoist to `handle_event/3` clauses, and the primitives that bind a changeset or load an assign (the forms, `Table`, `FileUpload`, `Modal`, `Chart`, `IdLink`, …) render whole through the target's overrides.
 
 - **Layout / display / formatter / input** primitives render the same *tree* everywhere; only the host markup and pack vocabulary differ.
 - **`match`, `For`, `QueryView`** are control flow, and here the frameworks genuinely diverge — React renders markup-valued expressions (`cond ? <A/> : <B/>`, `.map`), Vue/Svelte/Angular/HEEx emit block control flow (`<template v-if>`, `{#if}`, `@if`, `<%= cond do %>`), Flutter a Dart `switch` / spread.
@@ -46,6 +46,7 @@ Positional **slots** are what a primitive renders positionally (`WALKER_PRIMITIV
 | Display | `Stat` | 2 — label, value | — | |
 | Display | `CodeBlock` | 1 — source | `source`, `language`, `title` | vendored highlight.js (`lib/common`, 36 languages) bundled into the app — no CDN — as a lazily-loaded chunk fetched only once a code block appears; an unknown `language:` renders as plain text; the source is never translated |
 | Display | `Slot` | 0 | — | the caller's children, `component` bodies only |
+| Display | `LocaleSwitcher` | 0 | — | the language picker over the system's shipped locales; the app shell already mounts one in its header when two or more locales ship, so place it only where that header is absent (`layout: none`, a custom header). Every target renders it (HEEx: a `<select>` writing the `loom_locale` cookie) |
 | Formatters | `Money` | 1 — value | `value`, `currency`, `decimals` | verbatim digits, see below |
 | Formatters | `DateDisplay` | 1 — value | `value` | |
 | Formatters | `EnumBadge` | 1 — value | `value`, `color` | |
@@ -468,7 +469,7 @@ Icon(Icons.circle, size: 20.0, semanticLabel: t('page.Display.iconLabel.jnn2zp',
 Image.network("/logo.png", semanticLabel: "Acme logo"),
 ```
 
-`Anchor { to: }` is a **router link** on every frontend (`RouterLink` / `router-link` / `[routerLink]` / `pushNamed`) — give it an in-app path; an external URL belongs in a `menu` link (`link "Docs" -> "https://…"`, [15](15-ui-pages-structure.md)). `Icon` is decorative (`aria-hidden`) unless `label:` names it, which turns it into a `role="img"` and makes the label a translated slot. On Phoenix `Image { "/logo.png", alt: … }` and `Icon { name: … }` render `<img alt="…" />` with no `src` and an empty `<span class="loom-icon">` — the HEEx renderers read only a named `src:` and only an `svg:` literal (`heex-primitives.ts` `renderImage` / `renderIcon`); spell `Image { src: "…", alt: "…" }` and pass `svg:` there.
+`Anchor { to: }` is a **router link** on every frontend (`RouterLink` / `router-link` / `[routerLink]` / `pushNamed`) — give it an in-app path; an external URL belongs in a `menu` link (`link "Docs" -> "https://…"`, [15](15-ui-pages-structure.md)). `Icon` is decorative (`aria-hidden`) unless `label:` names it, which turns it into a `role="img"` and makes the label a translated slot.
 
 ### A text slot renders a scalar, not a value object
 
@@ -1017,7 +1018,7 @@ const deleteProduct = useDeleteProduct();
 
 ```heex
 <%!-- phoenix — product_new_live.ex.  The HEEx workflow form ships a single
-      `_placeholder` input instead of the create(…) params (heex-primitives.ts:388) --%>
+      `_placeholder` input instead of the create(…) params (`heex-form.ts`) --%>
 <.simple_form for={@form} phx-submit="run_register_product" data-testid="register">
   <.input field={@form[:_placeholder]} label="Field" />
   <:actions><.button type="submit" data-testid="register-submit">Submit</.button></:actions>
@@ -1453,7 +1454,7 @@ Where a target cannot render a primitive the compiler says so — a `loom.*` err
 | `loom.ui-projection-read-unsupported` | a keyed or folded projection read from a page, or a frontend without a projection client |
 | `loom.toast-message-unsupported` | a realtime `toast(…)` message outside the literal / `e.field` / binary-op subset |
 
-The HEEx parity list (`test/generator/elixir/heex-parity.test.ts`) freezes the set of TSX-rendered primitives without a `heex` renderer: today that is **`DataGrid` only** — every other primitive has a HEEx renderer, so a new TSX-only primitive fails CI until it gets one or is pinned with a reason.
+On Phoenix LiveView every primitive renders except **`DataGrid`**, which the capability table refuses (`loom.target-unsupported#datagrid`). The HEEx showcase gate (`test/generator/elixir/heex-coverage.test.ts`) reaches every primitive the table admits, so a new primitive fails CI until the showcase renders it on HEEx.
 
 ## Where to go next
 

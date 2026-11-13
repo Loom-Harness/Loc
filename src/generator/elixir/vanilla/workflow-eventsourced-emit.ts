@@ -24,54 +24,30 @@ import {
   esStarterSharesEvent,
   eventSourcedWorkflows,
   foldedEventNames,
+  requiredStateFields,
   workflowStreamType,
 } from "../../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
   EventIR,
-  TypeIR,
   WorkflowIR,
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../../ir/types/origin.js";
-import { reactorNeedsPrincipal } from "../../../ir/util/system-principal.js";
 import { workflowBodyReadsOwnState } from "../../../ir/util/workflow-own-state.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
+import type { WorkflowPipelineTarget } from "../../_workflow/stmt-target.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
+import { reactorTarget, renderReactorBody } from "../reactor-target.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { stateDefault } from "../state-default.js";
 import { exLogInstantType } from "./codec-spelling-ex.js";
-import { workflowDenialTerm } from "./denial.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
 
 const wfModule = (contextModule: string, wf: WorkflowIR): string =>
   `${contextModule}.Workflows.${upperFirst(wf.name)}`;
-
-/** A backend-zero Elixir literal for a required folded-state field at seed time
- *  (the correlation field is seeded from the routing key, never this). */
-function stateDefault(t: TypeIR): string {
-  if (t.kind === "primitive") {
-    switch (t.name) {
-      case "int":
-      case "long":
-        return "0";
-      case "decimal":
-      case "money":
-        return "Decimal.new(0)";
-      case "bool":
-        return "false";
-      case "datetime":
-        return "DateTime.utc_now()";
-      case "date":
-        return "Date.utc_today()";
-      default:
-        return '""';
-    }
-  }
-  if (t.kind === "array") return "[]";
-  return "nil";
-}
 
 // --- `<Wf>State` plain struct (the folded snapshot) -------------------------
 
@@ -132,9 +108,7 @@ function renderFoldModule(contextModule: string, wf: WorkflowIR): string {
 
   const seeds = [
     `${snake(corr)}: key`,
-    ...(wf.stateFields ?? [])
-      .filter((f) => f.name !== corr && !(f.optional || f.type.kind === "optional"))
-      .map((f) => `${snake(f.name)}: ${stateDefault(f.type)}`),
+    ...requiredStateFields(wf).map((f) => `${snake(f.name)}: ${stateDefault(f.type)}`),
   ];
 
   const clauses = (wf.appliers ?? []).map((ap) => {
@@ -348,22 +322,23 @@ interface EsSub {
   statements: WorkflowStmtIR[];
 }
 
-/** Render an ES workflow handler module: fold-on-load, run the emit-only body
- *  against the folded snapshot, append the workflow's own events gap-free, then
- *  re-publish for choreography.  `emit` collects into the appended-then-
- *  dispatched `events` list (unlike the state path's inline re-dispatch).
+/** Render an ES workflow handler module: fold-on-load, run the body against
+ *  the folded snapshot on the reactor pipeline target (`../reactor-target.ts`),
+ *  then re-publish for choreography.  Each `emit` appends its event to the
+ *  workflow's own stream where the source states it, and dispatches it after
+ *  the commit.  The reaction is one transaction: the first failure is thrown,
+ *  so every append and write before it rolls back (workflow.md § Reactor
+ *  failures).
  *
- *  Returns the module content plus M13's per-statement `fragment()` anchors
- *  (see `HandlerResult` in `dispatch-emit.ts`, whose shape this matches
- *  structurally so the caller handles both without a per-path branch).  Each
- *  anchor is the statement's OWN rendered text — guards/lets/emits are all
- *  bucketed BEFORE assembly (never split), and the re-indent replays below
- *  (`.replace(/^/gm, "  ")`) only insert whitespace at physical line starts,
- *  never touch a statement's interior text, so the un-prefixed anchor stays
- *  a valid substring regardless of which branch embeds it. */
+ *  Returns the module content plus one `fragment()` anchor per lowered step
+ *  (see `HandlerResult` in `dispatch-emit.ts`, whose shape this matches). */
 export function renderEsWorkflowHandler(
   contextModule: string,
+  ctx: EnrichedBoundedContextIR,
   sub: EsSub,
+  /** The reactor render context (`thisName: "state"`, the event param renamed
+   *  to `event`, the system principal) — shared with the saga-row handler. */
+  renderCtx: RenderCtx,
   /** Broker tee config (channels.md) — presence routes the post-append
    *  re-publish through `<App>.Channels.dispatch/2`, so broker-carried
    *  saga events publish instead of fanning out locally. */
@@ -378,92 +353,39 @@ export function renderEsWorkflowHandler(
   const handlerMod = `${contextModule}.Workflows.${upperFirst(wf.name)}.${verb}${upperFirst(sub.event)}`;
   const foldMod = `${wfModule(contextModule, wf)}Fold`;
   const streamMod = `${wfModule(contextModule, wf)}Stream`;
-  const renderCtx: RenderCtx = {
-    thisName: "state",
-    contextModule,
-    paramRenames: { [sub.param]: "event" },
-  };
 
   const keyExpr = sub.correlation ? renderExpr(sub.correlation, renderCtx) : `event.${snake(corr)}`;
   const usesState = workflowBodyReadsOwnState(sub.statements);
   const stateBind = usesState ? "state" : "_state";
 
-  // Body → guard clauses (with `ensure`), let bindings, emitted event structs.
-  const guards: string[] = [];
-  const lets: string[] = [];
-  const emits: string[] = [];
-  // M13 — one region per rendered statement, keyed to that statement's OWN
-  // text (never the padded/joined `lets`/`withClauses` string it lands in).
-  const regions: { text: string; origin: OriginRef | undefined }[] = [];
-  for (const st of sub.statements) {
-    switch (st.kind) {
-      case "precondition": {
-        const text = `:ok <- ensure(${renderExpr(st.expr, renderCtx)}, ${workflowDenialTerm(st, (e) => renderExpr(e, renderCtx))})`;
-        guards.push(text);
-        regions.push({ text, origin: st.origin });
-        break;
-      }
-      case "requires": {
-        const text = `:ok <- ensure(${renderExpr(st.expr, renderCtx)}, ${workflowDenialTerm(st, (e) => renderExpr(e, renderCtx))})`;
-        guards.push(text);
-        regions.push({ text, origin: st.origin });
-        break;
-      }
-      case "expr-let": {
-        const text = `${escapeElixirIdent(snake(st.name))} = ${renderExpr(st.expr, renderCtx)}`;
-        lets.push(`      ${text}`);
-        regions.push({ text, origin: st.origin });
-        break;
-      }
-      case "emit": {
-        const fields = st.fields
-          .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
-          .join(", ");
-        const text = `%${contextModule}.Events.${upperFirst(st.eventName)}{${fields}}`;
-        emits.push(text);
-        regions.push({ text, origin: st.origin });
-        break;
-      }
-      case "variant-match":
-        // Its arms would have nowhere to render (a conditional `emit` cannot
-        // join the one `events = […]` list), and the `default` below would
-        // drop them silently.
-        throw new Error(
-          "platform: elixir — a statement 'match' reached the event-sourced workflow handler " +
-            "emitter; it is refused at validation (loom.elixir-match-stmt-unsupported#event-sourced).",
-        );
-      default:
-        // ES workflow handlers are emit-only (A1 discipline); other kinds are
-        // gated out upstream.  Keep the renderer total.
-        break;
-    }
-  }
-
-  const withClauses = [
-    ...guards,
-    `events = [${emits.join(", ")}]`,
-    `:ok <- ${streamMod}.append(sid, events)`,
-  ];
   // The handler runs FROM the local Dispatcher (it exists by construction),
-  // so the re-publish is the plain dispatcher call — or the broker tee when
-  // channels are wired, so broker-carried saga events publish for remote
+  // so the re-publish is the post-commit dispatcher call — or the broker tee
+  // when channels are wired, so broker-carried saga events publish for remote
   // (and co-located) consumers instead of fanning out locally.
-  const republish = channels
-    ? `Enum.each(events, fn ev -> ${elixirDispatchCall("ev", contextModule, true, channels, true)} end)`
-    : `Enum.each(events, &${contextModule}.Dispatcher.AfterCommit.dispatch/1)`;
-  const withBlock = [
-    `      with ${withClauses.join(",\n           ")} do`,
-    `        ${republish}`,
-    `        :ok`,
-    `      end`,
-  ].join("\n");
-
-  const hasGuards = guards.length > 0;
-  const ensureHelper = hasGuards
-    ? `\n  defp ensure(true, _reason), do: :ok\n  defp ensure(false, reason), do: {:error, reason}\n`
-    : "";
-
-  const letBlock = lets.length > 0 ? `${lets.join("\n")}\n` : "";
+  const republish = (ev: string): string =>
+    elixirDispatchCall(ev, contextModule, true, channels, true) ??
+    `${contextModule}.Dispatcher.AfterCommit.dispatch(${ev})`;
+  let emitted = 0;
+  const target: WorkflowPipelineTarget = {
+    ...reactorTarget(ctx, renderCtx, contextModule, channels),
+    emit: (st) => {
+      const fields = st.fields
+        .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
+        .join(", ");
+      const name = `emitted_${++emitted}`;
+      return [
+        {
+          kind: "let",
+          pattern: name,
+          expr: `%${contextModule}.Events.${upperFirst(st.eventName)}{${fields}}`,
+        },
+        { kind: "clause", text: `:ok <- ${streamMod}.append(sid, [${name}])` },
+        { kind: "effect", text: republish(name) },
+      ];
+    },
+  };
+  const { lines: bodyLines, regions } = renderReactorBody(sub.statements, target);
+  const body = (pad: number): string => indentLines(bodyLines, pad);
 
   // A `create` starter that shares its event with an `on` reactor on the same
   // workflow (S5b) must no-op when the stream ALREADY exists — the inverse of
@@ -488,7 +410,7 @@ export function renderEsWorkflowHandler(
 
       loaded ->
         ${stateBind} = ${foldMod}.from_events(key, loaded)
-${letBlock}${withBlock.replace(/^/gm, "  ")}
+${body(8)}
     end`;
   } else if (guardStreamExists) {
     // Starter with a paired `on`: fold from zero ONLY when the stream is empty;
@@ -504,7 +426,7 @@ ${letBlock}${withBlock.replace(/^/gm, "  ")}
     case ${streamMod}.load(sid) do
       [] ->
         ${stateBind} = ${foldMod}.from_events(key, [])
-${letBlock}${withBlock.replace(/^/gm, "  ")}
+${body(8)}
 
       _loaded ->
         ${logCall}
@@ -515,7 +437,7 @@ ${letBlock}${withBlock.replace(/^/gm, "  ")}
     inner = `    key = ${keyExpr}
     sid = to_string(key)
     ${stateBind} = ${foldMod}.from_events(key, ${streamMod}.load(sid))
-${letBlock}${withBlock}`;
+${body(4)}`;
   }
 
   const requireLogger = sub.trigger === "on" || guardStreamExists ? "  require Logger\n\n" : "";
@@ -525,18 +447,27 @@ defmodule ${handlerMod} do
 
 ${requireLogger}  def handle(%${contextModule}.Events.${upperFirst(sub.event)}{} = event) do
     # A reactor is a per-dispatch boundary: child execution frame (parent_id <-
-    # the dispatching request's scope).
+    # the dispatching request's scope).  The reaction is ATOMIC (workflow.md
+    # § Reactor failures): a throw part-way rolls back every append and write
+    # before it; its events re-publish only once it committed.
     ${appModule}.RequestContext.with_child_frame(fn ->
-${
-  // An event-sourced saga body is emit-only (no op-calls), so only its own
-  // guards can read the principal: bind the system principal (ruling D1) then.
-  reactorNeedsPrincipal(sub.statements, { aggregates: [] })
-    ? `    current_user = ${appModule}Web.Auth.system_principal()\n\n`
-    : ""
-}${inner}
+${renderCtx.reactorPrincipal ? `    current_user = ${appModule}Web.Auth.system_principal()\n\n` : ""}    ${appModule}.PostCommit.transaction(fn ->
+    ${appModule}.Repo.transaction(fn ->
+${inner}
+    end)
+    end)
     end)
   end
-${ensureHelper}end
+end
 `;
   return { content, regions };
+}
+
+/** Prefix every non-empty physical line of a 0-indented block with `n` spaces. */
+function indentLines(lines: readonly string[], n: number): string {
+  const pad = " ".repeat(n);
+  return lines
+    .flatMap((l) => l.split("\n"))
+    .map((l) => (l.length > 0 ? pad + l : l))
+    .join("\n");
 }

@@ -6,7 +6,7 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 //
 // A detail page hosting `DestroyForm(of: <Agg>)` hoists a `handle_event`
 // whose body calls `<Ctx>.destroy_<agg>!(id)` directly (a `byId`
-// ActionBinding — see heex-primitives.ts).  The vanilla context module must
+// ActionBinding — see heex-form.ts).  The vanilla context module must
 // therefore EMIT that bang destroy function, or `mix compile
 // --warnings-as-errors` fails on the undefined call.
 // ---------------------------------------------------------------------------

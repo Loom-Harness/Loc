@@ -15,12 +15,14 @@
 // `@if`/`@for` + signal access) that each target renders its own branch —
 // rather than one fragile seam-based build.  A frontend whose response schema
 // doesn't carry the lineage yet falls through to a visible comment (the value
-// still renders, only the "?" is absent).  A future Feliz/HEEx port implements
-// the `renderProvenanceInfo` WalkerTarget seam / the parallel HEEx walker.
+// still renders, only the "?" is absent).  Feliz and HEEx implement the
+// `renderProvenanceInfo` WalkerTarget seam.
 
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../../_payload/provenanced-wire.js";
 import { giveUp } from "../give-up.js";
+import { chromeMessage } from "../i18n-chrome.js";
+import { localizedChromeAria, localizedPageChromeText } from "../i18n-emit.js";
 import { namedArgValue, positionalArgs, stringNamed } from "../shared/args.js";
 import type { WalkContext } from "../walker-core.js";
 import { emitExpr, testidAttr } from "../walker-core.js";
@@ -53,13 +55,13 @@ export function emitProvenanceInfo(
 
   switch (ctx.target.framework) {
     case "react":
-      return reactDisclosure(lineage, testid);
+      return reactDisclosure(lineage, testid, chrome(ctx));
     case "vue":
-      return vueDisclosure(lineage, testid);
+      return vueDisclosure(lineage, testid, chrome(ctx));
     case "svelte":
-      return svelteDisclosure(lineage, testid);
+      return svelteDisclosure(lineage, testid, chrome(ctx));
     case "angular":
-      return angularDisclosure(lineage, testid);
+      return angularDisclosure(lineage, testid, chrome(ctx));
     default:
       // Schema not wired on this frontend yet — comment out so the scaffolded
       // provenanced field still compiles (the value renders without the "?").
@@ -71,17 +73,34 @@ export function emitProvenanceInfo(
   }
 }
 
+/** The disclosure's three chrome strings, already in the target's markup
+ *  spelling: a bound `t()` under i18n, the raw English otherwise. */
+interface ProvenanceChrome {
+  /** The summary's ` aria-label=…` attribute fragment (leading space). */
+  aria: string;
+  rule: string;
+  value: string;
+}
+
+function chrome(ctx: WalkContext): ProvenanceChrome {
+  return {
+    aria: localizedChromeAria(ctx, "provenanceHowComputed", chromeMessage("provenanceHowComputed")),
+    rule: localizedPageChromeText(ctx, "provenanceRule"),
+    value: localizedPageChromeText(ctx, "provenanceValue"),
+  };
+}
+
 /** React: a JSX-child `{cond ? (<details>…) : null}` — always nested inside the
  *  value cell, so it never needs the depth-0 brace wrap.  Null-guarded on the
  *  nullish wire field, then rule id + computed value + input list. */
-function reactDisclosure(lineage: string, testid: string): string {
+function reactDisclosure(lineage: string, testid: string, c: ProvenanceChrome): string {
   return [
     `{${lineage} != null ? (`,
     `  <details className="loom-provenance"${testid}>`,
-    `    <summary aria-label="How this value was computed">?</summary>`,
+    `    <summary${c.aria}>?</summary>`,
     `    <dl className="loom-provenance-tree">`,
-    `      <div><dt>Rule</dt><dd><code>{${lineage}.snapshotId}</code></dd></div>`,
-    `      <div><dt>Value</dt><dd>{String(${lineage}.computedValue)}</dd></div>`,
+    `      <div><dt>${c.rule}</dt><dd><code>{${lineage}.snapshotId}</code></dd></div>`,
+    `      <div><dt>${c.value}</dt><dd>{String(${lineage}.computedValue)}</dd></div>`,
     `      {${lineage}.inputs.map((inp) => (`,
     `        <div key={inp.path}><dt>{inp.path}</dt><dd>{String(inp.value)}</dd></div>`,
     `      ))}`,
@@ -93,13 +112,13 @@ function reactDisclosure(lineage: string, testid: string): string {
 
 /** Vue: a `<details v-if>` guarded on the nullish wire field, `{{ }}`
  *  interpolation, and a `v-for` over the input list keyed by `inp.path`. */
-function vueDisclosure(lineage: string, testid: string): string {
+function vueDisclosure(lineage: string, testid: string, c: ProvenanceChrome): string {
   return [
     `<details v-if="${lineage} != null" class="loom-provenance"${testid}>`,
-    `  <summary aria-label="How this value was computed">?</summary>`,
+    `  <summary${c.aria}>?</summary>`,
     `  <dl class="loom-provenance-tree">`,
-    `    <div><dt>Rule</dt><dd><code>{{ ${lineage}.snapshotId }}</code></dd></div>`,
-    `    <div><dt>Value</dt><dd>{{ String(${lineage}.computedValue) }}</dd></div>`,
+    `    <div><dt>${c.rule}</dt><dd><code>{{ ${lineage}.snapshotId }}</code></dd></div>`,
+    `    <div><dt>${c.value}</dt><dd>{{ String(${lineage}.computedValue) }}</dd></div>`,
     `    <div v-for="inp in ${lineage}.inputs" :key="inp.path"><dt>{{ inp.path }}</dt><dd>{{ String(inp.value) }}</dd></div>`,
     `  </dl>`,
     `</details>`,
@@ -108,14 +127,14 @@ function vueDisclosure(lineage: string, testid: string): string {
 
 /** Svelte: an `{#if}` guard on the nullish wire field, `{expr}` interpolation,
  *  and a keyed `{#each … (inp.path)}` over the input list. */
-function svelteDisclosure(lineage: string, testid: string): string {
+function svelteDisclosure(lineage: string, testid: string, c: ProvenanceChrome): string {
   return [
     `{#if ${lineage} != null}`,
     `  <details class="loom-provenance"${testid}>`,
-    `    <summary aria-label="How this value was computed">?</summary>`,
+    `    <summary${c.aria}>?</summary>`,
     `    <dl class="loom-provenance-tree">`,
-    `      <div><dt>Rule</dt><dd><code>{${lineage}.snapshotId}</code></dd></div>`,
-    `      <div><dt>Value</dt><dd>{String(${lineage}.computedValue)}</dd></div>`,
+    `      <div><dt>${c.rule}</dt><dd><code>{${lineage}.snapshotId}</code></dd></div>`,
+    `      <div><dt>${c.value}</dt><dd>{String(${lineage}.computedValue)}</dd></div>`,
     `      {#each ${lineage}.inputs as inp (inp.path)}`,
     `        <div><dt>{inp.path}</dt><dd>{String(inp.value)}</dd></div>`,
     `      {/each}`,
@@ -130,14 +149,14 @@ function svelteDisclosure(lineage: string, testid: string): string {
  *  truthy value), `{{ }}` interpolation, and a tracked `@for`.  `computedValue`
  *  and `inp.value` are `unknown`; Angular templates can't call `String(...)`, so
  *  they ride `$any(...)` (the interpolation stringifies). */
-function angularDisclosure(lineage: string, testid: string): string {
+function angularDisclosure(lineage: string, testid: string, c: ProvenanceChrome): string {
   return [
     `@if (${lineage}; as prov) {`,
     `  <details class="loom-provenance"${testid}>`,
-    `    <summary aria-label="How this value was computed">?</summary>`,
+    `    <summary${c.aria}>?</summary>`,
     `    <dl class="loom-provenance-tree">`,
-    `      <div><dt>Rule</dt><dd><code>{{ prov.snapshotId }}</code></dd></div>`,
-    `      <div><dt>Value</dt><dd>{{ $any(prov.computedValue) }}</dd></div>`,
+    `      <div><dt>${c.rule}</dt><dd><code>{{ prov.snapshotId }}</code></dd></div>`,
+    `      <div><dt>${c.value}</dt><dd>{{ $any(prov.computedValue) }}</dd></div>`,
     `      @for (inp of prov.inputs; track inp.path) {`,
     `        <div><dt>{{ inp.path }}</dt><dd>{{ $any(inp.value) }}</dd></div>`,
     `      }`,

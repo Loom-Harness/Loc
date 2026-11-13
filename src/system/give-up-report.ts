@@ -43,7 +43,7 @@ export interface GiveUpReport {
 /** Every give-up in an emitted file map, in path then line order.
  *
  *  Scans the OUTPUT rather than instrumenting the walkers, because there are
- *  seven of them (six `WalkerTarget`s plus the parallel HEEx engine) and three
+ *  seven `WalkerTarget`s and three
  *  more give-up sites that build their own comment syntax.  A collector
  *  threaded through all ten would be ten places to forget; the sentinel is
  *  already in the text, and `walker-give-up-routing.test.ts` pins that it

@@ -19,7 +19,7 @@
 //     (`#syntax`), or a branch reading a value other than the hole's own
 //     (`#nested-arg`) — the call site hands the runtime only the hole's value.
 
-import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
+import type { AstNode, ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { type IcuNode, IcuSyntaxError, parseIcu } from "../../i18n/icu.js";
 import {
@@ -38,6 +38,7 @@ import {
   typeOf,
   typeToString,
 } from "../type-system.js";
+import { modelContents } from "./model-contents.js";
 
 /** ICU format kinds Loom supports (i18n, M-T1.11).  `currency`/`percent` are
  *  NUMBER sub-skeletons (`, number, ::currency/USD`), so the number ICU *type*
@@ -129,7 +130,7 @@ function isNumericType(t: Ty): boolean {
 }
 
 export function checkTemplateHoles(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isTemplateStr(node)) continue;
     const env = envForNode(node);
     let host: ReturnType<typeof domainCodeHost> | null = null; // null = not yet computed

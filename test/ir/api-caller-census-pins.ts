@@ -745,6 +745,11 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // B-03 — the workflow `create(…): T` result fixture drives three command
   // workflows (two answering a value, one the 204 sibling); same not-lifted
   // workflow-route class.
+  "corpus/workflow-loop-carried": ["api.tallyAll.run (no such aggregate)"],
+  // The saga instance read — the same not-lifted workflow-route class.
+  "corpus/reactor-failure-order": ["api.askForRating.instance (no such aggregate)"],
+  "corpus/eventsourced-workflow-body": ["api.billing.instance (no such aggregate)"],
+  "corpus/workflow-vo-param-enum": ["api.quoteMotor.run (no such aggregate)"],
   "corpus/workflow-create-result": [
     "api.openAccount.run (no such aggregate)",
     "api.topUp.run (no such aggregate)",
@@ -769,6 +774,8 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   "corpus/workflow-enum-state": [
     "api.review.instance (no such aggregate)",
     "api.review.instances (no such aggregate)",
+    "api.triage.instance (no such aggregate)",
+    "api.triage.instances (no such aggregate)",
   ],
   "corpus/workflow-command-payload": ["api.claimHandling.run (no such aggregate)"],
   // The two `transactional` workflows the domain-service tiers orchestrate —
@@ -848,6 +855,11 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // deployables, so the behavioural runner cannot pick one.  Signed with its
   // reason in gate-ledger's BEHAVIOURAL_ABSENT.
   "tenancy-registry-split",
+  // The defect is a COMPILE failure on node / .NET / python (a domain name
+  // colliding with a symbol the target already binds); every fix is a
+  // host-source spelling the wire cannot see.  Signed with its reason in
+  // gate-ledger's BEHAVIOURAL_ABSENT.
+  "domain-symbol-collisions",
   // The defect is a COMPILE failure (`aggregate Task` made the emitted .NET
   // project unbuildable), so `corpus-dotnet-build` is its oracle; a `test e2e`
   // block would boot a CRUD round-trip other fixtures already record and mint a

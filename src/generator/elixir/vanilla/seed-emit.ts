@@ -120,9 +120,18 @@ export function emitVanillaSeeds(
     if (entries.length === 0) continue;
     if (entries.some((e) => !e.raw)) anyDomainRow = true;
     fnBlocks.push(
-      ...renderDatasetFn(ds.name, entries, ctxModule, aggByName, schemaFor, ownsTimestamps),
+      ...renderDatasetFn(
+        ds.name,
+        ds.marker,
+        ds.ident,
+        entries,
+        ctxModule,
+        aggByName,
+        schemaFor,
+        ownsTimestamps,
+      ),
     );
-    callLines.push(`    seed_${snake(ds.name)}(requested)`);
+    callLines.push(`    seed_${snake(ds.ident)}(requested)`);
   }
   if (callLines.length === 0) return null;
   // `usedAggregates` is the shared derivation of "which aggregates does the
@@ -215,7 +224,7 @@ export function emitVanillaSeeds(
       ``,
       `  defp already_seeded?(dataset) do`,
       `    %{rows: rows} =`,
-      `      Repo.query!(${elixirString(`SELECT 1 FROM "__loom_seed" WHERE "dataset" = $1`)}, [dataset])`,
+      `      Repo.query!(${elixirString(`SELECT 1 FROM "__loom_seed" WHERE "dataset" = $1 OR "dataset" = split_part($1, '/', 2)`)}, [dataset])`,
       `    rows != []`,
       `  end`,
       ``,
@@ -245,6 +254,8 @@ export function emitVanillaSeeds(
 /** One `defp seed_<dataset>(requested)` clause. */
 function renderDatasetFn(
   dataset: string,
+  marker: string,
+  ident: string,
   entries: Entry[],
   ctxModule: string,
   aggByName: Map<string, SeederAggregate>,
@@ -278,9 +289,9 @@ function renderDatasetFn(
     return `    insert!(${JSON.stringify(dataset)}, ${JSON.stringify(e.row.aggregate)}, ${call})`;
   });
   return [
-    `  defp seed_${snake(dataset)}(requested) do`,
+    `  defp seed_${snake(ident)}(requested) do`,
     `    if dataset_enabled?(${JSON.stringify(dataset)}, requested) and`,
-    `         not already_seeded?(${JSON.stringify(dataset)}) do`,
+    `         not already_seeded?(${JSON.stringify(marker)}) do`,
     // ONE transaction per dataset: the rows and the ship-once marker commit
     // together.  Committing per row and writing the marker last (the shape this
     // replaced) meant a crash mid-dataset left rows behind with NO marker, so
@@ -292,7 +303,7 @@ function renderDatasetFn(
     `      {:ok, _} =`,
     `        Repo.transaction(fn ->`,
     ...rowLines.map((l) => `      ${l}`),
-    `          mark_seeded(${JSON.stringify(dataset)})`,
+    `          mark_seeded(${JSON.stringify(marker)})`,
     `        end)`,
     `    end`,
     ``,

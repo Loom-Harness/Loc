@@ -10,28 +10,6 @@ import {
 } from "../ir/validate/validate.js";
 import { warningLines } from "./warning-lines.js";
 
-/** The phase-⑦ WARNING footer, shared by every command that runs
- *  `validateLoomModel`.
- *
- *  Four commands compute IR diagnostics — `parse`, `generate system`,
- *  `snapshot` and `verify` — and each of them, independently, printed the
- *  warnings only from inside its `if (errors.length > 0)` branch (or not at
- *  all).  So a model that VALIDATES prints its warnings nowhere, on exactly the
- *  runs that succeed.  #2668 fixed two of the four; the other two kept the
- *  defect, because the print was four copies of the same three lines rather
- *  than one function.  It is one function now: a fifth command cannot inherit
- *  the bug by forgetting to hoist a branch.
- *
- *  A warning NEVER affects an exit code — every caller prints and continues. */
-export function printLoomWarnings(
-  diags: readonly { severity: string; source: string; message: string }[],
-) {
-  const warnings = diags.filter((d) => d.severity !== "error");
-  if (warnings.length === 0) return;
-  for (const d of warnings) console.error(`${d.source} ${d.severity}: ${d.message}`);
-  console.error(`${warnings.length} warning(s).`);
-}
-
 /** What one phase found — the unit `printSummary` adds up. */
 export interface PhaseTally {
   errors: number;
@@ -59,9 +37,9 @@ export interface PhaseTally {
  * before lowering) still prints exactly one summary, covering the phases that
  * got to run.
  *
- * Advisory `loom.index-suggestion` hints stay out of the counts and keep their
- * own `Suggestions (N):` heading, as they always have — they are not warnings
- * and never gate anything.
+ * Advisory diagnostics (`src/diagnostics/advisory.ts`) stay out of the counts
+ * and keep their own `Suggestions (N):` heading — they are not warnings and
+ * never gate anything.
  */
 export function printSummary(...phases: readonly PhaseTally[]): void {
   let errors = 0;
@@ -158,9 +136,10 @@ export function printIrDiagnostics(
   const warnings = diagnostics.filter((d) => d.severity === "warning" && !isAdvisoryCode(d.code));
   for (const line of warningLines(warnings, at, opts.allWarnings ?? false)) console.error(line);
 
-  // Advisory only — the index-suggestion lint (uniqueness-and-indexes.md §11)
-  // and the update-gate lint (audit D3) keep their own footer and never fail
-  // the command.
+  // Advisory only — the codes in `ADVISORY_CODES` keep their own heading and
+  // never fail the command.  `loom.update-gate-suggestion` is deliberately NOT
+  // one of them: an operation that can rewrite a gated field is a security
+  // finding, so it prints and counts as a warning above.
   const hints = diagnostics.filter((d) => isAdvisoryCode(d.code));
   if (hints.length > 0) {
     console.error(`\nSuggestions (${hints.length}):`);

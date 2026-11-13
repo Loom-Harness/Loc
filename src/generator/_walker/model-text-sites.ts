@@ -34,6 +34,7 @@ import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
 import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { modelTextDefaultOfKey, modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
+import { humanize } from "../../util/naming.js";
 import type { FormFieldVM } from "../_frontend/view-models.js";
 import { localizedModelText } from "./i18n-emit.js";
 import type { MessageEntry } from "./i18n-extract.js";
@@ -120,6 +121,15 @@ export function opModelText(
   });
   const expr = localizedModelText(ctx, key, defaultText);
   return { markup: ctx.target.renderInterpolation(expr, STRING), expr };
+}
+
+/** The visible text of an `Action { x.<op> }` button, as markup for a text
+ *  position: the operation's identity-keyed translation call under i18n (the
+ *  key the scaffold's operation forms and `implicitModelTextEntries` share),
+ *  else the humanized operation name. */
+export function actionButtonLabel(ctx: WalkContext, agg: AggregateIR, opName: string): string {
+  const bc = ctx.bcByAggregate.get(agg.name);
+  return (bc && opModelText(ctx, bc, agg.name, opName)?.markup) || humanize(opName);
 }
 
 /** The English default of an operation's identity-keyed label
@@ -408,6 +418,19 @@ export function implicitModelTextEntries(
         const run = workflowRunEntry(hit.wf.name, hit.bc, contexts);
         out.push({ key: run.key, message: run.defaultText });
         for (const p of hit.wf.params) fieldEntries(hit.wf.name, p, hit.bc, contexts, out);
+      } else if (e.name === "Action") {
+        const ref = (e.args.find((_, i) => !(e.argNames ?? [])[i]) ?? e.args[0]) as
+          | ExprIR
+          | undefined;
+        if (ref?.kind !== "member" || ref.receiver.kind !== "ref") return;
+        // The receiver is an in-scope instance whose aggregate the IR does not
+        // name here, so every aggregate declaring the public operation is
+        // catalogued — the same candidate rule `OperationForm` uses.
+        for (const { agg, bc } of aggregates.values()) {
+          if (agg.operations.some((o) => o.name === ref.member && o.visibility === "public")) {
+            out.push(opEntry(agg, ref.member, bc, contexts));
+          }
+        }
       } else if (e.name === "EnumBadge") {
         rendersBadge = true;
       }

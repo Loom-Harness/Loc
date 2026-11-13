@@ -5,6 +5,10 @@ import {
   namesUsed,
   observableWorkflows,
   refsRead,
+  reposNeeded,
+  serviceOpReadPorts,
+  serviceReadPorts,
+  withReadPortRepos,
   workflowIsolation,
   workflowNeedsCurrentUser,
 } from "../../ir/plan/index.js";
@@ -20,7 +24,6 @@ import {
   workflowCanAnswerNotFound,
   workflowIsGuarded,
 } from "../../ir/types/loom-ir.js";
-import { type ReadPort, readPortsForOperation } from "../../ir/util/domain-service-read-ports.js";
 import { operationBodyUsesCurrentUser, operationGates } from "../../ir/util/op-gates.js";
 import {
   camelId,
@@ -28,12 +31,7 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../ir/util/openapi-ids.js";
-import {
-  walkWorkflowStmtChildren,
-  walkWorkflowStmtExprsDeep,
-  walkWorkflowStmtsDeep,
-  workflowEmits,
-} from "../../ir/util/walk.js";
+import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,
@@ -56,10 +54,10 @@ import { spellMarkers } from "../_imports/symbol.js";
 import { numericEncode } from "../_numeric/target.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import {
-  nestedSaves,
   type PresenceSide,
   presenceSides,
   renderWorkflowStmtChunks,
@@ -283,32 +281,7 @@ interface RepoNeed {
 // `never`-checked "which kinds nest further bodies" fact `walk.ts` owns —
 // while keeping its own per-kind ordering around it, exactly as it was.
 function reposFor(wf: WorkflowIR): RepoNeed[] {
-  const out = new Map<string, RepoNeed>();
-  const visit = (st: WorkflowStmtIR): void => {
-    if (st.kind === "repo-let" || st.kind === "repo-run" || st.kind === "repo-delete") {
-      out.set(st.repoName, { repoName: st.repoName, aggName: st.aggName });
-      return;
-    }
-    if (st.kind === "if-let") {
-      // The retrieval itself reads through the repo, and each branch carries
-      // its own saves (mirrors the Hono `collectReposFromStmts` walk).
-      out.set(st.repoName, { repoName: st.repoName, aggName: st.aggName });
-      for (const s of [...st.savesInThen, ...st.savesInElse]) {
-        out.set(s.repoName, { repoName: s.repoName, aggName: s.aggName });
-      }
-    }
-    walkWorkflowStmtChildren(st, { workflowStmt: visit });
-    if (st.kind === "for-each" || st.kind === "variant-match") {
-      // A loop iteration's and a match arm's saves (an arm may create an
-      // aggregate no read in the body names).
-      for (const s of nestedSaves(st)) {
-        out.set(s.repoName, { repoName: s.repoName, aggName: s.aggName });
-      }
-    }
-  };
-  for (const st of wf.statements) visit(st);
-  for (const s of wf.savesAtExit) out.set(s.repoName, { repoName: s.repoName, aggName: s.aggName });
-  return [...out.values()];
+  return reposNeeded([wf.statements], wf.savesAtExit);
 }
 
 // --- read-port wiring (domain-services.md rev. 4) -----------------
@@ -317,14 +290,14 @@ function reposFor(wf: WorkflowIR): RepoNeed[] {
 // parameter per repo it reads; the orchestrating caller constructs each repo
 // handle and passes it ahead of the user args.  Both the call-site prepend
 // (`pyReadPortResolver`) and the repo construction (`mergeReadPortRepos`, over
-// `collectServiceReadPorts`) consume the SAME shared `readPortsForOperation`
+// `serviceReadPorts`) consume the SAME shared `readPortsForOperation`
 // derivation, so they stay in lockstep.  A PURE service call has zero ports →
 // no handle, no `await` → byte-identical.
 //
-// All three are exported: a `workflow` is not the only orchestrator that can
-// call a reading service — an explicit `commandHandler`/`queryHandler` can too,
-// and `explicit-handlers-emit.ts` reads the same three rather than growing a
-// second derivation (M-T5.14's python arm).
+// A `workflow` is not the only orchestrator that can call a reading service —
+// an explicit `commandHandler`/`queryHandler` can too, and
+// `explicit-handlers-emit.ts` reads the same resolver and `serviceReadPorts`
+// rather than growing a second derivation.
 
 /** Build the read-port resolver for a `reading`-tier domain-service call.
  *  Given a `<service>.<op>` call, returns the repository handle var names
@@ -340,44 +313,7 @@ function reposFor(wf: WorkflowIR): RepoNeed[] {
 export function pyReadPortResolver(
   ctx: EnrichedBoundedContextIR,
 ): (service: string, op: string) => string[] {
-  return (service, op) => {
-    const svc = ctx.domainServices.find((s) => s.name === service);
-    const operation = svc?.operations.find((o) => o.name === op);
-    if (!operation) return [];
-    return readPortsForOperation(operation).map((p) => pythonIdent(p.repo));
-  };
-}
-
-/** Every read-port a workflow's domain-service calls require — the
- *  repositories those services read, so the workflow constructs them even when
- *  its own body never reads that repository directly.  De-duplicated by
- *  repository name across all service calls in the body.
- *
- *  On the SHARED, `never`-checked walker (`ir/util/walk.ts`), like
- *  `refsRead` (`src/ir/plan/`).  The hand-enumerated `switch` it replaced had
- *  no `domain-service-call` arm — the statement form a BARE `Audit.record(s, c)`
- *  lowers to — so a service invoked as a statement (rather than
- *  `let x = Svc.op(…)`) contributed no port.  The call site still rendered the
- *  handle argument (`await record(ledgers, s, code)`), so the route referenced
- *  a repository local it never constructed: ruff F821 → runtime `NameError`.
- *  Only invisible when the service happens to read a repository the workflow
- *  also reads itself. */
-export function collectServiceReadPorts(
-  stmts: readonly WorkflowStmtIR[],
-  ctx: EnrichedBoundedContextIR,
-): ReadPort[] {
-  const byRepo = new Map<string, ReadPort>();
-  for (const st of stmts)
-    walkWorkflowStmtExprsDeep(st, (n) => {
-      if (n.kind !== "call" || n.callKind !== "domain-service" || !n.serviceRef) return;
-      const svc = ctx.domainServices.find((s) => s.name === n.serviceRef?.service);
-      const operation = svc?.operations.find((o) => o.name === n.serviceRef?.op);
-      if (!operation) return;
-      for (const p of readPortsForOperation(operation)) {
-        if (!byRepo.has(p.repo)) byRepo.set(p.repo, p);
-      }
-    });
-  return [...byRepo.values()];
+  return (service, op) => serviceOpReadPorts(ctx, service, op).map((p) => pythonIdent(p.repo));
 }
 
 /** Merge a workflow's directly-used repos with the read-port repos its
@@ -390,14 +326,7 @@ function mergeReadPortRepos(
   wf: WorkflowIR,
   ctx: EnrichedBoundedContextIR,
 ): RepoNeed[] {
-  const seen = new Set(own.map((r) => r.repoName));
-  const out = [...own];
-  for (const port of collectServiceReadPorts(wf.statements, ctx)) {
-    if (seen.has(port.repo)) continue;
-    seen.add(port.repo);
-    out.push({ repoName: port.repo, aggName: port.aggregate });
-  }
-  return out;
+  return withReadPortRepos(own, serviceReadPorts(wf.statements, [], ctx));
 }
 
 /** Names of `let` bindings the emitted body still needs — every `let`
@@ -646,7 +575,7 @@ function workflowRoute(
     // an `IndentationError` inside the route's `try:` — the scratch never
     // parsed (F58 bycatch).
     const initKwargs = (wf.stateFields ?? [])
-      .map((f) => `_${snake(f.name)}=${f.optional ? "None" : zeroFor(f)}`)
+      .map((f) => `_${snake(f.name)}=${f.optional ? "None" : zeroFor(f, ctx)}`)
       .join(", ");
     out.push(`        self = ${SIMPLE_NAMESPACE}(${initKwargs})`);
   }
@@ -1041,7 +970,10 @@ export function pyWorkflowStmtTarget(
         st.result && (!usedLets || usedLets.has(st.result.name))
           ? `${snake(st.result.name)} = `
           : "";
-      return [...gateLines, `${i}${bind}${snake(st.target)}.${snake(st.op)}(${args})`];
+      return [
+        ...gateLines,
+        `${i}${bind}${snake(st.target)}.${DOMAIN_NAMES.python.method(st.op)}(${args})`,
+      ];
     },
     repoDelete: (st, i) => {
       // `<Repo>.delete(o)` → `await <repo>.delete(<entity>.id)`.  The generated

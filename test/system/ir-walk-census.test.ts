@@ -709,17 +709,6 @@ const STANDING_UI_BODY_VOCAB = {
     "unreachable — `loom.ui-body-statement-kind` (return/precondition/requires on every non-LiveView frontend), `loom.if-stmt-page-body-unsupported` (`if` anywhere in a ui body, every frontend) and phase-③ scope resolution (`emit` has no aggregate to emit from in ui scope) refuse every kind this switch omits",
 } as const;
 
-/** Already rides a sanctioned walker (`walkWorkflowStmtChildren` /
- *  `walkExprDeep`) for the RECURSION step, with its own narrow, local per-kind
- *  logic layered on top — the census's if-chain detector still flags the local
- *  `if`/`||` guard itself (a narrow membership test, not a full dispatch),
- *  which a terminal `never`-checked `else` does not fit.  STANDING: the site is
- *  already in the shape this convention asks for. */
-const DELEGATES_TO_SANCTIONED_WALKER = {
-  standing:
-    "already rides walkWorkflowStmtChildren/walkExprDeep for recursion; the flagged if/`||` guard is a narrow kind-membership test layered on top, not a dispatch needing full-kind coverage",
-} as const;
-
 // ---------------------------------------------------------------------------
 // Waivers — every entry names the exact site (file + enclosing function) and a
 // reason.  Ratcheted by the tests below: a waiver whose site is gone, whose
@@ -822,9 +811,6 @@ const WAIVERS: Record<string, Waiver> = {
   // a walk migration.
 
   // --- already delegates to a sanctioned walker for recursion --------------
-  "src/generator/java/explicit-handlers-emit.ts#reposUsed": DELEGATES_TO_SANCTIONED_WALKER,
-  "src/generator/python/explicit-handlers-emit.ts#walk": DELEGATES_TO_SANCTIONED_WALKER,
-  "src/generator/python/workflows-builder.ts#visit": DELEGATES_TO_SANCTIONED_WALKER,
 
   // --- CR1-f: the former `THROWING_DISPATCHER` bucket, per-site ------------
   // 32 in, 27 out (+1 new, for this packet's own gate).  FIVE waivers DELETED, not rewritten — `mermaid.ts`'s two,
@@ -907,15 +893,6 @@ const WAIVERS: Record<string, Waiver> = {
       "PROVEN silent: `default: break` drops a self-`call` (the callee's events never reach the stream — `events = []`) and a `return` value in an event-sourced command on a `0 error(s)` model. The ES discipline refuses only assign/add/remove; a statement `match` is refused on elixir by `loom.elixir-match-stmt-unsupported`. Needs the runner to fold a callee's events, or a refusal",
     reviewUntil: "2026-12-31",
   },
-  // PROVEN silent: `on(pr: PaymentRegistered) { let o = Orders.getById(pr.order) … }`
-  // on an eventSourced workflow emits NOTHING for the `repo-let` on elixir
-  // (measured), while node emits `const o = await orders.getById(pr.order)`.
-  "src/generator/elixir/vanilla/workflow-eventsourced-emit.ts#renderEsWorkflowHandler": {
-    deferred:
-      "MISFILED by the old bucket, and PROVEN silent: `default: break` drops the statement. Measured — a `repo-let` in an eventSourced workflow's `on(...)` handler is ABSENT from the emitted Elixir on a `0 error(s), 0 warning(s)` model, while node emits it. Both a silent drop AND parity debt; hand-off row in https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-cr1-f.md",
-    reviewUntil: "2026-12-31",
-  },
-
   // -- the CR1-f gate itself ------------------------------------------------
   // Deliberately NOT `never`-checked, and the reason is the point of the gate:
   // its `default` REFUSES.  A new `ExprIR` kind therefore fails CLOSED here (a
@@ -935,7 +912,7 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/dotnet/emit/dapper.ts#whereToSql$2": SOUND_FALLBACK_DISPATCH,
   "src/generator/dotnet/render-expr.ts#isIdTyped": SHAPE_PREDICATE,
   "src/generator/dotnet/render-expr.ts#operandType": SHAPE_PREDICATE,
-  "src/generator/elixir/heex-primitives.ts#resolveQueryAggregate": SHAPE_PREDICATE,
+  "src/generator/elixir/heex-query.ts#resolveQueryAggregate": SHAPE_PREDICATE,
   "src/generator/elixir/heex-walker-core.ts#renderChild": SOUND_FALLBACK_DISPATCH,
   "src/generator/elixir/heex-walker-core.ts#renderInTemplate": SOUND_FALLBACK_DISPATCH,
   "src/generator/elixir/render-expr.ts#ectoNilTest": SHAPE_PREDICATE,

@@ -289,7 +289,9 @@ describe("ProvenanceInfo — Flutter renders an ExpansionTile disclosure over th
     // A null-BINDING switch pattern (a property read off a model class is not
     // type-promotable in Dart) into the Material disclosure.
     expect(out).toMatch(/\(switch \([\w.]*\.total\.lineage\) \{ final __p\? => ExpansionTile\(/);
-    expect(out).toContain("Semantics(label: 'How this value was computed'");
+    expect(out).toContain(
+      "Semantics(label: t('chrome.provenanceHowComputed', 'How this value was computed')",
+    );
     // Rule id + computed value + the input list, same three rows as every other
     // frontend's disclosure.
     expect(out).toContain("Text(__p.snapshotId)");
@@ -446,7 +448,7 @@ describe("a hand-written page body reading a `provenanced` field bare", () => {
     const out = allFiles(await generateSystemFiles(bareReadHeex));
     // LiveView renders server-side off the Ecto struct, where `total` is the
     // typed column and the lineage is a separate jsonb sibling.  A `.value` hop
-    // would raise on an integer, so the HEEx engine strips it — and must not
+    // would raise on an integer, so the HEEx expression renderer strips it — and must not
     // acquire the JS walker's opposite edit.
     expect(out).toContain("<%= @o.total %>");
     expect(out).toContain("<%= to_string(@o.total) %>");

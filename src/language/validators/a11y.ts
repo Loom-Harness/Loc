@@ -10,11 +10,12 @@
 // set of primitives with an underivable-fact obligation is named here directly
 // (the same hand-listed-and-test-pinned pattern as walker-stdlib.ts).
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { BUILTIN_ICONS, isBuiltinIconName } from "../../util/builtin-icons.js";
 import { AA_NORMAL, bestForegroundRatio, generateShades, isHexColor } from "../../util/color.js";
 import { type BuilderCall, isStringLit, type Model, type ThemeBlock } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 /** A `BuilderEntry` with no `name:` is a bare positional value. */
 function hasPositional(bc: BuilderCall): boolean {
@@ -32,7 +33,7 @@ function hasEntry(bc: BuilderCall, name: string): boolean {
  *  failure (`loom.a11y-missing-alt`).  An `Avatar` with no `src` renders a
  *  non-image fallback (initials / user glyph) and needs no alt. */
 export function checkImageAltText(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (node.$type !== "BuilderCall") continue;
     const bc = node as BuilderCall;
     if (bc.type !== "Image" && bc.type !== "Avatar") continue;
@@ -63,7 +64,7 @@ export function checkImageAltText(model: Model, accept: ValidationAcceptor): voi
  *  Value).  Visible text (`Button { "Delete", icon: "trash" }`) or an explicit
  *  `label: "Delete"` (emitted as `aria-label`) both satisfy it. */
 export function checkIconOnlyButtonName(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (node.$type !== "BuilderCall") continue;
     const bc = node as BuilderCall;
     if (bc.type !== "Button") continue;
@@ -148,7 +149,7 @@ const FILL_INDEX = 6;
  *  Non-hex values (a CSS colour name, `var(--x)`) are skipped — contrast isn't
  *  computable without resolving them. */
 export function checkThemeContrast(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (node.$type !== "ThemeBlock") continue;
     for (const prop of (node as ThemeBlock).props) {
       if (!THEME_COLOR_ROLES.has(prop.name)) continue;

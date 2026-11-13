@@ -23,8 +23,8 @@ description: >-
 
 Loom emits the same `.ddd` model across **10 targets** — 5 domain-logic backends
 (TS/Hono `node`, .NET `dotnet`, Java/Spring `java`, Python/FastAPI `python`,
-Phoenix `elixir` on plain Ecto — the `vanilla` foundation, the only one) and 5 frontends
-(React, Vue, Svelte, Angular, Feliz — F#/Fable/Elmish) plus the Phoenix HEEx render path. Parity is the
+Phoenix `elixir` on plain Ecto — the `vanilla` foundation, the only one) and 6 frontends
+(React, Vue, Svelte, Angular, Feliz — F#/Fable/Elmish, Flutter — Dart/Riverpod) plus the Phoenix HEEx render path. Parity is the
 promise that a feature either works on a target or **fails fast at validate
 time** — it never silently emits a half-working backend. Auditing that promise,
 and draining the lists of where it's broken, is the single most repeated category

@@ -554,6 +554,14 @@ ${opts.e2e ?? ""}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // `provenanced` on an entity part's field: lineage lives on the root only.
+  "loom.provenanced-part-field": `
+system S {
+  subdomain M { context C {
+    aggregate Cart with crudish { label: string  contains lines: Line[]  entity Line { qty: int provenanced } }
+    repository Carts for Cart { }
+  } }
+}`,
   // The lowering backstop: a ui body reading a name nothing declares — the
   // names validator leaves ui bodies to the typing pass, so nothing else
   // refuses it.
@@ -2662,6 +2670,9 @@ system S {
   "loom.requires-not-bool": orderOps("operation p() requires name { total := total + 1 }"),
   "loom.precondition-not-bool": orderOps("operation p() { precondition name }"),
   "loom.assign-to-derived": orderOps('operation p() { label := "x" }'),
+  // A write whose head is a parameter lowers to a path rooted at a member that
+  // does not exist; the post-lowering verifier refuses it.
+  "loom.ir-ill-formed": orderOps("operation p(n: int) { n := 2 }"),
   "loom.assign-type-mismatch": orderOps("operation p() { name := 1 }"),
   "loom.collection-mutation-non-collection": orderOps('operation p() { name += "x" }'),
   "loom.collection-mutation-element-type": orderOps("operation p() { tags += 1 }"),
@@ -4717,8 +4728,8 @@ const UNREACHABLE_PINS: Record<string, string> = {
   "loom.table-filter-unsupported":
     "`TABLE_FILTER_FRAMEWORKS` (ui-collection-display-checks.ts) now covers every `framework:` " +
     "the grammar admits: the six `walkBody` targets declare `renderFilteredRows` + " +
-    "`renderFilterInput`, and phoenixLiveView's parallel engine grew the equivalent in wave C2 " +
-    'packet 2m (`renderTable` emits the bound `<.input type="search">` plus ' +
+    "`renderFilterInput`, and phoenixLiveView's `renderTable` override renders the equivalent " +
+    '(the bound `<.input type="search">` plus ' +
     "`LoomTable.filter_rows/2`).  The gate's SIBLING, `loom.table-filter-server-paged`, is the " +
     "one that still bites and is driven by a fixture.  Checked by `LATENT_GATES`.",
   "loom.flutter-primitive-unsupported":
@@ -4978,7 +4989,7 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   "loom.migration-destructive": "test/ir/migrations-capability-columns.test.ts",
   // B-20: the AST validator rejects any `sql <placement>` other than `before`.
   "loom.migration-sql-placement": "test/language/validation/migration-data-steps.test.ts",
-  "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
+  "loom.page-primitive-target-gap": "test/generator/elixir/heex-standalone-op-form-marker.test.ts",
 };
 
 const catalogueCodes = (): string[] => [

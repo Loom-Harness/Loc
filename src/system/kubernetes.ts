@@ -11,8 +11,10 @@ import {
 } from "../generator/_channels/bindings.js";
 import { OTEL_ENDPOINT_ENV, OTEL_SERVICE_NAME_ENV } from "../generator/_obs/tracing.js";
 import type { DeployableIR, SystemIR } from "../ir/types/loom-ir.js";
+import { apiResourceBindings } from "../ir/util/api-resource-binding.js";
 import { platformFor } from "../platform/registry.js";
 import { emissionSink } from "../util/emission-sink.js";
+import { resourceEnvUrlVar } from "../util/resource-env.js";
 
 // ---------------------------------------------------------------------------
 // Kubernetes raw-manifest emitter (D-K8S-FORMAT / D-K8S-SCOPE — see
@@ -102,6 +104,13 @@ export interface WorkloadModel {
    *  format the chart's Secret template resolves with the release fullname
    *  (`%s-<broker>`), overridable via `.Values.<key>.channels.<NAME>`. */
   channelEnv: (SecretEnv & { chartFormat: string })[];
+  /** The env contract's `deploy` variables (`PlatformOperations.env`) — the
+   *  ones whose code fallback is right only inside the dev compose network.
+   *  `value` is the in-cluster wiring when the cluster has one (a sibling api's
+   *  Service URL), else empty: the chart then refuses to install until the
+   *  operator sets it (`required`), and the raw manifests carry an empty value
+   *  the service fails on loudly rather than a dev host it would dial. */
+  deployEnv: WorkloadEnv[];
 }
 
 /** A sensitive env entry sourced from the shared `Secret`. */
@@ -205,6 +214,20 @@ export function buildWorkloads(sys: SystemIR): WorkloadModel[] {
       configEnv.push({ name: OTEL_SERVICE_NAME_ENV, value: slug });
       configEnv.push({ name: OTEL_ENDPOINT_ENV, value: "" });
     }
+    // The env contract's `deploy` tier, minus what the groups above already
+    // wire.  A `use: <Api>` binding has an in-cluster answer — the server's
+    // Service — so it is wired outright; everything else is the operator's.
+    const wired = new Set([...configEnv, ...dbEnv, ...secretEnv, ...channelEnv].map((e) => e.name));
+    const inCluster = new Map(
+      apiResourceBindings(d, sys).map((b) => [
+        resourceEnvUrlVar(b.resource.name),
+        `http://${kName(b.server.name)}:${b.server.port}`,
+      ]),
+    );
+    const deployEnv: WorkloadEnv[] = platform.operations
+      .env({ deployable: d, sys })
+      .filter((e) => e.need === "deploy" && !wired.has(e.name))
+      .map((e) => ({ name: e.name, value: inCluster.get(e.name) ?? "" }));
     return {
       deployableName: d.name,
       name,
@@ -212,16 +235,11 @@ export function buildWorkloads(sys: SystemIR): WorkloadModel[] {
       image: name,
       servicePort: d.port,
       containerPort: shape.internalPort,
-      // Uniform probe endpoints across every DB-backed backend: each emits
-      // BOTH a cheap `/health` (no DB) and a DB-aware `/ready` (verified for
-      // hono / .NET / python / java / phoenix).  Liveness uses /health so a
-      // transient DB outage gates traffic (readiness) instead of restarting
-      // the pod.  Frontends expose neither — probe their static root.  This
-      // is why we don't derive from `healthPath` here: that field reflects
-      // each backend's COMPOSE healthcheck choice (phoenix points it at
-      // /health), which would otherwise leak a non-DB-aware readiness probe.
-      livenessPath: shape.dependsOnDb ? "/health" : shape.healthPath,
-      readinessPath: shape.dependsOnDb ? "/ready" : shape.healthPath,
+      // The surface's operations contract owns both probes: liveness is the
+      // cheap dependency-free check (a DB blip must not restart the pod),
+      // readiness the DB-aware one (it gates traffic instead).
+      livenessPath: platform.operations.health.liveness,
+      readinessPath: platform.operations.health.readiness,
       dependsOnDb: shape.dependsOnDb,
       exposesUi: exposesUi(d),
       // Backends expose Prometheus metrics at /metrics (M-T7.1); pure static
@@ -232,6 +250,7 @@ export function buildWorkloads(sys: SystemIR): WorkloadModel[] {
       dbEnv,
       secretEnv,
       channelEnv,
+      deployEnv,
     };
   });
 }
@@ -473,7 +492,9 @@ function renderConfigMap(sys: SystemIR, w: WorkloadModel): string {
   lines.push(`  name: ${w.name}-config`);
   lines.push(...commonLabels(sys, w.name));
   lines.push("data:");
-  for (const e of w.configEnv) lines.push(`  ${e.name}: ${JSON.stringify(e.value)}`);
+  for (const e of [...w.configEnv, ...w.deployEnv]) {
+    lines.push(`  ${e.name}: ${JSON.stringify(e.value)}`);
+  }
   return lines.join("\n") + "\n";
 }
 

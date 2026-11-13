@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { analyzeDeployables, frontendApiTarget } from "../../web/src/build/deployables.js";
+import {
+  analyzeDeployables,
+  frontendApiTarget,
+  unsupportedPlatformOf,
+} from "../../web/src/build/deployables.js";
 import type { VirtualFile } from "../../web/src/build/protocol.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
@@ -124,5 +128,15 @@ describe("analyzeDeployables names every toolchain the browser does not run", ()
       { slug: "jv_api", platform: "java" },
       { slug: "py_api", platform: "python" },
     ]);
+  });
+});
+
+describe("unsupportedPlatformOf", () => {
+  it("finds a multi-word files-only deployable by its declared name (Targets drawer note)", async () => {
+    const { unsupported } = analyzeDeployables(await tree(ACME));
+    expect(unsupported.map((d) => d.slug)).toContain("catalog_api");
+    expect(unsupportedPlatformOf(unsupported, "catalogApi")).toBe("dotnet");
+    expect(unsupportedPlatformOf(unsupported, "api")).toBe("dotnet");
+    expect(unsupportedPlatformOf(unsupported, "catalogWeb")).toBeNull();
   });
 });

@@ -30,6 +30,7 @@ const HEAVY_PREVIEW_SPECS = [
   "**/oidc-login-preview.spec.ts",
   "**/multi-deployable-ui.spec.ts",
   "**/timer-single-fire.spec.ts",
+  "**/test-runner-deps.spec.ts",
 ];
 
 export default defineConfig({

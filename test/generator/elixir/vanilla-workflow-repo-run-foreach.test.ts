@@ -128,10 +128,10 @@ describe("vanilla — workflow body lowering (for-each over a repo-run binding)"
     expect(wf).toMatch(/\{:ok, _\} <- Enum\.reduce_while\(xs, \{:ok, nil\}, fn x, _acc ->/);
   });
 
-  it("each body op-call becomes a case match returning {:cont, _}/{:halt, err}", async () => {
+  it("each body op-call is a with-clause: {:cont, _} on success, {:halt, err} on failure", async () => {
     const wf = await loadWorkflow();
-    expect(wf).toMatch(/case Context\.mark_done_task\(x, %\{\}\) do/);
-    expect(wf).toContain("{:ok, updated} -> {:cont, {:ok, updated}}");
+    expect(wf).toMatch(/with \{:ok, _\} <- Context\.mark_done_task\(x, %\{\}\) do/);
+    expect(wf).toContain("{:cont, {:ok, nil}}");
     expect(wf).toContain("err -> {:halt, err}");
   });
 

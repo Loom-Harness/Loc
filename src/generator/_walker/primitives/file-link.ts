@@ -6,7 +6,7 @@
 // `.hbs` template (unlike `IdLink`, which wraps a framework `RouterLink`).
 // The two non-JSX frontends fork the whole primitive: Feliz (F#, emits
 // `Html.a`) via the `renderFileLink` WalkerTarget override; Phoenix/HEEx via
-// its parallel walker (`heex-primitives.ts::renderFileLink`).
+// its own override (`heex-display.ts` `renderFileLink`).
 
 import type { ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { namedArgValue, positionalArgs } from "../shared/args.js";

@@ -13,11 +13,12 @@
 // the workspace, so a cross-file `label(Task)` resolves exactly as lowering
 // resolves it.
 
-import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
+import type { AstNode, ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import type { DddServices } from "../ddd-module.js";
 import { isBinaryChain, type Model, type ModelText } from "../generated/ast.js";
 import { buildModelTextIndex, resolveModelText } from "../model-text.js";
+import { modelContents } from "./model-contents.js";
 
 /** The text of a call as the user wrote it, for messages. */
 function spelled(node: ModelText): { call: string; path: string } {
@@ -50,7 +51,7 @@ export function checkModelText(
   services?: DddServices,
 ): void {
   const calls: ModelText[] = [];
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (node.$type === "ModelText") calls.push(node as ModelText);
   }
   if (calls.length === 0) return;

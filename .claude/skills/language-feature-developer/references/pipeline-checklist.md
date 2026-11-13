@@ -12,10 +12,11 @@ exits, then touch only those rows. The canonical deep dive is
 ```
 
 Targets: **5 backends** (TypeScript/Hono `node`, .NET, Phoenix vanilla Ecto
-`elixir`, Python/FastAPI, Java/Spring) and **5 frontends** (React, Vue,
-Svelte, Angular, Feliz — F#/Fable/Elmish; consumes the shared walker via
-`src/generator/feliz/feliz-target.ts` but emits F#, not JSX, and uses
-`.fsproj`+Fable, not the JS `stacks/` system or design packs). The two seams
+`elixir`, Python/FastAPI, Java/Spring) and **6 frontends** (React, Vue,
+Svelte, Angular, Feliz — F#/Fable/Elmish, and Flutter — Dart/Riverpod; Feliz and
+Flutter consume the shared walker via `src/generator/feliz/feliz-target.ts` /
+`src/generator/flutter/flutter-target.ts` but emit F# / Dart, not JSX, and build
+with `.fsproj`+Fable / the Flutter SDK, not the JS `stacks/` system or design packs). The two seams
 that let one feature reach all backends:
 `ExprTarget` (`src/generator/_expr/target.ts`) for expressions and
 `WalkerTarget` (`src/generator/_walker/target.ts`) for JSX-/F#-family page
@@ -53,7 +54,10 @@ tells you when it applies.
 ### ④ AST validate — almost always
 - `src/language/validators/<theme>.ts` — a new themed validator (new file for a
   new theme, or extend an existing one). Give every diagnostic a stable
-  `loom.<kebab-code>`.
+  `loom.<kebab-code>`. Visit every node of a document with
+  `modelContents(model)` (`validators/model-contents.ts`, one shared walk per
+  validation run), not `AstUtils.streamAllContents(model)` —
+  `model-contents.test.ts` fails on a direct whole-document walk.
 - `src/language/validators/index.ts` — re-export it.
 - `src/language/ddd-validator.ts` — register it in the check list.
 - `src/language/type-system.ts` — if the feature introduces new types or member
@@ -114,9 +118,12 @@ tells you when it applies.
   `src/language/walker-stdlib.ts` (**walker-stdlib-completeness.test.ts** gates
   the mirror). Framework seams go on `WalkerTarget` (`_walker/target.ts`),
   consumed by `react/walker/tsx-target.ts`, `vue/walker/vue-target.ts`,
-  `svelte/walker/svelte-target.ts`. Write the Phoenix HEEx renderer in
-  `src/generator/elixir/heex-target.ts` (+ `heex-walker-core.ts`), or pin the
-  gap — **heex-parity.test.ts** freezes the set of TSX-only primitives.
+  `svelte/walker/svelte-target.ts` and the rest. HEEx rides the same shared
+  emitter: add the primitive's renderer to the procedural `elixir/heex-pack.ts`
+  (or, when it needs LiveView wiring — a changeset, an assign the page loads —
+  a whole-primitive override on `elixir/heex-target.ts`), add a use to
+  `test/fixtures/heex-showcase.ddd` (**heex-coverage.test.ts** reaches every
+  primitive), or refuse it on LiveView in the capability table.
   Framework-neutral pieces (zod schemas, page objects, the e2e harness) live in
   `src/generator/_frontend/`.
 - **Optional framework-only seam** (e.g. Angular forms): add OPTIONAL `render*?`

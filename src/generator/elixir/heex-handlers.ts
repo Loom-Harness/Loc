@@ -94,7 +94,7 @@ export function storeActionEvent(store: string, action: string): string {
 /** Collect the bare store-action handler references (`action-ref` with a
  *  `storeName`, e.g. `onClick: Cart.clear`) reachable in a page body, deduped
  *  by `<store>.<action>`.  Used to synthesize their `handle_event` clauses —
- *  the parallel HEEx walker's analogue of the JSX shell binding a store-action
+ *  the LiveView analogue of the JSX shell binding a store-action
  *  local. */
 function collectStoreActionRefs(root: ExprIR | undefined): { store: string; action: string }[] {
   const out: { store: string; action: string }[] = [];

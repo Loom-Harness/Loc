@@ -38,7 +38,7 @@
 // ---------------------------------------------------------------------------
 
 import { carriesFieldMask } from "../../ir/enrich/mask-taint.js";
-import { namesBound } from "../../ir/plan/index.js";
+import { handlerNeedsCurrentUser, namesBound, reposNeeded } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -49,7 +49,6 @@ import type {
   TypeIR,
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
-import { handlerUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import {
   domainServicesCalled,
@@ -69,7 +68,7 @@ import {
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
 import { routedParamSource } from "../../ir/util/routed-handler.js";
-import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
+import { workflowEmits } from "../../ir/util/walk.js";
 import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst } from "../../util/naming.js";
@@ -116,24 +115,7 @@ const JSON_PROPERTY = javaRef("com.fasterxml.jackson.annotation", "JsonProperty"
  *  if/else-if chain this replaced re-derived the "which kinds nest further
  *  bodies" fact `walk.ts` already owns exhaustively. */
 function reposUsed(h: Handler): string[] {
-  const aggs = new Set<string>();
-  for (const s of h.statements) {
-    walkWorkflowStmtsDeep(s, (st) => {
-      if (
-        st.kind === "repo-let" ||
-        st.kind === "repo-run" ||
-        st.kind === "factory-let" ||
-        st.kind === "repo-delete" ||
-        st.kind === "if-let"
-      ) {
-        aggs.add(st.aggName);
-      } else if (st.kind === "for-each") {
-        for (const save of st.savesPerIteration) aggs.add(save.aggName);
-      }
-    });
-  }
-  for (const save of h.savesAtExit) aggs.add(save.aggName);
-  return [...aggs].sort();
+  return [...new Set(reposNeeded([h.statements], h.savesAtExit).map((r) => r.aggName))];
 }
 
 /** A handler's params FLATTENED for the `handle(...)` signature + request
@@ -454,7 +436,7 @@ function renderHandlerClass(
   // A body that reads `currentUser` (a `requires` gate or an expression)
   // resolves the actor through the injected accessor, as the workflow and
   // paged-run handlers do.
-  const usesUser = handlerUsesCurrentUser(h);
+  const usesUser = handlerNeedsCurrentUser(h, ctx);
   // An `emit` collects into `__events`, published through the injected
   // `ApplicationEventPublisher` after the exit saves — the workflow service's
   // event sink.  The bean is `@Transactional`, so AFTER_COMMIT reactors run

@@ -121,9 +121,9 @@ describe("bare enum-value ref in a page body", () => {
     expect(react).not.toContain("undefined.Public");
   });
 
-  it("reaches the HEEx engine's own enum-value arm", async () => {
-    // Phoenix/LiveView does NOT ride the shared walker — `heex-walker-core.ts`
-    // is a parallel engine, and its `renderRef` already had an `enum-value`
+  it("reaches the HEEx expression renderer's own enum-value arm", async () => {
+    // Phoenix/LiveView renders expressions through its own renderer
+    // (`heex-walker-core.ts`), whose `renderRef` already had an `enum-value`
     // arm that no lowering could reach.  The lowering fix alone makes it
     // live: the page renders an ATOM comparison instead of a bare, unbound
     // variable (`o.vis == public`, which does not compile).
