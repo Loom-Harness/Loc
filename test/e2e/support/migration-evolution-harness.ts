@@ -52,6 +52,8 @@ export function readFixture(
     | "vo-collection-evolved"
     | "field-default-base"
     | "field-default-evolved"
+    | "reshape-fk-base"
+    | "reshape-fk-evolved"
     | "journal-order-base"
     | "journal-order-evolved"
     | "unique-evo-base"
@@ -853,6 +855,98 @@ export async function runValueCollectionEvolutionGate(): Promise<void> {
 // Deliberately does NOT boot the backend — the whole finding lives in the
 // emitted DDL, so psql alone is a complete and much faster proof.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Reshape FK gate.
+//
+// A reshape renames the old table to `<t>__pre_reshape`, and Postgres carries
+// every FK into it across the rename — so a SURVIVING table that references
+// the reshaped one would keep pointing at the backup, and every new row
+// referencing a new-shape id would fail its FK.  The claim: after a
+// relational → document flip of `Cart`, an `Order` written against a cart in
+// the NEW `carts` table is accepted, while a stored order (whose cart sits in
+// the backup until the data move) survives.
+// ---------------------------------------------------------------------------
+export async function runReshapeFkGate(): Promise<void> {
+  const v1 = readFixture("reshape-fk-base");
+  const v2 = readFixture("reshape-fk-evolved");
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-reshape-fk-"));
+  let server: PgServer | undefined;
+  const applyFile = (pg: PgServer, db: string, sql: string): void => {
+    if (!sql.startsWith("-- loom:no-transaction")) {
+      psql(pg, db, sql);
+      return;
+    }
+    for (const stmt of sql.split("--> statement-breakpoint")) {
+      const body = stmt.replace("-- loom:no-transaction", "").trim();
+      if (body) psql(pg, db, body);
+    }
+  };
+  try {
+    generate(v1, "node", tree);
+    const migDir = path.join(tree, "d", "db", "migrations");
+    const before = new Set(fs.readdirSync(migDir).filter((f) => f.endsWith(".sql")));
+    const pg = await startPgServer();
+    server = pg;
+    resetDatabase(pg, "reshapefk");
+    for (const f of [...before].sort()) {
+      applyFile(pg, "reshapefk", fs.readFileSync(path.join(migDir, f), "utf8"));
+    }
+    const oldCart = "11111111-1111-4111-8111-111111111111";
+    psql(
+      pg,
+      "reshapefk",
+      `INSERT INTO "ord"."carts" ("id", "label", "row_version") VALUES ('${oldCart}', 'old', 1); ` +
+        `INSERT INTO "ord"."orders" ("id", "code", "cart", "row_version") ` +
+        `VALUES ('22222222-2222-4222-8222-222222222222', 'O-1', '${oldCart}', 1)`,
+    );
+
+    // The reshape, then the backup's cleanup drop — the generation a reshape
+    // always leaves pending, which `generate` waits for — both recorded, as an
+    // operator does once the data move is done.
+    const dddPath = path.join(tree, "app.ddd");
+    fs.writeFileSync(dddPath, v2.replaceAll("__PLATFORM__", platformClause("node")));
+    for (const name of ["reshape", "drop-backup"]) {
+      execSync(`node ${cli} migrate add ${name} ${dddPath} --allow-destructive`, {
+        stdio: "pipe",
+        cwd: repoRoot,
+      });
+    }
+    execSync(`node ${cli} generate system ${dddPath} -o ${tree}`, { stdio: "pipe", cwd: repoRoot });
+    const deltas = fs
+      .readdirSync(migDir)
+      .filter((f) => f.endsWith(".sql") && !before.has(f))
+      .sort();
+    if (deltas.length === 0) throw new Error("expected a delta migration reshaping carts");
+    for (const f of deltas) {
+      applyFile(pg, "reshapefk", fs.readFileSync(path.join(migDir, f), "utf8"));
+    }
+    // A cart in the NEW document table, and an order that references it.
+    const newCart = "33333333-3333-4333-8333-333333333333";
+    psql(
+      pg,
+      "reshapefk",
+      `INSERT INTO "ord"."carts" ("id", "data", "row_version") VALUES ('${newCart}', '{"label":"new"}', 1); ` +
+        `INSERT INTO "ord"."orders" ("id", "code", "cart", "row_version") ` +
+        `VALUES ('44444444-4444-4444-8444-444444444444', 'O-2', '${newCart}', 1)`,
+    );
+    expect(psql(pg, "reshapefk", `SELECT count(*) FROM "ord"."orders"`)).toBe("2");
+    expect(
+      psql(
+        pg,
+        "reshapefk",
+        `SELECT confrelid::regclass::text FROM pg_constraint WHERE conname = 'orders_cart_fkey'`,
+      ),
+    ).toBe("ord.carts");
+  } finally {
+    server?.stop();
+    try {
+      fs.rmSync(tree, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
 export async function runFieldDefaultEvolutionGate(): Promise<void> {
   const v1 = readFixture("field-default-base");
   const v2 = readFixture("field-default-evolved");

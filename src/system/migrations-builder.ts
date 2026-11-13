@@ -2409,6 +2409,48 @@ export class MigrationShapeChangeError extends Error {
   }
 }
 
+/** The FK re-point steps for every table that survives a reshape while
+ *  holding an FK into a reshaped (backed-up) table: the baseline FK named
+ *  `<table>_<column>_fkey` is dropped and the next schema's FK on the same
+ *  column is added `NOT VALID`.  A column whose FK is gone from the next
+ *  schema is left to the ordinary column diff. */
+function reshapeFkRepoints(
+  baseline: SchemaSnapshot | null,
+  next: SchemaSnapshot,
+  reshapes: readonly ReshapeEvent[],
+): MigrationStep[] {
+  if (!baseline) return [];
+  const backedUp = new Set(reshapes.flatMap((r) => r.backups.map((b) => qkey(b.schema, b.name))));
+  const out: MigrationStep[] = [];
+  for (const t of baseline.tables) {
+    if (backedUp.has(qkey(t.schema, t.name))) continue;
+    const after = next.tables.find((n) => n.name === t.name && n.schema === t.schema);
+    if (!after) continue;
+    for (const fk of t.foreignKeys) {
+      if (!backedUp.has(qkey(t.schema, fk.refTable))) continue;
+      const nextFk = after.foreignKeys.find((f) => f.column === fk.column);
+      if (!nextFk) continue;
+      const table = qualifiedSql(t.schema, t.name);
+      const constraint = quoteIdent(`${t.name}_${fk.column}_fkey`);
+      out.push(
+        { op: "sqlExec", sql: `ALTER TABLE ${table} DROP CONSTRAINT IF EXISTS ${constraint};` },
+        {
+          op: "sqlExec",
+          sql:
+            `ALTER TABLE ${table} ADD CONSTRAINT ${constraint} FOREIGN KEY (${quoteIdent(fk.column)}) ` +
+            `REFERENCES ${qualifiedSql(t.schema, nextFk.refTable)} ON DELETE ` +
+            `${nextFk.onDelete === "cascade" ? "CASCADE" : "RESTRICT"} NOT VALID;`,
+        },
+      );
+    }
+  }
+  return out;
+}
+
+const quoteIdent = (name: string): string => `"${name.replaceAll('"', '""')}"`;
+const qualifiedSql = (schema: string | undefined, name: string): string =>
+  schema ? `${quoteIdent(schema)}.${quoteIdent(name)}` : quoteIdent(name);
+
 /** Detect table reshapes between the baseline snapshot and the next schema
  *  (M-T2.4).  Two mechanisms:
  *
@@ -2865,6 +2907,15 @@ export function buildMigrations(
           });
         }
       }
+      // A SURVIVING table's FK into a reshaped table follows the rename to the
+      // backup too (Postgres and Ecto carry an FK across a table rename), so
+      // every new row it writes would have to reference the backup.  Re-point
+      // it at the new shape's table: drop the constraint by the name Postgres
+      // gives an inline FK (`<table>_<column>_fkey`, every backend's DDL) and
+      // re-add it `NOT VALID` — the stored rows still reference ids the data
+      // move has not copied yet, while every new write is checked against the
+      // new table.  Runs after the new shape is created.
+      reshapeComments.push(...reshapeFkRepoints(diffBaseline, next, reshapes));
       next = {
         ...next,
         tables: [...next.tables, ...injected].sort((a, b) => a.name.localeCompare(b.name)),
