@@ -2,7 +2,9 @@
 // an OpenAPI document registered for the origin the response is sample data
 // for the matching operation's 2xx schema; otherwise an echo of the request,
 // so a workflow reading `rates.get("/rate")` gets *a* JSON value rather than a
-// network error.  Every request is logged, oldest first.
+// network error.  One operation's response (status + body) can be overridden;
+// an override wins over the spec sample and the echo.  Every answered request
+// is logged with what it was answered, oldest first.
 //
 // The schema sampler is injected (`sample`): the playground passes
 // `openapi-sampler`; a host without one answers a registered operation's
@@ -18,26 +20,65 @@ export interface OpenApiDoc {
   >;
 }
 
-/** One request the mock answered.  `body` is present when the host passed one. */
-export interface HttpMockLogEntry {
-  method: string;
-  url: string;
-  body?: string;
-}
-
 export type SchemaSampler = (
   schema: object,
   opts: object,
   doc: object,
 ) => unknown | Promise<unknown>;
 
+/** A request handed to the mock.  `body` is the request body as text, when
+ *  the caller sent one. */
+export interface HttpMockRequest {
+  method: string;
+  url: string;
+  body?: string;
+}
+
+/** One request the mock answered (what `log` returns, oldest first). */
+export interface ServedRequest {
+  at: string;
+  /** Upper-cased. */
+  method: string;
+  url: string;
+  body?: string;
+  /** The operation it matched: `<METHOD> <path template>` from the spec, or
+   *  `<METHOD> <path>` without one — the key an override is set under. */
+  operation: string;
+  status: number;
+  response: unknown;
+  /** Answered by an override, not the spec sample or the echo. */
+  overridden: boolean;
+}
+
+/** A response set for one operation, in place of the default. */
+export interface MockOverride {
+  origin: string;
+  operation: string;
+  status: number;
+  body: unknown;
+}
+
 export interface HttpMock {
   /** Answer (and log) one request. */
-  request(req: HttpMockLogEntry): Promise<{ status: number; body: unknown }>;
-  /** Answer without logging. */
+  request(req: HttpMockRequest): Promise<{ status: number; body: unknown }>;
+  /** The default answer (spec sample or echo) for a request, unlogged and
+   *  ignoring overrides. */
   respond(method: string, url: string): Promise<{ status: number; body: unknown }>;
-  log(): HttpMockLogEntry[];
+  log(): ServedRequest[];
+  clearLog(): void;
   registerSpec(origin: string, spec: OpenApiDoc): void;
+  /** Every operation the registered specs declare, by origin. */
+  operations(): { origin: string; operation: string }[];
+  overrides(): MockOverride[];
+  /** Set one operation's response; throws on a status outside 100–599. */
+  setOverride(o: {
+    origin: string;
+    operation: string;
+    status: number;
+    body?: unknown;
+  }): MockOverride;
+  clearOverride(o: { origin: string; operation: string }): void;
+  /** Forget specs, overrides and the log. */
   reset(): void;
 }
 
@@ -46,9 +87,27 @@ const matchTemplate = (template: string, path: string): boolean =>
     `^${template.replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\{[^}]+\}/g, "[^/]+")}$`,
   ).test(path);
 
-export function createHttpMock(opts: { sample?: () => Promise<SchemaSampler> } = {}): HttpMock {
+const overrideKey = (origin: string, operation: string): string => `${origin} ${operation}`;
+
+export function createHttpMock(
+  opts: { sample?: () => Promise<SchemaSampler>; now?: () => Date } = {},
+): HttpMock {
   const specs = new Map<string, OpenApiDoc>();
-  const served: HttpMockLogEntry[] = [];
+  const served: ServedRequest[] = [];
+  const overrides = new Map<string, MockOverride>();
+  const now = opts.now ?? (() => new Date());
+
+  const templateOf = (url: URL): string | null => {
+    for (const template of Object.keys(specs.get(url.origin)?.paths ?? {})) {
+      if (matchTemplate(template, url.pathname)) return template;
+    }
+    return null;
+  };
+  const operationOf = (method: string, rawUrl: string): string => {
+    const url = new URL(rawUrl);
+    return `${method.toUpperCase()} ${templateOf(url) ?? url.pathname}`;
+  };
+
   const respond = async (
     method: string,
     rawUrl: string,
@@ -76,17 +135,59 @@ export function createHttpMock(opts: { sample?: () => Promise<SchemaSampler> } =
     }
     return { status: 200, body: { mock: true, method, path: url.pathname + url.search } };
   };
+
   return {
-    request(req) {
-      served.push(req.body === undefined ? { method: req.method, url: req.url } : { ...req });
-      return respond(req.method, req.url);
+    async request(req) {
+      const operation = operationOf(req.method, req.url);
+      const set = overrides.get(overrideKey(new URL(req.url).origin, operation));
+      const res = set ? { status: set.status, body: set.body } : await respond(req.method, req.url);
+      served.push({
+        at: now().toISOString(),
+        method: req.method.toUpperCase(),
+        url: req.url,
+        ...(req.body !== undefined ? { body: req.body } : {}),
+        operation,
+        status: res.status,
+        response: res.body,
+        overridden: set !== undefined,
+      });
+      return res;
     },
     respond,
     log: () => [...served],
+    clearLog() {
+      served.length = 0;
+    },
     registerSpec: (origin, spec) => void specs.set(origin, spec),
+    operations() {
+      const out: { origin: string; operation: string }[] = [];
+      for (const [origin, doc] of specs) {
+        for (const [template, ops] of Object.entries(doc.paths ?? {})) {
+          for (const m of Object.keys(ops))
+            out.push({ origin, operation: `${m.toUpperCase()} ${template}` });
+        }
+      }
+      return out;
+    },
+    overrides: () => [...overrides.values()],
+    setOverride(p) {
+      if (!Number.isInteger(p.status) || p.status < 100 || p.status > 599) {
+        throw new Error(`httpMock: status ${p.status} is not an HTTP status.`);
+      }
+      const o: MockOverride = {
+        origin: p.origin,
+        operation: p.operation,
+        status: p.status,
+        body: p.body ?? null,
+      };
+      overrides.set(overrideKey(o.origin, o.operation), o);
+      return o;
+    },
+    clearOverride: (p) => void overrides.delete(overrideKey(p.origin, p.operation)),
     reset() {
       specs.clear();
       served.length = 0;
+      overrides.clear();
     },
   };
 }
