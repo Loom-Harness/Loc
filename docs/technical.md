@@ -533,8 +533,9 @@ mutator without re-walking the env.
 itself: every `ref` names a declaration of its `refKind` the body can see,
 every `assign` / `add` / `remove` path is rooted at a stored member, every
 `member` read on an aggregate / part / value-object receiver names a member
-of that type, every `call` names a target of its `callKind`, and no
-statement block binds one `let` twice.  It covers the domain-logic bodies —
+of that type, every `call` names a target of its `callKind`, no
+statement block binds one `let` twice, and no workflow / handler statement
+reached the IR as lowering's `__bad__` placeholder.  It covers the domain-logic bodies —
 aggregates, parts, value objects, domain services, workflows, command /
 query handlers, repository finds and criteria — and walks them through
 `src/ir/util/walk.ts`.

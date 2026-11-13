@@ -461,6 +461,8 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 | `precondition Expr` / `requires Expr` | Guard → 400 (`DomainError`) / 403 (`ForbiddenError`). |
 | `emit Event { … }` | Workflow-level event; drains after all saves (after commit when `transactional`). |
 
+A `commandHandler` / `queryHandler` body draws from the same set, minus own-state assignment: a handler has no state of its own, so `x := …` there is `loom.handler-unrecognised-statement` — change an aggregate through one of its operations (`let o = Orders.get(id)` then `o.close()`).
+
 A `let` over a `T?` read, read behind its guard:
 
 ```ddd

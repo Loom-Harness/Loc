@@ -30,6 +30,7 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.unresolved-call": "06-behavior-and-statements.md#operation--a-mutating-method",
   "loom.unresolved-member": "05-expressions.md#member-access--calls",
   "loom.unresolved-lvalue-head": "06-behavior-and-statements.md#assignment-----",
+  "loom.duplicate-let": "06-behavior-and-statements.md#let--emit",
   "loom.unresolved-type": "04-type-system.md#every-value-has-a-type",
   "loom.duplicate-repository": "10-repositories-and-queries.md#repository--the-read-contract",
 
