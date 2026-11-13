@@ -1059,7 +1059,7 @@ export function csIdValueClrType(): string {
 /** System.Text.Json's `JsonNamingPolicy.CamelCase` — the wire name of a
  *  PascalCase member: the leading run of capitals is lowered, except the last
  *  one when a lowercase letter follows it (`URLPath` → `urlPath`). */
-export function stjCamelCase(name: string): string {
+function stjCamelCase(name: string): string {
   const chars = [...name];
   const isUpper = (c: string | undefined): boolean =>
     c !== undefined && c === c.toUpperCase() && c !== c.toLowerCase();
