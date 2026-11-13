@@ -129,32 +129,92 @@ export interface S3ObjectEntry {
 
 export interface S3 {
   http(req: HttpRequestData): HttpResponseData;
-  /** Every stored object. */
+  /** Every stored object, sorted by bucket then key. */
   list(): S3ObjectEntry[];
+  /** Every bucket that exists — pre-created, created, or written to — sorted. */
+  buckets(): string[];
+  /** One object's bytes and type, or null when it does not exist. */
+  get(bucket: string, key: string): { body: Uint8Array; contentType: string } | null;
+  /** Store an object, as a PutObject would. */
+  put(bucket: string, key: string, body: Uint8Array, contentType?: string): void;
+  /** Remove an object, as a DeleteObject would; a missing key is not an error. */
+  delete(bucket: string, key: string): void;
   /** Back the buckets with `store` (null → memory only) and load what it holds. */
   persist(store: BlobStore | null): Promise<void>;
+  /** Drop every object and every bucket but the pre-created ones. */
   reset(): void;
 }
 
-export function createS3(opts: { store?: BlobStore | null } = {}): S3 {
+export function createS3(
+  opts: {
+    store?: BlobStore | null;
+    /** Buckets that exist from the start (and again after `reset`). */
+    buckets?: readonly string[];
+  } = {},
+): S3 {
   const buckets = new Map<string, Map<string, StoredObject>>();
+  const precreated = [...(opts.buckets ?? [])];
+  const clear = (): void => {
+    buckets.clear();
+    for (const b of precreated) buckets.set(b, new Map());
+  };
+  clear();
+  const bucketOf = (bucket: string): Map<string, StoredObject> => {
+    const objects = buckets.get(bucket) ?? new Map<string, StoredObject>();
+    buckets.set(bucket, objects);
+    return objects;
+  };
+  const putObject = (
+    bucket: string,
+    key: string,
+    body: Uint8Array,
+    contentType: string,
+  ): string => {
+    const stored: StoredObject = {
+      body,
+      contentType,
+      etag: etagOf(body),
+      lastModified: new Date(),
+    };
+    bucketOf(bucket).set(key, stored);
+    store?.put("s3", blobKey(bucket, key), packObject(stored));
+    return stored.etag;
+  };
+  const deleteObject = (bucket: string, key: string): void => {
+    bucketOf(bucket).delete(key);
+    store?.remove("s3", blobKey(bucket, key));
+  };
   /** Durable copy of every object: one blob per object, `<bucket>\0<key>` →
    *  `[u32 meta length][meta JSON][body]`. */
   let store = opts.store ?? null;
+  const byName = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
   return {
     http,
     list: () =>
-      [...buckets].flatMap(([bucket, objs]) =>
-        [...objs].map(([key, o]) => ({
-          bucket,
-          key,
-          size: o.body.byteLength,
-          contentType: o.contentType,
-        })),
-      ),
+      [...buckets]
+        .sort(([a], [b]) => byName(a, b))
+        .flatMap(([bucket, objs]) =>
+          [...objs]
+            .sort(([a], [b]) => byName(a, b))
+            .map(([key, o]) => ({
+              bucket,
+              key,
+              size: o.body.byteLength,
+              contentType: o.contentType,
+            })),
+        ),
+    buckets: () => [...buckets.keys()].sort(byName),
+    get(bucket, key) {
+      const o = buckets.get(bucket)?.get(key);
+      return o ? { body: o.body, contentType: o.contentType } : null;
+    },
+    put(bucket, key, body, contentType = "application/octet-stream") {
+      putObject(bucket, key, body, contentType);
+    },
+    delete: deleteObject,
     async persist(next) {
       store = next;
-      buckets.clear();
+      clear();
       if (!next) return;
       for (const [id, blob] of await next.load("s3")) {
         const at = id.indexOf("\0");
@@ -164,14 +224,13 @@ export function createS3(opts: { store?: BlobStore | null } = {}): S3 {
         objects.set(id.slice(at + 1), unpackObject(blob));
       }
     },
-    reset: () => buckets.clear(),
+    reset: clear,
   };
 
   function http(req: HttpRequestData): HttpResponseData {
     const url = new URL(req.url);
     const { bucket, key } = locate(url);
-    const objects = buckets.get(bucket) ?? new Map<string, StoredObject>();
-    buckets.set(bucket, objects);
+    const objects = bucketOf(bucket);
     const method = req.method.toUpperCase();
     if (method === "OPTIONS") {
       return {
@@ -185,8 +244,24 @@ export function createS3(opts: { store?: BlobStore | null } = {}): S3 {
       };
     }
     if (key === "") {
+      // Every bucket exists on first touch, so CreateBucket and HeadBucket
+      // both succeed; a client that creates or probes its bucket at boot
+      // proceeds exactly as it would against a provisioned one.
+      if (method === "PUT" || method === "HEAD") {
+        return {
+          status: 200,
+          headers: { "x-amz-request-id": "loom-playground", ...CORS },
+          body: new Uint8Array(),
+        };
+      }
+      if (method === "GET" && url.searchParams.has("location")) {
+        return xml(
+          200,
+          `<LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/"></LocationConstraint>`,
+        );
+      }
       if (method !== "GET")
-        return s3Error(405, "MethodNotAllowed", "Only ListObjectsV2 is supported on a bucket.");
+        return s3Error(501, "NotImplemented", `${method} on a bucket is not supported.`);
       const prefix = url.searchParams.get("prefix") ?? "";
       const hits = [...objects.entries()]
         .filter(([k]) => k.startsWith(prefix))
@@ -208,15 +283,12 @@ export function createS3(opts: { store?: BlobStore | null } = {}): S3 {
           (req.headers["content-encoding"] ?? "").includes("aws-chunked") ||
           (req.headers["x-amz-content-sha256"] ?? "").startsWith("STREAMING-");
         const body = chunked ? decodeAwsChunked(req.body) : req.body;
-        const etag = etagOf(body);
-        const stored: StoredObject = {
+        const etag = putObject(
+          bucket,
+          key,
           body,
-          contentType: req.headers["content-type"] ?? "application/octet-stream",
-          etag,
-          lastModified: new Date(),
-        };
-        objects.set(key, stored);
-        store?.put("s3", blobKey(bucket, key), packObject(stored));
+          req.headers["content-type"] ?? "application/octet-stream",
+        );
         return {
           status: 200,
           headers: { etag, "x-amz-request-id": "loom-playground", ...CORS },
@@ -241,8 +313,7 @@ export function createS3(opts: { store?: BlobStore | null } = {}): S3 {
         };
       }
       case "DELETE":
-        objects.delete(key);
-        store?.remove("s3", blobKey(bucket, key));
+        deleteObject(bucket, key);
         return { status: 204, headers: { ...CORS }, body: new Uint8Array() };
       default:
         return s3Error(405, "MethodNotAllowed", `${method} is not supported.`);
