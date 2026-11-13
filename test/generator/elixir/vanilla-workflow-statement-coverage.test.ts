@@ -147,7 +147,9 @@ describe("vanilla exception-less returning op — collection mutations + call", 
     const fn = ctx.slice(start, start + 900);
     // `tags += t` / `tags -= t` collection rebinds.
     expect(fn).toMatch(/record = %\{record \| tags: \(record\.tags \|\| \[\]\) \+\+ \[t\]\}/);
-    expect(fn).toMatch(/record = %\{record \| tags: Enum\.reject\(record\.tags \|\| \[\], fn __e -> __e == t end\)\}/);
+    expect(fn).toMatch(
+      /record = %\{record \| tags: Enum\.reject\(record\.tags \|\| \[\], fn __e -> __e == t end\)\}/,
+    );
     // `total := total + 1` scalar arithmetic (`+=` is collection-only).
     expect(uncheckedInt(fn)).toMatch(/record = %\{record \| total: record\.total \+ 1\}/);
     // `recompute()` bare call → a real call to the emitted aggregate

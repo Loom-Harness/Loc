@@ -603,7 +603,10 @@ describe("java renderJavaStatements", () => {
       },
     ];
     expect(renderJavaStatements(stmts)).toBe(
-      [`        this.tags.add("a");`, `        { var __rm = "a"; this.tags.removeIf(__e -> java.util.Objects.equals(__e, __rm)); }`].join("\n"),
+      [
+        `        this.tags.add("a");`,
+        `        { var __rm = "a"; this.tags.removeIf(__e -> java.util.Objects.equals(__e, __rm)); }`,
+      ].join("\n"),
     );
   });
 
@@ -621,7 +624,9 @@ describe("java renderJavaStatements", () => {
         collection: true,
       },
     ];
-    expect(renderJavaStatements(stmts)).toBe(`        { var __rm = code; this.codes.removeIf(__e -> java.util.Objects.equals(__e, __rm)); }`);
+    expect(renderJavaStatements(stmts)).toBe(
+      `        { var __rm = code; this.codes.removeIf(__e -> java.util.Objects.equals(__e, __rm)); }`,
+    );
   });
 
   it("removes a long/money/string element by value", () => {

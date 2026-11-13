@@ -145,9 +145,7 @@ describe("ts `-=` element removal — every boxed element type compares by value
       // identity-scoped — the instance held IS the one being removed.
       { kind: "entity", name: "Line", declKind: "part" },
     ] as TypeIR[]) {
-      expect(scan(removeOf(t)), `${t.kind} should keep reference identity`).toBe(
-        "e === (__rm)",
-      );
+      expect(scan(removeOf(t)), `${t.kind} should keep reference identity`).toBe("e === (__rm)");
     }
   });
 
