@@ -593,6 +593,18 @@ server: `adobe/s3mock`, pinned by digest as `S3_IMAGE`. The kit starts it with
 - **Between cases.** `reset()` deletes every object and bucket, then re-creates
   the case's buckets.
 
+### Local-disk object store (`test/support/fakes/localdisk.mjs`)
+
+A `localDisk` storage needs no container. Each object-store resource gets an
+empty temporary directory, named by `<RES>_DIR` (`resourceHostEnvVar`).
+
+- **Observation.** `await observe()` walks each directory and returns the
+  stored objects sorted, as `{ resource, key, size }`. Every backend stores an
+  object under its key with each character outside `[A-Za-z0-9._-]` replaced
+  by `_`. The metadata file each keeps beside it (`<key>.meta.json` or
+  `<key>.meta`) has a backend-specific name and format and is left out.
+- **Between cases.** `reset()` empties every directory.
+
 ## UI tier (`run-ui.mjs`)
 
 The sibling runner for the **`ui`** tier — the emitted Playwright spec

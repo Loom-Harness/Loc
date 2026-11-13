@@ -186,7 +186,12 @@ and its objects reach the golden as sorted `{ bucket, key, size, contentType }`
 rows read back over the S3 API. They land in the golden's `effects` under
 `broker` and `objects`; the `resources`, `handler-resource-ops`,
 `channels-broker` (rabbitmq), `channels-broker-workflow`, `channels-broker-redis`
-and `channels-broker-kafka` corpus fixtures witness them on every leg. The node leg boots a channel-bound deployable through its
+and `channels-broker-kafka` corpus fixtures witness them on every leg. A
+`localDisk` object store needs no container: the kit hands each resource an
+empty temporary directory through `<RES>_DIR` (`test/support/fakes/localdisk.mjs`)
+and records its stored objects as `{ resource, key, size }` rows under
+`files`, leaving out the metadata file each backend keeps beside an object;
+`resources-localdisk` witnesses it. The node leg boots a channel-bound deployable through its
 generated `bootApp`, the only place its broker transports exist, and before it
 stops it waits for the outbox relay to drain, so its publishes, durable ones
 included, reach the sidecar too. The real-process legs read the broker
