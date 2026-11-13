@@ -148,5 +148,234 @@
       ],
       "additionalProperties": false
     }
+  },
+  "requests": {
+    "GetProductQuery": {
+      "type": "object",
+      "properties": {
+        "productId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "productId"
+      ],
+      "additionalProperties": false
+    },
+    "CreateProductCommand": {
+      "type": "object",
+      "properties": {
+        "sku": {
+          "type": "string"
+        },
+        "price": {
+          "$ref": "#/valueObjects/Money"
+        }
+      },
+      "required": [
+        "sku",
+        "price"
+      ],
+      "additionalProperties": false
+    },
+    "UpdateProductCommand": {
+      "type": "object",
+      "properties": {
+        "sku": {
+          "type": "string"
+        },
+        "price": {
+          "$ref": "#/valueObjects/Money"
+        }
+      },
+      "required": [
+        "sku",
+        "price"
+      ],
+      "additionalProperties": false
+    },
+    "DestroyProductCommand": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "GetOrderQuery": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "orderId"
+      ],
+      "additionalProperties": false
+    },
+    "CreateOrderCommand": {
+      "type": "object",
+      "properties": {
+        "customerId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Draft",
+            "Confirmed",
+            "Shipped",
+            "Cancelled"
+          ]
+        },
+        "placedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "customerId",
+        "status",
+        "placedAt"
+      ],
+      "additionalProperties": false
+    },
+    "AddLineOrderCommand": {
+      "type": "object",
+      "properties": {
+        "productId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "qty": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "productId",
+        "qty"
+      ],
+      "additionalProperties": false
+    },
+    "ConfirmOrderCommand": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "UpdateOrderCommand": {
+      "type": "object",
+      "properties": {
+        "customerId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Draft",
+            "Confirmed",
+            "Shipped",
+            "Cancelled"
+          ]
+        },
+        "placedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "customerId",
+        "status",
+        "placedAt"
+      ],
+      "additionalProperties": false
+    },
+    "DestroyOrderCommand": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "PlaceOrderCommand": {
+      "type": "object",
+      "properties": {
+        "customerId": {
+          "type": "string"
+        },
+        "productId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "quantity": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "customerId",
+        "productId",
+        "quantity"
+      ],
+      "additionalProperties": false
+    },
+    "GetCustomerQuery": {
+      "type": "object",
+      "properties": {
+        "customerId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "customerId"
+      ],
+      "additionalProperties": false
+    },
+    "CreateCustomerCommand": {
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "age": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "username",
+        "email",
+        "age"
+      ],
+      "additionalProperties": false
+    },
+    "UpdateCustomerCommand": {
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "age": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "username",
+        "email",
+        "age"
+      ],
+      "additionalProperties": false
+    },
+    "DestroyCustomerCommand": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
   }
 }
