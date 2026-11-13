@@ -4,7 +4,11 @@
 // than its framing, a presigned GET is honoured, and `env` / `observe()` are
 // the contract the behavioural runners read.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { resourceEnvEndpointVar, resourceEnvUrlVar, S3_DEV_SIDECAR } from "../../../src/util/resource-env.js";
+import {
+  resourceEnvEndpointVar,
+  resourceEnvUrlVar,
+  S3_DEV_SIDECAR,
+} from "../../../src/util/resource-env.js";
 import { decodeAwsChunked, start } from "./s3.mjs";
 
 type Fake = Awaited<ReturnType<typeof start>>;
@@ -42,7 +46,11 @@ describe("s3 fake", () => {
     const put = await fetch(url("/app-files/orders/a%20b.json"), {
       method: "PUT",
       body: '"hello"',
-      headers: { "content-type": "application/json", authorization: "AWS4-HMAC-SHA256 Credential=x/20261113/us-east-1/s3/aws4_request, Signature=deadbeef" },
+      headers: {
+        "content-type": "application/json",
+        authorization:
+          "AWS4-HMAC-SHA256 Credential=x/20261113/us-east-1/s3/aws4_request, Signature=deadbeef",
+      },
     });
     expect(put.status).toBe(200);
     expect(put.headers.get("etag")).toMatch(/^"[0-9a-f]{32}"$/);
@@ -65,7 +73,9 @@ describe("s3 fake", () => {
       { bucket: "app-files", key: "orders/a b.json", size: 7, contentType: "application/json" },
     ]);
 
-    expect((await fetch(url("/app-files/orders/a%20b.json"), { method: "DELETE" })).status).toBe(204);
+    expect((await fetch(url("/app-files/orders/a%20b.json"), { method: "DELETE" })).status).toBe(
+      204,
+    );
     const gone = await fetch(url("/app-files/orders/a%20b.json"));
     expect(gone.status).toBe(404);
     expect(await gone.text()).toContain("<Code>NoSuchKey</Code>");
@@ -74,7 +84,8 @@ describe("s3 fake", () => {
 
   it("stores the object, not the aws-chunked framing, of a streaming upload", async () => {
     fake.reset();
-    const framed = "5;chunk-signature=abc\r\nhello\r\n6\r\n world\r\n0\r\nx-amz-checksum-crc32:AAAA\r\n\r\n";
+    const framed =
+      "5;chunk-signature=abc\r\nhello\r\n6\r\n world\r\n0\r\nx-amz-checksum-crc32:AAAA\r\n\r\n";
     const put = await fetch(url("/app-files/k"), {
       method: "PUT",
       body: framed,
