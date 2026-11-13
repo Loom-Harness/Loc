@@ -43,6 +43,9 @@ const SRC = `system S {
       }
     }
   }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: java contexts: [C] dataSources: [st] port: 8080 }
 }`;
 
 async function service(): Promise<string> {

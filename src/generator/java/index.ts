@@ -1954,6 +1954,7 @@ function emitAggregate(
     discards: discardedAggregates(ctx).has(agg.name),
     schema,
     pool: ctx.aggregates,
+    payloads: ctx.payloads,
   };
   const repoOrigin = repo?.origin ?? agg.origin;
   place(

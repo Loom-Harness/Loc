@@ -50,6 +50,9 @@ const SRC = `system S {
       }
     }
   }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: java contexts: [C] dataSources: [st] port: 8080 }
 }`;
 
 async function files(): Promise<Map<string, string>> {
@@ -126,6 +129,9 @@ const MASK_EXPR_SRC = `system S {
       repository Persons for Person { }
     }
   }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: java contexts: [C] dataSources: [st] port: 8080 }
 }`;
 
 async function maskExprFiles(): Promise<Map<string, string>> {

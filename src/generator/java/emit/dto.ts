@@ -1,11 +1,7 @@
 import {
   createInputFields,
   emitsRestCreate,
-  forApiRead,
   isRequiredCreateInput,
-  wireFieldsFor,
-  wireFieldsForAggregate,
-  wireFieldsForPart,
 } from "../../../ir/enrich/wire-projection.js";
 import { observableWorkflows } from "../../../ir/plan/index.js";
 import { provenancedCarrier } from "../../../ir/stdlib/generics.js";
@@ -22,7 +18,7 @@ import type {
 import { declaredResponseFor } from "../../../ir/util/declared-response.js";
 import { type MergePatchField, mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
-import { responseMaskPlan } from "../../../ir/util/response-wire.js";
+import { responseMaskPlan, responseWireFor } from "../../../ir/util/response-wire.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
@@ -171,12 +167,12 @@ export function renderDtoFiles(
     );
   }
   referencedValueObjects(
-    wireFieldsForAggregate(agg).map((w) => w.type),
+    responseWireFor(payloads, agg).map((w) => w.type),
     voNames,
   );
   for (const part of agg.parts) {
     referencedValueObjects(
-      wireFieldsForPart(part).map((w) => w.type),
+      responseWireFor(payloads, part).map((w) => w.type),
       voNames,
     );
   }
@@ -602,7 +598,7 @@ function wireRecord(
   if (declared) {
     // The record omits `id` (grammar-reserved) — re-prepend it exactly as the
     // wireShape id row derives, so the leading component/mapper match.
-    const idW = forApiRead(wireFieldsFor(entity)).find((w) => w.source === "id");
+    const idW = responseWireFor(payloads, entity).find((w) => w.source === "id");
     if (idW) {
       const t = wireFieldType(idW);
       components.push(
@@ -654,7 +650,7 @@ function wireRecord(
       }
     }
   } else {
-    const shape = forApiRead(wireFieldsFor(entity));
+    const shape = responseWireFor(payloads, entity);
     for (const w of shape) {
       const masked = w.maskUnless !== undefined;
       // A `mask unless` field can be redacted to null on a RESPONSE (fail-closed),
@@ -746,9 +742,7 @@ function wireRecord(
       imports,
       entityImport,
       undefined,
-      requiredWireFields(
-        forApiRead("parts" in entity ? wireFieldsForAggregate(entity) : wireFieldsForPart(entity)),
-      ),
+      requiredWireFields(responseWireFor(payloads, entity)),
     ),
   };
 }
