@@ -883,15 +883,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     guardedBy: ["loom.workflow-unknown-binding", "loom.workflow-unknown-operation"],
     note: "An op-call whose binding is not an own-context aggregate or whose op does not exist on it is an error (verified: an op-call on a foreign-context factory-let -> loom.workflow-unknown-binding).",
   },
-  "src/generator/elixir/vanilla/workflow-execution-emit.ts#renderBranchStmt": {
-    invariant:
-      "The flat branch renderer is only used for branches containing none of the kinds this arm throws on. (src/generator/elixir/vanilla/workflow-execution-emit.ts:677-680 (needsWith routes any branch holding precondition/requires/NESTED_FLOW_KINDS to the with-chain path, which handles those kinds itself at :688-715); NESTED_FLOW_KINDS at :888)",
-  },
-  "src/generator/elixir/vanilla/workflow-execution-emit.ts#renderBranchStmt$2": {
-    invariant:
-      "Exhaustive-switch `never` default over WorkflowStmtIR. (src/generator/elixir/vanilla/workflow-execution-emit.ts:1236-1239)",
-  },
-
   // src/generator/feliz/auth-gate.ts
   "src/generator/feliz/auth-gate.ts#renderFelizGate": {
     guardedBy: ["loom.ui-gate-expr-unsupported", "loom.page-gate-not-client-evaluable"],

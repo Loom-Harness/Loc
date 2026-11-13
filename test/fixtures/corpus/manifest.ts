@@ -449,6 +449,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
     note: "Banking eval B-03: a workflow POST could only answer 204, so `openAccount` could never tell its caller the new account's id.  The fixture pins the three per-backend hazards: an id result crossing as its raw value (not the java/.NET id record), a transactional result read after two operations (elixir must rebind the updated struct, not return the one its `with`-chain loaded), and a sibling result-less create still answering 204.",
   },
+  {
+    id: "workflow-loop-carried",
+    title:
+      "workflow loop whose body mutates an aggregate loaded outside it, inside a nested loop — every iteration sees the previous one's write",
+    doc: "workflow",
+    backends: ALL,
+    note: "Insurance eval #5178 (#5210): on elixir a loop body rebinds instead of mutating, so the outer handle must ride `Enum.reduce_while`'s accumulator (else each iteration saves over the loaded record), and a nested body's unread op result must bind no name (`mix compile --warnings-as-errors`).",
+  },
   { id: "projection", title: "folded projection — read model folded from aggregate events (keyed row + on() folds)", backends: ALL },
   {
     id: "projection-valueobject-row",
