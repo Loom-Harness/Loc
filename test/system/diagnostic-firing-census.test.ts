@@ -2618,6 +2618,16 @@ system S {
       let t = Things.get(tid)
       t.rename(Nowhere.label)
     }`),
+  // An assignment in a `commandHandler` body — a handler has no state to write.
+  "loom.handler-unrecognised-statement":
+    repoOnly(`    aggregate Thing with crudish { name: string  operation rename(n: string) { name := n } }
+    repository Things for Thing
+    commandHandler RenameThing(tid: Thing id) {
+      let t = Things.get(tid)
+      let n = 1
+      t.rename("x")
+      n := 2
+    }`),
   // A member off an explicitly-paged `QueryView` binding that the paged
   // envelope does not carry.
   "loom.paged-envelope-unknown-member": uiPage(
