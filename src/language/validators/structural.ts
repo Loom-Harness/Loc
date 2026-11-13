@@ -872,6 +872,24 @@ export function checkAggregate(agg: Aggregate, accept: ValidationAcceptor): void
       );
     }
   }
+  // Provenance is recorded where the aggregate root writes a field: the
+  // lineage column lives on the root table and every backend's capture runs in
+  // the root's operations.  A part field has neither, so `provenanced` there
+  // would record nothing — refused instead of half-mapped.
+  for (const part of agg.members.filter(isEntityPart)) {
+    for (const m of part.members) {
+      if (!isProperty(m) || !m.provenanced) continue;
+      accept(
+        "error",
+        diagMessage("loom.provenanced-part-field", {
+          name: m.name,
+          partName: part.name,
+          aggName: agg.name,
+        }),
+        { node: m, property: "provenanced", code: "loom.provenanced-part-field" },
+      );
+    }
+  }
   checkContainmentCycles(agg, accept);
   checkLifecycleConflicts(agg, accept);
 }
