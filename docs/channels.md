@@ -155,6 +155,11 @@ Every backend's relay behaves the same way on `__loom_outbox`:
   AND dead_at IS NULL ORDER BY occurred_at`, 50 per pass every 500 ms. The
   partial index `__loom_outbox_pending_idx` carries the same predicate, so the
   poll cost tracks the backlog, not the table's history.
+- **Broker outage.** A publish the broker cannot take halts the pass without
+  spending the row's attempt; the rows already published commit. After a
+  failed pass (broker or database unreachable) the next one waits
+  500 ms × 2^n, capped at 30 s, and a clean pass resets it. An outage of any
+  length delays rows and dead-letters none of them.
 - **Dead letters.** A failed delivery increments `attempts`. On the 5th
   failure the relay sets `dead_at = now()`. The row then leaves the poll and is
   never retried or purged. Each row going dead logs one `event_dead_lettered`

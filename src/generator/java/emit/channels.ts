@@ -1440,6 +1440,8 @@ export function renderJavaChannelFiles(
         `    /** A relay publish the broker could not take: the outbox relay halts its`,
         `     *  pass on it and backs off without spending the row's attempt. */`,
         `    public static final class BrokerUnavailableException extends RuntimeException {`,
+        `        private static final long serialVersionUID = 1L;`,
+        ``,
         `        public BrokerUnavailableException(RuntimeException cause) {`,
         `            super("broker unavailable: " + cause.getMessage(), cause);`,
         `        }`,
