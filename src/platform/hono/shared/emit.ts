@@ -1091,11 +1091,7 @@ export function generateTypeScriptForContexts(
   // OWNING context, whose state dataSource supplies the default level.
   const resolveWorkflowIsolationLevel = (wf: import("../../../ir/types/loom-ir.js").WorkflowIR) => {
     const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
-    return owningCtx
-      ? workflowIsolation(wf, owningCtx, system.sys)
-      : wf.transactional
-        ? wf.isolation
-        : undefined;
+    return workflowIsolation(wf, owningCtx, system.sys);
   };
   // Per-projection read-model-table schema — same owning-context map-back.
   const resolveProjectionSchema = (proj: import("../../../ir/types/loom-ir.js").ProjectionIR) => {
