@@ -69,7 +69,9 @@ describe("command records agree with the request DTOs (corpus census)", () => {
               const want = dtoInputs(dto);
               const have = recordInputs(rec);
               if (JSON.stringify(want) !== JSON.stringify(have)) {
-                drift.push(`${file}: ${name}\n  dto:    ${want.join(", ")}\n  record: ${have.join(", ")}`);
+                drift.push(
+                  `${file}: ${name}\n  dto:    ${want.join(", ")}\n  record: ${have.join(", ")}`,
+                );
               }
             };
             for (const agg of ctx.aggregates) {
