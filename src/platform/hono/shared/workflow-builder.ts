@@ -20,7 +20,6 @@ import {
 import { statementSubRegions } from "../../../generator/_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../../generator/_workflow/create-state.js";
 import {
-  nestedSaves,
   type PresenceSide,
   presenceSides,
   renderWorkflowStmtChunks,
@@ -67,6 +66,7 @@ import {
   hasDurableEvents,
   hasStateRow,
   lookupOp,
+  nestedSaves,
   reposNeeded,
   requiredStateFields,
   resourceCalls,

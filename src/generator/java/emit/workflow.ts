@@ -3,6 +3,7 @@ import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import {
   isWorkflowSelfType,
   namesBound,
+  nestedSaves,
   reposNeeded,
   serviceOpReadPorts,
   servicesCalled,
@@ -57,7 +58,6 @@ import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../_workflow/create-state.js";
 import {
   collectUnionFindLets,
-  nestedSaves,
   type PresenceSide,
   presenceSides,
   renderWorkflowStmtChunks,

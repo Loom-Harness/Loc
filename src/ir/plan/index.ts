@@ -50,6 +50,7 @@ export {
   workflowNeedsCurrentUser,
 } from "./workflow-needs.js";
 export { commandCreateReturnsSelf, isWorkflowSelfType } from "./workflow-result.js";
+export { liveLetNames, nestedSaves } from "./workflow-saves.js";
 export {
   eventSourcedWorkflows,
   hasStateRow,

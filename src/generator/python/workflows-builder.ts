@@ -1,6 +1,7 @@
 import { notFoundStmtDetail, wireStatusResolver } from "../../ir/enrich/wire-policy.js";
 import {
   isWorkflowSelfType,
+  liveLetNames,
   lookupOp,
   namesUsed,
   observableWorkflows,
@@ -332,62 +333,6 @@ function mergeReadPortRepos(
   return withReadPortRepos(own, serviceReadPorts(wf.statements, [], ctx));
 }
 
-/** Names of `let` bindings the emitted body still needs — every `let`
- *  read in an expression (`refsRead`), PLUS the bindings a
- *  statement names structurally rather than through an `ExprIR`: an `op-call`
- *  receiver (`j.mark(…)` carries `target: "j"`, not a `ref`) and every
- *  exit / per-iteration / branch save (`await jobs.save(j)`).  A `repo-let`
- *  absent from this set is a pure existence check (`let t = Techs.getById(tech)`
- *  then never touched) — the emitter keeps the awaited `get_by_id` (it still
- *  404s on a missing id) but drops the dead assignment, or ruff F841 rejects
- *  the route. */
-export function collectLiveLetNames(
-  sts: readonly WorkflowStmtIR[],
-  savesAtExit: readonly { name: string }[],
-): Set<string> {
-  const live = refsRead(sts, [], "let");
-  for (const s of savesAtExit) live.add(s.name);
-  // Closed, never-checked: a new statement kind that names a binding
-  // outside an `ExprIR` must decide here whether it keeps a `let` alive.
-  for (const st of sts)
-    walkWorkflowStmtsDeep(st, (n) => {
-      switch (n.kind) {
-        case "op-call":
-          live.add(n.target);
-          return;
-        case "for-each":
-          for (const s of n.savesPerIteration) live.add(s.name);
-          return;
-        case "if-let":
-          for (const s of [...n.savesInThen, ...n.savesInElse]) live.add(s.name);
-          return;
-        case "variant-match":
-          for (const s of [...n.arms.flatMap((a) => a.savesInArm), ...n.savesInElse]) {
-            live.add(s.name);
-          }
-          return;
-        case "precondition":
-        case "requires":
-        case "emit":
-        case "factory-let":
-        case "repo-let":
-        case "expr-let":
-        case "repo-run":
-        case "repo-delete":
-        case "resource-call":
-        case "domain-service-call":
-        case "assign":
-        case "not-found":
-          return;
-        default: {
-          const _exhaustive: never = n;
-          return _exhaustive;
-        }
-      }
-    });
-  return live;
-}
-
 /** Whether a `match` arm (or any arm of `st` — a binding name is scoped to
  *  its arm, and arms that share one read it the same way) names `binding`:
  *  an expression read, an operation called on it, or a save of it. */
@@ -628,7 +573,7 @@ function workflowRoute(
         readPortArgs: pyReadPortResolver(ctx),
       },
       ctx,
-      collectLiveLetNames(wf.statements, wf.savesAtExit),
+      liveLetNames(wf.statements, wf.savesAtExit),
       saveLines,
       writeScopeContext(wf.statements, ctx),
     ),
