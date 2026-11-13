@@ -44,6 +44,7 @@ import {
 import { envForNode, isAssignable, resolveTypeRef, typeOf, typeToString } from "../type-system.js";
 import type { Ty } from "../typing/ty.js";
 import { canPromoteLiteralTo } from "./_shared.js";
+import { modelContents } from "./model-contents.js";
 import {
   checkConstructionArgTypes,
   checkEmit,
@@ -234,7 +235,7 @@ function checkBodyExpressions(c: Callable, accept: ValidationAcceptor): void {
 }
 
 export function checkCallableBodies(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (isOperation(node)) {
       // A capability's operations are templates; they are checked once spliced
       // into each host aggregate.

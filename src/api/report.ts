@@ -8,6 +8,7 @@
 
 import { type AstNode, CstUtils, type LangiumDocument } from "langium";
 import type { Diagnostic } from "vscode-languageserver-types";
+import { isAdvisoryCode } from "../diagnostics/advisory.js";
 import type {
   GenerateDeployable,
   GenerateReport,
@@ -118,6 +119,7 @@ export function irDiagnosticToJson(d: LoomDiagnostic, doc?: LangiumDocument): Js
     severity: d.severity,
     phase: "ir-validate",
     message: d.message,
+    ...(isAdvisoryCode(d.code) ? { advisory: true as const } : {}),
     // `source` stays the location handle; a diagnostic whose check attached
     // the IR node's `origin` ALSO carries the CST range it resolves to.
     ...(d.source ? { node: d.source } : {}),
@@ -160,16 +162,21 @@ export function sortDiagnostics(diags: JsonDiagnostic[]): JsonDiagnostic[] {
   });
 }
 
+/** The report tally.  Advisory diagnostics count as `suggestions`, not
+ *  `warnings` — the same split the CLI's human footer and `Suggestions (N):`
+ *  heading make, so `parse` and `parse --json` agree on the count. */
 function summarise(diagnostics: JsonDiagnostic[]): JsonReportSummary {
   let errors = 0;
   let warnings = 0;
   let infos = 0;
+  let suggestions = 0;
   for (const d of diagnostics) {
     if (d.severity === "error") errors++;
+    else if (d.advisory) suggestions++;
     else if (d.severity === "warning") warnings++;
     else infos++;
   }
-  return { errors, warnings, infos };
+  return { errors, warnings, infos, suggestions };
 }
 
 export function buildValidateReport(args: {

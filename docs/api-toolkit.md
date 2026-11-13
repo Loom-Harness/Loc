@@ -53,7 +53,12 @@ interface ValidateReport {
   loomVersion: string;
   model: string;              // the source path / "<source>"
   ok: boolean;                // true iff no diagnostic has severity "error"
-  summary: { errors: number; warnings: number; infos: number };
+  summary: {
+    errors: number;
+    warnings: number;         // warning-severity, NOT advisory — the human `N warning(s).`
+    infos: number;
+    suggestions: number;      // advisory diagnostics — the human `Suggestions (N):`
+  };
   diagnostics: JsonDiagnostic[];
   outline: Outline;           // always present, even on a failing model
 }
@@ -67,6 +72,7 @@ interface JsonDiagnostic {
   severity: "error" | "warning" | "info";
   phase: "parse" | "macro-expand" | "scope-link" | "ast-validate" | "ir-validate" | "generate";
   message: string;
+  advisory?: true;            // advice, not a verdict — see below
   node?: string;              // canonical address "<keyword> <Context>.<Decl>[.<member>]"
   range?: JsonRange;          // present for CST-backed diagnostics; absent for IR ones
   sourceText?: string;        // the offending source slice
@@ -74,6 +80,14 @@ interface JsonDiagnostic {
   related?: JsonRelated[];
 }
 ```
+
+An **advisory** diagnostic — a code in `src/diagnostics/advisory.ts`
+(`loom.index-suggestion`, `loom.crudish-hard-delete`,
+`loom.aggregate-not-constructible`, `loom.loop-gate-not-implied`) — keeps
+`severity: "warning"` but carries `advisory: true` and is counted in
+`summary.suggestions`, never `summary.warnings`.  It never affects `ok`.  The
+CLI prints the same set under its `Suggestions (N):` heading
+([`tools.md`](tools.md)).
 
 `GenerateReport` is `ValidateReport` minus `outline`, plus `deployables: GenerateDeployable[]` (`{ name, platform, port? }`). `Outline` is the node address book — `{ systems: OutlineSystem[]; contexts: OutlineContext[] }`, each context listing its aggregates / valueObjects (each an `OutlineDecl` of `{ node, members[] }`) plus workflows / enums / events / repositories, and each system additionally listing its `uis` (an `OutlineDecl` per `ui`, whose members are the pages / components / stores inside it) — the same address space `node` and `ModelPatch.target` use. An address qualifies a node by every named declaration enclosing it, so a page reads `page <Ui>.<Area>.<Page>` and an entity part's field reads `entity <Context>.<Aggregate>.<Part>.<field>`.
 
@@ -174,7 +188,7 @@ system Shop {
   "loomVersion": "0.1.0",
   "model": "<source>",
   "ok": false,
-  "summary": { "errors": 1, "warnings": 0, "infos": 0 },
+  "summary": { "errors": 1, "warnings": 0, "infos": 0, "suggestions": 0 },
   "diagnostics": [
     {
       "code": "loom.bare-aggregate-in-type",

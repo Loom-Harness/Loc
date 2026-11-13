@@ -383,14 +383,6 @@ function objectKeys(block) {
   return [...block.matchAll(/^ {2}(?:"([^"]+)"|([A-Za-z_$][\w$]*)):/gm)].map((m) => m[1] ?? m[2]);
 }
 
-/** Primitives the TSX walker renders that HEEx does not — the frozen parity
- *  gap.  Each is a reviewed decision; the list is meant to shrink. */
-export function countHeexPins(src) {
-  const block = literalBlock(src, "const KNOWN_HEEX_GAPS");
-  if (block === undefined) throw new Error("heex-parity.test.ts: KNOWN_HEEX_GAPS not found");
-  return objectKeys(block);
-}
-
 /** Corpus features a backend's compile tier skips, per backend.  All five were
  *  drained to empty by 08-02; a non-zero entry here is new compile-tier debt. */
 export function countCompileSkips(files) {
@@ -442,9 +434,6 @@ export function readRegisters(atCommit) {
   return {
     wireWaivers: maybe(() => countWireWaivers(read("test/_helpers/wire-waivers.ts", atCommit))),
     register: maybe(() => countOpenGaps(read("src/diagnostics/unsupported-register.ts", atCommit))),
-    heexPins: maybe(() =>
-      countHeexPins(read("test/generator/elixir/heex-parity.test.ts", atCommit)),
-    ),
     compileSkips: maybe(() => countCompileSkips(skipSrc)),
   };
 }
@@ -682,7 +671,6 @@ export function renderReport({ now, days, registers, prev, prevStats, stats, prs
   const skipTotal = total(registers.compileSkips);
   const prevSkipTotal = total(prev?.compileSkips);
   const prevWaivers = prev?.wireWaivers ?? null;
-  const prevPins = prev?.heexPins ? prev.heexPins.length : null;
   const dupes = duplicateHeads(prs);
   const stale = staleDrafts(prs, { now, days: STALE_DRAFT_DAYS });
 
@@ -708,9 +696,6 @@ export function renderReport({ now, days, registers, prev, prevStats, stats, prs
     `| unsupported-register open gaps | ${registers.register.gaps} | ${was(prev?.register?.gaps)} | ${arrow(registers.register.gaps, prev?.register?.gaps ?? null)} · ${registers.register.seam} \`seam\` (latent) · ${registers.register.scope} \`scope\` rows (by design) |`,
   );
   lines.push(
-    `| HEEx parity pins | ${registers.heexPins.length} | ${was(prevPins)} | ${arrow(registers.heexPins.length, prevPins)} |`,
-  );
-  lines.push(
     `| corpus COMPILE_SKIP (all backends) | ${skipTotal} | ${was(prevSkipTotal)} | ${arrow(skipTotal, prevSkipTotal)} |`,
   );
   lines.push("");
@@ -727,10 +712,6 @@ export function renderReport({ now, days, registers, prev, prevStats, stats, prs
       if (ids.length)
         lines.push(`- \`${backend}\` skips: ${ids.map((i) => `\`${i}\``).join(", ")}`);
     }
-    lines.push("");
-  }
-  if (registers.heexPins.length) {
-    lines.push(`- HEEx pins: ${registers.heexPins.map((p) => `\`${p}\``).join(", ")}`);
     lines.push("");
   }
 

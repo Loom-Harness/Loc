@@ -55,6 +55,7 @@
 // BYTE-IDENTICAL to the pre-rev.4 shell, no `@Service`, no ctor.
 // ---------------------------------------------------------------------------
 
+import { domainServiceReadPorts, serviceOpReadPorts } from "../../../ir/plan/index.js";
 import type {
   DomainServiceIR,
   DomainServiceOperationIR,
@@ -341,11 +342,7 @@ function renderReadingOperation(
   // reads repos, so this is a self-true predicate over this context's services.
   const renderCtx: JavaRenderContext = {
     thisName: "this",
-    serviceReading: (service, calledOp) => {
-      const s = ctx.domainServices.find((x) => x.name === service);
-      const o = s?.operations.find((x) => x.name === calledOp);
-      return o ? readPortsForOperation(o).length > 0 : false;
-    },
+    serviceReading: (service, calledOp) => serviceOpReadPorts(ctx, service, calledOp).length > 0,
     ...(spec ? { returnUnion: unionRenderCtx(spec) } : {}),
     paramExpr: (n) => movedLocalOrUndefined(paramLocals, n),
     letExpr: (n) => movedLocalOrUndefined(letLocals, n),
@@ -372,17 +369,7 @@ function renderReadingOperation(
 /** The aggregates a service's ops read, in first-read order across all ops
  *  (deduped) — one injected repository per entry. */
 function distinctReadAggregates(svc: DomainServiceIR): string[] {
-  const seen = new Set<string>();
-  const order: string[] = [];
-  for (const op of svc.operations) {
-    for (const p of readPortsForOperation(op)) {
-      if (!seen.has(p.aggregate)) {
-        seen.add(p.aggregate);
-        order.push(p.aggregate);
-      }
-    }
-  }
-  return order;
+  return [...new Set(domainServiceReadPorts(svc).map((p) => p.aggregate))];
 }
 
 /** The union name keyed in the per-service union map for this op (or "" when

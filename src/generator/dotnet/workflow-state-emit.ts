@@ -1,4 +1,4 @@
-import { stateRowWorkflows } from "../../ir/plan/index.js";
+import { requiredStateFields, stateRowWorkflows, stateZero } from "../../ir/plan/index.js";
 import type { TypeIR, WorkflowIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { plural, snake, upperFirst, workflowStateTableName } from "../../util/naming.js";
@@ -167,26 +167,28 @@ function renderWorkflowStateConfiguration(
  *  the .NET analogue of the Hono `defaultLiteralFor`.  The correlation field
  *  is seeded from the routing key, never this. */
 export function csStateDefault(t: TypeIR): string {
-  if (t.kind === "primitive") {
-    switch (t.name) {
-      case "int":
-      case "long":
-        return "0";
-      case "decimal":
-      case "money":
-        return "0m";
-      case "bool":
-        return "false";
-      case "datetime":
-        return "DateTime.UtcNow";
-      case "date":
-        return "DateOnly.FromDateTime(DateTime.UtcNow)";
-      default:
-        return '""';
-    }
+  const z = stateZero(t);
+  switch (z.kind) {
+    case "int":
+    case "long":
+      return "0";
+    case "decimal":
+    case "money":
+      return "0m";
+    case "bool":
+      return "false";
+    case "datetime":
+      return "DateTime.UtcNow";
+    case "date":
+      return "DateOnly.FromDateTime(DateTime.UtcNow)";
+    case "json":
+    case "text":
+      return '""';
+    case "array":
+      return "new()";
+    default:
+      return "default!";
   }
-  if (t.kind === "array") return "new()";
-  return "default!";
 }
 
 /** The allocate-object initializer for a fresh saga instance: the correlation
@@ -195,8 +197,7 @@ export function csStateDefault(t: TypeIR): string {
 export function workflowAllocateInitializer(wf: WorkflowIR, keyExpr: string): string {
   const corr = wf.correlationField as string;
   const parts = [`${upperFirst(corr)} = ${keyExpr}`];
-  for (const f of wf.stateFields ?? []) {
-    if (f.name === corr || f.optional) continue;
+  for (const f of requiredStateFields(wf)) {
     parts.push(`${upperFirst(f.name)} = ${csStateDefault(f.type)}`);
   }
   return `new ${workflowStateClass(wf)} { ${parts.join(", ")} }`;

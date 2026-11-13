@@ -145,6 +145,11 @@ const PINNED: Record<string, Pin> = {
       "Late-bound `printStmt` reference, installed once to break the " +
       "print-expr / print-stmt import cycle.  Never reassigned per call.",
   },
+  "src/language/validators/model-contents.ts:active": {
+    discipline: "scoped-restore",
+    reason:
+      "Per-validation-run contents cache: `withModelContentsCache` installs a fresh map for one synchronous `DddValidator.check` and clears it in a `finally` (a nested call reuses the outer map); outside a run `modelContents` walks fresh.",
+  },
   "src/generator/_i18n/source-text.ts:active": {
     discipline: "scoped-restore",
     reason:

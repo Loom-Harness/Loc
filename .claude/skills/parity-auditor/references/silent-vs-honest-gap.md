@@ -93,7 +93,7 @@ Read each hit in context and classify:
 That last row matters: not every `throw` in a generator is a 🔴. Many are
 *unreachable defensive throws* behind a validator gate (e.g. the elixir adapter
 `AdapterNotImplementedError`s for `style: layered`/`cqrs` stubs, or `heex-target.ts`
-throws on primitives the validator/`heex-parity` set already excludes). A throw is
+throws on primitives the capability table already refuses on LiveView). A throw is
 only a 🔴 if **valid `.ddd` can reach it** — i.e. nothing upstream gates the input
 that triggers it. Confirm reachability by checking whether the validator rejects
 that input first; if it does, the throw is honest (defensive), not silent.

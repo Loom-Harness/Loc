@@ -13,12 +13,16 @@ export interface HeexCoverageRecorder {
   report(): HeexCoverageReport;
 }
 
+type PrimitiveTable = Record<string, { group?: string; tsx?: (...args: never[]) => string }>;
+
+export declare function heexRenderedPrimitives(
+  registry: PrimitiveTable,
+  uiCapability: (framework: string, construct: never) => { verdict: string } | undefined,
+): Set<string>;
+
 export declare function installHeexCoverage(
-  registry: Record<
-    string,
-    { heex?: (...args: never[]) => string; tsx?: (...args: never[]) => string }
-  >,
-  sharedNames?: ReadonlySet<string>,
+  registry: PrimitiveTable,
+  renderedNames: ReadonlySet<string>,
 ): HeexCoverageRecorder;
 
 export declare function formatHeexCoverage(report: HeexCoverageReport): {

@@ -111,6 +111,7 @@ import {
   checkUserVisibleConcat,
   checkWorkflowExplicitSave,
 } from "./validators/index.js";
+import { withModelContentsCache } from "./validators/model-contents.js";
 
 /** Collapse whitespace/newlines so an error message stays one line
  *  inside a diagnostic. */
@@ -174,8 +175,16 @@ export class DddValidator {
    *
    *  Every themed `check*` invocation runs inside `runChecked` so a
    *  throw in one family is isolated to a single diagnostic and the
-   *  remaining families still run (finding 21). */
+   *  remaining families still run (finding 21).
+   *
+   *  The whole run shares one flattened walk per document
+   *  (`withModelContentsCache`): the model-level checks each iterate every
+   *  node, and re-walking the tree for each of them dominated validation. */
   check(model: Model, accept: ValidationAcceptor): void {
+    withModelContentsCache(() => this.checkModel(model, accept));
+  }
+
+  private checkModel(model: Model, accept: ValidationAcceptor): void {
     const guard = (name: string, node: AstNode, fn: () => void): void =>
       runChecked(name, node, accept, fn);
     // Macro-expansion diagnostics — drained from the side channel

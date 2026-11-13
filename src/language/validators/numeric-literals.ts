@@ -25,14 +25,15 @@
 // and a literal the language accepts that its own wire boundary then refuses is
 // the asymmetry this gate exists to remove.
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { isExactInteger, LONG_SAFE_MAX } from "../../util/numeric-range.js";
 import type { Model } from "../generated/ast.js";
 import { isIntLit } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 export function checkIntegerLiteralPrecision(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isIntLit(node)) continue;
     if (isExactInteger(node.value)) continue;
     // The CST text is the only place the WRITTEN digits survive — `node.value`

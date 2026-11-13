@@ -8,7 +8,7 @@ Every output block below is **real generated output** from one fixture — a `ui
 
 ## The dispatch model
 
-A page `body:` is one primitive call whose children are nested primitive calls. The shared walker (`walkBody`, `src/generator/_walker/walker-core.ts`) recurses the body `ExprIR`; for each `call` it looks the name up in `WALKER_PRIMITIVES` and invokes the renderer through the active `WalkerTarget`. **Six** targets ride that one core — `react`, `vue`, `svelte`, `angular` (`src/generator/<fw>/walker/*-target.ts`), `feliz` (`feliz-target.ts`, emits F#) and `flutter` (`flutter-target.ts`, emits Dart). **Phoenix LiveView does not**: `src/generator/elixir/heex-walker-core.ts` is a parallel engine dispatching off the same registry's `heex` renderers, because LiveView's topology (hoisted `handle_event` clauses, `for` comprehensions, `cond` blocks) diverges too far to share.
+A page `body:` is one primitive call whose children are nested primitive calls. The shared walker (`walkBody`, `src/generator/_walker/walker-core.ts`) recurses the body `ExprIR`; for each `call` it looks the name up in `WALKER_PRIMITIVES` and invokes the renderer through the active `WalkerTarget`. All **seven** targets ride that one core — `react`, `vue`, `svelte`, `angular` (`src/generator/<fw>/walker/*-target.ts`), `feliz` (`feliz-target.ts`, emits F#), `flutter` (`flutter-target.ts`, emits Dart) and Phoenix LiveView (`src/generator/elixir/heex-target.ts`, emits HEEx). LiveView's differences are seams, not a second walker: its expressions render as Elixir (`@x` in a template, `socket.assigns.x` in a handler), its handlers hoist to `handle_event/3` clauses, and the primitives that bind a changeset or load an assign (the forms, `Table`, `FileUpload`, `Modal`, `Chart`, `IdLink`, …) render whole through the target's overrides.
 
 - **Layout / display / formatter / input** primitives render the same *tree* everywhere; only the host markup and pack vocabulary differ.
 - **`match`, `For`, `QueryView`** are control flow, and here the frameworks genuinely diverge — React renders markup-valued expressions (`cond ? <A/> : <B/>`, `.map`), Vue/Svelte/Angular/HEEx emit block control flow (`<template v-if>`, `{#if}`, `@if`, `<%= cond do %>`), Flutter a Dart `switch` / spread.
@@ -1017,7 +1017,7 @@ const deleteProduct = useDeleteProduct();
 
 ```heex
 <%!-- phoenix — product_new_live.ex.  The HEEx workflow form ships a single
-      `_placeholder` input instead of the create(…) params (heex-primitives.ts:388) --%>
+      `_placeholder` input instead of the create(…) params (`heex-form.ts`) --%>
 <.simple_form for={@form} phx-submit="run_register_product" data-testid="register">
   <.input field={@form[:_placeholder]} label="Field" />
   <:actions><.button type="submit" data-testid="register-submit">Submit</.button></:actions>
@@ -1453,7 +1453,7 @@ Where a target cannot render a primitive the compiler says so — a `loom.*` err
 | `loom.ui-projection-read-unsupported` | a keyed or folded projection read from a page, or a frontend without a projection client |
 | `loom.toast-message-unsupported` | a realtime `toast(…)` message outside the literal / `e.field` / binary-op subset |
 
-The HEEx parity list (`test/generator/elixir/heex-parity.test.ts`) freezes the set of TSX-rendered primitives without a `heex` renderer: today that is **`DataGrid` only** — every other primitive has a HEEx renderer, so a new TSX-only primitive fails CI until it gets one or is pinned with a reason.
+On Phoenix LiveView every primitive renders except **`DataGrid`**, which the capability table refuses (`loom.target-unsupported#datagrid`). The HEEx showcase gate (`test/generator/elixir/heex-coverage.test.ts`) reaches every primitive the table admits, so a new primitive fails CI until the showcase renders it on HEEx.
 
 ## Where to go next
 

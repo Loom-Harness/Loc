@@ -24,7 +24,6 @@ import {
   arrow,
   BASELINE,
   countCompileSkips,
-  countHeexPins,
   countOpenGaps,
   countWireWaivers,
   discoverySource,
@@ -557,17 +556,6 @@ describe("quality-delta — register readers", () => {
     ).toThrow(/no rows read/);
   });
 
-  it("reads HEEx pins as object keys, skipping the comment lines around them", () => {
-    const src = [
-      "const KNOWN_HEEX_GAPS: Record<string, string> = {",
-      "  // DEFERRED — a paragraph about why: it is deferred",
-      '  DataGrid: "no LiveView analogue",',
-      '  "Odd-Name": "quoted key",',
-      "};",
-    ].join("\n");
-    expect(countHeexPins(src)).toEqual(["DataGrid", "Odd-Name"]);
-  });
-
   it("reads a comment-only COMPILE_SKIP map as empty — the drained state", () => {
     const drained = [
       "const JAVA_COMPILE_SKIP: Record<string, string> = {",
@@ -606,7 +594,6 @@ describe("quality-delta — the readers reach the live repo files", async () => 
     readRegisters: () => {
       wireWaivers: number | null;
       register: { rows: number; gaps: number; seam: number; scope: number } | null;
-      heexPins: string[] | null;
       compileSkips: Record<string, string[]> | null;
     };
   };
@@ -632,9 +619,8 @@ describe("quality-delta — the readers reach the live repo files", async () => 
     ]);
   });
 
-  it("waiver and pin counts are numbers, whatever they currently are", () => {
+  it("the waiver count is a number, whatever it currently is", () => {
     expect(Number.isInteger(registers.wireWaivers)).toBe(true);
-    expect(Array.isArray(registers.heexPins)).toBe(true);
   });
 });
 
@@ -690,7 +676,6 @@ describe("quality-delta — reading a register that is absent at the compared co
   // for the past — rather than a TypeError from `undefined.indexOf`.
   it("throws a NAMED error rather than a TypeError", () => {
     expect(() => countWireWaivers(undefined as unknown as string)).toThrow(/WIRE_WAIVERS/);
-    expect(() => countHeexPins(undefined as unknown as string)).toThrow(/KNOWN_HEEX_GAPS/);
     expect(() => countOpenGaps(undefined as unknown as string)).toThrow(/UNSUPPORTED_REGISTER/);
   });
 
@@ -703,7 +688,6 @@ describe("quality-delta — the report without a comparison point", () => {
   const registers = {
     wireWaivers: 4,
     register: { gaps: 37, scope: 8, rows: 45 },
-    heexPins: ["DataGrid"],
     compileSkips: { node: [], dotnet: [], dapper: ["a", "b"], java: [], python: [], elixir: [] },
   };
   const stats = summarize([]);

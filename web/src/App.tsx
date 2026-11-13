@@ -80,6 +80,7 @@ import { inlineSourcemapArtifacts, overlaySourcemapArtifacts } from "./build/str
 import { type Band, correspondenceAt, sourceBands, sourceSpanFor } from "./build/correspondence";
 import { diffGenerated, type OutputDiff } from "./build/output-diff";
 import { analyzeDeployables, composeServiceEnv } from "./build/deployables";
+import { projectEntryPath } from "./util/project-entry";
 import { type BootableBackend, bootableBackends, bootPlan } from "./build/boot-plan";
 import { resolveTestId } from "./build/select-target";
 import type { BundleOk } from "./bundle/protocol";
@@ -1496,17 +1497,19 @@ export default function App(): JSX.Element {
     // seed completes (this is why manually picking main.ddd, by which point
     // the mirror has caught up, makes generation succeed).
     const s = sourcesRef.current.controller.snapshot();
-    const entryPath = s.activePath;
+    // Generate from the project's entry (the file declaring the `system`),
+    // whichever file the editor shows.
+    const entryPath = projectEntryPath(s.files, s.activePath, sourceRef.current);
     // Push every workspace `.ddd` source, not just the active file, so a
     // multi-file example's imports resolve against fresh content in the
     // worker's VFS.  The active file is written last with the editor's
     // live text (which may be ahead of the controller snapshot).
     const entries: VfsEntry[] = [];
     for (const [path, content] of s.files) {
-      if (path === entryPath) continue;
+      if (path === s.activePath) continue;
       entries.push({ kind: "file", path, content });
     }
-    entries.push({ kind: "file", path: entryPath, content: sourceRef.current });
+    entries.push({ kind: "file", path: s.activePath, content: sourceRef.current });
     // The committed migration chain beside the entry rides along, so the
     // worker renders it the way `ddd generate system` does.  Chain files the
     // worker holds from an earlier generate but the workspace no longer has
@@ -2073,7 +2076,8 @@ export default function App(): JSX.Element {
       migrationHostTools({
         workspaceSource: () => sourceRef.current,
         chainFiles: async () => {
-          const entryPath = sourcesRef.current.controller.snapshot().activePath;
+          const snap = sourcesRef.current.controller.snapshot();
+          const entryPath = projectEntryPath(snap.files, snap.activePath, sourceRef.current);
           const files = (await readWorkspaceChain(entryPath)).filter(
             (f): f is VfsEntry & { kind: "file" } => f.kind === "file",
           );
@@ -2386,16 +2390,17 @@ export default function App(): JSX.Element {
   /** The live tree the Migrations tab diffs and records from: every
    *  workspace `.ddd` source from the controller snapshot, the active file
    *  carrying the editor's live text (which may be ahead of the persisted
-   *  mirror), plus the committed migration chain beside the entry. */
+   *  mirror), plus the committed migration chain beside the entry.  The
+   *  entry is the project's `system` file, not whichever file is open. */
   async function currentEvolutionTree(): Promise<{ entryPath: string; files: VfsEntry[] }> {
     const s = sourcesRef.current.controller.snapshot();
-    const entryPath = s.activePath;
+    const entryPath = projectEntryPath(s.files, s.activePath, sourceRef.current);
     const files: VfsEntry[] = [];
     for (const [path, content] of s.files) {
-      if (path === entryPath) continue;
+      if (path === s.activePath) continue;
       files.push({ kind: "file", path, content });
     }
-    files.push({ kind: "file", path: entryPath, content: sourceRef.current });
+    files.push({ kind: "file", path: s.activePath, content: sourceRef.current });
     files.push(...(await readWorkspaceChain(entryPath)));
     return { entryPath, files };
   }

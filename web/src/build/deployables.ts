@@ -10,6 +10,7 @@
 // Pure: no React, no DOM, no worker — the root vitest suite imports it.
 
 import type { UnsupportedDeployable, UnsupportedPlatform } from "../layout/ctx.js";
+import { serviceSlug } from "../../../src/util/service-slug.js";
 import type { VirtualFile } from "./protocol.js";
 
 export interface DeployableAnalysis {
@@ -140,4 +141,17 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([slug, platform]) => ({ slug, platform }));
   return { backends: ordered.map((slug) => `${slug}/http/index.ts`), react, unsupported };
+}
+
+/** The files-only platform of the deployable a `.ddd` source names, or null
+ *  when the browser runs it.  The analysis keys deployables by their
+ *  generated folder (`catalog_api`); the source names them as declared
+ *  (`catalogApi`), so the lookup goes through the same `serviceSlug` the
+ *  generator uses for the folder. */
+export function unsupportedPlatformOf(
+  unsupported: readonly UnsupportedDeployable[],
+  deployableName: string,
+): UnsupportedPlatform | null {
+  const slug = serviceSlug(deployableName);
+  return unsupported.find((d) => d.slug === slug)?.platform ?? null;
 }

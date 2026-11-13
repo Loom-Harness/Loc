@@ -83,6 +83,7 @@ import { typingFor } from "../typing/shared.js";
 import { isWalkerPrimitive } from "../walker-stdlib.js";
 import { canPromoteLiteralTo, checkRuleNaming, envForAggregate, pathString } from "./_shared.js";
 import { recordFieldTypes, resolveRecordDecl } from "./builder-call.js";
+import { modelContents } from "./model-contents.js";
 
 /** An aggregate action whose body reuses operation-body statement
  * rules: today's `operation`, plus the lifecycle `create` / `destroy`
@@ -542,7 +543,7 @@ export function checkPredicateSlotArgs(model: Model, accept: ValidationAcceptor)
     checkConstructionArgTypes(expr, env, accept);
     checkExprCallArgs(expr, env, accept);
   };
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (isRetrieval(node)) {
       visit((node as Retrieval).where);
     } else if (isCriterion(node)) {
@@ -581,7 +582,7 @@ function storesByName(model: Model): Map<string, Store[]> {
   let idx = storeIndexByModel.get(model);
   if (!idx) {
     idx = new Map();
-    for (const n of AstUtils.streamAllContents(model)) {
+    for (const n of modelContents(model)) {
       if (!isStore(n)) continue;
       const list = idx.get(n.name);
       if (list) list.push(n);
@@ -631,7 +632,7 @@ function resolveStoreAction(
  *  Reuses the shared `checkCallArgs` (arity + positional type, `unknown`
  *  suppression, numeric-literal promotion) under the call site's lexical env. */
 export function checkStoreActionCallArgs(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     let head: string | undefined;
     let action: string | undefined;
     let args: Expression[] | undefined;
@@ -732,7 +733,7 @@ export function checkComponentPropTypes(model: Model, accept: ValidationAcceptor
     });
   };
 
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     // Brace form: `Panel { amount: x }`.  Skip record constructions (VO / part /
     // payload — `checkConstructionArgTypes` owns those) and walker primitives.
     if (node.$type === "BuilderCall") {
@@ -829,7 +830,7 @@ function checkLocalMemberCallStmt(lv: LValue, accept: ValidationAcceptor, admit?
  *  `new Date("…")`) by the one rule in `generator/_test/arg-coercion.ts`, and the
  *  shipping examples write their tests that way (`order.addLine("0000…", 2)`). */
 export function checkTestBodyCallArgs(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isTestBlock(node)) continue;
     for (const stmt of node.body) {
       checkExprCallArgs(stmt, envForNode(stmt), accept, admitTestLiteral);
