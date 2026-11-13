@@ -19,6 +19,7 @@ import {
   coerceTestArgs,
   coerceTestValue,
   type TestValueTarget,
+  withServiceMoneyArgs,
 } from "../../_test/arg-coercion.js";
 import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
 import { PY, pyIdType, pyVoOrEnum } from "../py-symbols.js";
@@ -32,6 +33,7 @@ const PY_TEST_LITERAL: TestValueTarget = {
   id: (rendered, targetName) => `${pyIdType(targetName)}(${rendered})`,
   datetime: (rendered) => `${PY.datetime}.fromisoformat(${rendered})`,
   date: (rendered) => `${PY_CALENDAR_DATE}.fromisoformat(${rendered})`,
+  money: (digits) => renderPyExpr({ kind: "literal", lit: "money", value: digits }),
   valueObject: (name, args) => `${pyVoOrEnum(name)}(${args.join(", ")})`,
   omitted: "None",
 };
@@ -225,6 +227,8 @@ export function renderTestExpr(
   ctx: BoundedContextIR,
   lets?: Map<string, string>,
 ): string {
+  const service = withServiceMoneyArgs(e, ctx);
+  if (service !== e) return renderTestExpr(service, ctx, lets);
   // A member read whose RECEIVER is a nullable field (single containment or
   // optional field, both `T | None` on the domain object) fails `mypy --strict`
   // on the follow-on access.  Wrap the receiver in `cast(T, …)` so the read
