@@ -24,7 +24,12 @@ import {
   wireStatus,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
-import { type FoldStep, foldSteps } from "../../../ir/plan/index.js";
+import {
+  type FoldRowSeed,
+  type FoldStep,
+  foldRowSeeds,
+  foldSteps,
+} from "../../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
   ProjectionIR,
@@ -330,9 +335,8 @@ function emitFoldHandler(
   const keyExpr = h.correlation
     ? renderTsExpr(h.correlation, { thisName: "state" })
     : `${escapeTsIdent(h.param)}.${corr}`;
-  // Allocate for a not-yet-seen key: just the correlation column (every other
-  // read-model column is nullable, so a partial row is valid — the fold
-  // assignments below populate the carried fields before the upsert).  Under
+  // Allocate for a not-yet-seen key: the correlation column plus each column's
+  // starting value (`foldRowSeeds`); every other column starts null.  Under
   // MikroORM the state type is the `<Proj>Row` class (definite-assignment
   // fields), so a bare `{ corr }` literal doesn't satisfy it — seed a fresh
   // UNMANAGED instance via `Object.assign` (typed `Row & { corr }` → `Row`, no
@@ -345,7 +349,11 @@ function emitFoldHandler(
   // outside any principal) has no tenant's row to fold into.
   const tenancy = foldTenancyFor(p);
   const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
-  const seed = cols ? `${corr}: __key, ${cols.tenant.field}: __tenant` : `${corr}: __key`;
+  const seed = [
+    `${corr}: __key`,
+    ...(cols ? [`${cols.tenant.field}: __tenant`] : []),
+    ...foldRowSeeds(p).map((sd) => `${sd.field.name}: ${tsRowSeed(sd)}`),
+  ].join(", ");
   const allocate = usingMikro
     ? `Object.assign(new ${mikroProjectionRowClass(p)}(), { ${seed} })`
     : `{ ${seed} }`;
@@ -372,6 +380,31 @@ function emitFoldHandler(
   out.push(`  await save${T}(${usingMikro ? "__em" : "db"}, state);`);
   out.push(`}`);
   return out;
+}
+
+/** A fresh row's starting value for one column, in the column's stored
+ *  representation (decimal and money columns hold strings). */
+function tsRowSeed(sd: FoldRowSeed): string {
+  if (sd.kind === "default") {
+    return toColumn(sd.field.type, renderTsExpr(sd.expr, { thisName: "state" }));
+  }
+  switch (sd.zero) {
+    case "int":
+      return "0";
+    case "decimal":
+    case "money":
+      return `"0"`;
+    case "bool":
+      return "false";
+    case "string":
+      return `""`;
+    case "list":
+      return "[]";
+    default: {
+      const _exhaustive: never = sd.zero;
+      return _exhaustive;
+    }
+  }
 }
 
 /** One fold step (`foldSteps`) as TypeScript against the loaded row `state`. */
@@ -449,9 +482,8 @@ function toColumn(t: TypeIR | undefined, value: string): string {
 }
 
 /** `state.<field> <op>= <value>`, in the column's own representation.  The
- *  column is NULLABLE (the allocate seeds the correlation key only), so the
- *  running total coalesces first — otherwise the FIRST event for a key folds
- *  `null + n`.  Money accumulates through decimal.js, never through `+` on the
+ *  column is nullable and a row written before its column was seeded holds
+ *  null, so the running total coalesces first.  Money accumulates through decimal.js, never through `+` on the
  *  stored string. */
 function accumulate(t: TypeIR | undefined, field: string, op: "+" | "-", value: string): string {
   const p = unwrapOptional(t);

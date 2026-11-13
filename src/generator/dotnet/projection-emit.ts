@@ -1,7 +1,7 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { foldFloorTerms, foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
 import { wireStatus } from "../../ir/enrich/wire-policy.js";
-import { type FoldStep, foldSteps } from "../../ir/plan/index.js";
+import { type FoldRowSeed, type FoldStep, foldRowSeeds, foldSteps } from "../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
   ProjectionIR,
@@ -102,7 +102,6 @@ function renderProjectionFoldHandler(
   for (const step of foldSteps(proj, on)) {
     for (const line of renderProjectionFoldStep(step, on, usings, ns)) assignLines.push(line);
   }
-  const extraUsings = sortedCsUsings(usings);
   // A tenant-scoped fold (`fold-tenancy.ts`) reads the event's tenant from its
   // metadata — the dispatching frame's event origin — keys the row by it and
   // stamps it on allocation.  An event with no tenant has no tenant's row.
@@ -120,7 +119,16 @@ function renderProjectionFoldHandler(
   const findPred = cols
     ? `x => x.${tenantProp} == __tenant && x.${corrPascal} == __key`
     : `x => x.${corrPascal} == __key`;
-  const seed = cols ? `${corrPascal} = __key, ${tenantProp} = __tenant` : `${corrPascal} = __key`;
+  // A fresh row: the key, the tenant, and each column's starting value
+  // (`foldRowSeeds`); every other column starts null.
+  const seed = [
+    `${corrPascal} = __key`,
+    ...(cols ? [`${tenantProp} = __tenant`] : []),
+    ...foldRowSeeds(proj).map(
+      (sd) => `${upperFirst(sd.field.name)} = ${csRowSeed(sd, on, usings, ns)}`,
+    ),
+  ].join(", ");
+  const extraUsings = sortedCsUsings(usings);
   return (
     `// Auto-generated.
 using System.Threading;
@@ -161,6 +169,31 @@ ${assignLines.length > 0 ? assignLines.join("\n") + "\n" : ""}        await _rea
   );
 }
 
+/** A fresh row's starting value for one column. */
+function csRowSeed(sd: FoldRowSeed, on: ProjectionOnIR, usings: Set<string>, ns: string): string {
+  if (sd.kind === "default") {
+    collectCsExprUsings(sd.expr, usings, ns);
+    return renderExprWithEventParam(sd.expr, on.param, undefined, "state");
+  }
+  switch (sd.zero) {
+    case "int":
+      return "0";
+    case "decimal":
+    case "money":
+      return "0m";
+    case "bool":
+      return "false";
+    case "string":
+      return `""`;
+    case "list":
+      return "new()";
+    default: {
+      const _exhaustive: never = sd.zero;
+      return _exhaustive;
+    }
+  }
+}
+
 /** One fold step (`foldSteps`) as C# against the read-model `state` row. */
 function renderProjectionFoldStep(
   step: FoldStep,
@@ -180,9 +213,8 @@ function renderProjectionFoldStep(
       // matching `refKind: "let"` use sites in `render-expr.ts`.
       return [`        var ${escapeCsharpIdent(step.name)} = ${expr(step.expr)};`];
     case "accumulate": {
-      // Every non-key read-model column is NULLABLE (the allocate seeds the key
-      // only), so the running value materialises first — otherwise the first
-      // event for a key folds `null + n`.
+      // The column is nullable and a row written before its column was
+      // seeded holds null, so the running value materialises first.
       const prop = `state.${upperFirst(step.field)}`;
       return [`        ${prop} = (${prop} ?? 0) ${step.op} ${expr(step.value)};`];
     }

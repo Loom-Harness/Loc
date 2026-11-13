@@ -3,8 +3,10 @@ import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.
 import {
   esStarterSharesEvent,
   eventSourcedWorkflows,
+  type FoldRowSeed,
   type FoldStep,
   foldedEventNames,
+  foldRowSeeds,
   foldSteps,
   reposNeeded,
   requiredStateFields,
@@ -544,7 +546,13 @@ function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR)
   // stamps it on allocation.  An event with no tenant has no tenant's row.
   const tenancy = foldTenancyFor(proj);
   const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
-  const seed = cols ? `${corr}=__key, ${snake(cols.tenant.field)}=__tenant` : `${corr}=__key`;
+  // A fresh row: the key, the tenant, and each column's starting value
+  // (`foldRowSeeds`); every other column starts null.
+  const seed = [
+    `${corr}=__key`,
+    ...(cols ? [`${snake(cols.tenant.field)}=__tenant`] : []),
+    ...foldRowSeeds(proj).map((sd) => `${snake(sd.field.name)}=${pyRowSeed(sd)}`),
+  ].join(", ");
   const out: string[] = [
     `async def ${fn}(`,
     `    session: AsyncSession, _events: "InProcessDispatcher", ${param}: ${on.event}`,
@@ -566,6 +574,30 @@ function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR)
   for (const step of foldSteps(proj, on)) out.push(renderProjectionFoldStep(step));
   out.push("    await session.flush()");
   return lines(...out);
+}
+
+/** A fresh row's starting value for one column, spelled as a saga state's
+ *  zero of the same type. */
+function pyRowSeed(sd: FoldRowSeed): string {
+  if (sd.kind === "default") return renderPyExpr(sd.expr, { thisName: "state" });
+  switch (sd.zero) {
+    case "int":
+      return pyStateZero({ kind: "int" });
+    case "decimal":
+      return pyStateZero({ kind: "decimal" });
+    case "money":
+      return pyStateZero({ kind: "money" });
+    case "bool":
+      return pyStateZero({ kind: "bool" });
+    case "string":
+      return pyStateZero({ kind: "text", name: "string" });
+    case "list":
+      return pyStateZero({ kind: "array" });
+    default: {
+      const _exhaustive: never = sd.zero;
+      return _exhaustive;
+    }
+  }
 }
 
 /** Render one fold-plan step against the read-model `state` row.  Every

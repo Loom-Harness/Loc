@@ -1,0 +1,74 @@
+// Folded projection — what a freshly allocated row starts at (D-PROJECTION-FOLD).
+//
+// A fold writes only the columns its event carries, so every other column of a
+// new row holds its starting value until some later event writes it.  The rule
+// is one for every backend (`foldRowSeeds`, src/ir/plan/projection-fold.ts):
+//
+//   - a field with a declared default starts at it;
+//   - a required field whose type has a neutral zero starts at that zero —
+//     `0` for an int or money, `false`, `""`, the empty list;
+//   - an optional field, and a required one with no neutral zero (a datetime),
+//     starts null.
+//
+// The fold below writes ONE column, so every other column's wire value is its
+// starting value.  The wire golden records all of them; the `test e2e` block
+// asserts the ones with a portable spelling.
+system FoldInitialValuesSys {
+  subdomain Visits {
+    context Visits {
+      aggregate Page with crudish {
+        path: string
+        operation visit() { emit PageVisited { pageRef: id } }
+      }
+      repository Pages for Page { }
+
+      event PageVisited { pageRef: Page id }
+
+      projection PageStats keyed by pageRef {
+        pageRef: Page id
+        visits: int
+        spent: money
+        flagged: bool
+        label: string
+        tags: string[]
+        note: string?
+        bonus: int? = 5
+        lastSeen: datetime
+        on(e: PageVisited) {
+          visits += 1
+          bonus += 1
+        }
+      }
+    }
+  }
+  api VisitsApi from Visits
+  storage pg { type: postgres }
+  resource visitsState { for: Visits, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Visits]
+    dataSources: [visitsState]
+    serves: VisitsApi
+    port: 4000
+  }
+
+  test e2e "a fresh folded row starts every unwritten column at its seed" against d {
+    let p = api.pages.create({ path: "/home" })
+    api.pages.visit(p)
+    let stats = api.pageStats.byKey(p.id)
+    expect(stats.visits).toBe(1)
+    expect(stats.bonus).toBe(6)
+    expect(stats.flagged).toBe(false)
+    expect(stats.label).toBe("")
+    expect(stats.tags.length).toBe(0)
+    expect(stats.note).toBeNull()
+    expect(stats.lastSeen).toBeNull()
+
+    // The derived surface, so each derived route has a runtime caller.
+    expect(api.pages.getById(p).path).toBe("/home")
+    api.pages.update(p, { path: "/start" })
+    expect(api.pages.all().items.length).toBe(1)
+    api.pages.destroy(p)
+    expect(api.pages.getById(p)).toThrow(404)
+  }
+}

@@ -11,8 +11,19 @@
 //   - Steps apply in order, and each step reads the row as the earlier steps
 //     left it.  A backend that builds its write in one batch threads the row
 //     through the steps rather than reading the pre-fold row.
+//   - A fresh row starts from `foldRowSeeds`: a field with a declared default
+//     starts at it; a required field whose type has a neutral zero (a number,
+//     money, bool, string, collection) starts at that zero; everything else
+//     starts null until a fold writes it.
 
-import type { ExprIR, ProjectionIR, ProjectionOnIR, StmtIR, TypeIR } from "../types/loom-ir.js";
+import type {
+  ExprIR,
+  FieldIR,
+  ProjectionIR,
+  ProjectionOnIR,
+  StmtIR,
+  TypeIR,
+} from "../types/loom-ir.js";
 
 /** One step of a fold, against the row (`this`). */
 export type FoldStep =
@@ -94,4 +105,50 @@ function foldStep(st: StmtIR, p: ProjectionIR, h: ProjectionOnIR): FoldStep {
 
 function lastSegment(segments: readonly string[]): string {
   return segments[segments.length - 1]!;
+}
+
+/** The neutral zero of a column type: `0` for an integer, `0` in the decimal
+ *  or money representation, `false`, the empty string, the empty list. */
+export type FoldRowZero = "int" | "decimal" | "money" | "bool" | "string" | "list";
+
+/** What one non-key column of a freshly allocated row starts at. */
+export type FoldRowSeed =
+  | { field: FieldIR; kind: "default"; expr: ExprIR }
+  | { field: FieldIR; kind: "zero"; zero: FoldRowZero };
+
+/** The non-key columns a fresh row of `p` starts with a value in, in
+ *  declaration order.  A column absent here starts null. */
+export function foldRowSeeds(p: ProjectionIR): FoldRowSeed[] {
+  const out: FoldRowSeed[] = [];
+  for (const field of p.stateFields) {
+    if (field.name === p.correlationField) continue;
+    if (field.default) {
+      out.push({ field, kind: "default", expr: field.default });
+      continue;
+    }
+    if (field.optional) continue;
+    const zero = neutralZero(field.type);
+    if (zero) out.push({ field, kind: "zero", zero });
+  }
+  return out;
+}
+
+function neutralZero(t: TypeIR): FoldRowZero | undefined {
+  if (t.kind === "array") return "list";
+  if (t.kind !== "primitive") return undefined;
+  switch (t.name) {
+    case "int":
+    case "long":
+      return "int";
+    case "decimal":
+      return "decimal";
+    case "money":
+      return "money";
+    case "bool":
+      return "bool";
+    case "string":
+      return "string";
+    default:
+      return undefined;
+  }
 }
