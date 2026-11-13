@@ -63,8 +63,8 @@ describe("flutter: an explicit menu renders under every page's app bar", () => {
   it("every page's AppBar mounts it", async () => {
     const page = await emitted("flutter", "lib/pages/public_page.dart");
     expect(page).toContain("import '../nav_menu.dart';");
-    expect(page).toContain(
-      "appBar: AppBar(title: const Text('Public'), bottom: const LoomNavMenu()),",
+    expect(page).toMatch(
+      /appBar: AppBar\(title: Text\(t\('[\w.]+\.page\.Public\.name\.\w+', 'Public'\)\), bottom: const LoomNavMenu\(\)\),/,
     );
   });
 });

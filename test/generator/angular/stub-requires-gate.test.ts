@@ -55,7 +55,7 @@ describe("angular parameterised-read requires gate", () => {
     expect(page).toContain('import { SessionService } from "../auth/session.service";');
     expect(page).toContain("readonly session = inject(SessionService);");
     expect(page).toContain('@if (currentUser.role === "manager") {');
-    expect(page).toContain("<h2>Forbidden</h2>");
+    expect(page).toContain('<h2>{{ t("chrome.forbiddenTitle", "Forbidden") }}</h2>');
   });
 
   it("rejects the currentUser gate without auth: ui (the silent drop is closed)", async () => {
