@@ -2,8 +2,8 @@
 // that addresses an aggregate row (docs/auth.md → "Gate order").
 //
 //   1. authn                                       401
-//   2. `requires` that reads no row                403
-//   3. request shape (framework binding)           422
+//   2. request shape (framework binding)           422
+//   3. `requires` that reads no row                403
 //   4. load through the read scope                 404
 //   5. `requires` that reads the row; write scope  403 / 404
 //   6. version (`If-Match`)                        409
@@ -14,12 +14,13 @@
 // refuses gets 403 for an existing id, a missing id, a stale `If-Match` and a
 // wrong-state row alike; a row outside the read scope answers 404, never 403.
 //
-// `GET /{id}/can_<op>` runs the same ladder (steps 1, 2, 4–7, no body) and
+// `GET /{id}/can_<op>` runs the same ladder (steps 1, 3–7, no body) and
 // answers `{ allowed }` for the steps after the load: a row it cannot read is
-// still 404, and a caller step 2 refuses is still 403.
+// still 404, and a caller the read gate refuses is still 403.
 //
-// Steps 1, 3 and 8 are the framework's and the domain method's; a backend
-// renders the checks this plan lists (2, 4, 5, 6, 7) in the listed order.
+// Steps 1, 2 and 8 are the framework's and the domain method's: a body that
+// does not bind is refused before any handler runs, on every backend.  A
+// backend renders the checks this plan lists (3–7) in the listed order.
 
 import type { OperationIR } from "../types/loom-ir.js";
 import { operationGates, type RequiresStmtIR } from "../util/op-gates.js";
@@ -39,8 +40,8 @@ export type GateStep =
 /** The rungs in the order every backend evaluates them. */
 export const GATE_ORDER: readonly GateStep[] = [
   "authn",
-  "requires",
   "shape",
+  "requires",
   "load",
   "row-requires",
   "version",

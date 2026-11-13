@@ -464,26 +464,27 @@ the same way as the operation route does.
 #### Gate order
 
 Every backend refuses a request on an aggregate row in one order
-(`src/ir/plan/gate-ladder.ts`):
+(`src/ir/plan/gate-ladder.ts`, D-GATE-LADDER):
 
 | # | Step | Status |
 |---|---|---|
 | 1 | authentication | 401 |
-| 2 | `requires` that reads no row (the principal, the parameters) | 403 |
-| 3 | request shape (framework binding) | 422 |
+| 2 | request shape (framework binding) | 422 |
+| 3 | `requires` that reads no row (the principal, the parameters) | 403 |
 | 4 | load through the read scope (`policy { read }`, tenancy, shares) | 404 |
 | 5 | `requires` that reads the row; the write scope | 403 / 404 |
 | 6 | version (`If-Match`) | 409 |
 | 7 | `when` | 409 |
 | 8 | preconditions, invariants | 409 / 422 |
 
-A caller refused at step 2 gets 403 for an existing id, a missing id, a stale
+A caller refused at step 3 gets 403 for an existing id, a missing id, a stale
 `If-Match` and a row in the wrong state alike, so the refusal reveals nothing
-about the row.  A row outside the read scope answers 404, never 403.
+about the row.  A body that does not bind is refused (422) before any gate, by
+the framework, on every backend.  A row outside the read scope answers 404, never 403.
 
 ```ddd
 operation reopen() when !open {
-  requires currentUser.role == "agent"   // step 2: before the load
+  requires currentUser.role == "agent"   // step 3: before the load
   open := true
 }
 ```

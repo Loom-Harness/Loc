@@ -35,8 +35,8 @@ describe("gate-ladder plan", () => {
   it("orders the rungs as the owner's ruling does", () => {
     expect(GATE_ORDER).toEqual([
       "authn",
-      "requires",
       "shape",
+      "requires",
       "load",
       "row-requires",
       "version",
