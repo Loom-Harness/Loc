@@ -1,0 +1,5 @@
+{
+  "title": "a value-object array on an ENTITY PART of a `shape: document` aggregate — a JSON array inside the part's entry in the jsonb document",
+  "doc": "language",
+  "backends": "ALL"
+}

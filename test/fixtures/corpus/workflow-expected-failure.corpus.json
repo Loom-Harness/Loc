@@ -1,0 +1,5 @@
+{
+  "title": "a workflow `create` / handler answering `T or E`, rolled back whole on the error",
+  "doc": "workflow",
+  "backends": "ALL"
+}

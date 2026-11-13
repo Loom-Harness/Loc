@@ -45,6 +45,7 @@ import {
   csMalformedIdMessage,
   csMissingSuffixLit,
   csNotFoundException,
+  csProblemResponseAttr,
   csProducesProblem,
   csSentence,
   csTitle,
@@ -67,9 +68,8 @@ function actionName(tokens: OpIdTokens): string {
 }
 
 /** `[ProducesResponseType]` attribute lines declaring the RFC 7807 error
- *  responses for an operation kind (from the shared matrix).  A Swashbuckle
- *  operation filter (see Program.cs) rewrites their content-type to
- *  `application/problem+json` so the emitted spec matches Hono/Phoenix. */
+ *  responses for an operation kind (from the shared matrix), each as
+ *  `application/problem+json` carrying the documented problem body. */
 function producesProblem(
   kind: OpErrorKind,
   guarded = false,
@@ -81,7 +81,7 @@ function producesProblem(
   resolve?: (name: string) => number,
 ): string[] {
   return errorStatuses(kind, guarded, resolve).map(
-    (s) => `${indent}[ProducesResponseType(typeof(ProblemDetails), ${s})]`,
+    (s) => `${indent}${csProblemResponseAttr(s, "")}`,
   );
 }
 
@@ -91,9 +91,7 @@ function producesProblem(
  *  the set per arm.  This is the unification seam: the numbers come from
  *  `deriveAggregateOperations`, only the attribute idiom is .NET's. */
 function derivedProblemDecls(op: ApiOperationIR, indent = "    "): string[] {
-  return op.errorStatuses.map(
-    (s) => `${indent}[ProducesResponseType(typeof(ProblemDetails), ${s})]`,
-  );
+  return op.errorStatuses.map((s) => `${indent}${csProblemResponseAttr(s, "")}`);
 }
 
 /** The `[HttpX("...")]` route-template fragment for a derived operation —
@@ -657,13 +655,16 @@ export function renderOperationActionBlock(
   // Three deliberate diffs from the hand-built groups this replaces:
   //   1. a `when`/versioned 409 now sorts numerically among the declarations
   //      instead of trailing the 422 (same set, attribute order only);
-  //   2. a union error arm declares `typeof(ProblemDetails)` — the arm really
-  //      does answer a ProblemDetails body (see the dispatch below), so the
-  //      a bare `[ProducesResponseType(<s>)]` would under-document it;
+  //   2. a union error arm declares the problem body — the arm really does
+  //      answer a ProblemDetails body (see the dispatch below), so a bare
+  //      `[ProducesResponseType(<s>)]` would under-document it;
   //   3. a union arm sharing a status with the when-gate is declared ONCE,
   //      not twice (typed + bare).
+  // A union with error arms answers only its success arms at 200, so the 200
+  // names `<Union>Success` (union-records.ts), which declares exactly those.
+  const splitUnion = !!ru && ru.arms.some((a) => a.isError) && ru.arms.some((a) => !a.isError);
   const successDecl = ru
-    ? `    [ProducesResponseType(typeof(${ru.appNs}.${ru.unionName}), 200)]`
+    ? `    [ProducesResponseType(typeof(${ru.appNs}.${ru.unionName}${splitUnion ? "Success" : ""}), 200)]`
     : rs
       ? `    [ProducesResponseType(typeof(${rs.wireType}), 200)]`
       : "    [ProducesResponseType(204)]";
@@ -1818,171 +1819,37 @@ public static class ValidationProblem
 `;
 }
 
-/** Swashbuckle operation filter — rewrites every declared 4xx/5xx response
- *  to `application/problem+json` carrying the shared `ProblemDetails`
- *  schema.  `[ProducesResponseType(typeof(ProblemDetails), …)]` on each
- *  action declares WHICH statuses; this filter normalises the content-type
- *  (Swashbuckle defaults error responses to `application/json`) so the
- *  emitted spec's error contract matches Hono / Phoenix (RFC 7807). */
-export function renderProblemDetailsFilter(ns: string): string {
+/** The documented RFC 7807 problem body.  Every declared 4xx/5xx names it
+ *  (`csProblemResponseAttr`), so Swashbuckle publishes the error contract from
+ *  this type: `ProblemDetails`'s members plus the extension members every
+ *  refusal may carry — the catalog `code` a client localizes by, the `params`
+ *  its message names, and the per-field `errors[]` a validation refusal lists.
+ *  Published as the `ProblemDetails` component (Program.cs `CustomSchemaIds`).
+ *  It is documentation only: the runtime builds `Microsoft.AspNetCore.Mvc.
+ *  ProblemDetails` and writes the extension members through `Extensions`,
+ *  which serialize to the same JSON. */
+export function renderProblemResponse(ns: string): string {
+  // The alias is a `global using`: a `directoryLayout: byFeature` controller
+  // lives in `<ns>.Features.<Agg>`, outside `<ns>.Api`, and names this type in
+  // its `[ProducesResponseType]` attributes too.
   return `// Auto-generated.
+global using ProblemResponse = ${ns}.Api.ProblemResponse;
+
 using System.Collections.Generic;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.OpenApi;
-using Swashbuckle.AspNetCore.SwaggerGen;
 
 namespace ${ns}.Api;
 
-public sealed class ProblemDetailsResponsesFilter : IOperationFilter
+public sealed class ProblemResponse : Microsoft.AspNetCore.Mvc.ProblemDetails
 {
-    public void Apply(OpenApiOperation operation, OperationFilterContext context)
-    {
-        var schema = context.SchemaGenerator.GenerateSchema(typeof(ProblemDetails), context.SchemaRepository);
-        AugmentProblemDetailsSchema(context.SchemaRepository);
-        if (operation.Responses is null) return;
-        foreach (var (code, response) in operation.Responses)
-        {
-            if (code.Length == 3 && (code[0] == '4' || code[0] == '5') && response is OpenApiResponse resp)
-            {
-                resp.Content ??= new Dictionary<string, OpenApiMediaType>();
-                resp.Content.Clear();
-                resp.Content["application/problem+json"] = new OpenApiMediaType { Schema = schema };
-            }
-        }
-    }
-
-    // Augment the auto-generated Microsoft.AspNetCore.Mvc.ProblemDetails
-    // OpenAPI schema with the RFC 7807 §3.2 \`errors[]\` extension array
-    // (per-field \`{ pointer, message }\`) that the FluentValidation arm
-    // of DomainExceptionFilter emits on 422 validation responses.
-    // Consumed by the frontend ACL's \`applyServerErrors\`.  Idempotent;
-    // safe to run per operation.
-    // Microsoft.OpenApi 2.0: schema type is the \`JsonSchemaType\` flags enum
-    // (nullability folded in as \`| JsonSchemaType.Null\`, which the 3.0 writer
-    // serializes back to \`nullable: true\`); property maps are keyed by the
-    // \`IOpenApiSchema\` interface.
-    private static void AugmentProblemDetailsSchema(SchemaRepository repo)
-    {
-        if (!repo.Schemas.TryGetValue("ProblemDetails", out var problemSchema)) return;
-        if (problemSchema is not OpenApiSchema problem) return;
-        problem.Properties ??= new Dictionary<string, IOpenApiSchema>();
-        if (problem.Properties.ContainsKey("errors")) return;
-
-        // The catalog key a client localizes the refusal by, and the values its
-        // message names — RFC 7807 extension members on the body and on each
-        // errors[] entry.
-        problem.Properties["code"] = new OpenApiSchema { Type = JsonSchemaType.String | JsonSchemaType.Null };
-        problem.Properties["params"] = new OpenApiSchema
-        {
-            Type = JsonSchemaType.Object | JsonSchemaType.Null,
-            AdditionalProperties = new OpenApiSchema(),
-        };
-        problem.Properties["errors"] = new OpenApiSchema
-        {
-            Type = JsonSchemaType.Array | JsonSchemaType.Null,
-            Items = new OpenApiSchema
-            {
-                Type = JsonSchemaType.Object,
-                Required = new HashSet<string> { "pointer", "message" },
-                Properties = new Dictionary<string, IOpenApiSchema>
-                {
-                    ["pointer"] = new OpenApiSchema { Type = JsonSchemaType.String },
-                    ["message"] = new OpenApiSchema { Type = JsonSchemaType.String },
-                    ["code"] = new OpenApiSchema { Type = JsonSchemaType.String | JsonSchemaType.Null },
-                    ["params"] = new OpenApiSchema
-                    {
-                        Type = JsonSchemaType.Object | JsonSchemaType.Null,
-                        AdditionalProperties = new OpenApiSchema(),
-                    },
-                },
-            },
-        };
-    }
-}
-`;
+    public string? Code { get; set; }
+    public IDictionary<string, object?>? Params { get; set; }
+    public IReadOnlyList<ProblemDetailsError>? Errors { get; set; }
 }
 
-/** Swashbuckle document filter — promotes inline `array<XResponse>` list
- *  responses to named component schemas (`XResponse` → `XListResponse`;
- *  query-time projections: `XRow` → `XResponse`), matching the Hono / Phoenix
- *  backends which name the wrapper.  Swashbuckle inlines any IEnumerable
- *  type, so the only reliable way to get a named array component is to
- *  add it + retarget the responses here.  The element→wrapper map is baked
- *  in from the IR (no runtime name guessing). */
-export function renderListWrapperFilter(
-  ns: string,
-  pairs: ReadonlyArray<{ element: string; wrapper: string }>,
-): string {
-  const wrappersExpr =
-    pairs.length === 0
-      ? "Array.Empty<(string Element, string Wrapper)>()"
-      : `new[]
-    {
-${pairs.map((p) => `        ("${p.element}", "${p.wrapper}"),`).join("\n")}
-    }`;
-  return `// Auto-generated.
-using System;
-using Microsoft.OpenApi;
-using Swashbuckle.AspNetCore.SwaggerGen;
-
-namespace ${ns}.Api;
-
-public sealed class ListResponseWrapperFilter : IDocumentFilter
-{
-    private static readonly (string Element, string Wrapper)[] Wrappers = ${wrappersExpr};
-
-    public void Apply(OpenApiDocument swaggerDoc, DocumentFilterContext context)
-    {
-        // Retarget inline array responses to the named wrapper $ref, adding the
-        // wrapper component ONLY when an endpoint actually returns that array.
-        // A paged-by-default findAll returns <Agg>Paged, not a bare
-        // array, so a paged-only aggregate surfaces no <Agg>ListResponse — the
-        // Hono / Phoenix backends omit it too (an unreferenced wrapper never
-        // enters their spec), so adding it unconditionally would drift parity.
-        //
-        // Microsoft.OpenApi 2.0: an array's Type is the JsonSchemaType flags
-        // enum, a $ref schema is a distinct OpenApiSchemaReference node (not an
-        // OpenApiSchema with a Reference property), and Components.Schemas is
-        // keyed by IOpenApiSchema.
-        if (swaggerDoc.Paths is null) return;
-        foreach (var path in swaggerDoc.Paths.Values)
-        {
-            if (path.Operations is null) continue;
-            foreach (var operation in path.Operations.Values)
-            {
-                if (operation.Responses is null) continue;
-                foreach (var response in operation.Responses.Values)
-                {
-                    if (response.Content is null) continue;
-                    foreach (var media in response.Content.Values)
-                    {
-                        if (media.Schema is not OpenApiSchema schema) continue;
-                        if (schema.Type is not { } t || !t.HasFlag(JsonSchemaType.Array)) continue;
-                        if (schema.Items is not OpenApiSchemaReference itemRef) continue;
-                        if (itemRef.Reference?.Id is not string elementId) continue;
-                        foreach (var (element, wrapper) in Wrappers)
-                        {
-                            if (element == elementId)
-                            {
-                                if (swaggerDoc.Components?.Schemas is { } schemas
-                                    && !schemas.ContainsKey(wrapper))
-                                {
-                                    schemas[wrapper] = new OpenApiSchema
-                                    {
-                                        Type = JsonSchemaType.Array,
-                                        Items = new OpenApiSchemaReference(element, swaggerDoc),
-                                    };
-                                }
-                                media.Schema = new OpenApiSchemaReference(wrapper, swaggerDoc);
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+/// <summary>One entry of a refusal's <c>errors</c> extension: the RFC 6901
+/// pointer to the refused field, its message, and the catalog key and values
+/// the message is localized from.</summary>
+public sealed record ProblemDetailsError([property: System.ComponentModel.DataAnnotations.Required(AllowEmptyStrings = true)] string Pointer, [property: System.ComponentModel.DataAnnotations.Required(AllowEmptyStrings = true)] string Message, string? Code, IDictionary<string, object?>? Params);
 `;
 }
 
@@ -2081,90 +1948,6 @@ ${merges.map((m) => `        (${JSON.stringify(m.name)}, new[] { ${m.sources.map
             if (list is not null)
                 for (var i = 0; i < list.Count; i++) list[i] = Retarget(list[i], doc, rename);
         return schema;
-    }
-}
-`;
-}
-
-/** Swashbuckle schema filter — marks request-DTO properties `required` in
- *  the OpenAPI schema from the constructor-parameter `[Required]`
- *  attributes.
- *
- *  Why this is needed: request DTOs are positional records whose required
- *  fields carry a PARAMETER-targeted `[Required]` (a PROPERTY-targeted
- *  `[property: Required]` makes ASP.NET's record validation throw at
- *  model-binding time — see `dtoParam`).  But Swashbuckle 6.x's
- *  DataAnnotations reader only honours the PROPERTY-targeted form, so
- *  parameter-targeted `[Required]` never reaches the request-body schema's
- *  `required` array — leaving .NET request bodies marked nothing-required
- *  while Hono/Phoenix mark every non-optional field required.
- *
- *  This filter closes that gap by reflecting each schema's CLR type: for a
- *  positional record, it reads the primary-constructor parameters and adds
- *  the camelCase property name to `schema.Required` for each parameter that
- *  carries `[Required]`.  Response DTOs carry `[property: Required]` on the
- *  property (not the parameter), so they're untouched here and keep
- *  Swashbuckle's own handling — no double-marking.  Mirrors `dtoParam`'s
- *  required predicate exactly (a non-nullable `bool` request field has no
- *  `[Required]`, so it's correctly left optional). */
-export function renderRequiredFromCtorParamFilter(ns: string): string {
-  return `// Auto-generated.
-using System;
-using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
-using System.Linq;
-using System.Reflection;
-using System.Text.Json;
-using Microsoft.OpenApi;
-using Swashbuckle.AspNetCore.SwaggerGen;
-
-namespace ${ns}.Api;
-
-public sealed class RequiredFromCtorParamFilter : ISchemaFilter
-{
-    // Microsoft.OpenApi 2.0: the filter receives the IOpenApiSchema interface;
-    // mutating Required/Properties needs the concrete OpenApiSchema.
-    public void Apply(IOpenApiSchema schema, SchemaFilterContext context)
-    {
-        if (schema is not OpenApiSchema s) return;
-        var type = context.Type;
-        if (s.Properties is null || s.Properties.Count == 0) return;
-        s.Required ??= new HashSet<string>();
-
-        // Paged carrier: the generic Paged<T> record's members
-        // (items/page/pageSize/total/totalPages) are all non-optional, but
-        // Swashbuckle's non-nullable detection can't read nullability off an
-        // OPEN generic parameter, so it leaves the required set empty — while
-        // Hono/Phoenix/Java/Python mark every envelope field required.  Mark
-        // all of them required to restore cross-backend parity (conformance).
-        if (type.IsGenericType
-            && type.GetGenericTypeDefinition().Name.StartsWith("Paged", StringComparison.Ordinal))
-        {
-            foreach (var key in s.Properties.Keys) s.Required.Add(key);
-            return;
-        }
-
-        // Positional records expose their declared fields via the primary
-        // constructor.  Pick the longest constructor (the primary one for a
-        // positional record) and mark each [Required] parameter's property.
-        var ctor = type.GetConstructors()
-            .OrderByDescending(c => c.GetParameters().Length)
-            .FirstOrDefault();
-        if (ctor is null) return;
-
-        foreach (var p in ctor.GetParameters())
-        {
-            if (p.Name is null) continue;
-            if (p.GetCustomAttribute<RequiredAttribute>() is null) continue;
-            // Swashbuckle keys schema properties by the serialized name;
-            // the app uses camelCase (PropertyNamingPolicy.CamelCase), so
-            // match on camelCase first, then fall back to the exact key.
-            var camel = JsonNamingPolicy.CamelCase.ConvertName(p.Name);
-            var key = s.Properties.ContainsKey(camel)
-                ? camel
-                : (s.Properties.ContainsKey(p.Name) ? p.Name : null);
-            if (key is not null) s.Required.Add(key);
-        }
     }
 }
 `;

@@ -1,0 +1,6 @@
+{
+  "title": "a paged `queryHandler` over `Repo.run(<Criterion>(args))` — the synthesized paged FIND, the envelope, and `page`/`pageSize`/`sort`/`dir` on the routed handler",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "Promoted from the paged-run copies in the five per-backend `explicit-handlers.test.ts` files.  The block reads the WINDOW of a sorted match, so a handler that paged in memory before filtering, or counted the page instead of the match, answers a wrong number."
+}

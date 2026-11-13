@@ -12,6 +12,7 @@ import {
 } from "../../ir/enrich/wire-policy.js";
 import type { BoundedContextIR, ExprIR } from "../../ir/types/loom-ir.js";
 import { ruleParamRefs } from "../../ir/util/rule-params.js";
+import { pyRef } from "../_imports/python.js";
 
 /** A Python f-string for a sentence detail, the subject given as f-string
  *  CONTENT (`{id}`): `pySentence("not-found", "Order {id}")` →
@@ -29,9 +30,16 @@ export function pyNotFoundRaise(excRef: string, aggName: string, idExpr: string)
 }
 
 /** One OpenAPI `responses={…}` entry for a problem status:
- *  `404: {"model": ProblemDetails, "description": "Not Found"}`. */
-export function pyProblemResponseEntry(status: number, problemDetailsRef: string): string {
-  return `${status}: {"model": ${problemDetailsRef}, "description": ${JSON.stringify(reasonPhrase(status))}}`;
+ *  `404: {"model": ProblemDetails, "description": "Not Found", "content": PROBLEM_JSON}`.
+ *  `model` publishes the body's component; `content` (a Python expression,
+ *  `PROBLEM_JSON` by default) declares it under `application/problem+json`,
+ *  the media type the problem responder answers with. */
+export function pyProblemResponseEntry(
+  status: number,
+  problemDetailsRef: string,
+  content: string = pyRef("app.http.problem", "PROBLEM_JSON"),
+): string {
+  return `${status}: {"model": ${problemDetailsRef}, "description": ${JSON.stringify(reasonPhrase(status))}, "content": ${content}}`;
 }
 
 /** The `return JSONResponse({...problem...}, status_code=…)` lines answering a

@@ -148,7 +148,7 @@ Don't author throwaway fixtures — **reuse the compile-tier corpus harness** (t
 `test/fixtures/corpus/*.ddd` with a `platform: __PLATFORM__` token; the harness
 swaps the token per backend:
 
-- `test/fixtures/corpus/manifest.ts` — `CORPUS`: one row per feature, listing the
+- `test/fixtures/corpus/manifest.ts` — `CORPUS`, discovered from one `<id>.corpus.json` row per feature, listing the
   backends it's *declared* to generate on (and a `note` for exclusions, e.g.
   `criterion-filter` excludes `java`).
 - `test/fixtures/corpus/harness.ts` — `corpusSourceFor(featureId, backend)` swaps
@@ -170,8 +170,8 @@ backend and bucket the outcome into exactly three:
    `Error`/emits a `# TODO` mid-generation) → a 🔴 SILENT gap, a correctness bug.
 
 If a feature has no corpus fixture yet, adding one is in-scope (drop the `.ddd` +
-a manifest row — that's the documented "adding a feature = drop a `<feature>.ddd`
-+ one row" path), but keep it platform-agnostic with the `__PLATFORM__` token so
+its `<feature>.corpus.json` row — that's the documented "adding a feature = drop a `<feature>.ddd`
++ its sidecar" path), but keep it platform-agnostic with the `__PLATFORM__` token so
 every backend reuses it. For the heavier compile tiers, the same corpus feeds
 `LOOM_TS_BUILD` / `LOOM_REACT_BUILD` / `LOOM_DOTNET_BUILD` etc. — a "compile-tier
 skip-list drain" means walking those gated suites' skip annotations and re-checking

@@ -1,0 +1,108 @@
+{
+  "openapi": "3.0.3",
+  "paths": {
+    "/a": {
+      "get": {
+        "operationId": "a",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/AOrY_int"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AOrX": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "int": "#/components/schemas/AOrX_int"
+          }
+        }
+      },
+      "AOrX_int": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AOrX"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "value"
+            ]
+          }
+        ]
+      },
+      "AOrY": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "int": "#/components/schemas/AOrY_int"
+          }
+        }
+      },
+      "AOrY_int": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AOrY"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "value"
+            ]
+          }
+        ]
+      },
+      "Holder": {
+        "type": "object",
+        "properties": {
+          "y": {
+            "$ref": "#/components/schemas/AOrY"
+          }
+        }
+      }
+    }
+  }
+}

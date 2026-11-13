@@ -619,6 +619,48 @@ system T {
   deployable down { platform: ${platform} contexts: [Billing] dataSources: [billState] serves: BillApi port: 4001 channels: [tb] }
 }
 `,
+  // A relational aggregate persisting a reference to a tenantOwned target.
+  "reference:tenant-owned@state": (platform) => `
+system R {
+  user { id: string  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Main {
+      aggregate Org with crudish { name: string }
+      aggregate Invoice with tenantOwned, crudish { number: string }
+      aggregate Payment with tenantOwned, crudish { invoice: Invoice id  amount: int }
+      repository Orgs for Org { }
+      repository Invoices for Invoice { }
+      repository Payments for Payment { }
+    }
+  }
+  api MainApi from Core
+  storage pg { type: postgres }
+  resource st { for: Main, kind: state, use: pg }
+  deployable d { platform: ${platform}, contexts: [Main], dataSources: [st], serves: MainApi, port: 3000, auth: required }
+}
+`,
+  // The same reference held in a jsonb document.
+  "reference:tenant-owned@non-relational": (platform) => `
+system R {
+  user { id: string  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Main {
+      aggregate Org with crudish { name: string }
+      aggregate Invoice with tenantOwned, crudish { number: string }
+      aggregate Payment shape: document with tenantOwned, crudish { invoice: Invoice id  amount: int }
+      repository Orgs for Org { }
+      repository Invoices for Invoice { }
+      repository Payments for Payment { }
+    }
+  }
+  api MainApi from Core
+  storage pg { type: postgres }
+  resource st { for: Main, kind: state, use: pg }
+  deployable d { platform: ${platform}, contexts: [Main], dataSources: [st], serves: MainApi, port: 3000, auth: required }
+}
+`,
   "derived:reads-masked-field@aggregate": (platform) => `
 system F5 {
   user { id: guid  permissions: string[] }

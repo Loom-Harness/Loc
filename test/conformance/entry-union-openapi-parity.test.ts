@@ -2,13 +2,14 @@
 // `create` / routed handler): every backend that renders it publishes the
 // split an operation's union publishes (`opUnionResponses`) — 200 →
 // `<Union>Success` over the success arms, each error arm's status →
-// ProblemDetails or `<Tag>Problem` — on the workflow's command route and on
-// the routed handler's path.  Each backend's emitted registration is read in
+// ProblemDetails or `<Tag>Problem` (.NET: the open ProblemDetails, see below)
+// — on the workflow's command route and on the routed handler's path.  Each backend's emitted registration is read in
 // its own dialect; the shape it names is the same on all four.
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { javaDocumentedRoutes } from "../_helpers/java-openapi-annotations.js";
 
 const SOURCE = (platform: string) =>
   readFileSync("test/fixtures/corpus/workflow-expected-failure.ddd", "utf8").replace(
@@ -63,33 +64,58 @@ describe("expected-failure entry routes publish the operation union split", () =
     }
   });
 
+  // .NET publishes through Swashbuckle's own generator (D-OPENAPI-FRAMEWORK-NATIVE):
+  // the 200 names the `<Union>Success` record, which declares only the success
+  // arms as its `[JsonDerivedType]`s, and the 409 declares the open
+  // ProblemDetails body — Swashbuckle composes no `anyOf`, and the open body
+  // accepts exactly what `ProblemDetails | <Tag>Problem` accepts.
   it(".NET", async () => {
     const src = await all("dotnet");
-    expect(src).toContain('schemas["PaymentDeclinedProblem"]');
     for (const r of ROUTES) {
-      expect(src).toContain(`schemas["${r.success}"]`);
-      const at = src.indexOf(`case "${r.id}":`);
-      expect(at).toBeGreaterThan(0);
-      expect(src.slice(at, src.indexOf("break;", at))).toContain(
-        `RetargetSuccess(operation, swaggerDoc, "${r.success}")`,
-      );
-      expect(src.slice(at, src.indexOf("break;", at))).toContain(
-        'RetargetProblem(operation, "409"',
+      const decl = src.indexOf(`public abstract record ${r.success} :`);
+      expect(decl, r.success).toBeGreaterThan(0);
+      const attrs = src.slice(src.lastIndexOf("[JsonPolymorphic", decl), decl);
+      expect(attrs).not.toContain("_PaymentDeclined)");
+      expect(src).toMatch(new RegExp(`\\.${r.success}\\), 200\\)\\]`));
+    }
+    expect(src).toContain(
+      '[ProducesResponseType(typeof(ProblemResponse), 409, "application/problem+json")]',
+    );
+  });
+
+  it("Java", async () => {
+    const out = await generateSystemFiles(SOURCE("java"));
+    const routes = javaDocumentedRoutes(out);
+    const published = new Map<string, string>();
+    for (const [path, src] of out) {
+      if (!path.endsWith(".java")) continue;
+      for (const m of src.matchAll(
+        /@io\.swagger\.v3\.oas\.annotations\.media\.Schema\(([^\n]*)\)\s*\n\s*public (?:sealed interface|record) (\w+)/g,
+      )) {
+        published.set(m[2]!, m[1]!.match(/(?:^|, )name = "([^"]+)"/)?.[1] ?? m[2]!);
+      }
+    }
+    expect([...published.values()]).toContain("PaymentDeclinedProblem");
+    for (const r of ROUTES) {
+      const route = [...routes].find(([k]) => k.endsWith(` ${r.path}`))?.[1];
+      expect(route, r.path).toBeDefined();
+      expect(published.get(route!.successSchema!)).toBe(r.success);
+      expect(route!.errorAnyOf.get(409)?.map((c) => published.get(c))).toContain(
+        "PaymentDeclinedProblem",
       );
     }
   });
 
-  it("Java", async () => {
-    const src = await all("java");
-    expect(src).toContain('"PaymentDeclinedProblem"');
-    for (const r of ROUTES) expect(src).toContain(`"${r.success}"`);
-    for (const r of ROUTES) expect(src).toContain(`"${r.path}"`);
-  });
-
   it("Python", async () => {
     const src = await all("python");
-    for (const r of ROUTES) expect(src).toContain(`"${r.path}":"${r.success}"`);
-    expect(src).toContain('"PaymentDeclinedProblem"');
-    expect(src).toContain('_OP_UNION_METHODS: dict[str, str] = {"/api/peek/{account}":"get"}');
+    expect(src).toContain("class PaymentDeclinedProblem(DeclaredSchema):");
+    for (const r of ROUTES) {
+      expect(src).toContain(`class ${r.success}(DeclaredSchema):`);
+      // The route's own decorator names the split in its `responses=`.
+      const decorator = src.split("\n").find((l) => l.includes(`operation_id="${r.id}"`))!;
+      expect(decorator).toContain(`200: {"model": ${r.success}, "description": "OK"}`);
+      expect(decorator).toContain('409: {"model": ProblemDetails | PaymentDeclinedProblem');
+    }
+    expect(src).toContain('@router.get("/peek/{account}", operation_id="peek"');
   });
 });

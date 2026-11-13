@@ -1,0 +1,5 @@
+{
+  "title": "group by — grouped query-time projection (one row per group, key selects + per-group aggregates, GROUP BY/ORDER BY pushed to SQL)",
+  "doc": "language",
+  "backends": "ALL"
+}

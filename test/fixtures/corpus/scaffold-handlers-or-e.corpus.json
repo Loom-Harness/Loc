@@ -1,0 +1,5 @@
+{
+  "title": "`scaffoldHandlers` over an operation answering `T or E`: the handler returns the result",
+  "doc": "scaffold-macros",
+  "backends": "ALL"
+}

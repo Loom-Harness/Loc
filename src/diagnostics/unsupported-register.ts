@@ -312,13 +312,15 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // proves every supported cell renders and every refused one is raised.
     code: "loom.target-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/target-capability-checks.ts:744",
+    site: "src/ir/validate/checks/target-capability-checks.ts:781",
     what:
       "a construct × position, or a feature pair, its target cannot render, per the capability " +
       "table.  `DataGrid` on flutter and phoenixLiveView is a settled never (D-DATAGRID-TARGETS); " +
       "the `#feature-composition-broken` / `#feature-composition-unwitnessed` cells are gaps, " +
       "each lifted by a corpus fixture that runs the pair on that backend (#4028), and so is a " +
-      "`tenantOwned` event-sourced aggregate on node's mikroorm (`#tenant-owned-event-sourced`, #4686)",
+      "`tenantOwned` event-sourced aggregate on node's mikroorm (`#tenant-owned-event-sourced`, #4686), " +
+      "and a reference to a `tenantOwned` target persisted by a non-relational save " +
+      "(`#reference-admission-unrealized`, #5565)",
     mission: "#3592",
     verified: true,
   },
@@ -764,17 +766,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/ir/validate/checks/test-checks.ts:373",
     what: "e2e bodies accept a closed statement set (expect/let/expression/…)",
     mission: "#3378",
-    verified: true,
-  },
-  {
-    code: "loom.migration-expr-unsupported",
-    kind: "scope",
-    site: "src/ir/validate/checks/migration-checks.ts:74",
-    what:
-      "backfill exprs are a narrow validated ExprIR subset — a permanent, documented limit " +
-      "(docs/migrations.md § Data migrations), widened only for a shape a real model needs.  " +
-      "No successor: the owning item renames the code out of the suffix",
-    mission: "#4217",
     verified: true,
   },
   {

@@ -23,6 +23,7 @@ import type {
   TypeIR,
   ValueObjectIR,
   WireField,
+  WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import {
   workflowCanAnswerNotFound,
@@ -67,8 +68,8 @@ import {
   commandCreateResult,
 } from "../../../ir/util/workflow-command-route.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
-import { emissionSink } from "../../../util/emission-sink.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { emissionSink, rewrite } from "../../../util/emission-sink.js";
+import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { isReserved } from "../../../util/target-identifiers.js";
 import {
@@ -107,10 +108,11 @@ function withResolvedNotFound(statuses: readonly number[], notFoundStatus: numbe
 }
 
 // ---------------------------------------------------------------------------
-// OpenApiSpex emission for Phoenix LiveView / Ash.
+// OpenApiSpex emission for Phoenix.
 //
 // Emits:
-//   lib/<app>_web/api/<api>_spec.ex          — per-Api OpenApiSpex spec module
+//   lib/<app>_web/api/<api>_spec.ex          — spec module; paths from the router
+//   `operation` specs on the routed API controller actions (annotateApiControllers)
 //   lib/<app>_web/api/schemas/<name>.ex      — per request/response schema module
 //   lib/<app>_web/controllers/openapi_controller.ex — JSON spec controller
 //
@@ -161,6 +163,9 @@ export interface OpenApiEmitResult {
   files: Map<string, string>;
   /** New api routes to splice into the router under the existing /api scope. */
   routes: ApiRoute[];
+  /** The documented operations, for `annotateApiControllers` to declare on
+   *  the routed controller actions once every controller is emitted. */
+  operations: ElixirApiOperation[];
 }
 
 // ---------------------------------------------------------------------------
@@ -176,16 +181,13 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
 
   // Collect all aggregates, workflows across all contexts.
   const allAggregates: Array<{ ctx: EnrichedBoundedContextIR; agg: EnrichedAggregateIR }> = [];
-  const allWorkflows: Array<{
-    ctx: EnrichedBoundedContextIR;
-    wf: import("../../../ir/types/loom-ir.js").WorkflowIR;
-  }> = [];
+  const allWorkflows: Array<{ ctx: EnrichedBoundedContextIR; wf: WorkflowIR }> = [];
 
   // Observable workflows (instanceWireShape) expose the two read-only
   // instance routes + the `<Wf>Instance[List]Response` schemas — independent
   // of the command surface (an event-triggered saga has no POST route but
   // is still observable).
-  const observableWorkflows: Array<import("../../../ir/types/loom-ir.js").WorkflowIR> = [];
+  const observableWorkflows: WorkflowIR[] = [];
 
   for (const ctx of contexts) {
     for (const agg of ctx.aggregates) allAggregates.push({ ctx, agg });
@@ -257,20 +259,17 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
   const apiSnake = servedApi ? snake(servedApi) : appName;
   const apiPascal = servedApi ? upperFirst(servedApi) : appModule;
 
-  const specPath = `lib/${appName}_web/api/${apiSnake}_spec.ex`;
+  const operations = apiOperations(
+    webModule,
+    allAggregates,
+    allWorkflows,
+    observableWorkflows,
+    reqNameFor,
+    servedRoutes(args),
+  );
   files.set(
-    specPath,
-    renderApiSpec(
-      appModule,
-      webModule,
-      apiSnake,
-      apiPascal,
-      allAggregates,
-      allWorkflows,
-      observableWorkflows,
-      reqNameFor,
-      servedRoutes(args),
-    ),
+    `lib/${appName}_web/api/${apiSnake}_spec.ex`,
+    renderApiSpec(appModule, webModule, apiPascal),
   );
 
   // --- Schema modules -------------------------------------------------------
@@ -546,7 +545,7 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
     const fixed = withoutStructOnReservedKey(content);
     if (fixed !== content) files.replace(path, fixed);
   }
-  return { files, routes };
+  return { files, routes, operations };
 }
 
 /** `OpenApiSpex.schema/1` derives a STRUCT from the schema's property keys and
@@ -565,15 +564,50 @@ function withoutStructOnReservedKey(content: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Spec module renderer
+// Operation specs — one OpenApiSpex `operation` per routed API controller action
 // ---------------------------------------------------------------------------
 
-/** RFC 7807 error response-map entries (with a leading comma) for an
- *  operation kind, from the shared matrix.  Each declared 4xx/5xx response
- *  carries the `ProblemDetails` schema MODULE under `application/problem+json`
- *  — matching Hono/.NET so the conformance gate's error-response dimension
- *  compares equal. */
-function errorResponseEntries(
+/** One documented API operation: the router route it describes and the
+ *  OpenApiSpex `operation` spec its controller action declares.
+ *
+ *  `path` is relative to `scope "/api"` with params spelled `{name}`.  It only
+ *  locates the router route (method + path) whose controller action carries
+ *  the spec; the document's `paths` come from `OpenApiSpex.Paths.from_router`
+ *  over the real router, so the spec cannot publish a path the router does not
+ *  serve (D-OPENAPI-FRAMEWORK-NATIVE). */
+export interface ElixirApiOperation {
+  method: ApiRoute["method"];
+  path: string;
+  summary: string;
+  operationId: string;
+  tags: string[];
+  /** `%OpenApiSpex.Parameter{…}` literals. */
+  parameters: string[];
+  /** A `%OpenApiSpex.RequestBody{…}` literal. */
+  requestBody?: string;
+  /** `<status> => %OpenApiSpex.Response{…}` entries. */
+  responses: string[];
+}
+
+function jsonResponse(status: number, description: string, schema: string): string {
+  return `${status} => %OpenApiSpex.Response{description: ${elixirString(description)}, content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${schema}}}}`;
+}
+
+const NO_CONTENT_RESPONSE = `204 => %OpenApiSpex.Response{description: "No Content"}`;
+
+function jsonRequestBody(schema: string, required: boolean): string {
+  return `%OpenApiSpex.RequestBody{required: ${required}, content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${schema}}}}`;
+}
+
+function pathIdParam(): string {
+  return `%OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}`;
+}
+
+/** RFC 7807 error responses for an operation kind, from the shared matrix.
+ *  Each declared 4xx/5xx response carries the `ProblemDetails` schema MODULE
+ *  under `application/problem+json` — matching Hono/.NET so the conformance
+ *  gate's error-response dimension compares equal. */
+function errorResponses(
   kind: OpErrorKind,
   schemasModule: string,
   guarded = false,
@@ -584,438 +618,329 @@ function errorResponseEntries(
   /** Body facts the `kind` cannot carry — `readsAggregate` for the workflow
    *  arm's conditional not-found rung.  See `errorStatuses`. */
   opts?: { readsAggregate?: boolean },
-): string {
-  return statusResponseEntries(errorStatuses(kind, guarded, resolve, opts), schemasModule);
+): string[] {
+  return statusResponses(errorStatuses(kind, guarded, resolve, opts), schemasModule);
 }
 
-/** The same ProblemDetails response-map entries for an explicit status list —
- *  used where the status set isn't a matrix kind (a union find's absent
- *  variant status). */
-function statusResponseEntries(
+/** The same ProblemDetails responses for an explicit status list — used where
+ *  the status set isn't a matrix kind. */
+function statusResponses(
   statuses: readonly number[],
   schemasModule: string,
   /** An operation-return union's error arms by status (M-FT.24): such a
    *  status declares ProblemDetails OR the arms' problem bodies. */
   armsByStatus?: ReadonlyMap<number, readonly OpUnionErrorArm[]>,
-): string {
-  return statuses
-    .map((s) => {
-      const arms = armsByStatus?.get(s) ?? [];
-      const schema = arms.length
-        ? `%OpenApiSpex.Schema{anyOf: [${[
-            `${schemasModule}.ProblemDetails`,
-            ...arms.map((a) => `${schemasModule}.${a.problemName}`),
-          ].join(", ")}]}`
-        : `${schemasModule}.ProblemDetails`;
-      return `,
-            ${s} => %OpenApiSpex.Response{
-              description: "${exReasonPhrase(s)}",
-              content: %{"${PROBLEM_JSON}" => %OpenApiSpex.MediaType{schema: ${schema}}}
-            }`;
-    })
-    .join("");
+): string[] {
+  return statuses.map((s) => {
+    const arms = armsByStatus?.get(s) ?? [];
+    const schema = arms.length
+      ? `%OpenApiSpex.Schema{anyOf: [${[
+          `${schemasModule}.ProblemDetails`,
+          ...arms.map((a) => `${schemasModule}.${a.problemName}`),
+        ].join(", ")}]}`
+      : `${schemasModule}.ProblemDetails`;
+    return `${s} => %OpenApiSpex.Response{description: "${exReasonPhrase(s)}", content: %{"${PROBLEM_JSON}" => %OpenApiSpex.MediaType{schema: ${schema}}}}`;
+  });
 }
 
-function renderApiSpec(
-  _appModule: string,
+/** Every operation the deployable's API controllers document. */
+function apiOperations(
   webModule: string,
-  _apiSnake: string,
-  apiPascal: string,
   allAggregates: Array<{ ctx: EnrichedBoundedContextIR; agg: EnrichedAggregateIR }>,
-  allWorkflows: Array<{
-    ctx: EnrichedBoundedContextIR;
-    wf: import("../../../ir/types/loom-ir.js").WorkflowIR;
-  }>,
-  observableWorkflows: Array<import("../../../ir/types/loom-ir.js").WorkflowIR>,
+  allWorkflows: Array<{ ctx: EnrichedBoundedContextIR; wf: WorkflowIR }>,
+  observableWorkflows: WorkflowIR[],
   /** The deployable-wide request-component name lookup (F-026) -- passed in
-   *  rather than re-derived, so the spec's `$ref`s and the emitted schema
-   *  modules cannot disagree about a name. */
+   *  rather than re-derived, so the operations' `$ref`s and the emitted
+   *  schema modules cannot disagree about a name. */
   reqNameFor: (owner: RequestComponentOwner) => string,
   /** The explicit `route`s of the apis this deployable serves, each with the
    *  hosted context its handler lives in. */
-  explicitRoutes: readonly { route: RouteIR; ctx: EnrichedBoundedContextIR }[] = [],
-): string {
-  const specModule = `${webModule}.Api.${apiPascal}Spec`;
+  explicitRoutes: readonly { route: RouteIR; ctx: EnrichedBoundedContextIR }[],
+): ElixirApiOperation[] {
   const schemasModule = `${webModule}.Api.Schemas`;
+  const ops: ElixirApiOperation[] = [];
 
-  // Build paths map entries
-  const pathEntries: string[] = [];
-
-  // Workflow paths: POST /workflows/<slug>
+  // Workflow commands: POST /workflows/<slug>.  `create(…): T` answers 200
+  // with the value (`respond_result`), typed by the same type→schema map a
+  // scalar-returning operation uses.
   for (const { wf, ctx } of allWorkflows) {
-    const slug = snake(wf.name);
-    const reqMod = `${schemasModule}.${reqNameFor({ kind: "workflow", workflow: wf.name })}`;
-    // `create(…): T` answers 200 with the value (`respond_result`), typed by
-    // the same type→schema map a scalar-returning operation uses.
     const result = commandCreateResult(wf);
+    // `create(…): T or E` answers the split union's success arms.
     const entryUnion =
       commandCreateEntryResult(wf) && result?.type.kind === "union" ? result.type : undefined;
-    const success = result
-      ? `200 => %OpenApiSpex.Response{
-              description: "OK",
-              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${
-                entryUnion
-                  ? `${schemasModule}.${opUnionSuccessAlias(entryUnion.variants, ctx)}`
-                  : openApiType(result.type, schemasModule)
-              }}}
-            }`
-      : `204 => %OpenApiSpex.Response{description: "No Content"}`;
-    pathEntries.push(`      "/workflows/${slug}" => %OpenApiSpex.PathItem{
-        post: %OpenApiSpex.Operation{
-          summary: "Run ${wf.name} workflow",
-          operationId: "${camelId(opWorkflow(wf.name))}",
-          tags: ["workflows"],
-          requestBody: %OpenApiSpex.RequestBody{
-            required: ${!commandBodyOptional(wf.params)},
-            content: %{
-              "application/json" => %OpenApiSpex.MediaType{schema: ${reqMod}}
-            }
-          },
-          responses: %{
-            ${success}${errorResponseEntries(
-              "workflow",
-              schemasModule,
-              workflowIsGuarded(wf),
-              undefined,
-              {
-                readsAggregate: workflowCanAnswerNotFound(wf, ctx),
-              },
-            )}
-          }
-        }
-      }`);
+    ops.push({
+      method: "post",
+      path: `/workflows/${snake(wf.name)}`,
+      summary: `Run ${wf.name} workflow`,
+      operationId: camelId(opWorkflow(wf.name)),
+      tags: ["workflows"],
+      parameters: [],
+      requestBody: jsonRequestBody(
+        `${schemasModule}.${reqNameFor({ kind: "workflow", workflow: wf.name })}`,
+        !commandBodyOptional(wf.params),
+      ),
+      responses: [
+        result
+          ? jsonResponse(
+              200,
+              "OK",
+              entryUnion
+                ? `${schemasModule}.${opUnionSuccessAlias(entryUnion.variants, ctx)}`
+                : openApiType(result.type, schemasModule),
+            )
+          : NO_CONTENT_RESPONSE,
+        ...errorResponses("workflow", schemasModule, workflowIsGuarded(wf), undefined, {
+          readsAggregate: workflowCanAnswerNotFound(wf, ctx),
+        }),
+      ],
+    });
   }
 
-  // Observable-workflow instance paths: GET /workflows/<slug>/instances
-  // (named `<Wf>InstanceListResponse` carrier) + `/instances/{id}` (single
-  // `<Wf>InstanceResponse`, 404 when absent) — matching the other backends'
-  // read-only saga-state surface (workflow-instance-visibility.md).
+  // Observable-workflow instance reads: the named `<Wf>InstanceListResponse`
+  // carrier and the single `<Wf>InstanceResponse` (404 when absent) — the
+  // read-only saga-state surface every backend serves.
   for (const wf of observableWorkflows) {
     const slug = snake(wf.name);
     const T = upperFirst(wf.name);
-    pathEntries.push(`      "/workflows/${slug}/instances" => %OpenApiSpex.PathItem{
-        get: %OpenApiSpex.Operation{
-          summary: "List ${wf.name} instances",
-          operationId: "${camelId(opWorkflowInstances(wf.name))}",
-          tags: ["workflows"],
-          responses: %{
-            200 => %OpenApiSpex.Response{
-              description: "OK",
-              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${schemasModule}.${T}InstanceListResponse}}
-            }
-          }
-        }
-      }`);
-    pathEntries.push(`      "/workflows/${slug}/instances/{id}" => %OpenApiSpex.PathItem{
-        get: %OpenApiSpex.Operation{
-          summary: "Get ${wf.name} instance by correlation id",
-          operationId: "${camelId(opWorkflowInstanceById(wf.name))}",
-          tags: ["workflows"],
-          parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
-          ],
-          responses: %{
-            200 => %OpenApiSpex.Response{
-              description: "OK",
-              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${schemasModule}.${T}InstanceResponse}}
-            }${errorResponseEntries("getById", schemasModule)}
-          }
-        }
-      }`);
+    ops.push(
+      {
+        method: "get",
+        path: `/workflows/${slug}/instances`,
+        summary: `List ${wf.name} instances`,
+        operationId: camelId(opWorkflowInstances(wf.name)),
+        tags: ["workflows"],
+        parameters: [],
+        responses: [jsonResponse(200, "OK", `${schemasModule}.${T}InstanceListResponse`)],
+      },
+      {
+        method: "get",
+        path: `/workflows/${slug}/instances/{id}`,
+        summary: `Get ${wf.name} instance by correlation id`,
+        operationId: camelId(opWorkflowInstanceById(wf.name)),
+        tags: ["workflows"],
+        parameters: [pathIdParam()],
+        responses: [
+          jsonResponse(200, "OK", `${schemasModule}.${T}InstanceResponse`),
+          ...errorResponses("getById", schemasModule),
+        ],
+      },
+    );
   }
 
-  // Aggregate CRUD paths: GET /<plural>, GET /<plural>/{id}, POST /<plural>
-  // Note: path-template parameters use the OpenAPI `{id}` syntax (not the
-  // Plug-router `:id` form), matching the Hono/.NET emitters so the
-  // conformance parity diff treats them as the same operation.
-  // Plus per-op and per-find paths derived from the aggregate's
-  // public operations and repository finds.
   for (const { ctx, agg } of allAggregates) {
     const aggSlug = routeSegmentFor(agg.name);
-    // THE UNIFICATION SEAM (api-surface.ts): the documented paths and every
-    // declared error set below come from the same derived list the router
-    // mounts (api-emit.ts, via `servedOperationEntries`) — the spec can no
-    // longer advertise a route the router does not serve, which it has done
-    // three separate times.  An abstract base derives nothing; its read-only
-    // list/show docs below stay the elixir-local extra the router also keeps.
+    const tags = [aggSlug];
+    // THE UNIFICATION SEAM (api-surface.ts): the documented operations and
+    // every declared error set below come from the same derived list the
+    // router mounts (api-emit.ts, via `servedOperationEntries`).  An abstract
+    // base derives nothing; its read-only list/show stay the elixir-local
+    // extra the router also keeps.
     const specRepo = ctx.repositories.find((r) => r.aggregateName === agg.name);
     const derivedOps = isAbstractBase(agg)
       ? []
       : deriveAggregateOperations(agg, specRepo, apiStatusContext(ctx));
     const notFoundStatus = denialStatus("notFound", denialOverrides(ctx));
     const served = servedOperationEntries(agg, derivedOps);
-    const specPath = (o: ApiOperationIR): string => `/${aggSlug}${relativeOpPath(o)}`;
-    const respMod = `${schemasModule}.${agg.name}Response`;
-    const listRespMod = `${schemasModule}.${agg.name}ListResponse`;
-    const createReqMod = `${schemasModule}.${reqNameFor({ kind: "create", aggregate: agg.name })}`;
-    const createRespMod = `${schemasModule}.Create${agg.name}Response`;
-    // The `post` create operation is documented iff the derived create entry
-    // exists — the same gate the router mounts, so the two cannot diverge.  A
-    // non-constructible / abstract aggregate documents no create.
-    const createEntry = derivedOps.find((o) => o.kind === "create");
-    const createPost = createEntry
-      ? `,
-        post: %OpenApiSpex.Operation{
-          summary: "Create ${agg.name}",
-          operationId: "${camelId(opCreate(agg.name))}",
-          tags: ["${aggSlug}"],
-          requestBody: %OpenApiSpex.RequestBody{
-            required: ${!commandBodyOptional(createInputFields(agg))},
-            content: %{
-              "application/json" => %OpenApiSpex.MediaType{schema: ${createReqMod}}
-            }
-          },
-          responses: %{
-            201 => %OpenApiSpex.Response{
-              description: "Created",
-              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${createRespMod}}}
-            }${statusResponseEntries([...createEntry.errorStatuses], schemasModule)}
-          }
-        }`
-      : "";
-    // The implicit findAll is paged for plain single-table relational
-    // aggregates: the list 200 carries the `<Agg>Paged` envelope and the
-    // endpoint accepts `page`/`pageSize`/`sort`/`dir` query controls — matching
-    // the Hono/.NET/Java/Python paged list.  A non-paged findAll (document /
-    // embedded / inheritance subtype) keeps the bare-array `<Agg>ListResponse`.
-    const listPagedName = pagedFindName(ctx, agg);
-    const listRespRef = listPagedName ? `${schemasModule}.${listPagedName}` : listRespMod;
-    const listQueryParams = listPagedName
-      ? `
-          parameters: [
-${pagingQueryParams()}
-          ],`
-      : "";
-    // The polymorphic base read: documented iff the router mounts it.
+    const opPath = (o: ApiOperationIR): string => `/${aggSlug}${relativeOpPath(o)}`;
+    const resolved = (statuses: readonly number[]) =>
+      statusResponses(withResolvedNotFound(statuses, notFoundStatus), schemasModule);
+
     if (isAbstractBase(agg)) {
-      pathEntries.push(...polymorphicPathEntries(agg, ctx, aggSlug, schemasModule));
-    } else
-      pathEntries.push(
-        `      "/${aggSlug}" => %OpenApiSpex.PathItem{
-        get: %OpenApiSpex.Operation{
-          summary: "List ${agg.name}",
-          operationId: "${camelId(opList(agg.name))}",
-          tags: ["${aggSlug}"],${listQueryParams}
-          responses: %{
-            200 => %OpenApiSpex.Response{
-              description: "OK",
-              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${listRespRef}}}
-            }${statusResponseEntries(
-              withResolvedNotFound(
-                derivedOps.find((o) => o.kind === "find" && o.find?.name === "all")
-                  ?.errorStatuses ?? [],
-                notFoundStatus,
-              ),
-              schemasModule,
-            )}
-          }
-        }${createPost}
-      }`,
-        `      "/${aggSlug}/{id}" => %OpenApiSpex.PathItem{
-        get: %OpenApiSpex.Operation{
-          summary: "Get ${agg.name} by id",
-          operationId: "${camelId(opGetById(agg.name))}",
-          tags: ["${aggSlug}"],
-          parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
+      ops.push(...polymorphicOperations(agg, ctx, aggSlug, schemasModule));
+    } else {
+      // The implicit findAll is paged for plain single-table relational
+      // aggregates: the list 200 carries the `<Agg>Paged` envelope and the
+      // endpoint accepts `page`/`pageSize`/`sort`/`dir` query controls.  A
+      // non-paged findAll (document / embedded / inheritance subtype) keeps
+      // the bare-array `<Agg>ListResponse`.
+      const listPagedName = pagedFindName(ctx, agg);
+      ops.push({
+        method: "get",
+        path: `/${aggSlug}`,
+        summary: `List ${agg.name}`,
+        operationId: camelId(opList(agg.name)),
+        tags,
+        parameters: listPagedName ? pagingQueryParams() : [],
+        responses: [
+          jsonResponse(200, "OK", `${schemasModule}.${listPagedName ?? `${agg.name}ListResponse`}`),
+          ...resolved(
+            derivedOps.find((o) => o.kind === "find" && o.find?.name === "all")?.errorStatuses ??
+              [],
+          ),
+        ],
+      });
+      // Create is documented iff the derived create entry exists — the same
+      // gate the router mounts.
+      const createEntry = derivedOps.find((o) => o.kind === "create");
+      if (createEntry) {
+        ops.push({
+          method: "post",
+          path: `/${aggSlug}`,
+          summary: `Create ${agg.name}`,
+          operationId: camelId(opCreate(agg.name)),
+          tags,
+          parameters: [],
+          requestBody: jsonRequestBody(
+            `${schemasModule}.${reqNameFor({ kind: "create", aggregate: agg.name })}`,
+            !commandBodyOptional(createInputFields(agg)),
+          ),
+          responses: [
+            jsonResponse(201, "Created", `${schemasModule}.Create${agg.name}Response`),
+            ...statusResponses([...createEntry.errorStatuses], schemasModule),
           ],
-          responses: %{
-            200 => %OpenApiSpex.Response{
-              description: "OK",
-              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${respMod}}}
-            }${statusResponseEntries(withResolvedNotFound(derivedOps.find((o) => o.kind === "getById")?.errorStatuses ?? [exStatus("not-found")], notFoundStatus), schemasModule)}
-          }
-        }${
-          // DELETE /<aggs>/{id} — documented iff the ROUTER mounts it: the
-          // derived destroy entry AND the elixir-local `emitsRestDelete`
-          // stance (ES exclusion).  Gating on `canonicalDestroy` alone would
-          // document a DELETE the router refuses for event-sourced aggregates.
-          derivedOps.some((o) => o.kind === "destroy") && emitsRestDelete(agg)
-            ? `,
-        delete: %OpenApiSpex.Operation{
-          summary: "Destroy ${agg.name}",
-          operationId: "${camelId(opDestroy(agg.name))}",
-          tags: ["${aggSlug}"],
-          parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
-          ],
-          responses: %{
-            204 => %OpenApiSpex.Response{description: "No Content"}${statusResponseEntries(withResolvedNotFound(derivedOps.find((o) => o.kind === "destroy")!.errorStatuses, notFoundStatus), schemasModule)}
-          }
-        }`
-            : ""
-        }
-      }`,
-      );
+        });
+      }
+      ops.push({
+        method: "get",
+        path: `/${aggSlug}/{id}`,
+        summary: `Get ${agg.name} by id`,
+        operationId: camelId(opGetById(agg.name)),
+        tags,
+        parameters: [pathIdParam()],
+        responses: [
+          jsonResponse(200, "OK", `${schemasModule}.${agg.name}Response`),
+          ...resolved(
+            derivedOps.find((o) => o.kind === "getById")?.errorStatuses ?? [exStatus("not-found")],
+          ),
+        ],
+      });
+      // DELETE is documented iff the ROUTER mounts it: the derived destroy
+      // entry AND the elixir-local `emitsRestDelete` stance (ES exclusion).
+      const destroyEntry = derivedOps.find((o) => o.kind === "destroy");
+      if (destroyEntry && emitsRestDelete(agg)) {
+        ops.push({
+          method: "delete",
+          path: `/${aggSlug}/{id}`,
+          summary: `Destroy ${agg.name}`,
+          operationId: camelId(opDestroy(agg.name)),
+          tags,
+          parameters: [pathIdParam()],
+          responses: [NO_CONTENT_RESPONSE, ...resolved(destroyEntry.errorStatuses)],
+        });
+      }
+    }
 
     // Entity history (docs/audit.md) — `GET /<plural>/{id}/history`, declared
-    // off the SAME `servesHistory` predicate that mounts the route, so this
-    // backend cannot ship a third route its own spec disagrees with.  The 403
+    // off the SAME `servesHistory` predicate that mounts the route.  The 403
     // is declared only when the inherited read gate exists to produce one.
+    // The by-id read's set comes from the shared matrix: history parses the
+    // same `{id}` every other by-id route does.
     const historyFind = servesHistory(ctx, agg)
       ? (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name)?.historyFind
       : undefined;
     if (historyFind) {
-      pathEntries.push(
-        `      "/${aggSlug}/{id}/history" => %OpenApiSpex.PathItem{
-        get: %OpenApiSpex.Operation{
-          summary: "History of ${agg.name}",
-          operationId: "${camelId(opFind(agg.name, "history"))}",
-          tags: ["${aggSlug}"],
-          parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
-          ],
-          responses: %{
-            200 => %OpenApiSpex.Response{
-              description: "OK",
-              content: %{"application/json" => %OpenApiSpex.MediaType{schema: %OpenApiSpex.Schema{type: :array, items: ${schemasModule}.${AUDIT_ENTRY_TYPE}}}}
-            }${statusResponseEntries(
-              withResolvedNotFound(
-                // The by-id read's set comes from the SHARED matrix, not an
-                // inline 404: history parses the same `{id}` every other by-id
-                // route does, and hono / .NET / python all render
-                // `errorStatuses("getById")` here.  Spelling it inline is how
-                // this arm would have missed F6's 422 while the other three
-                // moved.
-                historyFind.requires
-                  ? [denialStatus("forbidden", denialOverrides(ctx)), ...errorStatuses("getById")]
-                  : [...errorStatuses("getById")],
-                notFoundStatus,
-              ),
-              schemasModule,
-            )}
-          }
-        }
-      }`,
-      );
+      ops.push({
+        method: "get",
+        path: `/${aggSlug}/{id}/history`,
+        summary: `History of ${agg.name}`,
+        operationId: camelId(opFind(agg.name, "history")),
+        tags,
+        parameters: [pathIdParam()],
+        responses: [
+          jsonResponse(
+            200,
+            "OK",
+            `%OpenApiSpex.Schema{type: :array, items: ${schemasModule}.${AUDIT_ENTRY_TYPE}}`,
+          ),
+          ...resolved(
+            historyFind.requires
+              ? [denialStatus("forbidden", denialOverrides(ctx)), ...errorStatuses("getById")]
+              : [...errorStatuses("getById")],
+          ),
+        ],
+      });
     }
 
-    // Per-operation paths — the SERVED entries, so router parity holds by
-    // construction.  Documenting every public op instead would publish the
-    // CRUD-verb-named ones the router never mounts, and the ES `update`.
+    // Per-operation routes — the SERVED entries, so router parity holds by
+    // construction.
     for (const entry of served.opEntries) {
       const op = entry.operation!;
-      const opReqMod = `${schemasModule}.${reqNameFor({ kind: "operation", aggregate: agg.name, operation: op.name })}`;
-      pathEntries.push(
-        `      "${specPath(entry)}" => %OpenApiSpex.PathItem{
-        post: %OpenApiSpex.Operation{
-          summary: "${op.name} on ${agg.name}",
-          operationId: "${camelId(opOperation(agg.name, op.name))}",
-          tags: ["${aggSlug}"],
-          parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
-          ],
-          requestBody: %OpenApiSpex.RequestBody{
-            required: ${!commandBodyOptional(op.params)},
-            content: %{
-              "application/json" => %OpenApiSpex.MediaType{schema: ${opReqMod}}
-            }
-          },
-          responses: %{
-            ${
-              // A returning op answers 200 with its value; a void op stays 204.
-              //   - union return (exception-less.md): the tagged union DTO —
-              //     matching Hono's discriminatedUnion / .NET's
-              //     [ProducesResponseType(union)].
-              //   - scalar return (`operation describe(): string`): the scalar's
-              //     own wire schema, via the SAME type→schema map the aggregate
-              //     Response emitter uses for a field (`openApiType`).  The
-              //     controller returns `json(conn, success)` at 200 for both, so
-              //     the spec must declare 200, not 204 (BUG-003).  Money rides the
-              //     field convention (`type: :string, format: :decimal`) — its
-              //     Decimal serialises to a string via Jason, matching a money
-              //     FIELD in the response body, so spec and runtime agree.
-              op.returnType
-                ? `200 => %OpenApiSpex.Response{
-              description: "OK",
-              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${
-                op.returnType.kind === "union"
-                  ? `${schemasModule}.${opUnionSuccessAlias(op.returnType.variants, ctx)}`
-                  : openApiType(op.returnType, schemasModule)
-              }}}
-            }`
-                : `204 => %OpenApiSpex.Response{description: "No Content"}`
-            }${statusResponseEntries(
-              withResolvedNotFound(entry.errorStatuses, notFoundStatus),
-              schemasModule,
-              op.returnType?.kind === "union"
-                ? new Map(
-                    opUnionResponses(op.returnType.variants, ctx).errorStatuses.map(
-                      (e) => [e.status, e.arms] as const,
-                    ),
-                  )
-                : undefined,
-            )}
-          }
-        }
-      }`,
-      );
+      // A returning op answers 200 with its value; a void op stays 204.  A
+      // union return carries the tagged union DTO; a scalar return its own
+      // wire schema via the SAME type→schema map a field uses (`openApiType`).
+      const success = op.returnType
+        ? jsonResponse(
+            200,
+            "OK",
+            op.returnType.kind === "union"
+              ? `${schemasModule}.${opUnionSuccessAlias(op.returnType.variants, ctx)}`
+              : openApiType(op.returnType, schemasModule),
+          )
+        : NO_CONTENT_RESPONSE;
+      ops.push({
+        method: "post",
+        path: opPath(entry),
+        summary: `${op.name} on ${agg.name}`,
+        operationId: camelId(opOperation(agg.name, op.name)),
+        tags,
+        parameters: [pathIdParam()],
+        requestBody: jsonRequestBody(
+          `${schemasModule}.${reqNameFor({ kind: "operation", aggregate: agg.name, operation: op.name })}`,
+          !commandBodyOptional(op.params),
+        ),
+        responses: [
+          success,
+          ...statusResponses(
+            withResolvedNotFound(entry.errorStatuses, notFoundStatus),
+            schemasModule,
+            op.returnType?.kind === "union"
+              ? new Map(
+                  opUnionResponses(op.returnType.variants, ctx).errorStatuses.map(
+                    (e) => [e.status, e.arms] as const,
+                  ),
+                )
+              : undefined,
+          ),
+        ],
+      });
       // The auto-exposed `GET /<plural>/{id}/can_<op>` companion of a
       // `when`-gated op — returns `{ allowed }` (criterion.md, use site 2).
       const probe = served.probeByOp.get(op);
       if (probe) {
-        pathEntries.push(
-          `      "${specPath(probe)}" => %OpenApiSpex.PathItem{
-        get: %OpenApiSpex.Operation{
-          summary: "can_${op.name} on ${agg.name}",
-          operationId: "${camelId(opOperation(agg.name, `can_${op.name}`))}",
-          tags: ["${aggSlug}"],
-          parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
+        ops.push({
+          method: "get",
+          path: opPath(probe),
+          summary: `can_${op.name} on ${agg.name}`,
+          operationId: camelId(opOperation(agg.name, `can_${op.name}`)),
+          tags,
+          parameters: [pathIdParam()],
+          responses: [
+            jsonResponse(200, "OK", `${schemasModule}.CanResponse`),
+            ...resolved(probe.errorStatuses),
           ],
-          responses: %{
-            200 => %OpenApiSpex.Response{
-              description: "OK",
-              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${schemasModule}.CanResponse}}
-            }${statusResponseEntries(withResolvedNotFound(probe.errorStatuses, notFoundStatus), schemasModule)}
-          }
-        }
-      }`,
-        );
+        });
       }
     }
   }
 
-  // Explicit routes, grouped per path so two methods on one path share a
-  // PathItem.  A path a derived builder above already published is skipped:
-  // the explicit route claims a derived slot only by answering it the same way.
-  const published = new Set(pathEntries.map((e) => /^ {6}"([^"]+)"/.exec(e)?.[1]));
-  const routedByPath = new Map<string, string[]>();
+  // Explicit routes.  A path a derived operation above already documents is
+  // skipped: the explicit route claims a derived slot only by answering it
+  // the same way.
+  const published = new Set(ops.map((o) => o.path));
   for (const { route, ctx } of explicitRoutes) {
     if (published.has(route.path)) continue;
     const op = routedOperation(route, ctx, schemasModule);
-    if (!op) continue;
-    routedByPath.set(route.path, [...(routedByPath.get(route.path) ?? []), op]);
+    if (op) ops.push(op);
   }
-  for (const [path, ops] of routedByPath) {
-    pathEntries.push(`      "${path}" => %OpenApiSpex.PathItem{\n${ops.join(",\n")}\n      }`);
-  }
+  return ops;
+}
 
-  // Every path item is built RELATIVE to the `scope "/api"` the router mounts
-  // it under; the published key carries the base itself (M-T6.70 / L1-E E9).
-  // Elixir used to publish `servers: [%Server{url: "/api"}]` with relative
-  // paths instead — the only backend to, since node/dotnet/java/python all
-  // path-embed `/api` — and a client given an explicit base URL (Schemathesis'
-  // `--url`) REPLACES the server base, path included, so every fuzzed request
-  // lost `/api` and landed on the LiveView/HTML routes.  Prefixing here, at
-  // the one place the entries meet, keeps each builder's path literal readable.
-  const pathsBlock =
-    pathEntries.length > 0
-      ? pathEntries.map((e) => e.replace(/^( {6})"\//, `$1"${API_BASE_PATH}/`)).join(",\n")
-      : "      # No paths — no aggregates, workflows, or views";
-
+/** The spec module: the document's `paths` derive from the router through
+ *  `OpenApiSpex.Paths.from_router/1`, which reads the `operation` spec of
+ *  every routed action that declares one; `resolve_schema_modules/1` then
+ *  registers every schema module those operations reach in `components`. */
+function renderApiSpec(appModule: string, webModule: string, apiPascal: string): string {
   return `# Auto-generated.
-defmodule ${specModule} do
+defmodule ${webModule}.Api.${apiPascal}Spec do
   @moduledoc """
   OpenApiSpex-based API spec for this deployable.
 
-  Serves the full contract: workflow endpoints, view endpoints, and
-  per-aggregate CRUD endpoints (list, get-by-id, create).
-
-  Consumed by OpenapiController to serve GET /openapi.json.
+  The paths come from the router: every routed controller action that
+  declares an \`operation\` spec is documented.  Consumed by
+  OpenapiController to serve GET /openapi.json.
   """
 
-  alias OpenApiSpex.{Info, OpenApi}
+  alias OpenApiSpex.{Info, OpenApi, Paths}
 
   @behaviour OpenApi
 
@@ -1023,17 +948,121 @@ defmodule ${specModule} do
   def spec do
     %OpenApi{
       info: %Info{
-        title: "${_appModule}",
+        title: "${appModule}",
         version: "1.0.0"
       },
-      paths: %{
-${pathsBlock}
-      }
+      paths: Paths.from_router(${webModule}.Router)
     }
     |> OpenApiSpex.resolve_schema_modules()
   end
 end
 `;
+}
+
+/** Render one action's `operation` declaration (2-space controller indent). */
+function renderOperation(action: string, op: ElixirApiOperation): string {
+  const list = (items: readonly string[]) => items.map((i) => `      ${i}`).join(",\n");
+  const keys = [
+    `summary: ${elixirString(op.summary)}`,
+    `operation_id: ${elixirString(op.operationId)}`,
+    `tags: [${op.tags.map(elixirString).join(", ")}]`,
+    ...(op.parameters.length ? [`parameters: [\n${list(op.parameters)}\n    ]`] : []),
+    ...(op.requestBody ? [`request_body: ${op.requestBody}`] : []),
+    `responses: %{\n${list(op.responses)}\n    }`,
+  ];
+  return `  operation :${action},\n${keys.map((k) => `    ${k}`).join(",\n")}\n`;
+}
+
+/** The api-relative route key a documented operation is matched by. */
+function routeKey(method: string, path: string): string {
+  return `${method} ${path.replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, "{$1}")}`;
+}
+
+/** Declare each documented operation on the controller action the router
+ *  mounts it at: `use OpenApiSpex.ControllerSpecs` plus an `operation` before
+ *  the action's first clause.  A routed action of the same controller that is
+ *  not documented declares `operation :<action>, false`, so `from_router`
+ *  skips it.  A controller with no documented action is left alone: it does
+ *  not export `open_api_operation/1`, and `from_router` skips its routes.
+ *
+ *  An operation whose route the router does not mount — a derived slot an
+ *  explicit route took over under another param name — is declared nowhere,
+ *  so the document cannot advertise a route the router does not serve.
+ *
+ *  Annotation only — no action body or route changes.  Throws when a routed
+ *  action has no clause in its controller to sit on. */
+export function annotateApiControllers(
+  out: Map<string, string>,
+  apiRoutes: readonly ApiRoute[],
+  operations: readonly ElixirApiOperation[],
+  webModule: string,
+): void {
+  if (operations.length === 0) return;
+  const byKey = new Map<string, ElixirApiOperation>();
+  for (const op of operations) {
+    const key = routeKey(op.method, op.path);
+    if (byKey.has(key)) throw new Error(`elixir openapi: two operations document ${key}`);
+    byKey.set(key, op);
+  }
+  // controller → action → its documented operation (null = routed, undocumented)
+  const perController = new Map<string, Map<string, ElixirApiOperation | null>>();
+  for (const r of apiRoutes) {
+    const action = r.action.replace(/^:/, "");
+    const actions = perController.get(r.controller) ?? new Map();
+    perController.set(r.controller, actions);
+    const scoped = !r.path.startsWith("!root:") && !r.path.startsWith("!sse:");
+    const key = routeKey(r.method, r.path);
+    const op = scoped ? byKey.get(key) : undefined;
+    if (op) {
+      const prior = actions.get(action);
+      if (prior && prior !== op)
+        throw new Error(`elixir openapi: ${r.controller}.${action} mounts two documented routes`);
+      actions.set(action, op);
+    } else if (!actions.has(action)) actions.set(action, null);
+  }
+
+  for (const [controller, actions] of perController) {
+    if (![...actions.values()].some((op) => op !== null)) continue;
+    const header = new RegExp(`^defmodule ${webModule}\\.${controller} do$`, "m");
+    const path = [...out.keys()].find((p) => header.test(out.get(p)!));
+    if (!path) throw new Error(`elixir openapi: no module ${webModule}.${controller}`);
+    rewrite(out, path, withOperations(out.get(path)!, webModule, controller, actions));
+  }
+}
+
+function withOperations(
+  content: string,
+  webModule: string,
+  controller: string,
+  actions: ReadonlyMap<string, ElixirApiOperation | null>,
+): string {
+  const lines = content.split("\n");
+  const inserts: Array<{ at: number; text: string }> = [];
+  const useAt = lines.indexOf(`  use ${webModule}, :controller`);
+  if (useAt < 0) throw new Error(`elixir openapi: ${controller} has no \`use … :controller\``);
+  inserts.push({ at: useAt + 1, text: "  use OpenApiSpex.ControllerSpecs" });
+  for (const [action, op] of actions) {
+    let at = lines.findIndex((l) => l.startsWith(`  def ${action}(`));
+    if (at < 0) throw new Error(`elixir openapi: ${controller} has no action ${action}`);
+    // Sit above the clause's leading `@doc` / comment run, so the doc stays
+    // on the action.
+    while (at > 0) {
+      const prev = lines[at - 1]!;
+      if (prev.startsWith("  @doc") || prev.startsWith("  #")) at--;
+      else if (prev === '  """') {
+        let open = at - 2;
+        while (open >= 0 && !lines[open]!.startsWith('  @doc """')) open--;
+        if (open < 0) break;
+        at = open;
+      } else break;
+    }
+    inserts.push({
+      at,
+      text: op ? renderOperation(action, op) : `  operation :${action}, false\n`,
+    });
+  }
+  for (const { at, text } of inserts.sort((a, b) => b.at - a.at)) lines.splice(at, 0, text);
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -1106,17 +1135,17 @@ function servedRoutes(args: OpenApiEmitArgs): { route: RouteIR; ctx: EnrichedBou
   );
 }
 
-/** One explicit route's `%OpenApiSpex.Operation{}` — the contract node's
- *  routed handler declares: the bare lower-first handler name as operationId,
- *  path / query params from the route template, an inline JSON body of the
- *  remaining params, the `<Agg>Response` body of a single entity return (any
- *  other return untyped, a void command 204), then 400, the context's
- *  not-found status, and 415 where a body is read. */
+/** One explicit route's operation — the contract its routed handler declares:
+ *  the bare lower-first handler name as operationId, path / query params from
+ *  the route template, an inline JSON body of the remaining params, the
+ *  `<Agg>Response` body of a single entity return (any other return untyped,
+ *  a void command 204), then 400, the context's not-found status, and 415
+ *  where a body is read. */
 function routedOperation(
   route: RouteIR,
   ctx: EnrichedBoundedContextIR,
   schemasModule: string,
-): string | undefined {
+): ElixirApiOperation | undefined {
   const h =
     (ctx.commandHandlers ?? []).find((x) => x.name === route.target.handler) ??
     (ctx.queryHandlers ?? []).find((x) => x.name === route.target.handler);
@@ -1125,30 +1154,27 @@ function routedOperation(
   const params = paged || h.extern ? h.params : flatRoutedParams(h.params, ctx);
   const source = (name: string) => routedParamSource(name, route, false);
   const required = (t: TypeIR) => (wireTypeInfo(t, "request").isNullable ? "false" : "true");
-  const paramLines = params
+  const parameters = params
     .filter((p) => source(p.name) !== "body" || paged)
     .map((p) => {
       const where = source(p.name) === "path" ? "path" : "query";
       const req = where === "path" ? "true" : required(p.type);
-      return `            %OpenApiSpex.Parameter{name: :${p.name}, in: :${where}, required: ${req}, schema: ${openApiType(p.type, schemasModule)}}`;
+      return `%OpenApiSpex.Parameter{name: :${p.name}, in: :${where}, required: ${req}, schema: ${openApiType(p.type, schemasModule)}}`;
     });
-  if (paged) paramLines.push(pagingQueryParams());
+  if (paged) parameters.push(...pagingQueryParams());
   const bodyParams = paged ? [] : params.filter((p) => source(p.name) === "body");
-  const bodyBlock =
+  const requestBody =
     bodyParams.length > 0
-      ? `
-          requestBody: %OpenApiSpex.RequestBody{
-            required: true,
-            content: %{"application/json" => %OpenApiSpex.MediaType{schema: %OpenApiSpex.Schema{
-              type: :object,
-              properties: %{${bodyParams.map((p) => `${p.name}: ${openApiType(p.type, schemasModule)}`).join(", ")}},
-              required: [${bodyParams
-                .filter((p) => required(p.type) === "true")
-                .map((p) => `:${p.name}`)
-                .join(", ")}]
-            }}}
-          },`
-      : "";
+      ? jsonRequestBody(
+          `%OpenApiSpex.Schema{type: :object, properties: %{${bodyParams
+            .map((p) => `${p.name}: ${openApiType(p.type, schemasModule)}`)
+            .join(", ")}}, required: [${bodyParams
+            .filter((p) => required(p.type) === "true")
+            .map((p) => `:${p.name}`)
+            .join(", ")}]}`,
+          true,
+        )
+      : undefined;
   const ret = normalizeHandlerReturn(h.returnType, ctx);
   let successSchema: string | undefined;
   if (ret?.kind === "union" && !h.extern) {
@@ -1163,29 +1189,21 @@ function routedOperation(
         : undefined;
     if (owning) successSchema = `${schemasModule}.${info.base}Response`;
   }
-  const success = ret
-    ? `            200 => %OpenApiSpex.Response{
-              description: "OK"${
-                successSchema
-                  ? `,
-              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${successSchema}}}`
-                  : ""
-              }
-            }`
-    : `            204 => %OpenApiSpex.Response{description: "No Content"}`;
-  const statuses = routedErrorStatuses(route, h, ctx);
-  const paramsBlock =
-    paramLines.length > 0
-      ? `\n          parameters: [\n${paramLines.join(",\n")}\n          ],`
-      : "";
-  return `        ${route.method.toLowerCase()}: %OpenApiSpex.Operation{
-          summary: "${h.name}",
-          operationId: "${h.name.charAt(0).toLowerCase()}${h.name.slice(1)}",
-          tags: ["${route.path.split("/")[1] ?? ""}"],${paramsBlock}${bodyBlock}
-          responses: %{
-${success}${statusResponseEntries(statuses, schemasModule)}
-          }
-        }`;
+  const success = !ret
+    ? NO_CONTENT_RESPONSE
+    : successSchema
+      ? jsonResponse(200, "OK", successSchema)
+      : `200 => %OpenApiSpex.Response{description: "OK"}`;
+  return {
+    method: route.method.toLowerCase() as ApiRoute["method"],
+    path: route.path,
+    summary: h.name,
+    operationId: `${h.name.charAt(0).toLowerCase()}${h.name.slice(1)}`,
+    tags: [route.path.split("/")[1] ?? ""],
+    parameters,
+    requestBody,
+    responses: [success, ...statusResponses(routedErrorStatuses(route, h, ctx), schemasModule)],
+  };
 }
 
 /** A routed handler's params with each `command`/`query` record param
@@ -1698,50 +1716,41 @@ end
 /** The documented polymorphic base read: `GET /<bases>` (paged, `page` /
  *  `pageSize` only — the read has one global `id` order) and, on TPH,
  *  `GET /<bases>/{id}`.  Empty when the router does not mount it
- *  (`routesPolymorphicRead`). */
-function polymorphicPathEntries(
+ *  (`routedPolymorphicRead`). */
+function polymorphicOperations(
   base: EnrichedAggregateIR,
   ctx: EnrichedBoundedContextIR,
   aggSlug: string,
   schemasModule: string,
-): string[] {
+): ElixirApiOperation[] {
   if (!routedPolymorphicRead(base, ctx)) return [];
-  const pageParams = pagingQueryParams().split(",\n").slice(0, 2).join(",\n");
-  const out = [
-    `      "/${aggSlug}" => %OpenApiSpex.PathItem{
-        get: %OpenApiSpex.Operation{
-          summary: "List ${base.name}",
-          operationId: "${camelId(opList(base.name))}",
-          tags: ["${aggSlug}"],
-          parameters: [
-${pageParams}
-          ],
-          responses: %{
-            200 => %OpenApiSpex.Response{
-              description: "OK",
-              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${schemasModule}.${base.name}Paged}}
-            }${statusResponseEntries([422], schemasModule)}
-          }
-        }
-      }`,
+  const out: ElixirApiOperation[] = [
+    {
+      method: "get",
+      path: `/${aggSlug}`,
+      summary: `List ${base.name}`,
+      operationId: camelId(opList(base.name)),
+      tags: [aggSlug],
+      parameters: pagingQueryParams().slice(0, 2),
+      responses: [
+        jsonResponse(200, "OK", `${schemasModule}.${base.name}Paged`),
+        ...statusResponses([422], schemasModule),
+      ],
+    },
   ];
   if (isTphBase(base, ctx.aggregates)) {
-    out.push(`      "/${aggSlug}/{id}" => %OpenApiSpex.PathItem{
-        get: %OpenApiSpex.Operation{
-          summary: "Get ${base.name} by id",
-          operationId: "${camelId(opGetById(base.name))}",
-          tags: ["${aggSlug}"],
-          parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
-          ],
-          responses: %{
-            200 => %OpenApiSpex.Response{
-              description: "OK",
-              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${schemasModule}.${base.name}Response}}
-            }${statusResponseEntries([404, 422], schemasModule)}
-          }
-        }
-      }`);
+    out.push({
+      method: "get",
+      path: `/${aggSlug}/{id}`,
+      summary: `Get ${base.name} by id`,
+      operationId: camelId(opGetById(base.name)),
+      tags: [aggSlug],
+      parameters: [pathIdParam()],
+      responses: [
+        jsonResponse(200, "OK", `${schemasModule}.${base.name}Response`),
+        ...statusResponses([404, 422], schemasModule),
+      ],
+    });
   }
   return out;
 }
@@ -1768,13 +1777,13 @@ function pagedFindName(ctx: EnrichedBoundedContextIR, agg: EnrichedAggregateIR):
  *  other four backends do (`PAGED_MAX_PAGE` / `PAGED_MAX_PAGE_SIZE`); the
  *  controller's `page_param/4` bounds to the same ceiling, so an unbounded
  *  `page * pageSize` cannot overflow the SQL `OFFSET` (schemathesis F4). */
-function pagingQueryParams(): string {
+function pagingQueryParams(): string[] {
   return [
-    `            %OpenApiSpex.Parameter{name: :page, in: :query, required: false, schema: %OpenApiSpex.Schema{type: :integer, minimum: 1, maximum: ${PAGED_MAX_PAGE}}}`,
-    `            %OpenApiSpex.Parameter{name: :pageSize, in: :query, required: false, schema: %OpenApiSpex.Schema{type: :integer, minimum: 1, maximum: ${PAGED_MAX_PAGE_SIZE}}}`,
-    "            %OpenApiSpex.Parameter{name: :sort, in: :query, required: false, schema: %OpenApiSpex.Schema{type: :string}}",
-    "            %OpenApiSpex.Parameter{name: :dir, in: :query, required: false, schema: %OpenApiSpex.Schema{type: :string}}",
-  ].join(",\n");
+    `%OpenApiSpex.Parameter{name: :page, in: :query, required: false, schema: %OpenApiSpex.Schema{type: :integer, minimum: 1, maximum: ${PAGED_MAX_PAGE}}}`,
+    `%OpenApiSpex.Parameter{name: :pageSize, in: :query, required: false, schema: %OpenApiSpex.Schema{type: :integer, minimum: 1, maximum: ${PAGED_MAX_PAGE_SIZE}}}`,
+    "%OpenApiSpex.Parameter{name: :sort, in: :query, required: false, schema: %OpenApiSpex.Schema{type: :string}}",
+    "%OpenApiSpex.Parameter{name: :dir, in: :query, required: false, schema: %OpenApiSpex.Schema{type: :string}}",
+  ];
 }
 
 /** The `<Agg>Paged` envelope schema — an object of

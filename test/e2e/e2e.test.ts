@@ -302,7 +302,7 @@ describe.skipIf(!RUN)("e2e: docker compose smoke", () => {
     // All five backends serve the same modules from showcase.ddd, so
     // their OpenAPI specs should describe the same contract.  Hono via
     // @hono/zod-openapi, .NET via Swashbuckle, Phoenix via OpenApiSpex,
-    // Python via FastAPI (+ the install_openapi parity post-processor),
+    // Python via FastAPI,
     // Java via springdoc-openapi.
     let specs: Record<string, OpenApiSpec>;
     try {

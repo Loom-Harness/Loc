@@ -175,7 +175,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/java/index.ts#emitProjectFromContexts": DECLARES_OWN,
   "src/generator/dotnet/context-scaffolding-emit.ts#emitEnums": DECLARES_OWN,
   "src/generator/java/index.ts#emitProjectFromContexts$2": ALL_CONTEXTS,
-  "src/generator/java/emit/openapi-customizer.ts#buildJavaOpenApiContract": ALL_CONTEXTS,
   "src/generator/dotnet/adapters/efcore-persistence.ts#emitDbContext": ALL_CONTEXTS,
   "src/generator/elixir/vanilla/openapi-emit.ts#emitOpenApiSpec": ALL_CONTEXTS,
   // D15: the HOSTED set that shadows `foreignValueTypes`' unhosted-sibling

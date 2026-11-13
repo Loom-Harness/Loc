@@ -240,7 +240,7 @@ resource ordersState {
 
 ### The kind ↔ storage matrix
 
-`checkDataSource` rejects a `kind` on a storage whose `type` can't serve it (an uncoded validator error — the message is built inline in `src/language/validators/datasource.ts`, not from the `loom.*` catalog). The matrix (from the sourceType registry):
+`checkDataSource` rejects a `kind` on a storage whose `type` can't serve it (`loom.resource-kind-storage-mismatch`, raised in `src/language/validators/datasource.ts`; the text is in the `loom.*` catalog). The matrix (from the sourceType registry):
 
 | kind | role | compatible storage types |
 |---|---|---|

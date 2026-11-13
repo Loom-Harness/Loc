@@ -1,0 +1,6 @@
+{
+  "title": "`let r = a.op()` over an `or Error` result, matched in a workflow body",
+  "doc": "workflow",
+  "backends": "ALL",
+  "note": "`TryPay`'s error arm saves a `Note`, so the error path COMMITS — the shape that needs the EF Core / JPA error arm to detach the account; the unchanged read-back after it is the behavioural witness.  `PayWithReceipt`'s success arm reads the op's `int` result, which elixir answers on the tagged wire and the arm unwraps."
+}

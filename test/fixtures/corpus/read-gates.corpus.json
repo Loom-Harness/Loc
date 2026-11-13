@@ -1,0 +1,5 @@
+{
+  "title": "read-side requires gates — gated list read + folded and query-time projections",
+  "doc": "auth",
+  "backends": "ALL"
+}

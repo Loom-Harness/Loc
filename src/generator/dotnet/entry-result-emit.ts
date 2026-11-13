@@ -29,6 +29,7 @@ import { lines } from "../../util/code-builder.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
 import { RFC7807_MEMBERS, type UnionMember, unionMembers } from "../_payload/union-wire.js";
 import { dtoParam, projectEntityArgs, projectToResponse, wireType } from "./dto-mapping.js";
+import { renderUnionRecordFamily, splitUnionSuccessTags } from "./union-records.js";
 import { csErrorVariantExt } from "./wire-policy-cs.js";
 
 /** The namespace the entry-result unions live in. */
@@ -75,11 +76,12 @@ export function renderEntryUnionFile(
       "",
       `namespace ${entryResultNs(ns)};`,
       "",
-      '[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]',
-      ...members.map((m) => `[JsonDerivedType(typeof(${name}_${m.tag}), "${m.tag}")]`),
-      `public abstract record ${name};`,
-      "",
-      ...members.map((m) => `public sealed record ${name}_${m.tag}(${params(m)}) : ${name};`),
+      ...renderUnionRecordFamily(
+        name,
+        members.map((m) => m.tag),
+        (tag) => params(members.find((m) => m.tag === tag)!),
+        splitUnionSuccessTags(t.variants, ctx),
+      ),
       "",
     ),
   };

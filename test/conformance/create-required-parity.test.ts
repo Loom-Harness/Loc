@@ -26,6 +26,7 @@
 
 import { describe, expect, it } from "vitest";
 import { buildLoomModel } from "../_helpers/ir.js";
+import { javaRequiredSets } from "../_helpers/java-openapi-annotations.js";
 
 /** One aggregate covering every reachable `= default` shape plus the bare
  *  `bool` implicit default, so the required set is a strict subset of the
@@ -109,13 +110,11 @@ describe("create-input required set — cross-backend parity", () => {
     expect(cs).toContain("|> __default(:onoff, true)");
   });
 
-  it("java — the OpenAPI customizer's Create request required-set matches", async () => {
+  it("java — the annotated Create request required-set matches", async () => {
     const files = await filesFor("java");
-    const cust = fileEndingWith(files, "/config/OpenApiContractCustomizer.java");
-    const m = cust.match(/new RequiredSet\("CreateThingRequest", List\.of\(([^)]*)\)\)/);
-    expect(m).not.toBeNull();
-    const required = (m![1].match(/"(\w+)"/g) ?? []).map((s) => s.replaceAll('"', ""));
-    expect(required).toEqual(EXPECTED_REQUIRED);
+    const required = javaRequiredSets(files).get("CreateThingRequest");
+    expect(required).toBeDefined();
+    expect(required).toEqual([...EXPECTED_REQUIRED].sort());
   });
 
   it("dotnet — only undefaulted request-record params carry [Required]", async () => {

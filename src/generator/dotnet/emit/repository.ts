@@ -51,6 +51,7 @@ import {
   streamScopeWhere,
 } from "./event-store.js";
 import { joinDbSetName, joinEntityName, joinFkPropName } from "./join-entities.js";
+import { efRefAdmissionLines } from "./ref-admission.js";
 import { handleSaveOverloadLines, saveInterfaceLines, saveParamsCs } from "./version-check-cs.js";
 
 /** Ardalis' `IQueryable.WithSpecification` extension (a retrieval run). */
@@ -589,6 +590,9 @@ export function renderRepositoryImpl(
       ...handleSaveOverloadLines(agg, bclTask),
       `    public async ${bclTask} SaveAsync(${agg.name} aggregate, ${saveParamsCs(agg)})`,
       "    {",
+      // Reference admission (ref-admission.ts): a refused reference throws
+      // before anything is tracked or written.
+      ...efRefAdmissionLines(agg, pool),
       // The context tracking this handle — a fork for a second load of a row
       // (see GetByIdAsync), else the scoped context.
       "        var __db = _db.TrackerOf(aggregate);",
