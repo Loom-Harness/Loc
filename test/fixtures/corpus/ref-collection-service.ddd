@@ -27,7 +27,7 @@ system RefCollectionService {
         }
       }
 
-      aggregate Match with crudish {
+      aggregate Match {
         provider: Provider id
         matched: int
         offersFirst: bool
@@ -67,5 +67,18 @@ system RefCollectionService {
     let one = api.matches.getById(api.matchProvider.run({ provider: p.id, first: neuro.id, second: derm.id }))
     expect(one.matched).toBe(1)
     expect(one.offersFirst).toBe(false)
+
+    expect(api.specialities.getById(neuro.id).name).toBe("neuro")
+    api.specialities.update(neuro.id, { name: "neurology" })
+    expect(api.providers.getById(p.id).specialities.count()).toBe(2)
+    api.providers.update(p.id, { name: "p", specialities: [neuro.id] })
+    expect(api.matches.all().total).toBe(2)
+    let spare = api.providers.create({ name: "spare", specialities: [] })
+    expect(api.providers.all().total).toBe(2)
+    api.providers.destroy(spare.id)
+    let gone = api.specialities.create({ name: "gone" })
+    expect(api.specialities.all().total).toBe(4)
+    api.specialities.destroy(gone.id)
+    expect(api.specialities.getById(gone.id)).toThrow(404)
   }
 }
