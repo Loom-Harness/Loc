@@ -1,3 +1,4 @@
+import { foldInboxPurgeSql } from "../../../ir/plan/index.js";
 import type { EventIR, FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import {
   OUTBOX_PURGE_BATCH,
@@ -1529,7 +1530,7 @@ function javaOutboxRetentionConstants(): string[] {
  *  bounded batch of dispatched rows older than the retention window.  The
  *  timestamp advances before the delete, so a failing purge (logged by the
  *  loop's catch) costs one drain tick and is retried next interval. */
-function javaOutboxPurgeMethods(): string[] {
+function javaOutboxPurgeMethods(pruneInbox = false): string[] {
   return [
     `    private long lastPurge = System.currentTimeMillis();`,
     ``,
@@ -1548,7 +1549,10 @@ function javaOutboxPurgeMethods(): string[] {
     `            return;`,
     `        }`,
     `        lastPurge = now;`,
-    `        outbox.purgeDispatchedBefore(Instant.now().minusSeconds(RETENTION_DAYS * 86_400L));`,
+    `        var cutoff = Instant.now().minusSeconds(RETENTION_DAYS * 86_400L);`,
+    `        outbox.purgeDispatchedBefore(cutoff);`,
+    // The fold inbox shares the window: a claim outlives every redelivery.
+    ...(pruneInbox ? [`        outbox.purgeFoldInboxBefore(cutoff);`] : []),
     `    }`,
     ``,
   ];
@@ -1562,6 +1566,9 @@ export function renderJavaOutboxFiles(pkgs: {
    *  the system principal of its recorded EVENT ORIGIN (ruling D1). */
   carriesOrigin?: boolean;
   basePkg?: string;
+  /** The folds claim events in the fold inbox (`foldsDedupe`): the purge
+   *  prunes it on the outbox's window. */
+  pruneInbox?: boolean;
 }): {
   name: string;
   category: "infra-persistence" | "spring-data-repository" | "config";
@@ -1682,6 +1689,15 @@ export function renderJavaOutboxFiles(pkgs: {
         `    @Transactional`,
         `    @Query(value = "DELETE FROM __loom_outbox WHERE id IN (SELECT id FROM __loom_outbox WHERE dispatched_at < :cutoff LIMIT ${OUTBOX_PURGE_BATCH})", nativeQuery = true)`,
         `    int purgeDispatchedBefore(@Param("cutoff") Instant cutoff);`,
+        ...(pkgs.pruneInbox
+          ? [
+              ``,
+              `    @Modifying`,
+              `    @Transactional`,
+              `    @Query(value = ${JSON.stringify(foldInboxPurgeSql(":cutoff"))}, nativeQuery = true)`,
+              `    int purgeFoldInboxBefore(@Param("cutoff") Instant cutoff);`,
+            ]
+          : []),
         `}`,
         ``,
       ),
@@ -1746,7 +1762,7 @@ export function renderJavaOutboxFiles(pkgs: {
         `        });`,
         `    }`,
         ``,
-        ...javaOutboxPurgeMethods(),
+        ...javaOutboxPurgeMethods(pkgs.pruneInbox),
         `    private void drain() {`,
         `        var rows = outbox.findTop50ByDispatchedAtIsNullAndDeadAtIsNullOrderByOccurredAtAsc();`,
         `        for (var row : rows) {`,
@@ -1833,6 +1849,8 @@ export function renderJavaStandaloneOutboxFiles(
     /** The deployable carries auth: rows record the EVENT ORIGIN and the
      *  relay delivers each as its system principal (ruling D1). */
     carriesOrigin?: boolean;
+    /** See `renderJavaOutboxFiles`. */
+    pruneInbox?: boolean;
   },
 ): { name: string; category: "config"; content: string }[] {
   const carriesOrigin = opts.carriesOrigin ?? false;
@@ -1989,7 +2007,7 @@ export function renderJavaStandaloneOutboxFiles(
         `        });`,
         `    }`,
         ``,
-        ...javaOutboxPurgeMethods(),
+        ...javaOutboxPurgeMethods(opts.pruneInbox),
         `    private void drain() {`,
         `        var rows = outbox.findTop50ByDispatchedAtIsNullAndDeadAtIsNullOrderByOccurredAtAsc();`,
         `        for (var row : rows) {`,

@@ -671,6 +671,7 @@ function emitProjectFromContexts(
       durableBroker: durableBrokerEvents.size > 0,
       hasSubscriptions,
       carriesOrigin: deployableCarriesAuth,
+      pruneInbox: foldsDedupe(merged, true),
     };
     out.set("Domain/Common/OutboxDelivery.cs", renderOutboxDelivery(ns));
     if (outboxUsesDapper) {

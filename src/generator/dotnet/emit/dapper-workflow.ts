@@ -24,7 +24,7 @@
 // ---------------------------------------------------------------------------
 
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
-import { eventLogTable, foldInboxClaimSql, stateRowWorkflows } from "../../../ir/plan/index.js";
+import { eventLogTable, foldInboxClaimSql, foldInboxPurgeSql, stateRowWorkflows } from "../../../ir/plan/index.js";
 import {
   isMaterializedProjection,
   isSingletonProjection,
@@ -607,7 +607,13 @@ public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
 export function renderDapperOutboxRelay(
   ns: string,
   durableTypes: readonly string[],
-  opts: { durableBroker: boolean; hasSubscriptions: boolean; carriesOrigin?: boolean } = {
+  opts: {
+    durableBroker: boolean;
+    hasSubscriptions: boolean;
+    carriesOrigin?: boolean;
+    /** See `renderOutboxRelay`. */
+    pruneInbox?: boolean;
+  } = {
     durableBroker: false,
     hasSubscriptions: true,
   },
@@ -687,7 +693,11 @@ public sealed class OutboxRelayService : BackgroundService
 ${outboxRetentionMembers(`            await using var conn = await _db.OpenConnectionAsync(cancellationToken);
             await conn.ExecuteAsync(new CommandDefinition(
                 "DELETE FROM __loom_outbox WHERE id IN (SELECT id FROM __loom_outbox WHERE dispatched_at < @cutoff LIMIT ${OUTBOX_PURGE_BATCH})",
-                new { cutoff }, cancellationToken: cancellationToken));`)}
+                new { cutoff }, cancellationToken: cancellationToken));${
+                  opts.pruneInbox
+                    ? `\n            await conn.ExecuteAsync(new CommandDefinition("${foldInboxPurgeSql("@cutoff")}", new { cutoff }, cancellationToken: cancellationToken));`
+                    : ""
+                }`)}
 
     private readonly IServiceScopeFactory _scopes;
     private readonly NpgsqlDataSource _db;${transportsField}

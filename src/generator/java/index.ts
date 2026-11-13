@@ -5,6 +5,7 @@ import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import {
   eventSourcedWorkflows,
+  foldsDedupe,
   observableWorkflows,
   stateRowWorkflows,
 } from "../../ir/plan/index.js";
@@ -409,6 +410,8 @@ function emitProjectFromContexts(
   // `queue`/`work` consumer relies on broker ack semantics + idempotent
   // reactors (the slice-3 stance).
   const hostedDurable = new Set(contexts.flatMap((c) => [...durableEventTypes(c)]));
+  // The relay purge prunes the fold inbox when a hosted fold claims events.
+  const pruneInbox = contexts.some((c) => foldsDedupe(c, true));
   // Idempotent-consumer marker carrier (dispatch-delivery-semantics.md §3): the
   // saga dispatcher's handler preamble references OutboxDelivery whenever a
   // hosted context carries a durable channel, so it must exist whether or not a
@@ -1306,6 +1309,7 @@ function emitProjectFromContexts(
       configPkg: pkgFor("config"),
       entityPkg: pkgFor("infra-persistence"),
       repoPkg: pkgFor("spring-data-repository"),
+      pruneInbox,
     })) {
       // The broker relay (OutboxRelayService) is replaced by LocalOutboxRelay;
       // reuse only the shared __loom_outbox entity + repository.
@@ -1319,6 +1323,7 @@ function emitProjectFromContexts(
       entityPkg: pkgFor("infra-persistence"),
       repoPkg: pkgFor("spring-data-repository"),
       carriesOrigin: authRequired,
+      pruneInbox,
     })) {
       place(f.name, f.category, f.content);
     }
@@ -1434,6 +1439,7 @@ function emitProjectFromContexts(
         repoPkg: pkgFor("spring-data-repository"),
         carriesOrigin: authRequired,
         basePkg,
+        pruneInbox,
       })) {
         place(f.name, f.category, f.content);
       }
