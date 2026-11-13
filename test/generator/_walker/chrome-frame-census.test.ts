@@ -32,9 +32,10 @@ const FRAME =
 const SANCTIONED = new Set(["_walker/i18n-chrome.ts"]);
 
 /** A frame that is not user-visible text (an error thrown at generate time, a
- *  log line, a developer-facing assertion), recognised by its enclosing call. */
+ *  log line, a developer-facing assertion, an OpenAPI operation `summary:` in
+ *  the published API document), recognised by its enclosing call or key. */
 const NOT_USER_VISIBLE =
-  /(?:throw new Error|message:|Exception\(|diagMessage|console\.|giveUp|`Action\(|`Form\()/;
+  /(?:throw new Error|message:|summary:|Exception\(|diagMessage|console\.|giveUp|`Action\(|`Form\()/;
 
 /** file → the frames not yet in the catalog, by a distinctive substring. */
 const KNOWN_UNCATALOGUED: Readonly<Record<string, readonly string[]>> = {

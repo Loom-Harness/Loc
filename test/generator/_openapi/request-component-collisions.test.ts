@@ -33,6 +33,7 @@ import {
   baseRequestComponentName,
   resolveRequestComponentNames,
 } from "../../../src/generator/_openapi/request-component-names.js";
+import { elixirOperationsText } from "../../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // `operation schedule` on `WorkOrder` + `workflow scheduleWorkOrder`: the
@@ -232,7 +233,7 @@ describe("phoenix request-component modules (F-026)", () => {
 
   it("points each spec path at its own module, and every $ref resolves", async () => {
     const files = await generateSystemFiles(ELIXIR_SRC);
-    const spec = [...files].find(([p]) => p.endsWith("_spec.ex"))?.[1] ?? "";
+    const spec = elixirOperationsText(files);
     expect(spec).not.toBe("");
     expect(spec).toContain("ApiWeb.Api.Schemas.WorkOrdersScheduleWorkOrderRequest");
     expect(spec).toContain("ApiWeb.Api.Schemas.WorkflowsScheduleWorkOrderRequest");
@@ -309,7 +310,7 @@ describe("phoenix create request is an owner too (F-026)", () => {
 
     // Every schema module the spec references must exist, or the app will not
     // compile — the assertion a renamed-but-unreferenced module fails.
-    const spec = [...files].find(([p]) => p.endsWith("_spec.ex"))?.[1] ?? "";
+    const spec = elixirOperationsText(files);
     const defined = new Set(
       [...files.values()]
         .flatMap((c) => [...c.matchAll(/defmodule (ApiWeb\.Api\.Schemas\.\w+) do/g)])

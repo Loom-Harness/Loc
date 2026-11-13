@@ -397,10 +397,10 @@ const SITES: Record<Platform, Site[]> = {
   elixir: [
     {
       rung: "NotFound",
-      what: "getById's DECLARED OpenApiSpex response set",
-      file: "api/a_spec.ex",
+      what: "getById's DECLARED OpenApiSpex operation response set",
+      file: "controllers/line_controller.ex",
       // Skips past the 200 success entry — the error entry is the SECOND.
-      at: /operationId: "getLineById",[\s\S]{0,600}?200 => %OpenApiSpex\.Response\{[\s\S]{0,400}?\n\s*(\d+) => %OpenApiSpex\.Response\{/,
+      at: /operation_id: "getLineById",[\s\S]{0,600}?200 => %OpenApiSpex\.Response\{[^\n]*\n\s*(\d+) => %OpenApiSpex\.Response\{/,
     },
     {
       rung: "Disallowed",
@@ -452,10 +452,10 @@ const SITES: Record<Platform, Site[]> = {
     },
     {
       rung: "Forbidden",
-      what: "the gated list read's DECLARED OpenApiSpex response set",
-      file: "api/a_spec.ex",
+      what: "the gated list read's DECLARED OpenApiSpex operation response set",
+      file: "controllers/item_controller.ex",
       // Skips past the 200 success entry — the error entry is the SECOND.
-      at: /operationId: "allItem",[\s\S]{0,1200}?200 => %OpenApiSpex\.Response\{[\s\S]{0,400}?\n\s*(?:422 => %OpenApiSpex\.Response\{[\s\S]{0,300}?\n\s*\},\n\s*)?(\d+) => %OpenApiSpex\.Response\{/,
+      at: /operation_id: "allItem",[\s\S]{0,1600}?200 => %OpenApiSpex\.Response\{[^\n]*\n\s*(?:422 => [^\n]*\n\s*)?(\d+) => %OpenApiSpex\.Response\{/,
     },
   ],
 };

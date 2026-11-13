@@ -74,13 +74,6 @@ const WAIVERS: Record<string, Waiver> = {
     reviewUntil: "2027-03-31",
     blockedBy: "#4872",
   },
-  "src/generator/elixir/": {
-    deferred:
-      "ApiSpec builds its paths map by hand; replaced by ControllerSpecs operations " +
-      "and OpenApiSpex.Paths.from_router",
-    reviewUntil: "2027-03-31",
-    blockedBy: "#4873",
-  },
 };
 
 function sourceFiles(dir: string, out: string[] = []): string[] {

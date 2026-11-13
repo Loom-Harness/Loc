@@ -29,6 +29,7 @@
 // `mix openapi.spec.json`) and agreed with the shape below.
 
 import { describe, expect, it } from "vitest";
+import { elixirDocumentedOperations } from "../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 const SOURCE = (platform: string): string => `
@@ -234,16 +235,15 @@ function fromDotnet(out: Map<string, string>): Published {
 }
 
 function fromElixir(out: Map<string, string>): Published {
-  const spec = fileEnding(out, "_web/api/a_spec.ex");
+  const documented = elixirDocumentedOperations(out);
   const moduleFile = (alias: string): string =>
     fileEnding(out, `/schemas/${alias.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase()}.ex`);
   const ops: Published["ops"] = {};
   for (const op of OPS) {
-    const i = spec.indexOf(`"/api/orders/{id}/${op}" =>`);
-    const block = spec.slice(i, spec.indexOf('"/api/orders/{id}/', i + 10));
+    const block = documented.get(`post /api/orders/{id}/${op}`)!;
     const successAlias = block.match(/200 => [\s\S]*?schema: \w+\.Api\.Schemas\.(\w+)\}/)![1]!;
     const errors: Record<string, string[]> = {};
-    for (const m of block.matchAll(/(\d{3}) => [^\n]*\n[^\n]*\n[^\n]*anyOf: \[([^\]]*)\]/g)) {
+    for (const m of block.matchAll(/(\d{3}) => [^\n]*anyOf: \[([^\]]*)\]/g)) {
       errors[m[1]!] = sorted(all(/Schemas\.(\w+)/g, m[2]!));
     }
     ops[op] = {

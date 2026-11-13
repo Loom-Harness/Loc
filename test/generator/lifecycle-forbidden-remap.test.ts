@@ -105,9 +105,10 @@ const SPELLINGS: Record<string, Spelling> = {
     arm: (s, t) => `return problem(request, ${s}, "${t}", "Forbidden", code="problem.forbidden")`,
   },
   elixir: {
-    declFile: "api/lib/api_web/api/sales_api_spec.ex",
-    createSlice: ['operationId: "createOrder"', "operationId:"],
-    destroySlice: ['operationId: "destroyOrder"', "operationId:"],
+    // Each action's `operation` spec sits on the controller; a blank line ends it.
+    declFile: "api/lib/api_web/controllers/order_controller.ex",
+    createSlice: ['operation_id: "createOrder"', "\n\n"],
+    destroySlice: ['operation_id: "destroyOrder"', "\n\n"],
     // Phoenix gates in the CONTEXT and the controller maps the typed tuple.
     arm: (s, t) => `ProblemDetails.problem_response(conn, ${s}, "${t}", `,
   },

@@ -13,6 +13,7 @@
 // default-on aggregate (no explicit capability) still advertises the 409.
 
 import { describe, expect, it } from "vitest";
+import { elixirDocumentedOperations } from "../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 const system = (platform: string, cap: string) => `
@@ -125,15 +126,13 @@ describe("versioned → 409 declared on the update op (cross-backend OpenAPI par
 
   it("Phoenix declares 409 on the /customers/{id}/update spec path", async () => {
     const files = await generateSystemFiles(system(ELIXIR, "with versioned"));
-    const spec = fileMatching(files, (p) => p.endsWith("_api_spec.ex"));
-    const win = updateWindow(spec, /"\/api\/customers\/\{id\}\/update"/);
+    const win = elixirDocumentedOperations(files).get("post /api/customers/{id}/update");
     expect(win).toContain("409 => %OpenApiSpex.Response{");
   });
 
   it("Phoenix declares 409 on the update spec path by DEFAULT (versioning default-on)", async () => {
     const files = await generateSystemFiles(system(ELIXIR, ""));
-    const spec = fileMatching(files, (p) => p.endsWith("_api_spec.ex"));
-    const win = updateWindow(spec, /"\/api\/customers\/\{id\}\/update"/);
+    const win = elixirDocumentedOperations(files).get("post /api/customers/{id}/update");
     expect(win).toContain("409 => %OpenApiSpex.Response{");
   });
 });
