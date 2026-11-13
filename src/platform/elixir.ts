@@ -103,9 +103,18 @@ const elixirPlatform: PlatformSurface = {
     listen: "dual-stack",
     log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
     // The Phoenix relay halts its pass and backs off on an unreachable broker.
-    broker: { ...BROKER_BASELINE, outboxRidesOutOutage: true },
+    broker: {
+      ...BROKER_BASELINE,
+      outboxRidesOutOutage: true,
+      reconnects: false,
+      deadLettersUnderAcl: false,
+    },
     migrations: MIGRATIONS_BASELINE,
-    gaps: withoutGaps(BROKER_BASELINE_GAPS, "broker.outboxRidesOutOutage"),
+    gaps: {
+      ...withoutGaps(BROKER_BASELINE_GAPS, "broker.outboxRidesOutOutage"),
+      "broker.reconnects": "#5386",
+      "broker.deadLettersUnderAcl": "#5397",
+    },
   },
   composeService({ slug, sys, deployable }): ComposeServiceShape {
     const database = databaseOf(sys, deployable)?.name ?? slug;

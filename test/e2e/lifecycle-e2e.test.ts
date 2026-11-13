@@ -389,11 +389,13 @@ describe.runIf(RUN)("lifecycle: reboot, regenerate, broker outage, DB pause", ()
             await shipped(after.orderId, 90_000);
           },
         );
-        if (duringOutage) {
+        // Delivery of the outage-time event is observable only through a
+        // consumer that came back.
+        if (duringOutage && resumed === "held") {
           await claim(
             ops,
             "broker.outboxRidesOutOutage",
-            broker.outboxRidesOutOutage && resumed === "held",
+            broker.outboxRidesOutOutage,
             "an event committed during the outage is delivered after it",
             async () => shipped(duringOutage, 60_000),
           );
