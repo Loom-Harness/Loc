@@ -18,6 +18,7 @@ import {
   BROKER_BASELINE_GAPS,
   MIGRATIONS_BASELINE,
   wgetHealthcheck,
+  withoutGaps,
 } from "../../operations.js";
 import { backendEnvContract } from "../../operations-env.js";
 import {
@@ -83,9 +84,11 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
         ),
       listen: "dual-stack",
       log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
-      broker: BROKER_BASELINE,
+      // An event a command commits during a broker outage is in the outbox
+      // and reaches the broker once it returns.
+      broker: { ...BROKER_BASELINE, outboxRidesOutOutage: true },
       migrations: MIGRATIONS_BASELINE,
-      gaps: BROKER_BASELINE_GAPS,
+      gaps: withoutGaps(BROKER_BASELINE_GAPS, "broker.outboxRidesOutOutage"),
     },
     composeService({ slug, deployable, sys }): ComposeServiceShape {
       const database = databaseOf(sys, deployable)?.name ?? slug;
