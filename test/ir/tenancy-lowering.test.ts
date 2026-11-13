@@ -1,4 +1,3 @@
-import { wireFieldsFor } from "../../src/ir/enrich/wire-projection.js";
 // Tenancy IR lowering — slice 1a.1 of multi-tenancy Phase 1a
 // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-implementation.md).  `tenancy by user.<claim>
 // of <Registry>` lowers to `SystemIR.tenancy: TenancyIR`; the
@@ -61,11 +60,12 @@ describe("crossTenant — AggregateIR lowering", () => {
 });
 
 describe("tenantOwned — wire / migration sanity", () => {
-  it("a `with tenantOwned` aggregate's wireShape carries tenantId and its table gains the tenant_id column", async () => {
+  it("a `with tenantOwned` aggregate carries an internal tenantId member and its table gains the tenant_id column", async () => {
     const ir = await buildLoomModel(TENANCY_SOURCE);
     const module = ir.systems[0]!.subdomains[0]!;
     const invoice = module.contexts[0]!.aggregates.find((a) => a.name === "Invoice")!;
-    expect(wireFieldsFor(invoice).map((f) => f.name)).toContain("tenantId");
+    // `tenantId` is `internal`: a domain member and a column, never an API-read row.
+    expect(invoice.fields.map((f) => f.name)).toContain("tenantId");
     // Capability fields flow into migrations automatically (phase ⑨):
     const invoices = schemaFromModule(module).tables.find((t) => t.name === "invoices")!;
     expect(invoices.columns.map((c) => c.name)).toContain("tenant_id");

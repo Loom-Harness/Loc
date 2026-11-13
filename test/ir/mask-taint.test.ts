@@ -8,14 +8,10 @@ import {
   carriesFieldMask,
   maskedReadPredicates,
 } from "../../src/ir/enrich/mask-taint.js";
-import {
-  wireFieldsForAggregate,
-  wireFieldsForPart,
-  wireMaskPlan,
-} from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { ExprIR } from "../../src/ir/types/loom-ir.js";
 import { historyDiffFields } from "../../src/ir/util/audit-history.js";
+import { responseMaskPlan, responseWireFor } from "../../src/ir/util/response-wire.js";
 import { walkExprDeep } from "../../src/ir/util/walk.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { parseString } from "../_helpers/parse.js";
@@ -49,8 +45,8 @@ async function enriched(src: string) {
 
 describe("visibility taint — read sinks", () => {
   it("a derived reading a masked field carries its mask on the wire", async () => {
-    const { agg } = await enriched(sys(`derived d: string = name + " " + ssn`));
-    const d = wireFieldsForAggregate(agg).find((w) => w.name === "d")!;
+    const { ctx, agg } = await enriched(sys(`derived d: string = name + " " + ssn`));
+    const d = responseWireFor(ctx.payloads, agg).find((w) => w.name === "d")!;
     expect(d.maskUnless).toBeDefined();
   });
 
@@ -66,8 +62,10 @@ describe("visibility taint — read sinks", () => {
   });
 
   it("a mask-free derived carries no mask", async () => {
-    const { agg } = await enriched(sys(`derived d: string = name`));
-    expect(wireFieldsForAggregate(agg).find((w) => w.name === "d")!.maskUnless).toBeUndefined();
+    const { ctx, agg } = await enriched(sys(`derived d: string = name`));
+    expect(
+      responseWireFor(ctx.payloads, agg).find((w) => w.name === "d")!.maskUnless,
+    ).toBeUndefined();
   });
 
   it("a handler read filtering on a masked field inherits the mask as a read gate", async () => {
@@ -317,14 +315,16 @@ async function partEnriched(src: string) {
 
 describe("visibility taint — contained part fields", () => {
   it("the part's wire carries the mask, and a part derived reading it inherits it", async () => {
-    const { agg } = await partEnriched(partSys(`derived label: string = body + string(internal)`));
+    const { ctx, agg } = await partEnriched(
+      partSys(`derived label: string = body + string(internal)`),
+    );
     const part = agg.parts.find((p) => p.name === "Comment")!;
-    const wire = wireFieldsForPart(part);
+    const wire = responseWireFor(ctx.payloads, part);
     expect(wire.find((w) => w.name === "internal")!.maskUnless).toBeDefined();
     expect(wire.find((w) => w.name === "label")!.maskUnless).toBeDefined();
     expect(wire.find((w) => w.name === "body")!.maskUnless).toBeUndefined();
     // The root's redaction plan reaches the part through its containment.
-    const plan = wireMaskPlan(agg, agg.parts)!;
+    const plan = responseMaskPlan(ctx.payloads, agg, agg.parts)!;
     expect(plan.fields).toEqual([]);
     expect(
       plan.nested.map((n) => [n.name, n.collection, n.plan.fields.map((f) => f.name)]),
@@ -369,8 +369,8 @@ describe("visibility taint — contained part fields", () => {
   });
 
   it("the audit-history change entry of the containment carries the part's mask", async () => {
-    const { agg } = await partEnriched(partSys(""));
-    const reviews = historyDiffFields(agg).find((w) => w.name === "comments")!;
+    const { ctx, agg } = await partEnriched(partSys(""));
+    const reviews = historyDiffFields(ctx.payloads, agg).find((w) => w.name === "comments")!;
     expect(reviews.maskUnless).toBeDefined();
   });
 

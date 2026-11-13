@@ -20,12 +20,6 @@
 // shared `unionMembers` resolver, so the wire is byte-identical to every other
 // backend's tagged union.
 
-import {
-  forApiRead,
-  wireFieldsForAggregate,
-  wireFieldsForPart,
-  wireFieldsForValueObject,
-} from "../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -45,6 +39,7 @@ import {
   auditFieldChangeWireShape,
 } from "../../ir/util/audit-history.js";
 import { isFrontendReadableProjection } from "../../ir/util/projection-read.js";
+import { responseWireFor, valueObjectWire } from "../../ir/util/response-wire.js";
 import { lines } from "../../util/code-builder.js";
 import { upperFirst } from "../../util/naming.js";
 import { type UnionMember, unionMembers } from "../_payload/union-wire.js";
@@ -215,21 +210,25 @@ export function contextsCarryProvenance(contexts: readonly BoundedContextIR[]): 
   );
 }
 
-/** The Dart wire model for an aggregate (its `wireShape`, api-read filtered),
+/** The Dart wire model for an aggregate (the rows of its declared
+ *  `<Agg>Response` record in `payloads`),
  *  (a `provenanced` property's lineage rides inside its own `Provenanced<T>`
  *  field — M-T6.12 — so there is no sibling to append). */
-export function dartRecordForAggregate(agg: AggregateIR): DartRecord {
+export function dartRecordForAggregate(
+  agg: AggregateIR,
+  payloads: readonly PayloadIR[],
+): DartRecord {
   return {
     className: upperFirst(agg.name),
-    fields: forApiRead(wireFieldsForAggregate(agg)).map(toDartField),
+    fields: responseWireFor(payloads, agg).map(toDartField),
   };
 }
 
 /** The Dart wire model for an entity part (nested containment record). */
-export function dartRecordForPart(part: EntityPartIR): DartRecord {
+export function dartRecordForPart(part: EntityPartIR, payloads: readonly PayloadIR[]): DartRecord {
   return {
     className: upperFirst(part.name),
-    fields: forApiRead(wireFieldsForPart(part)).map(toDartField),
+    fields: responseWireFor(payloads, part).map(toDartField),
   };
 }
 
@@ -237,7 +236,7 @@ export function dartRecordForPart(part: EntityPartIR): DartRecord {
 export function dartRecordForValueObject(vo: ValueObjectIR): DartRecord {
   return {
     className: upperFirst(vo.name),
-    fields: wireFieldsForValueObject(vo).map(toDartField),
+    fields: valueObjectWire(vo).map(toDartField),
   };
 }
 
@@ -566,8 +565,8 @@ export function renderDartModels(
       else addRecord(dartRecordForPayload(p));
     }
     for (const agg of ctx.aggregates) {
-      addRecord(dartRecordForAggregate(agg));
-      for (const part of agg.parts) addRecord(dartRecordForPart(part));
+      addRecord(dartRecordForAggregate(agg, ctx.payloads));
+      for (const part of agg.parts) addRecord(dartRecordForPart(part, ctx.payloads));
     }
     // Readable projections only — a keyed / folded one has no frontend route to
     // decode, so emitting its row would be a class no provider can ever fill.

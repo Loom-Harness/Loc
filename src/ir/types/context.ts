@@ -70,14 +70,15 @@ export interface PayloadIR {
    *  `unionVariantKey`.  The anonymous `A or B` form produces a `union` TypeIR
    *  inline instead of a named `PayloadIR`. */
   variants?: TypeIR[];
-  /** True for compiler-synthesized payloads (P2's per-aggregate
-   *  `<Agg>Wire`), false for author-declared ones.  Lets later
-   *  phases and the validator distinguish derived shapes from source. */
+  /** True for compiler-synthesized payloads (a monomorphized generic
+   *  carrier or anonymous union), false for author-declared and
+   *  macro-spliced ones.  Lets later phases and the validator distinguish
+   *  derived shapes from source. */
   synthesized: boolean;
   /** Set on a payload monomorphized from a generic carrier instantiation
    *  (P3b) — carries the originating `ctor` + carrier `arg` so backends can
    *  emit it as a DTO and resolve a `genericInstance` reference to this
-   *  payload's name.  Absent on `<Agg>Wire` and author payloads. */
+   *  payload's name.  Absent on author payloads. */
   generic?: { ctor: GenericCtorName; arg: TypeIR };
 }
 
@@ -329,11 +330,13 @@ export interface BoundedContextIR extends Sourced {
   enums: EnumIR[];
   valueObjects: ValueObjectIR[];
   events: EventIR[];
-  /** Unified payload-family view (payload-transport-layer.md, P1+P2):
-   *  author-declared `PayloadDecl`s (payload/command/query/response/error),
-   *  the context's `event`s projected in with `kind: "event"`, and the
-   *  P2 synthesized per-aggregate `<Agg>Wire` payloads.  `events` stays
-   *  populated independently so existing event emission is untouched. */
+  /** Unified payload-family view (payload-transport-layer.md, P1):
+   *  author-declared and macro-spliced `PayloadDecl`s
+   *  (payload/command/query/response/error — the `<Agg>Response` read
+   *  records among them), the context's `event`s projected in with
+   *  `kind: "event"`, and the synthesized generic / union payloads.
+   *  `events` stays populated independently so existing event emission is
+   *  untouched. */
   payloads: PayloadIR[];
   aggregates: AggregateIR[];
   repositories: RepositoryIR[];

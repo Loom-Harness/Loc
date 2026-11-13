@@ -1,5 +1,4 @@
 import { streamTenancyFor } from "../../ir/enrich/stream-tenancy.js";
-import { wireFieldsForAggregate } from "../../ir/enrich/wire-projection.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
@@ -11,6 +10,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { responseWireFor } from "../../ir/util/response-wire.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
@@ -287,7 +287,7 @@ export function buildPyEventSourcedRepositoryFile(
     // its saving shape; only the relational builder emitted it.  The shared
     // helper projects through `to_wire`, which `toWireStub` above emits, so an
     // event-sourced aggregate needs nothing shape-specific either.
-    ...(aggHasFieldMask(agg) ? [toWireMaskedMethod(agg)] : []),
+    ...(aggHasFieldMask(agg) ? [toWireMaskedMethod(agg, ctx.payloads)] : []),
   );
 
   return lines(
@@ -561,7 +561,7 @@ function toWireStub(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
   // The wire shape of an eventLog aggregate: id + properties + derived
   // (no containments — eventLog v1 gates parts off at the validator).
   const pairs: string[] = [`"id": root.id`];
-  for (const wf of wireFieldsForAggregate(agg)) {
+  for (const wf of responseWireFor(ctx.payloads, agg)) {
     if (wf.source === "id" || wf.source === "containment") continue;
     const access = `root.${pythonIdent(wf.name)}`;
     const inner = wf.type.kind === "optional" ? wf.type.inner : wf.type;

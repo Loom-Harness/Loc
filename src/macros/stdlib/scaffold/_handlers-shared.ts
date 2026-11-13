@@ -24,6 +24,8 @@ import type {
   Destroy,
   HttpMethod,
   Operation,
+  Parameter,
+  Property,
   Repository,
 } from "../../../language/generated/ast.js";
 import {
@@ -34,8 +36,8 @@ import {
   isRepository,
 } from "../../../language/generated/ast.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
-
 import { routeSegmentFor } from "../../../util/storage-names.js";
+import { createInputProperties } from "../../api/index.js";
 /** The id parameter name a generated handler takes: `<agg>Id` (`Order` →
  * `orderId`).  Deliberately NOT `id` — a bare `id` handler param is reserved
  * (`loom.handler-param-reserved-id`). */
@@ -161,24 +163,71 @@ export function unservedAggregateMessages(ctx: BoundedContext): string[] {
  * backend didn't generate. */
 export function handlerTargets(ctx: BoundedContext): HandlerTarget[] {
   const out: HandlerTarget[] = [];
-  for (const { agg, repo } of partitionAggregates(ctx).served) {
-    // Read side first: get-by-id.
-    out.push({ kind: "getById", agg, repo });
-    // Write side: each `create` factory action.  Creates are never `private`.
-    for (const create of (agg.members ?? []).filter(isCreate)) {
-      out.push({ kind: "create", agg, repo, create });
-    }
-    // Public operations only — `private operation`s are internal helpers.
-    for (const op of (agg.members ?? []).filter(isOperation)) {
-      if (op.private) continue;
-      out.push({ kind: "operation", agg, repo, op });
-    }
-    // Destroy: only when a canonical `destroy { }` is present (so the repo emits
-    // the delete verb the handler body calls).  DELETE /<coll>/{<agg>Id}.
-    const destroy = canonicalDestroyOf(agg);
-    if (destroy) out.push({ kind: "destroy", agg, repo, destroy });
+  for (const { agg, repo } of partitionAggregates(ctx).served) out.push(...targetsOf(agg, repo));
+  return out;
+}
+
+/** A target as a request contract sees it: the same kinds, without the
+ *  repository a handler body loads through. */
+export type RequestTarget =
+  | { readonly kind: "operation"; readonly agg: Aggregate; readonly op: Operation }
+  | { readonly kind: "create"; readonly agg: Aggregate; readonly create: Create }
+  | { readonly kind: "getById"; readonly agg: Aggregate }
+  | { readonly kind: "destroy"; readonly agg: Aggregate; readonly destroy: Destroy };
+
+/** Every request the context's deployable serves, one per target kind of
+ *  each concrete aggregate — served or not.  An aggregate with no
+ *  `repository` in source is still served: enrichment gives every concrete
+ *  aggregate a repository, so its create / operation / destroy / get-by-id
+ *  routes exist, and so must their request contracts.  An `abstract` base is
+ *  never instantiated and serves nothing. */
+export function requestTargets(ctx: BoundedContext): RequestTarget[] {
+  const out: RequestTarget[] = [];
+  for (const agg of (ctx.members ?? []).filter(isAggregate)) {
+    if (agg.isAbstract) continue;
+    out.push(...targetsOf(agg, undefined));
   }
   return out;
+}
+
+function targetsOf(agg: Aggregate, repo: Repository): HandlerTarget[];
+function targetsOf(agg: Aggregate, repo: undefined): RequestTarget[];
+function targetsOf(
+  agg: Aggregate,
+  repo: Repository | undefined,
+): (HandlerTarget | RequestTarget)[] {
+  const out: (HandlerTarget | RequestTarget)[] = [];
+  // Read side first: get-by-id.
+  out.push(repo ? { kind: "getById", agg, repo } : { kind: "getById", agg });
+  // Write side: each `create` factory action.  Creates are never `private`.
+  for (const create of (agg.members ?? []).filter(isCreate)) {
+    out.push(repo ? { kind: "create", agg, repo, create } : { kind: "create", agg, create });
+  }
+  // Public operations only — `private operation`s are internal helpers.
+  for (const op of (agg.members ?? []).filter(isOperation)) {
+    if (op.private) continue;
+    out.push(repo ? { kind: "operation", agg, repo, op } : { kind: "operation", agg, op });
+  }
+  // Destroy: only when a canonical `destroy { }` is present (so the repo emits
+  // the delete verb the handler body calls).  DELETE /<coll>/{<agg>Id}.
+  const destroy = canonicalDestroyOf(agg);
+  if (destroy)
+    out.push(repo ? { kind: "destroy", agg, repo, destroy } : { kind: "destroy", agg, destroy });
+  return out;
+}
+
+/** The members a create request carries, matching the IR input every
+ *  backend's request DTO renders: an event-sourced aggregate's create takes its
+ *  action's params (there is no field-derived factory), any other the
+ *  create-input fields.  The command record lists the inherited fields too; the
+ *  handler that reads it passes only the aggregate's own (`inherited: false`),
+ *  because the AST factory-call check does not see inherited create inputs. */
+export function createRequestMembers(
+  agg: Aggregate,
+  create: Create,
+  opts: { inherited: boolean } = { inherited: true },
+): readonly (Property | Parameter)[] {
+  return agg.persistedAs === "eventLog" ? create.params : createInputProperties(agg, opts);
 }
 
 /** The derived handler name for a target — the single source of truth both
@@ -193,7 +242,7 @@ export function handlerTargets(ctx: BoundedContext): HandlerTarget[] {
  *
  * Every kind is aggregate-QUALIFIED (the aggregate name is the suffix), so two
  * aggregates in one context never mint the same handler name. */
-export function targetHandlerName(t: HandlerTarget): string {
+export function targetHandlerName(t: HandlerTarget | RequestTarget): string {
   switch (t.kind) {
     case "operation":
       return handlerName(t.op.name, t.agg.name);

@@ -6,7 +6,7 @@
 // `<resource>_<operation_id>/N` per operation the CALLEE exposes, replacing the
 // untyped `get(path)` / `post(path, body)` verbs the `storage restApi` binding
 // carries.  Paths come from `deriveContextOperations`, the response shape from
-// `forApiRead(wireFieldsForAggregate(...))` — the same two derivations every
+// the callee's declared response record — the same two derivations every
 // other client reads, so none of them can drift from the callee.
 //
 // The boundary check is a PROJECTION, not a schema parse.  `Req` decodes JSON
@@ -27,8 +27,7 @@
 // ---------------------------------------------------------------------------
 
 import { apiCallPrincipal } from "../../ir/enrich/hosting-facts.js";
-import { forApiRead, wireFieldsForAggregate } from "../../ir/enrich/wire-projection.js";
-import type { AggregateIR, SystemIR } from "../../ir/types/loom-ir.js";
+import type { SystemIR } from "../../ir/types/loom-ir.js";
 import { type ApiResourceBinding, servedContextsFor } from "../../ir/util/api-resource-binding.js";
 import {
   type ApiOperationIR,
@@ -36,22 +35,13 @@ import {
   collectionSuccess,
   deriveContextOperations,
 } from "../../ir/util/api-surface.js";
+import { aggregateHome, responseWireFor } from "../../ir/util/response-wire.js";
 import { escapeElixirIdent, snake } from "../../util/naming.js";
 import { resourceEnvUrlVar } from "../../util/resource-env.js";
 
 /** The module the render layer calls into. */
 export function apiClientModuleName(appModule: string): string {
   return `${appModule}.Resources.ApiClients`;
-}
-
-function aggregateNamed(sys: SystemIR, name: string): AggregateIR | undefined {
-  for (const sd of sys.subdomains) {
-    for (const ctx of sd.contexts) {
-      const agg = ctx.aggregates.find((a) => a.name === name);
-      if (agg) return agg;
-    }
-  }
-  return undefined;
 }
 
 /** `/api/orders/{id}` → an Elixir string expression with path params encoded. */
@@ -127,7 +117,8 @@ export function emitElixirApiClients(
         const coll = collectionSuccess(op.responseType);
         const respAgg =
           op.responseType?.kind === "entity" ? op.responseType.name : (absentAgg ?? coll?.agg);
-        const agg = respAgg ? aggregateNamed(sys, respAgg) : undefined;
+        const home = respAgg ? aggregateHome(sys, respAgg) : undefined;
+        const agg = home?.agg;
 
         const bodyParams = op.params.filter((p) => p.location === "body");
         // Two body shapes, both derived (api-surface.ts): `create` carries ONE
@@ -203,7 +194,7 @@ export function emitElixirApiClients(
           // Project the STRING-keyed decoded body onto atom keys naming the
           // callee's wire fields — `o.code` in domain code is map-dot, which
           // only resolves atom keys.  Every key here is a compile-time literal.
-          const fields = forApiRead(wireFieldsForAggregate(agg));
+          const fields = responseWireFor(home!.payloads, agg);
           // A collection projects EACH row through the same atom-key map, so
           // the row projection is built once and mapped.  `payload` is the
           // decoded body: the envelope for `paged`, the array itself otherwise.

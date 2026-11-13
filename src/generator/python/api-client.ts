@@ -8,7 +8,7 @@
 //
 // Both halves are derived, so neither can drift from the callee:
 //   - paths from `deriveContextOperations` (what the callee actually mounts),
-//   - the response model from `forApiRead(wireFieldsForAggregate(...))` (the
+//   - the response model from the callee's declared response record (the
 //     field list the callee serializes).
 //
 // pydantic's `model_validate` is the direct analogue of the Hono client's
@@ -18,8 +18,7 @@
 // ---------------------------------------------------------------------------
 
 import { apiCallPrincipal } from "../../ir/enrich/hosting-facts.js";
-import { forApiRead, wireFieldsForAggregate } from "../../ir/enrich/wire-projection.js";
-import type { AggregateIR, SystemIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { AggregateIR, PayloadIR, SystemIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { type ApiResourceBinding, servedContextsFor } from "../../ir/util/api-resource-binding.js";
 import {
   type ApiOperationIR,
@@ -27,6 +26,7 @@ import {
   collectionSuccess,
   deriveContextOperations,
 } from "../../ir/util/api-surface.js";
+import { aggregateHome, responseWireFor } from "../../ir/util/response-wire.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { resourceEnvUrlVar } from "../../util/resource-env.js";
@@ -34,16 +34,6 @@ import { renderPyType } from "./render-expr.js";
 
 /** The aggregate an operation answers with — looked up ACROSS the system, since
  *  the callee's context belongs to a different deployable. */
-function aggregateNamed(sys: SystemIR, name: string): AggregateIR | undefined {
-  for (const sd of sys.subdomains) {
-    for (const ctx of sd.contexts) {
-      const agg = ctx.aggregates.find((a) => a.name === name);
-      if (agg) return agg;
-    }
-  }
-  return undefined;
-}
-
 /** Python parameter type.  Ids and path/query scalars ride the wire as `str`;
  *  an entity-typed body is the callee's createInput projection, which the
  *  caller does not model — `object` rather than a false precision. */
@@ -87,9 +77,13 @@ function pathExpr(op: ApiOperationIR): string {
  *  `| None` off the flag on top of that emitted `FileRef | None | None` — not
  *  a type pydantic can build.  So the annotation is rendered from the UNWRAPPED
  *  type and the suffix applied exactly once, from either channel. */
-function responseModel(agg: AggregateIR, modelName: string): string[] {
+function responseModel(
+  agg: AggregateIR,
+  payloads: readonly PayloadIR[],
+  modelName: string,
+): string[] {
   const out: string[] = [`class ${modelName}(BaseModel):`];
-  const fields = forApiRead(wireFieldsForAggregate(agg));
+  const fields = responseWireFor(payloads, agg);
   if (fields.length === 0) out.push("    pass");
   for (const wf of fields) {
     const nullable = wf.optional || wf.type.kind === "optional";
@@ -161,11 +155,12 @@ export function emitPythonApiClients(
         const coll = collectionSuccess(op.responseType);
         const respAgg =
           op.responseType?.kind === "entity" ? op.responseType.name : (absentAgg ?? coll?.agg);
-        const agg = respAgg ? aggregateNamed(sys, respAgg) : undefined;
+        const home = respAgg ? aggregateHome(sys, respAgg) : undefined;
+        const agg = home?.agg;
         const modelName = agg ? `${agg.name}Response` : undefined;
         if (agg && modelName && !emittedModels.has(modelName)) {
           emittedModels.add(modelName);
-          body.push(...responseModel(agg, modelName), "", "");
+          body.push(...responseModel(agg, home!.payloads, modelName), "", "");
         }
         // The paged envelope mirrors the callee's `<Agg>Paged` field for field.
         // The SHIPPED create route answers `201 {id}` — not the whole entity

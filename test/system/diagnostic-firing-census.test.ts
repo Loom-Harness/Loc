@@ -888,6 +888,19 @@ system S {
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
 }`,
+  // A response record field must name a readable member of its aggregate.
+  "loom.payload-response-field": `
+system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    response PResponse { name: string  nickname: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
+}`,
   // A payload field has no serializer of its own: masks come from the aggregate.
   "loom.field-mask-on-payload": `
 system S {

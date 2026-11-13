@@ -133,6 +133,235 @@ exports[`wire-spec.json > emits the expected document shape for examples/acme.dd
       "type": "object",
     },
   },
+  "requests": {
+    "AddLineOrderCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "productId": {
+          "format": "uuid",
+          "type": "string",
+        },
+        "qty": {
+          "type": "integer",
+        },
+      },
+      "required": [
+        "productId",
+        "qty",
+      ],
+      "type": "object",
+    },
+    "ConfirmOrderCommand": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object",
+    },
+    "CreateCustomerCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "age": {
+          "type": "integer",
+        },
+        "email": {
+          "type": "string",
+        },
+        "username": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "username",
+        "email",
+        "age",
+      ],
+      "type": "object",
+    },
+    "CreateOrderCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "customerId": {
+          "type": "string",
+        },
+        "placedAt": {
+          "format": "date-time",
+          "type": "string",
+        },
+        "status": {
+          "enum": [
+            "Draft",
+            "Confirmed",
+            "Shipped",
+            "Cancelled",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "customerId",
+        "status",
+        "placedAt",
+      ],
+      "type": "object",
+    },
+    "CreateProductCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "price": {
+          "$ref": "#/valueObjects/Money",
+        },
+        "sku": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "sku",
+        "price",
+      ],
+      "type": "object",
+    },
+    "DestroyCustomerCommand": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object",
+    },
+    "DestroyOrderCommand": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object",
+    },
+    "DestroyProductCommand": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object",
+    },
+    "GetCustomerQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "customerId": {
+          "format": "uuid",
+          "type": "string",
+        },
+      },
+      "required": [
+        "customerId",
+      ],
+      "type": "object",
+    },
+    "GetOrderQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "orderId": {
+          "format": "uuid",
+          "type": "string",
+        },
+      },
+      "required": [
+        "orderId",
+      ],
+      "type": "object",
+    },
+    "GetProductQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "productId": {
+          "format": "uuid",
+          "type": "string",
+        },
+      },
+      "required": [
+        "productId",
+      ],
+      "type": "object",
+    },
+    "PlaceOrderCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "customerId": {
+          "type": "string",
+        },
+        "productId": {
+          "format": "uuid",
+          "type": "string",
+        },
+        "quantity": {
+          "type": "integer",
+        },
+      },
+      "required": [
+        "customerId",
+        "productId",
+        "quantity",
+      ],
+      "type": "object",
+    },
+    "UpdateCustomerCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "age": {
+          "type": "integer",
+        },
+        "email": {
+          "type": "string",
+        },
+        "username": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "username",
+        "email",
+        "age",
+      ],
+      "type": "object",
+    },
+    "UpdateOrderCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "customerId": {
+          "type": "string",
+        },
+        "placedAt": {
+          "format": "date-time",
+          "type": "string",
+        },
+        "status": {
+          "enum": [
+            "Draft",
+            "Confirmed",
+            "Shipped",
+            "Cancelled",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "customerId",
+        "status",
+        "placedAt",
+      ],
+      "type": "object",
+    },
+    "UpdateProductCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "price": {
+          "$ref": "#/valueObjects/Money",
+        },
+        "sku": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "sku",
+        "price",
+      ],
+      "type": "object",
+    },
+  },
   "system": "Acme",
   "valueObjects": {
     "Money": {

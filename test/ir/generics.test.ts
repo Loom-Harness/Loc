@@ -103,7 +103,7 @@ describe("generics — stdlib shape registry (P3a)", () => {
   it("exposes exactly the blessed closed set", () => {
     // `paged` is the AUTHOR-WRITTEN carrier with a `GenericCtor` grammar arm; `provenanced` (M-T6.12) is the compiler-synthesized wire
     // carrier for a `provenanced` field — no grammar arm, stamped into
-    // `wireShape` by `wireTypeForField` and rendered structurally rather than
+    // `wireShape` by `responseWireFor` and rendered structurally rather than
     // monomorphized to a named payload.
     expect(Object.keys(GENERIC_SHAPES).sort()).toEqual(["paged", "provenanced"]);
   });

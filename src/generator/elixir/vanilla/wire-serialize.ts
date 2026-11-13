@@ -28,14 +28,7 @@
 // the aggregate has ref-collection fields).
 // ---------------------------------------------------------------------------
 
-import {
-  forApiRead,
-  type WireMaskPlan,
-  wireFieldsForAggregate,
-  wireFieldsForPart,
-  wireFieldsForValueObject,
-  wireMaskPlan,
-} from "../../../ir/enrich/wire-projection.js";
+import { forApiRead } from "../../../ir/enrich/wire-projection.js";
 import { provenancedCarrier } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -49,6 +42,12 @@ import type {
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import type { WireMaskPlan } from "../../../ir/util/response-wire.js";
+import {
+  responseMaskPlan,
+  responseWireFor,
+  valueObjectWire,
+} from "../../../ir/util/response-wire.js";
 import { snake } from "../../../util/naming.js";
 import { provenancedEntries } from "../../_payload/provenanced-wire.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -294,17 +293,13 @@ export function renderWireSerialize(
   ctx: BoundedContextIR,
   opts: WireSerializeOpts = {},
 ): WireSerializeResult {
-  // RS-25 — the API-read projection, NOT the raw wire shape.  `forApiRead`
-  // drops `access: internal` / `access: secret` fields; every other backend
-  // applies it on the read boundary (and vanilla's own OpenAPI emitter already
-  // did), so skipping it here leaked exactly the fields the modifier exists to
-  // hide.  `tenantOwned`'s `tenantId` is `internal`, so a
-  // multi-tenant aggregate shipped its tenant key to the client on every GET —
-  // and the SERVED SPEC said it wouldn't.  A `secret` field (password hash,
-  // API key) leaked the same way.
+  // RS-25 — the declared response record's rows, the API-read contract every
+  // backend serves: an `internal` / `secret` field (`tenantOwned`'s
+  // `tenantId`, a password hash) is never a record field
+  // (`loom.payload-response-field`), so it never reaches the wire.
   return renderShapeSerialize(
     {
-      wireShape: forApiRead(wireFieldsForAggregate(agg)),
+      wireShape: responseWireFor(ctx.payloads, agg),
       parts: agg.parts,
       derived: agg.derived,
       agg,
@@ -368,7 +363,7 @@ function renderShapeSerialize(
   const sfx = opts.nameSuffix ? `_${snake(opts.nameSuffix)}` : "";
   const wireShape = root.wireShape;
   const parts = new Map<string, WireField[]>(
-    root.parts.map((p) => [p.name, forApiRead(wireFieldsForPart(p))]),
+    root.parts.map((p) => [p.name, responseWireFor(ctx.payloads, p)]),
   );
   // The POOL, not `ctx.valueObjects`: the wire shape spans contexts, so a field
   // typed with a value object declared in a sibling context is serialized here
@@ -376,7 +371,7 @@ function renderShapeSerialize(
   // an undefined function.  Own names shadow; helpers are still emitted only
   // for the VOs the shape actually reaches.
   const vos = new Map<string, WireField[]>(
-    valueObjectPool(ctx).map((v) => [v.name, forApiRead(wireFieldsForValueObject(v))]),
+    valueObjectPool(ctx).map((v) => [v.name, forApiRead(valueObjectWire(v))]),
   );
 
   // Derived wire fields are COMPUTED (not stored columns) — every other backend
@@ -592,13 +587,13 @@ function renderShapeSerialize(
   if (usedDecimal) helpers.set("__decimal_num", elixirDecimalNumHelper());
 
   // `mask unless` read redaction (authorization.md §5): the masked wire members
-  // — on the root and on every contained part (`wireMaskPlan`) — projected
+  // — on the root and on every contained part (`responseMaskPlan`) — projected
   // fail-closed against the ambient principal.  When present, the raw map moves
   // to `serialize_unmasked/1` (audit snapshots project through it, unredacted)
   // and `serialize/1` delegates to it, then nils each masked key unless the
   // caller satisfies its predicate.  A mask-free aggregate keeps the single
   // unmasked `serialize/1` verbatim (byte-identical).
-  const plan = root.agg ? wireMaskPlan(root.agg, root.parts) : undefined;
+  const plan = root.agg ? responseMaskPlan(ctx.payloads, root.agg, root.parts) : undefined;
   if (!plan) {
     const serialize = `  defp serialize${sfx}(${headVar}) do\n${preludeBind}${body}\n  end`;
     return { serialize, body, helpers: [...helpers.values()], masked: false };

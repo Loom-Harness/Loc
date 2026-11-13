@@ -1,4 +1,3 @@
-import { wireFieldsFor } from "../../../src/ir/enrich/wire-projection.js";
 // Hand-written capability declarations produce identical IR to
 // macro-emitted ones.  This is the "macros are sugar" proof: every
 // macro contribution can be replaced by direct source.  If this
@@ -8,7 +7,7 @@ import { wireFieldsFor } from "../../../src/ir/enrich/wire-projection.js";
 
 import { describe, expect, it } from "vitest";
 import type { AggregateIR, EnrichedLoomModel } from "../../../src/ir/types/loom-ir.js";
-import { buildLoomModel } from "../../_helpers/ir.js";
+import { buildHostedModel, buildLoomModel, responseRows } from "../../_helpers/ir.js";
 
 function findAgg(ir: EnrichedLoomModel, name: string): AggregateIR {
   for (const s of ir.systems) {
@@ -88,7 +87,7 @@ describe("source-level capabilities (hand-written, no macro)", () => {
   it("the `softDeletable` capability == hand-written state + filter", async () => {
     // The built-in capability co-locates state + filter on the aggregate;
     // hand-writing the same fields + `filter` yields matching IR.
-    const handIR = await buildLoomModel(`
+    const handIR = await buildHostedModel(`
       system Demo {
         subdomain M { context C {
           aggregate Order {
@@ -100,7 +99,7 @@ describe("source-level capabilities (hand-written, no macro)", () => {
         }}
       }
     `);
-    const capIR = await buildLoomModel(`
+    const capIR = await buildHostedModel(`
       system Demo {
         subdomain M { context C {
           aggregate Order with softDeletable {
@@ -114,7 +113,9 @@ describe("source-level capabilities (hand-written, no macro)", () => {
     expect(JSON.stringify(stripOrigin(hand.contextFilters))).toEqual(
       JSON.stringify(stripOrigin(cap.contextFilters)),
     );
-    expect(wireFieldsFor(hand).map((f) => f.name)).toEqual(wireFieldsFor(cap).map((f) => f.name));
+    expect(responseRows(handIR, hand).map((f) => f.name)).toEqual(
+      responseRows(capIR, cap).map((f) => f.name),
+    );
   });
 });
 
@@ -191,7 +192,7 @@ describe("context-level filter propagation", () => {
 
 describe("macro-call composition: `*ByDefault` context macros", () => {
   it("`with softDeleteByDefault` fans state + filter + ops across every aggregate", async () => {
-    const ir = await buildLoomModel(`
+    const ir = await buildHostedModel(`
       system Demo {
         subdomain M { context C with softDeleteByDefault {
           aggregate Order { subject: string }
@@ -202,9 +203,11 @@ describe("macro-call composition: `*ByDefault` context macros", () => {
     for (const name of ["Order", "Customer"]) {
       const agg = findAgg(ir, name);
       expect(agg.contextFilters?.length).toBe(1);
-      expect(wireFieldsFor(agg).map((f) => f.name)).toEqual(
+      // `isDeleted` is the internal filter flag (a domain member); `deletedAt` is the API-read row.
+      expect(agg.fields.map((f) => f.name)).toEqual(
         expect.arrayContaining(["isDeleted", "deletedAt"]),
       );
+      expect(responseRows(ir, agg).map((f) => f.name)).toContain("deletedAt");
       expect((agg.operations ?? []).map((o) => o.name)).toEqual(
         expect.arrayContaining(["softDelete", "restore"]),
       );
@@ -212,14 +215,14 @@ describe("macro-call composition: `*ByDefault` context macros", () => {
   });
 
   it("`softDeleteByDefault` matches explicit `with softDeletable, softDelete` per aggregate", async () => {
-    const byDefault = await buildLoomModel(`
+    const byDefault = await buildHostedModel(`
       system Demo {
         subdomain M { context C with softDeleteByDefault {
           aggregate Order { subject: string }
         }}
       }
     `);
-    const explicit = await buildLoomModel(`
+    const explicit = await buildHostedModel(`
       system Demo {
         subdomain M { context C {
           aggregate Order with softDeletable, softDelete { subject: string }
@@ -229,8 +232,8 @@ describe("macro-call composition: `*ByDefault` context macros", () => {
     const orderD = findAgg(byDefault, "Order");
     const orderE = findAgg(explicit, "Order");
     expect(JSON.stringify(orderD.contextFilters)).toEqual(JSON.stringify(orderE.contextFilters));
-    expect(wireFieldsFor(orderD).map((f) => f.name)).toEqual(
-      wireFieldsFor(orderE).map((f) => f.name),
+    expect(responseRows(byDefault, orderD).map((f) => f.name)).toEqual(
+      responseRows(explicit, orderE).map((f) => f.name),
     );
     expect((orderD.operations ?? []).map((o) => o.name)).toEqual(
       (orderE.operations ?? []).map((o) => o.name),
@@ -240,7 +243,7 @@ describe("macro-call composition: `*ByDefault` context macros", () => {
   it("context-level `with auditable` fans the capability (fields + stamps) to every aggregate", async () => {
     // Typed-capabilities Phase 3: the built-in `auditable` capability applied at
     // context scope replaces the former `auditedByDefault` macro.
-    const ir = await buildLoomModel(`
+    const ir = await buildHostedModel(`
       system Demo {
         user { id: string  role: string }
         subdomain M { context C with auditable {
@@ -252,7 +255,7 @@ describe("macro-call composition: `*ByDefault` context macros", () => {
     for (const name of ["Order", "Customer"]) {
       const agg = findAgg(ir, name);
       expect(agg.contextStamps?.length).toBe(2);
-      expect(wireFieldsFor(agg).map((f) => f.name)).toEqual(
+      expect(responseRows(ir, agg).map((f) => f.name)).toEqual(
         expect.arrayContaining(["createdAt", "updatedAt", "createdBy", "updatedBy"]),
       );
     }

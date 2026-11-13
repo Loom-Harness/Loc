@@ -491,7 +491,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
   "src/generator/dotnet/dto-mapping.ts#wireToCommandArgument": {
     invariant:
-      "A genericInstance 'provenanced' TypeIR is only synthesized on response-side wire fields and cannot be written by users, while wireToCommandArgument is only fed declared param/field types. (src/ir/enrich/wire-projection.ts:434 (the provenanced carrier is only built by wireTypeForField for response/read wire fields); src/ir/stdlib/generics.ts:86-90 (no grammar arm for Provenanced<T>); callers cqrs/controller.ts:81,267,348 + workflow-emit.ts:2215 pass declared param/field types)",
+      "A genericInstance 'provenanced' TypeIR is only synthesized on response-side wire fields and cannot be written by users, while wireToCommandArgument is only fed declared param/field types. (src/ir/enrich/wire-projection.ts:434 (the provenanced carrier is only built by responseWireFor for response/read wire fields); src/ir/stdlib/generics.ts:86-90 (no grammar arm for Provenanced<T>); callers cqrs/controller.ts:81,267,348 + workflow-emit.ts:2215 pass declared param/field types)",
   },
 
   // src/generator/dotnet/emit/channels.ts

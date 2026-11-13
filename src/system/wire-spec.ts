@@ -2,29 +2,32 @@ import {
   PROVENANCED_LINEAGE_NULLABLE,
   provenancedTypeMembers,
 } from "../generator/_payload/provenanced-wire.js";
-import { wireFieldsFor } from "../ir/enrich/wire-projection.js";
 import type {
-  EnrichedAggregateIR,
-  EnrichedEntityPartIR,
   EnrichedSystemIR,
-  EnrichedValueObjectIR,
+  PayloadIR,
   SubdomainIR,
   TypeIR,
   WireField,
+  WorkflowIR,
 } from "../ir/types/loom-ir.js";
+import { workflowEmitsCommandRoute } from "../ir/types/queries.js";
+import { declaredResponseFor } from "../ir/util/declared-response.js";
+import { responseWireFor, valueObjectWire } from "../ir/util/response-wire.js";
+import { upperFirst } from "../util/naming.js";
 
 // ---------------------------------------------------------------------------
 // `<system>/.loom/wire-spec.json` artifact.
 //
-// One JSON-Schema-flavoured document per system, listing every
-// aggregate / part / value object's canonical wire shape.  Inspectable,
-// diffable, language-agnostic.  Users can `git diff
-// .loom/wire-spec.json` between regens to see backend wire-contract
-// changes at a glance — without booting a backend or comparing
-// generated code.
+// One JSON-Schema-flavoured document per system, built from the declared
+// contract records: every exposed aggregate's and part's `response` record
+// (the read contract), every value object a record carries, and every
+// `command` / `query` record (the request contracts).  Inspectable, diffable,
+// language-agnostic.  Users can `git diff .loom/wire-spec.json` between
+// regens — or run `ddd diff` — to see wire-contract changes at a glance,
+// without booting a backend or comparing generated code.  A context no
+// deployable exposes declares no records and contributes nothing.
 //
-// The schema mirrors `WireField[]` from the IR (which `enrichLoomModel`
-// already populates).  The format is JSON-Schema-shaped (with
+// The schema mirrors the records' `WireField` rows (`responseWireFor`).  The format is JSON-Schema-shaped (with
 // `properties`/`required`/`additionalProperties: false`) so it can be
 // consumed by tooling that already understands JSON Schema, but kept
 // minimal — no `$schema` URI / draft pinning, since this artifact is
@@ -36,6 +39,8 @@ export interface WireSpecDoc {
   aggregates: Record<string, JsonSchemaObject>;
   parts: Record<string, JsonSchemaObject>;
   valueObjects: Record<string, JsonSchemaObject>;
+  /** The request contracts: every declared `command` / `query` record. */
+  requests: Record<string, JsonSchemaObject>;
 }
 
 interface JsonSchemaObject {
@@ -94,19 +99,19 @@ type EnumResolver = (name: string) => readonly string[] | undefined;
  *  emission gates) has no context to resolve against. */
 const noEnums: EnumResolver = () => undefined;
 
-interface CollectedEntry<T> {
+interface CollectedEntry {
   ctx: string;
   name: string;
-  node: T;
+  rows: WireField[];
 }
 
 /** Bare names that appear under more than one context with a STRUCTURALLY
  *  DIFFERENT wire shape — a genuine collision.  Identical shapes (e.g. an
  *  ambient root-level VO folded into every context) are NOT collisions: they
  *  dedupe to a single bare-name entry, exactly as before. */
-function collidingNames<T>(
-  entries: CollectedEntry<T>[],
-  sigOf: (e: CollectedEntry<T>) => string,
+function collidingNames(
+  entries: CollectedEntry[],
+  sigOf: (e: CollectedEntry) => string,
 ): Set<string> {
   const sigsByName = new Map<string, Set<string>>();
   for (const e of entries) {
@@ -155,22 +160,45 @@ export function buildWireSpec(sys: EnrichedSystemIR): WireSpecDoc {
     aggregates: {},
     parts: {},
     valueObjects: {},
+    requests: {},
   };
-  // Collect every (context, entry) pair first — a bounded context can host an
-  // aggregate / part / value object whose BARE NAME clashes with one in a
-  // sibling context (`Sales.Order` vs `Billing.Order`).  Keying the doc by bare
-  // name alone silently clobbered one of them (last write wins); we detect the
-  // clash and qualify only the colliding keys with their context.
-  const aggs: CollectedEntry<EnrichedAggregateIR>[] = [];
-  const parts: CollectedEntry<EnrichedEntityPartIR>[] = [];
-  const vos: CollectedEntry<EnrichedValueObjectIR>[] = [];
+  // Collect every (context, entry) pair first — a bounded context can declare
+  // an aggregate / part / value object / request whose BARE NAME clashes with
+  // one in a sibling context (`Sales.Order` vs `Billing.Order`).  Keying the
+  // doc by bare name alone would silently clobber one of them (last write
+  // wins); the clash is detected and only the colliding keys are qualified
+  // with their context.
+  const aggs: CollectedEntry[] = [];
+  const parts: CollectedEntry[] = [];
+  const vos: CollectedEntry[] = [];
+  const requests: CollectedEntry[] = [];
   for (const m of sys.subdomains) {
     for (const ctx of m.contexts) {
       for (const a of ctx.aggregates) {
-        aggs.push({ ctx: ctx.name, name: a.name, node: a });
-        for (const p of a.parts) parts.push({ ctx: ctx.name, name: p.name, node: p });
+        if (!declaredResponseFor(ctx.payloads, a)) continue;
+        aggs.push({ ctx: ctx.name, name: a.name, rows: responseWireFor(ctx.payloads, a) });
+        for (const p of a.parts) {
+          if (!declaredResponseFor(ctx.payloads, p)) continue;
+          parts.push({ ctx: ctx.name, name: p.name, rows: responseWireFor(ctx.payloads, p) });
+        }
       }
-      for (const v of ctx.valueObjects) vos.push({ ctx: ctx.name, name: v.name, node: v });
+      for (const v of ctx.valueObjects) {
+        vos.push({ ctx: ctx.name, name: v.name, rows: valueObjectWire(v) });
+      }
+      for (const p of ctx.payloads) {
+        if (!isRequestRecord(p)) continue;
+        requests.push({ ctx: ctx.name, name: p.name, rows: requestRows(p) });
+      }
+      // A command-started workflow's request contract is its facade create's
+      // declared parameter list — keyed `<Workflow>Command` (PascalCase) beside the records,
+      // which win on a name clash.
+      const recordNames = new Set(ctx.payloads.map((p) => p.name));
+      for (const wf of ctx.workflows) {
+        if (!workflowEmitsCommandRoute(wf)) continue;
+        const name = `${upperFirst(wf.name)}Command`;
+        if (recordNames.has(name)) continue;
+        requests.push({ ctx: ctx.name, name, rows: workflowRequestRows(wf) });
+      }
     }
   }
 
@@ -189,15 +217,15 @@ export function buildWireSpec(sys: EnrichedSystemIR): WireSpecDoc {
     (name) =>
       enumsByCtx.get(ctx)?.get(name);
 
-  const sigOf = (
-    e: CollectedEntry<EnrichedAggregateIR | EnrichedEntityPartIR | EnrichedValueObjectIR>,
-  ) => JSON.stringify(wireFieldsFor(e.node)) + enumSignature(wireFieldsFor(e.node), enumsIn(e.ctx));
+  const sigOf = (e: CollectedEntry) =>
+    JSON.stringify(e.rows) + enumSignature(e.rows, enumsIn(e.ctx));
   const collidedAgg = collidingNames(aggs, sigOf);
   const collidedPart = collidingNames(parts, sigOf);
   const collidedVo = collidingNames(vos, sigOf);
+  const collidedRequest = collidingNames(requests, sigOf);
 
   // A colliding name is written as `Context.Name`; a non-colliding one stays
-  // bare (so output is byte-identical for every collision-free model).
+  // bare.
   const keyOf = (collided: Set<string>, ctx: string, name: string) =>
     collided.has(name) ? `${ctx}.${name}` : name;
   // `$ref` targets are resolved in the REFERER's context — a part is contained
@@ -210,28 +238,62 @@ export function buildWireSpec(sys: EnrichedSystemIR): WireSpecDoc {
       return `#/${bucket}/${collided.has(name) ? `${ctx}.${name}` : name}`;
     };
 
-  for (const e of aggs) {
-    doc.aggregates[keyOf(collidedAgg, e.ctx, e.name)] = objectSchemaFromWireShape(
-      wireFieldsFor(e.node),
-      refIn(e.ctx),
-      enumsIn(e.ctx),
-    );
-  }
-  for (const e of parts) {
-    doc.parts[keyOf(collidedPart, e.ctx, e.name)] = objectSchemaFromWireShape(
-      wireFieldsFor(e.node),
-      refIn(e.ctx),
-      enumsIn(e.ctx),
-    );
-  }
-  for (const e of vos) {
-    doc.valueObjects[keyOf(collidedVo, e.ctx, e.name)] = objectSchemaFromWireShape(
-      wireFieldsFor(e.node),
-      refIn(e.ctx),
-      enumsIn(e.ctx),
-    );
-  }
+  const fill = (
+    bucket: Record<string, JsonSchemaObject>,
+    entries: CollectedEntry[],
+    collided: Set<string>,
+  ) => {
+    for (const e of entries) {
+      bucket[keyOf(collided, e.ctx, e.name)] = objectSchemaFromWireShape(
+        e.rows,
+        refIn(e.ctx),
+        enumsIn(e.ctx),
+      );
+    }
+  };
+  fill(doc.aggregates, aggs, collidedAgg);
+  fill(doc.parts, parts, collidedPart);
+  fill(doc.valueObjects, vos, collidedVo);
+  fill(doc.requests, requests, collidedRequest);
   return doc;
+}
+
+/** A declared `command` / `query` record — a request contract.  Synthesized
+ *  generic / union payloads are carriers, not requests. */
+function isRequestRecord(p: PayloadIR): boolean {
+  return (p.kind === "command" || p.kind === "query") && !p.variants && !p.synthesized;
+}
+
+/** The rows of a request record: its fields in order.  A field typed by a
+ *  part's `<Part>Response` record names the part it carries. */
+function requestRows(p: PayloadIR): WireField[] {
+  return p.fields.map((f) => ({
+    name: f.name,
+    type: partTypeOf(f.type),
+    optional: f.optional,
+    source: "property",
+    access: "editable",
+  }));
+}
+
+/** The rows of a workflow's command request: its facade create's params. */
+function workflowRequestRows(wf: WorkflowIR): WireField[] {
+  return wf.params.map((p) => ({
+    name: p.name,
+    type: p.type,
+    optional: p.type.kind === "optional",
+    source: "property",
+    access: "editable",
+  }));
+}
+
+function partTypeOf(t: TypeIR): TypeIR {
+  if (t.kind === "array") return { ...t, element: partTypeOf(t.element) };
+  if (t.kind === "optional") return { ...t, inner: partTypeOf(t.inner) };
+  if (t.kind === "entity" && t.declKind === "response" && t.name.endsWith("Response")) {
+    return { kind: "entity", name: t.name.slice(0, -"Response".length), declKind: "part" };
+  }
+  return t;
 }
 
 function objectSchemaFromWireShape(

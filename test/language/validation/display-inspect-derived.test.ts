@@ -1,4 +1,3 @@
-import { wireFieldsFor } from "../../../src/ir/enrich/wire-projection.js";
 // Display + inspect — reserved-name derived fields and the
 // `string(aggregate)` lowering path.
 //
@@ -9,7 +8,7 @@ import { wireFieldsFor } from "../../../src/ir/enrich/wire-projection.js";
 import { describe, expect, it } from "vitest";
 import type { ExprIR } from "../../../src/ir/types/loom-ir.js";
 import { allAggregates } from "../../../src/ir/types/loom-ir.js";
-import { buildLoomModel } from "../../_helpers/index.js";
+import { buildHostedModel, buildLoomModel, responseRows } from "../../_helpers/index.js";
 import { parseString } from "../../_helpers/parse.js";
 
 describe("derived display (user-facing label)", () => {
@@ -194,7 +193,7 @@ describe("auto-injected `derived inspect`", () => {
   });
 
   it("synthesized inspect is NOT included in wireShape (debug-only)", async () => {
-    const loom = await buildLoomModel(`
+    const loom = await buildHostedModel(`
       context X {
         aggregate User {
           name: string
@@ -203,7 +202,7 @@ describe("auto-injected `derived inspect`", () => {
       }
     `);
     const u = allAggregates(loom).find((a) => a.name === "User")!;
-    const wireNames = wireFieldsFor(u).map((f) => f.name);
+    const wireNames = responseRows(loom, u).map((f) => f.name);
     expect(wireNames).not.toContain("inspect");
   });
 

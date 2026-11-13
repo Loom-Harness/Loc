@@ -166,6 +166,10 @@ export const messages = {
     `context '${p.ctxName}'.`,
   "loom.payload-duplicate-field": (p: { name: unknown; mName: unknown }) =>
     `Duplicate field '${p.name}' in payload '${p.mName}'.`,
+  "loom.payload-response-field#unknown": (p: Record<string, unknown>) =>
+    `response '${p.record}' field '${p.field}' names no readable member of '${p.entity}' — a serializer projects each record field from the same-named field, containment or derived (never \`internal\`/\`secret\`). Remove it, or name a readable member.`,
+  "loom.payload-response-field#type": (p: Record<string, unknown>) =>
+    `response '${p.record}' field '${p.field}' does not carry the type and optionality of '${p.entity}.${p.field}' (a containment is its '<Part>Response' record), so no serializer can project it.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/seed.ts

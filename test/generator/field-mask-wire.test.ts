@@ -12,9 +12,9 @@ import {
   toWireMaskedMethod,
 } from "../../src/generator/typescript/repository-wire-builder.js";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
-import { forApiRead, wireFieldsFor } from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
-import type { EnrichedAggregateIR } from "../../src/ir/types/loom-ir.js";
+import type { EnrichedAggregateIR, PayloadIR } from "../../src/ir/types/loom-ir.js";
+import { responseWireFor } from "../../src/ir/util/response-wire.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { javaRequiredSets } from "../_helpers/java-openapi-annotations.js";
 import { parseString } from "../_helpers/parse.js";
@@ -35,6 +35,7 @@ const SRC = `system S {
   deployable api { platform: node  contexts: [C]  dataSources: [st]  port: 8080  auth: required }
 }`;
 
+let payloads: readonly PayloadIR[] = [];
 async function maskedAgg(): Promise<EnrichedAggregateIR> {
   const { model } = await parseString(SRC, { validate: false });
   const ir = enrichLoomModel(lowerModel(model));
@@ -42,7 +43,10 @@ async function maskedAgg(): Promise<EnrichedAggregateIR> {
     for (const sd of s.subdomains)
       for (const c of sd.contexts) {
         const p = c.aggregates.find((a) => a.name === "P");
-        if (p) return p as EnrichedAggregateIR;
+        if (p) {
+          payloads = c.payloads;
+          return p as EnrichedAggregateIR;
+        }
       }
   throw new Error("aggregate P not found");
 }
@@ -50,22 +54,22 @@ async function maskedAgg(): Promise<EnrichedAggregateIR> {
 describe("mask unless — node wire serializer", () => {
   it("propagates maskUnless onto the wire field", async () => {
     const agg = await maskedAgg();
-    const salary = forApiRead(wireFieldsFor(agg)).find((wf) => wf.name === "salary");
+    const salary = responseWireFor(payloads, agg).find((wf) => wf.name === "salary");
     expect(salary?.maskUnless).toBeDefined();
     // A non-masked field carries no predicate.
-    const name = forApiRead(wireFieldsFor(agg)).find((wf) => wf.name === "name");
+    const name = responseWireFor(payloads, agg).find((wf) => wf.name === "name");
     expect(name?.maskUnless).toBeUndefined();
   });
 
   it("aggHasFieldMask / maskedWireFields detect the masked field", async () => {
     const agg = await maskedAgg();
     expect(aggHasFieldMask(agg)).toBe(true);
-    expect(maskedWireFields(agg).map((wf) => wf.name)).toEqual(["salary"]);
+    expect(maskedWireFields(agg, payloads).map((wf) => wf.name)).toEqual(["salary"]);
   });
 
   it("emits a fail-closed toWireMasked that redacts the field unless the predicate holds", async () => {
     const agg = await maskedAgg();
-    const method = toWireMaskedMethod(agg);
+    const method = toWireMaskedMethod(agg, payloads);
     expect(method).toContain("toWireMasked(root: P, currentUser: User | null)");
     // fail-closed: null caller OR failed predicate → redact to null.
     expect(method).toContain("currentUser !== null");

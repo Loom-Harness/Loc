@@ -3,7 +3,7 @@
 // The client's whole value is that neither half can drift from the callee:
 // paths come from `deriveContextOperations` (the same derivation the callee's
 // route builder answers to) and the response schema from the same
-// `forApiRead(wireFieldsForAggregate(...))` walk the callee serializes.  These
+// callee's declared response record (`responseWireFor`) the callee serializes.  These
 // tests pin the properties that would silently break that — not the exact
 // formatting of the emitted file.
 

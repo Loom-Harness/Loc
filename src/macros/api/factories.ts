@@ -982,19 +982,19 @@ function _cloneAstNode(node: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-/** The AST twin of the IR wire-projection `forApiRead(wireFieldsForAggregate)`
- * (`src/ir/enrich/wire-projection.ts`, over the extends-merged field list
+/** The AST twin of the IR read rows `responseWireFor` returns
+ * (`src/ir/util/response-wire.ts`, over the extends-merged field list
  * `enrichments.ts` builds): the ordered field list an aggregate's
  * `<Agg>Response` read-projection carries.  Returns, IN wire order:
  *
  *   1. the aggregate's value properties — every ancestor's first (root-most
  *      base first, a nearer like-named field shadowing it, exactly the
  *      enrichment merge), then its own — whose `access` is NOT `internal` and
- *      NOT `secret` (the `forApiRead` matrix).  The macro-added managed/token
+ *      NOT `secret` (the API-read access matrix).  The macro-added managed/token
  *      fields (`createdAt`, `rowVersion`) stay, exactly as in the wire shape;
  *      `tenantOwned`'s `tenantId` is `internal`, so the access filter drops it.
  *      A `provenanced` field keeps the flag, so the record lowers to the same
- *      `Provenanced<T>` carrier `wireTypeForField` puts on the wire.
+ *      `Provenanced<T>` carrier `responseWireFor` puts on the wire.
  *   2. one synthesized field per containment — an explicit `contains` or an
  *      inferred entity-typed property (`lines: Line[]`), interleaved in source
  *      order as `lowerContainments` does — typed `<Part>Response` (the sibling
@@ -1106,7 +1106,7 @@ export function apiReadFieldsOf(
   members: readonly (AggregateMember | EntityPartMember)[],
   // Extra property fields spliced right after the declared properties (step a)
   // and before containments — the wire-shape slot the macro-added `rowVersion`
-  // token occupies (`wireFieldsForAggregate` appends it last among `fields`).
+  // token occupies (the read rows list it last among the value properties).
   trailingProps: readonly Property[] = [],
   // The owning aggregate's entity-part names, so an entity-typed property is
   // read as the containment it lowers to rather than as a value field.
@@ -1310,9 +1310,19 @@ function stampTargetNames(target: Aggregate): ReadonlySet<string> {
  * `create` operation in a future phase, this is the helper it
  * iterates to derive the request-body shape. */
 export function writableCreateFields(target: Aggregate): readonly Property[] {
+  return writableCreateFieldsOf(target, targetFields(target));
+}
+
+/** The members of `fields` a create may set on `target` (see
+ *  {@link writableCreateFields}). */
+function writableCreateFieldsOf(target: Aggregate, fields: readonly Property[]): Property[] {
   const stamped = stampTargetNames(target);
-  return targetFields(target).filter((f) => {
-    if ((f as { [ORIGIN_PROP]?: OriginToken })[ORIGIN_PROP] !== undefined) return false;
+  // A field another macro added is bookkeeping; one spliced with the
+  // aggregate itself (a macro-synthesized aggregate) is its own declaration.
+  const own = (target as { [ORIGIN_PROP]?: OriginToken })[ORIGIN_PROP];
+  return fields.filter((f) => {
+    const origin = (f as { [ORIGIN_PROP]?: OriginToken })[ORIGIN_PROP];
+    if (origin !== undefined && origin !== own) return false;
     if (stamped.has(f.name)) return false;
     const access = (f as { access?: FieldAccess }).access;
     if (access === "managed" || access === "token" || access === "internal") {
@@ -1333,8 +1343,15 @@ export function writableCreateFields(target: Aggregate): readonly Property[] {
  * Mirrors the IR rule: a macro-synthesized create (`with crudish`, tagged with
  * an origin token) and an event-sourced aggregate are never narrowed.
  */
-export function createInputProperties(target: Aggregate): readonly Property[] {
-  const writable = writableCreateFields(target);
+export function createInputProperties(
+  target: Aggregate,
+  opts: { inherited?: boolean } = {},
+): readonly Property[] {
+  // Inherited fields lead, root-most first, as in the IR's merged field list.
+  const writable = [
+    ...(opts.inherited ? writableCreateFieldsOf(target, inheritedProperties(target)) : []),
+    ...writableCreateFields(target),
+  ];
   if ((target as { persistedAs?: string }).persistedAs === "eventLog") return writable;
   const create = (target.members ?? []).find(
     (m) =>

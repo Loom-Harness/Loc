@@ -4925,8 +4925,9 @@ is what `gap` means.
 
 ## D-WIRESHAPE-KEEP — the derived wire shape stays the source of truth; the declared response record is the thing that must be made to agree with it
 
-**Status:** interim — the derived shape stays for now; the goal is to retire
-it (owner ruling on #3383). Raised and measured by wave C4 packet 4e, which was sent to build slice 1 of
+**Status:** superseded — the declared contract records are the only wire
+source and the derived-shape helpers are deleted (see "Superseded" below).
+The original interim decision follows for its rationale. Raised and measured by wave C4 packet 4e, which was sent to build slice 1 of
 the `wireShape` retirement or decline with the measurement. It declines.
 
 **Question.** [`docs/old/proposals/unfoldable-api-derivation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/unfoldable-api-derivation.md) steps 6–8 retire
@@ -5011,6 +5012,28 @@ carry `mask unless`. So `declaredResponseFor`
 (`src/ir/util/declared-response.ts`) keeps masked aggregates on the derived
 shape. The decision is open for re-review: what is left is moving consumers
 onto the records and retiring `.loom/wire-spec.json`.
+
+**Superseded.** The records now carry their aggregate's masks
+(`declaredResponseFor` attaches `maskUnless` from `maskedReadPredicates`; a
+payload field cannot declare its own, `loom.field-mask-on-payload`), and every
+consumer reads them: each backend's response DTO and serializer, the mask
+plans, history diffs, api-clients, union variants, shorthand projections and
+the frontends go through `responseWireFor` / `responseMaskPlan`
+(`src/ir/util/response-wire.ts`), proven byte-identical on the corpus and
+examples step by step. `wireFieldsFor*`, `wireMaskPlan` and `wireTypeForField`
+are deleted; `wire-projection.ts` keeps the access filters and the create /
+update input derivations. A record field must name a readable member of its
+aggregate with that member's type (`loom.payload-response-field`), so a record
+cannot describe a response its serializer cannot produce.
+`.loom/wire-spec.json` is not retired but rebuilt from the records, and it
+now carries the request contracts too (the `command` / `query` records and
+each command-started workflow's create parameters); `ddd diff` classifies a
+removed or newly required request field as breaking. The scaffold splices the
+request records for every concrete aggregate, served through a declared or
+an enrichment-added repository alike, and
+`test/system/wire-spec-requests-census.test.ts` proves every served create,
+operation and command-started workflow has one. The divergence census the rationale above cites is retired with the
+derived shape: both sides it compared are now the same rows.
 
 **Affects.** `src/ir/enrich/wire-projection.ts`; `src/system/wire-spec.ts`;
 `src/macros/api/factories.ts` + `src/macros/stdlib/scaffold/_contracts-shared.ts`

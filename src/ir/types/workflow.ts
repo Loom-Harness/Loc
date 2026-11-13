@@ -95,7 +95,7 @@ export interface WorkflowIR extends Sourced {
    *  state-table-backed workflow): the correlation field as the `id`-shaped
    *  `token` row, then the remaining `stateFields` as `property` rows, in
    *  declaration order.  This is the workflow-instance analogue of an
-   *  aggregate's canonical wire shape (`wireFieldsForAggregate`) — the
+   *  aggregate's read rows (`responseWireFor`) — the
    *  read-only "instance" API + scaffold pages
    *  (workflow-instance-visibility.md) consume it the way the aggregate
    *  read surface consumes that wire shape.  Carried for both

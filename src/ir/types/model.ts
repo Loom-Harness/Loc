@@ -255,8 +255,8 @@ export interface SqlStepIR extends Sourced {
 // `createInput`, enriched `parts`) are non-optional, so a generator that
 // takes an `EnrichedLoomModel` dereferences them without nullability
 // defense.  (`EnrichedEntityPartIR` / `EnrichedValueObjectIR` carry no
-// enrich-time members of their own — the canonical wire shape is
-// recomputed on demand via `wireFieldsForPart` / `wireFieldsForValueObject`
+// enrich-time members of their own — a part's read rows come from its declared
+// response record (`responseWireFor`), a value object's from `valueObjectWire`
 // — so they alias their base types.)
 // ---------------------------------------------------------------------------
 
@@ -280,9 +280,9 @@ export type EnrichedAggregateIR = AggregateIR & {
   parts: EnrichedEntityPartIR[];
 };
 
-// Parts / value objects carry no enrich-time derivation of their own (the
-// canonical wire shape is recomputed on demand via `wireFieldsForPart` /
-// `wireFieldsForValueObject`), so the enriched brand is their base type — kept
+// Parts / value objects carry no enrich-time derivation of their own (a part's
+// read rows come from its declared response record via `responseWireFor`, a
+// value object's from `valueObjectWire`), so the enriched brand is their base type — kept
 // as a named alias so consumers keep expressing "post-enrichment" intent.
 export type EnrichedEntityPartIR = EntityPartIR;
 

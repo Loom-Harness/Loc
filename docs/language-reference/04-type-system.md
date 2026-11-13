@@ -763,7 +763,7 @@ Primitives, `X id`, enums, value objects and same-aggregate parts may be written
 
 ## Generic carriers — `paged`, `option`
 
-`paged` is the one **carrier-bounded generic payload**, instantiated ML-postfix (the keyword follows its argument): `T paged`. It may appear only in a **transport position** — a `queryHandler` return type or a payload field — never as a stored aggregate property (`loom.generic-position`: *A generic carrier ('paged') is a transport shape*). The argument must itself be a carrier (a primitive, an `X id`, an enum, a value object, or an aggregate, which projects through its `<Agg>Wire`); nesting two constructors (`Order paged paged`) or a `slot` argument is rejected (`loom.generic-arg-not-carrier`). `T option` is a deprecated spelling of `T?`, and `T envelope` is removed:
+`paged` is the one **carrier-bounded generic payload**, instantiated ML-postfix (the keyword follows its argument): `T paged`. It may appear only in a **transport position** — a `queryHandler` return type or a payload field — never as a stored aggregate property (`loom.generic-position`: *A generic carrier ('paged') is a transport shape*). The argument must itself be a carrier (a primitive, an `X id`, an enum, a value object, or an aggregate, which projects through its `<Agg>Response` record); nesting two constructors (`Order paged paged`) or a `slot` argument is rejected (`loom.generic-arg-not-carrier`). `T option` is a deprecated spelling of `T?`, and `T envelope` is removed:
 
 ```
 paged(T)    → { items: T[]; page: int; pageSize: int; total: int; totalPages: int }   # 1-based

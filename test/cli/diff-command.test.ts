@@ -74,12 +74,18 @@ const SPAWNING = { timeout: 180_000 };
 describe("ddd diff — classification rules", SPAWNING, () => {
   it("an added optional field is compatible and exits 0", () => {
     const { status, report } = diffJson(model(BASE_FIELDS), model(`${BASE_FIELDS}  memo: string?`));
-    expect(report.wireChanges).toEqual([
+    // The read record and both request records (create and update) gain it.
+    const added = (entity: string) =>
       expect.objectContaining({
+        entity,
         kind: "property-added-optional",
         field: "memo",
         class: "compatible",
-      }),
+      });
+    expect(report.wireChanges).toEqual([
+      added("aggregate Order"),
+      added("request CreateOrderCommand"),
+      added("request UpdateOrderCommand"),
     ]);
     expect(report.migrations.map((m) => m.class)).toEqual(["compatible"]);
     expect(report.breaking).toBe(false);
@@ -167,13 +173,19 @@ describe("ddd diff — classification rules", SPAWNING, () => {
       ),
     );
     // Reported as the rename it is — not a dropped `qty` plus an added
-    // `quantity` — and still breaking for clients: the wire name moved.
-    expect(report.wireChanges).toEqual([
+    // `quantity` — on the read record and on each request record that
+    // carries the field, and still breaking for clients: the wire name moved.
+    const renamed = (entity: string) =>
       expect.objectContaining({
+        entity,
         kind: "property-renamed",
         field: "quantity",
         class: "breaking-for-clients",
-      }),
+      });
+    expect(report.wireChanges).toEqual([
+      renamed("aggregate Order"),
+      renamed("request CreateOrderCommand"),
+      renamed("request UpdateOrderCommand"),
     ]);
     // The data side is a RENAME COLUMN, which the destructive gate passes.
     expect(report.migrations).toEqual([

@@ -32,7 +32,6 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { isCollectionOp as isCollectionOpName } from "../../../util/collection-ops.js";
 import { isWalkerPrimitive } from "../../../util/walker-primitive-names.js";
-import { wireFieldsForAggregate } from "../../enrich/wire-projection.js";
 import type {
   AggregateIR,
   ComponentIR,
@@ -324,7 +323,7 @@ function moneyFieldRead(
   // what it is money ON.  This is the IR's central promise (consumers never
   // re-resolve), and it is what extends the gate to a row shape the scope
   // machinery below cannot express: a `QueryView` over a PROJECTION, whose
-  // row is not an aggregate at all and so has no `wireFieldsForAggregate`.
+  // row is not an aggregate at all and so has no members to look up.
   // For an aggregate row it answers identically to the scope path — same
   // path, same owner name — so nothing that fired before changes.
   if (
@@ -336,10 +335,8 @@ function moneyFieldRead(
   }
   const agg = scope.get(e.receiver.name);
   if (!agg) return undefined;
-  // Derived on demand (`wireFieldsForAggregate`) rather than read off a
-  // stamped field: an aggregate carries no `wireShape` property.
-  const f = wireFieldsForAggregate(agg).find((w) => w.name === e.member);
-  if (f?.type.kind !== "primitive" || f.type.name !== "money") return undefined;
+  const t = memberValueType(agg, e.member);
+  if (t?.kind !== "primitive" || t.name !== "money") return undefined;
   return { path: `${e.receiver.name}.${e.member}`, aggregate: agg.name };
 }
 
@@ -364,7 +361,7 @@ function valueObjectFieldRead(
   }
   const agg = scope.get(e.receiver.name);
   if (!agg) return undefined;
-  const valueObject = voOf(wireFieldsForAggregate(agg).find((w) => w.name === e.member)?.type);
+  const valueObject = voOf(memberValueType(agg, e.member));
   return valueObject ? { path, aggregate: agg.name, valueObject } : undefined;
 }
 
@@ -388,4 +385,12 @@ function renderedExprs(host: PageIR | ComponentIR | StoreIR): ExprIR[] {
   if ("derived" in host) for (const d of host.derived) push(d.expr);
   for (const s of host.state) push(s.init);
   return out;
+}
+
+/** The type a page reads for `agg.<member>`: a declared field's own type (a
+ *  `provenanced` field is read as its carrier, so none) or a derived value's. */
+function memberValueType(agg: AggregateIR, member: string): TypeIR | undefined {
+  const f = agg.fields.find((x) => x.name === member);
+  if (f) return f.provenanced ? undefined : f.type;
+  return agg.derived.find((d) => d.name === member)?.type;
 }
