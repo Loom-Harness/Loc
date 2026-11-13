@@ -66,7 +66,7 @@ const svelte: OptionalGroupRenderer = (f, inner) =>
   ].join("\n");
 
 /** The renderer per JSX-family framework. */
-export const OPTIONAL_GROUP_RENDERERS: Record<"react" | "vue" | "svelte", OptionalGroupRenderer> = {
+const OPTIONAL_GROUP_RENDERERS: Record<"react" | "vue" | "svelte", OptionalGroupRenderer> = {
   react,
   vue,
   svelte,
