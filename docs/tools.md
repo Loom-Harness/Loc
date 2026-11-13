@@ -734,8 +734,10 @@ toolchains are older than what the emitted projects target:
 | `test:python` | `uv` + ruff + mypy + pytest | `uv` | host |
 
 A managed remote/sandbox environment ships the Docker **client** but no
-running daemon.  `scripts/sandbox-bootstrap.sh` starts one and, in the same
-step, puts the toolchains the table lists on the **host**:
+running daemon.  `scripts/sandbox-bootstrap.sh` starts one (`dockerd
+--registry-mirror=https://mirror.gcr.io`, so Docker Hub pulls go through a
+mirror that has no pull rate limit) and, in the same step, puts the
+toolchains the table lists on the **host**:
 
 ```bash
 scripts/sandbox-bootstrap.sh            # all targets; or: java dotnet elixir node24 flutter
@@ -749,6 +751,10 @@ source /opt/loom-tc/env.sh              # PATH, JAVA_HOME, DOTNET_ROOT, ELIXIR_E
 | `elixir` | the generated Dockerfile's `hexpm/elixir` image (`/usr/local/lib/{elixir,erlang}`) | `elixir/{elixir,erlang}` | `run-elixir.mjs`, `phoenix-ui-e2e` |
 | `node24` | `node:24` (`/usr/local/bin/node`, `lib/node_modules`) | `node24/` | Angular CLI (needs Node ≥ 22.22.3; the host has 22.22.0) |
 | `flutter` | `ghcr.io/cirruslabs/flutter:stable` (`/sdks/flutter`) | `flutter/flutter` | the Flutter suites; also `npm install` in `test/behavioral` (else `Cannot find package 'esbuild'`) |
+
+**Run one heavy job at a time** (`npm test`, `tsc -b`, a Docker build, a
+Gradle or .NET build).  Parallel heavy jobs exhaust the sandbox's memory and
+restart the container, which also kills `dockerd`.
 
 The image tags are read from the constants the generators pin (the Java
 version, the Phoenix Dockerfile `ARG`s, the .NET SDK tag), so a bump moves

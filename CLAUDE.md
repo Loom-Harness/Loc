@@ -78,7 +78,7 @@ differential) and the Docker recipes for compiling each generated backend locall
 the **`loom-test-suites`** skill; the tier table and every gate's local run command are in [`docs/testing.md`](docs/testing.md).
 
 **Docker is runnable in the remote/sandbox environment** but the daemon is not auto-started
-(`dockerd >/tmp/dockerd.log 2>&1 &`, then poll `docker info`). It does not persist — relaunch
+(`dockerd --registry-mirror=https://mirror.gcr.io >/tmp/dockerd.log 2>&1 &`, then poll `docker info`; the mirror avoids Docker Hub's 429 pull limit). It does not persist — relaunch
 it if `docker info` starts failing mid-session.
 `scripts/sandbox-bootstrap.sh` starts it and puts JDK 25/Gradle 9, .NET 10, Elixir/OTP, Node 24 and Flutter on the host (`source /opt/loom-tc/env.sh`) so every target's runtime suite runs — [`docs/tools.md`](docs/tools.md#compiling-generated-backends-in-docker).
 
