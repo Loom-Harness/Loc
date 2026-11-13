@@ -5,26 +5,40 @@
 //     for unit suites, `@playwright/test` for UI suites) to a shim that
 //     reads the harness off `globalThis`.  `import type` of generated
 //     api types is dropped by the ts loader, so those need no
-//     resolution.
+//     resolution.  The bundle is imported from a blob URL, which cannot
+//     resolve a bare specifier, so the npm packages the suite imports
+//     (`uuidv7`, `decimal.js`, …) are installed at the deployable's
+//     package.json pins and bundled in.
 //
-// Decoupled, tiny worker; esbuild is initialised once per thread (the
-// wasm bytes are already browser-cached from the project bundler).
+// esbuild is initialised once per thread (the wasm bytes are already
+// browser-cached from the project bundler).  Installs read through the same
+// IndexedDB cache and npm mirror the bundler uses, so a dependency set the
+// Bundle step installed replays without a registry tarball fetch.
 
 import * as esbuild from "esbuild-wasm";
 import wasmURL from "esbuild-wasm/esbuild.wasm?url";
+import { makeVfsNpmPlugin } from "../engine/npm/esbuild-vfs-plugin.js";
+import { install } from "../engine/npm/install.js";
+import { getInstallCache, getNpmMirror } from "../engine/npm/install-sources.js";
+import { installFailedMessage, pickSuiteDeps } from "./suite-deps.js";
+
+export interface SuiteBuild {
+  entry: string;
+  files: Record<string, string>;
+  /** Module specifier → replacement module source (a shim that
+   *  reads the harness off `globalThis`). */
+  aliases: Record<string, string>;
+  /** The deployable's package.json `dependencies`: the pins the suite's
+   *  bare imports install at.  Absent, bare imports stay external. */
+  deps?: Record<string, string>;
+  /** Absolute deploy base (origin + base path, trailing slash) for the
+   *  npm-mirror fetch. */
+  deployBase?: string;
+}
 
 export type TransformRequest =
   | { id: number; ts: string }
-  | {
-      id: number;
-      build: {
-        entry: string;
-        files: Record<string, string>;
-        /** Module specifier → replacement module source (a shim that
-         *  reads the harness off `globalThis`). */
-        aliases: Record<string, string>;
-      };
-    };
+  | { id: number; build: SuiteBuild };
 
 export interface TransformResponse {
   id: number;
@@ -86,9 +100,16 @@ function resolveRelative(
   return null;
 }
 
+const SUITE_NS = "suite";
+
+/** Resolves the suite's own files and the aliased modules.  Anything else —
+ *  a bare package import — is left `external` (`"external"`: the scan pass
+ *  that finds which packages the suite imports) or handed on to the npm
+ *  plugin over the installed node_modules (`"installed"`). */
 function vfsPlugin(
   files: Record<string, string>,
   callerAliases: Record<string, string>,
+  bare: "external" | "installed",
 ): esbuild.Plugin {
   const aliases = { ...BUILTIN_ALIASES, ...callerAliases };
   return {
@@ -99,21 +120,20 @@ function vfsPlugin(
           return { path: args.path, namespace: "alias" };
         }
         if (args.kind === "entry-point") {
-          return { path: normalize(args.path), namespace: "vfs" };
+          return { path: normalize(args.path), namespace: SUITE_NS };
         }
-        if (args.path.startsWith(".")) {
+        if (args.namespace === SUITE_NS && args.path.startsWith(".")) {
           const resolved = resolveRelative(args.importer, args.path, files);
-          if (resolved) return { path: resolved, namespace: "vfs" };
+          if (resolved) return { path: resolved, namespace: SUITE_NS };
         }
-        // Bare/value imports we don't bundle (none expected — api types
-        // are `import type` and dropped) — mark external defensively.
+        if (bare === "installed") return undefined;
         return { path: args.path, external: true };
       });
       build.onLoad({ filter: /.*/, namespace: "alias" }, (args) => ({
         contents: aliases[args.path],
         loader: "js",
       }));
-      build.onLoad({ filter: /.*/, namespace: "vfs" }, (args) => ({
+      build.onLoad({ filter: /.*/, namespace: SUITE_NS }, (args) => ({
         contents: files[args.path] ?? "",
         loader: args.path.endsWith(".tsx") ? "tsx" : "ts",
       }));
@@ -121,22 +141,65 @@ function vfsPlugin(
   };
 }
 
+/** Specifiers a scan-pass bundle left external. */
+function externalImports(meta: esbuild.Metafile | undefined): Set<string> {
+  const out = new Set<string>();
+  for (const o of Object.values(meta?.outputs ?? {})) {
+    for (const imp of o.imports ?? []) {
+      if (imp.external) out.add(imp.path);
+    }
+  }
+  return out;
+}
+
+async function buildSuite(req: SuiteBuild): Promise<string> {
+  const common = {
+    entryPoints: [req.entry],
+    bundle: true,
+    format: "esm" as const,
+    write: false as const,
+  };
+  // Scan pass: bundle with every bare import external.  It is also the
+  // finished bundle when the suite imports no package.
+  const scan = await esbuild.build({
+    ...common,
+    metafile: true,
+    plugins: [vfsPlugin(req.files, req.aliases, "external")],
+  });
+  const bare = externalImports(scan.metafile);
+  if (bare.size === 0 || !req.deps) return scan.outputFiles[0].text;
+
+  const { install: wanted } = pickSuiteDeps(bare, req.deps);
+  const nodeModules = new Map<string, string | Uint8Array>();
+  try {
+    await install(wanted, (p, d) => nodeModules.set(p, d), {
+      cache: await getInstallCache(),
+      mirror: await getNpmMirror(req.deployBase ?? "/"),
+    });
+  } catch (e) {
+    throw new Error(installFailedMessage(wanted, e));
+  }
+  const out = await esbuild.build({
+    ...common,
+    platform: "browser",
+    logLevel: "silent",
+    plugins: [
+      vfsPlugin(req.files, req.aliases, "installed"),
+      makeVfsNpmPlugin(nodeModules, "/node_modules"),
+    ],
+  });
+  return out.outputFiles[0].text;
+}
+
 self.onmessage = async (ev: MessageEvent<TransformRequest>): Promise<void> => {
   const data = ev.data;
   try {
     await ensureInit();
     if ("build" in data) {
-      const out = await esbuild.build({
-        entryPoints: [data.build.entry],
-        bundle: true,
-        format: "esm",
-        write: false,
-        plugins: [vfsPlugin(data.build.files, data.build.aliases)],
-      });
       self.postMessage({
         id: data.id,
         ok: true,
-        code: out.outputFiles[0].text,
+        code: await buildSuite(data.build),
       } satisfies TransformResponse);
       return;
     }
@@ -146,7 +209,9 @@ self.onmessage = async (ev: MessageEvent<TransformRequest>): Promise<void> => {
     self.postMessage({
       id: data.id,
       ok: false,
-      message: e instanceof Error ? e.message : String(e),
+      message:
+        (e as { errors?: Array<{ text: string }> }).errors?.[0]?.text ??
+        (e instanceof Error ? e.message : String(e)),
     } satisfies TransformResponse);
   }
 };

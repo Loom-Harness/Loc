@@ -416,9 +416,14 @@ export const TEST_DISCOVERY = {
   cancel: "Cancel",
   cancelled: "Test discovery cancelled.",
   retry: "Retry",
-  /** The one line above the raw transform / import error. */
-  errorHint: (isDesktop: boolean): string =>
-    `Test discovery needs the generated project's dependencies — ${nextStep("bundle", isDesktop)} first, or check the network if that already ran.`,
+  /** The one line above the raw build / import error.  Discovery installs
+   *  the npm packages the generated suites import, so a failed install
+   *  (the worker's "could not install the suite's npm dependencies …") is
+   *  a network problem; anything else is the suite's own build or import. */
+  errorHint: (rawError: string): string =>
+    /could not install the suite's npm dependencies/.test(rawError)
+      ? "Test discovery couldn't download the npm packages the generated tests import — check the network, then Retry."
+      : "Test discovery couldn't load the generated tests — the details say which file and why.",
   showRaw: "Show details",
   hideRaw: "Hide details",
 } as const;
