@@ -14,13 +14,13 @@ import { expectReach } from "../_helpers/census-reach.js";
 const DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../docs/decisions");
 
 /** The file stem a decision heading's tag maps to. */
-export function stemOfHeading(firstLine: string): string | undefined {
+function stemOfHeading(firstLine: string): string | undefined {
   const m = /^# (.+?)(?: — |$)/.exec(firstLine);
   return m?.[1]?.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
 /** Problems with a set of `{ file, firstLine }` decision files. */
-export function decisionProblems(files: readonly { file: string; firstLine: string }[]): string[] {
+function decisionProblems(files: readonly { file: string; firstLine: string }[]): string[] {
   const out: string[] = [];
   const seen = new Map<string, string>();
   for (const { file, firstLine } of files) {
