@@ -508,13 +508,7 @@ export function checkExprCallArgs(
     // Without this a `Speciality id[]` argument reached a `guid[]` param
     // unchecked and every typed backend failed to compile the call.
     const head = n.head;
-    if (
-      first &&
-      isMemberSuffix(first) &&
-      first.call &&
-      isNameRef(head) &&
-      typeOf(head, env).kind === "unknown"
-    ) {
+    if (first && isMemberSuffix(first) && first.call && isNameRef(head)) {
       const op = domainServiceOperation(n, head.name, first.member);
       if (op) {
         checkCallArgs(
