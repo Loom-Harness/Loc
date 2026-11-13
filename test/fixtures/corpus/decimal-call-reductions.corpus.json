@@ -1,0 +1,6 @@
+{
+  "title": "decimal `sum` / `avg` over a call-bodied lambda (domain-service op, aggregate function)",
+  "doc": "domain-services",
+  "backends": "ALL",
+  "note": "The reduction's fold reads the λ body's type off the IR; a CALL body carries it only through the call's recorded `resultType`. Without it java emitted `mapToInt(...).sum()` (javac) and elixir `Enum.sum` over `%Decimal{}` (500)."
+}

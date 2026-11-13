@@ -12,7 +12,12 @@ if (have[0] < MIN_NODE[0] || (have[0] === MIN_NODE[0] && have[1] < MIN_NODE[1]))
   );
   process.exit(1);
 }
-import("../out/cli/main.js").catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+import("./fresh-build.mjs")
+  .then(function (m) {
+    m.assertFreshBuild();
+    return import("../out/cli/main.js");
+  })
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

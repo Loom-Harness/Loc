@@ -1,0 +1,5 @@
+{
+  "title": "OIDC authentication — provider config + requires-guard",
+  "doc": "auth",
+  "backends": "ALL"
+}
