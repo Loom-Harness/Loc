@@ -75,7 +75,7 @@ checks = %{
   "unset" => attempt.(fn -> Repo.all(Car.base_query()) end),
   "explicit_acme" => attempt.(fn -> Repo.all(Car.base_query(), current_user: acme) end),
   "explicit_globex" => attempt.(fn -> Repo.all(Car.base_query(), current_user: globex) end),
-  "repository_acme" => attempt.(fn -> elem(CarRepository.list(acme), 1) end),
+  "repository_acme" => attempt.(fn -> elem(CarRepository.list(1, 20, "id", "asc", acme), 1).items end),
   "skip_soft_deletable" =>
     attempt.(fn -> Repo.all(Car.base_query(), current_user: acme, skip_filters: [:soft_deletable]) end),
   "skip_tenant_owned" =>
@@ -88,10 +88,10 @@ Process.put(:loom_current_user, acme)
 checks =
   Map.merge(checks, %{
     "ambient_acme" => attempt.(fn -> Repo.all(Car.base_query()) end),
-    "ambient_repository_acme" => attempt.(fn -> elem(CarRepository.list(), 1) end),
+    "ambient_repository_acme" => attempt.(fn -> elem(CarRepository.list(), 1).items end),
     "bare_task" => Task.async(fn -> attempt.(fn -> Repo.all(Car.base_query()) end) end) |> Task.await(),
     "repo_async_acme" =>
-      Repo.async(fn -> attempt.(fn -> elem(CarRepository.list(), 1) end) end) |> Task.await()
+      Repo.async(fn -> attempt.(fn -> elem(CarRepository.list(), 1).items end) end) |> Task.await()
   })
 
 poly = fn read ->
