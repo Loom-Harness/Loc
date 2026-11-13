@@ -31,12 +31,14 @@ import { fileURLToPath } from "node:url";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
-/** The images, pinned by digest so a re-tag upstream cannot change a leg. */
+/** The images, pinned by digest so a re-tag upstream cannot change a leg,
+ *  and pulled through `mirror.gcr.io` so neither CI nor a sandbox depends on
+ *  Docker Hub (its pull limit and its outages). */
 export const BROKER_IMAGES = {
   rabbitmq:
-    "rabbitmq:4.1-management-alpine@sha256:42c6214e0e2093caa2484718faacb733631cc9ddc869b3298397613237dbea4a",
-  redis: "valkey/valkey:8-alpine@sha256:2602ace2be6569bc2bbb06f873776516ab9089821525be34f4305c67eb9db02a",
-  kafka: "apache/kafka:4.1.0@sha256:bff074a5d0051dbc0bbbcd25b045bb1fe84833ec0d3c7c965d1797dd289ec88f",
+    "mirror.gcr.io/library/rabbitmq:4.1-management-alpine@sha256:42c6214e0e2093caa2484718faacb733631cc9ddc869b3298397613237dbea4a",
+  redis: "mirror.gcr.io/valkey/valkey:8-alpine@sha256:2602ace2be6569bc2bbb06f873776516ab9089821525be34f4305c67eb9db02a",
+  kafka: "mirror.gcr.io/apache/kafka:4.1.0@sha256:bff074a5d0051dbc0bbbcd25b045bb1fe84833ec0d3c7c965d1797dd289ec88f",
 };
 
 /** RabbitMQ refuses the default `guest` account from anything but loopback,

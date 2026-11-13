@@ -78,7 +78,7 @@ describe("broker sidecar — pure helpers", () => {
     const found = readdirSync(dir)
       .filter((f) => f.startsWith("behavioral-e2e-"))
       .flatMap((f) =>
-        [...readFileSync(join(dir, f), "utf8").matchAll(/image:\s*(rabbitmq:\S+)/g)].map((m) => [
+        [...readFileSync(join(dir, f), "utf8").matchAll(/image:\s*(\S*rabbitmq:\S+)/g)].map((m) => [
           f,
           m[1],
         ]),
