@@ -1,6 +1,7 @@
 import { generateFlutterForContexts } from "../generator/flutter/index.js";
 import { API_BASE_PATH } from "../util/api-base.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
+import { FRONTEND_OPERATIONS } from "./operations.js";
 import type { ComposeServiceShape, PlatformSurface } from "./surface.js";
 import { TARGET_FACTS } from "./target-facts.js";
 
@@ -47,12 +48,12 @@ const flutterPlatform: PlatformSurface = {
     // nothing for a Flutter page.
     return generateFlutterForContexts(contexts, sys, deployable, { sourcemap, translations });
   },
+  operations: FRONTEND_OPERATIONS,
   composeService({ deployable, sys }): ComposeServiceShape {
     const target = sys.deployables.find((t) => t.name === deployable.targetName);
     return {
       env: [["API_BASE_URL", `http://localhost:${target?.port ?? 8080}${API_BASE_PATH}`]],
       dependsOnDb: false,
-      healthPath: "/",
       internalPort: 3000,
       injectsApiProxyTarget: true,
     };

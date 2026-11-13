@@ -271,13 +271,34 @@ Every surface implements:
 | `capabilities` | What the target renders, per construct × position — `src/util/target-capabilities.ts`. |
 | `facts` | What the target is — its default ui framework and design pack, whether it is fullstack, serves realtime, implements the shared-table layout — `src/platform/target-facts.ts`.  UI-framework facts (pack format, static-bundle pack, what `design:` selects, and the frontend `axes` — `stateHome` × `handlerTopology` and the `dataAccess` that follows, from `src/util/frontend-axes.ts`; see D-LIVEVIEW-REFERENCE) live in the same file, read through `frameworkFacts(framework)`. |
 | `emitProject({ contexts, deployable, sys, migrations, emitTrace })` | Returns `Map<path, content>` for the deployable's project tree. |
-| `composeService({ deployable, sys, slug })` | Returns the docker-compose stanza (env, healthcheck path, internal port). |
+| `composeService({ deployable, sys, slug })` | Returns the docker-compose stanza (env, internal port, DB dependency). |
+| `operations` | The operational contract — see below. |
 
 `emitProject` is the platform's entire output surface.  It MUST be
 self-contained — no cross-platform calls.  The system orchestrator
 in `src/system/` composes the resulting per-deployable file maps into
 one tree and writes the cross-cutting `docker-compose.yml`,
 `db-init/`, and `.loom/` artefacts on top.
+
+### The operational contract
+
+`operations` (`src/platform/operations.ts`) is what the generated service
+promises whatever runs it — compose, the k8s manifests, the Helm chart:
+
+| Field | Meaning |
+|---|---|
+| `health` | `liveness` (dependency-free), `readiness` (DB-aware) and the `compose` healthcheck endpoint.  The k8s probes and the compose healthcheck read these; nothing in `src/system/` names a path. |
+| `env({ deployable, sys })` | Every variable the deployable's code reads, as `boot` (refuses to start without it), `deploy` (its fallback is right only in the dev compose network) or `optional`.  Compose and the k8s manifests must both wire every `boot` / `deploy` one — `test/platform/env-contract-conformance.test.ts`; the chart's `wiring` block is built from the `deploy` tier. |
+| `healthcheck(port, path)` / `healthcheckBinaries` | The compose `test:` command and the binaries it needs in the runtime image. |
+| `listen` | Address families the listener accepts — `ipv4`, `dual-stack`, or the defect `ipv6-required` (k8s probes dial IPv4). |
+| `log` | `loom-json` (the shared envelope, `docs/observability.md`), `framework-json` or `text`, plus the log-level env var. |
+| `broker` | Broker-client resilience: reconnect, a post-commit publish failure keeps the commit, bounded retry dead-letters under the generated ACL, trace propagation, messaging metrics. |
+| `migrations` | The boot migrator is idempotent on reboot and applies a changed non-last module. |
+| `gaps` | The open issue behind every fact above a platform does not meet yet. |
+
+The register is honest: `test/platform/operations-contract.test.ts` fails
+when an unmet fact names no issue or a gap outlives its fact, so a fix flips
+the fact and deletes its gap together.
 
 ### Per-target knowledge lives on the target's row
 
