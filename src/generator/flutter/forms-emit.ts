@@ -222,7 +222,10 @@ export interface FlutterFormField {
     labelExpr?: string;
     /** {@link FlutterFormField.optionExprs}, for this cell. */
     optionExprs?: Readonly<Record<string, string>>;
-    kind: "text" | "number-int" | "number-double" | "bool" | "enum" | "datetime";
+    kind: "text" | "number-int" | "number-double" | "bool" | "enum" | "datetime" | "fk-select";
+    /** For an `fk-select` cell, the collection its option list loads from
+     *  (see {@link FlutterFormField.fkCollection}). */
+    fkCollection?: string;
     /** `money` sub-field — submits as a fixed-scale decimal string. */
     money?: boolean;
     /** `date` sub-field — submits the picked day's `YYYY-MM-DD`. */
@@ -531,7 +534,8 @@ function flutterObjectArrayArm(f: FormFieldSpec, c: FlutterArmCtx): FlutterPrepa
       k !== "number-double" &&
       k !== "bool" &&
       k !== "enum" &&
-      k !== "datetime"
+      k !== "datetime" &&
+      !(k === "fk-select" && sub.picker !== undefined)
     ) {
       // A value-object array carrying a sub-field with no flat cell — the whole
       // array defers, loudly.
@@ -549,6 +553,7 @@ function flutterObjectArrayArm(f: FormFieldSpec, c: FlutterArmCtx): FlutterPrepa
       money: sub.kind === "money" || undefined,
       dateOnly: sub.kind === "date" || undefined,
       enumValues: k === "enum" && sub.enumValues ? [...sub.enumValues] : undefined,
+      fkCollection: k === "fk-select" && sub.picker ? routeSegmentFor(sub.picker.target) : undefined,
       required: !sub.optional || undefined,
     });
   }
@@ -1289,6 +1294,11 @@ function stateDecls(fields: readonly FlutterFormField[]): string[] {
       // `dynamic` slots — see `rowsId`: a text cell stores its controller, a
       // bool / enum / datetime cell stores its value.
       out.push(`  final List<List<dynamic>> ${rowsId(f.wireName)} = [];`);
+      for (const sf of f.objectFields ?? []) {
+        if (sf.kind === "fk-select") {
+          out.push(`  List<Map<String, dynamic>> ${cellOptionsId(f.wireName, sf)} = const [];`);
+        }
+      }
     }
   }
   return out;
@@ -1298,6 +1308,17 @@ function stateDecls(fields: readonly FlutterFormField[]): string[] {
  *  (`category` → `_categoryOptions`). */
 function optionsId(wireName: string): string {
   return `${stateId(wireName)}Options`;
+}
+
+/** The options-list state identifier of an object-array row's `fk-select` cell
+ *  (`riders` × `insurer` → `_ridersInsurerOptions`). */
+function cellOptionsId(wireName: string, sf: { jsonKey: string }): string {
+  return `${optionsId(wireName)}${upperFirst(sf.jsonKey)}`;
+}
+
+/** The async loader-method name for an object-array `fk-select` cell. */
+function cellLoaderId(wireName: string, sf: { jsonKey: string }): string {
+  return `${loaderId(wireName)}${upperFirst(sf.jsonKey)}`;
 }
 
 /** The async loader-method name for an fk-select field
@@ -1323,6 +1344,7 @@ function recordCell(sf: NonNullable<FlutterFormField["objectFields"]>[number]): 
     case "bool":
       return `${v} == true`;
     case "enum":
+    case "fk-select":
       return `${v} as String?`;
     case "datetime":
       return `DateTime.tryParse(${v}?.toString() ?? '')`;
@@ -1411,25 +1433,45 @@ function recordSeeds(fields: readonly FlutterFormField[]): string[] {
  *  loader walks every page of `/<collection>` (`?page=N&pageSize=500` until
  *  `totalPages`; a bare-array read is complete in one request) and stores the rows as the dropdown options. */
 function fkLoaders(fields: readonly FlutterFormField[]): string[] {
-  const fks = fields.filter((f) => f.kind === "fk-select" || f.kind === "fk-multi");
+  // One loader per option list: each flat fk input, plus each `fk-select` cell
+  // of an object-array row (its list is shared by every row).
+  const loads: { loader: string; options: string; collection: string | undefined }[] = [];
+  for (const f of fields) {
+    if (f.kind === "fk-select" || f.kind === "fk-multi") {
+      loads.push({
+        loader: loaderId(f.wireName),
+        options: optionsId(f.wireName),
+        collection: f.fkCollection,
+      });
+    }
+    for (const sf of f.objectFields ?? []) {
+      if (sf.kind === "fk-select") {
+        loads.push({
+          loader: cellLoaderId(f.wireName, sf),
+          options: cellOptionsId(f.wireName, sf),
+          collection: sf.fkCollection,
+        });
+      }
+    }
+  }
   const seeds = recordSeeds(fields);
-  if (fks.length === 0 && seeds.length === 0) return [];
+  if (loads.length === 0 && seeds.length === 0) return [];
   const out: string[] = [
     "  @override",
     "  void initState() {",
     "    super.initState();",
     ...seeds,
-    ...fks.map((f) => `    ${loaderId(f.wireName)}();`),
+    ...loads.map((l) => `    ${l.loader}();`),
     "  }",
   ];
-  for (const f of fks) {
+  for (const l of loads) {
     out.push(
       "",
-      `  Future<void> ${loaderId(f.wireName)}() async {`,
+      `  Future<void> ${l.loader}() async {`,
       "    try {",
       "      final rows = <Map<String, dynamic>>[];",
       "      for (var page = 1; ; page++) {",
-      `        final res = await http.get(apiUri('/${f.fkCollection}?page=$page&pageSize=${PAGED_MAX_PAGE_SIZE}'));`,
+      `        final res = await http.get(apiUri('/${l.collection}?page=$page&pageSize=${PAGED_MAX_PAGE_SIZE}'));`,
       "        if (res.statusCode < 200 || res.statusCode >= 300) break;",
       "        final decoded = jsonDecode(res.body);",
       "        final raw = decoded is Map<String, dynamic> ? decoded['items'] : decoded;",
@@ -1442,7 +1484,7 @@ function fkLoaders(fields: readonly FlutterFormField[]): string[] {
       "      }",
       "      if (!mounted) return;",
       "      setState(() {",
-      `        ${optionsId(f.wireName)} = rows;`,
+      `        ${l.options} = rows;`,
       "      });",
       "    } catch (_) {",
       "      // A failed option load leaves the dropdown empty — never crashes the form.",
@@ -1611,6 +1653,7 @@ function objectCellValueExpr(
     case "bool":
       return `row[${i}] as bool`;
     case "enum":
+    case "fk-select":
       return `row[${i}] as String?`;
     case "datetime":
       return pickedWire(`(row[${i}] as DateTime?)`, sf.dateOnly);
@@ -1872,7 +1915,7 @@ function fieldWidget(f: FlutterFormField): string {
       const rows = rowsId(f.wireName);
       const subs = f.objectFields ?? [];
       // One cell per VO sub-field, each reading its own slot in the row.
-      const cells = subs.map((sf, i) => objectCellWidget(sf, i)).join(", ");
+      const cells = subs.map((sf, i) => objectCellWidget(sf, i, f.wireName)).join(", ");
       const newRow = subs.map((sf) => newObjectCell(sf)).join(", ");
       return (
         `Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[` +
@@ -1919,6 +1962,7 @@ function arrayEditor(
 function objectCellWidget(
   sf: NonNullable<FlutterFormField["objectFields"]>[number],
   i: number,
+  wireName: string,
 ): string {
   const slot = `row[${i}]`;
   const lbl = sf.labelExpr ?? `'${dartStr(sf.label)}'`;
@@ -1942,6 +1986,19 @@ function objectCellWidget(
         `Expanded(child: Padding(padding: const EdgeInsets.only(right: 4), child: ` +
         `DropdownButtonFormField<String>(initialValue: ${slot} as String?, isExpanded: true, ` +
         `decoration: InputDecoration(isDense: true, labelText: ${lbl}), items: ${itemsConst}[${items}], ` +
+        `onChanged: (v) => setState(() => ${slot} = v))))`
+      );
+    }
+    case "fk-select": {
+      // The row cell's options load once per form (`_load<Field><Cell>Options`);
+      // a seeded id shows only once an option carries it (an unmatched
+      // `initialValue` asserts).
+      const opts = cellOptionsId(wireName, sf);
+      const items = `${opts}.map((o) => DropdownMenuItem(value: o['id'] as String?, child: Text((o['display'] ?? o['id'] ?? '').toString()))).toList()`;
+      return (
+        `Expanded(child: Padding(padding: const EdgeInsets.only(right: 4), child: ` +
+        `DropdownButtonFormField<String>(initialValue: ${opts}.any((o) => o['id'] == ${slot}) ? ${slot} as String? : null, isExpanded: true, ` +
+        `decoration: InputDecoration(isDense: true, labelText: ${lbl}), items: ${items}, ` +
         `onChanged: (v) => setState(() => ${slot} = v))))`
       );
     }
@@ -1975,6 +2032,7 @@ function newObjectCell(sf: NonNullable<FlutterFormField["objectFields"]>[number]
         ? `'${dartStr(sf.enumValues[0]!)}'`
         : "null";
     case "datetime":
+    case "fk-select":
       return "null";
     default:
       return "TextEditingController()";
