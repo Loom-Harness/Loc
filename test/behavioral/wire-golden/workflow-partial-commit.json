@@ -1,0 +1,288 @@
+{
+  "case": "workflow-partial-commit",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/orders",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/counters",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/workflows/bump_then_fail",
+      "status": 422,
+      "body": {
+        "code": "problem.domain-floor",
+        "detail": "Business rule violated",
+        "instance": "/api/workflows/bump_then_fail",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/counters/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "n": 1,
+        "order": "<uuid>",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/workflows/bump_then_fail_atomically",
+      "status": 422,
+      "body": {
+        "code": "problem.domain-floor",
+        "detail": "Business rule violated",
+        "instance": "/api/workflows/bump_then_fail_atomically",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/counters/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "n": 1,
+        "order": "<uuid>",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/orders/{id}/boom",
+      "status": 422,
+      "body": {
+        "code": "problem.domain-floor",
+        "detail": "Business rule violated",
+        "instance": "/api/orders/{id}/boom",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/counters/{id}/bump",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/orders/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/counters/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/orders",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "note": "y",
+            "rowVersion": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/counters",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "n": 5,
+            "order": "<uuid>",
+            "rowVersion": 4
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 12,
+      "method": "DELETE",
+      "path": "/api/counters/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "DELETE",
+      "path": "/api/orders/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}",
+        "params": {
+          "type": "Shop.Order"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "PATCH",
+      "path": "/api/orders",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/orders",
+        "instance": "/api/orders",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/orders",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/orders",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/counters/{id}/bump",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Counter {id} not found",
+        "instance": "/api/counters/{id}/bump",
+        "params": {
+          "type": "Shop.Counter"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "POST",
+      "path": "/api/counters/{id}/bump",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Counter {id} not found",
+        "instance": "/api/counters/{id}/bump",
+        "params": {
+          "type": "Shop.Counter"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "POST",
+      "path": "/api/counters/{id}/bump",
+      "status": 415,
+      "body": {
+        "code": "problem.unsupported-media-type",
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/counters/{id}/bump",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/orders/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/update",
+        "params": {
+          "type": "Shop.Order"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

@@ -1,0 +1,239 @@
+{
+  "case": "decimal-call-reductions",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/providers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/workflows/score_provider",
+      "status": 200,
+      "body": "<uuid>"
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/score_cards/{id}",
+      "status": 200,
+      "body": {
+        "boosted": 0,
+        "id": "<volatile:key>",
+        "label": "none",
+        "mean": null,
+        "provider": "<uuid>",
+        "rowVersion": 1,
+        "total": 0
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/providers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/workflows/score_provider",
+      "status": 200,
+      "body": "<uuid>"
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/score_cards/{id}",
+      "status": 200,
+      "body": {
+        "boosted": 9,
+        "id": "<volatile:key>",
+        "label": "p",
+        "mean": 1.5,
+        "provider": "<uuid>",
+        "rowVersion": 1,
+        "total": 4.5
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/providers/{id}",
+      "status": 200,
+      "body": {
+        "attributes": [
+          {
+            "name": "a",
+            "weight": 1.25
+          },
+          {
+            "name": "b",
+            "weight": 0.5
+          },
+          {
+            "name": "c",
+            "weight": 2.75
+          }
+        ],
+        "id": "<volatile:key>",
+        "name": "p",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/providers/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/score_cards",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "boosted": 0,
+            "id": "<volatile:key>",
+            "label": "none",
+            "mean": null,
+            "provider": "<uuid>",
+            "rowVersion": 1,
+            "total": 0
+          },
+          {
+            "boosted": 9,
+            "id": "<volatile:key>",
+            "label": "p",
+            "mean": 1.5,
+            "provider": "<uuid>",
+            "rowVersion": 1,
+            "total": 4.5
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/providers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/providers",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "attributes": [],
+            "id": "<volatile:key>",
+            "name": "none",
+            "rowVersion": 1
+          },
+          {
+            "attributes": [],
+            "id": "<volatile:key>",
+            "name": "p2",
+            "rowVersion": 2
+          },
+          {
+            "attributes": [],
+            "id": "<volatile:key>",
+            "name": "spare",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 11,
+      "method": "DELETE",
+      "path": "/api/providers/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/providers/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Provider {id} not found",
+        "instance": "/api/providers/{id}",
+        "params": {
+          "type": "Matching.Provider"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "PATCH",
+      "path": "/api/providers",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/providers",
+        "instance": "/api/providers",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/providers",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/providers",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

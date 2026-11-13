@@ -4,6 +4,7 @@ import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { requestNamesForContexts } from "../_frontend/request-names.js";
+import { workflowResultSegment } from "../_frontend/workflow-result.js";
 import { allWorkflows } from "../_frontend/workflows-module.js";
 import {
   collectResponseTypes,
@@ -193,7 +194,10 @@ export function buildAngularWorkflowsModule(contexts: BoundedContextIR[]): strin
     if (emitsCommandRoute(wf)) {
       out.push("");
       out.push(`  ${m}(input: ${names.workflow(wf.name)}Request) {`);
-      out.push(`    return this.http.post<void>(\`\${API_BASE_URL}/workflows/${slug}\`, input);`);
+      // A start route that answers the created record's id hands it back.
+      out.push(
+        `    return this.http.post<${workflowResultSegment(wf) ? "string" : "void"}>(\`\${API_BASE_URL}/workflows/${slug}\`, input);`,
+      );
       out.push("  }");
     }
     if (wf.instanceWireShape) {
