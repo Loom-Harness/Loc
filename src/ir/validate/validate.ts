@@ -11,9 +11,7 @@ import {
   validateApplierBodies,
   validatePartConstructionOwner,
 } from "./checks/body-stmt-vocabulary.js";
-import {
-  validateElixirBoundMutatingCalls,
-} from "./checks/call-result-checks.js";
+import { validateElixirBoundMutatingCalls } from "./checks/call-result-checks.js";
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
 import { validateCreateCallSites } from "./checks/create-call-checks.js";
