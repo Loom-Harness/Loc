@@ -68,7 +68,7 @@ describe("node (drizzle): tenant-scoped fold", async () => {
     expect(fold).toContain("const __origin = currentEventOrigin();");
     expect(fold).toContain("if (__tenant == null) return;");
     expect(fold).toContain("await loadTotals(db, __key, __tenant)");
-    expect(fold).toContain("?? { acct: __key, tenantId: __tenant }");
+    expect(fold).toContain("?? { acct: __key, tenantId: __tenant, paid: 0, deposited: 0 }");
     expect(projections).toContain(
       "onConflictDoUpdate({ target: [schema.totalses.tenantId, schema.totalses.acct], set: state })",
     );
@@ -144,7 +144,7 @@ describe("dotnet (EF Core): tenant-scoped fold", async () => {
   it("the fold reads the event origin, keys and stamps the row", () => {
     expect(handler).toContain("var __origin = global::Api.Auth.User.CurrentEventOrigin();");
     expect(handler).toContain("FindAsync(x => x.TenantId == __tenant && x.Acct == __key");
-    expect(handler).toContain("state = new TotalsRow { Acct = __key, TenantId = __tenant };");
+    expect(handler).toContain("state = new TotalsRow { Acct = __key, TenantId = __tenant, Paid = 0, Deposited = 0 };");
   });
 
   it("every read applies the floor against the principal", () => {
@@ -197,7 +197,7 @@ describe("python: tenant-scoped fold", async () => {
     const fold = between(dispatch, "async def _proj_totals_paid", "await session.flush()");
     expect(fold).toContain(`__tenant = __origin.get("tenant")`);
     expect(fold).toContain("await _load_totals(session, __key, __tenant)");
-    expect(fold).toContain("state = TotalsRow(acct=__key, tenant_id=__tenant)");
+    expect(fold).toContain("state = TotalsRow(acct=__key, tenant_id=__tenant, paid=0, deposited=0)");
   });
 
   it("every read applies the floor; the exempt fold does not", () => {
