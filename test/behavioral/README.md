@@ -163,6 +163,17 @@ the runner's RSS.
   committed file is named `.pw.ts` so the repo's vitest run never discovers
   it). Gates in `behavioral-ui-e2e.yml` after the emitted round-trips; run:
   `node paged-ui.mjs`.
+- **i18n-ui** — the translated-locale leg (`i18n-ui.mjs`, fixture
+  `i18n-ui/i18n-ui.ddd` with its `fr` translator tree beside it). The fixture's
+  chrome claims (a page-`requires` Forbidden view, a `money` ICU hole, a titled
+  page's nav link, a menu section, `ProvenanceInfo` labels, an `Action { x.op }`
+  label) are generated for each of react/vue/svelte/angular
+  (`platform: static` is retargeted), built with the frontend's own toolchain and
+  opened in headless Chromium with `locale: "fr-FR"` over the one-origin stack
+  (dev-stub auth, `x-loom-dev-claims` picks the principal); the TRANSLATED text
+  is read off the DOM, with an `en-US` control. Gates in `behavioral-ui-e2e.yml`
+  after `paged-ui`; run: `node i18n-ui.mjs [static|vue|svelte|angular]`.
+  `LOOM_UI_MUTATE=<module.mjs>` is the mutation-proof seam (as in `run-ui.mjs`).
 - **heex-ui** — the **rendered LiveView**, per PR (`run-heex-ui.mjs`, fixture
   `heex-ui.ddd`, extra spec `heex-ui-roundtrip.pw.ts`). Deliberately NOT the
   `run-ui.mjs` topology: that one serves a `vite build` bundle with `/api`

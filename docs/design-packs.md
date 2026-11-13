@@ -472,7 +472,9 @@ One per input kind a creation or workflow form can render: `field-input-string`,
 `-int`, `-decimal`, `-money`, `-bool`, `-date`, `-datetime`, `-enum-select`,
 `-id-select` (id from a known aggregate, dropdown), `-id-text` (raw id
 fallback), `-valueobject` (recursive), `-array` and `-file` (file input +
-upload to a `FileRef`).
+upload to a `FileRef`).  For an array of value objects, `-array` receives each
+row pre-rendered as `rowHtml`: every row field goes through its own
+`field-input-*` template, bound to the row's `index`.
 
 ### Form templates (tsx / svelte / vue)
 

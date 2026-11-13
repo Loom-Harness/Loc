@@ -111,11 +111,11 @@ jobs:
     # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    # One case, not a corpus: hex deps + one Phoenix compile (~4-6 min cold,
-    # ~1 min on a cache hit) + the assets build + a chromium download + a
-    # handful of browser round-trips.  20 leaves headroom on a cold 2-core
-    # runner without letting a genuine hang burn half an hour.
-    timeout-minutes: 20
+    # Two cases, not a corpus: hex deps + one Phoenix compile per case (~4-6 min
+    # cold, ~1 min on a cache hit) + the assets build + a chromium download + a
+    # handful of browser round-trips.  30 leaves headroom on a cold 2-core
+    # runner without letting a genuine hang burn an hour.
+    timeout-minutes: 30
 
     services:
       postgres:
@@ -180,13 +180,21 @@ jobs:
         working-directory: test/behavioral
         run: node run-heex-ui.mjs
 
+      # The translated-locale case: the same boot recipe over the `fr` fixture
+      # (heex-i18n/), reading the French text off the rendered LiveView.
+      - name: Run the HEEx/LiveView translated-locale (fr) leg
+        working-directory: test/behavioral
+        run: node run-heex-ui.mjs i18n
+
       - name: Upload Playwright traces
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: heex-ui-playwright-traces
           # The runner lifts them out of its tmpdir before cleanup.
-          path: test/behavioral/.work-heex-ui/test-results/**
+          path: |
+            test/behavioral/.work-heex-ui/test-results/**
+            test/behavioral/.work-heex-i18n/test-results/**
           # Dot-directory: without this, upload-artifact@v4 silently ships
           # nothing (see the note in schemathesis.yml).
           include-hidden-files: true

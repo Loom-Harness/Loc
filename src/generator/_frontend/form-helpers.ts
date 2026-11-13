@@ -72,35 +72,21 @@ export function needsController(
       const vo = findValueObjectInScope(ctx, inner.name);
       return !!vo && vo.fields.some((f) => probe(f.type));
     }
-    // An object array's ROWS render an `X id` sub-field as a `<Controller>`-
-    // wrapped picker, exactly like the flat field does, so such an array does
-    // need the `Controller` import (audit #2864 § Papercuts).  Nothing else in
-    // a row does: numeric / money / bool / enum row sub-fields still go through
-    // `register`, so probing the element's fields wholesale would import
-    // `Controller` for rows that never mount one.  A scalar array (stub / comma
-    // input) needs nothing.  `control` itself is forced separately by the
+    // An object array's ROWS render each sub-field through the same template
+    // the field gets at the top level, so a row needs `Controller` exactly when
+    // one of its fields would.  `control` itself is forced separately by the
     // `useFieldArray` hook in `prepareFieldsAndImports`.
     if (inner.kind === "array") {
       const el = unwrapOpt(inner.element);
       // A scalar / enum / reference collection is a `<Controller>`-bound
       // collection input (`form-array-input.ts`).
       if (el.kind !== "valueobject") return true;
-      const vo = ctx.valueObjects.find((v) => v.name === el.name);
-      return !!vo && vo.fields.some((f) => rowNeedsController(f.type, aggregatesByName));
+      const vo = findValueObjectInScope(ctx, el.name);
+      return !!vo && vo.fields.some((f) => probe(f.type));
     }
     return false;
   };
   return fields.some((f) => probe(f.type));
-}
-
-/** Does one ROW sub-field mount a `<Controller>`?  Only an `X id` whose target
- *  carries a `derived display` does — that is the sole row template the
- *  `field-input-array` row arm renders as a picker; every other row sub-field
- *  is a `register`-bound input.  Deliberately NOT recursive: a row sub-field is
- *  one scalar of the element value object, never another array or nested VO. */
-function rowNeedsController(t: TypeIR, aggregatesByName: Map<string, AggregateIR>): boolean {
-  const inner = unwrapOpt(t);
-  return inner.kind === "id" && !!aggregatesByName.get(inner.targetName)?.displayDerived;
 }
 
 /** Collect every aggregate referenced by an `X id` field anywhere in
@@ -186,7 +172,8 @@ export function formSeedTs(spec: FormSpec, ctx: BoundedContextIR, seedCtx: Defau
  *  seeds the kind's empty input — `""` for the text-like kinds (the request
  *  schema reads an empty optional input as `null`), the zero otherwise. */
 function recordSeedTs(f: FormFieldSpec, recordVar: string, ctx: BoundedContextIR): string {
-  const read = `${recordVar}.${f.name}`;
+  const carrier = f.prefill.from === "record" && f.prefill.carrier ? ".value" : "";
+  const read = `${recordVar}.${f.name}${carrier}`;
   const textLike =
     f.kind === "string" ||
     f.kind === "date" ||
@@ -196,6 +183,16 @@ function recordSeedTs(f: FormFieldSpec, recordVar: string, ctx: BoundedContextIR
   if (f.kind === "datetime") {
     return f.optional ? `${read}?.slice(0, 16) ?? ""` : `${read}.slice(0, 16)`;
   }
+  // A collection or an object is copied: the record is the read cache's value,
+  // which the form must neither mutate nor be refused by (a reactive form's
+  // add-row pushes onto the array it was seeded with).
+  const rows = f.optional ? `(${read} ?? [])` : read;
+  if (f.kind === "objectArray") return `${rows}.map((__r) => ({ ...__r }))`;
+  if (f.kind === "scalarArray" || f.kind === "enumArray" || f.kind === "refArray") {
+    return `[...${rows}]`;
+  }
+  if (f.kind === "valueObject") return f.optional ? `{ ...(${read} ?? {}) }` : `{ ...${read} }`;
+  if (f.kind === "optionalValueObject") return `${read} ? { ...${read} } : null`;
   if (!f.optional) return read;
   if (textLike) return `${read} ?? ""`;
   return `${read} ?? ${initialValueTs(f.type, ctx, false)}`;

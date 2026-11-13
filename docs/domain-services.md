@@ -148,6 +148,7 @@ inlined clause by clause.
 | A `this`-rooted write (`:=` / `+=` / `-=`) — there is no `this` | `loom.domain-service-no-mutation` |
 | A repository **write** (`remove`, and the refused `save`/`insert`/`update`/`add`/`commit`) | `loom.domain-service-no-repo-write` |
 | Start a workflow in the same context | `loom.domain-service-no-workflow-start` |
+| A read of `currentUser` / `organizationContext` — a stateless service is never handed the principal; gate in the caller, or pass the value in | `loom.domain-service-no-principal` |
 | Calling a **reading**/**mutating** service from an aggregate op / view body | `loom.domain-service-infra-call-from-aggregate` |
 | A **resource-op** (`files.put(…)`, `mail.send(…)`, …) — outbound I/O belongs to the orchestrator | `loom.resource-op-outside-workflow` |
 | Reading a repository of **another context** — the `reading` tier is scoped to the service's own context | `loom.domain-service-cross-context-read` |

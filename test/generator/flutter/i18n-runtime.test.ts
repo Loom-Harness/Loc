@@ -273,12 +273,12 @@ describe("Flutter i18n runtime", () => {
     expect(dart).toContain(`Semantics(container: true, label: t('${toolbarKey}', 'Order actions')`);
   });
 
-  it("keeps the Toolbar's DEFAULT accessible name a plain Dart literal", async () => {
-    // "Actions" is the pack's own fallback — no source literal, so it is not in
-    // the catalog and must never become a `t()` call (its key would resolve to
-    // nothing).  This is the i18n-ON app exercising the value seam's OFF branch.
+  it("reads the Toolbar's DEFAULT accessible name through the catalog", async () => {
+    // The a11y contract's fallback name has no source literal; it reads the
+    // `chrome.toolbarActions` catalog entry so a locale can translate it.
     const dart = await homeDart(SYSTEM(`Toolbar { Heading { "Orders" } }`));
-    expect(dart).toContain("Semantics(container: true, label: 'Actions'");
+    expect(dart).toContain("chrome.toolbarActions");
+    expect(dart).not.toContain("label: 'Actions'");
   });
 
   it("renders + translates the Divider label (it was extracted but dropped)", async () => {

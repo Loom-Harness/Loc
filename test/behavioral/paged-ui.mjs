@@ -25,6 +25,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { playwrightFallbackArgs } from "./browser-fallback.mjs";
 import {
   buildFrontend,
   buildServerModule,
@@ -117,7 +118,7 @@ async function main() {
     // ASYNC spawn — `spawnSync` would block the event loop and freeze the
     // in-process server, so every request from the browser would hang.
     await new Promise((res) => {
-      const cp = spawn(npx, ["playwright", "test", "--reporter=list,json"], {
+      const cp = spawn(npx, ["playwright", "test", ...playwrightFallbackArgs(e2eDir), "--reporter=list,json"], {
         cwd: e2eDir,
         stdio: "inherit",
         env: {

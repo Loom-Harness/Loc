@@ -30,6 +30,7 @@ import {
   needsController,
 } from "../../_frontend/form-helpers.js";
 import { optionalGroupRendererFor } from "../../_frontend/form-optional-group.js";
+import { rowBinderFor } from "../../_frontend/form-row-binding.js";
 import { formSpecEnvOf, operationFormSpec } from "../../_frontend/form-spec.js";
 import { frontendRequestNames } from "../../_frontend/request-names.js";
 import { serverSourcedDefaultFields } from "../../_frontend/server-default.js";
@@ -550,6 +551,7 @@ function prepareFormFields(
     fieldTokens: (vm: FormFieldVM) => formFieldModelTextTokens(ctx, vm),
     optionalGroup: optionalGroupRendererFor(ctx.target.framework),
     arrayInput: arrayInputRendererFor(ctx.target.framework),
+    rowBinding: rowBinderFor(ctx.target.framework),
   };
   const fieldHtmls = fieldVMs.map((vm) => renderFormField(vm, ctx.pack, fieldChrome));
   if (fieldHtmls.some((h) => h.includes(`${FIELD_ERROR_TEXT}(`))) {

@@ -13,7 +13,11 @@
 // orders them wrongly), which is why the predicate lives here rather than twice.
 
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
-import { containmentRowKey, rowShapeByKey } from "../../_frontend/optional-member.js";
+import {
+  containmentRowKey,
+  rowShapeByKey,
+  valueObjectRowKey,
+} from "../../_frontend/optional-member.js";
 import type { WalkContext } from "../walker-core.js";
 import { extendLambdaParams } from "../walker-core.js";
 
@@ -121,7 +125,12 @@ export function cellRowAggregate(
   const contained = containmentRowKey(rowsArg, ctx);
   if (contained) return contained;
   if (rowsArg.kind === "member" && rowsArg.receiver.kind === "ref") {
-    return ctx.listRowAggregates?.get(rowsArg.receiver.name);
+    const enveloped = ctx.listRowAggregates?.get(rowsArg.receiver.name);
+    if (enveloped) return enveloped;
   }
-  return undefined;
+  // A VALUE-OBJECT ARRAY read — `policyById.data.riders` — yields rows of the
+  // element value object, keyed through its owning field.  Tried after the
+  // envelope: a paged list's `rows.items` is the envelope's page, even when
+  // the row aggregate also declares an `items` field.
+  return valueObjectRowKey(rowsArg, ctx);
 }

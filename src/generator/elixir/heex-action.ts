@@ -12,6 +12,7 @@ import { operationActionGates } from "../../ir/util/op-gates.js";
 import { humanize, snake } from "../../util/naming.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
 import { giveUpText } from "../_walker/give-up.js";
+import { opLabelCall } from "./heex-model-text.js";
 import { renderExpr, type WalkContext } from "./heex-walker-core.js";
 
 /** `Action(<instance>.<operation>, then?)` → a `<.button phx-click=…>`
@@ -63,12 +64,16 @@ export function renderHeexAction(
     ctx.actionBindings.push({
       agg: aggName,
       op: snake(opName),
-      opHuman: humanize(opName),
+      opName,
       eventName,
       thenRoute,
     });
   }
-  const button = `<.button phx-click="${eventName}" phx-value-id={${idExpr}}>${humanize(opName)}</.button>`;
+  // Under i18n the label is the operation's identity-keyed message
+  // (`<Ctx>.<Agg>.op.<op>`), the key the SPA targets' `actionButtonLabel` reads.
+  const opCall = opLabelCall(ctx, aggName, opName);
+  const label = opCall ? `<%= ${opCall} %>` : humanize(opName);
+  const button = `<.button phx-click="${eventName}" phx-value-id={${idExpr}}>${label}</.button>`;
   return gateActionButton(button, op, ctx);
 }
 
