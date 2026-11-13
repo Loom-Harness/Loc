@@ -10,7 +10,7 @@ import { type Aggregate, isUnique } from "./generated/ast.js";
 
 /** Every `unique (…)` tuple of `agg`, inherited ones first, each in its
  *  declared column order. */
-export function declaredKeyTuples(agg: Aggregate | undefined): string[][] {
+function declaredKeyTuples(agg: Aggregate | undefined): string[][] {
   const out: string[][] = [];
   for (const a of chainOf(agg))
     for (const m of a.members) if (isUnique(m)) out.push([...m.columns]);
