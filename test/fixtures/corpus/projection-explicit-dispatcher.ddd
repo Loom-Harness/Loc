@@ -22,8 +22,9 @@ system ExplicitDispatcherSys {
       repository Orders for Order { }
       // A plain string, not `Order id`: the relay may or may not have issued
       // the receipt by the time the order is destroyed, and a reference would
-      // make that delete's status depend on relay timing.
-      aggregate Receipt with crudish {
+      // make that delete's status depend on relay timing.  No api surface:
+      // only the reactor writes it.
+      aggregate Receipt {
         orderRef: string
       }
       repository Receipts for Receipt { }
