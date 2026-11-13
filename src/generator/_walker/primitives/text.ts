@@ -162,6 +162,9 @@ export function emitDateDisplay(
   return renderPrimitive(ctx, "primitive-date-display", {
     valueExpr,
     hasValue: value !== undefined,
+    // A server-rendering target (HEEx) formats through its own locale runtime,
+    // which exists exactly when the ui has translatable strings.
+    hasI18n: ctx.i18nPrefix !== undefined,
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
   });

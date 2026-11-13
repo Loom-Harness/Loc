@@ -17,7 +17,7 @@ export default function ProductList() {
         <Anchor component={RouterLink} to="/">{t("WebApp.page.List.anchor.n0mxf2", "Home")}</Anchor>
         <Text>{t("Products.Product.name.other", "Products")}</Text>
       </Breadcrumbs>
-      <Group justify="space-between" align="center" gap="md" role="toolbar" aria-label="Actions">
+      <Group justify="space-between" align="center" gap="md" role="toolbar" aria-label={t("chrome.toolbarActions", "Actions")}>
         <Title order={2}>{t("Products.Product.name.other", "Products")}</Title>
         <Button onClick={() => navigate("/products/new")} data-testid="products-list-create">{t("WebApp.page.List.button.j7i5mi", "New product")}</Button>
       </Group>

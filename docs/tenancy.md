@@ -375,14 +375,14 @@ POST /api/payments {"invoice": "<another tenant's invoice>", "amount": 1}
 ```
 
 The decision is one fact on the enriched IR (`src/ir/plan/ref-scope.ts`), read
-off the referenced aggregate:
+off the referenced aggregate (D-REF-ADMISSION):
 
 | Target | Scope | At write time |
 |---|---|---|
 | `tenantOwned`, table beside the row | `row-tenant` | probed under the target's read scope |
 | `crossTenant`, or no `tenancy by` | `global` | the foreign key alone |
 | the registry | `global` | the foreign key alone — a row may name another org (a share's grantee) |
-| `tenantOwned` in another context | `unresolvable` | stored unchecked; `loom.tenancy-ref-unresolvable` warns |
+| `tenantOwned` in another context | `unresolvable` | no check is possible: `loom.tenancy-ref-unresolvable` is an error under `enforcement: denyByDefault`, a warning under `opt` |
 
 Every backend renders the probe at the repository **save**, inside the write
 transaction and before the row is written, so it covers every path that

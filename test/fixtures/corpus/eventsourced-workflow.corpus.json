@@ -1,5 +1,13 @@
 {
   "title": "event-sourced saga folding its own emitted events",
   "doc": "workflow",
-  "backends": "ALL"
+  "backends": "ALL",
+  "apiCaller": {
+    "unattributed": [
+      "api.archiveTracker.instance (no such aggregate)",
+      "api.archiveTracker.instances (no such aggregate)",
+      "api.orderFulfillment.instance (no such aggregate)",
+      "api.orderFulfillment.instances (no such aggregate)"
+    ]
+  }
 }

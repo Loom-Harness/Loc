@@ -183,8 +183,10 @@ export interface ActionBinding {
   agg: string;
   /** Operation name, snake_case. */
   op: string;
-  /** Human-readable operation label for the flash message. */
-  opHuman: string;
+  /** The operation's DSL name — the subject of its flash sentence
+   *  (`actionSucceeded.<opName>`); absent for a `DestroyForm`, which flashes
+   *  `deleteSucceeded.<agg>`. */
+  opName?: string;
   /** `phx-click` event name (`<op>_<agg>`); also the code-interface fn. */
   eventName: string;
   /** Optional `then: navigate(<Page>)` target route. */
@@ -202,6 +204,9 @@ export interface FormBinding {
   /** Source name in PascalCase (e.g. "Customer", "PlaceOrder"; for
    *  an operation form, the owning aggregate). */
   name: string;
+  /** kind:"operation" only — the operation's DSL name, the subject of its
+   *  `operationSucceeded` flash sentence. */
+  opName?: string;
   /** kind:"operation" only — snake-cased operation name (the
    *  `<op>` function the form submits to). */
   op?: string;
