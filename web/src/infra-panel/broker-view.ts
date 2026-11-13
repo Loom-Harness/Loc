@@ -7,7 +7,7 @@ import type {
   BrokerInspectTopic,
   BrokerKind,
   BrokerPublishParams,
-} from "../runtime/infra/broker-protocol";
+} from "../../../src/emulation/broker-protocol";
 
 export interface BrokerAddress {
   transport: BrokerKind;

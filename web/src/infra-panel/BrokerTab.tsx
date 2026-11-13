@@ -17,7 +17,7 @@ import type {
   BrokerInspectQueue,
   BrokerInspectResult,
   BrokerInspectTopic,
-} from "../runtime/infra/broker-protocol";
+} from "../../../src/emulation/broker-protocol";
 import { brokerAddresses, deadLetterOf, groupLag, lastTypeOn, testPublish } from "./broker-view";
 import { InfraError, InfraHeader } from "./chrome";
 import type { InfraTabProps } from "./types";
