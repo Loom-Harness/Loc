@@ -2,9 +2,8 @@
 // Frontend Contract carries nothing beyond it.
 //
 // The surface is read off the IR the backends render their API from: the
-// declared `<Entity>Response` records of every context an `api` exposes (and,
-// for a masked aggregate those records cannot describe, the API-read wire
-// shape every backend serializes), the declared command / query / error /
+// declared `<Entity>Response` records of every context the system serves, each
+// field carrying its aggregate's mask, the declared command / query / error /
 // payload records, the events a UI subscribes to, every value object and enum,
 // and the `currentUser` claims.  The check runs on the BYTES — the contract is
 // parsed back from its JSON — because TypeScript types are erased by
@@ -21,7 +20,6 @@
 //     carry (a domain field reached through a UI expression).
 
 import { shippedFields } from "../../src/ir/contract/allowlist.js";
-import { forApiRead, wireFieldsFor } from "../../src/ir/enrich/wire-projection.js";
 import type {
   EnrichedLoomModel,
   EnrichedSystemIR,
@@ -112,32 +110,19 @@ export function exposedSurface(model: EnrichedLoomModel, sys: EnrichedSystemIR):
     for (const p of ctx.projections) s.routed.add(p.name);
     for (const agg of ctx.aggregates) {
       if (agg.isAbstract) continue;
-      const rec = ctx.payloads.find(
-        (p) => p.kind === "response" && p.name === `${agg.name}Response`,
-      );
-      if (!rec) continue;
-      if (declaredResponseFor(ctx.payloads, agg)) {
-        for (const ent of [agg, ...agg.parts]) {
-          const r = ctx.payloads.find(
-            (p) => p.kind === "response" && p.name === `${ent.name}Response`,
-          );
-          // A declared record leaves the id implicit; every backend serializes it.
-          if (r)
-            setResponse(
-              r.name,
-              ent.name,
-              new Map([["id", false], ...r.fields.map((f) => [f.name, false] as const)]),
-            );
-        }
-      } else {
-        for (const ent of [agg, ...agg.parts]) {
-          const wire = forApiRead(wireFieldsFor(ent));
-          setResponse(
-            `${ent.name}Response`,
-            ent.name,
-            new Map(wire.map((w) => [w.name, w.maskUnless !== undefined])),
-          );
-        }
+      if (!declaredResponseFor(ctx.payloads, agg)) continue;
+      for (const ent of [agg, ...agg.parts]) {
+        const r = declaredResponseFor(ctx.payloads, ent);
+        if (!r) continue;
+        // A declared record leaves the id implicit; every backend serializes it.
+        setResponse(
+          r.name,
+          ent.name,
+          new Map([
+            ["id", false],
+            ...r.fields.map((f) => [f.name, f.maskUnless !== undefined] as const),
+          ]),
+        );
       }
     }
     for (const agg of ctx.aggregates) {

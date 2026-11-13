@@ -6920,16 +6920,16 @@ service-to-service call, a mask-write gate, provenance capture, a domain
 `JSON.parse(JSON.stringify(…))`.
 
 **The wire half reads through `declaredResponseFor`.** Response records come
-from `responseWireFor` (`src/ir/util/declared-response.ts`), which returns the
-declared `<Entity>Response` records and reads the derived wire shape only for
-the masked aggregates `declaredResponseFor` refuses. The contract module never
-calls `wireFieldsFor*` itself; `test/ir/contract/frontend-contract-census.test.ts`
-enforces it. Retiring the derived shape (deleting that fallback) therefore
-changes no contract code. An aggregate whose context declares no response record
-is not exposed over a declared contract and is absent. Request shapes are the
-declared `command` / `query` records; no derived create-input or operation-input
-shape ships, and the synthesized `<Agg>Wire` record (a restatement of the
-derived shape) is left out.
+from `contractResponsesFor` (`src/ir/util/declared-response.ts`), which returns
+the declared `<Entity>Response` records of an aggregate and its parts as
+`declaredResponseFor` gives them, each field carrying its aggregate's mask. The
+derived wire shape is never read: no contract module names a `wireFieldsFor*`
+helper, `test/ir/contract/frontend-contract-census.test.ts` enforces it, and a
+declared record states the `id` every backend serializes first. An aggregate
+whose context declares no response record is not exposed over a declared
+contract and is absent. Request shapes are the declared `command` / `query`
+records; no derived create-input or operation-input shape ships, and the
+synthesized `<Agg>Wire` record (a restatement of the derived shape) is left out.
 
 **Masks ship as a flag.** A masked response field carries `maskable: true`. The
 `mask unless` predicate and the mask-taint analysis stay server-side.

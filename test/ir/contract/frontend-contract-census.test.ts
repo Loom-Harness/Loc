@@ -8,7 +8,7 @@
 //    and a field that stops shipping fails until it is removed.
 //
 // 2. The wire source (owner ruling, D-FRONTEND-CONTRACT).  The contract reads
-//    its wire half through `declaredResponseFor` / `responseWireFor`
+//    its wire half through `declaredResponseFor` / `contractResponsesFor`
 //    (`src/ir/util/declared-response.ts`) and never reads the derived wire
 //    shape itself: no module under `src/ir/contract/` names a `wireFieldsFor*`
 //    helper, imports `wire-projection` (where they live) or `mask-taint` (which
@@ -131,8 +131,8 @@ const SHIPPED: Record<string, string[] | null> = {
   PayloadIR: ["fields", "generic", "kind", "name", "variants"],
   RefetchTargetIR: ["aggregate", "queryTag"],
   ResourceOp: ["boundApi", "capability", "interface", "resourceKind", "resourceName", "verb"],
-  ResponseWire: ["entity", "fields", "name", "source"],
-  ResponseWireField: ["maskable", "name", "optional", "type"],
+  ContractResponse: ["entity", "fields", "name"],
+  ContractResponseField: ["maskable", "name", "optional", "type"],
   ReturnVariantIR: ["variantShape", "variantTag"],
   RouteIR: ["method", "path", "target"],
   RouteTarget: ["context", "handler"],

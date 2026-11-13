@@ -4,14 +4,14 @@
 //
 // Two halves.  The UI half is the system's `ui`s, root components and layouts,
 // copied through the allowlist in `ui-spec.ts`.  The wire half is the exposed
-// API: the operations of every context the system serves (`exposedContexts`), the response record
-// of each exposed aggregate and part, the declared command / query / error /
-// payload records, the events a UI notification names, and the value objects
-// and enums those reach.  Response records come through `responseWireFor`
-// (`src/ir/util/declared-response.ts`): the declared record is the source, and
-// the derived wire shape is read there only for the masked aggregates
-// `declaredResponseFor` refuses — this module never reads it itself.  A masked
-// field ships as a `maskable` flag; its predicate stays on the server.
+// API: the operations of every context the system serves (`exposedContexts`),
+// the response record of each exposed aggregate and part, the declared
+// command / query / error / payload records, the events a UI notification
+// names, and the value objects and enums those reach.  Response records are
+// the declared records, read through `declaredResponseFor` by
+// `contractResponsesFor` (`src/ir/util/declared-response.ts`); the derived wire
+// shape is never read.  A masked field ships as a `maskable` flag; its
+// predicate stays on the server.
 //
 // Request shapes are the declared `command` / `query` records; no derived
 // create-input or operation-input shape is shipped.  An aggregate whose
@@ -43,9 +43,9 @@ import {
   deriveContextOperations,
 } from "../util/api-surface.js";
 import {
-  type ResponseWire,
-  type ResponseWireField,
-  responseWireFor,
+  type ContractResponse,
+  type ContractResponseField,
+  contractResponsesFor,
 } from "../util/declared-response.js";
 import { exposedContexts } from "../util/exposed-contexts.js";
 import { classifyForWire } from "../validate/invariant-classify.js";
@@ -69,7 +69,7 @@ export interface FrontendContract {
   wire: {
     apis: ApiIR[];
     operations: ContractOperation[];
-    responses: ResponseWire[];
+    responses: ContractResponse[];
     /** Declared `command` / `query` / `error` / `payload` records, plus any
      *  `response` record no aggregate claims, and the paged / union carriers. */
     records: ContractRecord[];
@@ -157,12 +157,11 @@ const apiRule = record<ApiIR>("ApiIR", {
   ),
 });
 
-const responseRule = record<ResponseWire>("ResponseWire", {
+const responseRule = record<ContractResponse>("ContractResponse", {
   name: keep,
   entity: keep,
-  source: keep,
   fields: list(
-    record<ResponseWireField>("ResponseWireField", {
+    record<ContractResponseField>("ContractResponseField", {
       name: keep,
       type: typeRule,
       optional: keep,
@@ -202,7 +201,7 @@ export function buildFrontendContract(
   const at = `system ${sys.name}`;
   const contexts = exposedContexts(sys);
 
-  const responses: ResponseWire[] = [];
+  const responses: ContractResponse[] = [];
   const claimed = new Set<string>();
   const operations: ContractOperation[] = [];
   const records: ContractRecord[] = [];
@@ -210,7 +209,7 @@ export function buildFrontendContract(
   for (const ctx of contexts) {
     for (const agg of ctx.aggregates) {
       if (agg.isAbstract) continue;
-      for (const r of responseWireFor(ctx.payloads, agg) ?? []) {
+      for (const r of contractResponsesFor(ctx.payloads, agg) ?? []) {
         claimed.add(r.name);
         responses.push(as(responseRule, r, `${at}.responses.${r.name}`));
       }

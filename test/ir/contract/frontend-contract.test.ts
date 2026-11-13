@@ -17,13 +17,12 @@ async function load(file: string): Promise<EnrichedLoomModel> {
 }
 
 describe("Frontend Contract", () => {
-  it("reads declared response records and ships no derived wire record", async () => {
+  it("ships the declared response records and no derived wire record", async () => {
     const model = await load("examples/acme.ddd");
     const contract = buildFrontendContract(model, model.systems[0]!);
-    const responses = contract.wire.responses.map((r) => `${r.name}:${r.source}`);
-    expect(responses).toContain("OrderResponse:declared");
-    expect(responses).toContain("OrderLineResponse:declared");
-    expect(contract.wire.responses.every((r) => r.source === "declared")).toBe(true);
+    const responses = contract.wire.responses.map((r) => r.name);
+    expect(responses).toContain("OrderResponse");
+    expect(responses).toContain("OrderLineResponse");
     const records = contract.wire.records.map((r) => r.name);
     expect(records).toContain("CreateOrderCommand");
     // `<Agg>Wire` restates the derived shape; it never ships.
@@ -39,7 +38,6 @@ describe("Frontend Contract", () => {
     const model = await load("test/fixtures/corpus/field-mask.ddd");
     const contract = buildFrontendContract(model, model.systems[0]!);
     const employee = contract.wire.responses.find((r) => r.name === "EmployeeResponse")!;
-    expect(employee.source).toBe("derived-fallback");
     const masked = employee.fields.filter((f) => f.maskable).map((f) => f.name);
     expect(masked).toEqual(["salary", "nationalId", "badge"]);
     const review = contract.wire.responses.find((r) => r.name === "ReviewResponse")!;
