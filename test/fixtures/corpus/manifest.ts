@@ -1019,6 +1019,11 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "The typing join is element-wise, so `[]` takes the other branch's element type; lowering records it on the empty literal (`ExprIR.list.elementType`) for java `List.<T>of()` / .NET `new List<T>()`. .NET also unwraps a narrowed `[x]` element and types a `c ? null : <value T>` null as `T?`.",
+    id: "ref-collection-service",
+    title: "an `X id[]` read off a loaded aggregate, handed to a domain service",
+    doc: "domain-services",
+    backends: ALL,
+    note: "elixir loads a reference collection as a preloaded `many_to_many` (target structs); the read is projected to ids so a service's `contains` compares ids with ids. Before, the count came out 0 with no error, and a `contains` in a standalone service module called the context module's private `__ref_id_list/1`.",
   },
   {
     id: "scaffold-macros",
