@@ -320,7 +320,7 @@ describe("post-lowering IR well-formedness over the corpus", async () => {
       500,
     );
     const violations = lowered.flatMap(({ file, model }) =>
-      (model.loweringViolations ?? []).map((v) => `${file}: ${formatViolation(v)}`),
+      model.loweringViolations.map((v) => `${file}: ${formatViolation(v)}`),
     );
     // A model `validateLoomModel` refuses for another reason never reaches
     // codegen; the backstop stays silent on it, and so does this sweep.

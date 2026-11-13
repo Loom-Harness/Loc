@@ -14,14 +14,14 @@ export interface EnumIR extends Sourced {
    *  where it was DECLARED is an input fact this flag keeps: its model-text
    *  keys file under `_system` (`src/util/model-text-key.ts`), not under
    *  whichever context happens to render it. */
-  systemLevel?: true;
+  systemLevel: boolean;
 }
 
 export interface ValueObjectIR extends Sourced {
   name: string;
   fields: FieldIR[];
   /** Declared outside every bounded context — see {@link EnumIR.systemLevel}. */
-  systemLevel?: true;
+  systemLevel: boolean;
   derived: DerivedIR[];
   invariants: InvariantIR[];
   functions: FunctionIR[];
@@ -420,39 +420,39 @@ export interface BoundedContextIR extends Sourced {
   /** `policy { allow <level> on X [when …] }` read rules declared in this
    *  context (tenancy.md, D-SHARING).  Consumed by enrichment
    *  (`applyPolicyScopes`), which composes them into the aggregate's tenancy
-   *  read term.  Undefined / empty when the context declares none. */
-  policyReadLevels?: PolicyReadLevelIR[];
+   *  read term.  Empty when the context declares none. */
+  policyReadLevels: PolicyReadLevelIR[];
   /** `policy { allow write <level> on X [when …] }` write rules declared in
    *  this context — composed by enrichment into the aggregate's
-   *  `writeScopeFilter`.  Undefined / empty when the context declares none. */
-  policyWriteLevels?: PolicyWriteLevelIR[];
+   *  `writeScopeFilter`.  Empty when the context declares none. */
+  policyWriteLevels: PolicyWriteLevelIR[];
   /** `policy { allow [write] on X as x where … }` row rules declared in this
    *  context (D-SHARING).  Consumed by enrichment (`applyPolicyScopes`), which
-   *  ORs each onto the aggregate's level default.  Undefined / empty when the
+   *  ORs each onto the aggregate's level default.  Empty when the
    *  context declares none. */
-  policyRowRules?: PolicyRowRuleIR[];
+  policyRowRules: PolicyRowRuleIR[];
   /** Per-aggregate DENY carve-outs declared by `policy { deny [write] on X }`
    *  blocks in this context.  Each entry names an aggregate
    *  and the access it denies (`read` = total carve-out, the aggregate becomes
    *  invisible; `write` = read-only carve-out).  Consumed by `enrichLoomModel`
    *  (`applyPolicyDenies`), which appends an always-false predicate to the aggregate's read
    *  `contextFilters` (deny read) or overwrites its `writeScopeFilter` (deny
-   *  write) with `buildDenyFilter`.  Undefined / empty when the context declares
+   *  write) with `buildDenyFilter`.  Empty when the context declares
    *  no `deny` rule. */
-  policyDenies?: PolicyDenyIR[];
+  policyDenies: PolicyDenyIR[];
   /** Per-aggregate READ gates declared by `policy { read X requires <expr> }`
    *  in this context — who may read the aggregate at all.  Consumed by
    *  enrichment (`applyPolicyReadGates`), which puts the gate on every
    *  author-declared find of X and on the compiler-injected list read `all`;
    *  the by-id route and the audit history read take it from `all`
-   *  (`read-gates.ts`, `ensureHistoryFind`).  Undefined / empty when the
+   *  (`read-gates.ts`, `ensureHistoryFind`).  Empty when the
    *  context declares no read gate. */
-  policyReadGates?: PolicyReadGateIR[];
+  policyReadGates: PolicyReadGateIR[];
   /** `policy { allow share on X [when …] }` rules declared in this context —
    *  who may create or revoke a share of the `shareable` aggregate X
    *  (D-SHARING).  Consumed by the share-aggregate's lifecycle gate
-   *  (`shareGateOf`).  Undefined / empty when the context declares none. */
-  policyShareGates?: PolicyShareGateIR[];
+   *  (`shareGateOf`).  Empty when the context declares none. */
+  policyShareGates: PolicyShareGateIR[];
 }
 
 /** One `allow share on <Aggregate> [when <expr>]` rule lowered from a

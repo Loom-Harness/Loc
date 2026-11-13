@@ -1172,6 +1172,14 @@ only its own members; compute it on the root), and a mask on a value-object
 field (`loom.field-mask-on-value-object` — a value has no read boundary of its
 own; mask the field that holds it).
 
+A declared `response <Agg>Response` (or `<Part>Response`) record — the read
+contract `scaffoldHandlers` and `api X from <Subdomain>` splice, or one written
+by hand — takes its masks from the aggregate: each record field the aggregate
+masks (a `mask unless` field, or a `derived` the taint marks) renders nullable
+and redacts under the same predicate, so a record can never drop a mask.  A
+payload field cannot declare `mask unless` itself (`loom.field-mask-on-payload`):
+no serializer would apply it.
+
 #### Where a masked value flows — the visibility taint
 
 A mask protects the field only if every place its value reaches applies it.
@@ -1784,12 +1792,13 @@ the token with 401. Value-object, enum, `money` and `json` claims are not decode
 The playground preview runs the generated **OIDC verifier** of an
 `auth { oidc }` system unchanged — discovery, JWKS, signature, `iss`, `aud`,
 `exp` and the claim projection — against an identity provider that runs in the
-browser's infra worker (`web/src/runtime/infra/oidc.ts`):
+browser's infra worker — the emulation core's provider (`src/emulation/oidc.ts`),
+wrapped by `web/src/runtime/infra/oidc.ts`:
 
 - **Realm.** The provider answers under the `OIDC_ISSUER` the backend's compose
   service names, with Keycloak's endpoint paths
   (`/.well-known/openid-configuration`, `/protocol/openid-connect/certs`,
-  `…/token`, `…/userinfo`). Tokens are RS256, signed with a WebCrypto key whose
+  `…/token`, `…/userinfo`, `…/logout`). Tokens are RS256, signed with a WebCrypto key whose
   public half is the JWKS. `aud` is `OIDC_AUDIENCE` when compose sets it,
   otherwise what the dev realm's audience mapper mints (the declared
   `audience:`), otherwise the client id.
@@ -1839,6 +1848,27 @@ the backend's `/callback`, which exchanges the code with its PKCE verifier and
 sets the HttpOnly `session` and `refresh` cookies → the app. The preview keeps
 those cookies for the app's requests, so `/api/auth/refresh` rotates the
 refresh token when the access token expires and **Sign out** clears both.
+
+## Required auth settings at boot
+
+An `oidc { … }` value bound to `env("…")` (the issuer, the audience) has no
+fallback, so a service that starts without it could only answer 401s while
+reporting ready. Every backend checks those variables once at boot: when none of
+the names that supply a setting is set (the canonical `OIDC_ISSUER` /
+`OIDC_AUDIENCE` override, or the variable the model names), the service logs
+one `config_missing` event (`setting`, `vars`) and exits non-zero. The env
+contract classes those variables as `boot`, so compose and the k8s chart must
+wire them.
+
+```ddd
+auth { oidc { issuer: env("OIDC_ISSUER") clientId: "gate" audience: env("OIDC_AUDIENCE") } }
+```
+
+```json
+{"ts":"2026-11-13T05:30:00.000Z","level":"error","event":"config_missing","setting":"issuer","vars":"OIDC_ISSUER"}
+```
+
+A literal value needs no check: it is its own fallback.
 
 ## Token audience (`aud`)
 

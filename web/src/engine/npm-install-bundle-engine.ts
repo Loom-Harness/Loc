@@ -14,7 +14,7 @@ import { LoomRuntimeClient } from "../runtime/client.js";
 import { InfraClient } from "../runtime/infra-client.js";
 import type { ResourceService } from "../runtime/infra-client.js";
 import type { StorageSchemaPlan } from "../runtime/infra-protocol.js";
-import type { BrokerInspectResult } from "../runtime/infra/broker-protocol.js";
+import type { BrokerInspectResult } from "../../../src/emulation/broker-protocol.js";
 import type {
   BootFail,
   BootFailAt,

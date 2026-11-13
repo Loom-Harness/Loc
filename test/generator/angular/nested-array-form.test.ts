@@ -70,7 +70,9 @@ describe("angular generator — arrays inside a value object", () => {
 
   it("renders the nested array rows against the enclosing control", async () => {
     const c = await page();
-    expect(c).toContain("@for (__row of rowsRouteStops(planVenueForm.get('route')); track $index)");
+    expect(c).toContain(
+      "@for (__row of rowsRouteStops(planVenueForm.get('route')); track $index; let __i = $index)",
+    );
     expect(c).toContain("addRouteStops(planVenueForm.get('route'))");
     expect(c).toContain("removeRouteStops(planVenueForm.get('route'), $index)");
   });
@@ -80,7 +82,7 @@ describe("angular generator — arrays inside a value object", () => {
     expect(c).toContain("rowsRouteStops(parent: AbstractControl | null): AbstractControl[]");
     expect(c).toContain("removeRouteStops(parent: AbstractControl | null, i: number): void");
     // Inside an array row, the enclosing control is the row's loop variable.
-    expect(c).toContain("@for (__row1 of rowsRoutesStops(__row); track $index)");
+    expect(c).toContain("@for (__row1 of rowsRoutesStops(__row); track $index; let __i1 = $index)");
     expect(c).toContain("addRoutesStops(parent: AbstractControl | null): void");
   });
 });

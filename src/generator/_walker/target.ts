@@ -171,6 +171,16 @@ export interface QueryViewRead {
 /** A state field reference — produced by the walker when it
  *  encounters a `LooseName` resolving to a state field declared in
  *  the enclosing `state { ... }` block. */
+/** The search box's two user-visible strings, already localized by the shared
+ *  Table primitive: complete attribute fragments (no leading space) for the
+ *  markup targets, target-native expressions for Feliz and Flutter. */
+export interface FilterInputLabels {
+  readonly placeholderAttr: string;
+  readonly ariaAttr: string;
+  readonly placeholderValue: string;
+  readonly ariaValue: string;
+}
+
 export interface StateRef {
   field: StateFieldIR;
   /** Local name as written in source (matches `field.name`). */
@@ -1734,7 +1744,7 @@ export interface WalkerTarget {
    *  (two-way binding idiom: React's controlled `value`/`onChange`, Vue
    *  `v-model`, Svelte `bind:value`, Angular `[value]`/`(input)`), so it's a
    *  seam.  Omitted → no filter box renders. */
-  renderFilterInput?(filter: StateRef): string;
+  renderFilterInput?(filter: StateRef, labels: FilterInputLabels): string;
 
   /** Wrap a `Table`'s already-rendered `rows` expression in a client-side
    *  filter by the active `filter:` state field (case-insensitive substring

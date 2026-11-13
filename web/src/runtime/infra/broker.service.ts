@@ -1,11 +1,11 @@
 // The broker service: `BrokerModel` behind the infra protocol.
 
-import type { BrokerOp } from "./broker-protocol.js";
-import { BrokerModel } from "./broker-model.js";
+import type { BrokerOp } from "../../../../src/emulation/broker-protocol.js";
+import { createBroker } from "../../../../src/emulation/broker-model.js";
 import type { InfraService, InfraServiceHost } from "./service.js";
 
 export function createBrokerService(host: InfraServiceHost): InfraService<BrokerOp> {
-  const model = new BrokerModel({ send: (client, delivery) => host.push(client, delivery) });
+  const model = createBroker({ send: (client, delivery) => host.push(client, delivery) });
   return {
     name: "broker",
     handle(req, { client }) {
@@ -26,6 +26,10 @@ export function createBrokerService(host: InfraServiceHost): InfraService<Broker
           return model.nack(req.params.deliveryId, req.params.error, req.params.poison === true);
         case "inspect":
           return model.inspect();
+        case "seek":
+          return model.seek(req.params);
+        case "redrive":
+          return model.redrive(req.params);
       }
     },
     disconnect(client) {

@@ -1,0 +1,77 @@
+// A VALUE-OBJECT PARAM whose invariants refuse the value — on a workflow's
+// `create` and on an aggregate operation.
+//
+// Every backend folds the value object's rules into the param's request
+// schema, so a breach is the wire 422 with a pointer to the offending member
+// (`/<param>/<member>`).  The value object carries a single-field rule and a
+// CROSS-FIELD one: elixir's value-object constructor judged only single-field
+// rules, and a workflow param was cast but never judged, so a reversed range
+// ran the body and persisted.  Both rules are NAMED, so the refusal carries
+// the rule's identity-key `code` and the same text on every backend.
+system VoParamInvariant {
+  subdomain Shop {
+    context Lots {
+      valueobject Span {
+        low: int
+        high: int
+        invariant lowNonNegative: low >= 0
+        invariant ordered: high >= low
+      }
+      aggregate Lot with crudish {
+        label: string
+        span: Span
+
+        operation respan(s: Span) {
+          span := s
+        }
+      }
+      repository Lots for Lot { }
+      workflow openLot {
+        create(label: string, s: Span): Lot id {
+          let l = Lot.create(label: label, span: s)
+          return l.id
+        }
+      }
+    }
+  }
+  api ShopApi from Shop
+  storage primary { type: postgres }
+  resource lotState { for: Lots, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Lots]
+    dataSources: [lotState]
+    serves: ShopApi
+    port: 4000
+  }
+
+  test e2e "a value-object param that breaks an invariant is refused before the body runs" against d {
+    let l = api.openLot.run({ label: "a", s: { low: 1, high: 3 } })
+    expect(api.lots.getById(l).span.high).toBe(3)
+
+    // Workflow param: the cross-field rule, then the single-field one.
+    expect(api.openLot.run({ label: "b", s: { low: 5, high: 2 } })).toThrow(422)
+    expect(api.openLot.run({ label: "c", s: { low: -1, high: 2 } })).toThrow(422)
+    expect(api.lots.all().total).toBe(1)
+
+    // Operation param: the same two rules; the refused write keeps the row.
+    api.lots.respan(l, { s: { low: 2, high: 9 } })
+    expect(api.lots.getById(l).span.high).toBe(9)
+    expect(api.lots.respan(l, { s: { low: 7, high: 4 } })).toThrow(422)
+    expect(api.lots.respan(l, { s: { low: -3, high: 4 } })).toThrow(422)
+    let kept = api.lots.getById(l)
+    expect(kept.span.low).toBe(2)
+    expect(kept.span.high).toBe(9)
+
+    // The aggregate's own create and update carry the same value object.
+    let m = api.lots.create({ label: "m", span: { low: 0, high: 1 } })
+    expect(api.lots.create({ label: "x", span: { low: 3, high: 1 } })).toThrow(422)
+    api.lots.update(m, { label: "m2", span: { low: 0, high: 2 } })
+    expect(api.lots.update(m, { label: "m2", span: { low: 4, high: 2 } })).toThrow(422)
+    expect(api.lots.getById(m).span.high).toBe(2)
+    api.lots.destroy(m)
+
+    api.lots.destroy(l)
+    expect(api.lots.getById(l)).toThrow(404)
+  }
+}

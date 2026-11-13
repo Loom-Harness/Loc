@@ -11,7 +11,7 @@
 // hook the same JSON a PreToolUse(Bash) call delivers.
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -167,6 +167,47 @@ describe.skipIf(!hasTools)("pre-push sync-only gate", () => {
     expect(denied(runHook(work))).toBe(false);
   });
 
+  // The words "git push" inside quoted text or a heredoc body are text, not a
+  // push, so the hook must not judge the branch (here: a sync-only branch a
+  // real push would be denied on).  A real push beside quoted text still is.
+  describe("push detection ignores quoted text and heredoc bodies", () => {
+    function syncOnly(): string {
+      const { work, other } = setup();
+      advanceMain(other, "c.txt", "c1\n");
+      git(work, "fetch", "-q", "origin", "main");
+      git(work, "merge", "-q", "--no-edit", "origin/main");
+      return work;
+    }
+
+    it("ignores a push mentioned inside a double-quoted string", () => {
+      expect(
+        denied(runHook(syncOnly(), 'echo "the proxy refuses git push --delete" >> log.md')),
+      ).toBe(false);
+    });
+
+    it("ignores a push mentioned inside a single-quoted string", () => {
+      expect(
+        denied(runHook(syncOnly(), "printf '%s\\n' 'never git push from here' > note.txt")),
+      ).toBe(false);
+    });
+
+    it("ignores a push mentioned inside a heredoc body", () => {
+      const cmd = "cat >> notes.md <<'EOF'\n- remember: git push only after prequeue\nEOF";
+      expect(denied(runHook(syncOnly(), cmd))).toBe(false);
+    });
+
+    it("still gates a real push chained after quoted text", () => {
+      expect(denied(runHook(syncOnly(), 'git commit -q --allow-empty -m "wip" ; git push'))).toBe(
+        true,
+      );
+    });
+
+    it("still gates a real push after a heredoc", () => {
+      const cmd = "cat > a.txt <<'EOF'\nhello\nEOF\ngit push -u origin feat";
+      expect(denied(runHook(syncOnly(), cmd))).toBe(true);
+    });
+  });
+
   it("allows an ordinary push with no merge", () => {
     const { work } = setup();
     commit(work, "b.txt", "b2\n", "more feature work");
@@ -201,5 +242,48 @@ describe.skipIf(!hasTools)("pre-push gate selection", () => {
     // The prose set is an allow-list: an unknown path counts as code.
     const work = branchTouching(["notes.txt"]);
     expect(traceHook(work)).toContain("code push");
+  });
+});
+
+// Which dependency tree the merged-tree gates borrow. An agent worktree under
+// `.claude/worktrees/` often holds only a vite cache stub in `node_modules` and
+// resolves its deps from the main checkout; borrowing the stub fails `tsc` with
+// TS2688 on a tree that is fine, so the hook takes the first `node_modules`
+// that holds TypeScript and Node's types. A docs-only push resolves it too, and
+// with the censuses skipped it stops right after, so no compiler runs here.
+describe.skipIf(!hasTools)("pre-push dependency tree", () => {
+  function installFakeDeps(dir: string): void {
+    mkdirSync(join(dir, "node_modules/typescript"), { recursive: true });
+    writeFileSync(join(dir, "node_modules/typescript/package.json"), "{}\n");
+    mkdirSync(join(dir, "node_modules/@types/node"), { recursive: true });
+  }
+
+  /** An agent-style worktree of `work` with only a vite stub in node_modules. */
+  function agentWorktree(work: string): string {
+    const wt = join(work, ".claude/worktrees/agent-x");
+    git(work, "worktree", "add", "-q", "-b", "topic", wt, "origin/main");
+    mkdirSync(join(wt, "node_modules/.vite"), { recursive: true });
+    commitAt(wt, "docs/guide.md", "guide\n", "docs");
+    return wt;
+  }
+
+  it("borrows the main checkout's node_modules when the worktree only has a stub", () => {
+    const { work } = setup();
+    installFakeDeps(work);
+    const err = traceHook(agentWorktree(work));
+    expect(err).toContain(`borrowing node_modules from ${realpathSync(work)}/node_modules`);
+  });
+
+  it("prefers the pushing checkout's own node_modules when it resolves", () => {
+    const { work } = setup();
+    installFakeDeps(work);
+    const wt = agentWorktree(work);
+    installFakeDeps(wt);
+    expect(traceHook(wt)).toContain(`borrowing node_modules from ${realpathSync(wt)}/node_modules`);
+  });
+
+  it("skips the gates when no node_modules resolves the toolchain", () => {
+    const { work } = setup();
+    expect(traceHook(agentWorktree(work))).toContain("no resolvable node_modules");
   });
 });

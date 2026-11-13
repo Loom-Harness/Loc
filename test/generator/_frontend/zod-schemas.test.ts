@@ -85,7 +85,15 @@ const arr = (element: TypeIR): TypeIR => ({ kind: "array", element });
 const field = (name: string, type: TypeIR, optional = false) => ({ name, type, optional });
 
 const vo = (name: string, fields: ReturnType<typeof field>[], invariants: InvariantIR[] = []) =>
-  ({ name, fields, derived: [], invariants, functions: [], tests: [] }) as ValueObjectIR;
+  ({
+    name,
+    fields,
+    systemLevel: false,
+    derived: [],
+    invariants,
+    functions: [],
+    tests: [],
+  }) as ValueObjectIR;
 
 const ctxOf = (valueObjects: ValueObjectIR[] = []): BoundedContextIR =>
   ({
@@ -239,7 +247,11 @@ describe("provenancedZod", () => {
 
 describe("emitEnumSchema", () => {
   it("lists EVERY declared value, in declaration order", () => {
-    const e: EnumIR = { name: "Status", values: ["Draft", "Open", "Paid", "Closed"] };
+    const e: EnumIR = {
+      name: "Status",
+      systemLevel: false,
+      values: ["Draft", "Open", "Paid", "Closed"],
+    };
     expect(emitEnumSchema(e)).toEqual([
       'export const StatusSchema = z.enum(["Draft", "Open", "Paid", "Closed"]);',
     ]);
@@ -249,7 +261,7 @@ describe("emitEnumSchema", () => {
   });
 
   it("emits a single-value enum without a trailing separator", () => {
-    expect(emitEnumSchema({ name: "Only", values: ["One"] })).toEqual([
+    expect(emitEnumSchema({ name: "Only", systemLevel: false, values: ["One"] })).toEqual([
       'export const OnlySchema = z.enum(["One"]);',
     ]);
   });
@@ -363,7 +375,8 @@ describe("emitValueObjectSchema", () => {
     expect(emitValueObjectSchema(address)).toEqual([
       "export const AddressSchema = z.object({",
       "  line1: z.string(),",
-      "  zip: z.string().nullish(),",
+      // An optional text-like field reads an empty form input as absent.
+      '  zip: z.literal("").transform(() => null).or(z.string().nullish()),',
       "  country: CountrySchema,",
       "});",
     ]);

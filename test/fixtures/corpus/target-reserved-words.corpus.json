@@ -2,5 +2,8 @@
   "title": "every word any target reserves (the TS / C# / Java / Python / Elixir / F# / Dart keyword tables in `src/util/target-identifiers.ts`) that the `.ddd` grammar admits, as a field, an enum value, an operation AND its parameter, plus value objects named after .NET BCL / UI-primitive / framework types (`Task`, `Table`, `Widget`, `Repo`, `BaseModel`, …)",
   "doc": "language",
   "backends": "ALL",
-  "note": "The adversarial gate of the generated-identifier legality class: a Loom-legal name that is fatal in a target.  A census proving every emitter routes every user-derived identifier through `escapeTargetIdent` is infeasible (thousands of interpolation sites), so this fixture names things after EVERY table entry at once and rides every backend's compile leg.  `target-identifiers.test.ts` fails when a table entry the grammar admits is missing from this file, so the table and the fixture cannot drift apart."
+  "note": "The adversarial gate of the generated-identifier legality class: a Loom-legal name that is fatal in a target.  A census proving every emitter routes every user-derived identifier through `escapeTargetIdent` is infeasible (thousands of interpolation sites), so this fixture names things after EVERY table entry at once and rides every backend's compile leg.  `target-identifiers.test.ts` fails when a table entry the grammar admits is missing from this file, so the table and the fixture cannot drift apart.",
+  "apiCaller": {
+    "e2eLess": "The adversarial identifier-legality fixture: every target's reserved words as fields / enum values / operations / params.  Its defect is a COMPILE failure on the backend that cannot spell a name, so the five corpus compile legs are its oracle; the escape is invisible on the wire by ruling D-TARGET-RESERVED-NAMES.  Signed in gate-ledger's BEHAVIOURAL_ABSENT."
+  }
 }

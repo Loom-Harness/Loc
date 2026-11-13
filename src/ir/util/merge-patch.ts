@@ -54,7 +54,7 @@ export function aggregateHasMergePatchUpdate(agg: Pick<AggregateIR, "operations"
  *  `op` is not one. */
 export function mergePatchFields(op: OperationIR): readonly MergePatchField[] | null {
   if (op.name !== "update") return null;
-  if ((op.kind ?? "mutate") !== "mutate" || op.canonical) return null;
+  if (op.kind !== "mutate" || op.canonical) return null;
   if (op.returnType || op.extern) return null;
   if (op.params.length === 0) return null;
   if (op.params.some((p) => p.default !== undefined)) return null;

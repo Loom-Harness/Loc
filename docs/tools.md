@@ -1563,7 +1563,7 @@ worktrees and `settings.local.json` stay local.
 |---|---|---|
 | `SessionStart` | `session-start.sh` | `npm install` (the `prepare` lifecycle) on a fresh remote container. Idempotent, remote-only (`$CLAUDE_CODE_REMOTE`). |
 | `Stop` | `biome-gate.sh` | `npm run lint` (`biome ci .`, the exact `test.yml` step) when a turn ends with work in the tree. Blocks and feeds the output back, then releases with a loud warning after **one** fix cycle so it cannot loop. Never blocks when Biome isn't installed. |
-| `PreToolUse(Bash)` | `pre-push-merge-check.sh` | Gates `git push` — see below. Non-push Bash calls early-exit, so it costs nothing per call. |
+| `PreToolUse(Bash)` | `pre-push-merge-check.sh` | Gates `git push` — see below. Non-push Bash calls early-exit, so it costs nothing per call; `git push` inside a quoted string or a heredoc body is text, not a push. |
 
 ### The push preflight
 
@@ -1595,7 +1595,8 @@ worktrees and `settings.local.json` stay local.
 
    Then, in the same worktree, the fast whole-tree **censuses and ratchets**
    (`test/system/*census*.test.ts`, `*ratchet*.test.ts`,
-   `typing-differential.test.ts`) — every one except the three corpus-wide
+   `typing-differential.test.ts`, `unsupported-register.test.ts`,
+   `test/ir/api-caller-census.test.ts`) — every one except the three corpus-wide
    censuses that take 1.5–5 min each (`diagnostic-firing`,
    `openapi-component-uniqueness`, `ddd-source`), which stay CI-only.  A census
    pins a whole-tree count, so two branches that each pass it can fail it
@@ -1610,6 +1611,13 @@ without. `git merge-tree` cannot see that, and neither can a green local `tsc`
 on the un-merged branch. It is the same combined tree the **merge queue**
 re-runs, which means today the feedback arrives hours later and after a runner
 slot; the hook moves it to ~1 minute before the push.
+
+**Which `node_modules` it borrows.** The throwaway tree gets a symlink to the
+first `node_modules` that holds TypeScript and Node's type definitions: the
+pushing checkout's own, then the main checkout's. An agent worktree under
+`.claude/worktrees/` often has only a vite cache stub there and resolves its
+dependencies from the main checkout, so it is judged with the main checkout's
+tree. `LOOM_PREFLIGHT_TRACE=1` prints which one was borrowed.
 
 **It fails open on everything else.** No `npx`, no borrowable `node_modules`,
 an unparsable merged-tree OID, a worktree that will not create, a 900 s

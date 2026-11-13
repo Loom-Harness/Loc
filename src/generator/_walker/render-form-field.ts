@@ -6,8 +6,10 @@
 
 import type { ArrayInputRenderer } from "../_frontend/form-array-input.js";
 import type { OptionalGroupRenderer } from "../_frontend/form-optional-group.js";
+import { type RowBinder, rowInputVM } from "../_frontend/form-row-binding.js";
 import type { FormFieldVM } from "../_frontend/view-models.js";
 import type { LoadedPack } from "../_packs/loader.js";
+import { rowErrorAccess } from "./form-fields-vm.js";
 import { chromeMessage, sentenceChromeName } from "./i18n-chrome.js";
 
 /** Render one form-field input through its per-pack
@@ -67,12 +69,28 @@ export function renderFormField(
     const addItemLabel =
       chrome.addItemLabelFor?.(vm.elementName) ??
       chromeMessage(sentenceChromeName("addItem", vm.elementName));
-    const rowFields = vm.rowFields?.map((rf) => ({ ...rf, ...(chrome.fieldTokens?.(rf) ?? {}) }));
+    // Each row field renders through its own single-field template, bound to
+    // the row by the framework's binder.
+    const rowHtml =
+      vm.rowFields && chrome.rowBinding
+        ? chrome.rowBinding(
+            { arrayPath: vm.path, testId: vm.testId },
+            vm.rowFields
+              .map((rf) =>
+                renderFormField(
+                  rowInputVM(rf, vm.testId, (sub) => rowErrorAccess(vm.path, sub)),
+                  pack,
+                  chrome,
+                ),
+              )
+              .join("\n"),
+          )
+        : undefined;
     return pack.render(vm.template, {
       ...vm,
       ...chrome,
       ...tokens,
-      ...(rowFields ? { rowFields } : {}),
+      ...(rowHtml !== undefined ? { rowHtml } : {}),
       addItemLabel,
     });
   }
@@ -104,4 +122,6 @@ export interface FormFieldChrome {
   /** The active framework's collection input for a scalar / enum / reference
    *  collection. */
   arrayInput?: ArrayInputRenderer;
+  /** The active framework's binder for a dynamic row's fields. */
+  rowBinding?: RowBinder;
 }
