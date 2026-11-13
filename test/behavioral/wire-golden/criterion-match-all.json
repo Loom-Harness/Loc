@@ -1,0 +1,221 @@
+{
+  "case": "criterion-match-all",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/workflows/bump_all",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "hits": 1,
+        "id": "<volatile:key>",
+        "name": "a",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "hits": 6,
+        "id": "<volatile:key>",
+        "name": "",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/items/{id}/bump",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "hits": 2,
+        "id": "<volatile:key>",
+        "name": "a",
+        "rowVersion": 3
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/items/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/items",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "hits": 0,
+            "id": "<volatile:key>",
+            "name": "a2",
+            "rowVersion": 4
+          },
+          {
+            "hits": 6,
+            "id": "<volatile:key>",
+            "name": "",
+            "rowVersion": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 9,
+      "method": "DELETE",
+      "path": "/api/items/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Item {id} not found",
+        "instance": "/api/items/{id}",
+        "params": {
+          "type": "Catalog.Item"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "PATCH",
+      "path": "/api/items",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/items",
+        "instance": "/api/items",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/items",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/items/{id}/bump",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Item {id} not found",
+        "instance": "/api/items/{id}/bump",
+        "params": {
+          "type": "Catalog.Item"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/items/{id}/bump",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Item {id} not found",
+        "instance": "/api/items/{id}/bump",
+        "params": {
+          "type": "Catalog.Item"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/items/{id}/bump",
+      "status": 415,
+      "body": {
+        "code": "problem.unsupported-media-type",
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/items/{id}/bump",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

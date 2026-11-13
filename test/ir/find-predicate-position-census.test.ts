@@ -9,7 +9,7 @@
 //   find f2(): Order? where !this.flags.active
 //   find f3(f: bool): Order? where f              (a bool PARAMETER)
 //   find f4(): Order? where currentUser.isAdmin   (a bool CLAIM)
-//   find f5(): Order? where true                  (a literal)
+//   find f5(): Order? where true                  (a literal — admitted as the whole predicate)
 //
 // (each row is now a `criterion` a paged-less `queryHandler` runs — the
 // repository read a predicate reaches since `find` declarations were removed)
@@ -111,12 +111,15 @@ const SHAPES: readonly Shape[] = [
     find: 'find d1(): Order? where this.code.startsWith("A")',
     admitted: true,
   },
-  // ---- refused: a leaf that is not a column test --------------------------
+  // The whole predicate `true` is the match-everything filter
+  // (`criterion All of T = true`): it tests no column, and every adapter reads
+  // it as no filter.  A literal anywhere BELOW the top stays refused.
   {
-    name: "literal in predicate position",
+    name: "the match-everything literal as the whole predicate",
     find: "find e1(): Order? where true",
-    admitted: false,
+    admitted: true,
   },
+  // ---- refused: a leaf that is not a column test --------------------------
   {
     name: "bool parameter in predicate position",
     find: "find e2(f: bool): Order? where f",
