@@ -3149,11 +3149,7 @@ describe("applyDestructivePolicy — backfilled/defaulted adds are never renames
       module: "Ops",
       backfills,
     });
-    expect(steps.map((s) => s.op)).toEqual([
-      "dropColumn",
-      "addColumn",
-      "backfillColumn",
-    ]);
+    expect(steps.map((s) => s.op)).toEqual(["dropColumn", "addColumn", "backfillColumn"]);
     // No rename anywhere: the old column's data is dropped, not misattributed.
     expect(steps.some((s) => s.op === "renameColumn")).toBe(false);
     const sql = steps.map(renderPgStep).join("\n");
@@ -3498,11 +3494,7 @@ describe("applyDestructivePolicy — announces the inferred rename (F-3)", () =>
     // The diff shape is the same one that warns above — what differs is that
     // the collapse did not fire.
     expect(steps.some((s) => s.op === "renameColumn")).toBe(false);
-    expect(steps.map((s) => s.op)).toEqual([
-      "dropColumn",
-      "addColumn",
-      "backfillColumn",
-    ]);
+    expect(steps.map((s) => s.op)).toEqual(["dropColumn", "addColumn", "backfillColumn"]);
     expect(warnings).toEqual([]);
   });
 
