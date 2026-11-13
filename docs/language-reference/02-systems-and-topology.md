@@ -628,7 +628,7 @@ An `X id` a row stores from a request resolves in the target's scope: an id of
 another tenant's `tenantOwned` row is refused exactly like an id of no row
 (422 — the backend's answer to a dangling reference); `crossTenant` and registry targets are
 checked by the foreign key alone; a `tenantOwned` target in another context
-cannot be checked and warns `loom.tenancy-ref-unresolvable`.  See
+cannot be checked: `loom.tenancy-ref-unresolvable` is an error under `enforcement: denyByDefault` and a warning under `opt`.  See
 [`../tenancy.md` → "Reference admission"](../tenancy.md#reference-admission).
 
 ### `organizationContext` — the operating scope

@@ -1,11 +1,12 @@
 // Write-time reference admission (docs/tenancy.md → "Reference admission").
 //
-// A persisted `X id` whose target is tenant-scoped (`tenantOwned`, or the
-// tenancy registry) resolves in the row's tenant before the write; the plan
-// (`src/ir/plan/ref-scope.ts`) decides the scope.  A target with no table
+// A persisted `X id` whose target is `tenantOwned` resolves under the target's
+// read scope before the write; the plan (`src/ir/plan/ref-scope.ts`) decides
+// the scope.  A target with no table
 // beside the row — an aggregate of another context — leaves nothing to probe,
 // so the reference is stored unchecked.  That is reported here rather than
-// left silent.
+// left silent: an error under `enforcement: denyByDefault`, a warning under
+// `opt`.
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { scopedReferences } from "../../plan/ref-scope.js";
@@ -14,6 +15,10 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 
 export function validateRefScopes(sys: SystemIR, diags: LoomDiagnostic[]): void {
   if (!sys.tenancy) return;
+  // Under `enforcement: denyByDefault` an unchecked write is a hole in the
+  // posture the model asked for, so it does not compile; under `opt` it is
+  // reported and the model compiles.
+  const severity = sys.auth?.enforcement === "denyByDefault" ? "error" : "warning";
   const all = new Map<string, AggregateIR>();
   const home = new Map<string, string>();
   for (const mod of sys.subdomains) {
@@ -31,7 +36,7 @@ export function validateRefScopes(sys: SystemIR, diags: LoomDiagnostic[]): void 
           if (ref.scope !== "unresolvable") continue;
           const owner = ref.part ?? agg.name;
           diags.push({
-            severity: "warning",
+            severity,
             code: "loom.tenancy-ref-unresolvable",
             message: diagMessage("loom.tenancy-ref-unresolvable", {
               owner,
