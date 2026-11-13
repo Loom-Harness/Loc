@@ -1,0 +1,33 @@
+// One Node backend with a redis cache in front of its single-row reads.
+// `GET /api/products/{id}` answers `x-loom-cache: miss` on the first read and
+// `hit` on the next; an update or delete evicts that product's entry.  The
+// playground answers the redis client with an emulated cache in the browser:
+// the Infrastructure panel's Cache tab lists each key with its remaining TTL
+// and evicts or flushes them.
+
+system CacheDemo {
+  subdomain Core {
+    context Shop {
+      aggregate Product with crudish {
+        name: string
+        price: int
+      }
+    }
+  }
+
+  api ShopApi from Core
+
+  storage primary { type: postgres }
+  storage hot { type: redis }
+
+  resource shopState { for: Shop, kind: state, use: primary }
+  resource shopCache { for: Shop, kind: cache, use: hot, keyPrefix: "demo", ttl: 120 }
+
+  deployable api {
+    platform: node
+    contexts: [Shop]
+    dataSources: [shopState, shopCache]
+    serves: ShopApi
+    port: 3000
+  }
+}
