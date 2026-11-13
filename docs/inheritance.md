@@ -62,6 +62,37 @@ DTO for `Customer` carries the same `name` / `email` / `creditLimit` shape.
 
 The default is `sharedTable`, so a hierarchy with no `inheritanceUsing: …` is TPH.
 
+A `sharedTable` base with **no** shared-table subtype — declared before any
+subtype, or whose only concretes are forced to `ownTable` by
+`loom.es-tph-forced-own-table` — owns an ordinary table with no `kind` column,
+and no backend maps a discriminator on it:
+
+```ddd
+abstract aggregate Asset inheritanceUsing: sharedTable { label: string }   // no subtypes
+```
+
+```sql
+CREATE TABLE "c"."assets" ("id" UUID NOT NULL, "label" TEXT NOT NULL, "row_version" INTEGER NOT NULL DEFAULT 1, PRIMARY KEY ("id"));
+```
+
+The first subtype that shares the table brings the discriminator, and the
+migration chain adds it; dropping the last one drops it again:
+
+```ddd
+aggregate Lathe extends Asset with crudish { spindles: int }
+```
+
+```sql
+ALTER TABLE "c"."assets" ADD COLUMN "kind" TEXT NOT NULL;
+ALTER TABLE "c"."assets" ADD COLUMN "spindles" INTEGER NULL;
+```
+
+The `kind` add needs no `--allow-destructive`: until the first subtype arrives
+nothing can write the base's table, so it is empty. The add carries no default,
+so a row written out of band fails it rather than being stamped with a subtype it
+never was. Dropping the last subtype drops `kind` and the subtype's columns, which
+is destructive (its rows lose their type), so it needs `--allow-destructive`.
+
 ### Polymorphic reads (`find all <Base>`)
 
 Both strategies provide a polymorphic read home that returns the union of all

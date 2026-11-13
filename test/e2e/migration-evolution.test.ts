@@ -4,6 +4,7 @@ import {
   type BackendDriver,
   handleFor,
   type PgConn,
+  runChildlessTphEvolutionGate,
   runCrossContextMoveGate,
   runFieldDefaultEvolutionGate,
   runJournalOrderingGate,
@@ -76,6 +77,15 @@ describe.skipIf(!ENABLED)(
   () => {
     it("emits only the child table, applies to a populated db, and leaves INSERT working", async () => {
       await runValueCollectionEvolutionGate();
+    }, 240_000);
+  },
+);
+
+describe.skipIf(!ENABLED)(
+  "childless-TPH evolution gate — adding the first `sharedTable` subtype, then dropping the last",
+  () => {
+    it("adds `kind` with no flag, drops it under --allow-destructive, schema ≡ fresh at each step", async () => {
+      await runChildlessTphEvolutionGate();
     }, 240_000);
   },
 );
