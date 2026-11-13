@@ -73,6 +73,7 @@ export function renderJavaCacheHit(
   idExpr: string,
   mapper: string,
   accessor: string,
+  responseType: string,
 ): string[] {
   const user = "__user";
   const inputs = read.scope.map((s) => `(Object) ${scopeValue(s, user)}`).join(", ");
@@ -83,10 +84,11 @@ export function renderJavaCacheHit(
       : `        var __scope = ${mapper}.writeValueAsString(java.util.Arrays.asList(${inputs}));`,
     `        var __hit = ${javaByIdCacheRef(read)}.read(String.valueOf(${idExpr}), __scope);`,
     `        if (__hit != null) {`,
+    // Answered as the route's declared response type, so the route keeps its
+    // typed OpenAPI contract.
     `            return ResponseEntity.ok()`,
-    `                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)`,
     `                .header("${CACHE_STATUS_HEADER}", "hit")`,
-    `                .body(__hit.getBytes(java.nio.charset.StandardCharsets.UTF_8));`,
+    `                .body(${mapper}.readValue(__hit, ${responseType}.class));`,
     `        }`,
   ];
 }

@@ -480,7 +480,7 @@ export function renderJavaController(
       ? [
           `    @GetMapping("${relativeOpPath(getByIdEntry)}")`,
           ...doc(getByIdEntry, { status: 200 }),
-          `    public ResponseEntity<${cache ? "?" : `${agg.name}Response`}> get${agg.name}ById(@PathVariable ${idJava} id) {`,
+          `    public ResponseEntity<${agg.name}Response> get${agg.name}ById(@PathVariable ${idJava} id) {`,
           // The aggregate's read gate (`policy { read T requires <expr> }`) gates
           // this read, BEFORE the load (403 for an existing and a missing id
           // alike).  The same gate sits on the list read `all`, so its imports
@@ -493,7 +493,13 @@ export function renderJavaController(
           // with an EMPTY BODY instead.
           ...(cache
             ? [
-                ...renderJavaCacheHit(cache, "id", "objectMapper", "currentUserAccessor"),
+                ...renderJavaCacheHit(
+                  cache,
+                  "id",
+                  "objectMapper",
+                  "currentUserAccessor",
+                  `${agg.name}Response`,
+                ),
                 ...renderJavaCacheStore(
                   cache,
                   "id",
