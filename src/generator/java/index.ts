@@ -3,6 +3,7 @@ import { isTenantScopedStream } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import { type CachedByIdRead, cachePlanFor } from "../../ir/plan/cache.js";
 import {
   eventSourcedWorkflows,
   observableWorkflows,
@@ -126,6 +127,7 @@ import {
 } from "./emit/audit-history.js";
 import { renderAuthFiles } from "./emit/auth.js";
 import { renderJavaBaseReadController } from "./emit/base-read.js";
+import { BY_ID_CACHES_CLASS, cachesOnRedis, renderJavaByIdCaches } from "./emit/by-id-cache.js";
 import {
   AMQP_CLIENT_VERSION,
   type ChannelConsumerHandler,
@@ -591,6 +593,14 @@ function emitProjectFromContexts(
   // Observability catalog — always-on, like dotnet's request log +
   // Hono's pino lines (the obs e2e suites assert this envelope).
   place("CatalogLog.java", "config", renderCatalogLogger(basePkg));
+  // The by-id read cache (`src/ir/plan/cache.ts`): one class per deployable.
+  const cachedReads = system
+    ? contexts.flatMap((c) => cachePlanFor(system.sys, c, system.deployable).cached)
+    : [];
+  const byIdCaches = system
+    ? renderJavaByIdCaches(system.sys, system.deployable, cachedReads, basePkg)
+    : null;
+  if (byIdCaches) place(`${BY_ID_CACHES_CLASS}.java`, "config", byIdCaches);
   place("LifecycleCatalog.java", "config", renderLifecycleCatalog(basePkg));
   place("RequestCatalogFilter.java", "config", renderRequestCatalogFilter(basePkg));
   // RS-39 — an empty request body reads as `{}`.
@@ -804,6 +814,7 @@ function emitProjectFromContexts(
         sourcemap,
         reqNameFor,
         contexts,
+        cachedReads.find((r) => r.context === ctx.name && r.aggregate === agg.name),
       );
     }
     // Value-object / domain-service unit tests (test-placement.md) —
@@ -1558,7 +1569,7 @@ function emitProjectFromContexts(
         // Broker channel drivers (M-T4.4 slices 6b + 7c) — per-transport
         // wiring-gated so a channel-less (or single-transport)
         // build.gradle.kts stays byte-identical.
-        ...(channelBindings.some((b) => b.transport === "redis")
+        ...(channelBindings.some((b) => b.transport === "redis") || cachesOnRedis(cachedReads)
           ? { "io.lettuce:lettuce-core": LETTUCE_CORE_VERSION }
           : {}),
         ...(channelBindings.some((b) => b.transport === "rabbitmq")
@@ -1719,6 +1730,9 @@ function emitAggregate(
   /** The deployable's hosted contexts — query-time projections declared in
    *  any of them may read this aggregate. */
   contexts: readonly EnrichedBoundedContextIR[] = [ctx],
+  /** The aggregate's cached by-id read (`src/ir/plan/cache.ts`), when a
+   *  `kind: cache` resource on this deployable caches it. */
+  cache?: CachedByIdRead,
 ): void {
   const eventFields = new Map(ctx.events.map((e) => [e.name, e.fields.map((f) => f.name)]));
   // The JPA mapping mirrors `schemaFromModule`: binding-resolved schema +
@@ -1954,6 +1968,7 @@ function emitAggregate(
     discards: discardedAggregates(ctx).has(agg.name),
     schema,
     pool: ctx.aggregates,
+    ...(cache ? { cache } : {}),
   };
   const repoOrigin = repo?.origin ?? agg.origin;
   place(
@@ -2130,6 +2145,7 @@ function emitAggregate(
       routePrefix,
       responseDtoPkg: pkgFor("response-dto", agg.name),
       ...(reqNameFor ? { requestComponentName: reqNameFor } : {}),
+      ...(cache ? { cache } : {}),
     }),
     agg.name,
     agg.origin,

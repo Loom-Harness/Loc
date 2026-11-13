@@ -14,6 +14,7 @@ import { bypassDrops, type FilterBypass } from "../capability-filter.js";
 import { javaJsonSqlType } from "../codec-spelling.js";
 import { javaLocals, localOf } from "../java-ident.js";
 import { renderJavaExpr, renderJavaType } from "../render-expr.js";
+import { renderJavaCacheEvict } from "./by-id-cache.js";
 import { javaNotFoundThrow } from "./common.js";
 import type { JavaRepoCtx } from "./repository.js";
 import {
@@ -281,6 +282,7 @@ export function renderJavaDocumentRepositoryImpl(
     `import org.springframework.stereotype.Repository;`,
     ``,
     `import ${ctx.basePkg}.config.CatalogLog;`,
+    ctx.cache ? `import ${ctx.basePkg}.config.ByIdCaches;` : null,
     `import ${ctx.basePkg}.domain.common.AggregateNotFoundException;`,
     `import ${ctx.basePkg}.domain.ids.*;`,
     // The enums wildcard, matching the RELATIONAL impl (repository.ts:305).
@@ -346,6 +348,7 @@ export function renderJavaDocumentRepositoryImpl(
     // repository_save (debug) — after the upsert; (aggregate, id) prefix mirrors
     // the relational repo + .NET/Hono emission (children omitted).
     `        CatalogLog.event(${javaLogEvent("repositorySave")}, "aggregate", "${agg.name}", "id", String.valueOf(aggregate.id().value()));`,
+    ctx.cache ? renderJavaCacheEvict(ctx.cache, "save", "aggregate.id().value()") : null,
     `        return aggregate;`,
     `    }`,
     ``,
@@ -425,6 +428,7 @@ export function renderJavaDocumentRepositoryImpl(
     `    @Override`,
     `    public void delete(${agg.name} aggregate) {`,
     `        jdbc.update("delete from ${table} where id = ?", aggregate.id().value());`,
+    ctx.cache ? renderJavaCacheEvict(ctx.cache, "delete", "aggregate.id().value()") : null,
     `    }`,
     ``,
     `    private static ${agg.name} fromJson(String data) {`,
