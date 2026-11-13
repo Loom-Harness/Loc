@@ -75,7 +75,7 @@ import { expectReach } from "../_helpers/census-reach.js";
 //               → use `workflowRunsInTransaction` / `workflowIsolation`.
 //   wire-status a `workflowCanAnswerNotFound(…)` call that is not an argument
 //               of `errorStatuses` (or a backend wrapper that forwards to it:
-//               `errorResponsesKwarg`, `errorResponseEntries`) — a backend
+//               `errorResponsesKwarg`, `errorResponses`) — a backend
 //               deciding a workflow route's declared not-found rung itself;
 //               or a `defaultErrorStatus(…)` call / an `errorStatusOverrides[…]`
 //               lookup — a backend mapping an error variant to its wire status
@@ -238,7 +238,7 @@ interface Violation {
 }
 
 /** The callees that own a route's declared error-status set. */
-const STATUS_TABLES = new Set(["errorStatuses", "errorResponsesKwarg", "errorResponseEntries"]);
+const STATUS_TABLES = new Set(["errorStatuses", "errorResponsesKwarg", "errorResponses"]);
 
 /** Is `n` (transitively) an argument of a call to one of `STATUS_TABLES`? */
 function insideStatusTable(n: ts.Node): boolean {

@@ -67,7 +67,6 @@ import {
   commandCreateEntryResult,
   commandCreateResult,
 } from "../../../ir/util/workflow-command-route.js";
-import { API_BASE_PATH } from "../../../util/api-base.js";
 import { emissionSink, rewrite } from "../../../util/emission-sink.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";

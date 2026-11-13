@@ -109,7 +109,6 @@ import {
   repoClassRef,
 } from "./routes-builder.js";
 import { pySaveRenderer } from "./stamp-call.js";
-import { pyProblemResponseEntry } from "./wire-policy-py.js";
 import { pyReadPortResolver, pyWorkflowStmtTarget } from "./workflows-builder.js";
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
