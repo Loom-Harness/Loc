@@ -2,7 +2,7 @@ import type { AggregateIR } from "./aggregate.js";
 import type { BoundedContextIR, EnumIR, PayloadIR, ValueObjectIR } from "./context.js";
 import type { LoomInterface, NeedIR, SubdomainIR } from "./deployment.js";
 import type { ExprIR } from "./expr.js";
-import type { AssociationIR, CreateInputFieldIR, EntityPartIR } from "./members.js";
+import type { AssociationIR, EntityPartIR } from "./members.js";
 import type { SystemIR } from "./system.js";
 import type { RequirementIR, SolutionIR, TestCaseIR, TraceabilityIR } from "./traceability.js";
 import type { Sourced } from "./types.js";
