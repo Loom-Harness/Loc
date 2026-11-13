@@ -89,7 +89,17 @@ export interface CsRenderContext {
    *  each variant's tag + field order so a tagged `return` constructs the right
    *  `<name>_<Tag>(...)` variant record positionally.  Unset outside a
    *  union-returning operation body. */
-  returnUnion?: { name: string; members: UnionMember[]; selfArgs?: string };
+  returnUnion?: {
+    name: string;
+    members: UnionMember[];
+    selfArgs?: string;
+    /** Encodes a domain value into a record variant's field, for a union
+     *  whose records are typed at their wire shape (an aggregate operation's
+     *  — the controller copies them into the response 1:1).  Absent for a
+     *  domain-typed union (a domain service's), whose fields take the domain
+     *  value as is. */
+    encode?: (domainExpr: string, t: TypeIR) => string;
+  };
   /** TPC abstract-base derived bodies (aggregate-inheritance.md, `ownTable`):
    *  the base owns no typed `Id` property (each concrete carries its own
    *  strongly-typed id), so an `id` read in a base derived member (e.g. the
