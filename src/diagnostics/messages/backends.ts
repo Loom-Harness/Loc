@@ -143,7 +143,7 @@ export const messages = {
     dName: unknown;
     target: unknown;
   }) =>
-    `${p.what} binds a resource kind that deployable '${p.dName}' (backend '${p.target}') can't realize: no backend emits a read-replica connection, a read-through cache (#4440), an event-sourced snapshot store or a Kafka-held event log, so the context would run on its primary Postgres alone and the declared resource would change nothing. Bind the context to a \`state\` resource (and, for an event-sourced aggregate, an \`eventLog\` resource) on a \`type: postgres\` storage.`,
+    `${p.what} binds a resource kind that deployable '${p.dName}' (backend '${p.target}') can't realize: this backend emits no read-replica connection, read-through cache, event-sourced snapshot store or Kafka-held event log, so the context would run on its primary Postgres alone and the declared resource would change nothing. Bind the context to a \`state\` resource (and, for an event-sourced aggregate, an \`eventLog\` resource) on a \`type: postgres\` storage.`,
   "loom.target-unsupported#resource-knob-unrealized": (p: {
     what: unknown;
     dName: unknown;

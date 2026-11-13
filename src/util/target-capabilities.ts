@@ -757,6 +757,9 @@ const STATIC_HOST_BACKEND_ROWS: Readonly<Record<BackendConstruct, CapabilityVerd
 const NODE_BACKEND: TargetCapabilityTable = {
   backend: {
     ...STATIC_HOST_BACKEND_ROWS,
+    // The by-id read cache (`src/ir/plan/cache.ts`): ioredis or an in-process
+    // map, read through on `GET /{id}`, evicted by the repository's writes.
+    "resource:cache@resource": SUPPORTED,
     // The save inserts the events and then dispatches outside the transaction.
     "publish:event-sourced@broker-channel": refused("feature-composition-broken"),
   },

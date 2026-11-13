@@ -190,11 +190,20 @@ const kindUses =
       ds.kind === kind ? `kind: ${kind}, storage '${ds.storageName}'` : undefined,
     );
 
+/** A knob a kind's own realization reads: the cache plan
+ *  (`src/ir/plan/cache.ts`) owns `ttl` and `keyPrefix` on a `kind: cache`
+ *  resource, so there the `resource:cache` row is the one verdict. */
+const KNOBS_OWNED_BY_KIND: Readonly<Record<string, readonly string[]>> = {
+  cache: ["ttl", "keyPrefix"],
+};
+
 const knobUses =
   (knob: "ttl" | "keyPrefix" | "every" | "retain" | "readonly"): BackendDetector =>
   (ctx, sys) =>
     resourceUses(ctx, sys, (ds) =>
-      ds[knob] !== undefined ? `sets \`${knob}:\`, kind: ${ds.kind}` : undefined,
+      ds[knob] !== undefined && !(KNOBS_OWNED_BY_KIND[ds.kind] ?? []).includes(knob)
+        ? `sets \`${knob}:\`, kind: ${ds.kind}`
+        : undefined,
     );
 
 /** Every storage of `type`, wherever the system declares it. */

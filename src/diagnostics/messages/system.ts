@@ -22,9 +22,19 @@ export const segments = [
   "resource",
   "datasource",
   "capability",
+  "cache",
 ] as const;
 
 export const messages = {
+  "loom.cache-read-uncached#event-sourced": (p: { aggregate: unknown; resource: unknown }) =>
+    `aggregate '${p.aggregate}' is event-sourced, so cache resource '${p.resource}' does not cache its by-id read: the read folds the stream on every request.  The other aggregates of the context are cached.`,
+  "loom.cache-read-uncached#inheritance": (p: { aggregate: unknown; resource: unknown }) =>
+    `aggregate '${p.aggregate}' is part of an inheritance hierarchy, so cache resource '${p.resource}' does not cache its by-id read: a polymorphic read of the base and a read of the concrete answer the same id, and one write would have to evict both.  The other aggregates of the context are cached.`,
+  "loom.cache-read-uncached#scope-reads-other-rows": (p: {
+    aggregate: unknown;
+    resource: unknown;
+  }) =>
+    `aggregate '${p.aggregate}' has a read scope, mask or derived field that reads other rows (an \`exists\` row rule, a policy function over a reference, a field followed through an \`X id\`), so cache resource '${p.resource}' does not cache its by-id read: a write to one of those rows would change the answer without evicting it.  The other aggregates of the context are cached.`,
   "loom.api-call-principal-unsupported#reactor": (p: {
     name: unknown;
     resource: unknown;
