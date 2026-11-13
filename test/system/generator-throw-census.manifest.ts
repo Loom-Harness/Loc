@@ -13,6 +13,15 @@ export type ThrowClassification =
   | { deferred: string; mission: string; reviewUntil: string };
 
 export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
+  // src/generator/_api/polymorphic-row.ts
+  "src/generator/_api/polymorphic-row.ts#polymorphicRowOf": {
+    invariant:
+      "Only `contextOperations(ctx)` marks an operation `polymorphicBase`, and it derives one only for a base `routedPolymorphicRead` routes in that same ctx; no .ddd input reaches the throw.",
+  },
+  "src/generator/_api/polymorphic-row.ts#polymorphicRowOf$2": {
+    invariant:
+      "`routedPolymorphicRead(base, ctx)` draws its variants from `ctx.aggregates`, so every variant names an aggregate of that ctx; no .ddd input reaches the throw.",
+  },
   // src/generator/java/wire-policy-java.ts
   "src/generator/java/wire-policy-java.ts#javaIngressCoercions": {
     invariant:
