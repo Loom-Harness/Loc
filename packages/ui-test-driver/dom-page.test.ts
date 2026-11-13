@@ -434,4 +434,52 @@ describe("DomPage / DomLocator", () => {
     await loc.blur();
     expect(document.activeElement).not.toBe(el);
   });
+
+  // The exact expression the generated page objects emit for a field fill.
+  const robustFill = async (page: DomPage, id: string, v: string) => {
+    const __f = page.getByTestId(id);
+    const __input = page.locator("input, textarea");
+    await __f.locator(__input).or(__f.and(__input)).first().fill(v);
+  };
+
+  it("robustFill fills a wrapper whose inner input has no testid", async () => {
+    setBody(`<div data-testid="f"><input id="a" /></div>`);
+    await robustFill(new DomPage(document, { timeout: 200 }), "f", "hello");
+    expect((document.getElementById("a") as HTMLInputElement).value).toBe("hello");
+  });
+
+  it("robustFill fills an input that itself carries the testid", async () => {
+    setBody(`<input data-testid="f" id="a" /><input id="b" />`);
+    await robustFill(new DomPage(document, { timeout: 200 }), "f", "hi");
+    expect((document.getElementById("a") as HTMLInputElement).value).toBe("hi");
+    expect((document.getElementById("b") as HTMLInputElement).value).toBe("");
+  });
+
+  it("or is a document-ordered, deduplicated union", async () => {
+    setBody(`<p id="p1" class="x"></p><p id="p2" class="y"></p><p id="p3" class="x y"></p>`);
+    const page = new DomPage(document, { timeout: 200 });
+    const u = page.locator(".y").or(page.locator(".x"));
+    expect(await u.count()).toBe(3);
+    expect(u.matchesNow().map((e) => e.id)).toEqual(["p1", "p2", "p3"]);
+  });
+
+  it("and is the intersection", async () => {
+    setBody(`<p id="p1" class="x"></p><p id="p2" class="y"></p><p id="p3" class="x y"></p>`);
+    const page = new DomPage(document, { timeout: 200 });
+    expect(await page.locator(".x").and(page.locator(".y")).count()).toBe(1);
+  });
+
+  it("locator(locator) resolves the inner chain within the outer matches", async () => {
+    setBody(`<div id="o"><b class="k"></b></div><b class="k"></b>`);
+    const page = new DomPage(document, { timeout: 200 });
+    expect(await page.locator("#o").locator(page.locator(".k")).count()).toBe(1);
+  });
+
+  it("or/and keep strict mode and render describe()", async () => {
+    setBody(`<div data-testid="x"><input id="a" /></div><input id="b" />`);
+    const page = new DomPage(document, { timeout: 200 });
+    const orL = page.getByTestId("x").or(page.locator("input, textarea"));
+    expect(orL.describe()).toBe(`getByTestId("x").or(locator("input, textarea"))`);
+    await expect(orL.click()).rejects.toThrow(/resolved to 3 elements/);
+  });
 });

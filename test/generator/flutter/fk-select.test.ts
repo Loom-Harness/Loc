@@ -50,7 +50,8 @@ describe("flutter FK-loaded select", () => {
     // initState fires the loader; the loader GETs the target collection + unwraps
     // the paged {items} envelope.
     expect(src).toContain("_loadCustomerOptions();");
-    expect(src).toContain("http.get(apiUri('/customers'))");
+    expect(src).toContain("apiUri('/customers?page=$page&pageSize=500')");
+    expect(src).toContain("page >= total");
     expect(src).toContain("decoded['items']");
     // The dropdown maps the loaded rows, labelled by the target's `display` field.
     expect(src).toContain("_customerOptions.map((o) => DropdownMenuItem(");

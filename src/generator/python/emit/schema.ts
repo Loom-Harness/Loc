@@ -25,6 +25,7 @@ import {
   tableOwnerName,
   tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import type { ResolvedDataSource } from "../../../ir/util/resolve-datasource.js";
 import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
@@ -37,7 +38,6 @@ import {
   columnsForFields,
   contextEventRowClassName,
   contextEventsTableName,
-  isRefCollectionField,
   joinRowClassName,
   type PyColumn,
   pyColumnAttr,
@@ -430,7 +430,7 @@ function renderEmbeddedModel(
     { attr: "id", pyType: "str", saType: pyIdColumnType(), optional: false, primaryKey: true },
   ];
   for (const f of agg.fields) {
-    if (isRefCollectionField(f)) {
+    if (isRefCollectionType(f.type)) {
       cols.push({ attr: snake(f.name), pyType: "object", saType: "JSONB", optional: !!f.optional });
       continue;
     }
@@ -516,7 +516,7 @@ function renderWorkflowStateModel(
       continue;
     }
     const t = f.type.kind === "optional" ? f.type.inner : f.type;
-    if (t.kind === "array" && t.element.kind === "id") {
+    if (isRefCollectionType(t)) {
       cols.push({
         attr: snake(f.name),
         pyType: "object",
@@ -598,7 +598,7 @@ function renderProjectionStateModel(
       continue;
     }
     const t = f.type.kind === "optional" ? f.type.inner : f.type;
-    if (t.kind === "array" && t.element.kind === "id") {
+    if (isRefCollectionType(t)) {
       cols.push({ attr: snake(f.name), pyType: "object", saType: "JSONB", optional: true });
       continue;
     }

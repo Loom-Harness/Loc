@@ -49,6 +49,7 @@ export interface AngularWorkflowFormSpec {
   /** True when the form has ≥1 `File` param — page-shell emits the shared
    *  `onFileUpload` method once per component. */
   hasFile?: boolean;
+  hasList?: boolean;
 }
 
 export function renderAngularWorkflowForm(
@@ -146,6 +147,7 @@ export function renderAngularWorkflowForm(
     fieldArrays: parts.fieldArrays,
     fieldGroups: parts.fieldGroups,
     hasFile: parts.hasFileField,
+    hasList: parts.hasListField,
   };
   angularSink(ctx).workflowForms.push(spec);
 

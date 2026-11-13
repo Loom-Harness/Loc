@@ -12,7 +12,11 @@ import {
   wireStatus,
   wireTitle,
 } from "../../ir/enrich/wire-policy.js";
-import { hasDurableEvents, observableWorkflows } from "../../ir/plan/index.js";
+import {
+  hasDurableEvents,
+  observableWorkflows,
+  routedPolymorphicRead,
+} from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   DeployableIR,
@@ -104,7 +108,6 @@ import {
   buildPyBaseRoutesFile,
   buildPyBaseUnionFile,
   concretesOf,
-  routesPolymorphicRead,
 } from "./base-reader-builder.js";
 import { buildPyChannelsFile } from "./channels-builder.js";
 import { pyIsoHelperBody, pyMoneyQuantum } from "./codec-spelling.js";
@@ -429,7 +432,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // A routed polymorphic base read (`GET /<bases>`) mounts beside its
   // concretes' routers.
   const routedBases = args.contexts.flatMap((c) =>
-    abstractBasesOf(c).filter((b) => concretesOf(b, c).length > 0 && routesPolymorphicRead(b, c)),
+    abstractBasesOf(c).filter((b) => concretesOf(b, c).length > 0 && !!routedPolymorphicRead(b, c)),
   );
   const routedAggs = [
     ...args.contexts.flatMap((c) => c.aggregates.filter((a) => !a.isAbstract).map((a) => a.name)),
@@ -1153,6 +1156,29 @@ async def _run_post_commit(
     for work in deferred:
         await work()
     deferred.clear()
+    await session.commit()
+
+
+async def commit_save(session: AsyncSession) -> None:
+    """Commit one save of a workflow that is not \`transactional\`.
+
+    Such a workflow commits each save on its own, so a later failure keeps the
+    rows saved before it.  The events those saves owe are delivered now, as
+    they would be after the request's own commit; the request's list stays
+    open for the saves after this one.
+    """
+    await session.commit()
+    deferred = post_commit.get()
+    if not deferred:
+        return
+    pending = list(deferred)
+    deferred.clear()
+    token = post_commit.set(None)
+    try:
+        for work in pending:
+            await work()
+    finally:
+        post_commit.reset(token)
     await session.commit()
 
 

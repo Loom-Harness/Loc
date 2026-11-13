@@ -130,7 +130,7 @@ describe("paged reads on an EMBEDDED shape page in SQL (drizzle)", () => {
       "const countRows = await this.db.select({ value: count() }).from(schema.embs).where(embsByOwnerCriterion(owner));",
     );
     expect(emb).toContain('const orderBy = dir === "desc" ? desc(sortColumn) : asc(sortColumn);');
-    expect(emb).toContain(".orderBy(orderBy).limit(pageSize).offset(offset);");
+    expect(emb).toContain(".orderBy(orderBy, asc(schema.embs.id)).limit(pageSize).offset(offset);");
     // …and the drizzle helpers + column type it names are imported.
     expect(emb).toContain('import type { AnyPgColumn } from "drizzle-orm/pg-core";');
     expect(emb).toContain('import { and, asc, count, desc, eq, inArray } from "drizzle-orm";');

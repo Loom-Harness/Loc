@@ -615,6 +615,16 @@ commits independently, matching the DDD principle that the aggregate
 is the consistency boundary.  Mid-workflow failure leaves earlier
 saves committed.
 
+A client that retries a failed non-transactional workflow therefore runs it
+again against the saves the failed run kept, so write such a workflow to be
+safe to run twice (each step checks the state it moves from), or declare it
+`transactional`.
+
+A workflow also runs in one transaction, whether or not it says
+`transactional`, when its `create` answers an expected failure (`T or E`: an
+error answer rolls the whole command back) or when it re-checks a held row's
+write scope.
+
 Adding the `transactional` keyword wraps the body, all saves, and
 their event drainage in one DB transaction (one EF
 `BeginTransactionAsync` / one Drizzle `db.transaction`; on

@@ -122,8 +122,8 @@ describe("mikroorm repositories — reads state only their own where", () => {
       await emitted("inheritance-read-restrictions"),
       "db/repositories/car-repository.ts",
     );
-    expect(cars).toContain('{ filters: { "softDeletable": false } }');
-    expect(cars).toContain('{ filters: { "tenantOwned": false } }');
+    expect(cars).toContain('{ orderBy: { id: "asc" }, filters: { "softDeletable": false } }');
+    expect(cars).toContain('{ orderBy: { id: "asc" }, filters: { "tenantOwned": false } }');
     // …each on its own widened read…
     expect(cars).toContain(
       "async findFirstByPlateIgnoringSoftDeletable(p: string): Promise<Car | null> {",

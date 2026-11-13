@@ -1,0 +1,227 @@
+{
+  "case": "value-collection-invariants",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/rule_sets",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/rule_sets/{id}",
+      "status": 200,
+      "body": {
+        "conditions": [
+          {
+            "label": null,
+            "lower": 1,
+            "op": "Scale",
+            "upper": 5
+          },
+          {
+            "label": "x",
+            "lower": 0,
+            "op": "Equals",
+            "upper": null
+          }
+        ],
+        "id": "<volatile:key>",
+        "name": "ok",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/rule_sets",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "problem.domain-floor",
+            "message": "Business rule violated",
+            "pointer": "/conditions/{id}/upper"
+          }
+        ],
+        "instance": "/api/rule_sets",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/rule_sets",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "problem.domain-floor",
+            "message": "Business rule violated",
+            "pointer": "/conditions/{id}/lower"
+          }
+        ],
+        "instance": "/api/rule_sets",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/rule_sets/{id}/update",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "problem.domain-floor",
+            "message": "Business rule violated",
+            "pointer": "/conditions/{id}/upper"
+          }
+        ],
+        "instance": "/api/rule_sets/{id}/update",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/rule_sets/{id}",
+      "status": 200,
+      "body": {
+        "conditions": [
+          {
+            "label": null,
+            "lower": 1,
+            "op": "Scale",
+            "upper": 5
+          },
+          {
+            "label": "x",
+            "lower": 0,
+            "op": "Equals",
+            "upper": null
+          }
+        ],
+        "id": "<volatile:key>",
+        "name": "ok",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/rule_sets",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "conditions": [
+              {
+                "label": null,
+                "lower": 1,
+                "op": "Scale",
+                "upper": 5
+              },
+              {
+                "label": "x",
+                "lower": 0,
+                "op": "Equals",
+                "upper": null
+              }
+            ],
+            "id": "<volatile:key>",
+            "name": "ok",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "DELETE",
+      "path": "/api/rule_sets/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/rule_sets/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "RuleSet {id} not found",
+        "instance": "/api/rule_sets/{id}",
+        "params": {
+          "type": "Rules.RuleSet"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "PATCH",
+      "path": "/api/rule_sets",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/rule_sets",
+        "instance": "/api/rule_sets",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/rule_sets",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/rule_sets",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

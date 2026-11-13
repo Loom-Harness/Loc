@@ -35,6 +35,12 @@
 
 system HeexUiSystem {
 
+  // The dev-stub principal.  `heex-ui-auth.pw.ts` drives the LiveView as three
+  // roles through the `x-loom-dev-claims` header the dev-stub :browser pipeline
+  // seeds the session from; with no header the page runs as the stub's built-in
+  // principal (role "admin"), which is what the Widget legs use.
+  user { id: guid  role: string }
+
   subdomain Catalog {
     context Catalog {
 
@@ -49,6 +55,61 @@ system HeexUiSystem {
       }
 
       repository Widgets for Widget { }
+
+      // ── The authorization legs (heex-ui-auth.pw.ts) ────────────────────
+      // A LiveView detail page must dispatch each operation form to the NAMED
+      // operation with the session principal — exactly what the REST action
+      // and the SPA frontends do — so the op's `requires`, its `when` state
+      // gate and its `emit` all run.  A submit through the generic
+      // `update_claim` would skip all three, and `severity` / `status` /
+      // `reserve` are `immutable` so the generic update cannot set them at
+      // all: the authorized submit's visible effect exists only on the named
+      // path.
+      enum ClaimStatus { Open, Settled }
+      valueobject Reserve { amount: decimal  note: string }
+
+      aggregate Claim with crudish {
+        title: string
+        severity: int immutable
+        status: ClaimStatus immutable
+        reserve: Reserve immutable
+
+        operation triage(severity: int) requires currentUser.role == "adjuster" when status == Open {
+          this.severity := severity
+          emit Triaged { claim: id, severity: severity }
+        }
+        // A value-object param: its form renders the VO's leaves as plain
+        // inputs (no `inputs_for`, which phoenix_ecto refuses on a VO).
+        operation setReserve(reserve: Reserve) requires currentUser.role == "adjuster" {
+          this.reserve := reserve
+        }
+        operation settle() requires currentUser.role == "adjuster" when status == Open {
+          status := Settled
+        }
+      }
+      repository Claims for Claim { }
+
+      // Covers every read of Claim: the list LiveView, the detail LiveView,
+      // and the REST list / by-id routes.  `admin` is the dev stub's built-in
+      // principal, which the emitted smoke spec navigates as; the read-gate
+      // leg reads as `clerk`.
+      policy { read Claim requires currentUser.role == "adjuster" || currentUser.role == "viewer" || currentUser.role == "admin" }
+
+      event Triaged { claim: Claim id  severity: int }
+      channel ClaimEvents {
+        carries: Triaged
+        delivery: broadcast
+        retention: ephemeral
+      }
+
+      // The workflow LiveView must hand `run/2` the session principal: the
+      // body's `requires` reads it.
+      workflow Escalate {
+        create(title: string) {
+          requires currentUser.role == "adjuster"
+          let c = Claim.create(title: title, severity: 5, status: Open, reserve: Reserve { amount: 0, note: "none" })
+        }
+      }
     }
   }
 
@@ -59,6 +120,10 @@ system HeexUiSystem {
 
   ui Web with scaffold(subdomains: [Catalog]) {
     api C: CatalogApi
+    // The `emit` is observable in the browser: the event reaches every
+    // subscribed LiveView as this toast.
+    channel Live: Catalog.ClaimEvents
+    on Live.Triaged(e) { toast("Claim triaged") }
 
     // A hand-written detail page whose QueryView data lambda param is NOT
     // `data`: the bump form's validate/submit clauses must read the assign
@@ -88,6 +153,7 @@ system HeexUiSystem {
     serves: CatalogApi
     ui: Web { C: phoenixApp }
     port: 4000
+    auth: required
   }
 
   // create -> (via the LIST page's create affordance) -> detail, then a

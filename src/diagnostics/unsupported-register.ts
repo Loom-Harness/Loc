@@ -159,6 +159,20 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "#3367",
   },
   {
+    code: "loom.assign-through-local-unsupported",
+    kind: "scope",
+    site: "src/language/validators/statements.ts:434",
+    what:
+      "an aggregate-operation assignment whose path writes through a local — `let task = " +
+      "tasks.where(…).first; task.status := Done`, or the same through a parameter.  An " +
+      "assignment target is a path rooted at a stored member of `this` (`PathIR`), so a write " +
+      "to one element of a containment selected into a local has no representation for the " +
+      "five backends to render.  The successor is a target rooted at the local, rendered as a " +
+      "write to the selected part on every backend.",
+    mission: "#5179",
+    verified: false,
+  },
+  {
     code: "loom.workflow-return-type-unsupported",
     kind: "scope",
     site: "src/language/validators/structural.ts:533",
@@ -802,7 +816,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1826",
+    site: "src/ir/validate/checks/workflow-checks.ts:1848",
     what: "workflow load of an array result — a `let` binds one row",
     mission: "#3376",
     verified: true,

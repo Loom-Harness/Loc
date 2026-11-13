@@ -117,8 +117,10 @@ test("resource fakes: object round trip, mail, disk file, REST mock", async ({ p
   await test.step("signed URL points at the fake object store and serves the object", async () => {
     await send(page, /^GET \/(api\/)?notes\/\{name\}\/link$/);
     await expectOk(page);
+    // The status badge can still show the previous step's 200; the body is
+    // what says this response arrived.
+    await expect(page.getByTestId("resp-body")).toContainText("X-Amz-Signature", { timeout: 30_000 });
     const body = (await page.getByTestId("resp-body").textContent()) ?? "";
-    expect(body).toContain("X-Amz-Signature");
     // The fake serves the presigned GET: signature params are accepted, the object comes back.
     const url = JSON.parse(body) as string;
     const served = (await infra(page, "s3", "http", { method: "GET", url, headers: {}, body: [] })) as {

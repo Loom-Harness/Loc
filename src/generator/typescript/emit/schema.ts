@@ -27,6 +27,7 @@ import {
   tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
 import { enumPool, findValueObjectInScope } from "../../../ir/util/reachable-types.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import type { ResolvedDataSource } from "../../../ir/util/resolve-datasource.js";
 import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
@@ -397,7 +398,7 @@ function emitProjectionTable(proj: ProjectionIR, ctx: BoundedContextIR, schema?:
     if (f.name === proj.correlationField) {
       const pk = tenancy ? ".notNull()" : ".primaryKey()";
       lines.push(`  ${f.name}: ${drizzleIdColumn(snake(f.name))}${pk},`);
-    } else if (f.type.kind === "array" && f.type.element.kind === "id") {
+    } else if (isRefCollectionType(f.type)) {
       // A reference collection on a state row is one jsonb id-array column
       // (the shared migration's `JSONB NULL`) — there is no join table.
       lines.push(`  ${f.name}: jsonb("${snake(f.name)}").$type<string[]>(),`);
@@ -561,7 +562,7 @@ function emitEmbeddedTable(
   lines.push(`export const ${lowerFirst(plural(agg.name))} = ${tableFactory}("${tableName}", {`);
   lines.push(`  id: ${drizzleIdColumn("id")}.primaryKey(),`);
   for (const f of agg.fields) {
-    if (f.type.kind === "array" && f.type.element.kind === "id") {
+    if (isRefCollectionType(f.type)) {
       const not = f.optional ? "" : ".notNull()";
       lines.push(`  ${f.name}: jsonb("${snake(f.name)}")${not},`);
       continue;
@@ -603,7 +604,7 @@ function emitWorkflowStateTable(wf: WorkflowIR, ctx: BoundedContextIR, schema?: 
   for (const f of wf.stateFields ?? []) {
     if (f.name === wf.correlationField) {
       lines.push(`  ${f.name}: ${drizzleIdColumn(snake(f.name))}.primaryKey(),`);
-    } else if (f.type.kind === "array" && f.type.element.kind === "id") {
+    } else if (isRefCollectionType(f.type)) {
       // A reference collection on a saga row is one jsonb id-array column
       // (the shared migration's `JSONB`) — there is no join table.
       const not = f.optional ? "" : ".notNull()";
