@@ -686,9 +686,8 @@ Three boundaries to know:
   its template grammar rejects a block-bodied arrow. Feliz supplies F# arms
   (`src/generator/feliz/fs-expr.ts`, `FS_COLLECTION_RENDERERS`) that BOTH its
   page-body walk and its action/update path consume; Flutter supplies Dart
-  arms (`src/generator/flutter/dart-expr.ts`); Phoenix/HEEx renders values
-  through its HEEx engine (`src/generator/elixir/heex-walker-core.ts`), which
-  carries its own Elixir arms.
+  arms (`src/generator/flutter/dart-expr.ts`); Phoenix/HEEx runs a parallel
+  engine (`src/generator/elixir/heex-walker-core.ts`) with its own arms.
 
 ### 8.1a Scalar intrinsics in a page body
 
@@ -901,7 +900,7 @@ Users freely define their own `component`s, which compose these builtins.
 ### 9.1 `DataGrid` — the interactive grid
 
 `Table` is deliberately simple and portable: it renders markup around a rows
-expression the walker has already sorted/sliced, so all six frontends (plus HEEx)
+expression the walker has already sorted/sliced, so all seven frontends
 implement it. It covers single-column sort, one substring
 filter, and prev/next paging — and for the scaffold's server-paged list the
 server does the work anyway.
@@ -1711,41 +1710,32 @@ semantics.  Per-construct mapping:
 | `requires <expr>` (page-level) | a guard in `handle_params/3` / the read-side predicate, rendered as Elixir. |
 | `navigate(<Page>, {…})` | `push_navigate(socket, to: ~p"/route?…")` with the target page's route + interpolated args. |
 | `CreateForm { of: T }` / `OperationForm` / `WorkflowForm` | `<.simple_form for={@form} phx-submit="save">` over `to_form(changeset)`. |
-| Scaffolded page bodies | the same macro-emitted walker body every other frontend gets, rendered through the shared walker core (`heexTarget`) into `render/1`. |
+| Scaffolded page bodies | the same macro-emitted walker body every other frontend gets, rendered by the shared walker into `render/1`. |
 | `Sales.Customer.create(args)` | a direct context call `<App>.Sales.create_customer!(args)` — no hook hoisting, since LiveView reads in `mount/3` / `handle_event/3`. |
 | `QueryView { of: <Agg>.<op>(…) }` | the context-module function that operation names — `list_<agg>s` (`all`), `get_<agg>` (`byId`), `<find>_<agg>` (a declared or synthesized find) — called in `handle_params/3`. Resolved from the OPERATION, never guessed from the read's shape (§9.3). |
 | Page object emission | unchanged — Playwright drives any rendered HTML, including LiveView, via the same testid-keyed page objects. |
 
-**HEEx rides the shared walker through overrides.**  The six frontends
-(react, vue, svelte, angular, feliz, flutter) and LiveView all drive `walkBody`
-through the `WalkerTarget` seam (`src/generator/_walker/target.ts`).  Every
-primitive HEEx renders is listed in `HEEX_SHARED_PRIMITIVES`
-(`src/generator/elixir/heex-pack.ts`) and renders through the shared `emit*`
-functions; where LiveView's topology diverges — hoisted `handle_event` clauses
-instead of inline lambdas, `for … do` comprehensions instead of `.map`,
-`if`-blocks instead of ternaries — `heexTarget` (`heex-target.ts`) supplies an
-override (`renderAction`, `renderTable`, `renderFileUpload`,
-`renderUserComponent`, …).  Its `renderNodeOverride` hands the remaining nodes —
-Elixir term values such as a term-valued `match` or a value-object
-construction — to the HEEx engine, `src/generator/elixir/heex-walker-core.ts`
-(+ `heex-primitives.ts`), which also renders expression and text values for
-both halves.
+**HEEx rides the shared walker.**  All seven frontends (react, vue, svelte,
+angular, feliz, flutter, phoenixLiveView) drive `walkBody` through the
+`WalkerTarget` seam (`src/generator/_walker/target.ts`).  LiveView's output
+topology differs — hoisted `handle_event` clauses instead of inline lambdas,
+`for … do` comprehensions instead of `.map`, `if`-blocks instead of ternaries —
+and each difference is a seam `heex-target.ts` fills: `renderForEach`,
+`renderConditionalChild`, `renderMatchChild`, `bindEventHandler`, the walk
+scopes (`scopeSink`).  Its expressions render as Elixir through its own
+expression renderer (`heex-walker-core.ts`, reached through
+`renderExprOverride` / `renderTextContentOverride`), and the primitives that
+bind a changeset or load an assign (the forms, `Table`, `FileUpload`, `Modal`,
+`Chart`, `IdLink`, `Timeline`, …) render whole through the target's overrides.
+Every other primitive renders through its shared emitter and the procedural
+HEEx pack (`heex-pack.ts`).
 
-Both paths dispatch per primitive off the **same** registry
-(`src/generator/_walker/registry.ts`), where a primitive carries a `tsx`
-renderer and optionally a `heex` one — so coverage has one source of truth and
-`test/generator/elixir/heex-parity.test.ts` freezes the gap:
-
-- **The pinned gap list holds exactly one entry today: `DataGrid`** — a TanStack
-  client row model has no LiveView analogue (`loom.target-unsupported#datagrid`;
-  use `Table`, which is server-driven with real sort + pagination on HEEx).
-- Everything else the TSX walker renders now has a HEEx renderer, including the
-  standalone input family (which writes bound page state back through a hoisted
-  `handle_event`), `ProvenanceInfo` (a `<details>` disclosure over the
-  co-located `<field>_provenance` jsonb column) and `Chart` (inline SVG — no JS
-  charting library).
-- Adding a TSX-only primitive fails that test until it gets a `heex` renderer or
-  is pinned with a reason; closing a gap fails it too (delete the entry).
+Coverage is the HEEx showcase gate (`test/generator/elixir/heex-coverage.test.ts`):
+every registered primitive the capability table admits on LiveView must be
+reached by `test/fixtures/heex-showcase.ddd`.  The one primitive LiveView
+refuses is `DataGrid` — a TanStack client row model has no LiveView analogue
+(`loom.target-unsupported#datagrid`; use `Table`, which is server-driven with
+real sort + pagination on HEEx).
 
 ## 17. See also
 

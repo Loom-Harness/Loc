@@ -184,13 +184,13 @@ describe("gate ledger", () => {
       // `DAPPER_UNSUPPORTED`, whose last entry (`tenancy-hierarchy`) drained
       // when the Dapper adapter learned the hierarchical subtree predicate —
       // draining the very register that made the drained readings mean
-      // something.  `KNOWN_HEEX_GAPS` is the replacement because it is the one
-      // register of this exact shape that is SETTLED rather than pending
-      // (`DataGrid` on HEEx is a decided non-goal, D-DATAGRID-TARGETS), so it
-      // cannot drain out from under this guard the way a TODO register does.
-      expect(skipKeys("test/generator/elixir/heex-parity.test.ts", "KNOWN_HEEX_GAPS")).toEqual([
-        "DataGrid",
-      ]);
+      // something.  The subject is now a populated source table rather than a
+      // register: the primitive → pack-chrome map, whose `Loader` entry is a
+      // fixed fact (a spinner always carries its "Loading" name), so it cannot
+      // drain out from under this guard the way a TODO register does.
+      expect(skipKeys("src/generator/_walker/i18n-chrome.ts", "CHROME_BY_PRIMITIVE")).toContain(
+        "Loader",
+      );
     });
 
     it("skipKeys is not fooled by the prose a drained register leaves behind", () => {

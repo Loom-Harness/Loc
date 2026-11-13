@@ -8,7 +8,7 @@
 // scaffolded workflow-instances list (PR #1367): each row linked to its
 // instance detail via a concat route that was rendered into `<a href="…">`.
 //
-// `src/generator/elixir/heex-primitives.ts` funnels every dynamic attribute
+// `src/generator/elixir/heex-markup.ts` funnels every dynamic attribute
 // value through `attrValue` (and `testIdAttr` for `data-testid`), so the bug
 // class is closed at one seam.  This test pins both halves of the contract:
 //   1. the literal contract stays byte-identical (quoted attrs, default ids);
@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { attrValue, testIdAttr } from "../../../src/generator/elixir/heex-primitives.js";
+import { attrValue, testIdAttr } from "../../../src/generator/elixir/heex-markup.js";
 import type { WalkContext } from "../../../src/generator/elixir/heex-walker-core.js";
 import type { ExprIR } from "../../../src/ir/types/loom-ir.js";
 import { generateSystemFiles } from "../../_helpers/index.js";

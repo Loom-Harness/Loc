@@ -15,7 +15,7 @@
 //
 //   * every render path resolves the slot through its translation runtime —
 //     the four JSX/markup frontends, Feliz's F#, Flutter's Dart, and HEEx's
-//     `pgettext` (a separate engine, so a separate assertion);
+//     `pgettext` (a different runtime, so a separate assertion);
 //   * the key the page emits is the key `messageKey()` derives, so the catalog
 //     entry is REACHED (D-I18N-KEY: `<prefix>.<role>.<content-hash>`);
 //   * the ANCHORS derived from the same literal — a tab's `value` slug, a
@@ -141,8 +141,8 @@ describe("authored-prose slots reach the translation runtime on every target", (
   }
 
   it("heex: all three slots resolve their catalog key through pgettext", async () => {
-    // A separate engine (`heex-walker-core.ts`), so a separate assertion: HEEx
-    // does not consume `walkBody` and localizes through gettext, keyed by the
+    // A different runtime (Gettext, not `t()`), so a separate assertion: HEEx
+    // localizes through gettext, keyed by the
     // SAME content hash so one catalog serves all seven render paths.
     const files = await generateSystemFiles(heexSystem());
     const page = pageOf(files, "home_live.ex");

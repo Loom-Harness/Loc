@@ -188,21 +188,15 @@ const SENTINELS: ReadonlyArray<{
       },
     ],
   },
-  // Both spellings of `walk()`'s "registered primitive, no renderer here" arm:
-  // the shared `walker-core.ts` comment (`not supported by the walker yet` —
-  // it used to say "the React walker" even on Vue/Svelte/Angular/Feliz/Flutter)
-  // and `heex-walker-core.ts`'s LiveView wording.
+  // `walk()`'s "registered primitive, no renderer here" arm — the shared
+  // `walker-core.ts` comment every frontend renders, Phoenix LiveView included.
   {
     label: "primitive not supported",
-    re: /not supported by (?:the (?:\w+ )?walker yet|Phoenix LiveView target)/g,
+    re: /not supported by the (?:\w+ )?walker yet/g,
     origins: [
       {
         file: "src/generator/_walker/walker-core.ts",
         template: "`${call.name}: not supported by the walker yet`",
-      },
-      {
-        file: "src/generator/elixir/heex-walker-core.ts",
-        template: "`${expr.name}: not supported by Phoenix LiveView target`",
       },
     ],
   },
@@ -496,8 +490,8 @@ describe("frontend render degradation — the emitted page must not give up", ()
   // comment arm is the braces, and it is still reached by an UNVALIDATED model
   // — a playground buffer mid-edit, `loom_generate` over a partial source, a
   // macro-built body.  So the sentinel gets its own purpose-built system,
-  // which also proves the two spellings (`walker-core.ts`'s and the parallel
-  // HEEx engine's) both still match.
+  // which also proves every frontend, HEEx included, still spells it the
+  // shared way.
   // -------------------------------------------------------------------------
   const misplacedSubPrimitive = (frontend: string): string => `
     system MisplacedSub {

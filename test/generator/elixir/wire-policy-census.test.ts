@@ -101,7 +101,7 @@ const WAIVERS: { file: string; line: string; reason: string }[] = [
       "the generated client READING a remote api's 404 as an absent value; it answers no request",
   },
   {
-    file: "src/generator/elixir/heex-primitives.ts",
+    file: "src/generator/elixir/heex-form.ts",
     line: "aggregate not found",
     reason: "a generation-time diagnostic comment in the page, not a response body",
   },

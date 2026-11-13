@@ -33,7 +33,7 @@ const RENDERED = [...FRONTEND_RENDERED_COLLECTION_OPS].sort();
  *  share `JS_COLLECTION_RENDERERS`, which is the TypeScript BACKEND's table and
  *  therefore covers the whole catalogue — the frontend subset is applied at the
  *  seam, not in the table, so it is checked separately below.  HEEx's arms are
- *  a `switch` in its parallel walker, not a table, so its coverage is asserted
+ *  a `switch` in its expression renderer, not a table, so its coverage is asserted
  *  through emitted output in `collection-ops.test.ts`.) */
 const KEYED_TABLES: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
   ["feliz (FS_COLLECTION_RENDERERS)", FS_COLLECTION_RENDERERS],

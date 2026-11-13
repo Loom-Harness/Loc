@@ -7,9 +7,8 @@
 // fixed here; the HEEx DESIGN packs (`designs/coreComponents`,
 // `designs/daisyui`) own the shell those components come from.
 //
-// The primitives in `HEEX_SHARED_PRIMITIVES` render through the shared `emit*`
-// functions and this pack.  Every other node of a HEEx body goes back to the
-// HEEx engine through `heexTarget.renderNodeOverride`.  A name the pack has no
+// Every primitive without a whole-primitive override on `heexTarget` renders
+// through its shared `emit*` function and this pack.  A name the pack has no
 // renderer for answers with a visible give-up comment, never silent markup.
 //
 // Indentation follows the shared core's convention: a fragment's first line is
@@ -19,68 +18,6 @@
 import type { LoadedPack } from "../_packs/loader.js";
 import { giveUpText } from "../_walker/give-up.js";
 import type { HeexWalkSink } from "./heex-walker-core.js";
-
-/** The primitives the shared walker core renders for HEEx.  The HEEx engine
- *  hands a call to one of these back to the shared core, and
- *  `heexTarget.renderNodeOverride` lets them through. */
-export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
-  "Stack",
-  "Group",
-  "Grid",
-  "Container",
-  "Card",
-  "Divider",
-  "Tabs",
-  "Heading",
-  "Text",
-  "Bold",
-  "Italic",
-  "InlineCode",
-  "Anchor",
-  "Badge",
-  "EnumBadge",
-  "Stat",
-  "Avatar",
-  "Loader",
-  "Image",
-  "Icon",
-  "Money",
-  "DateDisplay",
-  "Alert",
-  "For",
-  "QueryView",
-  "Button",
-  "Field",
-  "NumberField",
-  "PasswordField",
-  "MultilineField",
-  "SelectField",
-  "Toggle",
-  "LocaleSwitcher",
-  "Action",
-  "CreateForm",
-  "OperationForm",
-  "WorkflowForm",
-  "DestroyForm",
-  "Modal",
-  "FileLink",
-  "ProvenanceInfo",
-  "Timeline",
-  "Table",
-  "FileUpload",
-  "Empty",
-  "Skeleton",
-  "Breadcrumbs",
-  "Paper",
-  "Section",
-  "Sticky",
-  "Toolbar",
-  "KeyValueRow",
-  "Slot",
-  "CodeBlock",
-  "IdLink",
-  "Chart",
-]);
 
 type VM = Record<string, unknown>;
 type Renderer = (vm: VM, sink: HeexWalkSink | undefined) => string;
@@ -631,7 +568,7 @@ export function heexPack(sink?: HeexWalkSink): LoadedPack {
     manifest: { name: "heexProcedural", version: "v1", format: "tsx", emits: {}, imports: {} },
     rootDir: "<heex-procedural>",
     templates: new Map(),
-    // Pack chrome is translated by the HEEx engine itself (`pgettext`), so the
+    // Pack chrome is translated by the HEEx renderers themselves (`pgettext`), so the
     // shared pack-chrome switch has nothing to bind here.
     setChromeI18n() {},
     render(name: string, context: unknown): string {

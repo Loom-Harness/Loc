@@ -47,7 +47,7 @@ Investigate and report:
    bespoke work.
 
 5. **Completeness gates it will trip** (print-completeness, walker-stdlib,
-   heex-parity, diagnostic-codes, queryable-subset, corpus-coverage) — see
+   heex-coverage, diagnostic-codes, queryable-subset, corpus-coverage) — see
    `references/test-placement.md`.
 
 6. **Risks / unknowns.** Anything that looks harder than the analog: divergent

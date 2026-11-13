@@ -91,7 +91,8 @@ export const GIVE_UP_RE = new RegExp(`${GIVE_UP_SENTINEL} \\[(loom\\.[a-z0-9-]+)
  *
  *  Split out of {@link giveUp} for the three give-up sites that build their own
  *  comment syntax because they have no `WalkerTarget` in hand — the HEEx
- *  parallel walker and the two self-hosting packs (Feliz / Flutter).  They pass
+ *  expression renderer and procedural pack, and the two self-hosting packs
+ *  (Feliz / Flutter).  They pass
  *  the result through their own comment delimiters; they must NOT re-spell the
  *  sentinel. */
 export function giveUpText(code: GiveUpCode, text: string): string {

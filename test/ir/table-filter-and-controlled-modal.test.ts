@@ -4,7 +4,7 @@
 // `loom.table-filter-server-paged` / `loom.table-filter-unsupported` (M-T1.1)
 //   `Table { filter: <state> }` renders on the six frameworks that ride the
 //   shared `walkBody` core.  It is DROPPED, silently, in two places:
-//     * on HEEx, whose parallel engine's `renderTable` handles rows / testid /
+//     * on HEEx, whose `renderTable` override handles rows / testid /
 //       sort / page and lets `filter:` fall through into nothing;
 //     * on any SERVER-PAGED table, where `table.ts` gates it off because the
 //       rows are one server window.  That is the common case, not the exotic

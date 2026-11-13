@@ -12,7 +12,7 @@ import {
   type SourceHighlight,
 } from "./correspondence-decorations";
 import type { EditorHandle, EditorRange } from "./editor-handle";
-import { queueReveal, takeQueuedReveal } from "./pending-reveal";
+import { queueReveal, replayMayFocus, takeQueuedReveal } from "./pending-reveal";
 import { applyTextEdits } from "./apply-edits";
 
 export type { EditorHandle };
@@ -321,11 +321,11 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
       if (view) editor.restoreViewState(view);
     };
 
-    const revealRange = (r: EditorRange): void => {
+    const revealRange = (r: EditorRange, focus = true): void => {
       const range = new monaco.Range(r.startLineNumber, r.startColumn, r.endLineNumber, r.endColumn);
       editor.setSelection(range);
       editor.revealRangeInCenter(range, monaco.editor.ScrollType.Smooth);
-      editor.focus();
+      if (focus) editor.focus();
     };
 
     if (handleRef.current) {
@@ -367,7 +367,14 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
     // while the stand-in handle was in place, or before this component mounted
     // at all (it is behind a lazy chunk).  Both queue into the same slot.
     const queued = takeQueuedReveal();
-    if (queued) revealRange(queued);
+    if (queued) {
+      const container = containerRef.current;
+      const active = document.activeElement as HTMLElement | null;
+      revealRange(
+        queued,
+        replayMayFocus(active, (el) => !!container && container.contains(el as HTMLElement)),
+      );
+    }
 
     // Automation seam: lets e2e set/read the document text directly (set
     // dispatches onChange like a normal edit), without depending on clipboard,

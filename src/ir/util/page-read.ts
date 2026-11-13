@@ -26,7 +26,7 @@
 //
 // Home is `ir/util/` because both consumers are downstream of it: phase ⑦
 // (`ir/validate/checks/ui-checks.ts`) raises the diagnostic and phase ⑧
-// (`generator/elixir/heex-primitives.ts`) picks the context-module function.
+// (`generator/elixir/heex-query.ts`) picks the context-module function.
 // ---------------------------------------------------------------------------
 
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
