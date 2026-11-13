@@ -202,6 +202,90 @@ describe("httpMock", () => {
   });
 });
 
+describe("Infrastructure panel ops", () => {
+  it("s3 get/put/delete reach the objects the HTTP endpoint serves", async () => {
+    const body = new TextEncoder().encode("hello");
+    await callService("s3", "put", {
+      bucket: "b1",
+      key: "dir/a.txt",
+      body,
+      contentType: "text/plain",
+    });
+    expect(await callService("s3", "buckets", {})).toEqual(["b1"]);
+    const viaHttp = await http("s3", {
+      method: "GET",
+      url: "https://s3.us-east-1.amazonaws.com/b1/dir/a.txt",
+      headers: {},
+      body: new Uint8Array(),
+    });
+    expect(new TextDecoder().decode(viaHttp.body)).toBe("hello");
+    const got = (await callService("s3", "get", { bucket: "b1", key: "dir/a.txt" })) as {
+      body: Uint8Array;
+      contentType: string;
+    };
+    expect(new TextDecoder().decode(got.body)).toBe("hello");
+    expect(got.contentType).toBe("text/plain");
+    await callService("s3", "delete", { bucket: "b1", key: "dir/a.txt" });
+    expect(await callService("s3", "get", { bucket: "b1", key: "dir/a.txt" })).toBeNull();
+    await expect(callService("s3", "get", { bucket: "b1", key: "" })).rejects.toThrow(
+      /needs a bucket and a key/,
+    );
+  });
+
+  it("httpMock logs what it answered and serves an operation's override", async () => {
+    await callService("httpMock", "registerSpec", {
+      origin: "https://fx.test",
+      spec: { paths: { "/rate/{ccy}": { get: { responses: { "200": {} } } } } },
+    });
+    expect(await callService("httpMock", "operations", {})).toEqual([
+      { origin: "https://fx.test", operation: "GET /rate/{ccy}" },
+    ]);
+    await callService("httpMock", "setOverride", {
+      origin: "https://fx.test",
+      operation: "GET /rate/{ccy}",
+      status: 503,
+      body: { down: true },
+    });
+    const res = await callService("httpMock", "request", {
+      method: "GET",
+      url: "https://fx.test/rate/usd",
+      body: "{}",
+    });
+    expect(res).toEqual({ status: 503, body: { down: true } });
+    expect(await callService("httpMock", "log", {})).toEqual([
+      expect.objectContaining({
+        method: "GET",
+        url: "https://fx.test/rate/usd",
+        body: "{}",
+        operation: "GET /rate/{ccy}",
+        status: 503,
+        response: { down: true },
+        overridden: true,
+      }),
+    ]);
+    await callService("httpMock", "clearOverride", {
+      origin: "https://fx.test",
+      operation: "GET /rate/{ccy}",
+    });
+    expect(
+      await callService("httpMock", "request", { method: "GET", url: "https://fx.test/rate/eur" }),
+    ).toEqual({
+      status: 200,
+      body: null,
+    });
+    await expect(
+      callService("httpMock", "setOverride", {
+        origin: "https://fx.test",
+        operation: "GET /x",
+        status: 42,
+        body: null,
+      }),
+    ).rejects.toThrow(/not an HTTP status/);
+    await callService("httpMock", "clearLog", {});
+    expect(await callService("httpMock", "log", {})).toEqual([]);
+  });
+});
+
 describe("registry", () => {
   it("rejects an unknown service", async () => {
     await expect(callService("nope", "x", {})).rejects.toThrow(/Unknown infra service/);
