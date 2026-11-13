@@ -89,6 +89,7 @@ import {
   entryErrorStatusesPy,
   entryResultPyLines,
 } from "./entry-result-emit.js";
+import { type PyResponseUnion, pyResponseEntries } from "./openapi-responses-py.js";
 import { type PyRenderContext, renderPyExpr, renderPyType } from "./render-expr.js";
 import { aggHasFieldMask } from "./repository-builder.js";
 import { resourceImportLines } from "./resource-clients.js";
@@ -103,7 +104,6 @@ import {
   repoClassRef,
 } from "./routes-builder.js";
 import { pySaveRenderer } from "./stamp-call.js";
-import { pyProblemResponseEntry } from "./wire-policy-py.js";
 import {
   collectLiveLetNames,
   pyReadPortResolver,
@@ -668,8 +668,10 @@ function routedResponseModel(h: Handler, ctx: EnrichedBoundedContextIR): string 
 
 /** The FastAPI `responses=` kwarg a routed path-op declares: the 200 body
  *  model for a single entity return, then the shared `routedErrorStatuses`
- *  set every backend publishes for the route.  Documentation only: the route
- *  still returns the handler's projected value as-is (`-> Any`). */
+ *  set every backend publishes for the route.  An expected-failure result
+ *  (`union`) names its success body at 200 and its error arms' problem bodies
+ *  at their statuses instead.  Documentation only: the route still returns the
+ *  handler's projected value as-is (`-> Any`). */
 function routedResponsesKwarg(
   model: string | undefined,
   r: RouteIR,
@@ -677,13 +679,14 @@ function routedResponsesKwarg(
   ctx: EnrichedBoundedContextIR,
   /** The statuses an expected-failure result's error arms answer. */
   extra: readonly number[] = [],
+  union?: PyResponseUnion,
 ): string {
   const routed = routedErrorStatuses(r, h, ctx);
   const added = extra.filter((st) => !routed.includes(st));
   const statuses = added.length > 0 ? [...routed, ...added].sort((a, b) => a - b) : routed;
   const entries = [
     ...(model ? [`200: {"model": ${model}, "description": "OK"}`] : []),
-    ...statuses.map((st) => pyProblemResponseEntry(st, H.ProblemDetails)),
+    ...pyResponseEntries(statuses, union),
   ];
   return `, responses={${entries.join(", ")}}`;
 }
@@ -791,6 +794,7 @@ export function emitPyExplicitRouteRouter(
       h,
       ctx,
       er ? entryErrorStatusesPy(er, ctx) : [],
+      er && h.returnType?.kind === "union" ? { variants: h.returnType.variants, ctx } : undefined,
     );
     if (er) {
       routeBlocks.push(

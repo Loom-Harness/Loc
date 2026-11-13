@@ -241,8 +241,12 @@ describe("dotnet — a routed action declares its OpenAPI responses", () => {
     );
     const action = ctrl.slice(ctrl.indexOf("[HttpGet("), ctrl.indexOf("public async Task"));
     expect(action).toContain("[ProducesResponseType(typeof(OrderResponse), 200)]");
-    expect(action).toContain("[ProducesResponseType(typeof(ProblemDetails), 400)]");
-    expect(action).toContain("[ProducesResponseType(typeof(ProblemDetails), 404)]");
+    expect(action).toContain(
+      '[ProducesResponseType(typeof(ProblemResponse), 400, "application/problem+json")]',
+    );
+    expect(action).toContain(
+      '[ProducesResponseType(typeof(ProblemResponse), 404, "application/problem+json")]',
+    );
     expect(action).not.toContain(", 415)]");
   });
 
@@ -254,12 +258,16 @@ describe("dotnet — a routed action declares its OpenAPI responses", () => {
     const start = ctrl.indexOf('/set_note")]');
     const head = ctrl.slice(start, ctrl.indexOf("public async Task", start));
     expect(head).toContain("[ProducesResponseType(204)]");
-    expect(head).toContain("[ProducesResponseType(typeof(ProblemDetails), 415)]");
+    expect(head).toContain(
+      '[ProducesResponseType(typeof(ProblemResponse), 415, "application/problem+json")]',
+    );
   });
 
   it("a paged-run read declares an untyped 200 plus 400 / 404", async () => {
     const ctrl = fileEndingWith(await generateSystemFiles(PAGED_SRC), "Api/ARoutesController.cs");
     expect(ctrl).toContain("[ProducesResponseType(200)]");
-    expect(ctrl).toContain("[ProducesResponseType(typeof(ProblemDetails), 404)]");
+    expect(ctrl).toContain(
+      '[ProducesResponseType(typeof(ProblemResponse), 404, "application/problem+json")]',
+    );
   });
 });

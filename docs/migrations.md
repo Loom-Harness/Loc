@@ -514,7 +514,7 @@ expression is validated against a SQL-renderable subset (literals, enum
 values, sibling *scalar* fields as column refs, arithmetic/comparison/boolean
 operators, `?:`, `??`, `now()`, and `datetime ± days/hours/minutes(n)` — the
 full table is below; codes
-`loom.migration-expr-unsupported`,
+`loom.migration-expr-invalid`,
 `loom.backfill-type-mismatch`, `loom.backfill-target-invalid`) and fires
 whenever the diff adds that column or flips it NOT NULL:
 
@@ -596,6 +596,7 @@ message names the base to write it on.
 | Shape | Renders as |
 |---|---|
 | literals: string, int/long/decimal/money, bool, `null`, `now()` | the SQL constant (`now()` stays a call) |
+| a UUID string literal into a `guid` (or `X id`) column | the quoted constant, read as `uuid` |
 | enum value | its stored text |
 | a sibling scalar field (primitive / enum / `X id`) | the quoted column |
 | `( … )`, unary `-` / `!` | the same, `!` as `NOT` |
@@ -603,7 +604,7 @@ message names the base to write it on.
 | `c ? a : b`, `a ?? b` | `CASE WHEN … THEN … ELSE … END` |
 | `datetime ± days/hours/minutes(n)` | `make_interval(…)` arithmetic |
 
-Everything else is refused with `loom.migration-expr-unsupported`, which names
+Everything else is refused with `loom.migration-expr-invalid`, which names
 the offending kind. That covers calls and intrinsics, member access
 (value-object leaves included), constructors, list and object literals,
 `match`, conversions, `id`, `this`, and a bare duration. The workaround is a raw

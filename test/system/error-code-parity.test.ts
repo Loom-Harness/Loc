@@ -90,8 +90,8 @@ const BACKEND_FACTS: Readonly<
     // The app-wide filter reads the addressed aggregate off the request path.
     typeParams: /Problem\(context, \d+, [^\n]*"problem\.not-found", TypeParams\(context\)\);/,
     schema: [
-      /\["code"\] = new OpenApiSchema \{ Type = JsonSchemaType\.String/,
-      /\["params"\] = new OpenApiSchema/,
+      /public string\? Code \{ get; set; \}/,
+      /public IDictionary<string, object\?>\? Params \{ get; set; \}/,
     ],
     catalog: /LoomMessages|Localization\/LoomMessages\.cs/,
   },
@@ -103,9 +103,9 @@ const BACKEND_FACTS: Readonly<
   java: {
     typeParams: /respond\(typed\(problem\([^\n]*"problem\.not-found", request\), request\)/,
     schema: [
-      /problem\.addProperty\("code", new StringSchema\(\)\)/,
-      /problem\.addProperty\("params", paramsSchema\(\)\)/,
-      /errorItem\.addProperty\("code", new StringSchema\(\)\)/,
+      /public record ProblemDetails\([^)]*String code,/,
+      /@io\.swagger\.v3\.oas\.annotations\.media\.Schema\(nullable = true\) Map<String, Object> params,/,
+      /public record ProblemDetailsError\(String pointer, String message, String code,/,
     ],
     catalog: /MessageSource|messages\.properties/,
   },

@@ -49,7 +49,7 @@ an `action` body are unrestricted; the rule only governs lambdas in the view.
 | `o => Text { o.active ? "Y" : "N" }` — ternary / `match` value | ✅ | computed value |
 | `o => Text { o.code + label }` — **reads** `state`, concatenates | ✅ | reads are fine |
 | `o => Text { initials(o.code) }` — value-returning function call | ✅ | pure call |
-| `orders.filter(o => o.active)` / `.map(...)` — collection op | ✅ | pure callback |
+| `orders.where(o => o.active)` / `.map(...)` — collection op | ✅ | pure callback |
 | `onClick: bump` — **reference** a named action | ✅ | the effect goes here |
 | `e => { count := count + 1 }` — **writes** `state` | ❌ | `loom.effect-in-lambda` |
 | `e => navigate("/x")` — `navigate` / `toast` / `emit` | ❌ | `loom.effect-in-lambda` |

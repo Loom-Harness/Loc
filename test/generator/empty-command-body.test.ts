@@ -22,6 +22,7 @@ import { describe, expect, it } from "vitest";
 import { fieldSentenceSuffix } from "../../src/ir/enrich/wire-policy.js";
 import { commandBodyOptional } from "../../src/ir/util/command-body.js";
 import { UNSUPPORTED_MEDIA_TYPE_DETAIL } from "../../src/ir/util/openapi-errors.js";
+import { elixirOperationsText } from "../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 const src = (platform: string): string => `
@@ -161,12 +162,14 @@ describe("RS-39 — an empty request body is `{}`; a parameterless command's bod
     expect(lineWith(workflows, "public void housekeeping(")).toContain(
       "@RequestBody(required = false)",
     );
-    // The hidden body leaves springdoc with no request body to publish; the
-    // customizer attaches the named empty one the other four publish.
-    const customizer = fileEndingWith(m, "OpenApiContractCustomizer.java");
-    expect(customizer).toContain('new EmptyRequest("/api/orders/{id}/close", "CloseOrderRequest")');
-    expect(customizer).toContain(
-      'new EmptyRequest("/api/workflows/housekeeping", "HousekeepingRequest")',
+    // The hidden body leaves springdoc with no request body to read; the
+    // method names the empty request the other four publish.
+    const emptyBody = (name: string): string =>
+      `@io.swagger.v3.oas.annotations.parameters.RequestBody(content = @io.swagger.v3.oas.annotations.media.Content(schema = @io.swagger.v3.oas.annotations.media.Schema(implementation = com.loom.d.api.contract.${name}.class)))`;
+    expect(controller).toContain(emptyBody("CloseOrderRequest"));
+    expect(workflows).toContain(emptyBody("HousekeepingRequest"));
+    expect(fileEndingWith(m, "contract/CloseOrderRequest.java")).toContain(
+      "public record CloseOrderRequest() {",
     );
     expect(fileEndingWith(m, "ApiExceptionAdvice.java")).toContain(
       `case 415 -> ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)};`,
@@ -180,12 +183,12 @@ describe("RS-39 — an empty request body is `{}`; a parameterless command's bod
     expect(parser).toContain(
       `send_problem(conn, 415, ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)})`,
     );
-    // The spec module is named after the api (`api A` → `a_spec.ex`).
-    const spec = fileEndingWith(m, "_web/api/a_spec.ex");
+    // Each operation spec sits on its controller action.
+    const spec = elixirOperationsText(m);
     const block = (operationId: string): string => {
-      const at = spec.indexOf(`operationId: "${operationId}"`);
-      expect(at, `${operationId} not in the spec module`).toBeGreaterThan(-1);
-      return spec.slice(at, spec.indexOf("requestBody:", at) + 200);
+      const at = spec.indexOf(`operation_id: "${operationId}"`);
+      expect(at, `${operationId} not declared`).toBeGreaterThan(-1);
+      return spec.slice(at, spec.indexOf("request_body:", at) + 200);
     };
     expect(block("closeOrder")).toContain("required: false");
     expect(block("renameOrder")).toContain("required: true");
@@ -253,9 +256,10 @@ describe("RS-39 — an absent required field: one 422 everywhere; a create with 
     );
     const workflows = fileEndingWith(m, "controllers/workflows_controller.ex");
     expect(workflows).toContain("@required_params %{escalate: ~w(note)}");
-    const spec = fileEndingWith(m, "_web/api/a_spec.ex");
-    const at = spec.indexOf('operationId: "createTicket"');
-    expect(spec.slice(at, spec.indexOf("requestBody:", at) + 200)).toContain("required: false");
+    const spec = elixirOperationsText(m);
+    const at = spec.indexOf('operation_id: "createTicket"');
+    expect(at, "createTicket not declared").toBeGreaterThan(-1);
+    expect(spec.slice(at, spec.indexOf("request_body:", at) + 200)).toContain("required: false");
   });
 });
 

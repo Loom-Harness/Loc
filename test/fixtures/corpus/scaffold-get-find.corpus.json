@@ -1,0 +1,5 @@
+{
+  "title": "the codemod's migration of the declared-find original of `scaffold-get` — its golden was recorded from the `find byCode` / `find bySku` routes and still holds",
+  "doc": "scaffold-macros",
+  "backends": "ALL"
+}

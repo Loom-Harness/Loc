@@ -14,7 +14,8 @@
  *  Content-Type answers 415, exactly as on a command with parameters — and
  *  accepts an absent one (\`EmptyJsonBodyFilter\` hands an empty body over as
  *  \`{}\`).  Hidden from springdoc: the published request body is the named
- *  empty-object schema \`OpenApiContractCustomizer\` attaches. */
+ *  empty-object schema the method's \`@RequestBody\` annotation names
+ *  (\`openapi-docs.ts\`). */
 export const EMPTY_COMMAND_BODY_PARAM =
   "@io.swagger.v3.oas.annotations.Parameter(hidden = true) @RequestBody(required = false) java.util.Map<String, Object> body";
 

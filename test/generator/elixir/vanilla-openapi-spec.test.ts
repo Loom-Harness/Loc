@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+  elixirDocumentedOperations,
+  elixirOperationsText,
+} from "../../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
@@ -54,7 +58,10 @@ describe("vanilla OpenAPI spec (§11f)", () => {
     const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
     expect(specKey, "spec module not emitted").toBeDefined();
     const spec = files.get(specKey!)!;
-    expect(spec).toContain("alias OpenApiSpex.{Info, OpenApi}");
+    expect(spec).toContain("alias OpenApiSpex.{Info, OpenApi, Paths}");
+    // The paths come from the router, never a hand-built map.
+    expect(spec).toContain("paths: Paths.from_router(");
+    expect(spec).not.toMatch(/paths:\s*%\{/);
     expect(spec).toContain("@behaviour OpenApi");
     expect(spec).toContain("def spec do");
     expect(spec).toContain("%OpenApi{");
@@ -125,17 +132,14 @@ system Shop {
   }
 }`;
     const files = await generateSystemFiles(src);
-    const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
-    const spec = files.get(specKey!)!;
-    const start = spec.indexOf('"/api/orders/{id}/reserve"');
-    expect(start, "reserve path present").toBeGreaterThanOrEqual(0);
-    const reserve = spec.slice(start, start + 1200);
+    const reserve = elixirDocumentedOperations(files).get("post /api/orders/{id}/reserve") ?? "";
+    expect(reserve, "reserve operation present").not.toBe("");
     expect(reserve).toContain("200 => %OpenApiSpex.Response{");
     expect(reserve).not.toContain("204 =>");
     // M-FT.24: the 200 carries the SUCCESS arms only; the NotFound arm is served
     // as a 404 problem, so its status declares ProblemDetails | NotFoundProblem.
     expect(reserve).toContain("Schemas.OrderOrNotFoundSuccess}");
-    expect(spec.slice(start, start + 4000)).toMatch(
+    expect(reserve).toMatch(
       /anyOf: \[\w+\.Api\.Schemas\.ProblemDetails, \w+\.Api\.Schemas\.NotFoundProblem\]/,
     );
     const union = file(files, "order_or_not_found_success.ex");
@@ -189,8 +193,7 @@ system Shop {
     expect(union).toContain('title: "StringOrNotFoundSuccess"');
     // … and NEVER the lower-camel form (which would be an invalid Elixir alias).
     expect(union).not.toContain("Schemas.stringOrNotFound");
-    const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
-    const spec = files.get(specKey!)!;
+    const spec = elixirOperationsText(files);
     expect(spec).toContain("Schemas.StringOrNotFoundSuccess");
     expect(spec).not.toContain("Schemas.stringOrNotFound");
     // The success variant's wire discriminator stays the lowercase primitive tag …
@@ -234,13 +237,11 @@ system Shop {
   }
 }`;
     const files = await generateSystemFiles(src);
-    const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
-    const spec = files.get(specKey!)!;
+    const ops = elixirDocumentedOperations(files);
 
     // Scalar `string` return → 200 with the plain string schema, NOT 204.
-    const dStart = spec.indexOf('"/api/orders/{id}/describe"');
-    expect(dStart, "describe path present").toBeGreaterThanOrEqual(0);
-    const describe_ = spec.slice(dStart, dStart + 900);
+    const describe_ = ops.get("post /api/orders/{id}/describe") ?? "";
+    expect(describe_, "describe operation present").not.toBe("");
     expect(describe_).toContain("200 => %OpenApiSpex.Response{");
     expect(describe_).toContain(
       'content: %{"application/json" => %OpenApiSpex.MediaType{schema: %OpenApiSpex.Schema{type: :string}}}',
@@ -249,9 +250,8 @@ system Shop {
 
     // Scalar `money` return → 200 with the money wire schema (string/decimal —
     // Jason serialises the Decimal to a string, matching a money FIELD), NOT 204.
-    const tStart = spec.indexOf('"/api/orders/{id}/total"');
-    expect(tStart, "total path present").toBeGreaterThanOrEqual(0);
-    const total = spec.slice(tStart, tStart + 900);
+    const total = ops.get("post /api/orders/{id}/total") ?? "";
+    expect(total, "total operation present").not.toBe("");
     expect(total).toContain("200 => %OpenApiSpex.Response{");
     expect(total).toContain(
       'content: %{"application/json" => %OpenApiSpex.MediaType{schema: %OpenApiSpex.Schema{type: :string, format: :decimal}}}',
@@ -259,9 +259,8 @@ system Shop {
     expect(total).not.toContain("204 =>");
 
     // A VOID op (no return type) is unchanged — still 204 No Content.
-    const uStart = spec.indexOf('"/api/orders/{id}/touch"');
-    expect(uStart, "touch path present").toBeGreaterThanOrEqual(0);
-    const touch = spec.slice(uStart, uStart + 900);
+    const touch = ops.get("post /api/orders/{id}/touch") ?? "";
+    expect(touch, "touch operation present").not.toBe("");
     expect(touch).toContain('204 => %OpenApiSpex.Response{description: "No Content"}');
     expect(touch).not.toContain("200 =>");
   });
@@ -300,22 +299,17 @@ system S {
 describe("vanilla OpenAPI spec — workflow instance routes", () => {
   it("declares the instance list + byId paths with the shared operationIds", async () => {
     const files = await generateSystemFiles(SAGA_SOURCE);
-    const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
-    const spec = files.get(specKey!)!;
-    expect(spec).toContain(
-      '"/api/workflows/order_fulfillment/instances" => %OpenApiSpex.PathItem{',
-    );
-    expect(spec).toContain('operationId: "allOrderFulfillmentInstances"');
-    expect(spec).toContain(
-      '"/api/workflows/order_fulfillment/instances/{id}" => %OpenApiSpex.PathItem{',
-    );
-    expect(spec).toContain('operationId: "getOrderFulfillmentInstanceById"');
+    const ops = elixirDocumentedOperations(files);
+    const list = ops.get("get /api/workflows/order_fulfillment/instances");
+    expect(list).toContain('operation_id: "allOrderFulfillmentInstances"');
+    const byId = ops.get("get /api/workflows/order_fulfillment/instances/{id}");
+    expect(byId).toContain('operation_id: "getOrderFulfillmentInstanceById"');
     // Correlation-id param carries the uuid format every backend declares.
-    expect(spec).toContain(
+    expect(byId).toContain(
       "%OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: %OpenApiSpex.Schema{type: :string, format: :uuid}}",
     );
     // byId declares the shared 404 ProblemDetails.
-    expect(spec).toMatch(/instances\/\{id\}[\s\S]*?404 => %OpenApiSpex\.Response\{/);
+    expect(byId).toContain("404 => %OpenApiSpex.Response{");
   });
 
   it("emits the <Wf>InstanceResponse + named list-carrier schema modules", async () => {
