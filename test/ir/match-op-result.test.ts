@@ -249,9 +249,9 @@ describe("let-bound mutating call — validation", () => {
     ).toStrictEqual(["loom.workflow-mutation-unsaved"]);
   });
 
-  it("refuses the bound form on an elixir deployable", async () => {
-    expect(await errorCodes(SYS(PAY(`int n => { } Insufficient e => { }`), "elixir"))).toContain(
-      "loom.elixir-bound-mutating-call-unsupported",
-    );
+  it("accepts the bound op-call form on an elixir deployable", async () => {
+    expect(
+      await errorCodes(SYS(PAY(`int n => { } Insufficient e => { }`), "elixir")),
+    ).not.toContain("loom.elixir-bound-mutating-call-unsupported");
   });
 });
