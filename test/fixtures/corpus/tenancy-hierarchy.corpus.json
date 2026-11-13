@@ -1,5 +1,8 @@
 {
   "title": "tenancy registry tree — `implements tenantRegistry` beside flat data visibility (`policy` local / deny write)",
   "doc": "tenancy",
-  "backends": "ALL"
+  "backends": "ALL",
+  "apiCaller": {
+    "e2eLess": "NEEDS THE REGISTRY-PRINCIPAL HARNESS FIX — subtree scoping is a statement about two principals in different parts of the tree, and the behavioural suite authenticates as one whose claim is not a registry id at all.  Same blocker as `R.tenantRegistryRow`; drain them together.  Runtime home today: `tenancy-e2e.yml`'s hierarchy legs (label/post-merge)."
+  }
 }
