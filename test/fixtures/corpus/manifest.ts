@@ -450,6 +450,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Banking eval B-03: a workflow POST could only answer 204, so `openAccount` could never tell its caller the new account's id.  The fixture pins the three per-backend hazards: an id result crossing as its raw value (not the java/.NET id record), a transactional result read after two operations (elixir must rebind the updated struct, not return the one its `with`-chain loaded), and a sibling result-less create still answering 204.",
   },
   {
+    id: "reactor-failure-order",
+    title:
+      "a reactor that fails AFTER writing — a guard reading an earlier binding, or an operation's own precondition — leaves none of its effects",
+    doc: "workflow",
+    backends: ALL,
+    note: "A reactor body runs in source order and is one transaction: a guard after a create (reading the created row) and an operation precondition after both refuse the reaction, and neither the Survey nor the saga row survives, while the triggering command keeps its 2xx.  Elixir hoisted a top-level reactor guard ahead of the chain (so a guard reading a let-bound row did not compile) and answered an op failure as a returned `{:error, _}`, which committed the transaction with the create in it.",
+  },
+  {
     id: "workflow-loop-carried",
     title:
       "workflow loop whose body mutates an aggregate loaded outside it, inside a nested loop — every iteration sees the previous one's write",

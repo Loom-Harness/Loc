@@ -423,12 +423,28 @@ function chainLink(step: Exclude<PipelineStep, { kind: "effect" }>): string {
   }
 }
 
+/** Does `assembleChain` render these steps as a `with` chain?  Only when a
+ *  fallible link precedes the body's end; otherwise its bindings render as
+ *  plain sequential `pattern = expr` lines. */
+function isChained(steps: readonly PipelineStep[]): boolean {
+  const body = steps.at(-1)?.kind === "fail" ? steps.slice(0, -1) : steps;
+  return body.some((step) => step.kind === "clause" || step.kind === "fail");
+}
+
+/** The text one step renders to inside `assembleChain`'s output for `steps`
+ *  — the anchor a source map looks up. */
+export function assembledStepText(steps: readonly PipelineStep[], step: PipelineStep): string {
+  if (step.kind === "effect") return step.text;
+  if (step.kind === "let" && !isChained(steps)) return `${step.pattern} = ${step.expr}`;
+  return chainLink(step);
+}
+
 /** A nested body (a loop iteration, an `if let` branch, a `match` arm) as
  *  the lines of one block.  The block answers `ok` when every step succeeds;
  *  the first failing link's error, passed through `wrapErr`, otherwise.  A
  *  body that ends in `notFound` answers that failure directly.  A body with
  *  no fallible link renders as plain sequential bindings. */
-function assembleChain(
+export function assembleChain(
   steps: readonly PipelineStep[],
   ok: string,
   wrapErr: (err: string) => string = (err) => err,
@@ -451,9 +467,7 @@ function assembleChain(
   // One entry per physical line, so the caller's indent nests a multi-line
   // link (a nested loop or branch) under the block it sits in.
   const physical = (lines: string[]): string[] => lines.flatMap((l) => l.split("\n"));
-  if (!body.some((step) => step.kind === "clause" || step.kind === "fail")) {
-    return physical([...flat, result]);
-  }
+  if (!isChained(steps)) return physical([...flat, result]);
   return physical([
     `with ${links.join(",\n     ")} do`,
     ...effects.map((l) => `  ${l}`),
@@ -477,7 +491,7 @@ function guardClause(
 }
 
 /** The Elixir spelling of every workflow statement kind. */
-function elixirWorkflowTarget(
+export function elixirWorkflowTarget(
   contextModule: string,
   renderCtx: RenderCtx,
   ctx?: BoundedContextIR,
@@ -1001,7 +1015,7 @@ function workflowThreadsActor(wf: WorkflowIR, ctx: BoundedContextIR): boolean {
  *  expression the caller evaluates after the list?  Decides whether a bind
  *  needs its real name or can be `_`-discarded (an unread real-named bind trips
  *  `mix compile --warnings-as-errors`). */
-function bindUsedLater(
+export function bindUsedLater(
   name: string,
   rest: readonly WorkflowStmtIR[],
   trailing: readonly ExprIR[] = [],
@@ -1014,7 +1028,7 @@ function bindUsedLater(
  *  only when it is unread downstream AND the bind is not the chain's result
  *  slot; the `:ok` half still gates the chain either way.  A discarded bind
  *  carries no `bindName`, so `assembleBody` can never answer `_name`. */
-function tupleBind(
+export function tupleBind(
   name: string,
   scope: PipelineScope,
 ): { pattern: string; bindName: string | undefined } {

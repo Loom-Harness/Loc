@@ -658,10 +658,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     guardedBy: ["loom.projection-fold-impure"],
     note: "foldImpurity is a fail-closed allowlist of assign/add/remove/let applied to every projection on() statement, so every kind in this throw arm is an error at validation.",
   },
-  "src/generator/elixir/dispatch-emit.ts#renderStmt": {
-    invariant:
-      "Exhaustive-switch `never` default: the reactor renderer has an arm for every WorkflowStmtIR kind, measured per kind by test/system/body-statement-census.test.ts. (src/generator/elixir/dispatch-emit.ts renderStmt; src/ir/types/loom-ir.ts WorkflowStmtIR)",
-  },
 
   // src/generator/elixir/domain-service-emit.ts
   "src/generator/elixir/domain-service-emit.ts#renderOperation": {

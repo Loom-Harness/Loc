@@ -1,11 +1,6 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
-import {
-  hasStateRow,
-  lookupOp,
-  requiredStateFields,
-  subscriptionHandler,
-} from "../../ir/plan/index.js";
+import { hasStateRow, requiredStateFields, subscriptionHandler } from "../../ir/plan/index.js";
 import type {
   ChannelIR,
   EnrichedBoundedContextIR,
@@ -20,43 +15,37 @@ import type {
   WorkflowIR,
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
-import { operationUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
 import { resolveContextSchema } from "../../ir/util/resolve-datasource.js";
 import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
-import {
-  walkExprDeep,
-  walkStmtExprsDeep,
-  walkWorkflowStmtExprsDeep,
-  walkWorkflowStmtsDeep,
-} from "../../ir/util/walk.js";
+import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../../ir/util/walk.js";
 import { workflowBodyUsesOwnState } from "../../ir/util/workflow-own-state.js";
 import { escapeElixirIdent, snake, upperFirst, workflowStateTableName } from "../../util/naming.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
+import {
+  lowerWorkflowPipeline,
+  type PipelineStep,
+  type WorkflowPipelineTarget,
+} from "../_workflow/stmt-target.js";
 import { buildPhoenixResourceModules } from "./adapters/resource-clients.js";
 import type { ElixirChannelsCfg } from "./channels-emit.js";
-import { elixirFindFacadeFn } from "./find-facade-name.js";
 import { internalCreateFn, internalDeleteFn } from "./lifecycle-seam.js";
-import { optionalReadLookup, type RenderCtx, renderExpr } from "./render-expr.js";
+import { type RenderCtx, renderExpr } from "./render-expr.js";
 import { type StateDefaultDecls, stateDefault, stateDefaultDecls } from "./state-default.js";
 import { exEctoIdJsonType, exEctoIdType } from "./vanilla/codec-spelling-ex.js";
 import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
-import { denialTerm, notFoundStmtTerm } from "./vanilla/denial.js";
+import { denialTerm } from "./vanilla/denial.js";
 import { bodyUsesParam, renderFunctionBodyLines } from "./vanilla/function-emit.js";
-import {
-  armsCoverUnion,
-  elixirUnionScrutinee,
-  elixirVariantPattern,
-} from "./vanilla/match-stmt-emit.js";
-import { skipFiltersOption } from "./vanilla/read-scope-emit.js";
 import { emitsRestDelete } from "./vanilla/rest-surface.js";
 import { mapTypeToEcto } from "./vanilla/schema-emit.js";
 import { renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
 import {
-  opCallParamFields,
-  resolveInlinedServiceClauses,
+  assembleChain,
+  assembledStepText,
+  elixirWorkflowTarget,
+  tupleBind,
 } from "./vanilla/workflow-execution-emit.js";
 
 /** M13 — a handler-render result: the module's final content plus one
@@ -964,41 +953,24 @@ function accumulateElixir(
 }
 
 // ---------------------------------------------------------------------------
-// Body rendering — the reactor / starter statement list.
+// Body rendering — the reactor / starter statement list, on the shared
+// workflow `pipeline` spine (`_workflow/stmt-target.ts`).
 // ---------------------------------------------------------------------------
-
-interface BodyLine {
-  kind: "with-clause" | "dispatch" | "expr" | "guard";
-  text: string;
-  bindName?: string;
-  /** An own-state assign that rebinds `state = Repo.update!(...)`.  The binding
-   *  is only needed when a later line reads `state`; otherwise it's dropped so
-   *  `mix compile --warnings-as-errors` doesn't trip on an unused variable. */
-  rebindsState?: boolean;
-  /** M13 — the source `WorkflowStmtIR` this line was lowered from, stamped
-   *  by `renderBody` (every `renderStmt` arm returns exactly one `BodyLine`,
-   *  so it's a straight 1:1 zip against `statements`). */
-  origin?: OriginRef;
-}
 
 interface RenderBodyResult {
   /** 0-indented Elixir lines (the caller indents the block to its position). */
   lines: string[];
-  /** M13 — one independent `fragment()` anchor per rendered statement: each
-   *  statement's OWN text (as originally rendered, before the guard/chain/
-   *  dispatch bucketing groups it into `lines`), verbatim-preserved through
-   *  that bucketing (verified: bucketing only prepends/joins text around a
-   *  statement's own substring — it never splits or rewrites the interior of
-   *  a statement's rendered text, so an independent per-statement anchor
-   *  works regardless of where the bucketing relocated it). */
+  /** One `fragment()` anchor per lowered step: the text it renders to inside
+   *  the chain, paired with its statement's origin. */
   regions: { text: string; origin: OriginRef | undefined }[];
 }
 
-/** Render the constrained reactor / starter statement set into ordered,
- *  0-indented Elixir lines (the caller indents the block to its position).
- *  `factory-let` / `repo-let` / `op-call` become `with` clauses in source
- *  order; `emit` becomes a re-entrant `Dispatcher.dispatch(...)` call run in
- *  the success do-branch; guards short-circuit. */
+/** A reactor / starter body as one block.  It runs in source order — a guard
+ *  after a write sees that write's binding — and is one transaction with the
+ *  handler's saga row: the first failure (a guard, a not-found, an operation's
+ *  `{:error, _}`) is thrown, so `Repo.transaction` rolls the whole reaction
+ *  back and the dispatcher that called it logs or retries it (workflow.md
+ *  § Reactor failures), exactly as the other backends' raise does. */
 function renderBody(
   statements: WorkflowStmtIR[],
   ctx: EnrichedBoundedContextIR,
@@ -1006,565 +978,114 @@ function renderBody(
   contextModule: string,
   channels?: ElixirChannelsCfg,
 ): RenderBodyResult {
-  const lines: BodyLine[] = [];
-  for (const st of statements) {
-    for (const l of renderStmt(st, ctx, renderCtx, contextModule, channels)) {
-      lines.push({ ...l, origin: st.origin });
-    }
-  }
-
-  const guards = lines.filter((l) => l.kind === "guard");
-  // `with` clauses + `=` matches compose the chain, in source order.
-  const chain = lines.filter((l) => l.kind === "with-clause" || l.kind === "expr");
-  const dispatches = lines.filter((l) => l.kind === "dispatch");
-
-  // An own-state assign rebinds `state = Repo.update!(...)`.  A later line reads
-  // the rebound value only if it references `state` (a chained assign or an emit
-  // whose fields read state); when nothing does, drop the binding to the bare
-  // side-effecting call so Elixir doesn't warn the variable is unused.
-  for (let i = 0; i < dispatches.length; i++) {
-    const d = dispatches[i]!;
-    if (!d.rebindsState) continue;
-    const laterReadsState = dispatches.slice(i + 1).some((l) => /\bstate\b/.test(l.text));
-    if (!laterReadsState) d.text = d.text.replace(/^state = /, "");
-  }
-
-  // A `let` binding nothing later reads must render as `_name` — an unused
-  // plain bind fails `mix compile --warnings-as-errors`.  Checked in FULL
-  // source order (a with-clause bind can be read by a dispatch and vice
-  // versa), then mutated in place like the state-rebind drop above.
-  for (let i = 0; i < lines.length; i++) {
-    const l = lines[i]!;
-    if (!l.bindName) continue;
-    const word = new RegExp(`\\b${l.bindName}\\b`);
-    const laterReads = lines.slice(i + 1).some((later) => word.test(later.text));
-    if (laterReads) continue;
-    l.text =
-      l.kind === "with-clause"
-        ? l.text.replace(`{:ok, ${l.bindName}}`, `{:ok, _${l.bindName}}`)
-        : l.text.replace(new RegExp(`^${l.bindName} = `), `_${l.bindName} = `);
-  }
-
-  // M13 — capture the per-statement anchors AFTER the assign-prefix-drop
-  // mutation above (it mutates the SAME `BodyLine` objects `lines` holds), so
-  // a rebind-dropped assign anchors on the text that actually lands in the
-  // final content, not the pre-mutation text.
-  const regions = lines.map((l) => ({ text: l.text, origin: l.origin }));
-
-  const out: string[] = [];
-  for (const g of guards) out.push(g.text);
-
-  if (chain.length === 0) {
-    // No chained calls — run the dispatches (if any) then return :ok.
-    for (const d of dispatches) out.push(d.text);
-    out.push(":ok");
-    return { lines: out, regions };
-  }
-  // `with` must hug its first clause on the same line; continuations align
-  // under it (5 cols = "with ").
-  const clauses = chain.map((l) => l.text.trim());
-  const first = `with ${clauses[0]}`;
-  const rest = clauses.slice(1).map((c) => `     ${c}`);
-  out.push([first, ...rest].join(",\n") + " do");
-  for (const d of dispatches) out.push(`  ${d.text}`);
-  out.push("  :ok");
-  out.push("end");
-  return { lines: out, regions };
+  const chunks = lowerWorkflowPipeline(
+    statements,
+    reactorTarget(ctx, renderCtx, contextModule, channels),
+  );
+  const all = chunks.flat();
+  const regions = chunks.flatMap((steps, i) =>
+    steps.map((step) => ({
+      text: assembledStepText(all, step),
+      origin: statements[i]!.origin,
+    })),
+  );
+  return {
+    lines: assembleChain(all, ":ok", (err) => `throw(${err})`),
+    regions,
+  };
 }
 
-function renderStmt(
-  st: WorkflowStmtIR,
+/** The reactor flavour of the Elixir workflow target: the command target's
+ *  chain, with the leaves a reactor spells differently.  A reactor has no
+ *  request principal (reads take no actor, a create takes the ungated seam),
+ *  its `emit` re-enters the context `Dispatcher` (or the broker tee) so
+ *  choreography chains keep fanning out, and its own-state `:=` persists the
+ *  saga row. */
+function reactorTarget(
   ctx: EnrichedBoundedContextIR,
   renderCtx: RenderCtx,
   contextModule: string,
   channels?: ElixirChannelsCfg,
-): BodyLine[] {
-  switch (st.kind) {
-    case "factory-let": {
-      const fields = st.fields
-        .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
-        .join(", ");
-      // The IN-PROCESS entry: an event dispatcher has no request principal, so it
-      // takes the ungated seam (see `./lifecycle-seam.ts`).
-      const call = `${contextModule}.${internalCreateFn(
+): WorkflowPipelineTarget {
+  const base = elixirWorkflowTarget(contextModule, renderCtx, ctx);
+  const expr = (e: ExprIR): string => renderExpr(e, renderCtx);
+  const fieldsOf = (fields: readonly { name: string; value: ExprIR }[]): string =>
+    fields.map((f) => `${snake(f.name)}: ${expr(f.value)}`).join(", ");
+  const appModule = contextModule.split(".").slice(0, -1).join(".");
+  // A guard fails the chain with the shared denial term (`denialTerm`) — the
+  // tagged 2-tuple every other producer answers.
+  const guard = (
+    st: Extract<WorkflowStmtIR, { kind: "precondition" | "requires" }>,
+  ): PipelineStep[] => [
+    {
+      kind: "clause",
+      text: `:ok <- (if ${expr(st.expr)}, do: :ok, else: {:error, ${denialTerm(st)}})`,
+    },
+  ];
+  let emitted = 0;
+  return {
+    ...base,
+    precondition: guard,
+    requires: guard,
+
+    // The IN-PROCESS create: an event dispatcher has no request principal, so
+    // it takes the ungated seam (see `./lifecycle-seam.ts`).
+    factoryLet: (st, scope) => {
+      const { pattern, bindName } = tupleBind(st.name, scope);
+      const fn = internalCreateFn(
         st.aggName,
         ctx.aggregates.find((a) => a.name === st.aggName),
-      )}(%{${fields}})`;
+      );
       return [
         {
-          kind: "with-clause",
-          text: `{:ok, ${snake(st.name)}} <- ${call}`,
-          bindName: snake(st.name),
+          kind: "clause",
+          text: `{:ok, ${pattern}} <- ${contextModule}.${fn}(%{${fieldsOf(st.fields)}})`,
+          ...(bindName ? { bindName } : {}),
         },
       ];
-    }
-    case "repo-let": {
-      // An OPTIONAL read binds the row or `nil` (the command path's shape,
-      // `vanilla/workflow-execution-emit.ts`).
-      if (st.returnType.kind === "optional") {
-        const { call, hit } = optionalReadLookup(
-          {
-            op: st.op,
-            method: st.method,
-            aggregate: st.aggName,
-            retrievalName: st.retrievalName,
-            widened: st.bypassRead !== undefined,
-          },
-          st.args.map((a) => renderExpr(a, renderCtx)),
-          contextModule,
-        );
-        return [
-          {
-            kind: "with-clause",
-            text: `${snake(st.name)} <- (case ${call} do\n               ${hit} -> hit\n               _ -> nil\n             end)`,
-            bindName: snake(st.name),
-          },
-        ];
+    },
+
+    // A re-emit dispatches once the chain succeeded.  The event is built where
+    // the source states it: when a later statement may rebind what it reads
+    // (an own-state `:=`, an operation's rebound handle), it is bound first and
+    // dispatched after, so it carries the values of its own position.
+    emit: (st, scope) => {
+      const struct = `%${contextModule}.Events.${upperFirst(st.eventName)}{${fieldsOf(st.fields)}}`;
+      const dispatch = (ev: string): string =>
+        channels
+          ? `${channels.appModule}.Channels.dispatch(${ev}, ${contextModule}.Dispatcher)`
+          : `${contextModule}.Dispatcher.dispatch(${ev})`;
+      if (!scope.rest.some((s) => s.kind === "assign" || s.kind === "op-call")) {
+        return [{ kind: "effect", text: dispatch(struct) }];
       }
-      const argList = st.args.map((a) => renderExpr(a, renderCtx)).join(", ");
-      const action =
-        st.op === "load" ? `get_${snake(st.aggName)}` : elixirFindFacadeFn(st.method, st.aggName);
-      const call = argList
-        ? `${contextModule}.${action}(${argList})`
-        : `${contextModule}.${action}()`;
+      const name = `emitted_${++emitted}`;
       return [
-        {
-          kind: "with-clause",
-          text: `{:ok, ${snake(st.name)}} <- ${call}`,
-          bindName: snake(st.name),
-        },
+        { kind: "let", pattern: name, expr: struct },
+        { kind: "effect", text: dispatch(name) },
       ];
-    }
-    case "op-call": {
-      // The context facade emits ops as arity-2 `<op>_<agg>(record, params)`
-      // regardless of param count — mirror `vanilla/workflow-execution-emit.ts`
-      // (key shape `arg<i>:` for positional args, `%{}` for none).
-      const action = `${snake(st.op)}_${snake(st.aggName)}`;
-      const target = snake(st.target);
-      const op = lookupOp(ctx, st.aggName, st.op);
-      const argTexts = st.args.map((arg) => renderExpr(arg, renderCtx));
-      const fields = opCallParamFields(argTexts, op, `${st.aggName}.${st.op}`);
-      // A `currentUser`-reading operation's context function takes a trailing
-      // `current_user` (its `ensure(...)` gate reads it).  Without it the
-      // reactor called the arity-2 form, the gate saw `nil`, and
-      // `nil.permissions` raised — so thread the bound system principal.
-      const actor =
-        renderCtx.reactorPrincipal && op && operationUsesCurrentUser(op) ? ", current_user" : "";
-      const call = `${contextModule}.${action}(${target}, %{${fields}}${actor})`;
-      return [{ kind: "with-clause", text: `{:ok, _} <- ${call}` }];
-    }
-    case "emit": {
-      const fields = st.fields
-        .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
-        .join(", ");
-      const struct = `%${contextModule}.Events.${upperFirst(st.eventName)}{${fields}}`;
-      // Broker tee (M-T4.4): a reactor re-emit goes through
-      // `<App>.Channels.dispatch` so choreography chains re-publish broker-
-      // routed events instead of short-circuiting locally (.NET/Java parity).
-      const dispatchText = channels
-        ? `${channels.appModule}.Channels.dispatch(${struct}, ${contextModule}.Dispatcher)`
-        : `${contextModule}.Dispatcher.dispatch(${struct})`;
-      return [{ kind: "dispatch", text: dispatchText }];
-    }
-    case "expr-let": {
-      return [
-        {
-          kind: "expr",
-          text: `${snake(st.name)} = ${renderExpr(st.expr, renderCtx)}`,
-          bindName: snake(st.name),
-        },
-      ];
-    }
-    case "assign": {
-      // `field := value` — own-state mutation.  Saga state is a plain Ecto
-      // schema, so persist the write directly: rebind `state`
-      // to the updated struct via an `Ecto.Changeset.change/2` + `Repo.update!`.
-      // Runs in the do-branch (`dispatch` kind) after any `with`-chain succeeds;
-      // the row already exists (allocated on `create`, loaded on `on`).  `Repo`
-      // is reached off the app module (the segment(s) before the context name
-      // in `contextModule = "<App>.<Ctx>"`).
-      const appModule = contextModule.split(".").slice(0, -1).join(".");
-      const field = snake(st.target.segments[0]!);
-      const value = renderExpr(st.value, renderCtx);
-      return [
-        {
-          kind: "dispatch",
-          text: `state = ${appModule}.Repo.update!(Ecto.Changeset.change(state, %{${field}: ${value}}))`,
-          rebindsState: true,
-        },
-      ];
-    }
-    // Both guard rungs of a reactor / starter body short-circuit through the
-    // SHARED denial protocol (`denialTerm`), so the thrown reason is the same
-    // tagged 2-tuple every other producer emits — `{:forbidden, "Forbidden: …"}`
-    // / `{:precondition_failed, "<the rule's text>"}`.  A bare `:forbidden`
-    // atom carries the status but no `detail`, and a bare message string
-    // carries the detail but no status — two shapes, neither matching the
-    // controllers' denial clauses.
-    //
-    // Nothing PATTERN-MATCHES this throw today — a reactor `handle/1` is invoked
-    // straight from the context `Dispatcher` with no `try`/`catch`, so an
-    // uncaught throw crashes the calling process either way.  Unifying the shape
-    // is therefore safe now and correct the moment a catch site is added: the
-    // term already matches the `respond/2` / `command_error/2` denial clauses.
-    case "precondition":
-    case "requires": {
-      const expr = renderExpr(st.expr, renderCtx);
-      return [{ kind: "guard", text: `unless ${expr}, do: throw({:error, ${denialTerm(st)}})` }];
-    }
-    // `notFound` — the guard shape with no condition: the same thrown term a
-    // tagged `getById` miss carries.
-    case "not-found":
-      return [{ kind: "guard", text: `throw({:error, ${notFoundStmtTerm(st)}})` }];
-    case "repo-run": {
-      // `let xs = Repo.run(<Retrieval>(args), page?)` →
-      // `{:ok, xs} <- <Ctx>.run_<ret>_<agg>(args…, limit: N, offset: M)`.
-      // Identical call shape to the vanilla command path
-      // (`vanilla/workflow-execution-emit.ts`), so a fan-out reactor and a
-      // command workflow reach the SAME generated retrieval function.
-      return [
-        {
-          kind: "with-clause",
-          text: `{:ok, ${snake(st.name)}} <- ${retrievalRunCall(st, renderCtx, contextModule)}`,
-          bindName: snake(st.name),
-        },
-      ];
-    }
-    case "for-each": {
-      // `for x in xs { … }` →
-      // `{:ok, _} <- Enum.reduce_while(xs, {:ok, nil}, fn x, _acc -> … end)`,
-      // the same shape the vanilla command path emits: each iteration runs a
-      // `with`-chain, the first failure `{:halt, err}`s out and threads
-      // `{:error, _}` up the handler's own with-chain.
-      //
-      // This whole loop is ONE `BodyLine` whose `text` embeds its nested
-      // statements' rendering.  It has to be: `renderBody` buckets lines by
-      // kind (guards first, then the chain, then dispatches), so a nested
-      // `emit` returned as its own `dispatch` line would be hoisted OUT of the
-      // loop and fire once instead of per element.
-      const iterable = renderExpr(st.iterable, renderCtx);
-      // An unread loop var must be `_`-prefixed or `mix compile
-      // --warnings-as-errors` fails on the unused binding.
-      const loopVar = loopBindUsed(st.var, st.body) ? snake(st.var) : `_${snake(st.var)}`;
-      const bodyLines = renderReactorLoopBody(st.body, ctx, renderCtx, contextModule, channels);
-      // Continuation lines carry absolute indentation: the with-chain assembler
-      // only prefixes the FIRST line of a multi-line clause (see `renderBody`),
-      // and `indent()` then shifts every PHYSICAL line uniformly.  11 columns
-      // aligns the body under the `Enum.reduce_while(` opener — so split the
-      // rendered body on newlines FIRST, or a nested `with`-chain's own
-      // continuations keep only their relative offset and land left of the
-      // clause they continue.
-      return [
-        {
-          kind: "with-clause",
-          text: [
-            `{:ok, _} <- Enum.reduce_while(${iterable}, {:ok, nil}, fn ${loopVar}, _acc ->`,
-            ...bodyLines.flatMap((l) => l.split("\n")).map((l) => `           ${l}`),
-            `         end)`,
-          ].join("\n"),
-        },
-      ];
-    }
-    case "repo-delete": {
-      // `Orders.delete(o)` → `{:ok, _} <- <Ctx>.delete_<agg>(o)` — the same
-      // in-process delete entry the command path calls
-      // (`vanilla/workflow-execution-emit.ts`): it takes the loaded struct and
-      // answers `{:ok, struct} | {:error, changeset}`, so a failure threads up
-      // the handler's with-chain like any other clause.  That entry exists only
-      // when the aggregate has a delete surface (`emitsRestDelete`); without
-      // one, delete through `Repo.delete/1` directly — exactly what the
-      // repository's `delete/1` would have done, with the same return shape.
+    },
+
+    // `field := value` — the saga state is a plain Ecto schema: persist the
+    // write in place and rebind `state` when a later statement reads it.
+    assign: (st, scope) => [
+      {
+        kind: "let",
+        pattern: workflowBodyUsesOwnState(scope.rest) ? "state" : "_state",
+        expr: `${appModule}.Repo.update!(Ecto.Changeset.change(state, %{${snake(st.target.segments[0]!)}: ${expr(st.value)}}))`,
+      },
+    ],
+
+    // The in-process delete entry exists only when the aggregate has a delete
+    // surface (`emitsRestDelete`); without one, `Repo.delete/1` — what the
+    // repository's `delete/1` does, with the same return shape.
+    repoDelete: (st) => {
       const agg = ctx.aggregates.find((a) => a.name === st.aggName);
-      const entity = renderExpr(st.entity, renderCtx);
+      const entity = expr(st.entity);
       const call =
         agg && emitsRestDelete(agg)
           ? `${contextModule}.${internalDeleteFn(st.aggName, agg)}(${entity})`
-          : `${contextModule.split(".").slice(0, -1).join(".")}.Repo.delete(${entity})`;
-      return [{ kind: "with-clause", text: `{:ok, _} <- ${call}` }];
-    }
-    case "resource-call":
-      // `mail.send(…)` (bare statement form) — a fire-and-forget side effect in
-      // the do-branch, so a failed with-chain skips it exactly as it skips an
-      // `emit`.  `renderExpr` routes the verb through `renderCtx.resourceModules`.
-      return [{ kind: "dispatch", text: `_ = ${renderExpr(st.call, renderCtx)}` }];
-    case "domain-service-call": {
-      // `Mover.bump(o)` — a bare call into a `mutating` domainService.  Phoenix
-      // has no service unit: the call expands into the with-chain of the
-      // service body's param-op calls, exactly as on the command path, so a
-      // reactor and a command workflow run the same context mutating fns.
-      const clauses = resolveInlinedServiceClauses(st, renderCtx, contextModule, ctx);
-      if (clauses.length > 0) {
-        return clauses.map((c) => ({ kind: "with-clause", text: c.text, bindName: c.bindName }));
-      }
-      // No mutating param-op in the body: the call is a plain side effect.
-      return [{ kind: "dispatch", text: `_ = ${renderExpr(st.call, renderCtx)}` }];
-    }
-    case "if-let": {
-      // `if let o = Orders.find(<Criterion>) { … } else { … }` → one with-clause
-      // wrapping a parenthesised block, the command path's shape
-      // (`vanilla/workflow-execution-emit.ts`): the shared `run_<ret>_<agg>`
-      // retrieval capped at one row, its head-or-nil bound to the variable,
-      // then an `if` over the two branches.  Each branch is rendered by this
-      // reactor's own `renderStmt` (so an `emit` re-enters the Dispatcher) and
-      // ends in `{:ok, _}`, or in its first `{:error, _}`, which threads up the
-      // handler's with-chain.
-      //
-      // Every other source answers the row itself or `nil` (a declared optional
-      // find's, a `findBy`'s or a widened `find(C) ignoring …`'s `{:ok, nil}`, `findById`'s `{:error, :not_found}`, a `bound`
-      // source's own value), so its then-arm is guarded on presence.
-      const args = st.retrievalArgs.map((a) => renderExpr(a, renderCtx));
-      const lookup =
-        st.op === "bound"
-          ? { call: args.join(", "), hit: "hit" }
-          : optionalReadLookup(
-              {
-                op: st.op,
-                method: st.findMethod ?? "",
-                aggregate: st.aggName,
-                retrievalName: st.retrievalName,
-                widened: st.bypassRead !== undefined,
-              },
-              args,
-              contextModule,
-            );
-      const guarded = !(st.op === "select-one" && st.retrievalName);
-      const v = guarded || loopBindUsed(st.var, st.thenBody) ? snake(st.var) : `_${snake(st.var)}`;
-      const thenPattern = guarded
-        ? `${lookup.hit.replace("hit", v)} when not is_nil(${v})`
-        : lookup.hit.replace("hit", v);
-      const branch = (body: WorkflowStmtIR[]): string[] =>
-        renderReactorNestedBody(body, ctx, renderCtx, contextModule, channels, {
-          ok: () => "{:ok, nil}",
-          err: "err",
-        })
-          .flatMap((l) => l.split("\n"))
-          .map((l) => `                 ${l}`);
-      // Continuation lines carry absolute indentation, as the `for-each` arm's
-      // do: the with-chain assembler prefixes only a clause's FIRST line.
-      const lines = [
-        `{:ok, _} <- (case ${lookup.call} do`,
-        `               ${thenPattern} ->`,
-        ...branch(st.thenBody),
-        `               _ ->`,
-        ...branch(st.elseBody ?? []),
-        `             end)`,
-      ];
-      return [{ kind: "with-clause", text: lines.join("\n") }];
-    }
-    case "variant-match": {
-      // `match <subject> { V b => { … } … }` → one with-clause wrapping a
-      // parenthesised `case` (a union subject: the tagged `{:ok, value}` /
-      // `{:error, "Tag", fields}` tuple an `or`-returning call answers) or a
-      // presence `if` (a `T?` subject), the command path's shape
-      // (`vanilla/workflow-execution-emit.ts`).  Each arm is rendered by this
-      // reactor's own `renderStmt` (so an `emit` re-enters the Dispatcher) and
-      // ends in `{:ok, _}`, or in its first `{:error, _}`.  A `_` clause runs
-      // the `else` body and is emitted whenever the arms do not name every
-      // variant, so an uncovered value is a no-op, not a `CaseClauseError`.
-      const subject = renderExpr(st.subject, renderCtx);
-      const branch = (body: WorkflowStmtIR[], pad: string, head: string[] = []): string[] =>
-        [
-          ...head,
-          ...renderReactorNestedBody(body, ctx, renderCtx, contextModule, channels, {
-            ok: () => "{:ok, nil}",
-            err: "err",
-          }),
-        ]
-          .flatMap((l) => l.split("\n"))
-          .map((l) => `${pad}${l}`);
-      let block: string[];
-      if (st.subjectShape === "absence") {
-        const isAbsent = (a: (typeof st.arms)[number]) => a.varType.kind === "none" || a.isError;
-        const presentArm = st.arms.find((a) => !isAbsent(a));
-        const absentArm = st.arms.find(isAbsent);
-        const presentBody = presentArm?.body ?? st.elseBody ?? [];
-        const binding = presentArm?.binding;
-        const bindLine =
-          binding && loopBindUsed(binding, presentBody)
-            ? [`${escapeElixirIdent(snake(binding))} = ${subject}`]
-            : [];
-        block = [
-          `if ${subject} != nil do`,
-          ...branch(presentBody, "  ", bindLine),
-          `else`,
-          ...branch(absentArm?.body ?? st.elseBody ?? [], "  "),
-          `end`,
-        ];
-      } else {
-        const clauses = st.arms.flatMap((a) => {
-          const binder =
-            a.binding && loopBindUsed(a.binding, a.body)
-              ? escapeElixirIdent(snake(a.binding))
-              : "_";
-          return [`  ${elixirVariantPattern(a, binder)} ->`, ...branch(a.body, "    ")];
-        });
-        if (st.elseBody || !armsCoverUnion(st.subjectType, st.arms)) {
-          clauses.push("  _ ->", ...branch(st.elseBody ?? [], "    "));
-        }
-        block = [`case ${elixirUnionScrutinee(subject)} do`, ...clauses, `end`];
-      }
-      // Continuation lines carry absolute indentation, as the `if-let` arm's do.
-      return [
-        {
-          kind: "with-clause",
-          text: [
-            `{:ok, _} <- (`,
-            ...block.map((l) => `               ${l}`),
-            `             )`,
-          ].join("\n"),
-        },
-      ];
-    }
-    default: {
-      const _exhaustive: never = st;
-      throw new Error(
-        `dispatch-emit: unsupported reactor statement kind '${(_exhaustive as WorkflowStmtIR).kind}'`,
-      );
-    }
-  }
-}
-
-/** `<Ctx>.run_<retrieval>_<agg>(args…, opts)` — the vanilla retrieval entry a
- *  `repo-run` (and the `for-each` that consumes one) calls.  Pagination and
- *  `ignoring` bypasses ride as a trailing keyword list, exactly as the command
- *  path spells them. */
-function retrievalRunCall(
-  st: Extract<WorkflowStmtIR, { kind: "repo-run" }>,
-  renderCtx: RenderCtx,
-  contextModule: string,
-): string {
-  const args = st.retrievalArgs.map((a) => renderExpr(a, renderCtx));
-  const optEntries: string[] = [];
-  if (st.page?.offset) optEntries.push(`offset: ${renderExpr(st.page.offset, renderCtx)}`);
-  if (st.page?.limit) optEntries.push(`limit: ${renderExpr(st.page.limit, renderCtx)}`);
-  const skip = skipFiltersOption(st);
-  if (skip) optEntries.push(skip);
-  if (optEntries.length > 0) args.push(optEntries.join(", "));
-  return `${contextModule}.run_${snake(st.retrievalName)}_${snake(st.aggName)}(${args.join(", ")})`;
-}
-
-/** Is `name` read anywhere inside a loop body?
- *
- *  Rides `walkWorkflowStmtExprsDeep` (so a reference nested in an `if-let`
- *  branch, a `match` arm or a `list` literal counts) PLUS the `op-call` TARGET,
- *  which is not an expression: it is the bound aggregate the call mutates
- *  (`n.markSeen()`), so it has no child-expression slot for the walker to hand
- *  over.  Missing it is not cosmetic — the loop var reads as unused, the
- *  callback binds `fn _n, _acc ->`, and the body the renderer emits still says
- *  `mark_seen_note(n, %{})`: `** (CompileError) undefined variable "n"` on
- *  every `mix compile`.  The vanilla command path carries the same carve-out
- *  (`collectWorkflowStmtParamRefsAll`). */
-function loopBindUsed(name: string, body: WorkflowStmtIR[]): boolean {
-  let used = false;
-  const visit = (s: WorkflowStmtIR): void => {
-    if (s.kind === "op-call" && s.target === name) used = true;
+          : `${appModule}.Repo.delete(${entity})`;
+      return [{ kind: "clause", text: `{:ok, _} <- ${call}` }];
+    },
   };
-  for (const s of body) {
-    walkWorkflowStmtsDeep(s, visit);
-    walkWorkflowStmtExprsDeep(s, (e) => {
-      if (e.kind === "ref" && e.name === name) used = true;
-    });
-  }
-  return used;
-}
-
-/** The inner lines of a reactor `for`-loop's `Enum.reduce_while/3` callback,
- *  which must return `{:cont, _}` per element and `{:halt, err}` on the first
- *  failure.
- *
- *  Deliberately NOT `vanilla/workflow-execution-emit.ts`'s `renderLoopBody`:
- *  that one renders `emit` as a bare `Phoenix.PubSub.broadcast`, while a
- *  REACTOR body's `emit` must re-enter the context `Dispatcher` (or the broker
- *  tee) so choreography chains keep fanning out.  Reusing dispatch-emit's own
- *  `renderStmt` keeps every arm — emit, guards, the ungated create seam — on
- *  the reactor's semantics. */
-function renderReactorLoopBody(
-  body: WorkflowStmtIR[],
-  ctx: EnrichedBoundedContextIR,
-  renderCtx: RenderCtx,
-  contextModule: string,
-  channels?: ElixirChannelsCfg,
-): string[] {
-  return renderReactorNestedBody(body, ctx, renderCtx, contextModule, channels, {
-    ok: (v) => `{:cont, {:ok, ${v}}}`,
-    err: "{:halt, err}",
-  });
-}
-
-/** A nested reactor body (a loop body, an `if let` branch) as one block of
- *  lines: its fallible statements become a `with`-chain, its side effects run
- *  in the do-branch, and the block ends in `shape.ok(<last bind>)` — or, on the
- *  first failure, `shape.err` (bound to `err`). */
-function renderReactorNestedBody(
-  body: WorkflowStmtIR[],
-  ctx: EnrichedBoundedContextIR,
-  renderCtx: RenderCtx,
-  contextModule: string,
-  channels: ElixirChannelsCfg | undefined,
-  shape: { ok: (bind: string) => string; err: string; okBind?: string },
-): string[] {
-  if (body.length === 0) return [shape.ok(shape.okBind ?? "nil")];
-  const rendered = body.flatMap((s) => renderStmt(s, ctx, renderCtx, contextModule, channels));
-  // `_`-discard a bind nothing LATER in the loop body reads, the same rule
-  // `renderBody` applies at the top level — an unused plain bind fails
-  // `mix compile --warnings-as-errors`.
-  for (let i = 0; i < rendered.length; i++) {
-    const l = rendered[i]!;
-    if (!l.bindName) continue;
-    const word = new RegExp(`\\b${l.bindName}\\b`);
-    if (rendered.slice(i + 1).some((later) => word.test(later.text))) continue;
-    l.text =
-      l.kind === "with-clause"
-        ? l.text.replace(`{:ok, ${l.bindName}}`, `{:ok, _${l.bindName}}`)
-        : l.text.replace(new RegExp(`^${l.bindName} = `), `_${l.bindName} = `);
-  }
-
-  const clauses: string[] = [];
-  const doLines: string[] = [];
-  let lastBind = "nil";
-  for (const l of rendered) {
-    switch (l.kind) {
-      case "guard": {
-        // A loop-body guard must short-circuit THIS REDUCE, not `throw` out of
-        // the whole handler mid-fan-out: re-shape the top-level `unless …, do:
-        // throw({:error, t})` into a with-clause so a failing element halts
-        // with the SAME tagged denial term.
-        const m = /^unless (.*), do: throw\((\{:error, .*)\)$/.exec(l.text);
-        clauses.push(m ? `:ok <- (if ${m[1]}, do: :ok, else: ${m[2]})` : `:ok <- (${l.text})`);
-        break;
-      }
-      case "dispatch":
-        // `emit` (re-entrant dispatch / broker tee) and own-state assigns are
-        // infallible side effects — they run in the do-branch, per element.
-        doLines.push(l.text);
-        break;
-      case "expr": {
-        // `name = <expr>` → `name <- (<expr>)` so it keeps its position in the
-        // chain (a `with` clause with no failure mode).
-        const eq = l.text.indexOf(" = ");
-        const name = l.text.slice(0, eq);
-        clauses.push(`${name} <- (${l.text.slice(eq + 3)})`);
-        if (!name.startsWith("_")) lastBind = name;
-        break;
-      }
-      default:
-        clauses.push(l.text);
-        if (l.bindName && l.text.includes(`{:ok, ${l.bindName}}`)) lastBind = l.bindName;
-        break;
-    }
-  }
-
-  const result = shape.ok(shape.okBind ?? lastBind);
-  if (clauses.length === 0) {
-    // Pure side-effect body (emit only) — nothing fallible to gate on.
-    return [...doLines, result];
-  }
-  return [
-    `with ${clauses.join(",\n     ")} do`,
-    ...doLines.map((l) => `  ${l}`),
-    `  ${result}`,
-    `else`,
-    `  err -> ${shape.err}`,
-    `end`,
-  ];
 }
