@@ -75,6 +75,7 @@ import {
   workflowFormWidgetName,
 } from "./forms-emit.js";
 import { dartStringLit } from "./i18n.js";
+import { FLUTTER_INVALIDATE_MARKER } from "./reads-emit.js";
 import { storeProviderName } from "./store-names.js";
 
 /** True when a value is provably a `string` already, so a `Text(…)` child can
@@ -804,6 +805,7 @@ export const flutterTarget: WalkerTarget = {
     const provider = canProbeProviderName(agg.name, op.name);
     const thenArg = namedArg(call, "then");
     const onSuccess =
+      `${FLUTTER_INVALIDATE_MARKER}context, ${dartString(agg.name)}); ` +
       (gate ? `ref.invalidate(${provider}(id)); ` : "") +
       (thenArg
         ? flutterActionThen(thenArg, ctx)
