@@ -51,6 +51,10 @@ export interface LogContract {
 export interface BrokerResilience {
   /** Reconnects with backoff after the broker drops, without a restart. */
   readonly reconnects: boolean;
+  /** An event committed while the broker is unreachable is delivered once it
+   *  returns: the outbox relay backs off instead of spending the row's
+   *  attempt budget on the outage. */
+  readonly outboxRidesOutOutage: boolean;
   /** A failure publishing to an ephemeral (non-outbox) channel after the
    *  command committed is logged, never turned into an error response. */
   readonly publishFailureKeepsCommit: boolean;
@@ -147,13 +151,14 @@ export const FRONTEND_OPERATIONS: PlatformOperations = {
  *  ones not met yet.  A backend spreads these and overrides its own rows. */
 export const BROKER_BASELINE: BrokerResilience = {
   reconnects: true,
+  outboxRidesOutOutage: false,
   publishFailureKeepsCommit: true,
-  deadLettersUnderAcl: false,
+  deadLettersUnderAcl: true,
   propagatesTrace: false,
   exportsMetrics: false,
 };
 export const BROKER_BASELINE_GAPS: Readonly<Record<string, string>> = {
-  "broker.deadLettersUnderAcl": "#3565",
+  "broker.outboxRidesOutOutage": "#4741",
   "broker.propagatesTrace": "#3582",
   "broker.exportsMetrics": "#3583",
 };
@@ -164,3 +169,11 @@ export const MIGRATIONS_BASELINE: MigrationRunnerFacts = {
   idempotentReboot: true,
   multiModule: true,
 };
+
+/** `gaps` minus the facts a platform meets. */
+export function withoutGaps(
+  gaps: Readonly<Record<string, string>>,
+  ...met: string[]
+): Readonly<Record<string, string>> {
+  return Object.fromEntries(Object.entries(gaps).filter(([k]) => !met.includes(k)));
+}

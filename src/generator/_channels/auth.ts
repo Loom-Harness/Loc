@@ -258,6 +258,16 @@ function rabbitTopology(
         // definitions must say the same or the binding is a DIFFERENT one.
         routing_key: "",
       })),
+    // The bounded-retry route: a consumer republishes a failed delivery to
+    // `loom.dlx` under `loom.retry.<queue>`, which lands back on its own
+    // queue — through an exchange the ACL grants, never the default one.
+    ...[...consumerQueues.keys()].sort().map((queue) => ({
+      source: "loom.dlx",
+      vhost: RABBIT_VHOST,
+      destination: queue,
+      destination_type: "queue",
+      routing_key: rabbitRetryRoutingKey(queue),
+    })),
   ];
   return { exchanges, queues, bindings };
 }
@@ -269,6 +279,12 @@ export function kafkaJaasConfig(sys: SystemIR, storageName: string): string {
     .map((g) => ` user_${g.user}="${g.password}"`)
     .join("");
   return `org.apache.kafka.common.security.plain.PlainLoginModule required${users};`;
+}
+
+/** The routing key a consumer republishes a failed delivery under, on
+ *  `loom.dlx`, to retry it on its own queue (`queue` is the consumer group). */
+export function rabbitRetryRoutingKey(queue: string): string {
+  return `loom.retry.${queue}`;
 }
 
 export function rabbitPermissionRegex(addresses: string[], groups: string[]): string {

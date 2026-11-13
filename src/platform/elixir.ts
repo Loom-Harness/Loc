@@ -13,6 +13,7 @@ import {
   BROKER_BASELINE_GAPS,
   MIGRATIONS_BASELINE,
   wgetHealthcheck,
+  withoutGaps,
 } from "./operations.js";
 import { backendEnvContract } from "./operations-env.js";
 import type { ComposeServiceShape, PlatformSurface } from "./surface.js";
@@ -99,11 +100,21 @@ const elixirPlatform: PlatformSurface = {
         // release runs `prod`; the partition only shards `mix test`).
         ["POOL_SIZE", "MIX_ENV", "MIX_TEST_PARTITION"],
       ),
-    listen: "ipv6-required",
+    listen: "dual-stack",
     log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
-    broker: BROKER_BASELINE,
+    // The Phoenix relay halts its pass and backs off on an unreachable broker.
+    broker: {
+      ...BROKER_BASELINE,
+      outboxRidesOutOutage: true,
+      reconnects: false,
+      deadLettersUnderAcl: false,
+    },
     migrations: MIGRATIONS_BASELINE,
-    gaps: { ...BROKER_BASELINE_GAPS, listen: "#3588" },
+    gaps: {
+      ...withoutGaps(BROKER_BASELINE_GAPS, "broker.outboxRidesOutOutage"),
+      "broker.reconnects": "#5386",
+      "broker.deadLettersUnderAcl": "#5397",
+    },
   },
   composeService({ slug, sys, deployable }): ComposeServiceShape {
     const database = databaseOf(sys, deployable)?.name ?? slug;

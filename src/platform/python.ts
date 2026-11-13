@@ -6,6 +6,7 @@ import {
   BACKEND_HEALTH,
   BROKER_BASELINE,
   BROKER_BASELINE_GAPS,
+  withoutGaps,
   MIGRATIONS_BASELINE,
   wgetHealthcheck,
 } from "./operations.js";
@@ -78,9 +79,10 @@ const pythonPlatform: PlatformSurface = {
       ),
     listen: "ipv4",
     log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
-    broker: BROKER_BASELINE,
+    // The FastAPI relay backs off on an unreachable broker without spending attempts.
+    broker: { ...BROKER_BASELINE, outboxRidesOutOutage: true },
     migrations: MIGRATIONS_BASELINE,
-    gaps: BROKER_BASELINE_GAPS,
+    gaps: withoutGaps(BROKER_BASELINE_GAPS, "broker.outboxRidesOutOutage"),
   },
   composeService({ slug, deployable, sys }): ComposeServiceShape {
     const database = databaseOf(sys, deployable)?.name ?? slug;

@@ -306,9 +306,11 @@ describe.runIf(RUN)("lifecycle: reboot, regenerate, broker outage, DB pause", ()
         sh(`node ${cli} migrate add ${migration} ${src}`, dir);
         sh(`node ${cli} generate system ${src} -o ${out}`, dir);
       };
-      const up = () => sh(`${compose} up -d ${prebuildBehindProxy(out, project)} --wait`, out, 1_800_000);
+      const up = () =>
+        sh(`${compose} up -d ${prebuildBehindProxy(out, project)} --wait`, out, 1_800_000);
       const container = () => sh(`${compose} ps -q d`, out).trim();
-      const restarts = () => Number(sh(`docker inspect -f '{{.RestartCount}}' ${container()}`, out));
+      const restarts = () =>
+        Number(sh(`docker inspect -f '{{.RestartCount}}' ${container()}`, out));
       const placeOrder = async (customerId: string, extra: Record<string, unknown> = {}) => {
         const created = await ok("POST", "/api/orders", { customerId, status: "Draft", ...extra });
         expect(created.status, JSON.stringify(created.json)).toBe(201);
@@ -335,15 +337,13 @@ describe.runIf(RUN)("lifecycle: reboot, regenerate, broker outage, DB pause", ()
         const restartsAtBoot = restarts();
 
         // ── 2. stop + boot again ───────────────────────────────────────────
+        // The service owns a timer and an applied migration chain: the second
+        // boot must neither re-apply the schema nor trip over the timer's state.
         sh(`${compose} stop d`, out);
         sh(`${compose} up -d --wait d`, out, 600_000);
         expect(await ordersTotal()).toBe(1);
         const second = await placeOrder("c-reboot");
         await shipped(second.orderId, 60_000);
-        // The timer resumed after the reboot.
-        const sweeps = async () =>
-          ((await ok("GET", "/api/sweeps?pageSize=1")).json as { total?: number }).total;
-        void sweeps;
 
         // ── 3. regenerate + migrate (a non-last module changes) ────────────
         generate(true, "add-order-priority");
@@ -387,9 +387,19 @@ describe.runIf(RUN)("lifecycle: reboot, regenerate, broker outage, DB pause", ()
           async () => {
             const after = await placeOrder("c-after-outage");
             await shipped(after.orderId, 90_000);
-            if (duringOutage) await shipped(duringOutage, 30_000);
           },
         );
+        // Delivery of the outage-time event is observable only through a
+        // consumer that came back.
+        if (duringOutage && resumed === "held") {
+          await claim(
+            ops,
+            "broker.outboxRidesOutOutage",
+            broker.outboxRidesOutOutage,
+            "an event committed during the outage is delivered after it",
+            async () => shipped(duringOutage, 60_000),
+          );
+        }
         if (resumed === "expected-failure") {
           // Recover a clean consumer for the DB phase: the reboot path is what
           // the fact being unmet costs an operator today.
@@ -403,13 +413,17 @@ describe.runIf(RUN)("lifecycle: reboot, regenerate, broker outage, DB pause", ()
         // ── 5. DB pause ────────────────────────────────────────────────────
         sh(`${compose} pause db`, out);
         try {
-          await waitFor("readiness reports not-ready while the DB is paused", DB_PAUSE_MS, async () => {
-            try {
-              return (await call("GET", ops.health.readiness, undefined, 2_000)).status >= 500;
-            } catch {
-              return true; // a hung readiness probe is not-ready to k8s too
-            }
-          });
+          await waitFor(
+            "readiness reports not-ready while the DB is paused",
+            DB_PAUSE_MS,
+            async () => {
+              try {
+                return (await call("GET", ops.health.readiness, undefined, 2_000)).status >= 500;
+              } catch {
+                return true; // a hung readiness probe is not-ready to k8s too
+              }
+            },
+          );
           const live = await call("GET", ops.health.liveness, undefined, 3_000).catch(() => null);
           expect(live?.status, "liveness stays up while only the DB is down").toBe(200);
           await sleep(DB_PAUSE_MS);
@@ -440,15 +454,24 @@ describe.runIf(RUN)("lifecycle: reboot, regenerate, broker outage, DB pause", ()
         expect(restartsAtBoot, "no crash-loop at first boot").toBe(0);
         expect(fivexx, "no 5xx outside an expected-failure window").toEqual([]);
 
-        await claim(ops, "listen", ops.listen !== "ipv6-required", "accepts IPv4 inside the container", async () => {
-          // In the container the service listens on its internal port — the
-          // right-hand side of the compose `ports:` mapping.
-          const mapping = new RegExp(`"${PORT}:(\\d+)"`).exec(
-            fs.readFileSync(path.join(out, "docker-compose.yml"), "utf8"),
-          );
-          const internal = mapping?.[1] ?? String(PORT);
-          sh(`${compose} exec -T d wget -qO- http://127.0.0.1:${internal}${ops.health.liveness}`, out);
-        });
+        await claim(
+          ops,
+          "listen",
+          ops.listen !== "ipv6-required",
+          "accepts IPv4 inside the container",
+          async () => {
+            // In the container the service listens on its internal port — the
+            // right-hand side of the compose `ports:` mapping.
+            const mapping = new RegExp(`"${PORT}:(\\d+)"`).exec(
+              fs.readFileSync(path.join(out, "docker-compose.yml"), "utf8"),
+            );
+            const internal = mapping?.[1] ?? String(PORT);
+            sh(
+              `${compose} exec -T d wget -qO- http://127.0.0.1:${internal}${ops.health.liveness}`,
+              out,
+            );
+          },
+        );
 
         if (ops.log.format !== "text") {
           const lines = sh(`${compose} logs --no-color --no-log-prefix d`, out, 120_000)
@@ -470,7 +493,8 @@ describe.runIf(RUN)("lifecycle: reboot, regenerate, broker outage, DB pause", ()
                   return true;
                 }
               });
-              if (off.length > 0) throw new Error(`${off.length} line(s), e.g. ${off[0]!.slice(0, 200)}`);
+              if (off.length > 0)
+                throw new Error(`${off.length} line(s), e.g. ${off[0]!.slice(0, 200)}`);
             },
           );
         }
@@ -488,9 +512,7 @@ describe.runIf(RUN)("lifecycle: reboot, regenerate, broker outage, DB pause", ()
                 `${compose} exec -T bus rabbitmqctl -q list_queues -p loom name messages`,
                 out,
               );
-              return queues
-                .split("\n")
-                .some((l) => /^loom\.dlq\.\S+\s+[1-9]/.test(l.trim()));
+              return queues.split("\n").some((l) => /^loom\.dlq\.\S+\s+[1-9]/.test(l.trim()));
             });
           },
         );
