@@ -4,10 +4,14 @@ import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { snake } from "../../util/naming.js";
 import {
+  RESOURCE_HOST_ENV,
   resourceEnvBase,
+  resourceEnvDirVar,
   resourceEnvEndpointVar,
   resourceEnvUrlVar,
   resourceSidecarUrl,
+  SENDGRID_API_BASE,
+  SENDGRID_SEND_PATH,
 } from "../../util/resource-env.js";
 
 // ---------------------------------------------------------------------------
@@ -171,7 +175,7 @@ const localDiskAdapter: PyResourceAdapter = {
       const fn = snake(r.name);
       body.push(
         `# objectStore '${r.name}' — local-directory store (raw bytes + sidecar meta).`,
-        `_${fn}_dir = Path(os.environ.get("${envVar(r.name)}_DIR", "data/${r.name}"))`,
+        `_${fn}_dir = Path(os.environ.get("${resourceEnvDirVar(r.name)}", "data/${r.name}"))`,
         "",
         "",
         // Guard against path traversal: minted keys are uuids, but a
@@ -424,7 +428,11 @@ const sesAdapter: PyResourceAdapter = {
       body.push(
         `_${fn}_region = os.environ.get("${envVar(r.name)}_REGION", ${JSON.stringify(region)})`,
         `_${fn}_from = os.environ.get("${envVar(r.name)}_FROM", ${JSON.stringify(mailFrom(r, stores))})`,
-        `_${fn}_client = boto3.client("ses", region_name=_${fn}_region)`,
+        `_${fn}_client = boto3.client(`,
+        `    "ses",`,
+        `    region_name=_${fn}_region,`,
+        `    endpoint_url=os.environ.get("${RESOURCE_HOST_ENV.ses(r.name)}") or None,`,
+        ")",
         "",
         "",
         `async def ${fn}_send(to: str, subject: str, body: str) -> None:`,
@@ -463,12 +471,13 @@ const sendgridAdapter: PyResourceAdapter = {
       body.push(
         `_${fn}_key = os.environ.get("SENDGRID_API_KEY", "")`,
         `_${fn}_from = os.environ.get("${envVar(r.name)}_FROM", ${JSON.stringify(mailFrom(r, stores))})`,
+        `_${fn}_base = os.environ.get("${RESOURCE_HOST_ENV.sendgrid(r.name)}") or ${JSON.stringify(SENDGRID_API_BASE)}`,
         "",
         "",
         `async def ${fn}_send(to: str, subject: str, body: str) -> None:`,
         `    async with httpx.AsyncClient() as client:`,
         "        res = await client.post(",
-        '            "https://api.sendgrid.com/v3/mail/send",',
+        `            _${fn}_base.rstrip("/") + ${JSON.stringify(SENDGRID_SEND_PATH)},`,
         `            headers={"Authorization": f"Bearer {_${fn}_key}"},`,
         "            json={",
         '                "personalizations": [{"to": [{"email": to}]}],',

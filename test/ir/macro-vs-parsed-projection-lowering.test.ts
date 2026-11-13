@@ -21,17 +21,19 @@
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
-import { allContexts, type ExprIR } from "../../src/ir/types/loom-ir.js";
+import { aggregateArg, allContexts, type ExprIR } from "../../src/ir/types/loom-ir.js";
 import { parseString } from "../_helpers/parse.js";
 
-async function aggregateArg(src: string, projection: string): Promise<ExprIR> {
+async function aggregateArgOf(src: string, projection: string): Promise<ExprIR> {
   const { model } = await parseString(src, { validate: false });
   const loom = enrichLoomModel(lowerModel(model));
   const ctx = allContexts(loom).find((c) => c.name === "Orders");
   const proj = ctx?.projections.find((p) => p.name === projection);
-  const select = proj?.query?.selects?.find((s) => !!s.aggregate?.arg);
-  if (!select?.aggregate?.arg) throw new Error(`no aggregate arg on ${projection}`);
-  return select.aggregate.arg;
+  const arg = proj?.query?.selects
+    ?.map((s) => aggregateArg(s.aggregate))
+    .find((a) => a !== undefined);
+  if (!arg) throw new Error(`no aggregate arg on ${projection}`);
+  return arg;
 }
 
 /** `scaffoldDashboard` synthesises `projection OrderTotals { … sum(o.total) }`. */
@@ -49,8 +51,8 @@ const HAND_WRITTEN = `system S { subdomain D { context Orders {
 
 describe("macro-built and parsed projections lower identically", () => {
   it("resolves the source alias in BOTH, so `o.total` is a member on `this`", async () => {
-    const macro = await aggregateArg(MACRO_BUILT, "OrderTotals");
-    const hand = await aggregateArg(HAND_WRITTEN, "Hand");
+    const macro = await aggregateArgOf(MACRO_BUILT, "OrderTotals");
+    const hand = await aggregateArgOf(HAND_WRITTEN, "Hand");
 
     expect(macro.kind).toBe("member");
     expect(hand.kind).toBe("member");

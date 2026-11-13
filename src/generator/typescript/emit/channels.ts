@@ -24,7 +24,11 @@
 
 import type { EventIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { type BrokerBinding, kafkaStartsAtEarliest } from "../../_channels/bindings.js";
+import {
+  type BrokerBinding,
+  kafkaStartsAtEarliest,
+  uniqueBindings,
+} from "../../_channels/bindings.js";
 import { CHANNEL_CONSUMER, CHANNEL_RECONNECT } from "../../_channels/delivery-policy.js";
 import { decodeField, type WireValueObjectFields } from "../../_channels/wire-codec.js";
 import { tsImportSlot } from "../../_imports/ts.js";
@@ -49,17 +53,6 @@ function transportFactoryLine(hasRedis: boolean, hasRabbit: boolean, hasKafka: b
     .map(([transport, fn]) => `b.transport === ${JSON.stringify(transport)} ? ${fn}(url) : `)
     .join("");
   return `      t = ${arms}${last[1]}(url);`;
-}
-
-/** envVar → address per binding, deduped (two bindings on one deployable
- *  may share a channelSource only via duplicate list entries). */
-function uniqueBindings(bindings: BrokerBinding[]): BrokerBinding[] {
-  const seen = new Set<string>();
-  return bindings.filter((b) => {
-    if (seen.has(b.csName)) return false;
-    seen.add(b.csName);
-    return true;
-  });
 }
 
 export function renderChannelsModule(

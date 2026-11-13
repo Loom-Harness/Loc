@@ -3,6 +3,7 @@ import { LOOM_VERSION } from "../api/index.js";
 import { installFsBackendSource } from "../platform/fs-discovery.js";
 import { registerBreakpointsCommand } from "./commands/breakpoints.js";
 import { registerDiffCommand } from "./commands/diff.js";
+import { registerEmitFrontendContractCommand } from "./commands/emit-frontend-contract.js";
 import { registerGenerateCommand } from "./commands/generate.js";
 import { registerI18nCommand } from "./commands/i18n.js";
 import { registerMigrateCommand } from "./commands/migrate.js";
@@ -28,6 +29,7 @@ registerBreakpointsCommand(program);
 registerSnapshotCommand(program);
 registerNewCommand(program);
 registerI18nCommand(program);
+registerEmitFrontendContractCommand(program);
 
 // Install the fs-backed `discoverBackends()` source before any
 // platform resolution.  Composes the in-tree default with whatever

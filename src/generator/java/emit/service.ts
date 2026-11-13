@@ -10,7 +10,7 @@ import {
   emitsRestCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
-import { gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
+import { destroyLadder, gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
 import { domainFindShape } from "../../../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
@@ -269,7 +269,6 @@ export function renderJavaService(
     });
     return reads;
   });
-  const destroyGates = lifecycleGates(canonicalDestroy(agg));
   const forbidden = javaRef(`${ctx.basePkg}.domain.common`, "ForbiddenException");
   /** One line per lifecycle `requires`.  `thisName` is undefined for a create
    *  (no instance exists yet — the guard reads the principal only) and the
@@ -732,14 +731,23 @@ export function renderJavaService(
     (agg.destroys?.length ?? 0) > 0
       ? [
           `    public void destroy${agg.name}(${idClass} id${destroyReadsIfMatch ? ", Integer ifMatch" : ""}) {`,
-          `        var aggregate = repository.getById(id);`,
-          // AFTER the load (the gate may read the row) and BEFORE the audit row
-          // is staged, so a denied delete records nothing.  `aggregate` is bound
-          // regardless of whether the gate reads it — the delete needs it.
           ...(lifecycleGatesUseCurrentUser(canonicalDestroy(agg))
             ? [`        var currentUser = currentUserAccessor.user();`]
             : []),
-          ...lifecycleGateLines(destroyGates, "aggregate"),
+          // The gates in ladder order (`destroyLadder`): one that reads no row
+          // refuses before the load, so a missing id answers the refused
+          // caller's 403; one that reads the row runs after it.  Every gate
+          // runs BEFORE the audit row is staged, so a denied delete records
+          // nothing.  `aggregate` is bound regardless — the delete needs it.
+          ...destroyLadder(canonicalDestroy(agg), { readsIfMatch: false }).flatMap((step) =>
+            step.step === "requires"
+              ? lifecycleGateLines([step.gate])
+              : step.step === "row-requires"
+                ? lifecycleGateLines([step.gate], "aggregate")
+                : step.step === "load"
+                  ? [`        var aggregate = repository.getById(id);`]
+                  : [],
+          ),
           // The row's `If-Match` precondition, like a named operation's: a stale
           // tag raises the exception the repository's guarded save raises (409).
           ...(destroyReadsIfMatch
