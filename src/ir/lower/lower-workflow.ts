@@ -23,6 +23,7 @@ import {
   isForStmt,
   isFunctionDecl,
   isIfLetStmt,
+  isIfStmt,
   isLetStmt,
   isMatchStmt,
   isMemberSuffix,
@@ -1011,6 +1012,44 @@ function lowerWorkflowStatementInner(
         ...(elseBody.length > 0 ? { elseBody } : {}),
         savesInThen,
         savesInElse,
+      },
+      envAfter: env,
+    };
+  }
+  if (isIfStmt(stmt)) {
+    // `if <cond> { then } else { else }`.  The condition lowers in the outer
+    // env; each branch is its own scope, so a `let` inside one does not leak
+    // out.  An `else if` lowers to an `elseBody` holding the one nested `if`,
+    // through `lowerWorkflowStatement` so it carries its own origin and hoists
+    // its own condition's reads.  Each branch saves what it creates at its own
+    // end; a binding from before the `if` that a branch mutates saves where it
+    // was declared.
+    const lowerBranch = (body: readonly Statement[]) =>
+      lowerWorkflowStatements(body, env, aggsByName, reposByName, repoForAgg, saveResolver)
+        .statements;
+    const thenBody = lowerBranch(stmt.thenBody);
+    const elseBody = stmt.elseIf
+      ? (() => {
+          const l = lowerWorkflowStatement(
+            stmt.elseIf,
+            env,
+            aggsByName,
+            reposByName,
+            repoForAgg,
+            saveResolver,
+          );
+          return [...(l.pre ?? []), ...(l.stmt ? [l.stmt] : [])];
+        })()
+      : lowerBranch(stmt.elseBody);
+    return {
+      stmt: {
+        kind: "if",
+        cond: lowerExpr(stmt.cond, env),
+        source: cstText(stmt.cond),
+        thenBody,
+        ...(elseBody.length > 0 ? { elseBody } : {}),
+        savesInThen: computeSaves(thenBody, repoForAgg, undefined, saveResolver),
+        savesInElse: computeSaves(elseBody, repoForAgg, undefined, saveResolver),
       },
       envAfter: env,
     };

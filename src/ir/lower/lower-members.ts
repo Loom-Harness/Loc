@@ -55,6 +55,7 @@ import type {
 } from "../types/loom-ir.js";
 import { mutatedParamNames, type SaveResolver } from "../util/domain-service-tier.js";
 import { isGuardedCall } from "../util/effects.js";
+import { walkWorkflowStmtChildren } from "../util/walk.js";
 import { normalizeEarlyReturns } from "../util/if-normal-form.js";
 import { lowerCallableParams } from "./callable-params.js";
 import { lowerExpr, lowerExprInContext, retargetEnumValue } from "./lower-expr.js";
@@ -466,8 +467,8 @@ function lowerActionBody(spec: ActionSpec, env: Env): OperationIR {
 type SaveEntry = { name: string; aggName: string; repoName: string };
 
 /** Recursively collect every op-call target + `mutating`-service-mutated
- *  binding name reachable from a statement list, DESCENDING into `for-each`
- *  and `if-let` bodies.  The descent is what makes an OUTER binding mutated
+ *  binding name reachable from a statement list, DESCENDING into every nested
+ *  body (`for-each`, `if-let`, `if`, `match` arms).  The descent is what makes an OUTER binding mutated
  *  inside a loop body (`for o in orders { acct.charge(o.total) }`) still land
  *  in the enclosing scope's saves — without it, `acct.charge` mutated a live
  *  object that was never persisted (audit finding 2: silent data loss).  A
@@ -503,16 +504,13 @@ function collectMutationTargets(
         const arg = args[i];
         if (mutated.has(p.name) && arg?.kind === "ref") serviceMutated.add(arg.name);
       });
-    } else if (st.kind === "for-each") {
-      collectMutationTargets(st.body, saveResolver, opCallTargets, serviceMutated);
-    } else if (st.kind === "if-let") {
-      collectMutationTargets(st.thenBody, saveResolver, opCallTargets, serviceMutated);
-      collectMutationTargets(st.elseBody ?? [], saveResolver, opCallTargets, serviceMutated);
-    } else if (st.kind === "variant-match") {
-      for (const arm of st.arms) {
-        collectMutationTargets(arm.body, saveResolver, opCallTargets, serviceMutated);
-      }
-      collectMutationTargets(st.elseBody ?? [], saveResolver, opCallTargets, serviceMutated);
+    } else {
+      // Every nested body — a loop's, each branch of an `if let` / `if`, each
+      // `match` arm.
+      walkWorkflowStmtChildren(st, {
+        workflowStmt: (c) =>
+          collectMutationTargets([c], saveResolver, opCallTargets, serviceMutated),
+      });
     }
   }
 }

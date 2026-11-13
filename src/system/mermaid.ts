@@ -339,6 +339,8 @@ function stepNode(id: string, s: WorkflowStmtIR): StepNode {
         id,
         decl: `${id}{"${label(`if let ${s.var} = ${s.repoName}.find(${s.synthCriterion.name})`)}"}`,
       };
+    case "if":
+      return { id, decl: `${id}{"${label(`if ${s.source}`)}"}` };
     case "variant-match":
       return { id, decl: `${id}{"${label(`match ${matchArmLabels(s)}`)}"}` };
     case "expr-let":
@@ -575,6 +577,14 @@ function sequenceMessages(s: WorkflowStmtIR): SeqLine[] {
         call(s.repoName, `find(${s.synthCriterion.name})`),
         ret(s.repoName, `${s.var}?`),
         note(`if let ${s.var}`),
+        ...s.thenBody.flatMap(sequenceMessages),
+        ...((s.elseBody ?? []).length > 0
+          ? [note("else"), ...(s.elseBody ?? []).flatMap(sequenceMessages)]
+          : []),
+      ];
+    case "if":
+      return [
+        note(`if ${s.source}`),
         ...s.thenBody.flatMap(sequenceMessages),
         ...((s.elseBody ?? []).length > 0
           ? [note("else"), ...(s.elseBody ?? []).flatMap(sequenceMessages)]

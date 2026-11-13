@@ -2026,6 +2026,27 @@ export function csWorkflowStmtTarget(
       }
       return out;
     },
+    if: (st, indent, thenLines, elseLines) => {
+      // `if c { … } else { … }` → a C# `if`; each branch's dirty bindings save
+      // at that branch's end.
+      const inner = `${indent}    `;
+      const saveLine = (sv: { repoName: string; name: string }): string => {
+        const f = `_${sv.repoName.charAt(0).toLowerCase() + sv.repoName.slice(1)}`;
+        return `${inner}await ${f}.SaveAsync(${sv.name}, cancellationToken);`;
+      };
+      const elseSaves = st.savesInElse.map(saveLine);
+      const out = [
+        `${indent}if (${renderArg(st.cond)})`,
+        `${indent}{`,
+        ...thenLines,
+        ...st.savesInThen.map(saveLine),
+        `${indent}}`,
+      ];
+      if (elseLines.length > 0 || elseSaves.length > 0) {
+        out.push(`${indent}else`, `${indent}{`, ...elseLines, ...elseSaves, `${indent}}`);
+      }
+      return out;
+    },
     variantMatch: (st, indent, armLines, elseLines) => {
       // A `T?` subject: `if (x is not null) { var b = x; … } else { … }`.  A
       // tagged union: a switch STATEMENT over the `<Union>_<Tag>` carrier

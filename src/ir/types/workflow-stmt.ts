@@ -259,6 +259,23 @@ export type WorkflowStmtIR = (
       savesInElse: { name: string; aggName: string; repoName: string }[];
     }
   | {
+      // `if <cond> { then } else { else }` — a branch on a boolean.  `else if`
+      // lowers to an `elseBody` holding one nested `if`.  Like `if-let`, each
+      // branch saves what it creates at its own end (`savesInThen` /
+      // `savesInElse`): a conditional branch cannot hoist its saves to the
+      // flat `savesAtExit`.  A binding declared before the `if` and mutated in
+      // a branch saves where it is declared (the enclosing body's saves), as
+      // it does for `if-let`.
+      kind: "if";
+      cond: ExprIR;
+      /** The condition's `.ddd` text, for the diagram views. */
+      source: string;
+      thenBody: WorkflowStmtIR[];
+      elseBody?: WorkflowStmtIR[];
+      savesInThen: { name: string; aggName: string; repoName: string }[];
+      savesInElse: { name: string; aggName: string; repoName: string }[];
+    }
+  | {
       // `notFound` / `notFound "detail"` — end the body with the standard
       // not-found ProblemDetails, the same answer a `getById` miss earns on
       // that backend (status `NotFound` resolves to, its reason-phrase title).

@@ -981,6 +981,19 @@ export function pyWorkflowStmtTarget(
       if (elseAll.length > 0) out.push(`${i}else:`, ...elseAll);
       return out;
     },
+    if: (st, i, thenLines, elseLines) => {
+      // `if c { … } else { … }` → a Python `if`; each branch's dirty bindings
+      // save at that branch's end.  An empty suite gets a `pass`.
+      const inner = `${i}    `;
+      const thenAll = [...thenLines, ...st.savesInThen.flatMap((s) => saveLines(s, inner))];
+      const elseAll = [...elseLines, ...st.savesInElse.flatMap((s) => saveLines(s, inner))];
+      const out = [
+        `${i}if ${renderPyExpr(st.cond, rctx)}:`,
+        ...(thenAll.length > 0 ? thenAll : [`${inner}pass`]),
+      ];
+      if (elseAll.length > 0) out.push(`${i}else:`, ...elseAll);
+      return out;
+    },
     variantMatch: (st, i, armLines, elseLines) => {
       // A `T?` subject: `if x is not None:` / `else:`.  A tagged union value is
       // the tagged dict, so each arm probes its `type`: `if x["type"] ==

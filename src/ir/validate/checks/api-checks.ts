@@ -60,9 +60,9 @@ function aggregatesTouched(h: CommandHandlerIR | QueryHandlerIR): Set<string> {
         }
         break;
       // The kinds that name no aggregate: the two guards, a pure `let`, an
-      // own-state write, an event, a resource call and a domain-service call
+      // own-state write, an event, a resource call, a domain-service call
       // (whose aggregates are reached through its argument expressions, not a
-      // statement field).  Named rather than left to a fall-through so a new
+      // statement field) and an `if` (whose branches are visited on their own).  Named rather than left to a fall-through so a new
       // `WorkflowStmtIR` kind that DOES carry one is a `tsc` error here.
       case "precondition":
       case "requires":
@@ -72,6 +72,7 @@ function aggregatesTouched(h: CommandHandlerIR | QueryHandlerIR): Set<string> {
       case "resource-call":
       case "domain-service-call":
       case "not-found":
+      case "if":
         break;
       default: {
         const _exhaustive: never = s;

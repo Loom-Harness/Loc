@@ -22,7 +22,7 @@ import {
 // for the four imperative backends; `pipeline` (`lowerWorkflowPipeline` + a
 // `WorkflowPipelineTarget`, below) lowers them to binding-chain steps for
 // Elixir.  Each owns the dispatch + the nested-body recursion (`for-each` /
-// `if-let` / `variant-match`) once; each backend supplies a leaf table.  A new
+// `if-let` / `if` / `variant-match`) once; each backend supplies a leaf table.  A new
 // `WorkflowStmtIR` kind is a compile error here (exhaustive switch) AND in
 // every target (the interface), exactly like adding an `ExprIR.kind`.
 //
@@ -115,6 +115,13 @@ export interface WorkflowStmtTarget extends LeafPerKind<string[]> {
     renderedThen: string[],
     renderedElse: string[],
   ): string[];
+
+  /** `if`: `renderedThen` / `renderedElse` are the two branch bodies already
+   *  rendered at `indent + indentUnit` by the spine.  The target renders
+   *  `st.cond` through its expression renderer, branches on it, and appends
+   *  each branch's saves (`savesInThen` / `savesInElse`).  `renderedElse` is
+   *  empty when the source had no `else`. */
+  if(st: ByKind<"if">, indent: string, renderedThen: string[], renderedElse: string[]): string[];
 
   /** `variant-match`: `renderedArms[i]` is `st.arms[i].body` and
    *  `renderedElse` the `else` body, each already rendered at
@@ -271,6 +278,13 @@ function renderWorkflowStmtOwn(
         renderWorkflowStmts(st.thenBody, target, indent + target.indentUnit),
         renderWorkflowStmts(st.elseBody ?? [], target, indent + target.indentUnit),
       );
+    case "if":
+      return target.if(
+        st,
+        indent,
+        renderWorkflowStmts(st.thenBody, target, indent + target.indentUnit),
+        renderWorkflowStmts(st.elseBody ?? [], target, indent + target.indentUnit),
+      );
     case "variant-match":
       return target.variantMatch(
         st,
@@ -302,7 +316,7 @@ function renderWorkflowStmtOwn(
 // So the pipeline spine lowers each statement to typed STEPS, not lines, and
 // hands every leaf its `PipelineScope` — the statements that follow it in the
 // same body, plus the expressions the caller evaluates after the body.  It
-// owns the kind dispatch and the recursion into `for-each` / `if-let` /
+// owns the kind dispatch and the recursion into `for-each` / `if-let` / `if` /
 // `variant-match` bodies; the target owns the spelling and the assembly of a
 // step list into a chain.
 // ---------------------------------------------------------------------------
@@ -334,17 +348,18 @@ export interface PipelineScope {
   /** True when this statement's binding is not the chain's result slot, so an
    *  unread binding may be discarded. */
   readonly discardableBind: boolean;
-  /** Inside a loop body: the names the body reads that are bound outside it
-   *  (not the loop variable, not a binding of the body).  A value such a name
-   *  holds must outlive the iteration — a mutation of it is read again by the
-   *  next one — so a target that rebinds rather than mutates threads it
-   *  through the loop.  Empty outside a loop body. */
+  /** Inside a loop body or an `if` branch: the names the body reads that are
+   *  bound outside it (not the loop variable, not a binding of the body).  A
+   *  value such a name holds must outlive the body — a mutation of it is read
+   *  again by the next iteration, or by the statements after the `if` — so a
+   *  target that rebinds rather than mutates threads it out of the body.
+   *  Empty in any other body. */
   readonly carried: ReadonlySet<string>;
 }
 
 /** A nested body: its statements, the steps the spine lowered them to, and
- *  the names they carry across iterations (`PipelineScope.carried`; empty for
- *  a body that is not a loop body). */
+ *  the names they carry out of the body (`PipelineScope.carried`; empty for a
+ *  body that is neither a loop body nor an `if` branch). */
 export interface PipelineBody {
   readonly stmts: readonly WorkflowStmtIR[];
   readonly steps: PipelineStep[];
@@ -368,6 +383,16 @@ export interface WorkflowPipelineTarget extends LeafPerKind<PipelineStep[]> {
   forEach(st: ByKind<"for-each">, scope: PipelineScope, body: PipelineBody): PipelineStep[];
   ifLet(
     st: ByKind<"if-let">,
+    scope: PipelineScope,
+    thenBody: PipelineBody,
+    elseBody: PipelineBody,
+  ): PipelineStep[];
+  /** `if`: each branch is lowered with `carried` holding the names its
+   *  statements read that are bound outside the `if`, so a target that
+   *  rebinds rather than mutates can thread a handle a branch rebinds back
+   *  out to the statements after it. */
+  if(
+    st: ByKind<"if">,
     scope: PipelineScope,
     thenBody: PipelineBody,
     elseBody: PipelineBody,
@@ -412,6 +437,7 @@ function bindsResult(st: WorkflowStmtIR): boolean {
     case "not-found":
     case "for-each":
     case "if-let":
+    case "if":
     case "variant-match":
       return false;
     default: {
@@ -476,6 +502,16 @@ function loopCarried(st: ByKind<"for-each">): ReadonlySet<string> {
   return new Set([...namesUsed(st.body)].filter((n) => !local.has(n)));
 }
 
+/** The names an `if` branch reads that are bound outside it, plus the names
+ *  the enclosing body already carries (a branch inside a loop body). */
+function branchCarried(
+  body: readonly WorkflowStmtIR[],
+  outer: PipelineScope,
+): ReadonlySet<string> {
+  const local = new Set(namesBound([body]));
+  return new Set([...outer.carried, ...[...namesUsed(body)].filter((n) => !local.has(n))]);
+}
+
 function lowerPipelineStmt(
   st: WorkflowStmtIR,
   target: WorkflowPipelineTarget,
@@ -516,6 +552,13 @@ function lowerPipelineStmt(
         scope,
         lowerPipelineBody(st.thenBody, target),
         lowerPipelineBody(st.elseBody ?? [], target),
+      );
+    case "if":
+      return target.if(
+        st,
+        scope,
+        lowerPipelineBody(st.thenBody, target, branchCarried(st.thenBody, scope)),
+        lowerPipelineBody(st.elseBody ?? [], target, branchCarried(st.elseBody ?? [], scope)),
       );
     case "variant-match":
       return target.variantMatch(
