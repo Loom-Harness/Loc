@@ -260,12 +260,11 @@ export type WorkflowStmtIR = (
     }
   | {
       // `if <cond> { then } else { else }` — a branch on a boolean.  `else if`
-      // lowers to an `elseBody` holding one nested `if`.  Like `if-let`, each
-      // branch saves what it creates at its own end (`savesInThen` /
-      // `savesInElse`): a conditional branch cannot hoist its saves to the
-      // flat `savesAtExit`.  A binding declared before the `if` and mutated in
-      // a branch saves where it is declared (the enclosing body's saves), as
-      // it does for `if-let`.
+      // lowers to an `elseBody` holding one nested `if`.  Each branch saves,
+      // at its own end, every binding it dirties (`savesInThen` /
+      // `savesInElse`) — the ones it declares and the ones declared before
+      // the `if` — and the enclosing body does not save them again, so a row
+      // the taken branch leaves alone is not written (its version holds).
       kind: "if";
       cond: ExprIR;
       /** The condition's `.ddd` text, for the diagram views. */

@@ -9,20 +9,22 @@
 //   Grade     — an `else if` chain whose every branch creates a `Note`, saved
 //               at the end of its own branch.
 //   BumpOther — an op on a row loaded INSIDE the branch, saved there.
-//   BumpAll   — an `if` nested in a `for` over a criterion run, with two ops
-//               on the loop row in the `else` branch.
+//   BumpAll   — an `if` nested in a `for` over a criterion run: the loop row
+//               saves only in the branch that bumps it.
 //   Promote   — a `commandHandler` body.
 //   Follow    — an event-triggered starter and its `on` reactor, each with an
 //               `if`; the reactor's branch writes the saga's own state.
 system WorkflowIf {
   subdomain D {
     context Ranks {
+      event Followed { prov: Prov id, rank: int }
       event Pinged { prov: Prov id, rank: int }
 
       aggregate Prov with crudish {
         rank: int
         bumps: int
         operation bump() { bumps := bumps + 1 }
+        operation follow() { emit Followed { prov: id, rank: rank } }
         operation ping() { emit Pinged { prov: id, rank: rank } }
       }
       repository Provs for Prov { }
@@ -33,7 +35,7 @@ system WorkflowIf {
       criterion Ranked(min: int) of Prov = rank >= min
 
       channel RankEvents {
-        carries: Pinged
+        carries: Followed, Pinged
         delivery: broadcast
         retention: ephemeral
       }
@@ -76,8 +78,7 @@ system WorkflowIf {
             if p.rank > 2 {
               p.bump()
             } else {
-              p.bump()
-              p.bump()
+              let n = Note.create(text: "skipped")
             }
           }
         }
@@ -91,7 +92,7 @@ system WorkflowIf {
       workflow Follow {
         prov: Prov id
         pings: int
-        create(e: Pinged) by e.prov {
+        create(e: Followed) by e.prov {
           pings := 1
           if e.rank > 0 { let n = Note.create(text: "followed") }
         }
@@ -154,25 +155,26 @@ system WorkflowIf {
     api.bumpOther.run({ x: lo.id, y: mid.id })
     expect(api.provs.getById(mid).bumps).toBe(0)
 
-    // An `if` inside a `for`: rank > 2 bumps once, the rest twice.
+    // An `if` inside a `for`: rank > 2 bumps, the rest record a note.
     api.bumpAll.run({ min: 1 })
     expect(api.provs.getById(hi).bumps).toBe(3)
-    expect(api.provs.getById(mid).bumps).toBe(2)
+    expect(api.provs.getById(mid).bumps).toBe(0)
     expect(api.provs.getById(lo).bumps).toBe(1)
+    expect(api.notes.all().items.where(n => n.text == "skipped").count).toBe(1)
 
     // A commandHandler body.
     api.ranks.promote(mid)
-    expect(api.provs.getById(mid).bumps).toBe(3)
+    expect(api.provs.getById(mid).bumps).toBe(1)
     api.ranks.promote(hi)
     expect(api.provs.getById(hi).bumps).toBe(3)
 
     // The starter's `if` creates a note; the reactor's taken branch writes the
     // saga's own state, and its `else` creates a note.
-    api.provs.ping(hi)
+    api.provs.follow(hi)
     expect(api.follow.instance(hi).pings).toBe(1)
     api.provs.ping(hi)
     expect(api.follow.instance(hi).pings).toBe(2)
-    api.provs.ping(lo)
+    api.provs.follow(lo)
     api.provs.ping(lo)
     expect(api.follow.instance(lo).pings).toBe(1)
     let pinged = api.notes.all()

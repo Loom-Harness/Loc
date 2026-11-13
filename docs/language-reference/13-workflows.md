@@ -4,7 +4,7 @@ Context-level orchestration: a `workflow` loads or creates several aggregates, c
 
 > **Grammar:** `Workflow`, `WorkflowCreateDecl`, `OnDecl`, `Apply`, `FunctionDecl`, `IsolationLevel`, `TimerSource` · **Validators:** `loom.workflow-*`, `loom.transactional-no-effect`, `loom.isolation-requires-transactional`, `loom.resource-op-in-transaction`, `loom.resource-op-outside-workflow`, `loom.workflow-correlation-required`, `loom.correlation-*`, `loom.workflow-gate-not-current-user`, `loom.timer-*` (`src/ir/validate/checks/workflow-checks.ts` + `timer-checks.ts`, `src/language/validators/timer.ts`) · **Docs:** [`../workflow.md`](../workflow.md), [`../resources.md`](../resources.md)
 
-A workflow shares its context's namespace (a workflow named like an aggregate / event / repository is a `loom.workflow-name-collision`).  Its state table shares the context's schema too: the table name is derived from the declared name (`workflow slaSweep` → `sla_sweeps`), so a workflow whose derived table matches any other persisted table of the context — `aggregate SlaSweep`, an entity part, a materialized projection, a join or value-collection table — is refused as `loom.persisted-table-collision` (the migration would otherwise create the table twice). Bodies reuse the operation [statement vocabulary](06-behavior-and-statements.md) but the validator narrows it to the orchestration subset: factory-`let`, repo-`let`, op-call, `precondition` / `requires`, `emit`, plus the workflow-only `for` / `if let`. Mutation forms (`:=` / `+=` / `-=`) are rejected in a workflow body (they belong in an aggregate op) — except inside an `eventSourced` workflow's `apply` fold.
+A workflow shares its context's namespace (a workflow named like an aggregate / event / repository is a `loom.workflow-name-collision`).  Its state table shares the context's schema too: the table name is derived from the declared name (`workflow slaSweep` → `sla_sweeps`), so a workflow whose derived table matches any other persisted table of the context — `aggregate SlaSweep`, an entity part, a materialized projection, a join or value-collection table — is refused as `loom.persisted-table-collision` (the migration would otherwise create the table twice). Bodies reuse the operation [statement vocabulary](06-behavior-and-statements.md) but the validator narrows it to the orchestration subset: factory-`let`, repo-`let`, op-call, `precondition` / `requires`, `emit`, plus `if` / `else` and the workflow-only `for` / `if let`. Mutation forms (`:=` / `+=` / `-=`) are rejected in a workflow body (they belong in an aggregate op) — except inside an `eventSourced` workflow's `apply` fold.
 
 > **Output sourcing.** Every tab below is excerpted from one generated tree: `generate system` over a `Sales` context with one deployable per backend (`node` / `dotnet` / `python` / `java` / `elixir`). Tabs are elided, never invented — where a block shows fewer than five backends the others emit the same shape and are left out for length, and a genuine gap is called out in prose.
 
@@ -469,6 +469,7 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 | `let xs = Repo.all(<Retrieval>(args), page?)` / `Repo.all(<Criterion>, page?)` | Bind an aggregate **array** — consumable only by a `for` loop. |
 | `for x in xs { … }` | Iterate an aggregate array; per-iteration op-calls save inside the loop. |
 | `if let x = Repo.find(<Criterion>) { … } else { … }` / `if let x = Repo.find(id) { … }` / `if let x = y { … }` | Single-result lookup — a criterion, `findById`, `findBy`, or an optional binding already in scope; `x` bound (non-null) only in the then-branch. |
+| `if cond { … } else if cond { … } else { … }` | Branch on a boolean. Each branch is its own scope (a `let` in it does not leak out) and may hold any statement of this table, nested `for` / `if let` / `match` / `if` included. Each branch saves, at its own end, every binding it dirties — the ones it declares and the ones declared before the `if` — so a row the taken branch leaves alone is not written. A `return` in a branch is `loom.workflow-return-not-last` / `loom.handler-return-not-last`. |
 | `name.op(args)` | Invoke a public operation on a let-bound aggregate (its own preconditions / invariants run inside the call). `private` ops are rejected (`loom.workflow-private-operation`). |
 | `let r = name.op(args)` / `let r = Svc.op(args)` | The same call, its result bound to `r`. Saved exactly like the statement — except a result with an `error` variant, which must be matched (see [below](#matching-a-mutating-calls-result)). |
 | `precondition Expr` / `requires Expr` | Guard → 400 (`DomainError`) / 403 (`ForbiddenError`). |
@@ -494,6 +495,60 @@ const text = o !== null ? o.status : "missing";
 const n = Note.create({ text: text });
 await notes.save(n);
 ```
+
+A plain `if` branches on a boolean; each branch saves what it dirtied at its own end:
+
+```ddd
+workflow Bump {
+  create(x: Prov id) {
+    let p = Provs.get(x)
+    if p.rank > 0 { p.bump() }
+    if p.bumps >= 2 { let n = Note.create(text: "bumped twice") }
+  }
+}
+```
+```ts
+// http/workflows.ts (node)
+const p = await provs.getById(x);
+if (p.rank > 0) {
+  p.bump();
+  await provs.save(p);
+}
+if (p.bumps >= 2) {
+  const n = Note.create({ text: "bumped twice" });
+  await notes.save(n);
+}
+```
+```elixir
+# lib/d/ranks/workflows/bump.ex — a branch answers the handle it rebound
+with {:ok, p} <- Context.get_prov(x),
+     {:ok, {p}} <- (
+       if p.rank > 0 do
+         with {:ok, p} <- Context.bump_prov(p, %{}) do
+           {:ok, {p}}
+         else
+           err -> err
+         end
+       else
+         {:ok, {p}}
+       end
+     ),
+     {:ok, _} <- (
+       if p.bumps >= 2 do
+         with {:ok, _n} <- Context.create_note(%{text: "bumped twice"}) do
+           {:ok, nil}
+         else
+           err -> err
+         end
+       else
+         {:ok, nil}
+       end
+     ) do
+  {:ok, p}
+end
+```
+
+.NET, Java and Python render the same `if` / `else` with each branch's saves at its end (`await _provs.SaveAsync(p, cancellationToken);`, `provsRepository.save(p);`, `await provs.save(p)`).  The corpus case `workflow-if` drives `else if`, an `if` in a `for`, a `commandHandler`, an event-triggered starter and an `on` reactor over the wire on every backend.
 
 A loaded aggregate is saved **only if** an operation was invoked on it inside the body; fresh `Agg.create` results always save. See [`../workflow.md`](../workflow.md) §"Save + event drain semantics".
 

@@ -142,6 +142,23 @@ describe("workflow-body data-flow checks (IR, phase ⑦)", () => {
     expect(c).toContain("loom.workflow-foreach-unknown-binding");
   });
 
+  // A plain `if` branch is checked the way an `if let` branch is: a `let` it
+  // declares is in scope for the rest of the branch only, and a name no
+  // branch bound is reported.
+  it("accepts an `if` branch op-call on an outer or branch-local binding", async () => {
+    const c = await codes(
+      "let o = Orders.get(orderId)\n        if o.total > 0 { o.bump() } else { let w = Widgets.get(orderId)  w.grow() }",
+    );
+    expect(c).toEqual([]);
+  });
+
+  it("flags an op-call in an `if` branch on a name no branch bound", async () => {
+    const c = await codes(
+      "let o = Orders.get(orderId)\n        if o.total > 0 { let w = Widgets.get(orderId) } else { w.grow() }",
+    );
+    expect(c).toContain("loom.workflow-foreach-unknown-binding");
+  });
+
   it("accepts a `for … in` op-call on the loop variable", async () => {
     const c = await codes("let xs = Orders.all(OrderQ(High))\n        for o in xs { o.bump() }");
     expect(c).not.toContain("loom.workflow-foreach-unknown-binding");

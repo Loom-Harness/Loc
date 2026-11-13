@@ -504,10 +504,7 @@ function loopCarried(st: ByKind<"for-each">): ReadonlySet<string> {
 
 /** The names an `if` branch reads that are bound outside it, plus the names
  *  the enclosing body already carries (a branch inside a loop body). */
-function branchCarried(
-  body: readonly WorkflowStmtIR[],
-  outer: PipelineScope,
-): ReadonlySet<string> {
+function branchCarried(body: readonly WorkflowStmtIR[], outer: PipelineScope): ReadonlySet<string> {
   const local = new Set(namesBound([body]));
   return new Set([...outer.carried, ...[...namesUsed(body)].filter((n) => !local.has(n))]);
 }

@@ -755,6 +755,16 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   "corpus/saga-durable-cross-context": ["api.relog.run (no such aggregate)"],
   // The two workflows the transaction-boundary fixture runs; same not-lifted
   // workflow-route class.
+  // The workflow runs and the saga's instance reads; the not-lifted
+  // workflow-route class.
+  "corpus/workflow-if": [
+    "api.bump.run (no such aggregate)",
+    "api.bumpAll.run (no such aggregate)",
+    "api.bumpOther.run (no such aggregate)",
+    "api.follow.instance (no such aggregate)",
+    "api.follow.instances (no such aggregate)",
+    "api.grade.run (no such aggregate)",
+  ],
   "corpus/workflow-partial-commit": [
     "api.bumpThenFail.run (no such aggregate)",
     "api.bumpThenFailAtomically.run (no such aggregate)",

@@ -448,6 +448,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "node and .NET appended the stream rows, then wrote the outbox rows in a second write after it, so a crash in between left an event in the stream that was never published.  The fixture drives the append path with a durable channel on every backend; the placement itself is pinned by `outbox-write-atomicity.test.ts`, since only a crash between the two writes tells them apart.",
   },
   {
+    id: "workflow-if",
+    title:
+      "a plain `if` / `else if` / `else` in workflow creates, an `on` reactor, an event-triggered starter and a `commandHandler`",
+    doc: "workflow",
+    backends: ALL,
+    note: "Each branch saves what it creates at its own end; a row loaded before the `if` and mutated in a branch saves at the body's exit.  The elixir chain rebinds a handle an op persists, so the `if` answers the branch's record back out — `Bump`'s second `if` reads the bumped row, the witness that it does.",
+  },
+  {
     id: "workflow-partial-commit",
     title:
       "a workflow without `transactional` keeps the saves it made before failing; its `transactional` twin keeps none",

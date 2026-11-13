@@ -55,8 +55,8 @@ import type {
 } from "../types/loom-ir.js";
 import { mutatedParamNames, type SaveResolver } from "../util/domain-service-tier.js";
 import { isGuardedCall } from "../util/effects.js";
-import { walkWorkflowStmtChildren } from "../util/walk.js";
 import { normalizeEarlyReturns } from "../util/if-normal-form.js";
+import { walkWorkflowStmtChildren } from "../util/walk.js";
 import { lowerCallableParams } from "./callable-params.js";
 import { lowerExpr, lowerExprInContext, retargetEnumValue } from "./lower-expr.js";
 import { lowerStatement } from "./lower-stmt.js";
@@ -467,8 +467,9 @@ function lowerActionBody(spec: ActionSpec, env: Env): OperationIR {
 type SaveEntry = { name: string; aggName: string; repoName: string };
 
 /** Recursively collect every op-call target + `mutating`-service-mutated
- *  binding name reachable from a statement list, DESCENDING into every nested
- *  body (`for-each`, `if-let`, `if`, `match` arms).  The descent is what makes an OUTER binding mutated
+ *  binding name reachable from a statement list, DESCENDING into the nested
+ *  bodies (`for-each`, `if-let`, `match` arms) but not into an `if`'s
+ *  branches, which save what they dirty themselves.  The descent is what makes an OUTER binding mutated
  *  inside a loop body (`for o in orders { acct.charge(o.total) }`) still land
  *  in the enclosing scope's saves — without it, `acct.charge` mutated a live
  *  object that was never persisted (audit finding 2: silent data loss).  A
@@ -504,9 +505,11 @@ function collectMutationTargets(
         const arg = args[i];
         if (mutated.has(p.name) && arg?.kind === "ref") serviceMutated.add(arg.name);
       });
-    } else {
-      // Every nested body — a loop's, each branch of an `if let` / `if`, each
-      // `match` arm.
+    } else if (st.kind !== "if") {
+      // Every other nested body — a loop's, each branch of an `if let`, each
+      // `match` arm.  An `if` saves, at the end of each branch, every binding
+      // that branch dirties (`ifBranchSaves`), so it owes the enclosing scope
+      // nothing.
       walkWorkflowStmtChildren(st, {
         workflowStmt: (c) =>
           collectMutationTargets([c], saveResolver, opCallTargets, serviceMutated),
@@ -554,6 +557,29 @@ export function computeSaves(
     ) {
       saves.push({ name: st.name, aggName: st.aggName, repoName: st.repoName });
     }
+  }
+  return saves;
+}
+
+/** The saves at the end of one `if` branch: what the branch creates or loads
+ *  and dirties (`computeSaves`), then each binding declared before the `if`
+ *  that the branch mutates — `outerAgg` names its aggregate, or answers
+ *  `undefined` for a name that is not an aggregate binding in scope.  A row
+ *  the branch does not touch is not written, so its version does not move. */
+export function ifBranchSaves(
+  statements: WorkflowStmtIR[],
+  repoForAgg: Map<string, string>,
+  outerAgg: (name: string) => string | undefined,
+  saveResolver?: SaveResolver,
+): SaveEntry[] {
+  const saves = computeSaves(statements, repoForAgg, undefined, saveResolver);
+  const opCallTargets = new Set<string>();
+  const serviceMutated = new Set<string>();
+  collectMutationTargets(statements, saveResolver, opCallTargets, serviceMutated);
+  for (const name of new Set([...opCallTargets, ...serviceMutated])) {
+    const aggName = outerAgg(name);
+    if (!aggName || saves.some((s) => s.name === name)) continue;
+    saves.push({ name, aggName, repoName: repoForAgg.get(aggName) ?? plural(aggName) });
   }
   return saves;
 }
