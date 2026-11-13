@@ -1,8 +1,8 @@
 // Feliz Modal — the scaffold detail's action dialog (one `Modal` per public
 // operation, each wrapping an `OperationForm`).  Rendered as a native `<details>`
-// DISCLOSURE (no MVU open-state): the `<summary>` is the trigger label, the
-// wrapped operation form (via the shared `renderOperationForm` seam) is revealed
-// on click.  Proven to compile via `dotnet fable` (SDK:8.0) + vite build.
+// DISCLOSURE controlled by the op form's `Open` flag: the `<summary>` is the
+// trigger label, the wrapped operation form (via the shared `renderOperationForm`
+// seam) is rendered only while open, so a successful submit closes it.  Proven to compile via `dotnet fable` (SDK:8.0) + vite build.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
@@ -42,17 +42,23 @@ describe("feliz modal", () => {
   it("renders a Modal as a <details> disclosure wrapping the operation form", async () => {
     const app = await appFs(SCAFFOLD);
     // A native disclosure styled as a daisyUI `collapse`: the trigger label is
-    // the summary; no MVU open-state.
+    // the summary, `open` follows the form's `Open` flag.
     expect(app).toContain(
-      'Html.details [ prop.className "collapse collapse-arrow border border-base-300 bg-base-200"; prop.children [',
+      'Html.details [ prop.className "collapse collapse-arrow border border-base-300 bg-base-200"; prop.isOpen model.RenameProductOpFormOpen; prop.children [',
     );
+    expect(app).toContain("(if model.RenameProductOpFormOpen then Html.div [");
+    expect(app).toContain(
+      "| ToggleRenameProductOpForm -> { model with RenameProductOpFormOpen = not model.RenameProductOpFormOpen }, Cmd.none",
+    );
+    // A successful submit closes it and reloads the record in place.
+    expect(app).toContain("RenameProductOpFormOpen = false }, pageCmd model model.CurrentPage");
     // The summary IS the trigger the op page-object clicks, so it carries the
     // `<plural>-op-<op>` testid (from the scaffold's trigger Button).
     // The label is TRANSLATED — it is the `button` user-visible slot, so the
     // extractor keys it (`page.<P>.button.<hash>`) and this renderer used to
     // splice it raw: a live catalog entry nothing rendered (A13).
     expect(app).toMatch(
-      /Html\.summary \[ prop\.custom\("data-testid", "products-op-rename"\); prop\.className "collapse-title font-medium"; prop\.text \(\(I18n\.t "Cat\.Product\.op\.rename" "Rename"\)\) \]/,
+      /Html\.summary \[ prop\.custom\("data-testid", "products-op-rename"\); prop\.onClick \(fun e -> e\.preventDefault\(\); dispatch ToggleRenameProductOpForm\); prop\.className "collapse-title font-medium"; prop\.text \(\(I18n\.t "Cat\.Product\.op\.rename" "Rename"\)\) \]/,
     );
     // The wrapped operation form renders inline inside the disclosure (its inputs
     // + the id-carrying submit — the same `renderOperationForm` markup).

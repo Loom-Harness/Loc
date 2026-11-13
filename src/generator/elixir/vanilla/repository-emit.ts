@@ -48,6 +48,7 @@ import { isAbstractBase, tphKind } from "./inheritance-emit.js";
 import { renderUpdateProvenanceCapture, updateCapturesProvenance } from "./provenance-emit.js";
 import { containmentPreloadRels, readPreloadRels } from "./read-preload.js";
 import { readOpts } from "./read-scope-emit.js";
+import { refAdmissionHelpers, refAdmissionPipe, refConstraintPipe } from "./ref-admission.js";
 import {
   containsRefCollField,
   foreignRefCollFields,
@@ -246,7 +247,8 @@ function renderRepository(
   // sentinel to Jason, which raises `cannot encode association … not loaded`.
   // Preloading is idempotent: `Repo.preload` skips relationships already loaded
   // by `put_assoc`/`cast_assoc`, so it only materialises the untouched ones.
-  const insertPipeline = `${aggModule}Changeset.base_changeset(attrs)${kindStamp}${insertStamps}${insertPutAssoc}
+  const admitPipe = refAdmissionPipe(agg, ctx);
+  const insertPipeline = `${aggModule}Changeset.base_changeset(attrs)${kindStamp}${insertStamps}${insertPutAssoc}${admitPipe}
     |> Repo.insert()`;
   // F-018 — a claim-valued stamp into a NOT NULL column must refuse a principal
   // whose claim is absent, rather than cast nil and let Postgres raise.  Elixir
@@ -460,7 +462,7 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
   const updateBody = capturesProv
     ? `${versionOverride}    {changeset, lineages} =
       record${updatePreload}
-      |> ${aggModule}Changeset.${updateChangesetFn}(attrs)${updateStamps}${updatePutAssoc}
+      |> ${aggModule}Changeset.${updateChangesetFn}(attrs)${updateStamps}${updatePutAssoc}${admitPipe.replace(/\n {4}/g, "\n      ")}
       |> __capture_provenance()
 
     Repo.transaction(fn ->
@@ -475,7 +477,7 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
       end
     end)${updateRescue}`
     : `${versionOverride}    record${updatePreload}
-    |> ${aggModule}Changeset.${updateChangesetFn}(attrs)${updateStamps}${updatePutAssoc}
+    |> ${aggModule}Changeset.${updateChangesetFn}(attrs)${updateStamps}${updatePutAssoc}${admitPipe}
     |> Repo.update(${updateForceArg})${updateRescue}`;
 
   // The CRUD `delete/1` repository fn is emitted only when the aggregate exposes
@@ -541,8 +543,12 @@ ${updateProvHelper}${deleteBlock}  @doc "Persist a pre-built changeset (the name
   @spec persist_change(Ecto.Changeset.t()) ::
           {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t()${versioned ? " | :conflict" : ""}}
   def persist_change(%Ecto.Changeset{data: %${aggModule}{}} = changeset) do
-    Repo.update(changeset${updateForce})${versioned ? persistChangeRescue : ""}
-  end${findBlock}${refHelpers || "\n"}end
+${
+  admitPipe
+    ? `    changeset${admitPipe}${refConstraintPipe(agg, ctx)}\n    |> Repo.update(${updateForceArg})`
+    : `    Repo.update(changeset${updateForce})`
+}${versioned ? persistChangeRescue : ""}
+  end${refAdmissionHelpers(appModule, ctxModule, agg, ctx)}${findBlock}${refHelpers || "\n"}end
 `;
 }
 

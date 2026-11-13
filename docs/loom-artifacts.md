@@ -26,14 +26,16 @@ consumption.
     ├── deployment.mmd
     ├── architecture.c4
     ├── datasources.md
+    ├── asyncapi.yaml            # AsyncAPI 3.0 view of the system's channels
     ├── traceability.md
     ├── traceability-matrix.md
     ├── traceability.mmd
     ├── traceability.json
     ├── coverage.md
     ├── gaps.md
-    ├── verification.json        # written by `ddd verify`
+    ├── verification.json        # written by `ddd verify`, beside the .ddd by default
     ├── verification.md          # written by `ddd verify`
+    ├── verification.mmd         # written by `ddd verify`
     ├── sourcemap.json           # opt-in, only under `generate system --sourcemap`
     └── snapshots/
         └── <ts>-<guid>.loomsnap.json               # provenance rule captures
@@ -60,13 +62,19 @@ traceability coverage, or migration baselines.
 
 | File | Producer | What it is |
 |---|---|---|
-| `messages.<source>.json` (`messages.en.json` unless `i18n { source }` says otherwise) | `src/system/i18n-catalog.ts` (phase ⑨) | Source-language message catalog — every user-visible string extracted from the system's UIs, as a flat, key-sorted `{ key: message }` object.  Keys are content-hashed (`<Ui>.page.<Page>.<role>.<hash>` / `<Ui>.component.<Comp>.<role>.<hash>` / `<Ui>.menu.<role>.<hash>`, D-I18N-KEY) so the catalog is reorder-invariant and a rephrase re-keys cleanly (delete-old + add-new).  The diff surface a future `ddd i18n sync` merges each locale against (M-T1.11, [`docs/old/proposals/i18n.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/i18n.md)). **This slice extracts plain string literals only** — interpolated strings (`"Order ${o.id}"`) await the template→ICU lowering slice. Extraction: `src/generator/_walker/i18n-extract.ts`. |
+| `messages.<source>.json` (`messages.en.json` unless `i18n { source }` says otherwise) | `src/system/i18n-catalog.ts` (phase ⑨) | Source-language message catalog — every user-visible string extracted from the system's UIs, as a flat, key-sorted `{ key: message }` object.  Hand-written text is keyed by content hash (`<Ui>.page.<Page>.<role>.<hash>` / `<Ui>.component.<Comp>.<role>.<hash>` / `<Ui>.menu.<role>.<hash>`) and model-derived text by identity (`<Ctx>.<Type>.<facet>[.<member>]`, D-I18N-KEY) so the catalog is reorder-invariant and a rephrase re-keys cleanly (delete-old + add-new).  The THEIRS side of the `ddd i18n sync` three-way merge each locale is reconciled against ([`i18n.md`](i18n.md)). Plain literals and interpolated templates (`"Order ${o.id}"` becomes the ICU message `Order {id}`) are both extracted. Generated UI chrome is keyed `chrome.*`, English baked into a built-in design pack's templates `pack.<family>.<role>.<hash>`, and the wire validation catalog `msg.<hash>`. Extraction: `src/generator/_walker/i18n-extract.ts`. |
 
 ## Storage routing
 
 | File | Producer | What it is |
 |---|---|---|
 | `datasources.md` | `src/system/datasources.ts` → `renderDataSourcesMd` | Per-system Markdown view of how `resource` declarations route domain contexts to physical storage.  Two sections: per-deployable routing (context → kind → storage with effective schema / table-prefix), and per-storage usage roll-up.  Catches accidental "primary" sharing and unused bindings at PR-review time. |
+
+## Eventing
+
+| File | Producer | What it is |
+|---|---|---|
+| `asyncapi.yaml` | `src/system/asyncapi.ts` → `renderAsyncApi` | AsyncAPI 3.0 view of the system's `channel` declarations — one channel object per `channel`, its carried events as messages, the `delivery` / `retention` / `key` knobs and the `channelSource` binding under `x-loom`.  Always emitted (`channels: {}` when the system declares none).  See [`channels.md`](channels.md). |
 
 ## Diagrams
 
@@ -89,8 +97,11 @@ traceability coverage, or migration baselines.
 | `traceability.json` | `src/system/traceability.ts` → `renderTraceabilityJson` | Machine-readable form of the same graph (for CI gating, custom reports). |
 | `coverage.md` | `src/system/traceability.ts` → `renderCoverageReport` | Per-solution and per-requirement coverage roll-up. |
 | `gaps.md` | `src/system/traceability.ts` → `renderGapsReport` | Inverse of coverage — requirements with no solution, solutions with no test case, test cases with no test. |
-| `verification.json` | `ddd verify` (`src/cli/main.ts`) | Join of the requirements graph with a JSON of test results — every requirement gets a `VERIFIED / FAILING / UNVERIFIED / UNTESTED` verdict. |
+| `verification.json` | `ddd verify` (`src/cli/commands/verify.ts`) | Join of the requirements graph with a JSON of test results — every requirement gets a `VERIFIED / FAILING / UNVERIFIED / UNTESTED` verdict. |
 | `verification.md` | `ddd verify` | Human-readable companion to `verification.json`. |
+| `verification.mmd` | `ddd verify` | Mermaid graph of the requirement → test verdicts. |
+
+`ddd verify` writes under `<--out>/.loom/`, defaulting to the `.ddd` file's directory — not the `generate system` output directory.
 
 See [`traceability.md`](traceability.md) for the surface that
 populates these.
@@ -135,6 +146,8 @@ The distinction is possible because the Source Map v3 / JSR-45 sidecars (and the
 trailing `sourceMappingURL` directives they add to the emitted `.ts`) are gated on
 `sourceTexts`, not on the recorder: with a recorder and no `sourceTexts`, the only
 addition to the emission is `sourcemap.json` itself.
+
+With `--sourcemap` the generated tree also gains per-file sidecars: `<file>.map` (Source Map v3) next to emitted `.ts`/`.tsx` files, `<file>.smap` (JSR-45) next to emitted `.java` files, and `.vscode/launch.json` at the output root.  See [`debugging.md`](debugging.md).
 
 ## What `.loom/` is NOT
 

@@ -188,7 +188,6 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.match-non-union-subject",
   "loom.method-call-unresolved-receiver",
   "loom.migration-duplicate-name",
-  "loom.migration-expr-unsupported",
   "loom.migration-sql-empty",
   "loom.mikroorm-unsupported",
   "loom.missing-effect-marker",

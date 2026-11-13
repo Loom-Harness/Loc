@@ -6,6 +6,7 @@ import {
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { requestNamesForContexts } from "../_frontend/request-names.js";
+import { workflowResultSegment } from "../_frontend/workflow-result.js";
 import { collectSchemaDeps, hasAnyWorkflow } from "../_frontend/workflows-module.js";
 import { zodForRequest, zodForResponse } from "../_frontend/zod-schemas.js";
 
@@ -87,7 +88,11 @@ export function buildWorkflowsApiModule(contexts: BoundedContextIR[]): string {
     lines.push(`export function use${base}Workflow() {`);
     lines.push(`  return createMutation(() => ({`);
     lines.push(`    mutationFn: async (input: ${base}Request) => {`);
-    lines.push(`      await api.post(\`/workflows/${snake(wf.name)}\`, input);`);
+    lines.push(
+      workflowResultSegment(wf)
+        ? `      return String(await api.post(\`/workflows/${snake(wf.name)}\`, input));`
+        : `      await api.post(\`/workflows/${snake(wf.name)}\`, input);`,
+    );
     lines.push(`    },`);
     lines.push(`  }));`);
     lines.push(`}`);

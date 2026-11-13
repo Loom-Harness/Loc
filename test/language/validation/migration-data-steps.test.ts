@@ -24,6 +24,7 @@ system Shop {
         placedAt: datetime
         dueAt: datetime
         tags: string[]
+        ref: guid
       }
       aggregate Doc shape: document { body: string }
       repository Orders for Order { }
@@ -89,7 +90,7 @@ describe("migration data steps — IR validation (M-T2.3)", () => {
       Order.quantity = quantity + 1
       Order.note = null
     }`);
-    expect(found).not.toContain("loom.migration-expr-unsupported");
+    expect(found).not.toContain("loom.migration-expr-invalid");
     expect(found).not.toContain("loom.backfill-type-mismatch");
     expect(found).not.toContain("loom.backfill-target-invalid");
     expect(found).not.toContain("loom.migration-data-steps-unsupported");
@@ -97,12 +98,26 @@ describe("migration data steps — IR validation (M-T2.3)", () => {
 
   it("rejects an expression outside the SQL-renderable subset", async () => {
     expect(await irCodes(`migration "x" { Order.quantity = [1, 2].count }`)).toContain(
-      "loom.migration-expr-unsupported",
+      "loom.migration-expr-invalid",
     );
   });
 
   it("rejects a type-mismatched backfill value", async () => {
     expect(await irCodes(`migration "x" { Order.quantity = "lots" }`)).toContain(
+      "loom.backfill-type-mismatch",
+    );
+  });
+
+  it("fills a guid column from a UUID string literal, and names the form for anything else", async () => {
+    expect(
+      await irCodes(`migration "x" { Order.ref = "22222222-2222-4222-8222-222222222222" }`),
+    ).not.toContain("loom.backfill-type-mismatch");
+    expect(
+      await irMessages(`migration "x" { Order.ref = "not-a-uuid" }`, "loom.backfill-type-mismatch"),
+    ).toEqual([
+      `backfill 'Order.ref': a guid column takes a UUID written as a string literal, e.g. Order.ref = "00000000-0000-4000-8000-000000000000".`,
+    ]);
+    expect(await irCodes(`migration "x" { Order.ref = label }`)).toContain(
       "loom.backfill-type-mismatch",
     );
   });
@@ -169,13 +184,13 @@ describe("migration data steps — IR validation (M-T2.3)", () => {
       Order.dueAt = placedAt + hours(24)
       Order.placedAt = dueAt - days(quantity)
     }`);
-    expect(found).not.toContain("loom.migration-expr-unsupported");
+    expect(found).not.toContain("loom.migration-expr-invalid");
     expect(found).not.toContain("loom.backfill-type-mismatch");
   });
 
   it("still refuses a duration that is not added to a datetime", async () => {
     expect(await irCodes(`migration "x" { Order.quantity = quantity + hours(1) }`)).toContain(
-      "loom.migration-expr-unsupported",
+      "loom.migration-expr-invalid",
     );
   });
 

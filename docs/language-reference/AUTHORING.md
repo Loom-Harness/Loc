@@ -77,7 +77,7 @@ Rules:
   blocks are allowed).
 - **Group names** — use exactly these so cross-page sync works:
   - `backend` for backend output. Tab labels: `node`, `dotnet`, `java`, `python`, `elixir`.
-  - `frontend` for frontend output. Tab labels: `react`, `vue`, `svelte`, `angular`.
+  - `frontend` for frontend output. Tab labels: `react`, `vue`, `svelte`, `angular`, `feliz`, `flutter`.
   - `pack` when the axis is design pack (`mantine`, `shadcn`, `mui`, `chakra`, `vuetify`, …).
   - Pick a descriptive group for anything else (e.g. `inheritance` for TPH-vs-TPC SQL).
 - **Only include tabs for platforms that actually emit something for the
