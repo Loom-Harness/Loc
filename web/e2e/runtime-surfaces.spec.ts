@@ -96,7 +96,7 @@ test("Tests tab shows the verdict legend and interprets the discovery error with
   await expect(hint.or(suite).first()).toBeVisible({ timeout: 90_000 });
   if (await hint.isVisible()) {
     await expect(hint).toContainText(
-      /^Test discovery couldn't (download the npm packages the generated tests import — check the network|load the generated tests)/,
+      /^(Test discovery couldn't download the npm packages the generated tests import — check the network|Some generated tests couldn't be loaded)/,
     );
     // Folded: the raw block is not in the DOM until Show details.
     await expect(page.getByTestId("test-error")).toHaveCount(0);

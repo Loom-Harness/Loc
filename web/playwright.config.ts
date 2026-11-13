@@ -31,6 +31,7 @@ const HEAVY_PREVIEW_SPECS = [
   "**/multi-deployable-ui.spec.ts",
   "**/timer-single-fire.spec.ts",
   "**/test-runner-deps.spec.ts",
+  "**/test-flow-crud-starter.spec.ts",
 ];
 
 export default defineConfig({
