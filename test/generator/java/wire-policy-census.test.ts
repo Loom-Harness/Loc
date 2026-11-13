@@ -84,7 +84,7 @@ const WAIVERS: { file: string; line: string; reason: string }[] = [
       "the auth surface (OIDC callback/refresh, dev-claims header, org-context switch, 401) is its own contract (docs/auth.md), not a request-input refusal",
   },
   {
-    file: "src/generator/java/emit/openapi-customizer.ts",
+    file: "src/generator/java/emit/openapi-docs.ts",
     line: "resolveErrorStatus",
     reason:
       "resolves the status of an arbitrary stdlib or declared error NAME for the OpenAPI declaration (the shared errorStatuses deriver in api-surface.ts takes a name resolver); it answers no request",

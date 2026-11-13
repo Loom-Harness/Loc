@@ -1274,8 +1274,8 @@ When the same subdomain is hosted on more than one deployable across
 different platforms (Hono, .NET, Phoenix, Python, Java — all five are
 diffed), the e2e additionally diffs their OpenAPI specs across every
 backend pair to catch generator drift. Each backend self-describes via
-its framework-native OpenAPI emitter (Java's springdoc spec is brought
-to parity by an `OpenApiContractCustomizer` document filter):
+its framework-native OpenAPI emitter, from generator configuration and
+source metadata only (D-OPENAPI-FRAMEWORK-NATIVE):
 
 Every backend serves the spec at the **aligned** path `/openapi.json` (root):
 

@@ -182,23 +182,20 @@ describe("java — F32: the workflow body is a wire boundary like every other", 
 });
 
 describe("java — F33: a create route publishes the 201 it answers", () => {
-  it("the create route carries successStatus 201; nothing else does", async () => {
-    const c = await file("config/OpenApiContractCustomizer.java");
-    expect(c).toContain(
-      'new Route("post", "/api/wallets", null, new int[] {400, 415, 422}, null, 201)',
-    );
-    expect(c).toContain(
-      'new Route("get", "/api/wallets/{id}", null, new int[] {404, 422}, null, 0)',
-    );
+  it("the create route publishes 201; the by-id read publishes 200", async () => {
+    const ctrl = await file("wallets/WalletsController.java");
+    const codes = (from: string, to: string): string[] => {
+      const block = ctrl.slice(ctrl.indexOf(from), ctrl.indexOf(to));
+      return [...block.matchAll(/responseCode = "(\d{3})"/g)].map((m) => m[1]!);
+    };
+    expect(codes("@PostMapping", "createWallet(")).toEqual(["201", "400", "415", "422"]);
+    expect(codes('@GetMapping("/{id}")', "getWalletById(")).toEqual(["200", "404", "422"]);
   });
 
-  it("the customizer re-keys the inferred 2xx rather than annotating a lie", async () => {
-    const c = await file("config/OpenApiContractCustomizer.java");
-    expect(c).toContain("retargetSuccess(op, route.successStatus());");
-    expect(c).toContain("ApiResponse resp = responses.remove(found);");
-    expect(c).toContain('case 201 -> "Created";');
+  it("the 201 is published by @ApiResponse, not claimed by @ResponseStatus", async () => {
     // `@ResponseStatus` is IGNORED at runtime on a ResponseEntity-returning
-    // method, so the controller must NOT claim one on the create.
+    // method, so the controller must NOT claim one on the create; the status
+    // it answers (`ResponseEntity.created`) is documented by `@ApiResponse`.
     const ctrl = await file("wallets/WalletsController.java");
     expect(ctrl).toContain("ResponseEntity.created(");
     const create = ctrl.indexOf("createWallet(");

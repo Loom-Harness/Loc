@@ -161,12 +161,14 @@ describe("RS-39 — an empty request body is `{}`; a parameterless command's bod
     expect(lineWith(workflows, "public void housekeeping(")).toContain(
       "@RequestBody(required = false)",
     );
-    // The hidden body leaves springdoc with no request body to publish; the
-    // customizer attaches the named empty one the other four publish.
-    const customizer = fileEndingWith(m, "OpenApiContractCustomizer.java");
-    expect(customizer).toContain('new EmptyRequest("/api/orders/{id}/close", "CloseOrderRequest")');
-    expect(customizer).toContain(
-      'new EmptyRequest("/api/workflows/housekeeping", "HousekeepingRequest")',
+    // The hidden body leaves springdoc with no request body to read; the
+    // method names the empty request the other four publish.
+    const emptyBody = (name: string): string =>
+      `@io.swagger.v3.oas.annotations.parameters.RequestBody(content = @io.swagger.v3.oas.annotations.media.Content(schema = @io.swagger.v3.oas.annotations.media.Schema(implementation = com.loom.d.api.contract.${name}.class)))`;
+    expect(controller).toContain(emptyBody("CloseOrderRequest"));
+    expect(workflows).toContain(emptyBody("HousekeepingRequest"));
+    expect(fileEndingWith(m, "contract/CloseOrderRequest.java")).toContain(
+      "public record CloseOrderRequest() {",
     );
     expect(fileEndingWith(m, "ApiExceptionAdvice.java")).toContain(
       `case 415 -> ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)};`,

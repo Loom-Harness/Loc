@@ -53,13 +53,6 @@ const MAX_DEFERRAL_DAYS = 180;
 
 /** One waiver per backend directory that still post-processes its document. */
 const WAIVERS: Record<string, Waiver> = {
-  "src/generator/java/": {
-    deferred:
-      "springdoc OpenApiCustomizer rewrites the document from a baked per-route table; " +
-      "replaced by config, @ApiResponse/@Schema metadata and sealed-interface unions",
-    reviewUntil: "2027-03-31",
-    blockedBy: "#4870",
-  },
   "src/generator/dotnet/": {
     deferred:
       "Swashbuckle document/operation/schema filters; replaced by [ProducesResponseType], " +
