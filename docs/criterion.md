@@ -90,7 +90,7 @@ context Sales {
 A query filter must test a column, so a literal anywhere else in a body is
 refused (`loom.retrieval-where-not-queryable`); the whole body `true` is the one
 exception. Each backend reads it as "no filter": Drizzle ``sql`true` ``, EF
-`x => true`, JPA `cb.conjunction()`, SQLAlchemy `.where(True)`, Ecto
+`x => true`, JPA `cb.conjunction()`, SQLAlchemy `.where(true())`, Ecto
 `where: true`, Dapper `WHERE TRUE`, MikroORM `{}`.
 
 Grammar:
