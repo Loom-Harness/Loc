@@ -64,6 +64,10 @@ function recordingTarget(): {
       calls.push({ kind: "if-let", indent });
       return [`${indent}if {`, ...renderedThen, `${indent}} else {`, ...renderedElse, `${indent}}`];
     },
+    if: (_st, indent, renderedThen, renderedElse) => {
+      calls.push({ kind: "if", indent });
+      return [`${indent}if {`, ...renderedThen, `${indent}} else {`, ...renderedElse, `${indent}}`];
+    },
     variantMatch: (_st, indent, renderedArms, renderedElse) => {
       calls.push({ kind: "variant-match", indent });
       return [
