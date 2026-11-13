@@ -159,7 +159,6 @@ import { renderExternHookImpl } from "./emit/extern.js";
 import { renderId } from "./emit/ids.js";
 import { renderHttpMetrics } from "./emit/metrics.js";
 import { emitDotnetMigrations } from "./emit/migrations.js";
-import { OP_UNION_FILTER_PATH, renderOpUnionResponsesFilter } from "./emit/op-union-filter.js";
 import {
   renderOutboxDelivery,
   renderOutboxDispatcher,
@@ -214,15 +213,13 @@ import {
   renderIDomainEvent,
   renderJoinEntity,
   renderJoinEntityConfiguration,
-  renderListWrapperFilter,
   renderMalformedPathIdFilter,
   renderNoNulCharAttribute,
   renderOrdinalGenerator,
-  renderProblemDetailsFilter,
+  renderProblemResponse,
   renderProgram,
   renderRepositoryImpl,
   renderRepositoryInterface,
-  renderRequiredFromCtorParamFilter,
   renderServiceTestsFile,
   renderSnapshots,
   renderTestCsproj,
@@ -1032,16 +1029,8 @@ function emitProjectFromContexts(
   // could exercise.  The narrowing that matters is inside the filter and is a
   // RUNTIME one — it acts only on an action that actually binds a `Guid id`.
   out.set("Api/MalformedPathIdFilter.cs", renderMalformedPathIdFilter(ns));
-  out.set("Api/ProblemDetailsResponsesFilter.cs", renderProblemDetailsFilter(ns));
-  out.set(
-    "Api/ListResponseWrapperFilter.cs",
-    renderListWrapperFilter(ns, listWrapperPairs(contexts)),
-  );
-  // The operation-return union OpenAPI split (M-FT.24) — only when some
-  // operation returns a union with an `error` arm.
-  const opUnionFilter = renderOpUnionResponsesFilter(ns, contexts);
-  if (opUnionFilter) out.set(OP_UNION_FILTER_PATH, opUnionFilter);
-  out.set("Api/RequiredFromCtorParamFilter.cs", renderRequiredFromCtorParamFilter(ns));
+  // The documented RFC 7807 body every declared 4xx/5xx names.
+  out.set("Api/ProblemResponse.cs", renderProblemResponse(ns));
   if (usesValidators) {
     out.set("Application/Common/ValidationBehavior.cs", renderValidationBehavior(ns));
   }
@@ -1230,46 +1219,6 @@ function emitProjectFromContexts(
   // `using` / qualified reference project-wide.  No relocation (the
   // byLayer default) → guaranteed no-op, so byLayer stays byte-identical.
   rewriteNamespacesForLayout(out, ns);
-}
-
-/** Element-schema → named-wrapper pairs for the list-response document
- *  filter.  Mirrors Hono/Phoenix naming: every aggregate's `<Agg>Response`
- *  → `<Agg>ListResponse`. */
-function listWrapperPairs(
-  contexts: readonly EnrichedBoundedContextIR[],
-): Array<{ element: string; wrapper: string }> {
-  const pairs: Array<{ element: string; wrapper: string }> = [];
-  for (const ctx of contexts) {
-    for (const agg of ctx.aggregates) {
-      // Abstract TPC bases emit no DTOs (no routes / handlers), so there is no
-      // `<Base>Response` to wrap.
-      if (agg.isAbstract) continue;
-      pairs.push({ element: `${agg.name}Response`, wrapper: `${agg.name}ListResponse` });
-    }
-    // Observable workflows expose GET /workflows/<wf>/instances, whose inline
-    // `array<InstanceResponse>` promotes to the named list carrier the other
-    // backends emit (`<Wf>InstanceListResponse` — Hono z.array().openapi(),
-    // Python RootModel).
-    for (const wf of ctx.workflows) {
-      if (!wf.instanceWireShape) continue;
-      pairs.push({
-        element: `${upperFirst(wf.name)}InstanceResponse`,
-        wrapper: `${upperFirst(wf.name)}InstanceListResponse`,
-      });
-    }
-    // Observable workflows expose a named instance-list wrapper
-    // (`<Wf>InstanceResponse` → `<Wf>InstanceListResponse`), matching Hono's
-    // `z.array(...).openapi("<Wf>InstanceListResponse")` — otherwise Swashbuckle
-    // inlines the `IEnumerable<<Wf>InstanceResponse>` list body as a bare array.
-    for (const wf of ctx.workflows) {
-      if (!wf.instanceWireShape) continue;
-      pairs.push({
-        element: `${upperFirst(wf.name)}InstanceResponse`,
-        wrapper: `${upperFirst(wf.name)}InstanceListResponse`,
-      });
-    }
-  }
-  return pairs;
 }
 
 // ---------------------------------------------------------------------------
@@ -1888,7 +1837,6 @@ function emitProject(
       nativePort: options?.nativePort,
       schemaIdOverrides,
       // Read off the emitted files, like `schemaIdOverrides` above.
-      opUnionFilter: out.has(OP_UNION_FILTER_PATH),
       voMergeFilter: out.has(VO_MERGE_FILTER_PATH),
       authRequired: !!options?.authRequired,
       userFields: options?.userFields ?? [],

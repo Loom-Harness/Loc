@@ -118,9 +118,11 @@ const DECLARED: Record<Platform, (files: Map<string, string>) => number[]> = {
     const at = src.indexOf('[HttpGet("tracker/instances/{id}")]');
     expect(at, "dotnet instance-by-id action").toBeGreaterThan(-1);
     const block = src.slice(at, src.indexOf("public async Task<IActionResult>", at));
-    return [...block.matchAll(/ProducesResponseType\(typeof\(ProblemDetails\), (\d{3})\)/g)].map(
-      (m) => Number(m[1]),
-    );
+    return [
+      ...block.matchAll(
+        /ProducesResponseType\(typeof\(ProblemResponse\), (\d{3}), "application\/problem\+json"\)/g,
+      ),
+    ].map((m) => Number(m[1]));
   },
   elixir: (files) => {
     const src = pick(files, /\/api\/.*_spec\.ex$/);

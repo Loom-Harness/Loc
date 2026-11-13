@@ -97,6 +97,8 @@ import {
   renderCsExpr,
   renderCsType,
 } from "./render-expr.js";
+import { splitUnionSuccessTags } from "./union-records.js";
+import { csProblemResponseAttr } from "./wire-policy-cs.js";
 import {
   buildResourceClasses,
   csWorkflowStmtTarget,
@@ -115,8 +117,8 @@ const RESULT_LOCAL = "__result";
 const DOMAIN_COMMON_TYPE_REF = /\b(?:Provenanced|ProvLineage|RequestContext|Paged|FileRef)\b/;
 
 /** A routed action's declared responses: its success line, then the shared
- *  `routedErrorStatuses` set every backend publishes for the route.  The
- *  `ProblemDetailsResponsesFilter` moves each onto `application/problem+json`. */
+ *  `routedErrorStatuses` set every backend publishes for the route, each as
+ *  `application/problem+json` (`csProblemResponseAttr`). */
 function routedResponseDecls(
   successDecl: string,
   r: RouteIR,
@@ -124,10 +126,7 @@ function routedResponseDecls(
   ctx: EnrichedBoundedContextIR,
 ): string {
   const statuses = routedErrorStatuses(r, h, ctx);
-  return [
-    successDecl,
-    ...statuses.map((s) => `    [ProducesResponseType(typeof(ProblemDetails), ${s})]`),
-  ]
+  return [successDecl, ...statuses.map((s) => `    ${csProblemResponseAttr(s, "")}`)]
     .map((l) => `${l}\n`)
     .join("");
 }
@@ -1165,11 +1164,13 @@ export function emitExplicitRouteController(
     if (er && retType?.kind === "union") {
       // An expected-failure result: an error record answers problem+json at
       // its mapped status, a success record 200 through the union base.
-      successDecl = `    [ProducesResponseType(typeof(${handlerResultCs(h, retType, ns)}), 200)]`;
+      // A union with error arms answers only its success arms at 200.
+      const success = splitUnionSuccessTags(retType.variants, ctx) ? "Success" : "";
+      successDecl = `    [ProducesResponseType(typeof(${handlerResultCs(h, retType, ns)}${success}), 200)]`;
       const declared = new Set(routedErrorStatuses(r, h, ctx));
       armDecls = entryErrorStatuses(er, ctx)
         .filter((st) => !declared.has(st))
-        .map((st) => `    [ProducesResponseType(typeof(ProblemDetails), ${st})]\n`)
+        .map((st) => `    ${csProblemResponseAttr(st, "")}\n`)
         .join("");
       sendBlock =
         `        var result = await _mediator.Send(new ${rec}(${ctorArgs}));\n` +

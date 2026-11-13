@@ -86,6 +86,7 @@ import {
 import { dotnetResourceAdapterFor, resourceClassName } from "./adapters/resource-clients.js";
 import {
   csIdValueClrType,
+  csSchemaRequiredAttr,
   dtoParam,
   maskNamer,
   noNulCharUsing,
@@ -111,7 +112,13 @@ import { csFilterBypassArg, csReadOwnParams } from "./local-names.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "./render-expr.js";
 import { collectCsStmtUsings, renderCsStatements } from "./render-stmt.js";
-import { csNotFoundException, csRuleParams, wireStatusResolver } from "./wire-policy-cs.js";
+import { splitUnionSuccessTags } from "./union-records.js";
+import {
+  csNotFoundException,
+  csProblemResponseAttr,
+  csRuleParams,
+  wireStatusResolver,
+} from "./wire-policy-cs.js";
 import {
   esCorrIdClass,
   esEventDbSet,
@@ -307,7 +314,7 @@ function renderWorkflowPayloadWireRecords(
       const params = pl.fields
         .map((f) => dtoParam(wireType(f.type, ctx, "request"), upperFirst(f.name), "request"))
         .join(", ");
-      return `public sealed record ${pl.name}Response(${params});\n`;
+      return `${csSchemaRequiredAttr(params)}public sealed record ${pl.name}Response(${params});\n`;
     })
     .join("\n");
   return `// Auto-generated.
@@ -388,7 +395,7 @@ function renderWorkflowValueObjectRequests(
       const params = vo.fields
         .map((f) => dtoParam(wireType(f.type, ctx, "request"), upperFirst(f.name), "request"))
         .join(", ");
-      return `public sealed record ${vo.name}Request(${params});\n`;
+      return `${csSchemaRequiredAttr(params)}public sealed record ${vo.name}Request(${params});\n`;
     })
     .join("\n");
   return `// Auto-generated.
@@ -1230,7 +1237,7 @@ using ${ns}.Domain.Enums;
 ${noNulCharUsing(ns, params)}
 namespace ${ns}.Application.Workflows;
 
-public sealed record ${upperFirst(wf.name)}Request(${params});
+${csSchemaRequiredAttr(params)}public sealed record ${upperFirst(wf.name)}Request(${params});
 `;
 }
 
@@ -2356,7 +2363,7 @@ function renderController(
       wireStatusResolver(ctx.structuralErrorStatuses),
       { readsAggregate: workflowCanAnswerNotFound(wf, ctx) },
     )
-      .map((s) => `    [ProducesResponseType(typeof(ProblemDetails), ${s})]\n`)
+      .map((s) => `    ${csProblemResponseAttr(s, "")}\n`)
       .join("");
     // `create(…): T` — 200 with the value.  An id answers its raw value
     // (`.Value`, a Guid/int/long/string), the same JSON token the aggregate's
@@ -2364,7 +2371,7 @@ function renderController(
     const result = commandCreateResult(wf);
     const er = commandCreateEntryResult(wf);
     const success = result
-      ? `    [ProducesResponseType(typeof(${er || isWorkflowSelfType(wf, result.type) ? workflowResultCs(wf, result.type, ns) : workflowResultWireCs(result.type)}), 200)]\n`
+      ? `    [ProducesResponseType(typeof(${er || isWorkflowSelfType(wf, result.type) ? workflowResultCs(wf, result.type, ns) : workflowResultWireCs(result.type)}${result.type.kind === "union" && splitUnionSuccessTags(result.type.variants, ctx) ? "Success" : ""}), 200)]\n`
       : // Explicit success (NoContent → 204) so the added error
         // [ProducesResponseType] doesn't suppress Swashbuckle's 2xx inference.
         `    [ProducesResponseType(204)]\n`;
@@ -2382,7 +2389,7 @@ function renderController(
     const armAttrs = er
       ? entryErrorStatuses(er, ctx)
           .filter((st) => !declared.has(st))
-          .map((st) => `    [ProducesResponseType(typeof(ProblemDetails), ${st})]\n`)
+          .map((st) => `    ${csProblemResponseAttr(st, "")}\n`)
           .join("")
       : "";
     const send =
@@ -2650,7 +2657,7 @@ function renderInstancesController(
         )});\n`
       : "";
     const forbiddenAttr = gate
-      ? `    [ProducesResponseType(typeof(ProblemDetails), ${wireStatus("forbidden", ctx.structuralErrorStatuses)})]\n`
+      ? `    ${csProblemResponseAttr(wireStatus("forbidden", ctx.structuralErrorStatuses), "")}\n`
       : "";
     blocks.push(
       `    [HttpGet("${slug}/instances")]\n` +
@@ -2678,7 +2685,7 @@ function renderInstancesController(
         // arm answered the override — the declaration/runtime drift the matrix
         // exists to remove.  (422 stays literal: it is a framework tier.)
         errorStatuses("getById", false, wireStatusResolver(ctx.structuralErrorStatuses))
-          .map((s) => `    [ProducesResponseType(typeof(ProblemDetails), ${s})]\n`)
+          .map((s) => `    ${csProblemResponseAttr(s, "")}\n`)
           .join("") +
         `    public async Task<IActionResult> ${upperFirst(camelId(opWorkflowInstanceById(wf.name)))}(${corrClr} id)\n` +
         `    {\n` +

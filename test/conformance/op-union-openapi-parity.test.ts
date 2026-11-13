@@ -202,35 +202,53 @@ function fromJava(out: Map<string, string>): Published {
   return { ops, problems };
 }
 
+/** .NET publishes through Swashbuckle alone (D-OPENAPI-FRAMEWORK-NATIVE), read
+ *  here off the source metadata the schema generator reads: the 200's
+ *  `[ProducesResponseType]` record, that record's `[JsonDerivedType]` tags, and
+ *  the record each error status declares.  Swashbuckle composes `oneOf`
+ *  (polymorphism) but never `anyOf`, so an error-arm status declares the open
+ *  `ProblemDetails` body alone — which accepts exactly the bodies
+ *  `anyOf: [ProblemDetails, <Tag>Problem]` accepts — and publishes no
+ *  `<Tag>Problem` component. */
 function fromDotnet(out: Map<string, string>): Published {
-  const src = fileEnding(out, "Api/OpUnionResponsesFilter.cs");
-  expect(fileEnding(out, "Program.cs")).toContain("c.DocumentFilter<OpUnionResponsesFilter>();");
-  const schemaLine = (name: string): string =>
-    src.match(new RegExp(`schemas\\["${name}"\\] = (.*);`))![1]!;
+  const ctrl = fileEnding(out, "Api/OrdersController.cs");
   const ops: Published["ops"] = {};
   for (const op of OPS) {
-    const i = src.indexOf(`case "${op}Order":`);
-    const block = src.slice(i, src.indexOf("break;", i));
-    const success = block.match(/RetargetSuccess\(operation, swaggerDoc, "(\w+)"\)/)![1]!;
+    const i = ctrl.indexOf(`[HttpPost("{id}/${op}")]`);
+    const block = ctrl.slice(i, ctrl.indexOf("public async", i));
+    const success = block.match(/\[ProducesResponseType\(typeof\([\w.]*?(\w+)\), 200\)\]/)![1]!;
+    const unionFile = [...out.entries()].find(
+      ([k, v]) => k.endsWith(".cs") && v.includes(`public abstract record ${success} `),
+    )![1];
+    const decl = unionFile.slice(0, unionFile.indexOf(`public abstract record ${success} `));
+    const attrs = decl.slice(decl.lastIndexOf("[JsonPolymorphic"));
     const errors: Record<string, string[]> = {};
-    for (const m of block.matchAll(/RetargetProblem\(operation, "(\d{3})", (.*)\);/g)) {
-      errors[m[1]!] = sorted(all(/OpenApiSchemaReference\("(\w+)"/g, m[2]!));
+    for (const m of block.matchAll(
+      /\[ProducesResponseType\(typeof\((\w+)\), (\d{3}), "application\/problem\+json"\)\]/g,
+    )) {
+      // Only the error-arm statuses are compared; the route's other refusals
+      // are the shared matrix's, not this split's.
+      if (m[2]! in EXPECTED.ops[op]!.errors) {
+        errors[m[2]!] = [m[1] === "ProblemResponse" ? "ProblemDetails" : m[1]!];
+      }
     }
-    ops[op] = {
-      success,
-      successTags: all(/JsonValue\.Create\("([^"]+)"\)/g, schemaLine(success)),
-      errors,
-    };
+    ops[op] = { success: lowerFirst(success), successTags: all(/, "([^"]+)"\)\]/g, attrs), errors };
   }
-  const problems = Object.fromEntries(
-    all(/schemas\["(\w+Problem)"\]/g, src).map((n) => [
-      n,
-      sorted(
-        all(/"(\w+)"/g, schemaLine(n).match(/Required = new HashSet<string> \{([^}]*)\}/)![1]!),
-      ),
-    ]),
-  );
-  return { ops, problems };
+  return { ops, problems: {} };
+}
+
+/** The contract every backend publishes, with each error-arm status read the way
+ *  a validator reads it: \`anyOf: [ProblemDetails, <Tag>Problem]\` accepts the
+ *  same bodies as the open \`ProblemDetails\` alone, so both spellings compare
+ *  as \`ProblemDetails\`, and the arm problem components drop out. */
+function asAccepted(pub: Published): Published {
+  const ops: Published["ops"] = {};
+  for (const [op, o] of Object.entries(pub.ops)) {
+    const errors: Record<string, string[]> = {};
+    for (const status of Object.keys(o.errors)) errors[status] = ["ProblemDetails"];
+    ops[op] = { ...o, errors };
+  }
+  return { ops, problems: {} };
 }
 
 function fromElixir(out: Map<string, string>): Published {
@@ -275,14 +293,21 @@ const EXTRACT: Record<string, (out: Map<string, string>) => Published> = {
 
 describe("M-FT.24 — an op-return union's error arm is published as a problem, not a 200 arm", () => {
   for (const [platform, extract] of Object.entries(EXTRACT)) {
+    if (platform === "dotnet") continue;
     it(`${platform}: 200 = success arms only; the error arm's status = ProblemDetails | <Tag>Problem`, async () => {
       expect(extract(await files(platform))).toEqual(EXPECTED);
     });
   }
 
+  it("dotnet: 200 = success arms only; the error arm's status = ProblemDetails", async () => {
+    expect(fromDotnet(await files("dotnet"))).toEqual(asAccepted(EXPECTED));
+  });
+
   it("all five publish the same split", async () => {
     const published = await Promise.all(
-      Object.entries(EXTRACT).map(async ([p, extract]) => [p, extract(await files(p))] as const),
+      Object.entries(EXTRACT).map(
+        async ([p, extract]) => [p, asAccepted(extract(await files(p)))] as const,
+      ),
     );
     const [ref, ...rest] = published;
     for (const [p, pub] of rest) expect(pub, `${p} vs ${ref![0]}`).toEqual(ref![1]);

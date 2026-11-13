@@ -250,7 +250,7 @@ const SITES: Record<Platform, Site[]> = {
       rung: "NotFound",
       what: "getById's DECLARED [ProducesResponseType] set",
       file: "Api/LinesController.cs",
-      at: /ProducesResponseType\(typeof\(ProblemDetails\), (\d+)\)\][\s\S]{0,200}?GetLineById\(/,
+      at: /ProducesResponseType\(typeof\(ProblemResponse\), (\d+), "application\/problem\+json"\)\][\s\S]{0,200}?GetLineById\(/,
     },
     {
       rung: "Disallowed",
@@ -286,7 +286,7 @@ const SITES: Record<Platform, Site[]> = {
       rung: "Forbidden",
       what: "the gated list read's DECLARED [ProducesResponseType] set",
       file: "Api/ItemsController.cs",
-      at: /\[ProducesResponseType\(typeof\(Paged<ItemResponse>\), 200\)\]\s*(?:\[ProducesResponseType\(typeof\(ProblemDetails\), 422\)\]\s*)?\[ProducesResponseType\(typeof\(ProblemDetails\), (\d+)\)\][\s\S]{0,400}?public async Task<[^\n]*> AllItem/,
+      at: /\[ProducesResponseType\(typeof\(Paged<ItemResponse>\), 200\)\]\s*(?:\[ProducesResponseType\(typeof\(ProblemResponse\), 422, "application\/problem\+json"\)\]\s*)?\[ProducesResponseType\(typeof\(ProblemResponse\), (\d+), "application\/problem\+json"\)\][\s\S]{0,400}?public async Task<[^\n]*> AllItem/,
     },
   ],
   java: [

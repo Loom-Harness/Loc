@@ -2,8 +2,8 @@
 // `create` / routed handler): every backend that renders it publishes the
 // split an operation's union publishes (`opUnionResponses`) — 200 →
 // `<Union>Success` over the success arms, each error arm's status →
-// ProblemDetails or `<Tag>Problem` — on the workflow's command route and on
-// the routed handler's path.  Each backend's emitted registration is read in
+// ProblemDetails or `<Tag>Problem` (.NET: the open ProblemDetails, see below)
+// — on the workflow's command route and on the routed handler's path.  Each backend's emitted registration is read in
 // its own dialect; the shape it names is the same on all four.
 
 import { readFileSync } from "node:fs";
@@ -63,20 +63,23 @@ describe("expected-failure entry routes publish the operation union split", () =
     }
   });
 
+  // .NET publishes through Swashbuckle's own generator (D-OPENAPI-FRAMEWORK-NATIVE):
+  // the 200 names the `<Union>Success` record, which declares only the success
+  // arms as its `[JsonDerivedType]`s, and the 409 declares the open
+  // ProblemDetails body — Swashbuckle composes no `anyOf`, and the open body
+  // accepts exactly what `ProblemDetails | <Tag>Problem` accepts.
   it(".NET", async () => {
     const src = await all("dotnet");
-    expect(src).toContain('schemas["PaymentDeclinedProblem"]');
     for (const r of ROUTES) {
-      expect(src).toContain(`schemas["${r.success}"]`);
-      const at = src.indexOf(`case "${r.id}":`);
-      expect(at).toBeGreaterThan(0);
-      expect(src.slice(at, src.indexOf("break;", at))).toContain(
-        `RetargetSuccess(operation, swaggerDoc, "${r.success}")`,
-      );
-      expect(src.slice(at, src.indexOf("break;", at))).toContain(
-        'RetargetProblem(operation, "409"',
-      );
+      const decl = src.indexOf(`public abstract record ${r.success} :`);
+      expect(decl, r.success).toBeGreaterThan(0);
+      const attrs = src.slice(src.lastIndexOf("[JsonPolymorphic", decl), decl);
+      expect(attrs).not.toContain("_PaymentDeclined)");
+      expect(src).toMatch(new RegExp(`\\.${r.success}\\), 200\\)\\]`));
     }
+    expect(src).toContain(
+      '[ProducesResponseType(typeof(ProblemResponse), 409, "application/problem+json")]',
+    );
   });
 
   it("Java", async () => {
