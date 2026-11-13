@@ -7,19 +7,20 @@
 //
 //   - a `tenantOwned` target resolves in the tenant of the row being written
 //     (the caller's operating tenant, for a row the caller creates);
-//   - the tenancy registry resolves to the row's own tenant (the registry's
-//     self-scope: a tenant sees exactly its own registry row);
-//   - a `crossTenant` target, or any target outside `tenancy by`, is global:
-//     the plain foreign key already admits exactly the rows that exist;
+//   - the tenancy registry is global: a registry id names an org, and a row
+//     legitimately names orgs other than its own (a share's grantee, a
+//     memo's reader), so the plain foreign key decides;
+//   - a `crossTenant` target, or any target outside `tenancy by`, is global
+//     too;
 //   - a target with no table beside the row (another context's aggregate)
 //     cannot be resolved at write time, which `loom.ref-scope-unresolvable`
 //     reports when that target is tenant-scoped.
 //
 // Every backend renders the same step from this fact: before the row is
-// written, each `row-tenant` / `tenant-registry` reference is probed against
+// written, each `row-tenant` reference is probed against
 // its target under the TARGET's read scope — the restriction every read of
 // that target already applies (the `tenantOwned` floor on the operating org,
-// the registry's self-scope, and any row rules or `deny` it carries).  A
+// and any row rules, shares or `deny` it carries).  A
 // reference that does not resolve is refused exactly as a reference to a row
 // that does not exist (the dangling-reference refusal), so the refusal tells a
 // caller nothing about rows outside its scope.
@@ -30,16 +31,13 @@
 // write (a reactor, a timer) as much as for a request.
 
 import type { AggregateIR, ContainmentIR, TypeIR } from "../types/loom-ir.js";
-import { hasTenantOwned, TENANCY_SELF_SCOPE_ORIGIN } from "../util/tenant-stance.js";
+import { hasTenantOwned } from "../util/tenant-stance.js";
 
 /** Where a persisted reference must resolve. */
 export type RefScope =
   /** The target is `tenantOwned`: it resolves only among the rows of the
    *  writing row's tenant. */
   | "row-tenant"
-  /** The target is the tenancy registry: the reference resolves only to the
-   *  writing row's own tenant. */
-  | "tenant-registry"
   /** No tenant constraint: the foreign key admits every existing row. */
   | "global"
   /** The target has no table beside the row, so no write-time check is
@@ -67,19 +65,13 @@ export interface ScopedReference {
 
 type Stance = Pick<AggregateIR, "name" | "capabilities" | "contextFilterOrigins">;
 
-/** The scope a reference to `target` resolves in when written from `source`.
- *  Read off the target alone: a `tenantOwned` target carries the capability,
- *  the registry carries its derived self-scope filter.  `undefined` = the
- *  target has no table beside the row (`hosted` is false). */
-export function refScopeOf(source: Stance, target: Stance, hosted: boolean): RefScope {
-  const scoped = hasTenantOwned(target) || isTenantRegistry(target);
-  if (!hosted) return scoped ? "unresolvable" : "global";
-  if (hasTenantOwned(target)) return "row-tenant";
-  // The registry tree (`parent: Self id?`) manages sub-tenants under its own
-  // rules; a registry row is not tenant-owned, so the self-scope applies only
-  // to a reference written from a tenant-owned row.
-  if (isTenantRegistry(target)) return hasTenantOwned(source) ? "tenant-registry" : "global";
-  return "global";
+/** The scope a reference to `target` resolves in when written from `source`,
+ *  read off the target alone: a `tenantOwned` target resolves in the row's
+ *  tenant when its table lives beside the row (`hosted`), and is unresolvable
+ *  otherwise. */
+export function refScopeOf(_source: Stance, target: Stance, hosted: boolean): RefScope {
+  if (!hasTenantOwned(target)) return "global";
+  return hosted ? "row-tenant" : "unresolvable";
 }
 
 /** One containment step from the aggregate root down to a part. */
@@ -143,21 +135,13 @@ export function scopedReferences(
 }
 
 /** The references of `agg` a write must probe before it persists the row:
- *  the `row-tenant` and `tenant-registry` ones.  Empty for an aggregate whose
+ *  the `row-tenant` ones.  Empty for an aggregate whose
  *  every reference is global, so its emitted write path is unchanged. */
 export function admittedReferences(
   agg: AggregateIR,
   hosted: readonly AggregateIR[],
 ): ScopedReference[] {
-  return scopedReferences(agg, hosted).filter(
-    (r) => r.scope === "row-tenant" || r.scope === "tenant-registry",
-  );
-}
-
-/** True for the tenancy registry: enrichment gives it the derived
- *  `this.id == currentUser.<claim>` self-scope filter. */
-function isTenantRegistry(agg: Pick<AggregateIR, "contextFilterOrigins">): boolean {
-  return agg.contextFilterOrigins.includes(TENANCY_SELF_SCOPE_ORIGIN);
+  return scopedReferences(agg, hosted).filter((r) => r.scope === "row-tenant");
 }
 
 function referenceShape(

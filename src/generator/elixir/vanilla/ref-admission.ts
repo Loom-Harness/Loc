@@ -2,10 +2,10 @@
 // (docs/tenancy.md → "Reference admission"; the decision lives in
 // `src/ir/plan/ref-scope.ts`).
 //
-// Before a row is written, every reference the plan marks `row-tenant` or
-// `tenant-registry` is probed by reading the target through its own read
-// scope: `Repo.prepare_query/3` applies the target's tenant floor (or the
-// registry's self-scope) under the ambient principal, exactly as any read of
+// Before a row is written, every reference the plan marks `row-tenant` is
+// probed by reading the target through its own read
+// scope: `Repo.prepare_query/3` applies the target's read scope (its tenant
+// floor, row rules, deny) under the ambient principal, exactly as any read of
 // that target does.  A reference the probe does not find is refused with the
 // changeset error a foreign-key violation produces (`constraint: :foreign`),
 // so the existing changeset arm of every controller answers it as it answers a

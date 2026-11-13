@@ -3,11 +3,11 @@
 // `src/ir/plan/ref-scope.ts`).
 //
 // At the head of `save`, before the row is written, every reference the plan
-// marks `row-tenant` or `tenant-registry` is probed against its target table.
+// marks `row-tenant` is probed against its target table.
 // The target's own tenant restriction is not spelled in the probe: the
 // read-scope hook (`app/db/read_scope.py`) adds it to every ORM select, so the
 // probe resolves in exactly the rows the target's reads serve — the
-// `tenantOwned` floor, or the registry's self-scope — under the principal's
+// `tenantOwned` floor and any row rules — under the principal's
 // operating organization.  A reference that does not resolve raises an
 // `IntegrityError` whose driver error carries Postgres' `foreign_key_violation`
 // SQLSTATE, so the app-wide integrity handler answers it exactly as it answers

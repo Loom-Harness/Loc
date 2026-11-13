@@ -2,11 +2,11 @@
 // (docs/tenancy.md → "Reference admission"; the decision lives in
 // `src/ir/plan/ref-scope.ts`).
 //
-// Before the row is written, every reference the plan marks `row-tenant` or
-// `tenant-registry` is probed under the TARGET's read scope: a JPQL count of
+// Before the row is written, every reference the plan marks `row-tenant` is
+// probed under the TARGET's read scope: a JPQL count of
 // the target rows whose id is among the values, issued through the
 // EntityManager, so the target entity's auto-enabled Hibernate `@Filter`s (the
-// tenant floor, the registry self-scope, row rules, deny) and `@SQLRestriction`
+// tenant floor, row rules, deny) and `@SQLRestriction`
 // apply exactly as they do to a `findById` of the target.  A count short of the
 // distinct values throws a `DataIntegrityViolationException` caused by a
 // `foreign_key_violation` (23503) `SQLException`, which the controller advice's

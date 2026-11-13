@@ -2,9 +2,9 @@
 // (docs/tenancy.md → "Reference admission"; the decision lives in
 // `src/ir/plan/ref-scope.ts`).
 //
-// Before the row is written, every reference the plan marks `row-tenant` or
-// `tenant-registry` is probed against its target under the target's own tenant
-// restriction (`admissionFilter`, the filter its reads carry), so the probe and
+// Before the row is written, every reference the plan marks `row-tenant` is
+// probed against its target under the target's read scope (the query
+// filters / scope SQL its reads carry), so the probe and
 // the target's reads agree on the caller's operating tenant.  A reference that
 // does not resolve throws the Npgsql `foreign_key_violation` the database
 // itself raises for a reference to a missing row, so the app-wide exception
@@ -26,7 +26,7 @@ const REFUSAL = `throw new Npgsql.PostgresException("The request references a re
 
 /** The EF Core probe lines at the head of `SaveAsync` (8-space indent).  The
  *  probe reads the target's own `DbSet`, so its named query filters — the
- *  `tenantOwned` floor, or the registry's self-scope — decide which rows the
+ *  `tenantOwned` floor and any row rules — decide which rows the
  *  caller can see, exactly as every read of that target does.  Empty when the
  *  aggregate admits no reference. */
 export function efRefAdmissionLines(agg: AggregateIR, pool: AggPool): string[] {
