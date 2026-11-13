@@ -297,6 +297,44 @@
     },
     {
       "seq": 23,
+      "method": "POST",
+      "path": "/api/rosters",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 24,
+      "method": "GET",
+      "path": "/api/rosters/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "main": {
+          "label": "m",
+          "until": "<timestamp>"
+        },
+        "name": "R",
+        "rowVersion": 1,
+        "windows": [
+          {
+            "label": "whole",
+            "until": "<timestamp>"
+          },
+          {
+            "label": "ms",
+            "until": "<timestamp>"
+          },
+          {
+            "label": "open",
+            "until": null
+          }
+        ]
+      }
+    },
+    {
+      "seq": 25,
       "method": "PATCH",
       "path": "/api/venues",
       "status": 405,
@@ -310,7 +348,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 26,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -324,7 +362,7 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 27,
       "method": "POST",
       "path": "/api/venues",
       "status": 400,
@@ -338,41 +376,41 @@
       }
     },
     {
-      "seq": 26,
-      "method": "POST",
-      "path": "/api/venues/{id}/soft_delete",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Venue {id} not found",
-        "instance": "/api/venues/{id}/soft_delete",
-        "params": {
-          "type": "Booking.Venue"
-        },
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
-      }
-    },
-    {
-      "seq": 27,
-      "method": "POST",
-      "path": "/api/venues/{id}/soft_delete",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Venue {id} not found",
-        "instance": "/api/venues/{id}/soft_delete",
-        "params": {
-          "type": "Booking.Venue"
-        },
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
-      }
-    },
-    {
       "seq": 28,
+      "method": "POST",
+      "path": "/api/venues/{id}/soft_delete",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Venue {id} not found",
+        "instance": "/api/venues/{id}/soft_delete",
+        "params": {
+          "type": "Booking.Venue"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 29,
+      "method": "POST",
+      "path": "/api/venues/{id}/soft_delete",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Venue {id} not found",
+        "instance": "/api/venues/{id}/soft_delete",
+        "params": {
+          "type": "Booking.Venue"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 30,
       "method": "POST",
       "path": "/api/venues/{id}/soft_delete",
       "status": 415,
@@ -386,7 +424,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 31,
       "method": "POST",
       "path": "/api/slots/{id}/reschedule",
       "status": 422,
