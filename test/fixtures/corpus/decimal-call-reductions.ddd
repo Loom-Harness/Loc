@@ -1,0 +1,90 @@
+// shape: a `sum` / `avg` whose λ body is a CALL returning `decimal`.
+//
+// A reduction picks its fold from the type of its λ body: a decimal body
+// needs a decimal fold (`reduce(BigDecimal.ZERO, BigDecimal::add)` /
+// `Enum.reduce(…, Decimal.new(0), &Decimal.add/2)`).  A field read carries its
+// type on the IR, but a call body only does through the call's recorded
+// `resultType` — without it java rendered `mapToInt(…).sum()` (javac: BigDecimal
+// cannot be converted to int) and elixir `Enum.sum` over `%Decimal{}` (a
+// runtime ArithmeticError, so a 500).  Both call shapes are here: a domain-
+// service operation (`Scoring.weightOf(a)`) and an aggregate `function`
+// (`p.boosted(a)`), each under `sum` and under `avg` (which desugars to
+// `sum / count`).
+system DecimalCallReductions {
+  subdomain Matching {
+    context Matching {
+      valueobject Attribute {
+        name: string
+        weight: decimal
+      }
+
+      aggregate Provider with crudish {
+        name: string
+        attributes: Attribute[]
+
+        function boosted(a: Attribute): decimal = a.weight * 2
+      }
+      repository Providers for Provider { }
+
+      domainService Scoring {
+        operation weightOf(a: Attribute): decimal {
+          return a.weight
+        }
+        operation total(p: Provider): decimal {
+          return p.attributes.sum(a => Scoring.weightOf(a))
+        }
+        operation mean(p: Provider): decimal? {
+          return p.attributes.avg(a => Scoring.weightOf(a))
+        }
+        operation boostedTotal(p: Provider): decimal {
+          return p.attributes.sum(a => p.boosted(a))
+        }
+      }
+
+      // The workflow stores each reduction on a row the e2e reads back.
+      aggregate ScoreCard with crudish {
+        provider: Provider id
+        total: decimal
+        mean: decimal?
+        boosted: decimal
+      }
+
+      workflow scoreProvider {
+        create(provider: Provider id): ScoreCard id {
+          let p = Providers.get(provider)
+          let card = ScoreCard.create(provider: provider, total: Scoring.total(p), mean: Scoring.mean(p), boosted: Scoring.boostedTotal(p))
+          return card.id
+        }
+      }
+    }
+  }
+
+  api MatchingApi from Matching
+  storage primary { type: postgres }
+  resource matchingState { for: Matching, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Matching]
+    dataSources: [matchingState]
+    serves: MatchingApi
+    port: 4000
+  }
+
+  test e2e "a decimal reduction over a call-bodied lambda folds as decimal" against d {
+    let none = api.providers.create({ name: "none", attributes: [] })
+    let empty = api.scoreCards.getById(api.scoreProvider.run({ provider: none.id }))
+    expect(decimal(empty.total)).toBe(0)
+    expect(empty.mean).toBe(null)
+    expect(decimal(empty.boosted)).toBe(0)
+
+    let p = api.providers.create({ name: "p", attributes: [
+      { name: "a", weight: 1.25 },
+      { name: "b", weight: 0.5 },
+      { name: "c", weight: 2.75 }
+    ] })
+    let card = api.scoreCards.getById(api.scoreProvider.run({ provider: p.id }))
+    expect(decimal(card.total)).toBe(4.5)
+    expect(decimal(card.mean)).toBe(1.5)
+    expect(decimal(card.boosted)).toBe(9)
+  }
+}
