@@ -65,6 +65,7 @@ on:
       - 'src/platform/java.ts'
       - 'web/src/testing/**'
       - 'test/behavioral/**'
+      - 'test/support/fakes/**'
       # The typed corpus manifest + its fixtures are this tier's CASE LIST:
       # `cases.mjs` derives every feature case from them, so a fixture that
       # grows a `test e2e`/`test` block mints a case (and needs a wire golden)
@@ -142,7 +143,26 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      # The broker sidecar of the hermetic fake-service kit
+      # (test/support/fakes/broker.mjs): a case whose model declares a
+      # `rabbitmq` storage gets its generated definitions imported here and
+      # its publishes tapped.  Pinned to the same digest as BROKER_IMAGES.
+      rabbitmq:
+        image: rabbitmq:4.1-management-alpine@sha256:42c6214e0e2093caa2484718faacb733631cc9ddc869b3298397613237dbea4a
+        env:
+          RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit loopback_users []"
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 10s
+          --health-retries 20
+
     env:
+      LOOM_FAKE_AMQP_URL: amqp://guest:guest@localhost:5672
+      LOOM_FAKE_AMQP_MGMT_URL: http://localhost:15672
       # Spring Boot's native datasource env vars. Point at the postgres sidecar
       # above (POSTGRES_DB: app).
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/app

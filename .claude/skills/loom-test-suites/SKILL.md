@@ -169,7 +169,7 @@ dockerd --registry-mirror=https://mirror.gcr.io >/tmp/dockerd.log 2>&1 &   # roo
 until docker info >/dev/null 2>&1; do sleep 1; done   # readiness gate
 ```
 
-It does **not** persist — if `docker info` starts failing mid-session, just relaunch it (the daemon process gets reaped). Image pulls from Docker Hub / `mcr.microsoft.com` work through the standard egress.
+It does **not** persist — if `docker info` starts failing mid-session, just relaunch it (the daemon process gets reaped). A daemon someone started without the flag still pulls straight from Docker Hub and hits `429 Too Many Requests` (`eclipse-temurin`, `gradle`, `postgres`, `rabbitmq`). Check with `docker info | grep -A1 'Registry Mirrors'`; if `mirror.gcr.io` is missing, write `{"registry-mirrors":["https://mirror.gcr.io"]}` to `/etc/docker/daemon.json` and restart `dockerd`. Every docker.io pull, including the fake-service kit's pinned broker images (`test/support/fakes/broker.mjs`), then goes through the mirror. Image pulls from Docker Hub / `mcr.microsoft.com` work through the standard egress.
 
 **One command provisions every target's toolchain.** `scripts/sandbox-bootstrap.sh [java|dotnet|elixir|node24|flutter|all]` starts dockerd if needed, lifts JDK 25 + Gradle 9, .NET 10, Elixir/OTP 27, Node 24 and the Flutter SDK out of the pinned images into `/opt/loom-tc/`, and writes `/opt/loom-tc/env.sh`; `source` it and the behavioural runners (`run-java.mjs`, `run-dotnet.mjs`, `run-elixir.mjs`), `phoenix-ui-e2e`, Angular and Flutter suites find their toolchains on the host. Idempotent, fail-soft per target (exit 1 names the failures), about 3 GB of disk. Details and the proxy recipes (Hub/Maven 429, apt, hex): [`docs/tools.md`](docs/tools.md) → "Compiling generated backends in Docker".
 

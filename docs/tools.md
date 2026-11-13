@@ -1036,6 +1036,23 @@ docker pull mirror.gcr.io/hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-2026
 `scripts/sandbox-bootstrap.sh` retries a failed pull, then falls back to
 `mirror.gcr.io` for Docker Hub images.
 
+A daemon that is already running without the mirror pulls straight from Docker
+Hub.  `docker info | grep -A1 'Registry Mirrors'` shows whether it has one.
+If it does not, configure the mirror for every pull, `docker compose build`
+included, and restart the daemon:
+
+```bash
+echo '{"registry-mirrors":["https://mirror.gcr.io"]}' > /etc/docker/daemon.json
+pkill dockerd; dockerd >/tmp/dockerd.log 2>&1 &
+until docker info >/dev/null 2>&1; do sleep 1; done
+```
+
+Two more sandbox limits affect a generated stack built with `docker compose`.
+The generated Java Dockerfile cannot resolve Gradle plugins through the egress
+proxy, so build with `docker run --network host gradle:9-jdk25` and run the jar
+on the host.  The Phoenix release cannot bind its IPv6 listener on this kernel,
+so run the release directly on the host instead of in its container.
+
 **Maven Central `429` inside `gradle:9-jdk25`** (`Could not GET
 'https://repo.maven.apache.org/maven2/…'. Received status code 429`).  The
 429 is intermittent.  Resolve through Google's Maven Central mirror with the
