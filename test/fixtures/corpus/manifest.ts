@@ -1034,6 +1034,11 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "elixir rewrites the collection with `put_assoc`; a JSON-shaped element (string keys, datetime text, enum string) is now cast through the element schema's `changeset/2`, so it is typed and its invariants run. Before: `ArgumentError` / `Ecto.ChangeError`, a 500 where the other backends answer 204 / 422.",
+    id: "value-collection-copy",
+    title: "a loaded value collection copied into another aggregate (create + `:=`)",
+    doc: "language",
+    backends: ALL,
+    note: ".NET element-copies a value-object list (`x with { }`) at the create factory and at `:=`, so EF never re-parents another owner's tracked owned instances; elixir turns a loaded child-row struct into params before `cast_assoc`. Both answered 500 before.",
   },
   {
     id: "scaffold-macros",
