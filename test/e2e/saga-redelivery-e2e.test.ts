@@ -128,7 +128,7 @@ const LEGS: Leg[] = (
       backend: "node-mikroorm",
       platform: "node { persistence: mikroorm }",
       boot: "node",
-      saga: false,
+      saga: true,
     },
     { backend: "python", platform: "python", boot: "python", saga: true },
     { backend: "dotnet", platform: "dotnet", boot: "dotnet", saga: true },
@@ -136,7 +136,7 @@ const LEGS: Leg[] = (
       backend: "dotnet-dapper",
       platform: "dotnet { persistence: dapper }",
       boot: "dotnet",
-      saga: false,
+      saga: true,
     },
   ] satisfies Omit<Leg, "crossContext" | "pgPort" | "appPort">[]
 ).map((l, i) => ({ ...l, crossContext: true, pgPort: 55461 + i, appPort: 4261 + i }));
