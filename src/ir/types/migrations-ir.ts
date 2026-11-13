@@ -398,6 +398,14 @@ export type MigrationStep =
       column: string;
       valueSql: string;
       onlyNull: boolean;
+      /** Run in the generation's non-transactional unit, outside the DDL
+       *  transaction that added the column: the UPDATE then holds row locks
+       *  only, never the ACCESS EXCLUSIVE lock an `ALTER TABLE` keeps until
+       *  COMMIT.  Set on every backfill of a table that already has rows. */
+      outsideTransaction?: true;
+      /** Finish with the column NOT NULL, proved by a validated CHECK so the
+       *  `SET NOT NULL` needs no table scan (see `renderLockSafeBackfill`). */
+      setNotNull?: true;
     }
   // Add a table-level CHECK constraint (see `CheckShape`).  Rendered
   // `NOT VALID` by the SQL renderer: an ALTER only ever targets a table that
