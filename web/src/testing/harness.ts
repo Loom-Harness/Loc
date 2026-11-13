@@ -349,6 +349,19 @@ export interface RunTestsOpts {
 /** Run registered tests sequentially (the generated suites assume
  *  serial execution against one shared DB), capturing pass/fail and any
  *  `console.*` output the test body produced. */
+/** A failed case's error text.  A failed `expect` reads as its own message
+ *  (expected vs actual).  Anything else threw before an assertion could settle
+ *  the case, e.g. the domain operation under test refused, so the text says so
+ *  and names the error's type instead of reading as a failed expectation. */
+export function describeFailure(err: unknown): string {
+  if (err instanceof AssertionError) return err.message;
+  if (err instanceof Error) {
+    const type = err.name && err.name !== "Error" ? err.name : err.constructor?.name || "Error";
+    return `The test threw before its assertion completed — ${type}: ${err.message}`;
+  }
+  return `The test threw before its assertion completed: ${String(err)}`;
+}
+
 export async function runTests(
   tests: TestCase[],
   opts?: RunTestsOpts,
@@ -374,7 +387,7 @@ export async function runTests(
         name: t.name,
         status: "fail",
         durationMs: now() - start,
-        error: err instanceof Error ? err.message : String(err),
+        error: describeFailure(err),
         ...(logs.length ? { logs } : {}),
       };
     } finally {

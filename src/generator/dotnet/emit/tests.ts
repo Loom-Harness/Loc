@@ -19,8 +19,8 @@ import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { csRef, csUsing } from "../../_imports/dotnet.js";
 import {
   coerceMatcherExpected,
-  coerceTestLiteral,
-  type TestLiteralTarget,
+  coerceTestValue,
+  type TestValueTarget,
 } from "../../_test/arg-coercion.js";
 import { csThrowKind } from "../../_test/throw-kind.js";
 import { csCalendarDateParseExact } from "../codec-spelling.js";
@@ -29,11 +29,13 @@ import { renderCsExpr } from "../render-expr.js";
 /** C# leaves for the shared test-literal coercion rule
  *  (`_test/arg-coercion.ts`).  An id is a `record struct <X>Id(Guid Value)`;
  *  `datetime` parses round-trip so the `Z` offset is honoured. */
-const CS_TEST_LITERAL: TestLiteralTarget = {
+const CS_TEST_LITERAL: TestValueTarget = {
   id: (rendered, targetName) => `new ${targetName}Id(Guid.Parse(${rendered}))`,
   datetime: (rendered) =>
     `DateTime.Parse(${rendered}, null, System.Globalization.DateTimeStyles.RoundtripKind)`,
   date: (rendered) => csCalendarDateParseExact(rendered),
+  valueObject: (name, args) => `new ${name}(${args.join(", ")})`,
+  omitted: "null",
 };
 
 // A currentUser-gated operation's method signature picks up a trailing
@@ -193,8 +195,13 @@ function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
  *  string-literal types need a cast: ids (wrap in the Id struct; a `guid`
  *  value type wraps the string in `Guid.Parse` first) and `datetime`
  *  (`DateTime.Parse`, round-trip kind so the `Z` offset is honoured). */
-function coerceLiteralToCsType(type: TypeIR | undefined, v: ExprIR, rendered: string): string {
-  return coerceTestLiteral(type, v, rendered, CS_TEST_LITERAL);
+function coerceLiteralToCsType(
+  type: TypeIR | undefined,
+  v: ExprIR,
+  ctx: BoundedContextIR,
+  render: (e: ExprIR) => string,
+): string {
+  return coerceTestValue(type, v, ctx, render, CS_TEST_LITERAL);
 }
 
 /** Render an aggregate `Agg.create(…)` factory call as a named-arg
@@ -232,8 +239,7 @@ export function renderCreateCall(e: ExprIR, ctx: BoundedContextIR): string | nul
   const typeByName = new Map(createInputFields(agg).map((f) => [f.name, f.type]));
   const provided = objArg.fields.map((f) => {
     const t = typeByName.get(f.name);
-    const rendered = renderCsExpr(f.value);
-    return `${escapeCsharpIdent(f.name)}: ${t ? coerceLiteralToCsType(t, f.value, rendered) : rendered}`;
+    return `${escapeCsharpIdent(f.name)}: ${t ? coerceLiteralToCsType(t, f.value, ctx, (x) => renderCsExpr(x)) : renderCsExpr(f.value)}`;
   });
   // Do NOT append every omitted create input from `createOmissionValue`: that
   // makes the assertion vacuous.  `test "an omitted default is applied at
@@ -454,9 +460,10 @@ export function renderTestExpr(e: ExprIR, ctx: BoundedContextIR): string {
       // synthetic actor for a currentUser-gated op.
       const recv = renderTestExpr(e.receiver, ctx);
       const args = e.args.map((a, i) => {
-        const rendered = renderTestExpr(a, ctx);
         const p = op.params[i];
-        return p ? coerceLiteralToCsType(p.type, a, rendered) : rendered;
+        return p
+          ? coerceLiteralToCsType(p.type, a, ctx, (x) => renderTestExpr(x, ctx))
+          : renderTestExpr(a, ctx);
       });
       if (operationBodyUsesCurrentUser(op)) args.push(TEST_ACTOR);
       return `${recv}.${upperFirst(e.member)}(${args.join(", ")})`;

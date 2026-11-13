@@ -1,0 +1,103 @@
+// An event-sourced workflow's handler runs the whole workflow body, not just
+// its guards and emits: it loads a row, calls an operation on it, and emits
+// an event carrying a value it read, and branches on an optional with a
+// statement `match`.  The reaction is one transaction — a
+// guard that refuses after the operation leaves neither the operation's write
+// nor an appended event (workflow.md § Reactor failures).
+system EsWorkflowBody {
+  subdomain Billing {
+    context Billing {
+      event OrderPlaced { order: Order id, note: string? }
+      event Billed { order: Order id, amount: int }
+      event Noted { order: Order id }
+
+      aggregate Order with crudish {
+        status: string
+        total: int
+        note: string?
+
+        operation place() {
+          precondition status == "Draft"
+          status := "Placed"
+          emit OrderPlaced { order: id, note: note }
+        }
+        operation markBilled() {
+          status := "Billed"
+        }
+      }
+      repository Orders for Order { }
+
+      channel BillingEvents {
+        carries: OrderPlaced, Billed, Noted
+        delivery: broadcast
+        retention: ephemeral
+      }
+
+      // Bills a placed order: the handler reads the order, marks it billed,
+      // folds the billed amount from its own event, and records a note only
+      // when the order carries one.  An order over the
+      // limit is refused AFTER it was marked.
+      workflow Billing eventSourced {
+        orderId: Order id
+        billed: int
+        noted: bool
+        create(p: OrderPlaced) by p.order {
+          let o = Orders.get(p.order)
+          o.markBilled()
+          precondition o.total < 100
+          emit Billed { order: p.order, amount: o.total }
+          let n = p.note
+          match n {
+            string s => { emit Noted { order: p.order } }
+            else => { }
+          }
+        }
+        apply(b: Billed) { billed := billed + b.amount }
+        apply(nd: Noted) { noted := true }
+      }
+    }
+  }
+
+  api BillingApi from Billing
+  storage pg { type: postgres }
+  resource billingState { for: Billing, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Billing]
+    dataSources: [billingState]
+    serves: BillingApi
+    port: 4000
+  }
+
+  test e2e "an event-sourced workflow handler loads, mutates and emits in one transaction" against d {
+    let o = api.orders.create({ status: "Draft", total: 7 })
+    api.orders.place(o)
+    let billedOrder = api.orders.getById(o)
+    expect(billedOrder.status).toBe("Billed")
+    let saga = api.billing.instance(o)
+    expect(saga.billed).toBe(7)
+    expect(saga.noted).toBe(false)
+
+    let withNote = api.orders.create({ status: "Draft", total: 3, note: "gift" })
+    api.orders.place(withNote)
+    let notedSaga = api.billing.instance(withNote)
+    expect(notedSaga.billed).toBe(3)
+    expect(notedSaga.noted).toBe(true)
+
+    // Refused after `markBilled`: the order stays Placed, no event is appended.
+    let big = api.orders.create({ status: "Draft", total: 500 })
+    api.orders.place(big)
+    let placed = api.orders.getById(big)
+    expect(placed.status).toBe("Placed")
+    expect(api.billing.instance(big)).toThrow(404)
+
+    // The remaining CRUD routes.
+    let spare = api.orders.create({ status: "Closed", total: 1 })
+    api.orders.update(spare, { status: "Closed", total: 2 })
+    api.orders.markBilled(spare)
+    let all = api.orders.all()
+    expect(all.total).toBe(4)
+    api.orders.destroy(spare)
+    expect(api.orders.getById(spare)).toThrow(404)
+  }
+}

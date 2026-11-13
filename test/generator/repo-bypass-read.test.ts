@@ -165,7 +165,7 @@ describe("elixir", () => {
     expect(reactor).toContain(
       "case ElixirApi.Catalog.find_first_products_in_region_ignoring_soft_deletable_product(event.region) do",
     );
-    expect(reactor).toContain("{:ok, p} when not is_nil(p) ->");
+    expect(reactor).toContain("if p != nil do");
   });
 });
 

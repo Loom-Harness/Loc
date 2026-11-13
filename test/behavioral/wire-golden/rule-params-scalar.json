@@ -1,0 +1,183 @@
+{
+  "case": "rule-params-scalar",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/bookings",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/bookings/{id}/place_hold",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/bookings/{id}/place_hold",
+      "status": 422,
+      "body": {
+        "code": "Reservations.Booking.rule.noDuplicateHold",
+        "detail": "A hold for {reason} is already placed",
+        "errors": [
+          {
+            "code": "Reservations.Booking.rule.noDuplicateHold",
+            "message": "A hold for {reason} is already placed",
+            "params": {
+              "reason": "x"
+            },
+            "pointer": ""
+          }
+        ],
+        "instance": "/api/bookings/{id}/place_hold",
+        "params": {
+          "reason": "x"
+        },
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/bookings/{id}",
+      "status": 200,
+      "body": {
+        "guest": "Ada",
+        "holds": [
+          {
+            "id": "<volatile:key>",
+            "nights": 2,
+            "reason": "x"
+          }
+        ],
+        "id": "<volatile:key>",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/bookings/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/bookings",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "guest": "Ada L.",
+            "holds": [
+              {
+                "id": "<volatile:key>",
+                "nights": 2,
+                "reason": "x"
+              }
+            ],
+            "id": "<volatile:key>",
+            "rowVersion": 3
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "DELETE",
+      "path": "/api/bookings/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/bookings/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Booking {id} not found",
+        "instance": "/api/bookings/{id}",
+        "params": {
+          "type": "Reservations.Booking"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "PATCH",
+      "path": "/api/bookings",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/bookings",
+        "instance": "/api/bookings",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/bookings",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/bookings",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/bookings/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Booking {id} not found",
+        "instance": "/api/bookings/{id}/update",
+        "params": {
+          "type": "Reservations.Booking"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
