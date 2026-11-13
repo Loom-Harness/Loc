@@ -264,6 +264,13 @@ const RESERVED: Record<IdentTarget, ReadonlySet<string>> = {
     // (mypy: incompatible override of "def dict(self, …)").
     "json",
     "copy",
+    // The decorators a generated class body applies (`@property`,
+    // `@classmethod`, `@staticmethod`): a member of that name rebinds the
+    // decorator for the rest of the body, so the next `@property` calls the
+    // member (`TypeError: 'property' object is not callable` at import).
+    "property",
+    "classmethod",
+    "staticmethod",
     "False",
     "None",
     "True",

@@ -39,13 +39,17 @@ const sqlOf = (files: Map<string, string>): string =>
     .join("\n");
 
 describe("tenantOwned → derived tenant_id index DDL", () => {
-  it("derives a non-unique `<table>_tenant_id_idx` on a tenantOwned aggregate", async () => {
+  it("derives a non-unique `(tenant_id, id)` index on a tenantOwned aggregate", async () => {
     const files = await generateSystemFiles(
       tenancySystem(`aggregate Invoice with tenantOwned { number: string }`),
     );
     const sql = sqlOf(files);
-    expect(sql).toMatch(/CREATE INDEX "?invoices_tenant_id_idx"? ON \S+ \("?tenant_id"?\)/);
-    expect(sql).not.toMatch(/CREATE UNIQUE INDEX "?invoices_tenant_id_idx"?/);
+    // Ordered on the primary key behind the tenant: a tenant's page
+    // (`WHERE tenant_id = $1 ORDER BY id`) is an index range scan.
+    expect(sql).toMatch(
+      /CREATE INDEX "?invoices_tenant_id_id_idx"? ON \S+ \("?tenant_id"?, "?id"?\)/,
+    );
+    expect(sql).not.toMatch(/CREATE UNIQUE INDEX "?invoices_tenant_id_id_idx"?/);
   });
 
   it("derives none for the registry or a crossTenant aggregate (no tenant_id column)", async () => {
@@ -56,8 +60,8 @@ describe("tenantOwned → derived tenant_id index DDL", () => {
       ),
     );
     const sql = sqlOf(files);
-    expect(sql).not.toMatch(/organizations_tenant_id_idx/);
-    expect(sql).not.toMatch(/plans_tenant_id_idx/);
+    expect(sql).not.toMatch(/organizations_tenant_id/);
+    expect(sql).not.toMatch(/plans_tenant_id/);
   });
 
   it("rides MigrationsIR into the Ecto migration on the elixir backend", async () => {
@@ -71,7 +75,7 @@ describe("tenantOwned → derived tenant_id index DDL", () => {
       .filter(([p]) => p.endsWith(".exs"))
       .map(([, c]) => c)
       .join("\n");
-    expect(exs).toMatch(/create index\(:invoices, \[:tenant_id\]/);
+    expect(exs).toMatch(/create index\(:invoices, \[:tenant_id, :id\]/);
   });
 
   // Absence: rows carry `tenantId` only, so no materialized-path index exists.
@@ -92,7 +96,7 @@ describe("tenantOwned → derived tenant_id index DDL", () => {
     const sql = sqlOf(files);
     // The unique index covers the prefix; no extra plain index derived.
     expect(sql).toMatch(/invoices_tenant_id_uq/);
-    expect(sql).not.toMatch(/invoices_tenant_id_idx/);
+    expect(sql).not.toMatch(/invoices_tenant_id_id_idx/);
   });
 
   it("derives the index on a TPH shared table whose tenantOwned stance is only on a subtype", async () => {
@@ -102,6 +106,8 @@ describe("tenantOwned → derived tenant_id index DDL", () => {
          aggregate Car extends Asset with tenantOwned { wheels: int }`,
       ),
     );
-    expect(sqlOf(files)).toMatch(/CREATE INDEX "?assets_tenant_id_idx"? ON \S+ \("?tenant_id"?\)/);
+    expect(sqlOf(files)).toMatch(
+      /CREATE INDEX "?assets_tenant_id_id_idx"? ON \S+ \("?tenant_id"?, "?id"?\)/,
+    );
   });
 });

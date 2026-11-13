@@ -25,6 +25,7 @@ import type { VfsPath } from "../vfs/types.js";
 import { requestPersistentStorage } from "../vfs/legacy-idb.js";
 import {
   closeGitFs,
+  flushGitFs,
   DEFAULT_GIT_DB,
   deleteGitDb,
   type GitFs,
@@ -153,6 +154,24 @@ export function useWorkspace({ viewOnly = false }: UseWorkspaceOptions = {}): Wo
   // the DB is orphaned), and the open effect's cleanup closes the one it
   // opened when the active workspace switches away.
   const openFsRef = useRef(new Map<string, GitFs>());
+
+  // Save every open workspace's file index the moment the tab is hidden or
+  // unloaded: LightningFS otherwise saves it on a debounce that lands seconds
+  // after a write under load, and a reload in between loses a new file.
+  useEffect(() => {
+    const flushAll = (): void => {
+      for (const gfs of openFsRef.current.values()) void flushGitFs(gfs);
+    };
+    const onVisibility = (): void => {
+      if (document.visibilityState === "hidden") flushAll();
+    };
+    window.addEventListener("pagehide", flushAll);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flushAll);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   // Persist the registry whenever it changes.  Best-effort inside
   // `saveRegistry`, so a hostile-storage failure can't wedge the session.

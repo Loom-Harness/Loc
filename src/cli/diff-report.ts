@@ -53,6 +53,7 @@ export function renderDiffReport(report: DiffCommandReport): string {
       ? `module ${m.module}: ${m.steps.length} schema step(s), refused by the destructive gate without --allow-destructive`
       : `module ${m.module}: ${m.steps.length} schema step(s)`;
     out.push(`  ${tag(m.class)}  ${head}`);
+    for (const line of m.destructiveMessage?.split("\n") ?? []) out.push(`      ${line}`);
     for (const s of m.steps) {
       for (const line of s.sql.split("\n")) out.push(`      ${line}`);
     }

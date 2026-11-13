@@ -6,6 +6,7 @@
 export {
   openGitFs,
   closeGitFs,
+  flushGitFs,
   invalidateGitFsCache,
   deleteGitDb,
   DEFAULT_GIT_DB,

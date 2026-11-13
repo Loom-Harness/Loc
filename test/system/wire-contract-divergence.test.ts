@@ -73,6 +73,7 @@ const BASELINE: Record<string, Divergence> = {
   // M-T6.94's two removal fixtures: a containment (`lines`) and a NESTED one
   // (`Line.notes`), so both the root and the part carry the deliberate B1 suffix.
   "contained-part-removal.ddd Carts.Cart": "containment-response-suffix",
+  "rule-params-scalar.ddd Reservations.Booking": "containment-response-suffix",
   "contained-part-removal.ddd Carts.Cart.Line": "containment-response-suffix",
   "contained-part-rebuild.ddd Carts.Cart": "containment-response-suffix",
   "contained-part-rebuild.ddd Carts.Cart.Line": "containment-response-suffix",

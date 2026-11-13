@@ -14,8 +14,11 @@ import type { TestResult } from "./harness.js";
 import type { EsbuildBuild } from "./transform-client.js";
 import type { VirtualFile } from "../build/protocol.js";
 
-const PW_SHIM =
-  "export const test = globalThis.__loomPw.test; export const expect = globalThis.__loomPw.expect;";
+// Each load hands its harness over under its own global, so two discoveries
+// in flight at once never read — or clear — each other's harness.
+let loads = 0;
+const pwShim = (key: string): string =>
+  `export const test = globalThis.${key}.test; export const expect = globalThis.${key}.expect;`;
 
 /** The generated UI spec within a generated file tree, if any. */
 export function findUiTestFile(files: VirtualFile[]): VirtualFile | null {
@@ -46,19 +49,26 @@ export interface LoadUiSuiteOpts {
   entry: string;
   files: Record<string, string>;
   build: EsbuildBuild;
+  /** The frontend's package.json `dependencies` — the pins any npm import
+   *  of the spec or its page objects installs at. */
+  deps?: Record<string, string>;
 }
 
 /** Bundle + register the UI suite (run `test(...)` calls, NOT the
  *  bodies) so cases can be listed and run individually.  The bundled
- *  module captures `test`/`expect` from `globalThis.__loomPw` at import,
- *  so it's safe to clear afterwards — the cases keep working. */
+ *  module captures `test`/`expect` from its `globalThis.__loomPw<n>` at
+ *  import, so it's safe to clear afterwards — the cases keep working. */
 export async function loadUiSuite(opts: LoadUiSuiteOpts): Promise<UiTestCase[]> {
-  const js = await opts.build(opts.entry, opts.files, {
-    "@playwright/test": PW_SHIM,
-  });
+  const key = `__loomPw${++loads}`;
+  const js = await opts.build(
+    opts.entry,
+    opts.files,
+    { "@playwright/test": pwShim(key) },
+    opts.deps,
+  );
   const harness = createUiHarness();
-  const g = globalThis as unknown as { __loomPw?: PwGlobal };
-  g.__loomPw = { test: harness.test, expect: harness.expect };
+  const g = globalThis as unknown as Record<string, PwGlobal | undefined>;
+  g[key] = { test: harness.test, expect: harness.expect };
   // Blob-import registers the suite's `test(...)` calls (parent has no
   // CSP, so blob: module import is fine here).
   const url = URL.createObjectURL(new Blob([js], { type: "text/javascript" }));
@@ -66,7 +76,7 @@ export async function loadUiSuite(opts: LoadUiSuiteOpts): Promise<UiTestCase[]> 
     await import(/* @vite-ignore */ url);
   } finally {
     URL.revokeObjectURL(url);
-    delete g.__loomPw;
+    delete g[key];
   }
   return harness.tests;
 }

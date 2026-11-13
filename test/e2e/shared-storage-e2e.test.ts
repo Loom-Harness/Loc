@@ -16,7 +16,10 @@
 //   - an Order POSTed through `reader` lands: `reader` runs no migrations at
 //     boot, so the Orders table exists only because `writer` — the database's
 //     migrator — applied the migrations of every module on the database, not
-//     just the Catalog it hosts.
+//     just the Catalog it hosts;
+//   - both modules' `default` seed datasets land: the ship-once marker the
+//     database's deployables share is keyed by context, so `writer` seeding
+//     Catalog's `default` does not mark Orders' `default` as applied.
 //
 // Opt-in: LOOM_SHARED_STORAGE_E2E=1 (npm run test:shared-storage).  Needs
 // docker.  The images build with `--network host` and the caller's proxy env,
@@ -35,8 +38,14 @@ const PROJECT = "loomsharedstorage";
 
 const FIXTURE = `
 system SharedStore {
-  subdomain Catalog { context Catalog { aggregate Product with crudish { sku: string } } }
-  subdomain Orders { context Orders { aggregate Order with crudish { code: string } } }
+  subdomain Catalog { context Catalog {
+    aggregate Product with crudish { sku: string }
+    seed { Product { sku: "SEED-P" } }
+  } }
+  subdomain Orders { context Orders {
+    aggregate Order with crudish { code: string }
+    seed { Order { code: "SEED-O" } }
+  } }
   storage primary { type: postgres }
   storage separate { type: postgres }
   resource catalogState { for: Catalog, kind: state, use: primary }
@@ -180,5 +189,13 @@ describe.skipIf(!ENABLED)("shared storage — deployables on one storage share i
     expect(created.status).toBe(201);
     const read = await fetch(`${base("reader")}/api/orders/${created.json.id as string}`);
     expect(read.status).toBe(200);
+  });
+
+  it("each module's same-named seed dataset seeds on the shared database", async () => {
+    const orders = await fetch(`${base("reader")}/api/orders`);
+    expect(orders.status).toBe(200);
+    expect(await orders.text()).toContain("SEED-O");
+    const products = await fetch(`${base("reader")}/api/products`);
+    expect(await products.text()).toContain("SEED-P");
   });
 });

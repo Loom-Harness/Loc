@@ -36,12 +36,13 @@ import {
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { serverInitSeed as sharedServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
-import { pythonIdent, snake } from "../../../util/naming.js";
+import { snake } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { floorRuleText } from "../../_i18n/rule-text.js";
 import { PY_IMPORTS, pyFrom, pyRef } from "../../_imports/python.js";
 import { ref } from "../../_imports/symbol.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { constructionSeededFields } from "../../construction-default.js";
 import { provColumn, provenancedFieldsOf } from "../emit/provenance.js";
 import { externHookCall, externHookModuleName } from "../extern-builder.js";
@@ -235,7 +236,7 @@ function invariantHelperName(e: EntityShape): string {
     ...e.fields.map((f) => `_${snake(f.name)}`),
     ...e.fields.filter((f) => f.provenanced).map((f) => `_${provColumn(f.name)}`),
     ...e.contains.map((c) => `_${snake(c.name)}`),
-    ...e.operations.map((op) => `_${pythonIdent(op.name)}`),
+    ...e.operations.map((op) => `_${DOMAIN_NAMES.python.binding(op.name)}`),
   ]);
   let name = "_assert_invariants";
   while (taken.has(name)) name += "_";
@@ -350,14 +351,18 @@ function renderEntity(
   const stateParams = [
     `id: ${pyIdType(e.name)}`,
     parentIdParam(isNested),
-    ...e.fields.map((f) => `${pythonIdent(f.name)}: ${renderPyType(f.type)}`),
-    ...e.contains.map((c) => `${pythonIdent(c.name)}: ${containsType(c)}`),
+    ...e.fields.map((f) => `${DOMAIN_NAMES.python.binding(f.name)}: ${renderPyType(f.type)}`),
+    ...e.contains.map((c) => `${DOMAIN_NAMES.python.binding(c.name)}: ${containsType(c)}`),
   ].filter((s): s is string => s != null);
   const stateArgs = [
     "id=id",
     !e.isRoot ? "parent_id=parent_id" : null,
-    ...e.fields.map((f) => `${pythonIdent(f.name)}=${pythonIdent(f.name)}`),
-    ...e.contains.map((c) => `${pythonIdent(c.name)}=${pythonIdent(c.name)}`),
+    ...e.fields.map(
+      (f) => `${DOMAIN_NAMES.python.binding(f.name)}=${DOMAIN_NAMES.python.binding(f.name)}`,
+    ),
+    ...e.contains.map(
+      (c) => `${DOMAIN_NAMES.python.binding(c.name)}=${DOMAIN_NAMES.python.binding(c.name)}`,
+    ),
   ].filter((s): s is string => s != null);
 
   // `_trust_store` opts repository rehydration out of the invariant run
@@ -374,8 +379,12 @@ function renderEntity(
       : isNested
         ? `        self._parent_id = parent_id if parent_id is not None else ${pyNewId(e.parentName ?? e.name)}()`
         : `        self._parent_id = parent_id`,
-    ...e.fields.map((f) => `        self._${snake(f.name)} = ${pythonIdent(f.name)}`),
-    ...e.contains.map((c) => `        self._${snake(c.name)} = ${pythonIdent(c.name)}`),
+    ...e.fields.map(
+      (f) => `        self._${snake(f.name)} = ${DOMAIN_NAMES.python.binding(f.name)}`,
+    ),
+    ...e.contains.map(
+      (c) => `        self._${snake(c.name)} = ${DOMAIN_NAMES.python.binding(c.name)}`,
+    ),
     e.isRoot ? `        self._events: list[DomainEvent] = []` : null,
     // Event-sourced root (M-T6.98): the stream version this instance was folded
     // to — the expected version of its next append (repository `save`).
@@ -407,13 +416,19 @@ function renderEntity(
     );
   }
   for (const f of e.fields) {
-    getters.push(...prop(pythonIdent(f.name), renderPyType(f.type), `self._${snake(f.name)}`));
+    getters.push(
+      ...prop(DOMAIN_NAMES.python.binding(f.name), renderPyType(f.type), `self._${snake(f.name)}`),
+    );
   }
   for (const c of e.contains) {
-    getters.push(...prop(pythonIdent(c.name), containsType(c), `self._${snake(c.name)}`));
+    getters.push(
+      ...prop(DOMAIN_NAMES.python.binding(c.name), containsType(c), `self._${snake(c.name)}`),
+    );
   }
   for (const d of e.derived) {
-    getters.push(...prop(pythonIdent(d.name), renderPyType(d.type), renderPyExpr(d.expr)));
+    getters.push(
+      ...prop(DOMAIN_NAMES.python.binding(d.name), renderPyType(d.type), renderPyExpr(d.expr)),
+    );
   }
   for (const f of provFields) {
     getters.push(...prop(provColumn(f.name), "ProvLineage | None", `self._${provColumn(f.name)}`));
@@ -425,7 +440,7 @@ function renderEntity(
   const fns = e.functions.flatMap((fn) => {
     const params = [
       "self",
-      ...fn.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
+      ...fn.params.map((p) => `${DOMAIN_NAMES.python.binding(p.name)}: ${renderPyType(p.type)}`),
     ];
     // PUBLIC (no `_` prefix), like the operations below.  Python's underscore
     // is a convention, not access control, so the route's hoisted `when` gate
@@ -435,7 +450,7 @@ function renderEntity(
     // two halves disagreed on the NAME, so that path raised `AttributeError`
     // at request time on a model that validated `0 error(s)`.  One spelling
     // closes it, and matches what the other four backends now emit.
-    const head = `    def ${pythonIdent(fn.name)}(${params.join(", ")}) -> ${renderPyType(fn.returnType)}:`;
+    const head = `    def ${DOMAIN_NAMES.python.method(fn.name)}(${params.join(", ")}) -> ${renderPyType(fn.returnType)}:`;
     // Expression form keeps the single `return expr` line (byte-identical);
     // block form (domain-services.md rev. 4) emits its lowered statements.
     const body =
@@ -466,7 +481,7 @@ function renderEntity(
   const ops = e.operations.flatMap((op) => {
     const params = [
       "self",
-      ...op.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
+      ...op.params.map((p) => `${DOMAIN_NAMES.python.binding(p.name)}: ${renderPyType(p.type)}`),
     ];
     // currentUser-gated ops pick up a trailing actor parameter — the
     // route threads `request.state.current_user` into it.
@@ -489,7 +504,7 @@ function renderEntity(
       const hook = `        ${op.returnType ? "return " : ""}${externHookRef(e.name, op)}`;
       return [
         "",
-        `    def ${pythonIdent(op.name)}(${params.join(", ")}) -> ${retType}:`,
+        `    def ${DOMAIN_NAMES.python.method(op.name)}(${params.join(", ")}) -> ${retType}:`,
         ...whenGate(op),
         ...(preconditions.length > 0 ? [preconditions] : []),
         hook,
@@ -526,7 +541,7 @@ function renderEntity(
     }
     return [
       "",
-      `    def ${prefix}${pythonIdent(op.name)}(${params.join(", ")}) -> ${retType}:`,
+      `    def ${prefix}${DOMAIN_NAMES.python.method(op.name)}(${params.join(", ")}) -> ${retType}:`,
       ...whenGate(op),
       ...(body.length > 0 ? [body] : []),
       // Void operations re-assert invariants on the way out; a returning
@@ -667,12 +682,12 @@ function renderEntity(
         parentIdParam(isNested),
         ...e.fields.map(
           (f) =>
-            `${pythonIdent(f.name)}: ${renderPyType(f.type)}${f.type.kind === "optional" ? " = None" : ""}`,
+            `${DOMAIN_NAMES.python.binding(f.name)}: ${renderPyType(f.type)}${f.type.kind === "optional" ? " = None" : ""}`,
         ),
         ...e.contains.map((c) =>
           c.collection
-            ? `${pythonIdent(c.name)}: ${containsType(c)} | None = None`
-            : `${pythonIdent(c.name)}: ${containsType(c)} = None`,
+            ? `${DOMAIN_NAMES.python.binding(c.name)}: ${containsType(c)} | None = None`
+            : `${DOMAIN_NAMES.python.binding(c.name)}: ${containsType(c)} = None`,
         ),
       ].filter((s): s is string => s != null)
     : stateParams;
@@ -680,11 +695,13 @@ function renderEntity(
     ? [
         "id=id",
         !e.isRoot ? "parent_id=parent_id" : null,
-        ...e.fields.map((f) => `${pythonIdent(f.name)}=${pythonIdent(f.name)}`),
+        ...e.fields.map(
+          (f) => `${DOMAIN_NAMES.python.binding(f.name)}=${DOMAIN_NAMES.python.binding(f.name)}`,
+        ),
         ...e.contains.map((c) =>
           c.collection
-            ? `${pythonIdent(c.name)}=${pythonIdent(c.name)} if ${pythonIdent(c.name)} is not None else []`
-            : `${pythonIdent(c.name)}=${pythonIdent(c.name)}`,
+            ? `${DOMAIN_NAMES.python.binding(c.name)}=${DOMAIN_NAMES.python.binding(c.name)} if ${DOMAIN_NAMES.python.binding(c.name)} is not None else []`
+            : `${DOMAIN_NAMES.python.binding(c.name)}=${DOMAIN_NAMES.python.binding(c.name)}`,
         ),
       ].filter((s): s is string => s != null)
     : stateArgs;
@@ -718,7 +735,7 @@ function renderEntity(
     for (const ap of e.appliers ?? []) {
       esBlocks.push(
         "",
-        `    def _apply_${snake(ap.event)}(self, ${pythonIdent(ap.param)}: ${ap.event}) -> None:`,
+        `    def _apply_${snake(ap.event)}(self, ${DOMAIN_NAMES.python.binding(ap.param)}: ${ap.event}) -> None:`,
         renderPyStatements(ap.statements) || "        pass",
       );
     }
@@ -756,7 +773,7 @@ function renderEntity(
     );
     if (e.esCreate) {
       const params = e.esCreate.params.map(
-        (p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`,
+        (p) => `${DOMAIN_NAMES.python.binding(p.name)}: ${renderPyType(p.type)}`,
       );
       esBlocks.push(
         "",
@@ -767,7 +784,7 @@ function renderEntity(
         ...e.fields.map((f) => `        inst._${snake(f.name)} = ${shellSeed(f)}`),
         "        inst._events = []",
         "        inst._stream_version = 0",
-        `        inst._init(${e.esCreate.params.map((p) => pythonIdent(p.name)).join(", ")})`,
+        `        inst._init(${e.esCreate.params.map((p) => DOMAIN_NAMES.python.binding(p.name)).join(", ")})`,
         "        return inst",
         "",
         `    def _init(self${params.length > 0 ? `, ${params.join(", ")}` : ""}) -> None:`,
@@ -807,11 +824,11 @@ function renderEntity(
       // (`[]`, `now()`) can never become a shared Python default argument.
       // mypy --strict narrows the `is not None` check back to `T`.
       if (factoryDefault(f) !== undefined) {
-        return `${pythonIdent(f.name)}: ${renderPyType(f.type)} | None = None`;
+        return `${DOMAIN_NAMES.python.binding(f.name)}: ${renderPyType(f.type)} | None = None`;
       }
       return f.optional
-        ? `${pythonIdent(f.name)}: ${renderPyType(f.type)} = None`
-        : `${pythonIdent(f.name)}: ${renderPyType(f.type)}`;
+        ? `${DOMAIN_NAMES.python.binding(f.name)}: ${renderPyType(f.type)} = None`
+        : `${DOMAIN_NAMES.python.binding(f.name)}: ${renderPyType(f.type)}`;
     });
     // Server-seeded literal defaults (RS-11): a field outside the create-input
     // set (`token`/`managed`/`internal`) whose default is a construction-time
@@ -830,9 +847,9 @@ function renderEntity(
         // `is not None`, not a truthiness test: an explicit 0 / "" / False the
         // caller passed must survive.
         if (dflt !== undefined) {
-          return `${pythonIdent(f.name)} if ${pythonIdent(f.name)} is not None else ${dflt}`;
+          return `${DOMAIN_NAMES.python.binding(f.name)} if ${DOMAIN_NAMES.python.binding(f.name)} is not None else ${dflt}`;
         }
-        return pythonIdent(f.name);
+        return DOMAIN_NAMES.python.binding(f.name);
       }
       const seeded = defaultSeeds.get(f.name);
       if (seeded !== undefined) return seeded;
@@ -856,18 +873,19 @@ function renderEntity(
       `    def create(cls${factoryParams.length > 0 ? `, *, ${factoryParams.join(", ")}` : ""}) -> ${self}:`,
       `        ${createBody.length > 0 ? "inst = " : "return "}cls(`,
       `            id=${pyNewId(e.name)}(),`,
-      ...e.fields.map((f) => `            ${pythonIdent(f.name)}=${fieldInit(f)},`),
+      ...e.fields.map((f) => `            ${DOMAIN_NAMES.python.binding(f.name)}=${fieldInit(f)},`),
       ...e.contains.map(
-        (c) => `            ${pythonIdent(c.name)}=${c.collection ? "[]" : "None"},`,
+        (c) =>
+          `            ${DOMAIN_NAMES.python.binding(c.name)}=${c.collection ? "[]" : "None"},`,
       ),
       "        )",
       ...(createBody.length > 0
         ? [
-            `        inst.${bodyName}(${createParams.map((p) => pythonIdent(p.name)).join(", ")})`,
+            `        inst.${bodyName}(${createParams.map((p) => DOMAIN_NAMES.python.binding(p.name)).join(", ")})`,
             "        return inst",
             "",
             `    def ${bodyName}(self${createParams
-              .map((p) => `, ${pythonIdent(p.name)}: ${renderPyType(p.type)}`)
+              .map((p) => `, ${DOMAIN_NAMES.python.binding(p.name)}: ${renderPyType(p.type)}`)
               .join("")}) -> None:`,
             renderPyStatements(createBody, undefined, {
               eventSourced: false,

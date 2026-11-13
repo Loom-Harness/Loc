@@ -1,8 +1,9 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { operationActionGates } from "../../ir/util/op-gates.js";
-import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
+import { lowerFirst, upperFirst } from "../../util/naming.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
 import { giveUp } from "../_walker/give-up.js";
+import { actionButtonLabel } from "../_walker/model-text-sites.js";
 import { opGateFor } from "../_walker/op-gate.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
 import { renderPrimitive } from "../_walker/render-primitive.js";
@@ -150,7 +151,7 @@ export function renderAngularAction(
   if (!specs.some((s) => s.method.name === methodName)) specs.push(spec);
 
   const button = renderPrimitive(ctx, "primitive-button", {
-    label: humanize(op.name),
+    label: actionButtonLabel(ctx, agg, op.name),
     onClick: rowScoped ? `${methodName}(${receiverTemplate}.id)` : `${methodName}()`,
     hasOnClick: true,
     disabled: gate ? `${localVar}.isPending() || ${gate.disabledExpr}` : `${localVar}.isPending()`,

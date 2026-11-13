@@ -191,6 +191,12 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
         authGate: uiDrawsAuthGate(sys, ui),
         sessionView: uiDrawsSessionView(sys, ui),
         fallbackLabels: formats.has("heex"),
+        // Feliz's navbar and Flutter's app bar label an untitled page by name.
+        pageNames: formats.has("flutter")
+          ? ("all" as const)
+          : formats.has("feliz")
+            ? ("navbar" as const)
+            : undefined,
       };
       for (const [key, message] of Object.entries(chromeMergedWhenEnabled(ui, scope)))
         byKey.set(key, message);

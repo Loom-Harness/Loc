@@ -31,6 +31,7 @@ import {
   csCalendarDateTryParseExact,
   csCalendarDateWire,
   csInstantIngressTruncate,
+  csInstantTryParse,
   csInstantWire,
   csMoneyMaxExclusive,
 } from "./codec-spelling.js";
@@ -494,9 +495,7 @@ export function wireToCommandArgument(
           expr,
           site,
           "datetime",
-          (out) =>
-            `DateTime.TryParse(${expr}, ${CS.CultureInfo}.InvariantCulture, ` +
-            `${CS.DateTimeStyles}.AssumeUniversal | ${CS.DateTimeStyles}.AdjustToUniversal, out var ${out})`,
+          (out) => csInstantTryParse(expr, out),
           "rule",
           undefined,
           // Sub-millisecond input is TRUNCATED at ingress (RS-38), so the

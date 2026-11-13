@@ -1756,9 +1756,13 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   // second .NET deployable picks an alternate host port to avoid
   // colliding with the first.  Without this comment a reader scanning
   // `8081:8080` then `localhost:8080` does a double-take.
+  const ops = platform.operations;
   lines.push(`  healthcheck:`);
   lines.push(
-    `    test: ["CMD-SHELL", "wget -qO- http://localhost:${shape.internalPort}${shape.healthPath} || exit 1"]`,
+    `    test: [${ops
+      .healthcheck(shape.internalPort, ops.health.compose)
+      .map((c) => JSON.stringify(c))
+      .join(", ")}]`,
   );
   lines.push(`    interval: 5s`);
   lines.push(`    timeout: 3s`);

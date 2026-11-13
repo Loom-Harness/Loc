@@ -67,8 +67,8 @@ export function renderJavaSeedRunner(ctx: EnrichedBoundedContextIR, sctx: SeedCt
   for (const ds of datasets) {
     const entries = ds.entries.filter((e) => aggByName.has(e.row.aggregate));
     if (entries.length === 0) continue;
-    fnBlocks.push(...renderDatasetFn(ds.name, entries, aggByName, sctx));
-    callLines.push(`        seed${upperFirst(ds.name)}(requested);`);
+    fnBlocks.push(...renderDatasetFn(ds.name, ds.marker, ds.ident, entries, aggByName, sctx));
+    callLines.push(`        seed${upperFirst(ds.ident)}(requested);`);
   }
   if (callLines.length === 0) return null;
 
@@ -123,7 +123,7 @@ export function renderJavaSeedRunner(ctx: EnrichedBoundedContextIR, sctx: SeedCt
     `    }`,
     ``,
     `    private boolean alreadySeeded(String dataset) {`,
-    `        var found = jdbc.queryForList("SELECT 1 FROM \\"__loom_seed\\" WHERE \\"dataset\\" = ?", Integer.class, dataset);`,
+    `        var found = jdbc.queryForList("SELECT 1 FROM \\"__loom_seed\\" WHERE \\"dataset\\" = ? OR \\"dataset\\" = split_part(?, '/', 2)", Integer.class, dataset, dataset);`,
     `        return !found.isEmpty();`,
     `    }`,
     ``,
@@ -137,6 +137,8 @@ export function renderJavaSeedRunner(ctx: EnrichedBoundedContextIR, sctx: SeedCt
 
 function renderDatasetFn(
   dataset: string,
+  marker: string,
+  ident: string,
   entries: Entry[],
   aggByName: Map<string, SeederAggregate>,
   sctx: SeedCtx,
@@ -151,11 +153,11 @@ function renderDatasetFn(
     return `        ${repoField(e.row.aggregate)}.save(${entity}.create(${renderArgs(e.row, agg)}));`;
   });
   return [
-    `    private void seed${upperFirst(dataset)}(Set<String> requested) {`,
+    `    private void seed${upperFirst(ident)}(Set<String> requested) {`,
     `        if (!datasetEnabled(${JSON.stringify(dataset)}, requested)) return;`,
-    `        if (alreadySeeded(${JSON.stringify(dataset)})) return;`,
+    `        if (alreadySeeded(${JSON.stringify(marker)})) return;`,
     ...rowLines,
-    `        markSeeded(${JSON.stringify(dataset)});`,
+    `        markSeeded(${JSON.stringify(marker)});`,
     `        CatalogLog.event(${javaLogEvent("seedApplied")}, "dataset", ${JSON.stringify(dataset)});`,
     `    }`,
     ``,

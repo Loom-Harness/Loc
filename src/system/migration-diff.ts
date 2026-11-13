@@ -98,6 +98,13 @@ export interface ModuleMigrationStatus {
   destructiveMessage?: string;
 }
 
+/** A migration refusal as the author reads it: its stable `loom.*` code (when
+ *  it carries one) ahead of the catalog message, so the diagnostic is
+ *  searchable and names what to declare. */
+export function refusalText(err: Error & { readonly code?: unknown }): string {
+  return typeof err.code === "string" ? `${err.code}: ${err.message}` : err.message;
+}
+
 /** What the chain records against what the model describes. */
 export interface MigrationStatus {
   /** One line per owning module of every system, in module order. */
@@ -117,7 +124,7 @@ export function migrationStatus(loom: EnrichedLoomModel, chain: MigrationChain):
   const deltas = pendingMigrations(loom, chain, { warnings, destructiveRefusals: refusals });
   const modules = deltas.map((d): ModuleMigrationStatus => {
     const head = chain.entries.filter((e) => e.module === d.module).at(-1);
-    const messages = refusals.filter((r) => r.module === d.module).map((r) => r.message);
+    const messages = refusals.filter((r) => r.module === d.module).map(refusalText);
     return {
       module: d.module,
       ...(head ? { head: { version: head.version, name: head.name } } : {}),
@@ -179,7 +186,8 @@ export function evolveSystem(
   const destructive = new Map<string, string>();
   for (const r of refusals) {
     const prior = destructive.get(r.module);
-    destructive.set(r.module, prior ? `${prior}\n${r.message}` : r.message);
+    const text = refusalText(r);
+    destructive.set(r.module, prior ? `${prior}\n${text}` : text);
   }
   const wire = baseSys ? diffWireSpec(buildWireSpec(baseSys), buildWireSpec(curSys)) : null;
   return {

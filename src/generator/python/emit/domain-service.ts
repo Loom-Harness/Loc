@@ -35,8 +35,9 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
 import { lines } from "../../../util/code-builder.js";
-import { pythonIdent, snake } from "../../../util/naming.js";
+import { snake } from "../../../util/naming.js";
 import { PY_IMPORTS, pyRef } from "../../_imports/python.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { renderPyType } from "../render-expr.js";
 import { renderPyStatements } from "../render-stmt.js";
 import { PORT_POOL_MODULE, repoPortName } from "../repository-port-builder.js";
@@ -113,9 +114,12 @@ function renderOperation(op: DomainServiceOperationIR): string {
   // hexagonal), NOT the concrete infra repository: the domain layer must not
   // import from `app.db`.
   const portParams = ports.map(
-    (p) => `${pythonIdent(p.repo)}: ${pyRef(PORT_POOL_MODULE, repoPortName(p.aggregate))}`,
+    (p) =>
+      `${DOMAIN_NAMES.python.binding(p.repo)}: ${pyRef(PORT_POOL_MODULE, repoPortName(p.aggregate))}`,
   );
-  const userParams = op.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
+  const userParams = op.params.map(
+    (p) => `${DOMAIN_NAMES.python.binding(p.name)}: ${renderPyType(p.type)}`,
+  );
   const params = [...portParams, ...userParams].join(", ");
   const isReading = ports.length > 0;
   const kw = isReading ? "async def" : "def";

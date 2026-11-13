@@ -828,7 +828,7 @@ candidate, not only when a path matches:
 Everything *not* in these two tables stays out of the queue — `conformance-full`,
 `differential-report`, the `k8s-*` gates, the `generated-*-e2e` SPA smokes,
 `playground-*`, `frontend-fullstack-e2e`, `generated-a11y`, `phoenix-ui-e2e`,
-`elixir-vanilla-vo-e2e`, `ci-red-alarm`, `cleanup-artifacts`, `email-e2e`, `timer-e2e`,
+`elixir-vanilla-vo-e2e`, `ci-red-alarm`, `cleanup-artifacts`, `email-e2e`, `timer-e2e`, `lifecycle-e2e`,
 `context-integration-e2e`. They must **not** be added to required checks (a
 required check with no `merge_group` trigger stalls the queue forever). Note
 that "out of the queue" is not "out of the PR": the four `generated-*-e2e`

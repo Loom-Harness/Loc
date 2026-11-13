@@ -51,7 +51,7 @@ describe("react page requires gate", () => {
     expect(page).toContain('import { useSession } from "../auth/AuthGate";');
     expect(page).toContain("const currentUser = useSession().user as Record<string, any>;");
     expect(page).toContain('if (!(currentUser.role === "agent")) {');
-    expect(page).toContain("<h2>Forbidden</h2>");
+    expect(page).toContain('<h2>{t("chrome.forbiddenTitle", "Forbidden")}</h2>');
     // The guard sits before the body's main return.
     const guardIdx = page.indexOf("Forbidden");
     const bodyIdx = page.indexOf("Top secret");

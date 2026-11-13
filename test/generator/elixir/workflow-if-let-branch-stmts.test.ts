@@ -95,8 +95,9 @@ describe("vanilla workflow if-let branch statements", () => {
     const files = await generateSystemFiles(SRC);
     const wf = [...files.entries()].find(([k]) => k.endsWith("workflows/assign_in_if_let.ex"))?.[1];
     expect(wf, "workflow module not emitted").toBeDefined();
-    // The same struct-update rebind the loop-body / top-level arms emit.
-    expect(wf).toContain("state = %{state | seen: 1}");
+    // The same struct-update rebind the top-level arm emits, as a link of the
+    // branch's chain (the branch also holds a fallible op call).
+    expect(wf).toContain("state <- (%{state | seen: 1})");
     // No silently-accepted Elixir comment left where a statement should be.
     expect(wf).not.toContain("# TODO: lower if-let branch statement kind");
     // The statement that already worked still follows it in the branch.

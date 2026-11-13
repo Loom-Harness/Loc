@@ -8,7 +8,8 @@ import type { EnumIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js
 import { lines } from "../../../util/code-builder.js";
 import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
 import { JAVA_IMPORTS, javaRef } from "../../_imports/java.js";
-import { isMangled, jid } from "../java-ident.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { isMangled } from "../java-ident.js";
 import {
   buildJavaRegexFields,
   collectJavaRegexLiterals,
@@ -46,7 +47,7 @@ export function renderJavaEnum(e: EnumIR, basePkg: string): string {
   const mangled = e.values.some((v) => isMangled(v));
   const valueLines = e.values.map(
     (v, i) =>
-      `    ${mangled ? `@${JSON_PROPERTY}(${JSON.stringify(v)}) ` : ""}${jid(v)}${i < e.values.length - 1 ? "," : ";"}`,
+      `    ${mangled ? `@${JSON_PROPERTY}(${JSON.stringify(v)}) ` : ""}${DOMAIN_NAMES.java.binding(v)}${i < e.values.length - 1 ? "," : ";"}`,
   );
   // The trailing separator differs: a plain enum ends its last constant with
   // nothing, a codec-carrying one needs the `;` that opens the class body.
@@ -154,7 +155,7 @@ export function renderJavaValueObject(
   const params = vo.fields
     .map(
       (f) =>
-        `${enumColumnAnnotation(f.type, mangledEnums)}${jsonPropRef(f.name)}${renderJavaType(f.type)} ${jid(f.name)}`,
+        `${enumColumnAnnotation(f.type, mangledEnums)}${jsonPropRef(f.name)}${renderJavaType(f.type)} ${DOMAIN_NAMES.java.binding(f.name)}`,
     )
     .join(", ");
   const invariantLines = vo.invariants.map((inv) => {
@@ -168,14 +169,16 @@ export function renderJavaValueObject(
     return `        ${check} throw new ${javaRef(`${basePkg}.domain.common`, "ValueObjectInvariantException")}(${JSON.stringify(vo.name)}, ${JSON.stringify(text)}${code});`;
   });
   const derivedLines = vo.derived.flatMap((d) => [
-    `    public ${renderJavaType(d.type)} ${jid(d.name)}() {`,
+    `    public ${renderJavaType(d.type)} ${DOMAIN_NAMES.java.method(d.name)}() {`,
     `        return ${renderJavaExpr(d.expr, methodCtx)};`,
     `    }`,
     ``,
   ]);
   const fnLines = vo.functions.flatMap((fn) => {
-    const fnParams = fn.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`).join(", ");
-    const open = `    private ${renderJavaType(fn.returnType)} ${jid(fn.name)}(${fnParams}) {`;
+    const fnParams = fn.params
+      .map((p) => `${renderJavaType(p.type)} ${DOMAIN_NAMES.java.binding(p.name)}`)
+      .join(", ");
+    const open = `    private ${renderJavaType(fn.returnType)} ${DOMAIN_NAMES.java.method(fn.name)}(${fnParams}) {`;
     const bodyLine =
       "expr" in fn.body
         ? `        return ${renderJavaExpr(fn.body.expr, methodCtx)};`

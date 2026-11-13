@@ -658,10 +658,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     guardedBy: ["loom.projection-fold-impure"],
     note: "foldImpurity is a fail-closed allowlist of assign/add/remove/let applied to every projection on() statement, so every kind in this throw arm is an error at validation.",
   },
-  "src/generator/elixir/dispatch-emit.ts#renderStmt": {
-    invariant:
-      "Exhaustive-switch `never` default: the reactor renderer has an arm for every WorkflowStmtIR kind, measured per kind by test/system/body-statement-census.test.ts. (src/generator/elixir/dispatch-emit.ts renderStmt; src/ir/types/loom-ir.ts WorkflowStmtIR)",
-  },
 
   // src/generator/elixir/domain-service-emit.ts
   "src/generator/elixir/domain-service-emit.ts#renderOperation": {
@@ -775,12 +771,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/vanilla/eventsourced-emit.ts#sortPath": {
     guardedBy: ["loom.elixir-match-stmt-unsupported"],
     note: "validateElixirMatchStatements refuses ANY statement match in an event-sourced operation / create / destroy on an elixir-hosted context (`#event-sourced`).",
-  },
-
-  // src/generator/elixir/vanilla/workflow-eventsourced-emit.ts
-  "src/generator/elixir/vanilla/workflow-eventsourced-emit.ts#renderEsWorkflowHandler": {
-    guardedBy: ["loom.elixir-match-stmt-unsupported"],
-    note: "validateElixirMatchStatements refuses ANY statement match in an `eventSourced` workflow's create / on bodies on an elixir-hosted context (`#event-sourced`).",
   },
 
   // src/generator/elixir/vanilla/fold-stmt-emit.ts
@@ -903,15 +893,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     guardedBy: ["loom.workflow-unknown-binding", "loom.workflow-unknown-operation"],
     note: "An op-call whose binding is not an own-context aggregate or whose op does not exist on it is an error (verified: an op-call on a foreign-context factory-let -> loom.workflow-unknown-binding).",
   },
-  "src/generator/elixir/vanilla/workflow-execution-emit.ts#renderBranchStmt": {
-    invariant:
-      "The flat branch renderer is only used for branches containing none of the kinds this arm throws on. (src/generator/elixir/vanilla/workflow-execution-emit.ts:677-680 (needsWith routes any branch holding precondition/requires/NESTED_FLOW_KINDS to the with-chain path, which handles those kinds itself at :688-715); NESTED_FLOW_KINDS at :888)",
-  },
-  "src/generator/elixir/vanilla/workflow-execution-emit.ts#renderBranchStmt$2": {
-    invariant:
-      "Exhaustive-switch `never` default over WorkflowStmtIR. (src/generator/elixir/vanilla/workflow-execution-emit.ts:1236-1239)",
-  },
-
   // src/generator/feliz/auth-gate.ts
   "src/generator/feliz/auth-gate.ts#renderFelizGate": {
     guardedBy: ["loom.ui-gate-expr-unsupported", "loom.page-gate-not-client-evaluable"],

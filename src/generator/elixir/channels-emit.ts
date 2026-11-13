@@ -687,6 +687,12 @@ export function emitElixirChannelFiles(
     return `  def decode(${JSON.stringify(ev.name)}, data) do\n    %${ctxModule}.Events.${upperFirst(ev.name)}{\n${pairs.join(",\n")}\n    }\n  end`;
   });
 
+  const publishFailedLog = renderPhoenixLogCall("channelPublishFailed", [
+    { name: "address", valueExpr: "address" },
+    { name: "type", valueExpr: "type" },
+    { name: "id", valueExpr: "id" },
+    { name: "error", valueExpr: "Exception.message(error)" },
+  ]);
   const publishedLog = renderPhoenixLogCall("channelPublished", [
     { name: "address", valueExpr: "address" },
     { name: "type", valueExpr: "type" },
@@ -827,8 +833,18 @@ ${
         "-" <> Integer.to_string(:erlang.unique_integer([:positive]), 16)
 
     envelope = envelope_for(address, context, type, id, encode_data(ev))${carriesOrigin ? " |> put_origin()" : ""}
-    ${transmitCall("id")}
-    ${publishedLog}
+
+    # An ephemeral channel is at-most-once and publishes after the command
+    # committed: a broker that is down loses the envelope, never the
+    # command's answer.
+    try do
+      ${transmitCall("id")}
+      ${publishedLog}
+    rescue
+      error in ${appModule}.BrokerUnavailable ->
+        ${publishFailedLog}
+    end
+
     :ok
   end
 
@@ -1289,6 +1305,10 @@ ${elixirOutboxRelayModule(
     const redisClauses = hasRedisConsumer
       ? `  def handle_info({:redix_pubsub, _pid, _ref, :subscribed, _meta}, state), do: {:noreply, state}
 
+  # Redix.PubSub redials and resubscribes on its own after the server drops
+  # (it reports :subscribed again); the consumer only has to outlive the gap.
+  def handle_info({:redix_pubsub, _pid, _ref, :disconnected, _meta}, state), do: {:noreply, state}
+
   def handle_info(
         {:redix_pubsub, _pid, _ref, :message, %{channel: address, payload: payload}},
         state
@@ -1357,6 +1377,10 @@ ${markEvLine(6)}      ${asOrigin("route(ev)")}
       )
 
     :ok = AMQP.Queue.bind(chan, queue, address)
+    # The retry route: \`loom.dlx\` hands a message published under
+    # \`loom.retry.<queue>\` back to this queue (the broker ACL grants
+    # \`loom.dlx\`, not the default exchange).
+    :ok = AMQP.Queue.bind(chan, queue, "loom.dlx", routing_key: "loom.retry." <> queue)
     {:ok, tag} = AMQP.Basic.consume(chan, queue)
     %{tag => {address, queue, chan}}
   end
@@ -1401,7 +1425,7 @@ ${markEvLine(4)}    ${asOrigin("route(ev)")}
         # Bounded retry: republish with the attempt header and ack the
         # original (immediate nack-requeue would hot-loop).
         :ok =
-          AMQP.Basic.publish(chan, "", queue, payload,
+          AMQP.Basic.publish(chan, "loom.dlx", "loom.retry." <> queue, payload,
             persistent: true,
             content_type: "application/json",
             headers: retry_headers(meta.headers, attempts)

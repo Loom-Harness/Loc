@@ -199,6 +199,20 @@ export const LogEvents = {
     level: "info",
     fields: ["address", "type", "id"],
   },
+  /** An ephemeral (at-most-once) publish failed after its command committed:
+   *  the envelope is lost, the command's answer is not. */
+  channelPublishFailed: {
+    event: "channel_publish_failed",
+    level: "warn",
+    fields: ["address", "type", "id", "error"],
+  },
+  /** A broker client redialled after the broker dropped and re-attached its
+   *  subscriptions. */
+  channelReconnected: {
+    event: "channel_reconnected",
+    level: "info",
+    fields: ["transport", "attempts"],
+  },
   channelConsumed: { event: "channel_consumed", level: "info", fields: ["address", "type", "id"] },
   channelConsumeFailed: {
     event: "channel_consume_failed",

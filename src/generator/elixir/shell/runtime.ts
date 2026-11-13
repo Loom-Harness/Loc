@@ -112,7 +112,7 @@ end
 // JSON Logger formatter — sister to Hono's pino default and .NET's
 // AddJsonConsole.  Renders one JSON line per log entry preserving:
 //
-//   - the envelope: ts, level, message
+//   - the envelope: ts, level, event ("log" unless the call names one), message
 //   - the message string (the catalog `event_name` we pass as the
 //     Logger.<level>(message, meta) first arg)
 //   - all metadata keys (event, request_id, method, path, status,
@@ -138,9 +138,12 @@ defmodule ${appModule}.LogFormatter do
   Logger.Formatter protocol.
   """
   def format(level, message, timestamp, metadata) do
+    # A line that is not a catalog event (an Ecto migration notice, an OTP
+    # report) still carries the envelope: its event is "log".
     base = %{
       ts: ts_to_iso(timestamp),
       level: to_string(level),
+      event: "log",
       message: IO.iodata_to_binary(message)
     }
 

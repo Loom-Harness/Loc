@@ -9,7 +9,8 @@
 
 import type { EventIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { jid, jsonProp } from "../java-ident.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { jsonProp } from "../java-ident.js";
 import { renderJavaType } from "../render-expr.js";
 
 export function renderJavaEvent(e: EventIR, basePkg: string): string {
@@ -18,7 +19,10 @@ export function renderJavaEvent(e: EventIR, basePkg: string): string {
   // store's jsonb payload, in the outbox row and in the CloudEvents envelope
   // every other backend writes with the `.ddd` spelling.
   const params = e.fields
-    .map((f) => `${jsonProp(f.name, javaImports)}${renderJavaType(f.type)} ${jid(f.name)}`)
+    .map(
+      (f) =>
+        `${jsonProp(f.name, javaImports)}${renderJavaType(f.type)} ${DOMAIN_NAMES.java.binding(f.name)}`,
+    )
     .join(", ");
   return lines(
     `package ${basePkg}.domain.events;`,

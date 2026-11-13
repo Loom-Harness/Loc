@@ -191,6 +191,9 @@ describe("ddd diff — classification rules", SPAWNING, () => {
     const r = run(["diff", "app.ddd", "--baseline", "old.ddd"], dir);
     expect(r.stdout).toMatch(/breaking-for-clients\s+property 'note' removed from Order/);
     expect(r.stdout).toMatch(/breaking-for-data\s+module Sales: /);
+    // The refusal's reason and its code, so the author knows what to declare.
+    expect(r.stdout).toContain("loom.migration-destructive: migration for module");
+    expect(r.stdout).toMatch(/drop column/i);
     expect(r.stdout).toContain("BREAKING for clients and data.");
     expect(r.status).toBe(1);
   });

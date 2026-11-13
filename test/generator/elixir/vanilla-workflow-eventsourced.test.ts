@@ -118,11 +118,13 @@ describe("vanilla elixir event-sourced workflows", () => {
     expect(h).toContain("def handle(%Api.Fulfillment.Events.OrderPlaced{} = event) do");
     expect(h).toContain("key = event.order");
     expect(h).toContain("OrderFulfillmentFold.from_events(key,");
+    // Each emit appends at its own position and re-publishes after the commit.
     expect(h).toContain(
-      "events = [%Api.Fulfillment.Events.PaymentRegistered{order: event.order, amount: 0}]",
+      "emitted_1 <- (%Api.Fulfillment.Events.PaymentRegistered{order: event.order, amount: 0})",
     );
-    expect(h).toContain("OrderFulfillmentStream.append(sid, events)");
-    expect(h).toContain("Enum.each(events, &Api.Fulfillment.Dispatcher.AfterCommit.dispatch/1)");
+    expect(h).toContain("OrderFulfillmentStream.append(sid, [emitted_1])");
+    expect(h).toContain("Api.Fulfillment.Dispatcher.AfterCommit.dispatch(emitted_1)");
+    expect(h).toContain("Api.PostCommit.transaction(fn ->");
   });
 
   it("the on-reactor drops + logs on an empty stream and reads folded state", async () => {
@@ -131,7 +133,9 @@ describe("vanilla elixir event-sourced workflows", () => {
     expect(h).toContain("[] ->");
     expect(h).toContain("event_unrouted");
     // The precondition reads the folded state.
-    expect(h).toContain("ensure(state.paid >= 0, {:precondition_failed, ");
+    expect(h).toContain(
+      ":ok <- (if state.paid >= 0, do: :ok, else: {:error, {:precondition_failed, ",
+    );
   });
 
   it("emits no mutable saga-state Ecto schema for the ES workflow", async () => {

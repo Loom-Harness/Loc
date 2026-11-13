@@ -60,16 +60,15 @@ async function createFile(page: Page, name: string): Promise<void> {
   await page.getByTestId("source-files-submit").click();
 }
 
-/** Replace the active editor's whole buffer with `text`.
- *
- *  `text` must be ONE line: the `ddd` language-configuration auto-closes
- *  `{` and `"`, and Monaco's overtype makes a single typed line come out
- *  verbatim — but auto-INDENT would corrupt a multi-line paste-by-typing. */
+/** Replace the active editor's whole buffer with `text`. */
 async function retypeEditor(page: Page, text: string): Promise<void> {
-  const editor = page.locator(".monaco-editor").first();
-  await editor.click();
-  await page.keyboard.press("Control+A");
-  await page.keyboard.type(text);
+  // The automation seam replaces the whole buffer and dispatches the change
+  // as a keystroke does; a typed Ctrl+A does not select all in this editor,
+  // so typing would append after the stub instead of replacing it.
+  await page.waitForFunction(
+    () => typeof (window as unknown as { __loomSetSource?: unknown }).__loomSetSource === "function",
+  );
+  await page.evaluate((t) => (window as unknown as { __loomSetSource: (s: string) => void }).__loomSetSource(t), text);
 }
 
 /** Wait until `fileName` DURABLY holds what `page`'s editor shows.
@@ -167,6 +166,25 @@ test("a file added in the tree persists, survives reload, and reaches Generate",
   // the top of the deployable's value-objects module — first viewport, no
   // Monaco virtualization to scroll past.
   await expect(page.getByTestId("file-viewer")).toContainText("Grade", { timeout: 15_000 });
+});
+
+test("a new file survives a reload that comes right after the create", async ({ page }) => {
+  await wipeStorage(page);
+  const tree = await userCodeTree(page);
+  // Under a CPU throttle LightningFS's debounced index save lands seconds
+  // after the write — the window a reload used to lose the file in.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setCPUThrottlingRate", { rate: 6 });
+  await createFile(page, "quick");
+  await expect(tree.getByText("quick.ddd", { exact: true })).toBeVisible({ timeout: 10_000 });
+  // The create reports done by opening the file; from then on it must survive
+  // a reload, with no wait for the store's debounced index save.
+  await expect(page.locator(".monaco-editor").first()).toContainText("New file", { timeout: 10_000 });
+  await page.goto("/"); // hash-free, so IDB (not `#s=`) wins the seed race
+  await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+  await waitForPlaygroundReady(page);
+  const tree2 = await userCodeTree(page);
+  await expect(tree2.getByText("quick.ddd", { exact: true })).toBeVisible({ timeout: 15_000 });
 });
 
 test("the create form rejects a duplicate name instead of silently no-op'ing", async ({

@@ -158,6 +158,7 @@ export function renderFlutterI18nModule(
     contexts,
     sentences: HAND_BUILT_FORM_SENTENCES.rowsAndGuards,
     implicitModelText: true,
+    pageNames: "all" as const,
     authGate,
   };
   const catalog = buildUiCatalog(ui, {}, scope);

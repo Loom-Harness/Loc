@@ -36,19 +36,15 @@ if (string.IsNullOrEmpty(builder.Configuration["urls"]) && string.IsNullOrEmpty(
     }
 }
 
-// Structured JSON logs.  Pairs with UseHttpLogging below to emit
-// one line per inbound request with method/path/status, and pulls
-// Activity.Current?.TraceId into every log scope so handler logs
-// inherit the correlation id automatically.
+// Structured JSON logs in the shared envelope (LoomJsonFormatter): one line
+// per inbound request from RequestLoggingMiddleware, with the request frame's
+// ids (request_id/scope_id/trace_id/span_id) read off the log scope.
 builder.Logging.ClearProviders();
-builder.Logging.AddJsonConsole(opts =>
-{
-    opts.IncludeScopes = true;
-    opts.JsonWriterOptions = new JsonWriterOptions
-    {
-        Indented = false,
-    };
-});
+builder.Logging.AddConsole(opts => opts.FormatterName = global::CatalogApi.Observability.LoomJsonFormatter.FormatterName)
+    .AddConsoleFormatter<global::CatalogApi.Observability.LoomJsonFormatter, Microsoft.Extensions.Logging.Console.ConsoleFormatterOptions>();
+// The catalog request_end line is the per-request record; the framework's
+// own per-request chatter stays at Warning and above.
+builder.Logging.AddFilter("Microsoft.AspNetCore", Microsoft.Extensions.Logging.LogLevel.Warning);
 // Runtime log-level knob — read LOG_LEVEL (default "info") and map the
 // catalog levels (trace/debug/info/warn/error) onto ASP.NET Core's
 // LogLevel.  Distinct from the generate-time --trace switch.

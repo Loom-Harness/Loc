@@ -25,13 +25,13 @@ import { requireDocker } from "./support/docker-probe.js";
 // suite cleanly when prerequisites are missing, so a misconfigured CI
 // surfaces as a SKIP, not a noisy fail.
 //
-// ASP.NET's AddJsonConsole writes one JSON object per log line:
-//   {"EventId":0,"LogLevel":"Information","Category":"...",
-//    "Message":"request_start method=GET path=/health",
-//    "State":{"Message":"...","Event":"request_start","Method":"GET","Path":"/health"}}
-// The catalog event identity lives under `State.Event`; structured
-// fields are individual `State.<Pascal>` keys.  See `render-dotnet.ts`
-// for the placeholder convention.
+// The generated LoomJsonFormatter writes the shared envelope, one JSON object
+// per line: top-level `ts`, `level`, `event`, the request-frame ids from the
+// log scope (`request_id` / `scope_id` / `trace_id` / `span_id`) and the
+// catalog fields as snake_case keys:
+//   {"ts":"...","level":"info","request_id":"...","scope_id":"...",
+//    "trace_id":"...","span_id":"...","event":"request_end","method":"GET",
+//    "path":"/health","status":200,"duration_ms":3}
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -67,55 +67,34 @@ async function freePort(): Promise<number> {
 }
 
 interface DotnetLogLine {
-  EventId?: number;
-  LogLevel?: string;
-  Category?: string;
-  Message?: string;
-  State?: Record<string, unknown> & { Event?: string };
+  ts?: string;
+  level?: string;
+  event?: string;
+  request_id?: string;
+  scope_id?: string;
+  trace_id?: string;
+  span_id?: string;
+  method?: string;
+  path?: string;
+  status?: number;
+  duration_ms?: number;
   [k: string]: unknown;
 }
 
-/** Filter AddJsonConsole output to lines whose State.Event is set —
- *  i.e. the catalog identity lines.  Drops framework noise (e.g. the
- *  Hosting.Lifetime "Now listening on:" line which has no Event key). */
+/** Keep the envelope lines that carry a catalog `event`; drops non-JSON
+ *  output (build chatter) and framework lines logged without one. */
 function parseCatalogLines(raw: string): DotnetLogLine[] {
   const out: DotnetLogLine[] = [];
   for (const line of raw.split("\n")) {
     if (!line.trim().startsWith("{")) continue;
     try {
       const parsed = JSON.parse(line) as DotnetLogLine;
-      if (parsed.State?.Event) out.push(parsed);
+      if (parsed.event) out.push(parsed);
     } catch {
       /* skip non-JSON */
     }
   }
   return out;
-}
-
-/** Extract the carrier `scopeId` from a line's AddJsonConsole `Scopes` array
- *  (emitted because `IncludeScopes = true`).  The boundary RequestContext
- *  middleware opens `BeginScope({ correlationId, scopeId })`, so every line
- *  inside the request carries a scope entry with `scopeId` — the join key to
- *  the audit / provenance rows of the same frame.  Undefined when absent. */
-function scopeIdOf(l: DotnetLogLine): string | undefined {
-  const scopes = (l.Scopes as Array<Record<string, unknown>> | undefined) ?? [];
-  for (const s of scopes) {
-    const v = s.scopeId;
-    if (typeof v === "string" && v.length > 0) return v;
-  }
-  return undefined;
-}
-
-/** Extract a carrier id from the `Scopes` array by its BeginScope key
- *  (`traceId` / `spanId` — the OTel span ids threaded onto the log scope by
- *  RequestContextMiddleware, M-T7.1).  Same channel as `scopeId`. */
-function scopeFieldOf(l: DotnetLogLine, key: string): string | undefined {
-  const scopes = (l.Scopes as Array<Record<string, unknown>> | undefined) ?? [];
-  for (const s of scopes) {
-    const v = s[key];
-    if (typeof v === "string" && v.length > 0) return v;
-  }
-  return undefined;
 }
 
 describe.skipIf(!ENABLED)(
@@ -202,7 +181,7 @@ describe.skipIf(!ENABLED)(
         await new Promise<void>((resolve, reject) => {
           const deadline = Date.now() + 120_000;
           const tick = setInterval(() => {
-            if (parseCatalogLines(stdout).some((l) => l.State?.Event === "server_listening")) {
+            if (parseCatalogLines(stdout).some((l) => l.event === "server_listening")) {
               clearInterval(tick);
               resolve();
             } else if (Date.now() > deadline) {
@@ -252,11 +231,11 @@ describe.skipIf(!ENABLED)(
 
         // 9. Assertions.
         const lines = parseCatalogLines(stdout);
-        const eventList = lines.map((l) => l.State?.Event).join(", ");
+        const eventList = lines.map((l) => l.event).join(", ");
         const ctx = `events: [${eventList}] | stdout (first 4kB): ${stdout.slice(0, 4096)}`;
         const eventsByName = new Map<string, DotnetLogLine[]>();
         for (const l of lines) {
-          const ev = l.State?.Event;
+          const ev = l.event;
           if (!ev) continue;
           const list = eventsByName.get(ev) ?? [];
           list.push(l);
@@ -274,30 +253,25 @@ describe.skipIf(!ENABLED)(
         const end = eventsByName.get("request_end")?.[0];
         expect(start, ctx).toBeDefined();
         expect(end, ctx).toBeDefined();
-        expect(start!.State?.Method).toBe("GET");
-        expect(start!.State?.Path).toBe("/health");
-        expect(end!.State?.Status).toBe(200);
-        // Duration_ms is rendered as DurationMs by snakeToPascal.
-        expect(typeof end!.State?.DurationMs).toBe("number");
-        // scope_id rides the `Scopes` array (IncludeScopes) on every
-        // request-bracket line — the audit/provenance join key, shared across
-        // the bracket (one root frame per request). The .NET analogue of the
-        // flat-envelope backends' top-level scope_id.
-        const startScope = scopeIdOf(start!);
-        expect(startScope, ctx).toBeTruthy();
-        expect(scopeIdOf(end!), ctx).toBe(startScope);
-        // trace_id / span_id ride the same `Scopes` array (M-T7.1 — the OTel
-        // SERVER span's ids, stamped onto Activity.Current by
-        // RequestContextMiddleware and threaded onto the log scope): a
-        // canonical 32-hex trace id shared across the bracket, for log<->trace
-        // correlation.  The AspNetCore instrumentation creates the span
-        // regardless of whether a collector is configured, so it's always
-        // present + valid (non-zero).
-        const startTrace = scopeFieldOf(start!, "traceId");
-        expect(startTrace, ctx).toMatch(/^[0-9a-f]{32}$/);
-        expect(startTrace).not.toBe("0".repeat(32));
-        expect(scopeFieldOf(end!, "traceId"), ctx).toBe(startTrace);
-        expect(scopeFieldOf(start!, "spanId"), ctx).toMatch(/^[0-9a-f]{16}$/);
+        expect(start!.method).toBe("GET");
+        expect(start!.path).toBe("/health");
+        expect(end!.status).toBe(200);
+        expect(typeof end!.duration_ms).toBe("number");
+        // Envelope: ISO-8601 UTC ms timestamp + catalog level names.
+        expect(start!.ts, ctx).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+        expect(start!.level).toBe("info");
+        // request_id / scope_id are shared across the bracket (one root frame
+        // per request): the audit/provenance join key.
+        expect(start!.scope_id, ctx).toBeTruthy();
+        expect(end!.scope_id, ctx).toBe(start!.scope_id);
+        expect(start!.request_id, ctx).toBeTruthy();
+        expect(end!.request_id, ctx).toBe(start!.request_id);
+        // trace_id / span_id are the OTel SERVER span's ids (canonical hex),
+        // present whether or not a collector is configured.
+        expect(start!.trace_id, ctx).toMatch(/^[0-9a-f]{32}$/);
+        expect(start!.trace_id).not.toBe("0".repeat(32));
+        expect(end!.trace_id, ctx).toBe(start!.trace_id);
+        expect(start!.span_id, ctx).toMatch(/^[0-9a-f]{16}$/);
       } finally {
         // Best-effort teardown.
         try {

@@ -207,8 +207,10 @@ describe(".NET generator", () => {
     it("Program.cs configures structured JSON logging + HTTP request logging", async () => {
       const files = await salesFiles();
       const program = files.get("Program.cs")!;
-      // JSON formatter for every log line.
-      expect(program).toMatch(/AddJsonConsole/);
+      // Envelope JSON formatter for every log line (not stock AddJsonConsole).
+      expect(program).toMatch(/AddConsoleFormatter<global::\w+\.Observability\.LoomJsonFormatter/);
+      expect(program).not.toMatch(/AddJsonConsole/);
+      expect(files.get("Observability/LoomJsonFormatter.cs")).toContain("ConsoleFormatter");
       // Per-request HTTP log: method/path/status/duration.
       expect(program).toMatch(/AddHttpLogging/);
       expect(program).toMatch(/app\.UseHttpLogging\(\)/);
