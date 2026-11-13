@@ -63,5 +63,11 @@ system ValueCollectionOpParam {
     let triage = read.attributes.where(a => a.name == "triage").first()
     expect(triage.until).toBe(null)
 
+    api.providers.update(p, { name: "p2", attributes: [] })
+    expect(api.providers.getById(p).attributes.count()).toBe(0)
+    expect(api.providers.all().total).toBe(1)
+    api.providers.destroy(p)
+    expect(api.providers.getById(p)).toThrow(404)
+
   }
 }

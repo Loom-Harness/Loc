@@ -52,6 +52,69 @@
     },
     {
       "seq": 4,
+      "method": "POST",
+      "path": "/api/providers/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/providers/{id}",
+      "status": 200,
+      "body": {
+        "attributes": [],
+        "id": "<volatile:key>",
+        "name": "p2",
+        "rowVersion": 4
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/providers",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "attributes": [],
+            "id": "<volatile:key>",
+            "name": "p2",
+            "rowVersion": 4
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "DELETE",
+      "path": "/api/providers/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/providers/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Provider {id} not found",
+        "instance": "/api/providers/{id}",
+        "params": {
+          "type": "Matching.Provider"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
       "method": "PATCH",
       "path": "/api/providers",
       "status": 405,
@@ -65,7 +128,7 @@
       }
     },
     {
-      "seq": 5,
+      "seq": 10,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -79,7 +142,7 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 11,
       "method": "POST",
       "path": "/api/providers",
       "status": 400,
@@ -93,7 +156,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 12,
       "method": "POST",
       "path": "/api/providers/{id}/put_attribute",
       "status": 422,
