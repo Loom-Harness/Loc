@@ -206,6 +206,26 @@ describe("outbox write atomicity — .NET (EF Core)", () => {
     expect(save).toContain("foreach (var ev in __deferred)");
   });
 
+  it("a transactional workflow records its durable emits inside its own transaction", async () => {
+    // Structural: only a crash between commit and a later insert tells the two
+    // placements apart, which no booted tier stages.
+    const files = await emit("dotnet");
+    const handler = fileEndingWith(files, "Application/Workflows/ReplayHandler.cs");
+    const capture = handler.indexOf(
+      "await tx.CaptureDurableAsync(_events, _workflowEvents, cancellationToken)",
+    );
+    const commit = handler.indexOf("await tx.CommitAsync(cancellationToken);");
+    const dispatch = handler.indexOf("foreach (var ev in _workflowEvents)");
+    expect(capture, "durable capture precedes the commit").toBeGreaterThan(-1);
+    expect(capture).toBeLessThan(commit);
+    expect(dispatch, "the rest dispatch after the commit").toBeGreaterThan(commit);
+    // The EF adapter writes the staged rows inside that transaction.
+    const ports = fileEndingWith(files, "Infrastructure/Persistence/PersistencePorts.cs");
+    const ef = from(ports, "public async Task<IReadOnlyList<IDomainEvent>> CaptureDurableAsync(");
+    expect(ef).toContain("await dispatcher.RecordDurableAsync(events, null, cancellationToken);");
+    expect(ef).toContain("await _db.SaveChangesAsync(cancellationToken);");
+  });
+
   it("the outbox dispatcher's capture Adds without saving", async () => {
     const files = await emit("dotnet");
     const disp = fileEndingWith(files, "Infrastructure/Events/OutboxDomainEventDispatcher.cs");
