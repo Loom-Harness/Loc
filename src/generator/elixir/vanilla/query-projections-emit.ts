@@ -350,8 +350,8 @@ defmodule ${moduleName} do
   alias ${appModule}.Repo
 
   @doc "Execute the grouped aggregation and return one projected row per group."
-  ${runHead(proj).spec} :: [map()]
-  ${runHead(proj).head} do
+  ${runHead(proj, ctx).spec} :: [map()]
+  ${runHead(proj, ctx).head} do
 ${lines.filter((l) => l !== "").join("\n")}
   end
 ${
@@ -409,8 +409,8 @@ defmodule ${moduleName} do
   alias ${appModule}.Repo
 
   @doc "Execute the whole-table aggregation and return the single projected row."
-  ${runHead(proj).spec} :: map()
-  ${runHead(proj).head} do
+  ${runHead(proj, ctx).spec} :: map()
+  ${runHead(proj, ctx).head} do
 ${lines.filter((l) => l !== "").join("\n")}
   end
 ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
@@ -631,8 +631,8 @@ defmodule ${moduleName} do
 ${ectoQueryImport}${ectoQueryRequire}  alias ${appModule}.Repo
 
   @doc "Execute the query-time projection and return the projected rows."
-  ${runHead(proj).spec} :: [map()]
-  ${runHead(proj).head} do
+  ${runHead(proj, ctx).spec} :: [map()]
+  ${runHead(proj, ctx).head} do
 ${body}
   end${projectionHelpers}${denyHelper}${
     usesMoneyRound ? `\n\n${elixirMoneyRoundHelper()}` : ""
@@ -966,8 +966,8 @@ end
  *  `where: record.owner == ^o` over an undefined `o`, which does not compile.
  *  The declared params LEAD; `current_user` keeps its trailing default-arg
  *  position (a default argument must come last in Elixir). */
-function runHead(proj: ProjectionIR): { spec: string; head: string } {
-  const names = proj.params.map((p) => escapeElixirIdent(snake(p.name)));
+function runHead(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): { spec: string; head: string } {
+  const names = projectionQueryParams(proj, ctx).map((p) => escapeElixirIdent(snake(p.name)));
   const specArgs = [...names.map(() => "any()"), "any()"].join(", ");
   const headArgs = [...names, "current_user \\\\ nil"].join(", ");
   return { spec: `@spec run(${specArgs})`, head: `def run(${headArgs})` };
