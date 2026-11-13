@@ -698,6 +698,13 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.autoClaimsByStatus.list (no such aggregate)",
     "api.billTotals.list (no such aggregate)",
   ],
+  "corpus/projection-params": [
+    // Projection READS — the not-yet-lifted route class — each passing the
+    // projection's declared parameters as its query string.
+    "api.qualifying.list (no such aggregate)",
+    "api.runOutcome.list (no such aggregate)",
+    "api.topRanked.list (no such aggregate)",
+  ],
   "corpus/projection-groupby": [
     // All five are projection READS — the not-yet-lifted route class this map
     // exists for, not a call that fails to find its operation.  `ordersByTotal`

@@ -25,6 +25,12 @@
 export { hasDurableEvents } from "./context-events.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
 export { lookupOp } from "./operation-lookup.js";
+export {
+  type ProjectionQueryParam,
+  projectionQueryParams,
+  type QueryParamCheck,
+  queryParamCheck,
+} from "./projection-params.js";
 export { domainFindShape } from "./repo-find-shape.js";
 export { routedPolymorphicRead } from "./repo-polymorphic.js";
 export { clientSortTieBreak, singleReadOrder } from "./repo-read.js";

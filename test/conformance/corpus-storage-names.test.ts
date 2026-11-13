@@ -49,6 +49,7 @@ const KNOWN: Partial<Record<Backend, { issue: string; features: readonly string[
       "projection-document-aggregation",
       "projection-groupby",
       "projection-join",
+      "projection-params",
       "projection-split-deployables",
       "projection-tph-source",
       "read-gates",
