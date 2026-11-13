@@ -28,7 +28,7 @@
 // number.  Fail-closed on a null principal, exactly like `toWireMasked`.
 // ---------------------------------------------------------------------------
 
-import type { EnrichedAggregateIR, UserIR } from "../../../ir/types/loom-ir.js";
+import type { EnrichedAggregateIR, PayloadIR, UserIR } from "../../../ir/types/loom-ir.js";
 import {
   historyDiffFields,
   maskedHistoryFields,
@@ -164,9 +164,12 @@ export function renderAuditHistoryModule(): string {
  *  in.  Unmasked diff fields run through one loop; each masked field gets its
  *  own predicate-guarded block, so a caller who fails the predicate sees no
  *  entry for it at all. */
-export function renderHistoryEntryMapper(agg: EnrichedAggregateIR): string {
-  const unmasked = unmaskedHistoryFields(agg);
-  const masked = maskedHistoryFields(agg);
+export function renderHistoryEntryMapper(
+  payloads: readonly PayloadIR[],
+  agg: EnrichedAggregateIR,
+): string {
+  const unmasked = unmaskedHistoryFields(payloads, agg);
+  const masked = maskedHistoryFields(payloads, agg);
   const body: string[] = [
     // The principal parameter exists only when there is a mask to apply.  A
     // mask-free aggregate takes none — which also keeps the mapper off
@@ -252,18 +255,27 @@ export function historySelectStatement(agg: EnrichedAggregateIR, usingMikro: boo
 
 /** The mapper's call arguments at the route site — the principal only when the
  *  aggregate actually has a mask to apply. */
-export function historyMapperArgs(agg: EnrichedAggregateIR): string {
-  return maskedHistoryFields(agg).length > 0 ? "r, __histUser" : "r";
+export function historyMapperArgs(
+  payloads: readonly PayloadIR[],
+  agg: EnrichedAggregateIR,
+): string {
+  return maskedHistoryFields(payloads, agg).length > 0 ? "r, __histUser" : "r";
 }
 
 /** True when the route handler must bind the fail-closed `__histUser`
  *  principal — i.e. when there is at least one masked field to drop. */
-export function historyNeedsPrincipal(agg: EnrichedAggregateIR): boolean {
-  return maskedHistoryFields(agg).length > 0;
+export function historyNeedsPrincipal(
+  payloads: readonly PayloadIR[],
+  agg: EnrichedAggregateIR,
+): boolean {
+  return maskedHistoryFields(payloads, agg).length > 0;
 }
 
 /** True when this aggregate's route file needs the history machinery.  Kept
  *  beside the emitters so the route builder and the file-map assembly agree. */
-export function aggregateServesHistoryRoute(agg: EnrichedAggregateIR): boolean {
-  return historyDiffFields(agg).length > 0;
+export function aggregateServesHistoryRoute(
+  payloads: readonly PayloadIR[],
+  agg: EnrichedAggregateIR,
+): boolean {
+  return historyDiffFields(payloads, agg).length > 0;
 }

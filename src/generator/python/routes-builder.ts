@@ -290,7 +290,14 @@ export function buildPyRoutesFile(
     // so the read surface cannot disagree with the gate / `ignoring` stance
     // enrichment resolved.
     historyFind
-      ? ["", "", renderPyHistoryMapper(agg), "", "", historyRoute(agg, historyFind, ctx)]
+      ? [
+          "",
+          "",
+          renderPyHistoryMapper(ctx.payloads, agg),
+          "",
+          "",
+          historyRoute(agg, historyFind, ctx),
+        ]
       : null,
     destroyOp
       ? [

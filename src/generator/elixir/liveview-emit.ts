@@ -341,7 +341,7 @@ export function emitLiveViewPages(args: {
           // `principalSource: "param"` — a LiveView is its own process, so the
           // controller's ambient `Process.get(:loom_current_user)` is nil here.
           mapperSource: renderVanillaHistoryMapper(appModule, ctx, agg, "param"),
-          mapperTakesPrincipal: vanillaHistoryMapperTakesPrincipal(agg),
+          mapperTakesPrincipal: vanillaHistoryMapperTakesPrincipal(ctx.payloads, agg),
         });
       }
     }

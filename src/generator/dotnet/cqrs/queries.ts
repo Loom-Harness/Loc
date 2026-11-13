@@ -5,6 +5,7 @@ import type {
   EnrichedBoundedContextIR,
   ExprIR,
   FindIR,
+  PayloadIR,
   RepositoryIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
@@ -193,6 +194,7 @@ export function emitGetByIdQueryAndHandler(
  *  the endpoint open. */
 export function emitHistoryQueryAndHandler(
   agg: EnrichedAggregateIR,
+  payloads: readonly PayloadIR[],
   repo: RepositoryIR | undefined,
   ns: string,
   aggFolder: string,
@@ -202,7 +204,7 @@ export function emitHistoryQueryAndHandler(
   const find = repo?.historyFind;
   if (!find) return;
   const gateUsesUser = findGateUsesCurrentUser(find);
-  const masked = maskedHistoryFields(agg);
+  const masked = maskedHistoryFields(payloads, agg);
   // `Application.Common` carries AuditEntry / AuditFieldChange / AuditSnapshot /
   // IAuditHistoryReader; `Domain.Common` carries AggregateNotFoundException, the
   // gate's ForbiddenException and (for the mask pass) RequestContext.
@@ -245,7 +247,7 @@ export function emitHistoryQueryAndHandler(
     `        foreach (var row in __rows)`,
     `        {`,
     // (3) — the mask pass lives in the mapper, the only place a caller enters.
-    ...renderHistoryEntryMapperLines(agg, "            "),
+    ...renderHistoryEntryMapperLines(payloads, agg, "            "),
     `        }`,
     `        return __entries;`,
   );
