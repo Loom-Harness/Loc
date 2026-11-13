@@ -62,6 +62,8 @@ describe("i18n-ui leg — the fixture it drives", () => {
       "Simple",
       "Principal",
       "Recalculer",
+      "Filtrer…",
+      "Filtrer le tableau",
     ]) {
       expect(RUNNER, `runner reads '${asserted}'`).toContain(
         asserted.replace("Principal", "principal").replace("Recalculer", "recalculer"),

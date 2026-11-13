@@ -42,7 +42,9 @@ describe("Table client-side filter (Svelte)", () => {
         rows: rows, filter: q) }`,
     );
     const content = pageOf(files);
-    expect(content).toContain(`<input type="search" bind:value={q} placeholder="Filter…"`);
+    expect(content).toContain(
+      `<input type="search" bind:value={q} placeholder={t("chrome.tableFilterPlaceholder", "Filter…")}`,
+    );
     expect(content).toContain('data-testid="table-filter"');
     expect(content).toContain("filterRows(customerAll.data.items, q)");
     expect(content).toContain(`import { filterRows } from "$lib/table-sort";`);
