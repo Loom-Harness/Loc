@@ -1,14 +1,14 @@
-// The broker service's protocol: the infra worker's twin of the redis /
-// rabbitmq / kafka sidecars in `docker-compose.yml`.
+// The broker emulation's protocol: the twin of the redis / rabbitmq / kafka
+// sidecars in `docker-compose.yml`.
 //
-// A deployable reaches it through its `InfraPort` (see `../infra-port.ts`)
-// with the generated `ChannelTransport` calls translated one to one: publish,
+// A playground deployable reaches it through its `InfraPort` with the
+// generated `ChannelTransport` calls translated one to one: publish,
 // subscribe, and — per delivery — ack or nack.  The state (topics, queues,
-// consumer groups, offsets, dead-letter queues) lives once, in the infra
-// worker, so delivery to one member of a group, the kafka log and the
+// consumer groups, offsets, dead-letter queues) lives once, in one
+// `BrokerModel`, so delivery to one member of a group, the kafka log and the
 // dead-letter queues hold across deployables.
 //
-// Types only: the main thread and the deployable workers import this file.
+// Types and constants only: every host of the emulation imports this file.
 
 /** The broker a binding rides — `ChannelBinding.transport` of the generated
  *  `CHANNEL_BINDINGS`. */

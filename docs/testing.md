@@ -136,6 +136,26 @@ its `test e2e` blocks:
   must be listed in `UNATTRIBUTED_CALLS` for the fixture. The census compares
   both sets exactly, so a pin that goes stale fails too.
 
+### Test infrastructure / emulation
+
+The external services a generated app talks to — mail, object storage, a remote
+REST api, an OIDC issuer, a message broker — are emulated ONCE, in
+`src/emulation/`: one pure model per service, built by a factory, with no
+`node:` import, no `web/` import and no worker or DOM global. Two hosts wrap the
+same models in a transport and nothing else:
+
+- the **browser playground's infra worker** (`web/src/runtime/infra/`) holds one
+  instance of each, routes the infra protocol to it and hands it the OPFS
+  `BlobStore` (see [`playground.md`](playground.md#resource-fakes));
+- the **Node test kit** (`test/support/fakes/`) serves per-case instances over
+  loopback ports for the services that cannot run for real.
+
+Two gates hold the split. `test/emulation/emulation-census.test.ts` fails when
+the core stops being pure or a host file carries a model's state or wire
+semantics. `test/emulation/contract.ts` is the one behaviour suite for the
+models; it is parameterised by host, `contract.test.ts` runs it over the
+in-process core, and a transport-backed host reruns it unchanged.
+
 ### Behavioral corpus constraint
 
 The docker-free behavioral tiers (`test/behavioral/`) require each corpus
