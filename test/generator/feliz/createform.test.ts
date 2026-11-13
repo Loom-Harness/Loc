@@ -281,16 +281,19 @@ describe("feliz create forms", () => {
     );
     expect(app).toContain('prop.ariaDescribedBy "OrderCreateForm-customer-error"');
     expect(app).toContain(
-      'prop.children (Html.option [ prop.value ""; prop.text "" ] :: View.idOptions model.AllCustomers (fun x -> x.id) (fun x -> x.display)) ]',
+      'prop.children (Html.option [ prop.value ""; prop.text "" ] :: View.idOptions model.CustomerOptions (fun x -> x.id) (fun x -> x.display)) ]',
     );
     // The `View.idOptions` helper is emitted.
     expect(app).toContain(
       "  let idOptions (r: Remote<'T list>) (idOf: 'T -> string) (labelOf: 'T -> string) : ReactElement list =",
     );
     // The target's `.all` is an IMPLICIT read wired into the MVU loop.
-    expect(app).toContain("AllCustomers: Remote<Customer list>");
-    expect(app).toContain("let allCustomers () : Async<Result<Customer list, string>> =");
-    expect(app).toContain("Cmd.OfAsync.perform Api.allCustomers () AllCustomersLoaded");
+    expect(app).toContain("CustomerOptions: Remote<Customer list>");
+    expect(app).toContain("let customerOptions () : Async<Result<Customer list, string>> =");
+    // The picker walks every page (wire contract, not just the first page).
+    expect(app).toContain("?page=%d&pageSize=500");
+    expect(app).toContain('Decode.field "totalPages" Decode.int');
+    expect(app).toContain("Cmd.OfAsync.perform Api.customerOptions () CustomerOptionsLoaded");
     // A required FK guards the submit (must pick a customer).
     expect(app).toContain("IsNullOrWhiteSpace form.customer");
   });

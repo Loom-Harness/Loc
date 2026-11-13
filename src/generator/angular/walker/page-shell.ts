@@ -40,7 +40,10 @@ import {
   fieldGroupControlDecl,
   fileUploadMethodLines,
   groupArrayMembers,
+  listInputMethodLines,
+  optionalGroupNames,
 } from "../form-fields.js";
+import { submitInputExpr } from "../form-prefill.js";
 import { ANGULAR_LOCALE_SWITCHER_CLASS } from "../locale-switcher.js";
 import { ANGULAR_REF_LABEL_CLASS } from "../ref-label-runtime.js";
 import { storeClassName, storeFileSlug } from "../store-builder.js";
@@ -892,6 +895,14 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   ) {
     members.push(fileUploadMethodLines().join("\n"));
   }
+  if (
+    sink.forms.some((f) => f.hasList) ||
+    sink.opForms.some((f) => f.hasList) ||
+    sink.workflowForms.some((f) => f.hasList) ||
+    sink.modals.some((m) => m.hasList)
+  ) {
+    members.push(listInputMethodLines().join("\n"));
+  }
 
   const angularForms = sink.forms;
   for (const form of angularForms) {
@@ -903,7 +914,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
         `  async ${form.submitMethod}(): Promise<void> {`,
         invalidGuard(form),
         ...submitBody(form.formVar, [
-          `    const out = await this.${form.mutationVar}.mutateAsync(this.${form.formVar}.getRawValue());`,
+          `    const out = await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, undefined, optionalGroupNames(form))});`,
           `    this.router.navigateByUrl(\`/${form.redirectSlug}/\${out.id}\`);`,
         ]),
         "  }",
@@ -927,7 +938,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
         `  async ${form.submitMethod}(): Promise<void> {`,
         `    if (this.${form.formVar}.invalid) return;`,
         ...submitBody(form.formVar, [
-          `    await this.${form.mutationVar}.mutateAsync(this.${form.formVar}.getRawValue());`,
+          `    await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, undefined, optionalGroupNames(form))});`,
           '    this.router.navigateByUrl("/workflows");',
         ]),
         "  }",
@@ -966,7 +977,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
           `  async ${f.submitMethod}(): Promise<void> {`,
           invalidGuard(f),
           ...submitBody(f.formVar, [
-            `    await this.${f.mutationVar}.mutateAsync({ id: ${idExpr}, input: this.${f.formVar}.getRawValue() });`,
+            `    await this.${f.mutationVar}.mutateAsync({ id: ${idExpr}, input: ${submitInputExpr(f.formVar, f.nullable, optionalGroupNames(f))} });`,
           ]),
           "  }",
         ].join("\n"),
@@ -1074,12 +1085,13 @@ export function renderAngularPage(input: AngularPageShellInput): string {
       }
       members.push(`  readonly ${m.formVar} = new FormGroup({ ${formGroupBody(m)} });`);
       members.push(...formArrayMemberLines(m.formVar, m));
+      if (m.seedMethod) members.push(m.seedMethod);
       members.push(
         [
           `  async ${m.submitMethod}(): Promise<void> {`,
           invalidGuard(m),
           ...submitBody(m.formVar, [
-            `    await this.${m.mutationVar}.mutateAsync({ id: this.${m.idSig}(), input: this.${m.formVar}.getRawValue() });`,
+            `    await this.${m.mutationVar}.mutateAsync({ id: this.${m.idSig}(), input: ${submitInputExpr(m.formVar, m.nullable, optionalGroupNames(m))} });`,
             `    this.${m.openSig}.set(false);`,
           ]),
           "  }",

@@ -1,6 +1,6 @@
 // Auto-generated.  Do not edit by hand.
 import { useParams, Link as RouterLink } from "react-router";
-import { UpdateCustomerRequest, useUpdateCustomer } from "../../api/customer";
+import { CustomerResponse, UpdateCustomerRequest, useUpdateCustomer } from "../../api/customer";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
 import { fieldErrorText } from "../../lib/field-error";
@@ -11,18 +11,18 @@ import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
 import { Controller, useForm } from "react-hook-form";
 import { useCustomerById } from "../../api/customer";
-function openUpdateModal(mut: ReturnType<typeof useUpdateCustomer>): void {
+function openUpdateModal(mut: ReturnType<typeof useUpdateCustomer>, record: CustomerResponse): void {
   modals.open({
     title: t("Customers.Customer.op.update", "Update"),
     closeButtonProps: { "aria-label": t("chrome.close", "Close") },
-    children: <UpdateForm mut={mut} onClose={() => modals.closeAll()} />,
+    children: <UpdateForm mut={mut} record={record} onClose={() => modals.closeAll()} />,
   });
 }
 
-function UpdateForm({ mut, onClose }: { mut: ReturnType<typeof useUpdateCustomer>; onClose: () => void }) {
+function UpdateForm({ mut, record, onClose }: { mut: ReturnType<typeof useUpdateCustomer>; record: CustomerResponse; onClose: () => void }) {
   const { register, handleSubmit, setError, control, formState: { errors } } = useForm<UpdateCustomerRequest>({
     resolver: zodResolver(UpdateCustomerRequest),
-    defaultValues: { username: "", email: "", age: 0 },
+    defaultValues: { username: record.username, email: record.email, age: record.age },
   });
   return (
     <form
@@ -101,7 +101,7 @@ export default function CustomerDetail() {
               </Stack>
             </Card>
             <Group gap="xs">
-              <Button variant="filled" onClick={() => openUpdateModal(update)} data-testid="customers-op-update">{t("Customers.Customer.op.update", "Update")}</Button>
+              <Button variant="filled" onClick={() => openUpdateModal(update, customerById.data!)} data-testid="customers-op-update">{t("Customers.Customer.op.update", "Update")}</Button>
     
             </Group>
           </Stack>

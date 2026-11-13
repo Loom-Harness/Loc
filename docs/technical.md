@@ -819,6 +819,32 @@ emitters that the registered package calls.
 | `emit.ts` | Top-level barrel that `index.ts` invokes per context. |
 | `render-expr.ts` / `render-stmt.ts` | IR → idiomatic C#, with a `thisName` context (e.g., `x` for find filters' `.Where(x => …)`). |
 
+### Scaffolded forms — the shared form model (`src/generator/_frontend/form-spec.ts`)
+
+Every frontend renders create / update / operation / workflow forms from one
+framework-neutral `FormSpec`.  For each field it decides:
+
+| Fact | Rule |
+| --- | --- |
+| **kind** | One of 17 (`string`, `int`, `decimal`, `money`, `bool`, `date`, `datetime`, `file`, `enum`, `ref`, `optionalRef`, `valueObject`, `optionalValueObject`, `scalarArray`, `enumArray`, `refArray`, `objectArray`). |
+| **absence** | An optional field left empty submits `null` (a cleared text-like input is `""` → `null`; an un-added optional value object is `null`); a collection with no items submits `[]`. |
+| **prefill** | An operation param named and typed like an aggregate field seeds from the loaded record (so a scaffold `update` opens on the current values); otherwise the declared `= <expr>` default when the client can evaluate it; otherwise the kind's zero. |
+| **picker** | A reference reads every row of its target (`use<Plural>Options()` on the JS frontends, the equivalent page walk on Angular / Feliz / Flutter). |
+
+Each target renders a field through a `FormFieldArms` table — one arm per kind
+— so a new kind fails to type-check until every target has an arm.
+`test/generator/_frontend/form-spec-census.test.ts` pins every table to the full
+kind set and generates `test/behavioral/form-spec-ui.ddd` (one field of every
+kind) on all six frontends, failing on a placeholder stub.  The booted form
+behaviour (prefill, absence, collections, pickers, the opt-in optional group,
+part-table columns) is the `form-spec` probe of the behavioural UI legs
+(`test/behavioral/form-spec-ui.mjs`).
+
+The JSX-family binding syntax for the two inputs no design pack template covers
+— the optional value object's opt-in group and the collection inputs — lives in
+`_frontend/form-optional-group.ts` and `_frontend/form-array-input.ts`, one
+renderer per framework.
+
 ### React frontend (`src/generator/react/`)
 
 | File | Owns |
@@ -826,7 +852,7 @@ emitters that the registered package calls.
 | `index.ts` | Project shell (Vite, package.json, tsconfig, index.html, Dockerfile, certs/ dir, App.tsx with router, main.tsx with providers, e2e/ suite shell). |
 | `api-builder.ts` | Per-aggregate API module: Zod schemas (request + response, walked via `wireFieldsForAggregate`) + React Query hooks (one per route, plus one `use<Op><Agg>` mutation hook per public operation). |
 | `body-walker.ts` | The **single** page-codegen path.  Walks a page's `body:` `ExprIR` and emits TSX by dispatching every walker-stdlib primitive (`Stack`/`Table`/`QueryView`/`CreateForm`/`Modal`/`KeyValueRow`/…) through the active design pack's `primitive-*` templates.  No archetype renderers — `page <Name> { body: … }` and scaffolded pages share this one walker. |
-| `form-helpers.ts` | Per-type form-input dispatch (`prepareFormFieldVM`/`renderFormField`): text/number/switch/select/fieldset/datetime, RHF `register` vs `Controller`, initial-value generation, `X id` → `useAll<Target>()` picker injection.  Shared by `CreateForm { of: }`, `WorkflowForm { runs: }`, and operation-modal forms. |
+| `form-helpers.ts` | Form seeding and `Controller` need over the shared form model: `formSeedTs` (a form's `defaultValues` from its `FormSpec` — record prefill, declared default, or the kind's zero), `needsController`, the `X id` picker targets. |
 | `pages-emitter.ts` | Page shell: wraps the walker's body TSX with `useForm`/mutation-hook/`useParams`/import declarations the body recorded on the walk context. |
 | `page-objects-builder.ts` / `walker-page-objects.ts` | Per-aggregate Playwright page-object class — keyed off the `data-testid` strings every primitive threads through (`testid:` named arg). |
 | `layouts-emitter.ts` | Per-layout shell (`<Outlet/>` wrappers, header/footer, sidebar slots). |
