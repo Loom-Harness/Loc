@@ -1047,10 +1047,6 @@ pkill dockerd; dockerd >/tmp/dockerd.log 2>&1 &
 until docker info >/dev/null 2>&1; do sleep 1; done
 ```
 
-CI pulls the same way: every workflow `services:` image is a `mirror.gcr.io`
-reference, and `test/system/workflow-service-images.test.ts` refuses a direct
-Docker Hub one.
-
 Two more sandbox limits affect a generated stack built with `docker compose`.
 The generated Java Dockerfile cannot resolve Gradle plugins through the egress
 proxy, so build with `docker run --network host gradle:9-jdk25` and run the jar

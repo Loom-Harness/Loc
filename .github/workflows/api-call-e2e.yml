@@ -76,7 +76,7 @@ jobs:
     name: api-call-e2e (caller=${{ matrix.caller }})
     services:
       postgres:
-        image: mirror.gcr.io/library/postgres:18-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_PASSWORD: postgres
         ports:
