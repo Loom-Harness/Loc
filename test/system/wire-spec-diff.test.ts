@@ -71,6 +71,27 @@ describe("diffWireSpec", () => {
     expect(removed?.breaking).toBe(true);
   });
 
+  // The request contract moves on its own: removing an operation parameter
+  // leaves the aggregate's read record untouched, so only the `requests`
+  // bucket can see it.  A client still sending `reason` is now refused.
+  it("removing a request field is breaking, and only the request moved", async () => {
+    const op = (params: string) =>
+      order(`name: string  operation rename(${params}) { name := name }`);
+    const a = await specFor(op("name: string, reason: string"));
+    const b = await specFor(op("name: string"));
+    const diff = diffWireSpec(a, b);
+    expect(diff.breaking).toBe(true);
+    expect(diff.changes).toEqual([
+      expect.objectContaining({
+        bucket: "requests",
+        entity: "RenameOrderCommand",
+        field: "reason",
+        kind: "property-removed",
+        breaking: true,
+      }),
+    ]);
+  });
+
   it("removing an entire aggregate is breaking", async () => {
     const a = await specFor(
       sys(`
