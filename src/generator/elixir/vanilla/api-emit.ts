@@ -23,11 +23,12 @@ import {
   createInputFields,
   emitsRestCreate as sharedEmitsRestCreate,
 } from "../../../ir/enrich/wire-projection.js";
-import { routedPolymorphicRead } from "../../../ir/plan/index.js";
+import { polymorphicReadGates, routedPolymorphicRead } from "../../../ir/plan/index.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
   BoundedContextIR,
+  ExprIR,
   OperationIR,
   SystemIR,
 } from "../../../ir/types/loom-ir.js";
@@ -274,9 +275,10 @@ export function emitVanillaApiControllers(
     // `/:id` show route — Phoenix matches in registration order, so a literal
     // `/<find>` segment has to come first or `:id` would swallow it.
     const allEntry = derivedOps.find((o) => isAllFind(o));
-    // An abstract base's polymorphic read is routed only where it bypasses no
-    // concrete's list gate or field mask (`routesPolymorphicRead`); its by-id
-    // read only on TPH, where one table owns the ids.
+    // An abstract base's polymorphic read is routed whenever every concrete
+    // serves its own list read (`routedPolymorphicRead`): each concrete's gate
+    // and mask ride the base controller.  Its by-id read only on TPH, where one
+    // table owns the ids.
     const polyRouted = abstract && !!routedPolymorphicRead(agg, ctx);
     if (allEntry) routes.push(routeOf(allEntry, ":index"));
     else if (polyRouted) {
@@ -443,8 +445,48 @@ ${pagingElseArm(`${appModule}Web.ProblemDetails`, "    ")}
   // paged arm still binds `params` and the unpaged one still underscore-prefixes
   // it for the unused-variable check.
   const indexParamArg = indexPaged ? "params" : "_params";
-  const indexAction = indexGate
-    ? `  def index(conn, ${indexParamArg}) do
+  // An abstract base answers every concrete's rows, so before it loads it
+  // checks EVERY concrete's list-read gate, each with the denial that
+  // concrete's own `index` answers (`polymorphicReadGates`).
+  // The base's own gate, when it declares one, is checked first.
+  const polyGates = readOnly
+    ? polymorphicReadGates(agg, ctx).map((g) => ({ expr: g.find.requires, name: g.find.name }))
+    : [];
+  const polyGated = (
+    body: string,
+    own: ExprIR | undefined,
+    ownName: string | undefined,
+  ): string => {
+    const gates = [...(own && ownName ? [{ expr: own, name: ownName }] : []), ...polyGates];
+    return `    cond do
+${gates
+  .map(
+    (
+      g,
+    ) => `      not (${renderGateCondition(g.expr, (e) => renderElixirExpr(e, { thisName: "record", contextModule: facadeMod }))}) ->
+        ${denialResponse(
+          "forbidden",
+          JSON.stringify(`Forbidden: find ${g.name}`),
+          denialOverrides(ctx),
+          `${appModule}Web.ProblemDetails`,
+        )}
+`,
+  )
+  .join("\n")}
+      true ->
+${body
+  .split("\n")
+  .map((l) => (l ? `    ${l}` : l))
+  .join("\n")}
+    end`;
+  };
+  const indexAction =
+    polyGates.length > 0
+      ? `  def index(conn, ${indexParamArg}) do
+${cuBind}${polyGated(indexBody, indexGate, listAllFind?.name)}
+  end`
+      : indexGate
+        ? `  def index(conn, ${indexParamArg}) do
 ${cuBind}${indexCuBind}    if not (${renderGateCondition(indexGate, (g) => renderElixirExpr(g, { thisName: "record", contextModule: facadeMod }))}) do
       ${denialResponse(
         "forbidden",
@@ -456,7 +498,7 @@ ${cuBind}${indexCuBind}    if not (${renderGateCondition(indexGate, (g) => rende
 ${indexBody}
     end
   end`
-    : `  def index(conn, ${indexParamArg}) do
+        : `  def index(conn, ${indexParamArg}) do
 ${cuBind}${indexCuBind}${indexBody}
   end`;
   // The BY-ID read's authorization gate — the aggregate's
@@ -479,8 +521,13 @@ ${cuBind}${indexCuBind}${indexBody}
       {:error, :not_found} ->
         ProblemDetails.not_found_response(conn, "${aggPascal}", id)
     end`;
-  const showAction = showGate
-    ? `  def show(conn, %{"id" => id}) do
+  const showAction =
+    polyGates.length > 0
+      ? `  def show(conn, %{"id" => id}) do
+${cuBind}${polyGated(showBody, showGate, byIdFind?.name)}
+  end`
+      : showGate
+        ? `  def show(conn, %{"id" => id}) do
 ${cuBind}${showCuBind}    if not (${renderGateCondition(showGate, (g) => renderElixirExpr(g, { thisName: "record", contextModule: facadeMod }))}) do
       ${denialResponse(
         "forbidden",
@@ -492,7 +539,7 @@ ${cuBind}${showCuBind}    if not (${renderGateCondition(showGate, (g) => renderE
 ${showBody}
     end
   end`
-    : `  def show(conn, %{"id" => id}) do
+        : `  def show(conn, %{"id" => id}) do
 ${cuBind}${showBody}
   end`;
   // Command-load context fn a MUTATION action loads through (authorization.md):

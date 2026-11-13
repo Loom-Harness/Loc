@@ -6,7 +6,7 @@ import {
   wireCreateDefault,
   wireFieldsFor,
 } from "../../../ir/enrich/wire-projection.js";
-import { routedPolymorphicRead } from "../../../ir/plan/index.js";
+import { polymorphicReadGates, routedPolymorphicRead } from "../../../ir/plan/index.js";
 import { PAGED_MAX_PAGE, PAGED_MAX_PAGE_SIZE, pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -1676,6 +1676,11 @@ function polymorphicPathEntries(
   schemasModule: string,
 ): string[] {
   if (!routedPolymorphicRead(base, ctx)) return [];
+  // The 403 is declared when a concrete's list-read gate rides the route.
+  const forbidden =
+    polymorphicReadGates(base, ctx).length > 0
+      ? [denialStatus("forbidden", denialOverrides(ctx))]
+      : [];
   const pageParams = pagingQueryParams().split(",\n").slice(0, 2).join(",\n");
   const out = [
     `      "/${aggSlug}" => %OpenApiSpex.PathItem{
@@ -1690,7 +1695,7 @@ ${pageParams}
             200 => %OpenApiSpex.Response{
               description: "OK",
               content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${schemasModule}.${base.name}Paged}}
-            }${statusResponseEntries([422], schemasModule)}
+            }${statusResponseEntries([...forbidden, 422], schemasModule)}
           }
         }
       }`,
@@ -1708,7 +1713,7 @@ ${pageParams}
             200 => %OpenApiSpex.Response{
               description: "OK",
               content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${schemasModule}.${base.name}Response}}
-            }${statusResponseEntries([404, 422], schemasModule)}
+            }${statusResponseEntries([...forbidden, 404, 422], schemasModule)}
           }
         }
       }`);
