@@ -2,5 +2,11 @@
   "title": "workflow loop whose body mutates an aggregate loaded outside it, inside a nested loop — every iteration sees the previous one's write",
   "doc": "workflow",
   "backends": "ALL",
-  "note": "Insurance eval #5178 (#5210): on elixir a loop body rebinds instead of mutating, so the outer handle must ride `Enum.reduce_while`'s accumulator (else each iteration saves over the loaded record), and a nested body's unread op result must bind no name (`mix compile --warnings-as-errors`)."
+  "note": "Insurance eval #5178 (#5210): on elixir a loop body rebinds instead of mutating, so the outer handle must ride `Enum.reduce_while`'s accumulator (else each iteration saves over the loaded record), and a nested body's unread op result must bind no name (`mix compile --warnings-as-errors`).",
+  "apiCaller": {
+    "//": "B-03 — the workflow `create(…): T` result fixture drives three command workflows (two answering a value, one the 204 sibling); same not-lifted workflow-route class.",
+    "unattributed": [
+      "api.tallyAll.run (no such aggregate)"
+    ]
+  }
 }

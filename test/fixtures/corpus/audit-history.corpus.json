@@ -2,5 +2,13 @@
   "//": "ALL FIVE now serve the endpoint (M-T3.9 read path complete).  Each backend's behavioral leg diffs its booted responses against the wire golden minted from node — A≡golden ∧ B≡golden ⇒ A≡B, so this row being ALL is a proven cross-backend equality, not five self-assertions.",
   "title": "entity history — the derived `GET /<agg>/{id}/history` read over audit_records",
   "doc": "audit",
-  "backends": "ALL"
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "`api.orders.history(...)` reads the entity-history endpoint over `audit_records` (#2378) — a machinery read `deriveContextOperations` does not lift (same class as projection reads).  Lifting it would make this attributable — and this entry stale. `api.memos.history(...)` and `api.invoices.history(...)` joined it in M-T9.42's promotion: the soft-deleted `Memo` is the reachability witness (a hidden row's trail 404s), the lifecycle-only `Invoice` the audited-create witness.",
+    "unattributed": [
+      "api.invoices.history (no derived operation)",
+      "api.memos.history (no derived operation)",
+      "api.orders.history (no derived operation)"
+    ]
+  }
 }

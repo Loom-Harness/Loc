@@ -52,6 +52,7 @@ import {
   readLoadedType,
   refetchMsgCase,
   wfHasForm,
+  workflowResultType,
 } from "./wire.js";
 
 /** The F# Model type for a `state {}` field.  A `File`-typed field holds the
@@ -584,7 +585,7 @@ export function renderMsg(
       ...(formHasFieldErrors(f) ? [`  | ${formTouchMsg(f.formType)} of string`] : []),
       ...fieldArrayMsgs(f),
       `  | ${f.submitMsg}`,
-      `  | ${f.doneMsg} of Result<unit, ServerErrors>`,
+      `  | ${f.doneMsg} of Result<${workflowResultType(f)}, ServerErrors>`,
     ]),
     // An async effect (`match await`): a trigger carrying the route id (+ any op
     // args) + a result carrying the decoded `<outcome> option` (a matched variant
@@ -1096,7 +1097,11 @@ export function renderUpdate(
   // `Cmd`, and a `Done` result that resets + navigates.
   const workflowArms = workflowForms.map((f) => {
     const setters = formFieldSetterArms(f);
-    const nav = `Cmd.navigatePath(${f.navigateSegs.map((s) => `"${s}"`).join(", ")})`;
+    // A run that created a record opens it; any other lands on the home page.
+    const ok = f.resultSegment ? "(Ok id)" : "(Ok ())";
+    const nav = f.resultSegment
+      ? `Cmd.navigatePath(${[...f.resultSegment.split("/").map((s) => `"${s}"`), "id"].join(", ")})`
+      : `Cmd.navigatePath(${f.navigateSegs.map((s) => `"${s}"`).join(", ")})`;
     const pending = ignoreWhilePending(f, f.submitMsg);
     const server = formServerField(f.formField);
     // A PARAM-LESS workflow (`run()`) has no form record: the submit posts `()`
@@ -1105,7 +1110,7 @@ export function renderUpdate(
       return [
         pending,
         `  | ${f.submitMsg} -> { model with ${server} = ServerErrors.empty; ${pendingOn(f)} }, ${submitCmd(`Api.${f.apiFn}`, "()", f.doneMsg)}`,
-        `  | ${f.doneMsg} (Ok ()) -> { model with ${pendingOff(f)} }, ${nav}`,
+        `  | ${f.doneMsg} ${ok} -> { model with ${pendingOff(f)} }, ${nav}`,
         `  | ${f.doneMsg} (Error e) -> { model with ${server} = e; ${pendingOff(f)} }, Cmd.none`,
       ].join("\n");
     }
@@ -1115,7 +1120,7 @@ export function renderUpdate(
       ...fieldArrayUpdateArms(f),
       pending,
       `  | ${f.submitMsg} -> { model with ${clearServer(f)}; ${pendingOn(f)} }, ${submitCmd(`Api.${f.apiFn}`, `model.${f.formField}`, f.doneMsg)}`,
-      `  | ${f.doneMsg} (Ok ()) -> { model with ${f.formField} = ${f.emptyBinding}; ${pendingOff(f)} }, ${nav}`,
+      `  | ${f.doneMsg} ${ok} -> { model with ${f.formField} = ${f.emptyBinding}; ${pendingOff(f)} }, ${nav}`,
       `  | ${f.doneMsg} (Error e) -> { model with ${server} = e; ${pendingOff(f)} }, Cmd.none`,
     ].join("\n");
   });
