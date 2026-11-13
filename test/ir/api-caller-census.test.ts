@@ -72,7 +72,6 @@ import { corpusSource } from "../fixtures/corpus/harness.js";
 import { CORPUS } from "../fixtures/corpus/manifest.js";
 import {
   E2E_LESS_CORPUS_FIXTURES,
-  PIN_CLASS_CENSUS,
   R,
   UNATTRIBUTED_CALLS,
   UNCALLED_PINS,
@@ -427,29 +426,19 @@ describe("api caller census — every derived operation has a runtime caller or 
     expect(POPULATION.length).toBeGreaterThanOrEqual(30);
   });
 
-  it("keeps the per-class pin census honest", () => {
-    // The counts used to live in a header comment and drifted to 15/2/1 against
-    // 17/3/1 actual — prose nothing reads cannot be contradicted.  Recompute
-    // from the pins themselves and compare both ways: an added pin whose count
-    // was not raised fails, and so does a drained one whose count was not
-    // lowered.  Reasons are matched by their `R.*` STRING (the pins store the
-    // value, not the key), so a renamed class shows up here as an unknown
-    // reason rather than as a silently-zero count.
-    const byReason = new Map<string, string>(Object.entries(R).map(([k, v]) => [v, k]));
-    const actual: Record<string, number> = {};
-    for (const ops of Object.values(UNCALLED_PINS)) {
-      for (const reason of Object.values(ops)) {
-        const cls = byReason.get(reason);
-        expect(cls, `pin reason is not one of the R.* constants: ${reason}`).toBeDefined();
-        actual[cls as string] = (actual[cls as string] ?? 0) + 1;
-      }
-    }
-    expect(
-      actual,
-      "PIN_CLASS_CENSUS (test/ir/api-caller-census-pins.ts) disagrees with the pins " +
-        "below it. Adding a pin raises its count; draining one lowers it; a class at " +
-        "zero is deleted from the census.",
-    ).toEqual(PIN_CLASS_CENSUS);
+  it("every pin names one of the R reason classes", () => {
+    // The class is the honest explanation of a pin, so an unclassified one is
+    // refused.  There is no per-class COUNT to keep in step: the exact-set
+    // comparison per case already makes every added or drained pin a failing
+    // test until it is reviewed, and a shared counter only made two trains that
+    // each added a pin of one class merge cleanly into a wrong number.
+    const reasons = new Set<string>(Object.values(R));
+    const unclassified = Object.entries(UNCALLED_PINS).flatMap(([key, ops]) =>
+      Object.entries(ops)
+        .filter(([, reason]) => !reasons.has(reason))
+        .map(([op]) => `${key}: ${op}`),
+    );
+    expect(unclassified, "pin reason is not one of the R.* constants").toEqual([]);
   });
 
   it("pins no case that left the population", () => {
