@@ -81,6 +81,17 @@ import { expectReach } from "../_helpers/census-reach.js";
 //               lookup — a backend mapping an error variant to its wire status
 //               itself.  Both mappings live in the IR's wire policy.
 //               → use `errorStatuses("workflow", …)` / `errorVariantResponse`.
+//   saves       an object literal carrying `name`, `aggName` and `repoName` in a
+//               workflow / reactor / dispatch emitter — a backend building its
+//               own save entry.  Which bindings save, at the exit or at the end
+//               of a loop iteration or branch, is lowered onto the IR.
+//               → read `wf.savesAtExit` / a statement's `saves` (`nestedSaves`).
+//   outbox-capture  a `&&` chain that calls `workflowRunsInTransaction` and
+//               asks about durable events (`hasDurableEvents`,
+//               `durableEventTypes`, `workflowEmits`) — the hand-spelled "does
+//               this workflow write its outbox rows inside its transaction"
+//               test.
+//               → use `workflowCapturesDurableEmits`.
 //   folded-events  a `.map(…)` over an `appliers` list whose callback returns
 //               the applier's `.event` — the hand-rolled "which events does
 //               this stream fold" list.
@@ -210,6 +221,8 @@ interface Violation {
     | "implicit-tx"
     | "tx-boundary"
     | "wire-status"
+    | "saves"
+    | "outbox-capture"
     | "folded-events"
     | "event-log"
     | "repos"
@@ -636,6 +649,37 @@ function scan(file: string): Violation[] {
       out.push({ rule: "wire-status", where: at(n), text: n.getText(sf) });
     }
     if (
+      ts.isObjectLiteralExpression(n) &&
+      (rel.startsWith("src/generator/") || rel.startsWith("src/platform/")) &&
+      /(workflow|dispatch|reactor)[^/]*\.ts$/.test(rel) &&
+      ["name", "aggName", "repoName"].every((k) =>
+        n.properties.some((pr) => pr.name && ts.isIdentifier(pr.name) && pr.name.text === k),
+      )
+    ) {
+      out.push({ rule: "saves", where: at(n), text: n.getText(sf) });
+    }
+    if (
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+      !(
+        ts.isBinaryExpression(n.parent) &&
+        n.parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+      )
+    ) {
+      const called = new Set<string>();
+      const look = (m: ts.Node): void => {
+        if (ts.isCallExpression(m) && ts.isIdentifier(m.expression)) called.add(m.expression.text);
+        ts.forEachChild(m, look);
+      };
+      look(n);
+      if (
+        called.has("workflowRunsInTransaction") &&
+        ["hasDurableEvents", "durableEventTypes", "workflowEmits"].some((f) => called.has(f))
+      ) {
+        out.push({ rule: "outbox-capture", where: at(n), text: n.getText(sf) });
+      }
+    }
+    if (
       ts.isElementAccessExpression(n) &&
       /\berrorStatusOverrides$/.test(n.expression.getText(sf))
     ) {
@@ -783,6 +827,16 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend chooses its own workflow transaction boundary (use workflowRunsInTransaction / workflowIsolation)", () => {
     const hits = violations.filter((v) => v.rule === "tx-boundary");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no workflow emitter builds its own save entry (read savesAtExit / a statement's saves)", () => {
+    const hits = violations.filter((v) => v.rule === "saves");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-spells the durable outbox-capture test (use workflowCapturesDurableEmits)", () => {
+    const hits = violations.filter((v) => v.rule === "outbox-capture");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 
