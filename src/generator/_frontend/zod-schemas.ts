@@ -8,7 +8,6 @@
 // src/generator/react/api-builder.ts.
 // ---------------------------------------------------------------------------
 
-import { forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -40,6 +39,7 @@ import {
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../ir/util/reachable-types.js";
+import { responseWireFor } from "../../ir/util/response-wire.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { PROVENANCED_REQUEST_ERROR, provenancedEntries } from "../_payload/provenanced-wire.js";
@@ -150,14 +150,10 @@ export function emitResponseSchema(
   const lines: string[] = [];
   const name = `${ent.name}Response`;
   lines.push(`export const ${name} = z.object({`);
-  // Single canonical walk — `wireFieldsFor` recomputes the wire shape from the
-  // enriched node's fields (the scaffold-time helper in wire-projection.ts).
-  // Backends + frontend all read the same field list, so Zod schemas line up
-  // field-for-field with what the wire actually carries.  `forApiRead` strips
-  // `internal` and `secret` fields so the response schema matches what the
-  // .NET and Hono backends actually serve.
-  const fields = forApiRead(wireFieldsFor(ent));
-  void ctx;
+  // The rows come from the context's declared `<X>Response` record, the same
+  // field list every backend serves, so Zod schemas line up field-for-field
+  // with what the wire actually carries.
+  const fields = responseWireFor(ctx.payloads, ent);
   void isAgg;
   for (const wf of fields) {
     if (wf.source === "id") {

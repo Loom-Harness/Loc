@@ -16,13 +16,7 @@
 // lands on the record field with no casing seam, and Thoth's `Decode.field
 // "name"` maps the JSON key straight onto it.
 
-import {
-  createInputFields,
-  forApiRead,
-  wireFieldsForAggregate,
-  wireFieldsForPart,
-  wireFieldsForValueObject,
-} from "../../ir/enrich/wire-projection.js";
+import { createInputFields, wireFieldsForValueObject } from "../../ir/enrich/wire-projection.js";
 import { PAGED_MAX_PAGE_SIZE, PAGED_META_MEMBERS } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
@@ -50,6 +44,7 @@ import { operationFormParams } from "../../ir/util/op-gates.js";
 import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { projectionReadShape } from "../../ir/util/projection-read.js";
+import { responseWireFor } from "../../ir/util/response-wire.js";
 import { walkExprChildren } from "../../ir/util/walk.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
@@ -2970,9 +2965,16 @@ function collectRecords(
   const seen = new Set<string>();
 
   const partByName = new Map<string, EnrichedAggregateIR["parts"][number]>();
+  const payloadsByEntity = new Map<string, readonly PayloadIR[]>();
   const voWireByName = new Map<string, { name: TypeIR; fields: WireRecord["fields"] }>();
   for (const c of contexts) {
-    for (const a of c.aggregates) for (const p of a.parts) partByName.set(p.name, p);
+    for (const a of c.aggregates) {
+      payloadsByEntity.set(a.name, c.payloads);
+      for (const p of a.parts) {
+        partByName.set(p.name, p);
+        payloadsByEntity.set(p.name, c.payloads);
+      }
+    }
     for (const vo of c.valueObjects) {
       voWireByName.set(vo.name, {
         name: { kind: "valueobject", name: vo.name },
@@ -2999,7 +3001,7 @@ function collectRecords(
       const part = partByName.get(n);
       if (part) {
         emit(n, [
-          ...forApiRead(wireFieldsForPart(part)).map((w) => ({
+          ...responseWireFor(payloadsByEntity.get(part.name) ?? [], part).map((w) => ({
             name: w.name,
             type: w.type,
             optional: w.optional,
@@ -3014,7 +3016,7 @@ function collectRecords(
 
   for (const agg of aggregates) {
     emit(agg.name, [
-      ...forApiRead(wireFieldsForAggregate(agg)).map((w) => ({
+      ...responseWireFor(payloadsByEntity.get(agg.name) ?? [], agg).map((w) => ({
         name: w.name,
         type: w.type,
         optional: w.optional,

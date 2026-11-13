@@ -15,6 +15,7 @@ import {
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { allContexts } from "../../../src/ir/types/loom-ir.js";
+import { withBackendSystem } from "../../_helpers/backend-system.js";
 import { parseString } from "../../_helpers/parse.js";
 
 // A named union over two events (record variants) plus a union over a scalar
@@ -34,7 +35,7 @@ const SRC = `
 `;
 
 async function shopContext() {
-  const { model } = await parseString(SRC, { validate: false });
+  const { model } = await parseString(withBackendSystem(SRC, "node").source, { validate: false });
   const enriched = enrichLoomModel(lowerModel(model));
   return allContexts(enriched).find((c) => c.name === "Shop")!;
 }
