@@ -258,8 +258,8 @@ export function queryProjectionUsesCurrentUser(proj: ProjectionIR): boolean {
  *  read methods (findById / findAll / each find), threaded from the route's
  *  `c.get("currentUser")`.  (DEBT-01; the Hono/Drizzle analogue of EF Core's
  *  closure-captured `HasQueryFilter`.) */
-export function aggregateUsesPrincipalContextFilter(agg: { contextFilters?: ExprIR[] }): boolean {
-  return (agg.contextFilters ?? []).some(exprUsesCurrentUser);
+export function aggregateUsesPrincipalContextFilter(agg: { contextFilters: ExprIR[] }): boolean {
+  return agg.contextFilters.some(exprUsesCurrentUser);
 }
 
 export function stmtUsesCurrentUser(s: StmtIR): boolean {

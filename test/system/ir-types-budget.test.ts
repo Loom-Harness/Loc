@@ -43,7 +43,7 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   // and its statement carry no source span).
   "model.ts": 13,
   "projection.ts": 14,
-  "queries.ts": 1,
+  "queries.ts": 0,
   "stmt.ts": 16,
   "system.ts": 29,
   "traceability.ts": 5,
