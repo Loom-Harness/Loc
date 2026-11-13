@@ -23,7 +23,7 @@ function unmetNonBooleanFacts(
   ops: ReturnType<typeof allPlatforms>[number]["operations"],
 ): string[] {
   const out: string[] = [];
-  if (ops.listen === "ipv6-only") out.push("listen");
+  if (ops.listen === "ipv6-required") out.push("listen");
   if (ops.log.format !== "loom-json" && ops.log.format !== "text") out.push("log.format");
   return out;
 }
@@ -46,7 +46,7 @@ describe("platform operations contract", () => {
       });
 
       it("serves IPv4 or names the defect", () => {
-        if (ops.listen === "ipv6-only") expect(gaps.listen).toBeDefined();
+        if (ops.listen === "ipv6-required") expect(gaps.listen).toBeDefined();
       });
 
       it("probes paths under its own root, and its healthcheck addresses the in-container port", () => {

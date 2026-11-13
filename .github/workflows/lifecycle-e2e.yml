@@ -1,0 +1,71 @@
+name: Lifecycle / chaos (runtime e2e)
+
+# The generated stack under normal operations (test/e2e/lifecycle-e2e.test.ts):
+# boot + write, stop + boot again, regenerate with a changed non-last module +
+# migrate, a 30 s broker outage, a 10 s DB pause, then healthy `compose ps`,
+# no restart, IPv4 reachability and the shared log envelope.  The claims come
+# from each platform's operations contract (src/platform/operations.ts); an
+# unmet fact runs as a strict expected failure, so a fix that lands without
+# flipping the fact turns this leg red.
+#
+# TIER: per-PR, path-scoped, on the node cell only (the smoke — the fastest
+# image); nightly on main across every backend and persistence adapter.  Not in
+# the merge queue: the per-PR smoke is binding through `pr-gate`, and the full
+# matrix is ~7 compose builds.
+on:
+  schedule:
+    - cron: '41 3 * * *'
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'src/platform/**'
+      - 'src/system/index.ts'
+      - 'src/system/kubernetes.ts'
+      - 'src/generator/_channels/**'
+      - 'src/generator/typescript/emit/channels.ts'
+      - 'src/platform/hono/shared/emit.ts'
+      - 'test/e2e/lifecycle-e2e.test.ts'
+      - '.github/workflows/lifecycle-e2e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lifecycle-e2e:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        cell: ${{ fromJSON(github.event_name == 'pull_request' && '["node"]' || '["node","node:mikroorm","python","dotnet","dotnet:dapper","java","elixir"]') }}
+    name: lifecycle-e2e (${{ matrix.cell }})
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
+      - name: Install Loom toolchain
+        run: npm ci
+
+      - name: Run lifecycle e2e (${{ matrix.cell }})
+        env:
+          LOOM_LIFECYCLE_CELLS: ${{ matrix.cell }}
+        run: npm run test:lifecycle -- --reporter=verbose
+
+      - name: Surface failure context
+        if: failure()
+        run: |
+          echo "## Lifecycle e2e failed (${{ matrix.cell }})" >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo 'The run step names the phase (boot, reboot, regenerate, broker outage, DB pause, final) and dumps the compose logs. An "now holds" failure means a fix landed: flip the fact in the platform operations contract and delete its gap.' >> $GITHUB_STEP_SUMMARY
