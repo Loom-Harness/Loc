@@ -33,7 +33,7 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../ir/util/openapi-ids.js";
-import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
+import { workflowEmits } from "../../ir/util/walk.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,

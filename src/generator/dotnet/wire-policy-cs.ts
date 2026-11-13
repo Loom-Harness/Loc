@@ -6,7 +6,6 @@
 import {
   aggregateProblemParams,
   errorVariantCode,
-  errorVariantResponse,
   FIND_ABSENT_DETAIL,
   fieldFixedMessage,
   fieldSentenceSuffix,

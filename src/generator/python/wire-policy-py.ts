@@ -9,7 +9,6 @@ import {
   reasonPhrase,
   type WireRejectionClass,
   wireSentence,
-  wireStatus,
 } from "../../ir/enrich/wire-policy.js";
 import type { BoundedContextIR, ExprIR } from "../../ir/types/loom-ir.js";
 import { ruleParamRefs } from "../../ir/util/rule-params.js";
