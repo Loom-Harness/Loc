@@ -210,7 +210,7 @@ export function renderJavaController(
       )({ kind: "operation", aggregate: o.aggregate, operation: o.operation }));
   /** The named empty request a param-less operation publishes. */
   const emptyRequestOf = (op: OperationIR): Partial<JavaRouteDoc> =>
-    commandBodyOptional(op.params)
+    op.params.length === 0
       ? {
           requestBodyClass: `${javaContractPkg(ctx.basePkg)}.${reqName({ kind: "operation", aggregate: agg.name, operation: op.name })}`,
         }

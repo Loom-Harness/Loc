@@ -5,7 +5,6 @@ import {
   workflowEmitsCommandRoute,
   workflowIsGuarded,
 } from "../../../ir/types/loom-ir.js";
-import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { errorStatuses, PROBLEM_JSON, PROBLEM_SCHEMA } from "../../../ir/util/openapi-errors.js";
 import {
   commandCreateEntryResult,
@@ -217,7 +216,8 @@ export function renderJavaEmptyRequestFile(basePkg: string, name: string): JavaC
 }
 
 /** Published names of the empty requests the deployable's param-less public
- *  operations and command workflows bind. */
+ *  operations and command workflows bind (a command with params, optional or
+ *  not, binds its own request record). */
 export function javaEmptyRequestNames(
   contexts: readonly EnrichedBoundedContextIR[],
   reqNameFor: (owner: RequestComponentOwner) => string,
@@ -227,13 +227,13 @@ export function javaEmptyRequestNames(
     for (const agg of ctx.aggregates) {
       if (agg.isAbstract) continue;
       for (const op of agg.operations) {
-        if (op.visibility === "public" && commandBodyOptional(op.params)) {
+        if (op.visibility === "public" && op.params.length === 0) {
           names.add(reqNameFor({ kind: "operation", aggregate: agg.name, operation: op.name }));
         }
       }
     }
     for (const wf of ctx.workflows) {
-      if (workflowEmitsCommandRoute(wf) && commandBodyOptional(wf.params)) {
+      if (workflowEmitsCommandRoute(wf) && wf.params.length === 0) {
         names.add(reqNameFor({ kind: "workflow", workflow: wf.name }));
       }
     }
@@ -389,7 +389,7 @@ export function javaWorkflowCommandDoc(
   ]);
   return javaRouteDocAnnotations(basePkg, {
     operationId: `${lowerFirst(wf.name)}Workflow`,
-    ...(commandBodyOptional(wf.params)
+    ...(wf.params.length === 0
       ? { requestBodyClass: `${javaContractPkg(basePkg)}.${publishedReqName}` }
       : {}),
     success: split
