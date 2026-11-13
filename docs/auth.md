@@ -493,6 +493,9 @@ POST /api/tickets/<missing id>/reopen   (role: "clerk")  → 403
 POST /api/tickets/<missing id>/reopen   (role: "agent")  → 404
 ```
 
+The canonical `DELETE /{id}` and the generic `update` follow the same order:
+their `requires` that read no row refuse before the load.
+
 `GET /{id}/can_<op>`, the probe of a `when`-gated operation, runs the same
 ladder without a body.  The by-id read's gate refuses it (403) and a row the
 caller cannot read is 404, exactly as `GET /{id}` answers.  The operation's
@@ -716,10 +719,12 @@ await repo.delete(Ids.ShipmentId(id));
   field-derived create input rather than the declared parameter list, so a
   parameter has no wire slot either.  Both are refused by
   `loom.lifecycle-guard-unreadable`, which names the offending refs.
-- A **`destroy`** guard may also read `this`: the route already loads the row for
-  its 404 probe, and the gate runs against that load.  So an unreachable id
-  answers **404**, not 403 — same order as the operation routes.  A parameter is
-  still out (a DELETE carries no body).
+- A **`destroy`** guard may also read `this`.  It follows the
+  [gate order](#gate-order), like an operation's: a guard that reads only the
+  principal refuses before the load, so a refused caller gets **403** for a
+  missing id too; a guard that reads the row (the `quantity == 0` above) runs
+  against the load, after the 404.  A parameter is still out (a DELETE carries
+  no body).
 - The gate precedes the write **and** any audit staging, so a denied create
   constructs nothing and a denied destroy records nothing.
 - `errorStatuses("create" | "destroy", guarded)` declares the 403, so a generated

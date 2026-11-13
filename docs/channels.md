@@ -83,7 +83,8 @@ instance + `Shipment` in its own database.
 The channel's `delivery` × `retention` pair must be realisable by the bound
 storage type (`loom.channelsource-incompatible` otherwise; single source of
 truth in `src/util/channels.ts`, shipped combos in
-`src/generator/_channels/bindings.ts`). All cells ship on **all five
+`src/util/channels.ts` `SHIPPED_COMBOS`, binding resolution in
+`src/ir/plan/channel-bindings.ts`). All cells ship on **all five
 backends** (node/Hono, python/FastAPI, dotnet, java/Spring Boot,
 elixir/Phoenix):
 
@@ -111,6 +112,39 @@ no framework buses; re-checked per version bump):
 
 Dependencies are wiring-gated: a project with no wired channel is
 byte-identical to one generated before the feature existed.
+
+## Event routing — the channel plan
+
+For each deployable, `channelPlan` (`src/ir/plan/channel-plan.ts`) decides
+where every event goes, and each backend renders that decision with its own
+broker client and dispatcher. An event a hosted context raises takes one of
+four routes:
+
+| Route | When | Delivery |
+|---|---|---|
+| `inline-local` | no durable channel carries it, no wired binding carries it | in-process, after commit, at most once |
+| `outbox-local` | a hosted `retention: log \| work` channel carries it, no wired binding does | written to `__loom_outbox` in the raising transaction; the relay redelivers it in-process |
+| `broker-inline` | a wired binding carries it, its channel is `ephemeral` | published by the tee after commit, at most once |
+| `broker-outbox` | a wired binding carries it, its channel is durable | written to `__loom_outbox`; the relay publishes it |
+
+The plan also decides:
+
+- **Local fan-out.** A broker-carried event never runs local subscribers
+  in-process; they receive it from the broker, so each delivery happens once.
+- **Foreign channels.** A wired channel declared in a context the deployable
+  does not host joins its subscription routing with the channel's real
+  `delivery` and `retention`.
+- **Consumer.** A deployable runs a broker consumer when it wires a binding and
+  a hosted reactor, event-triggered `create` or projection fold consumes an
+  event that binding carries.
+- **Outbox tier.** A deployable owns the outbox table, capture and relay when
+  some event it raises is durable. With no in-process subscriber it is the
+  producer-only shape: every drained row goes to the broker.
+- **Dedupe.** A consumer dedupes redelivery on the envelope `id` for every
+  durable event it consumes, whether its channel is hosted or foreign.
+
+`test/system/channel-plan-census.test.ts` ratchets the emitter code that still
+derives these answers itself; the count only goes down.
 
 ## The wire — CloudEvents 1.0
 

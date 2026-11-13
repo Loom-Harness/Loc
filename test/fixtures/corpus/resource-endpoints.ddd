@@ -1,0 +1,65 @@
+// Every external-service resource client, wired from a workflow per context
+// (one resource per context and kind): each client reads its host from the
+// env var `RESOURCE_HOST_ENV` names (resources.md § Endpoint overrides), so a
+// fake or sidecar can stand in for the provider on any backend.
+system RE {
+  subdomain D {
+    context Sales {
+      aggregate Order with crudish { name: string }
+      repository Orders for Order { }
+      workflow notify {
+        create(name: string) {
+          cloudFiles.put("orders/" + name, name)
+          salesJobs.enqueue(name)
+          crm.get("/customers")
+          smtpMail.send(name, "Order", "Placed " + name)
+        }
+      }
+    }
+    context Billing {
+      aggregate Invoice with crudish { name: string }
+      repository Invoices for Invoice { }
+      workflow issue {
+        create(name: string) {
+          diskFiles.put("invoices/" + name, name)
+          sesMail.send(name, "Invoice", "Issued " + name)
+        }
+      }
+    }
+    context Support {
+      aggregate Ticket with crudish { name: string }
+      repository Tickets for Ticket { }
+      workflow open {
+        create(name: string) {
+          sendgridMail.send(name, "Ticket", "Opened " + name)
+        }
+      }
+    }
+  }
+  api A from D
+  storage pg { type: postgres }
+  storage cloud { type: s3, config: { bucket: "app-files" } }
+  storage disk { type: localDisk }
+  storage jobs { type: rabbitmq }
+  storage crmApi { type: restApi, config: { baseUrl: "http://crm:9000" } }
+  storage mailServer { type: smtp, config: { from: "no-reply@re.test" } }
+  storage sesBox { type: ses, config: { from: "no-reply@re.test", region: "eu-west-1" } }
+  storage sendgridBox { type: sendgrid, config: { from: "no-reply@re.test" } }
+  resource salesState { for: Sales, kind: state, use: pg }
+  resource billingState { for: Billing, kind: state, use: pg }
+  resource supportState { for: Support, kind: state, use: pg }
+  resource cloudFiles { for: Sales, kind: objectStore, use: cloud }
+  resource diskFiles { for: Billing, kind: objectStore, use: disk }
+  resource salesJobs { for: Sales, kind: queue, use: jobs }
+  resource crm { for: Sales, kind: api, use: crmApi }
+  resource smtpMail { for: Sales, kind: mailer, use: mailServer }
+  resource sesMail { for: Billing, kind: mailer, use: sesBox }
+  resource sendgridMail { for: Support, kind: mailer, use: sendgridBox }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Sales, Billing, Support]
+    dataSources: [salesState, billingState, supportState, cloudFiles, diskFiles, salesJobs, crm, smtpMail, sesMail, sendgridMail]
+    serves: A
+    port: 4000
+  }
+}

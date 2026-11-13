@@ -24,7 +24,11 @@ import { irTypeModules } from "../_helpers/ir-types-source.js";
 
 const BUDGET = 800;
 const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
-  "aggregate.ts": 14,
+  // One block per module, a blank line apart, so parallel slices that lower
+  // different rows merge without touching each other's lines.
+
+  "aggregate.ts": 12,
+
   // Kept: the read clauses a find may lack (`requires`, `filter`,
   // `criterionRef`, `defaultSort`) and its four synthesis flags, the history
   // find, a policy rule's `when` (absent = every caller), a channel's key, a
@@ -33,34 +37,47 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   // stance, `readsDefaultDenied`, and the enrichment-derived maps and sibling
   // pools (absent on a loose, single-context lowering).
   "context.ts": 25,
+
   // Kept: a binding's per-kind knobs (absent = not declared, which the
   // capability check tells apart from a declared knob), a frontend's target /
   // design / ui binding, a backend's realization axes, `auth`, `favicon`, and
   // the subdomain's `migrationsOwner` (absent for a frontend-only subdomain).
   "deployment.ts": 20,
+
   // `exists` carries `forWrite` (only on `for write`) and `read` (only in an
   // in-app gate position; a query-position quantifier has no read).
   "expr.ts": 36,
+
   "members.ts": 15,
+
   // `UnresolvedTypeSite`/`LoweringViolation` carry `origin` through `Sourced`.
   // Kept: the table move's two contexts (qualified form only), an enum rename's
   // context (absent at root level), the raw brand, a subscription's channel
   // (absent = implicit in-process) and projection (absent = workflow saga),
   // and the enriched overlay's sibling value objects.
   "model.ts": 7,
-  "projection.ts": 16,
-  "queries.ts": 1,
+
+  "projection.ts": 14,
+
+  "queries.ts": 0,
+
   "stmt.ts": 16,
+
   // Kept: the declared-or-absent system blocks (`user`, `auth`, `tenancy`,
   // `theme`), each theme token (absent = the design pack's default), the OIDC
   // endpoints a preset may leave unset, the auth preset name, the principal's
   // tenancy registry, a timer's inert clauses, and a storage's instance /
   // connection (absent = derived by the orchestrator).
   "system.ts": 25,
+
   "traceability.ts": 5,
+
   "types.ts": 2,
+
   "ui.ts": 20,
+
   "workflow.ts": 14,
+
   "workflow-stmt.ts": 26,
 };
 

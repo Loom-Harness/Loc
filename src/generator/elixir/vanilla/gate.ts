@@ -1,5 +1,6 @@
-import { gateReadsRow } from "../../../ir/plan/gate-ladder.js";
-import type { ExprIR, OperationIR } from "../../../ir/types/loom-ir.js";
+import { destroyLadder, gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
+import type { AggregateIR, ExprIR, OperationIR } from "../../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { operationGates, type RequiresStmtIR } from "../../../ir/util/op-gates.js";
 import { isAlwaysDenyGate } from "../../../ir/util/read-gates.js";
@@ -59,6 +60,26 @@ export function updateSeamGates(op: OperationIR | undefined): RequiresStmtIR[] {
   if (op?.name !== "update" || !mergePatchFields(op)) return [];
   return operationGates(op).filter(
     (g) => g.maskWriteOf !== undefined || !isAlwaysPublicGate(g.expr),
+  );
+}
+
+/** The merge-patch `update` seam's gates the controller runs BEFORE it loads
+ *  the row (`update_<agg>_gate/2`, the gate ladder): the `requires` gates that
+ *  read neither the row nor a parameter.  A parameter gate reads the MERGED
+ *  value — the stored one when the body omits the key — and a mask write gate
+ *  runs only when the body carries its key, so both stay in the seam, after
+ *  the load. */
+export function updateSeamRowFreeGates(op: OperationIR | undefined): RequiresStmtIR[] {
+  return updateSeamGates(op).filter(
+    (g) => g.maskWriteOf === undefined && !gateReadsRow(g) && !gateReadsParam(g),
+  );
+}
+
+/** The canonical `destroy`'s gates the controller runs BEFORE it loads the row
+ *  (`delete_<agg>_gate/1`, `destroyLadder`): the ones that read no row. */
+export function destroyRowFreeGates(agg: AggregateIR): RequiresStmtIR[] {
+  return destroyLadder(canonicalDestroy(agg), { readsIfMatch: false }).flatMap((step) =>
+    step.step === "requires" && !isAlwaysPublicGate(step.gate.expr) ? [step.gate] : [],
   );
 }
 
