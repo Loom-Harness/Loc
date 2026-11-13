@@ -9,7 +9,11 @@ import {
 } from "../../util/channels.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { snake, upperFirst } from "../../util/naming.js";
-import { type BrokerBinding, kafkaStartsAtEarliest } from "../_channels/bindings.js";
+import {
+  type BrokerBinding,
+  kafkaStartsAtEarliest,
+  uniqueBindings,
+} from "../_channels/bindings.js";
 import { CHANNEL_CONSUMER, CHANNEL_RECONNECT, OUTBOX_RELAY } from "../_channels/delivery-policy.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { numericEncode } from "../_numeric/target.js";
@@ -108,15 +112,6 @@ export function opEmitsDurableEvent(
   return op.statements.some((s) =>
     branchesContain(s, (n) => n.kind === "emit" && durable.has(n.eventName)),
   );
-}
-
-function uniqueBindings(bindings: BrokerBinding[]): BrokerBinding[] {
-  const seen = new Set<string>();
-  return bindings.filter((b) => {
-    if (seen.has(b.csName)) return false;
-    seen.add(b.csName);
-    return true;
-  });
 }
 
 /** Elixir expression serialising one event struct field into its envelope-data
@@ -382,29 +377,44 @@ function elixirOutboxRelayModule(
   defp backoff_ms(failures), do: min(@interval_ms * Integer.pow(2, min(failures, ${OUTBOX_RELAY.maxBackoffDoublings})), @max_backoff_ms)
 
   defp drain do
-    ${appModule}.Repo.all(
+${
+  brokerAware
+    ? `    # The pass claims its batch: one transaction locks the rows it takes and
+    # skips the ones another relay holds, so competing replicas never publish
+    # the same row.  The delivery only publishes, so nothing joins the
+    # transaction but this relay's own row updates.
+    case ${appModule}.Repo.transaction(fn ->
+           ${appModule}.Repo.all(
+             from(o in ${appModule}.LoomOutbox,
+               where: is_nil(o.dispatched_at) and is_nil(o.dead_at),
+               order_by: [asc: o.occurred_at],
+               limit: @batch,
+               lock: "FOR UPDATE SKIP LOCKED"
+             )
+           )
+           |> Enum.reduce_while(:ok, fn row, :ok ->
+             case deliver(row) do
+               :ok -> {:cont, :ok}
+               {:halt, error} -> {:halt, {:error, error}}
+             end
+           end)
+         end) do
+      {:ok, result} -> result
+      {:error, error} -> {:error, error}
+    end
+`
+    : `    ${appModule}.Repo.all(
       from(o in ${appModule}.LoomOutbox,
         where: is_nil(o.dispatched_at) and is_nil(o.dead_at),
         order_by: [asc: o.occurred_at],
         limit: @batch
       )
     )
-    ${
-      // Only a broker-aware deliver can answer `{:halt, _}`; a `{:halt, _}`
-      // clause the standalone relay can never reach is a typing warning, which
-      // --warnings-as-errors turns into a compile failure.
-      brokerAware
-        ? `|> Enum.reduce_while(:ok, fn row, :ok ->
-      case deliver(row) do
-        :ok -> {:cont, :ok}
-        {:halt, error} -> {:halt, {:error, error}}
-      end
-    end)`
-        : `|> Enum.each(&deliver/1)
+    |> Enum.each(&deliver/1)
 
-    :ok`
-    }
-  rescue
+    :ok
+`
+}  rescue
     error -> {:error, error}
   catch
     :exit, reason -> {:error, {:exit, reason}}

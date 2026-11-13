@@ -64,10 +64,10 @@ export interface ProjectionQueryIR extends Bypassing {
   /** Whether `source` names an AGGREGATE (read through its repository), a
    *  WORKFLOW (read through its persisted instance / saga-state rows,
    *  `instanceWireShape`), or another materialized PROJECTION (read through its
-   *  persisted `<Proj>Row` read-model table).  Absent ⇒ aggregate (the default /
-   *  folded-hybrid case).  A workflow / projection source is `select`-projection
+   *  persisted `<Proj>Row` read-model table).  `aggregate` is also the
+   *  folded-hybrid case, which has no `source`.  A workflow / projection source is `select`-projection
    *  only (no `join`s). */
-  sourceKind?: "aggregate" | "workflow" | "projection";
+  sourceKind: "aggregate" | "workflow" | "projection";
   /** The bounded context `source` is declared in, as name resolution linked
    *  it.  A projection may read a source declared in ANOTHER context of its
    *  subdomain (`context Reports { projection V { from Order … } }` over
@@ -146,13 +146,17 @@ export interface ProjectionQueryIR extends Bypassing {
  *  receiver and the operator pushes down to SQL. */
 export type ProjectionAggregateOp = "count" | "sum" | "avg" | "min" | "max";
 
-/** A normalized whole-table aggregation in a projection `select` position. */
-export interface ProjectionAggregateIR {
-  op: ProjectionAggregateOp;
-  /** The aggregated column expression, source-row-rooted (`this.total` for
-   *  `sum(o.total)`).  Absent for `count`, which counts rows, not a column —
-   *  the `COUNT(*)` / `count()` shape. */
-  arg?: ExprIR;
+/** A normalized whole-table aggregation in a projection `select` position.
+ *  `count` counts rows (the `COUNT(*)` / `count()` shape), so it carries no
+ *  column; every other operator aggregates `arg`, a source-row-rooted column
+ *  expression (`this.total` for `sum(o.total)`). */
+export type ProjectionAggregateIR =
+  | { op: "count" }
+  | { op: Exclude<ProjectionAggregateOp, "count">; arg: ExprIR };
+
+/** The aggregated column of `agg`, or `undefined` for `count`. */
+export function aggregateArg(agg: ProjectionAggregateIR | undefined): ExprIR | undefined {
+  return agg && agg.op !== "count" ? agg.arg : undefined;
 }
 
 export interface ProjectionJoinIR {

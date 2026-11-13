@@ -11,7 +11,14 @@
 import type { DataSourceIR, StorageIR } from "../../../ir/types/loom-ir.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
-import { resourceEnvUrlVar, resourceSidecarUrl } from "../../../util/resource-env.js";
+import {
+  RESOURCE_HOST_ENV,
+  resourceEnvDirVar,
+  resourceEnvEndpointVar,
+  resourceEnvUrlVar,
+  resourceSidecarUrl,
+  SENDGRID_SEND_PATH,
+} from "../../../util/resource-env.js";
 
 export interface PhoenixResourceAdapter {
   readonly name: string;
@@ -51,23 +58,39 @@ const s3PhoenixAdapter: PhoenixResourceAdapter = {
     const lines: string[] = [
       "# Auto-generated.",
       `defmodule ${resourceModuleName(appModule, "s3")} do`,
+      "  # An S3-compatible endpoint (the dev MinIO sidecar, or the storage's",
+      "  # declared one) overrides ExAws' host per request; ExAws addresses S3",
+      "  # path-style.  None set means AWS proper.",
+      "  defp s3_config(nil), do: []",
+      '  defp s3_config(""), do: []',
+      "",
+      "  defp s3_config(endpoint) do",
+      "    uri = URI.parse(endpoint)",
+      '    [scheme: "#{uri.scheme}://", host: uri.host, port: uri.port]',
+      "  end",
+      "",
     ];
     for (const r of resources) {
       const bucket = cfg(storeOf(r, stores), "bucket") ?? "";
       const fn = snake(r.name);
+      const endpoint = cfg(storeOf(r, stores), "endpoint");
       lines.push(
+        `  defp ${fn}_config do`,
+        `    s3_config(System.get_env("${resourceEnvEndpointVar(r.name)}")${endpoint ? ` || ${elixirString(endpoint)}` : ""})`,
+        "  end",
+        "",
         `  defp ${fn}_bucket do`,
         `    System.get_env("${envVar(r.name)}_BUCKET") || ${elixirString(bucket)}`,
         "  end",
         "",
         `  def ${fn}_put(key, body) do`,
         `    ExAws.S3.put_object(${fn}_bucket(), key, body, content_type: "application/json")`,
-        "    |> ExAws.request!()",
+        `    |> ExAws.request!(${fn}_config())`,
         "    :ok",
         "  end",
         "",
         `  def ${fn}_get(key) do`,
-        `    case ExAws.S3.get_object(${fn}_bucket(), key) |> ExAws.request() do`,
+        `    case ExAws.S3.get_object(${fn}_bucket(), key) |> ExAws.request(${fn}_config()) do`,
         "      {:ok, %{body: body}} -> body",
         "      {:error, _} -> nil",
         "    end",
@@ -75,20 +98,20 @@ const s3PhoenixAdapter: PhoenixResourceAdapter = {
         "",
         `  def ${fn}_list(prefix) do`,
         `    ExAws.S3.list_objects_v2(${fn}_bucket(), prefix: prefix)`,
-        "    |> ExAws.request!()",
+        `    |> ExAws.request!(${fn}_config())`,
         "    |> get_in([:body, :contents])",
         "    |> Enum.map(& &1.key)",
         "  end",
         "",
         `  def ${fn}_signed_url(key) do`,
         "    {:ok, url} =",
-        "      ExAws.Config.new(:s3)",
+        `      ExAws.Config.new(:s3, ${fn}_config())`,
         `      |> ExAws.S3.presigned_url(:get, ${fn}_bucket(), key, expires_in: 3600)`,
         "    url",
         "  end",
         "",
         `  def ${fn}_delete(key) do`,
-        `    ExAws.S3.delete_object(${fn}_bucket(), key) |> ExAws.request!()`,
+        `    ExAws.S3.delete_object(${fn}_bucket(), key) |> ExAws.request!(${fn}_config())`,
         "    :ok",
         "  end",
         "",
@@ -97,12 +120,12 @@ const s3PhoenixAdapter: PhoenixResourceAdapter = {
         `  # their content-type so a download streams back byte-identical.`,
         `  def ${fn}_put_bytes(key, body, content_type) do`,
         `    ExAws.S3.put_object(${fn}_bucket(), key, body, content_type: content_type)`,
-        "    |> ExAws.request!()",
+        `    |> ExAws.request!(${fn}_config())`,
         "    :ok",
         "  end",
         "",
         `  def ${fn}_get_bytes(key) do`,
-        `    case ExAws.S3.get_object(${fn}_bucket(), key) |> ExAws.request() do`,
+        `    case ExAws.S3.get_object(${fn}_bucket(), key) |> ExAws.request(${fn}_config()) do`,
         "      {:ok, %{body: body, headers: headers}} ->",
         `        content_type =`,
         `          Enum.find_value(headers, "application/octet-stream", fn {k, v} ->`,
@@ -296,15 +319,26 @@ const sesPhoenixAdapter: PhoenixResourceAdapter = {
       const fn = snake(r.name);
       const region = cfg(storeOf(r, stores), "region") ?? "us-east-1";
       lines.push(
+        // Swoosh posts to `host` as given; unset keeps its AWS host.
+        `  defp ${fn}_endpoint do`,
+        `    case System.get_env("${RESOURCE_HOST_ENV.ses(r.name)}") do`,
+        `      url when url in [nil, ""] -> []`,
+        `      url -> [host: url]`,
+        "    end",
+        "  end",
+        "",
         `  defp ${fn}_region do`,
         `    System.get_env("${envStem(r.name)}_REGION") || ${elixirString(region)}`,
         "  end",
         "",
         `  def ${fn}_send(to, subject, body) do`,
-        `    Swoosh.Adapters.AmazonSES.deliver(${fn}_email(to, subject, body),`,
-        `      region: ${fn}_region(),`,
-        '      access_key: System.get_env("AWS_ACCESS_KEY_ID"),',
-        '      secret: System.get_env("AWS_SECRET_ACCESS_KEY")',
+        `    Swoosh.Adapters.AmazonSES.deliver(`,
+        `      ${fn}_email(to, subject, body),`,
+        "      [",
+        `        region: ${fn}_region(),`,
+        '        access_key: System.get_env("AWS_ACCESS_KEY_ID"),',
+        '        secret: System.get_env("AWS_SECRET_ACCESS_KEY")',
+        `      ] ++ ${fn}_endpoint()`,
         "    )",
         "",
         "    :ok",
@@ -329,9 +363,18 @@ const sendgridPhoenixAdapter: PhoenixResourceAdapter = {
     for (const r of resources) {
       const fn = snake(r.name);
       lines.push(
+        // Swoosh's `base_url` is the API root it appends `/mail/send` to.
+        `  defp ${fn}_endpoint do`,
+        `    case System.get_env("${RESOURCE_HOST_ENV.sendgrid(r.name)}") do`,
+        `      url when url in [nil, ""] -> []`,
+        `      url -> [base_url: String.trim_trailing(url, "/") <> ${elixirString(SENDGRID_SEND_PATH.replace(/\/mail\/send$/, ""))}]`,
+        "    end",
+        "  end",
+        "",
         `  def ${fn}_send(to, subject, body) do`,
-        `    Swoosh.Adapters.Sendgrid.deliver(${fn}_email(to, subject, body),`,
-        '      api_key: System.get_env("SENDGRID_API_KEY")',
+        `    Swoosh.Adapters.Sendgrid.deliver(`,
+        `      ${fn}_email(to, subject, body),`,
+        `      [api_key: System.get_env("SENDGRID_API_KEY")] ++ ${fn}_endpoint()`,
         "    )",
         "",
         "    :ok",
@@ -361,7 +404,7 @@ const localDiskPhoenixAdapter: PhoenixResourceAdapter = {
       const fn = snake(r.name);
       lines.push(
         `  defp ${fn}_dir do`,
-        `    System.get_env("${envVar(r.name).replace(/_URL$/, "")}_DIR") || "data/${r.name}"`,
+        `    System.get_env("${resourceEnvDirVar(r.name)}") || "data/${r.name}"`,
         "  end",
         "",
         // Guard against path traversal: minted keys are UUIDs, but a

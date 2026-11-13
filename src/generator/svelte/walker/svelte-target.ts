@@ -152,11 +152,11 @@ export const svelteTarget: WalkerTarget = {
 
   /** A `bind:value` search box driving the client-side filter — Svelte 5
    *  two-way binds the `$state` rune, so no manual event handler is needed. */
-  renderFilterInput(filter) {
+  renderFilterInput(filter, labels) {
     const style = "margin-bottom: 0.75rem; padding: 0.375rem 0.5rem;";
     return (
-      `<input type="search" bind:value={${filter.name}} placeholder="Filter…" ` +
-      `aria-label="Filter table" style="${style}" data-testid="table-filter" />`
+      `<input type="search" bind:value={${filter.name}} ${labels.placeholderAttr} ` +
+      `${labels.ariaAttr} style="${style}" data-testid="table-filter" />`
     );
   },
 

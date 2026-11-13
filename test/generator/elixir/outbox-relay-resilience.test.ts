@@ -34,7 +34,7 @@ describe("elixir outbox relay + broker publishers — outage resilience", () => 
     expect(relay).toContain("case drain() do");
     expect(relay).toContain("Process.send_after(self(), :drain, backoff_ms(failures))");
     expect(relay).toContain(
-      "    |> Enum.reduce_while(:ok, fn row, :ok ->\n      case deliver(row) do",
+      "           |> Enum.reduce_while(:ok, fn row, :ok ->\n             case deliver(row) do",
     );
     // DB errors and exits are returned, not raised.
     expect(relay).toContain(

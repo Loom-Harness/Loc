@@ -29,7 +29,6 @@ system Shop {
         customer: Customer id
         status:   OrderStatus
         on(e: OrderPlaced) {
-          order := e.order
           customer := e.customer
           status := Placed
         }
@@ -85,8 +84,8 @@ describe("projection lowering", () => {
     expect(p.handlers.map((h) => h.event)).toEqual(["OrderPlaced", "OrderShipped"]);
     const placed = p.handlers.find((h) => h.event === "OrderPlaced")!;
     expect(placed.param).toBe("e");
-    // Three assignment folds against the row.
-    expect(placed.statements).toHaveLength(3);
+    // Two assignment folds against the row; the key is stamped by the allocation.
+    expect(placed.statements).toHaveLength(2);
   });
 
   it("resolves bare state-field assignment targets as this-props", async () => {
@@ -99,6 +98,52 @@ describe("projection lowering", () => {
 });
 
 describe("projection validation", () => {
+  it("refuses a running total over an optional field without a default", async () => {
+    const codes = await projectionErrors(`
+      projection OrderBook keyed by order {
+        order: Order id
+        seen: int?
+        started: int? = 0
+        count: int
+        on(e: OrderPlaced) { seen += 1  started += 1  count += 1 }
+      }`);
+    expect(codes.filter((c) => c === "loom.projection-accumulate-optional")).toHaveLength(1);
+  });
+
+  it("refuses a required fold column with no zero and no default", async () => {
+    const codes = await projectionErrors(`
+      projection OrderBook keyed by order {
+        order: Order id
+        status: OrderStatus
+        placedAt: datetime?
+        kind: OrderStatus = Placed
+        count: int
+        on(e: OrderPlaced) { status := Placed  count += 1 }
+      }`);
+    // Only \`status\`: the optional, the defaulted and the zero-able columns start.
+    expect(codes.filter((c) => c === "loom.projection-field-no-start")).toHaveLength(1);
+  });
+
+  it("refuses an assignment to the key field (loom.projection-key-assign)", async () => {
+    const codes = await projectionErrors(`
+      projection OrderBook keyed by order {
+        order: Order id
+        status: OrderStatus
+        on(e: OrderPlaced) { order := e.order  status := Placed }
+      }`);
+    expect(codes).toContain("loom.projection-key-assign");
+  });
+
+  it("accepts a fold that leaves the key to the allocation", async () => {
+    const codes = await projectionErrors(`
+      projection OrderBook keyed by order {
+        order: Order id
+        status: OrderStatus
+        on(e: OrderPlaced) { status := Placed }
+      }`);
+    expect(codes).not.toContain("loom.projection-key-assign");
+  });
+
   it("rejects `keyed by` naming an undeclared field", async () => {
     const errs = await projectionErrors(`
       projection P keyed by nope {
@@ -112,7 +157,7 @@ describe("projection validation", () => {
     const errs = await projectionErrors(`
       projection P keyed by status {
         status: OrderStatus
-        on(e: OrderPlaced) { status := Placed }
+        on(e: OrderPlaced) { }
       }`);
     expect(errs).toContain("loom.projection-key-not-id");
   });
@@ -130,7 +175,7 @@ describe("projection validation", () => {
     const errs = await projectionErrors(`
       projection P keyed by order {
         order: Order id
-        on(e: OrderPlaced) { order := e.order  emit OrderShipped { order: e.order } }
+        on(e: OrderPlaced) { emit OrderShipped { order: e.order } }
       }`);
     expect(errs).toContain("loom.projection-fold-impure");
   });
@@ -139,8 +184,8 @@ describe("projection validation", () => {
     const errs = await projectionErrors(`
       projection P keyed by order {
         order: Order id
-        on(e: OrderPlaced) { order := e.order }
-        on(e: OrderPlaced) { order := e.order }
+        on(e: OrderPlaced) { }
+        on(e: OrderPlaced) { }
       }`);
     expect(errs).toContain("loom.projection-duplicate-on");
   });

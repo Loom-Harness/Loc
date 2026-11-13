@@ -144,7 +144,7 @@ describe("parsing — projection comprehension", () => {
       wrap(`
         projection OrderBook keyed by order {
           order: Order id  status: OrderStatus
-          on(e: OrderPlaced) { order := e.order  status := Confirmed }
+          on(e: OrderPlaced) { status := Confirmed }
         }
       `),
     );
@@ -258,7 +258,7 @@ describe("parsing — projection comprehension", () => {
         event Ping { order: Widget id }
         projection Board keyed by order {
           order: Widget id  select: string
-          on(e: Ping) { order := e.order }
+          on(e: Ping) { }
         }
       }
     `);

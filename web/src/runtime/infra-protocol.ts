@@ -15,7 +15,7 @@
 // to a SharedWorker (or across tabs) unchanged.  A new kind of infrastructure
 // is a new `service` with its own ops; the envelope stays.
 
-import type { BrokerOp } from "./infra/broker-protocol.js";
+import type { BrokerOp } from "../../../src/emulation/broker-protocol.js";
 import type { ResourceOp } from "./infra/resource-types.js";
 import type { BootFail, MigrationPlan } from "./protocol.js";
 

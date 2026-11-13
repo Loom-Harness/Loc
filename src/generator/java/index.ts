@@ -4,6 +4,7 @@ import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import {
+  channelPlan,
   eventSourcedWorkflows,
   observableWorkflows,
   routedPolymorphicRead,
@@ -11,7 +12,6 @@ import {
 } from "../../ir/plan/index.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
-  ChannelIR,
   DeployableIR,
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -80,7 +80,7 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
-import { brokerChannelBindings } from "../_channels/bindings.js";
+import { bootRequiredAuthEnv } from "../_auth/boot-required.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { spellMarkers } from "../_imports/symbol.js";
@@ -379,6 +379,7 @@ function emitProjectFromContexts(
   // Nimbus dep land only when an `auth { oidc }` block targets this
   // (auth: required) deployable.
   const oidc = authRequired && !!system?.sys.auth;
+  const javaBootRequired = oidc ? bootRequiredAuthEnv(system?.sys.auth) : [];
   // Resource client classes (objectStore / queue / api) + their Gradle
   // deps — empty when the deployable wires no consumable
   // resources, leaving build.gradle.kts byte-identical.
@@ -410,7 +411,8 @@ function emitProjectFromContexts(
   // broker-carried event type is broker-routed: its dispatcher handlers drop
   // the local @EventListener (design §4 delivery uniformity) and are invoked
   // by the ChannelConsumerService on delivery instead.
-  const channelBindings = system ? brokerChannelBindings(system.deployable, system.sys) : [];
+  const chPlan = channelPlan(contexts, system);
+  const channelBindings = chPlan.bindings;
   const hasChannels = channelBindings.length > 0;
   // Durable broker-bound events (M-T4.4): HOSTED durable events
   // carried by a wired `queue`/`work` (or future `log`) channel — their
@@ -433,15 +435,7 @@ function emitProjectFromContexts(
       .flatMap((b) => b.events)
       .filter((ev) => hostedDurable.has(ev)),
   );
-  const hostedChannelNames = new Set(contexts.flatMap((c) => c.channels).map((ch) => ch.name));
-  const wiredForeignChannels: ChannelIR[] = channelBindings
-    .filter((b) => !hostedChannelNames.has(b.channelName))
-    .map((b) => ({
-      name: b.channelName,
-      carries: b.events,
-      delivery: b.delivery,
-      retention: b.retention,
-    }));
+  const wiredForeignChannels = chPlan.foreignChannels;
   const brokerEvents = new Set(channelBindings.flatMap((b) => b.events));
   // Standalone (no-broker) outbox tier (dispatch-delivery-semantics.md §1-2):
   // hosted durable events on a channel with NO `channelSource` still get
@@ -1589,7 +1583,10 @@ function emitProjectFromContexts(
   // logback.xml behind the observability catalog (CatalogLog logs through
   // SLF4J; logstash-logback-encoder renders the JSON envelope).
   out.set("src/main/resources/logback.xml", renderLogbackConfig());
-  out.set(mainSourcePath(basePkg, "Application.java"), renderApplication(basePkg));
+  out.set(
+    mainSourcePath(basePkg, "Application.java"),
+    renderApplication(basePkg, javaBootRequired),
+  );
   out.set(
     mainSourcePath(`${basePkg}.api`, "HealthController.java"),
     renderHealthController(basePkg),

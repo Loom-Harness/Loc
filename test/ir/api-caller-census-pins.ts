@@ -351,7 +351,8 @@ export const R = {
    * endpoint a UI polls is never called.
    */
   gateProbe:
-    "unreachable: e2e has no can_<op> probe verb (the gate's 409 is exercised via the operation)",
+    "unreachable: e2e has no can_<op> probe verb (the gate's 409 is exercised via the operation; " +
+    "a fixture's authz ladder may request the probe, which is not an e2e call)",
   /**
    * UNRECORDABLE — a `find` whose predicate reads `now()`, so its answer is a
    * function of wall-clock time.  The wire golden compares whole response

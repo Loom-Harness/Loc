@@ -1,12 +1,13 @@
 // Auto-generated.
-import { provideHttpClient, withFetch } from "@angular/common/http";
+import { provideHttpClient, withFetch{{#if hasAuthUi}}, withInterceptors{{/if}} } from "@angular/common/http";
 import { type ApplicationConfig, ErrorHandler, provideZoneChangeDetection } from "@angular/core";
 import { provideRouter } from "@angular/router";
 import { providePrimeNG } from "primeng/config";
 import { definePreset } from "@primeuix/themes";
 import Aura from "@primeuix/themes/aura";
 import { QueryClient, provideTanStackQuery } from "@tanstack/angular-query-experimental";
-import { routes } from "./app.routes";
+{{#if hasAuthUi}}import { authRefreshInterceptor } from "../api/auth-interceptor";
+{{/if}}import { routes } from "./app.routes";
 import { LoomErrorHandler } from "./error-handler";
 
 // Aura's stock light primary maps `--p-primary-color` to the `500` shade
@@ -41,7 +42,7 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(routes),
-    provideHttpClient(withFetch()),
+    provideHttpClient(withFetch(){{#if hasAuthUi}}, withInterceptors([authRefreshInterceptor]){{/if}}),
     providePrimeNG({ theme: { preset: LoomAura } }),
     provideTanStackQuery(new QueryClient()),
     // Root render-time error handler (M-T1.8) — Angular's default one only

@@ -89,6 +89,15 @@ system HeexUiSystem {
       }
       repository Claims for Claim { }
 
+      // An OPTIONAL value object left blank in the create form is absent (nil),
+      // and the detail page renders its leaves as empty — a dot read on the
+      // nil value crashed the detail LiveView.
+      aggregate Memo with crudish {
+        subject: string
+        reserve: Reserve?
+      }
+      repository Memos for Memo { }
+
       // Covers every read of Claim: the list LiveView, the detail LiveView,
       // and the REST list / by-id routes.  `admin` is the dev stub's built-in
       // principal, which the emitted smoke spec navigates as; the read-gate
@@ -168,5 +177,11 @@ system HeexUiSystem {
     let read = ui.widgets.getById(w)
     expect(read.name).toHaveText("Sprocket")
     expect(read.rank).toHaveText("7")
+  }
+
+  test e2e "an optional value object left blank reads back as empty" against phoenixApp {
+    let m = ui.memos.create({ subject: "Unreserved" })
+    let read = ui.memos.getById(m)
+    expect(read.subject).toHaveText("Unreserved")
   }
 }

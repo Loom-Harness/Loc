@@ -793,11 +793,7 @@ function createBodyContract(agg: AggregateIR): { name: string; type: TypeIR; req
       required: isRequiredCreateInput(p),
     }));
   }
-  // `agg.createInput` is populated by enrichment and this check runs on an
-  // `EnrichedLoomModel`; `buildCreateInput` is the total fallback the shared
-  // helper keeps for pre-enrichment callers, so read through it rather than
-  // asserting.
-  return (agg.createInput ?? buildCreateInput(agg)).map((c) => ({
+  return buildCreateInput(agg).map((c) => ({
     name: c.field.name,
     type: c.field.type,
     required: c.requiredInput,

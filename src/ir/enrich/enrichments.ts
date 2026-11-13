@@ -95,7 +95,7 @@ import {
 import { applyHandlerReadGates, applyPolicyReadGates } from "./policy-read-gates.js";
 import { applyPolicyScopes } from "./policy-scopes.js";
 import { applyShareGates } from "./share-gates.js";
-import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
+import { wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
 // Loom IR enrichments — pure derivations layered on top of the IR
@@ -157,8 +157,8 @@ export function enrichLoomModel(loom: RawLoomModel): EnrichedLoomModel {
     backfillIntents: loom.backfillIntents,
     sqlMigrationSteps: loom.sqlMigrationSteps,
     enumValueRenameIntents: loom.enumValueRenameIntents,
-    ...(loom.unresolvedTypes ? { unresolvedTypes: loom.unresolvedTypes } : {}),
-    ...(loom.loweringViolations ? { loweringViolations: loom.loweringViolations } : {}),
+    unresolvedTypes: loom.unresolvedTypes,
+    loweringViolations: loom.loweringViolations,
     traceability: computeTraceability(loom),
   } as EnrichedLoomModel;
 }
@@ -1506,7 +1506,6 @@ export function deriveEventSubscriptions(
         workflow: wf.name,
         trigger: "create",
         param: create.eventBinding,
-        createName: create.name,
       });
     }
   }
@@ -1683,7 +1682,6 @@ function enrichAggregate(
     destroys,
     parts,
     associations: associationsForAggregate(resolved),
-    createInput: buildCreateInput(resolved),
     displayDerived: derived.find((d) => d.name === "display"),
     inspectDerived,
   };
