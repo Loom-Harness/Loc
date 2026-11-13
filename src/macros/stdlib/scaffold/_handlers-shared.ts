@@ -24,6 +24,8 @@ import type {
   Destroy,
   HttpMethod,
   Operation,
+  Parameter,
+  Property,
   Repository,
 } from "../../../language/generated/ast.js";
 import {
@@ -34,8 +36,8 @@ import {
   isRepository,
 } from "../../../language/generated/ast.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
-
 import { routeSegmentFor } from "../../../util/storage-names.js";
+import { createInputProperties } from "../../api/index.js";
 /** The id parameter name a generated handler takes: `<agg>Id` (`Order` →
  * `orderId`).  Deliberately NOT `id` — a bare `id` handler param is reserved
  * (`loom.handler-param-reserved-id`). */
@@ -179,6 +181,18 @@ export function handlerTargets(ctx: BoundedContext): HandlerTarget[] {
     if (destroy) out.push({ kind: "destroy", agg, repo, destroy });
   }
   return out;
+}
+
+/** The members a create request carries — one source for the create command
+ *  record and the handler that reads it, matching the IR input every backend's
+ *  request DTO renders: an event-sourced aggregate's create takes its action's
+ *  params (there is no field-derived factory), any other the create-input
+ *  fields (inherited ones included). */
+export function createRequestMembers(
+  agg: Aggregate,
+  create: Create,
+): readonly (Property | Parameter)[] {
+  return agg.persistedAs === "eventLog" ? create.params : createInputProperties(agg);
 }
 
 /** The derived handler name for a target — the single source of truth both
