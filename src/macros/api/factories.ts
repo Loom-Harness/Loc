@@ -1343,10 +1343,13 @@ function writableCreateFieldsOf(target: Aggregate, fields: readonly Property[]):
  * Mirrors the IR rule: a macro-synthesized create (`with crudish`, tagged with
  * an origin token) and an event-sourced aggregate are never narrowed.
  */
-export function createInputProperties(target: Aggregate): readonly Property[] {
+export function createInputProperties(
+  target: Aggregate,
+  opts: { inherited?: boolean } = {},
+): readonly Property[] {
   // Inherited fields lead, root-most first, as in the IR's merged field list.
   const writable = [
-    ...writableCreateFieldsOf(target, inheritedProperties(target)),
+    ...(opts.inherited ? writableCreateFieldsOf(target, inheritedProperties(target)) : []),
     ...writableCreateFields(target),
   ];
   if ((target as { persistedAs?: string }).persistedAs === "eventLog") return writable;

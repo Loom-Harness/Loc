@@ -154,7 +154,9 @@ function buildHandler(t: HandlerTarget, errors: ReadonlySet<string>) {
       // A create handler takes the aggregate's create-INPUT fields (the same
       // shape the factory `<Agg>.create(...)` accepts and the create command
       // record exposes) as a single `cmd: <Create<Agg>>Command` body record.
-      const fields = createRequestMembers(t.agg, t.create).filter((f) => f.type != null);
+      const fields = createRequestMembers(t.agg, t.create, { inherited: false }).filter(
+        (f) => f.type != null,
+      );
       const params =
         fields.length > 0 ? [param("cmd", namedType(`${targetHandlerName(t)}Command`))] : [];
       const body = [
