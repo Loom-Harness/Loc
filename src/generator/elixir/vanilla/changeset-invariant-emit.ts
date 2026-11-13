@@ -27,7 +27,12 @@
 // line.  Empty when an aggregate has no such invariant → byte-identical output.
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR, ExprIR, InvariantIR } from "../../../ir/types/loom-ir.js";
+import type {
+  AggregateIR,
+  EnrichedAggregateIR,
+  ExprIR,
+  InvariantIR,
+} from "../../../ir/types/loom-ir.js";
 // The PURE "can this carrier enforce the rule?" judgement lives in `ir/util` so
 // the phase-⑦ validator can read the same answer — see that module's header.
 import {
@@ -123,7 +128,7 @@ export function namedRoutesToResidual(
    *  Optional so the native path in `changeset-emit` (which asks only "does
    *  this route away from me?") keeps its existing call shape; omitting it
    *  excludes nothing, which is the pre-#3023 answer. */
-  owner?: Pick<AggregateIR, "invariants"> & Partial<Pick<AggregateIR, "associations">>,
+  owner?: Pick<AggregateIR, "invariants"> & Partial<Pick<EnrichedAggregateIR, "associations">>,
 ): boolean {
   if (inv.message == null) return false;
   return renderableHere(inv, owner ? unreadableCollections(owner) : new Set());
@@ -140,7 +145,7 @@ export function namedRoutesToResidual(
  *  and empty for a cross-field one, and it skips `namedRoutesToResidual`
  *  explicitly. */
 export function residualInvariants(
-  agg: Pick<AggregateIR, "invariants"> & Partial<Pick<AggregateIR, "associations">>,
+  agg: Pick<AggregateIR, "invariants"> & Partial<Pick<EnrichedAggregateIR, "associations">>,
 ): InvariantIR[] {
   const opaque = unreadableCollections(agg);
   return (agg.invariants ?? []).filter(

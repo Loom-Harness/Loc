@@ -1,4 +1,5 @@
 import {
+  buildCreateInput,
   createInputFields,
   emitsRestCreate,
   forApiRead,
@@ -266,7 +267,9 @@ export function renderDtoFiles(
         imports,
         undefined,
         reqNameFor({ kind: "create", aggregate: agg.name }),
-        (agg.createInput ?? []).filter((c) => c.requiredInput).map((c) => c.field.name),
+        buildCreateInput(agg)
+          .filter((c) => c.requiredInput)
+          .map((c) => c.field.name),
       ),
     });
   }
