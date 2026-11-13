@@ -165,8 +165,10 @@ export const messages = {
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/index-suggestion-checks.ts
   // ----------------------------------------------------------------------
-  "loom.index-suggestion": (p: { name: unknown; fName: unknown; where: unknown }) =>
-    `'${p.name}.${p.fName}' is read on a query filter but has no index. ` + `Consider ${p.where}.`,
+  "loom.index-suggestion": (p: { name: unknown; fName: unknown; resource?: unknown }) =>
+    `'${p.name}.${p.fName}' is read on a query filter but has no index. ` +
+    `Consider \`index: [${p.name}.${p.fName}]\` ` +
+    `${p.resource ? `on resource '${p.resource}'` : "on its `kind: state` resource"}.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/query-checks.ts

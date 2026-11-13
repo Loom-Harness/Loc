@@ -25,6 +25,7 @@ import {
   isRepository,
   type Model,
 } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 import { describeOwner, zoneOf } from "./stmt-placement.js";
 
 /** True when `name` is a repository declared in the bounded context that
@@ -45,7 +46,7 @@ function explicitSave(stmt: AssignOrCallStmt): { repo: string; verb: string } | 
 }
 
 export function checkWorkflowExplicitSave(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isAssignOrCallStmt(node)) continue;
     const save = explicitSave(node);
     if (!save || zoneOf(node) !== "workflow") continue;

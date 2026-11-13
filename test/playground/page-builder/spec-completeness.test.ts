@@ -23,8 +23,8 @@ import { SPECS } from "../../../web/src/builder/page/model.js";
 //
 // A primitive that genuinely cannot be modelled by the SPECS mechanism (an
 // exotic slot shape the positional/named/namedChildren vocabulary can't
-// express) is pinned below WITH A REASON instead — same discipline as
-// test/generator/elixir/heex-parity.test.ts's KNOWN_HEEX_GAPS.
+// express) is pinned below WITH A REASON instead — same discipline as the
+// Flutter parity freeze's KNOWN_FLUTTER_GAPS.
 // ---------------------------------------------------------------------------
 
 /** Stdlib primitives deliberately left without a builder spec, each with WHY.

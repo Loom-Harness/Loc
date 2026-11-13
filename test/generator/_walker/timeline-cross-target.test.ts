@@ -7,9 +7,8 @@
 // through the real generators rather than an emitter unit.
 //
 // The HEEx arm is the one that matters most: Phoenix serves the history
-// endpoint too, so a TSX-only Timeline would be exactly the silent LiveView
-// degradation `heex-parity.test.ts` exists to catch.  It is implemented, not
-// waived.
+// endpoint too, so a LiveView page without a Timeline would be a silent
+// degradation.  It is implemented, not waived.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";

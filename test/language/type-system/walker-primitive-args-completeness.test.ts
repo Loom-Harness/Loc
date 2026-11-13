@@ -72,10 +72,13 @@ const HARDCODED_READS: Record<string, string> = {
 };
 
 /** The emitter sources the scan covers: the shared walker primitive table, the
- *  walker core, and the Phoenix/HEEx twin (which runs its own engine). */
+ *  walker core, and the HEEx whole-primitive overrides (which read their
+ *  arguments themselves). */
 const EMITTER_FILES = [
   "src/generator/_walker/walker-core.ts",
-  "src/generator/elixir/heex-primitives.ts",
+  ...["display", "form", "markup", "modal", "query", "table"].map(
+    (f) => `src/generator/elixir/heex-${f}.ts`,
+  ),
   ...[
     "chart",
     "code-block",

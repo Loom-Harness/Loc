@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------
 // Cross-target TEXT-ESCAPING property gate (audit finding 13 / slice B23).
 //
-// heex-parity.test.ts measures registry PRESENCE — it stays green while the
-// TSX and HEEx renderers both exist but DISAGREE on escaping (exactly what
-// shipped as finding 13).  This file measures BEHAVIOUR: a hostile text
+// A coverage gate measures PRESENCE — it stays green while two renderers both
+// exist but DISAGREE on escaping (exactly what shipped as finding 13).  This
+// file measures BEHAVIOUR: a hostile text
 // literal must come out ESCAPED on every target that renders text, so a
 // `<`, `&`, `<%= … %>` or `{{ … }}` in `.ddd` source can never open a tag,
 // an entity, an EEx tag or a mustache interpolation in generated markup.
@@ -17,22 +17,21 @@
 //      covered — no per-primitive enumeration needed.
 //   2. END-TO-END render — a page body instantiating every text-rendering
 //      primitive with the hostile literal, generated through all five REAL
-//      generators (React/Vue/Svelte/Angular via the shared walker, Phoenix
-//      via its parallel HEEx engine).  Asserts the raw payload never appears
+//      generators (React/Vue/Svelte/Angular and Phoenix, all on the shared
+//      walker).  Asserts the raw payload never appears
 //      unescaped in any generated file, and the escaped form does — proving
 //      the primitives actually route through the funnel end to end.
 //   3. REGISTRY classification guard — every `WALKER_PRIMITIVES` entry is
 //      classified as a rendered text primitive (tested here) or pinned as
 //      non-text with a reason.  A NEW primitive fails until classified, so
 //      a new text primitive is auto-pulled into the escaping gate (the same
-//      frozen-allowlist discipline as heex-parity / walker-stdlib tests).
+//      frozen-allowlist discipline as the walker-stdlib tests).
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
 import { WALKER_PRIMITIVES } from "../../../src/generator/_walker/registry.js";
 import type { WalkerTarget } from "../../../src/generator/_walker/target.js";
 import { angularTarget } from "../../../src/generator/angular/walker/angular-target.js";
-import { HEEX_SHARED_PRIMITIVES } from "../../../src/generator/elixir/heex-pack.js";
 import { heexTarget } from "../../../src/generator/elixir/heex-target.js";
 import { tsxTarget } from "../../../src/generator/react/walker/tsx-target.js";
 import { svelteTarget } from "../../../src/generator/svelte/walker/svelte-target.js";
@@ -223,13 +222,10 @@ describe("text-escaping registry classification (auto-covers new primitives)", (
     }
   });
 
-  it("every tested text primitive renders on tsx AND heex", () => {
+  it("every tested text primitive has a shared renderer (every target, HEEx included)", () => {
     for (const name of Object.keys(TEXT_PRIMITIVE_CALLS)) {
       const def = WALKER_PRIMITIVES[name]!;
-      expect(def.tsx, `${name} needs a tsx renderer`).toBeDefined();
-      // The shared core renders a `HEEX_SHARED_PRIMITIVES` name for HEEx too.
-      const heex = HEEX_SHARED_PRIMITIVES.has(name) ? def.tsx : def.heex;
-      expect(heex, `${name} needs a heex renderer`).toBeDefined();
+      expect(def.tsx, `${name} needs a shared renderer`).toBeDefined();
     }
   });
 });

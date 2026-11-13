@@ -65,6 +65,7 @@ import {
   type PostfixChain,
 } from "../generated/ast.js";
 import { classifyRepoArg, queryNamesOf, queryRefOf } from "../repo-query-arg.js";
+import { modelContents } from "./model-contents.js";
 
 /** Does this chain carry an `ignoring` clause?  The fragment sets `bypassAll`
  *  for `ignoring *` and fills `bypass` for `ignoring A, B`. */
@@ -151,7 +152,7 @@ function consumed(chain: PostfixChain): boolean {
 }
 
 export function checkBypassPlacement(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isPostfixChain(node) || !carriesIgnoring(node) || consumed(node)) continue;
     accept("error", diagMessage("loom.ignoring-clause-placement", { clause: spelling(node) }), {
       node,

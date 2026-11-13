@@ -97,7 +97,7 @@ describe("an event-only saga gets no frontend command call helper", () => {
 });
 
 // A hand-written `WorkflowForm(runs: <saga>)` has nothing to submit to: every
-// walker (the shared one on all six SPA frontends, the parallel HEEx one) gives
+// frontend's walker (the shared one, HEEx's form override included) gives
 // up with `loom.page-ref-unreachable` instead of wiring a call to the
 // non-existent route (or, on Phoenix, a `run/2` the backend never emits).
 describe("WorkflowForm(runs: <event-only saga>) gives up on every frontend", () => {

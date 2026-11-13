@@ -23,7 +23,7 @@
 // time, so the diagnostics land on a fresh `.ddd` edit.  The cross-file
 // deployable-wiring checks live in `ir/validate/checks/system-checks.ts`.
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import {
   CHANNEL_COMPATIBILITY,
@@ -31,9 +31,10 @@ import {
   SHIPPED_COMBOS,
 } from "../../util/channels.js";
 import { type Channel, isChannel, isChannelSource, type Model } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 export function checkChannels(model: Model, accept: ValidationAcceptor): void {
-  const channels = [...AstUtils.streamAllContents(model)].filter(isChannel);
+  const channels = [...modelContents(model)].filter(isChannel);
   const channelByName = new Map<string, Channel>();
   for (const ch of channels) channelByName.set(ch.name, ch);
 
@@ -59,7 +60,7 @@ export function checkChannels(model: Model, accept: ValidationAcceptor): void {
   }
 
   // 2. channelSource: delivery x retention must be compatible with the storage type.
-  const sources = [...AstUtils.streamAllContents(model)].filter(isChannelSource);
+  const sources = [...modelContents(model)].filter(isChannelSource);
   for (const cs of sources) {
     const ch = channelByName.get(cs.channel);
     const storageType = cs.use?.ref?.type;

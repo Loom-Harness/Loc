@@ -86,9 +86,9 @@ describe("Action primitive — instance-qualified operation refs", () => {
     );
     // cancel → bare mutation, no then-effect.
     expect(tsx).toMatch(/cancelOrder\.mutateAsync\(\{\}\)/);
-    // Button labels are the humanised operation names.
-    expect(tsx).toMatch(/>Confirm</);
-    expect(tsx).toMatch(/>Cancel</);
+    // Button labels are the operations' identity-keyed, humanised names.
+    expect(tsx).toMatch(/\{t\("Sales\.Order\.op\.confirm", "Confirm"\)\}/);
+    expect(tsx).toMatch(/\{t\("Sales\.Order\.op\.cancel", "Cancel"\)\}/);
     // navigate hook is wired for the then-effect.
     expect(tsx).toMatch(/const navigate = useNavigate\(\)/);
   });

@@ -9,7 +9,7 @@
 // semantics yet (that is I2/I3).  These rules keep the surface honest in
 // the meantime.
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import type { Aggregate, IdType, Model, Repository } from "../generated/ast.js";
 import {
@@ -21,6 +21,7 @@ import {
   isOperation,
   isRepository,
 } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 /** Default inheritance layout for a participant that omits the
  *  `inheritanceUsing: …` modifier: TPH (`sharedTable`) — the simplest DSL
@@ -32,7 +33,7 @@ export function checkInheritance(model: Model, accept: ValidationAcceptor): void
   const aggregates: Aggregate[] = [];
   const repositories: Repository[] = [];
   const idTypes: IdType[] = [];
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (isAggregate(node)) aggregates.push(node);
     else if (isRepository(node)) repositories.push(node);
     else if (isIdType(node)) idTypes.push(node);

@@ -1,14 +1,21 @@
 // ---------------------------------------------------------------------------
 // HEEx walker core.
 //
-// Renders a page body (`PageIR.body` expression IR) as HEEx for the Phoenix
-// LiveView platform.  It is a separate engine from the shared walker core
-// (`src/generator/_walker/walker-core.ts`, `walkBody`) because LiveView's
-// output topology differs: lambdas hoist to `handle_event/3` clauses, lists
-// render as `for` comprehensions, and conditional children are `if` blocks.
-// Its expression leaves still ride the shared dispatcher —
-// `renderExprWith(…, HEEX_TARGET)` — so it carries no expression switch of its
-// own.
+// Renders a page or component body (`PageIR.body` expression IR) as HEEx for
+// the Phoenix LiveView platform.  The walk is the shared walker core's
+// (`src/generator/_walker/walker-core.ts`, `walkBody`) under `heexTarget`;
+// this module holds what LiveView adds to it:
+//
+//   - the HEEx walk context (`WalkContext`), carried in the shared walk's sink,
+//     and the binding accumulators the LiveView emitters read back
+//     (`WalkResult`);
+//   - the entry, `walkBodyToHeex`, and the bridge a whole-primitive override
+//     uses to walk a child primitive or component (`renderThroughSharedCore`);
+//   - the HEEx expression renderer (`renderExpr`, over the shared
+//     `renderExprWith(…, HEEX_TARGET)` dispatcher), which `heexTarget` answers
+//     every expression and text slot with: Elixir has its own names for state
+//     (`@x` in a template, `socket.assigns.x` in a handler), lambdas hoist to
+//     `handle_event/3` clauses, and reads are in-process context calls.
 //
 // What this walker produces, per page:
 //
@@ -17,11 +24,10 @@
 //     and block-body lambdas (`onSubmit`, `Action(op).then`).
 //
 // Coverage.  Every page renders through here, scaffolded ones included (the
-// scaffold macros give each page its full body).  Every primitive that has a
-// TSX renderer has a HEEx renderer too, except `DataGrid`, which LiveView
-// refuses (a compile-time diagnostic, not a blank region);
-// `test/generator/elixir/heex-parity.test.ts` pins that set.  A construct the
-// walker still cannot render (a missing or unreadable primitive argument, an
+// scaffold macros give each page its full body).  Every primitive renders,
+// except `DataGrid`, which LiveView refuses (a compile-time diagnostic, not a
+// blank region); `test/generator/elixir/heex-coverage.test.ts` reaches each
+// one.  A construct the walker still cannot render (a missing or unreadable primitive argument, an
 // unreachable reference) emits a `loom:unrendered [<code>]` HEEx comment via
 // `giveUpText`, naming the catalogued `loom.*` code.
 //
@@ -56,8 +62,6 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { type EnrichedAggregateIR, exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
-import { hostStatefulComponents } from "../../ir/util/heex-component-host-state.js";
-import { richTextMessage } from "../../ir/util/icu-message.js";
 import {
   listShapedProjectionNames,
   readableProjectionNames,
@@ -65,23 +69,17 @@ import {
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";
-import { USER_VISIBLE_SLOTS } from "../../util/user-visible-slots.js";
 import { type ExprCtxBase, type ExprTarget, renderExprWith } from "../_expr/target.js";
 import type { LocaleEntry } from "../_frontend/locale-meta.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
-import { giveUpText } from "../_walker/give-up.js";
-import {
-  icuFromConcat,
-  inlineComponentKeyPrefix,
-  messageKey,
-  RICH_TEXT_ROLE,
-} from "../_walker/i18n-extract.js";
+import { icuFromConcat, messageKey } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
 import { type WalkContext as SharedWalkContext, walk, walkBody } from "../_walker/walker-core.js";
+import { externModuleFromPath } from "./heex-component.js";
 import { hoistLambdaToHandler, seedHoistedHandlers, storeActionEvent } from "./heex-handlers.js";
 import { modelTextExpr } from "./heex-model-text.js";
-import { HEEX_SHARED_PRIMITIVES, heexPack } from "./heex-pack.js";
+import { heexPack } from "./heex-pack.js";
 import { heexTarget, renderHeexStoreActionCall, renderHeexStoreFieldRead } from "./heex-target.js";
 import { pgettextCall } from "./i18n.js";
 import {
@@ -279,7 +277,7 @@ export interface QueryBinding {
    *  the refusal is a backstop, not the user-facing message). */
   readFn?: string;
   /** `source: "aggregate"` only — trailing arguments threading the socket's
-   *  principal into the read (`readActorArgs` in `heex-primitives.ts`); absent
+   *  principal into the read (`readActorArgs` in `heex-query.ts`); absent
    *  when the read's context function takes no actor. */
   actorArgs?: string[];
   /** kind:"list" only — the enclosing `match` arm's condition (handler-position
@@ -327,7 +325,7 @@ export interface TableControlBinding {
  *  &handle_<field>_progress/3)` in `mount/3` plus a `handle_<field>_progress/3`
  *  consumer that persists the entry and assigns the resulting `FileRef` map
  *  into the bound `:<field>` state assign.  See `renderFileUpload`
- *  (heex-primitives.ts) and `renderMount` / `renderUploadProgressHandlers`
+ *  (`heex-form.ts`) and `renderMount` / `renderUploadProgressHandlers`
  *  (liveview-emit.ts). */
 export interface UploadBinding {
   /** snake-cased page-state field the FileRef is written into — also the
@@ -459,7 +457,7 @@ export interface WalkContext {
   chartUsed: { value: boolean };
   /** Shared box flag set when a CLIENT-side `Table` control renders — a
    *  filter, a sort or a page window over rows the server did not page
-   *  (`heex-primitives.ts` `renderTable`).  Boxed for the same reason as
+   *  (`heex-table.ts` `renderTable`).  Boxed for the same reason as
    *  `chartUsed`, and drives the per-deployable `LoomTable` helper module:
    *  the three transforms are Elixir list arithmetic, not markup, and they
    *  are called from BOTH the page LiveViews and the shared components
@@ -486,13 +484,13 @@ export interface WalkContext {
    *  the other accumulator Sets above), surfaced as `WalkResult.usedStores`. */
   usedStores: Set<string>;
   /** FileUpload bindings discovered as the walker visits `FileUpload(…)` calls
-   *  (heex-primitives.ts::renderFileUpload).  Surfaced as
+   *  (`heex-display.ts` `renderFileUpload`).  Surfaced as
    *  `WalkResult.uploadBindings`; drives mount `allow_upload` + the progress
    *  consumer.  An array (mutation survives `{...ctx}` shallow copies, like the
    *  other accumulator arrays above). */
   uploadBindings: UploadBinding[];
   /** Table control bindings discovered as the walker visits `Table(…)` calls
-   *  (heex-primitives.ts::renderTable).  Surfaced as `WalkResult.tableControls`;
+   *  (`heex-table.ts` `renderTable`).  Surfaced as `WalkResult.tableControls`;
    *  drives the hoisted sort/page `handle_event` clauses.  An array (mutation
    *  survives `{...ctx}` shallow copies, like the other accumulators above). */
   tableControls: TableControlBinding[];
@@ -558,19 +556,19 @@ export interface WalkContext {
    *  derives its rank from structure — `min(6, 2 + headingDepth)`, matching
    *  the JSX frontends' `WalkEnv.headingDepth` (accessibility.md, so
    *  ranks never skip).  Incremented by `Section` / `Card` / `Paper` for
-   *  their children (the shared walk and this engine keep it in step);
+   *  their children (the shared walk keeps it in step);
    *  undefined at page top ⇒ depth 0 ⇒ `<h2>` (the app shell
    *  owns the single `<h1>`). */
   headingDepth?: number;
-  /** The shared walker-core context this engine was entered from.  A ported
-   *  primitive (`HEEX_SHARED_PRIMITIVES`) below an engine-rendered node goes
-   *  back through it, so the two engines nest in either direction. */
+  /** The shared walker-core context this HEEx walk was entered from.  A
+   *  primitive or component call a whole-primitive override renders as a
+   *  child walks back into the shared core under it. */
   sharedWalk?: SharedWalkContext;
   /** i18n key prefix for this body — `page.<Page>` / `component.<Comp>`
    *  Set only when the ui has extractable user-visible strings;
    *  undefined ⇒ every literal renders raw.
-   *  The HEEx engine is a FORK of the shared walker, so this mirrors
-   *  `_walker/walker-core.ts`'s `i18nPrefix` rather than sharing it. */
+   *  The same prefix as the shared walk's `i18nPrefix`; the HEEx expression
+   *  renderer reads it from here. */
   i18nPrefix?: string;
   /** The locales the app ships, with their generate-time endonyms — read by
    *  `LocaleSwitcher`.  Undefined means the system has a single locale. */
@@ -690,9 +688,8 @@ export function walkBodyToHeex(
 
   seedHoistedHandlers(ctx, page, body);
 
-  // The body runs through the shared walker core.  Every node it reaches is
-  // handed back to this engine through `heexTarget.renderNodeOverride`, which
-  // renders it with the HEEx walk context carried in the sink.
+  // The body runs through the shared walker core, with the HEEx walk context
+  // in its sink for `heexTarget`'s seams.
   const sink: HeexWalkSink = { heex: ctx };
   const heex = body ? walkShared(body, sink) : `<!-- empty body -->`;
   const titleExpr = pageTitleExpr(page, ctx);
@@ -701,18 +698,18 @@ export function walkBodyToHeex(
 }
 
 /** Run the shared walker core over `body` with the HEEx walk state in its
- *  sink.  The core's own lookups stay empty: every node it does not render
- *  itself goes back to this engine, which owns those lookups. */
+ *  sink.  The core resolves the body's names (params, state, derived values,
+ *  components, extern functions) itself; every expression it renders goes to
+ *  the HEEx expression renderer through `heexTarget.renderExprOverride`. */
 function walkShared(body: ExprIR, sink: HeexWalkSink): string {
+  const { page, ui } = sink.heex;
   return walkBody(
     body,
     heexTarget,
     heexPack(sink),
-    undefined,
-    pageStateNames(sink.heex.page),
-    undefined,
-    undefined,
-    undefined,
+    new Set(page.params.map((p) => p.name)),
+    pageStateNames(page),
+    new Map(ui.components.map((c) => [c.name, c.params] as const)),
     undefined,
     undefined,
     undefined,
@@ -720,16 +717,19 @@ function walkShared(body: ExprIR, sink: HeexWalkSink): string {
     undefined,
     undefined,
     undefined,
+    new Set((ui.functions ?? []).map((f) => f.name)),
+    new Set((page.derived ?? []).map((d) => d.name)),
     undefined,
     sink.heex.i18nPrefix,
     sink,
   ).tsx;
 }
 
-/** A ported primitive reached from inside this engine, rendered by the shared
- *  core under the current HEEx walk state.  It walks at depth 0 because this
- *  engine indents a child relative to its parent (`indent`), and the shared
- *  core's depth-0 output is exactly that relative form. */
+/** A primitive or component call reached while rendering an expression or a
+ *  whole-primitive override's children, walked by the shared core under the
+ *  current HEEx walk state.  It walks at depth 0 because the override indents
+ *  a child relative to its parent (`indent`), and the shared core's depth-0
+ *  output is exactly that relative form. */
 function renderThroughSharedCore(expr: ExprIR, ctx: WalkContext): string {
   const sink: HeexWalkSink = { heex: ctx };
   const shared = ctx.sharedWalk;
@@ -1148,164 +1148,6 @@ export function registerBinding<T>(ctx: WalkContext, list: T[], item: T): void {
   list.push(item);
 }
 
-/** Bind a component call's arguments to its params: a named argument binds by
- *  name; a positional one binds to the next param NOT already bound by name;
- *  a positional with no param left is a child (the component's `Slot()`). */
-function bindCallArgs(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  comp: ComponentIR,
-): { params: Map<string, ExprIR>; children: ExprIR[] } {
-  const named = new Set((expr.argNames ?? []).filter((n): n is string => !!n));
-  const free = comp.params.map((p) => p.name).filter((n) => !named.has(n));
-  const params = new Map<string, ExprIR>();
-  const children: ExprIR[] = [];
-  let pos = 0;
-  for (let i = 0; i < expr.args.length; i++) {
-    const argName = expr.argNames?.[i];
-    const paramName = argName ?? free[pos++];
-    if (!paramName) children.push(expr.args[i]!);
-    else params.set(paramName, expr.args[i]!);
-  }
-  return { params, children };
-}
-
-/** A call to a component whose body needs host-LiveView state, rendered INLINE.
- *
- *  The component body is walked again under a context that shares the caller's
- *  binding accumulators (`formBindings`, `queryBindings`, `uploadBindings`,
- *  `tableControls`, option/label sets, the chart/table/tab counters), so the
- *  assigns, `allow_upload/3` and `handle_event` clauses its primitives need land
- *  in the host page's LiveView by construction.  What stays per-walk is what the
- *  component-level hoisting already owns (`handlers`, `actionBindings`,
- *  `usedComponents`, `usedStores`, `slotUsed`): those reach the host through
- *  `ComponentActionInfo`, and a fresh set here makes the lambda handler names this
- *  walk mints match the ones that hoisting emits.
- *
- *  Params are substituted by the caller's argument expressions (re-rendered per
- *  position, see `WalkContext.inlineParams`), and the `Slot()` renders the call's
- *  children in the caller's scope.  Rendering a component twice registers its
- *  bindings twice; the emitters dedupe identical bindings. */
-function renderInlinedComponent(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  comp: ComponentIR,
-  ctx: WalkContext,
-): string {
-  const bound = bindCallArgs(expr, comp);
-  const children = bound.children;
-  const params = new Map<string, { expr: ExprIR; ctx: WalkContext }>(
-    [...bound.params].map(([name, arg]) => [name, { expr: arg, ctx }]),
-  );
-  const page = {
-    name: comp.name,
-    params: comp.params,
-    state: comp.state,
-    derived: comp.derived,
-    actions: comp.actions,
-    body: comp.body,
-  } as PageIR;
-  const instanceTypes = new Map<string, string>();
-  for (const p of comp.params) {
-    if (p.type.kind === "entity" && ctx.aggregatesByName.has(p.type.name)) {
-      instanceTypes.set(p.name, p.type.name);
-    }
-  }
-  const inner: WalkContext = {
-    ...ctx,
-    page,
-    stateNames: new Set(comp.state.map((f) => snake(f.name))),
-    stateFields: new Map(comp.state.map((f) => [snake(f.name), f] as const)),
-    stateOwner: comp.name,
-    instanceTypes,
-    i18nPrefix: ctx.i18nPrefix ? inlineComponentKeyPrefix(ctx.i18nPrefix, comp.name) : undefined,
-    inlineParams: params,
-    inlineSlot: () => children.map((c) => renderChild(c, ctx)).join(""),
-    varRemapping: undefined,
-    actionArgSubst: undefined,
-    rowTypes: undefined,
-    listTypes: undefined,
-    handlers: [],
-    actionBindings: [],
-    usedComponents: new Set(),
-    componentUses: new Map(),
-    usedStores: new Set(),
-    slotUsed: { value: false },
-  };
-  seedHoistedHandlers(inner, page, comp.body);
-  return comp.body ? renderExpr(comp.body, inner) : "<!-- empty body -->";
-}
-
-/** A call to a user-defined `component` → a fully-qualified HEEx
- *  function-component invocation.  Positional args bind to the
- *  component's declared params in order; named args bind by name.
- *  Values render in template position (refs become `@assign`). */
-function renderUserComponent(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  comp: ComponentIR,
-  ctx: WalkContext,
-): string {
-  ctx.usedComponents.add(comp.name);
-  ctx.componentUses.set(comp.name, (ctx.componentUses.get(comp.name) ?? 0) + 1);
-  // A component that (transitively) renders a form / QueryView / Table /
-  // FileUpload / Chart needs the HOST LiveView to supply its assigns, uploads
-  // and `handle_event` clauses, which a function component cannot — so it is
-  // rendered inline, into the caller, rather than invoked.
-  if (!comp.extern && hostStatefulComponents(ctx.ui).has(comp.name)) {
-    return renderInlinedComponent(expr, comp, ctx);
-  }
-  const attrs: string[] = [];
-  // A positional argument with no param left to land on is a CHILD: it renders
-  // between the open and close tags, into the component's `Slot {}`
-  // (`render_slot(@inner_block)`).
-  const bound = bindCallArgs(expr, comp);
-  const children = bound.children;
-  for (const [paramName, arg] of bound.params) {
-    const value = renderExpr(arg, { ...ctx, position: "template" });
-    attrs.push(`${snake(paramName)}={${value}}`);
-  }
-  // Extern component (extern-component-escape-hatch.md) → a hand-written
-  // Phoenix LiveComponent the user owns, embedded via the built-in
-  // `<.live_component>`.  The MODULE reference is the binding — Elixir's native
-  // module system, no import/alias needed (the framework-mismatch analogue of
-  // the JSX frontends' `tsc` fail-fast: a wrong module fails to compile).
-  // `id` is required by `live_component`; the snake component name is stable.
-  if (comp.extern) {
-    const mod = externModuleFromPath(comp.externPath ?? "");
-    const rest = attrs.length > 0 ? ` ${attrs.join(" ")}` : "";
-    return `<.live_component module={${mod}} id="${snake(comp.name)}"${rest} />`;
-  }
-  // Lifted state — the callee's own `state { … }` plus that of every component
-  // it renders, threaded down from the host LiveView's assigns under the same
-  // namespaced name at every level (see `hostStateAssign`).  Rendered in
-  // template position because a call site always sits inside a `~H` body.
-  for (const { assign } of liftedStateAttrs(comp, ctx.ui)) {
-    attrs.push(`${assign}={@${assign}}`);
-  }
-  const tag = `${ctx.appModule}Web.Components.UiComponents.${snake(comp.name)}`;
-  const open = attrs.length > 0 ? `<${tag} ${attrs.join(" ")}` : `<${tag}`;
-  if (children.length === 0) return `${open} />`;
-  return `${open}>${children.map((c) => renderChild(c, ctx)).join("")}</${tag}>`;
-}
-
-/** Derive the Elixir module reference for an `extern` component from its
- *  `from "<path>"` clause.  Elixir binds by MODULE, not by file path, so the
- *  path segments (split on `/` or `.`) are PascalCased and joined with `.` —
- *  e.g. `"widgets/order-chart"` → `Widgets.OrderChart`.  The user writes a
- *  `Phoenix.LiveComponent` under exactly that module. */
-function externModuleFromPath(path: string): string {
-  const pascalSeg = (seg: string): string =>
-    seg
-      .split(/[^a-zA-Z0-9]+/)
-      .filter(Boolean)
-      .map((w) => upperFirst(w))
-      .join("");
-  return path
-    .replace(/^\.?\//, "")
-    .split(/[/.]/)
-    .filter(Boolean)
-    .map(pascalSeg)
-    .join(".");
-}
-
 function renderCall(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   // Store-action call — `Cart.add(sku)` / `Cart.clear()` (Stage 5).  Resolved
   // at lowering into a `call` carrying `callKind: "store-action"` +
@@ -1354,20 +1196,14 @@ function renderCall(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): 
       .filter((f): f is string => f !== undefined);
     return `%{${fields.join(", ")}}`;
   }
-  // Closed-primitive library dispatch — the typed registry at
-  // src/generator/_walker/registry.ts holds the renderer for every
-  // primitive the HEEx target supports (a subset of what TSX
-  // supports; see the registry for the matrix).  Names registered
-  // without a `heex` entry fall through to the user-component /
-  // helper paths and ultimately to a visible HEEx comment so the
-  // gap is visible in generated output.
-  if (HEEX_SHARED_PRIMITIVES.has(expr.name)) return renderThroughSharedCore(expr, ctx);
-  const def = WALKER_PRIMITIVES[expr.name];
-  if (def?.heex) return def.heex(expr, ctx);
-  // User-defined `component` invocation → a remote HEEx function
-  // component (`<MyAppWeb.Components.UiComponents.order_panel … />`).
-  const userComp = ctx.ui.components.find((c) => c.name === expr.name);
-  if (userComp) return renderUserComponent(expr, userComp, ctx);
+  // A primitive or user `component` call is markup: the shared walker core
+  // renders it.
+  if (
+    WALKER_PRIMITIVES[expr.name] !== undefined ||
+    ctx.ui.components.some((c) => c.name === expr.name)
+  ) {
+    return renderThroughSharedCore(expr, ctx);
+  }
   // Extern frontend function (`function f(…): T extern from "…"`,
   // extern-function-hook-escape-hatch.md) → a FULLY-QUALIFIED call into the
   // user's hand-written Elixir module (derived from the `from` path), so no
@@ -1380,17 +1216,6 @@ function renderCall(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): 
     const mod = externModuleFromPath(externFn.externPath);
     const args = expr.args.map((a) => renderExpr(a, ctx)).join(", ");
     return `${mod}.${snake(expr.name)}(${args})`;
-  }
-  // Registered primitive that the HEEx target doesn't support yet — emit a
-  // comment so the divergence shows up in the generated template instead of
-  // silently producing wrong markup.  The EEx-NATIVE form (`<%!-- … --%>`), not
-  // an HTML comment: an HTML comment is markup, and a sub-primitive reaching
-  // here through an expression position would be wrapped as `<%= <!-- … --> %>`
-  // — a syntax error `mix compile` rejects.  `<%!-- … --%>` is inert in both
-  // positions (`isHEExCall` also keeps every registered primitive in markup
-  // position, so the wrap does not arise).
-  if (def) {
-    return `<%!-- ${giveUpText("loom.page-primitive-target-gap", `${expr.name}: not supported by Phoenix LiveView target`)} --%>`;
   }
   // Helper function call.
   if (expr.callKind === "function" || expr.callKind === "free") {
@@ -1588,7 +1413,7 @@ function ternaryRendersMarkup(
 
 /** True when `expr` is control flow over markup — a block `match`
  *  (`renderMatchChild`) or a markup ternary (`renderConditionalChild`) — which
- *  the shared walker core renders rather than this engine. */
+ *  the shared walker core renders rather than the expression renderer. */
 export function rendersMarkupBlock(expr: ExprIR, ctx: WalkContext): boolean {
   if (expr.kind === "match") return matchRendersMarkup(expr, ctx);
   return expr.kind === "ternary" && ternaryRendersMarkup(expr, ctx);
@@ -1708,8 +1533,8 @@ function renderCollectionOp(
       return `false`;
     // ---- four arms that must not fall through -----------------------------
     //
-    // HEEx runs a PARALLEL walker, so nothing the shared `_walker` seam gains
-    // reaches it.  Left to the `default:` below, these four would be
+    // HEEx renders its expressions itself, so nothing the shared `_walker`
+    // expression seams gain reaches it.  Left to the `default:` below, these four would be
     // snake-cased into a call Elixir has no function for —
     // `@names.join(", ")`, `@nums.take(2)` — and, worse for the λ-taking one,
     // the λ would render through `renderExpr`, whose `lambda` arm HOISTS it to
@@ -1848,227 +1673,6 @@ function renderToast(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext):
   return renderToastArgs(expr.args, ctx);
 }
 
-export interface PrimitiveSpec {
-  /** HEEx component tag, e.g. ".heading", "div" (for raw layout), or
-   *  ".button" — driven by the coreComponents pack conventions. */
-  tag: string;
-  /** Attribute keys that take literal values rendered as static
-   *  strings (vs JS-expression braces).  Empty by default. */
-  staticAttrs?: string[];
-  /** Whether the primitive renders children — if so, the call's
-   *  argument that's an array of children expressions is rendered
-   *  as nested HEEx. */
-  takesChildren?: boolean;
-  /** Static attributes emitted on the tag (e.g. an a11y `role="toolbar"` /
-   *  `aria-label="Actions"` the primitive's contract requires).
-   *
-   *  They are DEFAULTS, not overrides: an entry whose attribute name a derived
-   *  named attribute already emitted is dropped.  `Toolbar`'s contract is
-   *  `{role:"toolbar", needsName:true}` with "Actions" as the fallback name, so
-   *  an author's `label:` has to win — emitting both would put two `aria-label`
-   *  attributes on one tag, and the contract default would silently outrank the
-   *  authored (and translated) name. */
-  extraAttrs?: string[];
-  /** When set, a `label:` named arg is emitted as an `aria-label` attribute
-   *  (the accessible name) rather than a literal `label=` attribute.  Used by
-   *  the primitives whose visible text can't serve as the name: the command
-   *  `Button` (an unhelpful glyph) and the `Toolbar` (a group with no text of
-   *  its own).  Without it the author's `label:` falls through the generic
-   *  named-attr branch and lands as a bogus `label=` attribute on a `<div>`. */
-  labelAsAriaLabel?: boolean;
-  /** Tailwind utility classes emitted as this tag's `class` attribute — the
-   *  LAYOUT of a layout primitive (`Stack` = a column flexbox, `Grid` = a CSS
-   *  grid, …).  Both shipping HEEx packs build Tailwind through the same assets
-   *  pipeline and scan the emitted `.*ex` sources, so a literal class string
-   *  here survives the production purge on either pack.
-   *
-   *  Layout utilities are design-NEUTRAL (daisyUI adds a COMPONENT vocabulary —
-   *  `btn`, `card`, `alert` — not a layout one), which is why they live in the
-   *  walker while the card SURFACE goes through the pack's `<.card>` function
-   *  component (`heex-pack.ts`). */
-  baseClass?: string;
-  /** Named args that legitimately become attributes on this tag — everything
-   *  else is DROPPED rather than spliced through as a bare HTML attribute.
-   *
-   *  A closed primitive's named args are its own vocabulary (`Grid`'s `cols:`,
-   *  `Container`'s `size:`, `Card`'s `variant:`), NOT markup attributes: the
-   *  generic fall-through emitted `cols={[3, 2, 1]}` (a LIST handed to
-   *  Phoenix's attribute escaper at RENDER time — see `isAttrRenderable`),
-   *  `size="lg"` on a `<div>` (invalid), and `variant="primary"` on
-   *  `<.button>` (an undeclared
-   *  attr on a function component ⇒ a `mix compile --warnings-as-errors`
-   *  failure).  Consumed-or-dropped is the only safe default; a knob that
-   *  SHOULD reach the markup is listed here, deliberately. */
-  passThroughAttrs?: readonly string[];
-  /** Wrap each rendered child in this tag (`Grid` → one `<div>` grid item per
-   *  child).  Mirrors the JSX packs' per-column wrapper: without it a child
-   *  that renders several roots (a `Table` plus its pager) would occupy two
-   *  grid cells instead of one. */
-  childWrapper?: string;
-  /** Ready-made markup spliced into the inner block BEFORE / AFTER the
-   *  rendered children — the seam for a slot that is markup rather than an
-   *  attribute.  `Button`'s `icon:` is the case that needs it: the glyph is an
-   *  inline `<span>` inside the button, and it cannot be an attribute because
-   *  `<.button>` declares none (an undeclared attr on a Phoenix function
-   *  component is a `mix compile --warnings-as-errors` failure).  Computed by
-   *  the primitive's own renderer at call time, like `baseClass`. */
-  leadingChildHeex?: string;
-  trailingChildHeex?: string;
-}
-
-/** The attribute NAME of a rendered HEEx attribute fragment (`aria-label={…}` →
- *  `aria-label`).  Used to let a derived attribute suppress the same-named
- *  contract default in {@link PrimitiveSpec.extraAttrs}. */
-function attrName(fragment: string): string {
-  const eq = fragment.indexOf("=");
-  return eq === -1 ? fragment : fragment.slice(0, eq);
-}
-
-/** The i18n catalog ROLE of a primitive's positional slot, from the shared
- *  `USER_VISIBLE_SLOTS` table — undefined when that position holds no
- *  user-visible text.  Reading the same table the extraction pass reads is what
- *  keeps the emitted key equal to the catalog key. */
-export function positionalRole(primitive: string, index: number): string | undefined {
-  return USER_VISIBLE_SLOTS[primitive]?.find((s) => s.kind === "positional" && s.index === index)
-    ?.role;
-}
-
-export function renderPrimitive(
-  spec: PrimitiveSpec,
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  // Named args (`Stack(children: […])`, `Heading("title", level: 2)`)
-  // become HEEx attributes; positional args land as children for
-  // takesChildren=true, or as the primary value for tag-specific
-  // primitives (Heading's text, Badge's label).
-  const namedAttrs: string[] = [];
-  const childrenExprs: ExprIR[] = [];
-  const positional: ExprIR[] = [];
-
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (name) {
-      if (name === "children" && arg.kind === "object") {
-        // Unlikely shape; skip.
-      } else if (name === "children") {
-        // Children as an array.  Unwrap if literal `[a,b,c]` — but the
-        // expression IR doesn't have an explicit array literal kind,
-        // so children typically arrive as a single sub-expression.
-        childrenExprs.push(arg);
-      } else if (name === "on" || name === "onClick" || name === "onSubmit" || name === "then") {
-        // Inline lambda → handle_event hoist; a bare named-action reference
-        // (`onClick: bump`) is an `action-ref` ExprIR that renders to the
-        // declared event name (its `handle_event` clause is hoisted from
-        // `page.actions` at the top of `walkBodyToHeex`).
-        const eventName =
-          arg.kind === "action-ref" ? renderExpr(arg, ctx) : hoistLambdaToHandler(arg, ctx);
-        const phxAttr = name === "onSubmit" ? "phx-submit" : "phx-click";
-        namedAttrs.push(`${phxAttr}="${eventName}"`);
-      } else if (name === "testid") {
-        // The DSL `testid:` arg maps to the HTML `data-testid` attribute
-        // (what Playwright / lvtest assertions look for).  Without this
-        // special-case the generic else-branch below would emit a bare
-        // `testid=` attribute which no test harness recognises.
-        const value = renderAttrValue(arg, ctx, false);
-        if (value !== undefined) namedAttrs.push(`data-testid=${value}`);
-      } else if (name === "label" && spec.labelAsAriaLabel) {
-        // A command button's / toolbar's `label:` is its accessible name
-        // (aria-label), not a literal `label=` attribute — and a user-visible
-        // slot, so it rides the translation runtime under i18n
-        // instead of shipping the name in English at every locale.  An
-        // INTERPOLATED name translates too: `localizedHeexAttr` funnels both
-        // shapes, so the ICU branch is reached here rather than falling through
-        // to the raw `<>` concat `loom.user-visible-concat` bans in source.
-        const value =
-          localizedHeexAttr(arg, ctx, namedRole(expr.name, "label")) ??
-          renderAttrValue(arg, ctx, true);
-        if (value !== undefined) namedAttrs.push(`aria-label=${value}`);
-      } else if (spec.passThroughAttrs?.includes(name)) {
-        const value = renderAttrValue(arg, ctx, spec.staticAttrs?.includes(name) ?? false);
-        if (value !== undefined) namedAttrs.push(`${snake(name)}=${value}`);
-      }
-      // Every other named arg is DROPPED — see `PrimitiveSpec.passThroughAttrs`.
-      // A closed primitive's knobs (`cols:`, `size:`, `variant:`, `gap:`) are
-      // consumed by its renderer (folded into `baseClass` / a pack component
-      // attribute) or deliberately ignored the way the JSX packs ignore the
-      // knobs they don't map; NONE of them may reach the markup as a bare
-      // attribute.
-    } else {
-      positional.push(arg);
-    }
-  }
-
-  // `style: { ... }` escape hatch — see styleIrToHeex.  Pushed first
-  // so it lands before any other attributes for predictable output.
-  const styleHeexAttr = styleIrToHeex(expr);
-  if (styleHeexAttr) namedAttrs.unshift(styleHeexAttr);
-
-  // Layout classes lead the tag (`<div class="flex flex-col gap-4" …>`), the
-  // way the JSX packs' templates spell it — so unshifted LAST.
-  if (spec.baseClass) namedAttrs.unshift(`class="${escapeHeexAttr(spec.baseClass)}"`);
-
-  // Contract-required static a11y attributes (e.g. Toolbar's role/name), as
-  // DEFAULTS — an entry whose attribute a derived one already emitted is
-  // dropped, so an authored `label:` beats the contract's fallback name instead
-  // of the tag carrying two `aria-label`s.
-  if (spec.extraAttrs) {
-    const emitted = new Set(namedAttrs.map(attrName));
-    namedAttrs.push(...spec.extraAttrs.filter((a) => !emitted.has(attrName(a))));
-  }
-
-  // Other primitives — render children (if any).  A POSITIONAL child may be a
-  // user-visible text slot (`Text`/`Bold`/`Badge`/`Button`/… index 0), so it is
-  // rendered with its catalog role; `childrenExprs` are nested markup and never
-  // carry one.  The role table is the shared `USER_VISIBLE_SLOTS`, so the key
-  // the walker emits equals the key the extraction pass put in the catalog.
-  const richChild = spec.takesChildren ? heexRichText(expr, ctx) : undefined;
-  const renderedChildren =
-    richChild !== undefined
-      ? [richChild]
-      : [
-          ...childrenExprs.map((c) => renderChild(c, ctx)),
-          ...(spec.takesChildren
-            ? positional.map((c, i) => renderChild(c, ctx, positionalRole(expr.name, i)))
-            : []),
-        ];
-  const childrenHeex = [
-    ...(spec.leadingChildHeex ? [spec.leadingChildHeex] : []),
-    ...(spec.childWrapper
-      ? renderedChildren.map(
-          (c) => `<${spec.childWrapper}>\n${indent(c, 2)}\n</${spec.childWrapper}>`,
-        )
-      : renderedChildren),
-    ...(spec.trailingChildHeex ? [spec.trailingChildHeex] : []),
-  ].join("\n");
-  const attrs = namedAttrs.length > 0 ? " " + namedAttrs.join(" ") : "";
-  if (childrenHeex.length === 0) {
-    return spec.tag.startsWith(".") ? `<${spec.tag}${attrs} />` : `<${spec.tag}${attrs} />`;
-  }
-  return `<${spec.tag}${attrs}>\n${indent(childrenHeex, 2)}\n</${spec.tag}>`;
-}
-
-/** Build a `style="..."` HEEx attribute from a call's `style` IR.
- *  Returns undefined when the call carries no style field.  Keys are
- *  emitted verbatim (kebab-case is the HTML CSS spelling).  String-
- *  literal values land as raw CSS values; non-literal values are
- *  passed through as Elixir interpolation (`<%= … %>`) — but for v1
- *  we keep the common path (string literals) static-safe.  Special
- *  characters are HTML-escaped so the attribute stays well-formed. */
-function styleIrToHeex(expr: Extract<ExprIR, { kind: "call" }>): string | undefined {
-  if (!expr.style || expr.style.entries.length === 0) return undefined;
-  const parts = expr.style.entries.map(({ key, value }) => {
-    let v: string;
-    if (value.kind === "literal" && value.lit === "string") v = value.value;
-    else if (value.kind === "ref") v = `<%= ${value.name} %>`;
-    else v = "";
-    return `${key}: ${v}`;
-  });
-  const css = parts.join("; ").replace(/"/g, "&quot;");
-  return `style="${css}"`;
-}
-
 /** Returns true for calls that produce raw HEEx markup (not Elixir
  *  expressions) — these should NOT be wrapped in `<%= %>`.  Consults
  *  the typed registry (ANY registered walker primitive renders in markup
@@ -2191,21 +1795,6 @@ function heexTranslateCall(
   return `loom_icu(${message}, [${bindings}])`;
 }
 
-/** A rich `Text { "Read the ", Bold { "terms" }, " first" }` as ONE message —
- *  `loom_rich(pgettext(<key>, "Read the <b>terms</b> first"), [])`, which formats
- *  the holes, escapes the text and turns the `<b>` / `<i>` / `<code>` tags into
- *  `<strong>` / `<em>` / `<code>` — so a locale can reorder the parts.  Undefined
- *  when the call is not rich text, or the body has no translation runtime. */
-function heexRichText(call: ExprIR & { kind: "call" }, ctx: WalkContext): string | undefined {
-  const rich = richTextMessage(call);
-  if (!rich || !ctx.i18nPrefix) return undefined;
-  const key = messageKey(ctx.i18nPrefix, RICH_TEXT_ROLE, rich.positional);
-  const bindings = rich.holes
-    .map((h) => `${h.name}: ${renderExpr(h.expr, { ...ctx, position: "template" })}`)
-    .join(", ");
-  return `<%= loom_rich(${pgettextCall(key, rich.display)}, [${bindings}]) %>`;
-}
-
 /** A user-visible slot in ATTRIBUTE position — a `role="img"` icon's accessible
  *  name, a command `Button`'s `aria-label` (D-I18N-ATTR).
  *
@@ -2225,14 +1814,6 @@ export function localizedHeexAttr(
 ): string | undefined {
   const call = heexTranslateCall(arg, ctx, role);
   return call === undefined ? undefined : `{${call}}`;
-}
-
-/** The i18n catalog ROLE of a primitive's NAMED slot (`Button.label` →
- *  `buttonAria`), from the shared `USER_VISIBLE_SLOTS` — the named twin of
- *  {@link positionalRole}, and the same reason: reading the table the
- *  extraction pass reads is what keeps the emitted key equal to the catalog's. */
-export function namedRole(primitive: string, name: string): string | undefined {
-  return USER_VISIBLE_SLOTS[primitive]?.find((s) => s.kind === "named" && s.name === name)?.role;
 }
 
 /** A `label(…)` / `plural(…)` in a markup position: `<%= pgettext(<identity

@@ -277,7 +277,7 @@ describe("HEEx primitive — testid: omitted leaks no attribute", () => {
 //   2. the literal was spliced UNESCAPED — one `"` in the value closes the
 //      attribute early and the page stops being parseable HEEx.
 //
-// `testIdAttr` (`heex-primitives.ts`) already did both correctly, so the fix is
+// `testIdAttr` (`heex-markup.ts`) already did both correctly, so the fix is
 // that every renderer now routes through it.  The two properties below are
 // funnel-level: they must hold for every primitive listed, and a renderer that
 // re-hand-rolls the attribute fails them.

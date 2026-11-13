@@ -58,7 +58,7 @@ they tell you the *second* place every grammar/primitive change has to land.
 |---|---|---|
 | **print-completeness** | `test/language/print/print-completeness.test.ts` | every grammar node under a printable union has a printer arm in `src/language/print/*` |
 | **walker-stdlib-completeness** | `test/language/type-system/walker-stdlib-completeness.test.ts` | `src/language/walker-stdlib.ts` matches `src/generator/_walker/registry.ts` key-for-key |
-| **heex-parity** | `test/generator/elixir/heex-parity.test.ts` | every TSX-rendered walker primitive either has a `heex` renderer or is pinned with a reason |
+| **heex-coverage** | `test/generator/elixir/heex-coverage.test.ts` | the HEEx showcase reaches every walker primitive the capability table admits on LiveView, and every `WalkResult` accumulator |
 | **pipeline-layering** | `test/platform/pipeline-layering.test.ts` | no runtime back-edge across `language → ir → generator → system` |
 | **backend-packages-layering** | `test/platform/backend-packages-layering.test.ts` | shared `src/generator/` doesn't import a versioned backend package |
 | **diagnostic-codes-completeness** | `test/ir/diagnostic-codes-completeness.test.ts` | every IR diagnostic carries a stable `loom.*` code |
@@ -95,8 +95,8 @@ Reach for the one that matches the compiler your emitted code must satisfy.
    behaviour, go to step 4 (one corpus fixture, all backends). Use a generator
    test per affected target (`test/generator/<platform>/`), string-matching the
    source, only for the unobservable claims named in the placement rule. A new UI primitive → register in both walker
-   mirrors (**walker-stdlib-completeness**) and write/pin the HEEx renderer
-   (**heex-parity**). If the shape is a baseline fixture, regenerate it via
+   mirrors (**walker-stdlib-completeness**) and reach it from the HEEx showcase
+   (**heex-coverage**). If the shape is a baseline fixture, regenerate it via
    `scripts/capture-baseline-fixture.mjs`.
 3. **The emitted code might not compile** (new import/type/dep) → the matching
    per-backend / generated-frontend build gate (`LOOM_*`). Run at least one

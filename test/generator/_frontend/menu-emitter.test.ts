@@ -189,9 +189,16 @@ describe("deriveSidebarFromUi — explicit `menu { … }` block", () => {
     // An authored link `label:` → keyed; the extraction pass records the same.
     expect(entries.find((e) => e.to === "/orders")?.labelKey).toMatch(/^WebApp\.menu\.link\./);
     expect(entries.find((e) => e.external)?.labelKey).toMatch(/^WebApp\.menu\.link\./);
-    // A DERIVED label (page title / page name) is not in the catalog, so it
-    // carries no key — a key that resolves to nothing is the dead-key defect.
-    expect(entries.find((e) => e.to === "/ops/dashboard")?.labelKey).toBeUndefined();
+    // A page `title:` label reuses the page's own title key (one catalog entry).
+    // (A key-shape claim on an IR data field, not on emitted source.)
+    expect(
+      entries
+        .find((e) => e.to === "/ops/dashboard")
+        ?.labelKey?.split(".")
+        .slice(0, 4),
+    ).toEqual(["WebApp", "page", "Dashboard", "title"]);
+    // A page-NAME fallback is not in the catalog, so it carries no key — a key
+    // that resolves to nothing is the dead-key defect.
     expect(entries.find((e) => e.to === "/secret")?.labelKey).toBeUndefined();
   });
 

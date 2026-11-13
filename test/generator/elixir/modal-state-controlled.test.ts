@@ -1,6 +1,6 @@
 // Feature: state-controlled `Modal { open: <state> }` on Phoenix LiveView.
 //
-// HEEx runs a parallel walker (not walkBody), and LiveView's state model is
+// LiveView's state model is
 // socket assigns + handle_event — not useState. So the controlled modal is an
 // assign-driven conditional render: `<%= if @open do %> … <% end %>`, with the
 // `open:` ref reading the page-state assign and the close driven by a child

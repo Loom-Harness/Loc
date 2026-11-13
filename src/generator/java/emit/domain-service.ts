@@ -55,6 +55,7 @@
 // BYTE-IDENTICAL to the pre-rev.4 shell, no `@Service`, no ctor.
 // ---------------------------------------------------------------------------
 
+import { domainServiceReadPorts, serviceOpReadPorts } from "../../../ir/plan/index.js";
 import type {
   DomainServiceIR,
   DomainServiceOperationIR,
@@ -67,7 +68,8 @@ import { walkExprDeep, walkStmtsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
-import { javaLocals, jid, localOf, movedLocalOrUndefined } from "../java-ident.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { javaLocals, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import {
   type JavaRenderContext,
   javaRepoField,
@@ -209,16 +211,18 @@ function renderOperation(
   // The params are method locals a body lambda may not redeclare.
   const renderCtx: JavaRenderContext = withLambdaScope(
     spec ? { thisName: "this", returnUnion: unionRenderCtx(spec) } : { thisName: "this" },
-    op.params.map((p) => jid(p.name)),
+    op.params.map((p) => DOMAIN_NAMES.java.binding(p.name)),
   );
 
-  const params = op.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`).join(", ");
+  const params = op.params
+    .map((p) => `${renderJavaType(p.type)} ${DOMAIN_NAMES.java.binding(p.name)}`)
+    .join(", ");
   // A union return renders as the sealed interface type; a plain return as
   // the declared type; absent ⇒ void.
   const retType = op.returnType ? (spec ? spec.name : renderJavaType(op.returnType)) : "void";
   const bodyText = renderJavaStatements(op.body, renderCtx);
   return [
-    `    public static ${retType} ${jid(lowerFirst(op.name))}(${params}) {`,
+    `    public static ${retType} ${DOMAIN_NAMES.java.method(lowerFirst(op.name))}(${params}) {`,
     ...(bodyText.length > 0 ? [bodyText] : []),
     `    }`,
     ``,
@@ -341,11 +345,7 @@ function renderReadingOperation(
   // reads repos, so this is a self-true predicate over this context's services.
   const renderCtx: JavaRenderContext = {
     thisName: "this",
-    serviceReading: (service, calledOp) => {
-      const s = ctx.domainServices.find((x) => x.name === service);
-      const o = s?.operations.find((x) => x.name === calledOp);
-      return o ? readPortsForOperation(o).length > 0 : false;
-    },
+    serviceReading: (service, calledOp) => serviceOpReadPorts(ctx, service, calledOp).length > 0,
     ...(spec ? { returnUnion: unionRenderCtx(spec) } : {}),
     paramExpr: (n) => movedLocalOrUndefined(paramLocals, n),
     letExpr: (n) => movedLocalOrUndefined(letLocals, n),
@@ -362,7 +362,7 @@ function renderReadingOperation(
   const reading = readPortsForOperation(op).length > 0;
   return [
     ...(reading ? [`    @Transactional(readOnly = true)`] : []),
-    `    public ${retType} ${jid(lowerFirst(op.name))}(${params}) {`,
+    `    public ${retType} ${DOMAIN_NAMES.java.method(lowerFirst(op.name))}(${params}) {`,
     ...(bodyText.length > 0 ? [bodyText] : []),
     `    }`,
     ``,
@@ -372,17 +372,7 @@ function renderReadingOperation(
 /** The aggregates a service's ops read, in first-read order across all ops
  *  (deduped) — one injected repository per entry. */
 function distinctReadAggregates(svc: DomainServiceIR): string[] {
-  const seen = new Set<string>();
-  const order: string[] = [];
-  for (const op of svc.operations) {
-    for (const p of readPortsForOperation(op)) {
-      if (!seen.has(p.aggregate)) {
-        seen.add(p.aggregate);
-        order.push(p.aggregate);
-      }
-    }
-  }
-  return order;
+  return [...new Set(domainServiceReadPorts(svc).map((p) => p.aggregate))];
 }
 
 /** The union name keyed in the per-service union map for this op (or "" when

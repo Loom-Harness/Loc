@@ -22,6 +22,7 @@
 // (`Pricing.Quote(cart, customer)`) is rendered by `CS_TARGET.domainServiceCall`
 // (render-expr.ts).
 
+import { domainServiceReadPorts } from "../../../ir/plan/index.js";
 import { unionInstanceName } from "../../../ir/stdlib/unions.js";
 import type {
   BoundedContextIR,
@@ -35,8 +36,9 @@ import {
   readPortsForOperation,
 } from "../../../ir/util/domain-service-read-ports.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../../util/naming.js";
+import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { type UnionMember, unionMembers } from "../../_payload/union-wire.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { CS, sortedCsUsings } from "../cs-symbols.js";
 import type { CsRenderContext } from "../render-expr.js";
 import { renderCsType } from "../render-expr.js";
@@ -54,13 +56,7 @@ function portFieldName(repo: string): string {
  *  (a DI'd `sealed class`) exactly when this is non-empty; a `pure` service has
  *  no ports and stays a `public static class` (byte-identical). */
 function serviceReadPorts(svc: DomainServiceIR): ReadPort[] {
-  const byRepo = new Map<string, ReadPort>();
-  for (const op of svc.operations) {
-    for (const p of readPortsForOperation(op)) {
-      if (!byRepo.has(p.repo)) byRepo.set(p.repo, p);
-    }
-  }
-  return [...byRepo.values()];
+  return domainServiceReadPorts(svc);
 }
 
 /** Render context for a domain-service operation body.  A `reading` op carries a
@@ -233,7 +229,9 @@ function renderOperation(
   serviceIsReading: boolean,
 ): string {
   const opReads = readPortsForOperation(op).length > 0;
-  const userParams = op.params.map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`);
+  const userParams = op.params.map(
+    (p) => `${renderCsType(p.type)} ${DOMAIN_NAMES.csharp.binding(p.name)}`,
+  );
   const params = (
     opReads ? [...userParams, `${CS.CancellationToken} cancellationToken = default`] : userParams
   ).join(", ");

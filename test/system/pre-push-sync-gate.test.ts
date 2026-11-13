@@ -11,9 +11,9 @@
 // hook the same JSON a PreToolUse(Bash) call delivers.
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const HOOK = resolve(__dirname, "../../.claude/hooks/pre-push-merge-check.sh");
@@ -89,6 +89,27 @@ function runHook(cwd: string, command = "git push"): string {
 
 const denied = (out: string): boolean => out.includes('"permissionDecision": "deny"');
 
+/** Runs the hook with the typecheck gate live and its trace on; returns stderr. */
+function traceHook(cwd: string): string {
+  const r = spawnSync("bash", [HOOK], {
+    input: JSON.stringify({ tool_input: { command: "git push" }, cwd }),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      LOOM_SKIP_PUSH_TYPECHECK: "",
+      LOOM_SKIP_PUSH_CENSUS: "1",
+      LOOM_ALLOW_SYNC: "",
+      LOOM_PREFLIGHT_TRACE: "1",
+    },
+  });
+  return r.stderr;
+}
+
+function commitAt(cwd: string, file: string, content: string, msg: string): void {
+  mkdirSync(dirname(join(cwd, file)), { recursive: true });
+  commit(cwd, file, content, msg);
+}
+
 describe.skipIf(!hasTools)("pre-push sync-only gate", () => {
   it("denies a push that only merges origin/main into a clean branch", () => {
     const { work, other } = setup();
@@ -98,6 +119,9 @@ describe.skipIf(!hasTools)("pre-push sync-only gate", () => {
     const out = runHook(work);
     expect(denied(out)).toBe(true);
     expect(out).toContain("only merges origin/main");
+    // A deny skips the whole Bash call; the reason says so, so a chained
+    // `edit && commit && push` is not mistaken for a partial run.
+    expect(out).toContain("Nothing in this Bash command ran");
   });
 
   it("allows the same sync when marked deliberate with LOOM_ALLOW_SYNC=1", () => {
@@ -147,5 +171,35 @@ describe.skipIf(!hasTools)("pre-push sync-only gate", () => {
     const { work } = setup();
     commit(work, "b.txt", "b2\n", "more feature work");
     expect(denied(runHook(work))).toBe(false);
+  });
+});
+
+// Which merged-tree gates a push gets: a branch that changes only prose skips
+// the typecheck and the code censuses; anything else gets them all.
+describe.skipIf(!hasTools)("pre-push gate selection", () => {
+  /** A branch off main whose only commits touch `files`. */
+  function branchTouching(files: string[]): string {
+    const { work } = setup();
+    git(work, "checkout", "-q", "-b", "topic", "origin/main");
+    for (const f of files) commitAt(work, f, `${f}\n`, `touch ${f}`);
+    return work;
+  }
+
+  it("treats a branch touching only docs/, Markdown and LICENSE as docs-only", () => {
+    const work = branchTouching(["docs/guide.md", "README.md", "LICENSE-OUTPUT"]);
+    expect(traceHook(work)).toContain("docs-only push");
+  });
+
+  it("gives a branch touching src/ the full gates", () => {
+    const work = branchTouching(["docs/guide.md", "src/x.ts"]);
+    const err = traceHook(work);
+    expect(err).toContain("code push");
+    expect(err).not.toContain("docs-only");
+  });
+
+  it("gives a non-Markdown file outside docs/ the full gates", () => {
+    // The prose set is an allow-list: an unknown path counts as code.
+    const work = branchTouching(["notes.txt"]);
+    expect(traceHook(work)).toContain("code push");
   });
 });

@@ -50,6 +50,7 @@ import {
   type Model,
 } from "../generated/ast.js";
 import { stdFunctions } from "../stdlib.js";
+import { modelContents } from "./model-contents.js";
 
 // Magic identifiers resolvable in an expression with no declaration node.
 // `currentUser` is backed by the system `user { … }` block; `permissions`
@@ -121,7 +122,7 @@ function buildNameUniverse(model: Model, services?: DddServices): Set<string> {
   }
   for (const root of roots) {
     collectDeclNames(root, names);
-    for (const node of AstUtils.streamAllContents(root)) collectDeclNames(node, names);
+    for (const node of modelContents(root)) collectDeclNames(node, names);
   }
   // Cross-file exported declarations that may not be among the loaded
   // document roots (kernel / library symbols surfaced through the index).
@@ -176,7 +177,7 @@ function scopedCandidates(node: AstNode): Set<string> {
   const root: AstNode | undefined = ctx ?? AstUtils.findRootNode(node);
   if (root) {
     collectDeclNames(root, cands);
-    for (const n of AstUtils.streamAllContents(root)) collectDeclNames(n, cands);
+    for (const n of modelContents(root)) collectDeclNames(n, cands);
     // Enum *values* declared context-locally (their `.name` is already
     // collected by the sweep above, but keep the intent explicit).
     for (const m of ctx?.members ?? []) {
@@ -224,7 +225,7 @@ export function checkUnknownNameRefs(
   if ((doc.references ?? []).some((r) => r.error !== undefined)) return;
 
   const universe = buildNameUniverse(model, services);
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isNameRef(node)) continue;
     const name = node.name;
     if (universe.has(name)) continue;

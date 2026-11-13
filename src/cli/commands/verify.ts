@@ -19,7 +19,7 @@ import {
 } from "../../verify/render.js";
 import { attributeResults, computeVerification } from "../../verify/verification.js";
 import { hostValidateOptions, parseProject } from "../project.js";
-import { printAstDiagnostics, printLoomWarnings, printSummary } from "../report.js";
+import { printAstDiagnostics, printIrDiagnostics, printSummary } from "../report.js";
 
 /** The closed `status` vocabulary of a `--results` document (docs/verify.md). */
 const RESULT_STATUSES: ReadonlySet<string> = new Set(["pass", "fail", "skip"]);
@@ -157,21 +157,24 @@ async function runVerify(
   }
 
   const result = await parseProject(file);
+  const ast = printAstDiagnostics(result);
   if (result.errorCount > 0) {
-    printSummary(printAstDiagnostics(result));
+    printSummary(ast);
     process.exit(2);
   }
   const loom = result.loom;
+  // The same phase-⑦ printer and single footer `parse` uses, so a
+  // verification run reports the same warnings, suggestions and counts as the
+  // pre-flight for the same file.  A verification run is a Definition-of-Done
+  // verdict; a warning is exactly what should reach whoever reads it.
+  // Warnings and suggestions never change the exit code; errors exit 2.
   const loomDiags = validateLoomModel(loom, hostValidateOptions(file));
-  const loomErrors = loomDiags.filter((d) => d.severity === "error");
-  if (loomErrors.length > 0) {
-    for (const d of loomErrors) console.error(`${d.source} error: ${d.message}`);
-    process.exit(2);
-  }
-  // A verification run is a Definition-of-Done verdict; a phase-⑦ warning is
-  // exactly the kind of thing that should reach whoever reads it.  Exit code
-  // unchanged (the verdict below still gates it).
-  printLoomWarnings(loomDiags);
+  const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(
+    loomDiags,
+    result.sourceTexts,
+  );
+  printSummary(ast, { errors: loomErrors.length, warnings: loomWarnings.length });
+  if (loomErrors.length > 0) process.exit(2);
   if (loom.requirements.length === 0) {
     console.error(`No \`requirement\` declarations in ${file} — nothing to verify.`);
     process.exit(2);

@@ -28,10 +28,11 @@
 // only its structure is checked here; its target is resolved on the merged IR
 // (`validateTableSteps`, phase ⑦).
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import type { Aggregate, ColumnStep, EnumDecl, Migration, Model } from "../generated/ast.js";
 import { isEnumDecl, isMigration, isProperty, isSqlStep, isTableRename } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 export function checkMigrations(model: Model, accept: ValidationAcceptor): void {
   const seenNames = new Set<string>();
@@ -43,7 +44,7 @@ export function checkMigrations(model: Model, accept: ValidationAcceptor): void 
   // keys on block + column: re-backfilling the same column in a LATER block is
   // legitimate ledger history, within one block it is ambiguous).
   const seenBackfill = new Set<string>();
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isMigration(node)) continue;
     seenBackfill.clear();
     checkMigration(node, seenNames, seenSource, seenTarget, seenBackfill, accept);

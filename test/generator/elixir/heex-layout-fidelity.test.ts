@@ -4,9 +4,9 @@ import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helper
 // ---------------------------------------------------------------------------
 // HEEx page-body layout FIDELITY (generator code review C7).
 //
-// `heex-parity.test.ts` freezes which primitives have a HEEx renderer; it says
-// nothing about what that renderer EMITS.  Under that gate the closed layout
-// primitives rendered as bare `<div>`s — no flex, no grid, no card surface —
+// The showcase coverage gate (`heex-coverage.test.ts`) proves every primitive
+// renders on HEEx; it says nothing about what it EMITS.  Without this test the
+// closed layout primitives could render as bare `<div>`s — no flex, no grid, no card surface —
 // while all fifteen JSX packs emitted real layout, so a Phoenix app was
 // functionally unstyled and no test could see it.
 //

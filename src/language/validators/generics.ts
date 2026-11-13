@@ -25,6 +25,7 @@ import { diagMessage } from "../../diagnostics/messages.js";
 import type { Model, TypeAtom, TypeRef } from "../generated/ast.js";
 import { isCapability, isSelfType, isSlotType, isTypeAtom, isTypeRef } from "../generated/ast.js";
 import { admittedPositionsText, positionAdmits, typeRefPosition } from "../type-positions.js";
+import { modelContents } from "./model-contents.js";
 
 /** `Self id` (the anchored capability type, typed-capabilities.md) is only
  *  meaningful inside a `capability` body, where it resolves to the implementing
@@ -32,7 +33,7 @@ import { admittedPositionsText, positionAdmits, typeRefPosition } from "../type-
  *  to resolve it to, so it is an error — the author should name a concrete
  *  `<Aggregate> id`. */
 export function checkSelfType(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isSelfType(node)) continue;
     if (!AstUtils.getContainerOfType(node, isCapability)) {
       accept("error", diagMessage("loom.self-outside-capability"), {
@@ -44,7 +45,7 @@ export function checkSelfType(model: Model, accept: ValidationAcceptor): void {
 }
 
 export function checkGenericCarriers(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (isTypeRef(node) || isTypeAtom(node)) {
       checkOptionDeprecated(node, accept);
       checkEnvelopeRemoved(node, accept);

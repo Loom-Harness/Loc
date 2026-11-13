@@ -5,9 +5,9 @@
 //
 //   • the IR-validate gate `loom.frontend-collection-op-unsupported`
 //     (`ir/validate/checks/ui-checks.ts`) — decides which ops are REFUSED;
-//   • the frontend body walkers (`generator/_walker/walker-core.ts` and the
-//     parallel HEEx engine `generator/elixir/heex-walker-core.ts`) — decide
-//     which nodes get routed to a per-target collection-op renderer.
+//   • the frontend expression renderers (`generator/_walker/walker-core.ts`
+//     and the HEEx expression renderer `generator/elixir/heex-walker-core.ts`)
+//     — decide which nodes get routed to a per-target collection-op renderer.
 //
 // If the two disagreed in the direction "gate says fine, walker doesn't
 // recognise it", the op would fall through to the walker's verbatim

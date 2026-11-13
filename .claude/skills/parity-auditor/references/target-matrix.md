@@ -78,15 +78,16 @@ the migration record, not as current behaviour.
 Defaults read off each generator's `deployable.design ?? …` (react `index.ts:159`,
 vue `:152`, svelte `:128`, angular `DEFAULT_DESIGN`, elixir `index.ts:77`).
 
-**SIX targets consume the shared walker core** (`src/generator/_walker/walker-core.ts`,
+**All SEVEN targets consume the shared walker core** (`src/generator/_walker/walker-core.ts`,
 `walkBody`) through the `WalkerTarget` seam — including Feliz and Flutter, which
-emit F# and Dart rather than markup and ride the walker through the seam object.
-**Phoenix HEEx does NOT use `walkBody`** — it runs a parallel engine
-(`heex-walker-core.ts`) because LiveView's output topology diverges (inline
-lambdas vs hoisted `handle_event` clauses, `.map` vs `for`-comprehensions,
-ternary vs `if`-block children); `heexTarget` is mainly a conformance shim. It
-dispatches off the *same* `WALKER_PRIMITIVES` table, so there is no second
-primitive list to drift.
+emit F# and Dart rather than markup, and Phoenix HEEx, whose LiveView topology
+(hoisted `handle_event` clauses, `for`-comprehensions, `if`-block children) is a
+set of seams on `heexTarget`.  HEEx renders its expressions through its own
+Elixir expression renderer (`heex-walker-core.ts`) and the primitives that bind
+a changeset or load an assign (forms, `Table`, `FileUpload`, `Modal`, `Chart`,
+`IdLink`, …) through whole-primitive overrides (`heex-form.ts`, `heex-table.ts`,
+`heex-display.ts`, …); every other primitive is the shared emitter plus the
+procedural `heex-pack.ts`.
 
 **Feliz and Flutter are the two that per-pack gates structurally cannot see.**
 Neither has a `.hbs` pack pipeline: each self-hosts through its own toolchain
@@ -210,10 +211,11 @@ Frontend parity is enforced (or not) at four layers — audit them in this order
    seams are *intended* idiom divergence (Angular forks all forms into Reactive
    Forms), not gaps.
 3. **Primitive dispatch table** — `src/generator/_walker/registry.ts`
-   (`WALKER_PRIMITIVES`): each primitive carries a `tsx` renderer and *optionally*
-   a `heex` one. `test/generator/elixir/heex-parity.test.ts` freezes the TSX-only
-   set, so a TSX-only addition fails CI until you write the `heex` renderer or pin
-   the name with a reason.
+   (`WALKER_PRIMITIVES`): each primitive carries one shared renderer that every
+   target, HEEx included, renders through. `test/generator/elixir/heex-coverage.test.ts`
+   requires the HEEx showcase to reach every primitive the capability table admits
+   on LiveView, so a new primitive fails CI until HEEx renders it or the table
+   refuses it.
 4. **Pack required-set gate** — `src/generator/_packs/required-primitives.ts`
    (`REQUIRED_PRIMITIVES`, keyed `PackFormat | "flutter" | "feliz"`): the load-time
    check that a pack ships every template its format needs.
@@ -282,7 +284,7 @@ ones a parity audit reads:
 | Every honest `loom.*-unsupported` row, classified `gap` / `scope` / `seam` | `src/diagnostics/unsupported-register.ts`; the pin is `MAX_OPEN_GAPS` in `test/system/unsupported-register.test.ts` |
 | Flutter form-field freeze | `KNOWN_FLUTTER_GAPS`, `test/generator/flutter/parity-freeze.test.ts` |
 | Flutter unrendered primitives | `FLUTTER_UNRENDERED_PRIMITIVES`, `src/util/flutter-deferred-primitives.ts` |
-| HEEx parity pins | `KNOWN_HEEX_GAPS`, `test/generator/elixir/heex-parity.test.ts` |
+| HEEx primitive coverage | `test/generator/elixir/heex-coverage.test.ts` (refusals live in `src/util/target-capabilities.ts`) |
 | Deferred user-component shapes (feliz / angular / flutter) | the `loom.user-component-deferred-target` pins |
 | Which feature × target cells are compile-only vs runtime-proven | the gate ledger, `LOOM_LEDGER_REPORT=1` over `test/_helpers/gate-ledger.ts` |
 | Cross-pack spacing / chrome deviations | `KNOWN_DEVIATIONS` + `KNOWN_STRUCTURAL_DEVIATIONS`, `test/generator/_packs/pack-spacing-contract.test.ts` |

@@ -7,7 +7,7 @@
 // shows an em-dash.  Deliberately NOT a design-system component (a file
 // download is a native anchor), so the JSX/markup frontends build it inline via
 // the target markup seams (no per-pack template); Feliz forks to F# `Html.a`
-// and Phoenix/HEEx to its parallel-walker renderer.
+// and Phoenix/HEEx to its own `renderFileLink` override.
 //
 // This proves the anchor + null-guard actually render end-to-end on React, Vue,
 // Svelte, Angular, Feliz (F#) and Phoenix (HEEx) — a scaffolded aggregate with

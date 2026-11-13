@@ -61,7 +61,9 @@ import {
   authGateMessage,
   chromeKey,
 } from "../_walker/i18n-chrome.js";
+import { localizedPageName } from "../_walker/i18n-emit.js";
 import {
+  humanizePageName,
   icuFromConcat,
   literalString,
   messageKey,
@@ -815,11 +817,6 @@ function renderRouting(
 /** The root routing `view` — a `React.router` that dispatches `UrlChanged` and
  *  renders the active page's view fn (threading the route `id` to detail pages).
  *  Named `view` normally; `appView` under an auth gate (the gate owns `view`). */
-/** Humanise an identifier for a nav label: `ProductNew` → `Product New`. */
-function humanizeLabel(name: string): string {
-  return name.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
-}
-
 /** The persistent daisyUI `navbar` above the routed content — a brand link plus
  *  one menu item per TOP-LEVEL page (a static route, no `:param`; detail pages
  *  are reached from their list, not the nav).  Returns "" when there are fewer
@@ -847,6 +844,9 @@ function renderNavbar(
   /** Two or more locales ship: the bar carries the language picker, and a bar
    *  with no links still renders for it. */
   localeSwitcher = false,
+  /** The ui the pages belong to: an untitled page's link label reads its
+   *  catalog `name` entry. */
+  ui?: UiIR,
 ): string {
   // ONE line per entry, guard included: F# keys a newline-separated list
   // element by its first-token column, so a multi-line guard here would
@@ -859,6 +859,9 @@ function renderNavbar(
     i18nEnabled && key
       ? `(I18n.t ${fsString(key)} ${fsString(sourceText(key, text))})`
       : fsString(text);
+  const pageLabel = (p: PageIR): string =>
+    (i18nEnabled && ui ? localizedPageName(ui, p, felizTarget) : undefined) ??
+    fsString(humanizePageName(p.name));
   let entries: string[];
   if (menu) {
     entries = menu.flatMap((section) => [
@@ -885,7 +888,7 @@ function renderNavbar(
     entries = (navPages.length < 2 ? [] : navPages).map((p) =>
       guard(
         p,
-        `Html.li [ prop.children [ Html.a [ prop.href "${p.route ?? "/"}"; prop.text "${humanizeLabel(p.name)}" ] ] ]`,
+        `Html.li [ prop.children [ Html.a [ prop.href "${p.route ?? "/"}"; prop.text ${pageLabel(p)} ] ] ]`,
       ),
     );
   }
@@ -899,7 +902,7 @@ function renderNavbar(
   return [
     `    Html.nav [ prop.className "navbar bg-base-200 rounded-box mb-4"; prop.ariaLabel ${navAria}; prop.children [`,
     '      Html.div [ prop.className "flex-1"; prop.children [',
-    `        Html.a [ prop.className "btn btn-ghost text-xl"; prop.href "/"; prop.text "${humanizeLabel(brand)}" ]`,
+    `        Html.a [ prop.className "btn btn-ghost text-xl"; prop.href "/"; prop.text ${fsString(humanizePageName(brand))} ]`,
     "      ] ]",
     ...(entries.length > 0
       ? [
@@ -941,13 +944,14 @@ function renderRootView(
    *  the top-level page list. */
   menu?: readonly NavSectionVM[],
   localeSwitcher = false,
+  ui?: UiIR,
 ): string {
   const arms = pages.map((p) => {
     const names = routeParamNames(p);
     const args = names.length > 0 ? ` ${names.map(fsIdent).join(" ")}` : "";
     return `        | ${pageCase(p, nameCtx)}${caseArgs(names)} -> ${pageViewFn(p, nameCtx)} model dispatch${args}`;
   });
-  const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate, menu, localeSwitcher);
+  const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate, menu, localeSwitcher, ui);
   const router = [
     "    React.router [",
     // PATH-based routing (History API), NOT hash (`#/…`) — the generated SPA
@@ -1777,6 +1781,7 @@ function renderAppFs(
           pageGate,
           ui.menu ? deriveSidebarFromUi(ui, nameCtx) : undefined,
           localeSwitchable,
+          ui,
         ),
       ]
     : [

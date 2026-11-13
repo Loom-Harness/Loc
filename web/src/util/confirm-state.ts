@@ -195,3 +195,28 @@ export function canConfirm(state: ConfirmState, spec: Pick<ConfirmSpec, "typeToC
   if (spec.typeToConfirm === undefined) return true;
   return state.typed.trim() === spec.typeToConfirm;
 }
+
+/** Test-id triple for a confirm surface.  `base` alone derives
+ *  `${base}-confirm` (the row / modal), `${base}-yes` and `${base}-cancel`;
+ *  the overrides exist for the pre-existing ids specs already use
+ *  (`btn-wipe-confirm`, `history-restore-do`).  Every id names exactly one
+ *  element: when a `yes` override takes the `${base}-confirm` spelling, the
+ *  row / modal becomes `${base}-confirm-row` so a strict-mode locator on the
+ *  button never also matches its group. */
+export interface ConfirmTestIds {
+  base: string;
+  root?: string;
+  yes?: string;
+  cancel?: string;
+}
+
+export function confirmIds(t: ConfirmTestIds): { root: string; yes: string; cancel: string; type: string } {
+  const yes = t.yes ?? `${t.base}-yes`;
+  const defaultRoot = `${t.base}-confirm`;
+  return {
+    root: t.root ?? (defaultRoot === yes ? `${defaultRoot}-row` : defaultRoot),
+    yes,
+    cancel: t.cancel ?? `${t.base}-cancel`,
+    type: `${t.base}-type`,
+  };
+}

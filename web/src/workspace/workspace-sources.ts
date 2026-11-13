@@ -457,7 +457,13 @@ export class WorkspaceSourcesController {
       return false;
     }
     try {
-      await this.guard("create", path, () => this.writeThrough(path, seed));
+      // A new file exists on disk only once LightningFS saves its index, which
+      // it otherwise does on a debounce that lands seconds later under load;
+      // a create is an explicit action, so it is durable before it reports.
+      await this.guard("create", path, async () => {
+        await this.writeThrough(path, seed);
+        await this.store?.flush();
+      });
     } catch {
       return false; // already on the error channel
     }

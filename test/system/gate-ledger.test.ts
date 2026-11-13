@@ -53,6 +53,8 @@ import { BACKENDS } from "../fixtures/corpus/backends.js";
 const BEHAVIOURAL_ABSENT: Record<string, string> = {
   "target-reserved-words":
     "the defect IS the compile tier — a `.ddd` name that is a reserved word in some target (`break` as a TS parameter, `do` as an elixir local, `base` as a C# enum member, `self` as a python field) makes that backend's emitted project fail to build, while `generate system` reports `0 error(s)`.  All five compile legs are the oracle and read the thing under test directly.  The escape is a HOST-source concern by ruling D-TARGET-RESERVED-NAMES: the wire key, the OpenAPI schema and the stored column keep the declared name, so a behavioural block would boot a CRUD round-trip over ~180 columns and mint a golden with no content the escape could change — `python-reserved-words` already reads the escaped-vs-wire spelling back off a booted backend.  BY DESIGN: like `dotnet-bcl-type-collision`, it is not a tier gap.  Its open follow-ups (a node field named `constructor`, type names shadowing target globals, the frontends) are #4213",
+  "domain-symbol-collisions":
+    "the defect IS the compile tier — a domain name that collides with a symbol the target already binds (a TS domain-service sibling call spelled `base` against a function defined as `calc_base`: TS2304; an enum `TaskStatus` / aggregate `ServiceProvider` against the .NET implicit usings: CS0104; a python field `property` rebinding the `@property` decorator, and a workflow calling `p.raise(...)` against a method escaped to `raise_`) made node, .NET and python fail their own build, lint or import while `generate system` reported `0 error(s)`.  The corpus compile legs are the oracle and read the thing under test directly.  Every fix is a HOST-source spelling (a resolved function name, a file-scoped alias, an escaped member) that keeps the wire key, the OpenAPI schema and the stored column, so a behavioural block would boot the CRUD round-trip `core-domain` already records.  BY DESIGN: like `dotnet-bcl-type-collision`, it is not a tier gap",
   "dotnet-bcl-type-collision":
     "the defect IS the compile tier — a domain type named after a BCL type (`aggregate Task` vs `System.Threading.Tasks.Task`) made the emitted .NET project fail its own build with 17 errors (CS0104 wherever the domain namespace is wildcard-imported, CS0535/CS0738 where the repository interface DECLARES it), while `generate system` reported `0 error(s), 0 warning(s)`.  `corpus-dotnet-build` is therefore the oracle, and it reads the thing under test directly: either `dotnet build /warnaserror` accepts the aliased tree or it does not.  A behavioural block would boot the CRUD round-trip `core-domain` already boots and mint a wire golden with no new content — the fix is a compile-time `using` alias plus a qualified non-generic return, neither of which is observable on the wire (an alias cannot change the runtime type).  The other four backends have no such ambiguity and the row is `ALL` precisely to pin that nothing else moves.  BY DESIGN: like `auth-id-claim`, it is not a tier gap",
   "factory-param-local-collision":
@@ -184,13 +186,13 @@ describe("gate ledger", () => {
       // `DAPPER_UNSUPPORTED`, whose last entry (`tenancy-hierarchy`) drained
       // when the Dapper adapter learned the hierarchical subtree predicate —
       // draining the very register that made the drained readings mean
-      // something.  `KNOWN_HEEX_GAPS` is the replacement because it is the one
-      // register of this exact shape that is SETTLED rather than pending
-      // (`DataGrid` on HEEx is a decided non-goal, D-DATAGRID-TARGETS), so it
-      // cannot drain out from under this guard the way a TODO register does.
-      expect(skipKeys("test/generator/elixir/heex-parity.test.ts", "KNOWN_HEEX_GAPS")).toEqual([
-        "DataGrid",
-      ]);
+      // something.  The subject is now a populated source table rather than a
+      // register: the primitive → pack-chrome map, whose `Loader` entry is a
+      // fixed fact (a spinner always carries its "Loading" name), so it cannot
+      // drain out from under this guard the way a TODO register does.
+      expect(skipKeys("src/generator/_walker/i18n-chrome.ts", "CHROME_BY_PRIMITIVE")).toContain(
+        "Loader",
+      );
     });
 
     it("skipKeys is not fooled by the prose a drained register leaves behind", () => {

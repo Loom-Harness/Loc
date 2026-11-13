@@ -519,6 +519,26 @@ precondition | let | assign | add | remove | emit | call | expression
 `targetType` / `elementType` so backends can pick the right
 mutator without re-walking the env.
 
+### Post-lowering well-formedness verifier
+
+`lowerProject` ends by running `verifyLoweredModel`
+(`src/ir/verify/verify-lowered.ts`), which checks that the IR agrees with
+itself: every `ref` names a declaration of its `refKind` the body can see,
+every `assign` / `add` / `remove` path is rooted at a stored member, every
+`member` read on an aggregate / part / value-object receiver names a member
+of that type, every `call` names a target of its `callKind`, and no
+statement block binds one `let` twice.  It covers the domain-logic bodies —
+aggregates, parts, value objects, domain services, workflows, command /
+query handlers, repository finds and criteria — and walks them through
+`src/ir/util/walk.ts`.
+
+A violation is a lowering defect, never an author error: a construct
+lowering cannot express is refused by an AST validator before lowering.  The
+violations travel on the model (`loweringViolations`) and phase ⑦ refuses
+them as `loom.ir-ill-formed`, an internal error at the `.ddd` span, when no
+other diagnostic already refuses the model.  `test/ir/verify-lowered-corpus.test.ts`
+holds the corpus to zero violations and mutation-proves each check.
+
 ---
 
 ## Phase ⑥ — IR enrichment (wire-shape, auto-finds, associations, react inheritance, migrations ownership)
@@ -697,7 +717,7 @@ consumed by multiple platforms.  The four principal ones:
 |---|---|---|
 | `_packs/` | the JSX/markup frontends (react, vue, svelte, angular) + the Phoenix HEEx path | Design-pack discovery + loader.  `loader-fs.ts` / `loader-vfs.ts` are the FS / browser-VFS backends.  (The pack-identity metadata — `BUILTIN_PACK_FORMATS` / `BUILTIN_PACK_LATEST` + the `parseBuiltinDesignRef` parser — lives in [`src/util/builtin-formats.ts`](../src/util/builtin-formats.ts): language validators and IR lowering consume it too, so it sits at the foundational `util/` layer.)  See [`design-packs.md`](design-packs.md). |
 | `_expr/` | every domain-logic backend (TS, .NET, Phoenix, Python, Java) | `target.ts` defines the `ExprTarget` interface (the eight leaf-divergence axes — operators, naming, money arithmetic, collection ops, `refColl.contains` membership, regex, `ref` role, `callKind` call syntax) and `renderExprWith(e, target, ctx)`, which owns the 17-arm `ExprIR.kind` dispatch + all recursion.  Each backend's `render-expr.ts` supplies only the leaf table (`TS_TARGET` / `CS_TARGET` / `ELIXIR_TARGET` / `PY_TARGET` / `JAVA_TARGET`).  Expression-side analogue of `WalkerTarget`; already five backends — a 6th domain-logic backend writes one target, not a 6th dispatcher. |
-| `_walker/` | the six frontends (react, vue, svelte, angular, feliz, flutter) + a parallel HEEx engine (phoenixLiveView) | `target.ts` defines the `WalkerTarget` interface that captures the framework-shaped seams (state read/write, navigation, API call lowering, `match` rendering).  Six targets drive the shared `walker-core.ts`: `react/walker/tsx-target.ts`, `vue/walker/vue-target.ts`, `svelte/walker/svelte-target.ts`, `angular/walker/angular-target.ts`, `feliz/feliz-target.ts` (emits F#), and `flutter/flutter-target.ts` (emits Dart); Phoenix/HEEx runs a parallel engine via `elixir/heex-target.ts` (its output topology diverges). |
+| `_walker/` | all seven frontends (react, vue, svelte, angular, feliz, flutter, phoenixLiveView) | `target.ts` defines the `WalkerTarget` interface that captures the framework-shaped seams (state read/write, navigation, API call lowering, `match` rendering).  Seven targets drive the shared `walker-core.ts`: `react/walker/tsx-target.ts`, `vue/walker/vue-target.ts`, `svelte/walker/svelte-target.ts`, `angular/walker/angular-target.ts`, `feliz/feliz-target.ts` (emits F#), `flutter/flutter-target.ts` (emits Dart), and `elixir/heex-target.ts` (emits HEEx; its expressions render through the Elixir expression renderer in `elixir/heex-walker-core.ts`, and the primitives that bind a changeset or load an assign render through whole-primitive overrides). |
 | `_obs/` | hono, dotnet, phoenixLiveView, python | Observability catalog + per-backend renderers.  `log-events.ts` defines the envelope schema; `render-<platform>.ts` emits the per-backend instrumentation (hono / dotnet / phoenix; python wires the shared catalog from its own `emit/obs.ts`).  Java emits an equivalent catalog-JSON channel without sharing this subdir.  See [`observability.md`](observability.md). |
 
 Four more carry narrower shared seams: `_frontend/` (framework-neutral

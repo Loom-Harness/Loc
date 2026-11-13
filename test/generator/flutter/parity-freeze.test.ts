@@ -1,5 +1,5 @@
 // Flutter parity FREEZE test (proposal `flutter-parity-and-native-gates.md`,
-// mission M-E) — the analogue of `test/generator/elixir/heex-parity.test.ts`.
+// mission M-E).
 //
 // The plain parity test (`parity.test.ts`) proves the lint FINDS a marker and
 // reports a clean bill for a gap-free ui.  That's necessary but not sufficient:
@@ -11,7 +11,7 @@
 // that used to be dropped (nested-VO sub-field, value-object array with a
 // non-scalar sub-field, bool element array, enum element array), then asserts
 // the parity findings equal a PINNED allowlist — each entry carrying a reason
-// and the owning follow-up mission.  The discipline mirrors heex-parity /
+// and the owning follow-up mission.  The discipline mirrors
 // pipeline-layering / walker-stdlib-completeness:
 //   - a NEW gap (a finding not on the list) fails CI — it must be rendered or
 //     explicitly pinned with a reason,
