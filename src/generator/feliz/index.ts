@@ -32,7 +32,13 @@ import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesDataGrid } from "../../ir/util/data-grid.js";
 import { felizComponentStateInit } from "../../ir/util/feliz-component-state-init.js";
 import { typeIsFile } from "../../ir/util/file-field.js";
-import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
+import {
+  classifyPage,
+  type PageNameCtx,
+  pageConstructId,
+  pageEmitName,
+} from "../../ir/util/page-kind.js";
+import { menuMetaString } from "../../ir/util/page-menu.js";
 import { readableProjectionNames } from "../../ir/util/projection-read.js";
 import {
   type RealtimeStreamCredential,
@@ -41,7 +47,7 @@ import {
 import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
-import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
+import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { NPM_FETCH_RETRY_FLAGS } from "../_docker/node-stage.js";
 import {
   E2E_FIXTURES_TS,
@@ -50,7 +56,11 @@ import {
   PLAYWRIGHT_CONFIG_TS,
 } from "../_frontend/e2e-harness.js";
 import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
-import { deriveSidebarFromUi, type NavSectionVM } from "../_frontend/menu-emitter.js";
+import {
+  deriveSidebarFromUi,
+  type NavEntryVM,
+  type NavSectionVM,
+} from "../_frontend/menu-emitter.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { wireErrorMessage } from "../_i18n/wire-error-text.js";
@@ -103,6 +113,7 @@ import {
   felizLocaleSwitchable,
   renderFelizI18nModule,
 } from "./i18n.js";
+import { scopeListState } from "./list-state.js";
 import { felizPack } from "./pack.js";
 import {
   felizRealtimeRefetchAggregates,
@@ -146,6 +157,7 @@ import {
   type FelizMutation,
   type FelizOperationForm,
   type FelizRead,
+  type FelizSubmit,
   type FelizWorkflowForm,
   felizAllRead,
   formHasFieldErrors,
@@ -815,6 +827,38 @@ function renderRouting(
 /** The root routing `view` — a `React.router` that dispatches `UrlChanged` and
  *  renders the active page's view fn (threading the route `id` to detail pages).
  *  Named `view` normally; `appView` under an auth gate (the gate owns `view`). */
+/** A page the DEFAULT bar links: a parameterless route (no `:id`), inside the
+ *  app shell, that is not a create or detail page of a scaffolded aggregate or
+ *  workflow — those are reached from their list, and a detail route's `:id` has
+ *  no value to link to. */
+function isDefaultNavPage(page: PageIR, nameCtx: PageNameCtx): boolean {
+  if (!page.route || page.route.includes(":")) return false;
+  if (page.layout?.kind === "preset" && page.layout.name === "none") return false;
+  const kind = classifyPage(page, nameCtx).kind;
+  return (
+    kind !== "aggregate-new" && kind !== "aggregate-detail" && kind !== "workflow-instance-detail"
+  );
+}
+
+/** The default bar's links: one per navigable page, named by the page's own
+ *  `menu { label: … }` (a scaffold list page carries its aggregate's plural,
+ *  `Products`) and humanised from its name otherwise.  Handed to
+ *  `deriveSidebarFromUi`, which keys each label into the translation catalog
+ *  where the page's metadata is extracted and merges in the custom pages. */
+function defaultNavSection(pages: readonly PageIR[], nameCtx: PageNameCtx): NavSectionVM {
+  return {
+    label: "",
+    entries: pages
+      .filter((p) => isDefaultNavPage(p, nameCtx))
+      .map((p) => ({
+        to: p.route ?? "/",
+        label: menuMetaString(p, "label") ?? humanizeLabel(pageEmitName(p, nameCtx)),
+        testId: `nav-${snake(pageEmitName(p, nameCtx))}`,
+        activeArgs: JSON.stringify(p.route ?? "/"),
+      })),
+  };
+}
+
 /** Humanise an identifier for a nav label: `ProductNew` → `Product New`. */
 function humanizeLabel(name: string): string {
   return name.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
@@ -847,6 +891,10 @@ function renderNavbar(
   /** Two or more locales ship: the bar carries the language picker, and a bar
    *  with no links still renders for it. */
   localeSwitcher = false,
+  /** Render each section's label as a `menu-title` item.  True for an authored
+   *  `menu { }`; the DEFAULT bar is a flat run of links, its grouping
+   *  (`Aggregates`, `Workflows`, …) being sidebar furniture a top bar drops. */
+  sectionHeadings = true,
 ): string {
   // ONE line per entry, guard included: F# keys a newline-separated list
   // element by its first-token column, so a multi-line guard here would
@@ -859,36 +907,26 @@ function renderNavbar(
     i18nEnabled && key
       ? `(I18n.t ${fsString(key)} ${fsString(sourceText(key, text))})`
       : fsString(text);
-  let entries: string[];
-  if (menu) {
-    entries = menu.flatMap((section) => [
-      ...(section.label
-        ? [
-            `Html.li [ prop.className "menu-title"; prop.text ${label(section.label, section.labelKey)} ]`,
-          ]
-        : []),
-      ...section.entries.map((e) =>
-        e.external
-          ? `Html.li [ prop.children [ Html.a [ prop.href ${fsString(e.href ?? "")}; prop.target "_blank"; prop.rel "noopener noreferrer"; prop.text ${label(e.label, e.labelKey)} ] ] ]`
-          : guard(
-              pages.find((p) => p.route === e.to),
-              `Html.li [ prop.children [ Html.a [ prop.href ${fsString(e.to)}; prop.text ${label(e.label, e.labelKey)} ] ] ]`,
-            ),
-      ),
-    ]);
-    if (entries.length === 0 && !localeSwitcher) return "";
-  } else {
-    const navPages = pages.filter((p) => !hasRouteParam(p));
-    if (navPages.length < 2 && !localeSwitcher) return "";
-    // PATH href (History API routing), not a `#/…` hash link.  A lone page
-    // renders no link list at all: the bar then exists only for the picker.
-    entries = (navPages.length < 2 ? [] : navPages).map((p) =>
-      guard(
-        p,
-        `Html.li [ prop.children [ Html.a [ prop.href "${p.route ?? "/"}"; prop.text "${humanizeLabel(p.name)}" ] ] ]`,
-      ),
-    );
-  }
+  const link = (e: NavEntryVM): string =>
+    e.external
+      ? `Html.li [ prop.children [ Html.a [ prop.href ${fsString(e.href ?? "")}; prop.target "_blank"; prop.rel "noopener noreferrer"; prop.text ${label(e.label, e.labelKey)} ] ] ]`
+      : guard(
+          pages.find((p) => p.route === e.to),
+          `Html.li [ prop.children [ Html.a [ prop.href ${fsString(e.to)}; prop.text ${label(e.label, e.labelKey)} ] ] ]`,
+        );
+  const sections = menu ?? [];
+  let entries: string[] = sections.flatMap((section) => [
+    ...(sectionHeadings && section.label
+      ? [
+          `Html.li [ prop.className "menu-title"; prop.text ${label(section.label, section.labelKey)} ]`,
+        ]
+      : []),
+    ...section.entries.map(link),
+  ]);
+  // A lone link in the DEFAULT bar is not worth a bar: it renders only for the
+  // language picker.
+  if (!sectionHeadings && sections.reduce((n, sec) => n + sec.entries.length, 0) < 2) entries = [];
+  if (entries.length === 0 && !localeSwitcher) return "";
   const items = entries.map((e) => `          ${e}`).join("\n");
   // The bar is a real <nav> landmark (a11y contract) — a screen reader
   // announces it as the primary navigation and can jump straight to it.
@@ -941,13 +979,22 @@ function renderRootView(
    *  the top-level page list. */
   menu?: readonly NavSectionVM[],
   localeSwitcher = false,
+  sectionHeadings = true,
 ): string {
   const arms = pages.map((p) => {
     const names = routeParamNames(p);
     const args = names.length > 0 ? ` ${names.map(fsIdent).join(" ")}` : "";
     return `        | ${pageCase(p, nameCtx)}${caseArgs(names)} -> ${pageViewFn(p, nameCtx)} model dispatch${args}`;
   });
-  const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate, menu, localeSwitcher);
+  const navbar = renderNavbar(
+    pages,
+    brand,
+    i18nEnabled,
+    pageGate,
+    menu,
+    localeSwitcher,
+    sectionHeadings,
+  );
   const router = [
     "    React.router [",
     // PATH-based routing (History API), NOT hash (`#/…`) — the generated SPA
@@ -1007,7 +1054,6 @@ function readsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizRead[]
     aggregateNames: [...aggregateNames],
     workflowNames: contexts.flatMap((c) => c.workflows.map((w) => w.name)),
   };
-  const seen = new Set<string>();
   const out: FelizRead[] = [];
   // Paged-ness is derived from the find's return type, so the collector needs
   // the same aggregate→context index the walker resolves through.
@@ -1039,9 +1085,7 @@ function readsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizRead[]
       projectionIRs,
       workflowIRs,
     )) {
-      if (seen.has(r.field)) continue;
-      seen.add(r.field);
-      out.push(r);
+      mergeRead(out, r);
     }
   }
   // User COMPONENTS host reads too — an Elmish read is a field on the ONE Model,
@@ -1060,12 +1104,59 @@ function readsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizRead[]
       projectionIRs,
       workflowIRs,
     )) {
-      if (seen.has(r.field)) continue;
-      seen.add(r.field);
-      out.push(r);
+      // Any page may place the component, so its reads cannot wait on one
+      // page's entry.
+      mergeRead(out, { ...r, eager: true });
     }
   }
   return out;
+}
+
+/** Add `incoming` to `out`, deduped by Model field.  When two sources issue the
+ *  same read the PAGED one wins (an FK select's plain `.all` and a scaffolded
+ *  list share one field; only the controlled read carries the page state), and
+ *  `eager` is sticky. */
+function mergeRead(out: FelizRead[], incoming: FelizRead): void {
+  const at = out.findIndex((r) => r.field === incoming.field);
+  if (at < 0) {
+    out.push(incoming);
+    return;
+  }
+  const prior = out[at]!;
+  const winner = incoming.paging && !prior.paging ? incoming : prior;
+  out[at] = prior.eager || incoming.eager ? { ...winner, eager: true } : winner;
+}
+
+/** The page views a read can be hosted by: a page's `Page` case, its route-param
+ *  arity, and its rendered view text. */
+interface PageViewText {
+  pageCase: string;
+  paramCount: number;
+  text: string;
+}
+
+/** Stamp each fetch-on-route list read with the pages that host it.
+ *
+ *  A page hosts a read when its RENDERED view names the read's Model field — the
+ *  one test that also covers an FK select's option source, a chart's data and a
+ *  dashboard's projection tile, none of which a `QueryView` walk would find.  A
+ *  read no view names, and one a user component issues, stays `eager`.  Under a
+ *  non-routed ui there is no `Page` to enter, so every list read is eager. */
+function placeReads(
+  reads: readonly FelizRead[],
+  pageViews: readonly PageViewText[],
+  routed: boolean,
+): FelizRead[] {
+  if (!routed) return reads.map((r) => (r.single ? r : { ...r, eager: true }));
+  return reads.map((r) => {
+    if (r.single) return r;
+    if (r.eager) return r;
+    const named = new RegExp(`\\bmodel\\.${r.field}(?![A-Za-z0-9_])`);
+    const hostPages = pageViews
+      .filter((v) => named.test(v.text))
+      .map((v) => ({ pageCase: v.pageCase, paramCount: v.paramCount }));
+    return hostPages.length > 0 ? { ...r, hostPages } : { ...r, eager: true };
+  });
 }
 
 /** The mutations a ui issues, across ALL its pages (deduped by aggregate) —
@@ -1569,7 +1660,6 @@ function renderAppFs(
   // A ui is routed when it has >1 page OR any page carries a route param (a lone
   // detail page still needs a router to bind its `:id`).
   const routed = pages.length > 1 || pages.some(hasRouteParam);
-  const pageCmd = renderPageCmd(reads); // "" unless byId reads exist
 
   // MVU triple is built from the COMBINED (all-page, deduped) state + actions;
   // a single-page ui's combined lists are exactly its one page's.  Stores fold
@@ -1605,23 +1695,27 @@ function renderAppFs(
   const persistedStores = felizPersistedStores(ui);
   const storeUrlArm = storeUrlUpdateArm(persistedStores);
   const storeUrlSub = renderStoreUrlSub(persistedStores);
-  const model = renderModel(state, reads, routed, formRecords, authUi, pageGate, localeSwitchable);
-  // A component `state {}` cell seeded from a component param: `init` has no
-  // props, so the agreeing call-site constant substitutes in — or the component
-  // defers (`component-state-init.ts`).
-  const componentInits = componentStateInits(ui);
-  const init = renderInit(
+  // Every submit-capable form carries a `Pending` flag (a record-less op /
+  // workflow too, with its own `Server` cell).
+  const submits: FelizSubmit[] = [
+    ...forms.map((f) => ({ formField: f.formField, hasRecord: true })),
+    ...operationForms.map((f) => ({ formField: f.formField, hasRecord: opHasForm(f) })),
+    ...workflowForms.map((f) => ({ formField: f.formField, hasRecord: wfHasForm(f) })),
+  ];
+  const model = renderModel(
     state,
     reads,
     routed,
     formRecords,
     authUi,
     pageGate,
-    storePersistInitOverrides(persistedStores),
-    componentInits.paramValues,
-    i18nEnabled,
     localeSwitchable,
+    submits,
   );
+  // A component `state {}` cell seeded from a component param: `init` has no
+  // props, so the agreeing call-site constant substitutes in — or the component
+  // defers (`component-state-init.ts`).
+  const componentInits = componentStateInits(ui);
   const msg = renderMsg(
     msgActions,
     reads,
@@ -1637,29 +1731,6 @@ function renderAppFs(
     boundState,
     fileUploads,
     storeUrlArm ? STORE_URL_MSG : undefined,
-    localeSwitchable,
-  );
-  const update = renderUpdate(
-    actions,
-    state,
-    reads,
-    routed,
-    mutations,
-    forms,
-    operationForms,
-    workflowForms,
-    authUi,
-    ui.stores,
-    asyncEffects,
-    pageGate,
-    opActions,
-    boundState,
-    fileUploads,
-    storeUrlArm,
-    // The route table a `navigate(<Page>)` STATEMENT in an action body resolves
-    // against — its MVU arm lives in `update-emit.ts`, outside every page view.
-    new Map(pages.filter((p) => p.route).map((p) => [p.name, p.route!])),
-    i18nEnabled,
     localeSwitchable,
   );
   const wire = hasWire
@@ -1744,6 +1815,7 @@ function renderAppFs(
   // `React.router` root.  Under an auth gate the root is named `appView` and the
   // emitted `view` is the gate (Checking → Anon sign-in → Authed appView).
   const rootFn = authUi ? "appView" : "view";
+  const pageViewTexts: PageViewText[] = [];
   const rootViews = routed
     ? [
         ...pages.map((p) => {
@@ -1765,6 +1837,11 @@ function renderAppFs(
             i18nEnabled,
           );
           onPageView?.(p, text);
+          pageViewTexts.push({
+            pageCase: pageCase(p, nameCtx),
+            paramCount: routeParamNames(p).length,
+            text,
+          });
           return text;
         }),
         "",
@@ -1775,8 +1852,11 @@ function renderAppFs(
           ui.name,
           i18nEnabled,
           pageGate,
-          ui.menu ? deriveSidebarFromUi(ui, nameCtx) : undefined,
+          ui.menu
+            ? deriveSidebarFromUi(ui, nameCtx)
+            : deriveSidebarFromUi(ui, nameCtx, false, [defaultNavSection(ui.pages, nameCtx)]),
           localeSwitchable,
+          !!ui.menu,
         ),
       ]
     : [
@@ -1806,6 +1886,46 @@ function renderAppFs(
   // (the claims-fallback element).
   const gatedViews = pageGate ? [renderForbiddenView(i18nEnabled), "", ...rootViews] : rootViews;
   const views = authUi ? [...gatedViews, "", renderAuthGate(i18nEnabled)] : gatedViews;
+  // Fetch-on-route: each list read loads when a page whose rendered view names
+  // it is entered (see `placeReads`), so it must be placed AFTER the views.
+  const entryReads = placeReads(reads, pageViewTexts, routed);
+  const pageCmd = renderPageCmd(entryReads); // "" unless a read fires on page entry
+  const init = renderInit(
+    state,
+    entryReads,
+    routed,
+    formRecords,
+    authUi,
+    pageGate,
+    storePersistInitOverrides(persistedStores),
+    componentInits.paramValues,
+    i18nEnabled,
+    localeSwitchable,
+    submits,
+  );
+  const update = renderUpdate(
+    actions,
+    state,
+    entryReads,
+    routed,
+    mutations,
+    forms,
+    operationForms,
+    workflowForms,
+    authUi,
+    ui.stores,
+    asyncEffects,
+    pageGate,
+    opActions,
+    boundState,
+    fileUploads,
+    storeUrlArm,
+    // The route table a `navigate(<Page>)` STATEMENT in an action body resolves
+    // against — its MVU arm lives in `update-emit.ts`, outside every page view.
+    new Map(pages.filter((p) => p.route).map((p) => [p.name, p.route!])),
+    i18nEnabled,
+    localeSwitchable,
+  );
   // The `IdLink` reference-label module — only when a view or a walked
   // component actually calls it (`feliz/ref-label-runtime.ts`).
   const usesRefLabel = [...views, ...walkedComponents.decls].some((v) =>
@@ -1958,9 +2078,9 @@ function renderAppFs(
     hasHttp && api,
     // View helpers — Remote matchers (reads) + the per-field `fieldError` matcher
     // (validated forms), so a form-only page still gets the helper.
-    (hasReads || hasFieldErrors || usesChart || hasForms) && "",
-    (hasReads || hasFieldErrors || usesChart || hasForms) &&
-      renderViewModule(reads, hasIdSelect, hasFieldErrors, usesChart, hasForms, i18nEnabled),
+    (hasReads || hasFieldErrors || usesChart || hasFormSubmits) && "",
+    (hasReads || hasFieldErrors || usesChart || hasFormSubmits) &&
+      renderViewModule(reads, hasIdSelect, hasFieldErrors, usesChart, hasFormSubmits, i18nEnabled),
     // Routing table (multi-page only) — Page union + parseUrl, ahead of Model.
     routed && "",
     routed && renderRouting(pages, nameCtx, usesRouteIdFn(update, init)),
@@ -2346,12 +2466,19 @@ export function generateFelizForContexts(
       `Feliz deployable '${deployable.name}' has no ui binding (uiName). A frontend deployable must target a ui.`,
     );
   }
-  const ui = sys.uis.find((u) => u.name === deployable.uiName);
-  if (!ui) {
+  const declaredUi = sys.uis.find((u) => u.name === deployable.uiName);
+  if (!declaredUi) {
     throw new Error(
       `Feliz deployable '${deployable.name}' references ui '${deployable.uiName}' but no such ui is declared.`,
     );
   }
+  // Every list page owns its page/sort cells: the program's Model is one flat
+  // record keyed by name, so same-named cells would otherwise share one value.
+  const stemCtx: PageNameCtx = {
+    aggregateNames: contexts.flatMap((c) => c.aggregates.map((a) => a.name)),
+    workflowNames: contexts.flatMap((c) => c.workflows.map((w) => w.name)),
+  };
+  const ui = scopeListState(declaredUi, (p) => pageEmitName(p, stemCtx));
   // fsproj package refs must match what `renderAppFs` emits: SimpleHttp/Thoth
   // when there's any Http (reads or mutations/forms).
   //

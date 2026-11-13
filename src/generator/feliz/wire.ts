@@ -111,6 +111,19 @@ export interface FelizRead {
   /** For a byId read, the `Page` union case hosting it (`ProductDetail`) — the
    *  arm `pageCmd` fires the fetch from.  Undefined for list reads. */
   pageCase?: string;
+  /** For a NON-single read (list / projection / workflow-instance list), the
+   *  `Page` cases whose RENDERED view names its Model field, each with its
+   *  route-param count — the arms `pageCmd` fires the fetch from when the route
+   *  is ENTERED, so a list loads on its own pages (after the session resolves
+   *  when auth is on) rather than eagerly at `init`.  Derived from the emitted
+   *  views, so an FK select's option source or a chart's data counts as hosted
+   *  exactly like a table's.  Absent / empty for an {@link eager} read. */
+  hostPages?: { pageCase: string; paramCount: number }[];
+  /** True for a read a page-entry arm cannot own: a user component's (any page
+   *  may place the component) or one no page view names (a realtime refetch
+   *  target).  It keeps firing eagerly — from `init`, or once the session
+   *  resolves under an auth gate. */
+  eager?: boolean;
   /** The derived ENTITY-HISTORY read (docs/audit.md) — `<api>.<Agg>.history(id)`
    *  over `GET /api/<aggs>/{id}/history`.  The one read where `single` and
    *  `listShaped` are BOTH true, because the two facts genuinely come apart: it
@@ -3184,6 +3197,22 @@ function renderMutationFn(m: FelizMutation): (string | undefined)[] {
     '        return Error (sprintf "HTTP %d" response.statusCode)',
     "    }",
   ];
+}
+
+/** The `<Form>Pending: bool` Model field: true from a submit until its result
+ *  lands.  The submit button disables on it and a second submit is ignored, so a
+ *  slow request cannot be doubled by a second click. */
+export function formPendingField(formField: string): string {
+  return `${formField}Pending`;
+}
+
+/** A submit-capable form (create / operation / workflow), reduced to what the
+ *  Model needs: its field name and whether it has a form RECORD.  A param-less
+ *  op or workflow has none, but still submits — so it still carries a Pending
+ *  flag and, having no record-owned `Server` cell, its own `ServerErrors`. */
+export interface FelizSubmit {
+  formField: string;
+  hasRecord: boolean;
 }
 
 /** The `<Form>Server: ServerErrors` Model field holding a form's last rejected
