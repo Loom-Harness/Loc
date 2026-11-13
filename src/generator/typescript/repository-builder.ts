@@ -14,6 +14,7 @@ import { lowerFirst, plural } from "../../util/naming.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { aggregateIsAudited, stampImportLine } from "./emit/audit-stamp.js";
 import { synthProjectionFinds } from "./projection-finds.js";
+import { refAdmissionHelper } from "./ref-admission.js";
 import {
   contextFilterPredicate,
   findByIdMethod,
@@ -206,7 +207,8 @@ export function buildRepositoryFile(
   // Everything this module emits, as one string.  The criterion fns sit
   // outside the class but render the same Drizzle operators, so they are part
   // of "what this file spells".
-  const renderedBody = `${criterionFns.join("\n")}\n${bodyStr}`;
+  const admissionHelper = refAdmissionHelper(agg, ctx);
+  const renderedBody = `${criterionFns.join("\n")}\n${admissionHelper.join("\n")}\n${bodyStr}`;
   // Strip string contents so symbols mentioned only inside error messages or
   // labels don't register as references for the import narrowing below.
   const bodyScan = stripStringLiterals(renderedBody);
@@ -270,6 +272,8 @@ export function buildRepositoryFile(
     // that calls them).  Empty when no retrieval reifies a named criterion.
     criterionFns.length > 0 && criterionFns.join("\n"),
     criterionFns.length > 0 && "",
+    // The refusal a reference-admission probe miss throws (ref-admission.ts).
+    ...admissionHelper,
     bodyStr,
     "",
   );
