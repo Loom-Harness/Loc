@@ -963,7 +963,13 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
     }
     case "list": {
       const elements = e.elements.map(rm);
-      return compose(t.list(elements.map((el) => el.text), e), elements);
+      return compose(
+        t.list(
+          elements.map((el) => el.text),
+          e,
+        ),
+        elements,
+      );
     }
     case "action-ref":
       throw new Error("renderExprWithMarks: 'action-ref' is not a domain expression");
