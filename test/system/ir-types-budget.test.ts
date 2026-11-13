@@ -33,8 +33,7 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "deployment.ts": 22,
   // `exists` carries `forWrite` (only on `for write`) and `read` (only in an
   // in-app gate position; a query-position quantifier has no read).
-  "expr.ts": 35,
-  "expr.ts": 34,
+  "expr.ts": 36,
   "members.ts": 16,
   // +2: `LoomModel.unresolvedTypes` (absent on every model that validates) and
   // `UnresolvedTypeSite.origin` (absent for a node with no source span); +1:

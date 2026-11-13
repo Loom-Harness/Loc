@@ -138,9 +138,7 @@ function csStmtTarget(ctx: CsRenderContext, traceCtx: TraceCtx): StmtTarget {
           // materialise the new elements first (the value usually reads the
           // list it is about to clear), then clear and refill.
           `${INDENT}{ var __parts = (${renderCsExpr(s.value, ctx)}).ToList(); ${renderPrivatePath(s.target, ctx)}.Clear(); ${renderPrivatePath(s.target, ctx)}.AddRange(__parts); }`
-        : `${INDENT}${renderPath(s.target)} = ${renderCsExpr(s.value, ctx)};`;
-      const value = csVoListCopy(s.targetType, s.value, renderCsExpr(s.value, ctx));
-      const base = `${INDENT}${renderPath(s.target)} = ${value};`;
+        : `${INDENT}${renderPath(s.target)} = ${csVoListCopy(s.targetType, s.value, renderCsExpr(s.value, ctx))};`;
       // NOTE the wrap ORDER: .NET (like java / python) puts `value_computed`
       // INSIDE the provenance capture; node puts it outside.  Preserved.
       const traced = withValueComputed(base, s.target, traceCtx, ctx);
