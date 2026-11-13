@@ -317,8 +317,8 @@ async function runCase(c) {
   try {
     const srcPath = join(workDir, "system.ddd");
     writeCaseSource(srcPath, c.source, c.locales);
-    fakes = await startSidecars(srcPath, c.source);
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", srcPath, "-o", genDir], { stdio: "pipe" });
+    fakes = await startSidecars(srcPath, c.source, { genDir });
     const deplDir = findNodeDeployable(genDir);
     const e2eDir = join(genDir, "e2e");
     // Tiers are DERIVED from the emitted file map, not declared: a system that

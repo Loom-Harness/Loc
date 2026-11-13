@@ -19,9 +19,10 @@
 import { docker, runContainer, until } from "./broker-sidecar.mjs";
 import { resourceEnvUrlVar } from "./resource-env.mjs";
 
-/** Pinned by digest so a re-tag upstream cannot change a leg. */
+/** Pinned by digest so a re-tag upstream cannot change a leg, and pulled from
+ *  the mirror, which serves the same digest without Docker Hub's limits. */
 export const MAILPIT_IMAGE =
-  "axllent/mailpit:v1.27.10@sha256:b1f1be18af530d939a11ee8820b379e0c88eeec204d904bfad68862adced3a5a";
+  "mirror.gcr.io/axllent/mailpit:v1.27.10@sha256:b1f1be18af530d939a11ee8820b379e0c88eeec204d904bfad68862adced3a5a";
 const SMTP_PORT = 1025;
 const API_PORT = 8025;
 

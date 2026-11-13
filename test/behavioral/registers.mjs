@@ -253,6 +253,13 @@ export const BEHAVIOURAL_XFAIL = {
       expect: "wire",
       reason: "the .NET objectStore put stores a string body raw under a JSON content type",
     },
+    // The restApi client posts a string body unencoded under
+    // `content-type: application/json`; the effects golden records it.
+    "resource-mail-api": {
+      issue: "#5685",
+      expect: "wire",
+      reason: "`RestApiResources.ToJson` passes a string body through raw, so `crm.post(path, \"…\")` sends text that is not JSON",
+    },
     "contained-part-rebuild": {
       issue: "#4136",
       expect: "fail",
@@ -277,6 +284,13 @@ export const BEHAVIOURAL_XFAIL = {
       issue: "#5685",
       expect: "wire",
       reason: "the .NET objectStore put stores a string body raw under a JSON content type",
+    },
+    // The restApi client posts a string body unencoded under
+    // `content-type: application/json`; the effects golden records it.
+    "resource-mail-api": {
+      issue: "#5685",
+      expect: "wire",
+      reason: "`RestApiResources.ToJson` passes a string body through raw, so `crm.post(path, \"…\")` sends text that is not JSON",
     },
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },

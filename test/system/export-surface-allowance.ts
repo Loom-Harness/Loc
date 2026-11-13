@@ -131,6 +131,5 @@ export const MODULE_LOCAL_ALLOWANCE: Readonly<Record<string, number>> = {
   "src/util/color.ts": 2,
   "src/util/repository-contract.ts": 2,
   "src/util/resource-verbs.ts": 1,
-  "src/util/source-types.ts": 1,
   "src/util/test-reset.ts": 1,
 };

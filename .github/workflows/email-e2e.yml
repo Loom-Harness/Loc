@@ -105,7 +105,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       mailpit:
-        image: axllent/mailpit:v1.27.10@sha256:b1f1be18af530d939a11ee8820b379e0c88eeec204d904bfad68862adced3a5a
+        image: mirror.gcr.io/axllent/mailpit:v1.27.10@sha256:b1f1be18af530d939a11ee8820b379e0c88eeec204d904bfad68862adced3a5a
         # SMTP AUTH is REQUIRED (not accept-any): the harness injects
         # smtp://loom:s3cr3t@… as MAIL_URL, so a backend that ignores the
         # credentials fails to deliver and its cell goes red. Keep the

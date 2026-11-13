@@ -15,7 +15,7 @@ export function quiesce<T>(
   observe: () => T | Promise<T>,
   opts?: { intervalMs?: number; timeoutMs?: number },
 ): Promise<{ value: T; settled: boolean; polls: number }>;
-export function startSidecars(srcPath: string, source?: string): Promise<Sidecars>;
+export function startSidecars(srcPath: string, source?: string, opts?: { genDir?: string }): Promise<Sidecars>;
 export function mayNeedSidecars(source: string): boolean;
 // biome-ignore lint/suspicious/noExplicitAny: the lowered model is read structurally.
 export function plannedFakes(loom: any, storageFakes?: Record<string, unknown>, systemFakes?: Record<string, unknown>): any[];
