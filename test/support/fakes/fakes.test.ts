@@ -3,22 +3,34 @@
 // sidecar needs docker and is proved by mailpit-sidecar.test.ts.
 // The models' own semantics are the emulation contract's (test/emulation/).
 
+import { request } from "node:http";
 import { describe, expect, it } from "vitest";
 import { start as startHttp } from "./http.mjs";
 import { diffEffects, mayNeedSidecars, plannedFakes, quiesce } from "./index.mjs";
+
+/** One HTTP exchange over `node:http`, not `fetch`: the suite shares one
+ *  module space, and the playground's fetch facade replaces the global. */
+function send(url: string, method = "GET", body?: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const req = request(url, { method }, (res) => {
+      res.resume();
+      res.on("end", () => resolve(res.statusCode ?? 0));
+    });
+    req.on("error", reject);
+    req.end(body);
+  });
+}
 
 describe("restApi recorder", () => {
   it("answers through the core mock and records method, path and the run-stable body", async () => {
     const http = await startHttp({ resources: [{ name: "crm" }] });
     try {
       expect(Object.keys(http.env)).toEqual(["CRM_URL"]);
-      const r = await fetch(`${http.url}/pings?x=1`, {
-        method: "POST",
-        body: JSON.stringify({ id: "random", b: 1 }),
-      });
-      expect(r.status).toBe(200);
-      await fetch(`${http.url}/customers`);
-      await fetch(`${http.url}/one`, { method: "POST", body: '"a@x"' });
+      expect(
+        await send(`${http.url}/pings?x=1`, "POST", JSON.stringify({ id: "random", b: 1 })),
+      ).toBe(200);
+      await send(`${http.url}/customers`);
+      await send(`${http.url}/one`, "POST", '"a@x"');
       expect(http.observe()).toEqual([
         { method: "GET", path: "/customers", body: null },
         { method: "POST", path: "/one", body: "a@x" },

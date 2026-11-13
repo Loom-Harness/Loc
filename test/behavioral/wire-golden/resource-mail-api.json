@@ -27,13 +27,74 @@
     },
     {
       "seq": 3,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "email": "cy@rma.test",
+        "id": "<volatile:key>",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/orders/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
       "method": "POST",
       "path": "/api/orders/{id}/touch",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 4,
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/orders",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "email": "dy@rma.test",
+            "id": "<volatile:key>",
+            "rowVersion": 3
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "DELETE",
+      "path": "/api/orders/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}",
+        "params": {
+          "type": "Sales.Order"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -47,7 +108,7 @@
       }
     },
     {
-      "seq": 5,
+      "seq": 10,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -61,7 +122,7 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 11,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,
@@ -75,7 +136,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 12,
       "method": "POST",
       "path": "/api/orders/{id}/touch",
       "status": 404,
@@ -92,7 +153,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 13,
       "method": "POST",
       "path": "/api/orders/{id}/touch",
       "status": 404,
@@ -109,7 +170,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 14,
       "method": "POST",
       "path": "/api/orders/{id}/touch",
       "status": 415,
@@ -119,6 +180,23 @@
         "instance": "/api/orders/{id}/touch",
         "status": 415,
         "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/orders/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/update",
+        "params": {
+          "type": "Sales.Order"
+        },
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }
@@ -156,7 +234,7 @@
       {
         "from": "no-reply@rma.test",
         "to": [
-          "cy@rma.test"
+          "dy@rma.test"
         ],
         "subject": "Order touched",
         "text": "Your order was touched."

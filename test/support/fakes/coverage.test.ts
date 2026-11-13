@@ -10,7 +10,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { validate } from "../../../src/api/index.js";
 import type { DataSourceKind } from "../../../src/ir/types/loom-ir.js";
 import {
@@ -174,18 +174,18 @@ describe("coverage census", () => {
     ).toEqual([]);
   });
 
+  // Registering a sourceType writes the shared registry; the teardown keeps it
+  // from outliving this file under `isolate: false`.
+  afterEach(() => _unregisterSourceTypeForTests("loomFakeStore"));
+
   it("a newly registered sourceType fails until it has a row", () => {
     registerSourceType({
       name: "loomFakeStore",
       supports: { objectStore: { capabilities: new Set(), interfaces: new Set() } },
     });
-    try {
-      expect(
-        censusProblems(COVERAGE, { today, open: OPEN_TRACKING_ISSUES, waits: HARNESS_WAITS }),
-      ).toContain("loomFakeStore × objectStore: no coverage row");
-    } finally {
-      _unregisterSourceTypeForTests("loomFakeStore");
-    }
+    expect(
+      censusProblems(COVERAGE, { today, open: OPEN_TRACKING_ISSUES, waits: HARNESS_WAITS }),
+    ).toContain("loomFakeStore × objectStore: no coverage row");
   });
 
   it("a pending row fails once its issue closes or its review date passes", () => {
