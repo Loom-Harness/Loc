@@ -240,6 +240,13 @@ export const BEHAVIOURAL_XFAIL = {
   node: {},
   mikroorm: {},
   dotnet: {
+    // The restApi client posts a string body unencoded under
+    // `content-type: application/json`; the effects golden records it.
+    "resource-mail-api": {
+      issue: "#5685",
+      expect: "wire",
+      reason: "`RestApiResources.ToJson` passes a string body through raw, so `crm.post(path, \"…\")` sends text that is not JSON",
+    },
     "contained-part-rebuild": {
       issue: "#4136",
       expect: "fail",
@@ -252,6 +259,13 @@ export const BEHAVIOURAL_XFAIL = {
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
   dapper: {
+    // The restApi client posts a string body unencoded under
+    // `content-type: application/json`; the effects golden records it.
+    "resource-mail-api": {
+      issue: "#5685",
+      expect: "wire",
+      reason: "`RestApiResources.ToJson` passes a string body through raw, so `crm.post(path, \"…\")` sends text that is not JSON",
+    },
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
   java: {
