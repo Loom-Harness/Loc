@@ -732,19 +732,14 @@ export function renderJavaService(
     (agg.destroys?.length ?? 0) > 0
       ? [
           `    public void destroy${agg.name}(${idClass} id${destroyReadsIfMatch ? ", Integer ifMatch" : ""}) {`,
-          // The gate ladder (ir/plan/gate-ladder.ts): a gate that reads no row
-          // refuses before the load; one that reads the row runs after it, and
-          // both before the audit row is staged, so a denied delete records
-          // nothing.  `aggregate` is bound regardless — the delete needs it.
+          `        var aggregate = repository.getById(id);`,
+          // AFTER the load (the gate may read the row) and BEFORE the audit row
+          // is staged, so a denied delete records nothing.  `aggregate` is bound
+          // regardless of whether the gate reads it — the delete needs it.
           ...(lifecycleGatesUseCurrentUser(canonicalDestroy(agg))
             ? [`        var currentUser = currentUserAccessor.user();`]
             : []),
-          ...lifecycleGateLines(
-            destroyGates.filter((g) => !gateReadsRow(g)),
-            "aggregate",
-          ),
-          `        var aggregate = repository.getById(id);`,
-          ...lifecycleGateLines(destroyGates.filter(gateReadsRow), "aggregate"),
+          ...lifecycleGateLines(destroyGates, "aggregate"),
           // The row's `If-Match` precondition, like a named operation's: a stale
           // tag raises the exception the repository's guarded save raises (409).
           ...(destroyReadsIfMatch
