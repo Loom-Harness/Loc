@@ -1092,17 +1092,21 @@ function checkLiteralAgainstType(
     }
     return;
   }
+  const isMoney = t.kind === "primitive" && t.name === "money";
+  const base = {
+    slug: call.slug,
+    verb: call.verb,
+    key,
+    declared: describeType(t),
+    got: describeLiteral(value.lit, value.value),
+  };
   diags.push({
     severity: "error",
     code: "loom.e2e-body-type-mismatch",
     source,
-    message: diagMessage("loom.e2e-body-type-mismatch", {
-      slug: call.slug,
-      verb: call.verb,
-      key,
-      declared: describeType(t),
-      got: describeLiteral(value.lit, value.value),
-    }),
+    message: isMoney
+      ? diagMessage("loom.e2e-body-type-mismatch#money", { ...base, digits: value.value })
+      : diagMessage("loom.e2e-body-type-mismatch", base),
   });
 }
 

@@ -240,6 +240,13 @@ describe("e2e payload — a literal of the wrong scalar type", () => {
     }
   });
 
+  it("tells a bare-number money body how to spell it", async () => {
+    const [msg] = await messagesFor(
+      `let w = api.widgets.create({ ${FULL.replace('price: money("1.00")', "price: 2.50")} })`,
+    );
+    expect(msg).toContain(`write "2.50" or money("2.50")`);
+  });
+
   it("NON-VACUITY: a `money`'s string wire form is admissible", async () => {
     expect(
       await codesFor(
