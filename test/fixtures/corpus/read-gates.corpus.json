@@ -1,5 +1,15 @@
 {
   "title": "read-side requires gates — gated list read + folded and query-time projections",
   "doc": "auth",
-  "backends": "ALL"
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "Both projection kinds again, this time as the GATED read surfaces (`projection … requires`).  Same `notLifted` class as the four entries above; the denial half of these reads is the authz ladder's, which is not an `api.*` call at all.",
+    "unattributed": [
+      "api.openOrders.list (no such aggregate)",
+      "api.orderBook.byKey (no such aggregate)"
+    ],
+    "uncalled": {
+      "canReopenOrder": "gateProbe"
+    }
+  }
 }
