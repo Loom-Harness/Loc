@@ -4,6 +4,10 @@ import {
   fieldLimitChecks,
 } from "../../../ir/enrich/wire-policy.js";
 import type { EnumIR, StmtIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
+import {
+  residualInvariants,
+  voUncarriedInvariants,
+} from "../../../ir/util/changeset-invariant-carrier.js";
 import { ruleParams } from "../../../ir/util/rule-params.js";
 import {
   type SingleFieldPattern,
@@ -254,12 +258,26 @@ ${line.replace(/^/gm, "  ")}
   };
 }
 
-/** True iff the value object declares at least one single-field-constraint
- *  invariant — i.e. it gets a validating constructor module (`<VO>.new/1`) and
- *  aggregate fields of this type get a `validate_vo` line.  A VO with no such
- *  invariant is left as a plain `:map` with no module (status quo). */
+/** True iff the value object declares at least one invariant a changeset can
+ *  enforce — a single-field rule (native `validate_*` line) or a cross-field /
+ *  guarded one (`voResidualInvariants`, the `validate_invariants/1` carrier).
+ *  Such a value object gets a validating constructor module (`<VO>.new/1`) and
+ *  aggregate fields, operation params and workflow params of its type run it.
+ *  A VO with no enforceable invariant stays a plain `:map` with no module. */
 export function voHasConstraints(vo: ValueObjectIR): boolean {
-  return voConstraintLines(vo).length > 0;
+  return voConstraintLines(vo).length > 0 || voResidualInvariants(vo).length > 0;
+}
+
+export { voUncarriedInvariants };
+
+/** The value object's invariants no native single-field line carries — the
+ *  cross-field and guarded rules (`checkOut > checkIn`) — restricted to the
+ *  ones the `validate_invariants/1` carrier can render.  The rest are reported
+ *  as `loom.elixir-invariant-unenforced` by the phase-⑦ coverage check. */
+export function voResidualInvariants(
+  vo: Pick<ValueObjectIR, "fields" | "invariants">,
+): ValueObjectIR["invariants"] {
+  return residualInvariants({ invariants: voUncarriedInvariants(vo) });
 }
 
 /** Schemaless Ecto type for a value-object field — used in the VO module's

@@ -2,7 +2,13 @@ import type { BoundedContextIR, ValueObjectIR } from "../../../ir/types/loom-ir.
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { isStringField } from "./changeset-ingress.js";
-import { taggedConstraintLines, voEctoType, voHasConstraints } from "./changeset-validators.js";
+import { renderInvariantValidatorFn } from "./changeset-invariant-emit.js";
+import {
+  taggedConstraintLines,
+  voEctoType,
+  voHasConstraints,
+  voUncarriedInvariants,
+} from "./changeset-validators.js";
 
 // ---------------------------------------------------------------------------
 // Validating value-object constructor (Ecto/Phoenix)
@@ -61,6 +67,24 @@ function renderValueObjectModule(
   const tagging = taggedConstraintLines(vo);
   const validators = tagging.lines.join("\n");
   const tagDefs = tagging.defs ? `\n${tagging.defs}` : "";
+  // A cross-field or guarded rule (`checkOut > checkIn`) has no native
+  // validator line; it runs through the same `validate_invariants/1` carrier an
+  // aggregate, a part and a value-collection row use, judged on the cast map.
+  // Gated on `valid?`: a field that failed to cast is absent from the applied
+  // map, and the comparison would read nil.
+  const invariantFn = renderInvariantValidatorFn(
+    { invariants: voUncarriedInvariants(vo), fields: vo.fields, derived: [] },
+    `${appModule}.${upperFirst(ctx.name)}`,
+  );
+  const invariantPipe = invariantFn ? "\n    |> __loom_validate_invariants()" : "";
+  const invariantDefs = invariantFn
+    ? `
+${invariantFn}
+
+  defp __loom_validate_invariants(%{valid?: false} = changeset), do: changeset
+  defp __loom_validate_invariants(changeset), do: validate_invariants(changeset)
+`
+    : "";
   // A string leaf keeps a blank value so the value object's own rule answers
   // it with its rule text (`changeset-ingress.ts`) — Ecto's default
   // `empty_values` would turn `""` into `nil`, which every length/format
@@ -85,14 +109,13 @@ defmodule ${moduleName} do
   @doc "Validate a value-object map against its declared invariants (schemaless — VOs persist as plain maps)."
   def changeset(attrs) when is_map(attrs) do
     {%{}, @types}
-${castLine}
-${validators}
+${castLine}${validators ? `\n${validators}` : ""}${invariantPipe}
   end
 
   @doc "Build + validate a value object — {:ok, map} on success, {:error, changeset} on an invariant violation."
   def new(attrs) when is_map(attrs) do
     apply_action(changeset(attrs), :insert)
   end
-${tagDefs}end
+${tagDefs}${invariantDefs}end
 `;
 }

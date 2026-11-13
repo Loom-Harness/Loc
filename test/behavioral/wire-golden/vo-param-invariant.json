@@ -1,0 +1,259 @@
+{
+  "case": "vo-param-invariant",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/workflows/open_lot",
+      "status": 200,
+      "body": "<uuid>"
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/lots/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "a",
+        "rowVersion": 1,
+        "span": {
+          "high": 3,
+          "low": 1
+        }
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/workflows/open_lot",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "Lots.Span.rule.ordered",
+            "message": "Ordered",
+            "params": {
+              "high": 2,
+              "low": 5
+            },
+            "pointer": "/s/high"
+          }
+        ],
+        "instance": "/api/workflows/open_lot",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/workflows/open_lot",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "Lots.Span.rule.lowNonNegative",
+            "message": "Low non negative",
+            "params": {
+              "low": -1
+            },
+            "pointer": "/s/low"
+          }
+        ],
+        "instance": "/api/workflows/open_lot",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/lots",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "label": "a",
+            "rowVersion": 1,
+            "span": {
+              "high": 3,
+              "low": 1
+            }
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/lots/{id}/respan",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/lots/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "a",
+        "rowVersion": 2,
+        "span": {
+          "high": 9,
+          "low": 2
+        }
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/lots/{id}/respan",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "Lots.Span.rule.ordered",
+            "message": "Ordered",
+            "params": {
+              "high": 4,
+              "low": 7
+            },
+            "pointer": "/s/high"
+          }
+        ],
+        "instance": "/api/lots/{id}/respan",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/lots/{id}/respan",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "Lots.Span.rule.lowNonNegative",
+            "message": "Low non negative",
+            "params": {
+              "low": -3
+            },
+            "pointer": "/s/low"
+          }
+        ],
+        "instance": "/api/lots/{id}/respan",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/lots/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "a",
+        "rowVersion": 2,
+        "span": {
+          "high": 9,
+          "low": 2
+        }
+      }
+    },
+    {
+      "seq": 10,
+      "method": "DELETE",
+      "path": "/api/lots/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/lots/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Lot {id} not found",
+        "instance": "/api/lots/{id}",
+        "params": {
+          "type": "Lots.Lot"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "PATCH",
+      "path": "/api/lots",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/lots",
+        "instance": "/api/lots",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/lots/{id}/respan",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.missing",
+            "message": "s is required",
+            "pointer": "/s"
+          }
+        ],
+        "instance": "/api/lots/{id}/respan",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
