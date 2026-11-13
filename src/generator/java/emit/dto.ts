@@ -616,8 +616,8 @@ function wireRecord(
     }
     // A DECLARED record names DOMAIN types, so a field the aggregate declares
     // `provenanced` is wrapped in the wire carrier here — the same wrap
-    // `wireTypeForField` applies on the wireShape path, so both paths emit the
-    // identical component (M-T6.12).
+    // `responseWireFor` applies to a response row, so both paths emit the
+    // identical component.
     const provNames = new Set(entity.fields.filter((f) => f.provenanced).map((f) => f.name));
     for (const declaredField of declared.payload.fields) {
       // A masked field is redacted to null by `fromMasked`, so its component

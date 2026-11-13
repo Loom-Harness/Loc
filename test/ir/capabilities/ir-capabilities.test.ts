@@ -1,4 +1,3 @@
-import { wireFieldsFor } from "../../../src/ir/enrich/wire-projection.js";
 // Verifies macro-contributed capabilities propagate through lowering
 // onto AggregateIR.contextFilters / contextStamps.  Replaces the
 // previous `ir-flags.test.ts` which asserted against the old
@@ -6,7 +5,7 @@ import { wireFieldsFor } from "../../../src/ir/enrich/wire-projection.js";
 
 import { describe, expect, it } from "vitest";
 import type { AggregateIR, EnrichedLoomModel } from "../../../src/ir/types/loom-ir.js";
-import { buildLoomModel } from "../../_helpers/ir.js";
+import { buildHostedModel, buildLoomModel, responseRows } from "../../_helpers/ir.js";
 
 function findAgg(ir: EnrichedLoomModel, name: string): AggregateIR {
   for (const s of ir.systems) {
@@ -135,7 +134,7 @@ describe("macro capabilities propagate to AggregateIR", () => {
     // contributes the four audit fields and the create/update stamps.  As a
     // typed application (not a string group), it does NOT register
     // `implementsCapabilities`.
-    const ir = await buildLoomModel(`
+    const ir = await buildHostedModel(`
       system Demo {
         user { id: string  role: string }
         subdomain M { context C {
@@ -147,7 +146,7 @@ describe("macro capabilities propagate to AggregateIR", () => {
     `);
     const agg = findAgg(ir, "Order");
     expect(agg.contextStamps?.length).toBe(2);
-    expect(wireFieldsFor(agg).map((f) => f.name)).toEqual(
+    expect(responseRows(ir, agg).map((f) => f.name)).toEqual(
       expect.arrayContaining(["createdAt", "updatedAt", "createdBy", "updatedBy"]),
     );
   });
@@ -158,7 +157,7 @@ describe("macro capabilities propagate to AggregateIR", () => {
     // dangling `UserId`/`UserId` class on every backend.  It lowers to the
     // scalar declared by `user { id: <type> }`, and tracks that type.
     for (const idType of ["string", "guid"] as const) {
-      const ir = await buildLoomModel(`
+      const ir = await buildHostedModel(`
         system Demo {
           user { id: ${idType}  role: string }
           subdomain M { context C {
@@ -170,7 +169,7 @@ describe("macro capabilities propagate to AggregateIR", () => {
       `);
       const agg = findAgg(ir, "Order");
       for (const name of ["createdBy", "updatedBy"]) {
-        const wf = wireFieldsFor(agg).find((f) => f.name === name)!;
+        const wf = responseRows(ir, agg).find((f) => f.name === name)!;
         expect(wf, `${name} present in wireShape`).toBeDefined();
         expect(wf.type, `${name} is a plain ${idType} scalar, not a UserId strong-id`).toEqual({
           kind: "primitive",

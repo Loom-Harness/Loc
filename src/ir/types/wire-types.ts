@@ -254,9 +254,8 @@ export function wireTypeInfo(t: TypeIR, dir: WireDirection): WireTypeInfo {
     case "slot":
       throw new Error("wireTypeInfo: 'slot' type is UI-only and has no wire representation.");
     case "genericInstance":
-      // `Provenanced<T>` is the one carrier that reaches a WIRE FIELD: the
-      // enrichment pass wraps every `provenanced` property in it
-      // (`wireTypeForField`).  `paged` / `envelope` only ever appear as a
+      // `Provenanced<T>` is the one carrier that reaches a WIRE FIELD:
+      // `responseWireFor` wraps every `provenanced` property in it.  `paged` / `envelope` only ever appear as a
       // find/payload RETURN type, monomorphized to a named DTO long before a
       // wire field sees them — so they still fall through to the throw.
       if (cur.ctor === "provenanced") {

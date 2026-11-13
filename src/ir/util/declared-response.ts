@@ -1,11 +1,11 @@
 // Which read contract a response emitter renders for an aggregate root.
 //
-// A context can declare the `response <Agg>Response` record that describes an
-// aggregate's read wire (`with scaffoldHandlers`, the implicit
+// A context hosted by a deployable declares the `response <Agg>Response` record
+// that describes an aggregate's read wire (`with scaffoldHandlers`, the implicit
 // `api X from <Subdomain>` form, or by hand).  Every backend's response-DTO /
-// schema emitter renders that record when it is the authority and the derived
-// wire shape (`forApiRead(wireFieldsFor*)`) otherwise.  This is the one place
-// that decides which, so the five emitters cannot disagree.
+// schema emitter renders that record, and `responseWireFor` turns it into the
+// rows a serializer walks.  This is the one place that finds the record, so the
+// five emitters cannot disagree.
 
 import { maskedReadPredicates } from "../enrich/mask-taint.js";
 import type { AggregateIR, EntityPartIR, PayloadIR } from "../types/loom-ir.js";

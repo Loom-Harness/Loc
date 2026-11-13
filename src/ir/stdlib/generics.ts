@@ -69,8 +69,8 @@ export const GENERIC_SHAPES: Record<GenericCtorName, GenericShape> = {
   },
   // `Provenanced<T>` (M-T6.12) — the value + its lineage as ONE wire carrier.
   // Unlike its two siblings this ctor has no grammar arm: `total: int
-  // provenanced` is a field MODIFIER, and the enrichment pass wraps the
-  // property's wire type in this instance (`wireTypeForField`).  It is rendered
+  // provenanced` is a field MODIFIER, and the response projection wraps the
+  // property's response row in this instance (`responseWireFor`).  It is rendered
   // STRUCTURALLY (an inline `{ value, lineage }` object) by each wire consumer
   // off THIS field list, not monomorphized to a named DTO — so the shape has
   // exactly one definition and every backend/frontend agrees by construction.
