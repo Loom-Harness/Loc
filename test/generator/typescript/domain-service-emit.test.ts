@@ -20,7 +20,7 @@ const SRC = `
     repository Carts for Cart { }
 
     domainService Pricing {
-      operation quote(cart: Cart, customer: Customer): money {
+      operation quote(cart: Cart, customer: Cart): money {
         return cart.subtotal
       }
       operation applyCoupon(price: money): money or CouponExpired {
@@ -38,7 +38,7 @@ describe("typescript generator — domainService", () => {
     expect(services!).not.toContain("namespace");
     expect(services!).toContain("export const Pricing = {");
     expect(services!).toContain("  quote: pricing_quote,");
-    expect(services!).toContain("function pricing_quote(cart: Cart, customer: Customer)");
+    expect(services!).toContain("function pricing_quote(cart: Cart, customer: Cart)");
     // The or-union return reuses the exception-less union shape.
     expect(services!).toMatch(/applyCoupon\w*\(price: Decimal\):.*type: "CouponExpired"/s);
   });

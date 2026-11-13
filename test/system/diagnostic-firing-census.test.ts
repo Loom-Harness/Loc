@@ -687,6 +687,21 @@ system S {
   deployable db { platform: node, contexts: [B], port: 3001, auth: required }
 }`,
   // `shareable` with no `tenancy by … of <Registry>` to name grantee orgs by.
+  // A tenantOwned row referencing a tenantOwned aggregate of another context.
+  "loom.tenancy-ref-unresolvable": `
+system S {
+  user { id: string  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context A {
+      aggregate Org with crudish { name: string }
+      aggregate Invoice with tenantOwned, crudish { number: string }
+    }
+    context B {
+      aggregate Claim with tenantOwned, crudish { invoice: Invoice id }
+    }
+  }
+}`,
   "loom.shareable-no-tenancy": `
 context C {
   aggregate Doc with tenantOwned, shareable, crudish { title: string }

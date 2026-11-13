@@ -1360,7 +1360,7 @@ When the receiver type is `T[]`:
 | `xs.distinct` | `T[]` | De-duplication (scalar elements — `loom.distinct-non-scalar`). |
 | `xs.take(n)` / `xs.skip(n)` | `T[]` | Slicing. |
 | `xs.join(sep)` | `string` | Concatenate string elements (`loom.join-non-string`). |
-| `xs.min(x => expr)` / `xs.max(x => expr)` | `T?` | Reductions over comparable elements (`loom.reduction-non-comparable`); `null` on empty. |
+| `xs.min(x => expr)` / `xs.max(x => expr)` | type of `expr`, optional | The smallest / largest VALUE of `expr` — not the element it came from (`loom.reduction-non-comparable`); `null` on empty. To pick the element, compare against the reduction: `xs.where(x => x.score == xs.max(y => y.score)).firstOrNull`. |
 | `xs.avg(x => expr)` | `decimal?` | Mean (`loom.avg-non-numeric`); `null` on empty. |
 
 A reduction spelled without its lambda (`xs.sum`, `xs.any`) is rejected

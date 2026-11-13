@@ -17,6 +17,7 @@ import {
   recordPayloadOf,
   workflowParamPayloads,
 } from "../../../generator/_payload/workflow-param-payloads.js";
+import { PG_FOREIGN_KEY_VIOLATION } from "../../../generator/_persistence/pg-sqlstate.js";
 import { statementSubRegions } from "../../../generator/_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../../generator/_workflow/create-state.js";
 import {
@@ -74,6 +75,7 @@ import {
   stateZero,
   subscriptionHandler,
   withReadPortRepos,
+  workflowCapturesDurableEmits,
   workflowNeedsCurrentUser,
   workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
@@ -93,6 +95,7 @@ import {
 } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import {
+  aggregatesCanTripDanglingReference,
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
@@ -533,6 +536,14 @@ export function buildWorkflowsFile(
   body.push(
     `    if (err instanceof AggregateNotFoundError) return problem(${wfNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
   );
+  // PG foreign_key_violation — a write named a reference that does not resolve
+  // (a missing row, or one outside the row's tenant: ref-admission).  Answered
+  // as the aggregate router answers it: the domain floor, dangling-reference.
+  if (aggregatesCanTripDanglingReference(ctx.aggregates)) {
+    body.push(
+      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === ${JSON.stringify(PG_FOREIGN_KEY_VIOLATION)})) return problem(${wfDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, ${JSON.stringify(wireFixedDetail("dangling-reference"))}, ${JSON.stringify(wireCode("dangling-reference"))});`,
+    );
+  }
   if (wfHasUniqueKeys) {
     body.push(
       // PG unique_violation — SQLSTATE read off `err` AND `err.cause` (drizzle
@@ -1295,6 +1306,13 @@ function emitWorkflowRoute(
     out.push(...audits.tail);
     out.push(...stateSave("tx", `${bi}  `));
     out.push(...renderProvFlush(provSaves, `${bi}  `, "tx"));
+    // A durable workflow emit is owed with the workflow's writes: its outbox
+    // row commits with `tx`, and only the remaining events dispatch after.
+    if (workflowCapturesDurableEmits(wf, ctx)) {
+      out.push(
+        `${bi}  workflowEvents.splice(0, workflowEvents.length, ...((await events.recordDurable?.(workflowEvents, tx)) ?? workflowEvents));`,
+      );
+    }
     out.push(...resultAssign(`${bi}  `));
     out.push(`${bi}}${txOpts});`);
     if (er) {

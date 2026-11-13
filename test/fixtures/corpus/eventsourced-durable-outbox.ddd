@@ -1,0 +1,54 @@
+// An event-sourced aggregate whose events a durable channel carries: each
+// append and the outbox rows of its durable events commit in ONE transaction,
+// so an event in the stream is always also owed to the relay.  The fold still
+// reads back exactly what was appended.
+system EsDurableOutbox {
+  subdomain Core {
+    context Accounts {
+      event Opened { account: Account id, owner: string }
+      event Deposited { account: Account id, amount: int }
+      aggregate Account persistedAs: eventLog {
+        owner: string
+        balance: int
+        create open(owner: string) { emit Opened { account: id, owner: owner } }
+        operation deposit(amount: int) {
+          precondition amount > 0
+          emit Deposited { account: id, amount: amount }
+        }
+        apply(e: Opened) { owner := e.owner  balance := 0 }
+        apply(e: Deposited) { balance := balance + e.amount }
+      }
+      repository Accounts for Account
+
+      channel AccountEvents {
+        carries: Opened, Deposited
+        delivery: queue
+        retention: work
+      }
+    }
+  }
+  api LedgerApi from Core
+  storage pg { type: postgres }
+  resource accountsLog { for: Accounts, kind: eventLog, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Accounts]
+    dataSources: [accountsLog]
+    serves: LedgerApi
+    port: 4000
+  }
+
+  test e2e "a durable event-sourced append folds back what it appended" against d {
+    let a = api.accounts.create({ owner: "alice" })
+    api.accounts.deposit(a, { amount: 40 })
+    api.accounts.deposit(a, { amount: 2 })
+    let read = api.accounts.getById(a)
+    expect(read.owner).toBe("alice")
+    expect(read.balance).toBe(42)
+    // A refused command appends nothing.
+    expect(api.accounts.deposit(a, { amount: 0 })).toThrow(422)
+    expect(api.accounts.getById(a).balance).toBe(42)
+    let listed = api.accounts.all()
+    expect(listed.length).toBe(1)
+  }
+}

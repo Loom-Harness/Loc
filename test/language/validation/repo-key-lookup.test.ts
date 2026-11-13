@@ -126,3 +126,47 @@ describe("loom.repo-key-incomplete", () => {
     expect(d[0]!.message).toContain("takes NAMED arguments");
   });
 });
+
+// A tenant-scoped key — `unique (tenantId, number)`, the shape
+// `loom.unique-missing-tenant-scope` asks for — is named WITHOUT `tenantId`:
+// the tenant floor pins that column, and the author has no value to pass.  A
+// read that drops the floor spans tenants, so it still names the whole tuple.
+const tenantModel = (body: string) => `
+  system S {
+    user { id: guid  tenantId: string }
+    tenancy by user.tenantId of Organization
+    subdomain M {
+      context C {
+        aggregate Invoice with tenantOwned, crudish {
+          number: string  amountDue: int
+          unique (tenantId, number)
+          operation pay() { amountDue := 0 }
+        }
+        repository Invoices for Invoice { }
+        workflow w { create(n: string) { ${body} } }
+      }
+      context A { aggregate Organization with crudish { name: string } }
+    }
+  }`;
+
+describe("natural-key reads — a tenant-scoped key", () => {
+  it("names the key without `tenantId` while the tenant floor applies", async () => {
+    expect(await errors(tenantModel("let i = Invoices.getBy(number: n)\ni.pay()"))).toEqual([]);
+    expect(await errors(tenantModel("if let i = Invoices.findBy(number: n) { i.pay() }"))).toEqual(
+      [],
+    );
+  });
+
+  it("still names `tenantId` on a read that drops the floor", async () => {
+    for (const clause of ["ignoring tenantOwned", "ignoring *"]) {
+      const d = await errors(
+        tenantModel(`if let i = Invoices.findBy(number: n) ${clause} { i.pay() }`),
+      );
+      expect(
+        d.map((x) => x.code),
+        clause,
+      ).toEqual(["loom.repo-key-incomplete"]);
+      expect(d[0]!.message).toContain("'tenantId'");
+    }
+  });
+});

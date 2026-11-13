@@ -83,10 +83,10 @@ describe("feliz workflow forms", () => {
   it("wires the update arms (setters, paramless submit Cmd, done)", async () => {
     const app = await appFs(WF);
     expect(app).toContain(
-      "  | SubmitOpenAccountWorkflowForm -> { model with OpenAccountWorkflowFormServer = ServerErrors.empty }, Cmd.OfAsync.perform Api.runOpenAccountWorkflow model.OpenAccountWorkflowForm OpenAccountWorkflowDone",
+      "  | SubmitOpenAccountWorkflowForm -> { model with OpenAccountWorkflowFormServer = ServerErrors.empty; OpenAccountWorkflowFormPending = true }, Cmd.OfAsync.either Api.runOpenAccountWorkflow model.OpenAccountWorkflowForm OpenAccountWorkflowDone (fun ex -> OpenAccountWorkflowDone (Error (ServerErrors.formLevel ex.Message)))",
     );
     expect(app).toContain(
-      '  | OpenAccountWorkflowDone (Ok ()) -> { model with OpenAccountWorkflowForm = emptyOpenAccountWorkflowForm }, Cmd.navigatePath("")',
+      '  | OpenAccountWorkflowDone (Ok ()) -> { model with OpenAccountWorkflowForm = emptyOpenAccountWorkflowForm; OpenAccountWorkflowFormPending = false }, Cmd.navigatePath("")',
     );
   });
 
@@ -102,7 +102,7 @@ describe("feliz workflow forms", () => {
       'Html.input [ prop.custom("data-testid", "workflow-open_account-input-initial"); prop.className "input input-bordered w-full"; prop.type\'.number; prop.placeholder "initial"; prop.value model.OpenAccountWorkflowForm.initial; prop.onChange (fun (v: string) -> dispatch (SetOpenAccountWorkflowFormInitial v)); prop.onBlur (fun _ -> dispatch (TouchOpenAccountWorkflowForm "initial"))',
     );
     expect(app).toContain(
-      'Html.button [ prop.custom("data-testid", "workflow-open_account-submit"); prop.className "btn btn-primary"; prop.disabled (not (Validation.openAccountWorkflowFormValid model.OpenAccountWorkflowForm)); prop.onClick (fun _ -> dispatch SubmitOpenAccountWorkflowForm); prop.text (I18n.t "Acc.openAccount.op.run" "Run") ]',
+      'Html.button [ prop.custom("data-testid", "workflow-open_account-submit"); prop.className "btn btn-primary"; prop.disabled (model.OpenAccountWorkflowFormPending || not (Validation.openAccountWorkflowFormValid model.OpenAccountWorkflowForm)); prop.onClick (fun _ -> dispatch SubmitOpenAccountWorkflowForm); prop.text (I18n.t "Acc.openAccount.op.run" "Run") ]',
     );
   });
 

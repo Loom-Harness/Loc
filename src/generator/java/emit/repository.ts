@@ -31,6 +31,7 @@ import { boxedJavaType, renderJavaExpr, renderJavaType } from "../render-expr.js
 import { renderJpqlWhere } from "../render-jpql.js";
 import { sqlRestrictionIdent } from "../sql-ident.js";
 import { JAVA_FIND_ABSENCE_THROW, javaNotFoundThrow } from "./common.js";
+import { ADMIT_METHOD, hasAdmittedReferences, refAdmissionMethod } from "./ref-admission.js";
 
 const OPTIONAL = javaRef("java.util", "Optional");
 const COMPARATOR = javaRef("java.util", "Comparator");
@@ -852,6 +853,9 @@ export function renderJavaRepositoryImpl(
   // The command load enables the entity's write-scope filter around its query.
   const writeScope = writeScopeFilterName(agg);
   if (writeScope) needsEntityManager = true;
+  // Reference admission probes the target tables through the EntityManager.
+  const admitsReferences = hasAdmittedReferences(agg, ctx);
+  if (admitsReferences) needsEntityManager = true;
   const pagedAllSortWhitelist = pagedAll
     ? sortableFields(agg)
         .map((wf) => JSON.stringify(wf))
@@ -892,6 +896,8 @@ export function renderJavaRepositoryImpl(
     provenance || versioned ? `    @${TRANSACTIONAL}` : null,
     `    @Override`,
     `    public ${javaRef(ctx.entityPkg, agg.name)} save(${agg.name} aggregate) {`,
+    // Reference admission runs first, so a refused reference leaves the row unwritten.
+    admitsReferences ? `        ${ADMIT_METHOD}(aggregate);` : null,
     // Optimistic concurrency (`versioned`): the counter is COMMAND-driven, not
     // Hibernate-dirtiness-driven (RS-20).  Every persisted command bumps it
     // exactly once — including one that only mutates a contained child, and one
@@ -949,6 +955,7 @@ export function renderJavaRepositoryImpl(
     `        return saved;`,
     `    }`,
     ``,
+    ...(admitsReferences ? refAdmissionMethod(agg, ctx) : []),
     `    @Override`,
     `    public Optional<${agg.name}> findById(${idClass} id) {`,
     ...(versioned
