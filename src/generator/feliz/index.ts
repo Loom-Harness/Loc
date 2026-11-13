@@ -42,7 +42,7 @@ import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
-import { NPM_FETCH_RETRY_FLAGS } from "../_docker/node-stage.js";
+import { DEBIAN_CERTS_BLOCK, NPM_FETCH_RETRY_FLAGS } from "../_docker/node-stage.js";
 import {
   E2E_FIXTURES_TS,
   E2E_PACKAGE_JSON,
@@ -2293,7 +2293,7 @@ const STYLES_CSS = `@tailwind base;
 export const DOCKERFILE = `# syntax=docker/dockerfile:1
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /app
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \\
+${DEBIAN_CERTS_BLOCK}RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \\
   && apt-get install -y --no-install-recommends nodejs \\
   && rm -rf /var/lib/apt/lists/*
 COPY . .
@@ -2442,6 +2442,7 @@ export function generateFelizForContexts(
   out.set("tailwind.config.js", TAILWIND_CONFIG(theme));
   out.set("postcss.config.js", POSTCSS_CONFIG);
   out.set("Dockerfile", DOCKERFILE);
+  out.set("certs/.gitkeep", "");
 
   // --- Playwright e2e harness (framework-neutral, testid-driven) ----------
   // The page objects + smoke spec + e2e config are SHARED with every other
