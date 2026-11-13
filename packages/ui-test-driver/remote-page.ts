@@ -57,8 +57,16 @@ export class RemoteLocator {
   getByAltText(text: string, opts?: { exact?: boolean }): RemoteLocator {
     return this.extend({ k: "getByAltText", text, exact: opts?.exact });
   }
-  locator(selector: string): RemoteLocator {
-    return this.extend({ k: "locator", selector });
+  locator(selector: string | RemoteLocator): RemoteLocator {
+    return typeof selector === "string"
+      ? this.extend({ k: "locator", selector })
+      : this.extend({ k: "locatorWithin", inner: selector.nodes() });
+  }
+  or(other: RemoteLocator): RemoteLocator {
+    return this.extend({ k: "or", other: other.nodes() });
+  }
+  and(other: RemoteLocator): RemoteLocator {
+    return this.extend({ k: "and", other: other.nodes() });
   }
   filter(opts: { has: RemoteLocator }): RemoteLocator {
     return this.extend({ k: "filter", has: opts.has.nodes() });
