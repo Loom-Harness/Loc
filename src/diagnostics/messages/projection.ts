@@ -297,6 +297,12 @@ export const messages = {
     `optional field starts absent, and an absent value has no sum.  Make ` +
     `'${p.field}' required (it then starts at its type's zero), or give it a ` +
     `default.`,
+  "loom.projection-field-no-start": (p: { name: unknown; field: unknown; type: unknown }) =>
+    `projection '${p.name}' field '${p.field}' is required, but a new row has no ` +
+    `value to start it at: '${p.type}' has no zero and the field declares no ` +
+    `default.  A fold creates the row on the first event for a key, before any ` +
+    `statement writes '${p.field}'.  Give it a default ('${p.field}: ${p.type} = …'), ` +
+    `or make it optional ('${p.field}: ${p.type}?') so it starts absent.`,
   "loom.projection-key-assign": (p: {
     name: unknown;
     param: unknown;

@@ -31,6 +31,7 @@ export {
   type FoldRowZero,
   type FoldStep,
   foldRowSeeds,
+  foldRowUnseeded,
   foldSteps,
 } from "./projection-fold.js";
 export { type RepoNeed, reposNeeded } from "./repos-needed.js";

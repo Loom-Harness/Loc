@@ -60,8 +60,8 @@ system FoldStatementsSys {
 
       projection AccountBoard keyed by accountRef {
         accountRef: Account id
-        status: BoardStatus
-        at: datetime
+        status: BoardStatus?
+        at: datetime?
         // Accumulated, never assigned — a backend that drops `+=` leaves these
         // columns null forever while the model says they count.
         entries: int

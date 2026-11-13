@@ -1040,6 +1040,19 @@ system AccumOptional {
     }
   } }
 }`,
+  // A required fold column whose type has no zero and that declares no default.
+  "loom.projection-field-no-start": `
+system NoStart {
+  subdomain S { context C {
+    aggregate Order with crudish { code: string }
+    event OrderPlaced { order: Order id, at: datetime }
+    projection Board keyed by order {
+      order: Order id
+      placedAt: datetime
+      on(e: OrderPlaced) { placedAt := e.at }
+    }
+  } }
+}`,
   // A fold assigning its own key: the row is created with the routing key.
   "loom.projection-key-assign": `
 system KeyAssign {
