@@ -6,6 +6,13 @@ import { generateElixirProject } from "../generator/elixir/index.js";
 import { databaseOf } from "../ir/util/databases.js";
 import { deterministicHex } from "../util/deterministic-secret.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
+import {
+  BACKEND_HEALTH,
+  BROKER_BASELINE,
+  BROKER_BASELINE_GAPS,
+  MIGRATIONS_BASELINE,
+  wgetHealthcheck,
+} from "./operations.js";
 import type { ComposeServiceShape, PlatformSurface } from "./surface.js";
 import { TARGET_FACTS } from "./target-facts.js";
 
@@ -78,6 +85,16 @@ const elixirPlatform: PlatformSurface = {
       translations,
     });
   },
+  operations: {
+    health: { ...BACKEND_HEALTH, compose: "/health" },
+    healthcheck: wgetHealthcheck,
+    healthcheckBinaries: ["wget"],
+    listen: "ipv6-only",
+    log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
+    broker: BROKER_BASELINE,
+    migrations: MIGRATIONS_BASELINE,
+    gaps: { ...BROKER_BASELINE_GAPS, listen: "#3588" },
+  },
   composeService({ slug, sys, deployable }): ComposeServiceShape {
     const database = databaseOf(sys, deployable)?.name ?? slug;
     return {
@@ -105,7 +122,6 @@ const elixirPlatform: PlatformSurface = {
       // emitter routes it to a Secret rather than a plaintext ConfigMap.
       secretEnvKeys: ["SECRET_KEY_BASE"],
       dependsOnDb: true,
-      healthPath: "/health",
       internalPort: 4000,
     };
   },
