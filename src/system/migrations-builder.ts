@@ -3736,14 +3736,15 @@ function applyManualIndexes(tables: readonly TableShape[], specs: readonly Manua
 /** Derived tenant read indexes (docs/tenancy.md): a `tenantOwned` aggregate's
  *  generated reads ALL prefix on `tenant_id = <claim>`, so any of its tables
  *  that physically carries the column gets a non-unique
- *  `<table>_tenant_id_idx` (the FK-index naming convention).  Applied as a
+ *  `<table>_tenant_id_id_idx` over `(tenant_id, <primary key>)` (the FK-index
+ *  naming convention).  Applied as a
  *  post-pass over the aggregate's produced tables so every persistence shape
  *  is covered exactly when the column exists — relational root, TPH shared
  *  table, embedded root; document/eventLog tables hold the field inside the
  *  blob/stream (no column) and are skipped naturally, as are parts and join
  *  tables (the filter targets the root).  Deduped against a hand-declared
- *  `unique (tenantId, ...)`-style index only by exact single-column shape —
- *  a unique composite still benefits from the plain prefix index.  The
+ *  index of exactly that column list only — a unique composite over other
+ *  columns still benefits from the ordered prefix index.  The
  *  registry, id-keyed and NOT `tenantOwned`, is read by id and gets none. */
 function withTenantIndex(
   agg: AggregateIR,
@@ -3757,20 +3758,27 @@ function withTenantIndex(
     isTphBase(agg, pool) &&
     pool.some((c) => isTphConcrete(c, pool) && tableOwnerName(c, pool) === agg.name && owned(c));
   if (!owned(agg) && !tphOwned) return tables;
-  const derive = (column: string): void => {
-    for (const t of tables) {
-      if (!t.columns.some((c) => c.name === column)) continue;
-      const already = t.indexes.some((ix) => ix.columns.length === 1 && ix.columns[0] === column);
-      if (already) continue;
-      t.indexes.push({
-        name: `${t.name}_${column}_idx`,
-        table: t.name,
-        columns: [column],
-        unique: false,
-      });
-    }
-  };
-  derive("tenant_id");
+  for (const t of tables) {
+    if (!t.columns.some((c) => c.name === "tenant_id")) continue;
+    // `(tenant_id, <primary key>)`: every generated list is
+    // `WHERE tenant_id = $1 ORDER BY id LIMIT …`, which only a composite can
+    // serve in order — on a single-column index Postgres walks the primary key
+    // and discards every other tenant's rows to fill a page.  The composite is
+    // a strict superset of the single-column one for equality lookups.
+    const columns = ["tenant_id", ...t.primaryKey.filter((c) => c !== "tenant_id")];
+    const key = columns.join(",");
+    // A unique `(tenant_id)` admits one row per tenant, so a page is one row
+    // and needs no ordered index.
+    const singleRow = (ix: IndexShape) =>
+      ix.unique && !ix.predicate && ix.columns.length === 1 && ix.columns[0] === "tenant_id";
+    if (t.indexes.some((ix) => ix.columns.join(",") === key || singleRow(ix))) continue;
+    t.indexes.push({
+      name: `${t.name}_${columns.join("_")}_idx`,
+      table: t.name,
+      columns,
+      unique: false,
+    });
+  }
   return tables;
 }
 
