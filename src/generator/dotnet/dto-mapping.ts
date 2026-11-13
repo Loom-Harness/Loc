@@ -1,13 +1,11 @@
 import { carriesFieldMask } from "../../ir/enrich/mask-taint.js";
 import { fieldCode } from "../../ir/enrich/wire-policy.js";
-import { forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   EnrichedEntityPartIR,
   FieldIR,
-  PayloadIR,
   TypeIR,
   ValueObjectIR,
   WireField,
@@ -23,6 +21,7 @@ import {
   findValueObjectInScope,
   valueObjectPool,
 } from "../../ir/util/reachable-types.js";
+import { responseWireFor } from "../../ir/util/response-wire.js";
 import { upperFirst } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
@@ -827,13 +826,11 @@ export function projectEntityArgs(
     unmasked?: boolean;
   },
 ): string {
-  // `wireFieldsFor` recomputes the wire shape from the enriched node's fields.
-  // Each wire field maps to one positional argument on `new <Ent>Response(...)`,
-  // in the same order the Hono / React Zod schemas emit.  A runtime projection
-  // reads DOMAIN getters by name, so it stays keyed to the domain-derived wire
-  // shape (not a hand-diverged contract record).  `forApiRead` strips `internal`
-  // and `secret` fields.
-  const fields = forApiRead(wireFieldsFor(entity));
+  // Each wire row maps to one positional argument on `new <Ent>Response(...)`,
+  // in the order of the declared `<Ent>Response` record (`responseWireFor`),
+  // which is also the order of the record's parameter list.  A runtime
+  // projection reads DOMAIN getters by name.
+  const fields = responseWireFor(ctx.payloads, entity);
   const names = opts?.maskNames ?? maskNamer();
   const args: string[] = [];
   for (const wf of fields) {
@@ -902,73 +899,13 @@ export function entityResponseParams(
   return responseRecordParams(part, ctx);
 }
 
-/** Build the `<Agg>Response` record's positional params from a DECLARED
- *  `response <Agg>Response` payload record instead of the aggregate's
- *  `wireShape`.  Byte-identical to `responseRecordParams(agg, ctx)` for a
- *  scaffolded aggregate whose author record mirrors the apiRead matrix — the
- *  read-path replacement for the auto-derivation, keyed on the declared record.
- *
- *  The payload record carries NO `id` field (grammar-reserved), so the leading
- *  `Guid Id` is re-prepended here; provenance lineage params are re-appended
- *  from the aggregate's provenanced fields — both exactly as
- *  `responseRecordParams` derives them from the synthetic wire-shape id row and
- *  the same `agg.fields` filter. */
-export function responseParamsFromPayload(
-  agg: EnrichedAggregateIR,
-  payload: PayloadIR,
-  ctx: EnrichedBoundedContextIR,
-): string {
-  const parts: string[] = [];
-  // The DTO leads with `Guid Id` even though the record omits it.
-  parts.push(dtoParam(csIdValueClrType(), "Id"));
-  // A declared record names DOMAIN types (`total: int`), so a field the
-  // aggregate declares `provenanced` is wrapped in the wire carrier here — the
-  // same wrap `wireTypeForField` applies on the wireShape path, so the record's
-  // params still line up with `projectEntityArgs`'s carrier argument.
-  const provenanced = new Set(agg.fields.filter((f) => f.provenanced).map((f) => f.name));
-  for (const f of payload.fields) {
-    const t: TypeIR = provenanced.has(f.name)
-      ? { kind: "genericInstance", ctor: "provenanced", arg: f.type }
-      : f.type;
-    // A masked field is redacted to null by `maskWrap`, so its param is nullable.
-    let csType = payloadFieldCsType(t, ctx);
-    if (f.maskUnless && !csType.endsWith("?")) csType = `${csType}?`;
-    parts.push(dtoParam(csType, upperFirst(f.name)));
-  }
-  return parts.join(", ");
-}
-
-/** C# DTO type for a field of a DECLARED `response` payload record.
- *
- *  Fields are of two shapes: a value-object / scalar / enum / id
- *  field carries its DOMAIN type (`total: Money`), so `wireType` maps it to the
- *  wire form exactly as the wireShape path does; a CONTAINMENT field is ALREADY
- *  the wire name (`lines: LineResponse[]`) — context scope can't reference a raw
- *  entity part, so lowering rewrites it to the sibling `<Part>Response` record, which
- *  lowers to an `entity` TypeIR whose name is a declared `response` payload.
- *  That name must be rendered DIRECTLY (peel collection + nullable, re-wrap
- *  `IReadOnlyList<...>` / `?`); running it through `wireType` would append a
- *  second `Response` (`LineResponseResponse`). */
-function payloadFieldCsType(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
-  const info = wireTypeInfo(t, "response");
-  if (info.refKind === "entity" && info.declKind === "response") {
-    let s = info.base;
-    if (info.isCollection) s = `IReadOnlyList<${s}>`;
-    if (info.isNullable) s = `${s}?`;
-    return s;
-  }
-  return wireType(t, ctx, "response");
-}
-
 function responseRecordParams(
   ent: EnrichedAggregateIR | EnrichedEntityPartIR,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  // Drop `internal` / `secret` fields so the C# record's param list
-  // matches what `projectEntityExpr` projects.  (The declared-`<Agg>Response`-
-  // record path is `responseParamsFromPayload`; this is the part / no-record
-  // fallback, which recomputes via `wireFieldsFor`.)
-  const fields = forApiRead(wireFieldsFor(ent));
+  // The rows of the declared response record, so the C# record's param list
+  // matches what `projectEntityExpr` projects.
+  const fields = responseWireFor(ctx.payloads, ent);
   const parts: string[] = [];
   for (const wf of fields) {
     if (wf.source === "id") {

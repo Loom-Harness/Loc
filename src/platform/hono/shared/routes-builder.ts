@@ -78,9 +78,7 @@ import {
 import {
   createInputFields,
   emitsRestCreate,
-  forApiRead,
   wireCreateDefault,
-  wireFieldsFor,
 } from "../../../ir/enrich/wire-projection.js";
 import {
   PAGED_DEFAULT_PAGE,
@@ -130,7 +128,6 @@ import {
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
-import { declaredResponseFor } from "../../../ir/util/declared-response.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { existsReadAggregates } from "../../../ir/util/in-app-exists.js";
 import { isMergePatchUpdate, ruleMembers } from "../../../ir/util/merge-patch.js";
@@ -160,6 +157,7 @@ import {
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
+import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { walkExpr } from "../../../ir/validate/checks/shared.js";
 import type {
@@ -943,9 +941,9 @@ export function buildRoutesFile(
   // the projection query routes can reuse them
   // verbatim without duplicating field-by-field declarations.
   for (const part of partsChildrenFirst(agg.parts)) {
-    lines.push(...emitResponseDtoSchema(part, ctx, /*isAgg*/ false));
+    lines.push(...emitResponseDtoSchema(part, ctx));
   }
-  lines.push(...emitResponseDtoSchema(agg, ctx, /*isAgg*/ true));
+  lines.push(...emitResponseDtoSchema(agg, ctx));
   lines.push(
     `export const ${agg.name}ListResponse = z.array(${agg.name}Response).openapi("${agg.name}ListResponse");`,
   );
@@ -2628,68 +2626,31 @@ function emitFindRoute(
 }
 
 // ---------------------------------------------------------------------------
-// Response DTO schema emission — full wire shape, derived from the IR.
+// Response DTO schema emission — the declared response record's rows.
 // ---------------------------------------------------------------------------
 
 function emitResponseDtoSchema(
   ent: EnrichedAggregateIR | EnrichedEntityPartIR,
   ctx: BoundedContextIR,
-  isAgg: boolean,
 ): string[] {
   const lines: string[] = [];
   const name = `${ent.name}Response`;
   lines.push(`export const ${name} = z.object({`);
-  // Single canonical walk — populated by `enrichLoomModel` (see
-  // src/ir/enrich/enrichments.ts).  Order and field-set match every other
-  // emitter (.NET DTO, React Zod, Hono toWire serializer).  Enriched
-  // brand flows in via `PlatformSurface.emitProject(contexts:
-  // EnrichedBoundedContextIR[])` so no local cast is needed.
-  // forApiRead: `internal`/`secret` fields never reach a read response —
-  // toWire projects through the same filter, and the schema must decide
-  // visibility identically or the OpenAPI spec drifts from the wire.
-  // M-T5.10 (PR3): when the context declares a `response <Agg>Response` record
-  // (spliced by `scaffoldHandlers`), READ that record's fields for the aggregate
-  // root instead of re-deriving from `wireShape` — byte-identical for the
-  // scaffolded form, authoritative for a hand-declared divergent one.  Only the
-  // aggregate root is rewired; part/VO schemas stay on the wireShape path
-  // (emitted as before).  The record omits `id` (grammar-reserved), so the
-  // leading `id: z.string()` is re-prepended, mirroring the synthetic wire-shape
-  // id row `responseRecordParams` / this walk would emit.
-  const declaredResponse = isAgg
-    ? declaredResponseFor(ctx.payloads, ent as EnrichedAggregateIR)
-    : undefined;
-  if (declaredResponse) {
-    lines.push(`  id: z.string(),`);
-    // A declared record names DOMAIN types, so a field the aggregate declares
-    // `provenanced` is wrapped in the wire carrier here — the same wrap
-    // `wireTypeForField` applies on the wireShape path below, so both paths
-    // emit the identical schema (M-T6.12).
-    const provenanced = new Set(ent.fields.filter((f) => f.provenanced).map((f) => f.name));
-    for (const f of declaredResponse.fields) {
-      const t: TypeIR = provenanced.has(f.name)
-        ? { kind: "genericInstance", ctor: "provenanced", arg: f.type }
-        : f.type;
-      // A masked field is redacted to `null` for a caller who fails its
-      // predicate (`toWireMasked`), so it admits null exactly as below.
-      const z = zodForResponseField(t, f.optional);
-      const masked = f.maskUnless !== undefined && !z.endsWith(".nullish()") ? ".nullish()" : "";
-      lines.push(`  ${f.name}: ${z}${masked},`);
-    }
-  } else {
-    const fields = forApiRead(wireFieldsFor(ent));
-    for (const wf of fields) {
-      if (wf.source === "id") {
-        lines.push(`  ${wf.name}: z.string(),`);
-      } else {
-        // A `mask unless` field is redacted to `null` for callers who fail the
-        // predicate (see `toWireMasked`), so its response schema admits null —
-        // as `.nullish()`, the spelling every other nullable response field
-        // takes, so the OpenAPI required set agrees with the other backends
-        // (a nullable property is not required on any of them).
-        const z = zodForResponse(wf.type, wf.optional);
-        const masked = wf.maskUnless !== undefined && !z.endsWith(".nullish()") ? ".nullish()" : "";
-        lines.push(`  ${wf.name}: ${z}${masked},`);
-      }
+  // The rows of the declared response record (`responseWireFor`) — the read
+  // contract every backend's response DTO and the `toWire` serializer render,
+  // so the schema, the OpenAPI spec and the wire agree by construction.
+  for (const wf of responseWireFor(ctx.payloads, ent)) {
+    if (wf.source === "id") {
+      lines.push(`  ${wf.name}: z.string(),`);
+    } else {
+      // A `mask unless` field is redacted to `null` for callers who fail the
+      // predicate (see `toWireMasked`), so its response schema admits null —
+      // as `.nullish()`, the spelling every other nullable response field
+      // takes, so the OpenAPI required set agrees with the other backends
+      // (a nullable property is not required on any of them).
+      const z = zodForResponse(wf.type, wf.optional);
+      const masked = wf.maskUnless !== undefined && !z.endsWith(".nullish()") ? ".nullish()" : "";
+      lines.push(`  ${wf.name}: ${z}${masked},`);
     }
   }
   // (M-T6.12) No trailing `<field>_provenance` sibling any more: the lineage
