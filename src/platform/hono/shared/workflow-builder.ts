@@ -2935,6 +2935,22 @@ export function honoWorkflowStmtTarget(
       }
       return out;
     },
+    if: (st, indent, thenLines, elseLines) => {
+      // `if c { … } else { … }` → a JS `if`; each branch's dirty bindings save
+      // at that branch's end.
+      const inner = `${indent}  `;
+      const elseSaves = blockSaves(inner, st.savesInElse);
+      const out = [
+        `${indent}if (${renderArg(st.cond)}) {`,
+        ...thenLines,
+        ...blockSaves(inner, st.savesInThen),
+      ];
+      if (elseLines.length > 0 || elseSaves.length > 0) {
+        out.push(`${indent}} else {`, ...elseLines, ...elseSaves);
+      }
+      out.push(`${indent}}`);
+      return out;
+    },
     variantMatch: (st, indent, armLines, elseLines) => {
       // A `T?` subject: `if (x != null) { const b = x; … } else { … }` — the
       // loose test treats an absent (`undefined`) input like `null`.  A tagged

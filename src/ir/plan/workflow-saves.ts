@@ -9,13 +9,14 @@ import { refsRead } from "./workflow-names.js";
 type SaveEntry = { name: string; aggName: string; repoName: string };
 
 /** The saves a NESTING statement stages at the end of its own branches — a
- *  `for` iteration's, each `if let` branch's, each `match` arm's — in source
+ *  `for` iteration's, each `if let` / `if` branch's, each `match` arm's — in source
  *  order; empty for every other kind. */
 export function nestedSaves(st: WorkflowStmtIR): SaveEntry[] {
   switch (st.kind) {
     case "for-each":
       return st.savesPerIteration;
     case "if-let":
+    case "if":
       return [...st.savesInThen, ...st.savesInElse];
     case "variant-match":
       return [...st.arms.flatMap((a) => a.savesInArm), ...st.savesInElse];

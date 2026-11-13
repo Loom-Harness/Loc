@@ -1586,7 +1586,7 @@ function validateWorkflowStatements(
      *  key behind a local is invisible to it — the catalog then reports the
      *  site as inline wording and both keys as orphans (CLAUDE.md,
      *  "Diagnostic wording lives in one catalog"). */
-    nesting: "for" | "if-let" | "match",
+    nesting: "for" | "if-let" | "if" | "match",
   ): void => {
     const bodyLocal: string[] = [];
     /** Check a body nested one level further, with `v` bound for it only (a
@@ -1596,7 +1596,7 @@ function validateWorkflowStatements(
       v: string | undefined,
       agg: string,
       innerVar: string,
-      innerNesting: "for" | "if-let" | "match",
+      innerNesting: "for" | "if-let" | "if" | "match",
     ): void => {
       const shadowed = v === undefined ? undefined : bindingAgg.get(v);
       if (v !== undefined) bindingAgg.set(v, agg);
@@ -1617,6 +1617,19 @@ function validateWorkflowStatements(
             !crossContextBindings.has(inner.target) &&
             !optionalBindings.has(inner.target)
           ) {
+            if (nesting === "if") {
+              diags.push({
+                severity: "error",
+                code: "loom.workflow-foreach-unknown-binding",
+                message: diagMessage(
+                  "loom.workflow-foreach-unknown-binding#workflow-in-if-references",
+                  { name: wf.name, target: inner.target, op: inner.op },
+                ),
+                source: `${ctx.name}/${wf.name}`,
+                origin: wf.origin,
+              });
+              break;
+            }
             if (nesting === "match") {
               diags.push({
                 severity: "error",
@@ -1661,6 +1674,10 @@ function validateWorkflowStatements(
         case "if-let":
           nestedWith(inner.thenBody, inner.var, inner.aggName, inner.var, "if-let");
           nestedWith(inner.elseBody ?? [], undefined, inner.aggName, inner.var, "if-let");
+          break;
+        case "if":
+          nestedWith(inner.thenBody, undefined, "", "", "if");
+          nestedWith(inner.elseBody ?? [], undefined, "", "", "if");
           break;
         case "variant-match":
           checkMatchArmOpCalls(inner, nestedWith);
@@ -2046,6 +2063,12 @@ function validateWorkflowStatements(
         checkBranchOpCalls(st.elseBody ?? []);
         break;
       }
+      case "if":
+        // A boolean condition binds nothing: each branch's op-calls are
+        // checked the way an `if let` branch's are.
+        checkNestedBodyOpCalls(st.thenBody, "", "if");
+        checkNestedBodyOpCalls(st.elseBody ?? [], "", "if");
+        break;
       case "variant-match":
         // Each arm's binding is bound for its own body only; the arm bodies'
         // op-calls are checked the way an `if let` branch's are.

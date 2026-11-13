@@ -564,6 +564,22 @@ export function javaWorkflowStmtTarget(
       }
       return out;
     },
+    if: (s, indent, thenLines, elseLines) => {
+      // `if c { … } else { … }` → a Java `if`; each branch's dirty bindings
+      // save at that branch's end.
+      const inner = `${indent}    `;
+      const elseSaves = s.savesInElse.flatMap((sv) => saveLines(inner, sv));
+      const out = [
+        `${indent}if (${renderJavaExpr(s.cond, renderCtx)}) {`,
+        ...thenLines,
+        ...s.savesInThen.flatMap((sv) => saveLines(inner, sv)),
+      ];
+      if (elseLines.length > 0 || elseSaves.length > 0) {
+        out.push(`${indent}} else {`, ...elseLines, ...elseSaves);
+      }
+      out.push(`${indent}}`);
+      return out;
+    },
     variantMatch: (s, indent, armLines, elseLines) => {
       // A `T?` subject: `if (x != null) { var b = x; … } else { … }`.  A tagged
       // union: an arrow switch over the sealed union's `<Union>_<Tag>` carrier

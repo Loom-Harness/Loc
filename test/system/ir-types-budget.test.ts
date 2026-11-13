@@ -50,7 +50,7 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "types.ts": 2,
   "ui.ts": 20,
   "workflow.ts": 14,
-  "workflow-stmt.ts": 26,
+  "workflow-stmt.ts": 27,
 };
 
 /** `name?:` property signatures anywhere in one module's text. */

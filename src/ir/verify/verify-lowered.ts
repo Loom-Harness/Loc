@@ -835,6 +835,7 @@ function verifyWorkflowStmt(
     case "resource-call":
     case "domain-service-call":
     case "if-let":
+    case "if":
     case "not-found":
     case "variant-match":
       return;
@@ -866,6 +867,7 @@ function workflowBinding(s: WorkflowStmtIR): string | undefined {
     case "resource-call":
     case "not-found":
     case "variant-match":
+    case "if":
     case "assign":
       return undefined;
     default: {
@@ -932,6 +934,7 @@ function workflowChildBlocks(s: WorkflowStmtIR): (readonly WorkflowStmtIR[])[] {
     case "for-each":
       return [s.body];
     case "if-let":
+    case "if":
       return [s.thenBody, s.elseBody ?? []];
     case "variant-match":
       return [...s.arms.map((a) => a.body), s.elseBody ?? []];

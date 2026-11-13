@@ -836,6 +836,48 @@ export function elixirWorkflowTarget(
       return [{ kind: "clause", text, ...(guard ? { bindName: v } : {}) }];
     },
 
+    // `if c { … } else { … }` → a parenthesised `if` whose branches answer
+    // `{:ok, _}` or their first failure, which short-circuits the chain.  A
+    // handle bound before the `if` that a branch rebinds (an op on it persists
+    // and returns the saved record) is answered by both branches, so the
+    // statements after the `if` see the record as the taken branch left it.
+    if: (st, outer, thenBody, elseBody) => {
+      const rebound = new Set(
+        [...thenBody.steps, ...elseBody.steps].flatMap((s) => [
+          ...((s.kind === "clause" || s.kind === "let") && s.bindName ? [s.bindName] : []),
+          ...(s.kind === "clause" ? (s.rebinds ?? []) : []),
+        ]),
+      );
+      const threaded = [...new Set([...thenBody.carried, ...elseBody.carried])]
+        .map((name) => ({ name, ident: escapeElixirIdent(snake(name)) }))
+        .filter((t) => rebound.has(t.ident));
+      const acc = `{${threaded.map((t) => t.ident).join(", ")}}`;
+      const ok = threaded.length > 0 ? `{:ok, ${acc}}` : "{:ok, nil}";
+      const kept = threaded.filter(
+        (t) => outer.carried.has(t.name) || bindUsedLater(t.name, outer.rest, outer.trailing),
+      );
+      const outAcc =
+        threaded.length > 0
+          ? `{${threaded.map((t) => (kept.includes(t) ? t.ident : `_${snake(t.name)}`)).join(", ")}}`
+          : "_";
+      const text = [
+        `{:ok, ${outAcc}} <- (`,
+        `           if ${expr(st.cond)} do`,
+        ...assembleChain(thenBody.steps, ok).map((l) => `             ${l}`),
+        `           else`,
+        ...assembleChain(elseBody.steps, ok).map((l) => `             ${l}`),
+        `           end`,
+        `         )`,
+      ].join("\n");
+      return [
+        {
+          kind: "clause",
+          text,
+          ...(kept.length > 0 ? { rebinds: kept.map((t) => t.ident) } : {}),
+        },
+      ];
+    },
+
     // `match <subject> { … }` → a parenthesised `case` (union subject) or
     // presence `if` (`T?` subject) whose arms answer like `if let` branches.
     variantMatch: (st, _scope, arms, elseBody) => [

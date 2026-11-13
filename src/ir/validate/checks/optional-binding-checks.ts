@@ -83,6 +83,11 @@ function checkBody(
         checkBody(st.elseBody ?? [], new Set(scope), report);
         break;
       }
+      case "if":
+        // A boolean condition narrows no binding.
+        checkBody(st.thenBody, new Set(scope), report);
+        checkBody(st.elseBody ?? [], new Set(scope), report);
+        break;
       case "variant-match": {
         // An arm binding is the subject narrowed to its variant — never the
         // un-narrowed optional — and the subject itself stays as it was.
