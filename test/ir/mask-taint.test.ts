@@ -369,8 +369,8 @@ describe("visibility taint — contained part fields", () => {
   });
 
   it("the audit-history change entry of the containment carries the part's mask", async () => {
-    const { agg } = await partEnriched(partSys(""));
-    const reviews = historyDiffFields(agg).find((w) => w.name === "comments")!;
+    const { ctx, agg } = await partEnriched(partSys(""));
+    const reviews = historyDiffFields(ctx.payloads, agg).find((w) => w.name === "comments")!;
     expect(reviews.maskUnless).toBeDefined();
   });
 

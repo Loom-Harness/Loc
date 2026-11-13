@@ -797,6 +797,7 @@ export function enrichContext(
           ensureHistoryFind(
             aggregates,
             applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
+            ctx.payloads,
           ),
           ctx.queryHandlers,
           ctx.criteria,
@@ -2091,13 +2092,14 @@ function ensureFindAll(
 function ensureHistoryFind(
   aggregates: EnrichedAggregateIR[],
   existing: RepositoryIR[],
+  payloads: readonly PayloadIR[],
 ): RepositoryIR[] {
   const out = existing.map((r) => ({ ...r, finds: [...r.finds] }));
   for (const agg of aggregates) {
     // Abstract bases own no repository and emit no table (see `ensureFindAll`);
     // they also carry no audited command of their own to trail.
     if (agg.isAbstract) continue;
-    if (!aggServesHistory(agg)) continue;
+    if (!aggServesHistory(payloads, agg)) continue;
     const repo = out.find((r) => r.aggregateName === agg.name);
     // `ensureFindAll` runs first and creates a repository for every concrete
     // aggregate, so this is defensive rather than reachable.
