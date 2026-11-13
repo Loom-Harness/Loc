@@ -21,9 +21,10 @@ import { docker, runContainer, until } from "./broker-sidecar.mjs";
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "out");
 
-/** Pinned by digest so a re-tag upstream cannot change a leg. */
+/** Pinned by digest so a re-tag upstream cannot change a leg; pulled through
+ *  `mirror.gcr.io`, never Docker Hub. */
 export const S3_IMAGE =
-  "adobe/s3mock:4.7.0@sha256:468ba0b0e87f20ad54fbb6085e98c143f5bd1e384a844fa12a58535b4e39d4aa";
+  "mirror.gcr.io/adobe/s3mock:4.7.0@sha256:468ba0b0e87f20ad54fbb6085e98c143f5bd1e384a844fa12a58535b4e39d4aa";
 const PORT = 9090;
 
 async function envFor(resources, endpoint) {
