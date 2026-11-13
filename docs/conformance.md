@@ -140,10 +140,10 @@ diff focused on app-authored contracts.
 
 ### Provenance fields
 
-`fieldSet(spec, schemaName)` filters keys ending in `_provenance` — a
-TS/Hono-only wire extension (only the TS backend persists lineage).
-Without the filter, every provenanced field on the showcase would read
-as a Hono-only divergence.
+`fieldSet(spec, schemaName)` filters keys ending in `_provenance` — the
+lineage companion key a provenanced field carries beside its value.
+Lineage is runtime data rather than part of the declared contract, so the
+diff leaves it out and compares only the fields the model declares.
 
 ### Temporary drop-in tolerances (tracked)
 
