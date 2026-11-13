@@ -294,7 +294,13 @@ async function formSpecProbe(origin) {
     }
     if (why.length === 0) {
       const withVehicle = after;
-      await driveAddRider(page, origin, before.id);
+      await driveAddRider(page, origin, before.id).catch(async (e) => {
+        const ids = await page
+          .locator('[data-testid*="riders"]')
+          .evaluateAll((els) => els.map((el) => el.getAttribute("data-testid")))
+          .catch(() => []);
+        throw new Error(`${e.message.split("\n")[0]}; rider ids on the page: ${JSON.stringify(ids.slice(0, 12))}`);
+      });
       for (let i = 0; i < 30; i++) {
         after = await readPolicy(origin, before.id);
         if ((after.riders ?? []).length > 1) break;

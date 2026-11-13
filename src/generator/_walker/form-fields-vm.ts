@@ -262,8 +262,15 @@ function objectArrayVM(f: FormFieldSpec, c: JsxArmCtx): FormFieldVM {
   // Svelte's `FormValues<T>` are the schema's OUTPUT type, where that slot
   // is `Decimal` and a string seed is `TS2322: Type 'string' is not
   // assignable to type 'Decimal'`.
+  //
+  // An optional sub-field starts absent (`null`): an empty string is not an
+  // absent reference or enum, and the backend rejects it as a value.
   const defaultRowJson = `{ ${rowFields
-    .map((rf) => `${rf.path}: ${defaultRowValue(rf)}`)
+    .map((rf, i) => {
+      const vf = vo.fields[i]!;
+      const optional = !!vf.optional || vf.type.kind === "optional";
+      return `${rf.path}: ${optional && rf.template !== "field-input-bool" ? "null" : defaultRowValue(rf)}`;
+    })
     .join(", ")} }`;
   return {
     ...base(c),
