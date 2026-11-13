@@ -6,7 +6,7 @@ import {
   lastTypeOn,
   testPublish,
 } from "../../web/src/infra-panel/broker-view.js";
-import { formatRemaining } from "../../web/src/infra-panel/infra-call.js";
+import { formatRemaining } from "../../web/src/infra-panel/format.js";
 import { decodeJwt } from "../../web/src/infra-panel/jwt.js";
 import { BrokerModel } from "../../web/src/runtime/infra/broker-model.js";
 

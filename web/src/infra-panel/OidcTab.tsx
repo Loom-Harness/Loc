@@ -1,16 +1,11 @@
-import { Alert, Badge, Box, Button, Code, Group, Stack, Table, Text } from "@mantine/core";
+import { Badge, Box, Button, Code, Group, Stack, Table, Text } from "@mantine/core";
 import { useState } from "react";
 import type { IssuedToken, OidcPersona, OidcRealm } from "../runtime/infra/oidc";
-import { EmulatedNotes } from "./EmulatedNotes";
-import { formatRemaining, type InfraCall, usePoll } from "./infra-call";
+import { InfraError, InfraHeader } from "./chrome";
+import { formatRemaining } from "./format";
 import { decodeJwt } from "./jwt";
-
-interface OidcState {
-  realms: OidcRealm[];
-  personas: OidcPersona[];
-  tokens: IssuedToken[];
-  emulated: readonly string[];
-}
+import type { InfraTabProps } from "./types";
+import { useInfra, useInfraAction } from "./use-infra";
 
 const pretty = (v: unknown): string => JSON.stringify(v, null, 2);
 
@@ -19,23 +14,24 @@ const pretty = (v: unknown): string => JSON.stringify(v, null, 2);
 // the Auth panel, or served by its token endpoint to a deployable's login —
 // with the decoded header and claims.  "Mint" issues a token for a persona
 // through the same provider the generated verifier trusts.
-export function OidcTab({ call }: { call: InfraCall }): JSX.Element {
-  const { data, error, refresh } = usePoll(async (): Promise<OidcState> => {
-    const [realms, personas, log] = await Promise.all([
-      call<OidcRealm[]>("oidc", "realms"),
-      call<OidcPersona[]>("oidc", "personas"),
-      call<{ tokens: IssuedToken[]; emulated: readonly string[] }>("oidc", "tokens"),
-    ]);
-    return { realms, personas, tokens: log.tokens, emulated: log.emulated };
-  }, 1000);
+export default function OidcTab({ active }: InfraTabProps): JSX.Element {
+  const opts = { enabled: active, poll: 1000 };
+  const realms = useInfra<OidcRealm[]>("oidc", "realms", {}, opts);
+  const personas = useInfra<OidcPersona[]>("oidc", "personas", {}, opts);
+  const log = useInfra<{ tokens: IssuedToken[]; emulated: readonly string[] }>("oidc", "tokens", {}, opts);
+  const data =
+    realms.data && personas.data && log.data
+      ? { realms: realms.data, personas: personas.data, tokens: log.data.tokens, emulated: log.data.emulated }
+      : null;
+  const error = realms.error ?? personas.error ?? log.error;
+  const { run } = useInfraAction();
   const [open, setOpen] = useState<number | null>(null);
   const [mintError, setMintError] = useState<string | null>(null);
 
   const mint = (persona: string) => () => {
     setMintError(null);
-    call("oidc", "mint", { persona }).then(
-      () => refresh(),
-      (err: unknown) => setMintError(err instanceof Error ? err.message : String(err)),
+    run("oidc", "mint", { persona }).catch((err: unknown) =>
+      setMintError(err instanceof Error ? err.message : String(err)),
     );
   };
 
@@ -43,14 +39,11 @@ export function OidcTab({ call }: { call: InfraCall }): JSX.Element {
   const tokens = [...(data?.tokens ?? [])].reverse();
 
   return (
-    <Box p="sm" style={{ overflow: "auto", height: "100%" }} data-testid="infra-oidc">
+    <Stack gap={0} style={{ height: "100%", minHeight: 0 }} data-testid="infra-oidc">
+      <InfraHeader title="OIDC identity provider" notes={data?.emulated ?? []} />
+      <InfraError message={error ?? mintError} />
+      <Box p="sm" style={{ overflow: "auto", flex: 1, minHeight: 0 }}>
       <Stack gap="sm">
-        {(error || mintError) && (
-          <Alert color="red" p="xs" data-testid="infra-oidc-error">
-            {error ?? mintError}
-          </Alert>
-        )}
-        {data && <EmulatedNotes notes={data.emulated} testId="infra-oidc-emulated" />}
         {data && data.realms.length === 0 && (
           <Text size="sm" c="dimmed" data-testid="infra-oidc-empty">
             No identity provider is configured. Boot a system with <Code>auth {"{ oidc }"}</Code>.
@@ -138,7 +131,8 @@ export function OidcTab({ call }: { call: InfraCall }): JSX.Element {
           </Stack>
         )}
       </Stack>
-    </Box>
+      </Box>
+    </Stack>
   );
 }
 
@@ -167,5 +161,3 @@ function DecodedToken({ label, token }: { label: string; token: string }): JSX.E
     </Stack>
   );
 }
-
-export default OidcTab;

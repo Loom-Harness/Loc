@@ -179,6 +179,16 @@ queues). The browser console reads the whole state as
 `await __loomInspectBroker()`: queues, topics, group offsets, dead-letter
 contents and a journal of who received and acknowledged each envelope.
 
+The Infrastructure panel's **Broker** tab shows the same state live: redis
+channels and their subscribers, rabbitmq queues with their ready / unacked
+counts, kafka topics with each consumer group's committed offset and lag per
+partition, and the messages a queue or topic holds (`browse`). It publishes a
+test message onto any address in the generated envelope shape, re-drives an
+address's dead letters onto it (`redrive`: rabbitmq drains
+`loom.dlq.<address>`; kafka copies `<address>.dlq`, which keeps its log), and
+moves a kafka group's offset to replay (`seek`). The emulated badge lists the
+`emulated` notes.
+
 ### Resource fakes
 
 `objectStore`, `mailer` and `api` resources are answered inside the browser.
@@ -194,6 +204,7 @@ facades that forward there over the deployable's `InfraPort` (`src/runtime/resou
 | `smtp`, `sendgrid` | `nodemailer` / `@sendgrid/mail` → facades | the Mailbox |
 | `ses` | the real `@aws-sdk/client-ses`; its `SendEmail` is answered by the fake | the Mailbox |
 | `restApi` | the generated `fetch` → the `httpMock` service | sample data for the storage's `config: { spec }` OpenAPI document (`openapi-sampler`); an echo when it has none |
+| `redis` (`kind: cache`) | `ioredis` → a facade forwarding each command (`GET`, `SET … PX`, `DEL`, `INCR`, `EXISTS`, `PTTL`, `FLUSHDB`) | one keyspace per server URL with TTLs and least-recently-used eviction (`src/runtime/infra/cache.ts`), in memory only; the Cache tab lists the keys with their remaining TTL and evicts or flushes them |
 
 The AWS SDKs get dummy credentials (`adaptResourceSource` in
 `src/engine/npm/resource-facades.ts`); the fakes ignore signatures. Objects,
@@ -229,6 +240,12 @@ console and the preview send it as `Authorization: Bearer …`. Its *Verifier*
 switch boots the dev stub instead (on the next boot), for the
 `x-loom-dev-claims` workflow. The signing key lives as long as the infra
 worker, so a token survives a re-boot.
+
+The Infrastructure panel's **OIDC** tab lists the realm and its personas, and
+every token set the provider issued: minted (from the tab or the Auth tab) or
+served by the token endpoint for a grant (a preview sign-in, a refresh), each
+with its header and claims decoded. Its Mint button issues a token for a
+persona through the same provider.
 
 The generated frontend's **Sign in** (`auth: ui`) runs the real handshake. Its
 `location.href = …/api/auth/login` is under the runtime base, which no server

@@ -1,5 +1,4 @@
 import {
-  Alert,
   Badge,
   Box,
   Button,
@@ -20,25 +19,26 @@ import type {
   BrokerInspectResult,
   BrokerInspectTopic,
 } from "../runtime/infra/broker-protocol";
-import { EmulatedNotes } from "./EmulatedNotes";
 import { brokerAddresses, deadLetterOf, groupLag, lastTypeOn, testPublish } from "./broker-view";
-import { type InfraCall, usePoll } from "./infra-call";
+import { InfraError, InfraHeader } from "./chrome";
+import type { InfraTabProps } from "./types";
+import { useInfra, useInfraAction } from "./use-infra";
 
-const JOURNAL_SHOWN = 40;
+const JOURNAL_SHOWN = 100;
 
 // The Broker tab: the one emulated broker every deployable's channels ride —
 // redis channels, rabbitmq exchanges and queues, kafka topics with consumer
 // groups and their committed offsets per partition, and the dead letters of
 // each.  Publish a test message onto an address, browse what a queue or topic
 // holds, re-drive dead letters, or move a kafka group's offset to replay.
-export function BrokerTab({ call }: { call: InfraCall }): JSX.Element {
-  const { data, error, refresh } = usePoll(() => call<BrokerInspectResult>("broker", "inspect"), 1000);
+export default function BrokerTab({ active }: InfraTabProps): JSX.Element {
+  const { data, error } = useInfra<BrokerInspectResult>("broker", "inspect", {}, { enabled: active, poll: 1000 });
+  const { run } = useInfraAction();
   const [actionError, setActionError] = useState<string | null>(null);
-  const act = (op: string, params: unknown) => {
+  const act = async (op: string, params: unknown): Promise<void> => {
     setActionError(null);
-    return call("broker", op, params).then(
-      () => refresh(),
-      (err: unknown) => setActionError(err instanceof Error ? err.message : String(err)),
+    await run("broker", op, params).catch((err: unknown) =>
+      setActionError(err instanceof Error ? err.message : String(err)),
     );
   };
 
@@ -50,14 +50,14 @@ export function BrokerTab({ call }: { call: InfraCall }): JSX.Element {
     data.journal.length === 0;
 
   return (
-    <Box p="sm" style={{ overflow: "auto", height: "100%" }} data-testid="infra-broker">
+    <Stack gap={0} style={{ height: "100%", minHeight: 0 }} data-testid="infra-broker">
+      <InfraHeader
+        title="Message broker (redis · rabbitmq · kafka)"
+        notes={(data?.emulated ?? []).map((e) => `${e.transport}: ${e.note}`)}
+      />
+      <InfraError message={error ?? actionError} />
+      <Box p="sm" style={{ overflow: "auto", flex: 1, minHeight: 0 }}>
       <Stack gap="sm">
-        {(error || actionError) && (
-          <Alert color="red" p="xs" data-testid="infra-broker-error">
-            {error ?? actionError}
-          </Alert>
-        )}
-        {data && <EmulatedNotes notes={data.emulated.map((e) => `${e.transport}: ${e.note}`)} testId="infra-broker-emulated" />}
         {empty && (
           <Text size="sm" c="dimmed" data-testid="infra-broker-empty">
             No broker traffic yet. A deployable with a <Code>channel</Code> on redis, rabbitmq or kafka subscribes at
@@ -88,7 +88,7 @@ export function BrokerTab({ call }: { call: InfraCall }): JSX.Element {
         {data && data.rabbitmq.queues.length > 0 && (
           <Section title="rabbitmq" subtitle="queues (one per consumer group) and dead-letter queues">
             {data.rabbitmq.queues.map((q) => (
-              <RabbitQueue key={q.name} q={q} call={call} onRedrive={(address) => act("redrive", { transport: "rabbitmq", address })} />
+              <RabbitQueue key={q.name} q={q} active={active} onRedrive={(address) => void act("redrive", { transport: "rabbitmq", address })} />
             ))}
           </Section>
         )}
@@ -98,9 +98,9 @@ export function BrokerTab({ call }: { call: InfraCall }): JSX.Element {
               <KafkaTopic
                 key={t.name}
                 topic={t}
-                call={call}
-                onSeek={(group, partition, offset) => act("seek", { topic: t.name, group, partition, offset })}
-                onRedrive={(address) => act("redrive", { transport: "kafka", address })}
+                active={active}
+                onSeek={(group, partition, offset) => void act("seek", { topic: t.name, group, partition, offset })}
+                onRedrive={(address) => void act("redrive", { transport: "kafka", address })}
               />
             ))}
           </Section>
@@ -134,7 +134,8 @@ export function BrokerTab({ call }: { call: InfraCall }): JSX.Element {
           </Section>
         )}
       </Stack>
-    </Box>
+      </Box>
+    </Stack>
   );
 }
 
@@ -249,8 +250,8 @@ function PublishForm({
   );
 }
 
-function Messages({ call, transport, name }: { call: InfraCall; transport: "rabbitmq" | "kafka"; name: string }) {
-  const { data } = usePoll(() => call<BrokerBrowseMessage[]>("broker", "browse", { transport, name }), 1000);
+function Messages({ active, transport, name }: { active: boolean; transport: "rabbitmq" | "kafka"; name: string }) {
+  const { data } = useInfra<BrokerBrowseMessage[]>("broker", "browse", { transport, name }, { enabled: active, poll: 1000 });
   if (!data) return null;
   if (data.length === 0) {
     return (
@@ -285,11 +286,11 @@ function Messages({ call, transport, name }: { call: InfraCall; transport: "rabb
 
 function RabbitQueue({
   q,
-  call,
+  active,
   onRedrive,
 }: {
   q: BrokerInspectQueue;
-  call: InfraCall;
+  active: boolean;
   onRedrive: (address: string) => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
@@ -314,19 +315,19 @@ function RabbitQueue({
           </Button>
         )}
       </Group>
-      {open && <Messages call={call} transport="rabbitmq" name={q.name} />}
+      {open && <Messages active={active} transport="rabbitmq" name={q.name} />}
     </Stack>
   );
 }
 
 function KafkaTopic({
   topic,
-  call,
+  active,
   onSeek,
   onRedrive,
 }: {
   topic: BrokerInspectTopic;
-  call: InfraCall;
+  active: boolean;
   onSeek: (group: string, partition: number | undefined, offset: number | "earliest" | "latest") => void;
   onRedrive: (address: string) => void;
 }): JSX.Element {
@@ -389,7 +390,7 @@ function KafkaTopic({
           </Table>
         </Table.ScrollContainer>
       )}
-      {open && <Messages call={call} transport="kafka" name={topic.name} />}
+      {open && <Messages active={active} transport="kafka" name={topic.name} />}
     </Stack>
   );
 }
@@ -437,5 +438,3 @@ function SeekControl({
     </Group>
   );
 }
-
-export default BrokerTab;
