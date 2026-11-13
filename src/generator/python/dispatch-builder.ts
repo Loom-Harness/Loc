@@ -4,10 +4,12 @@ import {
   esStarterSharesEvent,
   eventSourcedWorkflows,
   type FoldRowSeed,
+  FOLD_INBOX_TABLE,
   type FoldStep,
   foldedEventNames,
   foldRowSeeds,
   foldSteps,
+  foldsDedupe,
   reposNeeded,
   requiredStateFields,
   stateZero,
@@ -93,6 +95,7 @@ const CALLABLE = pyRef("collections.abc", "Callable");
 const ENGINE = pyRef("app.db.engine", "engine");
 const OUTBOX_ROW = pyRef("app.db.schema", "LoomOutboxRow");
 const DELETE = pyRef("sqlalchemy", "delete");
+const SA_TEXT = pyRef("sqlalchemy", "text");
 const OS = ref(pyModule("os"));
 const PUBLISH = pyRef("app.channels", "publish_event");
 const PUBLISH_RELAY = pyRef("app.channels", "publish_event_from_relay");
@@ -287,7 +290,7 @@ export function buildPyDispatchFile(
       const on = proj.handlers.find((h) => h.event === sub.event && h.param === sub.param);
       if (!on) continue;
       const fn = `_proj_${snake(proj.name)}_${snake(sub.event)}`;
-      handlers.push(projectionHandlerFn(fn, proj, on), "");
+      handlers.push(projectionHandlerFn(fn, proj, on, foldsDedupe(ctx, hasOutbox)), "");
       const list = handlerByEvent.get(sub.event) ?? [];
       list.push(fn);
       handlerByEvent.set(sub.event, list);
@@ -534,7 +537,14 @@ function projectionStateHelper(proj: ProjectionIR): string {
  *  key (every handler allocates — a projection has no route-or-drop split),
  *  apply the fold plan's steps against `state`, flush.  Pure — no repos, no
  *  emit, no child-context frame (enforced by `loom.projection-fold-impure`). */
-function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR): string {
+function projectionHandlerFn(
+  fn: string,
+  proj: ProjectionIR,
+  on: ProjectionOnIR,
+  /** Folds claim each durably delivered event in the fold inbox
+   *  (`foldsDedupe`); the claim commits with the caller's session. */
+  dedupe = false,
+): string {
   const row = schemaRow(`${proj.name}Row`);
   const corr = snake(proj.correlationField as string);
   const param = snake(on.param);
@@ -563,6 +573,15 @@ function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR)
           `    __tenant = __origin.get("tenant")`,
           "    if __tenant is None:",
           "        return",
+        ]
+      : []),
+    ...(dedupe
+      ? [
+          "    __eid = _current_event_id.get()",
+          "    if __eid is not None:",
+          `        __claimed = await session.execute(${SA_TEXT}(${JSON.stringify(`insert into ${FOLD_INBOX_TABLE} (projection, event_id) values (:projection, :event_id) on conflict do nothing returning event_id`)}), {"projection": ${JSON.stringify(proj.name)}, "event_id": __eid})`,
+          "        if __claimed.first() is None:",
+          "            return",
         ]
       : []),
     `    __key = str(${keyExpr})`,

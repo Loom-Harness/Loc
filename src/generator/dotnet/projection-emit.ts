@@ -62,6 +62,8 @@ export function emitProjectionDispatch(
   ctx: EnrichedBoundedContextIR,
   ns: string,
   out: Map<string, string>,
+  /** Folds claim the event in the fold inbox (`foldsDedupe`). */
+  dedupe = false,
 ): void {
   const subs = deriveEventSubscriptions(ctx.channels, ctx.workflows, ctx.projections);
   for (const s of subs) {
@@ -71,7 +73,7 @@ export function emitProjectionDispatch(
     const on = proj.handlers.find((h) => h.event === s.event && h.param === s.param);
     if (!on) continue;
     const cls = projectionHandlerClass(proj, on);
-    out.set(`Application/Workflows/${cls}.cs`, renderProjectionFoldHandler(cls, proj, on, ns));
+    out.set(`Application/Workflows/${cls}.cs`, renderProjectionFoldHandler(cls, proj, on, ns, dedupe));
   }
 }
 
@@ -87,6 +89,7 @@ function renderProjectionFoldHandler(
   proj: ProjectionIR,
   on: ProjectionOnIR,
   ns: string,
+  dedupe: boolean,
 ): string {
   const corr = proj.correlationField as string;
   const corrPascal = upperFirst(corr);
@@ -129,6 +132,25 @@ function renderProjectionFoldHandler(
     ),
   ].join(", ");
   const extraUsings = sortedCsUsings(usings);
+  const applyLines = [
+    `var state = await _readModel.FindAsync(${findPred}, cancellationToken);`,
+    `if (state is null)`,
+    `{`,
+    `    state = new ${rowCls} { ${seed} };`,
+    `    _readModel.Add(state);`,
+    `}`,
+    ...assignLines.map((l) => l.replace(/^ {8}/, "")),
+  ];
+  // A durably delivered event folds once: the store claims it in the fold
+  // inbox in the transaction that saves the row (`FoldOnceAsync`).
+  const apply = dedupe
+    ? [
+        `await _readModel.FoldOnceAsync(${JSON.stringify(proj.name)}, global::${ns}.Domain.Common.OutboxDelivery.CurrentEventId, async () =>`,
+        `{`,
+        ...applyLines.map((l) => `    ${l}`),
+        `}, cancellationToken);`,
+      ]
+    : [...applyLines, `await _readModel.SaveChangesAsync(cancellationToken);`];
   return (
     `// Auto-generated.
 using System.Threading;
@@ -156,13 +178,7 @@ public sealed class ${className} : INotificationHandler<${on.event}>
     public async ValueTask Handle(${on.event} notification, CancellationToken cancellationToken)
     {
 ${originLines}        var __key = ${keyExpr};
-        var state = await _readModel.FindAsync(${findPred}, cancellationToken);
-        if (state is null)
-        {
-            state = new ${rowCls} { ${seed} };
-            _readModel.Add(state);
-        }
-${assignLines.length > 0 ? assignLines.join("\n") + "\n" : ""}        await _readModel.SaveChangesAsync(cancellationToken);
+${apply.map((l) => `        ${l}`).join("\n")}
     }
 }
 `

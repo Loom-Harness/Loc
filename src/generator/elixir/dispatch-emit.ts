@@ -1,10 +1,12 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
 import {
+  FOLD_INBOX_TABLE,
   type FoldRowSeed,
   type FoldStep,
   foldRowSeeds,
   foldSteps,
+  foldsDedupe,
   hasStateRow,
   requiredStateFields,
   subscriptionHandler,
@@ -304,7 +306,13 @@ export function emitDispatch(
 
   // --- Projection fold modules — a pure read-model upsert per (proj, event). --
   for (const ps of projSubs) {
-    const content = renderProjectionFoldHandler(appModule, contextModule, ps.projection, ps.on);
+    const content = renderProjectionFoldHandler(
+      appModule,
+      contextModule,
+      ps.projection,
+      ps.on,
+      foldsDedupe(ctx, durable),
+    );
     const path = `lib/${appName}/${ctxSnake}/projections/${snake(ps.projection.name)}/on_${snake(ps.event)}.ex`;
     out.set(path, content);
     sourcemap?.file(path, content, ps.projection.origin, `${ctx.name}.${ps.projection.name}`);
@@ -776,6 +784,8 @@ function renderProjectionFoldHandler(
   contextModule: string,
   proj: ProjectionIR,
   on: ProjectionOnIR,
+  /** Folds claim each durably delivered event in the fold inbox (`foldsDedupe`). */
+  dedupe = false,
 ): string {
   const corr = proj.correlationField as string;
   const rowMod = projectionRowModule(contextModule, proj);
@@ -846,6 +856,34 @@ function renderProjectionFoldHandler(
     `    :ok`,
   ];
   const event = `%${contextModule}.Events.${upperFirst(on.event)}{} = event`;
+  const args = cols ? "event, tenant" : "event";
+  // A durably delivered event folds once: the claim on `(projection, event_id)`
+  // in the fold inbox commits with the row write, in one transaction.  An
+  // event dispatched inline has no id and is never redelivered.
+  const claimSql = `insert into ${FOLD_INBOX_TABLE} (projection, event_id) values ($1, $2) on conflict do nothing returning event_id`;
+  const once = dedupe
+    ? `  defp fold(${args}) do
+    case Process.get(:loom_event_id) do
+      nil ->
+        apply_fold(${args})
+
+      event_id ->
+        {:ok, :ok} =
+          ${appModule}.Repo.transaction(fn ->
+            case ${appModule}.Repo.query!(${JSON.stringify(claimSql)}, [${JSON.stringify(proj.name)}, to_string(event_id)]) do
+              %{num_rows: 0} -> :ok
+              _ -> apply_fold(${args})
+            end
+          end)
+
+        :ok
+    end
+  end
+
+  defp apply_fold(${args}) do
+${body.join("\n")}
+  end`
+    : undefined;
   const handle = cols
     ? `  def handle(${event}) do
     origin = ${appModule}Web.Auth.current_event_origin() || %{}
@@ -856,10 +894,17 @@ function renderProjectionFoldHandler(
     end
   end
 
-  defp fold(event, tenant) do
+${
+  once ??
+  `  defp fold(event, tenant) do
 ${body.join("\n")}
   end`
-    : `  def handle(${event}) do
+}`
+    : once
+      ? `  def handle(${event}), do: fold(event)
+
+${once}`
+      : `  def handle(${event}) do
 ${body.join("\n")}
   end`;
   return `# Auto-generated.

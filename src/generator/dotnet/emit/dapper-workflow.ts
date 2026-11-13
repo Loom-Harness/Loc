@@ -24,7 +24,7 @@
 // ---------------------------------------------------------------------------
 
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
-import { eventLogTable, stateRowWorkflows } from "../../../ir/plan/index.js";
+import { eventLogTable, FOLD_INBOX_TABLE, stateRowWorkflows } from "../../../ir/plan/index.js";
 import {
   isMaterializedProjection,
   isSingletonProjection,
@@ -47,7 +47,12 @@ import {
   workflowStateTable,
 } from "../workflow-state-emit.js";
 import { type DapperColumn, fieldColumn, sqlIdent } from "./dapper.js";
-import { dapperAmbientTxClassFq, dapperOpenConn } from "./dapper-session.js";
+import {
+  DAPPER_BEGIN_TX,
+  DAPPER_COMMIT_TX,
+  dapperAmbientTxClassFq,
+  dapperOpenConn,
+} from "./dapper-session.js";
 import { eventRecordClass, renderEventRecordPoco } from "./event-store.js";
 import {
   outboxDeadLetteredLog,
@@ -231,8 +236,40 @@ function renderRowStore(
     "        _pending.Clear();",
     "    }",
     "",
+    ...(iface === "IReadModelStore" ? foldOnce(upsert, bind, ns) : []),
     ...rowClassAndMap(pocoClass, cols),
     "}",
+  ];
+}
+
+/** `IReadModelStore.FoldOnceAsync`: the fold only buffers into `_pending`, so
+ *  it runs first; the inbox claim and the row upserts then share one
+ *  transaction, and an event already claimed drops the buffer unwritten. */
+function foldOnce(upsert: string, bind: string, ns: string): string[] {
+  const claim = `insert into ${FOLD_INBOX_TABLE} (projection, event_id) values (@projection, @eventId) on conflict do nothing`;
+  return [
+    "    public async Task FoldOnceAsync(string projection, string? eventId, Func<Task> fold, CancellationToken cancellationToken = default)",
+    "    {",
+    "        await fold();",
+    "        if (eventId is null)",
+    "        {",
+    "            await SaveChangesAsync(cancellationToken);",
+    "            return;",
+    "        }",
+    `        ${dapperOpenConn(ns)}`,
+    `        ${DAPPER_BEGIN_TX}`,
+    `        var claimed = await conn.ExecuteAsync(new CommandDefinition("${claim}", new { projection, eventId }, __tx, cancellationToken: cancellationToken));`,
+    "        if (claimed == 0)",
+    "        {",
+    "            _pending.Clear();",
+    "            return;",
+    "        }",
+    "        foreach (var s in _pending)",
+    `            await conn.ExecuteAsync(new CommandDefinition("${upsert}", new { ${bind} }, __tx, cancellationToken: cancellationToken));`,
+    "        _pending.Clear();",
+    `        ${DAPPER_COMMIT_TX}`,
+    "    }",
+    "",
   ];
 }
 
