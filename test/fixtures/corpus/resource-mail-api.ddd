@@ -68,6 +68,12 @@ system ResourceMailApi {
     api.notify.run({ email: "ada@rma.test" })
     expect(api.sales.ping("bo@rma.test")).toBe(1)
     let o = api.orders.create({ email: "cy@rma.test" })
+    expect(api.orders.getById(o).email).toBe("cy@rma.test")
+    // The touch reads the row's CURRENT email, so the mail goes to the updated one.
+    api.orders.update(o, { email: "dy@rma.test" })
     api.orders.touch(o)
+    expect(api.orders.all().items.length).toBe(1)
+    api.orders.destroy(o)
+    expect(api.orders.getById(o)).toThrow(404)
   }
 }

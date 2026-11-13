@@ -1,5 +1,11 @@
 {
   "title": "mailer (smtp) + api (restApi) resource calls observed at runtime through the harness fakes",
   "doc": "resources",
-  "backends": "ALL"
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "Starting the `notify` workflow is the not-lifted workflow-route class.",
+    "unattributed": [
+      "api.notify.run (no such aggregate)"
+    ]
+  }
 }
