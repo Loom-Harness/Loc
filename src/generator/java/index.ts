@@ -2031,6 +2031,7 @@ function emitAggregate(
     // declared paged find and no `<Agg>Paged` to return.
     isPagedAutoAll(repo) || declaredFinds(repo).some(isPagedFind),
     reqNameFor,
+    ctx,
   )) {
     place(dto.name, dto.category, dto.content, agg.name, agg.origin, construct);
   }

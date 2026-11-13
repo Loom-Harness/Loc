@@ -142,6 +142,9 @@ export interface UnionMoneyArm {
  *  that passes through. */
 export type UnionMoneyKey =
   | { kind: "money"; key: string; optional: boolean }
+  /** An instant: the RS-4/RS-38 wire string (millisecond fraction, `Z`).
+   *  A backend whose JSON encoder already writes that form passes it through. */
+  | { kind: "instant"; key: string; optional: boolean }
   | {
       kind: "vo";
       key: string;
@@ -151,6 +154,7 @@ export type UnionMoneyKey =
     };
 
 const isMoneyType = (t: TypeIR): boolean => scalarCodecOf(t)?.wire.form === "fixed-scale-decimal";
+const isInstantType = (t: TypeIR): boolean => scalarCodecOf(t)?.wire.form === "instant";
 
 /** The encode position for a field named `key` of type `t`, or undefined when
  *  nothing under it is money.  A value object recurses into its own fields;
@@ -165,6 +169,7 @@ function moneyKeyFor(
   const inner = t.kind === "optional" ? t.inner : t;
   const opt = optional || t.kind === "optional";
   if (isMoneyType(t)) return { kind: "money", key, optional: opt };
+  if (isInstantType(t)) return { kind: "instant", key, optional: opt };
   if (inner.kind !== "valueobject" || seen.has(inner.name)) return undefined;
   const vo = findValueObjectInScope(ctx, inner.name);
   if (!vo) return undefined;
@@ -177,9 +182,9 @@ function moneyKeyFor(
   return { kind: "vo", key, optional: opt, voName: vo.name, fields };
 }
 
-/** Which success variants of `variants` carry `money` that the route must
- *  encode before answering.  A payload / event variant contributes its
- *  `money` fields, directly or inside a value-object field; a scalar `money`
+/** Which success variants of `variants` carry `money` or instants that the
+ *  route must encode before answering.  A payload / event variant contributes
+ *  those fields, directly or inside a value-object field; a scalar `money`
  *  variant its `value`.  An `error` variant answers as a ProblemDetails, so it
  *  is skipped. */
 export function unionMoneyArms(variants: TypeIR[], ctx: BoundedContextIR): UnionMoneyArm[] {

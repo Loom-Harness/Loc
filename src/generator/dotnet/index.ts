@@ -1484,7 +1484,14 @@ function emitAggregate(
       // (`cqrs/dtos.ts`), so every field is encoded with the DTO mapper's
       // codec as the variant is built — money/decimal, datetime, a value
       // object's `<VO>Response`, a part's projection — not only the numerics.
-      encode: (domainExpr, t) => projectToResponse(domainExpr, t, ctx),
+      encode: (domainExpr, t) =>
+        projectToResponse(
+          domainExpr,
+          t,
+          ctx,
+          undefined,
+          `${ns}.Application.${plural(agg.name)}.Responses`,
+        ),
       ...(selfArm
         ? { selfArgs: projectEntityArgs("this", agg, ctx, { unionVariant: true, unmasked: true }) }
         : {}),

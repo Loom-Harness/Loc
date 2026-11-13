@@ -56,7 +56,7 @@ import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { exErrorVariant, exFixedDetail, exProblemResponse } from "../wire-policy-ex.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
 import { opPersistInvariantPipes } from "./changeset-emit.js";
-import { exLineageValue } from "./codec-spelling-ex.js";
+import { exInstantWire, exLineageValue } from "./codec-spelling-ex.js";
 import {
   appModuleOf,
   denialClause,
@@ -1872,6 +1872,10 @@ export function renderProblemVariantHelper(): string {
  *  map, the snake field atom inside a value object's map.  A value object is
  *  updated in place, one nested step per money position. */
 function exMoneyUpdate(k: UnionMoneyKey, atom: string): string {
+  if (k.kind === "instant") {
+    const wire = exInstantWire("&1");
+    return k.optional ? `Map.update(${atom}, nil, &(${wire}))` : `Map.update!(${atom}, &(${wire}))`;
+  }
   if (k.kind === "money") {
     const round = numericEncode(ELIXIR_NUMERIC, "money", "dto-map", "&1");
     return k.optional

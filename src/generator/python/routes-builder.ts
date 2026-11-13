@@ -86,7 +86,7 @@ import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/serve
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
 import { findUnionSpec, type UnionMoneyKey, unionMoneyArms } from "../_payload/union-wire.js";
-import { pyCalendarDateWire } from "./codec-spelling.js";
+import { pyCalendarDateWire, pyInstantWire } from "./codec-spelling.js";
 import { pyCommandBodyParam } from "./command-body.js";
 import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
 import { paramPyType, requestPyType, responsePyType, wireModelRef } from "./emit/http-models.js";
@@ -1550,6 +1550,8 @@ function pyMoneyValue(k: UnionMoneyKey, access: string, fromDict: boolean): stri
   if (k.kind === "money") {
     const typed = fromDict ? `${PY.cast}(${PY.Decimal}, ${access})` : access;
     wire = numericEncode(PY_NUMERIC, "money", "dto-map", typed);
+  } else if (k.kind === "instant") {
+    wire = pyInstantWire(fromDict ? `${PY.cast}(${PY.datetime}, ${access})` : access);
   } else {
     const vo = fromDict ? `${PY.cast}(${pyVoOrEnum(k.voName)}, ${access})` : access;
     const entries = k.fields.map((f) => {

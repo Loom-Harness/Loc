@@ -2423,7 +2423,10 @@ function emitReturningOperationRoute(
   // A `money` field of a payload success variant rides as the fixed-scale
   // string (RS-12) — the tagged dict holds the decimal.js value.
   for (const arm of u ? unionMoneyArms(u.variants, ctx) : []) {
-    const enc = arm.keys.map((k) => tsMoneyEntry(k, "result"));
+    // A JS `Date` already serializes to the wire instant; only money is re-encoded.
+    const keys = arm.keys.filter(tsHasMoney);
+    if (keys.length === 0) continue;
+    const enc = keys.map((k) => tsMoneyEntry(k, "result"));
     out.push(`    if (result.type === ${JSON.stringify(arm.tag)}) {`);
     out.push(`      return c.json({ ...result, ${enc.join(", ")} }, 200);`);
     out.push(`    }`);
@@ -3319,8 +3322,15 @@ export function wireToDomainExpr(expr: string, t: TypeIR, ctx?: BoundedContextIR
 function tsMoneyEntry(k: UnionMoneyKey, recv: string): string {
   const access = `${recv}.${k.key}`;
   const wire =
-    k.kind === "money"
-      ? numericEncode(TS_NUMERIC, "money", "dto-map", access)
-      : `{ ...${access}, ${k.fields.flatMap((f) => (f.money ? [tsMoneyEntry(f.money, access)] : [])).join(", ")} }`;
+    k.kind === "vo"
+      ? `{ ...${access}, ${k.fields.flatMap((f) => (f.money && tsHasMoney(f.money) ? [tsMoneyEntry(f.money, access)] : [])).join(", ")} }`
+      : numericEncode(TS_NUMERIC, "money", "dto-map", access);
   return `${k.key}: ${k.optional ? `${access} == null ? null : ${wire}` : wire}`;
+}
+
+/** True when `k` is, or holds, a money position. */
+function tsHasMoney(k: UnionMoneyKey): boolean {
+  if (k.kind === "money") return true;
+  if (k.kind === "instant") return false;
+  return k.fields.some((f) => f.money !== undefined && tsHasMoney(f.money));
 }
