@@ -90,7 +90,7 @@ describe("a part's value-object collection — the part's child table", () => {
     expect(repo).toContain("Repo.preload([rules: :conditions])");
     const context = await emitted(RELATIONAL, "vanilla", "lib/d/matching.ex");
     expect(context).toContain(
-      "defp __put_assoc_field(D.Matching.Rule, :conditions, v), do: __put_value_rows(v)",
+      "defp __put_assoc_field(D.Matching.Rule, :conditions, v), do: __put_value_rows(v, D.Matching.Rule, :conditions)",
     );
   });
 

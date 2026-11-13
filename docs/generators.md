@@ -1371,11 +1371,36 @@ module, the TypeScript scanner's reserved-word range).
 | elixir | `elixirLocal(name)` for every parameter / bound op input (`do_`); `elixirOpAction(name)` for a controller action (`def do_`, and `show` / `index` step aside to `show_op` from the CRUD read actions); an OpenApiSpex schema with a reserved property key opts out of the derived struct (`struct?: false`) |
 | java | already clean through `jid` (M-T6.36) |
 
-**Not covered yet** — tracked by #4213: a FIELD named `constructor` on node
-(its getter cannot carry that name), TYPE names that shadow a target's
-globals / BCL / framework types (`valueobject Promise` / `String` / `Symbol` on
-node; `.NET` handles `Task`-like names via `dotnet-bcl-type-collision`), and the
-frontends (the fixture declares no `ui`).
+**One plan per target.** The domain class emitters (aggregate, part, value object,
+enum, event, domain service) read every identifier from the symbol plan,
+`src/generator/_symbols/plan.ts`, rather than calling the escaping funnels themselves.
+So a definition and each of its uses get one spelling:
+
+- a TS domain-service operation is defined as `<service>_<op>`, and a bare sibling
+  call inside the service resolves to that same function;
+- a python method escaped at its `def` (`raise_`) is called by the same name from
+  a workflow;
+- python also escapes the decorators a generated class body applies (`property`,
+  `classmethod`, `staticmethod`).
+
+`test/system/symbol-plan-census.test.ts` keeps the raw funnels out of those files.
+
+**Type names a target imports implicitly.** On .NET, a domain type whose simple
+name an imported framework namespace also exports (`TaskStatus` from
+`System.Threading.Tasks`, `ServiceProvider` from
+`Microsoft.Extensions.DependencyInjection`) is aliased on the namespace line of
+each compilation unit that sees both. The table of non-generic framework type
+names per namespace, `src/generator/_symbols/ambient-dotnet.ts`, is generated
+from the SDK reference packs and the pinned packages by
+`scripts/gen-dotnet-ambient-types.mjs`. The gate is the corpus fixture
+`domain-symbol-collisions`, on every backend's compile leg.
+
+The plan does not cover:
+
+- a FIELD named `constructor` on node (its getter cannot carry that name);
+- type names that shadow a node or java global (`Promise`, `Record`, `String`,
+  `Object`, …), which the generated framework code spells bare in the same unit;
+- the frontends.
 
 ---
 

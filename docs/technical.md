@@ -538,10 +538,26 @@ every `assign` / `add` / `remove` path is rooted at a stored member, every
 `member` read on an aggregate / part / value-object receiver names a member
 of that type, every `call` names a target of its `callKind`, no
 statement block binds one `let` twice, and no workflow / handler statement
-reached the IR as lowering's `__bad__` placeholder.  It covers the domain-logic bodies —
-aggregates, parts, value objects, domain services, workflows, command /
-query handlers, repository finds and criteria — and walks them through
+reached the IR as lowering's `__bad__` placeholder.  It covers every
+body that carries expressions — aggregates, parts, value objects, domain
+services, workflows, command / query handlers, repository finds, criteria,
+projections (fold handlers and query), tests (unit, context and e2e), and
+ui pages, components and stores — and walks them through
 `src/ir/util/walk.ts`.
+
+A ui body follows the page walker's encoding, which the verifier models
+explicitly rather than tolerating: state and derived values read as `let`
+refs; a bare name the page walker resolves itself (`Customer.all`,
+`S.Order.all` through an `api S: …` handle, `navigate(Home)`, `op: rename`,
+a design token such as `variant: primary`) stays `refKind: "unknown"`, and the
+verifier makes no claim about it; an aggregate's operations and finds read as
+its members; and the view-effect builtins (`navigate`, `toast`) and a ui
+`function` called from an action lower as `private-operation`-shaped call
+statements.  A sibling context's enum values resolve model-wide, and a
+projection query reads the state fields of the workflow or projection it
+selects from.
+A projection `select` aggregation carries its column on `aggregate.arg`, so
+the verifier checks that rather than the bare `count` spelling.
 
 A violation is a lowering defect, never an author error: a construct
 lowering cannot express is refused by an AST validator before lowering.  The

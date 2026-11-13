@@ -3,9 +3,10 @@
 //
 // The browser runtime boots every Hono backend (one worker each) and serves at
 // most one React frontend.  Everything else in the tree is files-only, and is
-// listed so the UI can say so by name: .NET (`Program.cs`) and Phoenix
-// LiveView (`mix.exs`) backends, and the frontends the preview engine does not
-// bundle (SvelteKit, Vue, Angular).
+// listed so the UI can say so by name: .NET (`Program.cs`), Phoenix LiveView
+// (`mix.exs`), Spring Boot (`build.gradle.kts`) and FastAPI (`pyproject.toml`)
+// backends, and the frontends the preview engine does not bundle (SvelteKit,
+// Vue, Angular, Feliz, Flutter).
 //
 // Pure: no React, no DOM, no worker — the root vitest suite imports it.
 
@@ -124,6 +125,17 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
     if (angular?.[1]) angularSlugs.add(angular[1]);
     const vue = f.path.match(/^([^/]+)\/src\/main\.ts$/);
     if (vue?.[1]) platformBySlug.set(vue[1], "vue");
+    // Backends and frontends with their own toolchain: Spring Boot
+    // (`build.gradle.kts`), FastAPI (`pyproject.toml`), Feliz (`*.fsproj`,
+    // built by Fable) and Flutter (`pubspec.yaml`).
+    const java = f.path.match(/^([^/]+)\/build\.gradle(?:\.kts)?$/);
+    if (java?.[1]) platformBySlug.set(java[1], "java");
+    const python = f.path.match(/^([^/]+)\/pyproject\.toml$/);
+    if (python?.[1]) platformBySlug.set(python[1], "python");
+    const feliz = f.path.match(/^([^/]+)\/[^/]+\.fsproj$/);
+    if (feliz?.[1]) platformBySlug.set(feliz[1], "feliz");
+    const flutter = f.path.match(/^([^/]+)\/pubspec\.yaml$/);
+    if (flutter?.[1]) platformBySlug.set(flutter[1], "flutter");
   }
   for (const slug of angularSlugs) platformBySlug.set(slug, "angular");
 
