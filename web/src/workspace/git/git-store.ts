@@ -24,7 +24,7 @@
 import * as git from "isomorphic-git";
 
 import type { VfsEntry, VfsFileEntry, VfsListener, VfsPath } from "../../vfs/types.js";
-import { asFsClient, type GitFs, invalidateGitFsCache } from "./git-fs.js";
+import { asFsClient, flushGitFs, type GitFs, invalidateGitFsCache } from "./git-fs.js";
 import {
   encodeGeneratedBase,
   GENERATED_BASE_REF,
@@ -213,6 +213,12 @@ export class GitStore {
   async applyRemoteCommit(oid: string): Promise<void> {
     await invalidateGitFsCache(this.gfs);
     this.fanOutCommit(oid);
+  }
+
+  /** Make every write so far durable now: save LightningFS's file index
+   *  instead of waiting for its debounced save. */
+  async flush(): Promise<void> {
+    await flushGitFs(this.gfs);
   }
 
   /** The underlying LightningFS + repo dir — for the composed helpers

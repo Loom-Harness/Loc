@@ -50,7 +50,7 @@ describe("svelte page requires gate", () => {
     expect(page).toContain('import { useSession } from "$lib/auth/AuthGate.svelte";');
     expect(page).toContain("const currentUser = useSession().user as Record<string, any>;");
     expect(page).toContain('{#if !(currentUser.role === "agent")}');
-    expect(page).toContain("<h2>Forbidden</h2>");
+    expect(page).toContain('<h2>{t("chrome.forbiddenTitle", "Forbidden")}</h2>');
     expect(page).toContain("{:else}");
     expect(page).toContain("{/if}");
     // The guard opens before the body.

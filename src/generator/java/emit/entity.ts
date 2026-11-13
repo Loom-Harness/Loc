@@ -25,6 +25,7 @@ import {
   operationBodyUsesCurrentUser,
 } from "../../../ir/util/op-gates.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
@@ -36,11 +37,11 @@ import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js
 import { floorRuleText } from "../../_i18n/rule-text.js";
 import { javaOnDemandRef, javaRef } from "../../_imports/java.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
 import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import type { RestrictionHost } from "../capability-filter.js";
 import { javaInstantTruncate } from "../codec-spelling.js";
-import { jid } from "../java-ident.js";
 import {
   buildJavaRegexFields,
   collectJavaRegexLiterals,
@@ -83,12 +84,6 @@ const AUDITING_ENTITY_LISTENER = javaRef(
   "org.springframework.data.jpa.domain.support",
   "AuditingEntityListener",
 );
-
-/** True for a field type that is a collection of references
- * (`Id<T>[]`) — persisted via a join table, not a column. */
-function isRefCollection(t: TypeIR): boolean {
-  return t.kind === "array" && t.element.kind === "id";
-}
 
 /** True when an expression tree contains a domain-service member call
  *  (`Pricing.quote(...)` → a `call` with `callKind: "domain-service"`).
@@ -445,7 +440,7 @@ export function renderJavaEntity(
           `    @${JPA("Column")}(name = "${hbIdent(snake(f.name))}"${audit.createEvent ? ", updatable = false" : ""})`,
         );
       }
-      fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
+      fieldLines.push(`    ${renderJavaType(f.type)} ${DOMAIN_NAMES.java.binding(f.name)};`);
       continue;
     }
     const claimColumn = claimStampColumnFor.get(f.name);
@@ -459,7 +454,7 @@ export function renderJavaEntity(
           `    @${JPA("Column")}(name = "${hbIdent(snake(f.name))}"${claimColumn.createEvent ? ", updatable = false" : ""})`,
         );
       }
-      fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
+      fieldLines.push(`    ${renderJavaType(f.type)} ${DOMAIN_NAMES.java.binding(f.name)};`);
       continue;
     }
     // Optimistic concurrency (`versioned`): the synthetic `version` token field
@@ -473,10 +468,12 @@ export function renderJavaEntity(
     // four backends emit, so the counter is driven explicitly from the
     // repository save (guarded `where version = :expected`) instead.
     if (persistence) fieldLines.push(...jpaFieldAnnotations(f, entity, persistence));
-    if (isRefCollection(f.type)) {
-      fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)} = new ${ARRAY_LIST}<>();`);
+    if (isRefCollectionType(f.type)) {
+      fieldLines.push(
+        `    ${renderJavaType(f.type)} ${DOMAIN_NAMES.java.binding(f.name)} = new ${ARRAY_LIST}<>();`,
+      );
     } else {
-      fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
+      fieldLines.push(`    ${renderJavaType(f.type)} ${DOMAIN_NAMES.java.binding(f.name)};`);
     }
   }
   for (const c of entity.contains) {
@@ -489,8 +486,8 @@ export function renderJavaEntity(
       );
       fieldLines.push(
         c.collection
-          ? `    List<${c.partName}> ${jid(c.name)} = new ${ARRAY_LIST}<>();`
-          : `    ${c.partName} ${jid(c.name)};`,
+          ? `    List<${c.partName}> ${DOMAIN_NAMES.java.binding(c.name)} = new ${ARRAY_LIST}<>();`
+          : `    ${c.partName} ${DOMAIN_NAMES.java.binding(c.name)};`,
       );
       continue;
     }
@@ -500,13 +497,15 @@ export function renderJavaEntity(
           ...jpaContainmentAnnotations(persistence.containmentOwnerName ?? entity.name),
         );
       }
-      fieldLines.push(`    List<${c.partName}> ${jid(c.name)} = new ${ARRAY_LIST}<>();`);
+      fieldLines.push(
+        `    List<${c.partName}> ${DOMAIN_NAMES.java.binding(c.name)} = new ${ARRAY_LIST}<>();`,
+      );
     } else {
       // Inverse side of the part's hidden owning `_parent` @OneToOne — emitted
       // for the declaring entity whether it's the root or a sibling part (a
       // nested part's owning side FKs to this entity's table via `directParentOf`).
       if (persistence) fieldLines.push(...jpaSingleContainmentAnnotations());
-      fieldLines.push(`    ${c.partName} ${jid(c.name)};`);
+      fieldLines.push(`    ${c.partName} ${DOMAIN_NAMES.java.binding(c.name)};`);
     }
   }
   // Provenance runtime (provenance.md): each `provenanced` ROOT field carries a
@@ -524,7 +523,7 @@ export function renderJavaEntity(
         fieldLines.push(`    @${JDBC_TYPE_CODE}(${SQL_TYPES}.JSON)`);
         fieldLines.push(`    @${JPA("Column")}(name = "${snake(f.name)}_provenance")`);
       }
-      fieldLines.push(`    ProvLineage ${jid(f.name)}Provenance;`);
+      fieldLines.push(`    ProvLineage ${DOMAIN_NAMES.java.binding(f.name)}Provenance;`);
     }
     fieldLines.push(
       `    private final transient List<ProvLineage> _provTraces = new ${ARRAY_LIST}<>();`,
@@ -549,23 +548,31 @@ export function renderJavaEntity(
   if (!isRoot) accessor(`${persistence?.parentEntityName ?? rootName}Id`, "parentId");
   for (const f of entity.fields) {
     if (superType?.fieldNames.has(f.name)) continue;
-    if (isRefCollection(f.type)) {
-      accessor(renderJavaType(f.type), jid(f.name), `List.copyOf(${jid(f.name)})`);
+    if (isRefCollectionType(f.type)) {
+      accessor(
+        renderJavaType(f.type),
+        DOMAIN_NAMES.java.binding(f.name),
+        `List.copyOf(${DOMAIN_NAMES.java.binding(f.name)})`,
+      );
     } else {
-      accessor(renderJavaType(f.type), jid(f.name));
+      accessor(renderJavaType(f.type), DOMAIN_NAMES.java.binding(f.name));
     }
   }
   for (const c of entity.contains) {
     if (c.collection) {
-      accessor(`List<${c.partName}>`, jid(c.name), `List.copyOf(${jid(c.name)})`);
+      accessor(
+        `List<${c.partName}>`,
+        DOMAIN_NAMES.java.binding(c.name),
+        `List.copyOf(${DOMAIN_NAMES.java.binding(c.name)})`,
+      );
     } else {
-      accessor(c.partName, jid(c.name));
+      accessor(c.partName, DOMAIN_NAMES.java.binding(c.name));
     }
   }
   // Co-located provenance lineage accessor (current value's lineage; null
   // before the field's first provenanced write) — surfaced on the wire DTO.
   for (const f of provFields) {
-    accessor("ProvLineage", `${jid(f.name)}Provenance`);
+    accessor("ProvLineage", `${DOMAIN_NAMES.java.binding(f.name)}Provenance`);
   }
 
   // --- derived / functions ---------------------------------------------------
@@ -573,7 +580,7 @@ export function renderJavaEntity(
     ? entity.derived.filter((d) => !superType.derivedNames!.has(d.name))
     : entity.derived;
   const derivedLines = ownDerived.flatMap((d) => [
-    `    public ${renderJavaType(d.type)} ${jid(d.name)}() {`,
+    `    public ${renderJavaType(d.type)} ${DOMAIN_NAMES.java.method(d.name)}() {`,
     `        return ${renderJavaExpr(d.expr, renderCtx)};`,
     `    }`,
     ``,
@@ -590,17 +597,19 @@ export function renderJavaEntity(
     );
   }
   const fnLines = entity.functions.flatMap((fn) => {
-    const params = fn.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`).join(", ");
+    const params = fn.params
+      .map((p) => `${renderJavaType(p.type)} ${DOMAIN_NAMES.java.binding(p.name)}`)
+      .join(", ");
     // PUBLIC, like the operations below — see the matching note in the node
     // emitter.  `<Agg>Service.<op>` re-evaluates the hoisted `when` gate post-
     // load and serves the `can_<op>` query from it, and a workflow body calls a
     // function across aggregates; `private` made each of those a javac
     // "has private access" on a model that validated `0 error(s)`.
-    const open = `    public ${renderJavaType(fn.returnType)} ${jid(fn.name)}(${params}) {`;
+    const open = `    public ${renderJavaType(fn.returnType)} ${DOMAIN_NAMES.java.method(fn.name)}(${params}) {`;
     // The params are method locals a body lambda may not redeclare.
     const fnCtx = withLambdaScope(
       renderCtx,
-      fn.params.map((p) => jid(p.name)),
+      fn.params.map((p) => DOMAIN_NAMES.java.binding(p.name)),
     );
     // Expression form keeps its single `return expr;`; block form
     // (domain-services.md rev. 4) emits its lowered statements.
@@ -623,7 +632,7 @@ export function renderJavaEntity(
   // `currentUser`) — which a body lambda may not redeclare.
   const opScope = (op: (typeof operations)[number]): JavaRenderContext =>
     withLambdaScope(renderCtx, [
-      ...op.params.map((p) => jid(p.name)),
+      ...op.params.map((p) => DOMAIN_NAMES.java.binding(p.name)),
       ...(operationBodyUsesCurrentUser(op) ? ["currentUser"] : []),
     ]);
   // A `when` that reads a repository (an in-app `exists`) is the service's
@@ -642,7 +651,9 @@ export function renderJavaEntity(
     // The leading `requires` gates are hoisted to the calling service
     // (op-gates.ts) — the entity renders only what remains.
     const opBody = operationBody(op);
-    const baseParams = op.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`).join(", ");
+    const baseParams = op.params
+      .map((p) => `${renderJavaType(p.type)} ${DOMAIN_NAMES.java.binding(p.name)}`)
+      .join(", ");
     const params = [baseParams, usesUser ? `${userType} currentUser` : ""]
       .filter(Boolean)
       .join(", ");
@@ -662,17 +673,19 @@ export function renderJavaEntity(
       // invariants — the same load → preconditions → hook → invariants → save
       // flow as before, only *what the hook is* changed (from an injected
       // application-layer handler to a domain-internal extension point).
-      opLines.push(`    public void ${jid(op.name)}(${params}) {`);
+      opLines.push(`    public void ${DOMAIN_NAMES.java.method(op.name)}(${params}) {`);
       const externGate = whenGate(op);
       if (externGate) opLines.push(externGate);
       const body = renderJavaStatements(opBody, opCtx, traceCtx);
       if (body.length > 0) opLines.push(body);
       const hookArgs = [
         "this",
-        ...op.params.map((p) => jid(p.name)),
+        ...op.params.map((p) => DOMAIN_NAMES.java.binding(p.name)),
         ...(usesUser ? ["currentUser"] : []),
       ].join(", ");
-      opLines.push(`        ${entity.name}Extern.${jid(op.name)}(${hookArgs});`);
+      opLines.push(
+        `        ${entity.name}Extern.${DOMAIN_NAMES.java.method(op.name)}(${hookArgs});`,
+      );
       opLines.push(
         emitTrace
           ? `        this._assertInvariants("${op.name}");`
@@ -685,7 +698,7 @@ export function renderJavaEntity(
     const visibility = op.visibility === "public" ? "public" : "private";
     const retUnion = options.operationReturnUnions?.get(op.name);
     const retType = op.returnType ? renderJavaType(op.returnType) : "void";
-    opLines.push(`    ${visibility} ${retType} ${jid(op.name)}(${params}) {`);
+    opLines.push(`    ${visibility} ${retType} ${DOMAIN_NAMES.java.method(op.name)}(${params}) {`);
     const gate = whenGate(op);
     if (gate) opLines.push(gate);
     // Chunked (one string per statement) rather than the pre-joined
@@ -885,22 +898,22 @@ export function renderJavaEntity(
     isRoot && eventSourced && esCreate
       ? [
           `    public static ${entity.name} create(${esCreate.params
-            .map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`)
+            .map((p) => `${renderJavaType(p.type)} ${DOMAIN_NAMES.java.binding(p.name)}`)
             .join(", ")}) {`,
           `        var ${esLocal} = new ${entity.name}();`,
           `        ${esLocal}.id = ${idClass}.newId();`,
-          `        ${esLocal}._init(${esCreate.params.map((p) => jid(p.name)).join(", ")});`,
+          `        ${esLocal}._init(${esCreate.params.map((p) => DOMAIN_NAMES.java.binding(p.name)).join(", ")});`,
           `        return ${esLocal};`,
           `    }`,
           ``,
           `    private void _init(${esCreate.params
-            .map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`)
+            .map((p) => `${renderJavaType(p.type)} ${DOMAIN_NAMES.java.binding(p.name)}`)
             .join(", ")}) {`,
           renderJavaStatements(
             esCreate.statements,
             withLambdaScope(
               renderCtx,
-              esCreate.params.map((p) => jid(p.name)),
+              esCreate.params.map((p) => DOMAIN_NAMES.java.binding(p.name)),
             ),
             {
               emitTrace,
@@ -972,7 +985,7 @@ export function renderJavaEntity(
           `    public static ${entity.name} create(${createInputFieldList
             .map(
               (f) =>
-                `${renderJavaType(javaFactoryDefault(f) === undefined ? f.type : { kind: "optional", inner: f.type })} ${jid(f.name)}`,
+                `${renderJavaType(javaFactoryDefault(f) === undefined ? f.type : { kind: "optional", inner: f.type })} ${DOMAIN_NAMES.java.binding(f.name)}`,
             )
             .join(", ")}) {`,
           `        var ${pubLocal} = new ${entity.name}();`,
@@ -986,14 +999,17 @@ export function renderJavaEntity(
             // UnsupportedOperationException — the same pitfall the defaults below
             // avoid, reached through the argument instead (found by M-T6.94's
             // corpus case).
-            const given = t.kind === "array" ? `new ${ARRAY_LIST}<>(${jid(f.name)})` : jid(f.name);
+            const given =
+              t.kind === "array"
+                ? `new ${ARRAY_LIST}<>(${DOMAIN_NAMES.java.binding(f.name)})`
+                : DOMAIN_NAMES.java.binding(f.name);
             // `!= null`, not a truthiness test: an explicit 0/""/false survives.
-            return `        ${pubLocal}.${jid(f.name)} = ${
+            return `        ${pubLocal}.${DOMAIN_NAMES.java.binding(f.name)} = ${
               dflt === undefined
                 ? t.kind === "array"
-                  ? `${jid(f.name)} != null ? ${given} : null`
-                  : jid(f.name)
-                : `${jid(f.name)} != null ? ${given} : ${dflt}`
+                  ? `${DOMAIN_NAMES.java.binding(f.name)} != null ? ${given} : null`
+                  : DOMAIN_NAMES.java.binding(f.name)
+                : `${DOMAIN_NAMES.java.binding(f.name)} != null ? ${given} : ${dflt}`
             };`;
           }),
           // Server-seeded literal defaults (RS-11): fields outside the create-
@@ -1011,7 +1027,7 @@ export function renderJavaEntity(
                 new Set(createInputFieldList.map((f) => f.name)),
               ).map(
                 (f) =>
-                  `        ${pubLocal}.${jid(f.name)} = ${renderJavaExpr(f.default, renderCtx)};`,
+                  `        ${pubLocal}.${DOMAIN_NAMES.java.binding(f.name)} = ${renderJavaExpr(f.default, renderCtx)};`,
               )
             : []),
           // A field a narrowed `create(…)` leaves out with no declared default
@@ -1026,7 +1042,9 @@ export function renderJavaEntity(
                 )
                 .flatMap((f) => {
                   const v = javaFactoryDefault(f);
-                  return v === undefined ? [] : [`        ${pubLocal}.${jid(f.name)} = ${v};`];
+                  return v === undefined
+                    ? []
+                    : [`        ${pubLocal}.${DOMAIN_NAMES.java.binding(f.name)} = ${v};`];
                 })
             : []),
           // A server-owned field with no default (`openedAt: datetime managed`)
@@ -1036,7 +1054,7 @@ export function renderJavaEntity(
           ...(isAgg(entity)
             ? serverSeededFields(entity).map(
                 ({ field, seed }) =>
-                  `        ${pubLocal}.${jid(field.name)} = ${javaServerInitSeed(seed, field.type)};`,
+                  `        ${pubLocal}.${DOMAIN_NAMES.java.binding(field.name)} = ${javaServerInitSeed(seed, field.type)};`,
               )
             : []),
           emitTrace
@@ -1047,7 +1065,7 @@ export function renderJavaEntity(
           // locals, unlisted fields already at their declared defaults.
           ...(createBody.length > 0
             ? [
-                `        ${pubLocal}._createBody(${createParams.map((p) => jid(p.name)).join(", ")});`,
+                `        ${pubLocal}._createBody(${createParams.map((p) => DOMAIN_NAMES.java.binding(p.name)).join(", ")});`,
               ]
             : []),
           `        return ${pubLocal};`,
@@ -1056,7 +1074,7 @@ export function renderJavaEntity(
           ...(createBody.length > 0
             ? [
                 `    private void _createBody(${createParams
-                  .map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`)
+                  .map((p) => `${renderJavaType(p.type)} ${DOMAIN_NAMES.java.binding(p.name)}`)
                   .join(", ")}) {`,
                 renderJavaStatements(createBody, renderCtx, {
                   emitTrace,
@@ -1084,12 +1102,14 @@ export function renderJavaEntity(
   // and part-in-part nesting only exists in nested models, so a plain part is
   // byte-identical.
   const partContainParams = entity.contains.map((c) =>
-    c.collection ? `List<${c.partName}> ${jid(c.name)}` : `${c.partName} ${jid(c.name)}`,
+    c.collection
+      ? `List<${c.partName}> ${DOMAIN_NAMES.java.binding(c.name)}`
+      : `${c.partName} ${DOMAIN_NAMES.java.binding(c.name)}`,
   );
   const partContainPopulate = entity.contains.map((c) =>
     c.collection
-      ? `        if (${jid(c.name)} != null) p.${jid(c.name)}.addAll(${jid(c.name)});`
-      : `        p.${jid(c.name)} = ${jid(c.name)};`,
+      ? `        if (${DOMAIN_NAMES.java.binding(c.name)} != null) p.${DOMAIN_NAMES.java.binding(c.name)}.addAll(${DOMAIN_NAMES.java.binding(c.name)});`
+      : `        p.${DOMAIN_NAMES.java.binding(c.name)} = ${DOMAIN_NAMES.java.binding(c.name)};`,
   );
   const partFactoryLines: string[] = !isRoot
     ? [
@@ -1097,7 +1117,9 @@ export function renderJavaEntity(
           oneToOneParent
             ? `${oneToOneParent} parent`
             : `${persistence?.parentEntityName ?? rootName}Id parentId`,
-          ...entity.fields.map((f) => `${renderJavaType(f.type)} ${jid(f.name)}`),
+          ...entity.fields.map(
+            (f) => `${renderJavaType(f.type)} ${DOMAIN_NAMES.java.binding(f.name)}`,
+          ),
           ...partContainParams,
         ].join(", ")}) {`,
         `        var p = new ${entity.name}();`,
@@ -1105,7 +1127,10 @@ export function renderJavaEntity(
         ...(oneToOneParent
           ? [`        p._parent = parent;`, `        p.parentId = parent.id();`]
           : [`        p.parentId = parentId;`]),
-        ...entity.fields.map((f) => `        p.${jid(f.name)} = ${jid(f.name)};`),
+        ...entity.fields.map(
+          (f) =>
+            `        p.${DOMAIN_NAMES.java.binding(f.name)} = ${DOMAIN_NAMES.java.binding(f.name)};`,
+        ),
         ...partContainPopulate,
         emitTrace ? `        p._assertInvariants("<init>");` : `        p._assertInvariants();`,
         `        return p;`,
@@ -1380,11 +1405,11 @@ export function renderJavaAbstractBaseEntity(
           mangledEnums: persistence.mangledEnums,
         })
       : []),
-    `    protected ${renderJavaType(f.type)} ${jid(f.name)};`,
+    `    protected ${renderJavaType(f.type)} ${DOMAIN_NAMES.java.binding(f.name)};`,
   ]);
   const accessorLines = base.fields.flatMap((f) => [
-    `    public ${renderJavaType(f.type)} ${jid(f.name)}() {`,
-    `        return ${jid(f.name)};`,
+    `    public ${renderJavaType(f.type)} ${DOMAIN_NAMES.java.binding(f.name)}() {`,
+    `        return ${DOMAIN_NAMES.java.binding(f.name)};`,
     `    }`,
     ``,
   ]);
@@ -1395,7 +1420,7 @@ export function renderJavaAbstractBaseEntity(
     ? renderCtx
     : { ...renderCtx, accessorProps: true };
   const derivedLines = base.derived.flatMap((d) => [
-    `    public ${renderJavaType(d.type)} ${jid(d.name)}() {`,
+    `    public ${renderJavaType(d.type)} ${DOMAIN_NAMES.java.method(d.name)}() {`,
     `        return ${renderJavaExpr(d.expr, derivedRenderCtx)};`,
     `    }`,
     ``,

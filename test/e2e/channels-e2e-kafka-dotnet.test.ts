@@ -119,28 +119,9 @@ function consumedEntries(log: string): { type: string; key: string }[] {
   return out;
 }
 
-/** Count catalog events in a .NET backend log.
- *
- *  Counts LINES carrying the quoted event name, not substring occurrences.
- *  The generated .NET app configures `AddJsonConsole` (Program.cs), and the
- *  JSON console writes the event name TWICE per entry — once in the rendered
- *  `Message`, once in the structured `State`:
- *
- *    {"LogLevel":"Information","Message":"channel_consumed addr T 1",
- *     "State":{"Event":"channel_consumed",...,"{OriginalFormat}":"..."}}
- *
- *  so `log.match(/channel_consumed/g).length` reports exactly 2x the real
- *  event count.  That is what made this leg red: 6 consumed events read as 12
- *  (and 12 publishes as 24 on the kafka sibling) — an apparent
- *  duplicate-delivery bug in a backend that was behaving correctly.  The
- *  shipment-count assertions just above pass, which is the tell: each message
- *  WAS processed exactly once.
- *
- *  Phoenix's `LogFormatter` has the identical shape (rendered `message` +
- *  merged metadata), so its legs need this too.  node/python/java log the
- *  event only as a structured field (`{ event: "channel_consumed", ... }`) —
- *  one occurrence per entry — which is why the naive count happens to work
- *  there.  The axis is the LOG FORMAT, not the backend. */
+/** Count catalog events in a .NET backend log: lines carrying the quoted
+ *  event name.  The generated LoomJsonFormatter writes the shared envelope, so
+ *  the event name appears once per entry, as the top-level `"event"` value. */
 const countEvents = (log: string, event: string): number =>
   log.split("\n").filter((l) => l.includes(`"${event}"`)).length;
 

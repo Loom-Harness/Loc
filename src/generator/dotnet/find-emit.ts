@@ -1,4 +1,5 @@
-import { readSortFor } from "../../ir/enrich/read-scope.js";
+import { type ReadOrderTerm, readSortFor } from "../../ir/enrich/read-scope.js";
+import { domainFindShape, singleReadOrder } from "../../ir/plan/index.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
@@ -51,41 +52,30 @@ export function ignoreFiltersClause(
 //     `&&`-conjunction is emitted.
 // ---------------------------------------------------------------------------
 
-/** A union find (`Agg or NotFound` / `Agg option` — validator-pinned to the
- *  absence shape, `loom.union-find-shape-unsupported`) reaches the Domain
- *  repository as its **optional twin**: the same predicate as a single-row
- *  select returning `Agg?`.  The Application query handler owns the union —
- *  it maps `null` to the absent variant and projects a found row into the
- *  tagged DTO (P4c producer side) — so the Domain layer never names the
- *  Response-side union type.  CQRS emitters (queries/DTOs/controller) keep
- *  the original union return. */
-export function unionFindAsOptionalTwin(find: FindIR, aggName: string): FindIR {
-  if (find.returnType.kind !== "union") return find;
-  const success = find.returnType.variants.find(
-    (v) => v.kind === "entity" && v.name === aggName,
-  ) ?? { kind: "entity" as const, name: aggName, declKind: "aggregate" as const };
-  return { ...find, returnType: { kind: "optional", inner: success } };
-}
-
-/** The DOMAIN-side shape of a find: the union→optional twin.  Every emitter
- *  that renders a repository signature or body goes through this, so the
- *  normalisation can never be applied to one emitter and forgotten in another. */
-export function domainFindShape(find: FindIR, aggName: string): FindIR {
-  return unionFindAsOptionalTwin(find, aggName);
-}
-
 export function buildFindBodies(
   agg: EnrichedAggregateIR,
   repo: RepositoryIR | undefined,
   ctx: BoundedContextIR,
-): Array<{ name: string; ignoreClause: string; filterClause: string; projectionClause: string }> {
+): Array<{
+  name: string;
+  ignoreClause: string;
+  filterClause: string;
+  orderClause: string;
+  projectionClause: string;
+}> {
   if (!repo) return [];
   return repo.finds.map((raw) => {
     const find = domainFindShape(raw, agg.name);
+    const order = singleReadOrder(find);
     return {
       name: find.name,
       ignoreClause: ignoreFiltersClause(agg, ctx.aggregates, find),
       filterClause: filterClauseFor(find, agg, ctx),
+      // The row a first-match read answers; a server-side read only — the
+      // in-memory document read orders its whole set itself.
+      orderClause: order
+        ? renderCsOrderTerms(order, csLocalNamer(find.params.map((p) => p.name))("x"))
+        : "",
       projectionClause: projectionClauseFor(
         find.returnType,
         csReadOwnParams(find.params.map((p) => p.name)).ct,
@@ -169,11 +159,25 @@ export function inMemoryOrderByClauseFor(r: RetrievalIR, x: string): string {
 }
 
 function renderOrderBy(terms: RetrievalIR["sort"], x: string): string {
+  return renderCsOrderTerms(
+    terms.map((s) => ({ field: s.path[0]!.name, direction: s.direction })),
+    x,
+  );
+}
+
+/** `.OrderBy(x => x.Col)[.ThenBy…]` for a list of order terms over the
+ *  candidate's own columns.  `x` is the lambda parameter; `continued` renders
+ *  every term as a `ThenBy`, after an order the query already has. */
+export function renderCsOrderTerms(
+  terms: readonly ReadOrderTerm[],
+  x: string,
+  continued = false,
+): string {
   return terms
     .map((s, i) => {
-      const col = upperFirst(s.path[0]!.name);
+      const col = upperFirst(s.field);
       const method =
-        i === 0
+        i === 0 && !continued
           ? s.direction === "desc"
             ? "OrderByDescending"
             : "OrderBy"

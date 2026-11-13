@@ -113,6 +113,8 @@ async function expectResolvedEffects(members: string, expected: string[]): Promi
 }
 
 /** AST + IR diagnostic codes for the fixture. */
+const IR_BACKSTOPS = new Set(["loom.unresolved-type", "loom.ir-ill-formed"]);
+
 async function codes(members: string): Promise<string[]> {
   const { model, diagnostics } = await parseString(src(members), { validate: true });
   const ast = diagnostics
@@ -120,7 +122,10 @@ async function codes(members: string): Promise<string[]> {
     .map((d) => String(d.code ?? (d.data as { code?: string } | undefined)?.code ?? ""));
   const ir = validateLoomModel(enrichLoomModel(lowerModel(model)))
     .filter((d) => d.severity === "error")
-    .map((d) => d.code ?? "");
+    .map((d) => d.code ?? "")
+    // The IR backstops speak only for a model nothing else refused; a host
+    // holding the AST layer's errors drops them, as `src/api` does.
+    .filter((c) => ast.length === 0 || !IR_BACKSTOPS.has(c));
   return [...ast, ...ir];
 }
 

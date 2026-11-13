@@ -1,0 +1,57 @@
+// A workflow value-object param arrives as JSON (string keys, enum values as
+// strings) and is read in the body as the value object: its enum field compares
+// to an enum value, its int field takes arithmetic.  A param left as raw
+// JSON never matches the enum, so every quote would price as Private.
+system VoParamEnum {
+  subdomain Policies {
+    context Policies {
+      enum Usage { Private, Commercial }
+      valueobject Vehicle { usage: Usage, value: int }
+
+      aggregate Quote with crudish {
+        premium: int
+        label: string
+      }
+      repository Quotes for Quote { }
+
+      workflow QuoteMotor {
+        create(vehicle: Vehicle): Quote id {
+          let load = vehicle.usage == Usage.Commercial ? 2 : 1
+          let q = Quote.create(premium: vehicle.value * load, label: vehicle.usage == Usage.Commercial ? "commercial" : "private")
+          return q.id
+        }
+      }
+    }
+  }
+
+  api PoliciesApi from Policies
+  storage pg { type: postgres }
+  resource policiesState { for: Policies, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Policies]
+    dataSources: [policiesState]
+    serves: PoliciesApi
+    port: 4000
+  }
+
+  test e2e "a workflow value-object param reads as the value object" against d {
+    let c = api.quoteMotor.run({ vehicle: { usage: "Commercial", value: 100 } })
+    let commercial = api.quotes.getById(c)
+    expect(commercial.label).toBe("commercial")
+    expect(commercial.premium).toBe(200)
+
+    let p = api.quoteMotor.run({ vehicle: { usage: "Private", value: 100 } })
+    let personal = api.quotes.getById(p)
+    expect(personal.label).toBe("private")
+    expect(personal.premium).toBe(100)
+
+    // The remaining CRUD routes.
+    let manual = api.quotes.create({ premium: 1, label: "manual" })
+    api.quotes.update(manual, { premium: 2, label: "edited" })
+    let all = api.quotes.all()
+    expect(all.total).toBe(3)
+    api.quotes.destroy(manual)
+    expect(api.quotes.getById(manual)).toThrow(404)
+  }
+}

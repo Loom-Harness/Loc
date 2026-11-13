@@ -131,6 +131,9 @@ export function emitAuth(args: AuthEmitArgs): AuthEmitResult {
   // `current_user` from the verified session cookie so LiveAuth can gate
   // LiveViews (the `auth: ui` frontend guard).  The dev stub needs none —
   // LiveAuth's dev_user fallback grants LiveViews out of the box.
+  // Dev stub: the :browser-pipeline plug that seeds the LiveView session from a
+  // \`x-loom-dev-claims\` header, when a request carries one.
+  if (!auth) files.set(`lib/${appName}_web/dev_browser_auth.ex`, renderDevBrowserAuth(webModule));
   if (auth) {
     files.set(`lib/${appName}_web/browser_auth.ex`, renderBrowserAuth(webModule, forwardCaller));
     // OIDC verifier engine (D-AUTH-OIDC): the Joken.Config token config and the
@@ -432,6 +435,21 @@ ${indentElixir(authedTail, 4)}
   # The dev stub answers only when ${DEV_AUTH_ENV}=1 — a development login,
   # never a production one.  Off, every request is refused (401).
   def dev_auth?, do: System.get_env("${DEV_AUTH_ENV}") == "1"
+
+  # DEV STUB: the principal a BROWSER request names through the same
+  # \`${DEV_CLAIMS_HEADER}\` header the :api pipeline honours, or nil when it
+  # names none.  The :browser pipeline's DevBrowserAuth seeds the LiveView
+  # session from it, so a page is exercised as the principal its API calls run
+  # as, not always as the built-in admin.
+${
+  devClaimsEnabled
+    ? `  def dev_browser_user(conn) do
+    if dev_auth?() and get_req_header(conn, "${DEV_CLAIMS_HEADER}") != [] do
+      merge_dev_claims(conn, dev_user())
+    end
+  end`
+    : "  def dev_browser_user(_conn), do: nil"
+}
 `
   }
   # The request principal for a user-shape claims map (atom keys), derived as
@@ -1690,6 +1708,36 @@ ${
     : `      user -> put_session(conn, "current_user", user)
     end`
 }
+  end
+end
+`;
+}
+
+/** The dev-stub twin of `BrowserAuth`: a request carrying the
+ *  `x-loom-dev-claims` header writes that principal into the Phoenix session,
+ *  so `LiveAuth.on_mount` mounts the LiveView as it.  Without the header the
+ *  session is untouched and LiveAuth falls back to the built-in admin. */
+function renderDevBrowserAuth(webModule: string): string {
+  return `# Auto-generated.
+defmodule ${webModule}.DevBrowserAuth do
+  @moduledoc """
+  DEV STUB plug (\`:browser\` pipeline): seeds the Phoenix session's
+  \`current_user\` from the \`${DEV_CLAIMS_HEADER}\` header, the same claims
+  override the :api pipeline honours.  Answers only under ${DEV_AUTH_ENV}=1.
+  """
+
+  @behaviour Plug
+  import Plug.Conn
+
+  @impl Plug
+  def init(opts), do: opts
+
+  @impl Plug
+  def call(conn, _opts) do
+    case ${webModule}.Auth.dev_browser_user(conn) do
+      nil -> conn
+      user -> put_session(conn, "current_user", user)
+    end
   end
 end
 `;

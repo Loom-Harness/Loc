@@ -101,6 +101,9 @@ api:                      # one block per deployable
     url: "postgres://…@db:5432/api"   # placeholder — point at your managed DB
   secrets: {}             # sensitive env (only present when the backend has any),
                           # e.g. SECRET_KEY_BASE / SPRING_DATASOURCE_PASSWORD
+  wiring:                 # deploy-tier env (only present when the backend has any)
+    ORDERS_URL: "http://orders-svc:4000"   # a `use: <Api>` → the server's Service
+    OIDC_ISSUER: ""                         # empty ⇒ the install refuses (`required`)
 webApp:
   enabled: true
   replicas: 1
@@ -112,6 +115,18 @@ webApp:
 Backends default to a heavier resource class than static frontends. The DB
 `database.url` defaults to the dev-compose connection string as a recognisable
 **placeholder** — production overrides it with the real managed-DB URL.
+
+`wiring` carries the backend's **deploy-tier** environment — the variables
+its env contract (`PlatformOperations.env`, `docs/platforms.md`) marks as
+having a fallback that is right only inside the dev compose network: a
+sibling api's URL, an IdP issuer / client id / callback bound to `env(…)`, a
+mailer or queue on a dev sidecar.  A `use: <Api>` binding has an in-cluster
+answer (the server's Service) and is wired outright; the rest default to
+empty, and the ConfigMap template wraps them in `required`, so the chart
+refuses to install until the operator sets them rather than letting the
+service dial a compose host.  The raw manifests carry the empty value, which
+the service fails on loudly.  `test/platform/env-contract-conformance.test.ts`
+holds compose and the manifests to the same contract.
 
 Every deployable carries a default-true `enabled` toggle; each
 Deployment/Service/ConfigMap/Ingress template is wrapped in

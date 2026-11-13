@@ -13,6 +13,7 @@
 
 import {
   type ReadBypass,
+  type ReadOrderTerm,
   type ReadScope,
   readDiscriminator,
   readFilterRestrictions,
@@ -20,6 +21,7 @@ import {
   readScopeFor,
 } from "../../ir/enrich/read-scope.js";
 import { streamTenancyFor } from "../../ir/enrich/stream-tenancy.js";
+import { clientSortTieBreak } from "../../ir/plan/index.js";
 import type {
   BoundedContextIR,
   CriterionIR,
@@ -953,9 +955,17 @@ export function readScopeUsesPrincipal(agg: EnrichedAggregateIR, ctx: BoundedCon
  *  read-scope order: the declared terms with an `id` tie-break, or `id` alone
  *  when the read declares none. */
 export function drizzleOrderBy(tableName: string, declared?: readonly SortTermIR[]): string {
-  return readOrderFor(declared)
-    .map((t) => `${t.direction}(schema.${tableName}.${t.field})`)
-    .join(", ");
+  return drizzleOrderTerms(tableName, readOrderFor(declared));
+}
+
+/** The ORDER BY arguments a page sorted by the caller's `?sort=` key takes
+ *  after that key (`clientSortTieBreak`). */
+export function drizzleClientSortTieBreak(tableName: string): string {
+  return drizzleOrderTerms(tableName, clientSortTieBreak());
+}
+
+function drizzleOrderTerms(tableName: string, terms: readonly ReadOrderTerm[]): string {
+  return terms.map((t) => `${t.direction}(schema.${tableName}.${t.field})`).join(", ");
 }
 
 // ---------------------------------------------------------------------------

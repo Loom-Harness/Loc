@@ -5,13 +5,14 @@
 
 import type { AggregateIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { rowSetLambdaParam } from "../../../ir/util/collection-op-site.js";
-import { humanize, lowerFirst, upperFirst } from "../../../util/naming.js";
+import { lowerFirst, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { detectDataAccess } from "../data-access.js";
 import { giveUp, giveUpNotice } from "../give-up.js";
 import { skipsEntityHistoryRead } from "../history-read.js";
 import { localizedAriaLabelAttr, localizedNamedValue, localizedText } from "../i18n-emit.js";
 import { lookupBuiltinIcon } from "../icons.js";
+import { actionButtonLabel } from "../model-text-sites.js";
 import { opGateFor, opRequiresClientGate } from "../op-gate.js";
 import { queryShape } from "../paged-query.js";
 import { renderPrimitive } from "../render-primitive.js";
@@ -337,7 +338,7 @@ export function emitAction(
     ? `() => void ${mutateCall}.then(() => { ${thenJs}; })`
     : `() => void ${mutateCall}`;
   const button = renderPrimitive(ctx, "primitive-button", {
-    label: humanize(op.name),
+    label: actionButtonLabel(ctx, agg, op.name),
     onClick,
     hasOnClick: true,
     disabled: gate?.disabledExpr,
@@ -384,7 +385,7 @@ function emitRowAction(
   const rowId = `${emitExpr(receiver, ctx)}.id`;
   const thenArg = namedArgValue(call, "then");
   const thenJs = thenArg ? emitActionThen(thenArg, ctx) : undefined;
-  const label = humanize(op.name);
+  const label = actionButtonLabel(ctx, agg, op.name);
   if (ctx.target.framework === "react") {
     const child = `${upperFirst(op.name)}${agg.name}RowAction`;
     if (!ctx.actionMutations.some((m) => m.localVar === child)) {

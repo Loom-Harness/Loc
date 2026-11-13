@@ -22,6 +22,7 @@ import {
   upperFirst,
 } from "../../../util/naming.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
+import { forbiddenTexts } from "../../_frontend/auth-ui.js";
 import {
   componentPropTsType,
   takeMoneyPropImport,
@@ -710,6 +711,9 @@ export function renderVuePage(input: VuePageShellInput): string {
   // (`usesCurrentUser`); the `v-if` Forbidden wrap is page-`requires`-only.
   const gated = !!input.authUi && !!page.requires;
   const needsUser = gated || result.usesCurrentUser;
+  // The forbidden view reads its text through `t` under i18n; registered before
+  // the `../i18n` fold below.
+  if (gated && input.i18nPrefix) addImportToMap(result.imports, I18N_MODULE, "t");
   if (needsUser) {
     script.push(`import { useSession } from "${relPrefix(input)}auth/useSession";`);
   }
@@ -858,10 +862,11 @@ export function renderVuePage(input: VuePageShellInput): string {
   // Page-`requires` guard: a forbidden caller sees `<Forbidden/>` instead of
   // the body (Vue 3 allows multiple template roots, so the guard `div` + the
   // `v-else` body sit side by side).  Ungated pages keep the bare body.
+  const forbidden = forbiddenTexts(input.i18nPrefix !== undefined, (call) => `{{ ${call} }}`);
   const templateBody = gated
     ? `  <div v-if="!loomPageAllowed" style="padding: 24px;">
-    <h2>Forbidden</h2>
-    <p>You do not have access to this page.</p>
+    <h2>${forbidden.title}</h2>
+    <p>${forbidden.body}</p>
   </div>
   <template v-else>
 ${indent(result.tsx, "    ")}${dialogs}

@@ -134,8 +134,14 @@ const authored = (menu: MenuShape, t: FrontendTarget): string[] => [
     "SlotModalTrigger",
     "SlotModalTriggerTitle",
     "SlotAdminHeading",
+    ...(hasTitledPage(t) ? ["SlotNavTitle"] : []),
   ]),
 ];
+
+/** The titled page (a nav label derived from a page `title:`) is probed on the
+ *  JS/Feliz/Flutter shells; HEEx pages render `<title>` through `assign(:page_title, …)`,
+ *  which the inert-call scan reads as a text node. */
+const hasTitledPage = (t: FrontendTarget): boolean => t.platform !== "elixir";
 
 type MenuShape = "explicit" | "derived";
 
@@ -156,6 +162,7 @@ function uiBlock(t: FrontendTarget, menu: MenuShape): string {
         ? `menu {
       section "SlotMenuSection" {
         link Probe { label: "SlotMenuLink" }
+        ${hasTitledPage(t) ? "link Titled" : ""}
         link "SlotMenuExternal" -> "https://example.com/docs"
       }
     }`
@@ -176,10 +183,20 @@ function uiBlock(t: FrontendTarget, menu: MenuShape): string {
       }
       body: ${probeBody(t)}
     }
+    ${
+      hasTitledPage(t)
+        ? `page Titled {
+      route: "/titled"
+      title: "SlotNavTitle"
+      body: Text { "SlotTitledBody" }
+    }`
+        : ""
+    }
     page ProductAdmin(id: Product id) {
       route: "/products/:id/admin"
       body: Stack {
         Heading { "SlotAdminHeading" },
+        QueryView { of: Shop.Product.byId(id), single: true, data: p => Action { p.retire } },
         Modal {
           trigger: Button { "SlotModalTrigger", testid: "products-op-retire" },
           title: "SlotModalTriggerTitle",
@@ -775,6 +792,154 @@ describe("i18n round trip — frontends (M-T9.39)", () => {
   });
 });
 
+// --- the forbidden view of a page-level `requires` ---------------------------
+
+/** The four pack-rendered frontends draw their own forbidden fallback for a
+ *  `requires`-gated page; one cell per framework. */
+const FORBIDDEN_CELLS: readonly FrontendTarget[] = [
+  { id: "mantine", platform: "react", pack: "mantine" },
+  { id: "vuetify", platform: "vue", pack: "vuetify" },
+  { id: "flowbite", platform: "svelte", pack: "flowbite" },
+  { id: "angularMaterial", platform: "angular", pack: "angularMaterial" },
+];
+
+/** A minimal `auth: ui` frontend with a `requires`-gated page.  `heading` is
+ *  the authored text that turns the UI's i18n runtime on (empty ⇒ off). */
+const gatedSystem = (t: FrontendTarget, heading: string): string => `
+system Helpdesk {
+  user { id: string  role: string }
+  auth { provider: keycloak oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") } }
+  subdomain Support {
+    context Tickets {
+      aggregate Ticket { subject: string }
+      repository Tickets for Ticket
+      policy { read Ticket requires true }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: Tickets, kind: state, use: primary }
+  api SupportApi from Support
+  deployable api { platform: node contexts: [Tickets] serves: SupportApi dataSources: [st] port: 8080 auth: required }
+  ui WebApp {
+    api Support: SupportApi
+    page Secret { route: "/secret" requires currentUser.role == "agent" body: Stack { ${heading} Divider() } }
+  }
+  deployable web { platform: ${t.platform} design: "${t.pack}" targets: api ui: WebApp { Support: api } port: 3001 auth: ui }
+}`;
+
+describe("i18n round trip — the page-level `requires` forbidden view", () => {
+  for (const t of FORBIDDEN_CELLS) {
+    it(`${t.id}: the forbidden text is catalogued, read through its key, and bound`, async () => {
+      const files = await generateSystemFiles(gatedSystem(t, 'Heading { "Secret" },'));
+      const r = roundTrip(files, t, "derived");
+      const keys = ["chrome.forbiddenTitle", "chrome.forbiddenBody"];
+      expect(keys.map((k) => r.catalog[k])).toEqual([
+        "Forbidden",
+        "You do not have access to this page.",
+      ]);
+      const about = (rows: { key: string }[]) => rows.filter((x) => keys.includes(x.key));
+      expect({
+        dead: r.dead.filter((k) => keys.includes(k)),
+        // The English rendered raw next to a catalogued key.
+        raw: about(r.raw),
+        // The key present but inside inert markup.
+        unbound: about(r.unbound),
+      }).toEqual({ dead: [], raw: [], unbound: [] });
+    });
+
+    it(`${t.id}: an app without a translation runtime keeps the literal English`, async () => {
+      const files = await generateSystemFiles(gatedSystem(t, ""));
+      const page = [...files].find(
+        ([p, src]) => p.startsWith("web/") && /currentUser/.test(src) && /agent/.test(src),
+      );
+      expect(page, `${t.id}: no gated page emitted`).toBeDefined();
+      expect(page![1]).toContain("Forbidden");
+      expect(page![1]).not.toContain("chrome.forbidden");
+    });
+  }
+});
+
+// --- chrome slots on the JS frontends ----------------------------------------
+
+const JS_FRONTENDS = FRONTENDS.filter((t) =>
+  ["react", "vue", "svelte", "angular"].includes(t.platform),
+);
+
+const CHROME_SLOTS_SYSTEM = (t: FrontendTarget): string => `
+  system Clinic {
+    subdomain S { context C {
+      aggregate Appt {
+        status: string
+        qty: int
+        create(status: string, qty: int) { }
+        operation complete() { status := "Done" }
+        invariant qtyNonNegative: qty >= 0
+      }
+      repository Appts for Appt { }
+    } }
+    api A from S
+    storage db { type: postgres }
+    resource st { for: C, kind: state, use: db }
+    ui W {
+      api S: A
+      menu { section "Main" { link Console } }
+      page Console {
+        route: "/console"
+        title: "SlotConsoleTitle"
+        body: Stack {
+          QueryView { of: S.Appt.all, data: rows => Table { rows: rows,
+            Column { "Done", o => Action { o.complete } } } }
+        }
+      }
+      page New { route: "/new" body: CreateForm { of: Appt } }
+      page Detail(id: Appt id) {
+        route: "/detail/:id"
+        body: QueryView { of: S.Appt.byId(id), single: true, data: a => Stack { Action { a.complete } } }
+      }
+    }
+    deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
+    deployable web { platform: ${t.platform} design: "${t.pack}" targets: api ui: W { S: api } port: 3001 }
+  }`;
+
+describe("i18n chrome slots — nav label from a page title, Action label (JS frontends)", () => {
+  for (const t of JS_FRONTENDS) {
+    it(`${t.id}: the nav link reuses the page-title key; Action renders the op key`, async () => {
+      const files = await generateSystemFiles(CHROME_SLOTS_SYSTEM(t), { locales: ["ar"] } as never);
+      const catalog = JSON.parse(files.get(".loom/messages.en.json")!) as Record<string, string>;
+      const titleKeys = Object.keys(catalog).filter((k) => catalog[k] === "SlotConsoleTitle");
+      // One translator entry for the title, not one per surface.
+      expect(titleKeys).toHaveLength(1);
+      const opKey = Object.keys(catalog).find((k) => /\.Appt\.op\.complete$/.test(k));
+      expect(opKey, "the operation's identity key is catalogued").toBeDefined();
+
+      const tree = [...consumptionTree(files, t)].filter(([f]) => !/\.(css|svg)$/.test(f));
+      const readers = (key: string) =>
+        tree.filter(([, src]) => quoted(key).test(src)).map(([f]) => f);
+      // A `message`-bearing rule's client refine carries its catalog key as the
+      // `loomCode` the form localizes at render time (the English literal is only
+      // the fallback), so the rule is read through the catalog on every cell.
+      const ruleKey = Object.keys(catalog).find((k) => /\.Appt\.rule\.qtyNonNegative$/.test(k));
+      expect(ruleKey, "the named rule is catalogued").toBeDefined();
+      expect(readers(ruleKey!).length, "a client schema reads the rule key").toBeGreaterThan(0);
+      // The title key is read by the page AND by the app shell's nav link.
+      expect(readers(titleKeys[0]!).length, "page + shell read the title key").toBeGreaterThan(1);
+      // The detail and the row `Action` (the only readers of the op key here).
+      expect(readers(opKey!).length).toBeGreaterThan(0);
+      // Absence claim (string tier, labelled): no emitted line renders the bare
+      // English "Complete" button label or the bare title outside a `t()` call.
+      for (const [file, src] of tree) {
+        for (const line of src.split("\n")) {
+          if (/^\s*(\/\/|\*|<!--)/.test(line)) continue;
+          expect(line, `${file}: bare op label`).not.toMatch(/>\s*Complete\s*</);
+          if (line.includes("SlotConsoleTitle") && !file.endsWith("index.html")) {
+            expect(line, `${file}: title outside t()`).toMatch(/\bt\(|\bI18n/);
+          }
+        }
+      }
+    });
+  }
+});
+
 // --- the backend half --------------------------------------------------------
 
 /** The five backends.  None ships a runtime catalog: each answers a rule's
@@ -855,4 +1020,142 @@ describe("i18n round trip — backend rule-key codes", () => {
       ).toEqual([]);
     });
   }
+});
+
+// --- untitled page names + the ProvenanceInfo disclosure ----------------------
+//
+// Two strings the model never authors as a literal, so no fixture slot covers
+// them: an UNTITLED page's name (Feliz's navbar link, Flutter's app-bar title)
+// and the `ProvenanceInfo` disclosure's accessible name and row labels.  Each
+// is catalogued, consumed through its key, and a translated locale value lands
+// in the catalog the app compiles in beside the source one.
+
+/** A scaffolded aggregate with a `provenanced` field — its detail page renders
+ *  `ProvenanceInfo` — plus one untitled hand-written page, so the nav has two
+ *  top-level pages. */
+const provSystem = (platform: string): string => `
+  system ProvDemo {
+    subdomain Ordering {
+      context Ordering {
+        aggregate Order with crudish {
+          reference: string
+          total: int provenanced
+          derived display: string = reference
+        }
+        repository Orders for Order { }
+      }
+    }
+    ui Web with scaffold(subdomains: [Ordering]) {
+      page Notes { route: "/notes" body: Text { "Some notes" } }
+    }
+    storage primary { type: postgres }
+    resource orderingState { for: Ordering, kind: state, use: primary }
+    deployable api { platform: node, contexts: [Ordering], dataSources: [orderingState], port: 3000 }
+    deployable web { platform: ${platform}, targets: api, ui: Web, port: 3001 }
+  }`;
+
+const PROV_KEYS = {
+  "chrome.provenanceHowComputed": ["How this value was computed", "Wie der Wert berechnet wurde"],
+  "chrome.provenanceRule": ["Rule", "Regel"],
+  "chrome.provenanceValue": ["Value", "Wert"],
+} as const;
+
+const DE_PROV = Object.fromEntries(Object.entries(PROV_KEYS).map(([k, [, de]]) => [k, de]));
+
+/** Every file of the frontend deployable that consumes keys (not a catalog). */
+function appSource(files: ReadonlyMap<string, string>): string {
+  return [...files]
+    .filter(([p]) => p.startsWith("web/") && !/\.json$|lib\/i18n\.dart$|\/(e2e|test)\//.test(p))
+    .map(([p, s]) => (p.endsWith("App.fs") ? stripFelizCatalog(s) : s))
+    .join("\n");
+}
+
+const json = (files: ReadonlyMap<string, string>, path: string): Record<string, string> =>
+  JSON.parse(files.get(path)!) as Record<string, string>;
+
+describe("i18n round trip — ProvenanceInfo chrome", () => {
+  // Per target: the file the translated `de` catalog lands in, and how one of
+  // its rows reads there.
+  const jsRow = (k: string, v: string): string => `"${k}": "${v}"`;
+  const TARGETS = [
+    { platform: "react", de: /locales\/de\.json$/, row: jsRow },
+    { platform: "vue", de: /locales\/de\.json$/, row: jsRow },
+    { platform: "svelte", de: /locales\/de\.json$/, row: jsRow },
+    { platform: "angular", de: /locales\/de\.json$/, row: jsRow },
+    {
+      platform: "feliz",
+      de: /App\.fs$/,
+      row: (k: string, v: string) => `"${k}", "${v}"`,
+    },
+    {
+      platform: "flutter",
+      de: /lib\/i18n\.dart$/,
+      row: (k: string, v: string) => `'${k}': '${v}'`,
+    },
+  ] as const;
+
+  for (const t of TARGETS) {
+    it(`${t.platform}: catalogued, read through its key, and the translated value ships`, async () => {
+      const files = await generateSystemFiles(provSystem(t.platform), {
+        translations: new Map([["de", DE_PROV]]),
+      });
+      const system = json(files, ".loom/messages.en.json");
+      const source = appSource(files);
+      const deFile = [...files].find(([p]) => p.startsWith("web/") && t.de.test(p))![1];
+      for (const [key, [english, german]] of Object.entries(PROV_KEYS)) {
+        expect(system[key], `${key} catalogued`).toBe(english);
+        expect(source, `${key} consumed`).toMatch(quoted(key));
+        expect(deFile, `${key} translated`).toContain(t.row(key, german));
+      }
+    });
+  }
+
+  it("a UI with no ProvenanceInfo carries none of the keys", async () => {
+    const files = await generateSystemFiles(
+      provSystem("react").replace("total: int provenanced", "total: int"),
+    );
+    const system = json(files, ".loom/messages.en.json");
+    expect(Object.keys(system).filter((k) => k.startsWith("chrome.provenance"))).toEqual([]);
+  });
+});
+
+describe("i18n round trip — untitled page names", () => {
+  const NOTES = /^Web\.page\.Notes\.name\.\w+$/;
+
+  for (const platform of ["feliz", "flutter"] as const) {
+    it(`${platform}: the name is catalogued, bound through its key, and translatable`, async () => {
+      const probe = await generateSystemFiles(provSystem(platform));
+      const system = json(probe, ".loom/messages.en.json");
+      const key = Object.keys(system).find((k) => NOTES.test(k));
+      expect(key, "name entry for the untitled page").toBeDefined();
+      expect(system[key!]).toBe("Notes");
+      const files = await generateSystemFiles(provSystem(platform), {
+        translations: new Map([["de", { [key!]: "Notizen" }]]),
+      });
+      expect(appSource(files)).toMatch(quoted(key!));
+      // Flutter's catalog lives in `lib/i18n.dart` (not a consumer); Feliz's in `App.fs`.
+      const catalogPath = platform === "feliz" ? /App\.fs$/ : /lib\/i18n\.dart$/;
+      const catalogFile = [...files].find(([p]) => p.startsWith("web/") && catalogPath.test(p))![1];
+      expect(catalogFile).toContain(
+        platform === "feliz" ? `"${key}", "Notizen"` : `'${key}': 'Notizen'`,
+      );
+    });
+  }
+
+  it("a titled page contributes no name entry", async () => {
+    const files = await generateSystemFiles(
+      provSystem("flutter").replace(
+        'route: "/notes" body',
+        'route: "/notes" title: "My notes" body',
+      ),
+    );
+    const system = json(files, ".loom/messages.en.json");
+    expect(Object.keys(system).filter((k) => NOTES.test(k))).toEqual([]);
+  });
+
+  it("the pack-rendered frontends catalog no page names", async () => {
+    const files = await generateSystemFiles(provSystem("react"));
+    const system = json(files, ".loom/messages.en.json");
+    expect(Object.keys(system).filter((k) => /\.page\.\w+\.name\./.test(k))).toEqual([]);
+  });
 });

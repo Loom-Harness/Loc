@@ -68,10 +68,12 @@ import {
   chromeKey,
 } from "../_walker/i18n-chrome.js";
 import {
+  humanizePageName,
   icuFromConcat,
   literalString,
   messageKey,
   pageKeyPrefix,
+  pageNameEntry,
 } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import { bcByAggregateOf, type PagedQueryContext } from "../_walker/paged-query.js";
@@ -830,17 +832,24 @@ function renderRouting(
  *  `Products`) and humanised from its name otherwise.  Handed to
  *  `deriveSidebarFromUi`, which keys each label into the translation catalog
  *  where the page's metadata is extracted and merges in the custom pages. */
-function defaultNavSection(pages: readonly PageIR[], nameCtx: PageNameCtx): NavSectionVM {
+function defaultNavSection(ui: UiIR, pages: readonly PageIR[], nameCtx: PageNameCtx): NavSectionVM {
   return {
     label: "",
     entries: pages
       .filter((p) => isDefaultNavPage(p, nameCtx))
-      .map((p) => ({
-        to: p.route ?? "/",
-        label: menuMetaString(p, "label") ?? humanizeLabel(pageEmitName(p, nameCtx)),
-        testId: `nav-${snake(pageEmitName(p, nameCtx))}`,
-        activeArgs: JSON.stringify(p.route ?? "/"),
-      })),
+      .map((p) => {
+        // An untitled page's link reads its catalog `name` entry, the same key
+        // its own heading translates under.
+        const named = menuMetaString(p, "label") === undefined ? pageNameEntry(ui, p) : undefined;
+        return {
+          to: p.route ?? "/",
+          label:
+            menuMetaString(p, "label") ?? named?.message ?? humanizeLabel(pageEmitName(p, nameCtx)),
+          ...(named ? { labelKey: named.key } : {}),
+          testId: `nav-${snake(pageEmitName(p, nameCtx))}`,
+          activeArgs: JSON.stringify(p.route ?? "/"),
+        };
+      }),
   };
 }
 
@@ -922,7 +931,7 @@ function renderNavbar(
   return [
     `    Html.nav [ prop.className "navbar bg-base-200 rounded-box mb-4"; prop.ariaLabel ${navAria}; prop.children [`,
     '      Html.div [ prop.className "flex-1"; prop.children [',
-    `        Html.a [ prop.className "btn btn-ghost text-xl"; prop.href "/"; prop.text "${humanizeLabel(brand)}" ]`,
+    `        Html.a [ prop.className "btn btn-ghost text-xl"; prop.href "/"; prop.text ${fsString(humanizePageName(brand))} ]`,
     "      ] ]",
     ...(entries.length > 0
       ? [
@@ -1851,7 +1860,7 @@ function renderAppFs(
           pageGate,
           ui.menu
             ? deriveSidebarFromUi(ui, nameCtx)
-            : deriveSidebarFromUi(ui, nameCtx, false, [defaultNavSection(ui.pages, nameCtx)]),
+            : deriveSidebarFromUi(ui, nameCtx, false, [defaultNavSection(ui, ui.pages, nameCtx)]),
           localeSwitchable,
           !!ui.menu,
         ),

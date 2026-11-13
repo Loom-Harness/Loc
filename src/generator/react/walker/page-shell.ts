@@ -30,6 +30,7 @@ import {
 } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
+import { forbiddenTexts } from "../../_frontend/auth-ui.js";
 import {
   componentPropTsType,
   takeMoneyPropImport,
@@ -449,6 +450,8 @@ export function renderCustomLayoutPage(
   // block is serialized on the next line.  Which is why the form wiring runs
   // here rather than further down with the rest of the page assembly.
   if (needsPackChromeT(form.moduleScope)) addImportToMap(imports, I18N_MODULE, "t");
+  // The forbidden view reads its text through `t` under i18n.
+  if (requires && i18nPrefix) addImportToMap(imports, I18N_MODULE, "t");
   // Drain the walked body's react-hook imports (a hoisted DataGrid child needs
   // `useMemo`/`useState`/`useEffect`) so they merge into the shell's single
   // react import line below instead of emitting a second, clashing one.
@@ -582,7 +585,7 @@ export function renderCustomLayoutPage(
   // fails.  The guard lands AFTER every hook (useSession is itself a hook, so it
   // stays unconditional) and right before the body `return`, keeping the
   // rules-of-hooks contract intact while short-circuiting the render.
-  const gate = renderPageGate(requires, usesCurrentUser, srcImportPrefix);
+  const gate = renderPageGate(requires, usesCurrentUser, srcImportPrefix, i18nPrefix !== undefined);
   const store = renderStoreWiring(storeUses, srcImportPrefix, storeReserved);
   // `toast(<msg>)` from an `action` body / an `Action { then: … }` slot renders
   // as a bare call, so the page has to import the effect the project emits at
@@ -651,6 +654,7 @@ function renderPageGate(
   requires: ExprIR | undefined,
   usesCurrentUser: boolean,
   srcImportPrefix: string,
+  i18n = false,
 ): { import: string; guard: string } {
   if (!requires && !usesCurrentUser) return { import: "", guard: "" };
   // Dynamic JWT claims → the session user is loosely typed; the cast keeps
@@ -659,13 +663,14 @@ function renderPageGate(
   // `unknown`) because an `unknown` claim can't be indexed/called past one hop.
   const binding = `  const currentUser = useSession().user as Record<string, any>;`;
   // The Forbidden short-circuit only fires for a page-level `requires`.
+  const text = forbiddenTexts(i18n, (call) => `{${call}}`);
   const forbidden = requires
     ? [
         `  if (!(${renderGateExpr(requires, "currentUser")})) {`,
         `    return (`,
         `      <div style={{ padding: 24 }}>`,
-        `        <h2>Forbidden</h2>`,
-        `        <p>You do not have access to this page.</p>`,
+        `        <h2>${text.title}</h2>`,
+        `        <p>${text.body}</p>`,
         `      </div>`,
         `    );`,
         `  }`,

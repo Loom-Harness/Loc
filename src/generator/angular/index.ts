@@ -472,7 +472,7 @@ export function generateAngularForContexts(
     // out here because the walk is scoped to the has-a-body branch.
     let hoistedComponentFiles: readonly { path: string; content: string }[] = [];
     if (!page.body) {
-      content = renderAngularPageStub(page, pageCtx, authUi);
+      content = renderAngularPageStub(page, pageCtx, authUi, i18nEnabled);
     } else {
       const result = walkBody(
         page.body,
@@ -504,7 +504,7 @@ export function generateAngularForContexts(
         ? []
         : (result.hoistedComponentFiles ?? []);
       content = pageNeedsDeferredFeatures(result)
-        ? renderAngularPageStub(page, pageCtx, authUi)
+        ? renderAngularPageStub(page, pageCtx, authUi, i18nEnabled)
         : renderAngularPage({
             page,
             result,

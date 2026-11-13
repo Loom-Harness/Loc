@@ -18,8 +18,8 @@ import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { javaRef } from "../../_imports/java.js";
 import {
   coerceMatcherExpected,
-  coerceTestLiteral,
-  type TestLiteralTarget,
+  coerceTestValue,
+  type TestValueTarget,
 } from "../../_test/arg-coercion.js";
 import { javaThrowKind } from "../../_test/throw-kind.js";
 import { jid } from "../java-ident.js";
@@ -216,16 +216,23 @@ export function testBodyRenderContext(
  *  raw literal rather than a wire value. */
 /** Java leaves for the shared rule.  Closes over the file's import set so an
  *  emitted `UUID` / `Instant` brings its import with it. */
-function javaTestLiteral(): TestLiteralTarget {
+function javaTestLiteral(): TestValueTarget {
   return {
     id: (rendered, targetName) => `new ${targetName}Id(${J.UUID}.fromString(${rendered}))`,
     datetime: (rendered) => `${J.Instant}.parse(${rendered})`,
     date: (rendered) => `${J.LocalDate}.parse(${rendered})`,
+    valueObject: (name, args) => `new ${name}(${args.join(", ")})`,
+    omitted: "null",
   };
 }
 
-function coerceLiteralToJavaType(type: TypeIR | undefined, v: ExprIR, rendered: string): string {
-  return coerceTestLiteral(type, v, rendered, javaTestLiteral());
+function coerceLiteralToJavaType(
+  type: TypeIR | undefined,
+  v: ExprIR,
+  ctx: BoundedContextIR,
+  rctx: JavaRenderContext,
+): string {
+  return coerceTestValue(type, v, ctx, (e) => renderJavaExpr(e, rctx), javaTestLiteral());
 }
 
 /** `x.op(args)` on an aggregate receiver → the same call with each arg coerced
@@ -250,9 +257,8 @@ export function renderOperationCall(
   if (!op || op.params.length === 0) return null;
   const recv = renderJavaExpr(e.receiver, rctx);
   const args = e.args.map((a, i) => {
-    const rendered = renderJavaExpr(a, rctx);
     const p = op.params[i];
-    return p ? coerceLiteralToJavaType(p.type, a, rendered) : rendered;
+    return p ? coerceLiteralToJavaType(p.type, a, ctx, rctx) : renderJavaExpr(a, rctx);
   });
   return `${recv}.${jid(e.member)}(${args.join(", ")})`;
 }
@@ -277,7 +283,7 @@ export function renderCreateCall(
     if (v) {
       // A provided string literal renders as a raw value; coerce it to the
       // factory param's strong Java type (id record / Instant / …).
-      return coerceLiteralToJavaType(f.type, v, renderJavaExpr(v, rctx));
+      return coerceLiteralToJavaType(f.type, v, ctx, rctx);
     }
     // Java has no optional or named parameters, so an omitted create input is
     // spelled `null` — the same signal the create DTO sends, and what the

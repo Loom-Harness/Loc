@@ -759,14 +759,15 @@ export const felizTarget: WalkerTarget = {
       );
     }
     const lineage = `${emitExpr(ofArg, ctx)}.${String(fieldArg.value)}.${PROVENANCE_LINEAGE_FIELD}`;
-    const rule =
-      'Html.div [ prop.children [ Html.dt [ prop.text "Rule" ]; Html.dd [ Html.code [ prop.text __p.snapshotId ] ] ] ]';
-    const value =
-      'Html.div [ prop.children [ Html.dt [ prop.text "Value" ]; Html.dd [ prop.text __p.computedValue ] ] ]';
+    const ruleLabel = localizedPageChromeValue(ctx, "provenanceRule");
+    const valueLabel = localizedPageChromeValue(ctx, "provenanceValue");
+    const rule = `Html.div [ prop.children [ Html.dt [ prop.text ${ruleLabel} ]; Html.dd [ Html.code [ prop.text __p.snapshotId ] ] ] ]`;
+    const value = `Html.div [ prop.children [ Html.dt [ prop.text ${valueLabel} ]; Html.dd [ prop.text __p.computedValue ] ] ]`;
     const inputRow =
       "Html.div [ prop.children [ Html.dt [ prop.text __i.path ]; Html.dd [ prop.text __i.value ] ] ]";
     const dl = `Html.dl [ prop.children (List.append [ ${rule}; ${value} ] [ for __i in __p.inputs -> ${inputRow} ]) ]`;
-    const details = `Html.details [ prop.className "loom-provenance"; prop.children [ Html.summary [ prop.text "?" ]; ${dl} ] ]`;
+    const howLabel = localizedPageChromeValue(ctx, "provenanceHowComputed");
+    const details = `Html.details [ prop.className "loom-provenance"; prop.children [ Html.summary [ prop.ariaLabel ${howLabel}; prop.text "?" ]; ${dl} ] ]`;
     const match = `(match ${lineage} with Some __p -> ${details} | None -> Html.none)`;
     return `Html.span [ prop.children [ ${match} ] ]`;
   },

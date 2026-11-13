@@ -13,6 +13,7 @@ import type {
 import { type PageNameCtx, pageEmitName } from "../../../ir/util/page-kind.js";
 import { upperFirst } from "../../../util/naming.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
+import { forbiddenTexts } from "../../_frontend/auth-ui.js";
 import { takeMoneyPropImport, valueObjectIndex } from "../../_frontend/component-prop-type.js";
 import { unwrapOpt } from "../../_frontend/form-helpers.js";
 import { FORMAT_CALL_HELPERS } from "../../_frontend/format-helpers.js";
@@ -20,6 +21,7 @@ import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import { usesToastEffect } from "../../_frontend/toast-effect.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import { localizedPageTitle } from "../../_walker/i18n-emit.js";
+import { addImportToMap, I18N_MODULE } from "../../_walker/render-primitive.js";
 import {
   closeUsedActions,
   emitExpr,
@@ -379,6 +381,8 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   }
 
   const requires = input.authUi ? page.requires : undefined;
+  // The forbidden view reads its text through `t` under i18n.
+  if (requires && input.i18nPrefix) addImportToMap(result.imports, I18N_MODULE, "t");
   // The verified-session `currentUser` accessor is needed for the page guard
   // (`requires`) AND for a currentUser-gated `Action` button inside the body
   // (the walker sets `result.usesCurrentUser` when it `@if`-hides one) — even
@@ -1189,12 +1193,13 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   // mirror of the backend 403).  The action-button gate, by contrast, is
   // already woven into `result.tsx` by the walker, so it needs no wrap here.
   if (requires) {
+    const forbidden = forbiddenTexts(input.i18nPrefix !== undefined, (call) => `{{ ${call} }}`);
     const gateExpr = renderGateExpr(requires, "currentUser");
     template = [
       `      @if (${gateExpr}) {`,
       indentTemplate(result.tsx),
       "      } @else {",
-      `        <section style="padding:24px"><h2>Forbidden</h2><p>You don't have access to this page.</p></section>`,
+      `        <section style="padding:24px"><h2>${forbidden.title}</h2><p>${forbidden.body}</p></section>`,
       "      }",
     ].join("\n");
   }
@@ -1287,7 +1292,12 @@ function derivedCtx(
 }
 
 /** Stub component for a page whose body needs deferred features. */
-export function renderAngularPageStub(page: PageIR, nameCtx: PageNameCtx, authUi = false): string {
+export function renderAngularPageStub(
+  page: PageIR,
+  nameCtx: PageNameCtx,
+  authUi = false,
+  i18n = false,
+): string {
   const testid = JSON.stringify(`page-${pageSlug(page, nameCtx)}`);
   const section = `<section data-testid=${testid}><h2>${page.name}</h2></section>`;
   const className = pageComponentName(page, nameCtx);
@@ -1301,10 +1311,12 @@ export function renderAngularPageStub(page: PageIR, nameCtx: PageNameCtx, authUi
   const requires = authUi ? page.requires : undefined;
   if (requires) {
     const gate = renderGateExpr(requires, "currentUser");
+    const forbidden = forbiddenTexts(i18n, (call) => `{{ ${call} }}`);
     return [
       "// Auto-generated (stub — the body needs api/forms support).",
       'import { Component, inject } from "@angular/core";',
       'import { SessionService } from "../auth/session.service";',
+      ...(i18n ? ['import { t } from "../../lib/locale";'] : []),
       "",
       "@Component({",
       `  selector: ${JSON.stringify(pageSelector(page, nameCtx))},`,
@@ -1313,13 +1325,14 @@ export function renderAngularPageStub(page: PageIR, nameCtx: PageNameCtx, authUi
       `    @if (${gate}) {`,
       `      ${section}`,
       "    } @else {",
-      `      <section style="padding:24px"><h2>Forbidden</h2><p>You don't have access to this page.</p></section>`,
+      `      <section style="padding:24px"><h2>${forbidden.title}</h2><p>${forbidden.body}</p></section>`,
       "    }",
       "  `,",
       "})",
       `export class ${className} {`,
       "  readonly session = inject(SessionService);",
       "  get currentUser(): Record<string, any> { return this.session.user() ?? {}; }",
+      ...(i18n ? ["  protected readonly t = t;"] : []),
       "}",
       "",
     ].join("\n");

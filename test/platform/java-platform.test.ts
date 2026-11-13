@@ -68,7 +68,7 @@ describe("java platform — surface shape", () => {
       slug: "shop_api",
     });
     expect(shape.dependsOnDb).toBe(true);
-    expect(shape.healthPath).toBe("/ready");
+    expect(javaPlatform.operations.health.compose).toBe("/ready");
     expect(shape.internalPort).toBe(8080);
     expect(shape.env).toContainEqual([
       "SPRING_DATASOURCE_URL",

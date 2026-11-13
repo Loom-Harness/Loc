@@ -330,7 +330,7 @@ value never became a carrier.
 **On the request side there is no carrier.** A `create` / `update` / operation
 body carries the bare value — a caller supplies a value, never a lineage.
 
-## Scaffolded UI — the "?" provenance disclosure (five frontends + the HEEx server render)
+## Scaffolded UI — the "?" provenance disclosure (six frontends + the HEEx server render)
 
 The lineage is already on the wire (the carrier's `lineage` member above),
 so a **scaffolded detail page** surfaces it: every
@@ -338,11 +338,12 @@ so a **scaffolded detail page** surfaces it: every
 expands to show where the value came from — the rule it was computed by,
 the computed value, and the input list (`path = value`).
 
-Rendered on **five of the six frontends** (all but Flutter) plus the
+Rendered on **all six frontends** plus the
 Phoenix/HEEx server render: **React** (`<details>` + JSX), **Vue**
 (`<details v-if>` + `v-for`), **Svelte** (`{#if}` + keyed `{#each}`),
 **Angular** (`@if (…; as prov)` + `@for`), **Feliz** (F# `Html.details`, a
-`Some`/`None` match over the `ProvLineage option`), and — server-side —
+`Some`/`None` match over the `ProvLineage option`), **Flutter** (a Material
+`ExpansionTile` over the `ProvLineage?`, bound by a Dart switch pattern), and — server-side —
 **HEEx** (Phoenix LiveView: a null-guarded `<%= if … %>` `<details>` + a
 `<%= for … %>` comprehension). Two things make it work:
 

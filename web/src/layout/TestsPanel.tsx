@@ -24,7 +24,9 @@ import {
   VERDICT_LEGEND,
 } from "./vocabulary";
 import { OutputStreamLink } from "./OutputStreamLink";
-import { TsTransformClient } from "../testing/transform-client";
+import { TsTransformClient, type EsbuildBuild } from "../testing/transform-client";
+import { discoverSuites } from "../testing/discover";
+import { formatSuiteLoadFailures, nearestPackageDeps } from "../testing/suite-deps";
 import { findApiTestFile, loadApiTests } from "../testing/run-api-tests";
 import { findUiTestFile, loadUiSuite, uiSuiteFiles } from "../testing/run-ui-tests";
 import {
@@ -202,38 +204,56 @@ function TestsBodyView({
     void (async () => {
       try {
         const c = client();
-        const build = (e: string, f: Record<string, string>, a: Record<string, string>) =>
-          c.build(e, f, a);
-        const units: UnitSuite[] = [];
-        for (const f of unitFiles) {
-          if (token.cancelled) return;
-          const base = f.path.split("/").pop()!.replace(/\.test\.ts$/, "");
-          step(base);
-          const cases = await loadUnitSuite({
-            entry: f.path,
-            files: unitSuiteFiles(files, f),
-            build,
-          });
-          units.push({ id: `unit\0${f.path}`, label: base, cases });
+        const build: EsbuildBuild = (e, f, a, d) => c.build(e, f, a, d);
+        const found = await discoverSuites(
+          {
+            units: unitFiles.map((f) => ({
+              label: f.path.split("/").pop()!.replace(/\.test\.ts$/, ""),
+              path: f.path,
+              load: () =>
+                loadUnitSuite({
+                  entry: f.path,
+                  files: unitSuiteFiles(files, f),
+                  build,
+                  deps: nearestPackageDeps(files, f.path),
+                }),
+            })),
+            ui: uiFile
+              ? {
+                  label: "UI",
+                  path: uiFile.path,
+                  load: () =>
+                    loadUiSuite({
+                      entry: uiFile.path,
+                      files: uiSuiteFiles(files, uiFile),
+                      build,
+                      deps: nearestPackageDeps(files, uiFile.path),
+                    }),
+                }
+              : null,
+            api:
+              apiFile && engine
+                ? {
+                    label: "API",
+                    path: apiFile.path,
+                    load: () =>
+                      loadApiTests({
+                        source: apiFile.content,
+                        compile: (ts) => c.compile(ts),
+                        dispatch: (req) => engine.dispatch(req),
+                      }),
+                  }
+                : null,
+          },
+          { step, cancelled: () => token.cancelled },
+        );
+        if (!found) return;
+        setUnitSuites(found.units.map((u) => ({ id: `unit\0${u.path}`, label: u.label, cases: u.cases })));
+        setUiCases(found.ui);
+        setApiCases(found.api);
+        if (found.failures.length > 0) {
+          setError({ kind: "discovery", message: formatSuiteLoadFailures(found.failures) });
         }
-        if (token.cancelled) return;
-        if (uiFile) step("UI");
-        const ui = uiFile
-          ? await loadUiSuite({ entry: uiFile.path, files: uiSuiteFiles(files, uiFile), build })
-          : null;
-        if (token.cancelled) return;
-        if (apiFile && engine) step("API");
-        const api = apiFile && engine
-          ? await loadApiTests({
-              source: apiFile.content,
-              compile: (ts) => c.compile(ts),
-              dispatch: (req) => engine.dispatch(req),
-            })
-          : null;
-        if (token.cancelled) return;
-        setUnitSuites(units);
-        setUiCases(ui);
-        setApiCases(api);
       } catch (e) {
         if (!token.cancelled) {
           setError({ kind: "discovery", message: e instanceof Error ? e.message : String(e) });
@@ -386,6 +406,7 @@ function TestsBodyView({
               traceability={traceability}
               verification={verification}
               results={results}
+              suitesMissing={error?.kind === "discovery"}
             />
           )}
           {(unitSuites ?? []).map((s) => (
@@ -480,10 +501,14 @@ function RequirementsRollup({
   traceability,
   verification,
   results,
+  suitesMissing,
 }: {
   traceability: TraceabilityJson;
   verification: VerificationIR;
   results: Record<string, TestResult>;
+  /** Some generated suites failed to load, so a requirement they cover reads
+   *  Unverified although nothing here can run it. */
+  suitesMissing: boolean;
 }): JSX.Element {
   const { requirements, testCases, index } = traceability;
   const byId = new Map(requirements.map((r) => [r.id, r]));
@@ -571,6 +596,11 @@ function RequirementsRollup({
       <Text size="xs" c="dimmed" mb={6} data-testid="verdict-legend">
         {VERDICT_LEGEND}
       </Text>
+      {suitesMissing && s.unverified > 0 && (
+        <Text size="xs" c="orange" mb={6} data-testid="verdict-suites-missing">
+          {TEST_DISCOVERY.unverifiedUnloadable}
+        </Text>
+      )}
       <Stack gap={4}>{roots.flatMap((r) => renderReq(r.id, 0))}</Stack>
     </Box>
   );
@@ -595,7 +625,7 @@ function TestError({
       <Group gap={6} wrap="wrap" align="baseline">
         <Text size="xs" c="red" data-testid="test-error-hint" style={{ flex: 1, minWidth: 200 }}>
           {error.kind === "discovery"
-            ? TEST_DISCOVERY.errorHint(ctx.isDesktop)
+            ? TEST_DISCOVERY.errorHint(error.message)
             : "The run stopped before it produced results — a harness or runtime error, not a failing assertion."}
         </Text>
         {error.kind === "run" && <OutputStreamLink ctx={ctx} stream="backend" label={seeStream(STREAM.runtimeLogs)} />}
@@ -669,7 +699,7 @@ function Suite({
         {cases.map((name) => {
           const r = results[key(group, name)];
           return (
-            <Box key={name} data-testid="test-row">
+            <Box key={name} data-testid="test-row" data-status={r?.status ?? "pending"}>
               <Group gap={8} wrap="nowrap">
                 <Button
                   size="compact-xs"

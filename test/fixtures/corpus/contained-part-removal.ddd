@@ -50,6 +50,16 @@ system ContainedPartRemoval {
           lines -= lines.where(l => l.sku == sku).first()
           return lines.count
         }
+        // REASSIGNING the contained collection.  The kept lines are the same
+        // part instances, so their rows — nested notes included — stay; the
+        // filtered-out ones are deleted.  .NET emitted `Lines = …` onto the
+        // read-only view (CS0200) and java replaced its `orphanRemoval`
+        // collection, which Hibernate refuses at flush.
+        operation keepOnly(sku: string) { lines := lines.where(l => l.sku == sku) }
+        operation bumpLine(sku: string, qty: int) {
+          lines := lines.where(l => l.sku != sku)
+          lines += Line { sku: sku, qty: qty, notes: [Note { text: "bumped" }] }
+        }
         operation addCharge(label: string) { charges += Charge { label: label, amount: 1 } }
         operation dropCharge(label: string) { charges -= charges.where(c => c.label == label).first() }
         operation addTag(t: Tag id) { tags += t }
@@ -119,6 +129,17 @@ system ContainedPartRemoval {
     api.dropVia.run({ c: c.id, sku: "D" })
     let viaWorkflow = api.carts.getById(c)
     expect(viaWorkflow.lines.length).toBe(1)
+
+    // Reassigned collection: replace one line, then keep only another.
+    api.carts.addLine(c, { sku: "E", qty: 5 })
+    api.carts.bumpLine(c, { sku: "E", qty: 6 })
+    let bumped = api.carts.getById(c)
+    expect(bumped.lines.length).toBe(2)
+    api.carts.keepOnly(c, { sku: "B" })
+    let kept = api.carts.getById(c)
+    expect(kept.lines.length).toBe(1)
+    expect(kept.lines.first().sku).toBe("B")
+    expect(kept.lines.first().notes.length).toBe(1)
 
     // Value-object collection.
     api.carts.addCharge(c, { label: "x" })

@@ -11,7 +11,11 @@ import {
   parseForkedChain,
   utcVersionNow,
 } from "../../system/migration-chain.js";
-import { migrationStatus, recordPendingMigrations } from "../../system/migration-diff.js";
+import {
+  migrationStatus,
+  recordPendingMigrations,
+  refusalText,
+} from "../../system/migration-diff.js";
 import {
   MigrationBackfillDiscardedError,
   MigrationDestructiveError,
@@ -49,7 +53,7 @@ async function migrationCommand(file: string, body: () => Promise<boolean>): Pro
     return await body();
   } catch (err) {
     if (isMigrationRefusal(err)) {
-      console.error(`${file}: ${err.message}`);
+      console.error(`${file}: ${refusalText(err)}`);
       return false;
     }
     throw err;
