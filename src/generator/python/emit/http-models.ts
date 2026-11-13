@@ -287,7 +287,7 @@ const PY_WIRE_STR_DEF = [
   `${PY_WIRE_STR} = ${ANNOTATED}[str, ${AFTER_VALIDATOR}(_reject_nul)]`,
 ];
 
-export const PY_WIRE_INSTANT = "WireInstant";
+const PY_WIRE_INSTANT = "WireInstant";
 
 /** Python source of the `WireInstant` alias — a value-object `datetime` field.
  *
