@@ -30,6 +30,12 @@ interface Built {
   contract: FrontendContract;
 }
 
+/** Models the gate refuses for a defect elsewhere, each with its issue. */
+const KNOWN_OFF_WIRE: Record<string, string> = {
+  // A ui scaffolds a subdomain no deployable serves; validation accepts it.
+  "test/fixtures/eval-models/eval/repro/ui-scaffolds-unserved-subdomain.ddd": "#5698",
+};
+
 const built: Built[] = [];
 const buildFailures: string[] = [];
 
@@ -62,10 +68,15 @@ describe("Frontend Contract over the corpus", () => {
   });
 
   it("serializes nothing beyond the exposed wire/API surface", () => {
-    const leaks = built.flatMap(({ file, model, sys, contract }) =>
-      surfaceViolations(model, sys, JSON.stringify(contract)).map((v) => `${file}: ${v}`),
-    );
+    const leaking = new Set<string>();
+    const leaks = built.flatMap(({ file, model, sys, contract }) => {
+      const found = surfaceViolations(model, sys, JSON.stringify(contract));
+      if (found.length > 0) leaking.add(file);
+      return KNOWN_OFF_WIRE[file] ? [] : found.map((v) => `${file}: ${v}`);
+    });
     expect(leaks).toEqual([]);
+    // The waiver ratchets: an entry whose model now passes must be deleted.
+    expect(Object.keys(KNOWN_OFF_WIRE).filter((f) => !leaking.has(f))).toEqual([]);
   });
 });
 
