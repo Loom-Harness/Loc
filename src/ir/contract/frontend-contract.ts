@@ -141,6 +141,7 @@ const operationRule = record<ApiOperationIR>("ApiOperationIR", {
   find: drop,
   operation: drop,
   claimedByExplicitRoute: keep,
+  polymorphicBase: drop,
 });
 
 const apiRule = record<ApiIR>("ApiIR", {
