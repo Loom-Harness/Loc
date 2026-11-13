@@ -77,9 +77,11 @@ describe("vanilla for-each body — broader statement set", () => {
 
   it("lowers an op-call + emit loop body through a per-iteration with-chain", async () => {
     const wf = await fileEndingIn(SRC, "/workflows/batch_confirm.ex");
-    // op-call becomes a fallible `<-` clause; the emit reads `x` after it, so
-    // the handle is rebound to the saved record the op returns...
-    expect(wf).toMatch(/with \{:ok, x\} <- Context\.confirm_order\(x, %\{\}\) do/);
+    // op-call becomes a fallible `<-` clause over the in-memory struct, saved
+    // once at the end of the iteration...
+    expect(wf).toMatch(
+      /with \{:ok, x\} <- Context\.__apply_confirm_order\(x, %\{\}\),\s*\n\s*\{:ok, _\} <- Context\.__save_order\(x\) do/,
+    );
     expect(wf).not.toContain("loop_updated");
     // ...the emit side-effect runs in the do-branch, then continue.
     expect(wf).toMatch(/PostCommit\.broadcast\(.*Events\.Confirmed\{order: x\.id\}\)/);
@@ -101,7 +103,9 @@ describe("vanilla for-each body — broader statement set", () => {
         }
       }`);
     const wf = await fileEndingIn(src, "/workflows/lone_confirm.ex");
-    expect(wf).toMatch(/with \{:ok, _\} <- Context\.confirm_order\(x, %\{\}\) do/);
+    expect(wf).toMatch(
+      /with \{:ok, x\} <- Context\.__apply_confirm_order\(x, %\{\}\),\s*\n\s*\{:ok, _\} <- Context\.__save_order\(x\) do/,
+    );
     expect(wf).toContain("err -> {:halt, err}");
   });
 });
@@ -121,7 +125,7 @@ describe("vanilla if-let branches — broader statement set", () => {
 
   it("lowers a then-branch op-call + emit and an else-branch factory-let", async () => {
     const wf = await fileEndingIn(SRC, "/workflows/find_and_confirm.ex");
-    expect(wf).toMatch(/Context\.confirm_order\(o, %\{\}\)/);
+    expect(wf).toMatch(/Context\.__apply_confirm_order\(o, %\{\}\)/);
     expect(wf).toMatch(/PostCommit\.broadcast\(.*Events\.Confirmed\{order: o\.id\}\)/);
     // The else-branch factory-let bind is unread, so it `_`-discards (an unused
     // real-named bind would trip `--warnings-as-errors`).  The create is

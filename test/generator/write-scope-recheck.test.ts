@@ -304,7 +304,7 @@ describe("elixir", () => {
     const wf = await fileEnding("elixir", "books/workflows/touch_ledgers.ex");
     expect(wf).toContain("Repo.transaction(fn ->");
     expect(wf).toContain(
-      "(with {:ok, _} <- Context.get_ledger_for_write(l.id, current_user), do: Context.touch_ledger(l, %{}))",
+      "(with {:ok, _} <- Context.get_ledger_for_write(l.id, current_user), do: Context.__apply_touch_ledger(l, %{}))",
     );
     expect(await fileEnding("elixir", "books/workflows/open_ledger.ex")).not.toContain(
       "_for_write",

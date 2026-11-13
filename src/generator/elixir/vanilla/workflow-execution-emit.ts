@@ -70,6 +70,7 @@
 // cannot see it, only a booted request can.
 // ---------------------------------------------------------------------------
 
+import type { SaveEntry } from "../../../ir/plan/index.js";
 import {
   isWorkflowSelfType,
   lookupOp,
@@ -166,6 +167,13 @@ import {
 } from "./problem-details-emit.js";
 import { skipFiltersOption } from "./read-scope-emit.js";
 import { retrievalReadsActor } from "./retrieval-emit.js";
+import {
+  applyFnName,
+  type ElixirSavePlan,
+  elixirSavePlan,
+  NO_SAVE_PLAN,
+  saveFnName,
+} from "./save-plan.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
 import { valueObjectCastCall } from "./value-object-type-emit.js";
 
@@ -389,6 +397,9 @@ export interface LowerBodyOptions {
    *  `commandHandler` / `queryHandler` path and a `create(…): T` workflow set
    *  this. */
   ownResult?: boolean;
+  /** The body's exit saves (`savesAtExit`): the handles it changed in memory
+   *  are written once, after its last statement (`save-plan.ts`). */
+  saves?: readonly SaveEntry[];
 }
 
 export function lowerStatements(
@@ -398,15 +409,19 @@ export function lowerStatements(
   ctx?: BoundedContextIR,
   opts: LowerBodyOptions = {},
 ): BodyLine[] {
-  const { trailing = [], ownResult = false } = opts;
+  const { trailing = [], ownResult = false, saves = [] } = opts;
+  const plan = elixirSavePlan(stmts, saves, ctx);
   const chunks = lowerWorkflowPipeline(
     stmts,
-    elixirWorkflowTarget(contextModule, renderCtx, ctx),
+    elixirWorkflowTarget(contextModule, renderCtx, ctx, plan),
     ownResult ? { trailing } : { trailing, resultSlot: lastBindingSlot(stmts) },
   );
-  return chunks.flatMap((steps, i) =>
-    steps.map((step) => ({ ...chainLine(step), origin: stmts[i]!.origin })),
-  );
+  return [
+    ...chunks.flatMap((steps, i) =>
+      steps.map((step) => ({ ...chainLine(step), origin: stmts[i]!.origin })),
+    ),
+    ...saveSteps(saves, plan, contextModule, trailing).map(chainLine),
+  ];
 }
 
 /** A pipeline step as a top-level body line. */
@@ -506,13 +521,42 @@ function guardClause(
   };
 }
 
-/** The Elixir spelling of every workflow statement kind. */
+/** The `__save_<agg>` links that close a body: one per save entry `plan`
+ *  writes, in the IR's order.  A save another expression reads after the body
+ *  rebinds the handle to the saved row. */
+export function saveSteps(
+  saves: readonly SaveEntry[],
+  plan: ElixirSavePlan,
+  contextModule: string,
+  trailing: readonly ExprIR[] = [],
+): PipelineStep[] {
+  return saves
+    .filter((s) => plan.saves.has(s))
+    .map((s) => {
+      const handle = escapeElixirIdent(snake(s.name));
+      const bind = bindUsedLater(s.name, [], trailing) ? handle : "_";
+      const inserted = plan.inserted.has(s) ? ", true" : "";
+      return {
+        kind: "clause",
+        text: `{:ok, ${bind}} <- ${contextModule}.${saveFnName(s.aggName)}(${handle}${inserted})`,
+      };
+    });
+}
+
+/** The Elixir spelling of every workflow statement kind.  `plan` names the
+ *  op-calls that run in memory and the saves that write them
+ *  (`save-plan.ts`); every other op-call persists on its own. */
 export function elixirWorkflowTarget(
   contextModule: string,
   renderCtx: RenderCtx,
   ctx?: BoundedContextIR,
+  plan: ElixirSavePlan = NO_SAVE_PLAN,
 ): WorkflowPipelineTarget {
   const expr = (e: ExprIR): string => renderExpr(e, renderCtx);
+  const withSaves = (body: PipelineBody, saves: readonly SaveEntry[]): PipelineStep[] => [
+    ...body.steps,
+    ...saveSteps(saves, plan, contextModule),
+  ];
   const fieldsOf = (fields: readonly { name: string; value: ExprIR }[]): string =>
     fields.map((f) => `${snake(f.name)}: ${expr(f.value)}`).join(", ");
   const broadcast = (eventName: string, fields: string): string =>
@@ -544,21 +588,27 @@ export function elixirWorkflowTarget(
       ];
     },
 
-    // `order.confirm(args)` → `{:ok, _} <- Context.confirm_order(order, %{…})`.
-    // The call PERSISTS (each context op is its own save on Elixir), so a void
-    // op's handle is rebound to the saved record it returns when a later read
-    // needs it: that record carries the version the write moved it to, and a
-    // second op on the stale handle would be a self-inflicted conflict.  A
-    // handle a loop body carries is read again by the next iteration, so it is
-    // rebound too, and the loop threads it out (`forEach`).  A returning op's
-    // `{:ok, value}` is its result, so its handle stays.
+    // `order.confirm(args)` → `{:ok, order} <- Context.__apply_confirm_order(order,
+    // %{…})` when the call runs in memory (`plan`): the handle is rebound to
+    // the changed struct, which the save at the end of its scope writes.
+    //
+    // Otherwise `{:ok, _} <- Context.confirm_order(order, %{…})`, which
+    // PERSISTS, so a void op's handle is rebound to the saved record it
+    // returns when a later read needs it: that record carries the version the
+    // write moved it to, and a second op on the stale handle would be a
+    // self-inflicted conflict.  A handle a loop body carries is read again by
+    // the next iteration, so it is rebound too, and the loop threads it out
+    // (`forEach`).  A returning op's `{:ok, value}` is its result, so its
+    // handle stays.
     opCall: (st, scope) => {
-      const call = opCallSource(st, renderCtx, contextModule, ctx);
+      const inMemory = plan.applyCalls.has(st);
+      const call = opCallSource(st, renderCtx, contextModule, ctx, inMemory);
       const op = ctx ? lookupOp(ctx, st.aggName, st.op) : undefined;
       const rebind =
-        op !== undefined &&
-        !op.returnType &&
-        (scope.carried.has(st.target) || bindUsedLater(st.target, scope.rest, scope.trailing));
+        inMemory ||
+        (op !== undefined &&
+          !op.returnType &&
+          (scope.carried.has(st.target) || bindUsedLater(st.target, scope.rest, scope.trailing)));
       const handle = escapeElixirIdent(snake(st.target));
       // `let r = a.op(…)`: bind the call's result.  One that carries an error
       // variant binds the whole `{:ok, value}` / `{:error, "Tag", fields}`
@@ -746,10 +796,12 @@ export function elixirWorkflowTarget(
     // `for x in xs { … }` → `Enum.reduce_while`: each iteration continues on
     // success and halts with the first failure, which threads up the chain.
     // A handle bound outside the loop that the body rebinds (an op on it
-    // persists and returns the saved record) rides the accumulator, so the
-    // next iteration — and the statements after the loop — see the record as
-    // the last iteration saved it, not as it was loaded.
-    forEach: (st, outer, body) => {
+    // changes it in memory, or persists and returns the saved record) rides
+    // the accumulator, so the next iteration — and the statements after the
+    // loop — see the record as the last iteration left it, not as it was
+    // loaded.  Each iteration ends with the saves the IR stages for it.
+    forEach: (st, outer, iteration) => {
+      const body = { ...iteration, steps: withSaves(iteration, st.savesPerIteration) };
       const loopVar = bindUsedLater(st.var, body.stmts)
         ? escapeElixirIdent(snake(st.var))
         : `_${snake(st.var)}`;
@@ -769,10 +821,14 @@ export function elixirWorkflowTarget(
         (err) => `{:halt, ${err}}`,
       );
       // After the loop a threaded handle stays bound when something reads it
-      // again — a later statement, or the next iteration of an enclosing loop
-      // — and is discarded otherwise.
+      // again — a later statement, the next iteration of an enclosing loop,
+      // or the save that writes what the loop changed in memory — and is
+      // discarded otherwise.
       const kept = threaded.filter(
-        (t) => outer.carried.has(t.name) || bindUsedLater(t.name, outer.rest, outer.trailing),
+        (t) =>
+          outer.carried.has(t.name) ||
+          plan.savedNames.has(t.name) ||
+          bindUsedLater(t.name, outer.rest, outer.trailing),
       );
       const outAcc = `{${threaded
         .map((t) => (kept.includes(t) ? t.ident : `_${snake(t.name)}`))
@@ -792,7 +848,9 @@ export function elixirWorkflowTarget(
 
     // `if let o = <optional read> { … } else { … }` → bind the row or `nil`,
     // then branch.  Each branch answers `{:ok, _}` or its first failure.
-    ifLet: (st, _scope, thenBody, elseBody) => {
+    ifLet: (st, _scope, thenIn, elseIn) => {
+      const thenBody = { ...thenIn, steps: withSaves(thenIn, st.savesInThen) };
+      const elseBody = { ...elseIn, steps: withSaves(elseIn, st.savesInElse) };
       const args = st.retrievalArgs.map(expr);
       const v = escapeElixirIdent(snake(st.var));
       const lookupLines =
@@ -841,7 +899,12 @@ export function elixirWorkflowTarget(
     // handle bound before the `if` that a branch rebinds (an op on it persists
     // and returns the saved record) is answered by both branches, so the
     // statements after the `if` see the record as the taken branch left it.
-    if: (st, outer, thenBody, elseBody) => {
+    if: (st, outer, thenIn, elseIn) => {
+      // Each branch ends with the saves it stages (`savesInThen` /
+      // `savesInElse`), so a handle the save plan runs in memory is written
+      // inside the branch that changed it.
+      const thenBody = { ...thenIn, steps: withSaves(thenIn, st.savesInThen) };
+      const elseBody = { ...elseIn, steps: withSaves(elseIn, st.savesInElse) };
       const rebound = new Set(
         [...thenBody.steps, ...elseBody.steps].flatMap((s) => [
           ...((s.kind === "clause" || s.kind === "let") && s.bindName ? [s.bindName] : []),
@@ -888,8 +951,8 @@ export function elixirWorkflowTarget(
           ...renderMatchBlock(
             st,
             expr(st.subject),
-            arms,
-            elseBody,
+            arms.map((a, i) => ({ ...a, steps: withSaves(a, st.arms[i]!.savesInArm) })),
+            { ...elseBody, steps: withSaves(elseBody, st.savesInElse) },
             st.subject.kind === "ref" && opResults.has(st.subject.name),
           ).map((l) => `           ${l}`),
           `         )`,
@@ -964,14 +1027,16 @@ function opCallSource(
   renderCtx: RenderCtx,
   contextModule: string,
   ctx?: BoundedContextIR,
+  inMemory = false,
 ): string {
   const argTexts = st.args.map((arg) => renderExpr(arg, renderCtx));
   const op = ctx ? lookupOp(ctx, st.aggName, st.op) : undefined;
   const argFields = opCallParamFields(argTexts, op, `${st.aggName}.${st.op}`);
   const actor = ctx && opCallThreadsUser(st, ctx) ? ", current_user" : "";
+  const fn = inMemory ? applyFnName(st.op, st.aggName) : `${snake(st.op)}_${snake(st.aggName)}`;
   return withWriteScopeGuards(
     st,
-    `${contextModule}.${snake(st.op)}_${snake(st.aggName)}(${escapeElixirIdent(snake(st.target))}, %{${argFields}}${actor})`,
+    `${contextModule}.${fn}(${escapeElixirIdent(snake(st.target))}, %{${argFields}}${actor})`,
     renderCtx,
     contextModule,
     ctx,
@@ -1418,7 +1483,9 @@ function renderWorkflowModule(
     contextModuleFq,
     renderCtx,
     ctx,
-    result ? { trailing: [result.value], ownResult: true } : {},
+    result
+      ? { trailing: [result.value], ownResult: true, saves: wf.savesAtExit }
+      : { saves: wf.savesAtExit },
   );
   // Load-or-allocate + persist, mirroring `renderPersistedBody`'s create arm.
   // `loom_state` keeps the row AS LOADED so the trailing changeset carries the

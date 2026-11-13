@@ -19,15 +19,11 @@
 //     with a `def <snake(handler)>(conn, params)` per route calling
 //     `<HandlerMod>.run(params)` through a shared `respond/2`.
 //
-// savesAtExit — the workflow model's "load → mutate → save at exit" — has no
-// Phoenix analog: a named operation's context fn (`<op>_<agg>`) ALREADY persists
-// its mutation via `persist_change` / `Repo.update` (see context-emit.ts
-// `renderNamedOpFunction`).  So an `op-call` in a handler body persists on its
-// own; we emit NO redundant `update_<agg>` clause (unlike the .NET path, whose
-// op-calls are pure in-memory mutations that need an explicit `SaveAsync`).  A
-// handler's `return <expr>` reads the pre-op struct — sound for the common
-// id-projection case (`return o.id`); a return of a MUTATED field is a v1
-// limitation, matching the workflow op-call's `{:ok, _} <-` discard.
+// savesAtExit — the workflow model's "load → mutate → save at exit" — is the
+// workflow engine's: an `op-call` that can run in memory calls the context's
+// `__apply_<op>_<agg>` and rebinds the handle, and the handle is written once
+// by `__save_<agg>` at its save point (`save-plan.ts`); any other `op-call`
+// persists through its own context fn (`<op>_<agg>`).
 // ---------------------------------------------------------------------------
 
 import { handlerNeedsCurrentUser, refsRead } from "../../../ir/plan/index.js";
@@ -391,6 +387,7 @@ function renderHandlerModule(
     // `assembleHandlerBody` closes with `{:ok, <return expr>}`, never with the
     // last bound name — so no statement's bind is the result slot here.
     ownResult: true,
+    saves: h.savesAtExit,
   });
   // An expected-failure result (`T or E`) closes the chain with its outcome
   // tuple (`entry-result-emit.ts`); an `error` variant rolls the transaction

@@ -201,7 +201,8 @@ describe("elixir — scaffolded record-param handlers flatten wire-preservingly"
     expect(h).toContain('%{"orderId" => order_id, "newTotal" => new_total} = params');
     expect(h).toContain("with {:ok, o} <- (case Context.get_order(order_id) do");
     // op-call keyed by the DECLARED op param name, valued by the flat local.
-    expect(h).toContain('{:ok, _} <- Context.reprice_order(o, %{"newTotal" => new_total})');
+    expect(h).toContain('{:ok, o} <- Context.__apply_reprice_order(o, %{"newTotal" => new_total})');
+    expect(h).toContain("{:ok, _} <- Context.__save_order(o)");
     expect(h).not.toContain("cmd");
   });
 

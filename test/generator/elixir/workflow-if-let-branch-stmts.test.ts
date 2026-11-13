@@ -101,7 +101,7 @@ describe("vanilla workflow if-let branch statements", () => {
     // No silently-accepted Elixir comment left where a statement should be.
     expect(wf).not.toContain("# TODO: lower if-let branch statement kind");
     // The statement that already worked still follows it in the branch.
-    expect(wf).toContain("Context.confirm_order(o, %{})");
+    expect(wf).toContain("Context.__apply_confirm_order(o, %{})");
   });
 
   it("inlines a `domain-service-call` branch statement as the real context call", async () => {
@@ -141,7 +141,8 @@ describe("vanilla workflow if-let branch statements", () => {
     // The op-call is a `<-` clause: a failed operation precondition answers
     // `{:error, _}`, which the outer `{:ok, _} <-` clause hands to
     // `commit_result/1` -> `Repo.rollback/1`.
-    expect(wf).toContain("with {:ok, _} <- Context.confirm_order(o, %{}) do");
+    expect(wf).toContain("with {:ok, o} <- Context.__apply_confirm_order(o, %{}),");
+    expect(wf).toContain("{:ok, _} <- Context.__save_order(o) do");
     // No bare (result-discarding) call line left in the branch.
     expect(wf).not.toMatch(/^\s*Context\.confirm_order\(o, %\{\}\)\s*$/m);
   });
