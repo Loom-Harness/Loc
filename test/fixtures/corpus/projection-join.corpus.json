@@ -1,0 +1,6 @@
+{
+  "title": "projection join — the by-id follow (`join <Agg> as <alias> on <idRef>`), carrying the referenced row's fields onto each projection row",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "minted by the clause census: `ProjectionJoin` was at ZERO authored uses while four backend emitters, the lowering pass and two validator files all read `proj.joins`"
+}

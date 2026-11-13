@@ -217,8 +217,8 @@ describe("merge-patch update — java", () => {
     expect(validator).toContain('if (request.has("minPages") && request.has("pages")) {');
     const service = fileEndingWith(files, "MemoService.java");
     expect(service).toContain('request.has("note") ? note : aggregate.note()');
-    const spec = fileEndingWith(files, "OpenApiContractCustomizer.java");
-    expect(spec).toContain('new RequiredSet("UpdateMemoRequest", List.of())');
+    // A patch body requires nothing: the class publishes no required set.
+    expect(req).not.toContain("requiredProperties");
   });
 });
 

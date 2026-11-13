@@ -9,8 +9,10 @@ using CatalogApi.Api;
 
 namespace CatalogApi.Application.Products.Requests;
 
+[global::Swashbuckle.AspNetCore.Annotations.SwaggerSchema(Required = new[] { "amount", "currency" })]
 public sealed record MoneyRequest([property: JsonRequired] [Required] decimal Amount, [NoNulChar] [Required(AllowEmptyStrings = true)] string Currency);
 
+[global::Swashbuckle.AspNetCore.Annotations.SwaggerSchema(Required = new[] { "sku", "price" })]
 public sealed record CreateProductRequest([NoNulChar] [Required(AllowEmptyStrings = true)] string Sku, [Required] MoneyRequest Price);
 
 public sealed class UpdateProductRequest : IValidatableObject

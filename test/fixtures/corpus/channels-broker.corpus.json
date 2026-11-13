@@ -1,0 +1,5 @@
+{
+  "title": "broker-bound channel — channelSource binds `queue/work` to rabbitmq, real driver code emitted",
+  "doc": "channels",
+  "backends": "ALL"
+}

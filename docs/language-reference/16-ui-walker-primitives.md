@@ -1318,7 +1318,7 @@ match {
 switch (0) { _ when (state.showArchived == true) => Chip(label: Text(t('page.Lists.badge.nr1x3e', 'showing archived')), visualDensity: VisualDensity.compact), _ => Text(t('page.Lists.text.2ovjgv', 'active only')) },
 ```
 
-Feliz renders `if … then … else …` over the Model. Nest a `match` inside a container: a page whose `body:` **is** a bare `match` is currently dropped from the build with no diagnostic (no page file, no route) — wrap it (`body: Stack { match { … } }`) until that gap closes.
+Feliz renders `if … then … else …` over the Model. A page whose `body:` is a bare `match` renders its arms like any other body.
 
 ## `Button` and `Action`
 

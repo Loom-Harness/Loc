@@ -3,6 +3,7 @@ import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { createInputFields, wireCreateDefault } from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { allAggregates } from "../../src/ir/types/loom-ir.js";
+import { javaRequiredSets } from "../_helpers/java-openapi-annotations.js";
 import { parseString } from "../_helpers/parse.js";
 import { BACKEND_LABEL, BACKENDS, type Backend } from "../fixtures/corpus/backends.js";
 import { corpusSource, generateCorpusCase } from "../fixtures/corpus/harness.js";
@@ -209,8 +210,7 @@ function requestRequiresField(
       return new RegExp(`\\[property: JsonRequired\\][^,]*\\b${pascal}\\b`).test(block);
     }
     case "java": {
-      const block = sliceBlock(all, `new RequiredSet("${op}ItemRequest"`, ")");
-      return new RegExp(`"${field}"`).test(block);
+      return (javaRequiredSets(files).get(`${op}ItemRequest`) ?? []).includes(field);
     }
     case "vanilla": {
       // TWO artifacts, and BOTH must agree — the document and the enforcement

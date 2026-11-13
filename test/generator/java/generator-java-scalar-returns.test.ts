@@ -103,17 +103,22 @@ describe("java generator — scalar (non-union) operation returns (BUG-003)", ()
     expect(svc).not.toContain("public void quote(");
   });
 
-  it("openapi-customizer registers the op as a 200-bearing POST route (springdoc infers the concrete body — no successRef)", async () => {
-    const cust = (await files()).get(`${ROOT}/config/OpenApiContractCustomizer.java`)!;
-    // The scalar op route is present in the baked ROUTES table (a real
-    // operation route, not omitted); springdoc infers the 200 schema from the
-    // concrete `ResponseEntity<String>` return, so the wrapper/successRef slot
-    // stays null (only the union's `ResponseEntity<?>` needs an explicit ref).
-    expect(cust).toContain(
-      'orders/{id}/describe", null, new int[] {400, 404, 415, 422}, null, 0),',
-    );
-    expect(cust).toMatch(
-      /orders\/\{id\}\/quote", null, new int\[\] \{400, 404, 415, 422\}, null, 0\)/,
-    );
+  it("the op route publishes a 200 whose body springdoc infers, plus its derived error set", async () => {
+    const ctl = [...(await files())].find(([p]) => p.endsWith("OrdersController.java"))?.[1] ?? "";
+    // Wiring nothing boots in this suite: the 200 annotation carries no
+    // `content`, so springdoc infers the body from the concrete
+    // `ResponseEntity<String>` return (only a union's `ResponseEntity<?>`
+    // names one); the error set is the derived operation matrix.
+    for (const op of ["describe", "quote"]) {
+      const block = ctl.slice(
+        ctl.indexOf(`@PostMapping("/{id}/${op}")`),
+        ctl.indexOf(` ${op}Order(`),
+      );
+      expect(block, op).toContain('ApiResponse(responseCode = "200", description = "OK")');
+      expect(
+        [...block.matchAll(/responseCode = "(\d{3})"/g)].map((m) => m[1]),
+        op,
+      ).toEqual(["200", "400", "404", "415", "422"]);
+    }
   });
 });

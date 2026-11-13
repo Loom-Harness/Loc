@@ -174,7 +174,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.migration-ambiguous-rename",
   "loom.migration-backfill-discarded",
   "loom.migration-duplicate-name",
-  "loom.migration-expr-unsupported",
   "loom.migration-sql-empty",
   "loom.mikroorm-unsupported",
   "loom.missing-effect-marker",

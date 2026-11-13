@@ -1,8 +1,8 @@
 // Java's request-component owner set — ONE derivation, two consumers.
 //
-// Both `buildJavaOpenApiContract` (which builds the `RequiredSet` patch table,
-// keyed by published schema name) and `emitProjectFromContexts` (which emits the
-// records those names describe) need the same collision resolution. They each
+// Both the controllers (whose `@RequestBody` annotations name a param-less
+// command's published empty request) and `emitProjectFromContexts` (which emits
+// the records those names describe) need the same collision resolution. They each
 // already hold the deployable's `contexts`, so each could derive it — and that is
 // exactly the two-halves-of-one-contract shape F-026 is about
 // (`experience_gathered.md` §89). So the derivation lives here once and both

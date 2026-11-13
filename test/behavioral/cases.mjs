@@ -77,6 +77,9 @@ export async function loadCorpusFeatures(workDir) {
     platform: "node",
     logLevel: "silent",
   });
+  // The bundle lives in workDir, so the manifest cannot find its sidecars
+  // from its own URL; it reads the corpus dir from here instead.
+  process.env.LOOM_CORPUS_DIR = CORPUS_DIR;
   const { CORPUS } = await import(pathToFileURL(bundled).href);
   return CORPUS;
 }

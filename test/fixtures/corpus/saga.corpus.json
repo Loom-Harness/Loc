@@ -1,0 +1,5 @@
+{
+  "title": "in-process dispatch / saga with persisted correlation",
+  "doc": "workflow",
+  "backends": "ALL"
+}

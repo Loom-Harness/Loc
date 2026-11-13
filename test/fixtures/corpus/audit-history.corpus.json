@@ -1,0 +1,6 @@
+{
+  "//": "ALL FIVE now serve the endpoint (M-T3.9 read path complete).  Each backend's behavioral leg diffs its booted responses against the wire golden minted from node — A≡golden ∧ B≡golden ⇒ A≡B, so this row being ALL is a proven cross-backend equality, not five self-assertions.",
+  "title": "entity history — the derived `GET /<agg>/{id}/history` read over audit_records",
+  "doc": "audit",
+  "backends": "ALL"
+}

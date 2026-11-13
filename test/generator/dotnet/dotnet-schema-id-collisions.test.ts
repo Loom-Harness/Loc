@@ -80,6 +80,14 @@ const UNQUALIFIED_LAMBDA = `    c.CustomSchemaIds(t =>
             var stem = inner.EndsWith("Response", StringComparison.Ordinal) ? inner.Substring(0, inner.Length - "Response".Length) : inner;
             return stem + "Paged";
         }
+        // The documented problem body is published as the RFC 7807
+        // \`ProblemDetails\` component every backend names.
+        if (t == typeof(global::Api.Api.ProblemResponse)) return "ProblemDetails";
+        // A success arm of a union whose error arms answer as problems is
+        // published under the success union's name: \`<Union>Success_<Tag>\`.
+        if (t.BaseType is { IsAbstract: true } success && success.BaseType is { } union
+            && success.Name == union.Name + "Success" && t.Name.StartsWith(union.Name + "_", StringComparison.Ordinal))
+            return string.Concat(success.Name, t.Name.AsSpan(union.Name.Length));
         return t.Name;
     });
 `;

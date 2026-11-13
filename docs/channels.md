@@ -117,8 +117,8 @@ byte-identical to one generated before the feature existed.
 Every broker-published event rides a [CloudEvents 1.0](https://cloudevents.io)
 JSON envelope, built and parsed per backend from one pinned field list
 (`LOOM_ENVELOPE_REQUIRED`/`OPTIONAL` in `src/util/channels.ts`): `specversion`,
-`id`, `type` (`<Context>.<Event>`), `source` (`/loom/<deployable>/<context>`),
-`time`, `datacontenttype`, `loomchannel`, `data` (the event's existing wire
+`id`, `type` (`<Context>.<Event>`), `source` (`/loom/<Context>`),
+`time`, `datacontenttype`, `loomchannel` (`loom.<Context>.<Channel>`, the broker address), `data` (the event's existing wire
 shape — no second DTO), plus optional `loomkey` (the `key:` field value),
 `correlationid`, `scopeid`, `tenantid` (observability/partition affinity only —
 never authorization). A Hono producer's envelope parses byte-for-byte in a

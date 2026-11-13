@@ -1,14 +1,13 @@
-// Render fidelity: the Spring controller AND the OpenAPI customizer render
-// EXACTLY the derived surface.
+// Render fidelity: the Spring controller's mappings AND their OpenAPI
+// `@ApiResponse` annotations render EXACTLY the derived surface.
 //
 // The java sibling of `test/generator/dotnet/api-surface-render.test.ts` (see
-// its header for the framing) — with a java-specific twist: springdoc infers
-// nothing useful, so java's PUBLISHED contract is the emitted
-// `OpenApiContractCustomizer`'s Route table.  Both the controller (what a
-// request matches) and the customizer (what the served spec claims) now
-// render from `deriveAggregateOperations`; this suite scrapes both and holds
-// them to the derivation, so a renderer defect on either side — or the two
-// drifting apart again — fails here.
+// its header for the framing).  springdoc reads each method's error statuses
+// off its `@ApiResponse` annotations, so java's PUBLISHED contract is those
+// annotations.  Both the mapping (what a request matches) and the annotations
+// (what the served spec claims) render from `deriveAggregateOperations`; this
+// suite scrapes both and holds them to the derivation, so a renderer defect on
+// either side fails here.
 //
 // The fixture runs under `urlStyle: resource`, which pins the java-only fix
 // this slice shipped: java was the only backend ignoring `routeSlug`, so a
@@ -82,20 +81,28 @@ function scrapeControllerRoutes(files: Map<string, string>): Route[] {
   return out;
 }
 
-/** The customizer's Route table — java's published contract:
- *  `new Route(method, path, successRef, new int[] {…}, …)`. */
-function scrapeCustomizerRoutes(files: Map<string, string>): Map<string, number[]> {
-  const src = [...files].find(([p]) => p.endsWith("OpenApiContractCustomizer.java"))?.[1] ?? "";
+/** Each mapping's published error statuses — the `@ApiResponse(responseCode
+ *  = "4xx"/"5xx")` annotations between the mapping and its method signature:
+ *  java's published contract. */
+function scrapeDocumentedRoutes(files: Map<string, string>): Map<string, number[]> {
+  const { src, base } = controllerSource(files);
   const out = new Map<string, number[]>();
-  for (const m of src.matchAll(
-    /new Route\("(\w+)",\s*"([^"]*)",\s*[^,]*,\s*new int\[\]\s*\{([^}]*)\}/g,
-  )) {
-    const codes = (m[3]!.match(/\d{3}/g) ?? [])
-      .map(Number)
-      .filter((c) => c >= 400)
-      .sort((a, b) => a - b);
-    out.set(key({ method: m[1]!, path: normalisePath(m[2]!) }), codes);
+  let current: string | undefined;
+  for (const line of src.split("\n")) {
+    const m = line.match(/@(Get|Post|Put|Patch|Delete)Mapping(?:\("([^"]*)"\))?/);
+    if (m) {
+      current = key({ method: m[1]!, path: normalisePath(`${base}${m[2] ?? ""}`) });
+      out.set(current, []);
+      continue;
+    }
+    if (current && /^\s*public /.test(line)) {
+      current = undefined;
+      continue;
+    }
+    const code = line.match(/ApiResponse\(responseCode = "(\d{3})"/)?.[1];
+    if (current && code && Number(code) >= 400) out.get(current)!.push(Number(code));
   }
+  for (const codes of out.values()) codes.sort((a, b) => a - b);
   return out;
 }
 
@@ -114,7 +121,7 @@ function derivedKeys(model: LoomModel): string[] {
     .sort();
 }
 
-describe("java render fidelity — controller + customizer render exactly the derived surface", () => {
+describe("java render fidelity — mappings + @ApiResponse render exactly the derived surface", () => {
   it("the controller mounts exactly the derived method+path set (routeSlug honored)", async () => {
     const model = await buildLoomModel(SOURCE);
     const files = await generateSystemFiles(SOURCE);
@@ -126,10 +133,10 @@ describe("java render fidelity — controller + customizer render exactly the de
     expect(mounted).toContain("get /api/orders/{id}/can_cancels");
   });
 
-  it("the customizer publishes exactly the derived paths with exactly op.errorStatuses", async () => {
+  it("the annotations publish exactly the derived paths with exactly op.errorStatuses", async () => {
     const model = await buildLoomModel(SOURCE);
     const derived = deriveContextOperations(ordersContext(model));
-    const published = scrapeCustomizerRoutes(await generateSystemFiles(SOURCE));
+    const published = scrapeDocumentedRoutes(await generateSystemFiles(SOURCE));
     expect(published.size, "scraped no routes — the scraper is stale").toBeGreaterThan(0);
     for (const op of derived) {
       const k = key({ method: op.method, path: op.path });
@@ -143,8 +150,8 @@ describe("java render fidelity — controller + customizer render exactly the de
   it("a named-only destroy mounts no generic DELETE and documents none", async () => {
     // NAMED FIX (ii): java gated DELETE on `destroys.length > 0`, so a
     // named-only destroy (`destroy archive()`) mounted a generic DELETE that
-    // its own customizer refused to document.  Both sides now gate on the
-    // shared `emitsRestDestroy` (canonical destroy only).
+    // its own document did not describe.  Both sides gate on the shared
+    // `emitsRestDestroy` (canonical destroy only).
     const src = `
 system P {
   subdomain D {
@@ -175,7 +182,7 @@ system P {
     );
     const mounted = scrapeControllerRoutes(files).map(key);
     expect(mounted.some((k) => k.startsWith("delete "))).toBe(false);
-    const published = [...scrapeCustomizerRoutes(files).keys()];
+    const published = [...scrapeDocumentedRoutes(files).keys()];
     expect(published.some((k) => k.startsWith("delete "))).toBe(false);
   });
 });

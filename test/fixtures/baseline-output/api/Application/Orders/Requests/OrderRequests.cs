@@ -9,8 +9,10 @@ using Api.Api;
 
 namespace Api.Application.Orders.Requests;
 
+[global::Swashbuckle.AspNetCore.Annotations.SwaggerSchema(Required = new[] { "customerId", "status", "placedAt" })]
 public sealed record CreateOrderRequest([NoNulChar] [Required(AllowEmptyStrings = true)] string CustomerId, [property: JsonRequired] [Required] OrderStatus Status, [NoNulChar] [Required(AllowEmptyStrings = true)] string PlacedAt);
 
+[global::Swashbuckle.AspNetCore.Annotations.SwaggerSchema(Required = new[] { "productId", "qty" })]
 public sealed record AddLineOrderRequest([property: JsonRequired] [Required] Guid ProductId, [property: JsonRequired] [Required] int Qty);
 
 public sealed record ConfirmOrderRequest();
