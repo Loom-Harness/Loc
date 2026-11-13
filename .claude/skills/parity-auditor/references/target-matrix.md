@@ -78,15 +78,15 @@ the migration record, not as current behaviour.
 Defaults read off each generator's `deployable.design ?? …` (react `index.ts:159`,
 vue `:152`, svelte `:128`, angular `DEFAULT_DESIGN`, elixir `index.ts:77`).
 
-**SIX targets consume the shared walker core** (`src/generator/_walker/walker-core.ts`,
+**SEVEN targets consume the shared walker core** (`src/generator/_walker/walker-core.ts`,
 `walkBody`) through the `WalkerTarget` seam — including Feliz and Flutter, which
-emit F# and Dart rather than markup and ride the walker through the seam object.
-**Phoenix HEEx does NOT use `walkBody`** — it runs a parallel engine
-(`heex-walker-core.ts`) because LiveView's output topology diverges (inline
-lambdas vs hoisted `handle_event` clauses, `.map` vs `for`-comprehensions,
-ternary vs `if`-block children); `heexTarget` is mainly a conformance shim. It
-dispatches off the *same* `WALKER_PRIMITIVES` table, so there is no second
-primitive list to drift.
+emit F# and Dart rather than markup, and Phoenix HEEx (`heex-target.ts`). HEEx's
+primitives (`HEEX_SHARED_PRIMITIVES`, `elixir/heex-pack.ts`) render through the
+shared emitters plus HEEx overrides where LiveView's topology diverges (hoisted
+`handle_event` clauses, `for`-comprehensions, `if`-block children); its
+`renderNodeOverride` hands term-valued nodes to the HEEx engine
+(`heex-walker-core.ts`). Every target dispatches off the *same*
+`WALKER_PRIMITIVES` table, so there is no second primitive list to drift.
 
 **Feliz and Flutter are the two that per-pack gates structurally cannot see.**
 Neither has a `.hbs` pack pipeline: each self-hosts through its own toolchain

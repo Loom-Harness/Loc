@@ -2,10 +2,15 @@
 // HEEx walker core.
 //
 // Renders a page body (`PageIR.body` expression IR) as HEEx for the Phoenix
-// LiveView platform.  It is a separate engine from the shared walker core
-// (`src/generator/_walker/walker-core.ts`, `walkBody`) because LiveView's
-// output topology differs: lambdas hoist to `handle_event/3` clauses, lists
-// render as `for` comprehensions, and conditional children are `if` blocks.
+// LiveView platform.  The body runs through the shared walker core
+// (`src/generator/_walker/walker-core.ts`, `walkBody`) with `heexTarget`;
+// the primitives in `HEEX_SHARED_PRIMITIVES` render through the shared
+// emitters, and this engine renders the nodes `heexTarget.renderNodeOverride`
+// hands back — Elixir term values such as a term-valued `match` or a
+// value-object construction — plus the expression and text values both halves
+// share.  LiveView's topology differs (lambdas hoist to `handle_event/3`
+// clauses, lists render as `for` comprehensions, conditional children are `if`
+// blocks), which is why those overrides exist.
 // Its expression leaves still ride the shared dispatcher —
 // `renderExprWith(…, HEEX_TARGET)` — so it carries no expression switch of its
 // own.
@@ -685,9 +690,10 @@ export function walkBodyToHeex(
 
   seedHoistedHandlers(ctx, page, body);
 
-  // The body runs through the shared walker core.  Every node it reaches is
-  // handed back to this engine through `heexTarget.renderNodeOverride`, which
-  // renders it with the HEEx walk context carried in the sink.
+  // The body runs through the shared walker core.  A node that is not a
+  // shared primitive, a user component or markup control flow is handed back
+  // to this engine through `heexTarget.renderNodeOverride`, which renders it
+  // with the HEEx walk context carried in the sink.
   const sink: HeexWalkSink = { heex: ctx };
   const heex = body ? walkShared(body, sink) : `<!-- empty body -->`;
   const titleExpr = pageTitleExpr(page, ctx);

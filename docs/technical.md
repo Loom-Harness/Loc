@@ -461,7 +461,7 @@ generators) classify against.
 
 ## Loom IR shape
 
-Defined in `src/ir/types/loom-ir.ts`.  The whole IR is a tree of immutable
+Defined under `src/ir/types/` — one module per declaration area (`aggregate.ts`, `context.ts`, `expr.ts`, `stmt.ts`, `ui.ts`, `workflow.ts`, …), re-exported by the `loom-ir.ts` barrel, which is the import path.  The whole IR is a tree of immutable
 records; no graphs, no cycles.
 
 **Top-level**:
@@ -697,7 +697,7 @@ consumed by multiple platforms.  The four principal ones:
 |---|---|---|
 | `_packs/` | the JSX/markup frontends (react, vue, svelte, angular) + the Phoenix HEEx path | Design-pack discovery + loader.  `loader-fs.ts` / `loader-vfs.ts` are the FS / browser-VFS backends.  (The pack-identity metadata — `BUILTIN_PACK_FORMATS` / `BUILTIN_PACK_LATEST` + the `parseBuiltinDesignRef` parser — lives in [`src/util/builtin-formats.ts`](../src/util/builtin-formats.ts): language validators and IR lowering consume it too, so it sits at the foundational `util/` layer.)  See [`design-packs.md`](design-packs.md). |
 | `_expr/` | every domain-logic backend (TS, .NET, Phoenix, Python, Java) | `target.ts` defines the `ExprTarget` interface (the eight leaf-divergence axes — operators, naming, money arithmetic, collection ops, `refColl.contains` membership, regex, `ref` role, `callKind` call syntax) and `renderExprWith(e, target, ctx)`, which owns the 17-arm `ExprIR.kind` dispatch + all recursion.  Each backend's `render-expr.ts` supplies only the leaf table (`TS_TARGET` / `CS_TARGET` / `ELIXIR_TARGET` / `PY_TARGET` / `JAVA_TARGET`).  Expression-side analogue of `WalkerTarget`; already five backends — a 6th domain-logic backend writes one target, not a 6th dispatcher. |
-| `_walker/` | the six frontends (react, vue, svelte, angular, feliz, flutter) + a parallel HEEx engine (phoenixLiveView) | `target.ts` defines the `WalkerTarget` interface that captures the framework-shaped seams (state read/write, navigation, API call lowering, `match` rendering).  Six targets drive the shared `walker-core.ts`: `react/walker/tsx-target.ts`, `vue/walker/vue-target.ts`, `svelte/walker/svelte-target.ts`, `angular/walker/angular-target.ts`, `feliz/feliz-target.ts` (emits F#), and `flutter/flutter-target.ts` (emits Dart); Phoenix/HEEx runs a parallel engine via `elixir/heex-target.ts` (its output topology diverges). |
+| `_walker/` | the six frontends (react, vue, svelte, angular, feliz, flutter) + phoenixLiveView (HEEx) | `target.ts` defines the `WalkerTarget` interface that captures the framework-shaped seams (state read/write, navigation, API call lowering, `match` rendering).  Six targets drive the shared `walker-core.ts`: `react/walker/tsx-target.ts`, `vue/walker/vue-target.ts`, `svelte/walker/svelte-target.ts`, `angular/walker/angular-target.ts`, `feliz/feliz-target.ts` (emits F#), and `flutter/flutter-target.ts` (emits Dart); Phoenix/HEEx drives the same core through `elixir/heex-target.ts`: its primitives (`HEEX_SHARED_PRIMITIVES`) render through the shared emitters plus HEEx overrides, and term-valued nodes go to the HEEx engine (`elixir/heex-walker-core.ts`) via `renderNodeOverride`. |
 | `_obs/` | hono, dotnet, phoenixLiveView, python | Observability catalog + per-backend renderers.  `log-events.ts` defines the envelope schema; `render-<platform>.ts` emits the per-backend instrumentation (hono / dotnet / phoenix; python wires the shared catalog from its own `emit/obs.ts`).  Java emits an equivalent catalog-JSON channel without sharing this subdir.  See [`observability.md`](observability.md). |
 
 Four more carry narrower shared seams: `_frontend/` (framework-neutral
@@ -724,7 +724,7 @@ module exporting `render<Thing>(args)` functions.  No runtime
 parsing, no SafeString escaping, no helper registration — the type
 checker validates every data flow from the IR to the rendered string.
 
-### Hono backend (`src/platform/hono/v5/` + shared `v4/` + `src/generator/typescript/`)
+### Hono backend (`src/platform/hono/v5/` + `src/platform/hono/shared/` + `src/generator/typescript/`)
 
 The Hono backend is split between *versioned* packages under
 `src/platform/hono/` (each owns its package shell + dep pin set) and a
@@ -736,7 +736,7 @@ version ships today: `v5/` (zod 4 / TS 6), which bareword
 pinning it is a `loom.platform-version-unknown` error naming `node@v5`.
 
 `v5/` is deliberately tiny — `index.ts` + `pins.ts` only.  It feeds its
-pin set through `makeHonoPlatform(...)` imported from `v4/index.ts` and
+pin set through `makeHonoPlatform(...)` imported from `shared/index.ts` and
 reuses the whole shell + emitter table below.  `platform/hono/shared/`
 registers no version of its own: it holds the shared Hono shell and
 emitters that the registered package calls.
@@ -1182,7 +1182,7 @@ Rough recipe:
 2. **AST scope / validation** — if the new node introduces names
    or has type constraints, update `ddd-scope.ts` / the relevant
    themed module under `src/language/validators/` / `type-system.ts`.
-3. **IR** — add the IR node in `loom-ir.ts`; lower it in the
+3. **IR** — add the IR node in its area module under `src/ir/types/` (re-exported by `loom-ir.ts`); lower it in the
    relevant `lower/` module — the matching per-kind sibling
    (`lower-members.ts`, `lower-workflow.ts`, …) wired into the
    `lower.ts` orchestrator, or `lower-expr.ts` (expression /
@@ -1224,7 +1224,12 @@ The shape:
    `composeService(...)`, `needsDb`, `defaultPort`.  Internally,
    that adapter usually wraps a `generate<Backend>ForContexts(contexts, ...) → Map<path, content>`
    in `generator/<backend>/index.ts`.
-2. Register the new platform in `src/platform/registry.ts`.
+2. Register the new platform in `src/platform/registry.ts` and give it a
+   `TARGET_FACTS` row in `src/platform/target-facts.ts` — lowering, the
+   validators and system composition read what a target is from that row,
+   never by comparing its name (`biome-plugins/no-target-name-literal.grit`
+   refuses a platform-name literal in `src/ir/`, `src/language/`,
+   `src/system/`; see [`platforms.md`](platforms.md)).
 3. For domain-logic-running backends, implement an `ExprTarget` leaf
    table (the shared `renderExprWith` in `_expr/target.ts` owns the
    dispatch + recursion) wrapped by a thin `renderXxxExpr(e: ExprIR):
@@ -1244,7 +1249,7 @@ The shape:
    (there is no stored `wireShape` field on these nodes) — never
    assemble the field list per backend.
 6. If the platform needs a new value in `Platform`, also extend
-   `language/ddd.langium`'s `Platform` rule, `ir/loom-ir.ts`'s
+   `language/ddd.langium`'s `Platform` rule, `ir/types/deployment.ts`'s
    `Platform` type, and `checkDeployable` in
    `language/validators/deployable.ts` — see the `'react'` addition
    for the pattern.

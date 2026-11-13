@@ -7,13 +7,12 @@ import { HEEX_SHARED_PRIMITIVES } from "../../../src/generator/elixir/heex-pack.
 //
 // `WALKER_PRIMITIVES` (src/generator/_walker/registry.ts) is the single
 // dispatch table.  Each primitive carries a `tsx` renderer — consumed by the
-// shared `walkBody` engine that React, Vue and Svelte all drive — and
-// optionally a `heex` renderer.  The Phoenix/HEEx engine runs a *parallel*
-// recursion core (elixir/heex-walker-core.ts) because LiveView's output
-// topology diverges, but it dispatches per-primitive off THIS SAME table
-// (`heex-walker-core.ts`: `const def = WALKER_PRIMITIVES[name]; def.heex(...)`).
-// So there is no separate HEEx primitive list to drift — coverage is
-// single-source-of-truth here.
+// shared `walkBody` engine every frontend drives — and optionally a `heex`
+// renderer.  Phoenix/HEEx drives the same core through `heexTarget`; LiveView's
+// output topology diverges, so it overrides seams and hands term-valued nodes
+// to its HEEx engine (elixir/heex-walker-core.ts), but per-primitive coverage
+// still comes off THIS SAME table.  So there is no separate HEEx primitive
+// list to drift — coverage is single-source-of-truth here.
 //
 // The one remaining drift risk: a primitive the TSX walker renders but the
 // HEEx walker does NOT (`tsx` set, `heex` undefined).  React/Vue users get the

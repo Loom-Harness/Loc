@@ -27,8 +27,9 @@ it registers:
 
 - **5 backends:** `node` (Hono — bareword resolves to `honoV5Platform`, the v5 default
   lane), `dotnet`, `java`, `python`, `elixir` (vanilla Ecto/Phoenix).
-- **5 frontends:** `react`, `vue`, `svelte`, `angular`, `feliz` (F#/Fable/Elmish,
-  built via `dotnet fable`+vite — not the vite-only static pipeline; plus
+- **6 frontends:** `react`, `vue`, `svelte`, `angular`, `feliz` (F#/Fable/Elmish,
+  built via `dotnet fable`+vite — not the vite-only static pipeline), `flutter`
+  (Dart/Riverpod, built via the Flutter SDK; plus
   `static`/`vite` aliasing to `react`).
 
 Anything in the docs saying "three backends", "four targets", "the React frontend"

@@ -1,7 +1,7 @@
 ---
 name: loom-ci-gates
 description: >-
-  What each of Loom's ~65 GitHub Actions workflows gates, which tier it runs in (per-PR, draft-
+  What each of Loom's ~70 GitHub Actions workflows gates, which tier it runs in (per-PR, draft-
   gated, post-merge, nightly), and the `run-*` feature labels that force a post-merge-only gate to
   run on your PR before merge. Use whenever the task involves CI — "which workflow catches X",
   "why is <workflow>.yml red", "will this run on my PR", "force the obs/oidc/tenancy/channels/k8s
