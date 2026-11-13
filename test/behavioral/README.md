@@ -524,6 +524,25 @@ covered here; it stays on the `channels-e2e` legs.
 The broker's own tests run under `npm run test:fakes-docker`, which needs
 docker. The pure helpers run in the fast suite.
 
+### Object-store sidecar (`test/support/fakes/s3-sidecar.mjs`)
+
+A case whose model declares an `s3` storage runs against a real S3-compatible
+server: `adobe/s3mock`, pinned by digest as `S3_IMAGE`. The kit starts it with
+`docker run`. In CI it uses the workflow's `services: s3` entry, named by
+`LOOM_FAKE_S3_URL`.
+
+- **Why s3mock.** It speaks path-style S3 and accepts any credentials. It
+  passes a streamed (`aws-chunked`) upload, ListObjectsV2 and a presigned GET
+  from the generated node client's SDK, and it is ready in about 6 s.
+- **Env.** Each object-store resource gets the generated contract from
+  `src/util/resource-env.ts`: `<RES>_URL_ENDPOINT`, `<RES>_URL_BUCKET`, and the
+  `AWS_*` trio from `S3_DEV_SIDECAR`.
+- **Observation.** `await observe()` reads the objects back over the S3 API:
+  ListObjectsV2 per bucket, then HEAD per object. It returns them sorted, as
+  `{ bucket, key, size, contentType }`.
+- **Between cases.** `reset()` deletes every object and bucket, then re-creates
+  the case's buckets.
+
 ## UI tier (`run-ui.mjs`)
 
 The sibling runner for the **`ui`** tier — the emitted Playwright spec

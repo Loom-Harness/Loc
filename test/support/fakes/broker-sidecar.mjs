@@ -59,7 +59,7 @@ async function envNames() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function until(what, fn, { timeoutMs = 90_000, everyMs = 500 } = {}) {
+export async function until(what, fn, { timeoutMs = 90_000, everyMs = 500 } = {}) {
   const deadline = Date.now() + timeoutMs;
   let last;
   while (Date.now() < deadline) {
@@ -70,17 +70,19 @@ async function until(what, fn, { timeoutMs = 90_000, everyMs = 500 } = {}) {
     }
     await sleep(everyMs);
   }
-  throw new Error(`broker fake: timed out waiting for ${what}${last ? ` (${last.message ?? last})` : ""}`);
+  throw new Error(`fake sidecar: timed out waiting for ${what}${last ? ` (${last.message ?? last})` : ""}`);
 }
 
-function docker(args) {
+export function docker(args) {
   return execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
 /** `docker run` one pinned image with loopback-published ports; returns the
- *  container id and the host port each container port landed on. */
-function runContainer(image, ports, env = {}, cmd = []) {
-  const args = ["run", "-d", "--rm", "--label", "loom.fake=broker"];
+ *  container id and the host port each container port landed on.  Every
+ *  sidecar carries a `loom.fake=<kind>` label, so a leftover from a killed
+ *  run is findable with `docker ps --filter label=loom.fake`. */
+export function runContainer(image, ports, env = {}, cmd = [], kind = "broker") {
+  const args = ["run", "-d", "--rm", "--label", `loom.fake=${kind}`];
   for (const p of ports) args.push("-p", `127.0.0.1::${p}`);
   for (const [k, v] of Object.entries(env)) args.push("-e", `${k}=${v}`);
   const id = docker([...args, image, ...cmd]);
