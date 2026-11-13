@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolveChromiumFallback } from "./browser-fallback.mjs";
+import { chromiumLaunchOptions, resolveChromiumFallback } from "./browser-fallback.mjs";
 
 function store(...revs: string[]) {
   const root = mkdtempSync(join(tmpdir(), "pw-store-"));
@@ -59,5 +59,47 @@ describe("resolveChromiumFallback", () => {
     expect(
       resolveChromiumFallback({ pinned: "x", env: {}, root: join(root, "absent") }),
     ).toBeUndefined();
+  });
+});
+
+describe("LOOM_PW_CHROMIUM deprecated alias", () => {
+  it("is honoured when the canonical name is unset, and loses to it when both are set", () => {
+    const root = store("chromium-1243");
+    const pinned = join(root, "missing");
+    const legacy = join(root, "legacy");
+    const canonical = join(root, "canonical");
+    writeFileSync(legacy, "");
+    writeFileSync(canonical, "");
+    expect(resolveChromiumFallback({ pinned, env: { LOOM_PW_CHROMIUM: legacy }, root })).toBe(
+      legacy,
+    );
+    expect(
+      resolveChromiumFallback({
+        pinned,
+        env: { LOOM_PW_CHROMIUM: legacy, LOOM_CHROMIUM_PATH: canonical },
+        root,
+      }),
+    ).toBe(canonical);
+  });
+});
+
+describe("chromiumLaunchOptions", () => {
+  it("is {} when the pinned browser is installed", () => {
+    const root = store("chromium-1228", "chromium-1243");
+    const pinned = join(root, "chromium-1228/chrome-linux64/chrome");
+    expect(chromiumLaunchOptions(pinned, { PLAYWRIGHT_BROWSERS_PATH: root })).toEqual({});
+  });
+
+  it("is { executablePath } when the pinned browser is missing and a fallback exists", () => {
+    const root = store("chromium-1243");
+    const pinned = join(root, "chromium-1228/chrome-linux64/chrome");
+    expect(chromiumLaunchOptions(pinned, { PLAYWRIGHT_BROWSERS_PATH: root })).toEqual({
+      executablePath: join(root, "chromium-1243/chrome-linux64/chrome"),
+    });
+  });
+
+  it("is {} when nothing is installed", () => {
+    const root = mkdtempSync(join(tmpdir(), "pw-empty-"));
+    expect(chromiumLaunchOptions(join(root, "x"), { PLAYWRIGHT_BROWSERS_PATH: root })).toEqual({});
   });
 });

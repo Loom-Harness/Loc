@@ -41,7 +41,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { playwrightFallbackArgs } from "./browser-fallback.mjs";
+import { chromiumLaunchOptions, playwrightFallbackArgs } from "./browser-fallback.mjs";
 import { copyLocales, localesBeside } from "./case-source.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE } from "./money-compare-ui.mjs";
 import { NUMERIC_FIELDS, numericSeedBody } from "./numeric-ui-contract.mjs";
@@ -152,7 +152,7 @@ async function numericListProbe(origin, cfg) {
     stdio: "pipe",
   });
   const { chromium } = await import("playwright");
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ ...chromiumLaunchOptions(chromium.executablePath()) });
   try {
     const page = await browser.newPage();
     const api = [];
@@ -218,7 +218,7 @@ async function moneyCompareProbe(origin) {
     stdio: "pipe",
   });
   const { chromium } = await import("playwright");
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ ...chromiumLaunchOptions(chromium.executablePath()) });
   const why = [];
   try {
     const page = await browser.newPage();
