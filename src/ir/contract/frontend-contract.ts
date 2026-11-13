@@ -23,7 +23,6 @@
 import type {
   ApiIR,
   ComponentIR,
-  EnrichedBoundedContextIR,
   EnrichedLoomModel,
   EnrichedSystemIR,
   EnumIR,
