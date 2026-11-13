@@ -827,6 +827,24 @@ function renderRouting(
  *  renders the active page's view fn (threading the route `id` to detail pages).
  *  Named `view` normally; `appView` under an auth gate (the gate owns `view`). */
 
+/** The default bar's links with an untitled page's link keyed to its catalog
+ *  `name` entry (the key its own heading translates under), whichever section
+ *  of the derived bar the link landed in. */
+function withPageNameKeys(
+  ui: UiIR,
+  sections: readonly NavSectionVM[] | undefined,
+): NavSectionVM[] | undefined {
+  return sections?.map((section) => ({
+    ...section,
+    entries: section.entries.map((e) => {
+      if (e.labelKey || e.external) return e;
+      const page = ui.pages.find((p) => p.route === e.to);
+      const named = page ? pageNameEntry(ui, page) : undefined;
+      return named ? { ...e, label: named.message, labelKey: named.key } : e;
+    }),
+  }));
+}
+
 /** The default bar's links: one per navigable page, named by the page's own
  *  `menu { label: … }` (a scaffold list page carries its aggregate's plural,
  *  `Products`) and humanised from its name otherwise.  Handed to
@@ -1860,7 +1878,10 @@ function renderAppFs(
           pageGate,
           ui.menu
             ? deriveSidebarFromUi(ui, nameCtx)
-            : deriveSidebarFromUi(ui, nameCtx, false, [defaultNavSection(ui, ui.pages, nameCtx)]),
+            : withPageNameKeys(
+                ui,
+                deriveSidebarFromUi(ui, nameCtx, false, [defaultNavSection(ui, ui.pages, nameCtx)]),
+              ),
           localeSwitchable,
           !!ui.menu,
         ),

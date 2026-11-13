@@ -40,10 +40,10 @@ import { renderFlutterGate } from "./auth-gate.js";
 import { dartStringLit } from "./i18n.js";
 
 /** The widget every page's `AppBar(bottom: …)` mounts for an explicit menu. */
-export const FLUTTER_NAV_MENU_WIDGET = "LoomNavMenu";
+const FLUTTER_NAV_MENU_WIDGET = "LoomNavMenu";
 
 /** The widget every page's `Scaffold(drawer: …)` mounts for the derived menu. */
-export const FLUTTER_NAV_DRAWER_WIDGET = "LoomNavDrawer";
+const FLUTTER_NAV_DRAWER_WIDGET = "LoomNavDrawer";
 
 /** How pages mount the navigation: `row` is the explicit `menu { }` under the
  *  app bar, `drawer` the derived default. */

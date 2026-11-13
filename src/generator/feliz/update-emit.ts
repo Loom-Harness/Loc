@@ -286,7 +286,7 @@ export function renderModel(
 
 /** Whether any read fires from a page-entry arm — a byId read, or a list read a
  *  routed page hosts.  Under a non-routed ui nothing is page-entry. */
-export function hasPageEntryReads(reads: readonly FelizRead[], routed: boolean): boolean {
+function hasPageEntryReads(reads: readonly FelizRead[], routed: boolean): boolean {
   return routed && reads.some((r) => r.single || (r.hostPages?.length ?? 0) > 0);
 }
 
