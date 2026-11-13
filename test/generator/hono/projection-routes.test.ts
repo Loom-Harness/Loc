@@ -20,8 +20,8 @@ const SRC = `
     channel Lifecycle { carries: OrderPlaced, OrderShipped  retention: log  key: order }
     projection OrderBook keyed by order {
       order: Order id
-      customer: Customer id
-      status: OrderStatus
+      customer: Customer id?
+      status: OrderStatus?
       on(e: OrderPlaced)  { customer := e.customer  status := Placed }
       on(e: OrderShipped) { status := Shipped }
     }

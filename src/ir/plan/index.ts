@@ -34,6 +34,7 @@ export {
   foldInboxClaimSql,
   foldInboxPurgeSql,
   foldRowSeeds,
+  foldRowUnseeded,
   foldSteps,
   foldsDedupe,
 } from "./projection-fold.js";

@@ -38,8 +38,8 @@ system ProjectionSys {
       channel Lifecycle { carries: OrderPlaced, OrderShipped  delivery: broadcast  retention: ephemeral }
       projection OrderBoard keyed by orderRef {
         orderRef: Order id
-        status: BoardStatus
-        at: datetime
+        status: BoardStatus?
+        at: datetime?
         on(e: OrderPlaced)  { status := Placed  at := e.at }
         on(e: OrderShipped) { status := Shipped  at := e.at }
       }

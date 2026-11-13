@@ -111,7 +111,9 @@ async function errorCodes(source: string): Promise<string[]> {
 
 describe("node/Hono folded-projection body — every statement kind is emitted or rejected", () => {
   it("a `let` binding is emitted as a `const`, so its use sites resolve (was TS2304)", async () => {
-    const body = await foldBody(sys("let stamped = e.at\n          at := stamped", "at: datetime"));
+    const body = await foldBody(
+      sys("let stamped = e.at\n          at := stamped", "at: datetime?"),
+    );
     // The USE was always emitted; the BINDING was the half that vanished.
     expect(body).toContain("state.at = stamped;");
     expect(body).toContain("const stamped = e.at;");

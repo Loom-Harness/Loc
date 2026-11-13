@@ -36,7 +36,7 @@ const SYS = `
         channel Lifecycle { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }
         projection OrderBoard keyed by order {
           order: Order id
-          status: BoardStatus
+          status: BoardStatus?
           on(e: OrderPlaced) { status := Placed }
         }
       }

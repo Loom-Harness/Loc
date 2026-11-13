@@ -16,6 +16,7 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.projection-key-assign": "10-repositories-and-queries.md#folded--keyed-by--one-event",
   "loom.projection-accumulate-optional":
     "10-repositories-and-queries.md#folded--keyed-by--one-event",
+  "loom.projection-field-no-start": "10-repositories-and-queries.md#folded--keyed-by--one-event",
   "loom.projection-select-duration": "04-type-system.md#duration--expression-only",
   "loom.projection-aggregate-arg-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-aggregate-arity":

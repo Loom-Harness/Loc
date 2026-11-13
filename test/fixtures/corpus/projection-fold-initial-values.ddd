@@ -7,8 +7,10 @@
 //   - a field with a declared default starts at it;
 //   - a required field whose type has a neutral zero starts at that zero —
 //     `0` for an int or money, `false`, `""`, the empty list;
-//   - an optional field, and a required one with no neutral zero (a datetime),
-//     starts null.
+//   - an optional field starts null;
+//   - a required field whose type has no neutral zero (a datetime, an enum, an
+//     id, a value object) must declare a default, or the fold is refused
+//     (`loom.projection-field-no-start`): a required column never holds null.
 //
 // The fold below writes ONE column, so every other column's wire value is its
 // starting value.  The wire golden records all of them; the `test e2e` block
@@ -33,7 +35,7 @@ system FoldInitialValuesSys {
         tags: string[]
         note: string?
         bonus: int? = 5
-        lastSeen: datetime
+        lastSeen: datetime?
         on(e: ArticleViewed) {
           views += 1
           bonus += 1

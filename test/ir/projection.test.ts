@@ -110,6 +110,20 @@ describe("projection validation", () => {
     expect(codes.filter((c) => c === "loom.projection-accumulate-optional")).toHaveLength(1);
   });
 
+  it("refuses a required fold column with no zero and no default", async () => {
+    const codes = await projectionErrors(`
+      projection OrderBook keyed by order {
+        order: Order id
+        status: OrderStatus
+        placedAt: datetime?
+        kind: OrderStatus = Placed
+        count: int
+        on(e: OrderPlaced) { status := Placed  count += 1 }
+      }`);
+    // Only \`status\`: the optional, the defaulted and the zero-able columns start.
+    expect(codes.filter((c) => c === "loom.projection-field-no-start")).toHaveLength(1);
+  });
+
   it("refuses an assignment to the key field (loom.projection-key-assign)", async () => {
     const codes = await projectionErrors(`
       projection OrderBook keyed by order {

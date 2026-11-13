@@ -74,7 +74,7 @@ system S {
       projection OrderBoard keyed by orderRef {
         orderRef: Order id
         status: string
-        at: datetime
+        at: datetime?
         on(e: OrderPlaced) { status := "Placed"  at := e.at }
       }
       workflow Fulfil {

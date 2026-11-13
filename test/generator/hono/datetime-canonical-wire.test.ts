@@ -105,7 +105,7 @@ system R {
       event OrderPlaced { orderRef: Order id, at: datetime }
       projection OrderBoard keyed by orderRef {
         orderRef: Order id
-        at: datetime
+        at: datetime?
         seenAt: datetime?
         on(e: OrderPlaced) { at := e.at  seenAt := e.at }
       }

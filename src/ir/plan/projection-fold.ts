@@ -119,7 +119,8 @@ export type FoldRowSeed =
   | { field: FieldIR; kind: "zero"; zero: FoldRowZero };
 
 /** The non-key columns a fresh row of `p` starts with a value in, in
- *  declaration order.  A column absent here starts null. */
+ *  declaration order.  A column absent here is optional and starts null
+ *  (a required one with no start is refused, `foldRowUnseeded`). */
 export function foldRowSeeds(p: ProjectionIR): FoldRowSeed[] {
   const out: FoldRowSeed[] = [];
   for (const field of p.stateFields) {
@@ -133,6 +134,17 @@ export function foldRowSeeds(p: ProjectionIR): FoldRowSeed[] {
     if (zero) out.push({ field, kind: "zero", zero });
   }
   return out;
+}
+
+/** The required non-key columns of `p` that have no starting value: no
+ *  declared default, and a type with no neutral zero (a datetime, a date, an
+ *  enum, an id, a value object).  A fresh row could only start them null,
+ *  which a required column never holds, so each must declare its default
+ *  (`loom.projection-field-no-start`). */
+export function foldRowUnseeded(p: ProjectionIR): FieldIR[] {
+  return p.stateFields.filter(
+    (f) => f.name !== p.correlationField && !f.optional && !f.default && !neutralZero(f.type),
+  );
 }
 
 function neutralZero(t: TypeIR): FoldRowZero | undefined {

@@ -20,7 +20,7 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { nearestName } from "../../../util/edit-distance.js";
-import { assignsFoldKey } from "../../plan/index.js";
+import { assignsFoldKey, foldRowUnseeded } from "../../plan/index.js";
 import type {
   BoundedContextIR,
   ExprIR,
@@ -704,6 +704,24 @@ function validateHandlers(
   proj: ProjectionIR,
   diags: LoomDiagnostic[],
 ): void {
+  // A fold allocates a row on an unseen key, and a required column must start
+  // at a value: its default, else its type's zero.  A type with no zero has
+  // nothing to start from (D-PROJECTION-ROW-SEED).
+  if (proj.handlers.length > 0) {
+    for (const field of foldRowUnseeded(proj)) {
+      diags.push({
+        severity: "error",
+        code: "loom.projection-field-no-start",
+        message: diagMessage("loom.projection-field-no-start", {
+          name: proj.name,
+          field: field.name,
+          type: typeLabel(field.type),
+        }),
+        source: `${ctx.name}/${proj.name}`,
+        origin: proj.origin,
+      });
+    }
+  }
   const seen = new Set<string>();
   for (const h of proj.handlers) {
     if (seen.has(h.event)) {
