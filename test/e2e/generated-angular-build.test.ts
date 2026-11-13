@@ -816,6 +816,47 @@ const I18N_TEXT: Case = {
   `,
 };
 
+/** Optional value object with an enum field + optional reference on a scaffolded
+ *  detail page.  The enum-label lookup reads through `vehicle?.usage` and the
+ *  reference label takes a nullable id; both must compile under
+ *  `strictTemplates`. */
+const OPTIONAL_VO_ENUM_REF: Case = {
+  name: "optional-vo-enum-ref",
+  angularDir: "web",
+  mustEmit: ["?.usage", "loom-ref-label"],
+  source: `
+    system Cover {
+      subdomain Cover {
+        context Cover {
+          enum Usage { Private, Commercial }
+          valueobject Vehicle {
+            vin: string
+            usage: Usage
+          }
+          aggregate Provider with crudish {
+            name: string
+            derived display: string = name
+          }
+          aggregate Policy with crudish {
+            holder: string
+            provider: Provider id
+            backup: Provider id?
+            vehicle: Vehicle?
+          }
+          repository Providers for Provider { }
+          repository Policies for Policy { }
+        }
+      }
+      api CoverApi from Cover
+      ui WebApp with scaffold(subdomains: [Cover]) { }
+      storage primary { type: postgres }
+      resource coverState { for: Cover, kind: state, use: primary }
+      deployable api { platform: node, contexts: [Cover], dataSources: [coverState], serves: CoverApi, port: 3000 }
+      deployable web { platform: angular, targets: api, ui: WebApp, port: 3004 }
+    }
+  `,
+};
+
 const PACKS = ["angularMaterial@v1", "primeng@v1", "spartanNg@v1"] as const;
 
 interface MatrixCase extends Case {
@@ -835,6 +876,7 @@ const allCases: MatrixCase[] = [
   NESTED_VO,
   NESTED_ARRAY,
   I18N_TEXT,
+  OPTIONAL_VO_ENUM_REF,
 ].flatMap((c) => PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })));
 
 /** Inject `design: "<pack>"` into the angular deployable (single-line or
