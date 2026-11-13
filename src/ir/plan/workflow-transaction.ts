@@ -14,30 +14,55 @@
 // the dataSource default is a property of the workflows that ask for a
 // transaction, the same rule `loom.isolation-requires-transactional` enforces
 // for the explicit form.
+//
+// A workflow-level `emit` of a DURABLE event type (one a `retention: log |
+// work` channel carries) is owed exactly when the workflow's writes commit.
+// When the body runs in a transaction, its outbox row is therefore written by
+// that transaction, before the commit, and only the rest of the workflow's
+// events are dispatched after it.  Written after the commit instead, a crash
+// in between loses an event whose writes already committed.
 
 import type { BoundedContextIR, IsolationLevel, SystemIR, WorkflowIR } from "../types/loom-ir.js";
+import { durableEventTypes } from "../util/channels.js";
 import { resolveWorkflowIsolation } from "../util/resolve-datasource.js";
+import { workflowEmits } from "../util/walk.js";
 import { commandCreateEntryResult } from "../util/workflow-command-route.js";
 import { bodyWriteScopeGuards, writeScopeContext } from "../util/write-scope-guards.js";
 
-/** True when the workflow's command body runs in one transaction. */
-export function workflowRunsInTransaction(wf: WorkflowIR, ctx: BoundedContextIR): boolean {
+/** True when the workflow's command body runs in one transaction.  This is
+ *  the transaction boundary every backend keeps: any other workflow commits
+ *  each save on its own, so a failure keeps the rows saved before it.  Without
+ *  `ctx` (no owning context known) a write-scope re-check cannot be seen. */
+export function workflowRunsInTransaction(
+  wf: WorkflowIR,
+  ctx: BoundedContextIR | undefined,
+): boolean {
   return (
     !!wf.transactional ||
     commandCreateEntryResult(wf) !== undefined ||
-    bodyWriteScopeGuards(wf.statements, writeScopeContext(wf.statements, ctx)).length > 0
+    (ctx !== undefined &&
+      bodyWriteScopeGuards(wf.statements, writeScopeContext(wf.statements, ctx)).length > 0)
   );
 }
 
 /** The isolation level the workflow's transaction pins, or `undefined` for the
  *  connection default.  `ctx` is the workflow's OWNING context (a merged
- *  multi-context deployable's context is not); without `sys` only the
- *  workflow's own level is known. */
+ *  multi-context deployable's context is not); without `ctx` and `sys` only
+ *  the workflow's own level is known. */
 export function workflowIsolation(
   wf: WorkflowIR,
-  ctx: BoundedContextIR,
+  ctx: BoundedContextIR | undefined,
   sys: SystemIR | undefined,
 ): IsolationLevel | undefined {
   if (!wf.transactional) return undefined;
-  return sys ? resolveWorkflowIsolation(wf, ctx, sys) : wf.isolation;
+  return sys && ctx ? resolveWorkflowIsolation(wf, ctx, sys) : wf.isolation;
+}
+
+/** True when the workflow's command body runs in a transaction AND emits a
+ *  durable event type, so the transaction must capture those events' outbox
+ *  rows before it commits. */
+export function workflowCapturesDurableEmits(wf: WorkflowIR, ctx: BoundedContextIR): boolean {
+  if (!workflowRunsInTransaction(wf, ctx)) return false;
+  const durable = durableEventTypes(ctx);
+  return workflowEmits(wf.statements).some((st) => durable.has(st.eventName));
 }

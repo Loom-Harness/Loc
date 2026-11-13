@@ -25,6 +25,14 @@
 export { hasDurableEvents } from "./context-events.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
 export { lookupOp } from "./operation-lookup.js";
+export {
+  admittedReferences,
+  type ContainStep,
+  type RefScope,
+  refScopeOf,
+  type ScopedReference,
+  scopedReferences,
+} from "./ref-scope.js";
 export { domainFindShape } from "./repo-find-shape.js";
 export {
   contextOperations,
@@ -71,4 +79,8 @@ export {
   type SubscriptionHandler,
   subscriptionHandler,
 } from "./workflow-subscriptions.js";
-export { workflowIsolation, workflowRunsInTransaction } from "./workflow-transaction.js";
+export {
+  workflowCapturesDurableEmits,
+  workflowIsolation,
+  workflowRunsInTransaction,
+} from "./workflow-transaction.js";

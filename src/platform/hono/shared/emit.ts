@@ -542,6 +542,10 @@ function pointerOf(path: ReadonlyArray<PropertyKey>): string {
 function isMissing(input: unknown, issue: { path: ReadonlyArray<PropertyKey>; code?: string }): boolean {
   const path = issue.path;
   if (path.length === 0) return false;
+  // A rule's own \`refine\` issue (\`label != null when op == Equals\`) names the
+  // field it points at, not a missing key: it keeps the rule's code, as on the
+  // other four backends, even when the key was left out.
+  if (issue.code === "custom") return false;
   let node: unknown = input;
   for (const seg of path.slice(0, -1)) {
     if (node === null || typeof node !== "object") return false;
@@ -1096,11 +1100,7 @@ export function generateTypeScriptForContexts(
   // OWNING context, whose state dataSource supplies the default level.
   const resolveWorkflowIsolationLevel = (wf: import("../../../ir/types/loom-ir.js").WorkflowIR) => {
     const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
-    return owningCtx
-      ? workflowIsolation(wf, owningCtx, system.sys)
-      : wf.transactional
-        ? wf.isolation
-        : undefined;
+    return workflowIsolation(wf, owningCtx, system.sys);
   };
   // Per-projection read-model-table schema — same owning-context map-back.
   const resolveProjectionSchema = (proj: import("../../../ir/types/loom-ir.js").ProjectionIR) => {

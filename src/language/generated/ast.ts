@@ -824,7 +824,7 @@ export interface Channel extends langium.AstNode {
     readonly $type: 'Channel';
     carries: Array<langium.Reference<EventDecl>>;
     delivery?: ChannelDelivery;
-    key?: string;
+    key?: PropertyName;
     name: string;
     retention?: ChannelRetention;
 }

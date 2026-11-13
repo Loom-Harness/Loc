@@ -22,6 +22,7 @@ import {
 import { constructibleAggregates } from "./aggregate-constructible-checks.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { validatePolicyScopes } from "./policy-scope-checks.js";
+import { validateRefScopes } from "./ref-scope-checks.js";
 
 // ---------------------------------------------------------------------------
 // Tenancy checks (tenancy.md).
@@ -529,6 +530,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
   validatePolicyDenies(sys, diags);
   validatePolicyScopes(sys, diags);
   validateFoldedProjectionTenancy(sys, diags);
+  validateRefScopes(sys, diags);
   const tenancy = sys.tenancy;
 
   // Registry existence is a LINKING concern since 1b.1 — `of <Registry>` is a

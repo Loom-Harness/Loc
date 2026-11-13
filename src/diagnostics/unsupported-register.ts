@@ -331,13 +331,15 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // proves every supported cell renders and every refused one is raised.
     code: "loom.target-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/target-capability-checks.ts:744",
+    site: "src/ir/validate/checks/target-capability-checks.ts:781",
     what:
       "a construct × position, or a feature pair, its target cannot render, per the capability " +
       "table.  `DataGrid` on flutter and phoenixLiveView is a settled never (D-DATAGRID-TARGETS); " +
       "the `#feature-composition-broken` / `#feature-composition-unwitnessed` cells are gaps, " +
       "each lifted by a corpus fixture that runs the pair on that backend (#4028), and so is a " +
-      "`tenantOwned` event-sourced aggregate on node's mikroorm (`#tenant-owned-event-sourced`, #4686)",
+      "`tenantOwned` event-sourced aggregate on node's mikroorm (`#tenant-owned-event-sourced`, #4686), " +
+      "and a reference to a `tenantOwned` target persisted by a non-relational save " +
+      "(`#reference-admission-unrealized`, #5565)",
     mission: "#3592",
     verified: true,
   },
@@ -827,7 +829,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1826",
+    site: "src/ir/validate/checks/workflow-checks.ts:1848",
     what: "workflow load of an array result — a `let` binds one row",
     mission: "#3376",
     verified: true,
