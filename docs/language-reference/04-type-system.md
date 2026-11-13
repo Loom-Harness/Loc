@@ -474,6 +474,20 @@ field :attachment, :map
 
 A reference to another aggregate is spelled `Target id` (`IdType`), never the bare aggregate name. The structural validator rejects a bare cross-aggregate type with `loom.bare-aggregate-in-type` (*References across aggregate boundaries need an id link — write 'Customer id' (or 'Customer id[]' for many-to-many)*) — a bare `NamedType` resolves only to enums, value objects, and entity parts in the *same* aggregate. `X id` lowers to the target's primary-key value type (always `guid`) and produces a real foreign key, an index, and, on the typed backends, a strongly-typed id wrapper.
 
+Because of that wrapper, an `X id` value is not a `guid`: passing one where a `guid` (or a `Customer id[]` where a `guid[]`) is declared — a call argument, a domain-service argument, a `create` field — is an error (`loom.call-arg-type`, `loom.create-field-id-target`). Declare the parameter or field as the id type it holds:
+
+```ddd
+domainService Matching {
+  operation coverage(wanted: Speciality id[], has: Speciality id[]): int {
+    return wanted.where(w => has.contains(w)).count
+  }
+}
+```
+
+```
+loom.call-arg-type: Argument 2 of 'Matching.overlap' expects 'guid[]' but got 'Speciality id[]'.
+```
+
 The target must carry an identity: an aggregate (an `abstract` base included) or an entity part. A value object, enum, event, payload record (`command` / `query` / `response` / `error` / `payload`) or workflow has no id, so naming one is `loom.id-target-not-identity`:
 
 ```ddd
