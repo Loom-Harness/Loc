@@ -80,7 +80,7 @@ describe("named policy functions — lowering (inline at requires)", () => {
   it("a function-form policy declaration produces no read/write policy levels", async () => {
     const model = await buildLoomModel(system("requires CanApprove(amount)"));
     const ctx = model.systems[0]!.subdomains[0]!.contexts[0]!;
-    expect(ctx.policyReadLevels).toBeUndefined();
-    expect(ctx.policyWriteLevels).toBeUndefined();
+    expect(ctx.policyReadLevels).toEqual([]);
+    expect(ctx.policyWriteLevels).toEqual([]);
   });
 });

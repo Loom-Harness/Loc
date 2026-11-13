@@ -55,25 +55,6 @@ const DELIBERATELY_DROPPED: Readonly<Record<string, string>> = {
   // member's origin would mis-attribute every diagnostic raised against the
   // merge.
   origin: "synthetic context has no single source span",
-
-  // The `policy { … }` ladders are CONSUMED BY ENRICHMENT (applyPolicyReadLevels
-  // / applyPolicyWriteLevels) into per-aggregate filters, which the merge does
-  // carry, and read by the validator off the PER-CONTEXT IR.  Nothing
-  // downstream of the merge reads them today — verified by grep over
-  // src/generator/** and src/platform/**.
-  //
-  // This is luck rather than design, so it is written down: an emitter that
-  // starts reading `merged.policyReadLevels` gets `undefined` and silently
-  // applies NO policy, which on an authorization feature is the worst possible
-  // direction to fail.  If that day comes, carry them instead of extending this
-  // note.
-  policyReadLevels: "consumed by enrichment before the merge; no post-merge reader",
-  policyWriteLevels: "consumed by enrichment before the merge; no post-merge reader",
-  policyRowRules: "consumed by enrichment before the merge; no post-merge reader",
-  policyDenies: "consumed by enrichment before the merge; no post-merge reader",
-  policyReadGates: "consumed by enrichment (onto every find's `requires`) before the merge",
-  policyShareGates:
-    "consumed by enrichment (onto the share aggregate's create / revoke `requires`) before the merge",
 };
 
 /** Field names a top-level IR interface / object type declares, including

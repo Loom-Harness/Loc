@@ -1489,12 +1489,12 @@ function lowerContext(
     seeds,
     tests: contextTests,
     origin: originFor(ctx),
-    ...(policyReadLevels.length > 0 ? { policyReadLevels } : {}),
-    ...(policyWriteLevels.length > 0 ? { policyWriteLevels } : {}),
-    ...(policyRowRules.length > 0 ? { policyRowRules } : {}),
-    ...(policyDenies.length > 0 ? { policyDenies } : {}),
-    ...(policyReadGates.length > 0 ? { policyReadGates } : {}),
-    ...(policyShareGates.length > 0 ? { policyShareGates } : {}),
+    policyReadLevels,
+    policyWriteLevels,
+    policyRowRules,
+    policyDenies,
+    policyReadGates,
+    policyShareGates,
   };
 }
 
@@ -1665,7 +1665,12 @@ function lowerLoadPath(p: LoadPath): LoadSegmentIR[] {
 }
 
 function lowerEnum(e: EnumDecl): EnumIR {
-  return { name: e.name, values: e.values.map((v) => v.name), origin: originFor(e) };
+  return {
+    name: e.name,
+    values: e.values.map((v) => v.name),
+    systemLevel: false,
+    origin: originFor(e),
+  };
 }
 
 function lowerValueObject(vo: ValueObject, env: Env): ValueObjectIR {
@@ -1673,6 +1678,7 @@ function lowerValueObject(vo: ValueObject, env: Env): ValueObjectIR {
   const props = vo.members.filter(isProperty) as Property[];
   return {
     name: vo.name,
+    systemLevel: false,
     fields: props.map((p) => lowerField(p, inner)),
     derived: vo.members.filter(isDerivedProp).map((d) => lowerDerived(d, inner)),
     invariants: [
