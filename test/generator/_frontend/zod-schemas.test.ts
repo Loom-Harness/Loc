@@ -363,7 +363,8 @@ describe("emitValueObjectSchema", () => {
     expect(emitValueObjectSchema(address)).toEqual([
       "export const AddressSchema = z.object({",
       "  line1: z.string(),",
-      "  zip: z.string().nullish(),",
+      // An optional text-like field reads an empty form input as absent.
+      '  zip: z.literal("").transform(() => null).or(z.string().nullish()),',
       "  country: CountrySchema,",
       "});",
     ]);

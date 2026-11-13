@@ -109,10 +109,13 @@ describe.each(PACKS)("money in a row group — $framework/$design", ({ framework
   it("routes the money cell through a money arm, not the generic string arm", async () => {
     const src = await page(framework, design);
     if (framework === "react") {
-      // RHF `register` hands back the raw input string; `setValueAs` is what
-      // turns it into the `Decimal` the form state is declared to hold.
-      expect(src).toMatch(/items\.\$\{index\}\.price`, \{ setValueAs:/);
-      expect(src).toContain('return new Decimal(v || "0");');
+      // The cell is the pack's `field-input-money` input bound at the row path;
+      // its onChange builds the `Decimal` the form state is declared to hold.
+      expect(src).toContain("name={`items.${index}.price`}");
+      expect(src).toMatch(
+        /field\.onChange\(new Decimal\(e\.(?:currentTarget|target)\.value \|\| "0"\)\)/,
+      );
+      expect(src).not.toContain("register(`items.${index}.price`");
     } else {
       // Vue / Svelte bind the value directly, so the cell must READ a Decimal
       // back out as a string — the same `instanceof Decimal` shape the flat

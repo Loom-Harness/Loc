@@ -2,33 +2,8 @@
           <div className="text-sm font-medium">{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</div>
           { {{path}}Fields.map((field, index) => (
             <div key={field.id} className="flex items-end gap-2">
-{{#each rowFields}}{{#if (eq template "field-input-id-select")}}              <FormField control={form.control} name={`{{../path}}.${index}.{{path}}`} render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</FormLabel>
-                  <Select onValueChange={field.onChange} value={(field.value as string) ?? ""}>
-                    <FormControl>
-                      <SelectTrigger data-testid={`{{../testId}}-${index}-{{path}}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {({{{hookVar}}}.data?.items ?? []).map((__o) => (
-                        <SelectItem key={__o.id} value={__o.id} data-testid={`{{../testId}}-${index}-{{path}}-option-${__o.id}`}>{__o.{{displayField}} }</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
-{{else}}              <FormField control={form.control} name={`{{../path}}.${index}.{{path}}`} render={() => (
-                <FormItem>
-                  <FormControl>
-                    <Input {{#if labelExpr}}placeholder={ {{{labelExpr}}} }{{else}}placeholder="{{label}}"{{/if}}{{#if (eq template "field-input-money")}} inputMode="decimal"{{/if}} {{#if (eq template "field-input-datetime")}}type="datetime-local" {{/if}}{...form.register(`{{../path}}.${index}.{{path}}`{{#if valueAsNumber}}, { valueAsNumber: true }{{/if}}{{#if (eq template "field-input-money")}}, { setValueAs: (v: string) => { try { return new Decimal(v || "0"); } catch { return new Decimal("0"); } } }{{/if}})} data-testid={`{{../testId}}-${index}-{{path}}`} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-{{/if}}{{/each}}              <Button type="button" variant="ghost" size="sm" onClick={() => remove{{arrayPascal}}(index)}>{{{chrome "removeItem"}}}</Button>
+{{{rowHtml}}}
+              <Button type="button" variant="ghost" size="sm" onClick={() => remove{{arrayPascal}}(index)}>{{{chrome "removeItem"}}}</Button>
             </div>
           )) }
           <Button type="button" variant="outline" size="sm" onClick={() => append{{arrayPascal}}({{{defaultRowJson}}})}>{{{addItemLabel}}}</Button>

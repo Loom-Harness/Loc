@@ -1,5 +1,12 @@
 {
   "title": "seed datasets — default / demo / wired-raw",
   "doc": "language",
-  "backends": "ALL"
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "Both aggregates' by-id routes ARE driven (create / getById / update / destroy); only the two list reads are held, and the seeded VALUES they would assert are covered by the sibling `corpus/seed-values` — which is held off the elixir leg alone rather than costing this fixture its five-backend CRUD / FK / 404 coverage.  See `R.seededListReadUnwritten`.",
+    "uncalled": {
+      "allWidget": "seededListReadUnwritten",
+      "allGadget": "seededListReadUnwritten"
+    }
+  }
 }
