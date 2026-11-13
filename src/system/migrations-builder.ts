@@ -2075,7 +2075,10 @@ export function applyDestructivePolicy(
         const add: MigrationStep = s.fk
           ? { op: "addColumn", table: s.table, schema: s.schema, column: addCol, fk: s.fk }
           : { op: "addColumn", table: s.table, schema: s.schema, column: addCol };
-        const out: MigrationStep[] = [
+        // The column arrives nullable in the DDL transaction; the fill and
+        // the NOT NULL proof run after it commits (`renderLockSafeBackfill`),
+        // so the table's ACCESS EXCLUSIVE lock lasts only for the ADD COLUMN.
+        return [
           add,
           {
             op: "backfillColumn",
@@ -2084,21 +2087,10 @@ export function applyDestructivePolicy(
             column: s.column.name,
             valueSql: b.valueSql,
             onlyNull: true,
+            outsideTransaction: true,
+            ...(blocking ? { setNotNull: true as const } : {}),
           },
         ];
-        if (blocking) {
-          const flip: MigrationStep = {
-            op: "alterColumnNullable",
-            table: s.table,
-            schema: s.schema,
-            name: s.column.name,
-            type: s.column.type,
-            nullable: false,
-          };
-          safeFlips.add(flip);
-          out.push(flip);
-        }
-        return out;
       }
       // No declared backfill — but the field may carry a `.ddd` default
       // (`status: string = "pending"`).  Add the column WITH that default so
@@ -2158,6 +2150,8 @@ export function applyDestructivePolicy(
       const b = backfillFor(s.schema, s.table, s.name);
       if (b) {
         safeFlips.add(s);
+        // The flip rides the backfill: filled and proved NOT NULL outside the
+        // DDL transaction (`renderLockSafeBackfill`).
         return [
           {
             op: "backfillColumn",
@@ -2166,8 +2160,9 @@ export function applyDestructivePolicy(
             column: s.name,
             valueSql: b.valueSql,
             onlyNull: true,
+            outsideTransaction: true,
+            setNotNull: true,
           },
-          s,
         ];
       }
       return [s];
