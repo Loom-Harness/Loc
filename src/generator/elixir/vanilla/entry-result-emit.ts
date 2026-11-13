@@ -30,7 +30,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import type { EntryResult, EntryResultLeaf } from "../../../ir/util/entry-result.js";
 import { walkExprDeep, walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
-import { escapeElixirIdent, snake } from "../../../util/naming.js";
+import { elixirString, escapeElixirIdent, snake } from "../../../util/naming.js";
 import { exErrorVariant } from "../wire-policy-ex.js";
 import { elixirUnionScrutinee, elixirVariantPattern } from "./match-stmt-emit.js";
 import { renderWireSerialize, renderWorkflowInstanceSerialize } from "./wire-serialize.js";
@@ -123,12 +123,12 @@ export function renderEntryOutcome(r: EntryResult, o: EntryOutcomeOpts): string 
 export function entrySerializers(
   results: readonly { r: EntryResult; ctx: BoundedContextIR; wf?: WorkflowIR }[],
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const fns = new Map<string, string>();
   const add = (s: { serialize: string; helpers: string[] }, name: string): void => {
-    if (!out.has(name)) out.set(name, s.serialize);
+    if (!fns.has(name)) fns.set(name, s.serialize);
     for (const h of s.helpers) {
       const n = /defp (\w+)\(/.exec(h)?.[1] ?? h;
-      if (!out.has(n)) out.set(n, h);
+      if (!fns.has(n)) fns.set(n, h);
     }
   };
   for (const { r, ctx, wf } of results) {
@@ -143,7 +143,7 @@ export function entrySerializers(
       }
     }
   }
-  return out;
+  return fns;
 }
 
 /** The `<fn>/2` clauses answering an entry outcome: 200 with the tagged
@@ -189,7 +189,7 @@ export function renderEntryResponders(
           const resp = exErrorVariant(arm.tag, ctx.errorStatusOverrides);
           clauses.push(
             `  def ${fn}(conn, {:error, {:variant, ${tag}, data}}),
-    do: problem_variant(conn, ${resp.status}, ${JSON.stringify(resp.type)}, ${JSON.stringify(resp.title)}, ${JSON.stringify(errorVariantCode(ctx.name, arm.tag))}, data)`,
+    do: problem_variant(conn, ${resp.status}, ${elixirString(resp.type)}, ${elixirString(resp.title)}, ${elixirString(errorVariantCode(ctx.name, arm.tag))}, data)`,
           );
           break;
         }
