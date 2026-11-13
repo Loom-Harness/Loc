@@ -1,7 +1,8 @@
 // The playground's message broker: one state, three broker behaviours.
 //
-// Every deployable's `ChannelTransport` facade talks to this one model (in the
-// infra worker), so the state a real broker owns is owned once here too:
+// Every deployable's `ChannelTransport` talks to one model per host (the
+// playground's infra worker holds one), so the state a real broker owns is
+// owned once here too:
 //
 //   redis     pub/sub — every subscriber of the address gets every message
 //             while it is subscribed; nothing is kept, acknowledged or
@@ -22,8 +23,8 @@
 //             record at a time and advances on ack; a nack parks the record
 //             on `<address>.dlq` and advances (the generated driver's v1).
 //
-// Pure: no worker globals.  The infra worker wires `send` to the client's
-// port; tests drive the model directly.
+// Pure: no worker or Node globals.  The playground's infra worker wires `send`
+// to the client's port; tests drive the model directly.
 
 import {
   type BrokerDelivery,
@@ -47,10 +48,19 @@ export const BROKER_EMULATION_NOTES: BrokerInspectResult["emulated"] = [
     transport: "kafka",
     note: `retention keeps the last ${KAFKA_RETAINED_PER_PARTITION} records per partition (no time- or size-based retention)`,
   },
-  { transport: "kafka", note: "partition by a stable string hash of the key, not kafkajs's murmur2 partitioner" },
+  {
+    transport: "kafka",
+    note: "partition by a stable string hash of the key, not kafkajs's murmur2 partitioner",
+  },
   { transport: "kafka", note: "a topic is created on its first publish or subscribe" },
-  { transport: "rabbitmq", note: "queues and messages live in memory: a Reset or a reload loses them (no disk persistence)" },
-  { transport: "redis", note: "no connection loss: a subscriber never misses a message while subscribed" },
+  {
+    transport: "rabbitmq",
+    note: "queues and messages live in memory: a Reset or a reload loses them (no disk persistence)",
+  },
+  {
+    transport: "redis",
+    note: "no connection loss: a subscriber never misses a message while subscribed",
+  },
 ];
 
 interface Sub {
@@ -131,7 +141,14 @@ interface KafkaTopic {
 type Inflight =
   | { transport: "redis"; sub: string; address: string; body: string }
   | { transport: "rabbitmq"; sub: string; queue: string }
-  | { transport: "kafka"; sub: string; topic: string; group: string; partition: number; offset: number };
+  | {
+      transport: "kafka";
+      sub: string;
+      topic: string;
+      group: string;
+      partition: number;
+      offset: number;
+    };
 
 /** A stable 32-bit string hash (FNV-1a). */
 function hash(text: string): number {
@@ -187,7 +204,12 @@ export class BrokerModel {
           const sub = this.subs.get(subId);
           if (!sub) continue;
           const deliveryId = this.nextDelivery++;
-          this.inflight.set(deliveryId, { transport: "redis", sub: subId, address: p.address, body: p.body });
+          this.inflight.set(deliveryId, {
+            transport: "redis",
+            sub: subId,
+            address: p.address,
+            body: p.body,
+          });
           this.deliver(sub, deliveryId, p.body, 1, false, null);
         }
         return;
@@ -228,7 +250,13 @@ export class BrokerModel {
         this.exchange("loom.dlx").add(dlq.name);
         const q = this.assertQueue(queueName, p.address);
         this.exchange(p.address).add(q.name);
-        this.subs.set(id, { id, client, transport: "rabbitmq", address: p.address, group: queueName });
+        this.subs.set(id, {
+          id,
+          client,
+          transport: "rabbitmq",
+          address: p.address,
+          group: queueName,
+        });
         q.consumers.push(id);
         this.pumpQueue(q);
         return id;
@@ -316,7 +344,13 @@ export class BrokerModel {
     const sub = this.subs.get(f.sub);
     switch (f.transport) {
       case "redis":
-        this.record({ transport: "redis", kind: "acked", address: f.address, ...peek(f.body), client: sub?.client ?? null });
+        this.record({
+          transport: "redis",
+          kind: "acked",
+          address: f.address,
+          ...peek(f.body),
+          client: sub?.client ?? null,
+        });
         return;
       case "rabbitmq": {
         const q = this.queues.get(f.queue);
@@ -368,7 +402,14 @@ export class BrokerModel {
     switch (f.transport) {
       case "redis":
         // Fire-and-forget: the subscriber logged it; the message is gone.
-        this.record({ transport: "redis", kind: "dropped", address: f.address, ...peek(f.body), client, error });
+        this.record({
+          transport: "redis",
+          kind: "dropped",
+          address: f.address,
+          ...peek(f.body),
+          client,
+          error,
+        });
         return { outcome: "dropped", attempts: 1 };
       case "rabbitmq": {
         const q = this.queues.get(f.queue);
@@ -381,7 +422,15 @@ export class BrokerModel {
           // The driver republishes to the queue's tail with the attempt
           // header bumped, then acks the original.
           q.ready.push({ body: u.msg.body, attempts: attempts + 1, redelivered: false });
-          this.record({ transport: "rabbitmq", kind: "retried", address: q.address, ...env, client, group: q.name, error });
+          this.record({
+            transport: "rabbitmq",
+            kind: "retried",
+            address: q.address,
+            ...env,
+            client,
+            group: q.name,
+            error,
+          });
           this.pumpQueue(q);
           return { outcome: "retried", attempts };
         }
@@ -444,7 +493,10 @@ export class BrokerModel {
     const clientOf = (subId: string): string => this.subs.get(subId)?.client ?? subId;
     return {
       redis: {
-        channels: [...this.redisChannels].map(([name, set]) => ({ name, subscribers: [...set].map(clientOf) })),
+        channels: [...this.redisChannels].map(([name, set]) => ({
+          name,
+          subscribers: [...set].map(clientOf),
+        })),
       },
       rabbitmq: {
         exchanges: [...this.exchanges].map(([name, queues]) => ({ name, queues: [...queues] })),
@@ -462,7 +514,10 @@ export class BrokerModel {
       kafka: {
         topics: [...this.topics.values()].map((t) => ({
           name: t.name,
-          partitions: t.partitions.map((p) => ({ start: p.start, end: p.start + p.records.length })),
+          partitions: t.partitions.map((p) => ({
+            start: p.start,
+            end: p.start + p.records.length,
+          })),
           groups: [...t.groups.values()].map((g) => ({
             group: g.name,
             members: g.members.map(clientOf),
@@ -479,7 +534,8 @@ export class BrokerModel {
 
   private record(e: Omit<BrokerJournalEntry, "seq" | "at">): void {
     this.journal.push({ seq: ++this.seq, at: this.now(), ...e });
-    if (this.journal.length > JOURNAL_SIZE) this.journal.splice(0, this.journal.length - JOURNAL_SIZE);
+    if (this.journal.length > JOURNAL_SIZE)
+      this.journal.splice(0, this.journal.length - JOURNAL_SIZE);
   }
 
   private deliver(
@@ -498,7 +554,14 @@ export class BrokerModel {
       client: sub.client,
       group,
     });
-    const delivery: BrokerDelivery = { push: "broker", subId: sub.id, deliveryId, body, attempts, redelivered };
+    const delivery: BrokerDelivery = {
+      push: "broker",
+      subId: sub.id,
+      deliveryId,
+      body,
+      attempts,
+      redelivered,
+    };
     this.schedule(() => {
       // Delivered to a subscription that has since gone: nothing to do — its
       // in-flight state was already returned when it left.
@@ -623,4 +686,10 @@ export class BrokerModel {
       this.deliver(sub, deliveryId, rec.body, 1, false, group.name);
     });
   }
+}
+
+/** A fresh broker — one per host (the playground keeps one; a Node test run one
+ *  per case). */
+export function createBroker(opts: BrokerModelOptions): BrokerModel {
+  return new BrokerModel(opts);
 }
