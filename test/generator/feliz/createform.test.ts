@@ -148,16 +148,20 @@ describe("feliz create forms", () => {
       "  | SetProductCreateFormName v -> { model with ProductCreateForm = { model.ProductCreateForm with name = v } }, Cmd.none",
     );
     expect(app).toContain(
-      "  | SubmitProductCreateForm -> { model with ProductCreateFormServer = ServerErrors.empty }, Cmd.OfAsync.perform Api.createProduct model.ProductCreateForm ProductCreated",
+      "  | SubmitProductCreateForm when model.ProductCreateFormPending -> model, Cmd.none",
+    );
+    // `either`, not `perform`: a network exception lands as a form-level error.
+    expect(app).toContain(
+      "  | SubmitProductCreateForm -> { model with ProductCreateFormServer = ServerErrors.empty; ProductCreateFormPending = true }, Cmd.OfAsync.either Api.createProduct model.ProductCreateForm ProductCreated (fun ex -> ProductCreated (Error (ServerErrors.formLevel ex.Message)))",
     );
     // On success, reset the form and route to the NEW record's detail page
     // (`/products/<id>`) using the id the create resolved.
     expect(app).toContain(
-      '  | ProductCreated (Ok created) -> { model with ProductCreateForm = emptyProductCreateForm }, Cmd.navigatePath("products", created)',
+      '  | ProductCreated (Ok created) -> { model with ProductCreateForm = emptyProductCreateForm; ProductCreateFormPending = false }, Cmd.navigatePath("products", created)',
     );
     // A rejection lands on the Model, where the form renders it.
     expect(app).toContain(
-      "  | ProductCreated (Error e) -> { model with ProductCreateFormServer = e }, Cmd.none",
+      "  | ProductCreated (Error e) -> { model with ProductCreateFormServer = e; ProductCreateFormPending = false }, Cmd.none",
     );
   });
 
@@ -181,7 +185,7 @@ describe("feliz create forms", () => {
     // The submit is disabled until the form validates (both fields non-empty);
     // it carries the `<plural>-new-submit` testid the page object clicks.
     expect(app).toContain(
-      'Html.button [ prop.custom("data-testid", "products-new-submit"); prop.className "btn btn-primary"; prop.disabled (not (Validation.productCreateFormValid model.ProductCreateForm)); prop.onClick (fun _ -> dispatch SubmitProductCreateForm); prop.text (I18n.t "Cat.Product.op.create" "Create") ]',
+      'Html.button [ prop.custom("data-testid", "products-new-submit"); prop.className "btn btn-primary"; prop.disabled (model.ProductCreateFormPending || not (Validation.productCreateFormValid model.ProductCreateForm)); prop.onClick (fun _ -> dispatch SubmitProductCreateForm); prop.text (I18n.t "Cat.Product.op.create" "Create") ]',
     );
     // The form container carries the New-page root testid the page object waits for.
     expect(app).toContain('Html.div [ prop.custom("data-testid", "products-new"); prop.className');

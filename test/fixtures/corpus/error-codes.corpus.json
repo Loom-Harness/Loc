@@ -1,0 +1,13 @@
+{
+  "//": "The backends whose `test/_helpers/error-code-rows.ts` row is `done`; a fan-out backend joins when it flips its row.",
+  "title": "every refusal carries its catalog `code` — the refusals no other booted fixture asks for: an out-of-range money, an `extern` stub's 501, a still-referenced delete, and each side of a declared field limit (`field.min` … `field.pattern`, its bound in `params`)",
+  "doc": "language",
+  "backends": [
+    "node",
+    "dotnet",
+    "python",
+    "java",
+    "vanilla"
+  ],
+  "note": "#4473 — the wire golden is the cross-backend answer key for the codes; the other goldens already cover field.missing, the rules, not-found, the state gate, declared errors and the 500."
+}

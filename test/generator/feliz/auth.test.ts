@@ -65,7 +65,11 @@ describe("feliz auth gate", () => {
     expect(app).toContain("Session = Checking");
     expect(app).toContain("Cmd.OfAsync.perform Auth.checkSession () SessionChecked");
     expect(app).toContain("| SessionChecked of bool");
-    expect(app).toContain("| SessionChecked true -> { model with Session = Authed }, Cmd.none");
+    // Reads wait for the session: `init` fires none, `Authed` fires them.
+    expect(app).toContain(
+      "| SessionChecked true -> (let __m = { model with Session = Authed } in __m, Cmd.OfAsync.perform Api.allProducts () AllProductsLoaded)",
+    );
+    expect(app).not.toContain("Cmd.batch [\n    Cmd.OfAsync.perform Api.allProducts");
     expect(app).toContain("| SessionChecked false -> { model with Session = Anon }, Cmd.none");
   });
 

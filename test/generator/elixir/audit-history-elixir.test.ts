@@ -9,6 +9,7 @@
 // chiefly the LiveView seam below, which no behavioural leg drives.
 
 import { describe, expect, it } from "vitest";
+import { elixirDocumentedOperations } from "../../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 /** Audited, with a masked field, a lifecycle stamp and a `versioned` counter —
@@ -81,12 +82,12 @@ describe("entity history — elixir route surface", () => {
     // `conformance-parity` cannot see it because it diffs SPECS.  The route and
     // the PathItem ride ONE predicate (`servesHistory`); this pins that.
     const files = await emit(MASKED);
-    const spec = fileEndingWith(files, "lib/api_web/api/a_spec.ex");
-    expect(spec).toContain('"/api/employees/{id}/history" => %OpenApiSpex.PathItem{');
+    const spec = elixirDocumentedOperations(files).get("get /api/employees/{id}/history");
+    expect(spec, "the routed history action declares its operation").toBeDefined();
     // Same operationId helper the node port uses — one name across backends.
-    expect(spec).toContain('operationId: "historyEmployee"');
+    expect(spec).toContain('operation_id: "historyEmployee"');
     // The gate exists, so the 403 it produces is declared.
-    expect(spec).toMatch(/history"[\s\S]*?403 => %OpenApiSpex\.Response\{/);
+    expect(spec).toContain("403 => %OpenApiSpex.Response{");
     // The body schema is built from the platform-neutral `auditEntryWireShape`,
     // so the published keys cannot drift from the mapper's.
     const schema = fileEndingWith(files, "api/schemas/audit_entry.ex");
@@ -114,7 +115,7 @@ describe("entity history — aggregates that serve none", () => {
     const files = await emit(MASKED.replace("aggregate Employee audited", "aggregate Employee"));
     expect([...files.keys()].some((p) => p.endsWith("lib/api/audit/history.ex"))).toBe(false);
     expect([...files.keys()].some((p) => p.endsWith("api/schemas/audit_entry.ex"))).toBe(false);
-    expect(fileEndingWith(files, "lib/api_web/api/a_spec.ex")).not.toContain("/history");
+    expect([...elixirDocumentedOperations(files).keys()].join("\n")).not.toContain("/history");
   });
 });
 

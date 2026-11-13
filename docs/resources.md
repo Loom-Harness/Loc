@@ -90,7 +90,7 @@ infrastructure roles:
 | `snapshot` | event-sourced snapshot | postgres, mysql, sqlite, inMemory |
 | `cache` | derived cache | redis, inMemory |
 | `replica` | read replica | postgres, mysql, sqlite |
-| `objectStore` | blob storage | s3 |
+| `objectStore` | blob storage | s3, localDisk |
 | `queue` | message queue | rabbitmq |
 | `api` | external HTTP API | restApi |
 | `mailer` | outbound email | smtp, ses, sendgrid |
@@ -112,7 +112,8 @@ per-runtime key (`SENDGRID_API_KEY`; SES uses the AWS credential chain +
 secret in your deployment to send through a real relay.
 
 The validator rejects a `kind` on an incompatible sourceType
-(an error from the resource kind ↔ sourceType check in `src/language/validators/datasource.ts`, which carries no `loom.*` code today). The persistence kinds (`state`/`snapshot`/`replica`)
+(`loom.resource-kind-storage-mismatch`, raised in `src/language/validators/datasource.ts`).
+The resource knobs are validated the same way: `ttl` / `every` / `retain` / `isolationLevel` on a kind that has no use for them is `loom.resource-knob-kind-mismatch`; `schema` / `tablePrefix` / `keyPrefix` / `isolationLevel` on a storage type that cannot honour them is `loom.resource-knob-storage-mismatch`. The persistence kinds (`state`/`snapshot`/`replica`)
 are modelled internally as capabilities under a `database` infra-kind; that
 reframe stays inside the registry — the surface keeps the fine-grained names.
 
@@ -279,10 +280,14 @@ verb call sites dispatch to it:
 
 | kind | hono | .NET | Phoenix | Python | Java |
 |---|---|---|---|---|---|
-| objectStore | `@aws-sdk/client-s3` (+ presigner) | `AWSSDK.S3` | `ExAws.S3` | `boto3` (+ presigner) | `software.amazon.awssdk:s3` (+ `S3Presigner`) |
+| objectStore (`s3`) | `@aws-sdk/client-s3` (+ presigner) | `AWSSDK.S3` | `ExAws.S3` | `boto3` (+ presigner) | `software.amazon.awssdk:s3` (+ `S3Presigner`) |
 | queue | `amqplib` | `RabbitMQ.Client` v7 | `AMQP` | `aio_pika` | `com.rabbitmq:amqp-client` |
 | api | `fetch` | `HttpClient` | `Req` | `httpx` | `java.net.http HttpClient` |
 | mailer (`smtp`) | `nodemailer` | `MailKit` | `Swoosh` (+ `gen_smtp`) | `aiosmtplib` | Jakarta Mail (`angus-mail`) |
+
+An `objectStore` bound to a `localDisk` storage needs no SDK or sidecar: every
+backend emits a dependency-free client over a directory in the container
+(`<RESOURCE>_URL_DIR`).
 
 The `mailer` client also has `ses` (AWS SES SDK / `AmazonSES` / SendGrid-style)
 and `sendgrid` (`@sendgrid/mail` etc.) sourceType variants; `smtp` is the one

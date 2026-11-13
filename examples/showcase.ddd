@@ -382,11 +382,9 @@ system DevPlatform {
             aggregate Build with crudish, versioned {
                 commitSha: string
                 buildState: BuildState
-                // `total` is a plain field here: the Builds context is hosted on
-                // dotnet + phoenix as well as hono for OpenAPI parity, and the
-                // provenance runtime is emitted on hono only (loom.provenanced-
-                // backend-unsupported gates the mismatch).  The `provenanced`
-                // modifier is demonstrated in examples/provenance.ddd (hono-only).
+                // `total` is a plain field here to keep the showcase's wire shape
+                // free of lineage keys.  The `provenanced` modifier is demonstrated
+                // in examples/provenance.ddd.
                 // `immutable`: only the gated `promote` moves it after creation.
                 total: int immutable
                 cost: money?

@@ -1,0 +1,6 @@
+{
+  "title": "a named operation assigning a field a single-field invariant guards (`invariant qty >= 0` under `setQty(-1)`) is refused with 422 and leaves the row unchanged",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "Elixir's operation persist (`change(%{}) |> force_change`) re-ran only the residual cross-field rules, so a single-field invariant — native `validate_number` in `base_changeset` only — was bypassed and `setQty(-1)` committed."
+}

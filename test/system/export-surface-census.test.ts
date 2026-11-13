@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { expectReach } from "../_helpers/census-reach.js";
+import { MODULE_LOCAL_ALLOWANCE } from "./export-surface-allowance.js";
 
 // ---------------------------------------------------------------------------
 // Export-surface census (Wave CR1 packet g, audit row P1-4).
@@ -25,13 +26,18 @@ import { expectReach } from "../_helpers/census-reach.js";
 //     spells twice.  Drained to zero by this packet; an entry may only be added
 //     to ALLOW with a reason.
 //
-//   TIER 2 — count ratchet.  An exported VALUE (function/const/class) whose
+//   TIER 2 — per-file ratchet.  An exported VALUE (function/const/class) whose
 //     only references are inside its own defining module is over-exported:
 //     the `export` widens the public surface for nobody.  426 of these existed
 //     when this gate landed and narrowing them all would touch ~400 files and
-//     collide with every open PR, so the count is PINNED and may only fall —
-//     the same shape as `test/platform/allowlist-ratchet.test.ts`.  Drop the
-//     `export` when you touch such a file anyway, and lower MAX in that PR.
+//     collide with every open PR, so each file's count is PINNED in
+//     `export-surface-allowance.ts` and may only fall — a file may not exceed
+//     its entry, an unlisted file is allowed 0, and an entry above the file's
+//     count fails until it is lowered.  The pin is per file, not one global
+//     number, because a global number made every PR that moved it edit the
+//     same line, and two PRs that each passed alone failed together in the
+//     merge queue.  Drop the `export` when you touch such a file anyway, and
+//     lower its entry in that change.
 //
 // Why a token scan and not `knip`: measured on this tree (knip 6.37.0, config
 // tuned for the committed langium output, the `packages/*` publish shapes, the
@@ -65,21 +71,8 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
  *  name-referenced (dynamic dispatch, a published entry point, …). */
 const ALLOW = new Set<string>([]);
 
-/** Pinned count of exported VALUES referenced only inside their own module.
- *  Lower it when you drop an `export`; raising it is a reviewed line in the
- *  diff — which this is, so here is the review.
- *
- *  Measured 184 -> 197 -> 198 -> **200** across four rebases while this gate
- *  was still trying to land. None of those was a ratchet loosening: the check
- *  did not exist while those exports arrived, so no earlier number described
- *  the tree it was being compared against. What the sequence actually proved is
- *  that a fast-moving `main` outruns an exact pin, which is why the second
- *  assertion below now carries SLACK — read its comment before touching this.
- *
- *  Raising this line is still a reviewed decision, and the honest move is
- *  almost always to narrow the count instead: the failure message names every
- *  offender, so the drain needs no archaeology. */
-const MODULE_LOCAL_VALUE_MAX = 195;
+/** The per-file module-local allowance; its rule is stated in that file. */
+const ALLOWANCE_FILE = path.join(repoRoot, "test", "system", "export-surface-allowance.ts");
 
 /** Trees whose files may REFERENCE a `src/` export.  `web/` imports the
  *  toolchain straight from `../src`; `packages/*` are publish-shaped
@@ -189,7 +182,7 @@ describe("export-surface census (P1-4)", () => {
   // the 52 this gate drained were named only by the audit that found them.
   const consumers = CONSUMER_ROOTS.flatMap((r) =>
     walk(path.join(repoRoot, r), (p) => CONSUMER_EXT.test(p)),
-  ).filter((p) => !p.includes(`${path.sep}generated${path.sep}`));
+  ).filter((p) => !p.includes(`${path.sep}generated${path.sep}`) && p !== ALLOWANCE_FILE);
 
   const mentions = new Map<string, Set<string>>();
   const selfCounts = new Map<string, Map<string, number>>();
@@ -246,38 +239,40 @@ describe("export-surface census (P1-4)", () => {
     ).toEqual([]);
   });
 
-  it("the module-local VALUE export count only falls", () => {
-    const local = decls.filter((d) => !d.isType && classify(d) === "module-local");
+  it("each file's module-local VALUE export count only falls", () => {
+    const counts = new Map<string, number>();
+    const names = new Map<string, string[]>();
+    for (const d of decls) {
+      if (d.isType || classify(d) !== "module-local") continue;
+      const rel = path.relative(repoRoot, d.file).split(path.sep).join("/");
+      counts.set(rel, (counts.get(rel) ?? 0) + 1);
+      names.set(rel, [...(names.get(rel) ?? []), d.name]);
+    }
+    const files = new Set([...counts.keys(), ...Object.keys(MODULE_LOCAL_ALLOWANCE)]);
+    const over: string[] = [];
+    const stale: string[] = [];
+    for (const f of [...files].sort()) {
+      const n = counts.get(f) ?? 0;
+      const allowed = MODULE_LOCAL_ALLOWANCE[f] ?? 0;
+      // Naming the exports is the difference between an actionable gate and a
+      // number to bump.
+      if (n > allowed)
+        over.push(`${f}: ${n} > allowed ${allowed} — ${(names.get(f) ?? []).join(", ")}`);
+      else if (n < allowed)
+        stale.push(n === 0 ? `delete "${f}"` : `"${f}": ${n},   // was ${allowed}`);
+    }
     expect(
-      local.length,
-      `${local.length} exported values are referenced only inside their own module ` +
-        `(pinned max ${MODULE_LOCAL_VALUE_MAX}).  Drop the \`export\` and lower ` +
-        "MODULE_LOCAL_VALUE_MAX in the same PR.\n" +
-        // Naming them is the difference between an actionable gate and a number
-        // to bump: the first run of this check cost an agent a hunt for which
-        // export had pushed the count over.
-        local.map((d) => `${d.file} :: ${d.name}`).join("\n"),
-    ).toBeLessThanOrEqual(MODULE_LOCAL_VALUE_MAX);
-    // Reminder that a landed drain must pull the baseline down with it — with
-    // SLACK, because exact equality made this gate unlandable.
-    //
-    // The pin was re-measured four times before this check ever reached `main`
-    // (184 -> 197 -> 198 -> 201), not because anything drifted but because
-    // `main` lands commits faster than a PR of this size can merge. Under exact
-    // equality every one of those rebases failed the gate on a number that was
-    // correct when it was written, so the gate's own verdict carried no
-    // information: an agent learns to bump the line reflexively, which is
-    // precisely how a ratchet stops meaning anything.
-    //
-    // SLACK keeps the useful half. Growth still fails on the assertion above,
-    // so nobody adds a module-local export for free; a real drain of more than
-    // SLACK exports still has to lower the pin. What no longer fails is a
-    // rebase that lands three unrelated exports from somebody else's PR.
-    const SLACK = 8;
+      over,
+      "Exported value(s) referenced only inside their own module, over the file's " +
+        "allowance in test/system/export-surface-allowance.ts.  Drop the `export` " +
+        "(an unlisted file is allowed 0; raising an entry is a reviewed act).\n" +
+        over.join("\n"),
+    ).toEqual([]);
     expect(
-      MODULE_LOCAL_VALUE_MAX - local.length,
-      `MODULE_LOCAL_VALUE_MAX is ${MODULE_LOCAL_VALUE_MAX} but only ${local.length} ` +
-        `module-local value exports remain (slack ${SLACK}) — lower the pin to match.`,
-    ).toBeLessThanOrEqual(SLACK);
+      stale,
+      "export-surface allowance entries above the file's count — lower them so the " +
+        "freed allowance cannot be re-spent (test/system/export-surface-allowance.ts):\n" +
+        stale.join("\n"),
+    ).toEqual([]);
   });
 });

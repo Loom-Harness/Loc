@@ -402,6 +402,10 @@ export function renderApplicationYml(slug: string, nativePort = 8080): string {
     `      path-mapping:`,
     `        prometheus: metrics`,
     `springdoc:`,
+    // Success bodies publish under application/json (springdoc's default for a
+    // bare return type is `*/*`); errors declare application/problem+json on
+    // each method's `@ApiResponse`.
+    `  default-produces-media-type: application/json`,
     `  api-docs:`,
     `    path: /openapi.json`,
     `  swagger-ui:`,

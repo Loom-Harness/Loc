@@ -909,6 +909,11 @@ in the language reference
 ([§17](language-reference/17-auth.md#sharing--shareable)); the design record is
 [D-SHARING](decisions.md#d-sharing--visibility-composes-from-the-tenancy-default-row-rules-and-shares-add-to-it-relations-are-predicates).
 
+
+A reference written to a `tenantOwned` row is admitted under the target's read
+scope, so a row shared with the caller can be referenced like one of its own;
+see [`tenancy.md` → "Reference admission"](tenancy.md#reference-admission).
+
 ### Deny carve-outs
 
 A **`deny` rule** is the negative twin of `allow`: a **deny-wins** carve-out that

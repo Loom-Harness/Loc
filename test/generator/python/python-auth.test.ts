@@ -95,7 +95,9 @@ describe("python auth gate", () => {
     expect(routes).toContain("current_user: User = request.state.current_user");
     expect(routes).toContain("raise ForbiddenError(");
     expect(routes).toContain("found.cancel()");
-    expect(routes).toContain('403: {"model": ProblemDetails, "description": "Forbidden"}');
+    expect(routes).toContain(
+      '403: {"model": ProblemDetails, "description": "Forbidden", "content": PROBLEM_JSON}',
+    );
     // Post-load and pre-call: a row-aware gate can read `found`, and the
     // domain body never runs for an unauthorized caller.
     const load = routes.indexOf("found = await repo.");
@@ -132,7 +134,9 @@ describe("python auth gate", () => {
     // is what keeps the hoist enforcement-neutral on the non-HTTP path.
     expect(wf).toContain("o.cancel()");
     expect(wf).not.toContain("o.cancel(current_user)");
-    expect(wf).toContain('403: {"model": ProblemDetails, "description": "Forbidden"}');
+    expect(wf).toContain(
+      '403: {"model": ProblemDetails, "description": "Forbidden", "content": PROBLEM_JSON}',
+    );
     expect(wf).toContain("raise ForbiddenError(");
   });
 

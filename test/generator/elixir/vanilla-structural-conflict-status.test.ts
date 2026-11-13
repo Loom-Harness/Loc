@@ -14,6 +14,7 @@
 // resolved status.
 
 import { describe, expect, it } from "vitest";
+import { elixirDocumentedOperations } from "../../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 function file(files: Map<string, string>, needle: string): string {
@@ -71,9 +72,8 @@ describe("vanilla structural-conflict status (M-T3.4a)", () => {
     expect(catCtrl).toContain("reraise(fk_error, __STACKTRACE__)");
 
     // OpenAPI destroy declares 409 for the FK-restrict conflict.
-    const spec = file(files, "_spec.ex");
-    const destroy = spec.slice(spec.indexOf('"Destroy Category"'));
-    expect(destroy.slice(0, 900)).toContain("409 =>");
+    const destroy = elixirDocumentedOperations(files).get("delete /api/categories/{id}");
+    expect(destroy).toContain("409 =>");
   });
 
   it("OVERRIDE — httpStatus retargets both the runtime arm and the OpenAPI response", async () => {
@@ -96,9 +96,8 @@ describe("vanilla structural-conflict status (M-T3.4a)", () => {
     expect(catCtrl).toMatch(/problem_response\(\s*conn,\s*412,/);
 
     // OpenAPI destroy now declares 412 (moves in lockstep with the runtime arm).
-    const spec = file(files, "_spec.ex");
-    const destroy = spec.slice(spec.indexOf('"Destroy Category"'));
-    expect(destroy.slice(0, 1100)).toContain("412 =>");
-    expect(destroy.slice(0, 1100)).not.toContain("409 =>");
+    const destroy = elixirDocumentedOperations(files).get("delete /api/categories/{id}");
+    expect(destroy).toContain("412 =>");
+    expect(destroy).not.toContain("409 =>");
   });
 });

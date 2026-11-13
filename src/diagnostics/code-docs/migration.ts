@@ -24,6 +24,7 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.migration-block-applied":
     "../migrations.md#a-spent-block-says-so--loommigration-block-applied",
   "loom.migration-sql-placement": "../migrations.md#data-migrations-m-t23",
+  "loom.migration-expr-invalid": "../migrations.md#data-migrations-m-t23",
   "loom.migration-step-unknown-context":
     "../migrations.md#table-steps--renames-and-cross-context-moves",
   "loom.migration-step-target-missing":

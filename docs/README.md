@@ -60,7 +60,7 @@ These cover a single language feature each.  Each one is self-contained.
 | [`domain-services.md`](domain-services.md) | `domainService` — stateless cross-aggregate pure calculators, the no-infra contract, and per-backend emission. |
 | [`scaffold-macros.md`](scaffold-macros.md) | The `scaffold`, `crudish`, and `softDelete` macros — what they expand to (auditing is the `auditable` capability). |
 | [`stdlib.md`](stdlib.md) | The standard library — Layer-0 scalar intrinsics, collection operations, and the ambient prelude. Generated from the registries. |
-| [`tools.md` → i18n](tools.md#i18n-translator-workflow-ddd-i18n) | Translating a generated app — the extracted string catalog, `t()` at runtime, and the `ddd i18n` translator workflow. |
+| [`i18n.md`](i18n.md) | Translating a generated app — what is translated, key families, the `locales/` tree, the `ddd i18n` workflow, runtime locale, and per-target support (CLI reference: [`tools.md`](tools.md#i18n-translator-workflow-ddd-i18n)). |
 | [`audit.md`](audit.md) | `audited` — the append-only command trail, and the derived entity-history read (`GET /<agg>/{id}/history`): the read-time field diff, what it excludes, and how the read gate, capability filters and `mask unless` compose onto it. |
 | [`provenance.md`](provenance.md) | `provenanced` field modifier, the `ddd snapshot` capture step, and the Hono runtime trace SDK. |
 | [`observability.md`](observability.md) | The catalog envelope, per-backend log emission, the catalog extension surface. |
@@ -98,7 +98,7 @@ design record.  You do not need it to use Loom.
 | [`loom-artifacts.md`](loom-artifacts.md) | The `.loom/` output directory — wire-spec, mermaid + C4 diagrams, traceability files, verification, snapshots, and the opt-in `sourcemap.json` (`ddd trace`).  What each artefact is and which CLI command produces it. |
 | [`api-toolkit.md`](api-toolkit.md) | The transport-neutral `src/api/` toolkit (`validate` / `generate` / `outline` / `applyPatches` + nav/refactor) and the `src/diagnostics/contract.ts` wire shapes — one browser-safe core behind the CLI, MCP, LSP, and playground. |
 | [`mcp.md`](mcp.md) | The MCP stdio server (`ddd-mcp`) + the transport-neutral `loom_*` agent-tool catalog — the three-layer tools/api/mcp stack and how to wire it into an MCP host. |
-| [`conformance.md`](conformance.md) | The cross-generator OpenAPI parity harness — the nine dimensions, strict vs report-only mode (the **structural** wire contract). |
+| [`conformance.md`](conformance.md) | The cross-generator OpenAPI parity harness — the parity dimensions, strict vs report-only mode (the **structural** wire contract). |
 | [`conformance-semantics.md`](conformance-semantics.md) | The **runtime-value** contract the spec-diff is blind to — named RS-rules (camelCase keys, enum casing, no leaked timestamps, association round-trip) seeded from the #1620–#1660 wire-parity sweep. |
 | [`agent-runbook.md`](agent-runbook.md) | How a work session picks up, claims and lands one GitHub issue (also the train protocol for fleets). |
 

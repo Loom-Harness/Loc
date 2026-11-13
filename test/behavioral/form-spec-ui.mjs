@@ -12,6 +12,9 @@
 //   pickers          a reference collection offers every row of its target,
 //                    not one list page (the 25th provider is tickable).
 //   part tables      a part's value-object fields are columns of its table.
+//   navigation       an update stays on the record; a workflow whose start
+//                    answers the created record's id opens it; a fresh form
+//                    shows no error before a touch.
 //   optional group   checking an optional value object's presence box and
 //                    filling it saves the object.
 //
@@ -185,4 +188,35 @@ export async function judgePartTable(page, origin, id) {
   if (!/Limit Amount/i.test(text)) why.push("coverages: no Limit Amount column");
   if (!text.includes("777")) why.push(`coverages: the limit amount cell is missing (card text ${JSON.stringify(text.slice(0, 300))})`);
   return why;
+}
+
+/** The record stays open after an operation: the update dialog closes onto the
+ *  same detail page, not the list. */
+export function judgeStaysOnRecord(page, id) {
+  const path = new URL(page.url()).pathname;
+  return path === `/policies/${id}`
+    ? []
+    : [`after the update the page left the record: ${path}`];
+}
+
+/** A fresh create form shows no field error before the user touched anything. */
+export async function judgeNoEarlyErrors(page, origin) {
+  await page.goto(`${origin}/policies/new`);
+  await page.locator('[data-testid="policies-new-submit"]').first().waitFor({ timeout: 20000 });
+  const text = await page.locator("body").innerText().catch(() => "");
+  return /invalid|required|must match/i.test(text)
+    ? [`the create form shows errors before any touch: ${JSON.stringify(text.slice(0, 300))}`]
+    : [];
+}
+
+/** A workflow whose start answers the created record's id opens that record. */
+export async function judgeWorkflowOpensResult(page, origin) {
+  await page.goto(`${origin}/workflows/open_provider`);
+  await (await inputOf(page, "workflow-open_provider-input-name")).fill("From workflow");
+  await page.locator('[data-testid="workflow-open_provider-submit"]').first().click();
+  for (let i = 0; i < 30; i++) {
+    if (/\/providers\/[0-9a-f-]{36}$/.test(new URL(page.url()).pathname)) return [];
+    await page.waitForTimeout(500);
+  }
+  return [`the workflow run did not open the provider it created (at ${new URL(page.url()).pathname})`];
 }

@@ -249,8 +249,8 @@ const ALLOWLIST: Readonly<Record<string, string>> = {
 
   // --- KNOWN GAP: workflow httpStatus overrides not yet lifted --------------
   // `getById` ignores `resolve` by design (the 404 rung is deliberately not
-  // remappable).  The `workflow`-kind callers (java openapi-customizer, dotnet
-  // workflow-emit) OMIT `resolve`, so a `httpStatus DomainError|Forbidden -> X`
+  // remappable).  The `workflow`-kind caller (dotnet workflow-emit) OMITS
+  // `resolve`, so a `httpStatus DomainError|Forbidden -> X`
   // override is not reflected in the workflow route's declared error set — a
   // consequence of workflow routes not being lifted into `api-surface` yet (see
   // that file's SCOPE note).  Tracked with the workflow-route lift, not benign.

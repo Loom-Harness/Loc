@@ -1,0 +1,6 @@
+{
+  "title": "PRINCIPAL-valued lifecycle stamps — the prelude `auditable` (`createdBy`/`updatedBy` := `currentUser`) crossed with a claim-valued context stamp, read back from a booted row; create-only stamps unmoved by an update",
+  "doc": "capabilities",
+  "backends": "ALL",
+  "note": "M-T9.42 promotion of the `*-stamping.test.ts` string copies: each pinned how its emitter spells the principal read; this asserts the value that lands in the row, on every leg."
+}

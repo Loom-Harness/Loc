@@ -31,7 +31,9 @@
 // schemathesis' `status_code_conformance` reads with the same suspicion).
 
 import { describe, expect, it } from "vitest";
+import { elixirOperationsAt } from "../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { javaDocumentedRoutes } from "../_helpers/java-openapi-annotations.js";
 
 /** One context, five deployables, three workflows chosen to span the predicate:
  *
@@ -136,28 +138,25 @@ const statuses = {
     expect(at, `dotnet: no action carrying ${attr}`).toBeGreaterThan(-1);
     const from = src.lastIndexOf("    [Http", at);
     return sorted(
-      src.slice(from, at).matchAll(/ProducesResponseType\(typeof\(ProblemDetails\), (\d{3})\)/g),
+      src
+        .slice(from, at)
+        .matchAll(
+          /ProducesResponseType\(typeof\(ProblemResponse\), (\d{3}), "application\/problem\+json"\)/g,
+        ),
     );
   },
-  /** springdoc: the emitted `new Route(…, new int[] {…}, …)` contract row. */
+  /** springdoc: the `@ApiResponse` annotations above the controller method. */
   async java(path: string): Promise<number[]> {
-    const src = await fileMatching(/OpenApiContractCustomizer\.java$/);
-    const line = src.split("\n").find((l) => l.includes(`"${path}"`));
-    expect(line, `java: no contract row for ${path}`).toBeDefined();
-    const set = /new int\[\] \{([^}]*)\}/.exec(line!);
-    return (set?.[1] ?? "")
-      .split(",")
-      .map((n) => Number(n.trim()))
-      .filter((n) => !Number.isNaN(n))
-      .sort((a, b) => a - b);
+    const routes = javaDocumentedRoutes(await files());
+    const hit = [...routes].find(([k]) => k.endsWith(` ${path}`));
+    expect(hit, `java: no documented route for ${path}`).toBeDefined();
+    return hit![1].errors;
   },
-  /** OpenApiSpex: `NNN => %OpenApiSpex.Response{…}` inside the PathItem. */
+  /** OpenApiSpex: `NNN => %OpenApiSpex.Response{…}` in the routed action's
+   *  `operation` spec. */
   async elixir(path: string): Promise<number[]> {
-    const src = await fileMatching(/_spec\.ex$/);
-    const at = src.indexOf(`"/api${path}" => %OpenApiSpex.PathItem{`);
-    expect(at, `elixir: no PathItem for ${path}`).toBeGreaterThan(-1);
-    const next = src.indexOf("%OpenApiSpex.PathItem{", at + 40);
-    const block = src.slice(at, next > 0 ? next : undefined);
+    const block = elixirOperationsAt(await files(), `/api${path}`);
+    expect(block, `elixir: no operation for ${path}`).not.toBe("");
     return sorted(block.matchAll(/(\d{3}) => %OpenApiSpex\.Response\{/g));
   },
 };

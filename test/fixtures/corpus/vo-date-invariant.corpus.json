@@ -1,0 +1,6 @@
+{
+  "title": "a value-object invariant ORDERING two `date` fields (`checkOut > checkIn`) — compiled and judged at the wire boundary in calendar order",
+  "doc": "language",
+  "backends": "ALL",
+  "note": ".NET judged it on the `<VO>Request` record, whose `date` members are the wire string, as `x.CheckOut > x.CheckIn` (CS0019 — the project did not build).  It now compares the exact `yyyy-MM-dd` strings ordinally, which is calendar order."
+}

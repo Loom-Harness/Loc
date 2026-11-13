@@ -233,7 +233,7 @@ export function discriminatedUnionZod(memberObjects: string[]): string {
  *  member: the `type` discriminator literal plus the member's wire fields.
  *  Consumed by the backends whose OpenAPI layer can't express the union
  *  through its native response-model types without publishing extra
- *  per-variant components (FastAPI's install_openapi post-processor, the
+ *  per-variant components (FastAPI's declared-schema response models, the
  *  springdoc customizer's baked components, the .NET document filter).
  *  Structural kinds only — the parity diff folds formats. */
 export function unionMembersJsonSchema(members: readonly UnionMember[]): unknown {

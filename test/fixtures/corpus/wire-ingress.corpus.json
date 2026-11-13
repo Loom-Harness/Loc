@@ -1,0 +1,6 @@
+{
+  "title": "a malformed money on an operation param, the crudish create/update body, or a value-object leaf answers 422 with a pointer-carrying `errors[]` entry — never a 500",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "M-T9.42 promotion of the four `wire-numeric-ingress.test.ts` string copies (M-T6.48): the wire golden compares the refusal BODIES across every leg, so a backend whose guard answers a different pointer or message diverges rather than merely passing its own status check.  Every arm is in: the operation param, the crudish create/update body and a value-object leaf (elixir answers node's `Invalid decimal: \"…\"` at the leaf pointer on all three), and — RS-42 — the decimal comma and the int32 range, refused at the field with one message on every backend."
+}

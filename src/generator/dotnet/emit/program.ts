@@ -170,9 +170,6 @@ export function renderProgram(
      *  auth. */
     userFields?: readonly FieldIR[];
     usesValidators?: boolean;
-    /** True when the project emits `Api/OpUnionResponsesFilter.cs` (an
-     *  operation-return union with an `error` arm, M-FT.24); registers it. */
-    opUnionFilter?: boolean;
     /** True when the project emits `Api/ValueObjectSchemaMergeFilter.cs` (one
      *  published component per value object); registers it LAST. */
     voMergeFilter?: boolean;
@@ -1159,38 +1156,37 @@ builder.Services.AddSwaggerGen(c =>
     // Document name "openapi" + the UseSwagger RouteTemplate below place the
     // spec at /openapi.json (not Swashbuckle's default /swagger/v1/swagger.json).
     c.SwaggerDoc("openapi", new() { Title = "${ns}", Version = "v1" });
-    // RFC 7807: rewrite declared 4xx/5xx responses to
-    // application/problem+json carrying ProblemDetails (matches Hono/Phoenix).
-    c.OperationFilter<ProblemDetailsResponsesFilter>();
-    // Promote inline array list responses to named <Agg>ListResponse
-    // components (matches Hono/Phoenix, which name the wrapper).
-    c.DocumentFilter<ListResponseWrapperFilter>();${
-      options?.opUnionFilter
-        ? `
-    // An operation returning \`T or <Error>\`: 200 carries the success arms,
-    // each error arm's status carries its problem body (M-FT.24).
-    c.DocumentFilter<OpUnionResponsesFilter>();`
-        : ""
-    }${
-      options?.voMergeFilter
-        ? `
-    // One component per value object (\`Dims\`, not DimsRequest + DimsResponse),
-    // as the other backends publish.  After the filters above so it sees
-    // their final refs.
-    c.DocumentFilter<ValueObjectSchemaMergeFilter>();`
-        : ""
-    }
-    // Mark non-nullable reference-type properties as required in the
-    // schema — matches Hono/Phoenix, which mark every non-optional field
-    // required.  Without this Swashbuckle leaves the required set empty.
+${
+  options?.voMergeFilter
+    ? `    // One component per value object (\`Dims\`, not DimsRequest + DimsResponse),
+    // as the other backends publish.
+    c.DocumentFilter<ValueObjectSchemaMergeFilter>();
+`
+    : ""
+}    // Required members come from source metadata: a response record's
+    // \`[property: Required]\`, a \`[JsonRequired]\` member, and a request
+    // record's class-level \`[SwaggerSchema(Required = …)]\` (a positional
+    // record's \`[Required]\` sits on the constructor parameter, which the
+    // schema generator does not read).  Non-nullable reference types publish as
+    // non-nullable.
     c.SupportNonNullableReferenceTypes();
-    // Request DTOs carry [Required] on the record's CONSTRUCTOR PARAMETER
-    // (a property-targeted [property: Required] makes ASP.NET record
-    // validation throw at model-binding time), but Swashbuckle only reads
-    // property-targeted attributes — so it misses request-body required-ness.
-    // This filter marks those properties required from the ctor params,
-    // restoring cross-backend required-set parity.
-    c.SchemaFilter<RequiredFromCtorParamFilter>();
+    c.EnableAnnotations();
+    // A union is a \`[JsonPolymorphic]\` record family: it publishes as \`oneOf\`
+    // over its \`[JsonDerivedType]\` arms, discriminated by the \`type\` tag the
+    // serializer writes.  Only the declared arms are subtypes, so an ordinary
+    // class hierarchy is not published as a union.
+    c.UseOneOfForPolymorphism();
+    c.SelectSubTypesUsing(t => t
+        .GetCustomAttributes(typeof(System.Text.Json.Serialization.JsonDerivedTypeAttribute), false)
+        .Cast<System.Text.Json.Serialization.JsonDerivedTypeAttribute>()
+        .Select(a => a.DerivedType));
+    c.SelectDiscriminatorNameUsing(t => (t
+        .GetCustomAttributes(typeof(System.Text.Json.Serialization.JsonPolymorphicAttribute), false)
+        .FirstOrDefault() as System.Text.Json.Serialization.JsonPolymorphicAttribute)?.TypeDiscriminatorPropertyName);
+    c.SelectDiscriminatorValueUsing(sub => sub.BaseType?
+        .GetCustomAttributes(typeof(System.Text.Json.Serialization.JsonDerivedTypeAttribute), false)
+        .Cast<System.Text.Json.Serialization.JsonDerivedTypeAttribute>()
+        .FirstOrDefault(a => a.DerivedType == sub)?.TypeDiscriminator?.ToString());
     // operationId parity: the generated controller action method names are
     // the PascalCase of the shared operationId (createProject, allProject,
     // getProjectById, …).  Lower-casing the first char yields the exact
@@ -1217,7 +1213,15 @@ ${schemaIdDictionary}    // Schema-name parity for the paged carrier: the generi
             var stem = inner.EndsWith("Response", StringComparison.Ordinal) ? inner.Substring(0, inner.Length - "Response".Length) : inner;
             return stem + "Paged";
         }
-${schemaIdLookup}        return t.Name;
+        // The documented problem body is published as the RFC 7807
+        // \`ProblemDetails\` component every backend names.
+        if (t == typeof(global::${ns}.Api.ProblemResponse)) return "ProblemDetails";
+${schemaIdLookup}        // A success arm of a union whose error arms answer as problems is
+        // published under the success union's name: \`<Union>Success_<Tag>\`.
+        if (t.BaseType is { IsAbstract: true } success && success.BaseType is { } union
+            && success.Name == union.Name + "Success" && t.Name.StartsWith(union.Name + "_", StringComparison.Ordinal))
+            return string.Concat(success.Name, t.Name.AsSpan(union.Name.Length));
+        return t.Name;
     });
 });
 
@@ -1706,6 +1710,7 @@ ${persistenceRefs}
     <PackageReference Include="Mediator.Abstractions" Version="3.0.2" />
     <!-- OpenAPI spec emitted at /openapi.json -->
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
+    <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="10.2.3" />
     <!-- Prometheus metrics at /metrics (prometheus-net) -->
     <PackageReference Include="prometheus-net.AspNetCore" Version="8.2.1" />
     <!-- OpenTelemetry tracing: AspNetCore instrumentation gives a

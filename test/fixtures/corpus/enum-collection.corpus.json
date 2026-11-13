@@ -1,0 +1,6 @@
+{
+  "title": "an enum COLLECTION field (`skills: Skill[]`) — the enum × array crossing",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "Minted by audit F-014 (S1).  The corpus carried scalar enums and scalar/VO arrays, but never the two CROSSED, so every compile gate was blind to it by construction — and elixir's Ecto mapper folded the enum's `values:` (an option of `field/3`) into the array TYPE tuple: `field :skills, {:array, Ecto.Enum, values: [...]}` → `** (ArgumentError) invalid type … for field :skills`, i.e. `mix compile` fails on the emitted project.  A SCALAR enum sits on the same aggregate so a fix that simply stopped emitting `values:` for arrays cannot pass."
+}
