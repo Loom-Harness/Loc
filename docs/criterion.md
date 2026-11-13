@@ -80,8 +80,18 @@ context Sales {
   // `of bool` — a pure ambient predicate with no candidate (reads only
   // parameters + ambient context such as `currentUser`).
   criterion HasManagerRole of bool = currentUser.role == "manager"
+
+  // The match-everything criterion: a body that is exactly `true` reads every
+  // row (`Customers.all(AllCustomers, page: …)` in a workflow or handler).
+  criterion AllCustomers of Customer = true
 }
 ```
+
+A query filter must test a column, so a literal anywhere else in a body is
+refused (`loom.retrieval-where-not-queryable`); the whole body `true` is the one
+exception. Each backend reads it as "no filter": Drizzle ``sql`true` ``, EF
+`x => true`, JPA `cb.conjunction()`, SQLAlchemy `.where(true())`, Ecto
+`where: true`, Dapper `WHERE TRUE`, MikroORM `{}`.
 
 Grammar:
 

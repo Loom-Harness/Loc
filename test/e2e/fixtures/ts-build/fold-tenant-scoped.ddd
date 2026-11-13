@@ -56,13 +56,13 @@ system FoldTenancy {
         acct: Acct id
         paid: int
         deposited: int
-        on(e: Paid) { acct := e.acct  paid := e.amount }
-        on(e: Deposited) { acct := e.acct  deposited := e.amount }
+        on(e: Paid) { paid := e.amount }
+        on(e: Deposited) { deposited := e.amount }
       }
       projection Bookings keyed by plan {
         plan: Plan id
         seats: int
-        on(e: Booked) { plan := e.plan  seats := e.seats }
+        on(e: Booked) { seats := e.seats }
       }
     }
     context Registry {

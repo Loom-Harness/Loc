@@ -14,14 +14,13 @@ import { renderPgStep } from "../../sql-pg.js";
 // strictly increasing, so Flyway never sees a version below one it has
 // already applied) and `<n>` the module's index within the deployable.
 //
-// A generation's non-transactional unit (`CREATE INDEX CONCURRENTLY`,
-// `splitTransactionalSteps`) is its own script, `V<version>.<n>.1__…Concurrent`,
-// which Flyway orders right after `V<version>.<n>` and records on its own.
-// Flyway's Postgres parser recognises `CREATE INDEX CONCURRENTLY` /
-// `DROP INDEX CONCURRENTLY` as statements that cannot run in a transaction
-// and applies a script holding only such statements without one; a script
-// MIXING them with transactional statements is refused, which is why the unit
-// is a script of its own.
+// A generation's non-transactional unit (`CREATE INDEX CONCURRENTLY`, a
+// lock-safe backfill — `splitTransactionalSteps`) is its own script,
+// `V<version>.<n>.1__…Concurrent`, which Flyway orders right after
+// `V<version>.<n>` and records on its own.  Its script config file
+// (`….sql.conf`, `executeInTransaction=false`) has Flyway run every statement
+// of it outside a transaction: Flyway's own inference covers only
+// `CONCURRENTLY`, and refuses a script mixing those with other statements.
 // ---------------------------------------------------------------------------
 
 export function emitJavaMigrations(migrations: MigrationsIR[], out: Map<string, string>): void {
@@ -44,10 +43,12 @@ export function emitJavaMigrations(migrations: MigrationsIR[], out: Map<string, 
       );
     }
     if (nonTransactional.length > 0) {
-      out.set(
-        `src/main/resources/db/migration/V${m.version}.${i + 1}.1__${stem}Concurrent.sql`,
-        script(nonTransactional),
-      );
+      const path = `src/main/resources/db/migration/V${m.version}.${i + 1}.1__${stem}Concurrent.sql`;
+      out.set(path, script(nonTransactional));
+      // Flyway infers "no transaction" only from `CONCURRENTLY`; a lock-safe
+      // backfill's UPDATEs and ALTERs would otherwise run in one transaction.
+      // The script config file states it for every statement of the unit.
+      out.set(`${path}.conf`, "executeInTransaction=false\n");
     }
   });
 }

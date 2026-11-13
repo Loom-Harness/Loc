@@ -5985,6 +5985,34 @@ message-less domain-floor rule carries no `errors[]`.
 
 ---
 
+## D-GATE-LADDER — one refusal order for every request on an aggregate row, on every backend
+
+**Status:** owner ruling, 2026-11-13; applied to operation routes and `can_<op>` on all five backends.
+
+**Decision.** A request on an aggregate row is refused in one order:
+authn (401) → request shape (422) → a `requires` that reads no row (403) →
+load through the read scope (404) → a `requires` that reads the row, and the
+write scope (403 / 404) → version `If-Match` (409) → `when` (409) →
+preconditions and invariants (409 / 422). `src/ir/plan/gate-ladder.ts` encodes
+it; every backend renders the checks it lists in that order.
+`GET /{id}/can_<op>` runs the same ladder without a body: the by-id read gate
+refuses (403) and a row outside the read scope is 404, as `GET /{id}` answers;
+the operation's own `requires` and `when` answer `{ "allowed": false }`, and a
+gate that reads an operation parameter answers `false`.
+
+**Why.** A caller refused at the row-independent gate gets the same 403 for an
+existing id, a missing id, a stale `If-Match` and a row in the wrong state, so
+the refusal is no existence, version or state oracle. Shape precedes `requires`
+because every backend's framework binding validates the body before any handler
+runs; the shape rung depends only on the body and the published schema, so
+answering it first leaks nothing (D-CREATE-GATE-ORDER).
+
+**Consequence.** Pinned by the gate-order and `can_<op>` rungs of
+`AUTHZ_LADDERS["auth-simple"]` and `AUTHZ_LADDERS["read-gates"]` in
+`test/behavioral/cases.mjs`, run by every behavioural runner.
+
+---
+
 ## D-REF-ADMISSION — a request-supplied reference to tenant-owned data resolves under the target's read scope
 
 **Status:** owner rulings, 2026-11-13; applied on all five backends.
@@ -6837,6 +6865,72 @@ byte-identical at every step.
   walker or the HEEx target.
 - `heex-coverage.test.ts`, the walker-core framework census, and the
   D-LIVEVIEW-REFERENCE legs.
+
+## D-PROJECTION-FOLD — a projection fold means the same thing on every backend, and one plan says what
+
+**Status:** owner ruling, 2026-11-13.
+
+**Decision.** A materialized projection's `on(e: Event) { … }` fold body is
+compiled once, by `foldSteps` (`src/ir/plan/projection-fold.ts`), into ordered
+steps. Every backend renders those steps and decides nothing about them.
+
+- *The key is immutable.* An assignment to the projection's key field is
+  refused (`loom.projection-key-assign`). The row is allocated with the key
+  the fold routes by: `e.<key>`, or the handler's `by <expr>`.
+- *Sequential.* Each statement reads the row as the statements before it left
+  it. Two `+=` on one column both count.
+- *Collection `-=` removes every match.* Repeating a removal changes nothing.
+  Collection `+=` appends one element.
+
+**Why.** These were order decisions written five times, and the five copies
+disagreed: two backends moved the row on a key assignment, two removed every
+match while three removed the first, and one built its write from the
+pre-fold row so a later statement read a stale value. A fact computed once
+cannot disagree with itself.
+
+**Enforced by** `test/system/projection-fold-census.test.ts`: no emitter under
+`src/generator/` or `src/platform/` reads a fold handler's raw `statements`
+(checked with the TypeScript type checker), and every fold emitter calls
+`foldSteps`.
+
+## D-PROJECTION-FOLD-AFTER-COMMIT — a fold runs after the command commits, isolated per handler
+
+**Status:** owner ruling, 2026-11-13.
+
+**Decision.** A projection fold delivered in-process runs after the command
+that raised its event has committed, in its own transaction, like a workflow
+reactor. A fold that fails is logged `reactor_failed`; the command stays
+committed, its response is unchanged, and the row keeps its last good state.
+The other folds and reactors for the same event still run.
+
+**Why.** A read model is derived. Letting its write fail or roll back the
+command would make the source of truth depend on the view of it.
+
+## D-PROJECTION-ROW-SEED — what a fresh projection row starts at
+
+**Status:** owner ruling, 2026-11-13.
+
+**Decision.** When a fold allocates a row for a new key, each non-key column
+starts at a value `foldRowSeeds` (`src/ir/plan/projection-fold.ts`) decides:
+
+- a field with a declared default starts at it;
+- a required field whose type has a neutral zero starts at it: `0` for an
+  int, long, decimal or money, `false`, `""`, the empty list;
+- an optional field starts null until a fold writes it.
+
+A required field whose type has no neutral zero (a datetime, a date, an enum,
+an id, a value object) and that declares no default is refused
+(`loom.projection-field-no-start`, `foldRowUnseeded`): a required column never
+starts null. Declare its default, or make it optional. A `+=` or `-=` on an
+optional field without a default is refused
+(`loom.projection-accumulate-optional`): it has no value to start from.
+
+**Why.** One backend started an unwritten int at `0` and the others at null,
+so the same read answered differently. A running total also needs a defined
+start. A datetime, enum or id has no value that means "nothing yet", so
+inventing one (the current instant, the first member) would read as data, and
+starting it null would break the field's own declaration: the model asks the
+author to say which.
 
 ## D-WORKFLOW-TX-BOUNDARY — a workflow command commits each save on its own unless it is `transactional`
 

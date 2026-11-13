@@ -53,6 +53,11 @@ system ReadGates {
           open := false
           emit OrderPlaced { orderRef: id, code: code }
         }
+        // A `when`-gated operation, so the order carries a `can_reopen` probe:
+        // the probe reads the row, so the read gate below gates it too.
+        operation reopen() when !open {
+          open := true
+        }
       }
       repository Orders for Order
       // (1) The LIST read and (4) the BY-ID read, both gated by this one line:
@@ -84,7 +89,7 @@ system ReadGates {
       projection OrderBook keyed by orderRef requires currentUser.role == "agent" {
         orderRef: Order id
         code: string
-        on(e: OrderPlaced) { orderRef := e.orderRef  code := e.code }
+        on(e: OrderPlaced) { code := e.code }
       }
 
       // (3) QUERY-TIME — computed per read, gated in the same position.
@@ -146,5 +151,8 @@ system ReadGates {
     expect(api.orders.getById(a)).toThrow(404)
     let remaining = api.orders.all()
     expect(remaining.total).toBe(1)
+    // The placed order is closed, so `when !open` admits `reopen()`.
+    api.orders.reopen(b)
+    expect(api.orders.getById(b).open).toBe(true)
   }
 }

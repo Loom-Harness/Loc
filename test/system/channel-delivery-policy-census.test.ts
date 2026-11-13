@@ -21,6 +21,7 @@ import {
   CHANNEL_CONSUMER,
   CHANNEL_RECONNECT,
   OUTBOX_RELAY,
+  RABBIT_DECLARE,
   relayBackoffMs,
 } from "../../src/generator/_channels/delivery-policy.js";
 import { expectReach } from "../_helpers/census-reach.js";
@@ -83,5 +84,35 @@ describe("channel delivery policy census", () => {
     expect(relayBackoffMs(0)).toBe(OUTBOX_RELAY.intervalMs);
     expect(relayBackoffMs(1)).toBe(OUTBOX_RELAY.intervalMs * 2);
     expect(relayBackoffMs(1_000)).toBe(OUTBOX_RELAY.maxBackoffMs);
+  });
+
+  // RabbitMQ refuses a redeclare whose flags differ from the existing object,
+  // and the broker's boot-time definitions declare every exchange and queue
+  // first.  So every client declare must carry RABBIT_DECLARE's flags: durable,
+  // and never auto-delete, exclusive or internal (each client library defaults
+  // those three to false).
+  it("every RabbitMQ declare matches the shared declare flags", () => {
+    expect(RABBIT_DECLARE.exchange).toEqual({ durable: true, auto_delete: false, internal: false });
+    expect(RABBIT_DECLARE.queue).toEqual({ durable: true, auto_delete: false, exclusive: false });
+    const DECLARE =
+      /assertExchange|assertQueue|exchangeDeclare|queueDeclare\(|ExchangeDeclareAsync|QueueDeclareAsync|declare_exchange|declare_queue|AMQP\.Exchange\.declare|AMQP\.Queue\.declare/;
+    const DURABLE = /durable: true|durable=True|durable: true|, true\)|, true, false, false,/;
+    const FORBIDDEN =
+      /auto_?[dD]elete[:=] ?(true|True)|autoDelete: true|exclusive[:=] ?(true|True)|internal[:=] ?(true|True)/;
+    const declares: string[] = [];
+    const bad: string[] = [];
+    for (const file of ROOTS.flatMap(sources)) {
+      const lines = fs.readFileSync(path.join(repoRoot, file), "utf8").split("\n");
+      lines.forEach((line, i) => {
+        if (!DECLARE.test(line)) return;
+        // A multi-line declare carries its flags on the next few lines.
+        const call = lines.slice(i, i + 6).join(" ");
+        declares.push(`${file}:${i + 1}`);
+        if (!DURABLE.test(call) || FORBIDDEN.test(call))
+          bad.push(`${file}:${i + 1}: ${line.trim()}`);
+      });
+    }
+    expectReach("RabbitMQ declare sites", declares.length, 30);
+    expect(bad, "declare with RABBIT_DECLARE's flags").toEqual([]);
   });
 });

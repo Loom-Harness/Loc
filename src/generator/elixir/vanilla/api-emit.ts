@@ -31,7 +31,7 @@ import type {
   OperationIR,
   SystemIR,
 } from "../../../ir/types/loom-ir.js";
-import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { exprUsesCurrentUser, stmtUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import {
   type ApiOperationIR,
   apiStatusContext,
@@ -76,7 +76,13 @@ import {
 import { isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced, renderEsController } from "./eventsourced-emit.js";
 import { renderPageParamHelper } from "./find-controller.js";
-import { effectiveGate, renderGateCondition, updateSeamGates } from "./gate.js";
+import {
+  effectiveGate,
+  opRowFreeGates,
+  probeRowGates,
+  renderGateCondition,
+  updateSeamGates,
+} from "./gate.js";
 import { isAbstractBase, isTphBase } from "./inheritance-emit.js";
 import {
   guardRescue,
@@ -671,10 +677,19 @@ ${cuBind}${showBody}
       {:error, :conflict} ->
         ProblemDetails.conflict_response(conn, "${aggPascal}", id)`
         : "";
+      // The gate ladder: the `requires` gates that read no row refuse (403)
+      // before the load — and before the `If-Match` header is parsed — so a
+      // refused caller learns nothing about the row.
+      const preGate = opRowFreeGates(op).length > 0;
+      const gateClause = preGate
+        ? `:ok <- ${ctxModule}.${opSnake}_${aggSnake}_gate(attrs${opCallActor}),\n         `
+        : "";
+      const versionClause =
+        preGate && opReadsIfMatch ? `expected_version = __expected_version(conn),\n         ` : "";
       return `
   def ${elixirOpAction(op.name)}(conn, %{"id" => id} = params) do
     attrs = Map.drop(params, ["id"])
-${opCuBind}${opReadsIfMatch ? EXPECTED_VERSION_BIND : ""}    ${renderPhoenixLogCall(
+${opCuBind}${opReadsIfMatch && !preGate ? EXPECTED_VERSION_BIND : ""}    ${renderPhoenixLogCall(
         "operationInvoked",
         [
           { name: "aggregate", valueExpr: `"${aggPascal}"` },
@@ -684,7 +699,7 @@ ${opCuBind}${opReadsIfMatch ? EXPECTED_VERSION_BIND : ""}    ${renderPhoenixLogC
       )}
     ${renderPhoenixDomainOperation(aggPascal, op.name)}
 
-    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),
+    with ${gateClause}${versionClause}{:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),
          {:ok, _updated} <- ${ctxModule}.${opSnake}_${aggSnake}(${opReadsIfMatch ? RECORD_AT_EXPECTED_VERSION : "record"}, attrs${opCallActor}) do
       send_resp(conn, 204, "")
     else
@@ -707,15 +722,58 @@ ${guardRescue(appModule, denialOverrides(ctx))}
     .filter((op) => op.when)
     .map((op) => {
       const opSnake = snake(op.name);
-      return `
-  def can_${opSnake}(conn, %{"id" => id}) do
-${cuBind}    case ${ctxModule}.${cmdGet}(id${getActor}) do
+      // The probe runs the operation's gate ladder without a body: the by-id
+      // read's gate refuses (403) exactly as `GET /{id}` does, the
+      // row-independent `requires` gates answer `allowed: false` before the
+      // load, the load is the read scope's (404), and the row-reading `requires`
+      // gates fold into `allowed` with the state gate.
+      const rowFree = opRowFreeGates(op);
+      const rowGates = probeRowGates(op);
+      const needsUser =
+        (showGate !== undefined && exprUsesCurrentUser(showGate)) ||
+        rowFree.some(stmtUsesCurrentUser) ||
+        rowGates.some(stmtUsesCurrentUser);
+      const canCuBind =
+        needsUser && !principal ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
+      const gateUser = rowFree.some(stmtUsesCurrentUser) ? ", current_user" : "";
+      const verdict =
+        rowGates.length > 0
+          ? `${ctxModule}.can_${opSnake}_${aggSnake}(record, ${rowGates.some(stmtUsesCurrentUser) ? "current_user" : "nil"})`
+          : `${ctxModule}.can_${opSnake}_${aggSnake}(record)`;
+      const body =
+        rowFree.length > 0
+          ? `    with :ok <- ${ctxModule}.${opSnake}_${aggSnake}_gate(%{}${gateUser}),
+         {:ok, record} <- ${ctxModule}.get_${aggSnake}(id${getActor}) do
+      json(conn, %{"allowed" => ${verdict}})
+    else
+      {:error, :not_found} ->
+        ProblemDetails.not_found_response(conn, "${aggPascal}", id)
+
+      {:error, _denied} ->
+        json(conn, %{"allowed" => false})
+    end`
+          : `    case ${ctxModule}.get_${aggSnake}(id${getActor}) do
       {:ok, record} ->
-        json(conn, %{"allowed" => ${ctxModule}.can_${opSnake}_${aggSnake}(record)})
+        json(conn, %{"allowed" => ${verdict}})
 
       {:error, :not_found} ->
         ProblemDetails.not_found_response(conn, "${aggPascal}", id)
-    end
+    end`;
+      const gated = showGate
+        ? `    if not (${renderGateCondition(showGate, (g) => renderElixirExpr(g, { thisName: "record", contextModule: facadeMod }))}) do
+      ${denialResponse(
+        "forbidden",
+        JSON.stringify(`Forbidden: find ${byIdFind!.name}`),
+        denialOverrides(ctx),
+        `${appModule}Web.ProblemDetails`,
+      )}
+    else
+${body}
+    end`
+        : body;
+      return `
+  def can_${opSnake}(conn, %{"id" => id}) do
+${cuBind}${canCuBind}${gated}
   end`;
     })
     .join("\n");

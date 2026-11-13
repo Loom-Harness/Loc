@@ -22,7 +22,7 @@
 
 import { describe, expect, it } from "vitest";
 import type {
-  LoomModel,
+  EnrichedLoomModel,
   RequirementIR,
   RequirementVerdict,
   TestOutcome,
@@ -76,14 +76,17 @@ const RESULTS: TestOutcome[] = [
   { name: "a hand-written test", suite: "LoginSession", status: "pass" },
 ];
 
-const rollup = (loom: LoomModel, results: readonly TestOutcome[] = RESULTS): VerificationIR =>
+const rollup = (
+  loom: EnrichedLoomModel,
+  results: readonly TestOutcome[] = RESULTS,
+): VerificationIR =>
   computeVerification(
-    loom.traceability!,
+    loom.traceability,
     loom.requirements.map((r) => r.id),
     results,
   );
 
-async function fixture(): Promise<{ loom: LoomModel; v: VerificationIR }> {
+async function fixture(): Promise<{ loom: EnrichedLoomModel; v: VerificationIR }> {
   const loom = await buildLoomModel(SOURCE);
   return { loom, v: rollup(loom) };
 }
@@ -152,14 +155,17 @@ function parseGraph(mmd: string): ParsedGraph {
   return { nodes, edges, classOf, classDefs, header: all[0] };
 }
 
-/** A minimal `LoomModel` carrying only what the renderers read: the
+/** A minimal `EnrichedLoomModel` carrying only what the renderers read: the
  *  requirement list and the traceability `childrenOf` index. */
-function fakeLoom(requirements: RequirementIR[], childrenOf: Record<string, string[]>): LoomModel {
-  return { requirements, traceability: { childrenOf } } as unknown as LoomModel;
+function fakeLoom(
+  requirements: RequirementIR[],
+  childrenOf: Record<string, string[]>,
+): EnrichedLoomModel {
+  return { requirements, traceability: { childrenOf } } as unknown as EnrichedLoomModel;
 }
 
 /** A `VerificationIR` assigning `verdict` to every requirement of `loom`. */
-function fakeVerification(loom: LoomModel, verdict: RequirementVerdict): VerificationIR {
+function fakeVerification(loom: EnrichedLoomModel, verdict: RequirementVerdict): VerificationIR {
   const requirements: VerificationIR["requirements"] = {};
   for (const r of loom.requirements) {
     requirements[r.id] = { verdict, testCaseIds: [], failingTestCaseIds: [] };
@@ -367,7 +373,7 @@ describe("renderVerdictGraph", () => {
 
     // One edge per childrenOf link, in both directions of the check: no
     // missing edge, and no edge that childrenOf does not license.
-    const children = loom.traceability!.childrenOf;
+    const children = loom.traceability.childrenOf;
     const want = new Set<string>();
     for (const r of loom.requirements) {
       for (const c of children[r.id] ?? []) {
@@ -394,7 +400,7 @@ describe("renderVerdictGraph", () => {
     // Titles come from a STRING literal, so `"` / `[` / `]` / `(` / `)` /
     // `-->` are all reachable from real `.ddd` source; ids are fabricated
     // here because TRACE_ID can't spell them — `renderVerdictGraph` is an
-    // exported function over LoomModel, so it must not depend on that.
+    // exported function over EnrichedLoomModel, so it must not depend on that.
     const parent = 'R"1[x](y)-->z';
     const child = 'R"2[a](b)-->c';
     const loom = fakeLoom(

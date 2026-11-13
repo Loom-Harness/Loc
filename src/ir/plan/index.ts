@@ -24,7 +24,26 @@
 
 export { hasDurableEvents } from "./context-events.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
+export {
+  canOpLadder,
+  GATE_ORDER,
+  type GateCheck,
+  type GateStep,
+  gateRank,
+  gateReadsParam,
+  gateReadsRow,
+  operationLadder,
+} from "./gate-ladder.js";
 export { lookupOp } from "./operation-lookup.js";
+export {
+  assignsFoldKey,
+  type FoldRowSeed,
+  type FoldRowZero,
+  type FoldStep,
+  foldRowSeeds,
+  foldRowUnseeded,
+  foldSteps,
+} from "./projection-fold.js";
 export {
   type ProjectionQueryParam,
   projectionQueryParams,
@@ -52,6 +71,7 @@ export {
   withReadPortRepos,
 } from "./service-read-ports.js";
 export { requiredStateFields, type StateZero, stateZero } from "./state-zero.js";
+export { valueObjectBorne, valueObjectParams } from "./value-object-params.js";
 export {
   type RemoteApiOpRef,
   type ResourceCalls,
