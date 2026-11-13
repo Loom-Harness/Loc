@@ -74,6 +74,11 @@ export function collapseVoGroups(columns: readonly ColumnShape[]): ColumnShape[]
  *    carry the old key, so {@link voKeyRenameSteps} rewrites it in every row.
  *  - `alterColumnType` / `alterColumnDefault` of a leaf → nothing: the column
  *    is the map, whose type and (absent) default do not change.
+ *  - `addCheck` / `dropCheck` of an `enumValues` check on a leaf (an enum
+ *    inside the value object, `berth_side`) → nothing: the leaf column does not
+ *    exist, and a check naming it fails the migration.  The builder names such
+ *    a check `<table>_<column>_enum`; the leaf is looked up in `next` for an
+ *    add and in `baseline` for a drop.
  *
  *  Every other step passes through unchanged. */
 export function collapseVoSteps(m: MigrationsIR, keyCase: VoJsonKeyCase): MigrationStep[] {
@@ -186,11 +191,31 @@ export function collapseVoSteps(m: MigrationsIR, keyCase: VoJsonKeyCase): Migrat
       case "alterColumnDefault":
         if (!groupOf(m.next, step.table, step.schema, step.name)) out.push(step);
         break;
+      case "addCheck":
+        if (!isLeafEnumCheck(m.next, step.check.table, step.schema, step.check.name)) {
+          out.push(step);
+        }
+        break;
+      case "dropCheck":
+        if (!isLeafEnumCheck(m.baseline, step.table, step.schema, step.name)) out.push(step);
+        break;
       default:
         out.push(step);
     }
   }
   return out;
+}
+
+/** True when `check` is the `enumValues` check of a value-object leaf column
+ *  of `table` in `snap` (named `<table>_<column>_enum` by the builder). */
+function isLeafEnumCheck(
+  snap: SchemaSnapshot | null,
+  table: string,
+  schema: string | undefined,
+  check: string,
+): boolean {
+  const t = snap?.tables.find((x) => x.name === table && x.schema === schema);
+  return t?.columns.some((c) => c.voGroup && `${table}_${c.name}_enum` === check) ?? false;
 }
 
 /** How a json-column layout spells a value-object field's key: Phoenix's

@@ -110,7 +110,7 @@ export function pyIntColumnType(): string {
 
 /** A `datetime` expression → its RS-4 + RS-38 wire string, through the
  *  runtime `iso` helper. */
-function pyInstantWire(expr: string): string {
+export function pyInstantWire(expr: string): string {
   return `${ISO}(${expr})`;
 }
 

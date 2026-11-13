@@ -62,3 +62,14 @@ export function relayBackoffMs(failures: number): number {
 export const CHANNEL_CONSUMER = {
   maxAttempts: 5,
 } as const;
+
+/** The flags of every RabbitMQ exchange and queue Loom declares, on every
+ *  backend and in the broker's boot-time definitions.  A redeclare whose flags
+ *  differ from the existing object is refused (`406 PRECONDITION_FAILED
+ *  inequivalent arg`), and RabbitMQ 4.1 records a definitions row that omits a
+ *  flag as `undefined`, which matches no client's declare — so the definitions
+ *  spell every flag out, and the clients declare with exactly these. */
+export const RABBIT_DECLARE = {
+  exchange: { durable: true, auto_delete: false, internal: false },
+  queue: { durable: true, auto_delete: false, exclusive: false },
+} as const;
