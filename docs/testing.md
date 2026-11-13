@@ -165,6 +165,21 @@ systems (`examples/showcase.ddd`, `examples/acme.ddd`) stay in the docker
 `conformance-full` leg. See `test/behavioral/README.md` for the full
 runner mechanics (one-origin serving, async-spawn, the DoD rollup).
 
+### Broker and object-store sidecars for the behavioural legs
+
+A corpus case whose model declares a `rabbitmq` or `redis` storage runs against
+a real, digest-pinned broker (`test/support/fakes/broker-sidecar.mjs`). The kit starts
+it with `docker run` locally, or uses the workflow's `services: rabbitmq`
+container when `LOOM_FAKE_AMQP_URL` names one. The case's generated
+`broker-init` definitions are imported, so the backend runs with the vhost,
+user and permissions it is deployed with. Its publishes reach the wire golden
+as `{ exchange, routingKey, type, count }` rows. A case with an `s3` storage
+likewise runs against a pinned `adobe/s3mock` container
+(`test/support/fakes/s3-sidecar.mjs`, CI: `services: s3`, `LOOM_FAKE_S3_URL`),
+and its objects reach the golden as sorted `{ bucket, key, size, contentType }`
+rows read back over the S3 API. `npm run test:fakes-docker`
+runs the kit's own container tests.
+
 ### Behavioral UI runner pass/fail semantics
 
 Every Playwright-driven behavioral UI runner (`run-ui.mjs`, `run-heex-ui.mjs`,

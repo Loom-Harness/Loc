@@ -494,6 +494,55 @@ the main vitest suite can import it: `test/harness/behavioral-proc.test.ts`
 gates this behaviour on every PR against a server that deliberately ignores
 SIGTERM. Left to these legs, a race is only tested when it is lost.
 
+### Broker sidecar (`test/support/fakes/broker-sidecar.mjs`)
+
+The real-process legs speak AMQP and RESP to a real broker, not to an emulation.
+`broker-sidecar.mjs` starts one digest-pinned container per broker type
+(`BROKER_IMAGES`: `rabbitmq:4.1-management-alpine`, `valkey/valkey:8-alpine`)
+with `docker run`. In CI it uses the workflow's `services: rabbitmq` entry,
+named by `LOOM_FAKE_AMQP_URL` and `LOOM_FAKE_AMQP_MGMT_URL`. Kafka is not
+covered here; it stays on the `channels-e2e` legs.
+
+- **Topology and grants.** `start({ storage, definitions })` imports the case's
+  generated `broker-init/<storage>-definitions.json` through the management
+  API. The backend therefore connects as its own per-deployable user, under its
+  own permission regexes. An open admin account would hide a grant defect.
+- **Env.** Each `channelSource` gets `LOOM_CHANNEL_<X>_URL` and each `queue`
+  resource gets `<RES>_URL`. The names come from `src/util/channels.ts` and
+  `src/util/resource-env.ts`. The values are the compose URLs, re-hosted onto
+  the sidecar's loopback port, so the credentials and vhost are unchanged.
+- **Observation.** Tracing is on for every vhost, and a tap queue bound to
+  `amq.rabbitmq.trace` with `publish.#` copies each publish. A message published
+  to an exchange that no consumer has bound is still seen. On valkey, a
+  `PSUBSCRIBE *` connection is the tap. `await observe()` drains the tap into
+  sorted `{ exchange, routingKey, type, count }` rows, where `type` is the
+  CloudEvent `type` (`null` for a plain queue message).
+- **Between cases.** `load(definitions)` and `reset()` delete every vhost and
+  every non-admin user, then re-arm the broker. Nothing leaks from one case to
+  the next.
+
+The broker's own tests run under `npm run test:fakes-docker`, which needs
+docker. The pure helpers run in the fast suite.
+
+### Object-store sidecar (`test/support/fakes/s3-sidecar.mjs`)
+
+A case whose model declares an `s3` storage runs against a real S3-compatible
+server: `adobe/s3mock`, pinned by digest as `S3_IMAGE`. The kit starts it with
+`docker run`. In CI it uses the workflow's `services: s3` entry, named by
+`LOOM_FAKE_S3_URL`.
+
+- **Why s3mock.** It speaks path-style S3 and accepts any credentials. It
+  passes a streamed (`aws-chunked`) upload, ListObjectsV2 and a presigned GET
+  from the generated node client's SDK, and it is ready in about 6 s.
+- **Env.** Each object-store resource gets the generated contract from
+  `src/util/resource-env.ts`: `<RES>_URL_ENDPOINT`, `<RES>_URL_BUCKET`, and the
+  `AWS_*` trio from `S3_DEV_SIDECAR`.
+- **Observation.** `await observe()` reads the objects back over the S3 API:
+  ListObjectsV2 per bucket, then HEAD per object. It returns them sorted, as
+  `{ bucket, key, size, contentType }`.
+- **Between cases.** `reset()` deletes every object and bucket, then re-creates
+  the case's buckets.
+
 ## UI tier (`run-ui.mjs`)
 
 The sibling runner for the **`ui`** tier — the emitted Playwright spec
