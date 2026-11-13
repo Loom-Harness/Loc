@@ -1783,11 +1783,14 @@ export function generateTypeScriptForContexts(
     runSeedsAtBoot: hasSeeds,
     usingMikro,
     // Outbox relay (dispatch-delivery-semantics.md): started at boot when
-    // any context carries a durable channel AND the in-process dispatcher
-    // is wired (subscriptions exist).  Persistence-neutral — the mikro
-    // adapter emits the same relay over the EntityManager.
+    // the deployable carries a durable channel AND something hosted consumes
+    // events — a subscription or a fold, in any hosted context: the durable
+    // event and its consumer may live in different contexts.
+    // Persistence-neutral — the mikro adapter emits the same relay over the
+    // EntityManager.
     outboxRelay:
-      contexts.some((c) => c.eventSubscriptions.length > 0 && hasDurableEvents(c)) ||
+      (hasDurableEvents(merged) &&
+        (contexts.some((c) => c.eventSubscriptions.length > 0) || foldsDedupe(merged, true))) ||
       // A durable-broker producer relays even without local subscribers:
       // the drained rows publish to the broker.
       (durableBrokerEvents.size > 0 && hasDurableEvents(merged)),

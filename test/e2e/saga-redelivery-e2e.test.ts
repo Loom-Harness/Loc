@@ -123,15 +123,15 @@ const LEGS: Leg[] = (
   [
     { backend: "java", platform: "java", boot: "java", saga: true },
     { backend: "elixir", platform: "elixir", boot: "elixir", saga: true },
-    { backend: "node", platform: "node", boot: "node", saga: false },
+    { backend: "node", platform: "node", boot: "node", saga: true },
     {
       backend: "node-mikroorm",
       platform: "node { persistence: mikroorm }",
       boot: "node",
       saga: false,
     },
-    { backend: "python", platform: "python", boot: "python", saga: false },
-    { backend: "dotnet", platform: "dotnet", boot: "dotnet", saga: false },
+    { backend: "python", platform: "python", boot: "python", saga: true },
+    { backend: "dotnet", platform: "dotnet", boot: "dotnet", saga: true },
     {
       backend: "dotnet-dapper",
       platform: "dotnet { persistence: dapper }",
