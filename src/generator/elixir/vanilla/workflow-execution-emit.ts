@@ -84,6 +84,7 @@ import { isScalarVariant } from "../../../ir/stdlib/unions.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
+  type EnrichedBoundedContextIR,
   type ExprIR,
   type IsolationLevel,
   type OperationIR,
@@ -126,6 +127,7 @@ import {
   type WorkflowPipelineTarget,
 } from "../../_workflow/stmt-target.js";
 import type { ApiRoute } from "../api-emit.js";
+import { contextHasDispatcher } from "../dispatch-emit.js";
 import { inlineMutatingServiceCall } from "../domain-service-emit.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
@@ -668,9 +670,23 @@ export function elixirWorkflowTarget(
       ];
     },
 
-    // `emit E { … }` broadcasts on success only; inside a transaction
-    // `<App>.PostCommit` holds it until the commit and drops it on a rollback.
-    emit: (st) => [{ kind: "effect", text: broadcast(st.eventName, fieldsOf(st.fields)) }],
+    // `emit E { … }` reaches the context's in-process reactors through
+    // `Dispatcher.AfterCommit` and broadcasts, both on success only; inside a
+    // transaction `<App>.PostCommit` holds them until the commit and drops
+    // them on a rollback.
+    emit: (st) => {
+      const struct = `%${contextModule}.Events.${upperFirst(st.eventName)}{${fieldsOf(st.fields)}}`;
+      const dispatch =
+        ctx && contextHasDispatcher(ctx as EnrichedBoundedContextIR)
+          ? [
+              {
+                kind: "effect" as const,
+                text: `${contextModule}.Dispatcher.AfterCommit.dispatch(${struct})`,
+              },
+            ]
+          : [];
+      return [...dispatch, { kind: "effect", text: broadcast(st.eventName, fieldsOf(st.fields)) }];
+    },
 
     // A bare resource op runs on success only and discards its result.
     resourceCall: (st) => [{ kind: "effect", text: `_ = ${expr(st.call)}` }],
