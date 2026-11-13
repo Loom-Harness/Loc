@@ -1994,7 +1994,7 @@ ${merges.map((m) => `        (${JSON.stringify(m.name)}, new[] { ${m.sources.map
 }
 
 /** `QueryMismatchMessage(context, key, binderMessage)`: the ruled
- *  `type-mismatch` sentence (`queryParamMismatch`) of a query / route value
+ *  `type-mismatch` sentence (`QUERY_PARAM_MISMATCH_MESSAGES`) of a query / route value
  *  the binder could not convert, picked by the CLR type the action parameter
  *  binds; null for any other model-state error. */
 function csQueryMismatchMessageFn(): string {

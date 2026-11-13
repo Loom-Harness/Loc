@@ -32,7 +32,6 @@ export {
   type QueryParamCheck,
   type QueryParamMismatchKind,
   queryParamCheck,
-  queryParamMismatch,
 } from "./projection-params.js";
 export {
   admittedReferences,

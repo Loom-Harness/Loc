@@ -1614,7 +1614,7 @@ export function renderApiExceptionAdvice(
 
 /** The `queryMismatchMessage(Class)` helper: the ruled `type-mismatch`
  *  sentence of a query/path value that does not convert, picked by the Java
- *  type the parameter binds (`queryParamMismatch`). */
+ *  type the parameter binds (`QUERY_PARAM_MISMATCH_MESSAGES`). */
 function javaQueryMismatchMessageFn(): string[] {
   const kinds: readonly [QueryParamMismatchKind, readonly string[]][] = [
     ["integer", ["int.class", "Integer.class", "long.class", "Long.class"]],

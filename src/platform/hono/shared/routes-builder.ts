@@ -2846,7 +2846,7 @@ const INT32_FORMAT = '.openapi({ format: "int32" })';
 const INT32 = `${INT32_RANGE}${INT32_FORMAT}`;
 
 /** zod's `{ error }` for a query/path value that does not parse as `kind` —
- *  the ruled `type-mismatch` sentence (`queryParamMismatch`), which
+ *  the ruled `type-mismatch` sentence (`QUERY_PARAM_MISMATCH_MESSAGES`), which
  *  `defaultHook` answers as `field.type-mismatch`. */
 const queryMismatch = (kind: QueryParamMismatchKind): string =>
   `{ error: ${JSON.stringify(QUERY_PARAM_MISMATCH_MESSAGES[kind])} }`;

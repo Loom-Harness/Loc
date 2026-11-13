@@ -28,7 +28,6 @@
 // ---------------------------------------------------------------------------
 
 import { integerWire } from "../enrich/codec.js";
-import { fieldCode } from "../enrich/wire-policy.js";
 import type { BoundedContextIR, ProjectionIR, TypeIR } from "../types/loom-ir.js";
 import { wireTypeInfo } from "../types/wire-types.js";
 import { enumPool } from "../util/reachable-types.js";
@@ -68,15 +67,6 @@ export const QUERY_PARAM_MISMATCH_MESSAGES: Readonly<Record<QueryParamMismatchKi
   datetime: "Expected an ISO 8601 date-time.",
   date: "Expected an ISO 8601 date.",
 };
-
-/** The type-mismatch refusal a query/path value of `check` earns when its
- *  text does not parse, or `undefined` for a kind that has none. */
-export function queryParamMismatch(
-  check: QueryParamCheck,
-): { code: string; message: string } | undefined {
-  const message = (QUERY_PARAM_MISMATCH_MESSAGES as Readonly<Record<string, string>>)[check.kind];
-  return message === undefined ? undefined : { code: fieldCode("type-mismatch"), message };
-}
 
 /** One declared parameter of a query-time projection read. */
 export interface ProjectionQueryParam {

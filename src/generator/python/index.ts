@@ -2633,7 +2633,7 @@ class PagedResult[T]:
 
 /** The `_QUERY_MISMATCH` rows: each pydantic error type a query / path value
  *  that does not parse raises, mapped to its kind's ruled sentence
- *  (`queryParamMismatch`). */
+ *  (`QUERY_PARAM_MISMATCH_MESSAGES`). */
 function pyQueryMismatchRows(): string {
   const kinds: readonly [QueryParamMismatchKind, readonly string[]][] = [
     ["integer", ["int_parsing", "int_from_float", "int_type"]],
