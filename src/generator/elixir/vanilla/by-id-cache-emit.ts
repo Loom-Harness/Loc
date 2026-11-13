@@ -51,7 +51,7 @@ export function byIdCacheModule(appModule: string): string {
 }
 
 /** The per-aggregate module of one cached read. */
-export function byIdCacheAggregateModule(appModule: string, read: CachedByIdRead): string {
+function byIdCacheAggregateModule(appModule: string, read: CachedByIdRead): string {
   return `${byIdCacheModule(appModule)}.${upperFirst(read.aggregate)}`;
 }
 
