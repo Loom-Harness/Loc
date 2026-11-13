@@ -83,7 +83,7 @@ export type CacheScopeInput =
  *  an aggregate goes through one of them. */
 export type CacheEvictingWrite = "save" | "delete";
 
-export const CACHE_EVICTING_WRITES: readonly CacheEvictingWrite[] = ["save", "delete"];
+const CACHE_EVICTING_WRITES: readonly CacheEvictingWrite[] = ["save", "delete"];
 
 /** The cached by-id read of one aggregate on one deployable. */
 export interface CachedByIdRead {

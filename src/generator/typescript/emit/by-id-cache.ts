@@ -53,7 +53,7 @@ function scopeValue(input: CacheScopeInput): string {
 }
 
 /** The caller's scope fingerprint: the JSON array of the plan's inputs. */
-export function scopeFingerprintTs(read: CachedByIdRead): string {
+function scopeFingerprintTs(read: CachedByIdRead): string {
   return read.scope.length === 0
     ? `"[]"`
     : `JSON.stringify([${read.scope.map(scopeValue).join(", ")}])`;

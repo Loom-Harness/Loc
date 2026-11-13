@@ -149,7 +149,7 @@ export const messages = {
     dName: unknown;
     target: unknown;
   }) =>
-    `${p.what} — a resource knob that deployable '${p.dName}' (backend '${p.target}') can't realize: no emitter reads \`ttl\`, \`keyPrefix\`, \`every\`, \`retain\` or \`readonly\` (each gates an adapter that does not exist: a cache, a snapshot policy, a replica-aware connection), so the value would be accepted and change nothing. Drop the knob.`,
+    `${p.what} — a resource knob that deployable '${p.dName}' (backend '${p.target}') can't realize: no emitter reads \`every\`, \`retain\` or \`readonly\` (each gates an adapter that does not exist: a snapshot policy, a replica-aware connection), so the value would be accepted and change nothing. Drop the knob.`,
   "loom.target-unsupported#feature-composition-broken": (p: {
     what: unknown;
     dName: unknown;
