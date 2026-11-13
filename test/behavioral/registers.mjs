@@ -270,6 +270,11 @@ export const BEHAVIOURAL_XFAIL = {
       expect: "wire",
       reason: "the .NET objectStore put stores a string body raw under a JSON content type",
     },
+    "resources-localdisk": {
+      issue: "#5685",
+      expect: "wire",
+      reason: "the .NET localDisk objectStore put stores a string body raw",
+    },
     // The restApi client posts a string body unencoded under
     // `content-type: application/json`; the effects golden records it.
     "resource-mail-api": {
@@ -301,6 +306,11 @@ export const BEHAVIOURAL_XFAIL = {
       issue: "#5685",
       expect: "wire",
       reason: "the .NET objectStore put stores a string body raw under a JSON content type",
+    },
+    "resources-localdisk": {
+      issue: "#5685",
+      expect: "wire",
+      reason: "the .NET localDisk objectStore put stores a string body raw",
     },
     // The restApi client posts a string body unencoded under
     // `content-type: application/json`; the effects golden records it.
@@ -338,6 +348,11 @@ export const BEHAVIOURAL_XFAIL = {
       issue: "#5697",
       expect: "wire",
       reason: "the Java objectStore put stores a string body raw under a JSON content type",
+    },
+    "resources-localdisk": {
+      issue: "#5697",
+      expect: "wire",
+      reason: "the Java localDisk objectStore put stores a string body raw",
     },
   },
   python: {
