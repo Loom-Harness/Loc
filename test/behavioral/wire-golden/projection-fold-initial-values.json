@@ -1,0 +1,221 @@
+{
+  "case": "projection-fold-initial-values",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/articles",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/articles/{id}/view",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/projections/article_stats/{id}",
+      "status": 200,
+      "body": {
+        "articleRef": "<uuid>",
+        "bonus": 6,
+        "flagged": false,
+        "label": "",
+        "lastSeen": null,
+        "note": null,
+        "spent": "0.0000",
+        "tags": [],
+        "views": 1
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/articles/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "path": "/home",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/articles/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/articles",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "path": "/start",
+            "rowVersion": 3
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "DELETE",
+      "path": "/api/articles/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/articles/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Article {id} not found",
+        "instance": "/api/articles/{id}",
+        "params": {
+          "type": "Reading.Article"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "PATCH",
+      "path": "/api/articles",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/articles",
+        "instance": "/api/articles",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/articles",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/articles",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/projections/article_stats/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "ArticleStats {id} not found",
+        "instance": "/api/projections/article_stats/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/articles/{id}/view",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Article {id} not found",
+        "instance": "/api/articles/{id}/view",
+        "params": {
+          "type": "Reading.Article"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/articles/{id}/view",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Article {id} not found",
+        "instance": "/api/articles/{id}/view",
+        "params": {
+          "type": "Reading.Article"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/articles/{id}/view",
+      "status": 415,
+      "body": {
+        "code": "problem.unsupported-media-type",
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/articles/{id}/view",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/articles/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Article {id} not found",
+        "instance": "/api/articles/{id}/update",
+        "params": {
+          "type": "Reading.Article"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

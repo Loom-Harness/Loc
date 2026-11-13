@@ -18,7 +18,7 @@ import type {
   BrokerKind,
   BrokerNackResult,
   BrokerSubscribeResult,
-} from "./infra/broker-protocol.js";
+} from "../../../src/emulation/broker-protocol.js";
 
 /** The generated `LoomEventEnvelope`, as far as the facade reads it. */
 interface Envelope {

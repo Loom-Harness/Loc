@@ -2117,7 +2117,7 @@ function renderOperationEventClauses(
   @impl true
   def handle_event("submit_${op}", params, socket) do
     params = Map.get(params, "${op}", %{})
-
+${blankOptionalVoLine(aggregatesByName.get(fb.name))}
     case ${submitCall} do
       {:ok, record} ->
         {:noreply,
@@ -2348,6 +2348,26 @@ function opFormExpr(
   return `${ctxModule}.change_${aggSnake}(${record}) |> to_form(as: "${fb.op}")`;
 }
 
+/** A form submits a value object as a nested map of its leaves, so an OPTIONAL
+ *  value object the user left entirely blank arrives as `%{"amount" => "", …}`
+ *  — stored, it is a value of blanks where the user gave none.  The line maps
+ *  it to nil (absent), as the named-operation path's `__op_param(_, :vo)` does.
+ *  Empty (and byte-identical) when the aggregate has no optional value object. */
+function blankOptionalVoLine(agg: AggregateIR | undefined): string {
+  const names = (agg?.fields ?? [])
+    .filter((f) => f.type.kind === "optional" && f.type.inner.kind === "valueobject")
+    .map((f) => JSON.stringify(snake(f.name)));
+  if (names.length === 0) return "";
+  return `    params =
+      Enum.reduce([${names.join(", ")}], params, fn key, acc ->
+        case Map.get(acc, key) do
+          %{} = vo -> if Enum.all?(Map.values(vo), &(&1 in [nil, ""])), do: Map.put(acc, key, nil), else: acc
+          _ -> acc
+        end
+      end)
+`;
+}
+
 /** Create-form (`CreateForm(of: Agg)`) submit handler — `save_<agg>`.  The
  *  scaffold "new" page's `<.simple_form phx-submit="save_<agg>">` needs a
  *  matching `handle_event` or the submit no-ops.  On success → flash + navigate
@@ -2402,7 +2422,7 @@ function renderCreateEventClauses(
   const usesUser = lifecycleGatesUseCurrentUser(canonicalCreate(createAgg));
   return `\n  @impl true
   def handle_event("save_${aggSnake}", %{"${aggSnake}" => params}, socket) do
-${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}    case ${ctxModule}.create_${aggSnake}(params${gated ? (usesUser ? ", current_user" : ", nil") : ""}) do
+${blankOptionalVoLine(createAgg)}${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}    case ${ctxModule}.create_${aggSnake}(params${gated ? (usesUser ? ", current_user" : ", nil") : ""}) do
       {:ok, ${okBinding}} ->
         {:noreply,
          socket

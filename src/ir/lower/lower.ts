@@ -264,11 +264,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
   // The well-formedness verifier runs on every lowering; what it finds travels
   // with the model for `validateLoomModel` to refuse (`loom.ir-ill-formed`).
   const violations = verifyLoweredModel(result);
-  return {
-    ...result,
-    ...(sites.length > 0 ? { unresolvedTypes: sites } : {}),
-    ...(violations.length > 0 ? { loweringViolations: violations } : {}),
-  };
+  return { ...result, unresolvedTypes: sites, loweringViolations: violations };
 }
 
 function lowerProjectBody(models: ReadonlyArray<Model>): RawLoomModel {
@@ -592,6 +588,9 @@ function lowerProjectBody(models: ReadonlyArray<Model>): RawLoomModel {
     backfillIntents,
     sqlMigrationSteps,
     enumValueRenameIntents,
+    // Filled by `lowerProject` once the body is lowered and verified.
+    unresolvedTypes: [],
+    loweringViolations: [],
   };
 }
 
@@ -621,12 +620,8 @@ export function mergeLoomModels(models: RawLoomModel[]): RawLoomModel {
     backfillIntents: models.flatMap((m) => m.backfillIntents),
     sqlMigrationSteps: models.flatMap((m) => m.sqlMigrationSteps),
     enumValueRenameIntents: models.flatMap((m) => m.enumValueRenameIntents),
-    unresolvedTypes: models.some((m) => m.unresolvedTypes)
-      ? models.flatMap((m) => m.unresolvedTypes ?? [])
-      : undefined,
-    loweringViolations: models.some((m) => m.loweringViolations)
-      ? models.flatMap((m) => m.loweringViolations ?? [])
-      : undefined,
+    unresolvedTypes: models.flatMap((m) => m.unresolvedTypes),
+    loweringViolations: models.flatMap((m) => m.loweringViolations),
   };
 }
 
@@ -862,7 +857,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
         type: s.type as StorageKind,
         ...(s.instance ? { instance: s.instance } : {}),
         ...(s.connection ? { connection: lowerConnectionSource(s.connection) } : {}),
-        ...(s.config.length ? { config: s.config.map(lowerConfigEntry) } : {}),
+        config: s.config.map(lowerConfigEntry),
       }),
     );
   const dataSources = members
@@ -894,15 +889,11 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
           : {}),
         ...(d.readonly ? { readonly: true } : {}),
         ...(d.shape == null ? {} : { shape: d.shape as DataSourceIR["shape"] }),
-        ...(d.indexes.length
-          ? {
-              manualIndexes: d.indexes.map((spec) => ({
-                entity: spec.entity,
-                columns: [...spec.columns],
-              })),
-            }
-          : {}),
-        ...(d.config.length ? { config: d.config.map(lowerConfigEntry) } : {}),
+        manualIndexes: d.indexes.map((spec) => ({
+          entity: spec.entity,
+          columns: [...spec.columns],
+        })),
+        config: d.config.map(lowerConfigEntry),
       };
     });
   // Named `layout <Name> { … }` SystemMembers.  Each slot's
@@ -1489,12 +1480,12 @@ function lowerContext(
     seeds,
     tests: contextTests,
     origin: originFor(ctx),
-    ...(policyReadLevels.length > 0 ? { policyReadLevels } : {}),
-    ...(policyWriteLevels.length > 0 ? { policyWriteLevels } : {}),
-    ...(policyRowRules.length > 0 ? { policyRowRules } : {}),
-    ...(policyDenies.length > 0 ? { policyDenies } : {}),
-    ...(policyReadGates.length > 0 ? { policyReadGates } : {}),
-    ...(policyShareGates.length > 0 ? { policyShareGates } : {}),
+    policyReadLevels,
+    policyWriteLevels,
+    policyRowRules,
+    policyDenies,
+    policyReadGates,
+    policyShareGates,
   };
 }
 
@@ -1665,7 +1656,12 @@ function lowerLoadPath(p: LoadPath): LoadSegmentIR[] {
 }
 
 function lowerEnum(e: EnumDecl): EnumIR {
-  return { name: e.name, values: e.values.map((v) => v.name), origin: originFor(e) };
+  return {
+    name: e.name,
+    values: e.values.map((v) => v.name),
+    systemLevel: false,
+    origin: originFor(e),
+  };
 }
 
 function lowerValueObject(vo: ValueObject, env: Env): ValueObjectIR {
@@ -1673,6 +1669,7 @@ function lowerValueObject(vo: ValueObject, env: Env): ValueObjectIR {
   const props = vo.members.filter(isProperty) as Property[];
   return {
     name: vo.name,
+    systemLevel: false,
     fields: props.map((p) => lowerField(p, inner)),
     derived: vo.members.filter(isDerivedProp).map((d) => lowerDerived(d, inner)),
     invariants: [

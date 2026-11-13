@@ -1,0 +1,11 @@
+{
+  "title": "folded-projection fold failure — a fold whose write fails in the database leaves the command committed and the read model as it was (after commit, isolated per handler)",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "D-PROJECTION-FOLD-AFTER-COMMIT.  java folded inside the command transaction (a fold failure rolled the command back) and node awaited the fold outside the reactor isolation (the committed command answered 500).  The failure is a `numeric(19,4)` overflow on the second charge, which every backend's database write refuses.",
+  "apiCaller": {
+    "unattributed": [
+      "api.totals.byKey (no such aggregate)"
+    ]
+  }
+}

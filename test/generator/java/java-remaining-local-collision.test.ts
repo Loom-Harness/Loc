@@ -134,7 +134,6 @@ system Probe {
         total: int
         on(e: OrderBumped) {
           let boardRowRepository = e.amount
-          order := e.order
           total := boardRowRepository
         }
       }

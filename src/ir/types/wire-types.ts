@@ -154,6 +154,32 @@ export function isCollection(t: TypeIR): boolean {
   return peelNullable(t).kind === "array";
 }
 
+/** {@link wireTypeInfo} for a type that has a wire codec, or `undefined` for one
+ *  that has none: a discriminated union or `none` (a frontend models those
+ *  apart from the field codecs), a generic carrier other than `provenanced`,
+ *  a UI-only type, and `duration` (expression-only).  A frontend codec renders
+ *  its opaque spelling for `undefined` instead of dispatching on `TypeIR.kind`
+ *  itself, so every wire classification it does make is this one. */
+export function wireCodecInfo(t: TypeIR, dir: WireDirection): WireTypeInfo | undefined {
+  let leaf = t;
+  if (leaf.kind === "optional") leaf = leaf.inner;
+  if (leaf.kind === "array") leaf = leaf.element;
+  if (leaf.kind === "optional") leaf = leaf.inner;
+  switch (leaf.kind) {
+    case "union":
+    case "none":
+    case "action":
+    case "slot":
+      return undefined;
+    case "genericInstance":
+      return leaf.ctor === "provenanced" ? wireTypeInfo(t, dir) : undefined;
+    case "primitive":
+      return leaf.name === "duration" ? undefined : wireTypeInfo(t, dir);
+    default:
+      return wireTypeInfo(t, dir);
+  }
+}
+
 /** Single, exhaustive dispatch over `TypeIR.kind`.  Peels one
  *  optional then one array layer (the canonical lower-expr ordering)
  *  and classifies the leaf.

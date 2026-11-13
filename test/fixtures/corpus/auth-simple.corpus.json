@@ -1,5 +1,10 @@
 {
   "title": "dev-stub auth — user shape + requires-guard",
   "doc": "auth",
-  "backends": "ALL"
+  "backends": "ALL",
+  "apiCaller": {
+    "uncalled": {
+      "canReopenTicket": "gateProbe"
+    }
+  }
 }

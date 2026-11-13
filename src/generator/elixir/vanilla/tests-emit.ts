@@ -21,7 +21,7 @@ import {
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
-import { renderExpr } from "../render-expr.js";
+import { renderExpr, valueObjectFunctionCall } from "../render-expr.js";
 import { appModuleOf, guardErrorModule } from "./denial.js";
 import { pureDerivedAccessorNames } from "./domain-core-emit.js";
 import { isValueObjectType, renderValueObjectEquality } from "./value-object-type-emit.js";
@@ -545,6 +545,15 @@ export function vtExpr(e: ExprIR, env: Env): string {
       // the runtime renderer's `hd/1` (a domain test reading a contained part).
       if (e.receiverType.kind === "array" && e.member === "first" && e.args.length === 0) {
         return `hd(${vtExpr(e.receiver, env)})`;
+      }
+      if (e.receiverType.kind === "valueobject") {
+        return valueObjectFunctionCall(
+          env.ctxModule,
+          e.receiverType.name,
+          e.member,
+          vtExpr(e.receiver, env),
+          e.args.map((a) => vtExpr(a, env)),
+        );
       }
       throw new UnsupportedTestShapeError(
         `unsupported method-call '${e.member}' in vanilla test position`,

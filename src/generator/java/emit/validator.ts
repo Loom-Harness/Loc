@@ -8,6 +8,7 @@ import {
   emitsRestCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
+import { valueObjectBorne, valueObjectParams } from "../../../ir/plan/value-object-params.js";
 import type {
   EnrichedAggregateIR,
   ExprIR,
@@ -92,6 +93,9 @@ interface CommandSpec {
   voFields: { field: string; voClass: string; each: boolean }[];
   /** A merge-patch update's members (RS-47) — see `mergePatchChecks`. */
   mergePatch?: readonly MergePatchField[];
+  /** Classes this validator names from another package (a `<Vo>Request`
+   *  record an aggregate's application package emits). */
+  extraImports?: readonly string[];
 }
 
 /** Names the generated `validate(Object target, Errors errors)` method spells
@@ -127,23 +131,6 @@ function eff(t: TypeIR, optional: boolean): TypeIR {
   return optional && t.kind !== "optional" ? { kind: "optional", inner: t } : t;
 }
 
-/** Resolve a (possibly array/optional-wrapped) type to the value object it
- *  bears, plus whether the field is a collection (single vs `List<>`). */
-function voBorne(type: TypeIR): { name: string; each: boolean } | null {
-  switch (type.kind) {
-    case "valueobject":
-      return { name: type.name, each: false };
-    case "array": {
-      const e = voBorne(type.element);
-      return e ? { name: e.name, each: true } : null;
-    }
-    case "optional":
-      return voBorne(type.inner);
-    default:
-      return null;
-  }
-}
-
 /** True when a value object carries at least one wire-boundary rule. */
 export function voHasWireRules(vo: ValueObjectIR): boolean {
   const available = new Set(vo.fields.map((f) => f.name));
@@ -163,7 +150,7 @@ function voValidatesAtWire(
   seen.add(vo.name);
   if (voHasWireRules(vo)) return true;
   return vo.fields.some((f) => {
-    const borne = voBorne(f.type);
+    const borne = valueObjectBorne(f.type);
     const inner = borne ? voByName.get(borne.name) : undefined;
     return inner !== undefined && voValidatesAtWire(inner, voByName, seen);
   });
@@ -177,7 +164,7 @@ function voRequestFields(
 ): { field: string; voClass: string; each: boolean }[] {
   const out: { field: string; voClass: string; each: boolean }[] = [];
   for (const p of params) {
-    const borne = voBorne(p.type);
+    const borne = valueObjectBorne(p.type);
     if (!borne) continue;
     const vo = voByName.get(borne.name);
     if (!vo || !voValidatesAtWire(vo, voByName)) continue;
@@ -316,6 +303,82 @@ export function renderJavaVoValidators(
   return out;
 }
 
+/** The wire validators of a context's workflow `create` requests — one
+ *  `<Wf>Validator` per workflow whose params bear a rule-carrying value object
+ *  (`valueObjectParams`), plus the `<Vo>Validator`s they nest-invoke, all in the
+ *  workflows package.  The controller registers each `<Wf>Validator` on its
+ *  `WebDataBinder`, so a breach is the wire 422 at `/<param>/<member>` an
+ *  operation param answers, not the domain floor the body's constructor
+ *  raises.  `voRequestPkgOf` names the package of a `<Vo>Request` record an
+ *  aggregate emits (`null`: the workflows package emits it itself). */
+export function renderJavaWorkflowValidators(
+  workflows: readonly { name: string; params: readonly { name: string; type: TypeIR }[] }[],
+  vos: readonly ValueObjectIR[],
+  pkg: string,
+  basePkg: string,
+  voRequestPkgOf: (vo: string) => string | null | undefined,
+): JavaCommandValidator[] {
+  const voByName = voLookup(vos);
+  const importOf = (vo: string): string[] => {
+    const at = voRequestPkgOf(vo);
+    return at && at !== pkg ? [`${at}.${vo}Request`] : [];
+  };
+  const out: JavaCommandValidator[] = [];
+  const wanted = new Set<string>();
+  const want = (voClass: string): void => {
+    const name = voClass.slice(0, -"Validator".length);
+    if (wanted.has(name)) return;
+    wanted.add(name);
+    const vo = voByName.get(name);
+    if (vo) for (const f of voRequestFields(vo.fields, voByName)) want(f.voClass);
+  };
+  for (const wf of workflows) {
+    const params = valueObjectParams(wf.params).map(({ param }) => param);
+    const voFields = voRequestFields(params, voByName);
+    if (voFields.length === 0) continue;
+    for (const f of voFields) want(f.voClass);
+    const className = `${upperFirst(wf.name)}Validator`;
+    const requestType = `${upperFirst(wf.name)}Request`;
+    const content = renderValidatorClass(
+      {
+        className,
+        requestType,
+        params: wf.params.map((p) => ({ name: p.name, type: p.type, nullable: true })),
+        invariants: [],
+        available: new Set(wf.params.map((p) => p.name)),
+        voFields,
+      },
+      pkg,
+      basePkg,
+    );
+    if (content) out.push({ className, requestType, content });
+  }
+  for (const name of [...wanted].sort()) {
+    const vo = voByName.get(name);
+    if (!vo) continue;
+    const content = renderValidatorClass(
+      {
+        className: `${vo.name}Validator`,
+        requestType: `${vo.name}Request`,
+        params: vo.fields.map((f) => ({
+          name: f.name,
+          type: f.type,
+          nullable: wireComponentNullable(f.type, f.optional),
+        })),
+        invariants: vo.invariants,
+        available: new Set(vo.fields.map((f) => f.name)),
+        voFields: voRequestFields(vo.fields, voByName),
+        extraImports: importOf(vo.name),
+      },
+      pkg,
+      basePkg,
+    );
+    if (content)
+      out.push({ className: `${vo.name}Validator`, requestType: `${vo.name}Request`, content });
+  }
+  return out;
+}
+
 /** The (className, requestType) of every command validator actually emitted for
  *  the aggregate — the controller uses these to register them on its
  *  `WebDataBinder` (`@InitBinder`).  A cheap re-derivation (validators are tiny),
@@ -364,7 +427,7 @@ function voNestedInvokes(spec: CommandSpec): string[] {
 const VALIDATION_UTILS = javaRef("org.springframework.validation", "ValidationUtils");
 
 function renderValidatorClass(spec: CommandSpec, pkg: string, basePkg: string): string | null {
-  const imports = new Set<string>();
+  const imports = new Set<string>(spec.extraImports ?? []);
   const regexFields = new Map<string, string>();
   const checks = buildChecks(spec, regexFields);
   const voInvokes = voNestedInvokes(spec);

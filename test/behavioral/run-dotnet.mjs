@@ -33,6 +33,7 @@ import { stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
+import { httpRequest, probeCodeFlow } from "../support/oidc-code-flow.mjs";
 
 /** In-process mock OIDC issuer, started when the corpus has an `auth {}` case. */
 let oidc = null;
@@ -277,7 +278,9 @@ async function runCase(c) {
     await build({ entryPoints: [entry], outfile: bundle, bundle: true, platform: "node", format: "esm", target: "node20", packages: "external", logLevel: "warning" });
     const { run } = await import(pathToFileURL(bundle).href);
     const api = await run();
-    return { results: [...unitResults, ...api.results, ...(api.authz ?? [])], wire: api.wire };
+    // The OIDC authorization-code handshake against the fake issuer (off the recorder).
+    const codeFlow = isOidc && oidc ? await probeCodeFlow({ request: httpRequest(BASE), oidc }) : [];
+    return { results: [...unitResults, ...api.results, ...(api.authz ?? []), ...codeFlow], wire: api.wire };
   } finally {
     // AWAIT the exit — firing SIGTERM and moving on leaves the port occupied
     // into the next case, which then talks to the wrong app (see proc.mjs).

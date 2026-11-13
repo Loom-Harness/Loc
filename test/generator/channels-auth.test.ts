@@ -187,10 +187,15 @@ describe("broker topology — declared up front, not left to the first client", 
     };
     const address = "loom.Orders.Lifecycle";
 
+    // Every flag spelled out: RabbitMQ 4.1 records an omitted one as
+    // `undefined`, and a client's declare (auto_delete false) is then refused.
+    const flags = { durable: true, auto_delete: false, internal: false, arguments: {} };
     expect(defs.exchanges).toEqual([
-      { name: "loom.dlx", vhost: "loom", type: "direct", durable: true },
-      { name: address, vhost: "loom", type: "fanout", durable: true },
+      { name: "loom.dlx", vhost: "loom", type: "direct", ...flags },
+      { name: address, vhost: "loom", type: "fanout", ...flags },
     ]);
+    for (const q of defs.queues)
+      expect(q).toMatchObject({ durable: true, auto_delete: false, exclusive: false });
 
     // `ship_api` CONSUMES; `sales_api` only produces.  A durable queue bound to
     // a fanout that nothing drains grows without bound, so the producer must
