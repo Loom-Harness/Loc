@@ -247,20 +247,62 @@
     },
     {
       "seq": 21,
+      "method": "GET",
+      "path": "/api/tickets",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "email": "ok@example.test",
+            "id": "<volatile:key>",
+            "rowVersion": 2,
+            "score": 4,
+            "status": "Resolved"
+          },
+          {
+            "email": "boom@example.test",
+            "id": "<volatile:key>",
+            "rowVersion": 2,
+            "score": 4,
+            "status": "Resolved"
+          },
+          {
+            "email": "zero@example.test",
+            "id": "<volatile:key>",
+            "rowVersion": 2,
+            "score": 0,
+            "status": "Resolved"
+          },
+          {
+            "email": "spare@example.test",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "score": 1,
+            "status": "Open"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 4,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 22,
       "method": "POST",
       "path": "/api/tickets/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 22,
+      "seq": 23,
       "method": "DELETE",
       "path": "/api/tickets/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 23,
+      "seq": 24,
       "method": "GET",
       "path": "/api/tickets/{id}",
       "status": 404,
@@ -277,7 +319,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 25,
       "method": "PATCH",
       "path": "/api/tickets",
       "status": 405,
@@ -291,7 +333,7 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 26,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -305,7 +347,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 27,
       "method": "POST",
       "path": "/api/tickets",
       "status": 400,
@@ -319,7 +361,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 28,
       "method": "GET",
       "path": "/api/workflows/ask_for_rating/instances/{id}",
       "status": 404,
@@ -327,23 +369,6 @@
         "code": "problem.not-found",
         "detail": "AskForRating {id} not found",
         "instance": "/api/workflows/ask_for_rating/instances/{id}",
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
-      }
-    },
-    {
-      "seq": 28,
-      "method": "POST",
-      "path": "/api/tickets/{id}/resolve",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Ticket {id} not found",
-        "instance": "/api/tickets/{id}/resolve",
-        "params": {
-          "type": "Desk.Ticket"
-        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -370,6 +395,23 @@
       "seq": 30,
       "method": "POST",
       "path": "/api/tickets/{id}/resolve",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Ticket {id} not found",
+        "instance": "/api/tickets/{id}/resolve",
+        "params": {
+          "type": "Desk.Ticket"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 31,
+      "method": "POST",
+      "path": "/api/tickets/{id}/resolve",
       "status": 415,
       "body": {
         "code": "problem.unsupported-media-type",
@@ -381,7 +423,7 @@
       }
     },
     {
-      "seq": 31,
+      "seq": 32,
       "method": "POST",
       "path": "/api/surveys/{id}/rate",
       "status": 422,

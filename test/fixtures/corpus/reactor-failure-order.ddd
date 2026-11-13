@@ -101,6 +101,8 @@ system ReactorFailureOrder {
     api.surveys.destroy(manual)
     expect(api.surveys.getById(manual)).toThrow(404)
     let spare = api.tickets.create({ email: "spare@example.test", status: "Open", score: 1 })
+    let tickets = api.tickets.all()
+    expect(tickets.total).toBe(4)
     api.tickets.update(spare, { email: "spare@example.test", status: "Closed", score: 1 })
     api.tickets.destroy(spare)
     expect(api.tickets.getById(spare)).toThrow(404)
