@@ -52,6 +52,7 @@ export function readFixture(
     | "vo-collection-evolved"
     | "field-default-base"
     | "field-default-evolved"
+    | "guid-backfill-evolved"
     | "journal-order-base"
     | "journal-order-evolved"
     | "unique-evo-base"
@@ -139,16 +140,7 @@ export async function startPgServer(): Promise<PgServer> {
       `-p ${port}:5432 postgres:18-alpine`,
     { stdio: "pipe", timeout: 60_000 },
   );
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    try {
-      execSync(`docker exec ${name} pg_isready -U postgres`, { stdio: "pipe", timeout: 5_000 });
-      break;
-    } catch {
-      await new Promise((r) => setTimeout(r, 500));
-    }
-  }
-  return {
+  const server: PgServer = {
     host: "127.0.0.1",
     port,
     user: "postgres",
@@ -161,6 +153,27 @@ export async function startPgServer(): Promise<PgServer> {
       }
     },
   };
+  // Ready means a query answers over TCP from the host — the path every query
+  // takes.  `pg_isready` inside the container answers the entrypoint's
+  // TEMPORARY init server (unix socket only), which then shuts down and
+  // restarts, so the first TCP query after it raced the restart.  The init
+  // server listens on no TCP port, so a TCP answer can only come from the
+  // real one.
+  const deadline = Date.now() + 90_000;
+  let last = "";
+  for (;;) {
+    try {
+      psql(server, "postgres", "SELECT 1");
+      return server;
+    } catch (e) {
+      last = e instanceof Error ? e.message : String(e);
+      if (Date.now() > deadline) {
+        server.stop();
+        throw new Error(`migration-evolution e2e: postgres never answered over TCP: ${last}`);
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
 }
 
 function serverUrl(s: PgServer, db: string): string {
@@ -178,10 +191,9 @@ function psql(s: PgServer, db: string, sql: string): string {
       .toString()
       .trim();
   } catch (e) {
-    const err = e as { stderr?: Buffer; message?: string };
-    throw new Error(
-      `psql failed (is postgresql-client on PATH?): ${err.stderr?.toString() ?? err.message ?? e}`,
-    );
+    const err = e as { code?: string; stderr?: Buffer; message?: string };
+    const hint = err.code === "ENOENT" ? " (postgresql-client is not on PATH)" : "";
+    throw new Error(`psql failed${hint}: ${err.stderr?.toString() ?? err.message ?? e}`);
   }
 }
 
@@ -853,6 +865,69 @@ export async function runValueCollectionEvolutionGate(): Promise<void> {
 // Deliberately does NOT boot the backend — the whole finding lives in the
 // emitted DDL, so psql alone is a complete and much faster proof.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Guid backfill evolution gate.
+//
+// A required `guid` column added to a populated table needs a value for the
+// rows already there, and the only backfill shape that names one is a UUID
+// written as a string literal.  Postgres reads the quoted constant straight
+// into the uuid column, so the claim is that the migration applies to the
+// populated table with no flag and the pre-existing row holds that UUID.
+// Like the field-default gate, it needs no backend boot: psql applies the
+// emitted DDL.
+// ---------------------------------------------------------------------------
+export async function runGuidBackfillEvolutionGate(): Promise<void> {
+  const v1 = readFixture("field-default-base");
+  const v2 = readFixture("guid-backfill-evolved");
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-guid-backfill-"));
+  let server: PgServer | undefined;
+  try {
+    generate(v1, "node", tree);
+    const migDir = path.join(tree, "d", "db", "migrations");
+    const initial = fs.readdirSync(migDir).find((f) => f.endsWith(".sql"));
+    if (!initial) throw new Error(`no initial migration emitted under ${migDir}`);
+    const pg = await startPgServer();
+    server = pg;
+    resetDatabase(pg, "guidbackfill");
+    psql(pg, "guidbackfill", fs.readFileSync(path.join(migDir, initial), "utf8"));
+    psql(
+      pg,
+      "guidbackfill",
+      `INSERT INTO "ord"."orders" ("id", "note", "row_version") ` +
+        `VALUES ('11111111-1111-1111-1111-111111111111', 'seeded', 1)`,
+    );
+
+    // Not destructive: generating v2 records the add without --allow-destructive.
+    generate(v2, "node", tree);
+    const deltas = fs
+      .readdirSync(migDir)
+      .filter((f) => f.endsWith(".sql") && f !== initial)
+      .sort();
+    if (deltas.length !== 1) {
+      throw new Error(`expected exactly one delta migration, saw [${deltas.join(", ")}]`);
+    }
+    psql(pg, "guidbackfill", fs.readFileSync(path.join(migDir, deltas[0]!), "utf8"));
+    expect(psql(pg, "guidbackfill", `SELECT "ref"::text FROM "ord"."orders"`)).toBe(
+      "22222222-2222-4222-8222-222222222222",
+    );
+    expect(
+      psql(
+        pg,
+        "guidbackfill",
+        `SELECT data_type || ' null=' || is_nullable FROM information_schema.columns ` +
+          `WHERE table_schema = 'ord' AND table_name = 'orders' AND column_name = 'ref'`,
+      ),
+    ).toBe("uuid null=NO");
+  } finally {
+    server?.stop();
+    try {
+      fs.rmSync(tree, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
 export async function runFieldDefaultEvolutionGate(): Promise<void> {
   const v1 = readFixture("field-default-base");
   const v2 = readFixture("field-default-evolved");

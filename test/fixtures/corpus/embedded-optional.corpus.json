@@ -1,0 +1,5 @@
+{
+  "title": "shape: embedded — optional single containment (nullable jsonb)",
+  "doc": "language",
+  "backends": "ALL"
+}

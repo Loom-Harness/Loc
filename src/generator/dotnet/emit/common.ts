@@ -403,9 +403,16 @@ ${
 /// The paged carrier (payload-transport-layer.md, P3b).  Serializes camelCase to
 /// the same wire JSON as the Hono / React backends (items/page/pageSize/total/
 /// totalPages).  Used both domain-side (Paged&lt;Order&gt; off the repository) and
-/// wire-side (Paged&lt;OrderResponse&gt; from the controller).
+/// wire-side (Paged&lt;OrderResponse&gt; from the controller).  Every member is
+/// always present, so each is published required; the carrier is never
+/// model-bound, so the property-targeted [Required] is documentation only.
 /// </summary>
-public sealed record Paged<T>(IReadOnlyList<T> Items, int Page, int PageSize, int Total, int TotalPages);
+public sealed record Paged<T>(
+    [property: System.ComponentModel.DataAnnotations.Required] IReadOnlyList<T> Items,
+    [property: System.ComponentModel.DataAnnotations.Required] int Page,
+    [property: System.ComponentModel.DataAnnotations.Required] int PageSize,
+    [property: System.ComponentModel.DataAnnotations.Required] int Total,
+    [property: System.ComponentModel.DataAnnotations.Required] int TotalPages);
 
 ${fileRef}/// <summary>
 /// Domain-termed read-scope bypass for a retrieval (the DSL <c>ignoring</c>

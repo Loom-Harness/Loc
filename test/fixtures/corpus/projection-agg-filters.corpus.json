@@ -1,0 +1,6 @@
+{
+  "title": "aggregation × capability filters — tenantOwned + softDeletable source, whole-table and grouped aggregations scoped by the SAME predicates the row read applies (plus an `ignoring` witness)",
+  "doc": "tenancy",
+  "backends": "ALL",
+  "note": "minted by audit A1: the aggregation shapes read the source table DIRECTLY, so four backends applied only the projection's own `where` — a cross-tenant COUNT/SUM leak no fixture crossed"
+}

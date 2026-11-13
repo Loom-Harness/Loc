@@ -49,6 +49,7 @@ import { workflowPreconditionThrowArgs } from "../../_i18n/domain-floor.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
+import { opUnionResponses } from "../../_payload/union-wire.js";
 import {
   workflowParamPayloads,
   workflowParamTypeSeeds,
@@ -84,6 +85,12 @@ import {
   entryUnionFiles,
   entryUnionJava,
 } from "./entry-result.js";
+import {
+  javaRecordSchemaAnnotation,
+  javaWorkflowCommandDoc,
+  renderJavaUnionDocFiles,
+  requiredParams,
+} from "./openapi-docs.js";
 import { publishesInRowTenant } from "./service.js";
 import {
   bearsNestedRecord,
@@ -95,7 +102,6 @@ import {
 } from "./wire.js";
 import { setterName, workflowStateClass } from "./workflow-state.js";
 
-const SCHEMA = javaRef("io.swagger.v3.oas.annotations.media", "Schema");
 const VALID = javaRef("jakarta.validation", "Valid");
 const NOT_NULL = javaRef("jakarta.validation.constraints", "NotNull");
 const APP_EVENT_PUBLISHER = javaRef("org.springframework.context", "ApplicationEventPublisher");
@@ -1092,9 +1098,10 @@ export function renderJavaWorkflows(
           `import ${wctx.basePkg}.domain.ids.*;`,
           `import ${wctx.basePkg}.domain.valueobjects.*;`,
           ``,
-          publishedReqName !== reqType
-            ? `@${SCHEMA}(name = ${JSON.stringify(publishedReqName)})`
-            : null,
+          javaRecordSchemaAnnotation({
+            name: publishedReqName !== reqType ? publishedReqName : undefined,
+            required: requiredParams(wf.params),
+          }),
           `public record ${reqType}(${components.join(", ")}) {`,
           `}`,
           ``,
@@ -1271,6 +1278,10 @@ export function renderJavaWorkflows(
       for (const f of entryUnionFiles(result.type, ctx, wctx.pkg, wctx.basePkg)) {
         out.set(f.name, { category: "request-dto", content: f.content });
       }
+      const split = opUnionResponses(result.type.variants, ctx);
+      for (const f of renderJavaUnionDocFiles(split, wctx.pkg, wctx.basePkg)) {
+        out.set(`${f.name}.java`, { category: "request-dto", content: f.content });
+      }
     }
     const resultJava =
       er && result?.type.kind === "union"
@@ -1398,6 +1409,11 @@ export function renderJavaWorkflows(
         `import ${wctx.basePkg}.domain.ids.*;`,
         `import ${wctx.basePkg}.domain.valueobjects.*;`,
         ``,
+        javaRecordSchemaAnnotation({
+          required: pl.fields
+            .filter((f) => !f.optional && f.type.kind !== "optional")
+            .map((f) => f.name),
+        }),
         `public record ${pl.name}Response(${wireComponents.join(", ")}) {`,
         `}`,
         ``,
@@ -1567,6 +1583,17 @@ export function renderJavaWorkflows(
   // text/plain — the same M-T6.73 fix the explicit-handler routes carry.
   let ctlJson = false;
   const routes = cmdWorkflows.flatMap((wf) => {
+    // The mapping plus its OpenAPI metadata (openapi-docs.ts).
+    const mapping = [
+      `    @PostMapping("/${snake(wf.name)}")`,
+      ...javaWorkflowCommandDoc(
+        wf,
+        ctx,
+        wctx.basePkg,
+        wctx.pkg,
+        reqNameFor({ kind: "workflow", workflow: wf.name }),
+      ),
+    ];
     const arg = wf.params.length > 0 ? "request" : "";
     const sig =
       wf.params.length > 0
@@ -1576,7 +1603,7 @@ export function renderJavaWorkflows(
     const result = commandCreateResult(wf);
     if (!result) {
       return [
-        `    @PostMapping("/${snake(wf.name)}")`,
+        ...mapping,
         `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
         `    public void ${lowerFirst(wf.name)}(${sig}) {`,
         `        ${call};`,
@@ -1587,7 +1614,7 @@ export function renderJavaWorkflows(
     const er = commandCreateEntryResult(wf);
     if (er && result.type.kind === "union") {
       return [
-        `    @PostMapping("/${snake(wf.name)}")`,
+        ...mapping,
         `    public ${RESPONSE_ENTITY}<?> ${lowerFirst(wf.name)}(${sig}) {`,
         `        var result = ${call};`,
         ...entryControllerJava(er, result.type, ctx, "result", "        ", {
@@ -1602,7 +1629,7 @@ export function renderJavaWorkflows(
     }
     if (isWorkflowSelfType(wf, result.type)) {
       return [
-        `    @PostMapping("/${snake(wf.name)}")`,
+        ...mapping,
         `    public ${upperFirst(wf.name)}InstanceResponse ${lowerFirst(wf.name)}(${sig}) {`,
         `        return ${call};`,
         `    }`,
@@ -1613,7 +1640,7 @@ export function renderJavaWorkflows(
     if (wire === "String") {
       ctlJson = true;
       return [
-        `    @PostMapping("/${snake(wf.name)}")`,
+        ...mapping,
         `    public ${RESPONSE_ENTITY}<String> ${lowerFirst(wf.name)}(${sig}) {`,
         `        return ${RESPONSE_ENTITY}.ok().contentType(${MEDIA_TYPE}.APPLICATION_JSON)`,
         `            .body(JSON.writeValueAsString(${call}));`,
@@ -1622,7 +1649,7 @@ export function renderJavaWorkflows(
       ];
     }
     return [
-      `    @PostMapping("/${snake(wf.name)}")`,
+      ...mapping,
       `    public ${workflowResultWireRef(result.type)} ${lowerFirst(wf.name)}(${sig}) {`,
       `        return ${call};`,
       `    }`,

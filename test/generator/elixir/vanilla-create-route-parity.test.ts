@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { elixirOperationsText } from "../../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
@@ -78,16 +79,14 @@ system Shop {
 describe("vanilla create-route ⟺ OpenAPI parity", () => {
   it("documents the create in the OpenAPI spec for the same aggregate", async () => {
     const files = await generateSystemFiles(BARE);
-    const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
-    const spec = files.get(specKey!)!;
+    const spec = elixirOperationsText(files);
     expect(spec).toContain('summary: "Create Order"');
   });
 
   it("router create-routes and OpenAPI create-docs are the same set", async () => {
     const files = await generateSystemFiles(BARE);
     const router = file(files, "/router.ex");
-    const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
-    const spec = files.get(specKey!)!;
+    const spec = elixirOperationsText(files);
     expect([...routerCreateAggregates(router)].sort()).toEqual(
       [...specCreateAggregates(spec)].sort(),
     );
@@ -101,8 +100,7 @@ describe("vanilla create-route ⟺ OpenAPI parity", () => {
     );
     const files = await generateSystemFiles(src);
     const router = file(files, "/router.ex");
-    const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
-    const spec = files.get(specKey!)!;
+    const spec = elixirOperationsText(files);
     const routed = routerCreateAggregates(router);
     const documented = specCreateAggregates(spec);
     expect([...routed].sort()).toEqual([...documented].sort());

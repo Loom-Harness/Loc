@@ -18,6 +18,11 @@ import { jid, jsonProp } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { renderJavaExpr } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
+import {
+  javaRecordSchemaAnnotation,
+  javaWorkflowInstanceByIdDoc,
+  requiredWireFields,
+} from "./openapi-docs.js";
 import { domainToWire, javaIdValueType, wireJavaType } from "./wire.js";
 import {
   esEventLogTable,
@@ -106,6 +111,7 @@ function renderInstanceResponseDto(wf: WorkflowIR, wctx: WorkflowInstancesCtx): 
     `import ${wctx.basePkg}.domain.ids.*;`,
     `import ${wctx.basePkg}.domain.valueobjects.*;`,
     ``,
+    javaRecordSchemaAnnotation({ required: requiredWireFields(shape) }),
     `public record ${upperFirst(wf.name)}InstanceResponse(${components.join(", ")}) {`,
     `}`,
     ``,
@@ -202,6 +208,7 @@ function renderInstancesController(
         `    }`,
         ``,
         `    @GetMapping("/${slug}/instances/{id}")`,
+        ...javaWorkflowInstanceByIdDoc(ctx, wctx.basePkg),
         `    public ResponseEntity<${T}> ${camelId(opWorkflowInstanceById(wf.name))}(@PathVariable ${paramJava} id) {`,
         ...gateLines(wf),
         `        var __sid = ${idJava === "String" ? "id" : "String.valueOf(id)"};`,
@@ -233,6 +240,7 @@ function renderInstancesController(
         `    }`,
         ``,
         `    @GetMapping("/${slug}/instances/{id}")`,
+        ...javaWorkflowInstanceByIdDoc(ctx, wctx.basePkg),
         `    public ResponseEntity<${T}> ${camelId(opWorkflowInstanceById(wf.name))}(@PathVariable ${paramJava} id) {`,
         ...gateLines(wf),
         `        return ${repo}.findById(new ${idClass}(${idExpr}))`,

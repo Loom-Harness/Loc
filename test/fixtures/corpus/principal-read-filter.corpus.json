@@ -1,0 +1,6 @@
+{
+  "title": "an AUTHOR-WRITTEN `currentUser` predicate in a `find` / `retrieval` `where` — the row-level \"my own records\" query, as opposed to a DERIVED tenancy filter",
+  "doc": "auth",
+  "backends": "ALL",
+  "note": "Minted by audit F-013 (S1).  `currentUser` appeared in the corpus only inside GATES (`requires …`) and inside the tenancy filters the ENRICHMENT synthesises — never inside a predicate an author wrote on a query, which is a different emitter path on every backend.  Elixir broke twice on that path: the principal was interpolated UNPINNED into the Ecto `where:` (`Ecto.Query.CompileError: unbound variable current_user in query` — the fail-closed `^(current_user && …)` pin came from a post-pass that only saw the derived filters, so the compiler-generated tenancy filter on the NEXT emitted line pinned while the author's did not), and the actor was never THREADED into the find/retrieval head, since the \"needs the principal\" predicate read the aggregate's capability `filter`s only.  Both are hard `mix compile` failures.  The fixture carries NO tenancy capability on purpose — with one, the derived filter threads the actor and MASKS the author-written half, which is exactly why this survived."
+}

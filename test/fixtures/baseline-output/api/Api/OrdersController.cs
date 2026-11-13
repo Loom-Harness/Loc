@@ -28,9 +28,9 @@ public sealed class OrdersController : ControllerBase
 
     [HttpPost]
     [ProducesResponseType(typeof(CreateOrderResponse), 201)]
-    [ProducesResponseType(typeof(ProblemDetails), 400)]
-    [ProducesResponseType(typeof(ProblemDetails), 415)]
-    [ProducesResponseType(typeof(ProblemDetails), 422)]
+    [ProducesResponseType(typeof(ProblemResponse), 400, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 415, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 422, "application/problem+json")]
     public async Task<ActionResult<CreateOrderResponse>> CreateOrder([FromBody] CreateOrderRequest request)
     {
         var cmd = new CreateOrderCommand(
@@ -48,8 +48,8 @@ public sealed class OrdersController : ControllerBase
 
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(OrderResponse), 200)]
-    [ProducesResponseType(typeof(ProblemDetails), 404)]
-    [ProducesResponseType(typeof(ProblemDetails), 422)]
+    [ProducesResponseType(typeof(ProblemResponse), 404, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 422, "application/problem+json")]
     public async Task<ActionResult<OrderResponse>> GetOrderById([FromRoute] Guid id)
     {
         var response = await _mediator.Send(new GetOrderByIdQuery(new OrderId(id)));
@@ -59,9 +59,9 @@ public sealed class OrdersController : ControllerBase
 
     [HttpDelete("{id}")]
     [ProducesResponseType(204)]
-    [ProducesResponseType(typeof(ProblemDetails), 404)]
-    [ProducesResponseType(typeof(ProblemDetails), 409)]
-    [ProducesResponseType(typeof(ProblemDetails), 422)]
+    [ProducesResponseType(typeof(ProblemResponse), 404, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 409, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 422, "application/problem+json")]
     public async Task<IActionResult> DestroyOrder([FromRoute] Guid id)
     {
         try
@@ -77,10 +77,10 @@ public sealed class OrdersController : ControllerBase
 
     [HttpPost("{id}/add_line")]
     [ProducesResponseType(204)]
-    [ProducesResponseType(typeof(ProblemDetails), 400)]
-    [ProducesResponseType(typeof(ProblemDetails), 404)]
-    [ProducesResponseType(typeof(ProblemDetails), 415)]
-    [ProducesResponseType(typeof(ProblemDetails), 422)]
+    [ProducesResponseType(typeof(ProblemResponse), 400, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 404, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 415, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 422, "application/problem+json")]
     public async Task<IActionResult> AddLineOrder([FromRoute] Guid id, [FromBody] AddLineOrderRequest request)
     {
         _log.LogInformation("{Event} aggregate={Aggregate} op={Op} id={Id}", "operation_invoked", "Order", "addLine", id);
@@ -96,10 +96,10 @@ public sealed class OrdersController : ControllerBase
 
     [HttpPost("{id}/confirm")]
     [ProducesResponseType(204)]
-    [ProducesResponseType(typeof(ProblemDetails), 400)]
-    [ProducesResponseType(typeof(ProblemDetails), 404)]
-    [ProducesResponseType(typeof(ProblemDetails), 415)]
-    [ProducesResponseType(typeof(ProblemDetails), 422)]
+    [ProducesResponseType(typeof(ProblemResponse), 400, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 404, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 415, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 422, "application/problem+json")]
     public async Task<IActionResult> ConfirmOrder([FromRoute] Guid id, [FromBody] ConfirmOrderRequest request)
     {
         _log.LogInformation("{Event} aggregate={Aggregate} op={Op} id={Id}", "operation_invoked", "Order", "confirm", id);
@@ -113,11 +113,11 @@ public sealed class OrdersController : ControllerBase
 
     [HttpPost("{id}/update")]
     [ProducesResponseType(204)]
-    [ProducesResponseType(typeof(ProblemDetails), 400)]
-    [ProducesResponseType(typeof(ProblemDetails), 404)]
-    [ProducesResponseType(typeof(ProblemDetails), 409)]
-    [ProducesResponseType(typeof(ProblemDetails), 415)]
-    [ProducesResponseType(typeof(ProblemDetails), 422)]
+    [ProducesResponseType(typeof(ProblemResponse), 400, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 404, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 409, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 415, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 422, "application/problem+json")]
     public async Task<IActionResult> UpdateOrder([FromRoute] Guid id, [FromBody] UpdateOrderRequest request)
     {
         _log.LogInformation("{Event} aggregate={Aggregate} op={Op} id={Id}", "operation_invoked", "Order", "update", id);
@@ -137,7 +137,7 @@ public sealed class OrdersController : ControllerBase
 
     [HttpGet]
     [ProducesResponseType(typeof(Paged<OrderResponse>), 200)]
-    [ProducesResponseType(typeof(ProblemDetails), 422)]
+    [ProducesResponseType(typeof(ProblemResponse), 422, "application/problem+json")]
     public async Task<ActionResult<Paged<OrderResponse>>> AllOrder([FromQuery] [System.ComponentModel.DataAnnotations.Range(1, 1000000)] int page = 1, [FromQuery] [System.ComponentModel.DataAnnotations.Range(1, 500)] int pageSize = 20, [FromQuery] string sort = "id", [FromQuery] string dir = "asc")
     {
         var result = await _mediator.Send(new AllQuery(page, pageSize, sort, dir));
