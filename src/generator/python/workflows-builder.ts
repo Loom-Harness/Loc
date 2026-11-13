@@ -54,6 +54,7 @@ import { spellMarkers } from "../_imports/symbol.js";
 import { numericEncode } from "../_numeric/target.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import {
@@ -969,7 +970,10 @@ export function pyWorkflowStmtTarget(
         st.result && (!usedLets || usedLets.has(st.result.name))
           ? `${snake(st.result.name)} = `
           : "";
-      return [...gateLines, `${i}${bind}${snake(st.target)}.${snake(st.op)}(${args})`];
+      return [
+        ...gateLines,
+        `${i}${bind}${snake(st.target)}.${DOMAIN_NAMES.python.method(st.op)}(${args})`,
+      ];
     },
     repoDelete: (st, i) => {
       // `<Repo>.delete(o)` → `await <repo>.delete(<entity>.id)`.  The generated

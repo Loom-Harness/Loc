@@ -1,7 +1,8 @@
 import type { EnumIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
+import { upperFirst } from "../../../util/naming.js";
 import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { csMemberScope, csParamIdent, typeMemberNames } from "../bcl-collision.js";
 import { sortedCsUsings } from "../cs-symbols.js";
 import {
@@ -19,7 +20,7 @@ import { csRuleParams } from "../wire-policy-cs.js";
 
 export function renderEnum(e: EnumIR, ns: string): string {
   const valueLines = e.values.map(
-    (v, i) => `    ${escapeCsharpIdent(v)}${i < e.values.length - 1 ? "," : ""}`,
+    (v, i) => `    ${DOMAIN_NAMES.csharp.binding(v)}${i < e.values.length - 1 ? "," : ""}`,
   );
   return (
     lines(
@@ -95,7 +96,7 @@ export function renderValueObject(vo: ValueObjectIR, ns: string): string {
   const ctorParam = (name: string): string =>
     renderCtx.memberScope.members.has(name)
       ? csParamIdent(name, renderCtx.memberScope)
-      : escapeCsharpIdent(name);
+      : DOMAIN_NAMES.csharp.binding(name);
   const ctorParams = vo.fields
     .map((f) => `${renderCsType(f.type)} ${ctorParam(f.name)}`)
     .join(", ");
