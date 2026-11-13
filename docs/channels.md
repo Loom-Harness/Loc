@@ -134,7 +134,11 @@ Unbound channels keep today's direct in-process fan-out.
 **Producer split (§5):** durable events (`retention: work`/`log`) are recorded
 in `__loom_outbox` inside the write transaction and published by the relay on
 drain, with the **outbox row id as the envelope `id`** — which doubles as the
-consumer-side idempotency key (a redelivered envelope is a no-op).
+consumer-side idempotency key (a redelivered envelope is a no-op). A saga
+reactor checks it against its row's `last_event_id`; a projection fold claims
+it in the fold inbox, `__loom_fold_inbox (projection, event_id)`, in the
+transaction that saves its row, and the relay's retention purge prunes the
+inbox on the outbox's window ([decisions.md](decisions.md), D-PROJECTION-FOLD-INBOX).
 `ephemeral` events publish inline post-dispatch (the tee). Backends without a
 prior outbox tier (java, elixir) gained one with their rabbit legs.
 
