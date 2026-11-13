@@ -79,6 +79,7 @@ import {
   workflowNeedsCurrentUser,
   workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
+import { isScalarVariant } from "../../../ir/stdlib/unions.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -503,6 +504,10 @@ export function elixirWorkflowTarget(
     fields.map((f) => `${snake(f.name)}: ${expr(f.value)}`).join(", ");
   const broadcast = (eventName: string, fields: string): string =>
     `${contextModule.split(".")[0]!}.PostCommit.broadcast(%${contextModule}.Events.${upperFirst(eventName)}{${fields}})`;
+  // The names bound to an aggregate op's result tuple.  A context op answers a
+  // union success variant on the tagged wire (`%{type: "int", value: v}` for a
+  // scalar), so a `match` over one unwraps a scalar arm's value.
+  const opResults = new Set<string>();
   return {
     precondition: (st) => [guardClause(st, renderCtx)],
     requires: (st) => [guardClause(st, renderCtx)],
@@ -542,6 +547,24 @@ export function elixirWorkflowTarget(
         !op.returnType &&
         (scope.carried.has(st.target) || bindUsedLater(st.target, scope.rest, scope.trailing));
       const handle = escapeElixirIdent(snake(st.target));
+      // `let r = a.op(…)`: bind the call's result.  One that carries an error
+      // variant binds the whole `{:ok, value}` / `{:error, "Tag", fields}`
+      // tuple, which the `match` over `r` dispatches on; the op persists only
+      // on `{:ok, _}`, so an error arm leaves no trace of the call.  Any other
+      // result binds its value.
+      if (st.result) {
+        const used = bindUsedLater(st.result.name, scope.rest, scope.trailing);
+        const name = used ? escapeElixirIdent(snake(st.result.name)) : `_${snake(st.result.name)}`;
+        const pattern = st.result.errorVariants.length > 0 ? name : `{:ok, ${name}}`;
+        if (st.result.errorVariants.length > 0) opResults.add(st.result.name);
+        return [
+          {
+            kind: "clause",
+            text: `${pattern} <- ${call}`,
+            ...(used ? { bindName: name } : {}),
+          },
+        ];
+      }
       return [
         {
           kind: "clause",
@@ -793,7 +816,13 @@ export function elixirWorkflowTarget(
         kind: "clause",
         text: [
           `{:ok, _} <- (`,
-          ...renderMatchBlock(st, expr(st.subject), arms, elseBody).map((l) => `           ${l}`),
+          ...renderMatchBlock(
+            st,
+            expr(st.subject),
+            arms,
+            elseBody,
+            st.subject.kind === "ref" && opResults.has(st.subject.name),
+          ).map((l) => `           ${l}`),
           `         )`,
         ].join("\n"),
       },
@@ -812,6 +841,9 @@ function renderMatchBlock(
   subject: string,
   arms: readonly PipelineBody[],
   elseBody: PipelineBody,
+  /** The subject is an aggregate op's result: its success variants arrive
+   *  tagged, so a scalar arm binds the tagged map's `value`. */
+  taggedSuccess = false,
 ): string[] {
   const branch = (body: PipelineBody): string[] => assembleChain(body.steps, "{:ok, nil}");
   if (st.subjectShape === "absence") {
@@ -841,7 +873,8 @@ function renderMatchBlock(
     const body = arms[i]!;
     const binder =
       a.binding && bindUsedLater(a.binding, body.stmts) ? escapeElixirIdent(snake(a.binding)) : "_";
-    return clause(elixirVariantPattern(a, binder), body);
+    const unwrap = taggedSuccess && !a.isError && binder !== "_" && isScalarVariant(a.varType);
+    return clause(elixirVariantPattern(a, unwrap ? `%{value: ${binder}}` : binder), body);
   });
   if (st.elseBody || !armsCoverUnion(st.subjectType, st.arms)) {
     lines.push(...clause("_", elseBody));

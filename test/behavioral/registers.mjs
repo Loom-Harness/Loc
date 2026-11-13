@@ -300,15 +300,6 @@ export const BEHAVIOURAL_XFAIL = {
       reason:
         "a scaffolded commandHandler answering its operation's `T or E`: the Phoenix routes have no tagged result and no rollback seam",
     },
-    // A mutating call bound with `let` is refused on Phoenix, so generation
-    // stops at phase ⑦ (unsupported register).
-    "match-op-result": {
-      issue: "#4541",
-      expect: "error",
-      match: "loom\\.elixir-bound-mutating-call-unsupported",
-      reason:
-        "`let r = a.withdraw(x)` in a workflow body: the Phoenix with-chain sites match an op call's `{:ok, _}` away and never bind its result",
-    },
     // A value object nested inside another is cast as `:map`, so the nested
     // VO's invariant would never run; the capability table refuses the shape
     // on elixir until it does.

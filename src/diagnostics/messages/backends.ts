@@ -395,8 +395,8 @@ export const messages = {
     call: unknown;
     deployable: unknown;
   }) =>
-    `${p.where} binds the result of the mutating call '${p.call}(…)' to '${p.name}', which ` +
-    `the elixir deployable '${p.deployable}' cannot render yet: a Phoenix context operation ` +
-    `persists inside its own function, and the bound form is not wired through it. Host the ` +
-    `context on a node, dotnet, java or python deployable.`,
+    `${p.where} binds the result of the mutating domain-service call '${p.call}(…)' to ` +
+    `'${p.name}', which the elixir deployable '${p.deployable}' cannot render yet: Phoenix ` +
+    `inlines a mutating service clause by clause, which computes no value to bind. Call the ` +
+    `service as a statement, or host the context on a node, dotnet, java or python deployable.`,
 } satisfies Record<string, MessageEntry>;

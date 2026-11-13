@@ -6,6 +6,8 @@
 //
 //   Pay    — the error arm answers `notFound`: the declined call is a 404, and
 //            the account reads back unchanged.
+//   PayWithReceipt — the success arm reads the op's `int` result and records
+//            it, so the bound value (not its wire tag) reaches the arm.
 //   TryPay — the error arm records a `Note` instead, so the body COMMITS on
 //            the error path.  This is the discriminating case: EF Core and JPA
 //            would flush the withdrawn balance with the note's save (or at
@@ -13,7 +15,6 @@
 //            `discard`), so the unchanged read-back fails on .NET and Java
 //            without it.
 //
-// Elixir refuses the bound form (`loom.elixir-bound-mutating-call-unsupported`).
 system MatchOpResult {
   subdomain Banking {
     context Ledger {
@@ -35,12 +36,26 @@ system MatchOpResult {
       aggregate Note with crudish { text: string }
       repository Notes for Note
 
+      aggregate Receipt with crudish { left: int }
+      repository Receipts for Receipt
+
       workflow Pay {
         create(account: Account id, amt: int) {
           let a = Accounts.get(account)
           let r = a.withdraw(amt)
           match r {
             int left => { }
+            Insufficient e => { notFound }
+          }
+        }
+      }
+
+      workflow PayWithReceipt {
+        create(account: Account id, amt: int) {
+          let a = Accounts.get(account)
+          let r = a.withdraw(amt)
+          match r {
+            int left => { let rc = Receipt.create(left: left) }
             Insufficient e => { notFound }
           }
         }
@@ -100,6 +115,13 @@ system MatchOpResult {
     expect(api.accounts.getById(a).balance).toBe(50)
     api.accounts.withdraw(a, { amt: 10 })
     expect(api.accounts.getById(a).balance).toBe(40)
+
+    // The success arm reads the op's result: the balance left after it.
+    api.payWithReceipt.run({ account: a.id, amt: 15 })
+    expect(api.accounts.getById(a).balance).toBe(25)
+    let receipts = api.receipts.all()
+    expect(receipts.items.length).toBe(1)
+    expect(receipts.items.first().left).toBe(25)
 
     // The remaining generated routes.
     api.accounts.update(a, { owner: "bea", balance: 40 })
