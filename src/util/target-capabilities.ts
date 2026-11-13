@@ -56,7 +56,8 @@ export type TargetRefusalSlug =
   | "resource-knob-unrealized"
   | "storage-type-unbound"
   | "feature-composition-broken"
-  | "feature-composition-unwitnessed";
+  | "feature-composition-unwitnessed"
+  | "reference-admission-unrealized";
 
 /** A target's verdict on one construct × position. */
 export type CapabilityVerdict =
@@ -181,6 +182,13 @@ export type BackendConstruct =
   /** A `timerSource` whose event a broker-bound channel carries to another
    *  deployable: the tick must be published, not dispatched in-process. */
   | "timer:broker-channel@deployable"
+  /** A relational (`persistedAs: state`, `shape: relational`) aggregate that
+   *  persists an `X id` to a `tenantOwned` target: its save probes the
+   *  reference under the target's read scope (`src/ir/plan/ref-scope.ts`). */
+  | "reference:tenant-owned@state"
+  /** The same reference persisted by an event-sourced, `shape: document` or
+   *  `shape: embedded` aggregate, whose save has no admission probe. */
+  | "reference:tenant-owned@non-relational"
   /** A `derived` that reads a `mask unless` field of its aggregate. */
   | "derived:reads-masked-field@aggregate"
   /** A `criterion` whose predicate reads a `mask unless` field. */
@@ -273,6 +281,8 @@ export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "read:shareable-off-host@deployable",
   "call:auth-required-api@resource",
   "timer:broker-channel@deployable",
+  "reference:tenant-owned@state",
+  "reference:tenant-owned@non-relational",
   "derived:reads-masked-field@aggregate",
   "criterion:reads-masked-field@context",
   "field:valueobject-collection@entity-part",
@@ -663,6 +673,8 @@ const COMMON_PAIRS: Pick<
   | "read:shareable-off-host@deployable"
   | "call:auth-required-api@resource"
   | "timer:broker-channel@deployable"
+  | "reference:tenant-owned@state"
+  | "reference:tenant-owned@non-relational"
   | "derived:reads-masked-field@aggregate"
   | "criterion:reads-masked-field@context"
   | "field:valueobject-collection@entity-part"
@@ -683,6 +695,12 @@ const COMMON_PAIRS: Pick<
   // The scheduler publishes a broker-carried tick through the channel tee;
   // `channels-e2e` runs one to a consumer on another deployable.
   "timer:broker-channel@deployable": SUPPORTED,
+  // The save probes the reference under the target's read scope; the
+  // `tenancy-owned` fixture's isolation e2e drives it on every backend.
+  "reference:tenant-owned@state": SUPPORTED,
+  // An event stream or a jsonb document holds the reference with no probe
+  // and no foreign key, so a foreign tenant's id would be stored as given.
+  "reference:tenant-owned@non-relational": refused("reference-admission-unrealized"),
   // A derived that reads a masked field inherits the mask, and a criterion
   // over one is evaluated as the caller sees it; the `field-mask` corpus
   // fixture runs both on every backend.
@@ -785,6 +803,13 @@ export interface AdapterRefusal {
 }
 
 export const ADAPTER_REFUSALS: readonly AdapterRefusal[] = [
+  // The MikroORM repository's save has no reference-admission probe.
+  {
+    family: "node",
+    persistence: "mikroorm",
+    construct: "reference:tenant-owned@state",
+    verdict: { verdict: "refused", slug: "reference-admission-unrealized" },
+  },
   // The MikroORM event store does not carry a stream's tenant yet (#4686).
   {
     family: "node",
