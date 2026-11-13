@@ -102,7 +102,7 @@ const ARMS: Record<string, Record<string, RegExp>> = {
     "add (money)": /charged: Decimal\.add\(state\.charged \|\| Decimal\.new\(0\), event\.fee\)/,
     "remove (int)": /entries: \(state\.entries \|\| 0\) - event\.amount/,
     "remove (collection)":
-      /tags: Enum\.reject\(state\.tags \|\| \[\], fn __x -> __x == event\.tag end\)/,
+      /tags: Enum\.reject\(state\.tags \|\| \[\], fn loom_el -> loom_el == event\.tag end\)/,
   },
 };
 

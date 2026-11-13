@@ -907,7 +907,7 @@ function renderProjectionFoldStep(
       const field = snake(step.field);
       return write(
         field,
-        `Enum.reject(state.${field} || [], fn __x -> __x == ${expr(step.value)} end)`,
+        `Enum.reject(state.${field} || [], fn loom_el -> loom_el == ${expr(step.value)} end)`,
       );
     }
     default: {
