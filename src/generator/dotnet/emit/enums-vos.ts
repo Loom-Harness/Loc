@@ -124,7 +124,9 @@ export function renderValueObject(vo: ValueObjectIR, ns: string): string {
     const params = fn.params
       .map((p) => `${renderCsType(p.type)} ${csParamIdent(p.name, renderCtx.memberScope)}`)
       .join(", ");
-    const head = `    private ${renderCsType(fn.returnType)} ${upperFirst(fn.name)}(${params})`;
+    // Public: a value object's function is called from the aggregates and
+    // workflows that hold the value (`Total.Plus(tip)`), never only from inside.
+    const head = `    public ${renderCsType(fn.returnType)} ${upperFirst(fn.name)}(${params})`;
     if ("expr" in fn.body) {
       return [`${head} => ${renderCsExpr(fn.body.expr, renderCtx)};`];
     }

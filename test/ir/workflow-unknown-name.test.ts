@@ -27,7 +27,7 @@ const src = (extra: string, body: string) => `
     aggregate P with crudish { name: string  operation go() { emit Went { p: id, at: now() } } }
     repository Ps for P { }
     event Went { p: P id, at: datetime }
-    projection Seen keyed by p { p: P id  at: datetime  on(e: Went) { p := e.p  at := e.at } }
+    projection Seen keyed by p { p: P id  at: datetime?  on(e: Went) { at := e.at } }
     ${extra}
     workflow W {
       create(p: P id) {

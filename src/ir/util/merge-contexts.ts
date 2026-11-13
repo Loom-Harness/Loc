@@ -51,6 +51,15 @@ export function mergeContexts(contexts: EnrichedBoundedContextIR[]): EnrichedBou
     // Scrutor scan) sees every hosted context's commandHandler / queryHandler.
     commandHandlers: contexts.flatMap((c) => c.commandHandlers),
     queryHandlers: contexts.flatMap((c) => c.queryHandlers),
+    // The `policy { … }` rules — enrichment has already folded them into each
+    // aggregate's filters and gates; carried as a plain union so a reader of
+    // the merged view sees the same rules as the per-context IR.
+    policyReadLevels: contexts.flatMap((c) => c.policyReadLevels),
+    policyWriteLevels: contexts.flatMap((c) => c.policyWriteLevels),
+    policyRowRules: contexts.flatMap((c) => c.policyRowRules),
+    policyDenies: contexts.flatMap((c) => c.policyDenies),
+    policyReadGates: contexts.flatMap((c) => c.policyReadGates),
+    policyShareGates: contexts.flatMap((c) => c.policyShareGates),
     // The two error-status maps enrichment attaches.  They were MISSING from
     // this merge, and the consequence was silent: an emitter handed the merged
     // context read `undefined` for both, so `resolveErrorStatus(name, undefined)`

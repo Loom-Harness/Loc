@@ -275,7 +275,7 @@ describe("loom.ui-projection-read-unsupported — the FLAVOUR half (every target
         withProjection(
           `event OrderPlaced { order: Order id }
            projection OrderBook keyed by order { order: Order id
-             on(e: OrderPlaced) { order := e.order } }`,
+             on(e: OrderPlaced) { } }`,
           "Sales.OrderBook",
         ),
       ),

@@ -1,0 +1,11 @@
+{
+  "title": "a value-object param (workflow `create`, aggregate operation) whose single-field or cross-field invariant refuses the value — the wire 422 at `/<param>/<member>`, the body never runs",
+  "doc": "payloads",
+  "backends": "ALL",
+  "note": "#5369 / #5333: elixir's value-object constructor judged only single-field rules, and a workflow value-object param was cast but never judged — a reversed range ran the body and persisted.  Both rules are named so the refusal's text and code are the same on every backend.",
+  "apiCaller": {
+    "unattributed": [
+      "api.openLot.run (no such aggregate)"
+    ]
+  }
+}

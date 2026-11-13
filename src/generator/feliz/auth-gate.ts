@@ -21,7 +21,7 @@ import { upperFirst } from "../../util/naming.js";
 import { AUTH_GATE_CHROME, authGateMessage, chromeKey } from "../_walker/i18n-chrome.js";
 import { fsString } from "./fs-expr.js";
 import { typeToFs } from "./type-fs.js";
-import { decoderExprFor } from "./wire.js";
+import { decoderExprFor } from "./wire-codec.js";
 
 /** Binary operators that differ between Loom source and F# output; the rest
  *  (`&&` / `||` / `<` / `>` / `<=` / `>=`) pass through verbatim. */

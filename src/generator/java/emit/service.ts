@@ -10,6 +10,7 @@ import {
   emitsRestCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
+import { gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
 import { domainFindShape } from "../../../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
@@ -463,24 +464,32 @@ export function renderJavaService(
   const requiresGateLines = (
     op: (typeof agg.operations)[number],
     locals: ReadonlyMap<string, string>,
+    which: "row-free" | "row-reading" = "row-reading",
+    paramOverride?: (name: string) => string | undefined,
   ): string[] =>
-    operationGates(op).map((g) => {
-      // The gate's own expression imports (`java.util.Objects` for a string
-      // comparison, enum/id types, …) are collected HERE, since the gate lives
-      // in this file rather than the ENTITY's `collectJavaStmtImports` sweep
-      // over `op.statements` — a `tsc`-green emitter can still emit Java that
-      // doesn't compile.
-      const pred = renderJavaExpr(g.expr, {
-        thisName: "aggregate",
-        accessorProps: true,
-        paramExpr: (n) => locals.get(n),
+    operationGates(op)
+      // The gate ladder (`ir/plan/gate-ladder.ts`): a gate that reads no row
+      // runs before the load, one that reads the row after it.
+      .filter((g) => gateReadsRow(g) === (which === "row-reading"))
+      .map((g) => {
+        // The gate's own expression imports (`java.util.Objects` for a string
+        // comparison, enum/id types, …) are collected HERE, since the gate lives
+        // in this file rather than the ENTITY's `collectJavaStmtImports` sweep
+        // over `op.statements` — a `tsc`-green emitter can still emit Java that
+        // doesn't compile.
+        const pred = renderJavaExpr(g.expr, {
+          thisName: "aggregate",
+          accessorProps: true,
+          paramExpr: paramOverride ?? ((n) => locals.get(n)),
+        });
+        // A merge-patch update's mask write gate runs only when the body carries
+        // the masked key (an absent key keeps the stored value).
+        const present = maskWritePresenceParam(op, g);
+        const cond = present
+          ? `request.has(${JSON.stringify(present)}) && !(${pred})`
+          : `!(${pred})`;
+        return `        if (${cond}) throw new ${forbidden}(${JSON.stringify(`Forbidden: ${g.source}`)});`;
       });
-      // A merge-patch update's mask write gate runs only when the body carries
-      // the masked key (an absent key keeps the stored value).
-      const present = maskWritePresenceParam(op, g);
-      const cond = present ? `request.has(${JSON.stringify(present)}) && !(${pred})` : `!(${pred})`;
-      return `        if (${cond}) throw new ${forbidden}(${JSON.stringify(`Forbidden: ${g.source}`)});`;
-    });
   const whenGateLine = (
     op: (typeof agg.operations)[number],
     locals: ReadonlyMap<string, string>,
@@ -490,7 +499,11 @@ export function renderJavaService(
       : null;
   const anyOpUsesUser =
     !!ctx.authed &&
-    agg.operations.some((op) => op.visibility === "public" && operationUsesCurrentUser(op));
+    agg.operations.some(
+      (op) =>
+        op.visibility === "public" &&
+        (operationUsesCurrentUser(op) || operationGatesUseCurrentUser(op)),
+    );
   // Audit: any audited COMMAND ACTION — public operation OR lifecycle
   // create/destroy — needs the AuditRecordRepository injected + the
   // OffsetDateTime / UUID / RequestContext imports.  Lifecycle audit also pulls
@@ -562,14 +575,21 @@ export function renderJavaService(
       // field converts only when carried, and the call passes the stored value
       // for every key outside `request.has(...)`.
       const patch = isMergePatchUpdate(op);
-      const lets = op.params.map((p) => {
+      const letValue = (p: (typeof op.params)[number]): string => {
         const raw = `request.${jid(p.name)}()`;
         const parsed = wireToDomain(p.type, raw, `/${p.name}`);
-        const value =
-          patch && p.type.kind !== "optional" && parsed !== raw
-            ? `${raw} == null ? null : ${parsed}`
-            : parsed;
-        return `        var ${localOf(opLocals, p.name)} = ${value};`;
+        return patch && p.type.kind !== "optional" && parsed !== raw
+          ? `${raw} == null ? null : ${parsed}`
+          : parsed;
+      };
+      const lets = op.params.map(
+        (p) => `        var ${localOf(opLocals, p.name)} = ${letValue(p)};`,
+      );
+      // The row-free gates run before the params are parsed (the gate ladder),
+      // so an operation parameter they read is converted in place.
+      const rowFreeGateLines = requiresGateLines(op, opLocals, "row-free", (n) => {
+        const p = op.params.find((q) => q.name === n);
+        return p ? `(${letValue(p)})` : undefined;
       });
       for (const p of op.params) collectWireToDomainImports(p.type, imports, ctx.basePkg);
       const usesUser =
@@ -593,11 +613,12 @@ export function renderJavaService(
         // injected handler + `ExternHandlerException` wrap are gone.
         return [
           `    public void ${jid(op.name)}(${paramSig}) {`,
-          ...lets,
           usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
+          ...rowFreeGateLines,
+          ...lets,
           `        var aggregate = repository.getById(id);`,
+          ...requiresGateLines(op, opLocals, "row-reading"),
           ifMatchGuardFor(op),
-          ...requiresGateLines(op, opLocals),
           whenGateLine(op, opLocals),
           `        aggregate.${jid(op.name)}(${args});`,
           `        repository.save(aggregate);`,
@@ -648,11 +669,12 @@ export function renderJavaService(
           : [];
       return [
         `    public ${retType} ${jid(op.name)}(${paramSig}) {`,
-        ...lets,
         usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
+        ...rowFreeGateLines,
+        ...lets,
         `        var aggregate = repository.getById(id);`,
+        ...requiresGateLines(op, opLocals, "row-reading"),
         ifMatchGuardFor(op),
-        ...requiresGateLines(op, opLocals),
         whenGateLine(op, opLocals),
         audited ? `        var __before = ${agg.name}Response.from(aggregate);` : null,
         returnsValue
@@ -782,13 +804,35 @@ export function renderJavaService(
   // The side-effect-free twin of each `when`-gated op: load the aggregate and
   // return the predicate verbatim (the controller wraps it in `CanResponse`),
   // so a UI can enable/disable the action without invoking it.
-  const canLines = gatedOps.flatMap((op) => [
-    `    public boolean can${upperFirst(op.name)}(${idClass} id) {`,
-    `        var aggregate = repository.getById(id);`,
-    `        return ${renderJavaExpr(op.when!, { thisName: "aggregate", accessorProps: true })};`,
-    `    }`,
-    ``,
-  ]);
+  // It runs the operation's gate ladder (ir/plan/gate-ladder.ts) without a
+  // body: a gate that reads no row answers `false` before the load, the load is
+  // 404 like `GET /{id}`, a row-reading gate answers `false`, then the `when`.
+  // A gate that reads an operation parameter cannot be decided without a body:
+  // the probe answers `false` for it, after the load so a missing row is still
+  // 404.
+  const canLines = gatedOps.flatMap((op) => {
+    const undecidable = operationGates(op).some(gateReadsParam);
+    const gateLines = (which: "row-free" | "row-reading"): string[] =>
+      operationGates(op)
+        .filter((g) => !gateReadsParam(g) && gateReadsRow(g) === (which === "row-reading"))
+        .map(
+          (g) =>
+            `        if (!(${renderJavaExpr(g.expr, { thisName: "aggregate", accessorProps: true })})) return false;`,
+        );
+    const usesUser = !!ctx.authed && operationGatesUseCurrentUser(op);
+    return [
+      `    public boolean can${upperFirst(op.name)}(${idClass} id) {`,
+      usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
+      ...gateLines("row-free"),
+      `        var aggregate = repository.getById(id);`,
+      ...gateLines("row-reading"),
+      undecidable
+        ? `        return false;`
+        : `        return ${renderJavaExpr(op.when!, { thisName: "aggregate", accessorProps: true })};`,
+      `    }`,
+      ``,
+    ].filter((l): l is string => l !== null);
+  });
 
   return lines(
     `package ${ctx.pkg};`,

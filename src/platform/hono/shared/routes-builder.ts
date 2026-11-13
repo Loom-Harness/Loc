@@ -87,6 +87,7 @@ import {
   wireFieldsFor,
 } from "../../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
+import { gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -112,6 +113,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import {
   aggregateUsesMoneyDeep,
+  exprUsesCurrentUser,
   findGateUsesCurrentUser,
   findUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
@@ -1526,7 +1528,7 @@ export function buildRoutesFile(
     const probe = derivedProbeByIR.get(op);
     if (probe) {
       if (entry) lines.push("");
-      lines.push(...emitCanOpRoute(agg, op!, probe, emitTrace).map((l) => `  ${l}`));
+      lines.push(...emitCanOpRoute(agg, op!, probe, derivedGetById?.find).map((l) => `  ${l}`));
     }
     lines.push("");
   }
@@ -1851,28 +1853,33 @@ function requiresGateLines(
   pad: string,
   ctx: BoundedContextIR,
   argExpr?: (name: string) => string | undefined,
+  which: "row-free" | "row-reading" = "row-reading",
 ): string[] {
-  return operationGates(op).map((g) => {
-    const pred = renderTsExpr(g.expr, {
-      thisName: "aggregate",
-      // Operation params are NOT locals here — the handler holds them at the
-      // wire-read expression the call is about to pass (`body.<name>`), so an
-      // arg-aware gate (`requires amount <= limit`) must read the same thing.
-      paramExpr:
-        argExpr ??
-        ((name) => {
-          const p = op.params.find((q) => q.name === name);
-          return p ? wireToDomainExpr(`body.${p.name}`, p.type, ctx) : undefined;
-        }),
+  // The gate ladder (`ir/plan/gate-ladder.ts`): a gate that reads no row runs
+  // before the load, one that reads the row after it.
+  return operationGates(op)
+    .filter((g) => gateReadsRow(g) === (which === "row-reading"))
+    .map((g) => {
+      const pred = renderTsExpr(g.expr, {
+        thisName: "aggregate",
+        // Operation params are NOT locals here — the handler holds them at the
+        // wire-read expression the call is about to pass (`body.<name>`), so an
+        // arg-aware gate (`requires amount <= limit`) must read the same thing.
+        paramExpr:
+          argExpr ??
+          ((name) => {
+            const p = op.params.find((q) => q.name === name);
+            return p ? wireToDomainExpr(`body.${p.name}`, p.type, ctx) : undefined;
+          }),
+      });
+      // A merge-patch update's mask write gate runs only when the body carries
+      // the masked key (an absent key keeps the stored value).
+      const present = maskWritePresenceParam(op, g);
+      const cond = present ? `body.${present} !== undefined && !(${pred})` : `!(${pred})`;
+      return `${pad}if (${cond}) throw new ForbiddenError(${JSON.stringify(
+        `Forbidden: ${g.source}`,
+      )});`;
     });
-    // A merge-patch update's mask write gate runs only when the body carries
-    // the masked key (an absent key keeps the stored value).
-    const present = maskWritePresenceParam(op, g);
-    const cond = present ? `body.${present} !== undefined && !(${pred})` : `!(${pred})`;
-    return `${pad}if (${cond}) throw new ForbiddenError(${JSON.stringify(
-      `Forbidden: ${g.source}`,
-    )});`;
-  });
 }
 
 /** The canonical `create` / `destroy` authorization gate, in the ROUTE.
@@ -1928,17 +1935,33 @@ function whenGateLine(agg: AggregateIR, op: OperationIR, pad: string): string[] 
 
 /** The auto-exposed, side-effect-free `GET /{id}/can_<op>` companion of a
  *  `when`-gated operation — returns `{ allowed }` so a UI can enable or
- *  disable the action without invoking it (the canCommand pattern). */
+ *  disable the action without invoking it (the canCommand pattern).
+ *
+ *  It runs the operation's gate ladder (`ir/plan/gate-ladder.ts`) without a
+ *  body: the by-id read's gate refuses (403) and a row outside the read scope
+ *  is 404, exactly as `GET /{id}` answers, so the probe tells a caller nothing
+ *  the read would not; the operation's own `requires` and `when` fold into
+ *  `allowed`. */
 function emitCanOpRoute(
   agg: AggregateIR,
   op: OperationIR,
   entry: ApiOperationIR,
-  emitTrace: boolean,
+  readFind: FindIR | undefined,
 ): string[] {
   if (!op.when) return [];
-  void emitTrace;
   const aggSlug = routeSegmentFor(agg.name);
   const pred = renderTsExpr(op.when, { thisName: "aggregate" });
+  const gates = operationGates(op);
+  const gateTest = (g: (typeof gates)[number]): string =>
+    renderTsExpr(g.expr, { thisName: "aggregate" });
+  // A gate that reads an operation parameter cannot be decided without a
+  // body: it answers `false`, after the load so a missing row is still 404.
+  const undecidable = gates.filter(gateReadsParam);
+  const rowFree = gates.filter((g) => !gateReadsParam(g) && !gateReadsRow(g));
+  const rowReading = gates.filter((g) => !gateReadsParam(g) && gateReadsRow(g));
+  const needsUser =
+    (readFind?.requires !== undefined && findGateUsesCurrentUser(readFind)) ||
+    gates.some((g) => exprUsesCurrentUser(g.expr));
   const out: string[] = [];
   out.push(`app.openapi(`);
   out.push(`  createRoute({`);
@@ -1958,8 +1981,26 @@ function emitCanOpRoute(
   out.push(`  }),`);
   out.push(`  async (c) => {`);
   out.push(`    const { id } = c.req.valid("param");`);
-  out.push(`    const aggregate = await repo.getById(${T.Ids}.${agg.name}Id(id));`);
-  out.push(`    return c.json({ allowed: ${pred} }, 200);`);
+  if (needsUser) out.push(currentUserBindLine("    "));
+  if (readFind?.requires) {
+    out.push(
+      `    if (!(${renderTsExpr(readFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${readFind.name}`)});`,
+    );
+  }
+  for (const g of rowFree) {
+    out.push(`    if (!(${gateTest(g)})) return c.json({ allowed: false }, 200);`);
+  }
+  const load = `await repo.getById(${T.Ids}.${agg.name}Id(id));`;
+  if (undecidable.length > 0 && rowReading.length === 0) {
+    out.push(`    ${load}`);
+    out.push(`    return c.json({ allowed: false }, 200);`);
+  } else {
+    out.push(`    const aggregate = ${load}`);
+    for (const g of rowReading) {
+      out.push(`    if (!(${gateTest(g)})) return c.json({ allowed: false }, 200);`);
+    }
+    out.push(`    return c.json({ allowed: ${undecidable.length > 0 ? "false" : pred} }, 200);`);
+  }
   out.push(`  },`);
   out.push(`);`);
   return out;
@@ -2044,6 +2085,9 @@ function auditProvTxLines(args: {
   // provenance row, tying each to the request (and its causality position)
   // that produced it.  Read from the ambient RequestContext opened by the
   // request-id middleware.
+  // The row-independent gates refuse before the transaction opens (the gate
+  // ladder's step 2); the row-reading ones run after the load inside it.
+  out.push(...requiresGateLines(op, "    ", ctx, undefined, "row-free"));
   out.push(`    const reqCtx = requestContext();`);
   out.push(`    const __deferred = deferredDispatcher(events);`);
   out.push(`    ${args.capture ? "const result = await" : "await"} ${txWrapperCall(usingMikro)}`);
@@ -2267,6 +2311,7 @@ function emitOperationRoute(
   ];
 
   if (!audit && !prov) {
+    out.push(...requiresGateLines(op, "    ", ctx, undefined, "row-free"));
     out.push(`    const aggregate = await repo.getById(${T.Ids}.${agg.name}Id(id));`);
     out.push(...expectedVersionLines(check, "    "));
     out.push(...requiresGateLines(op, "    ", ctx));
@@ -2406,6 +2451,7 @@ function emitReturningOperationRoute(
     );
   } else {
     const check = operationVersionCheck(agg, op);
+    out.push(...requiresGateLines(op, "    ", ctx, undefined, "row-free"));
     out.push(`    const aggregate = await repo.getById(${T.Ids}.${agg.name}Id(id));`);
     out.push(...expectedVersionLines(check, "    "));
     out.push(...requiresGateLines(op, "    ", ctx));
@@ -2698,7 +2744,11 @@ function emitResponseDtoSchema(
       const t: TypeIR = provenanced.has(f.name)
         ? { kind: "genericInstance", ctor: "provenanced", arg: f.type }
         : f.type;
-      lines.push(`  ${f.name}: ${zodForResponseField(t, f.optional)},`);
+      // A masked field is redacted to `null` for a caller who fails its
+      // predicate (`toWireMasked`), so it admits null exactly as below.
+      const z = zodForResponseField(t, f.optional);
+      const masked = f.maskUnless !== undefined && !z.endsWith(".nullish()") ? ".nullish()" : "";
+      lines.push(`  ${f.name}: ${z}${masked},`);
     }
   } else {
     const fields = forApiRead(wireFieldsFor(ent));

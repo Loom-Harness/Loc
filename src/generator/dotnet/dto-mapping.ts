@@ -930,7 +930,10 @@ export function responseParamsFromPayload(
     const t: TypeIR = provenanced.has(f.name)
       ? { kind: "genericInstance", ctor: "provenanced", arg: f.type }
       : f.type;
-    parts.push(dtoParam(payloadFieldCsType(t, ctx), upperFirst(f.name)));
+    // A masked field is redacted to null by `maskWrap`, so its param is nullable.
+    let csType = payloadFieldCsType(t, ctx);
+    if (f.maskUnless && !csType.endsWith("?")) csType = `${csType}?`;
+    parts.push(dtoParam(csType, upperFirst(f.name)));
   }
   return parts.join(", ");
 }

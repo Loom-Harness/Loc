@@ -1,6 +1,14 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
-import { hasStateRow, requiredStateFields, subscriptionHandler } from "../../ir/plan/index.js";
+import {
+  type FoldRowSeed,
+  type FoldStep,
+  foldRowSeeds,
+  foldSteps,
+  hasStateRow,
+  requiredStateFields,
+  subscriptionHandler,
+} from "../../ir/plan/index.js";
 import type {
   ChannelIR,
   EnrichedBoundedContextIR,
@@ -9,7 +17,6 @@ import type {
   FunctionIR,
   ProjectionIR,
   ProjectionOnIR,
-  StmtIR,
   SystemIR,
   TypeIR,
   WorkflowIR,
@@ -404,14 +411,16 @@ function renderDispatcher(
   // invokes every subscriber — workflow reactor AND projection fold — of that
   // event (parity with python's isinstance fan-out / Hono's `projectionTee`).
   const byEvent = new Map<string, string[]>();
-  const push = (event: string, mod: string): void => {
+  const push = (event: string, call: string): void => {
     const list = byEvent.get(event) ?? [];
-    list.push(`    ${mod}.handle(event)`);
+    list.push(`    ${call}`);
     byEvent.set(event, list);
   };
-  for (const sub of subs) push(sub.event, handlerModule(contextModule, sub));
+  for (const sub of subs) push(sub.event, `${handlerModule(contextModule, sub)}.handle(event)`);
+  // A fold is isolated per handler (D-PROJECTION-FOLD-AFTER-COMMIT): its
+  // failure is logged and never reaches the command or the handlers after it.
   for (const ps of projSubs)
-    push(ps.event, projectionHandlerModule(contextModule, ps.projection, ps.on));
+    push(ps.event, `fold(${projectionHandlerModule(contextModule, ps.projection, ps.on)}, event)`);
   const clauses: string[] = [];
   for (const [event, calls] of byEvent) {
     // A wired-but-foreign channel's event struct lives under its OWNING
@@ -425,11 +434,11 @@ function renderDispatcher(
 defmodule ${contextModule}.Dispatcher do
   @moduledoc "In-process event dispatch for the ${upperFirst(ctx.name)} context."
 
-${clauses.join("\n\n")}
+${projSubs.length > 0 ? "  require Logger\n\n" : ""}${clauses.join("\n\n")}
 
   # Events with no in-process subscriber are a no-op.
   def dispatch(_event), do: :ok
-end
+${projSubs.length > 0 ? renderFoldIsolation() : ""}end
 
 defmodule ${contextModule}.Dispatcher.AfterCommit do
   @moduledoc """
@@ -465,6 +474,27 @@ defmodule ${contextModule}.Dispatcher.AfterCommit do
     :ok
   end
 end
+`;
+}
+
+/** The dispatcher's `fold/2`: one projection fold, its failure logged
+ *  `reactor_failed` and swallowed. */
+function renderFoldIsolation(): string {
+  const log = (error: string): string =>
+    renderPhoenixLogCall("reactorFailed", [
+      { name: "handler", valueExpr: "inspect(mod)" },
+      { name: "event_type", valueExpr: "event.__struct__ |> Module.split() |> List.last()" },
+      { name: "event_id", valueExpr: "Ecto.UUID.generate()" },
+      { name: "error", valueExpr: error },
+    ]);
+  return `
+  defp fold(mod, event) do
+    mod.handle(event)
+  rescue
+    e -> ${log("Exception.message(e)")}
+  catch
+    kind, reason -> ${log("inspect({kind, reason})")}
+  end
 `;
 }
 
@@ -774,34 +804,21 @@ function renderProjectionFoldHandler(
   const datetimeFields = new Set(
     proj.stateFields.filter((f) => isDatetimeType(f.type)).map((f) => snake(f.name)),
   );
-  // Each `field := value` → a tracked changeset CHANGE (not an in-memory struct
-  // rebind).  `Ecto.Changeset.change(state, %{…})` is load-bearing: a bare
-  // `change(state)` after `state = %{state | f: v}` carries NO changes, so on an
-  // EXISTING row (the second event for a key) `insert_or_update` → `Repo.update`
-  // is a silent no-op and the fold never persists (e.g. `OrderShipped` would
-  // never flip the row to `Shipped`).  Passing the changes to `change/2` tracks
-  // them, so the update actually writes.  The correlation `:=` (if the fold
-  // spells it) is skipped: it's the immutable primary key, seeded at allocation
-  // (parity with the java / hono / python folds).
-  //
-  // A `let` binding is NOT a change entry — it is a real local, emitted as its
-  // own line BEFORE the changeset so the entries that reference it resolve
-  // (F2-XB-4: the `let` used to be filtered out while `at: stamped` survived,
-  // an "undefined variable" under `--warnings-as-errors`).  `+=` / `-=` fold
-  // into a change entry computed FROM the current row value, which is nil on
-  // the first event for a key, so both coalesce.
-  const letLines: string[] = [];
-  const changeEntries: string[] = [];
-  for (const s of on.statements) {
-    const piece = renderProjectionFoldStmt(s, proj, on, corr, renderCtx, datetimeFields);
-    if (piece === undefined) continue;
-    if (piece.kind === "binding") letLines.push(`    ${piece.text}`);
-    else changeEntries.push(piece.text);
-  }
+  // The steps rebind `state` one after another, so each reads the row as the
+  // steps before it left it.  The write is a changeset over the row as it was
+  // LOADED, carrying every column a step wrote: `Ecto.Changeset.change/2` tracks
+  // those values, so `insert_or_update` writes them on an existing row too (a
+  // bare `change(state)` after rebinding carries no changes and the update is
+  // a silent no-op).
+  const steps = foldSteps(proj, on);
+  const stepLines = steps.map(
+    (st) => `    ${renderProjectionFoldStep(st, proj, renderCtx, datetimeFields)}`,
+  );
+  const written = [...new Set(steps.flatMap((st) => (st.kind === "let" ? [] : [snake(st.field)])))];
   const changeset =
-    changeEntries.length > 0
-      ? `Ecto.Changeset.change(state, %{${changeEntries.join(", ")}})`
-      : `Ecto.Changeset.change(state)`;
+    written.length > 0
+      ? `Ecto.Changeset.change(loaded, %{${written.map((f) => `${f}: state.${f}`).join(", ")}})`
+      : `Ecto.Changeset.change(loaded)`;
   // A tenant-scoped fold (`fold-tenancy.ts`) reads the event's tenant from its
   // metadata — the dispatching process's event origin — keys the row by it and
   // stamps it on allocation.  An event with no tenant has no tenant's row.
@@ -811,17 +828,25 @@ function renderProjectionFoldHandler(
   const lookup = cols
     ? `${appModule}.Repo.get_by(${rowMod}, ${snake(corr)}: key, ${tenantCol}: tenant)`
     : `${appModule}.Repo.get(${rowMod}, key)`;
-  const seed = cols ? `${snake(corr)}: key, ${tenantCol}: tenant` : `${snake(corr)}: key`;
+  // A fresh row: the key, the tenant, and each column's starting value
+  // (`foldRowSeeds`); every other column starts nil.
+  const seed = [
+    `${snake(corr)}: key`,
+    ...(cols ? [`${tenantCol}: tenant`] : []),
+    ...foldRowSeeds(proj).map((sd) => `${snake(sd.field.name)}: ${exRowSeed(sd, renderCtx)}`),
+  ].join(", ");
   const body = [
     `    key = ${keyExpr}`,
     "",
-    `    state =`,
+    `    loaded =`,
     `      case ${lookup} do`,
     `        nil -> %${rowMod}{${seed}}`,
     `        existing -> existing`,
     `      end`,
     "",
-    ...(letLines.length > 0 ? [...letLines, ""] : []),
+    // A fold that writes no column still binds `state` only when a step reads it.
+    ...(steps.length > 0 ? [`    state = loaded`, ...stepLines] : []),
+    ...(steps.length > 0 && written.length === 0 ? [`    _ = state`] : []),
     `    {:ok, _} = ${appModule}.Repo.insert_or_update(${changeset})`,
     `    :ok`,
   ];
@@ -851,87 +876,69 @@ end
 `;
 }
 
-/** One rendered fold-body piece: either a real local `binding` line emitted
- *  BEFORE the changeset, or a changeset `entry` (`field: value`). */
-type FoldPiece = { kind: "binding" | "entry"; text: string };
-
-/** Render ONE fold-body statement of a folded projection.
- *
- *  This used to be a `.filter(s => s.kind === "assign")`, so every other
- *  statement kind a fold body can carry vanished from the emitted handler with
- *  no diagnostic and no compile error (F2-XB-4): a `let` disappeared while its
- *  USES survived (`at: stamped` with nothing binding `stamped` — "undefined
- *  variable" under `--warnings-as-errors`), and `+=` / `-=` were dropped
- *  outright, so the column was simply never written.
- *
- *  The four pure fold kinds `checkProjections`
- *  (`src/ir/validate/checks/projection-checks.ts`) admits are now rendered here;
- *  everything else is an internal invariant violation and THROWS, mirroring the
- *  loud `default:` in `fold-stmt-emit.ts` and hono's `renderFoldStatement` — a
- *  dropped statement is worse than a crash, because it ships. */
-function renderProjectionFoldStmt(
-  s: StmtIR,
+/** One fold-plan step as an Elixir rebinding of `state` (or a `let` local). */
+function renderProjectionFoldStep(
+  step: FoldStep,
   proj: ProjectionIR,
-  on: ProjectionOnIR,
-  corr: string,
   renderCtx: RenderCtx,
   datetimeFields: ReadonlySet<string>,
-): FoldPiece | undefined {
-  const truncated = (field: string, rendered: string): string =>
-    datetimeFields.has(field)
-      ? `(${rendered}) |> then(&(&1 && ${normalizeDatetime("&1")}))`
-      : rendered;
-  switch (s.kind) {
-    case "assign": {
-      const field = snake(s.target.segments[0] ?? "");
-      // The correlation `:=` is the immutable primary key, seeded at allocation.
-      if (field === snake(corr)) return undefined;
-      return {
-        kind: "entry",
-        text: `${field}: ${truncated(field, renderExpr(s.value, renderCtx))}`,
-      };
-    }
+): string {
+  const expr = (e: ExprIR): string => renderExpr(e, renderCtx);
+  const write = (field: string, value: string): string => `state = %{state | ${field}: ${value}}`;
+  switch (step.kind) {
     case "let":
-      return {
-        kind: "binding",
-        text: `${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, renderCtx)}`,
-      };
-    case "add": {
-      const field = snake(s.target.segments[0] ?? "");
-      const value = renderExpr(s.value, renderCtx);
-      return {
-        kind: "entry",
-        text: s.collection
-          ? `${field}: (state.${field} || []) ++ [${value}]`
-          : `${field}: ${accumulateElixir(proj, s.target.segments[0] ?? "", field, "+", value)}`,
-      };
-    }
-    case "remove": {
-      const field = snake(s.target.segments[0] ?? "");
-      const value = renderExpr(s.value, renderCtx);
-      return {
-        kind: "entry",
-        text: s.collection
-          ? `${field}: List.delete(state.${field} || [], ${value})`
-          : `${field}: ${accumulateElixir(proj, s.target.segments[0] ?? "", field, "-", value)}`,
-      };
-    }
-    case "emit":
-    case "call":
-    case "precondition":
-    case "requires":
-    case "expression":
-    case "return":
-    case "variant-match":
-    case "if":
-      throw new Error(
-        `elixir projection fold: unsupported fold statement '${s.kind}' in ` +
-          `projection '${proj.name}' on(${on.param}: ${on.event}) — a fold applies pure ` +
-          `assignments / collection mutations / let bindings only; ` +
-          `'loom.projection-fold-impure' should have rejected this.`,
+      return `${escapeElixirIdent(snake(step.name))} = ${expr(step.expr)}`;
+    case "set": {
+      const field = snake(step.field);
+      const rendered = expr(step.value);
+      // A `:utc_datetime` column holds seconds; `change/2` does not truncate.
+      return write(
+        field,
+        datetimeFields.has(field)
+          ? `(${rendered}) |> then(&(&1 && ${normalizeDatetime("&1")}))`
+          : rendered,
       );
+    }
+    case "accumulate":
+      return write(
+        snake(step.field),
+        accumulateElixir(proj, step.field, snake(step.field), step.op, expr(step.value)),
+      );
+    case "append": {
+      const field = snake(step.field);
+      return write(field, `(state.${field} || []) ++ [${expr(step.value)}]`);
+    }
+    case "remove-all": {
+      const field = snake(step.field);
+      return write(
+        field,
+        `Enum.reject(state.${field} || [], fn loom_el -> loom_el == ${expr(step.value)} end)`,
+      );
+    }
     default: {
-      const _exhaustive: never = s;
+      const _exhaustive: never = step;
+      return _exhaustive;
+    }
+  }
+}
+
+/** A fresh row's starting value for one column. */
+function exRowSeed(sd: FoldRowSeed, renderCtx: RenderCtx): string {
+  if (sd.kind === "default") return renderExpr(sd.expr, renderCtx);
+  switch (sd.zero) {
+    case "int":
+      return "0";
+    case "decimal":
+    case "money":
+      return "Decimal.new(0)";
+    case "bool":
+      return "false";
+    case "string":
+      return `""`;
+    case "list":
+      return "[]";
+    default: {
+      const _exhaustive: never = sd.zero;
       return _exhaustive;
     }
   }
@@ -940,9 +947,9 @@ function renderProjectionFoldStmt(
 /** `state.<field> <op>= <value>` over a NULLABLE read-model column.  Elixir
  *  models BOTH `money` and `decimal` as `Decimal` structs, which have no `+`
  *  operator — they accumulate through `Decimal.add/2` / `Decimal.sub/2` (see the
- *  DECIMAL == MONEY note in `render-expr.ts`).  Every non-key projection column
- *  is nullable (the allocate seeds the key only), so the running total coalesces
- *  first: otherwise the first event for a key folds `nil + n`. */
+ *  DECIMAL == MONEY note in `render-expr.ts`).  The column is nullable and a
+ *  row written before its column was seeded holds nil, so the running total
+ *  coalesces first. */
 function accumulateElixir(
   proj: ProjectionIR,
   declaredName: string,

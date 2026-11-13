@@ -30,7 +30,7 @@ import {
   wireFieldsForPart,
 } from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
-import type { BoundedContextIR, TypeIR } from "../../src/ir/types/loom-ir.js";
+import type { BoundedContextIR, ExprIR, TypeIR } from "../../src/ir/types/loom-ir.js";
 import { declaredResponseFor } from "../../src/ir/util/declared-response.js";
 import { dddSourceOf, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 import { parseString } from "../_helpers/parse.js";
@@ -43,6 +43,7 @@ type Divergence =
   | "containment-response-suffix"
   | "optional-containment-type"
   | "provenanced-carrier-lost"
+  | "mask-lost"
   | "field-order";
 
 /** The exact divergence set, measured 2026-09-22 on the C4 coordinator head.
@@ -93,10 +94,10 @@ const BASELINE: Record<string, Divergence> = {
 
 /** The comparable identity of one wire row.  Deliberately narrow: the two
  *  sides are different types (`WireField` vs the record's `FieldIR`) and only
- *  name + type + nullability are common to both — which is exactly the tuple a
- *  DTO emitter renders. */
-const key = (w: { name: string; type: TypeIR; optional?: boolean }): string =>
-  `${w.name}:${JSON.stringify(w.type)}:${w.optional ? "?" : "!"}`;
+ *  name + type + nullability + read mask are common to both — which is exactly
+ *  the tuple a DTO emitter renders (a masked field renders nullable). */
+const key = (w: { name: string; type: TypeIR; optional?: boolean; maskUnless?: ExprIR }): string =>
+  `${w.name}:${JSON.stringify(w.type)}:${w.optional ? "?" : "!"}:${JSON.stringify(w.maskUnless ?? null)}`;
 
 function classify(derived: string[], declared: string[]): Divergence | undefined {
   if (JSON.stringify(derived) === JSON.stringify(declared)) return undefined;
@@ -114,6 +115,8 @@ function classify(derived: string[], declared: string[]): Divergence | undefined
   if (dOnly.some((x) => !rNames.has(x.split(":")[0]))) return "missing-in-record";
   if (rOnly.some((x) => x.includes('"kind":"optional"'))) return "optional-containment-type";
   if (dOnly.some((x) => x.includes('"ctor":"provenanced"'))) return "provenanced-carrier-lost";
+  if (dOnly.some((x) => !x.endsWith(":null")) || rOnly.some((x) => !x.endsWith(":null")))
+    return "mask-lost";
   return "containment-response-suffix";
 }
 
@@ -131,11 +134,9 @@ async function census(): Promise<{
   found: Record<string, Divergence>;
   nodes: number;
   uncontracted: string[];
-  derivedFallback: string[];
 }> {
   const found: Record<string, Divergence> = {};
   const uncontracted: string[] = [];
-  const derivedFallback: string[] = [];
   let nodes = 0;
   for (const { name, source } of corpusFixtures()) {
     const { model, errors } = await parseString(source, { validate: true });
@@ -147,14 +148,11 @@ async function census(): Promise<{
     for (const sys of enriched.systems)
       for (const sd of sys.subdomains) contexts.push(...sd.contexts);
     for (const ctx of contexts) {
-      const byName = new Map(ctx.payloads.map((p) => [p.name, p]));
       for (const agg of ctx.aggregates) {
         const derived = forApiRead(wireFieldsForAggregate(agg)).map(key);
-        const rec = byName.get(`${agg.name}Response`);
+        // The record as every response emitter reads it — masks attached.
+        const rec = declaredResponseFor(ctx.payloads, agg);
         if (!rec) uncontracted.push(`${name} ${ctx.name}.${agg.name}`);
-        if (rec && !declaredResponseFor(ctx.payloads, agg)) {
-          derivedFallback.push(`${name} ${ctx.name}.${agg.name}`);
-        }
         if (rec) {
           nodes++;
           // The record omits the grammar-reserved `id` row; re-prepend it so the
@@ -163,7 +161,7 @@ async function census(): Promise<{
           if (d) found[`${name} ${ctx.name}.${agg.name}`] = d;
         }
         for (const part of agg.parts) {
-          const prec = byName.get(`${part.name}Response`);
+          const prec = declaredResponseFor(ctx.payloads, part);
           if (!prec) {
             uncontracted.push(`${name} ${ctx.name}.${agg.name}.${part.name}`);
             continue;
@@ -176,7 +174,7 @@ async function census(): Promise<{
       }
     }
   }
-  return { found, nodes, uncontracted, derivedFallback };
+  return { found, nodes, uncontracted };
 }
 
 /** Nodes the scaffold contracts NOTHING for.  A node with no record is invisible
@@ -185,28 +183,14 @@ async function census(): Promise<{
  *  without anything being fixed. */
 const UNCONTRACTED: string[] = [];
 
-/** Aggregates whose record exists but which the response emitters still render
- *  from the derived shape: a record field cannot carry `mask unless`, so
- *  `declaredResponseFor` keeps a masked aggregate on the derived path (which
- *  does carry the predicate).  Pinned exactly so the gap stays visible; it
- *  closes when records carry `mask unless` (#4816) and this list empties. */
-const DERIVED_FALLBACK = [
-  "audit-history-guarded.ddd Staff.Employee",
-  "audit-history-guarded.ddd Staff.Payslip",
-  "cache-by-id.ddd Catalog.Item",
-  "field-mask.ddd Staff.Employee",
-  "shareable.ddd Catalog.Category",
-];
-
 describe("wire shape vs. the declared response contract (M-T5.40 census)", () => {
   it("diverges on exactly the baselined nodes — shrink-only", async () => {
-    const { found, nodes, uncontracted, derivedFallback } = await census();
+    const { found, nodes, uncontracted } = await census();
 
     // The denominator: a census over an empty population proves nothing, and a
     // node the scaffold never contracts is one the comparison cannot see.
     expect(nodes).toBeGreaterThanOrEqual(120);
     expect(uncontracted.sort()).toEqual(UNCONTRACTED);
-    expect(derivedFallback.sort()).toEqual(DERIVED_FALLBACK);
 
     const fixed = Object.keys(BASELINE).filter((k) => !(k in found));
     expect(

@@ -48,6 +48,7 @@
     "@mantine/core": "^7.13.0",
     "@mantine/hooks": "^7.13.0",
     "@mantine/spotlight": "^7.17.8",
+    "@vue/compiler-sfc": "3.5.44",
     "@xyflow/react": "^12.10.2",
     "buffer": "^6.0.3",
     "dompurify": "^3.4.12",
@@ -63,6 +64,7 @@
     "react-arborist": "^3.7.0",
     "react-dom": "^19.0.0",
     "react-resizable-panels": "^4.11.1",
+    "svelte": "5.57.2",
     "vscode-languageclient": "~9.0.1",
     "vscode-ws-jsonrpc": "~3.5.0"
   },
