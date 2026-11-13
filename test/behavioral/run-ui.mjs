@@ -45,6 +45,7 @@ import { copyLocales, localesBeside } from "./case-source.mjs";
 import {
   driveAddVehicle,
   driveUpdate,
+  judgeDetailCollections,
   judgeFormSpec,
   judgeVehicleAdded,
   judgePartTable,
@@ -290,6 +291,7 @@ async function formSpecProbe(origin) {
       }
       why.push(...judgeVehicleAdded(after));
     }
+    if (why.length === 0) why.push(...(await judgeDetailCollections(page, origin, before.id)));
     if (why.length === 0) {
       await seedCoverage(origin, before.id);
       why.push(...(await judgePartTable(page, origin, before.id)));

@@ -186,3 +186,24 @@ export async function judgePartTable(page, origin, id) {
   if (!text.includes("777")) why.push(`coverages: the limit amount cell is missing (card text ${JSON.stringify(text.slice(0, 300))})`);
   return why;
 }
+
+/** The Detail page shows the record's array fields: the joined strings, the
+ *  enum items and the value-object rows, each where its test id says. */
+export async function judgeDetailCollections(page, origin, id) {
+  await page.goto(`${origin}/policies/${id}`);
+  const why = [];
+  const expect = [
+    ["policies-detail-tags", "a, b"],
+    ["policies-detail-perils", "Fire"],
+    ["policies-detail-riders", "R1"],
+  ];
+  for (const [testId, text] of expect) {
+    const el = page.locator(`[data-testid="${testId}"]`).first();
+    const ok = await el
+      .waitFor({ state: "attached", timeout: 15000 })
+      .then(async () => (await el.innerText()).includes(text))
+      .catch(() => false);
+    if (!ok) why.push(`${testId}: the detail page does not show "${text}"`);
+  }
+  return why;
+}
