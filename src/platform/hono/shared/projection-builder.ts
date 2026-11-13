@@ -176,7 +176,9 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
     ...enumPool(ctx)
       .filter((e) => new RegExp(`\\b${e.name}\\.`).test(bodyText))
       .map((e) => e.name),
-    ...valueObjectPool(ctx).filter((vo) => new RegExp(`\\bnew ${vo.name}\\(`).test(bodyText)).map((vo) => vo.name),
+    ...valueObjectPool(ctx)
+      .filter((vo) => new RegExp(`\\bnew ${vo.name}\\(`).test(bodyText))
+      .map((vo) => vo.name),
   ];
   const enumValueImportLine =
     enumValueImports.length > 0
@@ -368,7 +370,9 @@ function emitFoldHandler(
       const tmp = `__seed_${sd.field.name}`;
       return {
         pre: [`  const ${tmp} = ${renderTsExpr(sd.expr, { thisName: "state" })};`],
-        entries: voLeafValues(sd.field.name, sd.field.type, ctxDecls, tmp).map((l) => `${l.prop}: ${l.value}`),
+        entries: voLeafValues(sd.field.name, sd.field.type, ctxDecls, tmp).map(
+          (l) => `${l.prop}: ${l.value}`,
+        ),
       };
     }
     return { pre: [] as string[], entries: [`${sd.field.name}: ${tsRowSeed(sd)}`] };
@@ -485,7 +489,9 @@ function renderFoldStep(
         const tmp = `__${field}`;
         return [
           `  const ${tmp} = ${rendered};`,
-          ...voLeafValues(field, step.type, voFields, tmp).map((l) => `  state.${l.prop} = ${l.value};`),
+          ...voLeafValues(field, step.type, voFields, tmp).map(
+            (l) => `  state.${l.prop} = ${l.value};`,
+          ),
         ].join("\n");
       }
       return `  state.${field} = ${toColumn(step.type, rendered)};`;

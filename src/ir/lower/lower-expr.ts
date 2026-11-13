@@ -1674,8 +1674,17 @@ function lowerBuilderCall(expr: BuilderCall, env: Env): ExprIR {
     // downstream, and a backend whose decimal is a real type rather than a
     // widening (Java's `BigDecimal`) cannot compile `new Money(0, …)` at all.
     const slotTypes = new Map(props.map((p) => [p.name, lowerType(p.type, env)]));
-    const call = lowerBuilderCallAsCall(expr, env, name, "value-object-ctor", fieldNames, slotTypes);
-    const optional = new Set(props.filter((p) => slotTypes.get(p.name)?.kind === "optional").map((p) => p.name));
+    const call = lowerBuilderCallAsCall(
+      expr,
+      env,
+      name,
+      "value-object-ctor",
+      fieldNames,
+      slotTypes,
+    );
+    const optional = new Set(
+      props.filter((p) => slotTypes.get(p.name)?.kind === "optional").map((p) => p.name),
+    );
     return completeValueObjectArgs(call, fieldNames, optional);
   }
   const ent = findEntityByName(env, name);
@@ -1798,7 +1807,11 @@ function rowBindingEnv(
  *  spelled when the names cannot be mapped (a mixed positional/named
  *  construction that repeats a slot, or a name that is not a field) or a
  *  required field is missing — the validator reports those. */
-function completeValueObjectArgs(call: ExprIR, fieldNames: string[], optional: ReadonlySet<string>): ExprIR {
+function completeValueObjectArgs(
+  call: ExprIR,
+  fieldNames: string[],
+  optional: ReadonlySet<string>,
+): ExprIR {
   if (call.kind !== "call" || !call.argNames) return call;
   const names = call.argNames;
   if (names.some((n) => n === undefined || !fieldNames.includes(n))) return call;
