@@ -69,11 +69,11 @@ export function renderFoldStatement(s: StmtIR, ctx: RenderCtx, opts: FoldOpts = 
         : `    ${state} = %{${state} | ${field}: ${state}.${field} + ${value}}`;
     }
     case "remove": {
-      // `xs -= v` drops the first matching element; scalar `n -= v` subtracts.
+      // `xs -= v` drops every matching element; scalar `n -= v` subtracts.
       const field = snake(s.target.segments[0] ?? "");
       const value = renderFoldValue(s.value, ctx, opts);
       return s.collection
-        ? `    ${state} = %{${state} | ${field}: List.delete(${state}.${field} || [], ${value})}`
+        ? `    ${state} = %{${state} | ${field}: Enum.reject(${state}.${field} || [], fn loom_e -> loom_e == ${value} end)}`
         : `    ${state} = %{${state} | ${field}: ${state}.${field} - ${value}}`;
     }
     case "let":

@@ -58,7 +58,9 @@ describe("vanilla returning op — reference-collection add/remove (DEBT-03)", (
     // `add` binds the id-list local off the loaded assoc (NOT a struct-rebind).
     expect(ctx!).toMatch(/members = __ref_id_list\(record\.members\) \+\+ \[t\]/);
     // `remove` drops from the id list.
-    expect(ctx!).toMatch(/members = List\.delete\(__ref_id_list\(record\.members\), t\)/);
+    expect(ctx!).toMatch(
+      /members = Enum\.reject\(__ref_id_list\(record\.members\), fn loom_e -> loom_e == t end\)/,
+    );
     // The success path persists the join table via a put_assoc changeset.
     expect(ctx!).toMatch(
       /Ecto\.Changeset\.put_assoc\(:members, __resolve_refs\(members, Api\.Membership\.Tag\)\)/,
