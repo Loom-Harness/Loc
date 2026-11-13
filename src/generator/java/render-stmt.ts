@@ -117,7 +117,16 @@ function javaStmtTarget(ctx: JavaRenderContext, traceCtx: JavaTraceCtx): StmtTar
       // and a later `field += v` appends in place.
       const rhs = renderJavaExpr(s.value, ctx);
       const value = s.targetType.kind === "array" ? `new java.util.ArrayList<>(${rhs})` : rhs;
-      const base = `${INDENT}${renderPath(s.target)} = ${value};`;
+      const t = s.targetType;
+      // A contained-part collection is an `orphanRemoval` association: Hibernate
+      // refuses a REPLACED collection at flush ("no longer referenced by the
+      // owning entity instance"), so `:=` replaces its CONTENTS in place —
+      // copy the new elements first (the value usually reads the list it is
+      // about to clear), then clear and refill.
+      const base =
+        t.kind === "array" && t.element.kind === "entity" && t.element.declKind === "part"
+          ? `${INDENT}{ var __parts = ${value}; ${renderPath(s.target)}.clear(); ${renderPath(s.target)}.addAll(__parts); }`
+          : `${INDENT}${renderPath(s.target)} = ${value};`;
       // NOTE the wrap ORDER: java (like .NET / python) puts `value_computed`
       // INSIDE the provenance capture; node puts it outside.  Preserved.
       return withProvCapture(

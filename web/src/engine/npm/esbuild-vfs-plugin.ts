@@ -79,6 +79,90 @@ const NODE_BUILTINS = new Set([
 // An emulated broker replaces these stubs with facades over the same exports.
 const unavailable = (pkg: string): string =>
   `const unavailable = (what) => { throw new Error(${JSON.stringify(pkg)} + ": " + what + " is not available in the browser preview, which boots with infra: 'in-process'"); };`;
+// `node:async_hooks` for the browser preview.  A backend keeps per-request
+// state (the current user, the tenant, the request logger) in
+// `AsyncLocalStorage`, and work it starts outside a request (channel
+// consumers, `every:` / `cron:` timers, the outbox relay) runs its own
+// `run(...)` that can interleave with a request's awaits.  Each async chain
+// must therefore see its own store, as on Node.
+//
+// The context is one immutable map (storage → store) that is current while a
+// callback runs.  It travels with the continuation: `Promise.prototype.then`,
+// `queueMicrotask`, `setTimeout` and `setInterval` capture the context at the
+// moment a callback is scheduled and restore it while the callback runs, and
+// `Promise.resolve` runs a non-native thenable's `then` (an ORM query builder)
+// in the context it was awaited from, as Node does.  A
+// native `await` does not call `then`, so the backend bundle lowers
+// `async`/`await` (`BACKEND_LOWERED_SYNTAX`) and every continuation goes
+// through the patched `then`.  The patches install once per realm.  Host code
+// outside the bundle that calls a bundle callback back after its own native
+// awaits (the storage client's `transaction`) binds it on entry through
+// `bindToCallerContext` (`web/src/runtime/async-context.ts`).
+export const ASYNC_HOOKS_POLYFILL = [
+  "const KEY = Symbol.for('loom.asyncContext');",
+  "const g = globalThis;",
+  "if (!g[KEY]) {",
+  "  const state = { current: new Map() };",
+  "  const bind = (fn, ctx) => typeof fn !== 'function' ? fn : function (...a) {",
+  "    const prev = state.current; state.current = ctx;",
+  "    try { return fn.apply(this, a); } finally { state.current = prev; }",
+  "  };",
+  "  const then = Promise.prototype.then;",
+  "  Promise.prototype.then = function (f, r) { return then.call(this, bind(f, state.current), bind(r, state.current)); };",
+  "  const resolve = Promise.resolve;",
+  "  const later = (cb) => then.call(resolve.call(Promise), cb);",
+  "  Promise.resolve = function (x) {",
+  "    if (x !== null && (typeof x === 'object' || typeof x === 'function') && !(x instanceof Promise)) {",
+  "      let t;",
+  "      try { t = x.then; } catch (e) { return Promise.reject(e); }",
+  "      if (typeof t === 'function') {",
+  "        const ctx = state.current;",
+  "        return new this((res, rej) => later(bind(() => { try { t.call(x, res, rej); } catch (e) { rej(e); } }, ctx)));",
+  "      }",
+  "    }",
+  "    return resolve.call(this, x);",
+  "  };",
+  "  if (typeof g.queueMicrotask === 'function') { const qm = g.queueMicrotask; g.queueMicrotask = (cb) => qm.call(g, bind(cb, state.current)); }",
+  "  for (const t of ['setTimeout', 'setInterval']) {",
+  "    const orig = g[t];",
+  "    if (typeof orig === 'function') g[t] = function (cb, ...a) { return orig.call(g, bind(cb, state.current), ...a); };",
+  "  }",
+  "  state.bindCurrent = (fn) => bind(fn, state.current);",
+  "  g[KEY] = state;",
+  "}",
+  "const state = g[KEY];",
+  "const withStore = (als, store) => { const next = new Map(state.current); if (store === undefined) next.delete(als); else next.set(als, store); return next; };",
+  "class AsyncLocalStorage {",
+  "  run(store, fn, ...a) {",
+  "    const prev = state.current; state.current = withStore(this, store);",
+  "    try { return fn(...a); } finally { state.current = prev; }",
+  "  }",
+  "  exit(fn, ...a) {",
+  "    const prev = state.current; state.current = withStore(this, undefined);",
+  "    try { return fn(...a); } finally { state.current = prev; }",
+  "  }",
+  "  getStore() { return state.current.get(this); }",
+  "  enterWith(store) { state.current = withStore(this, store); }",
+  "  disable() { state.current = withStore(this, undefined); }",
+  "}",
+  "class AsyncResource {",
+  "  constructor() { this._ctx = state.current; }",
+  "  runInAsyncScope(fn, that, ...a) { const prev = state.current; state.current = this._ctx; try { return fn.apply(that, a); } finally { state.current = prev; } }",
+  "  emitDestroy() {}",
+  "  bind(fn) { return (...a) => this.runInAsyncScope(fn, undefined, ...a); }",
+  "}",
+  "module.exports = { AsyncLocalStorage, AsyncResource, default: { AsyncLocalStorage, AsyncResource } };",
+].join("\n");
+
+/** esbuild `supported` overrides for a backend bundle: lower `async` / `await`
+ *  onto generators so each continuation runs through `Promise.prototype.then`,
+ *  which carries the `ASYNC_HOOKS_POLYFILL` context. */
+export const BACKEND_LOWERED_SYNTAX: Record<string, boolean> = {
+  "async-await": false,
+  "async-generator": false,
+  "for-await": false,
+};
+
 export const BROWSER_STUBBED_PACKAGES: Record<string, string> = {
   ioredis: [
     unavailable("ioredis"),
@@ -354,40 +438,9 @@ export function makeVfsNpmPlugin(
           };
         }
         // async_hooks — generated obs/als.ts constructs
-        // `new AsyncLocalStorage()`.  The empty stub makes the
-        // constructor undefined → crash at module init.  The polyfill keeps
-        // one store slot: `run` holds `store` until `fn` returns — or, when
-        // `fn` returns a promise, until that promise settles — so the request
-        // context (`requireCurrentUser()`, the request logger) survives the
-        // awaits inside a request.  It is correct while one request runs at a
-        // time, which the runtime worker guarantees by serving its RPCs in
-        // order (`runtime.worker.ts`).
+        // `new AsyncLocalStorage()`; see ASYNC_HOOKS_POLYFILL.
         if (name === "async_hooks") {
-          return {
-            contents: [
-              "class AsyncLocalStorage {",
-              "  constructor() { this._store = undefined; }",
-              "  run(store, fn, ...a) {",
-              "    const prev = this._store;",
-              "    this._store = store;",
-              "    let out;",
-              "    try { out = fn(...a); } catch (e) { this._store = prev; throw e; }",
-              "    if (out && typeof out.then === 'function') {",
-              "      return Promise.resolve(out).finally(() => { this._store = prev; });",
-              "    }",
-              "    this._store = prev;",
-              "    return out;",
-              "  }",
-              "  getStore() { return this._store; }",
-              "  enterWith(store) { this._store = store; }",
-              "  exit(fn) { return fn(); }",
-              "  disable() {}",
-              "}",
-              "class AsyncResource { constructor() {} runInAsyncScope(fn, that, ...a) { return fn.apply(that, a); } emitDestroy() {} bind(fn) { return fn; } }",
-              "module.exports = { AsyncLocalStorage, AsyncResource, default: { AsyncLocalStorage, AsyncResource } };",
-            ].join("\n"),
-            loader: "js",
-          };
+          return { contents: ASYNC_HOOKS_POLYFILL, loader: "js" };
         }
         // util — pino/sonic-boom depend on `util.inherits` (and
         // `util.format`).  The empty stub returns undefined for both,

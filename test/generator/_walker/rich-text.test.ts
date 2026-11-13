@@ -94,7 +94,12 @@ describe("rich text: one whole-sentence message per target", () => {
       expect(catalog[KEY]).toBe(SENTENCE);
       // No fragment keys: the emphasis text and the trailing text are NOT
       // separate catalog messages.
-      expect(Object.keys(catalog).filter((k) => k.startsWith("WebApp.page.Home."))).toEqual([KEY]);
+      // (A page's own `name` entry is the page's label, not a fragment.)
+      expect(
+        Object.keys(catalog).filter(
+          (k) => k.startsWith("WebApp.page.Home.") && !k.includes(".name."),
+        ),
+      ).toEqual([KEY]);
       const page = pageOf(files, suffix);
       expect(page).toContain(KEY);
       // The runtime call that returns the styled markup: `tRich` (JS), `I18n.rich` (F#).

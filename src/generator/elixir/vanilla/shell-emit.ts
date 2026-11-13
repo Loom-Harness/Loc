@@ -1925,11 +1925,22 @@ if config_env() == :prod do
   host = System.get_env("PHX_HOST") || "example.com"
   port = String.to_integer(System.get_env("PORT") || "4000")
 
+  # The IPv6 wildcard with v6only off serves IPv4 too (k8s probes dial the
+  # pod's IPv4 address) — but only a kernel with IPv6 can open it: on a host
+  # booted without IPv6 the listener fails with eafnosupport, so bind the IPv4
+  # wildcard there.
+  # (ipv6_v6only is an IPv6-socket option: on the IPv4 bind it is einval.)
+  {bind_ip, bind_opts} =
+    if File.exists?("/proc/net/if_inet6"),
+      do: {{0, 0, 0, 0, 0, 0, 0, 0}, [ipv6_v6only: false]},
+      else: {{0, 0, 0, 0}, []}
+
   config :${appName}, ${appModule}Web.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [
-      ip: {0, 0, 0, 0, 0, 0, 0, 0},
-      port: port
+      ip: bind_ip,
+      port: port,
+      thousand_island_options: [transport_options: bind_opts]
     ],
     secret_key_base: secret_key_base
 

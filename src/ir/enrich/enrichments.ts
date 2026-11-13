@@ -158,6 +158,7 @@ export function enrichLoomModel(loom: RawLoomModel): EnrichedLoomModel {
     sqlMigrationSteps: loom.sqlMigrationSteps,
     enumValueRenameIntents: loom.enumValueRenameIntents,
     ...(loom.unresolvedTypes ? { unresolvedTypes: loom.unresolvedTypes } : {}),
+    ...(loom.loweringViolations ? { loweringViolations: loom.loweringViolations } : {}),
     traceability: computeTraceability(loom),
   } as EnrichedLoomModel;
 }
@@ -2186,17 +2187,19 @@ function collectExecTests(loom: LoomModel): ExecTest[] {
   // Aggregate `test "..."` blocks → `describe("<agg>")` in the
   // generated `domain/<agg>.test.ts`, so the runner reports
   // `suite = agg.name`.
-  const fromContext = (ctx: BoundedContextIR): void => {
-    for (const agg of ctx.aggregates) {
-      for (const t of agg.tests) {
-        out.push({
-          name: t.name,
-          suite: agg.name,
-          kind: "unit",
-          verifiesTestCase: t.verifiesTestCase,
-        });
-      }
+  const pushAll = (tests: BoundedContextIR["tests"], suite: string): void => {
+    for (const t of tests) {
+      out.push({ name: t.name, suite, kind: "unit", verifiesTestCase: t.verifiesTestCase });
     }
+  };
+  // Value-object and domain-service tests report their subject's name as the
+  // `describe` title; context-level integration tests report
+  // `"<ctx> (integration)"`.
+  const fromContext = (ctx: BoundedContextIR): void => {
+    for (const agg of ctx.aggregates) pushAll(agg.tests, agg.name);
+    for (const vo of ctx.valueObjects) pushAll(vo.tests, vo.name);
+    for (const svc of ctx.domainServices) pushAll(svc.tests, svc.name);
+    pushAll(ctx.tests, `${ctx.name} (integration)`);
   };
   for (const sys of loom.systems) {
     for (const mod of sys.subdomains) for (const ctx of mod.contexts) fromContext(ctx);

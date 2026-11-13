@@ -73,9 +73,11 @@ export function emitDotnetSeeds(
   for (const ds of datasets) {
     const entries = ds.entries.filter((e) => aggByName.has(e.row.aggregate));
     if (entries.length === 0) continue;
-    fnBlocks.push(renderDatasetFn(ds.name, entries, aggByName, dapper, schemaFor));
+    fnBlocks.push(
+      renderDatasetFn(ds.name, ds.marker, ds.ident, entries, aggByName, dapper, schemaFor),
+    );
     callLines.push(
-      `        await Seed${upperFirst(ds.name)}(db, sp, requested, cancellationToken);`,
+      `        await Seed${upperFirst(ds.ident)}(db, sp, requested, cancellationToken);`,
     );
     // raw rows emit SQL only — they import no aggregate class/repository.
     for (const e of entries) if (!e.raw) usedAggs.add(e.row.aggregate);
@@ -90,6 +92,8 @@ export function emitDotnetSeeds(
 
 function renderDatasetFn(
   dataset: string,
+  marker: string,
+  ident: string,
   entries: Entry[],
   aggByName: Map<string, SeederAggregate>,
   dapper: boolean,
@@ -119,18 +123,18 @@ function renderDatasetFn(
       ? ["        await using var conn = await db.OpenConnectionAsync(cancellationToken);"]
       : [];
   return lines(
-    `    private static async Task Seed${upperFirst(dataset)}(`,
+    `    private static async Task Seed${upperFirst(ident)}(`,
     dapper ? "        NpgsqlDataSource db," : "        AppDbContext db,",
     "        IServiceProvider sp,",
     "        HashSet<string> requested,",
     "        CancellationToken cancellationToken)",
     "    {",
     `        if (!DatasetEnabled(${csStr(dataset)}, requested)) return;`,
-    `        if (await AlreadySeeded(db, ${csStr(dataset)}, cancellationToken)) return;`,
+    `        if (await AlreadySeeded(db, ${csStr(marker)}, cancellationToken)) return;`,
     ...repoDecls,
     ...rawConn,
     ...saveLines,
-    `        await MarkSeeded(db, ${csStr(dataset)}, cancellationToken);`,
+    `        await MarkSeeded(db, ${csStr(marker)}, cancellationToken);`,
     "    }",
     "",
   );
@@ -255,7 +259,7 @@ function renderSeedFile(
         `    private static async Task<bool> AlreadySeeded(${dbType} db, string dataset, CancellationToken cancellationToken)`,
         "    {",
         "        await using var conn = await db.OpenConnectionAsync(cancellationToken);",
-        `        return await conn${CS.Dapper}.ExecuteScalarAsync<int?>(new CommandDefinition("SELECT 1 FROM \\"__loom_seed\\" WHERE \\"dataset\\" = @dataset", new { dataset }, cancellationToken: cancellationToken)) is not null;`,
+        `        return await conn${CS.Dapper}.ExecuteScalarAsync<int?>(new CommandDefinition("SELECT 1 FROM \\"__loom_seed\\" WHERE \\"dataset\\" = @dataset OR \\"dataset\\" = split_part(@dataset, '/', 2)", new { dataset }, cancellationToken: cancellationToken)) is not null;`,
         "    }",
       ]
     : [
@@ -267,7 +271,7 @@ function renderSeedFile(
         "        try",
         "        {",
         "            await using var cmd = conn.CreateCommand();",
-        '            cmd.CommandText = "SELECT 1 FROM \\"__loom_seed\\" WHERE \\"dataset\\" = @dataset";',
+        '            cmd.CommandText = "SELECT 1 FROM \\"__loom_seed\\" WHERE \\"dataset\\" = @dataset OR \\"dataset\\" = split_part(@dataset, \'/\', 2)";',
         "            var p = cmd.CreateParameter();",
         '            p.ParameterName = "@dataset";',
         "            p.Value = dataset;",

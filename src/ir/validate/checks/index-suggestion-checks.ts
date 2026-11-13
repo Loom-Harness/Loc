@@ -7,7 +7,7 @@
 // (`find ... where`, a reified `filter`, a `criterion` body, or a `retrieval`'s
 // `where`) that has no covering leading-column index gets a
 // `loom.index-suggestion` WARNING naming the fix — the author opts in via
-// `resource index: Entity.col` (§3.2) if they agree.  Every spelling of one
+// `resource index: [Entity.col]` (§3.2) if they agree.  Every spelling of one
 // query counts: migrating a `find … where` to the criterion / retrieval form
 // must not silently drop the advice.
 //
@@ -17,7 +17,7 @@
 // `generate --json`).  Warning-only, so it can't flip a report's `ok` or block
 // generation (both are error-gated); `ddd parse` filters this code into a
 // `Suggestions:` footer.  Nothing is ever auto-derived — the author opts in via
-// `resource index: Entity.col` (§3.2) if they agree.
+// `resource index: [Entity.col]` (§3.2) if they agree.
 //
 // Coverage (a column is "already indexed", so no suggestion) — LEADING column
 // of any derived/declared index: an FK column, `tenant_id` (multi-tenancy
@@ -142,13 +142,14 @@ export function validateIndexSuggestions(sys: EnrichedSystemIR, diags: LoomDiagn
           if (isBooleanField(f.type)) continue;
           if (covered.has(snake(f.name))) continue;
           if (!fieldByName.has(f.name)) continue;
-          const where = resourceName
-            ? `\`index: ${agg.name}.${f.name}\` on resource '${resourceName}'`
-            : `\`index: ${agg.name}.${f.name}\` on its \`kind: state\` resource`;
           diags.push({
             severity: "warning",
             code: "loom.index-suggestion",
-            message: diagMessage("loom.index-suggestion", { name: agg.name, fName: f.name, where }),
+            message: diagMessage("loom.index-suggestion", {
+              name: agg.name,
+              fName: f.name,
+              resource: resourceName,
+            }),
             source: `${ctx.name}/${agg.name}`,
             origin: agg.origin,
           });

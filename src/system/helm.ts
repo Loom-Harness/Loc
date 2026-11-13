@@ -119,6 +119,13 @@ function renderValues(_sys: SystemIR, workloads: WorkloadModel[], brokers: Broke
       lines.push("    # values are placeholders — replace for production.");
       for (const e of w.secretEnv) lines.push(`    ${e.name}: ${JSON.stringify(e.value)}`);
     }
+    if (w.deployEnv.length > 0) {
+      lines.push("  wiring:");
+      lines.push("    # Endpoints the service has no in-cluster default for (an IdP,");
+      lines.push("    # an SMTP relay) or whose default is this chart's own Service.");
+      lines.push("    # An empty value fails the install — set it for your cluster.");
+      for (const e of w.deployEnv) lines.push(`    ${e.name}: ${JSON.stringify(e.value)}`);
+    }
     if (w.channelEnv.length > 0) {
       lines.push("  channels:");
       lines.push("    # Broker connection URLs (credentials ride the");
@@ -245,6 +252,16 @@ function renderConfigMapTemplate(w: WorkloadModel): string {
   lines.push('    {{- include "loom.labels" . | nindent 4 }}');
   lines.push("data:");
   for (const e of w.configEnv) lines.push(`  ${e.name}: ${JSON.stringify(e.value)}`);
+  // The env contract's deploy-tier wiring: an empty value refuses the install
+  // rather than letting the service fall back to a dev-compose host.
+  for (const e of w.deployEnv) {
+    const ref = `${v}.wiring.${e.name}`;
+    lines.push(
+      e.value === ""
+        ? `  ${e.name}: {{ required ${JSON.stringify(`set ${w.valuesKey}.wiring.${e.name}`)} ${ref} | quote }}`
+        : `  ${e.name}: {{ ${ref} | quote }}`,
+    );
+  }
   // Per-deployable env overlay from values.
   lines.push(`  {{- range $k, $val := ${v}.env }}`);
   lines.push("  {{ $k }}: {{ $val | quote }}");

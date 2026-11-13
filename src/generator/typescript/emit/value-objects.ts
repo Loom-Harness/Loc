@@ -1,9 +1,9 @@
 import type { BoundedContextIR, EnumIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
-import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
+import { lowerFirst } from "../../../util/naming.js";
 import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
 import { tsImportSlot } from "../../_imports/ts.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
 import { tsRuleParams } from "../wire-policy-ts.js";
@@ -139,7 +139,7 @@ function renderValueObject(v: ValueObjectIR): string[] {
   // (`ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`); see docs/debugging.md
   // (the generated TypeScript must stay erasable). Semantically identical output otherwise.
   const fieldDecls = v.fields.map(
-    (f) => `  readonly ${escapeTargetFieldMember("ts", f.name)}: ${renderTsType(f.type)};`,
+    (f) => `  readonly ${DOMAIN_NAMES.ts.field(f.name)}: ${renderTsType(f.type)};`,
   );
   // A constructor PARAMETER is a binding, so a field named after a reserved
   // word (`yield`, a strict-mode reserved word in every ES module) binds under
@@ -147,10 +147,10 @@ function renderValueObject(v: ValueObjectIR): string[] {
   // a legal TS property (eval item 6, ruling D2).
   const ctorParams = v.fields.map(
     (f, i) =>
-      `    ${escapeTsIdent(f.name)}: ${renderTsType(f.type)}${i < v.fields.length - 1 ? "," : ""}`,
+      `    ${DOMAIN_NAMES.ts.binding(f.name)}: ${renderTsType(f.type)}${i < v.fields.length - 1 ? "," : ""}`,
   );
   const ctorAssignments = v.fields.map(
-    (f) => `    this.${escapeTargetFieldMember("ts", f.name)} = ${escapeTsIdent(f.name)};`,
+    (f) => `    this.${DOMAIN_NAMES.ts.field(f.name)} = ${DOMAIN_NAMES.ts.binding(f.name)};`,
   );
   // Invariant violations throw DomainError, not a bare Error (S9): a VO
   // tripping on request input must surface through the ProblemDetails
@@ -169,11 +169,11 @@ function renderValueObject(v: ValueObjectIR): string[] {
   });
   const derived = v.derived.map(
     (d) =>
-      `  get ${escapeTargetFieldMember("ts", d.name)}(): ${renderTsType(d.type)} { return ${renderTsExpr(d.expr)}; }`,
+      `  get ${DOMAIN_NAMES.ts.field(d.name)}(): ${renderTsType(d.type)} { return ${renderTsExpr(d.expr)}; }`,
   );
   const fns = v.functions.flatMap((fn) => {
     const params = fn.params
-      .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+      .map((p) => `${DOMAIN_NAMES.ts.binding(p.name)}: ${renderTsType(p.type)}`)
       .join(", ");
     // Value-object functions are part of the VO's public surface — they're
     // invoked across aggregate boundaries (e.g. `probability.asFraction()`
@@ -188,8 +188,8 @@ function renderValueObject(v: ValueObjectIR): string[] {
   // their own `equals`, Decimal/Date compare by value, arrays element-wise).
   const fieldEqs = v.fields.map((f) =>
     fieldEquals(
-      `this.${escapeTargetFieldMember("ts", f.name)}`,
-      `other.${escapeTargetFieldMember("ts", f.name)}`,
+      `this.${DOMAIN_NAMES.ts.field(f.name)}`,
+      `other.${DOMAIN_NAMES.ts.field(f.name)}`,
       f.type,
     ),
   );

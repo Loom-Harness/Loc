@@ -86,6 +86,10 @@ export interface TsRenderContext {
    *  really are in scope (i.e. inside the method), which keeps every existing
    *  render byte-identical. */
   paramExpr?: (name: string) => string | undefined;
+  /** The symbol a bare (`free`) call name resolves to in the enclosing scope
+   *  (`src/generator/_symbols/plan.ts`) — a domain-service operation's sibling
+   *  calls.  `undefined` keeps the name as written. */
+  freeCall?: (name: string) => string | undefined;
 }
 
 const DEFAULT: TsRenderContext = { thisName: "this" };
@@ -561,7 +565,7 @@ function renderCall(
     // A `<Store>.<action>()` call (Stage 5) — frontend-only; never reaches a
     // backend domain expression.  Plain-call fall-through keeps the switch total.
     case "free":
-      return `${e.name}(${argList})`;
+      return `${ctx.freeCall?.(e.name) ?? e.name}(${argList})`;
   }
 }
 

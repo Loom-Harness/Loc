@@ -47,7 +47,7 @@ import { pageFileBase } from "../_frontend/page-identity.js";
 import { usesValueEquals } from "../_frontend/value-equals.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
 import { chromeKey, chromeMessage } from "../_walker/i18n-chrome.js";
-import { localizedPageTitle } from "../_walker/i18n-emit.js";
+import { localizedPageName, localizedPageTitle } from "../_walker/i18n-emit.js";
 import { pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";
@@ -889,6 +889,9 @@ function renderPage(
       titleDart = undefined;
     }
   }
+  // An untitled page's app-bar label: its catalog `name` entry under i18n
+  // (`undefined` otherwise — `appBarTitle` then spells the raw page name).
+  const nameDart = i18nEnabled ? localizedPageName(ui, page, flutterTarget) : undefined;
   if (page.body) {
     const result = walkBody(
       page.body,
@@ -990,6 +993,7 @@ function renderPage(
           storeMembers,
           derivedLines,
           titleDart,
+          nameDart,
           pageGate,
           credentialed,
           navMenu,
@@ -1008,6 +1012,7 @@ function renderPage(
         usesComponent,
         derivedLines,
         titleDart,
+        nameDart,
         credentialed,
         navMenu,
         localeSwitcher,
@@ -1066,6 +1071,9 @@ interface ConsumerBindings {
   /** The page `title:` as a Dart `String` expression (translated under i18n),
    *  or `undefined` — the page then wraps its `Scaffold` in a `Title`. */
   titleDart?: string;
+  /** The untitled page's name as a translated Dart `String` expression, or
+   *  `undefined` (no i18n, or the page has a `title:`). */
+  nameDart?: string;
   /** True when this page reads the verified session (a `requires` gate, or a
    *  `currentUser.<claim>` in its body) — the shell then binds `currentUser` and
    *  wraps the body in the gate. */
@@ -1083,9 +1091,16 @@ interface ConsumerBindings {
 
 /** The app bar's title widget: the page's authored `title:` — the same
  *  expression the document title uses, a catalog lookup under i18n — else the
- *  page's name, which has no catalog entry to translate. */
-function appBarTitle(pageName: string, titleDart: string | undefined): string {
-  return titleDart === undefined ? `const Text('${escapeDart(pageName)}')` : `Text(${titleDart})`;
+ *  page's name, a catalog lookup under i18n (`nameDart`) and the raw identifier
+ *  otherwise. */
+function appBarTitle(
+  pageName: string,
+  titleDart: string | undefined,
+  nameDart: string | undefined,
+): string {
+  if (titleDart !== undefined) return `Text(${titleDart})`;
+  if (nameDart !== undefined) return `Text(${nameDart})`;
+  return `const Text('${escapeDart(pageName)}')`;
 }
 
 /** The `AppBar(actions: …)` argument that mounts the language picker, or "". */
@@ -1156,6 +1171,8 @@ function renderStatelessPage(
     /** The page `title:` as a Dart `String` expression (translated under i18n),
      *  or `undefined` — the page then wraps its `Scaffold` in a `Title`. */
     titleDart?: string;
+    /** The untitled page's translated name expression (see `FlutterPageBody`). */
+    nameDart?: string;
     /** True when the deployable authenticates its api calls — the page shell
      *  then imports the credentialed `api_client.dart` drop-in instead of
      *  `package:http/http.dart`, so an inline `Action(<inst>.<op>)` POST and a
@@ -1194,7 +1211,9 @@ function renderStatelessPage(
   // The formatting / math sniffs run over the hoisted `derived` locals TOO — a
   // derived is an expression like any body slot, so `round(x)` in one pulls
   // `dart:math` exactly as it would inline.
-  const scan = [...opts.derivedLines, bodyWidget, opts.titleDart ?? ""].join("\n");
+  const scan = [...opts.derivedLines, bodyWidget, opts.titleDart ?? "", opts.nameDart ?? ""].join(
+    "\n",
+  );
   if (usesIntl(scan)) imports.push("import 'package:intl/intl.dart';");
   // The generated translation runtime — imported only when a text slot
   // in this page actually resolved to a `t(…)` call.
@@ -1217,7 +1236,7 @@ function renderStatelessPage(
     wrapPageTitle(
       [
         "    return Scaffold(",
-        `      appBar: AppBar(title: ${appBarTitle(page.name, opts.titleDart)}${appBarLocale(opts.localeSwitcher)}${opts.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
+        `      appBar: AppBar(title: ${appBarTitle(page.name, opts.titleDart, opts.nameDart)}${appBarLocale(opts.localeSwitcher)}${opts.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
         "      body: SingleChildScrollView(",
         `        child: ${indentContinuation(bodyWidget, 8)},`,
         "      ),",
@@ -1391,7 +1410,7 @@ function renderConsumerPage(
   // config / file_picker.
   // …and over the hoisted `derived` locals, which are expressions like any body
   // slot (a `round(…)` there pulls `dart:math` just the same).
-  const scan = `${projSource}\n${bodyWidget}\n${b.derivedLines.join("\n")}\n${b.titleDart ?? ""}`;
+  const scan = `${projSource}\n${bodyWidget}\n${b.derivedLines.join("\n")}\n${b.titleDart ?? ""}\n${b.nameDart ?? ""}`;
   // The money runtime rides the SAME scan: an `action` body doing
   // money arithmetic lands in the Notifier (projSource), not in the markup.
   if (usesMoney(scan)) imports.push("import '../money.dart';");
@@ -1445,7 +1464,7 @@ function renderConsumerPage(
     wrapPageTitle(
       [
         "    return Scaffold(",
-        `      appBar: AppBar(title: ${appBarTitle(page.name, b.titleDart)}${appBarLocale(b.localeSwitcher)}${b.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
+        `      appBar: AppBar(title: ${appBarTitle(page.name, b.titleDart, b.nameDart)}${appBarLocale(b.localeSwitcher)}${b.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
         "      body: SingleChildScrollView(",
         `        child: ${guarded},`,
         "      ),",

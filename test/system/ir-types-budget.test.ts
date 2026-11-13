@@ -37,8 +37,11 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "members.ts": 16,
   // +2: `LoomModel.unresolvedTypes` (absent on every model that validates) and
   // `UnresolvedTypeSite.origin` (absent for a node with no source span); +1:
-  // `EnumValueRenameIntentIR.context` (a root-level enum has no declaring context).
-  "model.ts": 11,
+  // `EnumValueRenameIntentIR.context` (a root-level enum has no declaring context);
+  // +2: `LoomModel.loweringViolations` (absent on every model that lowers
+  // well-formed) and `LoweringViolation.origin` (absent when the offending node
+  // and its statement carry no source span).
+  "model.ts": 13,
   "projection.ts": 16,
   "queries.ts": 1,
   "stmt.ts": 16,

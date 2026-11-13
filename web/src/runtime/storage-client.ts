@@ -13,6 +13,7 @@
 // the host.  Isolation from other deployables is the host's job
 // (`storage-scheduler.ts`).
 
+import { bindToCallerContext } from "./async-context.js";
 import type {
   StorageWireClosed,
   StorageWireRequest,
@@ -159,6 +160,8 @@ export class StorageClient {
   }
 
   async transaction<T>(callback: (tx: Transaction) => Promise<T>): Promise<T> {
+    // Runs after this client's own awaits: keep the caller's request context.
+    callback = bindToCallerContext(callback);
     await this.waitReady;
     const run = this.afterTx(async () => {
       let begun = false;

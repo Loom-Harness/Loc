@@ -36,7 +36,7 @@ export function applyDemoTenantSeed(m: EnrichedSubdomainIR, sys: SystemIR): Enri
       const registry = c.aggregates.find((a) => a.name === registryName);
       if (!registry || !registryOnPostgres(c.name, sys)) return c;
       const seed = demoTenantSeed(registry);
-      return seed ? { ...c, seeds: [...c.seeds, seed] } : c;
+      return seed ? { ...c, seeds: [...c.seeds, { ...seed, context: c.name }] } : c;
     }),
   };
 }
@@ -49,7 +49,7 @@ function registryOnPostgres(contextName: string, sys: SystemIR): boolean {
   return sys.storages.find((s) => s.name === ds.storageName)?.type === "postgres";
 }
 
-function demoTenantSeed(registry: EnrichedAggregateIR): SeedIR | undefined {
+function demoTenantSeed(registry: EnrichedAggregateIR): Omit<SeedIR, "context"> | undefined {
   if (registry.isAbstract || registry.extendsAggregate) return undefined;
   if (registry.persistedAs === "eventLog") return undefined;
   if (registry.savingShape && registry.savingShape !== "relational") return undefined;

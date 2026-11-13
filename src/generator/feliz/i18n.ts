@@ -131,6 +131,7 @@ export function renderFelizI18nModule(
     contexts,
     sentences: HAND_BUILT_FORM_SENTENCES.rows,
     implicitModelText: true,
+    pageNames: "navbar" as const,
     authGate,
   };
   const catalog = buildUiCatalog(ui, {}, scope);
