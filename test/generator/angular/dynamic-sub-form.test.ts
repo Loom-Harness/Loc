@@ -6,6 +6,7 @@
 // `[formGroupName]="$index"`), so every style (angularMaterial / primeng /
 // spartanNg) gets row rendering for free.  Proven to `ng build` for all three.
 
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
@@ -56,7 +57,7 @@ describe.each([
   it("renders a formArrayName block with @for rows bound to formGroupName", async () => {
     const c = await newComponent(design);
     expect(c).toContain('formArrayName="items"');
-    expect(c).toContain("@for (__row of itemsArray.controls; track $index)");
+    expect(c).toContain("@for (__row of itemsArray.controls; track $index; let __i = $index)");
     expect(c).toContain('[formGroupName]="$index"');
     // The reused row sub-field inputs bind by control name.
     expect(c).toContain('formControlName="sku"');
@@ -65,5 +66,21 @@ describe.each([
     expect(c).toContain('(click)="removeItems($index)"');
     expect(c).toContain('(click)="addItems()"');
     expect(c).toContain("Add Line Item");
+  });
+});
+
+// String assertion: the id is a template binding no compile tier observes; the
+// booted `form-spec` probe addresses rows by this exact id on every frontend.
+describe("angular dynamic sub-form row test ids", () => {
+  it("indexes each row's input id like the other frontends", async () => {
+    const all = await generateSystemFiles(
+      readFileSync("test/behavioral/form-spec-ui.ddd", "utf8").replaceAll("__FRONTEND__", "angular"),
+    );
+    const ts = [...all]
+      .filter(([p]) => p.endsWith(".ts"))
+      .map(([, c]) => c)
+      .join("\n");
+    expect(ts).toContain(`[attr.data-testid]="'policies-new-input-riders-' + __i + '-code'"`);
+    expect(ts).not.toContain("riders-row-input");
   });
 });
