@@ -134,7 +134,7 @@ const CELLS: readonly Cell[] = [
       // row's Action through its unpaged `<handle>.<Agg>.all` QueryView.
       "| ActivateCustomerThen (id, andThen) ->",
       // A list page's rows refetch once the op lands.
-      /\| ActivateCustomerDone \(Ok \(\)\) -> model, Cmd\.(batch|OfAsync)/,
+      /\| ActivateCustomerDone \(Ok \(\)\) -> model, pageCmd model model\.CurrentPage/,
     ],
   },
   {

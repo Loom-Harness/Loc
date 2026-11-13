@@ -1460,7 +1460,7 @@ Channel:
         ('carries'   ':' carries+=[EventDecl:ID] (',' carries+=[EventDecl:ID])* ','?)
         ('delivery'  ':' delivery=ChannelDelivery ','?)?
         ('retention' ':' retention=ChannelRetention ','?)?
-        ('key'       ':' key=ID ','?)?
+        ('key'       ':' key=PropertyName ','?)?
     '}';
 
 ChannelDelivery  returns string: 'broadcast' | 'queue';

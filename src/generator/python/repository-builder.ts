@@ -35,6 +35,7 @@ import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
 import { ROW_VERSION_COLUMN } from "../../util/row-version.js";
 import { pyGuardedSaveTail } from "./guarded-save-py.js";
+import { pyRefAdmissionHelper, pyRefAdmissionLines } from "./ref-admission.js";
 import { pyConflictRaise, pyNotFoundRaise } from "./wire-policy-py.js";
 
 /** The minimal read shape the query-time projection reuse feeds
@@ -387,6 +388,8 @@ export function buildPyRepositoryFile(
       ];
 
   const body = lines(
+    // The refusal a reference-admission probe miss raises (ref-admission.ts).
+    pyRefAdmissionHelper(agg, ctx),
     `class ${agg.name}Repository:`,
     `    def __init__(self, session: ${R.AsyncSession}, events: ${R.DomainEventDispatcher}) -> None:`,
     "        self._session = session",
@@ -1438,6 +1441,9 @@ function saveMethod(
       ? `    async def save(self, ${aggVar}: ${aggRef(agg)}, expected_version: int | None = None) -> None:`
       : `    async def save(self, ${aggVar}: ${aggRef(agg)}) -> None:`,
   ];
+  // Reference admission runs first, so a refused reference raises before
+  // anything is written.
+  out.push(...pyRefAdmissionLines(agg, ctx, aggVar));
   const rootPairs: Array<[string, string]> = [["id", `${aggVar}.id`]];
   if (kind) rootPairs.push(["kind", JSON.stringify(kind)]);
   for (const f of agg.fields) {

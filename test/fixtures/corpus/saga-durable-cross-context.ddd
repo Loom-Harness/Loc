@@ -20,6 +20,14 @@ system SagaDurableCrossContext {
         delivery: queue
         retention: work
       }
+      // A transactional workflow that emits the durable event: its outbox row
+      // is written by the workflow's own transaction.
+      workflow Relog transactional {
+        create(p: Product id) {
+          let x = Products.get(p)
+          emit ProductLogged { product: x.id, at: now() }
+        }
+      }
     }
   }
   subdomain Admin {
@@ -55,6 +63,7 @@ system SagaDurableCrossContext {
   test e2e "a command on the producing context emits across the durable channel" against d {
     let p = api.products.create({ sku: "s1" })
     api.products.record(p)
+    api.relog.run({ p: p.id })
     let got = api.products.getById(p)
     expect(got.sku).toBe("s1")
     api.products.update(p, { sku: "s2" })
