@@ -101,7 +101,10 @@ const IMAGE =
   process.env.LOOM_HEEX_UI_IMAGE ??
   "hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-20260610-slim";
 const PORT = Number(process.env.LOOM_HEEX_UI_PORT ?? "4111");
-const PG_DB = "heex_ui";
+// One database per case: both fixtures render migrations under the same
+// versions, so a shared database would mark the second case's migrations
+// applied and leave its tables uncreated.
+const PG_DB = CASE === "i18n" ? "heex_i18n" : "heex_ui";
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 
