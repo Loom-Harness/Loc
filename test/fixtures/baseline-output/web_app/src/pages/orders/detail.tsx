@@ -1,7 +1,7 @@
 // Auto-generated.  Do not edit by hand.
 import { useParams, Link as RouterLink } from "react-router";
 import { AddLineOrderRequest, ConfirmOrderRequest, OrderResponse, UpdateOrderRequest, useAddLineOrder, useConfirmOrder, useUpdateOrder } from "../../api/order";
-import { useAllProducts } from "../../api/product";
+import { useProductsOptions } from "../../api/product";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
 import { fieldErrorText } from "../../lib/field-error";
@@ -22,7 +22,7 @@ function openAddLineModal(mut: ReturnType<typeof useAddLineOrder>): void {
 }
 
 function AddLineForm({ mut, onClose }: { mut: ReturnType<typeof useAddLineOrder>; onClose: () => void }) {
-  const __products = useAllProducts();
+  const __products = useProductsOptions();
   const { handleSubmit, setError, control } = useForm<AddLineOrderRequest>({
     resolver: zodResolver(AddLineOrderRequest),
     defaultValues: { productId: "", qty: 0 },
@@ -50,7 +50,7 @@ function AddLineForm({ mut, onClose }: { mut: ReturnType<typeof useAddLineOrder>
           control={control}
           name="productId"
           render={({ field, fieldState }) => (
-            <Select label="Product Id" data-testid="orders-op-addLine-input-productId" placeholder={t("chrome.selectPlaceholder", "Select…")} searchable data={(__products.data?.items ?? []).map((__o) => ({ value: __o.id, label: __o.display }))} renderOption={({ option }) => <div data-testid={`orders-op-addLine-input-productId-option-${option.value}`}>{option.label}</div>} allowDeselect={false} value={field.value as string} onChange={(v) => field.onChange(v ?? "")} error={fieldState.error?.message} />
+            <Select label="Product Id" data-testid="orders-op-addLine-input-productId" placeholder={t("chrome.selectPlaceholder", "Select…")} searchable data={(__products.data ?? []).map((__o) => ({ value: __o.id, label: __o.display }))} renderOption={({ option }) => <div data-testid={`orders-op-addLine-input-productId-option-${option.value}`}>{option.label}</div>} allowDeselect={false} value={field.value as string} onChange={(v) => field.onChange(v ?? "")} error={fieldState.error?.message} />
           )}
         />
 

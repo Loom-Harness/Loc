@@ -94,7 +94,7 @@ const svelte: ArrayInputRenderer = (f) => {
 };
 
 /** The renderer per JSX-family framework. */
-export const ARRAY_INPUT_RENDERERS: Record<"react" | "vue" | "svelte", ArrayInputRenderer> = {
+const ARRAY_INPUT_RENDERERS: Record<"react" | "vue" | "svelte", ArrayInputRenderer> = {
   react,
   vue,
   svelte,
