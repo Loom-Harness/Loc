@@ -6885,6 +6885,9 @@ delivers durably. The migrations create the table on the same answer.
 `foldInboxClaimSql` and `foldInboxPurgeSql` are the one spelling of the claim
 and of the prune. The relay's retention purge deletes claims older than
 `LOOM_OUTBOX_RETENTION_DAYS`, the window in which the outbox can redeliver.
+The inbox is a schema change like any other: a module whose migration chain
+is already recorded gains the table when a fold starts deduping, and
+`generate system` refuses the model until `ddd migrate add` records it.
 
 **Why.** A fold is not idempotent: `seen += 1` applied twice counts twice, and
 at-least-once delivery does redeliver. A per-row `last_event_id`, the saga
