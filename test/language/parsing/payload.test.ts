@@ -5,7 +5,6 @@
 // conflict, duplicate field).
 
 import { describe, expect, it } from "vitest";
-import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
 import type { LspDiagnostic as Diagnostic } from "../../_helpers/diagnostics.js";
 import { parseString, parseValid } from "../../_helpers/parse.js";
