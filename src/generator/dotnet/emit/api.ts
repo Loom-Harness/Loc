@@ -6,6 +6,10 @@ import {
   wireStatus,
 } from "../../../ir/enrich/wire-policy.js";
 import { emitsRestCreate } from "../../../ir/enrich/wire-projection.js";
+import {
+  QUERY_PARAM_MISMATCH_MESSAGES,
+  type QueryParamMismatchKind,
+} from "../../../ir/plan/index.js";
 import type { AggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import { type ApiOperationIR, relativeOpPath } from "../../../ir/util/api-surface.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
@@ -1571,6 +1575,8 @@ public static class ValidationProblem
             string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase)
             && (p.ParameterType == typeof(Guid) || p.ParameterType == typeof(Guid?)));
 
+    ${csQueryMismatchMessageFn()}
+
     private static bool IsInt32Parameter(ActionContext context, string key) =>
         context.ActionDescriptor.Parameters.Any(p =>
             string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase)
@@ -1786,6 +1792,20 @@ public static class ValidationProblem
                             ["params"] = new Dictionary<string, object> { ["min"] = ${INTEGER_RANGE_PARAMS.min}, ["max"] = ${INTEGER_RANGE_PARAMS.max} },
                         };
                     }
+                    // A query / route value that does not parse as its declared
+                    // type reads its kind's ruled sentence; the binder only says
+                    // "is not valid".
+                    var mismatch = required || malformedId ? null
+                        : QueryMismatchMessage(context, entry.Key, error.ErrorMessage);
+                    if (mismatch is not null)
+                    {
+                        return new Dictionary<string, object>
+                        {
+                            ["pointer"] = PointerOf(entry.Key),
+                            ["message"] = mismatch,
+                            ["code"] = ${csLit(fieldCode("type-mismatch"))},
+                        };
+                    }
                     return new Dictionary<string, object>
                     {
                         ["pointer"] = PointerOf(entry.Key),
@@ -1971,4 +1991,37 @@ ${merges.map((m) => `        (${JSON.stringify(m.name)}, new[] { ${m.sources.map
     }
 }
 `;
+}
+
+/** `QueryMismatchMessage(context, key, binderMessage)`: the ruled
+ *  `type-mismatch` sentence (`queryParamMismatch`) of a query / route value
+ *  the binder could not convert, picked by the CLR type the action parameter
+ *  binds; null for any other model-state error. */
+function csQueryMismatchMessageFn(): string {
+  const kinds: readonly [QueryParamMismatchKind, readonly string[]][] = [
+    ["integer", ["int", "long"]],
+    ["decimal", ["decimal", "double"]],
+    ["bool", ["bool"]],
+    ["datetime", ["DateTime", "DateTimeOffset"]],
+    ["date", ["DateOnly"]],
+  ];
+  const arms = kinds.flatMap(([kind, types]) =>
+    types.map(
+      (t) =>
+        `            _ when type == typeof(${t}) || type == typeof(${t}?) => ${csLit(QUERY_PARAM_MISMATCH_MESSAGES[kind])},`,
+    ),
+  );
+  return `private static string? QueryMismatchMessage(ActionContext context, string key, string binderMessage)
+    {
+        if (!binderMessage.StartsWith("The value '", StringComparison.Ordinal)) return null;
+        var type = context.ActionDescriptor.Parameters
+            .FirstOrDefault(p => string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase))
+            ?.ParameterType;
+        if (type is null) return null;
+        return type switch
+        {
+${arms.join("\n")}
+            _ => null,
+        };
+    }`;
 }

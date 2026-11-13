@@ -81,6 +81,10 @@ import {
   wireFieldsFor,
 } from "../../../ir/enrich/wire-projection.js";
 import {
+  QUERY_PARAM_MISMATCH_MESSAGES,
+  type QueryParamMismatchKind,
+} from "../../../ir/plan/index.js";
+import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
   PAGED_MAX_PAGE,
@@ -2765,8 +2769,7 @@ const BODY_DATE = "z.string().date()";
  *  `preprocess`'s own signature under `--strict` on both (and the coercion's spurious
  *  `nullable: true` goes away with it, exactly as it did for `BODY_DATETIME`).
  *  An unrecognised spelling falls through to `z.boolean()`, i.e. a typed 422. */
-export const QUERY_BOOL =
-  'z.preprocess((v) => (v === "true" || v === "1" ? true : v === "false" || v === "0" ? false : v), z.boolean())';
+export const QUERY_BOOL = `z.preprocess((v) => (v === "true" || v === "1" ? true : v === "false" || v === "0" ? false : v), z.boolean({ error: ${JSON.stringify(QUERY_PARAM_MISMATCH_MESSAGES.bool)} }))`;
 
 /** A declared `int` is an `int4` COLUMN, so its wire form carries that bound and
  *  publishes `format: int32` — what .NET and java have always emitted.
@@ -2842,17 +2845,27 @@ const LONG_SAFE = `.refine((n: number) => n >= ${LONG_BOUND.min} && n <= ${LONG_
 const INT32_FORMAT = '.openapi({ format: "int32" })';
 const INT32 = `${INT32_RANGE}${INT32_FORMAT}`;
 
+/** zod's `{ error }` for a query/path value that does not parse as `kind` —
+ *  the ruled `type-mismatch` sentence (`queryParamMismatch`), which
+ *  `defaultHook` answers as `field.type-mismatch`. */
+const queryMismatch = (kind: QueryParamMismatchKind): string =>
+  `{ error: ${JSON.stringify(QUERY_PARAM_MISMATCH_MESSAGES[kind])} }`;
+
+/** A query-string / path-segment `date`: `BODY_DATE`'s parse, refused with the
+ *  query mismatch sentence. */
+const QUERY_DATE = `z.string().date(${queryMismatch("date")})`;
+
 const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
-  int: `z.coerce.number().int()${INT32}`,
-  long: `z.coerce.number().int()${LONG_SAFE}`,
-  decimal: "z.coerce.number()",
+  int: `z.coerce.number(${queryMismatch("integer")}).int(${queryMismatch("integer")})${INT32}`,
+  long: `z.coerce.number(${queryMismatch("integer")}).int(${queryMismatch("integer")})${LONG_SAFE}`,
+  decimal: `z.coerce.number(${queryMismatch("decimal")})`,
   money: "moneySchema",
   // A query string is the same Postgres `text` a body string is, so it gets
   // the same NUL guard — without it a `%00` reached the driver as a 500.
   string: `z.string()${NO_NUL}`,
   bool: QUERY_BOOL,
-  datetime: "z.coerce.date()",
-  date: BODY_DATE,
+  datetime: `z.coerce.date(${queryMismatch("datetime")})`,
+  date: QUERY_DATE,
   guid: "z.string()",
   json: "z.unknown()",
   File: FILE_REF_ZOD,

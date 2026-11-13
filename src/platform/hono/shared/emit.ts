@@ -1,5 +1,6 @@
 import {
   hasDurableEvents,
+  QUERY_PARAM_MISMATCH_MESSAGES,
   routedPolymorphicRead,
   workflowIsolation,
 } from "../../../ir/plan/index.js";
@@ -583,6 +584,10 @@ interface ZodIssueLike {
 /** The zod issue codes that mean the JSON value has the wrong type or shape. */
 const TYPE_MISMATCH_ISSUES: ReadonlySet<string> = new Set(["invalid_type", "invalid_value", "invalid_union", "unrecognized_keys"]);
 
+/** The ruled sentences a query/path value that does not parse as its declared
+ *  type answers with — set on the query schemas, read back here as the code. */
+const QUERY_MISMATCH_MESSAGES: ReadonlySet<string> = new Set(${JSON.stringify(Object.values(QUERY_PARAM_MISMATCH_MESSAGES))});
+
 /** The value at \`path\` in the request input, or undefined. */
 function valueAt(input: unknown, path: ReadonlyArray<PropertyKey>): unknown {
   let node: unknown = input;
@@ -600,6 +605,7 @@ function issueCode(issue: ZodIssueLike): string {
   if (issue.params?.loomCode) return issue.params.loomCode;
   if (issue.message === ${JSON.stringify(fieldFixedMessage("malformed-id"))}) return ${JSON.stringify(fieldCode("malformed-id"))};
   if (issue.message === ${JSON.stringify(fieldFixedMessage("integer-range"))}) return ${JSON.stringify(fieldCode("integer-range"))};
+  if (QUERY_MISMATCH_MESSAGES.has(issue.message)) return ${JSON.stringify(fieldCode("type-mismatch"))};
   if (TYPE_MISMATCH_ISSUES.has(issue.code ?? "")) return ${JSON.stringify(fieldCode("type-mismatch"))};
   return ${JSON.stringify(fieldCode("rule"))};
 }

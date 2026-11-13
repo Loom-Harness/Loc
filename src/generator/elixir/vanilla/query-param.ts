@@ -16,7 +16,11 @@
 //      reaches the query or the in-memory filter is the declared type.
 // ---------------------------------------------------------------------------
 
-import { type QueryParamCheck, queryParamCheck } from "../../../ir/plan/index.js";
+import {
+  QUERY_PARAM_MISMATCH_MESSAGES,
+  type QueryParamCheck,
+  queryParamCheck,
+} from "../../../ir/plan/index.js";
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import { exFieldCode, exFieldMessage, exLit, exMissingSuffix } from "../wire-policy-ex.js";
@@ -150,28 +154,28 @@ function renderQueryParamCheck(kinds: ReadonlySet<QueryParamCheck["kind"]>): str
     case Integer.parse(value) do
       {n, ""} when n >= min and n <= max -> nil
       {_, ""} -> {${exFieldCode("integer-range")}, ${exFieldMessage("integer-range")}, %{min: min, max: max}}
-      _ -> "Expected an integer between #{min} and #{max}."
+      _ -> ${exLit(QUERY_PARAM_MISMATCH_MESSAGES.integer)}
     end
   end`);
   }
   if (kinds.has("decimal")) {
     clauses.push(`  defp __find_param_error(value, :decimal, _required) do
     case Decimal.parse(value) do
-      {d, ""} -> if Decimal.inf?(d) or Decimal.nan?(d), do: "Expected a number.", else: nil
-      _ -> "Expected a number."
+      {d, ""} -> if Decimal.inf?(d) or Decimal.nan?(d), do: ${exLit(QUERY_PARAM_MISMATCH_MESSAGES.decimal)}, else: nil
+      _ -> ${exLit(QUERY_PARAM_MISMATCH_MESSAGES.decimal)}
     end
   end`);
   }
   if (kinds.has("bool")) {
     clauses.push(
-      `  defp __find_param_error(value, :bool, _required),\n    do: if(value in ["true", "false"], do: nil, else: "Expected true or false.")`,
+      `  defp __find_param_error(value, :bool, _required),\n    do: if(value in ["true", "false"], do: nil, else: ${exLit(QUERY_PARAM_MISMATCH_MESSAGES.bool)})`,
     );
   }
   if (kinds.has("datetime")) {
     clauses.push(`  defp __find_param_error(value, :datetime, _required) do
     case DateTime.from_iso8601(value) do
       {:ok, _, _} -> nil
-      _ -> "Expected an ISO 8601 date-time with an offset."
+      _ -> ${exLit(QUERY_PARAM_MISMATCH_MESSAGES.datetime)}
     end
   end`);
   }
@@ -179,7 +183,7 @@ function renderQueryParamCheck(kinds: ReadonlySet<QueryParamCheck["kind"]>): str
     clauses.push(`  defp __find_param_error(value, :date, _required) do
     case Date.from_iso8601(value) do
       {:ok, _} -> nil
-      _ -> "Expected an ISO 8601 date."
+      _ -> ${exLit(QUERY_PARAM_MISMATCH_MESSAGES.date)}
     end
   end`);
   }

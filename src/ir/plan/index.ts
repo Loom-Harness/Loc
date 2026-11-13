@@ -28,8 +28,11 @@ export { lookupOp } from "./operation-lookup.js";
 export {
   type ProjectionQueryParam,
   projectionQueryParams,
+  QUERY_PARAM_MISMATCH_MESSAGES,
   type QueryParamCheck,
+  type QueryParamMismatchKind,
   queryParamCheck,
+  queryParamMismatch,
 } from "./projection-params.js";
 export {
   admittedReferences,

@@ -104,11 +104,17 @@ system ProjectionParamsSys {
     expect(none.count()).toBe(0)
 
     // ── malformed params are refused before any query runs ─────────────────
-    // The two refusals the wire policy rules for a scalar (`malformed-id`,
-    // `integer-range`): the same 422 `field-invalid` envelope, code and
+    // The refusals the wire policy rules for a scalar (`malformed-id`,
+    // `integer-range`, `type-mismatch`): the same 422 `field-invalid` envelope, code and
     // sentence an operation input gets, with the param's pointer.
     expect(api.runOutcome.list("not-a-uuid")).toThrow(422)
     expect(api.topRanked.list(3000000000)).toThrow(422)
+    // A value whose text does not parse as its declared type: the ruled
+    // `type-mismatch` code and its kind's sentence, one per kind.
+    expect(api.topRanked.list("many")).toThrow(422)
+    expect(api.qualifying.list("lots", true, "2026-07-15")).toThrow(422)
+    expect(api.qualifying.list(1, "maybe", "2026-07-15")).toThrow(422)
+    expect(api.qualifying.list(1, true, "yesterday")).toThrow(422)
 
     // The two aggregates' own routes beside the read models.  An update that
     // moves a row across a filter moves it across the projection too.
