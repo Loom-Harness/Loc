@@ -138,19 +138,16 @@ export function devClaimsHeader(cfg: AuthStubConfig): string | null {
 }
 
 /** Platforms whose generated output the playground cannot bundle or
- *  boot — i.e. anything other than Hono + React.  Listed in the UI so
- *  the user understands why Preview is grey instead of erroring out.
- *  `svelte` / `vue` / `angular` generate a complete, downloadable
- *  project (the preview engine bundles only the React SPA shape —
- *  SvelteKit's `$app/*` client, Vue's SFC pipeline, and Angular's
- *  AOT/`ng build` aren't reproduced in-browser yet), so they're
- *  surfaced here exactly like the backend platforms. */
+ *  boot — anything other than Hono and the React / Vue / SvelteKit
+ *  frontends.  Listed in the UI so the user understands why Preview is grey
+ *  instead of erroring out.  The frontends among them generate a complete,
+ *  downloadable project; their toolchains (Angular's AOT `ng build`, Fable,
+ *  the Flutter SDK) do not run in the browser. */
 export type UnsupportedPlatform =
   | "dotnet"
   | "elixir"
   | "java"
   | "python"
-  | "svelte"
   | "angular"
   | "feliz"
   | "flutter";
@@ -758,8 +755,6 @@ export function unsupportedPlatformLabel(p: UnsupportedPlatform): string {
       return ".NET";
     case "elixir":
       return "Phoenix LiveView";
-    case "svelte":
-      return "SvelteKit";
     case "angular":
       return "Angular";
     case "java":

@@ -7,12 +7,16 @@
 // into a CSS module esbuild bundles into the frontend's stylesheet — what
 // `@vitejs/plugin-vue` does under `vite dev`.
 //
-// The compiler is imported lazily, so a React-only system never loads it.
+// Svelte: the `svelte` compiler builds each component, and a small client
+// router stands in for SvelteKit (`sveltekit-shim.ts`).
+//
+// Each compiler is imported lazily, so a React-only system never loads it.
 
-import type { Plugin } from "esbuild-wasm";
+import type { Plugin, PluginBuild } from "esbuild-wasm";
+import { setupSvelte, SVELTEKIT_APP } from "./sveltekit-shim.js";
 
 /** A frontend framework the preview compiles in the browser. */
-export type CompiledFramework = "vue";
+export type CompiledFramework = "vue" | "svelte";
 
 /** The vfs plugin's namespace for generated + installed files. */
 const NS = "vfs";
@@ -26,9 +30,12 @@ const MOUNT_NS = "loom-mount";
 export const MOUNT_SPECIFIER = "loom:mount";
 
 /** The synthesised entry of a compiled frontend: the mount point, then the
- *  generated entry. */
-export function frontendStdin(entry: string): string {
-  return `import ${JSON.stringify(MOUNT_SPECIFIER)};\nimport ${JSON.stringify(entry)};\n`;
+ *  generated entry — for SvelteKit, which has none, the router over the
+ *  routes beside `entry` (`<slug>/src/app.html`). */
+export function frontendStdin(entry: string, framework: CompiledFramework): string {
+  const app =
+    framework === "svelte" ? `${SVELTEKIT_APP}?root=${entry.slice(0, entry.lastIndexOf("/"))}` : entry;
+  return `import ${JSON.stringify(MOUNT_SPECIFIER)};\nimport ${JSON.stringify(app)};\n`;
 }
 
 const MOUNT_SOURCE = `const root = document.getElementById("root") ?? document.body;
@@ -49,6 +56,8 @@ export function frameworkDefines(framework: CompiledFramework): Record<string, s
         __VUE_PROD_DEVTOOLS__: "false",
         __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: "false",
       };
+    case "svelte":
+      return {};
   }
 }
 
@@ -78,13 +87,24 @@ export function frameworkPlugin(
     const v = files.get(p);
     return v == null ? undefined : typeof v === "string" ? v : td.decode(v);
   };
-  /** Compiled styles, by their virtual module path. */
-  const styles = new Map<string, string>();
   return {
     name: `loom-${framework}`,
     setup(build) {
       build.onResolve({ filter: /^loom:mount$/ }, () => ({ path: MOUNT_SPECIFIER, namespace: MOUNT_NS }));
       build.onLoad({ filter: /.*/, namespace: MOUNT_NS }, () => ({ contents: MOUNT_SOURCE, loader: "js" }));
+      if (framework === "vue") setupVue(build, files, read);
+      else setupSvelte(build, files, read);
+    },
+  };
+}
+
+function setupVue(
+  build: PluginBuild,
+  files: Map<string, string | Uint8Array>,
+  read: (p: string) => string | undefined,
+): void {
+  /** Compiled styles, by their virtual module path. */
+  const styles = new Map<string, string>();
       build.onResolve({ filter: /\?vue&type=style/ }, (args) => ({ path: args.path, namespace: STYLE_NS }));
       build.onLoad({ filter: /.*/, namespace: STYLE_NS }, (args) => ({
         contents: styles.get(args.path) ?? "",
@@ -150,6 +170,4 @@ export function frameworkPlugin(
           resolveDir: args.path.slice(0, args.path.lastIndexOf("/")) || "/",
         };
       });
-    },
-  };
 }

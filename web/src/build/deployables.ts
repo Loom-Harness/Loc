@@ -2,12 +2,12 @@
 // file tree.
 //
 // The browser runtime boots every Hono backend (one worker each) and previews
-// every React and Vue frontend, one at a time, each against the backend its `targets:`
+// every React, Vue and SvelteKit frontend, one at a time, each against the backend its `targets:`
 // names.  Everything else in the tree is files-only, and is
 // listed so the UI can say so by name: .NET (`Program.cs`), Phoenix LiveView
 // (`mix.exs`), Spring Boot (`build.gradle.kts`) and FastAPI (`pyproject.toml`)
-// backends, and the frontends the preview engine does not bundle (SvelteKit,
-// Angular, Feliz, Flutter).
+// backends, and the frontends the preview engine does not bundle (Angular,
+// Feliz, Flutter).
 //
 // Pure: no React, no DOM, no worker — the root vitest suite imports it.
 
@@ -24,7 +24,8 @@ export type PreviewFramework = "react" | CompiledFramework;
 export interface PreviewFrontend {
   /** The deployable's slug — its generated folder. */
   slug: string;
-  /** Its entry path (`<slug>/src/main.tsx`, or `main.ts` for Vue). */
+  /** Its entry path (`<slug>/src/main.tsx`, `main.ts` for Vue, the
+   *  `app.html` beside the routes for SvelteKit). */
   entry: string;
   framework: PreviewFramework;
   /** The slug of the backend its `targets:` names (the compose
@@ -132,15 +133,14 @@ export function analyzeDeployables(files: readonly VirtualFile[]): DeployableAna
     if (dotnet?.[1]) platformBySlug.set(dotnet[1], "dotnet");
     const phoenix = f.path.match(/^([^/]+)\/mix\.exs$/);
     if (phoenix?.[1]) platformBySlug.set(phoenix[1], "elixir");
-    // Frontend SPAs the preview engine doesn't bundle in-browser: SvelteKit
-    // (`svelte.config.js`; its `$app/*` client + file routing aren't
-    // reproduced) and Angular (`angular.json`; its AOT/`ng build` toolchain
-    // isn't run in-browser).  Vue (`src/main.ts` — the `.ts` entry, vs
-    // react's `src/main.tsx`) previews.  Angular *also* emits `src/main.ts`,
+    // Frontend SPAs: SvelteKit (`svelte.config.js`) and Vue (`src/main.ts` —
+    // the `.ts` entry, vs react's `src/main.tsx`) preview; Angular
+    // (`angular.json`; its AOT/`ng build` toolchain) doesn't run
+    // in-browser.  Angular *also* emits `src/main.ts`,
     // so `angular.json` is the discriminator and takes precedence over the
     // Vue match (applied after the loop, independent of file order).
     const svelte = f.path.match(/^([^/]+)\/svelte\.config\.js$/);
-    if (svelte?.[1]) platformBySlug.set(svelte[1], "svelte");
+    if (svelte?.[1]) frontendEntries.push({ entry: `${svelte[1]}/src/app.html`, framework: "svelte" });
     const angular = f.path.match(/^([^/]+)\/angular\.json$/);
     if (angular?.[1]) angularSlugs.add(angular[1]);
     const vue = f.path.match(VUE_ENTRY);

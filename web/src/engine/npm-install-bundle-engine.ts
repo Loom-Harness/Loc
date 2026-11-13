@@ -122,6 +122,26 @@ function harvestDeps(
   return {};
 }
 
+/** The framework runtime a compiled frontend's components import, when its
+ *  package.json lists it as a build-time dependency: SvelteKit's components
+ *  import `svelte/internal/client`, which ships in the `svelte` devDependency. */
+function compilerRuntimeDeps(
+  files: Map<string, string | Uint8Array>,
+  entry: string,
+  framework: CompiledFramework,
+): Record<string, string> {
+  if (framework !== "svelte") return {};
+  const raw = files.get(`/${entry.split("/")[0]}/package.json`);
+  if (raw == null) return {};
+  try {
+    const pkg = JSON.parse(typeof raw === "string" ? raw : new TextDecoder().decode(raw));
+    const v = pkg.devDependencies?.svelte ?? pkg.dependencies?.svelte;
+    return typeof v === "string" ? { svelte: v } : {};
+  } catch {
+    return {};
+  }
+}
+
 export class NpmInstallBundleEngine implements RuntimeEngine {
   readonly capabilities: EngineCapabilities = {
     id: "npm-install-bundle",
@@ -250,9 +270,9 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
         ? { generatedFiles, rootDeps: harvestDeps(generatedFiles, entry), entry: "/" + entry }
         : {
             generatedFiles,
-            rootDeps: harvestDeps(generatedFiles, entry),
+            rootDeps: { ...harvestDeps(generatedFiles, entry), ...compilerRuntimeDeps(generatedFiles, entry, framework) },
             entry: "/" + entry,
-            stdinContents: frontendStdin("/" + entry),
+            stdinContents: frontendStdin("/" + entry, framework),
             framework,
           },
     );

@@ -3,6 +3,7 @@ import path from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { frameworkPlugin } from "../../web/src/engine/npm/frontend-frameworks.js";
+import { sveltekitRoutes } from "../../web/src/engine/npm/sveltekit-shim.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
@@ -78,5 +79,92 @@ describe("the Vue frontend compiler", () => {
     const files = new Map([["/w/src/Bad.vue", "<template><div></template>"]]);
     const out = await vueOnLoad(files)({ path: "/w/src/Bad.vue" });
     expect(out.errors?.[0]?.text).toContain("/w/src/Bad.vue");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SvelteKit: the routes the stand-in router serves, and every component and
+// rune module of the generated Svelte sales example compiled by the plugin.
+// ---------------------------------------------------------------------------
+
+/** The plugin's `.svelte` onLoad, on a recording `build` whose esbuild
+ *  transform is TypeScript's (the worker's is esbuild-wasm's). */
+function svelteOnLoad(files: Map<string, string>): OnLoad {
+  let load: OnLoad | null = null;
+  const build = {
+    onResolve: () => {},
+    onLoad: (opts: { filter: RegExp; namespace?: string }, cb: OnLoad) => {
+      if (opts.filter.test("x.svelte") && opts.namespace === "vfs") load = cb;
+    },
+    esbuild: {
+      transform: async (code: string) => ({
+        code: ts.transpileModule(code, {
+          compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+        }).outputText,
+      }),
+    },
+  };
+  frameworkPlugin("svelte", files).setup(build as never);
+  if (!load) throw new Error("the svelte plugin registers no .svelte loader");
+  return load;
+}
+
+describe("the SvelteKit stand-in", () => {
+  it("routes static segments before parameters, groups adding no segment", () => {
+    const routes = sveltekitRoutes("/w/src", [
+      "/w/src/routes/+layout.svelte",
+      "/w/src/routes/(app)/+layout.svelte",
+      "/w/src/routes/(app)/+page.svelte",
+      "/w/src/routes/(app)/products/+page.svelte",
+      "/w/src/routes/(app)/products/[id]/+page.svelte",
+      "/w/src/routes/(app)/products/new/+page.svelte",
+    ]);
+    const match = (p: string) => {
+      const r = routes.find((x) => new RegExp(x.pattern).test(p));
+      return r ? [r.id, r.keys, r.layouts.length] : null;
+    };
+    expect(match("/")).toEqual(["/(app)", [], 2]);
+    expect(match("/products")).toEqual(["/(app)/products", [], 2]);
+    expect(match("/products/new")).toEqual(["/(app)/products/new", [], 2]);
+    expect(match("/products/7")).toEqual(["/(app)/products/[id]", ["id"], 2]);
+    expect(match("/orders")).toBeNull();
+  });
+
+  it("compiles every generated component and rune module", async () => {
+    const source = readFileSync(
+      path.resolve(__dirname, "../../web/src/examples/sales-system-svelte.ddd"),
+      "utf8",
+    );
+    const generated = await generateSystemFiles(source);
+    const files = new Map([...generated].map(([p, c]) => [`/${p}`, c] as const));
+    const svelte = [...files.keys()].filter(
+      (p) => /\.svelte(\.ts)?$/.test(p) && !p.includes("/e2e/"),
+    );
+    expect(svelte.some((p) => p.endsWith(".svelte.ts"))).toBe(true);
+    const load = svelteOnLoad(files);
+    for (const p of svelte) {
+      const out = await load({ path: p });
+      expect(out.errors, p).toBeUndefined();
+      const parsed = ts.transpileModule(out.contents ?? "", {
+        reportDiagnostics: true,
+        fileName: `${p}.js`,
+      });
+      expect(parsed.diagnostics, p).toEqual([]);
+    }
+  });
+
+  it("pins the compiler to the svelte version the generated frontend runs", () => {
+    const stack = readFileSync(
+      path.resolve(__dirname, "../../stacks/sv1/stack-package-devdeps.hbs"),
+      "utf8",
+    );
+    const runtime = stack.match(/"svelte":\s*"([^"]+)"/)?.[1];
+    const web = JSON.parse(
+      readFileSync(path.resolve(__dirname, "../../web/package.json"), "utf8"),
+    ) as {
+      dependencies: Record<string, string>;
+    };
+    expect(runtime).toBeDefined();
+    expect(web.dependencies.svelte).toBe(runtime);
   });
 });
