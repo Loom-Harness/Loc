@@ -70,5 +70,13 @@ system ValueCollectionCopy {
     expect(adopted.rules.count()).toBe(2)
     expect(decimal(adopted.rules.first().weight)).toBe(1.5)
     expect(api.ruleSets.getById(first).rules.count()).toBe(2)
+
+    api.ruleSets.adopt(empty.id, { other: [{ name: "z", weight: 3 }] })
+    expect(api.ruleSets.getById(empty).rules.first().name).toBe("z")
+    api.ruleSets.update(next, { name: "renamed", rules: [] })
+    expect(api.ruleSets.getById(next).rules.count()).toBe(0)
+    expect(api.ruleSets.all().total).toBe(3)
+    api.ruleSets.destroy(next)
+    expect(api.ruleSets.getById(next)).toThrow(404)
   }
 }

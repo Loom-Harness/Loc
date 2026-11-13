@@ -120,6 +120,119 @@
     },
     {
       "seq": 8,
+      "method": "POST",
+      "path": "/api/rule_sets/{id}/adopt",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/rule_sets/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "empty",
+        "rowVersion": 3,
+        "rules": [
+          {
+            "name": "z",
+            "weight": 3
+          }
+        ]
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/rule_sets/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/rule_sets/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "renamed",
+        "rowVersion": 2,
+        "rules": []
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/rule_sets",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "first",
+            "rowVersion": 1,
+            "rules": [
+              {
+                "name": "a",
+                "weight": 1.5
+              },
+              {
+                "name": "b",
+                "weight": 2
+              }
+            ]
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "renamed",
+            "rowVersion": 2,
+            "rules": []
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "empty",
+            "rowVersion": 3,
+            "rules": [
+              {
+                "name": "z",
+                "weight": 3
+              }
+            ]
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 13,
+      "method": "DELETE",
+      "path": "/api/rule_sets/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/rule_sets/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "RuleSet {id} not found",
+        "instance": "/api/rule_sets/{id}",
+        "params": {
+          "type": "Rules.RuleSet"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
       "method": "PATCH",
       "path": "/api/rule_sets",
       "status": 405,
@@ -133,7 +246,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 16,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -147,7 +260,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 17,
       "method": "POST",
       "path": "/api/rule_sets",
       "status": 400,
@@ -157,6 +270,27 @@
         "instance": "/api/rule_sets",
         "status": 400,
         "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/rule_sets/{id}/adopt",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.missing",
+            "message": "other is required",
+            "pointer": "/other"
+          }
+        ],
+        "instance": "/api/rule_sets/{id}/adopt",
+        "status": 422,
+        "title": "Validation failed",
         "type": "about:blank"
       }
     }
