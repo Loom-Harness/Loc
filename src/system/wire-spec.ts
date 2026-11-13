@@ -8,9 +8,12 @@ import type {
   SubdomainIR,
   TypeIR,
   WireField,
+  WorkflowIR,
 } from "../ir/types/loom-ir.js";
+import { workflowEmitsCommandRoute } from "../ir/types/queries.js";
 import { declaredResponseFor } from "../ir/util/declared-response.js";
 import { responseWireFor, valueObjectWire } from "../ir/util/response-wire.js";
+import { upperFirst } from "../util/naming.js";
 
 // ---------------------------------------------------------------------------
 // `<system>/.loom/wire-spec.json` artifact.
@@ -186,6 +189,16 @@ export function buildWireSpec(sys: EnrichedSystemIR): WireSpecDoc {
         if (!isRequestRecord(p)) continue;
         requests.push({ ctx: ctx.name, name: p.name, rows: requestRows(p) });
       }
+      // A command-started workflow's request contract is its facade create's
+      // declared parameter list — keyed `<Workflow>Command` (PascalCase) beside the records,
+      // which win on a name clash.
+      const recordNames = new Set(ctx.payloads.map((p) => p.name));
+      for (const wf of ctx.workflows) {
+        if (!workflowEmitsCommandRoute(wf)) continue;
+        const name = `${upperFirst(wf.name)}Command`;
+        if (recordNames.has(name)) continue;
+        requests.push({ ctx: ctx.name, name, rows: workflowRequestRows(wf) });
+      }
     }
   }
 
@@ -258,6 +271,17 @@ function requestRows(p: PayloadIR): WireField[] {
     name: f.name,
     type: partTypeOf(f.type),
     optional: f.optional,
+    source: "property",
+    access: "editable",
+  }));
+}
+
+/** The rows of a workflow's command request: its facade create's params. */
+function workflowRequestRows(wf: WorkflowIR): WireField[] {
+  return wf.params.map((p) => ({
+    name: p.name,
+    type: p.type,
+    optional: p.type.kind === "optional",
     source: "property",
     access: "editable",
   }));

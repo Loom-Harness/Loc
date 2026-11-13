@@ -277,6 +277,27 @@ exports[`wire-spec.json > emits the expected document shape for examples/acme.dd
       ],
       "type": "object",
     },
+    "PlaceOrderCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "customerId": {
+          "type": "string",
+        },
+        "productId": {
+          "format": "uuid",
+          "type": "string",
+        },
+        "quantity": {
+          "type": "integer",
+        },
+      },
+      "required": [
+        "customerId",
+        "productId",
+        "quantity",
+      ],
+      "type": "object",
+    },
     "UpdateCustomerCommand": {
       "additionalProperties": false,
       "properties": {
