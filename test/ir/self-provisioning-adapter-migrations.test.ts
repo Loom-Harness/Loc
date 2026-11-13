@@ -111,3 +111,51 @@ describe("declared migrations vs. the self-provisioning persistence adapters", (
     }
   });
 });
+
+// A context-local enum's value rename updates every column storing it, in any
+// context — so a mikroorm deployable hosting a context that STORES the enum is
+// refused even when the enum is declared elsewhere.
+describe("a context-local enum value rename reaches every context storing the enum", () => {
+  const TWO = (bField: string) => `
+system Shop {
+  subdomain Catalog {
+    context Catalog {
+      enum Grade { Basic, High }
+      aggregate Item with crudish { code: string  grade: Grade }
+      repository Items for Item { }
+    }
+  }
+  subdomain Orders {
+    context Orders {
+      aggregate Order with crudish { code: string  ${bField} }
+      repository Orders for Order { }
+    }
+  }
+  api CatalogApi from Catalog
+  api OrdersApi from Orders
+  storage pg { type: postgres }
+  storage pg2 { type: postgres }
+  resource c { for: Catalog, kind: state, use: pg }
+  resource o { for: Orders, kind: state, use: pg2 }
+  deployable cat { platform: node  contexts: [Catalog]  dataSources: [c]  serves: CatalogApi  port: 3000 }
+  deployable ord { platform: node { persistence: mikroorm }  contexts: [Orders]  dataSources: [o]  serves: OrdersApi  port: 3001 }
+}
+migration "rename-grade" { Grade.Low -> Basic }`;
+
+  async function gate(src: string) {
+    const { model } = await parseString(src, { validate: false });
+    return validateLoomModel(enrichLoomModel(lowerModel(model))).filter(
+      (d) => d.code === "loom.mikroorm-unsupported",
+    );
+  }
+
+  it("refuses the mikroorm deployable whose context stores the enum", async () => {
+    const diags = await gate(TWO("grades: Grade[]"));
+    expect(diags.map((d) => d.source)).toEqual(["Shop/ord"]);
+    expect(diags[0]!.message).toContain("rename Grade.Low");
+  });
+
+  it("stays silent when the mikroorm context does not store the enum", async () => {
+    expect(await gate(TWO("qty: int"))).toEqual([]);
+  });
+});

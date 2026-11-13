@@ -90,6 +90,15 @@ describe("ddd migrate status", () => {
     );
     expect(json.modules[0].destructive).toBe(true);
   });
+
+  it("migrate add prints a refusal with its loom code", () => {
+    const dir = project("label: string  note: string?");
+    expect(runCli(["migrate", "add", "initial", "app.ddd"], dir).status).toBe(0);
+    fs.writeFileSync(path.join(dir, "app.ddd"), model("label: string"));
+    const add = runCli(["migrate", "add", "drop-note", "app.ddd"], dir);
+    expect(add.status).not.toBe(0);
+    expect(add.out).toContain("app.ddd: loom.migration-destructive: migration for module");
+  });
 });
 
 describe("the migration tools agree with the CLI", () => {

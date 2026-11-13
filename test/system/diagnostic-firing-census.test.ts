@@ -554,6 +554,14 @@ ${opts.e2e ?? ""}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // `provenanced` on an entity part's field: lineage lives on the root only.
+  "loom.provenanced-part-field": `
+system S {
+  subdomain M { context C {
+    aggregate Cart with crudish { label: string  contains lines: Line[]  entity Line { qty: int provenanced } }
+    repository Carts for Cart { }
+  } }
+}`,
   // The lowering backstop: a ui body reading a name nothing declares — the
   // names validator leaves ui bodies to the typing pass, so nothing else
   // refuses it.
