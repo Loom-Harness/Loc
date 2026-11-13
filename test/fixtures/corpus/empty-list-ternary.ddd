@@ -46,7 +46,7 @@ system EmptyListTernary {
         }
       }
 
-      aggregate Score with crudish {
+      aggregate Score {
         provider: Provider id
         label: string
         total: decimal
@@ -98,5 +98,13 @@ system EmptyListTernary {
     let none = api.providers.create({ name: "none", blocked: false, attributes: [] })
     let s3 = api.scores.getById(api.scoreProvider.run({ provider: none.id }))
     expect(decimal(s3.mean)).toBe(-1)
+
+    expect(api.providers.getById(shut.id).name).toBe("shut")
+    api.providers.update(shut.id, { name: "shut2", blocked: false, attributes: [] })
+    expect(api.scores.all().total).toBe(3)
+    let spare = api.providers.create({ name: "spare", blocked: false, attributes: [] })
+    expect(api.providers.all().total).toBe(4)
+    api.providers.destroy(spare.id)
+    expect(api.providers.getById(spare.id)).toThrow(404)
   }
 }

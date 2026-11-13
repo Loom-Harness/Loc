@@ -100,6 +100,168 @@
     },
     {
       "seq": 9,
+      "method": "GET",
+      "path": "/api/providers/{id}",
+      "status": 200,
+      "body": {
+        "attributes": [
+          {
+            "name": "a",
+            "weight": 9
+          }
+        ],
+        "blocked": true,
+        "bonus": null,
+        "id": "<volatile:key>",
+        "name": "shut",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/providers/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/scores",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "best": 2.5,
+            "bonuses": 1,
+            "id": "<volatile:key>",
+            "label": "open",
+            "mean": 1.3333333333333333,
+            "provider": "<uuid>",
+            "rowVersion": 1,
+            "total": 4
+          },
+          {
+            "best": 0,
+            "bonuses": 0,
+            "id": "<volatile:key>",
+            "label": "shut",
+            "mean": 9,
+            "provider": "<uuid>",
+            "rowVersion": 1,
+            "total": 0
+          },
+          {
+            "best": 0,
+            "bonuses": 0,
+            "id": "<volatile:key>",
+            "label": "none",
+            "mean": -1,
+            "provider": "<uuid>",
+            "rowVersion": 1,
+            "total": 0
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/providers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/providers",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "attributes": [
+              {
+                "name": "a",
+                "weight": 1.5
+              },
+              {
+                "name": "b",
+                "weight": 2.5
+              },
+              {
+                "name": "c",
+                "weight": null
+              }
+            ],
+            "blocked": false,
+            "bonus": 3,
+            "id": "<volatile:key>",
+            "name": "open",
+            "rowVersion": 1
+          },
+          {
+            "attributes": [],
+            "blocked": false,
+            "bonus": null,
+            "id": "<volatile:key>",
+            "name": "shut2",
+            "rowVersion": 2
+          },
+          {
+            "attributes": [],
+            "blocked": false,
+            "bonus": null,
+            "id": "<volatile:key>",
+            "name": "none",
+            "rowVersion": 1
+          },
+          {
+            "attributes": [],
+            "blocked": false,
+            "bonus": null,
+            "id": "<volatile:key>",
+            "name": "spare",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 4,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 14,
+      "method": "DELETE",
+      "path": "/api/providers/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/providers/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Provider {id} not found",
+        "instance": "/api/providers/{id}",
+        "params": {
+          "type": "Matching.Provider"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
       "method": "PATCH",
       "path": "/api/providers",
       "status": 405,
@@ -113,7 +275,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 17,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -127,7 +289,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 18,
       "method": "POST",
       "path": "/api/providers",
       "status": 400,
