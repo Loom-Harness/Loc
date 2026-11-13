@@ -10,6 +10,7 @@ import {
 import { emissionSink } from "../../util/emission-sink.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { type BrokerBinding, kafkaStartsAtEarliest } from "../_channels/bindings.js";
+import { CHANNEL_CONSUMER, CHANNEL_RECONNECT, OUTBOX_RELAY } from "../_channels/delivery-policy.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
@@ -337,13 +338,13 @@ function elixirOutboxRelayModule(
   import Ecto.Query
   require Logger
 
-  @interval_ms 500
-  @max_attempts 5
-  @batch 50
+  @interval_ms ${OUTBOX_RELAY.intervalMs}
+  @max_attempts ${OUTBOX_RELAY.maxAttempts}
+  @batch ${OUTBOX_RELAY.batchSize}
   @purge_interval_ms ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000}
   @purge_batch ${OUTBOX_PURGE_BATCH}
   @default_retention_days ${OUTBOX_RETENTION_DEFAULT_DAYS}
-  @max_backoff_ms 30_000
+  @max_backoff_ms ${OUTBOX_RELAY.maxBackoffMs}
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
@@ -378,32 +379,47 @@ function elixirOutboxRelayModule(
     {:noreply, state}
   end
 
-  defp backoff_ms(failures), do: min(@interval_ms * Integer.pow(2, min(failures, 6)), @max_backoff_ms)
+  defp backoff_ms(failures), do: min(@interval_ms * Integer.pow(2, min(failures, ${OUTBOX_RELAY.maxBackoffDoublings})), @max_backoff_ms)
 
   defp drain do
-    ${appModule}.Repo.all(
+${
+  brokerAware
+    ? `    # The pass claims its batch: one transaction locks the rows it takes and
+    # skips the ones another relay holds, so competing replicas never publish
+    # the same row.  The delivery only publishes, so nothing joins the
+    # transaction but this relay's own row updates.
+    case ${appModule}.Repo.transaction(fn ->
+           ${appModule}.Repo.all(
+             from(o in ${appModule}.LoomOutbox,
+               where: is_nil(o.dispatched_at) and is_nil(o.dead_at),
+               order_by: [asc: o.occurred_at],
+               limit: @batch,
+               lock: "FOR UPDATE SKIP LOCKED"
+             )
+           )
+           |> Enum.reduce_while(:ok, fn row, :ok ->
+             case deliver(row) do
+               :ok -> {:cont, :ok}
+               {:halt, error} -> {:halt, {:error, error}}
+             end
+           end)
+         end) do
+      {:ok, result} -> result
+      {:error, error} -> {:error, error}
+    end
+`
+    : `    ${appModule}.Repo.all(
       from(o in ${appModule}.LoomOutbox,
         where: is_nil(o.dispatched_at) and is_nil(o.dead_at),
         order_by: [asc: o.occurred_at],
         limit: @batch
       )
     )
-    ${
-      // Only a broker-aware deliver can answer `{:halt, _}`; a `{:halt, _}`
-      // clause the standalone relay can never reach is a typing warning, which
-      // --warnings-as-errors turns into a compile failure.
-      brokerAware
-        ? `|> Enum.reduce_while(:ok, fn row, :ok ->
-      case deliver(row) do
-        :ok -> {:cont, :ok}
-        {:halt, error} -> {:halt, {:error, error}}
-      end
-    end)`
-        : `|> Enum.each(&deliver/1)
+    |> Enum.each(&deliver/1)
 
-    :ok`
-    }
-  rescue
+    :ok
+`
+}  rescue
     error -> {:error, error}
   catch
     :exit, reason -> {:error, {:exit, reason}}
@@ -1247,16 +1263,10 @@ ${elixirOutboxRelayModule(
       if (!list.some((x) => x.queue === b.group)) list.push({ address: b.address, queue: b.group });
       rabbitEnvBindings.set(b.envVar, list);
     }
-    const rabbitConsumeLines = [...rabbitEnvBindings.entries()].flatMap(([envVar, bs]) => {
-      const chanVar = `chan_${connByEnv.get(envVar)?.slice(1)}`;
-      return [
-        `    ${chanVar} = open_rabbit(System.fetch_env!(${JSON.stringify(envVar)}))`,
-        ...bs.map(
-          (x) =>
-            `    state = Map.merge(state, consume(${chanVar}, ${JSON.stringify(x.address)}, ${JSON.stringify(x.queue)}))`,
-        ),
-      ];
-    });
+    const rabbitConsumeLines = [...rabbitEnvBindings.entries()].map(
+      ([envVar, bs]) =>
+        `    state = rabbit_connect(state, ${JSON.stringify(envVar)}, [${bs.map((x) => `{${JSON.stringify(x.address)}, ${JSON.stringify(x.queue)}}`).join(", ")}], 0)`,
+    );
     // Kafka: one brod group subscriber per wired binding — the group id
     // realises broadcast ACROSS deployables and competition WITHIN one
     // (design §4); each gets its own subscriber-side brod client.
@@ -1325,6 +1335,11 @@ ${markEvLine(6)}      ${asOrigin("route(ev)")}
     error ->
       ${failedLog}
       {:noreply, state}
+  catch
+    kind, reason ->
+      error = {kind, reason}
+      ${failedLog}
+      {:noreply, state}
   end
 `
       : "";
@@ -1339,6 +1354,10 @@ ${markEvLine(6)}      ${asOrigin("route(ev)")}
       { name: "attempts", valueExpr: "attempts" },
       { name: "error", valueExpr: "inspect(error)" },
     ]);
+    const reconnectedLog = renderPhoenixLogCall("channelReconnected", [
+      { name: "transport", valueExpr: `"rabbitmq"` },
+      { name: "attempts", valueExpr: "attempt" },
+    ]);
     const rabbitClauses = hasRabbitConsumer
       ? `  def handle_info({:basic_consume_ok, _meta}, state), do: {:noreply, state}
 
@@ -1347,15 +1366,88 @@ ${markEvLine(6)}      ${asOrigin("route(ev)")}
     handle_delivery(payload, meta, address, queue, chan)
     {:noreply, state}
   end
+
+  # The broker dropped the connection: forget its consumers and redial.
+  def handle_info({:DOWN, ref, :process, pid, _reason}, state) do
+    case Map.pop(state, {:rabbit_conn, ref}) do
+      {nil, state} ->
+        {:noreply, state}
+
+      {{env, bindings}, state} ->
+        state = Map.reject(state, &consumer_on?(&1, pid))
+        {:noreply, rabbit_retry(state, env, bindings, 1)}
+    end
+  end
+
+  def handle_info({:rabbit_reconnect, env, bindings, attempt}, state),
+    do: {:noreply, rabbit_connect(state, env, bindings, attempt)}
+
+  # The broker cancelled a consumer (its queue was deleted): close the
+  # connection, and the :DOWN above redials and re-declares the topology.
+  def handle_info({:basic_cancel, %{consumer_tag: tag}}, state) do
+    case Map.get(state, tag) do
+      {_address, _queue, chan} -> safe_close(chan.conn)
+      _ -> :ok
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_info(_message, state), do: {:noreply, state}
 `
       : "";
     const rabbitHelpers = hasRabbitConsumer
       ? `
-  defp open_rabbit(url) do
-    {:ok, conn} = AMQP.Connection.open(url)
-    {:ok, chan} = AMQP.Channel.open(conn)
-    :ok = AMQP.Basic.qos(chan, prefetch_count: 1)
-    chan
+  # One connection per broker URL, monitored: a drop redials with capped
+  # exponential backoff and re-attaches every binding on it.  \`attempt\` is
+  # 0 at boot, and counts redials after that.
+  defp rabbit_connect(state, env, bindings, attempt) do
+    case AMQP.Connection.open(System.fetch_env!(env)) do
+      {:ok, conn} ->
+        try do
+          {:ok, chan} = AMQP.Channel.open(conn)
+          :ok = AMQP.Basic.qos(chan, prefetch_count: 1)
+
+          state =
+            Enum.reduce(bindings, state, fn {address, queue}, acc ->
+              Map.merge(acc, consume(chan, address, queue))
+            end)
+
+          ref = Process.monitor(conn.pid)
+
+          if attempt > 0 do
+            ${reconnectedLog}
+          end
+
+          Map.put(state, {:rabbit_conn, ref}, {env, bindings})
+        rescue
+          _ ->
+            safe_close(conn)
+            rabbit_retry(state, env, bindings, attempt + 1)
+        catch
+          _, _ ->
+            safe_close(conn)
+            rabbit_retry(state, env, bindings, attempt + 1)
+        end
+
+      _ ->
+        rabbit_retry(state, env, bindings, attempt + 1)
+    end
+  end
+
+  defp rabbit_retry(state, env, bindings, attempt) do
+    delay = min(@reconnect_base_ms * Integer.pow(2, attempt - 1), @reconnect_max_ms)
+    Process.send_after(self(), {:rabbit_reconnect, env, bindings, attempt}, delay)
+    state
+  end
+
+  defp consumer_on?({_tag, {_address, _queue, %AMQP.Channel{conn: %{pid: pid}}}}, pid), do: true
+  defp consumer_on?(_entry, _pid), do: false
+
+  defp safe_close(conn) do
+    AMQP.Connection.close(conn)
+  catch
+    _, _ -> :ok
   end
 
   # Design §4 topology: durable fanout exchange per address; failed
@@ -1414,25 +1506,32 @@ ${markEvLine(4)}    ${asOrigin("route(ev)")}
     ${consumedLog}
     :ok = AMQP.Basic.ack(chan, meta.delivery_tag)
   rescue
-    error ->
-      attempts = attempts_from(meta.headers)
+    error -> retry_or_park(error, envelope, meta, address, queue, chan, payload)
+  catch
+    # A reactor that throws (a failed precondition) or exits fails the
+    # delivery exactly like one that raises.
+    kind, reason -> retry_or_park({kind, reason}, envelope, meta, address, queue, chan, payload)
+  end
 
-      if attempts >= @max_attempts do
-        # Parked, not lost: the DLX routes it into the DLQ.
-        :ok = AMQP.Basic.reject(chan, meta.delivery_tag, requeue: false)
-        ${parkedLog}
-      else
-        # Bounded retry: republish with the attempt header and ack the
-        # original (immediate nack-requeue would hot-loop).
-        :ok =
-          AMQP.Basic.publish(chan, "loom.dlx", "loom.retry." <> queue, payload,
-            persistent: true,
-            content_type: "application/json",
-            headers: retry_headers(meta.headers, attempts)
-          )
+  defp retry_or_park(error, envelope, meta, address, queue, chan, payload) do
+    attempts = attempts_from(meta.headers)
 
-        :ok = AMQP.Basic.ack(chan, meta.delivery_tag)
-      end
+    if attempts >= @max_attempts do
+      # Parked, not lost: the DLX routes it into the DLQ.
+      :ok = AMQP.Basic.reject(chan, meta.delivery_tag, requeue: false)
+      ${parkedLog}
+    else
+      # Bounded retry: republish with the attempt header and ack the
+      # original (immediate nack-requeue would hot-loop).
+      :ok =
+        AMQP.Basic.publish(chan, "loom.dlx", "loom.retry." <> queue, payload,
+          persistent: true,
+          content_type: "application/json",
+          headers: retry_headers(meta.headers, attempts)
+        )
+
+      :ok = AMQP.Basic.ack(chan, meta.delivery_tag)
+    end
   end
 
   defp attempts_from(:undefined), do: 1
@@ -1463,7 +1562,7 @@ ${headerDesc}
 defmodule ${appModule}.ChannelConsumer do
   use GenServer
   require Logger
-${hasRabbitConsumer ? "\n  @max_attempts 5\n" : ""}
+${hasRabbitConsumer ? `\n  @max_attempts ${CHANNEL_CONSUMER.maxAttempts}\n  @reconnect_base_ms ${CHANNEL_RECONNECT.baseDelayMs}\n  @reconnect_max_ms ${CHANNEL_RECONNECT.maxDelayMs}\n` : ""}
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   @impl true
@@ -1646,6 +1745,11 @@ ${markEvLine(10)}          ${asOrigin(`${appModule}.ChannelConsumer.route_decode
           error ->
             # v1 log + park: keep the partition moving (a raw retry would
             # stall every record behind the poisoned one).
+            park(client, state, key, raw)
+            ${kafkaParkedLog}
+        catch
+          kind, reason ->
+            error = {kind, reason}
             park(client, state, key, raw)
             ${kafkaParkedLog}
         end
