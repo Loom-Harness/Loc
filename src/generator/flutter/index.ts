@@ -78,6 +78,7 @@ import {
   renderFormsFile,
   renderGatesFile,
 } from "./forms-emit.js";
+import { hideShadowedRiverpodNames } from "./framework-collision.js";
 import {
   callsI18nRuntime,
   dartStringLit,
@@ -575,6 +576,7 @@ export function generateFlutterForContexts(
     out.set("lib/toast.dart", renderFlutterToastRuntime());
   }
 
+  hideShadowedRiverpodNames(out);
   return out;
 }
 

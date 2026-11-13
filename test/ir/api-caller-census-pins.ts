@@ -580,13 +580,22 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // `deriveContextOperations` lists under `apiSurfaceCoverage.notLifted`.
   "corpus/projection-valueobject-row": ["api.orderBoard.byKey (no such aggregate)"],
   "corpus/projection-fold-statements": ["api.accountBoard.byKey (no such aggregate)"],
+  // A workflow run — the `notLifted` class.
+  "corpus/value-collection-copy": [
+    "api.adoptFrom.run (no such aggregate)",
+    "api.draftNext.run (no such aggregate)",
+  ],
   // A workflow run (`POST /api/workflows/drop_via`) — the not-yet-lifted
   // workflow-run class, like `corpus/vo-invariant-in-body`'s `api.bump.run`.
   "corpus/contained-part-removal": ["api.dropVia.run (no such aggregate)"],
+  // A workflow run — the `notLifted` class.
+  "corpus/empty-list-ternary": ["api.scoreProvider.run (no such aggregate)"],
   // M-T5.1 — the workflow router is one of the two body sites a value-object
   // breach answers through, so the fixture drives `POST /api/workflows/bump`.
   // A workflow run is the `notLifted` class (same as `workflow-create-state`).
   "corpus/vo-invariant-in-body": ["api.bump.run (no such aggregate)"],
+  // A workflow run — the `notLifted` class.
+  "corpus/ref-collection-service": ["api.matchProvider.run (no such aggregate)"],
   // Banking-eval B-04 — the committed and the rolled-back transactional
   // workflow are driven through their command routes (`notLifted`, as above).
   "corpus/transactional-workflow-event-rollback": [
@@ -595,8 +604,12 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   ],
   // A workflow run (`POST /api/workflows/labeller`) — the `notLifted` class.
   "corpus/nullable-load": ["api.labeller.run (no such aggregate)"],
+  // A workflow run — the `notLifted` class.
+  "corpus/decimal-call-reductions": ["api.scoreProvider.run (no such aggregate)"],
   // A workflow run carrying a stale `If-Match` — not a lifted route class.
   "corpus/concurrency-workflow-ifmatch": ["api.renameBoth.run (no such aggregate)"],
+  // A workflow run — the `notLifted` class.
+  "corpus/value-collection-op-param": ["api.grant.run (no such aggregate)"],
   // Workflow runs (M-T6.98) — not a lifted route class.
   "corpus/workflow-two-handles-document-eventlog": [
     "api.hitSameTwice.run (no such aggregate)",

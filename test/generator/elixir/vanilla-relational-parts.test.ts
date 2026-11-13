@@ -171,8 +171,10 @@ describe("vanilla containment removal persists (M-T6.94)", () => {
     const ctx = file(await generateSystemFiles(REMOVAL_SOURCE), "/shop.ex");
     const body = fnBody(ctx, "def drop_charge_cart(");
     expect(body).toContain("record_before = record");
-    expect(body).toContain("Ecto.Changeset.put_assoc(:charges, __put_value_rows(record.charges))");
+    expect(body).toContain(
+      "Ecto.Changeset.put_assoc(:charges, __put_value_rows(record.charges, record.__struct__, :charges))",
+    );
     expect(ctx).not.toContain("force_change(:charges");
-    expect(ctx).toContain("defp __put_value_rows(list) when is_list(list) do");
+    expect(ctx).toContain("defp __put_value_rows(list, owner, field) do");
   });
 });

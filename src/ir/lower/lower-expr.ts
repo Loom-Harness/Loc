@@ -395,6 +395,15 @@ export function passType(node: AstNode | undefined, env?: Env): TypeIR {
   return irType(t);
 }
 
+/** The pass's type for `node` when it resolved one, else `undefined` — never
+ *  the placeholder `passType` falls back to, and never recording an
+ *  unresolved read (the caller still asks `passType` for that). */
+function resolvedPassType(node: AstNode, env: Env): TypeIR | undefined {
+  const t = passSynth(node, env);
+  if (!t || t.kind === "unknown" || t.kind === "slot") return undefined;
+  return irType(t);
+}
+
 /** `passType` without recording an unresolved read: for an observer asking
  *  the same question lowering asks (the typing differential), which must not
  *  add reads lowering never made. */
@@ -808,18 +817,19 @@ function applySuffixToRecv(
       // exception-less op, so a `let x = reserve()` types as the union; the `?`
       // propagation operator builds on this), a value-object ctor returns the
       // VO, everything else keeps the string placeholder.
-      let resultType: TypeIR = { kind: "primitive", name: "string" };
+      let declared: TypeIR | undefined;
       const fn = findFunctionInEnv(env, recv.name);
-      if (fn) resultType = lowerType(fn.returnType);
+      if (fn) declared = lowerType(fn.returnType);
       else {
         const op = findOperationInEnv(env, recv.name);
-        if (op?.returnType) resultType = lowerType(op.returnType, env);
+        if (op?.returnType) declared = lowerType(op.returnType, env);
         else {
           const vo = findValueObjectByName(env, recv.name);
-          if (vo) resultType = { kind: "valueobject", name: vo.name };
+          if (vo) declared = { kind: "valueobject", name: vo.name };
         }
       }
-      return { recv: callIR, recvType: resultType };
+      if (declared) callIR.resultType = declared;
+      return { recv: callIR, recvType: declared ?? { kind: "primitive", name: "string" } };
     }
     const callIR: ExprIR = {
       kind: "call",
@@ -917,10 +927,9 @@ function applySuffixToRecv(
         // for an exception-less op, so `let x = Pricing.applyCoupon(...)?`
         // propagates the error variant); falls back to string when the op
         // declares no `: T`.
-        const resultType: TypeIR = opDecl?.returnType
-          ? lowerType(opDecl.returnType, env)
-          : { kind: "primitive", name: "string" };
-        return { recv: callIR, recvType: resultType };
+        const declared = opDecl?.returnType ? lowerType(opDecl.returnType, env) : undefined;
+        if (declared) callIR.resultType = declared;
+        return { recv: callIR, recvType: declared ?? { kind: "primitive", name: "string" } };
       }
     }
     // `<resource>.<verb>(args)` — a verb call on an ambient resource
@@ -1159,12 +1168,13 @@ function applySuffixToRecv(
         };
         const fn = findFunctionInEnv(env, ms.member);
         const op = fn ? undefined : findOperationInEnv(env, ms.member);
-        const resultType: TypeIR = fn
+        const declared: TypeIR | undefined = fn
           ? lowerType(fn.returnType)
           : op?.returnType
             ? lowerType(op.returnType, env)
-            : { kind: "primitive", name: "string" };
-        return { recv: callIR, recvType: resultType };
+            : undefined;
+        if (declared) callIR.resultType = declared;
+        return { recv: callIR, recvType: declared ?? { kind: "primitive", name: "string" } };
       }
     }
     // `Agg.create(a, b)` / `Agg.create(x: a)` — an aggregate factory call.
@@ -1191,6 +1201,8 @@ function applySuffixToRecv(
       ...(ms.throwKind && isThrowKind(ms.throwKind) ? { throwKind: ms.throwKind } : {}),
       ...(!factoryRecord && argNames.some((n) => n !== undefined) ? { argNames } : {}),
     };
+    const resultType = resolvedPassType(suffix, env);
+    if (resultType && mcIR.kind === "method-call") mcIR.resultType = resultType;
     return { recv: mcIR, recvType: passType(suffix, env) };
   }
   // Qualified enum value `EnumName.Value` — when the receiver is an
@@ -1476,12 +1488,25 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
     return lowerBinaryChain(expr, env);
   }
   if (isTernaryExpr(expr)) {
+    const thenIR = lowerExpr(expr.thenExpr, env);
+    const otherwiseIR = lowerExpr(expr.elseExpr, env);
+    // An empty `[]` branch takes the ternary's element type (see
+    // `ExprIR.list.elementType`).
+    const joined = resolvedPassType(expr, env);
+    const unwrapped = joined?.kind === "optional" ? joined.inner : joined;
+    if (unwrapped?.kind === "array") {
+      for (const branch of [thenIR, otherwiseIR]) {
+        if (branch.kind === "list" && branch.elements.length === 0) {
+          branch.elementType = unwrapped.element;
+        }
+      }
+    }
     return {
       kind: "ternary",
       cond: lowerExpr(expr.cond, env),
       // biome-ignore lint/suspicious/noThenProperty: the ternary IR node's branch field is named `then` across the IR
-      then: lowerExpr(expr.thenExpr, env),
-      otherwise: lowerExpr(expr.elseExpr, env),
+      then: thenIR,
+      otherwise: otherwiseIR,
     };
   }
   if (isLambda(expr)) {
