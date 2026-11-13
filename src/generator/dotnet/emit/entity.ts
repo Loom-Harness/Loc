@@ -49,6 +49,7 @@ import {
   renderCsStatements,
   statementSubRegions,
 } from "../render-stmt.js";
+import { isVoList } from "../vo-collection-copy.js";
 import { csRuleParams } from "../wire-policy-cs.js";
 import { CS_STATE_HOLDER } from "./state-holder.js";
 
@@ -934,8 +935,14 @@ export function renderEntity(
   const createAssignments = createInputFieldList.map((f) => {
     const dflt = csFactoryDefault(f);
     // `??`, not a truthiness test: an explicit 0/""/false must survive.
+    // A value-object list is element-copied (`vo-collection-copy.ts`): the
+    // caller may hand over another aggregate's loaded, EF-tracked instances.
     const arg = DOMAIN_NAMES.csharp.binding(f.name);
-    return `        ${pubLocal}.${upperFirst(f.name)} = ${dflt === undefined ? arg : `${arg} ?? ${dflt}`};`;
+    const voList = isVoList(f.type);
+    const copied = voList
+      ? `${arg}${dflt === undefined && !f.optional && f.type.kind !== "optional" ? "" : "?"}.Select(__vo => __vo with { }).ToList()`
+      : arg;
+    return `        ${pubLocal}.${upperFirst(f.name)} = ${dflt === undefined ? copied : `${copied} ?? ${dflt}`};`;
   });
   // Server-seeded literal defaults (RS-11): fields outside the create-input set
   // (`token`/`managed`/`internal`) whose default is a construction-time

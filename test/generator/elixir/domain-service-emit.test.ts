@@ -28,7 +28,7 @@ system Orders {
       repository Carts for Cart { }
 
       domainService Quotes {
-        operation quote(cart: Cart, customer: Customer): money {
+        operation quote(cart: Cart, customer: Cart): money {
           precondition cart.subtotal > 0
           return cart.subtotal
         }
@@ -74,7 +74,7 @@ describe("phoenix generator — domainService (domain-services.md)", () => {
     const svc = bySuffix(files, "domain/services/quotes.ex");
     // The signature spec carries each param type + the return type.
     expect(svc).toContain(
-      "@spec quote(Shop.Pricing.Cart.t(), Shop.Pricing.Customer.t()) :: Decimal.t()",
+      "@spec quote(Shop.Pricing.Cart.t(), Shop.Pricing.Cart.t()) :: Decimal.t()",
     );
     expect(svc).toContain("def quote(cart, customer) do");
     // A plain return is the bare value (Elixir last-expression result).

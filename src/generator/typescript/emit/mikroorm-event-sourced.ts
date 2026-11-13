@@ -4,6 +4,7 @@
 // move, no logic change.
 // -------------------------------------------------------------------------
 
+import { hasDurableEvents } from "../../../ir/plan/index.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
@@ -50,6 +51,9 @@ export function renderMikroEventSourcedRepository(
   ctx: EnrichedBoundedContextIR,
 ): string {
   const eventRow = eventRowClassOf(ctx.name);
+  // With a durable channel in the context, the append and the outbox capture
+  // share one transaction.
+  const durable = hasDurableEvents(ctx);
   // This aggregate's slice of the shared per-context event log — discriminated
   // by `stream_type = "<Agg>"` (mirrors the Drizzle ES repo).
   const streamType = agg.name;
@@ -167,12 +171,14 @@ export function renderMikroEventSourcedRepository(
     `  async save(aggregate: ${agg.name}): Promise<void> {`,
     "    const em = this.em.fork({ keepTransactionContext: true });",
     "    const pending = aggregate.pullEvents();",
+    ...(durable ? ["    let dispatchAfterCommit = pending;"] : []),
     "    if (pending.length > 0) {",
     "      const streamId = aggregate.id as string;",
     // Expected-version append (M-T6.98) — continue from the version THIS
     // handle was folded to (the drizzle store's twin, see
     // repository-eventsourced-builder.ts).
     "      let version = aggregate._streamVersion;",
+    ...(durable ? [`      const rows: ${eventRow}[] = [];`] : []),
     "      for (const event of pending) {",
     "        version++;",
     `        const r = new ${eventRow}();`,
@@ -182,13 +188,24 @@ export function renderMikroEventSourcedRepository(
     "        r.type = event.type;",
     "        r.data = eventToData(event);",
     "        r.occurredAt = new Date();",
-    "        em.persist(r);",
+    durable ? "        rows.push(r);" : "        em.persist(r);",
     "      }",
     // A stale handle's append re-inserts a version that exists: the
     // `(stream_type, stream_id, version)` key rejects it (SQLSTATE 23505, which
     // MikroORM's DriverException copies onto `.code`) — the RS-40 409.
     "      try {",
-    "        await em.flush();",
+    ...(durable
+      ? [
+          // Transactional outbox: the stream rows and the durable events'
+          // outbox rows commit in ONE transaction; only the rest dispatch
+          // after it.
+          "        await em.transactional(async (tx) => {",
+          "          for (const r of rows) tx.persist(r);",
+          "          await tx.flush();",
+          "          dispatchAfterCommit = (await this.events.recordDurable?.(pending, tx)) ?? pending;",
+          "        });",
+        ]
+      : ["        await em.flush();"]),
     "      } catch (err) {",
     '        if (err && typeof err === "object" && ((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505") {',
     `          throw new ConcurrencyError("${agg.name}", streamId);`,
@@ -200,7 +217,7 @@ export function renderMikroEventSourcedRepository(
     '    requestLog().debug({ event: "repository_save", aggregate: ' +
       JSON.stringify(agg.name) +
       ", id: aggregate.id as string });",
-    "    for (const event of pending) {",
+    `    for (const event of ${durable ? "dispatchAfterCommit" : "pending"}) {`,
     '      requestLog().info({ event: "event_dispatched", event_type: event.type, aggregate: ' +
       JSON.stringify(agg.name) +
       ", id: aggregate.id as string });",

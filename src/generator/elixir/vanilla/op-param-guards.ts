@@ -6,8 +6,8 @@
 // context module on demand by `context-emit.ts` (`renderNumericParamHelpers`).
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
-import { elixirLocal, snake } from "../../../util/naming.js";
-import { voEctoType } from "./changeset-validators.js";
+import { elixirLocal, snake, upperFirst } from "../../../util/naming.js";
+import { voEctoType, voHasConstraints } from "./changeset-validators.js";
 
 /** Op params whose WIRE form can be malformed, and which therefore have to be
  *  REFUSED rather than coerced-and-hoped.  `coerceOpParam` (`context-emit.ts`) makes the
@@ -46,7 +46,13 @@ export function paramGuardClause(
       .filter((f) => f.type.kind !== "optional")
       .map((f) => `:${snake(f.name)}`)
       .join(", ");
-    return `{:ok, ${elixirLocal(wireName)}} <- __loom_vo_param(record, ${field}, ${access}, %{${types}}, [${required}])`;
+    // A value object with single-field rules has a validating constructor
+    // (`valueobject-emit.ts`, `<Ctx>.<Vo>.new/1`, a child of THIS context
+    // module): the param runs it too, so a rule violation is the same 422 at
+    // `/<param>/<member>` the other backends answer at the wire, not a failure
+    // wherever the body later stores the value.
+    const rules = voHasConstraints(vo) ? `&__MODULE__.${upperFirst(vo.name)}.new/1` : "&{:ok, &1}";
+    return `{:ok, ${elixirLocal(wireName)}} <- __loom_vo_param(record, ${field}, ${access}, %{${types}}, [${required}], ${rules})`;
   }
   // An `X id` param (a uuid) arrives as a string; a non-uuid is a `malformed-id`
   // field refusal (422 at `/<param>`), never an id the body would carry on to

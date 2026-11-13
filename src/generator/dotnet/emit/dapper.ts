@@ -11,6 +11,7 @@ import {
   recordDurableLines,
   rowDispatchLines,
   rowOriginDeclLines,
+  streamCaptureLines,
   streamOriginFrameLines,
   streamScopePredicate,
   streamScopeWhere,
@@ -2609,6 +2610,9 @@ export function renderDapperEventSourcedRepository(
   /** Context retrievals over this aggregate — each a `Run<Name>Async`
    *  answered in memory (`inMemoryRunMethodLines`). */
   retrievals: readonly RetrievalIR[] = [],
+  /** The context routes events through the transactional outbox: the append
+   *  and the durable events' outbox rows commit in one transaction. */
+  durable = false,
 ): string {
   // BCL type-name collision (#3024) — the dapper adapter is a SECOND repository
   // emitter beside the EF one, with its own using block and its own non-generic
@@ -2635,6 +2639,10 @@ export function renderDapperEventSourcedRepository(
   const streamType = agg.name;
   // Audit staging seam — shared with the relational + document emitters.
   const audit = dapperAuditSeam(agg, ns);
+  // The append runs in one transaction when it must commit with an audit row
+  // or with the durable events' outbox rows.
+  const txOn = audit.on || durable;
+  const txArg = txOn ? "transaction: __tx, " : "";
   const eventNames = foldedEventNames(agg);
   const idValue = csValueTypeForId();
   const parseId =
@@ -2794,16 +2802,17 @@ export function renderDapperEventSourcedRepository(
       `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
       "    {",
       "        var __pending = aggregate.PullEvents();",
-      // Audited: the connection + transaction are hoisted out of the append
-      // block, because the staged audit row must be drained and committed even
-      // on a save that appends no events.  Un-audited keeps `conn` scoped
-      // inside the block, byte-identical to the pre-audit emit.
-      audit.on ? `        ${dapperOpenConn(ns)}` : null,
-      audit.begin,
+      ...(durable ? ["        IReadOnlyList<IDomainEvent> __afterCommit = __pending;"] : []),
+      // In a transaction (audited, or with a durable channel) the connection
+      // and transaction are hoisted out of the append block: a staged audit row
+      // must be drained and committed even on a save that appends no events.
+      // Otherwise `conn` stays scoped inside the block.
+      txOn ? `        ${dapperOpenConn(ns)}` : null,
+      txOn ? `        ${DAPPER_BEGIN_TX}` : null,
       "        if (__pending.Count > 0)",
       "        {",
       "            var __sid = aggregate.Id.Value.ToString();",
-      audit.on ? null : `            ${dapperOpenConn(ns)}`,
+      txOn ? null : `            ${dapperOpenConn(ns)}`,
       // Expected-version append (M-T6.98): continue from the version THIS
       // handle was folded to, not from a `MAX(version)` re-read here — a
       // re-read lets a handle loaded before another append keep a decision
@@ -2821,19 +2830,30 @@ export function renderDapperEventSourcedRepository(
       "                var __data = System.Text.Json.JsonSerializer.Serialize((object)__ev, __json);",
       "                try",
       "                {",
-      `                    await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at${metaSel}) VALUES (@st, @sid, @version, @type, CAST(@data AS jsonb), now()${metaCols.map((c) => `, @${c}`).join("")})", new { st = "${streamType}", sid = __sid, version = __version, type = __ev.GetType().Name, data = __data${(tenancy?.metadata ?? []).map((m) => `, ${m.column} = aggregate.${upperFirst(m.field)}`).join("")} }, ${audit.txArg}cancellationToken: cancellationToken));`,
+      `                    await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at${metaSel}) VALUES (@st, @sid, @version, @type, CAST(@data AS jsonb), now()${metaCols.map((c) => `, @${c}`).join("")})", new { st = "${streamType}", sid = __sid, version = __version, type = __ev.GetType().Name, data = __data${(tenancy?.metadata ?? []).map((m) => `, ${m.column} = aggregate.${upperFirst(m.field)}`).join("")} }, ${txArg}cancellationToken: cancellationToken));`,
       "                }",
       '                catch (Npgsql.PostgresException __ex) when (__ex.SqlState == "23505")',
       "                {",
       `                    throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
       "                }",
       "            }",
+      // Transactional outbox: the durable events' outbox rows are INSERTed on
+      // `__tx`, so they commit with the stream rows; only the rest dispatch
+      // after the commit.
+      ...(durable
+        ? streamCaptureLines(
+            ns,
+            "            ",
+            "_events.RecordDurableAsync(__pending, __tx, cancellationToken)",
+            !!tenancy,
+          )
+        : []),
       "            aggregate._StreamVersion = __version;",
       "        }",
       ...audit.flush,
-      audit.commit,
+      txOn ? `        ${DAPPER_COMMIT_TX}` : null,
       ...(tenancy ? streamOriginFrameLines(ns, "        ") : []),
-      "        foreach (var ev in __pending) await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
+      `        foreach (var ev in ${durable ? "__afterCommit" : "__pending"}) await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);`,
       "    }",
       "",
       `    private async Task<List<${agg.name}>> _LoadAllAsync(CancellationToken cancellationToken)`,

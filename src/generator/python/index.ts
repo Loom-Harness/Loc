@@ -1159,6 +1159,29 @@ async def _run_post_commit(
     await session.commit()
 
 
+async def commit_save(session: AsyncSession) -> None:
+    """Commit one save of a workflow that is not \`transactional\`.
+
+    Such a workflow commits each save on its own, so a later failure keeps the
+    rows saved before it.  The events those saves owe are delivered now, as
+    they would be after the request's own commit; the request's list stays
+    open for the saves after this one.
+    """
+    await session.commit()
+    deferred = post_commit.get()
+    if not deferred:
+        return
+    pending = list(deferred)
+    deferred.clear()
+    token = post_commit.set(None)
+    try:
+        for work in pending:
+            await work()
+    finally:
+        post_commit.reset(token)
+    await session.commit()
+
+
 class TransactionMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
