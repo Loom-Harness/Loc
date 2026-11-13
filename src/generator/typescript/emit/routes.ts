@@ -515,7 +515,6 @@ export function renderHttpIndex(
       baseLoggerImport,
       ...authImport,
       ...aggregateImports,
-      ...(options?.byIdCache ? [`import "../cache/by-id-cache";`] : []),
       ...baseImports,
       tsImportSlot("~/http/workflows"),
       tsImportSlot("~/http/realtime"),
@@ -553,6 +552,9 @@ export function renderHttpIndex(
       `  events: ${TT.DomainEventDispatcher} = ${defaultEventsExpr},`,
       "): OpenAPIHono {",
       authVerifyAssert,
+      ...(options?.byIdCache
+        ? [`  ${ref(tsNamed("~/cache/by-id-cache", "installByIdCacheEviction"))}();`]
+        : []),
       "  const app = new OpenAPIHono();",
       "  // Per-request correlation id + structured request_start /",
       "  // request_end JSON log lines.  Mounted FIRST so every",

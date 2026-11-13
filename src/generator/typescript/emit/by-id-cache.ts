@@ -31,13 +31,16 @@ import {
 import type { DeployableIR, SystemIR } from "../../../ir/types/loom-ir.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { resourceEnvUrlVar, resourceSidecarUrl } from "../../../util/resource-env.js";
+import { ref } from "../../_imports/symbol.js";
+import { tsNamed } from "../../_imports/ts.js";
 import { renderHonoStoreLogCall } from "../../_obs/render-hono.js";
+import { T } from "../ts-symbols.js";
 
 /** Where the module lives, relative to the project root. */
 export const BY_ID_CACHE_PATH = "cache/by-id-cache.ts";
 
 /** The exported `ByIdCache` constant of one cached aggregate. */
-export function byIdCacheName(read: Pick<CachedByIdRead, "aggregate">): string {
+function byIdCacheName(read: Pick<CachedByIdRead, "aggregate">): string {
   return `${lowerFirst(read.aggregate)}Cache`;
 }
 
@@ -48,8 +51,8 @@ function storeName(resource: string): string {
 /** One fingerprint input as TypeScript. */
 function scopeValue(input: CacheScopeInput): string {
   return input.kind === "principal"
-    ? "requireCurrentUser()"
-    : `requireCurrentUser().${input.claim}`;
+    ? `${T.requireCurrentUser}()`
+    : `${T.requireCurrentUser}().${input.claim}`;
 }
 
 /** The caller's scope fingerprint: the JSON array of the plan's inputs. */
@@ -59,15 +62,14 @@ function scopeFingerprintTs(read: CachedByIdRead): string {
     : `JSON.stringify([${read.scope.map(scopeValue).join(", ")}])`;
 }
 
-/** True when the route's fingerprint reads the principal. */
-export function fingerprintReadsPrincipal(read: CachedByIdRead): boolean {
-  return read.scope.length > 0;
-}
-
 /** The lines that open a cached `GET /{id}` handler: a hit answers here.
  *  `idExpr` is the route's id, `indent` the handler body's indentation. */
+function cacheRef(read: CachedByIdRead): string {
+  return ref(tsNamed(`~/${BY_ID_CACHE_PATH.replace(/\.ts$/, "")}`, byIdCacheName(read)));
+}
+
 export function renderCacheHit(read: CachedByIdRead, idExpr: string, indent: string): string[] {
-  const cache = byIdCacheName(read);
+  const cache = cacheRef(read);
   return [
     `${indent}const __scope = ${scopeFingerprintTs(read)};`,
     `${indent}const __hit = await ${cache}.read(${idExpr}, __scope);`,
@@ -89,7 +91,7 @@ export function renderCacheStore(
   indent: string,
 ): string[] {
   return [
-    `${indent}await ${byIdCacheName(read)}.write(${idExpr}, __scope, { body: JSON.stringify(${outExpr}), etag: ${etagExpr} });`,
+    `${indent}await ${cacheRef(read)}.write(${idExpr}, __scope, { body: JSON.stringify(${outExpr}), etag: ${etagExpr} });`,
     `${indent}c.header("${CACHE_STATUS_HEADER}", "miss");`,
   ];
 }
@@ -105,7 +107,6 @@ export function renderByIdCacheModule(
     reads.some((r) => r.storage === s.storage),
   );
   const usesRedis = stores.some((s) => s.storageType === "redis");
-  const usesPrincipal = reads.some(fingerprintReadsPrincipal);
   const warn = (op: string) =>
     renderHonoStoreLogCall(
       "cacheUnavailable",
@@ -127,12 +128,6 @@ export function renderByIdCacheModule(
     "//",
     "// The by-id read cache: a `GET /{id}` answer per caller scope, evicted by",
     "// every write of the aggregate.",
-    ...(usesRedis ? [`import { Redis } from "ioredis";`] : []),
-    ...(usesPrincipal ? [`import { requireCurrentUser } from "../auth/middleware";`] : []),
-    ...reads.map(
-      (r) =>
-        `import { ${r.aggregate}Repository } from "../db/repositories/${lowerFirst(r.aggregate)}-repository";`,
-    ),
     `import { requestLog } from "../obs/als";`,
     "",
     "/** The key-value store the entries live in. */",
@@ -145,11 +140,11 @@ export function renderByIdCacheModule(
     ...(usesRedis
       ? [
           "class RedisStore implements CacheStore {",
-          "  private readonly client: Redis;",
+          `  private readonly client: ${T.Redis};`,
           "  constructor(url: string) {",
           "    // Connects on first use, and fails a call instead of queueing it while",
           "    // the server is away: the caller then reads the database.",
-          "    this.client = new Redis(url, { lazyConnect: true, maxRetriesPerRequest: 1, enableOfflineQueue: false });",
+          `    this.client = new ${T.Redis}(url, { lazyConnect: true, maxRetriesPerRequest: 1, enableOfflineQueue: false });`,
           "  }",
           "  async get(key: string): Promise<string | null> {",
           "    await this.connected();",
@@ -256,10 +251,23 @@ export function renderByIdCacheModule(
     "",
     ...storeLines,
     "",
-    ...reads.flatMap((r) => [
-      `export const ${byIdCacheName(r)} = new ByIdCache(${JSON.stringify(r.aggregate)}, ${storeName(r.storage)}, ${JSON.stringify(r.entryPrefix)}, ${r.ttlSeconds});`,
-      `evictOnWrite(${r.aggregate}Repository, ${byIdCacheName(r)}, ${JSON.stringify(r.evictOn)});`,
-    ]),
+    ...reads.map(
+      (r) =>
+        `export const ${byIdCacheName(r)} = new ByIdCache(${JSON.stringify(r.aggregate)}, ${storeName(r.storage)}, ${JSON.stringify(r.entryPrefix)}, ${r.ttlSeconds});`,
+    ),
+    "",
+    "let installed = false;",
+    "",
+    "/** Wrap every cached aggregate's repository writes with its eviction.  Called",
+    " *  once, by `createApp`, before any repository is written through. */",
+    "export function installByIdCacheEviction(): void {",
+    "  if (installed) return;",
+    "  installed = true;",
+    ...reads.map(
+      (r) =>
+        `  evictOnWrite(${ref(tsNamed(`~/db/repositories/${lowerFirst(r.aggregate)}-repository`, `${r.aggregate}Repository`))}, ${byIdCacheName(r)}, ${JSON.stringify(r.evictOn)});`,
+    ),
+    "}",
     "",
   ].join("\n");
 }

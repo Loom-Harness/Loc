@@ -35,8 +35,6 @@ import {
   renderHistoryEntryMapper,
 } from "../../../generator/typescript/emit/audit-history.js";
 import {
-  byIdCacheName,
-  fingerprintReadsPrincipal,
   renderCacheHit,
   renderCacheStore,
 } from "../../../generator/typescript/emit/by-id-cache.js";
@@ -586,12 +584,6 @@ export function buildRoutesFile(
       : `import type { ${agg.name}Repository } from "../db/repositories/${lowerFirst(agg.name)}-repository";`,
   );
   lines.push(tsImportSlot("~/domain/ids"));
-  if (cache) {
-    if (fingerprintReadsPrincipal(cache)) {
-      lines.push(`import { requireCurrentUser } from "../auth/middleware";`);
-    }
-    lines.push(`import { ${byIdCacheName(cache)} } from "../cache/by-id-cache";`);
-  }
   // `ConcurrencyError` only when this aggregate is `versioned` OR event-sourced — a
   // non-versioned aggregate's route file stays byte-identical.  `NotImplementedError`
   // rides the same rule on `extern` operations: only their scaffold-once stub

@@ -11,6 +11,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 const ROOT = join(__dirname, "..", "..");
 const SCANNED = ["src/generator", "src/platform", "src/system"];
@@ -19,7 +20,7 @@ const SCANNED = ["src/generator", "src/platform", "src/system"];
 const FORBIDDEN: readonly { what: string; re: RegExp }[] = [
   { what: "reads a resource's ttl", re: /\.ttl\b/ },
   { what: "reads a resource's keyPrefix", re: /\.keyPrefix\b/ },
-  { what: 'picks out `kind: cache` resources', re: /kind\s*===?\s*["']cache["']/ },
+  { what: "picks out `kind: cache` resources", re: /kind\s*===?\s*["']cache["']/ },
   { what: "spells the cache status header", re: /["'`]x-loom-cache["'`]/ },
   { what: "names the evicting writes", re: /evictOn\s*[:=]\s*\[/ },
 ];
@@ -51,7 +52,7 @@ describe("cache plan census", () => {
       path: relative(ROOT, p),
       text: readFileSync(p, "utf8"),
     }));
-    expect(files.length).toBeGreaterThan(500);
+    expectReach("emitter source files", files.length, 500);
     expect(cachePlanOffences(files)).toEqual([]);
   });
 
