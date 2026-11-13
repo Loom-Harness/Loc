@@ -83,7 +83,6 @@ import { collectLiveLetNames, pyWorkflowStmtTarget } from "./workflows-builder.j
 // ---------------------------------------------------------------------------
 
 const SELECT = pyRef("sqlalchemy", "select");
-const UPDATE = pyRef("sqlalchemy", "update");
 const ASYNCIO = ref(pyModule("asyncio"));
 const CONTEXT_VAR = pyRef("contextvars", "ContextVar");
 const AWAITABLE = pyRef("collections.abc", "Awaitable");
