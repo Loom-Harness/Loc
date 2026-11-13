@@ -9,7 +9,7 @@ import { routeSegmentFor } from "../../util/storage-names.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { rowClassName } from "./py-columns.js";
 import { pyIdType } from "./py-symbols.js";
-import { aggHasFieldMask, aggRef, R, schemaRow } from "./repository-builder.js";
+import { aggRef, R, schemaRow } from "./repository-builder.js";
 import { PY_HTTP as H, ID_PARAM, PY_PAGED_CONTROLS, PY_SESSION_DEP } from "./routes-builder.js";
 import { pyNotFoundRaise, pyProblemResponseEntry } from "./wire-policy-py.js";
 

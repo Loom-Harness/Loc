@@ -1,4 +1,3 @@
-import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
 import { type PolymorphicRead, polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import type {
   AggregateIR,

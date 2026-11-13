@@ -1,28 +1,5 @@
-// ---------------------------------------------------------------------------
-// Java polymorphic base read — `GET /api/<bases>` (paged) and, under TPH,
-// `GET /api/<bases>/{id}`: every row as its real subtype, tagged with the
-// concrete's name as the wire `type`, one global `id` order, paged globally
-// (the `polymorphicReadFor` fact, src/ir/enrich/read-scope.ts).
-//
-//   - TPH (`sharedTable`): ONE JPQL query over the root entity.  Every
-//     restriction of the hierarchy is hosted on the root, kind-guarded
-//     (capability-filter.ts `restrictionHostFor`), so `from <Base>` applies
-//     the base's restrictions and each row's own subtype's — and never a
-//     sibling's.  Hibernate hydrates each row as its `@DiscriminatorValue`
-//     subclass.  By id is a query too, so a row the session already holds is
-//     re-checked in SQL.
-//   - TPC (`ownTable`): the base is a `@MappedSuperclass`, which JPQL cannot
-//     select from.  Each concrete's own scoped `findAll()` is read and the rows
-//     merged in `id` order, then paged.
-//
-// Each tagged item is the concrete's own GET-by-id body plus `type`, built
-// through the application's `JsonMapper` so the body carries exactly the
-// codecs that body carries on the concrete's own route.
-// ---------------------------------------------------------------------------
-
-import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
-import { type PolymorphicRead, polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
-import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../../ir/types/loom-ir.js";
+import type { PolymorphicRead } from "../../../ir/enrich/read-scope.js";
+import type { EnrichedAggregateIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";

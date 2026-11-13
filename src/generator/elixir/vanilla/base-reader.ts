@@ -1,32 +1,3 @@
-// ---------------------------------------------------------------------------
-// Abstract-base polymorphic reader (inheritance.md) — the repository module,
-// the tagged serializer and the routing decision the controller, context and
-// OpenAPI emitters share.
-//
-// The read is the polymorphic-read fact (`polymorphicReadFor`,
-// `src/ir/enrich/read-scope.ts`) rendered on Ecto:
-//
-//   - TPH: ONE query over the shared table, from the ROOT's `base_query/0`.
-//     The root's schema hosts its own restrictions and every concrete's own,
-//     guarded by `kind` (read-scope-emit.ts), and `Repo.prepare_query/3`
-//     applies them — so no restriction is spelled here.  The order (`id`) and
-//     the page window are the database's, over the whole hierarchy.  Each row
-//     comes back as the root schema (the union of every subtype's columns) and
-//     is turned into its concrete schema by `kind`: the concrete maps the same
-//     columns with the same types, so the conversion is a field projection
-//     onto the concrete struct, and the concrete's own associations are then
-//     preloaded like its repository's reads do.
-//   - TPC: one table per concrete, so the reader runs each concrete's scoped
-//     read (its `base_query/0` + `prepare_query`) up to the end of the
-//     requested window and merges them in the one global `id` order before it
-//     pages.  A `shape: document` concrete has no SQL read scope; its
-//     repository's `list` (filtered in-app) stands in for it.
-//
-// Every row goes on the wire tagged with its concrete's name (`"type"`).
-// ---------------------------------------------------------------------------
-
-import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
-import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { PAGED_DEFAULT_PAGE, PAGED_DEFAULT_PAGE_SIZE } from "../../../ir/stdlib/generics.js";
 import type { AggregateIR, BoundedContextIR, SystemIR } from "../../../ir/types/loom-ir.js";
 import { isTphBase, tpcConcretesOf, tphConcretesOf } from "../../../ir/util/inheritance.js";

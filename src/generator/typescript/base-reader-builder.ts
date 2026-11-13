@@ -27,7 +27,7 @@
 // and states no restriction itself; the ORM hydrates each row as its subclass
 // and applies every concrete's guarded filter.
 
-import { type PolymorphicRead, polymorphicReadFor } from "../../ir/enrich/read-scope.js";
+import type { PolymorphicRead } from "../../ir/enrich/read-scope.js";
 import { reasonPhrase, wireStatus } from "../../ir/enrich/wire-policy.js";
 import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
 import { isValueCollectionType } from "../../ir/util/value-collections.js";
@@ -46,7 +46,6 @@ import {
   repoTableName,
 } from "./repository-find-predicate.js";
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
-import { aggHasFieldMask } from "./repository-wire-builder.js";
 import { T, TT } from "./ts-symbols.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
 /** The `<Base> = Concrete | …` discriminated-union type (TS structural union
