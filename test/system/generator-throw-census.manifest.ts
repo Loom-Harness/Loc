@@ -1273,7 +1273,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   // src/generator/sql-pg-expr.ts
   "src/generator/sql-pg-expr.ts#renderSqlScalarExpr": {
     invariant:
-      "Backfill rendering is wrapped in try/catch (and reported by loom.migration-expr-unsupported), and the column-default path is gated by sqlLiteralColumnDefault, which admits no this-prop ref. (src/system/migrations-builder.ts:2266-2270, :3291-3295)",
+      "Backfill rendering is wrapped in try/catch (and reported by loom.migration-expr-invalid), and the column-default path is gated by sqlLiteralColumnDefault, which admits no this-prop ref. (src/system/migrations-builder.ts:2266-2270, :3291-3295)",
   },
 
   // src/generator/sql-pg.ts

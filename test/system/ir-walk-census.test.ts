@@ -847,12 +847,12 @@ const WAIVERS: Record<string, Waiver> = {
   // `scope` filter).
   "src/generator/java/render-sql-restriction.ts#renderSql": STANDING_QUERYABLE_SUBSET,
   // Migration backfill expressions, not find predicates: bounded by
-  // `loom.migration-expr-unsupported` (migration-checks.ts) BEFORE phase ⑨
+  // `loom.migration-expr-invalid` (migration-checks.ts) BEFORE phase ⑨
   // renders them, and the residue routes through `refuseOutOfVocabulary`, so
   // the throw carries `loom.query-emission-invalid` rather than a bare Error.
   "src/generator/sql-pg-expr.ts#renderSqlScalarExpr": {
     standing:
-      "unreachable — `loom.migration-expr-unsupported` (src/ir/validate/checks/migration-checks.ts) bounds a backfill expression to the SQL-renderable subset at phase ⑦, and the default arm routes through `refuseOutOfVocabulary` so even a validator bypass surfaces `loom.query-emission-invalid`, not a bare Error",
+      "unreachable — `loom.migration-expr-invalid` (src/ir/validate/checks/migration-checks.ts) bounds a backfill expression to the SQL-renderable subset at phase ⑦, and the default arm routes through `refuseOutOfVocabulary` so even a validator bypass surfaces `loom.query-emission-invalid`, not a bare Error",
   },
 
   // -- unreachable: the ui action / MVU-update statement vocabulary ----------

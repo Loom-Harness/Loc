@@ -151,7 +151,7 @@ export const messages = {
     deployables: unknown;
   }) =>
     `migration step '${p.step}' moves tables from module '${p.from}' to module '${p.to}', but deployable(s) ${p.deployables} apply '${p.to}' migrations to a database that never held '${p.from}' tables, so there is nothing there to move. Host both modules on deployables that share a database (one \`storage\`), or migrate the data with a raw \`sql\` step.`,
-  "loom.migration-expr-unsupported": (p: { aggregate: unknown; field: unknown; reason: unknown }) =>
+  "loom.migration-expr-invalid": (p: { aggregate: unknown; field: unknown; reason: unknown }) =>
     `backfill '${p.aggregate}.${p.field}': ${p.reason}.`,
   "loom.backfill-type-mismatch": (p: {
     aggregate: unknown;
