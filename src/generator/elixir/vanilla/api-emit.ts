@@ -23,6 +23,7 @@ import {
   createInputFields,
   emitsRestCreate as sharedEmitsRestCreate,
 } from "../../../ir/enrich/wire-projection.js";
+import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import { routedPolymorphicRead } from "../../../ir/plan/index.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -63,6 +64,11 @@ import {
   vanillaHistoryFind,
 } from "./audit-history-emit.js";
 import { hasPolymorphicConcretes, renderPolymorphicSerialize } from "./base-reader.js";
+import {
+  type ByIdCacheReads,
+  byIdCacheScopeReadsPrincipal,
+  renderCachedShowBody,
+} from "./by-id-cache-emit.js";
 import { aggregateUsesPrincipalContextFilter, listUsesPrincipal } from "./capability-filter.js";
 import { CRUD_RESERVED_NAMES } from "./context-emit.js";
 import {
@@ -215,6 +221,7 @@ export function emitVanillaApiControllers(
   out: Map<string, string>,
   sys?: SystemIR,
   sourcemap?: SourceMapRecorder,
+  cached: ByIdCacheReads = new Map(),
 ): VanillaApiEmitResult {
   const ctxModule = upperFirst(ctx.name);
   const routes: ApiRoute[] = [];
@@ -266,6 +273,7 @@ export function emitVanillaApiControllers(
           isVanillaDocAgg(agg, ctx, sys),
           isAbstractBase(agg),
           sys,
+          cached.get(agg.name),
         );
     out.set(controllerPath, controllerContent);
     sourcemap?.file(controllerPath, controllerContent, agg.origin, `${ctx.name}.${agg.name}`);
@@ -366,6 +374,7 @@ function renderController(
    *  context never defines). */
   readOnly = false,
   sys?: SystemIR,
+  cache?: CachedByIdRead,
 ): string {
   const aggPascal = upperFirst(agg.name);
   const facadeMod = `${appModule}.${ctxName}`;
@@ -472,7 +481,16 @@ ${cuBind}${indexCuBind}${indexBody}
     showGate && exprUsesCurrentUser(showGate) && !principal
       ? "    current_user = Map.get(conn.assigns, :current_user)\n"
       : "";
-  const showBody = `    case ${ctxModule}.get_${aggSnake}(id${getActor}) do
+  // A cached by-id read (`src/ir/plan/cache.ts`) reads through the cache after
+  // the gate; its fingerprint reads the principal, bound here when nothing
+  // above has.
+  const cacheCuBind =
+    cache && byIdCacheScopeReadsPrincipal(cache) && !principal && !showCuBind
+      ? "    current_user = Map.get(conn.assigns, :current_user)\n"
+      : "";
+  const showBody = cache
+    ? `${cacheCuBind}${renderCachedShowBody(appModule, cache, ctxModule, aggSnake, aggPascal, `id${getActor}`)}`
+    : `    case ${ctxModule}.get_${aggSnake}(id${getActor}) do
       {:ok, record} ->
         json(conn, serialize(record))
 

@@ -41,6 +41,7 @@
 
 import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import { isRequiredUpdateInput } from "../../../ir/enrich/wire-projection.js";
+import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -77,6 +78,7 @@ import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
+import { renderEvictPipe } from "./by-id-cache-emit.js";
 import {
   aggregateUsesPrincipalContextFilter,
   DOC_DENY_HELPER,
@@ -558,9 +560,12 @@ export function renderDocRepository(
   agg: AggregateIR,
   finds: readonly FindIR[] = [],
   principalIdKey = "id",
+  cache?: CachedByIdRead,
 ): string {
   const aggModule = `${appModule}.${ctxModule}.${upperFirst(agg.name)}`;
   const repoMod = `${aggModule}Repository`;
+  // Every write ends in the aggregate's cache eviction when its by-id read is cached.
+  const evict = renderEvictPipe(appModule, cache);
   const changesetMod = `${aggModule}Changeset`;
   const contextModule = `${appModule}.${ctxModule}`;
   const versioned = savesLockVersion(agg);
@@ -693,7 +698,7 @@ ${docBindRecord(writeScope, "        ")}        if ${writeScope}, do: {:ok, row}
   def insert(attrs${stampActorParam}) when is_map(attrs) do
 ${insertStamps}    %${aggModule}{}
     |> ${changesetMod}.document_changeset(attrs, 1)
-    |> Repo.insert()
+    |> Repo.insert()${evict}
   end
 
   @spec update(${aggModule}.t(), map()${stampActorParam ? ", map() | nil" : ""}${versioned ? ", integer() | nil" : ""}) :: {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t()${versioned ? " | :conflict" : ""}}
@@ -719,26 +724,26 @@ ${
     record
     |> ${changesetMod}.document_update_changeset(attrs, record.${ROW_VERSION_COLUMN})
     |> Ecto.Changeset.optimistic_lock(:${ROW_VERSION_COLUMN})
-    |> Repo.update(force: true)
+    |> Repo.update(force: true)${evict}
   rescue
     Ecto.StaleEntryError -> {:error, :conflict}
   end`
     : `    record
     |> ${changesetMod}.document_update_changeset(attrs, record.${ROW_VERSION_COLUMN} + 1)
-    |> Repo.update()
+    |> Repo.update()${evict}
   end`
 }
 
   @spec delete(${aggModule}.t()) :: {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t()}
   def delete(%${aggModule}{} = record) do
-    Repo.delete(record)
+    Repo.delete(record)${evict}
   end
 
   @doc "Persist a pre-built changeset (named-operation seam — the document op path re-embeds through this)."
   @spec persist_change(Ecto.Changeset.t()) ::
           {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t()${versioned ? " | :conflict" : ""}}
   def persist_change(%Ecto.Changeset{data: %${aggModule}{}} = changeset) do
-    Repo.update(changeset${versioned ? ", force: true" : ""})${versioned ? "\n  rescue\n    Ecto.StaleEntryError -> {:error, :conflict}" : ""}
+    Repo.update(changeset${versioned ? ", force: true" : ""})${evict}${versioned ? "\n  rescue\n    Ecto.StaleEntryError -> {:error, :conflict}" : ""}
   end${findBlock}${denyHelperBlock}
 end
 `;
