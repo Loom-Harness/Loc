@@ -5,6 +5,7 @@ import {
   eventSourcedWorkflows,
   type FoldRowSeed,
   foldInboxClaimSql,
+  foldInboxPurgeSql,
   type FoldStep,
   foldedEventNames,
   foldRowSeeds,
@@ -408,6 +409,7 @@ export function buildPyDispatchFile(
             pureProducer: false,
             hasRealtime,
             carriesOrigin,
+            pruneInbox: foldsDedupe(ctx, hasOutbox),
           }),
         ]
       : []),
@@ -1003,24 +1005,32 @@ const OUTBOX_FAIL_BLOCK: readonly string[] = [
  *  environment (a missing, non-numeric or non-positive value falls back to
  *  the default) and one bounded-batch DELETE of the dispatched rows older
  *  than it.  Dead rows are never dispatched, so they are never purged. */
-const OUTBOX_PURGE_FNS: readonly string[] = [
-  "def _outbox_retention_days() -> int:",
-  "    try:",
-  `        days = int(${OS}.environ.get("${OUTBOX_RETENTION_ENV}", ""))`,
-  "    except ValueError:",
-  `        return ${OUTBOX_RETENTION_DEFAULT_DAYS}`,
-  `    return days if days > 0 else ${OUTBOX_RETENTION_DEFAULT_DAYS}`,
-  "",
-  "",
-  "async def _purge_outbox() -> None:",
-  `    cutoff = ${PY.datetime}.now(${PY.UTC}) - ${PY.timedelta}(days=_outbox_retention_days())`,
-  `    expired = ${SELECT}(${OUTBOX_ROW}.id).where(${OUTBOX_ROW}.dispatched_at < cutoff).limit(${OUTBOX_PURGE_BATCH})`,
-  `    async with AsyncSession(${ENGINE}) as session:`,
-  `        await session.execute(${DELETE}(${OUTBOX_ROW}).where(${OUTBOX_ROW}.id.in_(expired)))`,
-  "        await session.commit()",
-  "",
-  "",
-];
+function outboxPurgeFns(pruneInbox = false): readonly string[] {
+  return [
+    "def _outbox_retention_days() -> int:",
+    "    try:",
+    `        days = int(${OS}.environ.get("${OUTBOX_RETENTION_ENV}", ""))`,
+    "    except ValueError:",
+    `        return ${OUTBOX_RETENTION_DEFAULT_DAYS}`,
+    `    return days if days > 0 else ${OUTBOX_RETENTION_DEFAULT_DAYS}`,
+    "",
+    "",
+    "async def _purge_outbox() -> None:",
+    `    cutoff = ${PY.datetime}.now(${PY.UTC}) - ${PY.timedelta}(days=_outbox_retention_days())`,
+    `    expired = ${SELECT}(${OUTBOX_ROW}.id).where(${OUTBOX_ROW}.dispatched_at < cutoff).limit(${OUTBOX_PURGE_BATCH})`,
+    `    async with AsyncSession(${ENGINE}) as session:`,
+    `        await session.execute(${DELETE}(${OUTBOX_ROW}).where(${OUTBOX_ROW}.id.in_(expired)))`,
+    // The fold inbox shares the window: a claim outlives every redelivery.
+    ...(pruneInbox
+      ? [
+          `        await session.execute(${SA_TEXT}(${JSON.stringify(foldInboxPurgeSql(":cutoff"))}), {"cutoff": cutoff})`,
+        ]
+      : []),
+    "        await session.commit()",
+    "",
+    "",
+  ];
+}
 
 /** The outbox row's payload expression: the event's wire payload, plus its
  *  EVENT ORIGIN under the reserved key when the deployable carries auth. */
@@ -1047,6 +1057,9 @@ function outboxBlock(
     pureProducer: boolean;
     hasRealtime?: boolean;
     carriesOrigin?: boolean;
+    /** The folds claim events in the fold inbox (`foldsDedupe`): the purge
+     *  prunes it on the outbox's window. */
+    pruneInbox?: boolean;
   },
 ): string {
   const origin = opts.carriesOrigin ?? false;
@@ -1175,7 +1188,7 @@ function outboxBlock(
     "            _current_event_id.reset(token)",
     "",
     "",
-    ...OUTBOX_PURGE_FNS,
+    ...outboxPurgeFns(opts.pruneInbox),
     "async def _run_outbox_relay(",
     "    interval: float = 0.5, max_attempts: int = 5, batch_size: int = 50",
     ") -> None:",
@@ -1289,7 +1302,7 @@ function pureProducerOutboxBlock(
     ...OUTBOX_FAIL_BLOCK,
     "",
     "",
-    ...OUTBOX_PURGE_FNS,
+    ...outboxPurgeFns(),
     "async def _run_outbox_relay(",
     "    interval: float = 0.5, max_attempts: int = 5, batch_size: int = 50",
     ") -> None:",
