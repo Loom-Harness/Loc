@@ -7,6 +7,9 @@
     "unattributed": [
       "api.openOrders.list (no such aggregate)",
       "api.orderBook.byKey (no such aggregate)"
-    ]
+    ],
+    "uncalled": {
+      "canReopenOrder": "gateProbe"
+    }
   }
 }

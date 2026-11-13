@@ -41,6 +41,7 @@ import { stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
+import { httpRequest, probeCodeFlow } from "../support/oidc-code-flow.mjs";
 
 /** In-process mock OIDC issuer, started when the corpus has an `auth {}` case. */
 let oidc = null;
@@ -284,6 +285,8 @@ async function runCase(c) {
       const api = await run();
       for (const r of api.results) out.push({ tier: "api", ...r });
       for (const r of api.authz ?? []) out.push(r);
+      // The OIDC authorization-code handshake against the fake issuer (off the recorder).
+      for (const r of isOidc && oidc ? await probeCodeFlow({ request: httpRequest(BASE), oidc }) : []) out.push(r);
       return { results: out, error: null, wire: api.wire };
     } catch (apiErr) {
       return { results: out, error: apiErr?.message ?? String(apiErr) };

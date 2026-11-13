@@ -891,6 +891,9 @@ const __authzLadder = async (spec, creds, dispatch) => {
     // bypass).  Keyed by rung: anonymous / unauthorized / otherTenant /
     // authorized.
     rowVisible: g.rowVisible ?? null,
+    // Extra request headers for every rung of this surface (a stale
+    // \`If-Match\`, say).
+    headers: g.headers ?? null,
   }));
 
   const arm = async (surface, rung, headers, expected, skipNote, sid, rungKey) => {
@@ -902,7 +905,7 @@ const __authzLadder = async (spec, creds, dispatch) => {
     const r = await dispatch({
       method: surface.method,
       url: origin + surface.path.replace("{id}", sid),
-      headers: json(headers),
+      headers: { ...json(headers), ...(surface.headers ?? {}) },
       ...withBody(surface.method, surface.body),
     });
     const got = r?.response?.status;

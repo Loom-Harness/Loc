@@ -1069,7 +1069,15 @@ function renderMemberValue(expr: Extract<ExprIR, { kind: "member" }>, ctx: WalkC
   if (documentFieldOfReceiver(expr, ctx)) {
     return `${renderExpr(expr.receiver, ctx)}.data.${snake(expr.member)}`;
   }
-  return `${renderExpr(expr.receiver, ctx)}.${snake(expr.member)}`;
+  const recv = renderExpr(expr.receiver, ctx);
+  // An OPTIONAL receiver (`@data.reserve.amount` over `reserve: Reserve?`) is
+  // nil when absent, and a dot read on nil raises — the page crashed where the
+  // SPA detail pages render the absent value as empty.  Read through a nil
+  // check instead; nil renders as empty text.
+  if (expr.receiverType?.kind === "optional") {
+    return `(case ${recv} do nil -> nil; present -> present.${snake(expr.member)} end)`;
+  }
+  return `${recv}.${snake(expr.member)}`;
 }
 
 /** True when a member read names a declared FIELD of a loaded `shape: document`

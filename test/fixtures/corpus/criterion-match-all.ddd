@@ -1,0 +1,57 @@
+// shape: the match-everything criterion — `criterion Everyone of T = true` —
+// read by a workflow that touches every row.
+//
+// A query filter has to test a column, so a literal predicate is refused; the
+// whole body `true` is the one exception, and every backend reads it as "no
+// filter".  Without it a workflow had no way to load every row: authors wrote
+// dummy predicates (`name != ""`) that read as if they meant something.
+system CriterionMatchAll {
+  subdomain Catalog {
+    context Catalog {
+      aggregate Item with crudish {
+        name: string
+        hits: int
+
+        operation bump() {
+          hits := hits + 1
+        }
+      }
+      repository Items for Item { }
+      criterion Everything of Item = true
+
+      workflow bumpAll transactional {
+        create() {
+          let xs = Items.all(Everything, page: { offset: 0, limit: 100 })
+          for x in xs {
+            x.bump()
+          }
+        }
+      }
+    }
+  }
+
+  api CatalogApi from Catalog
+  storage primary { type: postgres }
+  resource catalogState { for: Catalog, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Catalog]
+    dataSources: [catalogState]
+    serves: CatalogApi
+    port: 4000
+  }
+
+  test e2e "a match-everything criterion reads every row" against d {
+    let a = api.items.create({ name: "a", hits: 0 })
+    let b = api.items.create({ name: "", hits: 5 })
+    api.bumpAll.run({})
+    expect(api.items.getById(a).hits).toBe(1)
+    expect(api.items.getById(b).hits).toBe(6)
+    api.items.bump(a)
+    expect(api.items.getById(a).hits).toBe(2)
+    api.items.update(a, { name: "a2", hits: 0 })
+    expect(api.items.all().total).toBe(2)
+    api.items.destroy(b)
+    expect(api.items.getById(b)).toThrow(404)
+  }
+}

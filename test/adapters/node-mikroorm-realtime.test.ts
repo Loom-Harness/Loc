@@ -53,7 +53,7 @@ system M {
       projection Board keyed by orderRef {
         orderRef: Order id
         status: string
-        on(e: OrderPlaced) { orderRef := e.orderRef  status := "Placed" }
+        on(e: OrderPlaced) { status := "Placed" }
       }
     }
   }

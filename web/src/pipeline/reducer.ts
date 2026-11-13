@@ -62,7 +62,7 @@ export function pipelineReducer(
         bundle: {
           kind: "result",
           backends: action.backends,
-          react: action.react,
+          frontends: action.frontends,
         },
       };
 

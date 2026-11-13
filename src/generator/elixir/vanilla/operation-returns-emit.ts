@@ -13,6 +13,7 @@
 
 import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
 import { errorVariantCode } from "../../../ir/enrich/wire-policy.js";
+import { gateReadsRow } from "../../../ir/plan/gate-ladder.js";
 import { variantTag } from "../../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -28,11 +29,12 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { branchesContain } from "../../../ir/util/if-normal-form.js";
+import { operationGates } from "../../../ir/util/op-gates.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { eventsCarryRowTenant } from "../../../ir/util/tenant-stance.js";
 import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
-import { walkStmtsDeep } from "../../../ir/util/walk.js";
+import { walkExprDeep, walkStmtsDeep } from "../../../ir/util/walk.js";
 import { elixirMatchRefusal } from "../../../ir/validate/checks/elixir-match-stmt-checks.js";
 import {
   elixirLocal,
@@ -73,9 +75,11 @@ import {
   wireLimitSides,
   wireValidationResponse,
 } from "./denial.js";
+import { opRowFreeGates } from "./gate.js";
 import { renderElixirIfStmt } from "./if-stmt-emit.js";
 import { renderElixirMatchStmt } from "./match-stmt-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
+import { paramGuardClause } from "./op-param-guards.js";
 import { isOpTree, opPaths, renderOpTree } from "./op-tree.js";
 import { collectVanillaLeaves, provColumn, provenancedFieldsOf } from "./provenance-emit.js";
 import { isRefCollFieldName, refCollPutAssocValue } from "./ref-collection-emit.js";
@@ -450,26 +454,41 @@ function renderWhenGateClause(aggName: string, op: OperationIR, rc: RenderCtx): 
  *  / 403) and `precondition` (→ `:precondition_failed` / 422) in body order.
  *  An op with no `when` contributes only its requires/precondition clauses. */
 export function collectOpGuardClauses(aggName: string, op: OperationIR, rc: RenderCtx): string[] {
-  const clauses: string[] = [];
-  if (op.when) clauses.push(renderWhenGateClause(aggName, op, rc));
   // The request body a wire-rung denial can point into is the op's own params —
   // the same `available` set `routes-builder.ts` / `_i18n/validation-catalog.ts`
   // classify an `<Op>Request` refine against.
   const wireAvailable = new Set(op.params.map((p) => p.name));
+  // The gate ladder (`ir/plan/gate-ladder.ts`): the leading `requires` gates
+  // that read no row, then those that read the row, then `when`, then the
+  // remaining `requires`/`precondition`s in body order.
+  const gates = operationGates(op);
+  const leading = new Set<StmtIR>(gates);
+  const clauses: string[] = [
+    ...gates.filter((g) => !gateReadsRow(g)).flatMap((g) => gateClauses(g, rc, wireAvailable)),
+    ...gates.filter(gateReadsRow).flatMap((g) => gateClauses(g, rc, wireAvailable)),
+  ];
+  if (op.when) clauses.push(renderWhenGateClause(aggName, op, rc));
   for (const s of op.statements) {
-    if (s.kind === "requires" || s.kind === "precondition") {
-      // A declared field limit denies one side at a time, each under its own
-      // `field.<limit>` code.
-      const sides = wireLimitSides(s, wireAvailable);
-      if (sides) {
-        for (const side of sides)
-          clauses.push(`:ok <- ensure(${renderExpr(side.expr, rc)}, ${side.term})`);
-      } else {
-        clauses.push(renderOpGuardClause(s, rc, wireAvailable));
-      }
+    if ((s.kind === "requires" || s.kind === "precondition") && !leading.has(s)) {
+      clauses.push(...gateClauses(s, rc, wireAvailable));
     }
   }
   return clauses;
+}
+
+/** The `ensure/2` with-clauses of one `requires`/`precondition` statement: a
+ *  declared field limit denies one side at a time, each under its own
+ *  `field.<limit>` code; anything else is one clause. */
+export function gateClauses(
+  s: Extract<StmtIR, { kind: "requires" | "precondition" }>,
+  rc: RenderCtx,
+  wireAvailable: ReadonlySet<string>,
+): string[] {
+  const sides = wireLimitSides(s, wireAvailable);
+  if (sides) {
+    return sides.map((side) => `:ok <- ensure(${renderExpr(side.expr, rc)}, ${side.term})`);
+  }
+  return [renderOpGuardClause(s, rc, wireAvailable)];
 }
 
 /** Wrap an operation body (its rendered 4-space-indented `bodyLines` + persist
@@ -1820,10 +1839,47 @@ export function renderReturningOpControllerAction(
   const opCuBind =
     opActor || load.bindsActor ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
   const opCallActor = opActor ? ", current_user" : "";
+  // The gate ladder: the `requires` gates that read no row refuse (403) before
+  // the load — and before the `If-Match` header is parsed.
+  const preGate = opRowFreeGates(op).length > 0;
+  // A parameter a gate reads is parsed first, and a malformed one is the
+  // changeset error the gate function returns.
+  const gateReads = new Set<string>();
+  for (const g of opRowFreeGates(op)) {
+    walkExprDeep(g.expr, (x) => {
+      if (x.kind === "ref" && x.refKind === "param") gateReads.add(x.name);
+    });
+  }
+  const gateGuarded = op.params.some(
+    (p) => gateReads.has(p.name) && paramGuardClause(p.name, p.type, ctx) != null,
+  );
+  const gateClause = preGate
+    ? `:ok <- ${ctxModule}.${opSnake}_${aggSnake}_gate(attrs${opCallActor}),\n         `
+    : "";
+  const versionClause =
+    preGate && opReadsIfMatch ? `expected_version = __expected_version(conn),\n         ` : "";
+  // A returning op's denial arms live in its result helper, so the gate's
+  // `{:error, term}` is routed through it.
+  const loaded = preGate
+    ? `with ${gateClause}${versionClause}{:ok, record} <- ${ctxModule}.${load.loadFn}(id${load.loadActor}) do
+      ${resultFn}(conn, ${ctxModule}.${opSnake}_${aggSnake}(${opReadsIfMatch ? RECORD_AT_EXPECTED_VERSION : "record"}, attrs${opCallActor}))
+    else
+      {:error, :not_found} ->
+        ProblemDetails.not_found_response(conn, "${aggPascal}", id)
+
+${gateGuarded ? `      {:error, %Ecto.Changeset{} = changeset} ->\n        ProblemDetails.validation_error_response(conn, changeset)\n\n` : ""}      {:error, _} = denied ->
+        ${resultFn}(conn, denied)
+    end`
+    : `with {:ok, record} <- ${ctxModule}.${load.loadFn}(id${load.loadActor}) do
+      ${resultFn}(conn, ${ctxModule}.${opSnake}_${aggSnake}(${opReadsIfMatch ? RECORD_AT_EXPECTED_VERSION : "record"}, attrs${opCallActor}))
+    else
+      {:error, :not_found} ->
+        ProblemDetails.not_found_response(conn, "${aggPascal}", id)
+    end`;
   return `
   def ${elixirOpAction(op.name)}(conn, %{"id" => id} = params) do
     attrs = Map.drop(params, ["id"])
-${opCuBind}${opReadsIfMatch ? EXPECTED_VERSION_BIND : ""}    ${renderPhoenixLogCall(
+${opCuBind}${opReadsIfMatch && !preGate ? EXPECTED_VERSION_BIND : ""}    ${renderPhoenixLogCall(
     "operationInvoked",
     [
       { name: "aggregate", valueExpr: `"${aggPascal}"` },
@@ -1833,12 +1889,7 @@ ${opCuBind}${opReadsIfMatch ? EXPECTED_VERSION_BIND : ""}    ${renderPhoenixLogC
   )}
     ${renderPhoenixDomainOperation(aggPascal, op.name)}
 
-    with {:ok, record} <- ${ctxModule}.${load.loadFn}(id${load.loadActor}) do
-      ${resultFn}(conn, ${ctxModule}.${opSnake}_${aggSnake}(${opReadsIfMatch ? RECORD_AT_EXPECTED_VERSION : "record"}, attrs${opCallActor}))
-    else
-      {:error, :not_found} ->
-        ProblemDetails.not_found_response(conn, "${aggPascal}", id)
-    end
+    ${loaded}
 ${guardRescue(appModule, denialOverrides(ctx))}
   end
 

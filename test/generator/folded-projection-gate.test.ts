@@ -34,7 +34,7 @@ const system = (platform: string, gate: string) => `system Shop {
       projection OrderBook keyed by order ${gate}{
         order: Order id
         code: string
-        on(e: OrderPlaced) { order := e.order  code := e.code }
+        on(e: OrderPlaced) { code := e.code }
       }
     }
   }
