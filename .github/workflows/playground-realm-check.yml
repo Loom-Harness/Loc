@@ -69,6 +69,7 @@ on:
       # change confined to one of them changes what this gate evaluates.
       # Derived from this block's platform claim and pinned by
       # test/system/workflow-path-coverage.test.ts.
+      - 'src/generator/_api/**'
       - 'src/generator/_adapters/**'
       - 'src/generator/_auth/**'
       - 'src/generator/_channels/**'

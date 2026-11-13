@@ -38,6 +38,7 @@ on:
       - 'src/system/**'
       - 'src/util/**'
       - 'src/generator/flutter/**'
+      - 'src/generator/_api/**'
       - 'src/generator/_frontend/**'
       - 'src/generator/_docker/**'
       - 'src/generator/_openapi/**'

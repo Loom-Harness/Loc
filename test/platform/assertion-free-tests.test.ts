@@ -88,8 +88,10 @@ const PINNED: Record<string, number> = {
   // 201/409 across the three generations).  The cross-context move gate
   // delegates to `runCrossContextMoveGate`, which `expect`s the moved rows,
   // the emptied old schema and the chain ≡ fresh fingerprint (node's psql
-  // leg here, Ecto's own migrations in the elixir file).
-  "test/e2e/migration-evolution.test.ts": 7,
+  // leg here, Ecto's own migrations in the elixir file).  The childless-TPH
+  // gate delegates to `runChildlessTphEvolutionGate`, which `expect`s each
+  // generation's `kind` column set against a fresh create's.
+  "test/e2e/migration-evolution.test.ts": 8,
   // dotnet: the EF evolution gate and its unique-index gate, then the Dapper
   // leg's evolution gate — each delegates to a harness function that
   // `expect`s the rows and the history.
