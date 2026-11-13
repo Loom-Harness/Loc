@@ -310,7 +310,7 @@ export function zodForRequest(t: TypeIR): string {
       return "z.unknown()";
     case "provenanced":
       // Unreachable by construction: the carrier is stamped onto the RESPONSE
-      // wire shape only (`wireTypeForField`); a create/update input takes the
+      // wire rows only (`responseWireFor`); a create/update input takes the
       // bare `T` — a caller supplies a value, never a lineage.
       throw new Error(PROVENANCED_REQUEST_ERROR);
   }

@@ -1,4 +1,3 @@
-import { wireFieldsFor } from "../../../src/ir/enrich/wire-projection.js";
 // Aggregate-inheritance surface (aggregate-inheritance.md, phase I1).
 // Covers the grammar (`abstract` prefix, `extends <Base>`,
 // `inheritanceUsing: sharedTable|ownTable` header modifier), the IR
@@ -16,6 +15,7 @@ import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Aggregate, Model } from "../../../src/language/generated/ast.js";
 import { diagText } from "../../_helpers/diagnostics.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { hostSource, responseRows } from "../../_helpers/ir.js";
 import { parseValid } from "../../_helpers/parse.js";
 
 async function parse(src: string) {
@@ -348,10 +348,10 @@ system Sys {
 `;
 
   it("merges base fields ahead of own fields in the concrete's wireShape", async () => {
-    const enriched = enrichLoomModel(lowerModel(await parseValid(SRC)));
+    const enriched = enrichLoomModel(lowerModel(await parseValid(hostSource(SRC))));
     const ctx = enriched.systems[0]!.subdomains[0]!.contexts.find((c) => c.name === "Parties")!;
     const customer = ctx.aggregates.find((a) => a.name === "Customer")!;
-    const names = wireFieldsFor(customer).map((f) => f.name);
+    const names = responseRows(enriched, customer).map((f) => f.name);
     // id first, then inherited base fields, then own.
     expect(names).toEqual(["id", "name", "email", "creditLimit", "rowVersion"]);
   });
@@ -367,10 +367,10 @@ system Sys {
   }
 }
 `;
-    const enriched = enrichLoomModel(lowerModel(await parseValid(SRC2)));
+    const enriched = enrichLoomModel(lowerModel(await parseValid(hostSource(SRC2))));
     const ctx = enriched.systems[0]!.subdomains[0]!.contexts.find((c) => c.name === "Parties")!;
     const customer = ctx.aggregates.find((a) => a.name === "Customer")!;
-    const names = wireFieldsFor(customer).map((f) => f.name);
+    const names = responseRows(enriched, customer).map((f) => f.name);
     expect(names.filter((n) => n === "name")).toHaveLength(1);
     expect(names).toEqual(["id", "name", "tier", "rowVersion"]);
   });

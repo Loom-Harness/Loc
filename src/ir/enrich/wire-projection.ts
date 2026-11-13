@@ -426,23 +426,3 @@ export function forUpdateInput<T extends WithAccess>(items: readonly T[]): T[] {
 export function updatePreconditions<T extends WithAccess>(items: readonly T[]): T[] {
   return items.filter((f) => f.access === "token");
 }
-
-// ---------------------------------------------------------------------------
-// Wire-shape derivation — the scaffold-time walk.
-//
-// The canonical ordered field list an aggregate / part / value object takes on
-// the network:
-//
-//   1. `id`              — always first (aggregates / parts only)
-//   2. each `Property`   — declaration order
-//   3. each `Containment` — declaration order, array vs single
-//   4. each `Derived`    — declaration order
-//
-// Value objects skip steps 1 + 3 (no identity, no containment).
-//
-// This is a pure function of facts already on the (fully-lowered, enriched)
-// IR node — `fields` / `contains` / `derived` / `capabilities` — so it is
-// recomputed on demand at each emit site rather than stamped onto the node.
-// See CLAUDE.md "Derive, don't stamp".  Callers pair it with the access-modifier
-// filters above (`forApiRead(wireFieldsFor(ent))`) to project a boundary shape.
-// ---------------------------------------------------------------------------

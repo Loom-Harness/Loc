@@ -39,11 +39,6 @@
 
 import { maskedReadPredicates } from "../../src/ir/enrich/mask-taint.js";
 import {
-  forApiRead,
-  wireFieldsForAggregate,
-  wireFieldsForPart,
-} from "../../src/ir/enrich/wire-projection.js";
-import {
   type AggregateIR,
   type BoundedContextIR,
   type ExprIR,
@@ -57,6 +52,7 @@ import { tableOwnerName } from "../../src/ir/util/inheritance.js";
 import { lifecycleGates } from "../../src/ir/util/op-gates.js";
 import { principalTerm } from "../../src/ir/util/principal-term.js";
 import { projectionSourceContext } from "../../src/ir/util/projection-source.js";
+import { responseWireFor } from "../../src/ir/util/response-wire.js";
 import {
   walkExprChildren,
   walkExprDeep,
@@ -1675,12 +1671,12 @@ export function maskFacts(model: LoomModel): MaskFact[] {
           // The visibility taint's fact: each masked field plus every wire
           // `derived` computed from one — both must redact.
           const masks = maskedReadPredicates(agg);
-          const wire = new Set(forApiRead(wireFieldsForAggregate(agg)).map((w) => w.name));
+          const wire = new Set(responseWireFor(ctx.payloads, agg).map((w) => w.name));
           const masked = [...masks].filter(([name]) => wire.has(name));
           const parts = agg.parts
             .map((p) => ({
               name: p.name,
-              wire: forApiRead(wireFieldsForPart(p)).filter((w) => w.maskUnless !== undefined),
+              wire: responseWireFor(ctx.payloads, p).filter((w) => w.maskUnless !== undefined),
             }))
             .filter((p) => p.wire.length > 0);
           if (masked.length === 0 && parts.length === 0) continue;

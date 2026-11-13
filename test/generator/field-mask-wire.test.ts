@@ -12,9 +12,9 @@ import {
   toWireMaskedMethod,
 } from "../../src/generator/typescript/repository-wire-builder.js";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
-import { forApiRead, wireFieldsFor } from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { EnrichedAggregateIR, PayloadIR } from "../../src/ir/types/loom-ir.js";
+import { responseWireFor } from "../../src/ir/util/response-wire.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { javaRequiredSets } from "../_helpers/java-openapi-annotations.js";
 import { parseString } from "../_helpers/parse.js";
@@ -54,10 +54,10 @@ async function maskedAgg(): Promise<EnrichedAggregateIR> {
 describe("mask unless — node wire serializer", () => {
   it("propagates maskUnless onto the wire field", async () => {
     const agg = await maskedAgg();
-    const salary = forApiRead(wireFieldsFor(agg)).find((wf) => wf.name === "salary");
+    const salary = responseWireFor(payloads, agg).find((wf) => wf.name === "salary");
     expect(salary?.maskUnless).toBeDefined();
     // A non-masked field carries no predicate.
-    const name = forApiRead(wireFieldsFor(agg)).find((wf) => wf.name === "name");
+    const name = responseWireFor(payloads, agg).find((wf) => wf.name === "name");
     expect(name?.maskUnless).toBeUndefined();
   });
 

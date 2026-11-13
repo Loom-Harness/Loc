@@ -10,10 +10,10 @@
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
-import { wireFieldsForAggregate } from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { allAggregates } from "../../src/ir/types/loom-ir.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
+import { responseRows } from "../_helpers/ir.js";
 import { parseErrorsOf, parseString } from "../_helpers/parse.js";
 
 function fileSystem(opts: { objectStore: boolean }): string {
@@ -97,8 +97,8 @@ describe("File primitive — wire shape", () => {
     const loom = enrichLoomModel(lowerModel(model));
     const attachment = allAggregates(loom).find((a) => a.name === "Attachment");
     expect(attachment).toBeDefined();
-    // wireShape is derived on demand (not stamped) — recompute it.
-    const wire = wireFieldsForAggregate(attachment!);
+    // The API-read rows come from the declared `AttachmentResponse` record.
+    const wire = responseRows(loom, attachment!);
     const blob = wire.find((f) => f.name === "blob");
     expect(blob?.type).toEqual({ kind: "primitive", name: "File" });
     const thumb = wire.find((f) => f.name === "thumbnail");
