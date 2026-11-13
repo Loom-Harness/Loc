@@ -162,20 +162,11 @@ describe("mergeContexts accounts for every BoundedContextIR field", () => {
 // and fails only on a real multi-file project — the shape users actually write
 // and the shape CI fixtures mostly don't.
 //
-// It is complete TODAY, and the one field it doesn't carry is correct not to:
-// `traceability` is populated by `enrichLoomModel`, which runs AFTER the merge,
-// so on a `RawLoomModel` it is absent by definition. That is exactly the kind of
-// reasoning that should be pinned rather than re-derived — the next field added
-// to `LoomModel` may well be populated during LOWERING, and then dropping it is
-// silent data loss on every multi-file project.
+// `traceability` is declared only on `EnrichedLoomModel` (enrichment runs after
+// the merge), so `LoomModel` declares no field the merge may drop.
 
 /** Fields `mergeLoomModels` deliberately does NOT carry, each with the reason. */
-const MODEL_DELIBERATELY_DROPPED: Readonly<Record<string, string>> = {
-  // Derived by `enrichLoomModel` (phase ⑥), which runs after this merge (phase
-  // ⑤). Absent on every `RawLoomModel` by construction, so there is nothing to
-  // carry. If lowering ever populates it, carry it instead of extending this.
-  traceability: "derived in enrichment, after this merge runs — absent on RawLoomModel",
-};
+const MODEL_DELIBERATELY_DROPPED: Readonly<Record<string, string>> = {};
 
 function modelDeclaredFields(): string[] {
   return membersOf(irTypesSource(), "LoomModel");
