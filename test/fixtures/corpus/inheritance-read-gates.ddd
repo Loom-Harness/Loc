@@ -1,0 +1,92 @@
+// Inheritance × authorization: the polymorphic BASE read under each
+// concrete's read gate and field mask (docs/inheritance.md, "Polymorphic
+// reads").
+//
+// The base read answers every concrete's rows, so it carries every concrete's
+// own authorization:
+//
+//   * GATE — before it loads, `GET /api/<bases>` (and `/{id}` under TPH)
+//     checks EVERY concrete's list-read gate and answers 403 if the caller
+//     fails any one of them: the same pre-load 403 that concrete's own route
+//     answers, so it says nothing about which rows exist.  `Car` and
+//     `Dispatcher` are gated by `policy { read … }`; their siblings are not, so
+//     a base read that checked only the first concrete, or only its own
+//     sibling, is caught by one of the two hierarchies.
+//   * MASK — a concrete's `mask unless` field is redacted per row, through
+//     that concrete's own masked serializer.  The `test e2e` principal
+//     (`role: "agent"`, cases.mjs `DEV_CLAIMS`) passes every gate and is not an
+//     auditor, so the wire golden records `vin` / `licence` as null on the base
+//     read exactly as on the concrete's own read.
+//
+// The 403 half is the authz ladder (cases.mjs `AUTHZ_LADDERS`): the
+// authenticated-but-unauthorized principal (`role: "visitor"`) must be refused
+// on all three base reads, and the authorized one served.
+system InheritanceReadGates {
+  user { id: guid  role: string }
+
+  subdomain Fleet {
+    context Fleet {
+      // ── TPH: one shared table ───────────────────────────────────────────
+      abstract aggregate Vehicle inheritanceUsing: sharedTable {
+        plate: string
+      }
+      aggregate Car extends Vehicle with crudish {
+        seats: int
+      }
+      aggregate Truck extends Vehicle with crudish {
+        payloadKg: int = 0
+        vin: string mask unless currentUser.role == "auditor"
+      }
+      repository Cars for Car
+      repository Trucks for Truck
+
+      // ── TPC: a table per concrete ─────────────────────────────────────────
+      abstract aggregate Crew inheritanceUsing: ownTable {
+        name: string
+      }
+      aggregate Driver extends Crew inheritanceUsing: ownTable with crudish {
+        licence: string mask unless currentUser.role == "auditor"
+      }
+      aggregate Dispatcher extends Crew inheritanceUsing: ownTable with crudish {
+        desk: int = 0
+      }
+      repository Drivers for Driver
+      repository Dispatchers for Dispatcher
+
+      policy {
+        read Car requires currentUser.role == "agent"
+        read Dispatcher requires currentUser.role == "agent"
+      }
+    }
+  }
+
+  api FleetApi from Fleet
+
+  storage pg { type: postgres }
+  resource fleetState { for: Fleet, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Fleet]
+    dataSources: [fleetState]
+    serves: FleetApi
+    port: 4000
+    auth: required
+  }
+
+  test e2e "TPH: the base read serves a caller who passes every concrete's gate, masked per row" against d {
+    let car = api.cars.create({ plate: "C-1", seats: 4 })
+    let truck = api.trucks.create({ plate: "T-1", payloadKg: 900, vin: "VIN-1" })
+    expect(api.trucks.getById(truck).payloadKg).toBe(900)
+    expect(api.vehicles.all().total).toBe(2)
+    expect(api.vehicles.getById(car).plate).toBe("C-1")
+    expect(api.vehicles.getById(truck).plate).toBe("T-1")
+  }
+
+  test e2e "TPC: the base read serves a caller who passes every concrete's gate, masked per row" against d {
+    let d1 = api.drivers.create({ name: "Ada", licence: "L-1" })
+    let disp = api.dispatchers.create({ name: "Bob", desk: 3 })
+    expect(api.drivers.getById(d1).name).toBe("Ada")
+    expect(api.dispatchers.getById(disp).desk).toBe(3)
+    expect(api.crews.all().total).toBe(2)
+  }
+}

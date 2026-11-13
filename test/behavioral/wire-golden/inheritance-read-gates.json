@@ -1,0 +1,359 @@
+{
+  "case": "inheritance-read-gates",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/cars",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/trucks",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/trucks/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "payloadKg": 900,
+        "plate": "T-1",
+        "rowVersion": 1,
+        "vin": null
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/vehicles",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "plate": "C-1",
+            "rowVersion": 1,
+            "seats": 4,
+            "type": "Car"
+          },
+          {
+            "id": "<volatile:key>",
+            "payloadKg": 900,
+            "plate": "T-1",
+            "rowVersion": 1,
+            "type": "Truck",
+            "vin": null
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/vehicles/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "plate": "C-1",
+        "rowVersion": 1,
+        "seats": 4,
+        "type": "Car"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/vehicles/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "payloadKg": 900,
+        "plate": "T-1",
+        "rowVersion": 1,
+        "type": "Truck",
+        "vin": null
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/drivers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/dispatchers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/drivers/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "licence": null,
+        "name": "Ada",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/dispatchers/{id}",
+      "status": 200,
+      "body": {
+        "desk": 3,
+        "id": "<volatile:key>",
+        "name": "Bob",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/crews",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "licence": null,
+            "name": "Ada",
+            "rowVersion": 1,
+            "type": "Driver"
+          },
+          {
+            "desk": 3,
+            "id": "<volatile:key>",
+            "name": "Bob",
+            "rowVersion": 1,
+            "type": "Dispatcher"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 11,
+      "method": "PATCH",
+      "path": "/api/cars",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/cars",
+        "instance": "/api/cars",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/cars",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/cars",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "role": "admin"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/cars",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/vehicles",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/vehicles",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/vehicles",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "plate": "C-1",
+            "rowVersion": 1,
+            "seats": 4,
+            "type": "Car"
+          },
+          {
+            "id": "<volatile:key>",
+            "payloadKg": 900,
+            "plate": "T-1",
+            "rowVersion": 1,
+            "type": "Truck",
+            "vin": null
+          },
+          {
+            "id": "<volatile:key>",
+            "plate": "LADDER-C",
+            "rowVersion": 1,
+            "seats": 2,
+            "type": "Car"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/vehicles/{id}",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/vehicles/{id}",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/vehicles/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "plate": "LADDER-C",
+        "rowVersion": 1,
+        "seats": 2,
+        "type": "Car"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "POST",
+      "path": "/api/dispatchers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/crews",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/crews",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
+      "method": "GET",
+      "path": "/api/crews",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "licence": null,
+            "name": "Ada",
+            "rowVersion": 1,
+            "type": "Driver"
+          },
+          {
+            "desk": 3,
+            "id": "<volatile:key>",
+            "name": "Bob",
+            "rowVersion": 1,
+            "type": "Dispatcher"
+          },
+          {
+            "desk": 1,
+            "id": "<volatile:key>",
+            "name": "LADDER-D",
+            "rowVersion": 1,
+            "type": "Dispatcher"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    }
+  ]
+}

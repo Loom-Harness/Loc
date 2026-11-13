@@ -222,9 +222,9 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
       //
       // Read off `deriveContextOperations` — the same derivation every backend
       // route builder renders — so the check covers exactly the per-aggregate
-      // routes.  An abstract base's polymorphic reads need no warning: under
-      // denyByDefault every concrete's list read carries a gate, and a gated
-      // concrete keeps its base's read unrouted (`polymorphicReadClosure`).
+      // routes.  An abstract base's polymorphic reads need no warning of their
+      // own: they check every concrete's list-read gate before loading
+      // (`polymorphicReadGates`), so each concrete's warning covers them.
       for (const op of deriveContextOperations(c)) {
         const aggregateOrigin = (name: string) =>
           c.aggregates.find((a) => a.name === name)?.origin ?? c.origin;

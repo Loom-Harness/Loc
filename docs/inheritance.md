@@ -112,13 +112,20 @@ On the wire the read is `GET /api/<bases>?page=&pageSize=` answering the paged
 envelope (`items`, `page`, `pageSize`, `total`, `totalPages`), each item the
 tagged-union shape of [`payloads.md`](payloads.md): `{ "type": "Car", …Car's own
 wire fields }`. Under TPH `GET /api/<bases>/{id}` answers one tagged row, or 404
-when a restriction hides it. The route is served only where every concrete's own
-list read is open — a concrete whose `all` carries a `requires` gate (including
-the `denyByDefault` one) or whose wire masks a field keeps the reader unrouted.
-That decision is `routedPolymorphicRead` (`src/ir/plan/repo-polymorphic.ts`), and
-the operations a routed base serves are `polymorphicReadOperations` there: the
-e2e DSL's `api.<base>.all()` and `api.<base>.getById(id)` (TPH only) resolve
-against them, and an unrouted base refuses both (`loom.e2e-unrouted-verb`).
+when a restriction hides it.
+
+Authorization rides the base read the way it rides each concrete's own. Before
+it loads, the base read checks every concrete's list-read gate (a `requires`, a
+`policy { read … }` line, or the `denyByDefault` one) and answers **403** if the
+caller fails any of them — the same pre-load, no-existence-oracle 403 the
+concrete's own route answers, on the list and the by-id read alike. A concrete's
+`mask unless` fields are redacted per row through that concrete's own masked
+serializer, under the caller's principal, and row `filter`s still drop rows (404
+by id). The gates are `polymorphicReadGates` and the masked concretes
+`polymorphicReadMasked`, beside `routedPolymorphicRead`
+(`src/ir/plan/repo-polymorphic.ts`); the operations a routed base serves are
+`polymorphicReadOperations` there, and the e2e DSL's `api.<base>.all()` and
+`api.<base>.getById(id)` (TPH only) resolve against them.
 
 A concrete's own list read, `GET /api/<concretes>`, pages like any relational
 aggregate under TPH (one `kind`-scoped query over the shared table). Under TPC it

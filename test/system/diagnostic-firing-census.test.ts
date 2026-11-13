@@ -554,24 +554,6 @@ ${opts.e2e ?? ""}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
-  // Under `denyByDefault` every concrete's list read is gated, so the base's
-  // polymorphic read has no route: a base read would answer their rows ungated.
-  "loom.polymorphic-read-unrouted": `
-system S {
-  user { id: guid  role: string }
-  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
-  subdomain M { context C {
-    abstract aggregate Vehicle inheritanceUsing: sharedTable { name: string }
-    aggregate Car extends Vehicle with crudish { doors: int }
-    aggregate Truck extends Vehicle with crudish { payloadKg: int }
-    repository Cars for Car
-    repository Trucks for Truck
-  } }
-  api A from M
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 auth: required }
-}`,
   // `provenanced` on an entity part's field: lineage lives on the root only.
   "loom.provenanced-part-field": `
 system S {

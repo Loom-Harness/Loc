@@ -369,6 +369,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: BASE_READS,
     note: "The half of epic #3954's behavioural fixture: base capabilities (#3956) and the polymorphic base reads (#3959).  node/drizzle, python/SQLAlchemy, .NET (EF and Dapper) and java pass it (drizzle is the oracle its wire golden is captured from; the MikroORM leg replays that golden); every other leg boots it as a tracked expected failure pinned to the assertion it fails on (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs) until its #3954 sub-issue (#3960–#3965) lands and adds the backend to `BASE_READS`.",
   },
+  {
+    id: "inheritance-read-gates",
+    title:
+      "inheritance (TPH + TPC) × a concrete's `policy { read … }` gate × a concrete's `mask unless` field × the polymorphic base reads",
+    doc: "inheritance",
+    backends: ALL,
+    note: "The base read checks every concrete's list-read gate before it loads (403 for a caller who fails any) and masks each row through its concrete's own serializer.  The 403 half is the authz ladder (`AUTHZ_LADDERS`, test/behavioral/cases.mjs).",
+  },
   { id: "event-sourcing", title: "`persistedAs: eventLog` — append-only stream + appliers", doc: "workflow", backends: ALL },
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
   { id: "saga", title: "in-process dispatch / saga with persisted correlation", doc: "workflow", backends: ALL },

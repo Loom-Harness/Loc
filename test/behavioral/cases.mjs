@@ -990,6 +990,26 @@ export const AUTHZ_LADDERS = {
     anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
   },
 
+  /** The polymorphic base reads under each concrete's read gate
+   *  (inheritance-read-gates.ddd): one gated concrete in each hierarchy makes
+   *  the whole base read 403 for a caller who fails its gate, on the list and
+   *  the TPH by-id read, and 200 for one who passes. */
+  "inheritance-read-gates": {
+    seed: { path: "/api/cars", body: { plate: "LADDER-C", seats: 2 } },
+    gated: [
+      { label: "TPH base — the polymorphic list read", method: "GET", path: "/api/vehicles" },
+      { label: "TPH base — the polymorphic by-id read", method: "GET", path: "/api/vehicles/{id}" },
+      {
+        label: "TPC base — the polymorphic list read",
+        seed: { path: "/api/dispatchers", body: { name: "LADDER-D", desk: 1 } },
+        method: "GET",
+        path: "/api/crews",
+      },
+    ],
+    arms: { anonymous: null, unauthorized: 403, authorized: 200 },
+    anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
+  },
+
   /** The TENANT half of `find … ignoring` on both persistence shapes: `acme`
    *  seeds a row and tenant `globex` reads it back.  Every clause-less read
    *  hides it (404 by id and by find; ABSENT from the 2xx collection), and the
