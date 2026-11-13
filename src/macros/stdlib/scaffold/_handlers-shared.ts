@@ -183,16 +183,18 @@ export function handlerTargets(ctx: BoundedContext): HandlerTarget[] {
   return out;
 }
 
-/** The members a create request carries — one source for the create command
- *  record and the handler that reads it, matching the IR input every backend's
- *  request DTO renders: an event-sourced aggregate's create takes its action's
- *  params (there is no field-derived factory), any other the create-input
- *  fields (inherited ones included). */
+/** The members a create request carries, matching the IR input every
+ *  backend's request DTO renders: an event-sourced aggregate's create takes its
+ *  action's params (there is no field-derived factory), any other the
+ *  create-input fields.  The command record lists the inherited fields too; the
+ *  handler that reads it passes only the aggregate's own (`inherited: false`),
+ *  because the AST factory-call check does not see inherited create inputs. */
 export function createRequestMembers(
   agg: Aggregate,
   create: Create,
+  opts: { inherited: boolean } = { inherited: true },
 ): readonly (Property | Parameter)[] {
-  return agg.persistedAs === "eventLog" ? create.params : createInputProperties(agg);
+  return agg.persistedAs === "eventLog" ? create.params : createInputProperties(agg, opts);
 }
 
 /** The derived handler name for a target — the single source of truth both
