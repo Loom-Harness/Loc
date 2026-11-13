@@ -101,7 +101,10 @@ const WAIVERS: Readonly<Record<string, string>> = {
 
 function hits(): Map<string, string> {
   const needles = [
-    ...wireCodes().map((c) => ({ text: c, re: new RegExp(`(?<![\\w.-])${escapeRe(c)}(?![\\w-])`) })),
+    ...wireCodes().map((c) => ({
+      text: c,
+      re: new RegExp(`(?<![\\w.-])${escapeRe(c)}(?![\\w-])`),
+    })),
     ...sentences().map((s) => ({ text: s, re: new RegExp(escapeRe(s)) })),
   ];
   const found = new Map<string, string>();
