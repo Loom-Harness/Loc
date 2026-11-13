@@ -20,6 +20,7 @@ import type {
   WireField,
 } from "../../ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { responseWireFor } from "../../ir/util/response-wire.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { numericEncode } from "../_numeric/target.js";
@@ -107,15 +108,11 @@ function wireProjectionEntity(
   varExpr: string,
   ctx: BoundedContextIR,
 ): string {
-  // Single canonical walk — `wireFieldsFor` recomputes the wire shape from the
-  // enriched node's fields (the scaffold-time helper in wire-projection.ts).
-  // This serializer feeds repo.toWire(); its output's keys must line up with
-  // the route's response Zod schema and the .NET DTO.  A runtime serializer
-  // projects DOMAIN getters by name, so it stays keyed to the domain-derived
-  // wire shape (not a hand-diverged contract record, whose fields need not have
-  // getters).  `forApiRead` strips `internal` and `secret` fields so the wire
-  // output matches the response schema's field set.
-  const fields = forApiRead(wireFieldsFor(ent));
+  // The rows of the declared response record — the read contract the route's
+  // response schema and every other backend's DTO render too.  Each row names
+  // a readable member of `ent` (`loom.payload-response-field`), so projecting
+  // its domain getter by name is always defined.
+  const fields = responseWireFor(ctx.payloads, ent);
   const parts: string[] = [];
   for (const wf of fields) {
     if (wf.source === "id") {

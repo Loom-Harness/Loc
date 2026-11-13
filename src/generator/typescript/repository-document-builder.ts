@@ -1,5 +1,4 @@
 import { rowVersionGuarded } from "../../ir/enrich/version-check.js";
-import { wireFieldsForAggregate } from "../../ir/enrich/wire-projection.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -513,7 +512,13 @@ export function inMemoryPagedTailLines(
  *  milliseconds.  Everything else (string, enum, json) orders as text — the
  *  same two families the SQL `ORDER BY` collapses to. */
 export function inMemoryFieldCompare(agg: EnrichedAggregateIR, f: string): string {
-  const t = wireFieldsForAggregate(agg).find((w) => w.name === f)?.type;
+  // A provenanced field orders as text: its value crosses as the carrier.
+  const field = agg.fields.find((x) => x.name === f);
+  const t = field
+    ? field.provenanced
+      ? undefined
+      : field.type
+    : agg.derived.find((d) => d.name === f)?.type;
   const prim = t?.kind === "optional" ? t.inner : t;
   const name = prim?.kind === "primitive" ? prim.name : undefined;
   const numeric =
