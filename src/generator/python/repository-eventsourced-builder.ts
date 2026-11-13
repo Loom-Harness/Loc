@@ -287,7 +287,7 @@ export function buildPyEventSourcedRepositoryFile(
     // its saving shape; only the relational builder emitted it.  The shared
     // helper projects through `to_wire`, which `toWireStub` above emits, so an
     // event-sourced aggregate needs nothing shape-specific either.
-    ...(aggHasFieldMask(agg) ? [toWireMaskedMethod(agg)] : []),
+    ...(aggHasFieldMask(agg) ? [toWireMaskedMethod(agg, ctx.payloads)] : []),
   );
 
   return lines(

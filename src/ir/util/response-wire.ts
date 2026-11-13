@@ -20,6 +20,7 @@
 // An entity with no declared record has no read contract, and asking for its
 // rows is an internal error: a hosted context always carries the records.
 
+import type { WireMaskPlan } from "../enrich/wire-projection.js";
 import type {
   AggregateIR,
   EntityPartIR,
@@ -91,4 +92,31 @@ export function responseWireFor(
     });
   }
   return rows;
+}
+
+/** Where a response serializer redacts, read from the declared records: the
+ *  masked rows of `ent` (each nulled unless the caller satisfies its
+ *  predicate) and the containments whose part's record carries a mask
+ *  somewhere below.  Undefined when nothing on or under `ent` is masked. */
+export function responseMaskPlan(
+  payloads: readonly PayloadIR[],
+  ent: AggregateIR | EntityPartIR,
+  parts: readonly EntityPartIR[],
+  seen: ReadonlySet<string> = new Set(),
+): WireMaskPlan | undefined {
+  if (seen.has(ent.name)) return undefined;
+  const inner = new Set([...seen, ent.name]);
+  const rows = responseWireFor(payloads, ent);
+  const fields = rows
+    .filter((r) => r.maskUnless !== undefined && r.source !== "containment")
+    .map((r) => ({ name: r.name, pred: r.maskUnless! }));
+  const nested: WireMaskPlan["nested"] = [];
+  for (const r of rows) {
+    if (r.source !== "containment") continue;
+    const el = r.type.kind === "array" ? r.type.element : r.type;
+    const part = el.kind === "entity" ? parts.find((p) => p.name === el.name) : undefined;
+    const plan = part ? responseMaskPlan(payloads, part, parts, inner) : undefined;
+    if (plan) nested.push({ name: r.name, collection: r.type.kind === "array", plan });
+  }
+  return fields.length === 0 && nested.length === 0 ? undefined : { fields, nested };
 }

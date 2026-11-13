@@ -1,17 +1,14 @@
+import { carriesFieldMask } from "../../ir/enrich/mask-taint.js";
 import {
   type ReadOrderTerm,
   readFilterRestrictions,
   readScopeFor,
   readSortFor,
 } from "../../ir/enrich/read-scope.js";
-import {
-  forApiRead,
-  type WireMaskPlan,
-  wireFieldsFor,
-  wireMaskPlan,
-} from "../../ir/enrich/wire-projection.js";
+import { forApiRead, type WireMaskPlan, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
 import { clientSortTieBreak, singleReadOrder } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
+import type { PayloadIR } from "../../ir/types/loom-ir.js";
 import {
   type AssociationIR,
   type ContainmentIR,
@@ -32,6 +29,7 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { findRaisesNotFound } from "../../ir/util/key-lookup.js";
 import { isRefCollectionType } from "../../ir/util/ref-collection.js";
+import { responseMaskPlan, responseWireFor } from "../../ir/util/response-wire.js";
 import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
 import { ROW_VERSION_COLUMN } from "../../util/row-version.js";
 import { pyGuardedSaveTail } from "./guarded-save-py.js";
@@ -435,7 +433,7 @@ export function buildPyRepositoryFile(
     ...parts.flatMap((p) => ["", partHydrateMethod(p, agg, ctx)]),
     "",
     toWireMethod(agg, ctx),
-    aggHasFieldMask(agg) ? ["", toWireMaskedMethod(agg)] : null,
+    aggHasFieldMask(agg) ? ["", toWireMaskedMethod(agg, ctx.payloads)] : null,
     ...parts.flatMap((p) => ["", partWireMethod(p, agg, ctx)]),
     aggHasAuditedTarget(agg) ? ["", recordAuditMethod()] : null,
     // Entity history (docs/audit.md) — the read over `audit_records`, gated on
@@ -1999,15 +1997,18 @@ export function toWireMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedConte
  *  is set: each masked field, plus every `derived` the visibility taint
  *  (`src/ir/enrich/mask-taint.ts`) marks as computed from one.  Empty when the
  *  aggregate declares no field mask. */
-export function maskedWireFields(agg: EnrichedAggregateIR): WireField[] {
-  return forApiRead(wireFieldsFor(agg)).filter((wf) => wf.maskUnless !== undefined);
+export function maskedWireFields(
+  agg: EnrichedAggregateIR,
+  payloads: readonly PayloadIR[],
+): WireField[] {
+  return responseWireFor(payloads, agg).filter((wf) => wf.maskUnless !== undefined);
 }
 
 /** True iff `agg` carries a `mask unless` member on its read wire — on the root
  *  or on a contained part — the gate for emitting `to_wire_masked` and routing
  *  responses through it. */
 export function aggHasFieldMask(agg: EnrichedAggregateIR): boolean {
-  return wireMaskPlan(agg, agg.parts) !== undefined;
+  return carriesFieldMask(agg);
 }
 
 /** `to_wire_masked(root)` — the response serializer for an aggregate with
@@ -2017,8 +2018,11 @@ export function aggHasFieldMask(agg: EnrichedAggregateIR): boolean {
  *  redacts — fail-closed).  Internal (non-response) `to_wire` uses stay
  *  unmasked; only response boundaries route through this.  Emitted only when
  *  `aggHasFieldMask(agg)` — a mask-free aggregate stays byte-identical. */
-export function toWireMaskedMethod(agg: EnrichedAggregateIR): string {
-  const plan = wireMaskPlan(agg, agg.parts);
+export function toWireMaskedMethod(
+  agg: EnrichedAggregateIR,
+  payloads: readonly PayloadIR[],
+): string {
+  const plan = responseMaskPlan(payloads, agg, agg.parts);
   const body: (string | null)[] = [
     `    def to_wire_masked(self, root: ${aggRef(agg)}) -> dict[str, object]:`,
     `        d = self.to_wire(root)`,

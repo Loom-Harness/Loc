@@ -249,7 +249,7 @@ export function buildDocumentRepositoryFile(
     // method too (pairwise F2 — TS2339 without it).  It projects through
     // `this.toWire(...)`, which the document repository already emits, so the
     // shared builder needs nothing shape-specific.
-    ...(aggHasFieldMask(agg) ? [toWireMaskedMethod(agg), ""] : []),
+    ...(aggHasFieldMask(agg) ? [toWireMaskedMethod(agg, ctx.payloads), ""] : []),
     `}`,
     "",
     // Document (de)serialisers — module-level so they can recurse into
