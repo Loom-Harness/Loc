@@ -24,7 +24,7 @@ const SRC = `system Shop { subdomain Sales { context Orders {
     order: Order id
     customer: Customer id
     status: OrderStatus
-    on(e: OrderPlaced)  { order := e.order  customer := e.customer  status := Placed }
+    on(e: OrderPlaced)  { customer := e.customer  status := Placed }
     on(e: OrderShipped) { status := Shipped }
   }
 } } storage pg { type: postgres }

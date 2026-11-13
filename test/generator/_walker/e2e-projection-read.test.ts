@@ -37,7 +37,7 @@ const SYS = `
         projection OrderBoard keyed by order {
           order: Order id
           status: BoardStatus
-          on(e: OrderPlaced) { order := e.order  status := Placed }
+          on(e: OrderPlaced) { status := Placed }
         }
       }
     }

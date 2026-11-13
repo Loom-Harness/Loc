@@ -1,0 +1,61 @@
+// A projection fold that fails at runtime must not fail the command that
+// raised its event (D-PROJECTION-FOLD-AFTER-COMMIT): a fold runs after the command
+// committed, isolated per handler, and its failure is logged
+// `reactor_failed`.
+//
+// The fold accumulates a money total in a `numeric(19,4)` column.  The second
+// charge pushes the total past that column's range, so the fold's write fails
+// in the database on every backend.  The command still answers success, the
+// account's own row records both charges, and the read model keeps the total
+// it had before the failing fold.
+system FoldIsolationSys {
+  subdomain Billing {
+    context Billing {
+      aggregate Account with crudish {
+        owner: string
+        charges: int
+        operation charge(amount: money) {
+          charges := charges + 1
+          emit Charged { account: id, amount: amount }
+        }
+      }
+      repository Accounts for Account { }
+
+      event Charged { account: Account id, amount: money }
+
+      projection Totals keyed by account {
+        account: Account id
+        total: money
+        on(e: Charged) {
+          total += e.amount
+        }
+      }
+    }
+  }
+  api BillingApi from Billing
+  storage pg { type: postgres }
+  resource billingState { for: Billing, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Billing]
+    dataSources: [billingState]
+    serves: BillingApi
+    port: 4000
+  }
+
+  test e2e "a failing fold leaves the command committed and the read model as it was" against d {
+    let a = api.accounts.create({ owner: "Ada", charges: 0 })
+    api.accounts.charge(a, { amount: "600000000000000.00" })
+    let before = api.totals.byKey(a.id)
+    api.accounts.charge(a, { amount: "600000000000000.00" })
+    expect(api.accounts.getById(a).charges).toBe(2)
+    expect(api.totals.byKey(a.id).total).toBe(before.total)
+
+    // The derived surface, so each derived route has a runtime caller.
+    expect(api.accounts.all().items.length).toBe(1)
+    api.accounts.update(a, { owner: "Grace", charges: 2 })
+    expect(api.accounts.getById(a).owner).toBe("Grace")
+    api.accounts.destroy(a)
+    expect(api.accounts.getById(a)).toThrow(404)
+  }
+}

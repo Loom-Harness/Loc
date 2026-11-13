@@ -84,7 +84,7 @@ system ReadGates {
       projection OrderBook keyed by orderRef requires currentUser.role == "agent" {
         orderRef: Order id
         code: string
-        on(e: OrderPlaced) { orderRef := e.orderRef  code := e.code }
+        on(e: OrderPlaced) { code := e.code }
       }
 
       // (3) QUERY-TIME — computed per read, gated in the same position.

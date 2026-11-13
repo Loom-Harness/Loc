@@ -111,7 +111,7 @@ const POSITIVE_CASES: Record<string, Case> = {
     body: `projection Board keyed by orderRef {
       orderRef: Order id
       blob: string
-      on(e: OrderPlaced) { orderRef := e.orderRef  blob := salesFiles.get("x") }
+      on(e: OrderPlaced) { blob := salesFiles.get("x") }
     }`,
   },
 };

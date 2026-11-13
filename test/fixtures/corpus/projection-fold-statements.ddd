@@ -68,11 +68,15 @@ system FoldStatementsSys {
         charged: money
         tags: string[]
         on(e: AccountOpened) {
-          accountRef := e.accountRef
           status := Opened
           at := e.at
+          // Two writes to one column: each statement reads the row as the one
+          // before it left it, so this counts twice.
+          entries += e.amount
           entries += e.amount
           charged += e.fee
+          // The same tag twice: the close's single `-=` removes every match.
+          tags += e.tag
           tags += e.tag
         }
         on(e: AccountClosed) {
@@ -104,14 +108,14 @@ system FoldStatementsSys {
     api.accounts.openIt(a)
     let opened = api.accountBoard.byKey(a.id)
     expect(opened.status).toBe("Opened")
-    expect(opened.entries).toBe(10)
-    expect(opened.tags.length).toBe(1)
+    expect(opened.entries).toBe(20)
+    expect(opened.tags.length).toBe(2)
     expect(opened.tags.first()).toBe("opened")
 
     api.accounts.closeIt(a)
     let closed = api.accountBoard.byKey(a.id)
     expect(closed.status).toBe("Closed")
-    expect(closed.entries).toBe(6)
+    expect(closed.entries).toBe(16)
     expect(closed.tags.length).toBe(0)
 
     // The derived surface, so each derived route has a runtime caller.

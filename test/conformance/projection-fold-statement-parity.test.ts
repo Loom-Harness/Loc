@@ -74,7 +74,7 @@ const ARMS: Record<string, Record<string, RegExp>> = {
     "add (int)": /state\.Entries = \(state\.Entries \?\? 0\) \+ notification\.Amount/,
     "add (money)": /state\.Charged = \(state\.Charged \?\? 0\) \+ notification\.Fee/,
     "remove (int)": /state\.Entries = \(state\.Entries \?\? 0\) - notification\.Amount/,
-    "remove (collection)": /state\.Tags\.Remove\(notification\.Tag\)/,
+    "remove (collection)": /state\.Tags\.RemoveAll\(__x => Equals\(__x, notification\.Tag\)\)/,
   },
   java: {
     let: /var stamped = e\.at\(\);[\s\S]*state\.setAt\(stamped\);/,
@@ -83,7 +83,8 @@ const ARMS: Record<string, Record<string, RegExp>> = {
     "add (money)":
       /state\.setCharged\(\(state\.charged\(\) == null \? [\w.]*BigDecimal\.ZERO : state\.charged\(\)\)\.add\(e\.fee\(\)\)\)/,
     "remove (int)": /state\.setEntries\(state\.entries\(\) - e\.amount\(\)\)/,
-    "remove (collection)": /state\.tags\(\)\.remove\(e\.tag\(\)\)/,
+    "remove (collection)":
+      /state\.tags\(\)\.removeIf\(__x -> java\.util\.Objects\.equals\(__x, e\.tag\(\)\)\)/,
   },
   python: {
     let: /\n {4}stamped = e\.at\n[\s\S]*state\.at = stamped/,
@@ -94,13 +95,14 @@ const ARMS: Record<string, Record<string, RegExp>> = {
       /state\.tags = \[__e for __e in \(state\.tags or \[\]\) if __e != \(e\.tag\)\]/,
   },
   vanilla: {
-    // The `let` is a real local BEFORE the changeset, not a change entry.
+    // The `let` is a real local between the rebindings of `state`.
     let: /\n {4}stamped = event\.at\n[\s\S]*at: \(stamped\)/,
     "add (int)": /entries: \(state\.entries \|\| 0\) \+ event\.amount/,
     // Decimal structs have no `+` — the money arm must reach `Decimal.add/2`.
     "add (money)": /charged: Decimal\.add\(state\.charged \|\| Decimal\.new\(0\), event\.fee\)/,
     "remove (int)": /entries: \(state\.entries \|\| 0\) - event\.amount/,
-    "remove (collection)": /tags: List\.delete\(state\.tags \|\| \[\], event\.tag\)/,
+    "remove (collection)":
+      /tags: Enum\.reject\(state\.tags \|\| \[\], fn loom_el -> loom_el == event\.tag end\)/,
   },
 };
 

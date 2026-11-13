@@ -75,7 +75,7 @@ system S {
         orderRef: Order id
         status: string
         at: datetime
-        on(e: OrderPlaced) { orderRef := e.orderRef  status := "Placed"  at := e.at }
+        on(e: OrderPlaced) { status := "Placed"  at := e.at }
       }
       workflow Fulfil {
         orderRef: Order id
