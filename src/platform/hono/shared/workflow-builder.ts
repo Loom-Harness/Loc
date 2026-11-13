@@ -755,6 +755,8 @@ export function buildWorkflowsFile(
   const drizzleOps = ["and", "asc", "eq", "isNull", "lt"].filter((op) =>
     new RegExp(`(?<!\\.)\\b${op}\\(`).test(bodyStr),
   );
+  // The fold-inbox purge is a raw `sql` template.
+  if (/(?<!\.)\bsql`/.test(bodyStr)) drizzleOps.push("sql");
   if (drizzleOps.length > 0)
     imports.push(`import { ${drizzleOps.join(", ")} } from "drizzle-orm";`);
   // The outbox relay logs event_dead_lettered on the module-scope logger.
@@ -1947,7 +1949,7 @@ function emitOutboxMachinery(
   out.push(
     ...outboxPurgeStep(
       "db.delete(schema.loomOutbox).where(lt(schema.loomOutbox.dispatchedAt, cutoff))",
-      pruneInbox ? `db.execute(\`${foldInboxPurgeSql("'${cutoff.toISOString()}'")}\`)` : undefined,
+      pruneInbox ? `db.execute(sql\`${foldInboxPurgeSql("${cutoff}")}\`)` : undefined,
     ),
   );
   out.push(`      const rows = await db`);
@@ -2616,7 +2618,7 @@ function buildProducerOutboxFile(
         ]
       : [
           `import type { NodePgDatabase } from "drizzle-orm/node-postgres";`,
-          `import { and, asc, eq, isNull, lt } from "drizzle-orm";`,
+          `import { and, asc, eq, isNull, lt${foldsDedupe(ctx, true) ? ", sql" : ""} } from "drizzle-orm";`,
           `import * as schema from "../db/schema";`,
         ]),
     ...(carriesOrigin
