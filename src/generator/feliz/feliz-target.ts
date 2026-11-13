@@ -14,6 +14,7 @@ import { enumPool } from "../../ir/util/reachable-types.js";
 import { requireFrontendAxes } from "../../util/frontend-axes.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { apiReadMemberType } from "../_frontend/optional-member.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
@@ -77,6 +78,7 @@ import {
   opHasForm,
   pageMetaFieldName,
   pageMetaMember,
+  pickerFieldName,
   projectionFieldName,
   readFieldName,
   wfHasForm,
@@ -214,6 +216,7 @@ function fieldInputText(
  *  (`price-amount`) — matching the `fillBlock` recursion in
  *  `_frontend/page-objects-builder.ts` (`${testId}-${vf.name}`). */
 function fieldTestid(base: string, fld: FelizFormField): string {
+  if (fld.presenceOf) return `${base}-input-${fld.presenceOf}-present`;
   return fld.objectKey
     ? `${base}-input-${fld.objectKey}-${fld.jsonKey}`
     : `${base}-input-${fld.jsonKey}`;
@@ -238,6 +241,20 @@ function fieldTestid(base: string, fld: FelizFormField): string {
  *  `orders-op-addLine` / `workflow-place_order`); the input carries
  *  `<base>-input-<field>` via `prop.custom` so the shared page objects drive it. */
 function renderFormInput(
+  formField: string,
+  fld: FelizFormField,
+  base: string,
+  text?: FelizInputText,
+): string {
+  const input = renderFormInputBody(formField, fld, base, text);
+  // A sub-input of an optional value object mounts only while its presence
+  // checkbox is checked.
+  return fld.presentCell
+    ? `(if model.${formField}.${fld.presentCell} = "true" then ${input} else Html.none)`
+    : input;
+}
+
+function renderFormInputBody(
   formField: string,
   fld: FelizFormField,
   base: string,
@@ -311,11 +328,28 @@ function renderFormInput(
     const input = `Html.input [ ${tidP}prop.className "file-input file-input-bordered w-full"; prop.type'.file; prop.onChange (fun (file: Browser.Types.File) -> dispatch (${pick} file))${onBlur}${aria} ]`;
     return wrap(`Html.div [ prop.className "w-full"; prop.children [ ${input}; ${chosen} ] ]`);
   }
+  if (fld.inputKind === "checkgroup") {
+    // One checkbox per option over the comma-joined cell (the encoder splits
+    // it into the JSON array).  Group testid = the field's; each box
+    // `<field testid>-option-<value>`.
+    const gid = fieldTestid(base, fld);
+    const sel = `(${value}.Split(',') |> Array.toList |> List.map (fun s -> s.Trim()) |> List.filter (fun s -> s <> ""))`;
+    const box = (valueExpr: string, labelExpr: string): string => {
+      const toggled = `(String.concat "," (if c then (${sel} @ [ ${valueExpr} ] |> List.distinct) else (${sel} |> List.filter (fun s -> s <> ${valueExpr}))))`;
+      return `Html.label [ prop.className "label cursor-pointer gap-1"; prop.children [ Html.input [ prop.custom("data-testid", "${gid}-option-" + ${valueExpr}); prop.className "checkbox"; prop.type'.checkbox; prop.isChecked (${sel} |> List.contains ${valueExpr}); prop.onChange (fun (c: bool) -> dispatch (${fld.setMsg} ${toggled})) ]; Html.span [ prop.text ${labelExpr} ] ] ]`;
+    };
+    const boxes = fld.idTarget
+      ? `(match model.${pickerFieldName(fld.idTarget)} with | Loaded items -> items |> List.map (fun x -> ${box("x.id", `x.${fld.idLabelField ?? "id"}`)}) | _ -> [])`
+      : `[ ${(fld.enumValues ?? []).map((v) => box(`"${v}"`, text?.options?.get(v) ?? `"${v}"`)).join("; ")} ]`;
+    return wrap(
+      `Html.div [ prop.custom("data-testid", "${gid}"); prop.className "flex flex-wrap gap-3"; prop.children ${boxes} ]`,
+    );
+  }
   if (fld.inputKind === "idselect" && fld.idTarget) {
     // Options load at runtime from the target's `.all` (`View.idOptions` maps the
     // Remote list to `<option>`s); a leading blank option is the unselected state
     // (a required FK is guarded, so it must be chosen before submit).
-    const listField = `model.${readFieldName(fld.idTarget)}`;
+    const listField = `model.${pickerFieldName(fld.idTarget)}`;
     const label = fld.idLabelField ?? "id";
     return wrap(
       `Html.select [ ${tidP}prop.className "select select-bordered w-full"; prop.value ${value}; prop.onChange (fun (v: string) -> dispatch (${fld.setMsg} v))${onBlur}${aria}; prop.children (Html.option [ prop.value ""; prop.text "" ] :: View.idOptions ${listField} (fun x -> x.id) (fun x -> x.${label})) ]`,
@@ -699,14 +733,15 @@ export const felizTarget: WalkerTarget = {
       );
     }
     const lineage = `${emitExpr(ofArg, ctx)}.${String(fieldArg.value)}.${PROVENANCE_LINEAGE_FIELD}`;
-    const rule =
-      'Html.div [ prop.children [ Html.dt [ prop.text "Rule" ]; Html.dd [ Html.code [ prop.text __p.snapshotId ] ] ] ]';
-    const value =
-      'Html.div [ prop.children [ Html.dt [ prop.text "Value" ]; Html.dd [ prop.text __p.computedValue ] ] ]';
+    const ruleLabel = localizedPageChromeValue(ctx, "provenanceRule");
+    const valueLabel = localizedPageChromeValue(ctx, "provenanceValue");
+    const rule = `Html.div [ prop.children [ Html.dt [ prop.text ${ruleLabel} ]; Html.dd [ Html.code [ prop.text __p.snapshotId ] ] ] ]`;
+    const value = `Html.div [ prop.children [ Html.dt [ prop.text ${valueLabel} ]; Html.dd [ prop.text __p.computedValue ] ] ]`;
     const inputRow =
       "Html.div [ prop.children [ Html.dt [ prop.text __i.path ]; Html.dd [ prop.text __i.value ] ] ]";
     const dl = `Html.dl [ prop.children (List.append [ ${rule}; ${value} ] [ for __i in __p.inputs -> ${inputRow} ]) ]`;
-    const details = `Html.details [ prop.className "loom-provenance"; prop.children [ Html.summary [ prop.text "?" ]; ${dl} ] ]`;
+    const howLabel = localizedPageChromeValue(ctx, "provenanceHowComputed");
+    const details = `Html.details [ prop.className "loom-provenance"; prop.children [ Html.summary [ prop.ariaLabel ${howLabel}; prop.text "?" ]; ${dl} ] ]`;
     const match = `(match ${lineage} with Some __p -> ${details} | None -> Html.none)`;
     return `Html.span [ prop.children [ ${match} ] ]`;
   },
@@ -1263,7 +1298,23 @@ export const felizTarget: WalkerTarget = {
    *  falls through `undefined` and is emitted unchanged.  F-022. */
   escapeIdent: (name: string) => (isFsKeyword(name) ? fsIdent(name) : undefined),
 
-  renderMemberRead: ({ receiver, member }) => {
+  renderMemberRead: ({ receiver, member, receiverType, receiverExpr, ctx }) => {
+    // An OPTIONAL value-object receiver (`vehicle: Vehicle?` is an F# `option`)
+    // has no fields: read through the option and fall back to the field type's
+    // zero value, so the cell renders empty rather than failing to compile.
+    const optional =
+      receiverType?.kind === "optional"
+        ? receiverType
+        : receiverExpr && ctx
+          ? apiReadMemberType(receiverExpr, ctx)
+          : undefined;
+    if (optional?.kind === "optional") {
+      const fieldType =
+        optional.inner.kind === "valueobject" && ctx
+          ? optionalVoFieldType(optional.inner.name, member, ctx)
+          : undefined;
+      return `(match ${receiver} with Some __o -> __o.${fsIdent(member)} | None -> ${fieldType ? fsZeroValue(fieldType) : '""'})`;
+    }
     switch (member) {
       case "length":
         return `(${receiver}.Length)`;
@@ -1550,4 +1601,14 @@ function modalOpGate(formChild: ExprIR & { kind: "call" }, ctx: WalkContext) {
   return found
     ? opGateFor(ctx, found.agg, found.op, canProbeFieldName(found.agg.name, found.op.name))
     : undefined;
+}
+
+/** The declared type of `<voName>.<member>`, looked up across the bounded
+ *  contexts the walk carries; undefined when the value object is unknown. */
+function optionalVoFieldType(voName: string, member: string, ctx: WalkContext): TypeIR | undefined {
+  for (const bc of ctx.bcByAggregate.values()) {
+    const vo = bc.valueObjects?.find((v) => v.name === voName);
+    if (vo) return vo.fields.find((f) => f.name === member)?.type;
+  }
+  return undefined;
 }

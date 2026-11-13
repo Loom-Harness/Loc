@@ -59,6 +59,14 @@ function pageTitleLabel(p: PageIR): string | undefined {
   return t && t.kind === "literal" && t.lit === "string" ? t.value : undefined;
 }
 
+/** The catalog key of a page's `title:` literal — the SAME key the page's own
+ *  document title renders through (`localizedPageTitle`), so a nav label that
+ *  falls back to the title is one translator entry, not a duplicate. */
+function pageTitleLabelKey(ui: UiIR, p: PageIR): string | undefined {
+  const title = pageTitleLabel(p);
+  return title === undefined ? undefined : messageKey(pageKeyPrefix(ui, p), "title", title);
+}
+
 /** A single sidebar nav entry — framework-neutral data the React and
  *  Svelte app shells both render (React: NavLink; Svelte: <a>).
  *  Moved here from react/templating/view-models.ts with the menu
@@ -127,6 +135,18 @@ function isNavigable(p: PageIR): boolean {
   if (!route || route.includes(":")) return false;
   if (p.layout?.kind === "preset" && p.layout.name === "none") return false;
   return true;
+}
+
+/** A page a frontend's DEFAULT sidebar links: one with a parameterless route
+ *  inside the app shell (`isNavigable`), and not a create or detail
+ *  page of a scaffolded aggregate or workflow — those are reached from their
+ *  list, and a detail route's `:id` has no value to link to. */
+export function isDefaultNavPage(p: PageIR, pageCtx: PageNameCtx): boolean {
+  if (!isNavigable(p)) return false;
+  const kind = classifyPage(p, pageCtx).kind;
+  return (
+    kind !== "aggregate-new" && kind !== "aggregate-detail" && kind !== "workflow-instance-detail"
+  );
 }
 
 /** Merge a caller's DEFAULT sidebar sections with the sections derived
@@ -255,7 +275,9 @@ export function deriveSidebarFromUi(
                   menuMetaIdentityKey(p, "label") ??
                   messageKey(pageKeyPrefix(ui, p), "menu.label", metaLabel),
               }
-            : {}),
+            : pageTitleLabelKey(ui, p)
+              ? { labelKey: pageTitleLabelKey(ui, p) }
+              : {}),
           testId: tIdAndActive.testId,
           activeArgs: tIdAndActive.activeArgs,
           // Hide the nav link when the page's `requires` gate fails (auth: ui).
@@ -349,14 +371,15 @@ function navEntryForLink(
   // (extracted under the `menu` prefix) and the page's `menu { label: … }`
   // metadata (extracted under the page's prefix).  A page title / page name
   // fallback is not extracted, so it carries no key and stays untranslated
-  // rather than emitting a key that resolves to nothing.
+  // rather than emitting a key that resolves to nothing.  A page `title:` literal
+  // IS extracted (under the page's own `title` role), so it reuses that key.
   const labelKey =
     overrideLabel !== undefined
       ? messageKey(menuKeyPrefix(ui), "link", overrideLabel)
       : metaLabel !== undefined
         ? (menuMetaIdentityKey(page, "label") ??
           messageKey(pageKeyPrefix(ui, page), "menu.label", metaLabel))
-        : undefined;
+        : pageTitleLabelKey(ui, page);
   // Identify well-known page kinds via `classifyPage` so testid
   // and active-route semantics match main's hardcoded conventions.
   const tIdAndActive = testIdAndActive(page, nameCtx);

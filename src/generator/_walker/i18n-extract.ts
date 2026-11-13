@@ -82,6 +82,34 @@ export function pageKeyPrefix(ui: { name: string }, page: { name: string }): str
   return `${ui.name}.page.${page.name}`;
 }
 
+/** The nav-label spelling of a page identifier: a space at each camel-case
+ *  boundary (`ProductNew` → `Product New`).  The source-language text of an
+ *  untitled page's name entry, and the default its readers bind. */
+export function humanizePageName(name: string): string {
+  return name.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+}
+
+/** The catalog entry for an UNTITLED page's name — role `name`, keyed
+ *  `<Ui>.page.<Page>.name.<hash>`, message the humanised page name.  Undefined
+ *  for a page that has a `title:` (its text is the title's entry).
+ *
+ *  Not part of {@link collectUiMessages}: every page has a name, so contributing
+ *  it there would make every UI translatable.  A frontend that renders the name
+ *  (Feliz's navbar, Flutter's app bar) merges these under the already-enabled
+ *  gate (`FormSentenceScope.pageNames`). */
+export function pageNameEntry(
+  ui: { name: string },
+  page: { name: string; title?: unknown; origin?: MessageEntry["origin"] },
+): MessageEntry | undefined {
+  if (page.title !== undefined) return undefined;
+  const message = humanizePageName(page.name);
+  return {
+    key: messageKey(pageKeyPrefix(ui, page), "name", message),
+    message,
+    origin: page.origin,
+  };
+}
+
 /** The key prefix of a component's inline strings: `<Ui>.component.<Comp>`. */
 export function componentKeyPrefix(ui: { name: string }, component: { name: string }): string {
   return `${ui.name}.component.${component.name}`;

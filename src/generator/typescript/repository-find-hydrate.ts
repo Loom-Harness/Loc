@@ -15,6 +15,7 @@ import type {
 import { directParentName } from "../../ir/util/containment-parent.js";
 import { isTphConcrete } from "../../ir/util/inheritance.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import {
   isValueCollectionType,
   type ValueCollectionIR,
@@ -22,7 +23,6 @@ import {
 } from "../../ir/util/value-collections.js";
 import { numericEncode } from "../_numeric/target.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
-import { isRefCollection } from "./repository-associations-builder.js";
 import { T } from "./ts-symbols.js";
 
 export function hydrateRootExpr(
@@ -39,7 +39,7 @@ export function hydrateRootExpr(
   const fields: string[] = [];
   fields.push(`id: ${T.Ids}.${agg.name}Id(${rowVar}.id)`);
   for (const f of agg.fields) {
-    if (isRefCollection(f.type) || isValueCollectionType(f.type)) {
+    if (isRefCollectionType(f.type) || isValueCollectionType(f.type)) {
       // Loaded into a local const from its join / child table (see
       // findByIdMethod): a reference collection from the join table, a
       // value-object collection from its id-less child table.
@@ -87,7 +87,7 @@ export function hydrateConcreteFromSharedRow(
 ): string {
   const fields: string[] = [`id: ${T.Ids}.${agg.name}Id(${rowVar}.id)`];
   for (const f of agg.fields) {
-    if (isRefCollection(f.type)) {
+    if (isRefCollectionType(f.type)) {
       fields.push(`${f.name}: []`);
     } else {
       fields.push(`${f.name}: ${hydrateFieldExpr(f, rowVar, ctx, true)}`);
@@ -308,7 +308,7 @@ export function hydrateRootForFindAllExpr(
   const fields: string[] = [];
   fields.push(`id: ${T.Ids}.${agg.name}Id(${rowVar}.id)`);
   for (const f of agg.fields) {
-    if (isRefCollection(f.type)) {
+    if (isRefCollectionType(f.type)) {
       fields.push(`${f.name}: ${f.name}ByOwner.get(${rowVar}.id) ?? []`);
     } else if (isValueCollectionType(f.type)) {
       fields.push(`${f.name}: ${f.name}ByParent.get(${rowVar}.id) ?? []`);

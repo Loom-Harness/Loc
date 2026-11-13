@@ -297,6 +297,11 @@ describe("every ```ddd fence in the docs parses in some minimal host", () => {
     expect(bad).toEqual([]);
   });
 
+  it("no fence is waived twice (a duplicate entry outlives its fix)", () => {
+    const keys = WAIVERS.map((w) => `${w.doc} :: ${w.marker}`);
+    expect(keys.filter((k, i) => keys.indexOf(k) !== i)).toEqual([]);
+  });
+
   it("every waiver names a fence that still fails (the list ratchets)", () => {
     const stale = WAIVERS.filter((w) => {
       const hits = fences.filter((f) => f.rel === w.doc && f.text.includes(w.marker));

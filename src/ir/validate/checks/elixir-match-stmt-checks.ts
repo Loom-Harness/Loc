@@ -33,9 +33,9 @@
 //     (an `emit`, a provenanced write): the supporting machinery is decided
 //     by one-level scans of the body.
 //   * `#event-sourced` — any statement `match` in an event-sourced command
-//     body or `eventSourced` workflow handler, which is sorted into
-//     `with`-clauses / `let`s / an `events = […]` list rather than rendered as
-//     a statement sequence.
+//     body, which is sorted into `with`-clauses / `let`s / an `events = […]`
+//     list rather than rendered as a statement sequence.  (An `eventSourced`
+//     workflow's handlers render on the reactor `with`-chain like any other.)
 //   * `#multi-success` — a union subject with more than one non-error
 //     variant.  The success value travels bare in `{:ok, value}`, so two
 //     success variants are indistinguishable at runtime.
@@ -248,10 +248,6 @@ export function elixirMatchRefusal(
 function elixirWorkflowMatchRefusal(
   stmts: readonly WorkflowStmtIR[],
   ctx: Pick<BoundedContextIR, "payloads">,
-  /** True for an `eventSourced` workflow, whose handlers are sorted into
-   *  guard clauses, `let`s and one `events = […]` list
-   *  (`workflow-eventsourced-emit.ts`) rather than rendered as a with-chain. */
-  eventSourced = false,
 ): ElixirMatchRefusal | undefined {
   let sawMatch = false;
   let multiSuccess = false;
@@ -263,7 +259,6 @@ function elixirWorkflowMatchRefusal(
     });
   }
   if (!sawMatch) return undefined;
-  if (eventSourced) return "event-sourced";
   return multiSuccess ? "multi-success" : undefined;
 }
 
@@ -358,12 +353,8 @@ export function matchArmShapeRefusals(
     const slug = elixirMatchRefusal(stmts, kind, ctx);
     if (slug) out.push({ where, slug });
   };
-  const flagWorkflow = (
-    where: string,
-    stmts: readonly WorkflowStmtIR[],
-    eventSourced = false,
-  ): void => {
-    const slug = elixirWorkflowMatchRefusal(stmts, ctx, eventSourced);
+  const flagWorkflow = (where: string, stmts: readonly WorkflowStmtIR[]): void => {
+    const slug = elixirWorkflowMatchRefusal(stmts, ctx);
     if (slug) out.push({ where, slug });
   };
   for (const agg of ctx.aggregates) {
@@ -389,7 +380,7 @@ export function matchArmShapeRefusals(
       ...(wf.creates ?? []).map((c) => c.statements),
       ...(wf.subscriptions ?? []).map((s) => s.statements),
     ];
-    flagWorkflow(`workflow '${wf.name}'`, bodies.flat(), wf.eventSourced === true);
+    flagWorkflow(`workflow '${wf.name}'`, bodies.flat());
   }
   for (const h of ctx.commandHandlers ?? []) {
     flagWorkflow(`commandHandler '${h.name}'`, h.statements);

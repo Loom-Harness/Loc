@@ -75,17 +75,17 @@ describe("angular operation action-button gate", () => {
     // confirm() gated — `@if`-wrapped, no `@else { null }` (Angular renders
     // bare `null` as visible text, so the hide drops the else).
     expect(c).toContain('@if ((currentUser.role === "manager")) {');
-    expect(c).toContain(">Confirm</button>");
+    expect(c).toContain('"Confirm")'); // the translated label's English default
     // The gate wraps the confirm button, not the cancel one.
     const gateIdx = c.indexOf('@if ((currentUser.role === "manager"))');
-    const confirmIdx = c.indexOf(">Confirm</button>");
+    const confirmIdx = c.indexOf('"Confirm")');
     expect(gateIdx).toBeGreaterThan(0);
     expect(confirmIdx).toBeGreaterThan(gateIdx);
     // Exactly one currentUser gate, and no `@else { null }` leaked.
     expect(c.match(/@if \(\(currentUser/g)?.length ?? 0).toBe(1);
     expect(c).not.toContain("} @else {\n      null");
     // cancel() ungated — its button has no currentUser `@if` wrapper.
-    expect(c).toContain(">Cancel</button>");
+    expect(c).toContain('"Cancel")'); // the translated label's English default
   });
 
   it("emits no gate / session binding without auth: ui (byte-identical)", async () => {
@@ -97,7 +97,7 @@ describe("angular operation action-button gate", () => {
     expect(c).not.toContain("currentUser");
     expect(c).not.toContain("@if ((currentUser");
     // Both buttons still render, just ungated.
-    expect(c).toContain(">Confirm</button>");
-    expect(c).toContain(">Cancel</button>");
+    expect(c).toContain('"Confirm")'); // the translated label's English default
+    expect(c).toContain('"Cancel")'); // the translated label's English default
   });
 });

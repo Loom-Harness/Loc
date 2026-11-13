@@ -196,7 +196,7 @@ A `domainService` may also carry unit `test` blocks (see [Testing](18-testing.md
 
 ## `seed` — declarative first-boot data
 
-`seed [dataset] [raw] { Agg { field: value, … } … }` declares typed rows for a context's aggregates. Each row lowers through the aggregate's canonical `create` (per **D-SEED-PATH**), so constructor invariants run — a bad seed throws at boot rather than writing a corrupt row. An unnamed block is the `default` dataset; `default` always runs, other datasets opt in via the `LOOM_SEED` env var (comma-separated); same-named blocks merge. Seeding is **idempotent** (per **D-SEED-IDEMPOTENCY**): a `__loom_seed` marker table records each applied dataset, and a present marker makes the dataset a no-op.
+`seed [dataset] [raw] { Agg { field: value, … } … }` declares typed rows for a context's aggregates. Each row lowers through the aggregate's canonical `create` (per **D-SEED-PATH**), so constructor invariants run — a bad seed throws at boot rather than writing a corrupt row. An unnamed block is the `default` dataset; `default` always runs, other datasets opt in via the `LOOM_SEED` env var (comma-separated); same-named blocks merge. Seeding is **idempotent** (per **D-SEED-IDEMPOTENCY**): a `__loom_seed` marker table records each applied dataset under the key `<Context>/<dataset>`, and a present marker makes the dataset a no-op. The key carries the context because deployables bound to one `storage` share its database and marker table: each context's `default` seeds once, however many contexts declare one. A bare `<dataset>` row, as a database seeded before the key carried the context holds, still counts as applied.
 
 ```ddd
 seed default {

@@ -1,7 +1,8 @@
 // Main-thread client for the esbuild-wasm test worker.
 //   - `compile(ts)`  → type-strip a single file (API runner).
-//   - `build(entry, files, aliases)` → bundle a generated suite + its
-//     imports, aliasing the framework module (UI / unit runners).
+//   - `build(entry, files, aliases, deps)` → bundle a generated suite + its
+//     imports, aliasing the framework module and installing the npm
+//     packages it imports at the `deps` pins (UI / unit runners).
 
 import type {
   TransformRequest,
@@ -9,12 +10,14 @@ import type {
 } from "./transform.worker.js";
 
 /** esbuild build seam: bundle a suite entry from a file map, aliasing
- *  the framework module to a shim.  Injected so runners are decoupled
- *  from the worker. */
+ *  the framework module to a shim and bundling in the npm packages it
+ *  imports (installed at the `deps` pins — the deployable's package.json
+ *  `dependencies`).  Injected so runners are decoupled from the worker. */
 export type EsbuildBuild = (
   entry: string,
   files: Record<string, string>,
   aliases: Record<string, string>,
+  deps?: Record<string, string>,
 ) => Promise<string>;
 
 export class TsTransformClient {
@@ -58,8 +61,21 @@ export class TsTransformClient {
     entry: string,
     files: Record<string, string>,
     aliases: Record<string, string>,
+    deps?: Record<string, string>,
   ): Promise<string> {
-    return this.request({ build: { entry, files, aliases } });
+    return this.request({
+      build: {
+        entry,
+        files,
+        aliases,
+        deps,
+        // The configured base is relative ("./" on GH Pages) and the worker
+        // fetches the npm mirror against it, so resolve it to an absolute
+        // url here — a relative fetch in the worker resolves against the
+        // worker's own assets/ url.
+        deployBase: new URL(import.meta.env?.BASE_URL ?? "/", document.baseURI).href,
+      },
+    });
   }
 
   dispose(): void {

@@ -52,7 +52,7 @@ describe("typescript generator — paged reads (P3b)", () => {
     // 1-based page → offset, limit/offset on the page query.
     expect(repo).toContain("const offset = (page - 1) * pageSize;");
     expect(repo).toMatch(
-      /\.from\(schema\.warehouses\)\.orderBy\(orderBy\)\.limit\(pageSize\)\.offset\(offset\)/,
+      /\.from\(schema\.warehouses\)\.orderBy\(orderBy, asc\(schema\.warehouses\.id\)\)\.limit\(pageSize\)\.offset\(offset\)/,
     );
     expect(repo).toMatch(/return \{ items, page, pageSize, total, totalPages \};/);
     // count is pulled into the drizzle-orm import.
@@ -72,7 +72,7 @@ describe("typescript generator — paged reads (P3b)", () => {
       "select({ value: count() }).from(schema.warehouses).where(inRegionCriterion(region))",
     );
     expect(repo).toMatch(
-      /\.where\(inRegionCriterion\(region\)\)\.orderBy\(orderBy\)\.limit\(pageSize\)\.offset\(offset\)/,
+      /\.where\(inRegionCriterion\(region\)\)\.orderBy\(orderBy, asc\(schema\.\w+\.id\)\)\.limit\(pageSize\)\.offset\(offset\)/,
     );
   });
 

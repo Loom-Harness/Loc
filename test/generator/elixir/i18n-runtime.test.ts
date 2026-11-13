@@ -270,10 +270,10 @@ describe("Phoenix HEEx i18n — ICU interpolation", () => {
     const cldr = fileEndingWith(files, "lib/app/cldr.ex");
     expect(cldr).toContain("use Cldr,");
     expect(cldr).toContain("providers: [Cldr.Number, Cldr.Message]");
-    // Adding a locale takes TWO steps — the `.po` tree AND this list, because
-    // that is what compiles the locale's plural rules in.  Stated in the file,
-    // since a `.po` with unusable plural forms is the failure mode.
-    expect(cldr).toContain("entry in `@shipped`");
+    // String tier (absence claim): the moduledoc must not tell a translator to
+    // hand-register a locale; the `locales/<tag>.json` sidecar yields both halves.
+    expect(cldr).toContain("`locales/<tag>.json` beside the .ddd");
+    expect(cldr).not.toContain("added by hand");
     const runtime = fileEndingWith(files, "lib/app_web/i18n.ex");
     expect(runtime).toContain("def loom_icu(message, bindings) when is_binary(message) do");
     // Both failure shapes are absorbed: the library reports a parse/bind error

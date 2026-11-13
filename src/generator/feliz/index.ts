@@ -42,7 +42,7 @@ import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
-import { NPM_FETCH_RETRY_FLAGS } from "../_docker/node-stage.js";
+import { DEBIAN_CERTS_BLOCK, NPM_FETCH_RETRY_FLAGS } from "../_docker/node-stage.js";
 import {
   E2E_FIXTURES_TS,
   E2E_PACKAGE_JSON,
@@ -61,7 +61,9 @@ import {
   authGateMessage,
   chromeKey,
 } from "../_walker/i18n-chrome.js";
+import { localizedPageName } from "../_walker/i18n-emit.js";
 import {
+  humanizePageName,
   icuFromConcat,
   literalString,
   messageKey,
@@ -87,6 +89,7 @@ import {
 } from "./component-emit.js";
 import { FELIZ_GRID_PRELUDE } from "./data-grid-child.js";
 import { FELIZ_ACTION_TOAST, felizTarget } from "./feliz-target.js";
+import { felizOperationFormSeed } from "./form-prefill.js";
 import {
   type FsExprCtx,
   fsString,
@@ -815,11 +818,6 @@ function renderRouting(
 /** The root routing `view` — a `React.router` that dispatches `UrlChanged` and
  *  renders the active page's view fn (threading the route `id` to detail pages).
  *  Named `view` normally; `appView` under an auth gate (the gate owns `view`). */
-/** Humanise an identifier for a nav label: `ProductNew` → `Product New`. */
-function humanizeLabel(name: string): string {
-  return name.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
-}
-
 /** The persistent daisyUI `navbar` above the routed content — a brand link plus
  *  one menu item per TOP-LEVEL page (a static route, no `:param`; detail pages
  *  are reached from their list, not the nav).  Returns "" when there are fewer
@@ -847,6 +845,9 @@ function renderNavbar(
   /** Two or more locales ship: the bar carries the language picker, and a bar
    *  with no links still renders for it. */
   localeSwitcher = false,
+  /** The ui the pages belong to: an untitled page's link label reads its
+   *  catalog `name` entry. */
+  ui?: UiIR,
 ): string {
   // ONE line per entry, guard included: F# keys a newline-separated list
   // element by its first-token column, so a multi-line guard here would
@@ -859,6 +860,9 @@ function renderNavbar(
     i18nEnabled && key
       ? `(I18n.t ${fsString(key)} ${fsString(sourceText(key, text))})`
       : fsString(text);
+  const pageLabel = (p: PageIR): string =>
+    (i18nEnabled && ui ? localizedPageName(ui, p, felizTarget) : undefined) ??
+    fsString(humanizePageName(p.name));
   let entries: string[];
   if (menu) {
     entries = menu.flatMap((section) => [
@@ -885,7 +889,7 @@ function renderNavbar(
     entries = (navPages.length < 2 ? [] : navPages).map((p) =>
       guard(
         p,
-        `Html.li [ prop.children [ Html.a [ prop.href "${p.route ?? "/"}"; prop.text "${humanizeLabel(p.name)}" ] ] ]`,
+        `Html.li [ prop.children [ Html.a [ prop.href "${p.route ?? "/"}"; prop.text ${pageLabel(p)} ] ] ]`,
       ),
     );
   }
@@ -899,7 +903,7 @@ function renderNavbar(
   return [
     `    Html.nav [ prop.className "navbar bg-base-200 rounded-box mb-4"; prop.ariaLabel ${navAria}; prop.children [`,
     '      Html.div [ prop.className "flex-1"; prop.children [',
-    `        Html.a [ prop.className "btn btn-ghost text-xl"; prop.href "/"; prop.text "${humanizeLabel(brand)}" ]`,
+    `        Html.a [ prop.className "btn btn-ghost text-xl"; prop.href "/"; prop.text ${fsString(humanizePageName(brand))} ]`,
     "      ] ]",
     ...(entries.length > 0
       ? [
@@ -941,13 +945,14 @@ function renderRootView(
    *  the top-level page list. */
   menu?: readonly NavSectionVM[],
   localeSwitcher = false,
+  ui?: UiIR,
 ): string {
   const arms = pages.map((p) => {
     const names = routeParamNames(p);
     const args = names.length > 0 ? ` ${names.map(fsIdent).join(" ")}` : "";
     return `        | ${pageCase(p, nameCtx)}${caseArgs(names)} -> ${pageViewFn(p, nameCtx)} model dispatch${args}`;
   });
-  const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate, menu, localeSwitcher);
+  const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate, menu, localeSwitcher, ui);
   const router = [
     "    React.router [",
     // PATH-based routing (History API), NOT hash (`#/…`) — the generated SPA
@@ -1168,7 +1173,12 @@ function operationFormsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): Fe
     )) {
       if (seen.has(f.formType)) continue;
       seen.add(f.formType);
-      out.push(f);
+      const bc = contexts.find((c) => c.aggregates.some((a) => a.name === f.aggregate));
+      const agg = aggregatesByName.get(f.aggregate);
+      const op = agg?.operations.find((o) => o.name === f.op && o.visibility === "public");
+      const seed =
+        bc && agg && op ? felizOperationFormSeed(agg, op, f, bc, aggregatesByName) : undefined;
+      out.push(seed ? { ...f, seed } : f);
     }
   }
   return out;
@@ -1500,7 +1510,10 @@ function renderAppFs(
   const reads: FelizRead[] = readsForUi(ui, contexts);
   const readFields = new Set(reads.map((r) => r.field));
   for (const target of fkTargets) {
-    const r = felizAllRead(target, { bcByAggregate: bcByAggregateOf(contexts) });
+    const r = felizAllRead(target, {
+      bcByAggregate: bcByAggregateOf(contexts),
+      allPages: true,
+    });
     if (!readFields.has(r.field)) {
       readFields.add(r.field);
       reads.push(r);
@@ -1777,6 +1790,7 @@ function renderAppFs(
           pageGate,
           ui.menu ? deriveSidebarFromUi(ui, nameCtx) : undefined,
           localeSwitchable,
+          ui,
         ),
       ]
     : [
@@ -2293,7 +2307,7 @@ const STYLES_CSS = `@tailwind base;
 export const DOCKERFILE = `# syntax=docker/dockerfile:1
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /app
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \\
+${DEBIAN_CERTS_BLOCK}RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \\
   && apt-get install -y --no-install-recommends nodejs \\
   && rm -rf /var/lib/apt/lists/*
 COPY . .
@@ -2442,6 +2456,7 @@ export function generateFelizForContexts(
   out.set("tailwind.config.js", TAILWIND_CONFIG(theme));
   out.set("postcss.config.js", POSTCSS_CONFIG);
   out.set("Dockerfile", DOCKERFILE);
+  out.set("certs/.gitkeep", "");
 
   // --- Playwright e2e harness (framework-neutral, testid-driven) ----------
   // The page objects + smoke spec + e2e config are SHARED with every other

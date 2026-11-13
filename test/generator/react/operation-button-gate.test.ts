@@ -141,7 +141,7 @@ describe("react operation action-button gate", () => {
     expect((page.match(BIND) ?? []).length).toBe(1);
     expect((page.match(/import \{ useSession \}/g) ?? []).length).toBe(1);
     // The page-level Forbidden guard is still present (requires drives it).
-    expect(page).toContain("<h2>Forbidden</h2>");
+    expect(page).toContain('<h2>{t("chrome.forbiddenTitle", "Forbidden")}</h2>');
     expect(page).toContain('if (!(currentUser.role === "agent"))');
     // The button gate is also present.
     expect(page).toContain('(currentUser.role === "manager")');

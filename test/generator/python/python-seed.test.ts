@@ -30,8 +30,8 @@ describe("python seeding", () => {
     const files = await build();
     const seed = files.get("api/app/db/seed.py")!;
     expect(seed).toContain('return dataset == "default" or dataset in requested');
-    expect(seed).toContain('if await _already_seeded(session, "demo"):');
-    expect(seed).toContain('await _mark_seeded(session, "demo")');
+    expect(seed).toContain('if await _already_seeded(session, "Catalog/demo"):');
+    expect(seed).toContain('await _mark_seeded(session, "Catalog/demo")');
     expect(seed).toContain("CREATE TABLE IF NOT EXISTS __loom_seed");
     expect(seed).toContain('os.environ.get("LOOM_SEED", "")');
   });
