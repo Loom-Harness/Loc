@@ -106,3 +106,20 @@ export function useInfraAction(): {
   );
   return { run };
 }
+
+/** View state a tab keeps across the panel's remounts (the dock unmounts a
+ *  hidden tab) for the life of the page: the bucket and folder being browsed,
+ *  the message being read. */
+const sessionState = new Map<string, unknown>();
+
+export function useSessionState<T>(key: string, initial: T): [T, (v: T) => void] {
+  const [value, setValue] = useState<T>(() => (sessionState.has(key) ? (sessionState.get(key) as T) : initial));
+  const set = useCallback(
+    (v: T) => {
+      sessionState.set(key, v);
+      setValue(v);
+    },
+    [key],
+  );
+  return [value, set];
+}
