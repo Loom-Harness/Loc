@@ -1,10 +1,16 @@
-import { readFilterRestrictions, readScopeFor, readSortFor } from "../../ir/enrich/read-scope.js";
+import {
+  type ReadOrderTerm,
+  readFilterRestrictions,
+  readScopeFor,
+  readSortFor,
+} from "../../ir/enrich/read-scope.js";
 import {
   forApiRead,
   type WireMaskPlan,
   wireFieldsFor,
   wireMaskPlan,
 } from "../../ir/enrich/wire-projection.js";
+import { clientSortTieBreak, singleReadOrder } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import {
   type AssociationIR,
@@ -25,6 +31,7 @@ import {
   type WireField,
 } from "../../ir/types/loom-ir.js";
 import { findRaisesNotFound } from "../../ir/util/key-lookup.js";
+import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
 import { ROW_VERSION_COLUMN } from "../../util/row-version.js";
 import { pyGuardedSaveTail } from "./guarded-save-py.js";
@@ -80,7 +87,6 @@ import {
 import { PY_NUMERIC } from "./numeric-codec.js";
 import {
   columnsForFields,
-  isRefCollectionField,
   isValueCollectionField,
   joinRowClassName,
   pyColumnAttr,
@@ -362,13 +368,13 @@ export function buildPyRepositoryFile(
         "        offset = (page - 1) * page_size",
         `        _sort_columns = {${allSortMap}}`,
         `        _sort_attr = getattr(${root}, _sort_columns.get(sort, "id"))`,
-        '        _order = _sort_attr.desc() if dir == "desc" else _sort_attr.asc()',
+        `        _order = (_sort_attr.desc() if dir == "desc" else _sort_attr.asc(), ${pyOrderTerms(root, clientSortTieBreak())})`,
         "        total = (",
         `            await self._session.execute(${R.select}(${R.func}.count()).select_from(${root})${allWhere})`,
         "        ).scalar_one()",
         "        total_pages = (total + page_size - 1) // page_size if page_size > 0 else 0",
         "        rows = (",
-        `            await self._session.execute(${R.select}(${root})${allWhere}.order_by(_order).limit(page_size).offset(offset))`,
+        `            await self._session.execute(${R.select}(${root})${allWhere}.order_by(*_order).limit(page_size).offset(offset))`,
         "        ).scalars().all()",
         `        items = ${hydrateListExpr(agg)}`,
         findExecutedLine(agg, "all", "total"),
@@ -439,6 +445,11 @@ export function buildPyRepositoryFile(
 
 // --- finds -------------------------------------------------------------------
 
+/** `Row.col.asc(), …` — a list of order terms over the row class's columns. */
+function pyOrderTerms(root: string, terms: readonly ReadOrderTerm[]): string {
+  return terms.map((t) => `${root}.${pythonIdent(t.field)}.${t.direction}()`).join(", ");
+}
+
 /** The method behind a widened single-row read (`find(C) ignoring …` /
  *  `find(id) ignoring …` / `findBy(…) ignoring …`) — derived in enrichment,
  *  never route-exposed, called from workflow / handler / service bodies. */
@@ -492,9 +503,8 @@ export function relationalFindMethod(
     const sortMap = sortableFields(agg)
       .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(pythonIdent(wf))}`)
       .join(", ");
-    const declaredOrder = defaultSortOrder(find.defaultSort)
-      ?.map((t) => `${root}.${pythonIdent(t.field)}.${t.direction}()`)
-      .join(", ");
+    const declaredTerms = defaultSortOrder(find.defaultSort);
+    const declaredOrder = declaredTerms ? pyOrderTerms(root, declaredTerms) : undefined;
     return lines(
       `    async def ${pythonIdent(find.name)}(${sig}) -> ${R.PagedResult}[${aggRef(agg)}]:`,
       "        offset = (page - 1) * page_size",
@@ -504,11 +514,11 @@ export function relationalFindMethod(
             // An unwhitelisted `sort` (the route's `""` default) takes the
             // read's declared order (`defaultSortOrder`).
             "        _sort_key = _sort_columns.get(sort)",
-            `        _order = (getattr(${root}, _sort_key).desc() if dir == "desc" else getattr(${root}, _sort_key).asc(),) if _sort_key is not None else (${declaredOrder},)`,
+            `        _order = (getattr(${root}, _sort_key).desc() if dir == "desc" else getattr(${root}, _sort_key).asc(), ${pyOrderTerms(root, clientSortTieBreak())}) if _sort_key is not None else (${declaredOrder},)`,
           ]
         : [
             `        _sort_attr = getattr(${root}, _sort_columns.get(sort, "id"))`,
-            '        _order = (_sort_attr.desc() if dir == "desc" else _sort_attr.asc(),)',
+            `        _order = (_sort_attr.desc() if dir == "desc" else _sort_attr.asc(), ${pyOrderTerms(root, clientSortTieBreak())})`,
           ]),
       `        total = (`,
       `            await self._session.execute(${R.select}(${R.func}.count()).select_from(${root})${where})`,
@@ -534,9 +544,11 @@ export function relationalFindMethod(
   }
   // A natural-key `getBy` answers the find-absence 404, never a `None`.
   const raises = findRaisesNotFound(find);
+  const firstMatch = singleReadOrder(find);
+  const orderBy = firstMatch ? `.order_by(${pyOrderTerms(root, firstMatch)})` : "";
   return lines(
     `    async def ${pythonIdent(find.name)}(${sig}) -> ${aggRef(agg)}${raises ? "" : " | None"}:`,
-    `        row = (await self._session.execute(${R.select}(${root})${where})).scalars().first()`,
+    `        row = (await self._session.execute(${R.select}(${root})${where}${orderBy})).scalars().first()`,
     findExecutedLine(agg, find.name, "0 if row is None else 1"),
     "        if row is None:",
     raises
@@ -992,7 +1004,7 @@ export function hydrateValueCollection(
 function hasChildCollections(agg: EnrichedAggregateIR): boolean {
   return (
     agg.contains.length > 0 ||
-    agg.fields.some(isRefCollectionField) ||
+    agg.fields.some((f) => isRefCollectionType(f.type)) ||
     valueCollectionsFor(agg).length > 0
   );
 }
@@ -1027,7 +1039,7 @@ function tphAssertNarrow(
   const out: string[] = [];
   for (const f of own) {
     if (f.optional || f.type.kind === "optional") continue;
-    if (isRefCollectionField(f) || isValueCollectionField(f)) continue;
+    if (isRefCollectionType(f.type) || isValueCollectionField(f)) continue;
     for (const col of columnsForFields([f], ctx)) {
       out.push(`${ind}assert row.${pyColumnAttr(col)} is not None`);
     }
@@ -1054,7 +1066,7 @@ function buildAggConstruction(
       if (vc) kwargs.push(`${pythonIdent(f.name)}=${hydrateValueCollection(vc, "__r", ctx)}`);
       continue;
     }
-    if (isRefCollectionField(f)) {
+    if (isRefCollectionType(f.type)) {
       const assoc = assocFor(agg, f.name);
       if (!assoc) continue;
       kwargs.push(
@@ -1117,7 +1129,7 @@ function hydrateMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR):
     );
   }
   // …and reference-collection join rows (ordered by the target FK id).
-  for (const f of agg.fields.filter(isRefCollectionField)) {
+  for (const f of agg.fields.filter((f) => isRefCollectionType(f.type))) {
     const assoc = assocFor(agg, f.name);
     if (!assoc) continue;
     const joinRow = schemaRow(joinRowClassName(assoc));
@@ -1179,7 +1191,7 @@ function hydrateManyMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContext
     );
   }
   // …reference-collection join rows (ordered by the target FK id).
-  for (const f of agg.fields.filter(isRefCollectionField)) {
+  for (const f of agg.fields.filter((f) => isRefCollectionType(f.type))) {
     const assoc = assocFor(agg, f.name);
     if (!assoc) continue;
     const joinRow = schemaRow(joinRowClassName(assoc));
@@ -1222,7 +1234,7 @@ function hydrateManyMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContext
     const v = snake(c.name);
     out.push(`            ${v}_rows = ${v}_by_parent.get(row.id, [])`);
   }
-  for (const f of agg.fields.filter(isRefCollectionField)) {
+  for (const f of agg.fields.filter((f) => isRefCollectionType(f.type))) {
     if (!assocFor(agg, f.name)) continue;
     const v = snake(f.name);
     out.push(`            ${v}_rows = ${v}_by_parent.get(row.id, [])`);
@@ -1296,7 +1308,7 @@ function partHydrateMethod(
     `id=${pyIdType(p.name)}(row.id)`,
     `parent_id=${pyIdType(parentName)}(row.parent_id)`,
     ...p.fields
-      .filter((f) => !isRefCollectionField(f))
+      .filter((f) => !isRefCollectionType(f.type))
       .flatMap((f) => {
         if (!isValueCollectionField(f)) {
           return [`${pythonIdent(f.name)}=${hydrateField("row", f, ctx)}`];
@@ -1429,7 +1441,7 @@ function saveMethod(
   const rootPairs: Array<[string, string]> = [["id", `${aggVar}.id`]];
   if (kind) rootPairs.push(["kind", JSON.stringify(kind)]);
   for (const f of agg.fields) {
-    if (isRefCollectionField(f) || isValueCollectionField(f)) continue;
+    if (isRefCollectionType(f.type) || isValueCollectionField(f)) continue;
     rootPairs.push(...persistField(aggVar, f, ctx));
   }
   // Co-located provenance lineage (provenance.md): the current `<field>_provenance`
@@ -1515,7 +1527,7 @@ function saveMethod(
     );
   }
   // Diff-sync each reference-collection join table.
-  for (const f of agg.fields.filter(isRefCollectionField)) {
+  for (const f of agg.fields.filter((f) => isRefCollectionType(f.type))) {
     const assoc = assocFor(agg, f.name);
     if (assoc) out.push(...syncJoinTable(assoc, f, aggVar));
   }
@@ -1627,7 +1639,7 @@ function syncContainment(
     [fkCol, depth > 0 ? ownerIdExpr : `${loopVar}.parent_id`],
   ];
   for (const f of part?.fields ?? []) {
-    if (isRefCollectionField(f) || isValueCollectionField(f)) continue;
+    if (isRefCollectionType(f.type) || isValueCollectionField(f)) continue;
     childPairs.push(...persistField(loopVar, f, ctx));
   }
   const field = pythonIdent(c.name);

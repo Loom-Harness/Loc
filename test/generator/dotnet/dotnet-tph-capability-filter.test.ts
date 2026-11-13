@@ -114,7 +114,7 @@ describe(".NET TPH × capability filter", () => {
     expect(errors(diags)).toEqual([]);
     const cars = fileNamed(files, "Repositories/CarRepository.cs");
     expect(cars).toContain(
-      "_db.Vehicles.OfType<Car>().Where(new EveryCarCriterion().ToExpression()).FirstOrDefaultAsync",
+      "_db.Vehicles.OfType<Car>().Where(new EveryCarCriterion().ToExpression()).OrderBy(x => x.Id).FirstOrDefaultAsync",
     );
     expect(cars).toContain("var __q = _db.Vehicles.OfType<Car>().AsQueryable();");
     expect(cars).not.toContain(".IgnoreQueryFilters()");

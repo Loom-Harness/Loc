@@ -1,4 +1,5 @@
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
+import { domainFindShape } from "../../../ir/plan/index.js";
 import type { EnrichedAggregateIR, ExprIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import {
   aggregateUsesPrincipalContextFilter,
@@ -22,7 +23,6 @@ import {
   inMemoryParamExpr,
   inMemoryRetrievalLines,
   isPagedFind,
-  unionFindAsOptionalTwin,
 } from "./repository.js";
 import { javaBlobWriteGuardLines, writeScopeUsesPrincipal } from "./write-scope.js";
 // ---------------------------------------------------------------------------
@@ -51,7 +51,7 @@ export function renderJavaDocumentRepositoryImpl(
   schema: string | undefined,
 ): string {
   const table = schema ? `${schema}.${bare}` : bare;
-  const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
+  const finds = declaredFinds(repo).map((f) => domainFindShape(f, agg.name));
 
   // A document aggregate's every field lives in the `data` jsonb column, so a
   // capability `filter` is applied in-app over the rehydrated aggregate (the
