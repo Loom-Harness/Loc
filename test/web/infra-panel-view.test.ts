@@ -8,14 +8,14 @@ import {
 } from "../../web/src/infra-panel/broker-view.js";
 import { formatRemaining } from "../../web/src/infra-panel/format.js";
 import { decodeJwt } from "../../web/src/infra-panel/jwt.js";
-import { BrokerModel } from "../../web/src/runtime/infra/broker-model.js";
+import { createBroker } from "../../src/emulation/broker-model.js";
 
 // The pure shaping behind the infra panel's Broker and OIDC tabs.  The tabs
 // themselves are proven in the browser (web/e2e/infra-panel-*.spec.ts).
 
 describe("broker view", () => {
   it("lists the application addresses, leaving the dead-letter plumbing out", () => {
-    const model = new BrokerModel({ send: () => {}, schedule: (fn) => fn() });
+    const model = createBroker({ send: () => {}, schedule: (fn) => fn() });
     model.subscribe("a", {
       transport: "rabbitmq",
       address: "loom.Q",

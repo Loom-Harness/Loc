@@ -1,17 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { RESOURCE_FACADE_PACKAGES } from "../../web/src/engine/npm/resource-facades.js";
-import {
-  CacheModel,
-  type CacheServerInfo,
-  createCacheService,
-  runCommand,
-} from "../../web/src/runtime/infra/cache.js";
+import { CacheModel, type CacheServerInfo, runCommand } from "../../src/emulation/cache.js";
+import { createCacheService } from "../../web/src/runtime/infra/cache.js";
 
-// The playground's cache (web/src/runtime/infra/cache.ts): the redis a
-// `kind: cache` resource dials, behind the `ioredis` facade.  These pin the
-// commands the generated cache module sends (GET, SET PX, DEL, INCR of the
-// scope-version key) and what the infra panel's Cache tab reads (keys with
-// their TTL, evict, flush).  The browser-level proof is
+// The playground's cache (web/src/runtime/infra/cache.ts over the core's
+// src/emulation/cache.ts): the redis a `kind: cache` resource dials, behind the
+// `ioredis` facade.  These pin how the redis commands the generated cache
+// module sends are parsed (`runCommand`), what the infra panel's Cache tab
+// reads (keys per server with their TTL, evict, flush), and the facade; the
+// model's own semantics are in the emulation contract (test/emulation).  The browser-level proof is
 // web/e2e/infra-panel-cache.spec.ts.
 
 function clock() {

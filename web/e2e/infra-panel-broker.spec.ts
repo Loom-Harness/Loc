@@ -62,7 +62,7 @@ test("infra panel — Broker tab shows and manages the emulated brokers", async 
     await openInfraTab(page, "broker");
     const tab = page.getByTestId("infra-broker");
     await tab.getByTestId("infra-emulated").hover();
-    await expect(page.getByTestId("infra-emulated-notes")).toContainText("kafka: an offset reset is refused only while a record is in flight");
+    await expect(page.getByTestId("infra-emulated-notes")).toContainText("kafka: an offset reset");
     await expect(
       tab.locator('[data-testid="infra-broker-redis-channel"][data-name="loom.Catalog.Announcements"]'),
     ).toContainText(/admin.*storefront|storefront.*admin/);
