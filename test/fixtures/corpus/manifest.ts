@@ -1063,6 +1063,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "python serialized the whole part collection (each part's private fields, every other row's data) into the 422 body's `params`.  The rule's placeholder candidates (`ruleParamRefs`) are now the echoable reads only — a scalar, id, enum or value object — on every backend.",
   },
   {
+    id: "vo-date-invariant",
+    title:
+      "a value-object invariant ORDERING two `date` fields (`checkOut > checkIn`) — compiled and judged at the wire boundary in calendar order",
+    doc: "language",
+    backends: ALL,
+    note: ".NET judged it on the `<VO>Request` record, whose `date` members are the wire string, as `x.CheckOut > x.CheckIn` (CS0019 — the project did not build).  It now compares the exact `yyyy-MM-dd` strings ordinally, which is calendar order.",
+  },
+  {
     id: "domain-floor-messages",
     title:
       "M-T1.11 (c) — a named invariant / precondition tripped at the DOMAIN FLOOR answers 422 with an `errors[]` entry carrying the rule's `<Ctx>.<Owner>.rule.<name>` code",
