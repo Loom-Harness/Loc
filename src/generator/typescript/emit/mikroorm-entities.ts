@@ -385,6 +385,11 @@ function mikroPropertyLine(c: MikroColumn): string {
     parts.push(`customType: new ArrayType(${mikroArrayToJs(c.mikroType)})`);
   } else if (c.columnType) parts.push(`columnType: "${c.columnType}"`);
   if (c.nullable) parts.push("nullable: true");
+  // The concurrency counter starts at 1 in the database too, as the migration
+  // chain's `DEFAULT 1` does on every other adapter: `schema.update()` derives
+  // the column from this descriptor, and an INSERT that omits the counter (a
+  // raw seed row) otherwise violates NOT NULL.
+  if (c.prop === ROW_VERSION_FIELD && !c.nullable) parts.push("default: 1");
   return `    ${c.prop}: { ${parts.join(", ")} },`;
 }
 
