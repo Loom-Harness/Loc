@@ -6,6 +6,7 @@ import {
   type PgConn,
   runCrossContextMoveGate,
   runFieldDefaultEvolutionGate,
+  runGuidBackfillEvolutionGate,
   runJournalOrderingGate,
   runMigrationEvolutionGate,
   runMoneyBoundsCatchUpGate,
@@ -94,6 +95,15 @@ describe.skipIf(!ENABLED)(
   () => {
     it("applies to a populated db with no flag, backfills it, and leaves NO column default", async () => {
       await runFieldDefaultEvolutionGate();
+    }, 240_000);
+  },
+);
+
+describe.skipIf(!ENABLED)(
+  "guid backfill evolution gate — a required `guid` added to a populated table, filled by a UUID literal",
+  () => {
+    it("applies to a populated db with no flag and fills the existing row with the UUID", async () => {
+      await runGuidBackfillEvolutionGate();
     }, 240_000);
   },
 );
