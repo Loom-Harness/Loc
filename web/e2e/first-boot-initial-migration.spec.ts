@@ -22,11 +22,12 @@ test("first Boot of an example records its initial migration and boots", async (
   await waitForBundle(page);
   await expect(page.getByTestId("btn-boot")).toBeEnabled();
   await page.getByTestId("btn-boot").click();
+  await page.getByTestId("devtools-tab-backend").click();
   await expect(page.getByTestId("backend-status")).toHaveText("booted", { timeout: 600_000 });
 
   // The chain now records the whole model, under the name Boot gave it.
   await expect(page.getByTestId("migration-pending")).toHaveCount(0, { timeout: 30_000 });
   await page.getByTestId("devtools-tab-migrations").click();
   await expect(page.getByTestId("migration-chain-status")).toContainText("nothing unrecorded", { timeout: 30_000 });
-  await expect(page.getByTestId("migration-chain-status")).toContainText(/\d+ recorded · head \S+ initial/);
+  await expect(page.getByTestId("migration-chain-status")).toContainText(/^1 recorded · head Sales Initial /);
 });
