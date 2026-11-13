@@ -16,7 +16,7 @@
 // only resolves *which* fields each variant contributes.
 
 import { scalarCodecOf } from "../../ir/enrich/codec.js";
-import { forApiRead, wireFieldsForValueObject } from "../../ir/enrich/wire-projection.js";
+import { forApiRead } from "../../ir/enrich/wire-projection.js";
 import { unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import {
   type BoundedContextIR,
@@ -26,7 +26,7 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { peelCollection, peelNullable, wireTypeInfo } from "../../ir/types/wire-types.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
-import { responseWireFor } from "../../ir/util/response-wire.js";
+import { responseWireFor, valueObjectWire } from "../../ir/util/response-wire.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 
 /** A normalized field contributed by a record-shaped union variant. */
@@ -108,7 +108,7 @@ function recordFields(v: TypeIR, ctx: BoundedContextIR): UnionMemberField[] | nu
   }
   if (v.kind === "valueobject") {
     const vo = ctx.valueObjects.find((o) => o.name === v.name);
-    return vo ? wireToMembers(wireFieldsForValueObject(vo)) : null;
+    return vo ? wireToMembers(valueObjectWire(vo)) : null;
   }
   return null;
 }

@@ -20,7 +20,6 @@
 // shared `unionMembers` resolver, so the wire is byte-identical to every other
 // backend's tagged union.
 
-import { wireFieldsForValueObject } from "../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -40,7 +39,7 @@ import {
   auditFieldChangeWireShape,
 } from "../../ir/util/audit-history.js";
 import { isFrontendReadableProjection } from "../../ir/util/projection-read.js";
-import { responseWireFor } from "../../ir/util/response-wire.js";
+import { responseWireFor, valueObjectWire } from "../../ir/util/response-wire.js";
 import { lines } from "../../util/code-builder.js";
 import { upperFirst } from "../../util/naming.js";
 import { type UnionMember, unionMembers } from "../_payload/union-wire.js";
@@ -237,7 +236,7 @@ export function dartRecordForPart(part: EntityPartIR, payloads: readonly Payload
 export function dartRecordForValueObject(vo: ValueObjectIR): DartRecord {
   return {
     className: upperFirst(vo.name),
-    fields: wireFieldsForValueObject(vo).map(toDartField),
+    fields: valueObjectWire(vo).map(toDartField),
   };
 }
 
