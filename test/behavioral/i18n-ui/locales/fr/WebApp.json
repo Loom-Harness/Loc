@@ -1,5 +1,6 @@
 {
   "menu.section.mlh3jc": "Principal",
   "page.Invoice.text.d8ks9c": "Montant total : {amount, number, ::currency/EUR}",
+  "page.Plain.name.9zciyv": "Simple",
   "page.Price.title.e656gd": "Tarifs"
 }

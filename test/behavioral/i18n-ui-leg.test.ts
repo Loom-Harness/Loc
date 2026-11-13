@@ -59,6 +59,7 @@ describe("i18n-ui leg — the fixture it drives", () => {
       "Règle",
       "Valeur",
       "Tarifs",
+      "Simple",
       "Principal",
       "Recalculer",
     ]) {

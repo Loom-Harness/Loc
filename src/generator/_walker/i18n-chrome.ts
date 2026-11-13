@@ -379,6 +379,10 @@ export interface FormSentenceScope {
    *  i.e. the top-level pages of a UI with no explicit `menu` and two or more
    *  of them (Feliz). */
   readonly pageNames?: "all" | "navbar";
+  /** The pages whose NAME a nav link renders (the pack-rendered SPA frontends,
+   *  `navPageNameFallbacks`): those pages' `name` entries belong in the
+   *  catalog.  Exactly the pages the emitted sidebar reads a name key for. */
+  readonly menuPageNames?: readonly PageIR[];
 }
 
 /** What a hand-built form over some inputs renders sentences for: the value
@@ -777,6 +781,10 @@ export function chromeMergedWhenEnabled(
         const entry = pageNameEntry(ui, page);
         if (entry) out[entry.key] = entry.message;
       }
+    }
+    for (const page of scope?.menuPageNames ?? []) {
+      const entry = pageNameEntry(ui, page);
+      if (entry) out[entry.key] = entry.message;
     }
     if (scope?.fallbackLabels) {
       for (const name of fallbackLabelNamesForUi(ui, scope.contexts)) {

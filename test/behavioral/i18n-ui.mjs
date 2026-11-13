@@ -134,17 +134,20 @@ function probes(invoiceId) {
       ],
     },
     {
-      name: "(c) nav: the titled page's link and the menu section read the fr catalog",
+      name: "(c) nav: the titled page's link, the untitled page's name and the menu section read the fr catalog",
       principal: PRINCIPAL.admin,
       path: "/price",
-      until: (t) => /Tarifs/.test(t),
+      until: (t) => /Tarifs/.test(t) && /Simple/.test(t),
       links: true,
       check: (v) => [
         ...sawSession(v),
         ...(v.links.includes("Tarifs") ? [] : [`no 'Tarifs' nav link (saw ${JSON.stringify(v.links)})`]),
         ...(v.links.includes("Pricing") ? ["the English title 'Pricing' still linked"] : []),
         ...(/principal/i.test(v.text) ? [] : ["menu section 'Principal' not rendered"]),
-        ...(/Plain/.test(v.text) ? [] : ["the untitled page's link is missing"]),
+        ...(v.links.includes("Simple")
+          ? []
+          : [`the untitled page's link is not its translated name 'Simple' (saw ${JSON.stringify(v.links)})`]),
+        ...(v.links.includes("Plain") ? ["the English page name 'Plain' still linked"] : []),
       ],
     },
     {

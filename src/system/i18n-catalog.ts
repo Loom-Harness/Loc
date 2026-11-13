@@ -1,3 +1,4 @@
+import { navPageNameFallbacksFor } from "../generator/_frontend/menu-emitter.js";
 import { sourceText } from "../generator/_i18n/source-text.js";
 import { collectWireValidationMessages } from "../generator/_i18n/validation-catalog.js";
 import { loadPack, resolvePackDir } from "../generator/_packs/loader-fs.js";
@@ -107,6 +108,9 @@ export const IMPLICIT_MODEL_TEXT_FORMATS: ReadonlySet<string> = new Set([
   "heex",
 ]);
 
+/** The pack-rendered SPA formats whose nav links read a page's `name` key. */
+const SPA_NAV_FORMATS = ["tsx", "vue", "svelte", "angular"] as const;
+
 /** The frontend format a deployable renders its UI in: its platform's
  *  `selfRenderedUiFormat` for a pack-less frontend, else its design pack's format (a
  *  pack that names none is React), else none. */
@@ -197,6 +201,11 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
           : formats.has("feliz")
             ? ("navbar" as const)
             : undefined,
+        // The pack-rendered SPA frontends label a menu link to an untitled page
+        // by its name.
+        menuPageNames: SPA_NAV_FORMATS.some((f) => formats.has(f))
+          ? navPageNameFallbacksFor(ui, contexts)
+          : undefined,
       };
       for (const [key, message] of Object.entries(chromeMergedWhenEnabled(ui, scope)))
         byKey.set(key, message);

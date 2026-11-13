@@ -1122,7 +1122,7 @@ describe("i18n round trip — ProvenanceInfo chrome", () => {
 describe("i18n round trip — untitled page names", () => {
   const NOTES = /^Web\.page\.Notes\.name\.\w+$/;
 
-  for (const platform of ["feliz", "flutter"] as const) {
+  for (const platform of ["feliz", "flutter", "react", "vue", "svelte", "angular"] as const) {
     it(`${platform}: the name is catalogued, bound through its key, and translatable`, async () => {
       const probe = await generateSystemFiles(provSystem(platform));
       const system = json(probe, ".loom/messages.en.json");
@@ -1133,11 +1133,21 @@ describe("i18n round trip — untitled page names", () => {
         translations: new Map([["de", { [key!]: "Notizen" }]]),
       });
       expect(appSource(files)).toMatch(quoted(key!));
-      // Flutter's catalog lives in `lib/i18n.dart` (not a consumer); Feliz's in `App.fs`.
-      const catalogPath = platform === "feliz" ? /App\.fs$/ : /lib\/i18n\.dart$/;
+      // Flutter's catalog lives in `lib/i18n.dart` (not a consumer); Feliz's in
+      // `App.fs`; the SPA frontends' in `locales/de.json`.
+      const catalogPath =
+        platform === "feliz"
+          ? /App\.fs$/
+          : platform === "flutter"
+            ? /lib\/i18n\.dart$/
+            : /locales\/de\.json$/;
       const catalogFile = [...files].find(([p]) => p.startsWith("web/") && catalogPath.test(p))![1];
       expect(catalogFile).toContain(
-        platform === "feliz" ? `"${key}", "Notizen"` : `'${key}': 'Notizen'`,
+        platform === "feliz"
+          ? `"${key}", "Notizen"`
+          : platform === "flutter"
+            ? `'${key}': 'Notizen'`
+            : `"${key}": "Notizen"`,
       );
     });
   }
@@ -1153,9 +1163,19 @@ describe("i18n round trip — untitled page names", () => {
     expect(Object.keys(system).filter((k) => NOTES.test(k))).toEqual([]);
   });
 
-  it("the pack-rendered frontends catalog no page names", async () => {
-    const files = await generateSystemFiles(provSystem("react"));
-    const system = json(files, ".loom/messages.en.json");
-    expect(Object.keys(system).filter((k) => /\.page\.\w+\.name\./.test(k))).toEqual([]);
+  it("a page the nav never links carries no name entry (catalogued only when emitted)", async () => {
+    for (const platform of ["react", "vue", "svelte", "angular"] as const) {
+      const files = await generateSystemFiles(
+        provSystem(platform).replace(
+          'route: "/notes" body',
+          'route: "/notes" menu { hidden: true } body',
+        ),
+      );
+      const system = json(files, ".loom/messages.en.json");
+      expect(
+        Object.keys(system).filter((k) => NOTES.test(k)),
+        platform,
+      ).toEqual([]);
+    }
   });
 });
