@@ -290,8 +290,21 @@ async function main() {
     // ONE shell chain either way: deps → schema → serve.  `phx.server` is last
     // and blocks, so the process staying alive IS the "migrations applied"
     // signal, exactly as run-elixir.mjs relies on.
+    // Behind an egress proxy that re-terminates TLS, the container must trust the
+    // proxy CA and route through the proxy for hosts the app downloads at compile
+    // time (ex_cldr fetches each locale's data from raw.githubusercontent.com).
+    const proxyCa = process.env.SSL_CERT_FILE;
+    const proxyDocker =
+      process.env.HTTPS_PROXY && proxyCa && existsSync(proxyCa)
+        ? [
+            "-e", `HTTPS_PROXY=${process.env.HTTPS_PROXY}`,
+            "-e", `NO_PROXY=${process.env.NO_PROXY ?? "localhost,127.0.0.1"}`,
+            "-v", `${proxyCa}:/usr/local/share/ca-certificates/loom-egress-proxy.crt:ro`,
+          ]
+        : [];
+    const proxyShell = proxyDocker.length ? "update-ca-certificates >/dev/null 2>&1; " : "";
     const bootScript =
-      `${mirror?.shellPrefix ?? ""}${mixLocalInstallShell()} && ` +
+      `${proxyShell}${mirror?.shellPrefix ?? ""}${mixLocalInstallShell()} && ` +
       `${mixDepsGetShell()} && mix ecto.create && mix ecto.migrate && mix phx.server`;
     server = useMix
       ? spawn("bash", ["-c", bootScript], { cwd: projDir, env, stdio: "pipe", detached: true })
@@ -306,6 +319,7 @@ async function main() {
             "-e", `DATABASE_URL=${pg.url}`, "-e", "MIX_ENV=dev",
             "-e", "PHX_SERVER=true", "-e", `PORT=${PORT}`,
             "-e", "LOOM_DEV_AUTH=1",
+            ...proxyDocker,
             IMAGE, "bash", "-c", bootScript,
           ],
           { stdio: "pipe", detached: true },
