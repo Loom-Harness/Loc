@@ -12,6 +12,8 @@ import type {
   BrokerKind,
   BrokerModel,
   BrokerModelOptions,
+  CacheModel,
+  CacheOptions,
   Disk,
   HttpMock,
   HttpRequestData,
@@ -23,6 +25,7 @@ import type {
 } from "../../src/emulation/index.js";
 import {
   BROKER_EMULATION_NOTES,
+  CACHE_EMULATION_NOTES,
   memoryBlobStore,
   RABBIT_MAX_ATTEMPTS,
 } from "../../src/emulation/index.js";
@@ -36,6 +39,7 @@ export interface EmulationHost {
   httpMock(opts?: { sample?: () => Promise<SchemaSampler>; now?: () => Date }): HttpMock;
   oidc(): OidcProvider;
   broker(opts: BrokerModelOptions): BrokerModel;
+  cache(opts?: CacheOptions): CacheModel;
 }
 
 const enc = new TextEncoder();
@@ -715,6 +719,80 @@ export function emulationContract(hostName: string, host: EmulationHost): void {
             expect(BROKER_EMULATION_NOTES[0]?.note).toMatch(/last 10000 records/);
           });
         });
+      });
+    });
+
+    describe("cache", () => {
+      const clock = () => {
+        let t = 1_000_000;
+        return {
+          now: () => t,
+          advance: (ms: number): void => {
+            t += ms;
+          },
+        };
+      };
+
+      it("expires a SET PX key at its deadline, not before", () => {
+        const c = clock();
+        const m = host.cache({ now: c.now });
+        expect(m.set("loom:p:v1:x", "42", { px: 1000 })).toBe("OK");
+        c.advance(999);
+        expect(m.get("loom:p:v1:x")).toBe("42");
+        expect(m.pttl("loom:p:v1:x")).toBe(1);
+        c.advance(1);
+        expect(m.get("loom:p:v1:x")).toBeNull();
+        expect(m.pttl("loom:p:v1:x")).toBe(-2);
+        expect([m.hits, m.misses]).toEqual([1, 1]);
+      });
+
+      it("INCRs a missing key from 0, keeps its TTL, and refuses a non-integer", () => {
+        const c = clock();
+        const m = host.cache({ now: c.now });
+        expect(m.incr("ver")).toBe(1);
+        m.set("n", "5", { px: 500 });
+        expect(m.incr("n")).toBe(6);
+        expect(m.pttl("n")).toBe(500);
+        m.set("k", "abc");
+        expect(() => m.incr("k")).toThrow(/not an integer/);
+      });
+
+      it("honours NX / XX, deletes, counts EXISTS, flushes", () => {
+        const m = host.cache();
+        expect(m.set("a", "1", { xx: true })).toBeNull();
+        expect(m.set("a", "1", { nx: true })).toBe("OK");
+        expect(m.set("a", "2", { nx: true })).toBeNull();
+        m.set("b", "x");
+        expect(m.exists(["a", "b", "c"])).toBe(2);
+        expect(m.pttl("b")).toBe(-1);
+        expect(m.del(["a", "missing"])).toBe(1);
+        m.flush();
+        expect(m.keys()).toEqual([]);
+      });
+
+      it("evicts the least recently used key past its capacity", () => {
+        const m = host.cache({ maxKeys: 2 });
+        m.set("a", "1");
+        m.set("b", "2");
+        m.get("a");
+        m.set("c", "3");
+        expect(m.keys().map((k) => k.key)).toEqual(["a", "c"]);
+        expect(m.evictions).toBe(1);
+      });
+
+      it("inspects live keys with their remaining TTL and a value preview", () => {
+        const c = clock();
+        const m = host.cache({ now: c.now });
+        m.set("long", "y".repeat(500), { px: 60_000 });
+        m.set("gone", "1", { px: 10 });
+        m.set("forever", "v");
+        c.advance(1000);
+        expect(m.keys().map((k) => [k.key, k.ttlMs, k.size])).toEqual([
+          ["long", 59_000, 500],
+          ["forever", null, 1],
+        ]);
+        expect(m.keys()[0]?.preview).toHaveLength(201);
+        expect(CACHE_EMULATION_NOTES.length).toBeGreaterThan(0);
       });
     });
   });

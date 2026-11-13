@@ -291,6 +291,7 @@ describe("registry", () => {
     await expect(callService("nope", "x", {})).rejects.toThrow(/Unknown infra service/);
     expect([...services.keys()].sort()).toEqual([
       "broker",
+      "cache",
       "disk",
       "httpMock",
       "mailbox",
