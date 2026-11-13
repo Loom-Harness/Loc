@@ -34,6 +34,7 @@ import {
 } from "../../../util/target-capabilities.js";
 import { maskLaunderingEvents } from "../../enrich/mask-taint.js";
 import { isTenantScopedStream } from "../../enrich/stream-tenancy.js";
+import { admittedReferences } from "../../plan/ref-scope.js";
 import {
   type BoundedContextIR,
   type DeployableIR,
@@ -216,6 +217,29 @@ const storageTypeUses =
         : undefined,
     );
 
+/** The aggregates of `ctx` that persist an `X id` to a `tenantOwned` target —
+ *  on a relational save (`nonRelational` false) or an event-sourced / document
+ *  / embedded one (true). */
+function tenantOwnedReferenceUses(ctx: BoundedContextIR, nonRelational: boolean): ConstructUse[] {
+  return ctx.aggregates
+    .filter((agg) => !agg.isAbstract && admittedReferences(agg, ctx.aggregates).length > 0)
+    .filter(
+      (agg) =>
+        (aggregateIsEventSourced(agg) || (agg.savingShape ?? "relational") !== "relational") ===
+        nonRelational,
+    )
+    .map((agg) => ({
+      what: `aggregate '${agg.name}' references the tenantOwned ${admittedReferences(
+        agg,
+        ctx.aggregates,
+      )
+        .map((r) => `'${r.target}' ('${r.field}')`)
+        .join(", ")}`,
+      source: `${ctx.name}/aggregate ${agg.name}`,
+      origin: agg.origin,
+    }));
+}
+
 /** Where each backend construct is used, per hosted context. */
 export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetector>> = {
   "stmt:requires@event-sourced-create": (ctx) => {
@@ -346,6 +370,8 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
         ? `kind: api, calls '${ds.apiName}' on auth-required deployable '${callee.name}'`
         : undefined;
     }),
+  "reference:tenant-owned@state": (ctx) => tenantOwnedReferenceUses(ctx, false),
+  "reference:tenant-owned@non-relational": (ctx) => tenantOwnedReferenceUses(ctx, true),
   "timer:broker-channel@deployable": (ctx, sys) => {
     const carried = brokerCarriedEvents(sys);
     return sys.timerSources
@@ -724,6 +750,17 @@ function refuse(
       refused(
         diags,
         diagMessage("loom.target-unsupported#feature-composition-unwitnessed", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
+        use,
+      );
+      return;
+    case "reference-admission-unrealized":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#reference-admission-unrealized", {
           what: use.what,
           dName,
           target: t,

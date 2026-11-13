@@ -13,6 +13,20 @@ export const segments = ["tenancy", "tenant", "org", "cross", "shareable", "shar
 
 export const messages = {
   // ----------------------------------------------------------------------
+  // Reference admission — src/ir/validate/checks/ref-scope-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.tenancy-ref-unresolvable": (p: {
+    owner: unknown;
+    field: unknown;
+    target: unknown;
+    context: unknown;
+    targetContext: unknown;
+  }) =>
+    `'${p.owner}.${p.field}' references the tenant-scoped aggregate '${p.target}' of context ` +
+    `'${p.targetContext}', which has no table beside '${p.context}': the write cannot check that the ` +
+    `referenced row belongs to the caller's tenant, so any id is stored as given.  Keep the ` +
+    `reference inside one context, or reference data that is \`crossTenant\`.`,
+  // ----------------------------------------------------------------------
   // `shareable` (D-SHARING) — src/macros/expander.ts and
   // src/ir/validate/checks/policy-scope-checks.ts
   // ----------------------------------------------------------------------

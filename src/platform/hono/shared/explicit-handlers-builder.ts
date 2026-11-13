@@ -68,6 +68,7 @@ import {
   type UnionMemberField,
   unionMemberObjects,
 } from "../../../generator/_payload/union-wire.js";
+import { PG_FOREIGN_KEY_VIOLATION } from "../../../generator/_persistence/pg-sqlstate.js";
 import { renderWorkflowStmtChunks } from "../../../generator/_workflow/stmt-target.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
 import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
@@ -90,6 +91,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import {
+  aggregatesCanTripDanglingReference,
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
@@ -1003,6 +1005,14 @@ export function buildExplicitRoutesFile(
   body.push(
     `    if (err instanceof AggregateNotFoundError) return problem(${exNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", structuralMap))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
   );
+  // PG foreign_key_violation — a write named a reference that does not resolve
+  // (a missing row, or one outside the row's tenant: ref-admission).  Answered
+  // as the aggregate router answers it: the domain floor, dangling-reference.
+  if (aggregatesCanTripDanglingReference(exAggregates)) {
+    body.push(
+      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === ${JSON.stringify(PG_FOREIGN_KEY_VIOLATION)})) return problem(${exDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", structuralMap))}, ${JSON.stringify(wireFixedDetail("dangling-reference"))}, ${JSON.stringify(wireCode("dangling-reference"))});`,
+    );
+  }
   if (exHasUniqueKeys) {
     body.push(
       // PG unique_violation — drizzle wraps the driver error, so the SQLSTATE
