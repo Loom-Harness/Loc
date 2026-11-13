@@ -235,7 +235,18 @@ function prebuildBehindProxy(out: string, project: string): string {
   if (proxy) {
     args.push(`--build-arg HTTPS_PROXY=${JSON.stringify(proxy)}`);
     const dockerfile = path.join(out, "d", "Dockerfile");
-    const text = fs.readFileSync(dockerfile, "utf8");
+    let text = fs.readFileSync(dockerfile, "utf8");
+    // LOOM_E2E_GRADLE_INIT=<init script>: resolve Maven Central through a
+    // mirror (a proxy that rate-limits repo.maven.apache.org answers 429).
+    const gradleInit = process.env.LOOM_E2E_GRADLE_INIT;
+    if (gradleInit && text.includes("gradle --no-daemon")) {
+      fs.copyFileSync(gradleInit, path.join(out, "d", "certs", "mirror.init.gradle.kts"));
+      text = text.replaceAll(
+        "gradle --no-daemon",
+        "gradle --no-daemon -I /tmp/loom-certs/mirror.init.gradle.kts",
+      );
+      fs.writeFileSync(dockerfile, text);
+    }
     if (text.includes("gradle") && !text.includes("ARG JAVA_TOOL_OPTIONS")) {
       const url = new URL(proxy);
       fs.writeFileSync(

@@ -25,6 +25,7 @@
 import type { EventIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { type BrokerBinding, kafkaStartsAtEarliest } from "../../_channels/bindings.js";
+import { CHANNEL_RECONNECT } from "../../_channels/delivery-policy.js";
 import { decodeField, type WireValueObjectFields } from "../../_channels/wire-codec.js";
 import { tsImportSlot } from "../../_imports/ts.js";
 import { tsEnvelopeInstant } from "../codec-spelling.js";
@@ -469,7 +470,7 @@ export function renderChannelsModule(
             "  const reconnect = async (): Promise<void> => {",
             "    if (reconnecting) return;",
             "    reconnecting = true;",
-            "    let delay = 500;",
+            `    let delay = ${CHANNEL_RECONNECT.baseDelayMs};`,
             "    for (let attempt = 1; !closing; attempt++) {",
             "      try {",
             "        const ch = await channel();",
@@ -479,7 +480,7 @@ export function renderChannelsModule(
             "      } catch {",
             "        forget();",
             "        await new Promise((r) => setTimeout(r, delay));",
-            "        delay = Math.min(delay * 2, 15_000);",
+            `        delay = Math.min(delay * 2, ${CHANNEL_RECONNECT.maxDelayMs});`,
             "      }",
             "    }",
             "    reconnecting = false;",
