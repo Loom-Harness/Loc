@@ -7,6 +7,10 @@
 //   • `sku: string` added NOT NULL    — covered by the `Product.sku = "SEED"`
 //     backfill, a constant, so the column is added `DEFAULT 'SEED'` and the
 //     default dropped again (catalog-only on PG11+), no flag needed.
+//   • `label: string` added NOT NULL  — covered by the `Product.label = name`
+//     backfill, an expression, so the column is added nullable in the DDL
+//     transaction and filled + proved NOT NULL in the generation's
+//     non-transactional unit (no ACCESS EXCLUSIVE lock held over the UPDATE).
 //   • `description: string?` added     — a plain nullable column.
 //   • `status: string` narrowed to `status: Status` — same TEXT column, new
 //     value set.  Non-destructive: the constraint is added `NOT VALID`, so the
@@ -26,6 +30,7 @@ system ShopEvo {
         name: string
         unitPrice: money
         sku: string
+        label: string
         description: string?
         status: Status
         stage: Stage
@@ -48,5 +53,6 @@ system ShopEvo {
 migration "evolve-catalog" {
   Product.price -> unitPrice
   Product.sku = "SEED"
+  Product.label = name
   Stage.draft -> drafted
 }
