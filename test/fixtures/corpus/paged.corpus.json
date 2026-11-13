@@ -1,0 +1,5 @@
+{
+  "title": "pagination — the implicit `all` returns the Paged<T> envelope",
+  "doc": "payloads",
+  "backends": "ALL"
+}

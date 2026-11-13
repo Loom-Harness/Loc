@@ -1,0 +1,6 @@
+{
+  "title": "VALUE-OBJECT-typed field default — the wire boundary renders a non-scalar default differently from a scalar one",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "compile-tier by necessity: hono COMPILES the defect by structural typing, so only the strict backends (python mypy --strict, .NET) can see it"
+}

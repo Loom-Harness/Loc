@@ -317,7 +317,7 @@ export function persistPutBodies(
       // force_change/3 is not supported" — a 500 on every such op).  Rebuild its
       // rows and `put_assoc` them over the loaded struct (M-T6.94).
       if (valueRowFields.has(f)) {
-        return `Ecto.Changeset.put_assoc(:${f}, __put_value_rows(record.${f}))`;
+        return `Ecto.Changeset.put_assoc(:${f}, __put_value_rows(record.${f}, record.__struct__, :${f}))`;
       }
       const refValue = refCollPutAssocValue(appModule, ctxModule, agg, f, pool);
       if (refValue) {

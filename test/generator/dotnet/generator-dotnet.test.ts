@@ -1130,35 +1130,6 @@ describe(".NET generator", () => {
     expect(plain).not.toMatch(/IsolationLevel/);
   });
 
-  it("emits a ListResponseWrapperFilter mapping <Agg>Response → <Agg>ListResponse (#705)", async () => {
-    const files = await salesFiles();
-    const filter = files.get("Api/ListResponseWrapperFilter.cs")!;
-    expect(filter).toMatch(/class ListResponseWrapperFilter : IDocumentFilter/);
-    // Every aggregate gets an element→wrapper pair so the inline list
-    // response is promoted to the named component the other backends emit.
-    expect(filter).toMatch(/\("OrderResponse", "OrderListResponse"\)/);
-    // Registered as a Swashbuckle document filter.
-    const program = files.get("Program.cs")!;
-    expect(program).toMatch(/c\.DocumentFilter<ListResponseWrapperFilter>\(\)/);
-  });
-
-  it("emits a RequiredFromCtorParamFilter that marks request-DTO ctor [Required] params required (#779)", async () => {
-    const files = await salesFiles();
-    // Request DTOs carry parameter-targeted [Required], which Swashbuckle's
-    // DataAnnotations reader ignores; this schema filter restores
-    // request-body required-ness from the ctor params (cross-backend parity).
-    const filter = files.get("Api/RequiredFromCtorParamFilter.cs")!;
-    expect(filter).toMatch(/class RequiredFromCtorParamFilter : ISchemaFilter/);
-    // Reflects the primary ctor's [Required] params and adds the camelCase
-    // property name to schema.Required.
-    expect(filter).toMatch(/GetCustomAttribute<RequiredAttribute>\(\)/);
-    expect(filter).toMatch(/s\.Required\.Add\(key\)/);
-    expect(filter).toMatch(/JsonNamingPolicy\.CamelCase\.ConvertName/);
-    // Registered as a Swashbuckle schema filter, after the NRT support call.
-    const program = files.get("Program.cs")!;
-    expect(program).toMatch(/c\.SchemaFilter<RequiredFromCtorParamFilter>\(\)/);
-  });
-
   it("DomainExceptionFilter answers a NotFoundException with its message as the 404 detail", async () => {
     // The sanitized 500, the 422 domain-floor detail and the 7807 envelope are
     // asserted by value on the booted .NET leg (`corpus/extern-handlers`,
@@ -1384,14 +1355,18 @@ describe(".NET generator", () => {
       const ctrl = files.get("Api/OrdersController.cs")!;
       // The guarded `cancel` action carries 403; the unguarded `touch` does not.
       const cancelBlock = ctrl.slice(ctrl.indexOf('[HttpPost("{id}/cancel")]'));
-      expect(cancelBlock).toMatch(/\[ProducesResponseType\(typeof\(ProblemDetails\), 403\)\]/);
+      expect(cancelBlock).toMatch(
+        /\[ProducesResponseType\(typeof\(ProblemResponse\), 403, "application\/problem\+json"\)\]/,
+      );
       const touchBlock = ctrl
         .slice(ctrl.indexOf('[HttpPost("{id}/touch")]'))
         .slice(0, ctrl.slice(ctrl.indexOf('[HttpPost("{id}/touch")]')).indexOf("public async"));
       expect(touchBlock).not.toMatch(/403/);
       // The guarded workflow controller also declares 403.
       const wfCtrl = files.get("Api/OrdersWorkflowsController.cs")!;
-      expect(wfCtrl).toMatch(/\[ProducesResponseType\(typeof\(ProblemDetails\), 403\)\]/);
+      expect(wfCtrl).toMatch(
+        /\[ProducesResponseType\(typeof\(ProblemResponse\), 403, "application\/problem\+json"\)\]/,
+      );
     });
 
     it("does NOT emit Auth/* files when the deployable has no `auth: required`", async () => {

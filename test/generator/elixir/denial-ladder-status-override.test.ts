@@ -18,6 +18,7 @@
 // is exactly the runtime/spec drift the mechanism exists to prevent.
 
 import { describe, expect, it } from "vitest";
+import { elixirOperationsText } from "../../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 /** One aggregate carrying every rung: a `requires` (403), a `precondition`
@@ -69,7 +70,7 @@ async function emit(apiBody: string): Promise<{ all: string; spec: string; probl
     files.get([...files.keys()].find((k) => k.endsWith(suffix))!) ?? "";
   return {
     all: [...files.values()].join("\n"),
-    spec: pick("/api/sales_api_spec.ex"),
+    spec: elixirOperationsText(files),
     problem: pick("_web/problem_details.ex"),
   };
 }

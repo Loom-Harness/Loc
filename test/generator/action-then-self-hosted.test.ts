@@ -79,7 +79,7 @@ describe("M-FT.5 — Feliz Action", () => {
       "  | ArchiveNoteThen (id, andThen) -> model, Cmd.OfAsync.perform Api.archiveNoteAction id (fun r -> ArchiveNoteThenDone (r, andThen))",
     );
     expect(app).toContain(
-      "  | ArchiveNoteThenDone (Ok (), andThen) -> model, Cmd.batch [ pageCmd model.CurrentPage; Cmd.ofEffect (fun _ -> andThen ()) ]",
+      "  | ArchiveNoteThenDone (Ok (), andThen) -> model, Cmd.batch [ pageCmd model model.CurrentPage; Cmd.ofEffect (fun _ -> andThen ()) ]",
     );
     expect(app).toContain("  | ArchiveNoteThenDone (Error _, _) -> model, Cmd.none");
     // The toast the closure calls is declared BEFORE the views (F# is ordered).
@@ -102,7 +102,7 @@ describe("M-FT.5 — Flutter Action", () => {
       "lib/pages/note_view_page.dart",
     );
     expect(page).toContain(
-      "context.mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Archived'))); }",
+      "context.mounted) { invalidateReads(context, 'Note'); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Archived'))); }",
     );
     expect(page).not.toContain("Archive done");
   }, 90_000);
@@ -112,7 +112,9 @@ describe("M-FT.5 — Flutter Action", () => {
       model("flutter", "Action { n.archive, then: navigate(NoteView) }"),
       "lib/pages/note_view_page.dart",
     );
-    expect(page).toMatch(/context\.mounted\) \{ Navigator\.pushNamed\(context, /);
+    expect(page).toMatch(
+      /context\.mounted\) \{ invalidateReads\(context, 'Note'\); Navigator\.pushNamed\(context, /,
+    );
     expect(page).not.toContain("Archive done");
   }, 90_000);
 

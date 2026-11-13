@@ -40,6 +40,8 @@ import { plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { requestComponentNamerFor } from "../../_openapi/request-component-names.js";
+import { opUnionResponses } from "../../_payload/union-wire.js";
 import {
   PG_FOREIGN_KEY_VIOLATION,
   PG_RESTRICT_VIOLATION,
@@ -47,6 +49,7 @@ import {
 } from "../../_persistence/pg-sqlstate.js";
 import { jid } from "../java-ident.js";
 import { renderJavaExpr } from "../render-expr.js";
+import { javaRequestComponentOwners } from "../request-component-owners.js";
 import {
   javaErrorVariantExt,
   javaErrorVariantLines,
@@ -57,6 +60,13 @@ import {
 import { javaAuditApiPkg, javaHistoryFind, renderJavaHistoryRoute } from "./audit-history.js";
 import { JAVA_PAGED_QUERY_PARAMS } from "./common.js";
 import { EMPTY_COMMAND_BODY_PARAM } from "./empty-body-filter.js";
+import {
+  type JavaRouteDoc,
+  javaContractPkg,
+  javaRouteDocAnnotations,
+  unionErrorExtensions,
+  unionSuccessClass,
+} from "./openapi-docs.js";
 import { declaredFinds, isPagedAutoAll } from "./repository.js";
 import { returnUnionSpec, unionWireCtorArgs } from "./unions.js";
 import { javaCommandValidatorNames } from "./validator.js";
@@ -98,6 +108,15 @@ export interface ControllerCtx {
   /** Prepended to @RequestMapping (fullstack mode passes "/api" so the
    *  SPA owns the un-prefixed route space).  Empty for standalone. */
   routePrefix?: string;
+  /** Package of the response records (the union schema types live there). */
+  responseDtoPkg?: string;
+  /** Deployable-wide published request-component namer (the empty request a
+   *  param-less operation publishes takes its name from it). */
+  requestComponentName?: (owner: {
+    kind: "operation";
+    aggregate: string;
+    operation: string;
+  }) => string;
 }
 
 /** Names a declared-find ROUTE method spells itself: the injected `service`
@@ -125,8 +144,8 @@ export function renderJavaController(
   const route = routeSegmentFor(agg.name);
   const idClass = ctx.idClass ?? `${agg.name}Id`;
   // THE UNIFICATION SEAM (api-surface.ts): which routes exist and at which
-  // path comes from the shared derivation (the statuses live in the OpenAPI
-  // customizer, which reads the same list).  This file keeps what is
+  // path, and which statuses each route publishes, comes from the shared
+  // derivation (`doc` below annotates each mapping from its entry).  This file keeps what is
   // genuinely java's: DTO/record names, service calls, handler bodies, the
   // union ProblemDetail arms, and the entity-history route (notLifted).
   const derivedOps = ctx.boundedContext
@@ -175,6 +194,27 @@ export function renderJavaController(
   // The id's raw value type — `UUID` as an import marker (M-T9.86), so the
   // path-variable / find-param spellings below derive their own import.
   const idJava = javaIdValueType();
+  // OpenAPI metadata (openapi-docs.ts): each mapping's published statuses come
+  // from the same derived entry the method renders.
+  const doc = (
+    entry: ApiOperationIR,
+    success: JavaRouteDoc["success"],
+    extra: Partial<JavaRouteDoc> = {},
+  ): string[] =>
+    javaRouteDocAnnotations(ctx.basePkg, { success, errors: entry.errorStatuses, ...extra });
+  const reqName =
+    ctx.requestComponentName ??
+    ((o: { aggregate: string; operation: string }) =>
+      requestComponentNamerFor(
+        ctx.boundedContext ? javaRequestComponentOwners([ctx.boundedContext]) : [],
+      )({ kind: "operation", aggregate: o.aggregate, operation: o.operation }));
+  /** The named empty request a param-less operation publishes. */
+  const emptyRequestOf = (op: OperationIR): Partial<JavaRouteDoc> =>
+    op.params.length === 0
+      ? {
+          requestBodyClass: `${javaContractPkg(ctx.basePkg)}.${reqName({ kind: "operation", aggregate: agg.name, operation: op.name })}`,
+        }
+      : {};
 
   // Authorization gates on finds (default-deny) — a `requires <expr>` runs in
   // the controller action before delegating to the service, throwing
@@ -236,6 +276,7 @@ export function renderJavaController(
     if (!probe) return [];
     return [
       `    @GetMapping("${relativeOpPath(probe)}")`,
+      ...doc(probe, { status: 200 }),
       `    public CanResponse can${upperFirst(op.name)}${agg.name}(@PathVariable ${idJava} id) {`,
       // The by-id read's own gate refuses first (403), exactly as `GET /{id}`
       // does; the service then runs the operation's gate ladder (ir/plan/gate-ladder.ts).
@@ -307,8 +348,18 @@ export function renderJavaController(
             `                ResponseEntity.ok((${spec.name}Response) ${ctor});`,
           ];
         });
+        const split = opUnionResponses(
+          (op.returnType as Extract<typeof op.returnType, { kind: "union" }>).variants,
+          ctx.boundedContext!,
+        );
+        const dtoPkg = ctx.responseDtoPkg ?? ctx.applicationPkg;
         return [
           opMapping,
+          ...doc(
+            entry,
+            { status: 200, schemaClass: `${dtoPkg}.${unionSuccessClass(split)}` },
+            { errorExtensions: unionErrorExtensions(split, dtoPkg), ...emptyRequestOf(op) },
+          ),
           hasParams
             ? `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam(op)}) {`
             : `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam(op)}) {`,
@@ -339,6 +390,7 @@ export function renderJavaController(
         const wireRet = wireJavaType(op.returnType, "Response", true);
         return [
           opMapping,
+          ...doc(entry, { status: 200 }, emptyRequestOf(op)),
           hasParams
             ? `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam(op)}) {`
             : `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam(op)}) {`,
@@ -355,6 +407,7 @@ export function renderJavaController(
       }
       return [
         opMapping,
+        ...doc(entry, { status: 204 }, emptyRequestOf(op)),
         `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
         hasParams
           ? `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam(op)}) {`
@@ -379,6 +432,7 @@ export function renderJavaController(
   const destroyRoutes = destroyEntry
     ? [
         `    @DeleteMapping("${relativeOpPath(destroyEntry)}")`,
+        ...doc(destroyEntry, { status: 204 }),
         `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
         `    public void destroy${agg.name}(@PathVariable ${idJava} id${destroyReadsIfMatch ? ifMatchHeader : ""}) {`,
         `        service.destroy${agg.name}(new ${idClass}(id)${
@@ -393,6 +447,7 @@ export function renderJavaController(
   const createRoute = createEntry
     ? [
         `    @PostMapping${relativeOpPath(createEntry) === "" ? "" : `("${relativeOpPath(createEntry)}")`}`,
+        ...doc(createEntry, { status: 201 }),
         // RS-39 — a create with no input fields publishes an optional body (the
         // filter hands an empty one over as `{}`, so `request` is never null).
         `    public ResponseEntity<Create${agg.name}Response> create${agg.name}(@${VALID} @RequestBody${commandBodyOptional(createInputFields(agg)) ? "(required = false)" : ""} Create${agg.name}Request request) {`,
@@ -407,12 +462,15 @@ export function renderJavaController(
     : [];
   const pagedAutoAll = isPagedAutoAll(repo);
   const getByIdEntry = routed(derivedOps.find((o) => o.kind === "getById"));
-  const allClaimed = derivedOps.find((o) => isAllFind(o))?.claimedByExplicitRoute === true;
+  const allEntry = derivedOps.find((o) => isAllFind(o));
+  const allClaimed = allEntry?.claimedByExplicitRoute === true;
+  const allDoc = allEntry ? doc(allEntry, { status: 200 }) : [];
   const body = [
     ...createRoute,
     ...(getByIdEntry
       ? [
           `    @GetMapping("${relativeOpPath(getByIdEntry)}")`,
+          ...doc(getByIdEntry, { status: 200 }),
           `    public ResponseEntity<${agg.name}Response> get${agg.name}ById(@PathVariable ${idJava} id) {`,
           // The aggregate's read gate (`policy { read T requires <expr> }`) gates
           // this read, BEFORE the load (403 for an existing and a missing id
@@ -442,6 +500,7 @@ export function renderJavaController(
       : pagedAutoAll
         ? [
             `    @GetMapping`,
+            ...allDoc,
             `    public ${agg.name}Paged all${agg.name}(${JAVA_PAGED_QUERY_PARAMS.join(", ")}) {`,
             ...(listReadGated ? findGateLines(listReadGated) : []),
             `        var result = service.all${agg.name}(page, pageSize, sort, dir);`,
@@ -451,6 +510,7 @@ export function renderJavaController(
           ]
         : [
             `    @GetMapping`,
+            ...allDoc,
             `    public List<${agg.name}Response> all${agg.name}() {`,
             ...(listReadGated ? findGateLines(listReadGated) : []),
             `        return service.all${agg.name}();`,

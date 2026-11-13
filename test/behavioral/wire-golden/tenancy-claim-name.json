@@ -103,6 +103,55 @@
     },
     {
       "seq": 8,
+      "method": "POST",
+      "path": "/api/invoices",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/invoices/amount?n=INV-K",
+      "status": 200,
+      "body": 5
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/invoices",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/invoices/amount?n=INV-K",
+      "status": 200,
+      "body": 9
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/invoices/amount?n=INV-1B",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "not_found",
+        "instance": "/api/invoices/amount",
+        "params": {
+          "type": "Billing.Invoice"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
       "method": "PATCH",
       "path": "/api/invoices",
       "status": 405,
@@ -116,7 +165,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 14,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -130,7 +179,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 15,
       "method": "POST",
       "path": "/api/invoices",
       "status": 400,
@@ -144,7 +193,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 16,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,
@@ -154,7 +203,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 17,
       "method": "POST",
       "path": "/api/invoices",
       "status": 201,
@@ -163,7 +212,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 18,
       "method": "GET",
       "path": "/api/invoices/{id}",
       "status": 200,
@@ -175,7 +224,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 19,
       "method": "GET",
       "path": "/api/invoices/{id}",
       "status": 404,
@@ -192,7 +241,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 20,
       "method": "GET",
       "path": "/api/invoices/{id}",
       "status": 200,
@@ -204,7 +253,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 21,
       "method": "POST",
       "path": "/api/invoices",
       "status": 201,
@@ -213,14 +262,14 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 22,
       "method": "POST",
       "path": "/api/invoices/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 18,
+      "seq": 23,
       "method": "POST",
       "path": "/api/invoices/{id}/update",
       "status": 404,
@@ -237,14 +286,14 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 24,
       "method": "POST",
       "path": "/api/invoices/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 20,
+      "seq": 25,
       "method": "POST",
       "path": "/api/invoices",
       "status": 201,
@@ -253,7 +302,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 26,
       "method": "DELETE",
       "path": "/api/invoices/{id}",
       "status": 404,
@@ -270,11 +319,42 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 27,
       "method": "DELETE",
       "path": "/api/invoices/{id}",
       "status": 204,
       "body": ""
+    },
+    {
+      "seq": 28,
+      "method": "GET",
+      "path": "/api/invoices/amount?n=LADDER-1",
+      "status": 200,
+      "body": 1
+    },
+    {
+      "seq": 29,
+      "method": "GET",
+      "path": "/api/invoices/amount?n=LADDER-1",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "not_found",
+        "instance": "/api/invoices/amount",
+        "params": {
+          "type": "Billing.Invoice"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 30,
+      "method": "GET",
+      "path": "/api/invoices/amount?n=LADDER-1",
+      "status": 200,
+      "body": 1
     }
   ]
 }

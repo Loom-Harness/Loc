@@ -28,7 +28,7 @@ import {
   type Model,
   type Repository,
 } from "../generated/ast.js";
-import { declaredKeyTuples } from "../repo-key-tuples.js";
+import { callableKeyTuples } from "../repo-key-tuples.js";
 import { modelContents } from "./model-contents.js";
 
 /** The tuple to suggest for a call naming `names`: the one sharing the most
@@ -64,7 +64,7 @@ export function checkRepoKeyLookups(model: Model, accept: ValidationAcceptor): v
     const repo = ctx?.members.find((m): m is Repository => isRepository(m) && m.name === repoName);
     const agg = repo?.aggregate?.ref;
     if (!repo || !agg) continue;
-    const tuples = declaredKeyTuples(agg);
+    const tuples = callableKeyTuples(agg, node);
     const args = s.args ?? [];
     const names = args.map((a) => a.name);
     const res = resolveKeyTuple(names, tuples);

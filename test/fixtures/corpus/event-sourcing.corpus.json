@@ -1,0 +1,5 @@
+{
+  "title": "`persistedAs: eventLog` — append-only stream + appliers",
+  "doc": "workflow",
+  "backends": "ALL"
+}

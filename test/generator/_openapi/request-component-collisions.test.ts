@@ -33,6 +33,7 @@ import {
   baseRequestComponentName,
   resolveRequestComponentNames,
 } from "../../../src/generator/_openapi/request-component-names.js";
+import { elixirOperationsText } from "../../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // `operation schedule` on `WorkOrder` + `workflow scheduleWorkOrder`: the
@@ -232,7 +233,7 @@ describe("phoenix request-component modules (F-026)", () => {
 
   it("points each spec path at its own module, and every $ref resolves", async () => {
     const files = await generateSystemFiles(ELIXIR_SRC);
-    const spec = [...files].find(([p]) => p.endsWith("_spec.ex"))?.[1] ?? "";
+    const spec = elixirOperationsText(files);
     expect(spec).not.toBe("");
     expect(spec).toContain("ApiWeb.Api.Schemas.WorkOrdersScheduleWorkOrderRequest");
     expect(spec).toContain("ApiWeb.Api.Schemas.WorkflowsScheduleWorkOrderRequest");
@@ -309,7 +310,7 @@ describe("phoenix create request is an owner too (F-026)", () => {
 
     // Every schema module the spec references must exist, or the app will not
     // compile — the assertion a renamed-but-unreferenced module fails.
-    const spec = [...files].find(([p]) => p.endsWith("_spec.ex"))?.[1] ?? "";
+    const spec = elixirOperationsText(files);
     const defined = new Set(
       [...files.values()]
         .flatMap((c) => [...c.matchAll(/defmodule (ApiWeb\.Api\.Schemas\.\w+) do/g)])
@@ -455,10 +456,8 @@ describe("resolveRequestComponentNames", () => {
 // name may diverge, via springdoc's `@Schema(name = ...)` (the analogue of
 // .NET's `CustomSchemaIds`). The class name stays put.
 //
-// The customizer's `RequiredSet` table is the other half of the same bug: it is
-// keyed by PUBLISHED name, so pre-fix a collision made two `setRequired` calls
-// target one key and the survivor reinforced the wrong field set for BOTH
-// endpoints. Distinct published names split the table too.
+// Each record's `requiredProperties` sits on the record itself, under its own
+// published name, so two colliding records cannot share one required set.
 describe("java request components (F-026)", () => {
   const JAVA_COLLIDES = COLLIDING_SRC.replace(
     "deployable api { platform: node, contexts: [Work], dataSources: [r], port: 3000 }",
@@ -482,12 +481,13 @@ describe("java request components (F-026)", () => {
     expect(agg).toContain("public record ScheduleWorkOrderRequest(");
     expect(wf).toContain("public record ScheduleWorkOrderRequest(");
 
-    expect(agg).toContain('@Schema(name = "WorkOrdersScheduleWorkOrderRequest")');
-    expect(wf).toContain('@Schema(name = "WorkflowsScheduleWorkOrderRequest")');
-    // The annotation is worthless without its import.
-    for (const c of [agg, wf]) {
-      expect(c).toContain("import io.swagger.v3.oas.annotations.media.Schema;");
-    }
+    // Spelled fully qualified, so it needs no import.
+    expect(agg).toContain(
+      '@io.swagger.v3.oas.annotations.media.Schema(name = "WorkOrdersScheduleWorkOrderRequest"',
+    );
+    expect(wf).toContain(
+      '@io.swagger.v3.oas.annotations.media.Schema(name = "WorkflowsScheduleWorkOrderRequest"',
+    );
 
     // Each keeps its own field set — the aggregate operation's param vs the
     // workflow's. If the two had been conflated, these would match.
@@ -503,32 +503,17 @@ describe("java request components (F-026)", () => {
     expect(wf).toBeDefined();
     // No collision => no qualification, and so no annotation and no import: the
     // fix must be inert on every model that did not have the bug.
-    for (const c of [agg, wf]) {
-      expect(c).not.toContain("@Schema(name =");
-      expect(c).not.toContain("import io.swagger.v3.oas.annotations.media.Schema;");
-    }
+    for (const c of [agg, wf]) expect(c).not.toContain("Schema(name =");
   });
 
-  it("gives the customizer's required-set table one entry per owner", async () => {
+  it("gives each colliding record its own required set", async () => {
     const files = await generateSystemFiles(JAVA_COLLIDES);
-    const customizer = files.get(`${SRC_ROOT}/config/OpenApiContractCustomizer.java`) ?? "";
-    const rows = [...customizer.matchAll(/new RequiredSet\("(\w+)", List\.of\(([^)]*)\)\)/g)].map(
-      (m) => [m[1], m[2]] as const,
-    );
-
-    // Pre-fix both `setRequired` calls keyed on `ScheduleWorkOrderRequest`, so
-    // the table held ONE row for two endpoints with different required fields.
-    const keys = rows.map(([k]) => k);
-    expect(keys).not.toContain("ScheduleWorkOrderRequest");
-    expect(keys).toContain("WorkOrdersScheduleWorkOrderRequest");
-    expect(keys).toContain("WorkflowsScheduleWorkOrderRequest");
-
-    const byKey = new Map(rows);
-    expect(byKey.get("WorkOrdersScheduleWorkOrderRequest")).toContain('"at"');
-    expect(byKey.get("WorkflowsScheduleWorkOrderRequest")).toContain('"note"');
-
-    // A duplicate key means the later row silently wins at runtime.
-    expect(keys.length).toBe(new Set(keys).size);
+    const required = (path: string): string =>
+      /requiredProperties = \{([^}]*)\}/.exec(files.get(path) ?? "")?.[1] ?? "";
+    expect(required(AGG_REQ)).toContain('"at"');
+    expect(required(AGG_REQ)).not.toContain('"note"');
+    expect(required(WF_REQ)).toContain('"note"');
+    expect(required(WF_REQ)).not.toContain('"at"');
   });
 
   it("publishes a unique name for every request record in the tree", async () => {
@@ -542,7 +527,7 @@ describe("java request components (F-026)", () => {
       if (!path.startsWith(`${SRC_ROOT}/`) || !path.endsWith("Request.java")) continue;
       const cls = /public record (\w+)\(/.exec(content)?.[1];
       if (!cls) continue;
-      published.push(/@Schema\(name = "(\w+)"\)/.exec(content)?.[1] ?? cls);
+      published.push(/Schema\(name = "(\w+)"/.exec(content)?.[1] ?? cls);
     }
     expect(published.length).toBeGreaterThan(1);
     const dupes = published.filter((n, i) => published.indexOf(n) !== i);

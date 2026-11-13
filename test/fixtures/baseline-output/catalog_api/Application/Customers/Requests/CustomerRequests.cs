@@ -9,6 +9,7 @@ using CatalogApi.Api;
 
 namespace CatalogApi.Application.Customers.Requests;
 
+[global::Swashbuckle.AspNetCore.Annotations.SwaggerSchema(Required = new[] { "username", "email", "age" })]
 public sealed record CreateCustomerRequest([NoNulChar] [Required(AllowEmptyStrings = true)] string Username, [NoNulChar] [Required(AllowEmptyStrings = true)] string Email, [property: JsonRequired] [Required] int Age);
 
 public sealed class UpdateCustomerRequest : IValidatableObject

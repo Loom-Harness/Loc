@@ -1,0 +1,5 @@
+{
+  "title": "whole-table aggregation — singleton query-time projection (count/sum/avg/min/max pushed to SQL)",
+  "doc": "language",
+  "backends": "ALL"
+}

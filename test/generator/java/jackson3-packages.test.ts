@@ -32,17 +32,7 @@ const JAVA_GEN = path.resolve(here, "../../../src/generator/java");
 const JACKSON_2 = /com\.fasterxml\.jackson\.(databind|core)\b/g;
 
 /** file → the only Jackson-2 references allowed there, each with its reason. */
-const ALLOWED = new Map<string, { ref: string; why: string }[]>([
-  [
-    "emit/openapi-customizer.ts",
-    [
-      {
-        ref: "com.fasterxml.jackson.core.JsonProcessingException",
-        why: "swagger-core's io.swagger.v3.core.util.Json.mapper() is a Jackson-2 ObjectMapper; its readValue throws Jackson 2's CHECKED JsonProcessingException, which this catch must name to compile.",
-      },
-    ],
-  ],
-]);
+const ALLOWED = new Map<string, { ref: string; why: string }[]>([]);
 
 function tsFilesUnder(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {

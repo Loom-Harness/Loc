@@ -136,6 +136,12 @@ export type ExprIR = (
        *  method (`bypassReadMethodName`), which enrichment synthesises on the
        *  aggregate's repository from this source and stance. */
       bypassRead?: BypassReadIR;
+      /** The call's result type, when the typing pass resolved one.  An IR
+       *  consumer cannot re-derive it (the callee's declaration is not on the
+       *  node), and a reduction over a call-bodied lambda
+       *  (`xs.sum(x => Pricing.points(x))`) must know it is decimal to pick
+       *  the decimal fold.  Absent when the pass left it unknown. */
+      resultType?: TypeIR;
     }
   | ({
       kind: "call";
@@ -155,6 +161,11 @@ export type ExprIR = (
        *  Use the ordered `entries` shape (not a `Record`) so entry order
        *  survives the IR pipeline. */
       style?: StyleIR;
+      /** The callee's declared result type (a `function`'s / operation's /
+       *  domain-service operation's `: T`, a value-object constructor's VO).
+       *  Absent when the callee declares none — never a placeholder.  Same
+       *  reason as `method-call.resultType`. */
+      resultType?: TypeIR;
     } & CallTarget)
   | {
       /** A bare reference to a named page/component `action` in
@@ -214,6 +225,11 @@ export type ExprIR = (
        *  validators decide whether to flag them. */
       kind: "list";
       elements: ExprIR[];
+      /** The element type of an EMPTY literal (`[]`) when its position fixes
+       *  one — a ternary branch whose other branch is a typed list.  A
+       *  nominally typed target cannot infer it from `[]` alone (java's
+       *  `List.of()` is `List<Object>` in a `var`'s conditional). */
+      elementType?: TypeIR;
     }
   /**
    * Authorization / tenancy filter sentinel (M-T9.9).  A synthesized,

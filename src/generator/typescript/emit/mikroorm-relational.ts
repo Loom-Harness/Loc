@@ -34,6 +34,7 @@ import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
 import { joinColumnName } from "../emit.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
+import { admittedTargets, mikroRefAdmissionLines, refAdmissionHelper } from "../ref-admission.js";
 import { deserializeField, serializeField } from "../repository-document-builder.js";
 import { hydrateRootExpr } from "../repository-find-builder.js";
 import { hydrateEntityExpr } from "../repository-find-hydrate.js";
@@ -951,6 +952,8 @@ export function renderMikroRepository(
     ...MIKRO_OUTBOX_DRAIN_LINES,
     versioned && savedVersionDecl("    "),
     ...mikroSaveTxLines([
+      // Reference admission first, so a refused reference writes nothing.
+      ...mikroRefAdmissionLines(agg, ctx),
       ...(versioned ? versionedSaveLines : [upsertCall]),
       ...(hasAssocs ? assocSaveLines(agg, "em", "    ") : []),
       ...(hasContains ? containSaveLines(agg, ctx, "em", "    ") : []),
@@ -1021,7 +1024,11 @@ export function renderMikroRepository(
       // The aggregate Row + every `Id[]` association's pivot Row entity + each
       // contained entity part's child Row entity.
       `import { ${[
-        ...new Set([row, ...(versioned ? [tableRow] : [])]),
+        ...new Set([
+          row,
+          ...(versioned ? [tableRow] : []),
+          ...admittedTargets(agg, ctx).map((t) => rowClassOf(t.name)),
+        ]),
         ...(agg.associations ?? []).map(joinRowClassOf),
         ...(agg.parts ?? []).map((p) => partRowClassOf(p.name)),
       ].join(", ")} } from "../entities";`,
@@ -1037,6 +1044,8 @@ export function renderMikroRepository(
       `import type { DomainEventDispatcher } from "../../domain/events";`,
       `import { requestLog } from "../../obs/als";`,
       "",
+      // The refusal a reference-admission probe miss throws (ref-admission.ts).
+      ...refAdmissionHelper(agg, ctx),
       body,
       "",
     ) + "\n"

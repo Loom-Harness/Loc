@@ -1,0 +1,6 @@
+{
+  "title": "an OPTIONAL cross-aggregate reference (`lastKnownLocation: Location id?`) beside a required one — a nullable cross-aggregate FK",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "minted by audit #2864 finding T4 (M-T1.33): every `X id` in the corpus was REQUIRED, so no fixture ever generated a page that had to render a reference which might not be there — and the reference-LINK path was the one place the frontends' null guard had never been applied.  Unguarded it broke all six frontends at once, two of them fatally (vue-tsc TS2345 on `:title`, an F# `string` + `string option` on Feliz); the other four compiled and linked to the literal path `/locations/null`.  The `origin` field is required deliberately: the guard applies to the optional reference ONLY, so a regression that guards every reference is caught by the same generation.  Backend-side this is an ordinary nullable FK, which is why the row is ALL — the fixture's value is the SHAPE, not a backend gap.  It carries NO `ui`: the corpus is a backend matrix (`clause-census.test.ts` states that), so the frontend half of the defect is gated by `test/generator/_walker/id-link-optional-cross-target.test.ts` plus the vue and feliz `scaffold` build cases, which now carry an optional reference each."
+}

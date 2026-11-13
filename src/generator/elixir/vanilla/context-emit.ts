@@ -469,9 +469,9 @@ function renderNumericParamHelpers(
   // A value-object param is cast against its declared fields; each member error
   // keeps its own key on `loom_path`, so the 422 points at `/<param>/<member>`.
   const vo = `
-  defp __loom_vo_param(_record, _field, nil, _types, _required), do: {:ok, nil}
+  defp __loom_vo_param(_record, _field, nil, _types, _required, _rules), do: {:ok, nil}
 
-  defp __loom_vo_param(record, field, value, types, required)
+  defp __loom_vo_param(record, field, value, types, required, rules)
        when is_map(value) and not is_struct(value) do
     attrs = Map.new(value, fn {k, v} -> {Macro.underscore(to_string(k)), v} end)
 
@@ -480,18 +480,25 @@ function renderNumericParamHelpers(
       |> Ecto.Changeset.cast(attrs, Map.keys(types), empty_values: [])
       |> Ecto.Changeset.validate_required(required)
 
-    if cs.valid? do
-      {:ok, Ecto.Changeset.apply_changes(cs)}
+    # The value object's own rules (its validating constructor) run on the
+    # cast value, so a violation is a 422 at \`/<param>/<member>\`.
+    with true <- cs.valid?,
+         {:ok, vo} <- rules.(Ecto.Changeset.apply_changes(cs)) do
+      {:ok, vo}
     else
-      {:error,
-       Enum.reduce(cs.errors, Ecto.Changeset.change(record, %{}), fn {key, {msg, opts}}, acc ->
-         Ecto.Changeset.add_error(acc, field, msg, Keyword.put(opts, :loom_path, [key]))
-       end)}
+      false -> {:error, __loom_vo_param_errors(record, field, cs.errors)}
+      {:error, %Ecto.Changeset{errors: errors}} -> {:error, __loom_vo_param_errors(record, field, errors)}
     end
   end
 
-  defp __loom_vo_param(record, field, value, _types, _required),
+  defp __loom_vo_param(record, field, value, _types, _required, _rules),
     do: {:error, __loom_param_error(record, field, value, "Invalid value", ${exFieldCode("type-mismatch")}, nil)}
+
+  defp __loom_vo_param_errors(record, field, errors) do
+    Enum.reduce(errors, Ecto.Changeset.change(record, %{}), fn {key, {msg, opts}}, acc ->
+      Ecto.Changeset.add_error(acc, field, msg, Keyword.put(opts, :loom_path, [key]))
+    end)
+  end
 `;
   // `__loom_id_param` builds its own changeset, so an id-only context must not
   // carry the shared error helper (`--warnings-as-errors` rejects it unused).
@@ -1472,7 +1479,7 @@ function renderPutAssocPartsHelper(partValueFields: [string, string][] = []): st
   # A part's own value-object collection is rewritten as fresh child rows, each
   # stamped with its position: a value object has no identity to keep, and
   # \`on_replace: :delete\` drops the rows the part held.
-${partValueFields.map(([mod, f]) => `  defp __put_assoc_field(${mod}, :${f}, v), do: __put_value_rows(v)`).join("\n")}
+${partValueFields.map(([mod, f]) => `  defp __put_assoc_field(${mod}, :${f}, v), do: __put_value_rows(v, ${mod}, :${f})`).join("\n")}
   defp __put_assoc_field(_part, _k, v), do: __put_assoc_nested(v)`
       : ""
   }
@@ -1500,22 +1507,32 @@ function renderPutValueRowsHelper(): string {
   return `  # Normalise a value-object collection to \`put_assoc\`-ready rows: a value object
   # has no identity, so each element is a NEW row stamped with its position, and
   # \`on_replace: :delete\` drops the rows the loaded struct held.
-  defp __put_value_rows(list) when is_list(list) do
+  #
+  # A loaded row (a struct) is already typed.  Anything else — an operation's
+  # value-object PARAM (string keys, a datetime as text, an enum as a string) —
+  # is cast through the element schema's own \`changeset/2\`, so it is typed the
+  # way a create body is and its invariants run: bad input is a 422, not an
+  # \`ArgumentError\` / \`Ecto.ChangeError\` 500.
+  defp __put_value_rows(list, owner, field) do
+    related = owner.__schema__(:association, field).related
+
     list
+    |> List.wrap()
     |> Enum.with_index()
-    |> Enum.map(fn {el, i} -> el |> __value_row_fields() |> Map.put(:ordinal, i) end)
+    |> Enum.map(fn {el, i} -> __value_row(el, i, related) end)
   end
 
-  defp __put_value_rows(nil), do: []
-
-  defp __value_row_fields(%{__struct__: _} = el) do
+  defp __value_row(%{__struct__: _} = el, i, _related) do
     el
     |> Map.from_struct()
     |> Map.drop([:__meta__, :id, :ordinal])
     |> Map.reject(fn {_k, v} -> match?(%Ecto.Association.NotLoaded{}, v) end)
+    |> Map.put(:ordinal, i)
   end
 
-  defp __value_row_fields(%{} = el), do: el`;
+  defp __value_row(%{} = el, i, related) do
+    related.changeset(struct(related), el) |> Ecto.Changeset.put_change(:ordinal, i)
+  end`;
 }
 
 /** The two private helpers a context module emits when a named op mutates a

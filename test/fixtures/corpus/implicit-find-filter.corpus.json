@@ -1,0 +1,6 @@
+{
+  "title": "a clause-less find (`find byReference(reference: string): WorkOrder?`) filters by the fields its parameters name — single, multi-parameter, paged",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "minted by the 2026-10-04 testability re-audit (N2): every other corpus find spells its `where` out, so no booted leg ran the documented unique-key form.  Java's JPA `@Query`, Dapper's SQL and MikroORM's `em.find` filter all carried no predicate for it — a miss answered 200 with another row, two rows a non-unique 500 — while validating, compiling and passing the generated unit tests.  The pairing is the shared `implicitFindMatches` rule (`src/ir/util/implicit-find-filter.ts`)"
+}

@@ -21,7 +21,7 @@
 // render from this derivation — route-set membership, paths, and declared
 // error statuses come from here (Hono `routes-builder.ts`, .NET
 // `cqrs/controller.ts`+`emit/api.ts`, python `routes-builder.ts`, java
-// `emit/api.ts`+`openapi-customizer.ts`, elixir `vanilla/api-emit.ts`+
+// `emit/api.ts`+`emit/openapi-docs.ts`, elixir `vanilla/api-emit.ts`+
 // `openapi-emit.ts`) — plus the five api-CLIENT emitters and the `.loom/`
 // artifact bundle.
 //

@@ -1,15 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { BACKENDS } from "../fixtures/corpus/backends.js";
-import { CORPUS, type CorpusFeature } from "../fixtures/corpus/manifest.js";
+import {
+  CORPUS,
+  type CorpusFeature,
+  parseSidecar,
+  unpairedFixtures,
+} from "../fixtures/corpus/manifest.js";
 
 // ---------------------------------------------------------------------------
 // Manifest integrity: the invariants `corpus-coverage.test.ts` cannot see.
 //
-// Every lane appends rows to `manifest.ts`, so a merge can leave two rows with
-// one id, or fuse two ids into one string.  Nothing flags either: `tsc` accepts
-// duplicate object literals in an array, the coverage gate checks row→file by
-// set membership, and the behavioural case runner keys cases by id, so the
-// second row is silently skipped.  This file fails on the shapes a merge makes.
+// Each row is a `<id>.corpus.json` sidecar beside its `<id>.ddd`, discovered
+// by `manifest.ts`, which refuses to load on an unpaired fixture or sidecar or
+// a malformed sidecar.  The checks below cover what the loader's per-file view
+// cannot: a repeated id, an id that is not one kebab-case name, a repeated
+// backend or deployable, an unknown backend key — and the positive control
+// proves the loader's own detectors fire.
 // ---------------------------------------------------------------------------
 
 const ID_SHAPE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -63,5 +69,21 @@ describe("corpus manifest integrity", () => {
     expect(repeatedEntries([row("a", ["node", "node"])])).toEqual(["a.backends"]);
     expect(ID_SHAPE.test("oneTwo")).toBe(false);
     expect(ID_SHAPE.test("one--two")).toBe(false);
+  });
+
+  it("the sidecar loader refuses the shapes a bad edit produces (positive control)", () => {
+    expect(unpairedFixtures(["a.ddd", "a.corpus.json", "b.ddd", "c.corpus.json"])).toEqual([
+      "b.ddd has no b.corpus.json",
+      "c.corpus.json has no c.ddd",
+    ]);
+    expect(parseSidecar("a", { title: "t", backends: "ALL" }).errors).toEqual([]);
+    expect(parseSidecar("a", { title: "t", backends: "ALL" }).row?.backends).toEqual(BACKENDS);
+    expect(parseSidecar("a", { title: "t", backends: "NOPE" }).errors).toEqual([
+      'a.corpus.json: unknown backend set "NOPE"',
+    ]);
+    expect(parseSidecar("a", { title: "t", backends: ["node"], tilte: "x" }).errors).toEqual([
+      'a.corpus.json: unknown key "tilte"',
+    ]);
+    expect(parseSidecar("a", { backends: ["node"] }).row).toBeUndefined();
   });
 });

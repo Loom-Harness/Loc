@@ -19,6 +19,7 @@ import { csLineageValue } from "./codec-spelling.js";
 import { CS_NUMERIC } from "./numeric-codec.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { addCsExprUsing, renderCsExpr } from "./render-expr.js";
+import { csVoListCopy } from "./vo-collection-copy.js";
 import { csRuleParams } from "./wire-policy-cs.js";
 
 // ---------------------------------------------------------------------------
@@ -137,7 +138,7 @@ function csStmtTarget(ctx: CsRenderContext, traceCtx: TraceCtx): StmtTarget {
           // materialise the new elements first (the value usually reads the
           // list it is about to clear), then clear and refill.
           `${INDENT}{ var __parts = (${renderCsExpr(s.value, ctx)}).ToList(); ${renderPrivatePath(s.target, ctx)}.Clear(); ${renderPrivatePath(s.target, ctx)}.AddRange(__parts); }`
-        : `${INDENT}${renderPath(s.target)} = ${renderCsExpr(s.value, ctx)};`;
+        : `${INDENT}${renderPath(s.target)} = ${csVoListCopy(s.targetType, s.value, renderCsExpr(s.value, ctx))};`;
       // NOTE the wrap ORDER: .NET (like java / python) puts `value_computed`
       // INSIDE the provenance capture; node puts it outside.  Preserved.
       const traced = withValueComputed(base, s.target, traceCtx, ctx);

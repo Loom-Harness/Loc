@@ -168,6 +168,12 @@ export const messages = {
     target: unknown;
   }) =>
     `${p.what} binds to no kind that deployable '${p.dName}' (backend '${p.target}') can realize: no dataSource, channelSource or resource can use it and no backend emits anything for it, so the declaration is a no-op. Use a supported type (postgres for state, redis for a cache transport, rabbitmq / kafka for queues and channels, s3 / localDisk for objects, restApi, smtp / ses / sendgrid), or drop the declaration.`,
+  "loom.target-unsupported#reference-admission-unrealized": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what}: deployable '${p.dName}' (backend '${p.target}') cannot check at write time that the referenced row belongs to the caller's tenant, so another tenant's id would be stored as given. Persist this aggregate relationally (\`persistedAs: state\`, \`shape: relational\`) on its default persistence, or reference \`crossTenant\` data.`,
   "loom.target-unsupported#storage-type-unrealized": (p: {
     what: unknown;
     dName: unknown;

@@ -55,6 +55,8 @@ const ALLOWED: Record<string, string> = {
     "records a node the pass left unknown; answers the fixed placeholder, infers nothing",
   "src/ir/lower/lower-expr.ts:passType":
     "`passSynth` through `irType`, plus the two §D7 REPRESENTATION rules for a ui element",
+  "src/ir/lower/lower-expr.ts:resolvedPassType":
+    "`passSynth` through `irType`, or nothing when the pass left it unknown — never the placeholder",
   "src/ir/lower/lower-expr.ts:unwrapGuardedIntrinsicReceiver":
     "reads only the suffix's call SHAPE to pick the receiver's representation; infers nothing",
 };

@@ -18,6 +18,7 @@ import { writeScopePredicate } from "./find-predicate.js";
 import { pyGuardedSaveTail } from "./guarded-save-py.js";
 import { isValueCollectionField, rowClassName } from "./py-columns.js";
 import { PY, pyIdType } from "./py-symbols.js";
+import { pyRefAdmissionHelper, pyRefAdmissionLines } from "./ref-admission.js";
 import {
   aggHasFieldMask,
   aggHasReadRestrictions,
@@ -73,6 +74,8 @@ export function buildPyEmbeddedRepositoryFile(
   const allPred = declaredAllFilterPredicate(agg, repo, ctx);
 
   const body = lines(
+    // The refusal a reference-admission probe miss raises (ref-admission.ts).
+    pyRefAdmissionHelper(agg, ctx),
     `class ${agg.name}Repository:`,
     `    def __init__(self, session: ${R.AsyncSession}, events: ${R.DomainEventDispatcher}) -> None:`,
     "        self._session = session",
@@ -230,6 +233,8 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
     versioned
       ? `    async def save(self, aggregate: ${aggRef(agg)}, expected_version: int | None = None) -> None:`
       : `    async def save(self, aggregate: ${aggRef(agg)}) -> None:`,
+    // Reference admission runs first (ref-admission.ts).
+    ...pyRefAdmissionLines(agg, ctx, "aggregate"),
     "        root = {",
     ...pairs.map(([k, v]) => `            "${k}": ${v},`),
     "        }",

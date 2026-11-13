@@ -175,7 +175,7 @@ No generated tab: soft-keyword admission is a parse-time concern; the resulting 
 
 ## `import` & multi-file source
 
-`ImportStmt` is `'import' path=STRING ';'?` — a path-based include of another `.ddd` file, resolved **relative to the importing file** (`"./shared/money.ddd"` against that file's directory). Imports may only appear at the top of a file, before the model members. `import` is a hard keyword.
+`ImportStmt` is `'import' path=STRING ';'?` — a path-based include of another `.ddd` file, resolved **relative to the importing file** (`"./shared/money.ddd"` against that file's directory). Imports may only appear at the top of a file, before the model members. `import` is a soft keyword: it heads an import only at the top of a file, and `import: string` is a valid field.
 
 ```ddd
 // main.ddd

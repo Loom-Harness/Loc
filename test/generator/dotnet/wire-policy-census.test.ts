@@ -66,7 +66,7 @@ const FORBIDDEN: { what: string; re: RegExp }[] = [
   {
     what: "a status literal where a refusal is answered",
     re: new RegExp(
-      String.raw`\b(Problem|StatusCode|NotFoundProblem|Json)\(([^;]*?[(,]\s*)?(statusCode:\s*)?${S}|\b(Status|StatusCode|statusCode)\s*(=|:|==|!=)\s*${S}|ProducesResponseType\(typeof\(ProblemDetails\),\s*${S}|\bStatus[45]\d\d\w+|^\s*${S}\s*=>|\bcase\s+${S}:|valueExpr:\s*"${S}"|\breturn (Conflict|NotFound|BadRequest|Unauthorized|UnprocessableEntity)\(`,
+      String.raw`\b(Problem|StatusCode|NotFoundProblem|Json)\(([^;]*?[(,]\s*)?(statusCode:\s*)?${S}|\b(Status|StatusCode|statusCode)\s*(=|:|==|!=)\s*${S}|ProducesResponseType\(typeof\(Problem(?:Details|Response)\),\s*${S}|\bStatus[45]\d\d\w+|^\s*${S}\s*=>|\bcase\s+${S}:|valueExpr:\s*"${S}"|\breturn (Conflict|NotFound|BadRequest|Unauthorized|UnprocessableEntity)\(`,
       "m",
     ),
   },

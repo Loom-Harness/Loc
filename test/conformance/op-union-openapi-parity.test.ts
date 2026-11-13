@@ -29,7 +29,9 @@
 // `mix openapi.spec.json`) and agreed with the shape below.
 
 import { describe, expect, it } from "vitest";
+import { elixirDocumentedOperations } from "../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { javaDocumentedRoutes, javaRequiredSets } from "../_helpers/java-openapi-annotations.js";
 
 const SOURCE = (platform: string): string => `
 system RU {
@@ -141,26 +143,25 @@ function fromNode(out: Map<string, string>): Published {
 
 function fromPython(out: Map<string, string>): Published {
   const src = fileEnding(out, "app/http/problem.py");
-  // `_OP_UNION_ERRORS` is emitted only when some union has an error arm, so
-  // its absence reads as "no error-arm status declared", not as a crash.
-  const dict = (name: string): Record<string, unknown> => {
-    const m = src.match(new RegExp(`^${name}: [^=]+= (.*)$`, "m"));
-    return m ? JSON.parse(m[1]!) : {};
-  };
-  const responses = dict("_OP_UNION_RESPONSES") as Record<string, string>;
-  const components = dict("_OP_UNION_COMPONENTS") as Record<string, never>;
-  const errorsByPath = dict("_OP_UNION_ERRORS") as Record<string, Record<string, never>>;
+  const routes = fileEnding(out, "app/http/order_routes.py");
+  // Each body is a `DeclaredSchema` model carrying its JSON schema; the route
+  // names the models in its own `responses=`.
+  const components = Object.fromEntries(
+    [...src.matchAll(/^class (\w+)\(DeclaredSchema\):\n {4}wire_schema: [^=]+= (.*)$/gm)].map(
+      (m) => [m[1]!, JSON.parse(m[2]!)],
+    ),
+  );
   const ops: Published["ops"] = {};
   for (const op of OPS) {
-    const path = Object.keys(responses).find((p) => p.endsWith(`/${op}`))!;
-    const success = responses[path]!;
-    ops[op] = {
-      success,
-      successTags: jsonTags(components[success]!),
-      errors: Object.fromEntries(
-        Object.entries(errorsByPath[path] ?? {}).map(([s, sc]) => [s, jsonAnyOfRefs(sc)]),
-      ),
-    };
+    const decorator = routes.split("\n").find((l) => l.includes(`operation_id="${op}Order"`))!;
+    const success = decorator.match(/200: \{"model": (\w+)/)![1]!;
+    const errors: Record<string, string[]> = {};
+    for (const m of decorator.matchAll(
+      /(\d{3}): \{"model": [^{]*"content": (\{"application\/problem\+json":\{"schema":\{"anyOf":\[[^\]]*\]\}\}\})/g,
+    )) {
+      errors[m[1]!] = jsonAnyOfRefs(JSON.parse(m[2]!)["application/problem+json"].schema);
+    }
+    ops[op] = { success, successTags: jsonTags(components[success]!), errors };
   }
   const problems = Object.fromEntries(
     Object.entries(components)
@@ -171,79 +172,107 @@ function fromPython(out: Map<string, string>): Published {
 }
 
 function fromJava(out: Map<string, string>): Published {
-  const src = fileEnding(out, "config/OpenApiContractCustomizer.java");
-  const javaString = (lit: string): string => JSON.parse(lit) as string;
-  const components = Object.fromEntries(
-    [...src.matchAll(/new UnionComponent\("(\w+)", ("(?:[^"\\]|\\.)*")\)/g)].map((m) => [
-      m[1]!,
-      JSON.parse(javaString(m[2]!)),
-    ]),
-  );
+  const routes = javaDocumentedRoutes(out);
+  // Class simple name -> published schema name + the @Schema argument text.
+  const schemas = new Map<string, { name: string; args: string }>();
+  for (const [path, src] of out) {
+    if (!path.endsWith(".java")) continue;
+    for (const m of src.matchAll(
+      /@io\.swagger\.v3\.oas\.annotations\.media\.Schema\(([^\n]*)\)\s*\n\s*public (?:sealed interface|record) (\w+)/g,
+    )) {
+      const name = m[1]!.match(/(?:^|, )name = "([^"]+)"/)?.[1] ?? m[2]!;
+      schemas.set(m[2]!, { name, args: m[1]! });
+    }
+  }
+  const published = (cls: string): string => {
+    const hit = schemas.get(cls);
+    if (!hit) throw new Error(`java: no @Schema on ${cls}`);
+    return hit.name;
+  };
   const ops: Published["ops"] = {};
   for (const op of OPS) {
-    const route = src.match(new RegExp(`new Route\\("post", "[^"]*/${op}", "(\\w+)"`))!;
-    const success = route[1]!;
+    const route = [...routes].find(([k]) => k.startsWith("post ") && k.endsWith(`/${op}`))?.[1];
+    expect(route, `java: no documented route for ${op}`).toBeDefined();
+    const successClass = route!.successSchema!;
+    const oneOf = schemas.get(successClass)!.args.match(/oneOf = \{([^}]*)\}/)![1]!;
+    const successTags = [...oneOf.matchAll(/(\w+)\.class/g)].map(
+      (m) =>
+        schemas.get(m[1]!)!.args.match(/allowableValues = \{"([^"]+)"\}/)?.[1] ??
+        out
+          .get([...out.keys()].find((k) => k.endsWith(`/${m[1]}.java`))!)!
+          .match(/allowableValues = \{"([^"]+)"\}/)![1]!,
+    );
     const errors: Record<string, string[]> = {};
-    for (const m of src.matchAll(
-      new RegExp(
-        `new ErrorSchema\\("post", "[^"]*/${op}", (\\d{3}), ("(?:[^"\\\\]|\\\\.)*")\\)`,
-        "g",
-      ),
-    )) {
-      errors[m[1]!] = jsonAnyOfRefs(JSON.parse(javaString(m[2]!)));
+    for (const [status, ext] of route!.errorAnyOf) {
+      errors[String(status)] = sorted(["ProblemDetails", ...ext.map(published)]);
     }
-    ops[op] = { success, successTags: jsonTags(components[success]), errors };
+    ops[op] = { success: published(successClass), successTags, errors };
   }
   const problems = Object.fromEntries(
-    Object.entries(components)
-      .filter(([n]) => n.endsWith("Problem"))
-      .map(([n, sc]) => [n, jsonProblemRequired(sc)]),
+    [...javaRequiredSets(out)].filter(([n]) => n.endsWith("Problem")),
   );
   return { ops, problems };
 }
 
+/** .NET publishes through Swashbuckle alone (D-OPENAPI-FRAMEWORK-NATIVE), read
+ *  here off the source metadata the schema generator reads: the 200's
+ *  `[ProducesResponseType]` record, that record's `[JsonDerivedType]` tags, and
+ *  the record each error status declares.  Swashbuckle composes `oneOf`
+ *  (polymorphism) but never `anyOf`, so an error-arm status declares the open
+ *  `ProblemDetails` body alone — which accepts exactly the bodies
+ *  `anyOf: [ProblemDetails, <Tag>Problem]` accepts — and publishes no
+ *  `<Tag>Problem` component. */
 function fromDotnet(out: Map<string, string>): Published {
-  const src = fileEnding(out, "Api/OpUnionResponsesFilter.cs");
-  expect(fileEnding(out, "Program.cs")).toContain("c.DocumentFilter<OpUnionResponsesFilter>();");
-  const schemaLine = (name: string): string =>
-    src.match(new RegExp(`schemas\\["${name}"\\] = (.*);`))![1]!;
+  const ctrl = fileEnding(out, "Api/OrdersController.cs");
   const ops: Published["ops"] = {};
   for (const op of OPS) {
-    const i = src.indexOf(`case "${op}Order":`);
-    const block = src.slice(i, src.indexOf("break;", i));
-    const success = block.match(/RetargetSuccess\(operation, swaggerDoc, "(\w+)"\)/)![1]!;
+    const i = ctrl.indexOf(`[HttpPost("{id}/${op}")]`);
+    const block = ctrl.slice(i, ctrl.indexOf("public async", i));
+    const success = block.match(/\[ProducesResponseType\(typeof\([\w.]*?(\w+)\), 200\)\]/)![1]!;
+    const unionFile = [...out.entries()].find(
+      ([k, v]) => k.endsWith(".cs") && v.includes(`public abstract record ${success} `),
+    )![1];
+    const decl = unionFile.slice(0, unionFile.indexOf(`public abstract record ${success} `));
+    const attrs = decl.slice(decl.lastIndexOf("[JsonPolymorphic"));
     const errors: Record<string, string[]> = {};
-    for (const m of block.matchAll(/RetargetProblem\(operation, "(\d{3})", (.*)\);/g)) {
-      errors[m[1]!] = sorted(all(/OpenApiSchemaReference\("(\w+)"/g, m[2]!));
+    for (const m of block.matchAll(
+      /\[ProducesResponseType\(typeof\((\w+)\), (\d{3}), "application\/problem\+json"\)\]/g,
+    )) {
+      // Only the error-arm statuses are compared; the route's other refusals
+      // are the shared matrix's, not this split's.
+      if (m[2]! in EXPECTED.ops[op]!.errors) {
+        errors[m[2]!] = [m[1] === "ProblemResponse" ? "ProblemDetails" : m[1]!];
+      }
     }
-    ops[op] = {
-      success,
-      successTags: all(/JsonValue\.Create\("([^"]+)"\)/g, schemaLine(success)),
-      errors,
-    };
+    ops[op] = { success: lowerFirst(success), successTags: all(/, "([^"]+)"\)\]/g, attrs), errors };
   }
-  const problems = Object.fromEntries(
-    all(/schemas\["(\w+Problem)"\]/g, src).map((n) => [
-      n,
-      sorted(
-        all(/"(\w+)"/g, schemaLine(n).match(/Required = new HashSet<string> \{([^}]*)\}/)![1]!),
-      ),
-    ]),
-  );
-  return { ops, problems };
+  return { ops, problems: {} };
+}
+
+/** The contract every backend publishes, with each error-arm status read the way
+ *  a validator reads it: \`anyOf: [ProblemDetails, <Tag>Problem]\` accepts the
+ *  same bodies as the open \`ProblemDetails\` alone, so both spellings compare
+ *  as \`ProblemDetails\`, and the arm problem components drop out. */
+function asAccepted(pub: Published): Published {
+  const ops: Published["ops"] = {};
+  for (const [op, o] of Object.entries(pub.ops)) {
+    const errors: Record<string, string[]> = {};
+    for (const status of Object.keys(o.errors)) errors[status] = ["ProblemDetails"];
+    ops[op] = { ...o, errors };
+  }
+  return { ops, problems: {} };
 }
 
 function fromElixir(out: Map<string, string>): Published {
-  const spec = fileEnding(out, "_web/api/a_spec.ex");
+  const documented = elixirDocumentedOperations(out);
   const moduleFile = (alias: string): string =>
     fileEnding(out, `/schemas/${alias.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase()}.ex`);
   const ops: Published["ops"] = {};
   for (const op of OPS) {
-    const i = spec.indexOf(`"/api/orders/{id}/${op}" =>`);
-    const block = spec.slice(i, spec.indexOf('"/api/orders/{id}/', i + 10));
+    const block = documented.get(`post /api/orders/{id}/${op}`)!;
     const successAlias = block.match(/200 => [\s\S]*?schema: \w+\.Api\.Schemas\.(\w+)\}/)![1]!;
     const errors: Record<string, string[]> = {};
-    for (const m of block.matchAll(/(\d{3}) => [^\n]*\n[^\n]*\n[^\n]*anyOf: \[([^\]]*)\]/g)) {
+    for (const m of block.matchAll(/(\d{3}) => [^\n]*anyOf: \[([^\]]*)\]/g)) {
       errors[m[1]!] = sorted(all(/Schemas\.(\w+)/g, m[2]!));
     }
     ops[op] = {
@@ -275,14 +304,21 @@ const EXTRACT: Record<string, (out: Map<string, string>) => Published> = {
 
 describe("M-FT.24 — an op-return union's error arm is published as a problem, not a 200 arm", () => {
   for (const [platform, extract] of Object.entries(EXTRACT)) {
+    if (platform === "dotnet") continue;
     it(`${platform}: 200 = success arms only; the error arm's status = ProblemDetails | <Tag>Problem`, async () => {
       expect(extract(await files(platform))).toEqual(EXPECTED);
     });
   }
 
+  it("dotnet: 200 = success arms only; the error arm's status = ProblemDetails", async () => {
+    expect(fromDotnet(await files("dotnet"))).toEqual(asAccepted(EXPECTED));
+  });
+
   it("all five publish the same split", async () => {
     const published = await Promise.all(
-      Object.entries(EXTRACT).map(async ([p, extract]) => [p, extract(await files(p))] as const),
+      Object.entries(EXTRACT).map(
+        async ([p, extract]) => [p, asAccepted(extract(await files(p)))] as const,
+      ),
     );
     const [ref, ...rest] = published;
     for (const [p, pub] of rest) expect(pub, `${p} vs ${ref![0]}`).toEqual(ref![1]);
