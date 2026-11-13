@@ -55,6 +55,7 @@ import {
   AUDIT_ENTRY_LIST_TYPE,
   collectUsedTypes,
   emitAuditEntrySchemas,
+  emitValueObjectSchema,
   provenancedZod,
   zodForRequest,
 } from "./zod-schemas.js";
