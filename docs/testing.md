@@ -114,6 +114,17 @@ systems (`examples/showcase.ddd`, `examples/acme.ddd`) stay in the docker
 `conformance-full` leg. See `test/behavioral/README.md` for the full
 runner mechanics (one-origin serving, async-spawn, the DoD rollup).
 
+### Behavioral UI runner pass/fail semantics
+
+Every Playwright-driven behavioral UI runner (`run-ui.mjs`, `run-heex-ui.mjs`,
+`paged-ui.mjs`) classifies the JSON report through the one pure helper
+`test/behavioral/playwright-outcome.mjs`. A test that did not run — Playwright
+reports it as `skipped` with `ok: true`, e.g. after a failed `beforeAll` — is a
+**failure**, as is an empty run or a report-level error: a probe that never
+reached an assertion proves nothing. A deliberate `test.skip`/`test.fixme` passes
+only when it is listed in an explicit `allowSkips` entry (`{ title, reason }`).
+Direct-probe cases that do not use Playwright keep their own counting.
+
 ### Why so many gates
 
 Structural tests prove code is *emitted*; they can't catch a generated

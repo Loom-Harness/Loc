@@ -23,7 +23,28 @@ const plain = (s: string): string => s.replace(/[  ]/g, " ");
 
 let invoiceId = "";
 
+/** Poll a cheap GET until it answers 2xx — a freshly booted server can reset the
+ *  first connection (`SocketError: other side closed`) before it is warm. */
+async function waitReady(path: string, timeoutMs = 60_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let last = "no response";
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${BASE}${path}`);
+      if (res.ok) return;
+      last = `HTTP ${res.status}`;
+    } catch (e) {
+      last = String((e as Error)?.cause ?? e);
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(
+    `server not ready: GET ${path} did not return 2xx within ${timeoutMs}ms (last: ${last})`,
+  );
+}
+
 test.beforeAll(async () => {
+  await waitReady("/api/invoices");
   const post = async (path: string, body: unknown): Promise<Record<string, unknown>> => {
     const res = await fetch(`${BASE}${path}`, {
       method: "POST",
