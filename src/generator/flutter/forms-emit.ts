@@ -42,6 +42,7 @@
 
 import { createInputFields, isConstructible } from "../../ir/enrich/wire-projection.js";
 import type {
+  AggregateIR,
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   ExprIR,
@@ -66,6 +67,7 @@ import {
   type FormFieldSpec,
   type FormSpecEnv,
   formFieldSpec,
+  operationFormSpec,
   renderFormField,
 } from "../_frontend/form-spec.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
@@ -171,6 +173,15 @@ export interface FlutterFormField {
    *  `Addr`.  A PATH, not a single key: VO flattening is recursive, so the
    *  request body has to rebuild the same depth (`bodyAssembly`). */
   objectPath?: readonly string[];
+  /** The opt-in groups (`optionalValueObject` fields) this leaf sits under,
+   *  outermost first.  A group's leaves render and submit only while its
+   *  presence switch is on; while off the value object submits `null`. */
+  presence?: readonly FlutterPresenceGroup[];
+  /** The field seeds from the loaded record (`widget.record`) in `initState` —
+   *  its top-level operation param is named and typed like an aggregate field
+   *  (`operationFormSpec` → `prefill.from === "record"`).  A flattened
+   *  value-object leaf reads through its `objectPath`. */
+  fromRecord?: true;
   /** Client-side rules derived from the aggregate's (or operation's)
    *  wire-translatable `invariant`s — M-T1.16 / ledger row
    *  `M-T1.16-invariant-validation-feliz-flutter`.  Empty/absent ⇒ the emitted
@@ -265,6 +276,29 @@ export interface FlutterFormSpec {
    *  flag that disables its submit; the call site watches the provider.
    *  Absent for an ungated op: the widget is byte-identical. */
   gateProbe?: { provider: string };
+  /** The widget takes an optional `record` (the loaded record's wire map) and
+   *  seeds every {@link FlutterFormField.fromRecord} input from it, so an update
+   *  form opens on the current values.  Absent for a form with no
+   *  record-prefilled param: the widget is byte-identical. */
+  takesRecord?: true;
+}
+
+/** One opt-in value-object group: the Dart state id of its presence flag, the
+ *  JSON key path of the value object, and its switch label. */
+interface FlutterPresenceGroup {
+  /** The wire name (nest-qualified) the `_<id>Present` flag derives from. */
+  id: string;
+  path: readonly string[];
+  label: string;
+}
+
+/** Whether an operation's form opens on a loaded record: some param is named
+ *  and typed like an aggregate field (`operationFormSpec`).  Independent of the
+ *  context the widget is built in, so the widget declaration and the call site
+ *  that passes the record always agree. */
+export function opFormTakesRecord(agg: AggregateIR, op: OperationIR): boolean {
+  return operationFormSpec(agg, op, flutterSpecEnv(new Map(), new Map(), new Map()))
+    .prefillsFromRecord;
 }
 
 /** The Riverpod provider of a `when`-gated op's `can_<op>` probe
@@ -499,12 +533,14 @@ function flutterValueObjectArm(_f: FormFieldSpec, c: FlutterArmCtx): FlutterPrep
   const { input, nest } = c;
   const base = peel(input.type);
   const voFields = (base.kind === "valueobject" ? c.vosByName.get(base.name) : undefined) ?? [];
-  return prepareFields(
+  const optIn = _f.kind === "optionalValueObject";
+  const inner = prepareFields(
     voFields.map((sf) => ({
       name: sf.name,
       type: sf.type,
-      // A whole-VO optional makes every leaf under it optional.
-      optional: c.fieldOptional || sf.optional === true,
+      // An opt-in group keeps each leaf's own optionality: the presence switch
+      // is what makes the whole value object optional.
+      optional: optIn ? sf.optional === true : c.fieldOptional || sf.optional === true,
     })),
     c.enumsByName,
     c.vosByName,
@@ -515,6 +551,16 @@ function flutterValueObjectArm(_f: FormFieldSpec, c: FlutterArmCtx): FlutterPrep
       label: nest.label ? `${nest.label}.${input.name}` : input.name,
     },
   );
+  if (!optIn) return inner;
+  const group: FlutterPresenceGroup = {
+    id: c.wireName,
+    path: [...(c.objectPath ?? []), input.name],
+    label: humanize(input.name),
+  };
+  return {
+    fields: inner.fields.map((f) => ({ ...f, presence: [group, ...(f.presence ?? [])] })),
+    dropped: inner.dropped,
+  };
 }
 
 /** Array of value objects → each row is a group of the VO's sub-field CELLS.  A
@@ -879,6 +925,18 @@ export function flutterOperationForm(
     vosFromBc(bc),
     aggregatesByName,
   );
+  const takesRecord = agg !== undefined && opFormTakesRecord(agg, op);
+  if (agg && takesRecord) {
+    const spec = operationFormSpec(
+      agg,
+      op,
+      flutterSpecEnv(enumsFromBc(bc), vosFromBc(bc), aggregatesByName),
+    );
+    const seeded = new Set(
+      spec.fields.filter((f) => f.prefill.from === "record").map((f) => f.name),
+    );
+    for (const f of fields) if (seeded.has(f.objectPath?.[0] ?? f.jsonKey)) f.fromRecord = true;
+  }
   attachRules(
     fields,
     [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)],
@@ -907,6 +965,7 @@ export function flutterOperationForm(
     dropped,
     destructive: false,
     ...(agg && sendsIfMatchPrecondition(agg, op) ? { ifMatch: true } : {}),
+    ...(takesRecord ? { takesRecord: true as const } : {}),
     ...(op.when ? { gateProbe: { provider: canProbeProviderName(aggName, op.name) } } : {}),
   };
 }
@@ -1247,9 +1306,26 @@ function dartStr(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\$/g, "\\$");
 }
 
+/** The presence flag identifier of an opt-in group (`vehicle` → `_vehiclePresent`). */
+function presenceId(g: FlutterPresenceGroup): string {
+  return `${stateId(g.id)}Present`;
+}
+
+/** The distinct opt-in groups a form's fields sit under, in first-seen order. */
+function presenceGroups(fields: readonly FlutterFormField[]): FlutterPresenceGroup[] {
+  const seen = new Map<string, FlutterPresenceGroup>();
+  for (const f of fields) for (const g of f.presence ?? []) if (!seen.has(g.id)) seen.set(g.id, g);
+  return [...seen.values()];
+}
+
+/** The Dart condition under which a field is mounted ("" when ungrouped). */
+function presenceCond(groups: readonly FlutterPresenceGroup[] | undefined): string {
+  return (groups ?? []).map(presenceId).join(" && ");
+}
+
 /** The state field declarations for a form's non-text-backed inputs. */
 function stateDecls(fields: readonly FlutterFormField[]): string[] {
-  const out: string[] = [];
+  const out: string[] = presenceGroups(fields).map((g) => `  bool ${presenceId(g)} = false;`);
   for (const f of fields) {
     if (isTextBacked(f)) {
       out.push(`  final ${ctrlId(f.wireName)} = TextEditingController();`);
@@ -1294,16 +1370,113 @@ function loaderId(wireName: string): string {
   return `_load${upperFirst(wireName)}Options`;
 }
 
+/** The Dart expression reading one flattened input's value out of the record's
+ *  wire map `r` — through its value-object `objectPath`, null at any absent
+ *  level. */
+function recordLeaf(f: FlutterFormField, rowKey = f.jsonKey): string {
+  let e = "r";
+  for (const k of f.objectPath ?? []) e = `(${e}['${dartStr(k)}'] as Map<String, dynamic>?)`;
+  return `${e}${(f.objectPath ?? []).length > 0 ? "?" : ""}['${dartStr(rowKey)}']`;
+}
+
+/** One object-array cell's initial slot value, read out of the row map `m`. */
+function recordCell(sf: NonNullable<FlutterFormField["objectFields"]>[number]): string {
+  const v = `m['${dartStr(sf.jsonKey)}']`;
+  switch (sf.kind) {
+    case "bool":
+      return `${v} == true`;
+    case "enum":
+      return `${v} as String?`;
+    case "datetime":
+      return `DateTime.tryParse(${v}?.toString() ?? '')`;
+    default:
+      return `TextEditingController(text: ${v}?.toString() ?? '')`;
+  }
+}
+
+/** The `initState` statements seeding the record-prefilled inputs from
+ *  `widget.record` (empty when no input prefills).  The inverse of
+ *  `fieldValueExpr`: each kind reads the same wire form it submits. */
+function recordSeeds(fields: readonly FlutterFormField[]): string[] {
+  const out: string[] = [];
+  for (const g of presenceGroups(fields)) {
+    if (!fields.some((f) => f.fromRecord && f.presence?.some((p) => p.id === g.id))) continue;
+    let e = "r";
+    for (const k of g.path) {
+      e = `${e === "r" ? "r" : `(${e} as Map<String, dynamic>?)?`}['${dartStr(k)}']`;
+    }
+    out.push(`      ${presenceId(g)} = ${e} != null;`);
+  }
+  for (const f of fields) {
+    if (!f.fromRecord) continue;
+    const v = recordLeaf(f);
+    const st = stateId(f.wireName);
+    switch (f.kind) {
+      case "text":
+      case "number-int":
+      case "number-double":
+        out.push(`      ${ctrlId(f.wireName)}.text = ${v}?.toString() ?? '';`);
+        break;
+      case "bool":
+        out.push(`      ${st} = ${v} == true;`);
+        break;
+      case "enum":
+        out.push(`      ${st} = ${v} as String? ?? ${st};`);
+        break;
+      case "fk-select":
+        out.push(`      ${st} = ${v} as String?;`);
+        break;
+      case "datetime":
+        out.push(`      ${st} = DateTime.tryParse(${v}?.toString() ?? '');`);
+        break;
+      case "file":
+        out.push(
+          `      final ${st}Json = ${v};`,
+          `      ${st} = ${st}Json is Map<String, dynamic> ? FileRef.fromJson(${st}Json) : null;`,
+        );
+        break;
+      case "scalar-array":
+        out.push(
+          `      for (final e in (${v} as List? ?? const [])) { ${arrayCtrlsId(f.wireName)}.add(TextEditingController(text: e?.toString() ?? '')); }`,
+        );
+        break;
+      case "bool-array":
+        out.push(
+          `      ${arrayValuesId(f.wireName)}.addAll((${v} as List? ?? const []).map((e) => e == true));`,
+        );
+        break;
+      case "enum-array":
+        out.push(
+          `      ${arrayValuesId(f.wireName)}.addAll((${v} as List? ?? const []).map((e) => e.toString()));`,
+        );
+        break;
+      case "object-array": {
+        const cells = (f.objectFields ?? []).map(recordCell).join(", ");
+        out.push(
+          `      for (final e in (${v} as List? ?? const [])) { final m = e as Map<String, dynamic>; ${rowsId(f.wireName)}.add(<dynamic>[${cells}]); }`,
+        );
+        break;
+      }
+    }
+  }
+  return out.length === 0
+    ? []
+    : ["    final r = widget.record;", "    if (r != null) {", ...out, "    }"];
+}
+
 /** The `initState` + per-field loader methods for a form's fk-select inputs
- *  (empty when the form hosts none).  Each loader GETs `/<collection>`, unwraps
- *  the paged `{items}` envelope, and stores the rows as the dropdown options. */
+ *  (empty when the form hosts none and seeds nothing from a record).  Each
+ *  loader GETs `/<collection>`, unwraps the paged `{items}` envelope, and
+ *  stores the rows as the dropdown options. */
 function fkLoaders(fields: readonly FlutterFormField[]): string[] {
   const fks = fields.filter((f) => f.kind === "fk-select");
-  if (fks.length === 0) return [];
+  const seeds = recordSeeds(fields);
+  if (fks.length === 0 && seeds.length === 0) return [];
   const out: string[] = [
     "  @override",
     "  void initState() {",
     "    super.initState();",
+    ...seeds,
     ...fks.map((f) => `    ${loaderId(f.wireName)}();`),
     "  }",
   ];
@@ -1498,6 +1671,8 @@ function objectCellValueExpr(
  *  directly at this level, plus the nested object keys below it, in first-seen
  *  order so the emitted body follows the declaration order. */
 interface BodyNode {
+  /** The presence flag gating this object (`null` when absent), if opt-in. */
+  presence?: string;
   fields: FlutterFormField[];
   children: Map<string, BodyNode>;
   order: string[];
@@ -1516,6 +1691,7 @@ function bodyAssembly(fields: readonly FlutterFormField[]): string[] {
   const root = newBodyNode();
   for (const f of fields) {
     let node = root;
+    let depth = 0;
     for (const key of f.objectPath ?? []) {
       let child = node.children.get(key);
       if (!child) {
@@ -1524,6 +1700,9 @@ function bodyAssembly(fields: readonly FlutterFormField[]): string[] {
         node.order.push(key);
       }
       node = child;
+      depth++;
+      const g = f.presence?.find((p) => p.path.length === depth);
+      if (g) node.presence = presenceId(g);
     }
     node.fields.push(f);
   }
@@ -1533,9 +1712,11 @@ function bodyAssembly(fields: readonly FlutterFormField[]): string[] {
       out.push(`${indent}'${dartStr(f.jsonKey)}': ${fieldValueExpr(f)},`);
     }
     for (const key of node.order) {
-      out.push(`${indent}'${dartStr(key)}': <String, dynamic>{`);
-      out.push(...emit(node.children.get(key)!, `${indent}  `));
-      out.push(`${indent}},`);
+      const child = node.children.get(key)!;
+      const gate = child.presence ? `${child.presence} ? ` : "";
+      out.push(`${indent}'${dartStr(key)}': ${gate}<String, dynamic>{`);
+      out.push(...emit(child, `${indent}  `));
+      out.push(`${indent}}${child.presence ? " : null" : ""},`);
     }
     return out;
   };
@@ -1605,6 +1786,13 @@ function validatorArg(f: FlutterFormField): string {
   );
 }
 
+/** The presence switch of an opt-in value-object group. */
+function presenceSwitch(g: FlutterPresenceGroup): string {
+  const label = dartStringLit(g.label);
+  const flag = presenceId(g);
+  return `Semantics(label: ${label}, child: SwitchListTile(key: const ValueKey(${dartStringLit(`${g.path.join(".")}-present`)}), title: const Text(${label}), value: ${flag}, onChanged: (v) => setState(() => ${flag} = v)))`;
+}
+
 /** The Flutter input widget for one field (a single build-children element). */
 function fieldWidget(f: FlutterFormField): string {
   // A translated label is a runtime call, so nothing it feeds can be `const`.
@@ -1639,7 +1827,12 @@ function fieldWidget(f: FlutterFormField): string {
       const validator = f.required
         ? `, validator: (v) => v == null ? ${validatorMessage(f.translateMessages === true, "field.missing", "Required")} : null`
         : "";
-      return `DropdownButtonFormField<String>(initialValue: ${stateId(f.wireName)}, decoration: ${decoration}, isExpanded: true, items: ${items}, onChanged: (v) => setState(() => ${stateId(f.wireName)} = v)${validator})`;
+      // A record-seeded id is held before its options load; the dropdown only
+      // shows it once an option carries it (an unmatched `initialValue` asserts).
+      const initial = f.fromRecord
+        ? `${optionsId(f.wireName)}.any((o) => o['id'] == ${stateId(f.wireName)}) ? ${stateId(f.wireName)} : null`
+        : stateId(f.wireName);
+      return `DropdownButtonFormField<String>(initialValue: ${initial}, decoration: ${decoration}, isExpanded: true, items: ${items}, onChanged: (v) => setState(() => ${stateId(f.wireName)} = v)${validator})`;
     }
     case "file":
       // A pick button + the current selection.  Not a `FormField`, so the
@@ -1840,8 +2033,9 @@ function requiredFileGuards(fields: readonly FlutterFormField[]): string[] {
   const out: string[] = [];
   for (const f of fields) {
     if (f.kind !== "file" || !f.required) continue;
+    const cond = presenceCond(f.presence);
     out.push(
-      `    if (${stateId(f.wireName)} == null) {`,
+      `    if (${cond ? `${cond} && ` : ""}${stateId(f.wireName)} == null) {`,
       `      setState(() => _error = ServerIssue.plain(${fileRequiredMessage(f)}));`,
       "      return;",
       "    }",
@@ -2083,7 +2277,7 @@ export function renderFormWidget(spec: FlutterFormSpec): string {
   const w = spec.widgetName;
   const ctorArgs =
     spec.needsId || spec.gateProbe
-      ? `{super.key, required this.id${spec.ifMatch ? ", this.expectedVersion" : ""}${spec.gateProbe ? ", this.blocked = false" : ""}}`
+      ? `{super.key, required this.id${spec.ifMatch ? ", this.expectedVersion" : ""}${spec.gateProbe ? ", this.blocked = false" : ""}${spec.takesRecord ? ", this.record" : ""}}`
       : "{super.key}";
   const idField = spec.needsId || spec.gateProbe ? ["  final String id;"] : [];
   // The loaded record's `version` (the `versioned` capability's synthetic `int`
@@ -2091,14 +2285,26 @@ export function renderFormWidget(spec: FlutterFormSpec): string {
   if (spec.ifMatch) idField.push("  final int? expectedVersion;");
   // A `when`-gated op: the call site passes the `can_<op>` probe's verdict.
   if (spec.gateProbe) idField.push("  final bool blocked;");
+  // The loaded record's wire map, seeding the inputs (`recordSeeds`).
+  if (spec.takesRecord) idField.push("  final Map<String, dynamic>? record;");
 
   const errorBanner =
     "        if (_error != null)\n" +
     "          Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(_error!.text, style: TextStyle(color: Theme.of(context).colorScheme.error))),";
-  const inputChildren = spec.fields.flatMap((f) => [
-    `        ${fieldWidget(f)},`,
-    `        ${serverFieldError(f)}`,
-  ]);
+  const emittedGroups = new Set<string>();
+  const inputChildren = spec.fields.flatMap((f) => {
+    const out: string[] = [];
+    (f.presence ?? []).forEach((g, i) => {
+      if (emittedGroups.has(g.id)) return;
+      emittedGroups.add(g.id);
+      const outer = presenceCond(f.presence?.slice(0, i));
+      out.push(`        ${outer ? `if (${outer}) ` : ""}${presenceSwitch(g)},`);
+    });
+    const cond = presenceCond(f.presence);
+    const gate = cond ? `if (${cond}) ` : "";
+    out.push(`        ${gate}${fieldWidget(f)},`, `        ${gate}${serverFieldError(f)}`);
+    return out;
+  });
   const submitChild = `        ${submitButton(spec)},`;
 
   let buildBody: string[];

@@ -2,6 +2,7 @@ import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../ir/typ
 import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { lowerFirst, plural } from "../../util/naming.js";
 import { type DefaultSeedCtx, renderDefaultSeed } from "./default-seed.js";
+import type { FormFieldSpec, FormSpec } from "./form-spec.js";
 
 // ---------------------------------------------------------------------------
 // React form helpers — Mantine input rendering on top of `react-hook-form`,
@@ -66,6 +67,8 @@ export function needsController(
       return !!target?.displayDerived;
     }
     if (inner.kind === "valueobject") {
+      // An optional value object's opt-in group is a `<Controller>`.
+      if (t.kind === "optional") return true;
       const vo = findValueObjectInScope(ctx, inner.name);
       return !!vo && vo.fields.some((f) => probe(f.type));
     }
@@ -156,8 +159,51 @@ export function initialValuesTs(
   return `{ ${entries.join(", ")} }`;
 }
 
-function initialValueTs(t: TypeIR, ctx: BoundedContextIR, optional: boolean): string {
+/**
+ * The `defaultValues` literal for a form, from its {@link FormSpec}.  With
+ * `seedCtx.recordVar` set (the loaded record is in scope where the values are
+ * built), a field the spec prefills from the record seeds from it, so an update
+ * form opens on the current values; otherwise a field seeds from its declared
+ * default when the client can evaluate it, else its kind's zero.
+ */
+export function formSeedTs(spec: FormSpec, ctx: BoundedContextIR, seedCtx: DefaultSeedCtx): string {
+  const entries = spec.fields.map((f) => {
+    const fromRecord =
+      seedCtx.recordVar !== undefined && f.prefill.from === "record"
+        ? recordSeedTs(f, seedCtx.recordVar, ctx)
+        : null;
+    const seed = fromRecord ?? (f.default ? renderDefaultSeed(f.default, seedCtx) : null);
+    return `${f.name}: ${seed ?? initialValueTs(f.type, ctx, false)}`;
+  });
+  return `{ ${entries.join(", ")} }`;
+}
+
+/** A record-prefilled field's seed.  The response carries the wire value, which
+ *  is the form value for every kind but `datetime`: its ISO instant is cut to
+ *  the `datetime-local` input's `YYYY-MM-DDTHH:mm`.  An absent optional value
+ *  seeds the kind's empty input — `""` for the text-like kinds (the request
+ *  schema reads an empty optional input as `null`), the zero otherwise. */
+function recordSeedTs(f: FormFieldSpec, recordVar: string, ctx: BoundedContextIR): string {
+  const read = `${recordVar}.${f.name}`;
+  const textLike =
+    f.kind === "string" ||
+    f.kind === "date" ||
+    f.kind === "enum" ||
+    f.kind === "ref" ||
+    f.kind === "optionalRef";
+  if (f.kind === "datetime") {
+    return f.optional ? `${read}?.slice(0, 16) ?? ""` : `${read}.slice(0, 16)`;
+  }
+  if (!f.optional) return read;
+  if (textLike) return `${read} ?? ""`;
+  return `${read} ?? ${initialValueTs(f.type, ctx, false)}`;
+}
+
+export function initialValueTs(t: TypeIR, ctx: BoundedContextIR, optional: boolean): string {
   const inner = unwrapOpt(t);
+  // An optional value object starts absent: its form group is opt-in
+  // (`form-optional-group.ts`), and a zero object would fail its invariants.
+  if ((optional || t.kind === "optional") && inner.kind === "valueobject") return "null";
   if (optional && inner.kind === "primitive") {
     return "null";
   }

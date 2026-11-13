@@ -87,6 +87,7 @@ import {
 } from "./component-emit.js";
 import { FELIZ_GRID_PRELUDE } from "./data-grid-child.js";
 import { FELIZ_ACTION_TOAST, felizTarget } from "./feliz-target.js";
+import { felizOperationFormSeed } from "./form-prefill.js";
 import {
   type FsExprCtx,
   fsString,
@@ -1168,7 +1169,12 @@ function operationFormsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): Fe
     )) {
       if (seen.has(f.formType)) continue;
       seen.add(f.formType);
-      out.push(f);
+      const bc = contexts.find((c) => c.aggregates.some((a) => a.name === f.aggregate));
+      const agg = aggregatesByName.get(f.aggregate);
+      const op = agg?.operations.find((o) => o.name === f.op && o.visibility === "public");
+      const seed =
+        bc && agg && op ? felizOperationFormSeed(agg, op, f, bc, aggregatesByName) : undefined;
+      out.push(seed ? { ...f, seed } : f);
     }
   }
   return out;

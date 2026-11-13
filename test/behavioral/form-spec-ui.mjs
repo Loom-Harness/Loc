@@ -1,0 +1,136 @@
+// The scaffolded-form behaviour probe (#5212), for a case that declares
+// `"textProbe": "form-spec"` in corpus.json.  It drives the BUILT app's forms
+// over the DOM (the JS / Feliz frontends) against `form-spec-ui.ddd` and reads
+// the result back over the api, so what is on trial is what the form SUBMITS:
+//
+//   update prefill   the Update dialog opens on the record: changing one field
+//                    keeps every other field (a zero-seeded form reset them).
+//   absence          clearing an optional text input submits `null`, not `""`;
+//                    an optional value object left out submits `null`.
+//   optional group   checking an optional value object's presence box and
+//                    filling it saves the object.
+//
+// Inputs are found by the shared test ids (`<slug>-op-<op>-input-<field>`);
+// where a pack puts the id on a wrapper, the probe reaches the input inside it.
+
+/** Seed one provider and one policy over the api; returns the policy as stored. */
+export async function seedFormSpec(base) {
+  const post = async (path, body) => {
+    const r = await fetch(`${base}/api${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`seed failed: POST ${path} → ${r.status} ${await r.text()}`);
+    return r.json();
+  };
+  const provider = await post("/providers", { name: "Acme Towing" });
+  const created = await post("/policies", {
+    holder: "Ada",
+    region: "North",
+    priority: 3,
+    rate: 1.5,
+    premium: "120.00",
+    active: true,
+    startsOn: "2026-01-02",
+    reviewAt: "2026-03-04T05:06:00Z",
+    schedule: null,
+    usage: "Commercial",
+    provider: provider.id,
+    backup: null,
+    limit: { amount: "5000.00", note: "cap" },
+    vehicle: null,
+    tags: ["a", "b"],
+    perils: ["Fire"],
+    alternates: [],
+    riders: [{ code: "R1", premium: 2.5 }],
+  });
+  return readPolicy(base, created.id);
+}
+
+export async function readPolicy(base, id) {
+  const r = await fetch(`${base}/api/policies/${id}`);
+  if (!r.ok) throw new Error(`GET /policies/${id} → ${r.status}`);
+  return r.json();
+}
+
+/** The fields an update that changed only `priority` and cleared `region` must
+ *  leave as they were. */
+export const KEPT_FIELDS = [
+  "holder",
+  "rate",
+  "active",
+  "startsOn",
+  "usage",
+  "provider",
+  "limit",
+  "tags",
+  "perils",
+  "riders",
+  // Absent on the record and untouched: a zero object would fail its invariant.
+  "vehicle",
+];
+
+/** Judge the record after the update: `[]` when it holds, else the problems. */
+export function judgeFormSpec(before, after) {
+  const why = [];
+  if (after.priority !== 7) why.push(`priority: expected 7, got ${JSON.stringify(after.priority)}`);
+  if (after.region !== null && after.region !== undefined) {
+    why.push(`region: a cleared optional input must submit null, got ${JSON.stringify(after.region)}`);
+  }
+  for (const k of KEPT_FIELDS) {
+    const a = JSON.stringify(normalize(before[k]));
+    const b = JSON.stringify(normalize(after[k]));
+    if (a !== b) why.push(`${k}: the update reset it (${a} → ${b})`);
+  }
+  return why;
+}
+
+/** Money and decimals may come back with a different scale; compare by value. */
+function normalize(v) {
+  if (typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v)) return Number(v);
+  if (Array.isArray(v)) return v.map(normalize);
+  if (v && typeof v === "object") {
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, normalize(x)]));
+  }
+  return v;
+}
+
+/** The `<input>` a test id names — the element itself, or the first input
+ *  inside a wrapper that carries the id. */
+async function inputOf(page, testId) {
+  const el = page.locator(`[data-testid="${testId}"]`).first();
+  await el.waitFor({ state: "attached", timeout: 15000 });
+  const tag = await el.evaluate((n) => n.tagName);
+  return tag === "INPUT" || tag === "TEXTAREA" ? el : el.locator("input, textarea").first();
+}
+
+/** Drive the Update dialog on the record's detail page. */
+export async function driveUpdate(page, origin, id) {
+  await page.goto(`${origin}/policies/${id}`);
+  await page.locator('[data-testid="policies-op-update"]').first().click({ timeout: 20000 });
+  const priority = await inputOf(page, "policies-op-update-input-priority");
+  await priority.fill("7");
+  const region = await inputOf(page, "policies-op-update-input-region");
+  await region.fill("");
+  await page.locator('[data-testid="policies-op-update-submit"]').first().click();
+}
+
+/** Add the optional value object through the Update dialog's opt-in group. */
+export async function driveAddVehicle(page, origin, id) {
+  await page.goto(`${origin}/policies/${id}`);
+  await page.locator('[data-testid="policies-op-update"]').first().click({ timeout: 20000 });
+  await (await inputOf(page, "policies-op-update-input-vehicle-present")).check();
+  await (await inputOf(page, "policies-op-update-input-vehicle-vin")).fill("1HGCM82633A004352");
+  await (await inputOf(page, "policies-op-update-input-vehicle-year")).fill("2019");
+  await page.locator('[data-testid="policies-op-update-submit"]').first().click();
+}
+
+/** Judge the record after the vehicle was added. */
+export function judgeVehicleAdded(after) {
+  const v = after.vehicle;
+  if (!v || v.vin !== "1HGCM82633A004352" || v.year !== 2019) {
+    return [`vehicle: the opt-in group did not save it, got ${JSON.stringify(v)}`];
+  }
+  return [];
+}

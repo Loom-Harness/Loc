@@ -281,7 +281,16 @@ export function provenancedZod(valueZod: string): string {
 
 export function zodForRequest(t: TypeIR): string {
   const info = wireTypeInfo(t, "request");
-  if (info.isNullable) return `${zodForRequest(peelNullable(t))}.nullish()`;
+  if (info.isNullable) {
+    const inner = peelNullable(t);
+    const base = `${zodForRequest(inner)}.nullish()`;
+    // A cleared optional text-like input (a text box, a date, a picker or an
+    // enum select left on "") means ABSENT: the form submits `null`, never
+    // `""`.  The empty string is tried first, so an id's uuid pattern and an
+    // enum's member list never see it.  Input and output types are unchanged —
+    // `""` is already a string, and `null` is already allowed.
+    return emptyIsAbsent(inner) ? `z.literal("").transform(() => null).or(${base})` : base;
+  }
   if (info.isCollection) return `z.array(${zodForRequest(peelCollection(t))})`;
   switch (info.refKind) {
     case "primitive":
@@ -309,6 +318,17 @@ export function zodForRequest(t: TypeIR): string {
       // bare `T` — a caller supplies a value, never a lineage.
       throw new Error(PROVENANCED_REQUEST_ERROR);
   }
+}
+
+/** An optional request field whose form input is text-like, so an empty
+ *  input reads as absent. */
+function emptyIsAbsent(t: TypeIR): boolean {
+  const info = wireTypeInfo(t, "request");
+  if (info.isCollection || info.isNullable) return false;
+  if (info.refKind === "id" || info.refKind === "enum") return true;
+  if (info.refKind !== "primitive") return false;
+  const p = info.primitive;
+  return p === "string" || p === "date" || p === "datetime" || p === "guid";
 }
 
 export function zodForResponse(t: TypeIR, optional: boolean): string {

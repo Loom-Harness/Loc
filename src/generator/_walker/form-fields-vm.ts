@@ -16,7 +16,7 @@ import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { modelTextKey } from "../../util/model-text-key.js";
 import { humanize } from "../../util/naming.js";
-import { idTargetHookVar } from "../_frontend/form-helpers.js";
+import { idTargetHookVar, initialValueTs, unwrapOpt } from "../_frontend/form-helpers.js";
 import {
   type FormFieldArms,
   type FormFieldSpec,
@@ -186,7 +186,10 @@ export const JSX_FORM_FIELD_ARMS: FormFieldArms<FormFieldVM, JsxArmCtx> = {
   ref: refVM,
   optionalRef: refVM,
   valueObject: valueObjectVM,
-  optionalValueObject: valueObjectVM,
+  optionalValueObject: (f, c) => ({
+    ...valueObjectVM(f, c),
+    optionalGroup: { zeroTs: initialValueTs(unwrapOpt(f.type), c.ctx, false) },
+  }),
   scalarArray: arrayStubVM,
   enumArray: arrayStubVM,
   refArray: arrayStubVM,

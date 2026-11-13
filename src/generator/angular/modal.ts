@@ -24,6 +24,7 @@ import {
   formStyle,
   partitionAngularFields,
 } from "./form-fields.js";
+import { angularOpFormSpec, nullableTextFields, seedMethodLines } from "./form-prefill.js";
 import { angularRuleCodes, applyAngularValidators } from "./form-validators.js";
 import { angularSink } from "./walker/sink.js";
 // ---------------------------------------------------------------------------
@@ -66,6 +67,11 @@ export interface AngularModalSpec {
    *  `readonly <local> = <hook>(() => <idExpr>)`, with the TEMPLATE-scope
    *  `idExpr` rebound against `this`.  Absent for an ungated op. */
   gate?: { local: string; hook: string; idExpr: string };
+  /** Top-level optional text-like fields whose cleared input submits `null`. */
+  nullable?: string[];
+  /** The `seed<Op><Agg>(record)` class member that writes the loaded record
+   *  into the form; absent when the op prefills nothing from a record. */
+  seedMethod?: string;
 }
 
 /** Resolve the operation a Modal's `OperationForm` child targets, plus the
@@ -73,7 +79,7 @@ export interface AngularModalSpec {
 function resolveOpForm(
   formChild: ExprIR & { kind: "call" },
   ctx: WalkContext,
-): { aggName: string; op: OperationIR; idExpr: string } | undefined {
+): { aggName: string; op: OperationIR; idExpr: string; recordExpr?: string } | undefined {
   // Flat form: `OperationForm(of: <Agg>, op: <opName>)` — the scaffold shape;
   // targets the route `id`.
   const ofArg = namedArgValue(formChild, "of");
@@ -95,7 +101,8 @@ function resolveOpForm(
     const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
     const op = agg?.operations.find((o) => o.name === ref.member && o.visibility === "public");
     if (!agg || !op) return undefined;
-    return { aggName: agg.name, op, idExpr: `${emitExpr(ref.receiver, ctx)}.id` };
+    const recordExpr = emitExpr(ref.receiver, ctx);
+    return { aggName: agg.name, op, idExpr: `${recordExpr}.id`, recordExpr };
   }
   return undefined;
 }
@@ -125,7 +132,7 @@ export function renderAngularModal(
       "Modal: could not resolve the OperationForm operation",
     );
   }
-  const { aggName, op, idExpr } = resolved;
+  const { aggName, op, idExpr, recordExpr } = resolved;
 
   const opKey = `${lowerFirst(op.name)}${aggName}`;
   const openSig = `${opKey}Open`;
@@ -216,6 +223,22 @@ export function renderAngularModal(
   ctx.collectedTestids.add(`${ns}-form`);
   ctx.collectedTestids.add(`${ns}-submit`);
 
+  const formSpec = agg && bc ? angularOpFormSpec(agg, op, bc, ctx) : undefined;
+  const seedMethodName = `seed${upperFirst(op.name)}${aggName}`;
+  const seedMethod =
+    formSpec && bc && recordExpr !== undefined
+      ? seedMethodLines({
+          method: seedMethodName,
+          formVar,
+          recordType: `${aggName}Response`,
+          spec: formSpec,
+          bc,
+          fieldArrays: parts.fieldArrays,
+        })
+      : undefined;
+  if (seedMethod) addNg(ctx, importFrom, `${aggName}Response`);
+  const nullable = formSpec ? nullableTextFields(formSpec) : [];
+
   const spec: AngularModalSpec = {
     openSig,
     idSig,
@@ -229,6 +252,8 @@ export function renderAngularModal(
     fieldArrays: parts.fieldArrays,
     fieldGroups: parts.fieldGroups,
     hasFile: parts.hasFileField,
+    ...(nullable.length > 0 ? { nullable } : {}),
+    ...(seedMethod ? { seedMethod } : {}),
     ...(gate ? { gate: { local: gate.local, hook: gate.hook, idExpr } } : {}),
   };
   angularSink(ctx).modals.push(spec);
@@ -248,7 +273,7 @@ export function renderAngularModal(
   const title = modalTitleOf(call, ctx) ?? opLabelMarkup;
   const modal = [
     `<div class="loom-modal">`,
-    `${inner}<button ${triggerBtn} (click)='${idSig}.set(${idExpr}); ${openSig}.set(true)'${gate ? ` [disabled]='${gate.disabledExpr}' [attr.title]='(${gate.disabledExpr}) ? ${gate.reasonExpr} : null'` : ""} data-testid="${ns}">${triggerLabel}</button>`,
+    `${inner}<button ${triggerBtn} (click)='${idSig}.set(${idExpr}); ${seedMethod ? `${seedMethodName}(${recordExpr}); ` : ""}${openSig}.set(true)'${gate ? ` [disabled]='${gate.disabledExpr}' [attr.title]='(${gate.disabledExpr}) ? ${gate.reasonExpr} : null'` : ""} data-testid="${ns}">${triggerLabel}</button>`,
     `${inner}@if (${openSig}()) {`,
     `${deep}<div role="dialog" aria-modal="true" aria-labelledby="${titleId}">`,
     `${deep}  <h3 id="${titleId}" class="loom-modal-title">${title}</h3>`,

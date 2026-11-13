@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   collectFlutterForms,
   flutterCreateForm,
+  renderFormWidget,
 } from "../../../src/generator/flutter/forms-emit.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
@@ -199,5 +200,29 @@ describe("flutter form pages (generate system)", () => {
     );
     expect(adminPage).toContain("DiscountProductForm(id: id),");
     expect(adminPage).toContain("DeleteProductForm(id: id),");
+  });
+});
+
+// An optional value object is an opt-in group: a presence switch, leaves mounted
+// only while present, and `null` on the wire while absent.  Behavioural proof is
+// the form-spec-ui corpus fixture; this pins the absence arm no tier boots.
+describe("flutter optional value-object group", () => {
+  it("gates the leaves and the body object on a presence switch", async () => {
+    const src = SRC.replace("cost: Money\n", "cost: Money\n        vehicle: Money?\n");
+    const { model } = await parseString(src, { validate: false });
+    const m = enrichLoomModel(lowerModel(model));
+    const contexts = enrichedContexts(m);
+    const product = contexts.flatMap((c) => c.aggregates).find((a) => a.name === "Product")!;
+    const bc = contexts.find((c) => c.aggregates.some((a) => a.name === "Product"));
+    const aggregatesByName = new Map(contexts.flatMap((c) => c.aggregates.map((a) => [a.name, a])));
+    const dart = renderFormWidget(flutterCreateForm(product, bc, aggregatesByName));
+    expect(dart).toContain("ValueKey('vehicle-present')");
+    expect(dart).toContain(
+      "if (_vehiclePresent) TextFormField(controller: _vehicleAmountController",
+    );
+    expect(dart).toContain("'vehicle': _vehiclePresent ? <String, dynamic>{");
+    expect(dart).toContain("} : null,");
+    // The required VO stays ungated.
+    expect(dart).toContain("'cost': <String, dynamic>{");
   });
 });

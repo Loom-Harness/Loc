@@ -22,11 +22,14 @@ import {
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { typeReachesMoney } from "../../_frontend/api-module.js";
 import {
+  formSeedTs,
   idTargetHookVar,
   idTargetsInFields,
   initialValuesTs,
   needsController,
 } from "../../_frontend/form-helpers.js";
+import { optionalGroupRendererFor } from "../../_frontend/form-optional-group.js";
+import { formSpecEnvOf, operationFormSpec } from "../../_frontend/form-spec.js";
 import { frontendRequestNames } from "../../_frontend/request-names.js";
 import { serverSourcedDefaultFields } from "../../_frontend/server-default.js";
 import type { FormFieldVM } from "../../_frontend/view-models.js";
@@ -479,6 +482,9 @@ function prepareFormFields(
    *  its identity-keyed text; a name it maps to `undefined` keeps the
    *  humanized English. */
   labelOwnerOf: (name: string) => string | undefined,
+  /** The form's `defaultValues` literal when the caller builds it from a
+   *  FormSpec; absent ⇒ the declared-default / type-zero seed. */
+  defaultValuesSeed?: string,
 ): PreparedForm {
   const aggregatesByNameMut = new Map(ctx.aggregatesByName);
   const idTargets = idTargetsInFields(fieldsForHelpers, bc, aggregatesByNameMut);
@@ -486,7 +492,8 @@ function prepareFormFields(
   // A `this.<field>` op-param default seeds as `<seedRecordVar>.<field>` only
   // when the caller passes a record var in scope at the seed site (op forms on
   // record-threading packs); otherwise it falls back to the type-zero seed.
-  const defaultValuesTs = initialValuesTs(fieldsForHelpers, bc, { recordVar: seedRecordVar });
+  const defaultValuesTs =
+    defaultValuesSeed ?? initialValuesTs(fieldsForHelpers, bc, { recordVar: seedRecordVar });
   const fieldVMs = fields.map((f) =>
     prepareFormFieldVM(
       f.name,
@@ -539,6 +546,7 @@ function prepareFormFields(
       localizedPageChromeText(ctx, sentenceChromeName("addItem", element)),
     // Each field's identity-keyed label / enum option labels.
     fieldTokens: (vm: FormFieldVM) => formFieldModelTextTokens(ctx, vm),
+    optionalGroup: optionalGroupRendererFor(ctx.target.framework),
   };
   const fieldHtmls = fieldVMs.map((vm) => renderFormField(vm, ctx.pack, fieldChrome));
   if (fieldHtmls.some((h) => h.includes(`${FIELD_ERROR_TEXT}(`))) {
@@ -705,7 +713,12 @@ function emitFormOfAggregate(
   // of a form schema focused on what the wire contract REQUIRES;
   // optional fields surface via update-flow operations on the detail
   // page.
-  const fields = createInputFields(agg).filter((f) => !f.optional);
+  // An optional value object is the exception: it renders as an opt-in group
+  // that submits `null` until the user adds it, so the create form offers the
+  // same group the update form does.
+  const fields = createInputFields(agg).filter(
+    (f) => !f.optional || (f.type.kind === "optional" && f.type.inner.kind === "valueobject"),
+  );
   const testidNamespace = stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-new`;
   // The pack's `primitive-form-of` imports cover the form-shell
   // components (Stack/Button/Group on Mantine, equivalents elsewhere).
@@ -945,9 +958,18 @@ function emitFormOfOperation(
   // `this`.  Inside the component the record is the prop `record`; the trigger
   // passes the rendered in-scope receiver (e.g. `order`, or `<hook>.data` for a
   // QueryView data-lambda binding) as that prop.
+  //
+  // The form's spec also prefills every param named and typed like one of the
+  // aggregate's fields from the record (an update form opens on the current
+  // values), so the record is threaded for that too.
+  const spec = operationFormSpec(
+    agg,
+    op,
+    formSpecEnvOf(bc, ctx.aggregatesByName, ctx.bcByAggregate),
+  );
   const wantsRecord =
     ctx.pack.manifest.seedsOpFormRecord === true &&
-    fieldsForHelpers.some((f) => defaultUsesThis(f.default));
+    (spec.prefillsFromRecord || fieldsForHelpers.some((f) => defaultUsesThis(f.default)));
   const seedRecordVar = wantsRecord ? "record" : undefined;
   const testidNamespace =
     stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-op-${op.name}`;
@@ -960,6 +982,7 @@ function emitFormOfOperation(
     testidNamespace,
     seedRecordVar,
     (name) => paramLabelOwner(agg, name),
+    formSeedTs(spec, bc, { recordVar: seedRecordVar }),
   );
   const opLabel = opModelText(ctx, bc, agg.name, op.name);
   addImport(
