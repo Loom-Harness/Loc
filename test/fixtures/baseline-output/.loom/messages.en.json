@@ -105,6 +105,8 @@
   "chrome.selectPlaceholder": "Select…",
   "chrome.skipToContent": "Skip to content",
   "chrome.somethingWentWrong": "Something went wrong",
+  "chrome.tableFilterAria": "Filter table",
+  "chrome.tableFilterPlaceholder": "Filter…",
   "chrome.toggleNavigation": "Toggle navigation",
   "chrome.toolbarActions": "Actions",
   "field.greater-than": "Must be greater than {min}",
