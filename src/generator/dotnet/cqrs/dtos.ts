@@ -11,7 +11,6 @@ import type {
   RepositoryIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
-import { declaredResponseFor } from "../../../ir/util/declared-response.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import { type MergePatchField, mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
@@ -25,7 +24,6 @@ import {
   entityExposesProvenance,
   entityResponseParams,
   isWireValueType,
-  responseParamsFromPayload,
   valueObjectsUsedBy,
   wireType,
 } from "../dto-mapping.js";
@@ -62,17 +60,9 @@ export function emitResponseDtos(
       params: entityResponseParams(part, ctx),
     });
   }
-  // M-T5.10: when the context declares a `response <Agg>Response` record
-  // (spliced by `scaffoldHandlers`), READ that record's fields instead of
-  // re-deriving from `wireShape` — byte-identical for the scaffolded form,
-  // authoritative for a hand-declared divergent one.  Non-scaffolded
-  // aggregates have no declared record and keep the wireShape path.
-  const declaredResponse = declaredResponseFor(ctx.payloads, agg);
   records.push({
     name: `${agg.name}Response`,
-    params: declaredResponse
-      ? responseParamsFromPayload(agg, declaredResponse, ctx)
-      : aggregateResponseParams(agg, ctx),
+    params: aggregateResponseParams(agg, ctx),
   });
   // Create-response (the new id) only when the aggregate exposes a REST
   // create surface (an explicit / crudish canonical create, or an ES
