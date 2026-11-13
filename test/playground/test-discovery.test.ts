@@ -51,7 +51,16 @@ describe("discoverSuites", () => {
     let cancelled = false;
     const found = await discoverSuites(
       {
-        units: [{ label: "a", path: "a.test.ts", load: async () => ((cancelled = true), []) }],
+        units: [
+          {
+            label: "a",
+            path: "a.test.ts",
+            load: async () => {
+              cancelled = true;
+              return [];
+            },
+          },
+        ],
         ui: null,
         api: { label: "API", path: "api.spec.ts", load: ok([]) },
       },
