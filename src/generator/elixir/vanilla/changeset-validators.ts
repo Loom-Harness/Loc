@@ -274,7 +274,7 @@ export { voUncarriedInvariants };
  *  cross-field and guarded rules (`checkOut > checkIn`) — restricted to the
  *  ones the `validate_invariants/1` carrier can render.  The rest are reported
  *  as `loom.elixir-invariant-unenforced` by the phase-⑦ coverage check. */
-export function voResidualInvariants(
+function voResidualInvariants(
   vo: Pick<ValueObjectIR, "fields" | "invariants">,
 ): ValueObjectIR["invariants"] {
   return residualInvariants({ invariants: voUncarriedInvariants(vo) });

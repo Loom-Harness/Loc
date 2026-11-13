@@ -39,7 +39,7 @@ import {
 } from "../../../ir/util/changeset-invariant-carrier.js";
 import { ruleMembers } from "../../../ir/util/merge-patch.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
-import { pickErrorPath, singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
+import { pickErrorPath } from "../../../ir/validate/invariant-classify.js";
 import { elixirString, snake } from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { floorRuleText, ruleCode, ruleText } from "../../_i18n/rule-text.js";
