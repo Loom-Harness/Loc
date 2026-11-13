@@ -2,6 +2,7 @@ import { declaredCreateParamNames } from "../../../ir/enrich/wire-projection.js"
 import type {
   AggregateIR,
   BoundedContextIR,
+  DerivedIR,
   EnrichedAggregateIR,
   ExprIR,
   FunctionIR,
@@ -190,6 +191,7 @@ export function renderAggregatePureCore(
     thisName: "record",
     contextModule: `${appModule}.${ctxModule}`,
     captureProvenance: false,
+    derivedDefs: agg.derived,
   };
   const bodyClauses = createBodyStatements(agg).some((st) => st.kind !== "emit")
     ? [
@@ -309,7 +311,7 @@ function renderPureCoreMembers(
   // then resolves in whichever module the body renders into.  The struct guard
   // is the record's own struct (`%__MODULE__{}` on the relational schema module).
   for (const fn of agg.functions ?? []) {
-    out.push("", ...renderPureFunction(`${appModule}.${ctxModule}`, fn, struct));
+    out.push("", ...renderPureFunction(`${appModule}.${ctxModule}`, fn, agg.derived, struct));
   }
   // Derived fields (§B18) — an Ecto struct carries no computed field, so a
   // `derived isDraft: bool = …` has no `record.is_draft` to read (the wire path
@@ -401,12 +403,14 @@ export function derivedAccessorLines(
 function renderPureFunction(
   facadeMod: string,
   fn: FunctionIR,
+  derived: readonly DerivedIR[],
   struct: PureStruct = RELATIONAL_STRUCT,
 ): string[] {
   const fnSnake = snake(fn.name);
   const rc: RenderCtx = {
     thisName: "record",
     contextModule: facadeMod,
+    derivedDefs: derived,
     ...(struct.docStruct ? { docStruct: true } : {}),
   };
   const params = fn.params.map((p) =>
@@ -445,6 +449,7 @@ function renderPureOp(
     captureProvenance: false,
     // An `emit` in a branch is dropped like a top-level one (below).
     dropEmits: true,
+    derivedDefs: agg.derived,
     // Document struct mode reads/writes the `<Agg>.Data` embed the way the
     // persisted document op does (`docOpStructBody`), part constructors included.
     ...(struct.docStruct ? { docStruct: true, agg: agg as EnrichedAggregateIR } : {}),
@@ -537,7 +542,7 @@ export function renderEventSourcedPureCore(
     out.push("", ...renderEsPureOp(appModule, facadeMod, foldMod, eventsModule, op, agg));
   }
   for (const fn of agg.functions ?? []) {
-    out.push("", ...renderPureFunction(facadeMod, fn));
+    out.push("", ...renderPureFunction(facadeMod, fn, agg.derived));
   }
   out.push(...derivedAccessorLines(facadeMod, agg as EnrichedAggregateIR));
   return out;
@@ -649,7 +654,12 @@ function renderEsPureCreate(
   create: OperationIR,
   agg: AggregateIR,
 ): string[] {
-  const rc: RenderCtx = { thisName: "state", contextModule: facadeMod, idLocal: "id" };
+  const rc: RenderCtx = {
+    thisName: "state",
+    contextModule: facadeMod,
+    idLocal: "id",
+    derivedDefs: agg.derived,
+  };
   // A test passes the create input as an ATOM-keyed map (`%{owner: "Ada"}`); the
   // string key is the wire spelling, read as the fallback.
   const reads = create.params
@@ -729,7 +739,7 @@ function renderEsPureOp(
   op: OperationIR,
   agg: AggregateIR,
 ): string[] {
-  const rc: RenderCtx = { thisName: "state", contextModule: facadeMod };
+  const rc: RenderCtx = { thisName: "state", contextModule: facadeMod, derivedDefs: agg.derived };
   const used = op.params.filter((p) => op.statements.some((s) => stmtUsesParam(s, p.name)));
   const reads = used.map(
     (p) => `    ${escapeElixirIdent(snake(p.name))} = Map.get(params, ${JSON.stringify(p.name)})`,
