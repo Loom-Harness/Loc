@@ -21,6 +21,7 @@ import {
 } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { typeReachesMoney } from "../../_frontend/api-module.js";
+import { arrayInputRendererFor } from "../../_frontend/form-array-input.js";
 import {
   formSeedTs,
   idTargetHookVar,
@@ -547,6 +548,7 @@ function prepareFormFields(
     // Each field's identity-keyed label / enum option labels.
     fieldTokens: (vm: FormFieldVM) => formFieldModelTextTokens(ctx, vm),
     optionalGroup: optionalGroupRendererFor(ctx.target.framework),
+    arrayInput: arrayInputRendererFor(ctx.target.framework),
   };
   const fieldHtmls = fieldVMs.map((vm) => renderFormField(vm, ctx.pack, fieldChrome));
   if (fieldHtmls.some((h) => h.includes(`${FIELD_ERROR_TEXT}(`))) {

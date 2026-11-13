@@ -46,21 +46,7 @@ const ARMS: Record<Frontend, Record<string, unknown>> = {
 };
 
 /** Known stubs, each a tracked gap.  Keyed `<frontend>:<kind>`. */
-const STUBS: Record<string, string> = {
-  "react:scalarArray": "#5200",
-  "react:enumArray": "#5200",
-  "react:refArray": "#5200",
-  "vue:scalarArray": "#5200",
-  "vue:enumArray": "#5200",
-  "vue:refArray": "#5200",
-  "svelte:scalarArray": "#5200",
-  "svelte:enumArray": "#5200",
-  "svelte:refArray": "#5200",
-  "angular:scalarArray": "#5200",
-  "angular:enumArray": "#5200",
-  "angular:refArray": "#5200",
-  "flutter:refArray": "#5200",
-};
+const STUBS: Record<string, string> = {};
 
 const FIXTURE = readFileSync("test/behavioral/form-spec-ui.ddd", "utf8");
 

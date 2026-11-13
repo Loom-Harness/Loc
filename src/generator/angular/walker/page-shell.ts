@@ -38,6 +38,7 @@ import {
   fieldGroupControlDecl,
   fileUploadMethodLines,
   groupArrayMembers,
+  listInputMethodLines,
   optionalGroupNames,
 } from "../form-fields.js";
 import { submitInputExpr } from "../form-prefill.js";
@@ -889,6 +890,14 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     sink.modals.some((m) => m.hasFile)
   ) {
     members.push(fileUploadMethodLines().join("\n"));
+  }
+  if (
+    sink.forms.some((f) => f.hasList) ||
+    sink.opForms.some((f) => f.hasList) ||
+    sink.workflowForms.some((f) => f.hasList) ||
+    sink.modals.some((m) => m.hasList)
+  ) {
+    members.push(listInputMethodLines().join("\n"));
   }
 
   const angularForms = sink.forms;

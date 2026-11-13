@@ -82,7 +82,9 @@ export function needsController(
     // `useFieldArray` hook in `prepareFieldsAndImports`.
     if (inner.kind === "array") {
       const el = unwrapOpt(inner.element);
-      if (el.kind !== "valueobject") return false;
+      // A scalar / enum / reference collection is a `<Controller>`-bound
+      // collection input (`form-array-input.ts`).
+      if (el.kind !== "valueobject") return true;
       const vo = ctx.valueObjects.find((v) => v.name === el.name);
       return !!vo && vo.fields.some((f) => rowNeedsController(f.type, aggregatesByName));
     }

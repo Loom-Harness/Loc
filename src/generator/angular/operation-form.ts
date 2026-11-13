@@ -68,6 +68,7 @@ export interface AngularOperationFormSpec {
   /** True when the form has ≥1 `File` param — page-shell emits the shared
    *  `onFileUpload` method once per component. */
   hasFile?: boolean;
+  hasList?: boolean;
 }
 
 /** Resolve the operation the call targets, plus the template-scope id
@@ -166,6 +167,7 @@ export function renderAngularOperationForm(
         fieldGroups: [],
         groupMarkup: [],
         hasFileField: false,
+        hasListField: false,
       };
   const fieldMarkup = applyAngularValidators(parts, opInvariants, available, formVar, ns, ctx);
 
@@ -187,6 +189,7 @@ export function renderAngularOperationForm(
     fieldArrays: parts.fieldArrays,
     fieldGroups: parts.fieldGroups,
     hasFile: parts.hasFileField,
+    hasList: parts.hasListField,
     ...(nullable.length > 0 ? { nullable } : {}),
     ...(gate ? { gate: { local: gate.local, hook: gate.hook } } : {}),
   };
