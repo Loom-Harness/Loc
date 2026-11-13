@@ -1,0 +1,76 @@
+// Folded projection — what a freshly allocated row starts at (D-PROJECTION-ROW-SEED).
+//
+// A fold writes only the columns its event carries, so every other column of a
+// new row holds its starting value until some later event writes it.  The rule
+// is one for every backend (`foldRowSeeds`, src/ir/plan/projection-fold.ts):
+//
+//   - a field with a declared default starts at it;
+//   - a required field whose type has a neutral zero starts at that zero —
+//     `0` for an int or money, `false`, `""`, the empty list;
+//   - an optional field starts null;
+//   - a required field whose type has no neutral zero (a datetime, an enum, an
+//     id, a value object) must declare a default, or the fold is refused
+//     (`loom.projection-field-no-start`): a required column never holds null.
+//
+// The fold below writes ONE column, so every other column's wire value is its
+// starting value.  The wire golden records all of them; the `test e2e` block
+// asserts the ones with a portable spelling.
+system FoldInitialValuesSys {
+  subdomain Reading {
+    context Reading {
+      aggregate Article with crudish {
+        path: string
+        operation view() { emit ArticleViewed { articleRef: id } }
+      }
+      repository Articles for Article { }
+
+      event ArticleViewed { articleRef: Article id }
+
+      projection ArticleStats keyed by articleRef {
+        articleRef: Article id
+        views: int
+        spent: money
+        flagged: bool
+        label: string
+        tags: string[]
+        note: string?
+        bonus: int? = 5
+        lastSeen: datetime?
+        on(e: ArticleViewed) {
+          views += 1
+          bonus += 1
+        }
+      }
+    }
+  }
+  api ReadingApi from Reading
+  storage pg { type: postgres }
+  resource readingState { for: Reading, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Reading]
+    dataSources: [readingState]
+    serves: ReadingApi
+    port: 4000
+  }
+
+  test e2e "a fresh folded row starts every unwritten column at its seed" against d {
+    let p = api.articles.create({ path: "/home" })
+    api.articles.view(p)
+    let stats = api.articleStats.byKey(p.id)
+    expect(stats.views).toBe(1)
+    expect(stats.bonus).toBe(6)
+    expect(stats.flagged).toBe(false)
+    expect(stats.label).toBe("")
+    expect(stats.tags.length).toBe(0)
+    expect(stats.note).toBeNull()
+    expect(stats.lastSeen).toBeNull()
+
+    // The derived surface, so each derived route has a runtime caller.
+    expect(api.articles.getById(p).path).toBe("/home")
+    api.articles.update(p, { path: "/start" })
+    expect(api.articles.all().items.length).toBe(1)
+    api.articles.destroy(p)
+    expect(api.articles.getById(p)).toThrow(404)
+  }
+}

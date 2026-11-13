@@ -2,7 +2,7 @@ import type { AggregateIR } from "./aggregate.js";
 import type { BoundedContextIR, EnumIR, PayloadIR, ValueObjectIR } from "./context.js";
 import type { LoomInterface, NeedIR, SubdomainIR } from "./deployment.js";
 import type { ExprIR } from "./expr.js";
-import type { AssociationIR, CreateInputFieldIR, EntityPartIR } from "./members.js";
+import type { AssociationIR, EntityPartIR } from "./members.js";
 import type { SystemIR } from "./system.js";
 import type { RequirementIR, SolutionIR, TestCaseIR, TraceabilityIR } from "./traceability.js";
 import type { Sourced } from "./types.js";
@@ -272,11 +272,9 @@ export type EnrichedLoomModel = Omit<LoomModel, "systems" | "contexts" | "rootVa
 };
 
 export type EnrichedAggregateIR = AggregateIR & {
-  /** Always populated by `enrichLoomModel` (empty when none derived). */
+  /** Many-to-many associations derived from `Target id[]` fields, one per
+   * reference-collection field (`buildAssociations`).  Empty when none. */
   associations: AssociationIR[];
-  /** Always populated by `enrichLoomModel` (empty when the aggregate has
-   * no client-suppliable create fields). */
-  createInput: CreateInputFieldIR[];
   parts: EnrichedEntityPartIR[];
 };
 

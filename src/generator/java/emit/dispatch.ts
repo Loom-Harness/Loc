@@ -1,6 +1,12 @@
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
-import { esStarterSharesEvent, namesBound, subscriptionHandler } from "../../../ir/plan/index.js";
+import {
+  esStarterSharesEvent,
+  type FoldStep,
+  foldSteps,
+  namesBound,
+  subscriptionHandler,
+} from "../../../ir/plan/index.js";
 import type {
   ChannelIR,
   EnrichedBoundedContextIR,
@@ -8,7 +14,6 @@ import type {
   ExprIR,
   ProjectionIR,
   ProjectionOnIR,
-  StmtIR,
   WorkflowIR,
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
@@ -186,12 +191,12 @@ function projRepoField(proj: ProjectionIR): string {
   return `${lowerFirst(proj.name)}RowRepository`;
 }
 
-/** One pure projection fold (projection.md): a @EventListener that loads-or-
- *  allocates the read-model row for the event's key (every event allocates — a
- *  projection has no route-or-drop split), writes each `:=` through the row's
- *  setter, and saves.  Pure — no emit, no aggregate saves, no child frame.
- *  The correlation `:=` (if the fold spells it) is skipped: the key is the
- *  immutable `@EmbeddedId`, already seeded by `_allocate`. */
+/** One pure projection fold (projection.md): loads-or-allocates the read-model
+ *  row for the event's key (every event allocates — a projection has no
+ *  route-or-drop split), applies the fold plan's steps in order, and saves.
+ *  The key is the immutable `@EmbeddedId`, seeded by `_allocate`.  The method
+ *  carries no `@EventListener`: the dispatcher's `ReactorListener` runs it
+ *  after the command commits, in its own transaction. */
 function renderProjectionFold(
   proj: ProjectionIR,
   on: ProjectionOnIR,
@@ -201,6 +206,7 @@ function renderProjectionFold(
   const corr = proj.correlationField as string;
   const cls = projectionRowClass(proj);
   const repo = projRepoField(proj);
+  const steps = foldSteps(proj, on);
   // The event param is the method's own parameter — moved off `__key` /
   // `state` / the row repository it shares the method with.
   const foldNames = ["__key", "state", repo, cls];
@@ -208,11 +214,11 @@ function renderProjectionFold(
   // this-prop refs resolve through the row's record-style accessors
   // (`state.status()`); writes go through the JavaBean setter (spelled below).
   // A fold `let` is a local of the same method — moved off those names and the
-  // event param (`let boardRowRepository = …` shadowed the row repository the
-  // closing save dereferences).
+  // event param (`let boardRowRepository = …` would shadow the row repository
+  // the closing save dereferences).
   const renderCtx = withLetLocals(
     withEventParam({ thisName: "state", accessorProps: true }, sub.param, param),
-    on.statements.flatMap((st) => (st.kind === "let" ? [st.name] : [])),
+    steps.flatMap((st) => (st.kind === "let" ? [st.name] : [])),
     new Set([...foldNames, param]),
   );
   // Routing key: the `by <expr>` value, else the event field name-matching the
@@ -238,9 +244,7 @@ function renderProjectionFold(
         `        var __key = ${keyExpr};`,
         `        var state = ${repo}.findById(__key).orElseGet(() -> ${cls}._allocate(__key));`,
       ];
-  for (const stmt of on.statements) {
-    body.push(...renderProjectionFoldStmt(stmt, proj, on, corr, renderCtx));
-  }
+  for (const step of steps) body.push(...renderProjectionFoldStep(step, proj, renderCtx));
   body.push(`        ${repo}.save(state);`);
   return [
     `    @EventListener`,
@@ -256,93 +260,40 @@ function renderProjectionFold(
  *  on it is a compile error (`incomparable types: int and <null>`). */
 const JAVA_PRIMITIVES = new Set(["int", "long", "double", "float", "short", "byte", "boolean"]);
 
-/** Render ONE fold-body statement against the read-model `state` row.
- *
- *  This used to be `if (stmt.kind !== "assign") continue;` — so every other
- *  statement kind a fold body can carry vanished from the emitted listener with
- *  no diagnostic and no compile error (F2-XB-4): a `let` binding disappeared
- *  while its USES survived (`state.setAt(stamped);` → "cannot find symbol"),
- *  and `+=` / `-=` were dropped outright, so the column was never written.
- *
- *  The four pure fold kinds `checkProjections`
- *  (`src/ir/validate/checks/projection-checks.ts`) admits are now rendered here,
- *  mirroring hono's `renderFoldStatement`
- *  (`src/platform/hono/shared/projection-builder.ts`); everything else is an
- *  internal invariant violation and THROWS, because a dropped statement is worse
- *  than a crash — it ships. */
-function renderProjectionFoldStmt(
-  stmt: StmtIR,
+/** Render one fold-plan step against the read-model `state` row. */
+function renderProjectionFoldStep(
+  step: FoldStep,
   proj: ProjectionIR,
-  on: ProjectionOnIR,
-  corr: string,
   renderCtx: Parameters<typeof renderJavaExpr>[1],
 ): string[] {
   const expr = (e: ExprIR): string => renderJavaExpr(e, renderCtx);
-  const field = (): string => {
-    const segs =
-      stmt.kind === "assign" || stmt.kind === "add" || stmt.kind === "remove"
-        ? stmt.target.segments
-        : [];
-    return segs[segs.length - 1] ?? "";
-  };
-  switch (stmt.kind) {
-    case "assign": {
-      const f = field();
-      // The correlation `:=` is the immutable @EmbeddedId key, seeded by `_allocate`.
-      if (f === corr) return [];
-      return [`        state.set${upperFirst(f)}(${expr(stmt.value)});`];
-    }
+  switch (step.kind) {
+    case "set":
+      return [`        state.set${upperFirst(step.field)}(${expr(step.value)});`];
     case "let":
       // `let`-names may collide with a Java keyword; escape consistently with
       // the matching `refKind: "let"` use sites in `render-expr.ts`.
       return [
-        `        var ${renderCtx?.letExpr?.(stmt.name) ?? escapeJavaIdent(stmt.name)} = ${expr(stmt.expr)};`,
+        `        var ${renderCtx?.letExpr?.(step.name) ?? escapeJavaIdent(step.name)} = ${expr(step.expr)};`,
       ];
-    case "add": {
-      const f = field();
-      const value = expr(stmt.value);
-      if (stmt.collection) {
-        // Every non-key read-model column is NULLABLE (`_allocate` is an empty
-        // seed), so the list is materialised before the append — otherwise the
-        // first event for a key NPEs.
-        return [
-          `        if (state.${f}() == null) state.set${upperFirst(f)}(new java.util.ArrayList<>());`,
-          `        state.${f}().add(${value});`,
-        ];
-      }
-      return [`        state.set${upperFirst(f)}(${accumulateJava(proj, f, "+", value)});`];
-    }
-    case "remove": {
-      const f = field();
-      const value = expr(stmt.value);
-      if (stmt.collection) {
-        // `remove(int)` and `remove(Object)` are BOTH applicable for a
-        // `List<Integer>`, and overload resolution picks the INDEX one — box
-        // explicitly to reach the value overload (mirrors `render-stmt.ts`).
-        const boxed =
-          stmt.elementType.kind === "primitive" && stmt.elementType.name === "int"
-            ? `Integer.valueOf(${value})`
-            : value;
-        return [`        if (state.${f}() != null) state.${f}().remove(${boxed});`];
-      }
-      return [`        state.set${upperFirst(f)}(${accumulateJava(proj, f, "-", value)});`];
-    }
-    case "emit":
-    case "call":
-    case "precondition":
-    case "requires":
-    case "expression":
-    case "return":
-    case "variant-match":
-    case "if":
-      throw new Error(
-        `java projection fold: unsupported fold statement '${stmt.kind}' in ` +
-          `projection '${proj.name}' on(${on.param}: ${on.event}) — a fold applies pure ` +
-          `assignments / collection mutations / let bindings only; ` +
-          `'loom.projection-fold-impure' should have rejected this.`,
-      );
+    case "accumulate":
+      return [
+        `        state.set${upperFirst(step.field)}(${accumulateJava(proj, step.field, step.op, expr(step.value))});`,
+      ];
+    case "append":
+      // Every non-key read-model column is NULLABLE (`_allocate` is an empty
+      // seed), so the list is materialised before the append — otherwise the
+      // first event for a key NPEs.
+      return [
+        `        if (state.${step.field}() == null) state.set${upperFirst(step.field)}(new java.util.ArrayList<>());`,
+        `        state.${step.field}().add(${expr(step.value)});`,
+      ];
+    case "remove-all":
+      return [
+        `        if (state.${step.field}() != null) state.${step.field}().removeIf(__x -> java.util.Objects.equals(__x, ${expr(step.value)}));`,
+      ];
     default: {
-      const _exhaustive: never = stmt;
+      const _exhaustive: never = step;
       return _exhaustive;
     }
   }
@@ -455,6 +406,9 @@ export function renderJavaDispatcher(
   // The methods themselves still throw — the broker consumer and outbox relay
   // call them directly and retry / redeliver on the throw.
   const afterCommit: { method: string; event: string }[] = [];
+  // A tenant-scoped fold reads the event's origin, so the after-commit
+  // listener must replay it in the origin the event was raised in.
+  let foldReadsOrigin = false;
   const pushHandler = (method: string, event: string, ls: string[], reactor = false): void => {
     handlers.push({ method, event });
     const local = !relayDelivered(event);
@@ -463,9 +417,11 @@ export function renderJavaDispatcher(
   };
   for (const sub of subs) {
     // Projection fold (projection.md): a pure read-model upsert, not a saga.
-    // Load-or-allocate the row keyed by the correlation column, write each `:=`
-    // through the row's setter, save.  No emit, no aggregate saves, no child
-    // frame (enforced pure by `loom.projection-fold-impure`).
+    // Load-or-allocate the row keyed by the correlation column, apply the fold
+    // plan, save.  No emit, no aggregate saves, no child frame (enforced pure
+    // by `loom.projection-fold-impure`).  A locally delivered fold runs after
+    // the command commits, in its own transaction, like a reactor: a failing
+    // fold leaves the command committed and the row as it was.
     if (sub.projection) {
       const proj = projByName.get(sub.projection);
       if (!proj) continue;
@@ -475,7 +431,9 @@ export function renderJavaDispatcher(
         `on${upperFirst(proj.name)}On${upperFirst(sub.event)}`,
         sub.event,
         renderProjectionFold(proj, on, sub, dctx.basePkg),
+        true,
       );
+      if (foldTenancyFor(proj) && !relayDelivered(sub.event)) foldReadsOrigin = true;
       if (!touchedProjections.some((p) => p.name === proj.name)) touchedProjections.push(proj);
       continue;
     }
@@ -711,7 +669,7 @@ export function renderJavaDispatcher(
         // A reactor that reads the principal runs as the system principal of
         // the event's origin — which must be the origin the event was raised
         // in, not whichever frame is ambient once the commit lands.
-        methods.some((m) => m.includes("User.systemPrincipal("))
+        foldReadsOrigin || methods.some((m) => m.includes("User.systemPrincipal("))
           ? `${dctx.basePkg}.auth`
           : undefined,
       ),

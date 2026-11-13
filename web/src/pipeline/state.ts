@@ -27,7 +27,7 @@ import type {
   BundleOk,
   BundleResult,
 } from "../bundle/protocol.js";
-import type { BackendBundle } from "../engine/runtime-engine.js";
+import type { BackendBundle, FrontendBundle } from "../engine/runtime-engine.js";
 import type {
   BlockingMigrationState,
   BootFailAt,
@@ -51,8 +51,8 @@ export type GenerateSlot =
 export type BundleSlot =
   | { kind: "none" }
   /** `backends`: one bundle per Node deployable, the default dispatch
-   *  target first. */
-  | { kind: "result"; backends: BackendBundle[]; react: BundleResult | null };
+   *  target first; `frontends`: one bundle per frontend, sorted by slug. */
+  | { kind: "result"; backends: BackendBundle[]; frontends: FrontendBundle[] };
 
 export type BootSlot =
   | { kind: "none" }
@@ -147,9 +147,9 @@ export type PipelineAction =
   // Generate
   | { type: "GENERATE_START" }
   | { type: "GENERATE_DONE"; result: GenerateResult }
-  // Bundle (one Bundle click does every Hono backend + optionally React)
+  // Bundle (one Bundle click does every Hono backend + every frontend)
   | { type: "BUNDLE_START" }
-  | { type: "BUNDLE_DONE"; backends: BackendBundle[]; react: BundleResult | null }
+  | { type: "BUNDLE_DONE"; backends: BackendBundle[]; frontends: FrontendBundle[] }
   // Boot
   | { type: "BOOT_START" }
   /** `head`: the chain unit the database is at after this boot (`null` for an
@@ -245,9 +245,17 @@ export function backendBundlesOk(
   return out;
 }
 
-export function reactBundleOk(s: PipelineState): BundleOk | null {
-  if (s.bundle.kind !== "result" || s.bundle.react === null) return null;
-  return s.bundle.react.ok ? s.bundle.react : null;
+/** The bundle result of the frontend `slug` — or of the first frontend when
+ *  `slug` names none.  Null before a bundle and when there is no frontend. */
+export function frontendBundleResult(s: PipelineState, slug: string | null): BundleResult | null {
+  if (s.bundle.kind !== "result") return null;
+  const { frontends } = s.bundle;
+  return (frontends.find((f) => f.slug === slug) ?? frontends[0])?.bundle ?? null;
+}
+
+export function reactBundleOk(s: PipelineState, slug: string | null): BundleOk | null {
+  const r = frontendBundleResult(s, slug);
+  return r?.ok ? r : null;
 }
 
 export function bootedDDL(s: PipelineState): string | null {

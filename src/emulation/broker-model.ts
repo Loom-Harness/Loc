@@ -1,7 +1,8 @@
 // The playground's message broker: one state, three broker behaviours.
 //
-// Every deployable's `ChannelTransport` facade talks to this one model (in the
-// infra worker), so the state a real broker owns is owned once here too:
+// Every deployable's `ChannelTransport` talks to one model per host (the
+// playground's infra worker holds one), so the state a real broker owns is
+// owned once here too:
 //
 //   redis     pub/sub — every subscriber of the address gets every message
 //             while it is subscribed; nothing is kept, acknowledged or
@@ -22,8 +23,8 @@
 //             record at a time and advances on ack; a nack parks the record
 //             on `<address>.dlq` and advances (the generated driver's v1).
 //
-// Pure: no worker globals.  The infra worker wires `send` to the client's
-// port; tests drive the model directly.
+// Pure: no worker or Node globals.  The playground's infra worker wires `send`
+// to the client's port; tests drive the model directly.
 
 import {
   type BrokerDelivery,
@@ -32,6 +33,8 @@ import {
   type BrokerKind,
   type BrokerNackResult,
   type BrokerPublishParams,
+  type BrokerRedriveParams,
+  type BrokerSeekParams,
   type BrokerSubscribeParams,
   KAFKA_PARTITIONS,
   RABBIT_MAX_ATTEMPTS,
@@ -40,18 +43,39 @@ import {
 /** Records retained per kafka partition before the oldest is dropped. */
 export const KAFKA_RETAINED_PER_PARTITION = 10_000;
 const JOURNAL_SIZE = 1_000;
+const INSPECT_TAIL = 50;
 
-/** What the emulation knowingly does differently from the real brokers. */
-export const BROKER_EMULATION_NOTES: BrokerInspectResult["emulated"] = [
+/** What the emulation knowingly does differently from the real brokers, for
+ *  a model that keeps `retained` records per kafka partition. */
+function emulationNotes(retained: number): BrokerInspectResult["emulated"] {
+  return [
+    {
+      transport: "kafka",
+      note: `retention keeps the last ${retained} records per partition (no time- or size-based retention)`,
+    },
+    ...FIXED_NOTES,
+  ];
+}
+
+const FIXED_NOTES: BrokerInspectResult["emulated"] = [
   {
     transport: "kafka",
-    note: `retention keeps the last ${KAFKA_RETAINED_PER_PARTITION} records per partition (no time- or size-based retention)`,
+    note: "partition by a stable string hash of the key, not kafkajs's murmur2 partitioner",
   },
-  { transport: "kafka", note: "partition by a stable string hash of the key, not kafkajs's murmur2 partitioner" },
   { transport: "kafka", note: "a topic is created on its first publish or subscribe" },
-  { transport: "rabbitmq", note: "queues and messages live in memory: a Reset or a reload loses them (no disk persistence)" },
-  { transport: "redis", note: "no connection loss: a subscriber never misses a message while subscribed" },
+  {
+    transport: "rabbitmq",
+    note: "queues and messages live in memory: a Reset or a reload loses them (no disk persistence)",
+  },
+  {
+    transport: "redis",
+    note: "no connection loss: a subscriber never misses a message while subscribed",
+  },
 ];
+
+export const BROKER_EMULATION_NOTES: BrokerInspectResult["emulated"] = emulationNotes(
+  KAFKA_RETAINED_PER_PARTITION,
+);
 
 interface Sub {
   id: string;
@@ -131,7 +155,14 @@ interface KafkaTopic {
 type Inflight =
   | { transport: "redis"; sub: string; address: string; body: string }
   | { transport: "rabbitmq"; sub: string; queue: string }
-  | { transport: "kafka"; sub: string; topic: string; group: string; partition: number; offset: number };
+  | {
+      transport: "kafka";
+      sub: string;
+      topic: string;
+      group: string;
+      partition: number;
+      offset: number;
+    };
 
 /** A stable 32-bit string hash (FNV-1a). */
 function hash(text: string): number {
@@ -150,12 +181,36 @@ export interface BrokerModelOptions {
    *  pass a synchronous scheduler. */
   schedule?: (fn: () => void) => void;
   now?: () => number;
+  /** rabbitmq: the delivery attempt after which a failed message is
+   *  dead-lettered.  Default RABBIT_MAX_ATTEMPTS. */
+  maxAttempts?: number;
+  /** kafka: records kept per partition.  Default KAFKA_RETAINED_PER_PARTITION. */
+  retainedPerPartition?: number;
+  /** Journal lines kept.  Default 1000. */
+  journalSize?: number;
+  /** kafka: the newest records per partition `inspect()` returns.  Default 50. */
+  inspectTail?: number;
+  /** Where a dead letter is parked: rabbitmq's queue and the exchange that
+   *  routes to it, and kafka's topic.  Defaults are the generated drivers'
+   *  names. */
+  deadLetter?: {
+    exchange?: string;
+    rabbitmq?: (address: string) => string;
+    kafka?: (topic: string) => string;
+  };
 }
 
 export class BrokerModel {
   private readonly send: BrokerModelOptions["send"];
   private readonly schedule: (fn: () => void) => void;
   private readonly now: () => number;
+  private readonly maxAttempts: number;
+  private readonly retained: number;
+  private readonly journalSize: number;
+  private readonly inspectTail: number;
+  private readonly dlx: string;
+  private readonly rabbitDlq: (address: string) => string;
+  private readonly kafkaDlq: (topic: string) => string;
 
   private nextSub = 1;
   private nextDelivery = 1;
@@ -174,6 +229,13 @@ export class BrokerModel {
     this.send = opts.send;
     this.schedule = opts.schedule ?? ((fn) => setTimeout(fn, 0));
     this.now = opts.now ?? (() => Date.now());
+    this.maxAttempts = opts.maxAttempts ?? RABBIT_MAX_ATTEMPTS;
+    this.retained = opts.retainedPerPartition ?? KAFKA_RETAINED_PER_PARTITION;
+    this.journalSize = opts.journalSize ?? JOURNAL_SIZE;
+    this.inspectTail = opts.inspectTail ?? INSPECT_TAIL;
+    this.dlx = opts.deadLetter?.exchange ?? "loom.dlx";
+    this.rabbitDlq = opts.deadLetter?.rabbitmq ?? ((address) => `loom.dlq.${address}`);
+    this.kafkaDlq = opts.deadLetter?.kafka ?? ((topic) => `${topic}.dlq`);
   }
 
   // -- public surface --------------------------------------------------------
@@ -187,7 +249,12 @@ export class BrokerModel {
           const sub = this.subs.get(subId);
           if (!sub) continue;
           const deliveryId = this.nextDelivery++;
-          this.inflight.set(deliveryId, { transport: "redis", sub: subId, address: p.address, body: p.body });
+          this.inflight.set(deliveryId, {
+            transport: "redis",
+            sub: subId,
+            address: p.address,
+            body: p.body,
+          });
           this.deliver(sub, deliveryId, p.body, 1, false, null);
         }
         return;
@@ -223,12 +290,18 @@ export class BrokerModel {
         // The generated driver's topology: the queue IS the consumer group.
         const queueName = p.group ?? p.address;
         this.exchange(p.address);
-        this.exchange("loom.dlx");
-        const dlq = this.assertQueue(`loom.dlq.${p.address}`, p.address);
-        this.exchange("loom.dlx").add(dlq.name);
+        this.exchange(this.dlx);
+        const dlq = this.assertQueue(this.rabbitDlq(p.address), p.address);
+        this.exchange(this.dlx).add(dlq.name);
         const q = this.assertQueue(queueName, p.address);
         this.exchange(p.address).add(q.name);
-        this.subs.set(id, { id, client, transport: "rabbitmq", address: p.address, group: queueName });
+        this.subs.set(id, {
+          id,
+          client,
+          transport: "rabbitmq",
+          address: p.address,
+          group: queueName,
+        });
         q.consumers.push(id);
         this.pumpQueue(q);
         return id;
@@ -316,7 +389,13 @@ export class BrokerModel {
     const sub = this.subs.get(f.sub);
     switch (f.transport) {
       case "redis":
-        this.record({ transport: "redis", kind: "acked", address: f.address, ...peek(f.body), client: sub?.client ?? null });
+        this.record({
+          transport: "redis",
+          kind: "acked",
+          address: f.address,
+          ...peek(f.body),
+          client: sub?.client ?? null,
+        });
         return;
       case "rabbitmq": {
         const q = this.queues.get(f.queue);
@@ -368,7 +447,14 @@ export class BrokerModel {
     switch (f.transport) {
       case "redis":
         // Fire-and-forget: the subscriber logged it; the message is gone.
-        this.record({ transport: "redis", kind: "dropped", address: f.address, ...peek(f.body), client, error });
+        this.record({
+          transport: "redis",
+          kind: "dropped",
+          address: f.address,
+          ...peek(f.body),
+          client,
+          error,
+        });
         return { outcome: "dropped", attempts: 1 };
       case "rabbitmq": {
         const q = this.queues.get(f.queue);
@@ -377,17 +463,25 @@ export class BrokerModel {
         q.unacked.delete(deliveryId);
         const env = peek(u.msg.body);
         const attempts = u.msg.attempts;
-        if (!poison && attempts < RABBIT_MAX_ATTEMPTS) {
+        if (!poison && attempts < this.maxAttempts) {
           // The driver republishes to the queue's tail with the attempt
           // header bumped, then acks the original.
           q.ready.push({ body: u.msg.body, attempts: attempts + 1, redelivered: false });
-          this.record({ transport: "rabbitmq", kind: "retried", address: q.address, ...env, client, group: q.name, error });
+          this.record({
+            transport: "rabbitmq",
+            kind: "retried",
+            address: q.address,
+            ...env,
+            client,
+            group: q.name,
+            error,
+          });
           this.pumpQueue(q);
           return { outcome: "retried", attempts };
         }
         // nack without requeue → the queue's DLX `loom.dlx`, routing key
         // = the address → `loom.dlq.<address>`.
-        const dlq = this.assertQueue(`loom.dlq.${q.address}`, q.address);
+        const dlq = this.assertQueue(this.rabbitDlq(q.address), q.address);
         dlq.ready.push({ body: u.msg.body, attempts, redelivered: false });
         this.record({
           transport: "rabbitmq",
@@ -411,7 +505,7 @@ export class BrokerModel {
         const rec = this.recordAt(topic, f.partition, f.offset);
         // v1 dead letter: park onto `<address>.dlq` and advance, so the
         // partition keeps moving.
-        const parkedAt = `${topic.name}.dlq`;
+        const parkedAt = this.kafkaDlq(topic.name);
         if (rec) this.append(parkedAt, rec.key, rec.body, false);
         group.inflight[f.partition] = null;
         group.committed[f.partition] = f.offset + 1;
@@ -444,7 +538,10 @@ export class BrokerModel {
     const clientOf = (subId: string): string => this.subs.get(subId)?.client ?? subId;
     return {
       redis: {
-        channels: [...this.redisChannels].map(([name, set]) => ({ name, subscribers: [...set].map(clientOf) })),
+        channels: [...this.redisChannels].map(([name, set]) => ({
+          name,
+          subscribers: [...set].map(clientOf),
+        })),
       },
       rabbitmq: {
         exchanges: [...this.exchanges].map(([name, queues]) => ({ name, queues: [...queues] })),
@@ -456,30 +553,128 @@ export class BrokerModel {
           messages: [...q.ready, ...[...q.unacked.values()].map((u) => u.msg)].map((m) => ({
             ...peek(m.body),
             attempts: m.attempts,
+            body: m.body,
           })),
         })),
       },
       kafka: {
         topics: [...this.topics.values()].map((t) => ({
           name: t.name,
-          partitions: t.partitions.map((p) => ({ start: p.start, end: p.start + p.records.length })),
+          partitions: t.partitions.map((p) => ({
+            start: p.start,
+            end: p.start + p.records.length,
+          })),
           groups: [...t.groups.values()].map((g) => ({
             group: g.name,
             members: g.members.map(clientOf),
             offsets: [...g.committed],
           })),
+          records: t.partitions.flatMap((p, partition) =>
+            p.records.slice(-this.inspectTail).map((r) => ({
+              partition,
+              offset: r.offset,
+              key: r.key,
+              ...peek(r.body),
+              body: r.body,
+            })),
+          ),
         })),
       },
       journal: [...this.journal],
-      emulated: BROKER_EMULATION_NOTES,
+      emulated: emulationNotes(this.retained),
     };
+  }
+
+  /** Move a kafka consumer group's committed offset — on one partition, or on
+   *  every partition — clamped to what is retained, then resume delivery from
+   *  there.  Refused while a moved partition has a delivery in flight: a real
+   *  group's offsets can only be reset while it is not consuming them. */
+  seek(p: BrokerSeekParams): { partitions: number[] } {
+    const topic = this.topics.get(p.topic);
+    const group = topic?.groups.get(p.group);
+    if (!topic || !group) throw new Error(`no consumer group '${p.group}' on topic '${p.topic}'`);
+    const partitions =
+      p.partition === undefined ? topic.partitions.map((_, i) => i) : [p.partition];
+    for (const i of partitions) {
+      if (!topic.partitions[i]) throw new Error(`topic '${p.topic}' has no partition ${i}`);
+      if (group.inflight[i] !== null) {
+        throw new Error(`partition ${i} of '${p.topic}' has a delivery in flight for '${p.group}'`);
+      }
+    }
+    for (const i of partitions) {
+      const part = topic.partitions[i] as KafkaPartition;
+      const offset = Math.min(Math.max(p.offset, part.start), part.start + part.records.length);
+      group.committed[i] = offset;
+      this.record({
+        transport: "kafka",
+        kind: "seeked",
+        address: topic.name,
+        id: String(offset),
+        type: `partition ${i}`,
+        client: null,
+        group: group.name,
+      });
+    }
+    this.pumpGroup(topic, group);
+    return { partitions };
+  }
+
+  /** Send every parked dead letter back where it failed: a rabbitmq DLQ's
+   *  ready messages to the queues bound to its address (attempts start over),
+   *  a kafka `.dlq` topic's retained records onto the topic it names (the
+   *  `.dlq` topic is emptied). */
+  redrive(p: BrokerRedriveParams): { moved: number } {
+    if (p.transport === "rabbitmq") {
+      const dlq = this.queues.get(p.deadLetter);
+      if (!dlq) throw new Error(`no dead-letter queue '${p.deadLetter}'`);
+      const messages = dlq.ready.splice(0);
+      const targets = [...this.exchange(dlq.address)]
+        .filter((name) => name !== dlq.name)
+        .map((name) => this.queues.get(name))
+        .filter((q): q is RabbitQueue => q !== undefined);
+      for (const m of messages) {
+        this.record({
+          transport: "rabbitmq",
+          kind: "redriven",
+          address: dlq.address,
+          ...peek(m.body),
+          client: null,
+          group: dlq.name,
+        });
+        for (const q of targets) q.ready.push({ body: m.body, attempts: 1, redelivered: false });
+      }
+      for (const q of targets) this.pumpQueue(q);
+      return { moved: messages.length };
+    }
+    const origin = [...this.topics.keys()].find((t) => this.kafkaDlq(t) === p.deadLetter);
+    const dlq = this.topics.get(p.deadLetter);
+    if (!origin || !dlq) throw new Error(`no dead-letter topic '${p.deadLetter}'`);
+    let moved = 0;
+    for (const part of dlq.partitions) {
+      for (const r of part.records) {
+        this.record({
+          transport: "kafka",
+          kind: "redriven",
+          address: origin,
+          ...peek(r.body),
+          client: null,
+          group: dlq.name,
+        });
+        this.append(origin, r.key, r.body);
+        moved++;
+      }
+      part.start += part.records.length;
+      part.records = [];
+    }
+    return { moved };
   }
 
   // -- internals -------------------------------------------------------------
 
   private record(e: Omit<BrokerJournalEntry, "seq" | "at">): void {
     this.journal.push({ seq: ++this.seq, at: this.now(), ...e });
-    if (this.journal.length > JOURNAL_SIZE) this.journal.splice(0, this.journal.length - JOURNAL_SIZE);
+    if (this.journal.length > this.journalSize)
+      this.journal.splice(0, this.journal.length - this.journalSize);
   }
 
   private deliver(
@@ -498,7 +693,14 @@ export class BrokerModel {
       client: sub.client,
       group,
     });
-    const delivery: BrokerDelivery = { push: "broker", subId: sub.id, deliveryId, body, attempts, redelivered };
+    const delivery: BrokerDelivery = {
+      push: "broker",
+      subId: sub.id,
+      deliveryId,
+      body,
+      attempts,
+      redelivered,
+    };
     this.schedule(() => {
       // Delivered to a subscription that has since gone: nothing to do — its
       // in-flight state was already returned when it left.
@@ -566,7 +768,7 @@ export class BrokerModel {
     const index = (key === null ? hash(body) : hash(key)) % KAFKA_PARTITIONS;
     const part = topic.partitions[index] as KafkaPartition;
     part.records.push({ offset: part.start + part.records.length, key, body });
-    if (part.records.length > KAFKA_RETAINED_PER_PARTITION) {
+    if (part.records.length > this.retained) {
       part.records.shift();
       part.start++;
     }
@@ -623,4 +825,10 @@ export class BrokerModel {
       this.deliver(sub, deliveryId, rec.body, 1, false, group.name);
     });
   }
+}
+
+/** A fresh broker — one per host (the playground keeps one; a Node test run one
+ *  per case). */
+export function createBroker(opts: BrokerModelOptions): BrokerModel {
+  return new BrokerModel(opts);
 }

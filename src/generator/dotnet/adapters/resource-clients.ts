@@ -12,9 +12,12 @@ import type { DataSourceIR, StorageIR } from "../../../ir/types/loom-ir.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { upperFirst } from "../../../util/naming.js";
 import {
+  RESOURCE_HOST_ENV,
+  resourceEnvDirVar,
   resourceEnvEndpointVar,
   resourceEnvUrlVar,
   resourceSidecarUrl,
+  SENDGRID_API_BASE,
 } from "../../../util/resource-env.js";
 
 export interface DotnetResourceAdapter {
@@ -217,7 +220,7 @@ const localDiskDotnetAdapter: DotnetResourceAdapter = {
       const cls = upperFirst(r.name);
       lines.push(
         `    private static readonly string ${cls}Dir =`,
-        `        Environment.GetEnvironmentVariable("${envVar(r.name).replace(/_URL$/, "")}_DIR") ?? Path.Combine("data", ${JSON.stringify(r.name)});`,
+        `        Environment.GetEnvironmentVariable("${resourceEnvDirVar(r.name)}") ?? Path.Combine("data", ${JSON.stringify(r.name)});`,
         "",
         // Guard against path traversal: minted keys are GUIDs, but a
         // GET /files/{key} param is caller-supplied, so keep it inside the dir.
@@ -479,7 +482,7 @@ const smtpDotnetAdapter: DotnetResourceAdapter = {
 
 const sesDotnetAdapter: DotnetResourceAdapter = {
   name: "ses",
-  nugetDeps: () => ({ "AWSSDK.SimpleEmail": "3.7.400.108" }),
+  nugetDeps: () => ({ "AWSSDK.SimpleEmail": "3.7.401" }),
   emitClientClass(resources, stores, ns): string {
     const lines: string[] = [
       "// Auto-generated.",
@@ -497,7 +500,10 @@ const sesDotnetAdapter: DotnetResourceAdapter = {
     for (const r of resources) {
       const cls = upperFirst(r.name);
       lines.push(
-        `    private static readonly AmazonSimpleEmailServiceClient ${cls}Client = new AmazonSimpleEmailServiceClient();`,
+        `    private static readonly AmazonSimpleEmailServiceClient ${cls}Client =`,
+        `        Environment.GetEnvironmentVariable("${RESOURCE_HOST_ENV.ses(r.name)}") is { Length: > 0 } ${cls.toLowerCase()}Endpoint`,
+        `            ? new AmazonSimpleEmailServiceClient(new AmazonSimpleEmailServiceConfig { ServiceURL = ${cls.toLowerCase()}Endpoint })`,
+        "            : new AmazonSimpleEmailServiceClient();",
         `    private static readonly string ${cls}From =`,
         `        Environment.GetEnvironmentVariable("${envStem(r.name)}_FROM") ?? ${JSON.stringify(mailFrom(r, stores))};`,
         "",
@@ -546,7 +552,11 @@ const sendgridDotnetAdapter: DotnetResourceAdapter = {
         "",
         `    public static async Task ${cls}_Send(string to, string subject, string body)`,
         "    {",
-        '        var client = new SendGridClient(Environment.GetEnvironmentVariable("SENDGRID_API_KEY") ?? "");',
+        "        var client = new SendGridClient(new SendGridClientOptions",
+        "        {",
+        '            ApiKey = Environment.GetEnvironmentVariable("SENDGRID_API_KEY") ?? "",',
+        `            Host = Environment.GetEnvironmentVariable("${RESOURCE_HOST_ENV.sendgrid(r.name)}") is { Length: > 0 } endpoint ? endpoint : ${JSON.stringify(SENDGRID_API_BASE)},`,
+        "        });",
         `        var msg = MailHelper.CreateSingleEmail(new EmailAddress(${cls}From), new EmailAddress(to), subject, body, body);`,
         "        await client.SendEmailAsync(msg);",
         "    }",

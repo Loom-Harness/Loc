@@ -1,4 +1,4 @@
-import { Box, Button, Group, Text } from "@mantine/core";
+import { Box, Button, Group, Select, Text } from "@mantine/core";
 import { selectNodePath } from "../build/select-target";
 import { Preview } from "../preview/Preview";
 import { formatUnsupportedDeployables, type LayoutCtx } from "./ctx";
@@ -26,6 +26,7 @@ function PreviewPaneView({ ctx }: Props): JSX.Element {
     isDesktop,
     pipeline,
   } = ctx;
+  const picker = <FrontendPicker ctx={ctx} />;
   // Mobile has one "Run" button that spans Generate → Bundle → Boot;
   // desktop exposes the three steps separately.  Name the control the
   // user can actually see.
@@ -42,7 +43,9 @@ function PreviewPaneView({ ctx }: Props): JSX.Element {
       : "This example has no React frontend.  Pick a system-mode example (e.g. Sales System) to use Preview.";
 
   return (
-    <Box style={{ flex: 1, minHeight: 0, position: "relative" }}>
+    <Box style={{ flex: 1, minHeight: 0, position: "relative", display: "flex", flexDirection: "column" }}>
+      {picker}
+      <Box style={{ flex: 1, minHeight: 0, position: "relative" }}>
       {previewBundle && previewBooted && engine ? (
         <>
           <Preview
@@ -104,7 +107,43 @@ function PreviewPaneView({ ctx }: Props): JSX.Element {
           </Text>
         </Box>
       )}
+      </Box>
     </Box>
+  );
+}
+
+/** Which frontend the preview renders, when the system has more than one.
+ *  Each option names the backend that frontend's `targets:` points at — the
+ *  backend its API calls go to. */
+function FrontendPicker({ ctx }: { ctx: LayoutCtx }): JSX.Element | null {
+  const { previewFrontends, previewFrontend, setPreviewFrontend } = ctx;
+  if (previewFrontends.length < 2) return null;
+  return (
+    <Group
+      gap={6}
+      px="sm"
+      py={4}
+      wrap="nowrap"
+      style={{ borderBottom: "1px solid var(--loom-border)", background: "var(--loom-bg-raised)" }}
+    >
+      <Text size="xs" c="dimmed">
+        Frontend
+      </Text>
+      <Select
+        size="xs"
+        allowDeselect={false}
+        data-testid="preview-frontend"
+        aria-label="Frontend to preview"
+        value={previewFrontend}
+        onChange={(v) => v && setPreviewFrontend(v)}
+        data={previewFrontends.map((f) => ({
+          value: f.slug,
+          label: f.apiTarget ? `${f.slug} → ${f.apiTarget}` : f.slug,
+        }))}
+        comboboxProps={{ withinPortal: true }}
+        style={{ flex: 1, minWidth: 0, maxWidth: 280 }}
+      />
+    </Group>
   );
 }
 

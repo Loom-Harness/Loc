@@ -36,7 +36,7 @@ system Shop {
       projection OrderBoard keyed by orderRef {
         orderRef: Order id
         status: BoardStatus
-        on(e: OrderPlaced) { orderRef := e.orderRef  status := Placed }
+        on(e: OrderPlaced) { status := Placed }
       }
     }
   }

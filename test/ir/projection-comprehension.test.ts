@@ -127,7 +127,7 @@ describe("projection comprehension — lowering", () => {
       "OrderBook",
       `projection OrderBook keyed by order {
         order: Order id  status: OrderStatus
-        on(e: OrderPlaced) { order := e.order  status := Confirmed }
+        on(e: OrderPlaced) { status := Confirmed }
       }`,
     );
     expect(isMaterializedProjection(folded)).toBe(true);
@@ -183,7 +183,7 @@ describe("projection comprehension — validation gates", () => {
     const codes = await projectionErrorCodes(`
       projection Hybrid keyed by orderId {
         orderId: Order id  status: OrderStatus
-        on(e: OrderPlaced) { orderId := e.order }
+        on(e: OrderPlaced) { }
         from Order as o where o.status == Confirmed
         select orderId = o.id
       }
@@ -245,7 +245,7 @@ describe("projection comprehension — validation gates", () => {
     const codes = await projectionErrorCodes(`
       projection OrderBook keyed by order {
         order: Order id  status: OrderStatus
-        on(e: OrderPlaced) { order := e.order  status := Confirmed }
+        on(e: OrderPlaced) { status := Confirmed }
       }
     `);
     expect(codes).not.toContain("loom.projection-query-and-fold-invalid");

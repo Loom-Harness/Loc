@@ -1,4 +1,5 @@
 import {
+  channelPlan,
   hasDurableEvents,
   routedPolymorphicRead,
   workflowIsolation,
@@ -16,7 +17,6 @@ import { migratesAtBoot } from "../../../ir/util/databases.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../../../generator/_adapters/index.js";
 import { UUID_PATTERN } from "../../../generator/_auth/claim-decode.js";
 import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV } from "../../../generator/_auth/dev-claims.js";
-import { brokerChannelBindings } from "../../../generator/_channels/bindings.js";
 import { hasDomainFloorMessages } from "../../../generator/_i18n/domain-floor.js";
 import { ref, spellMarkers } from "../../../generator/_imports/symbol.js";
 import { finalizeTsModule, tsImportSlot, tsNamed } from "../../../generator/_imports/ts.js";
@@ -103,7 +103,6 @@ import {
 } from "../../../generator/typescript/repository-port-builder.js";
 import { TsOutputMap } from "../../../generator/typescript/ts-output.js";
 import { T, TT } from "../../../generator/typescript/ts-symbols.js";
-import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import {
   brokerBoundChannelsCarrying,
   forwardsCallerCredential,
@@ -941,15 +940,13 @@ export function generateTypeScriptForContexts(
   // Union the hosted contexts into one synthetic context (ambient enums / VOs
   // deduped by name — see src/ir/util/merge-contexts.ts) so the shared domain /
   // schema modules reflect the FULL set.
-  // Broker bindings (channels.md; M-T4.4): the redis-bound broadcast
-  // channelSources this deployable wires via `channels:`.  Computed up front
-  // because they widen the merged vocabulary below — a consumer deployable
-  // need not HOST the channel's owning context to react to its events; the
-  // wired binding is what carries the routing knowledge across deployables.
-  // Persistence-neutral since M-T6.23: `http/channels.ts` (the driver,
-  // producer tee and consumer loop) reads no `db` at all, and the outbox relay
-  // it publishes drained rows through now emits on both adapters.
-  const channelBindings = brokerChannelBindings(system.deployable, system.sys);
+  // The deployable's channel plan (channels.md "Event routing"): its broker
+  // bindings, and the subscriptions routed off its hosted channels plus the
+  // wired channels it does not host.  Computed up front because the bindings
+  // widen the merged vocabulary below — a consumer deployable need not HOST
+  // the channel's owning context to react to its events.
+  const chPlan = channelPlan(contexts, system);
+  const channelBindings = chPlan.bindings;
   // Durable broker-bound events (M-T4.4): carried by a wired
   // `queue`/`work` (or future `log`) channel — the producer path for these
   // rides the outbox relay (design §5), never the inline tee.
@@ -959,25 +956,7 @@ export function generateTypeScriptForContexts(
       .flatMap((b) => b.events),
   );
   const mergedBase = mergeContexts(contexts);
-  const hostedChannelNames = new Set(contexts.flatMap((c) => c.channels).map((ch) => ch.name));
-  // Wired-but-foreign channels join the carrier set as minimal ChannelIR
-  // stubs carrying the channel's REAL semantics knobs (a foreign `queue`/
-  // `work` channel must drive the consumer's idempotency markers), so
-  // `deriveEventSubscriptions` routes a hosted reactor off a channel
-  // declared in a non-hosted context.
-  const wiredForeignChannels = channelBindings
-    .filter((b) => !hostedChannelNames.has(b.channelName))
-    .map((b) => ({
-      name: b.channelName,
-      carries: b.events,
-      delivery: b.delivery,
-      retention: b.retention,
-    }));
-  const mergedSubscriptions = deriveEventSubscriptions(
-    [...contexts.flatMap((c) => c.channels), ...wiredForeignChannels],
-    contexts.flatMap((c) => c.workflows),
-    contexts.flatMap((c) => c.projections ?? []),
-  );
+  const mergedSubscriptions = chPlan.subscriptions;
   // Foreign events a hosted workflow consumes through a wired channel join
   // the deployable's event vocabulary: `domain/events.ts` needs the type
   // (the reactor handler references it) and the DomainEvent union carries it.
@@ -1816,6 +1795,11 @@ export function generateTypeScriptForContexts(
     inProcessDispatcherEmitted: /^export function createInProcessDispatcher\(/m.test(
       out.get("http/workflows.ts") ?? "",
     ),
+    // `http/projections.ts` exports `projectionTee` when a hosted context has a
+    // folded projection; every dispatcher boot builds must fold through it.
+    projectionTeeEmitted: /^export function projectionTee\(/m.test(
+      out.get("http/projections.ts") ?? "",
+    ),
     orgRegistry: authRequired ? hostedOrgRegistry(system.sys, system.deployable) : undefined,
   };
   out.set("boot.ts", renderProjectBootTs(entryConfig));
@@ -2277,6 +2261,8 @@ interface ProjectEntryConfig {
    *  published through the tee, so a consumer on another deployable sees it. */
   readonly timerTicksOverBroker: boolean;
   readonly inProcessDispatcherEmitted: boolean;
+  /** `http/projections.ts` exports `projectionTee`. */
+  readonly projectionTeeEmitted: boolean;
   /** The tenancy registry this deployable hosts, when the operating-scope
    *  switch gate is emitted: boot binds the gate's registry reads to the db. */
   readonly orgRegistry?: {
@@ -2330,6 +2316,7 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
     hasChannelConsumers,
     timerTicksOverBroker,
     inProcessDispatcherEmitted,
+    projectionTeeEmitted,
   } = cfg;
   const seedCall = runSeedsAtBoot
     ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the __loom_seed marker; idempotent across boots.\nawait ${T.runSeeds}(db);\n`
@@ -2400,6 +2387,11 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
           "",
         ].join("\n");
       })();
+  // Every dispatcher boot builds folds the projections on the way through, as
+  // `createApp`'s default chain does: an event reaching the in-process
+  // dispatcher by the relay, a broker consumer or the scheduler folds too.
+  const folding = (inner: string): string =>
+    projectionTeeEmitted ? `${T.projectionTee}(db, ${inner})` : inner;
   // The in-process dispatcher is constructed once and shared by the outbox
   // relay and/or the timer scheduler (scheduling.md).
   const needsDispatcher = outboxRelay || hasTimers || hasChannels;
@@ -2427,11 +2419,11 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
       }const inProcessEvents = ${
         withInProcess
           ? hasRealtime
-            ? `${T.realtimeTee}(${T.createInProcessDispatcher}(db))`
-            : `${T.createInProcessDispatcher}(db)`
+            ? `${T.realtimeTee}(${folding(`${T.createInProcessDispatcher}(db)`)})`
+            : folding(`${T.createInProcessDispatcher}(db)`)
           : hasRealtime
-            ? `${T.realtimeTee}(${T.NoopDomainEventDispatcher})`
-            : `${T.NoopDomainEventDispatcher}`
+            ? `${T.realtimeTee}(${folding(`${T.NoopDomainEventDispatcher}`)})`
+            : folding(`${T.NoopDomainEventDispatcher}`)
       };
 ${
   withInProcess
@@ -2441,8 +2433,8 @@ ${
 // instance above keeps throwing: the relay / consumers / scheduler retry on it.
 const requestEvents = ${
         hasRealtime
-          ? `${T.realtimeTee}(${T.createInProcessDispatcher}(db, { isolateReactorFailures: true }))`
-          : `${T.createInProcessDispatcher}(db, { isolateReactorFailures: true })`
+          ? `${T.realtimeTee}(${folding(`${T.createInProcessDispatcher}(db, { isolateReactorFailures: true })`)})`
+          : folding(`${T.createInProcessDispatcher}(db, { isolateReactorFailures: true })`)
       };
 `
     : ""

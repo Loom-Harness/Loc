@@ -617,6 +617,10 @@ export function mikroFilterOrRefuse(
   assocs: readonly AssociationIR[],
   aggs: readonly EnrichedAggregateIR[] = [],
 ): string {
+  // The match-everything filter (`criterion All of T = true`): the empty
+  // FilterQuery reads every row.
+  const whole = e.kind === "paren" ? e.inner : e;
+  if (whole.kind === "literal" && whole.lit === "bool" && whole.value === "true") return "{}";
   try {
     return whereToMikroFilter(e, acc, assocs, aggs);
   } catch (err) {

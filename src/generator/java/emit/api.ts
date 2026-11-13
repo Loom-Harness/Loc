@@ -270,6 +270,7 @@ export function renderJavaController(
   // predicate, returns `{ allowed }` so a UI can enable/disable the action
   // without invoking it.  The service owns the load + predicate; the
   // controller wraps the boolean in the shared `CanResponse` record.
+  const readGateFind = routed(derivedOps.find((o) => o.kind === "getById"))?.find;
   const canRouteLines = (op: (typeof agg.operations)[number]): string[] => {
     const probe = routed(probeByOp.get(op));
     if (!probe) return [];
@@ -277,6 +278,9 @@ export function renderJavaController(
       `    @GetMapping("${relativeOpPath(probe)}")`,
       ...doc(probe, { status: 200 }),
       `    public CanResponse can${upperFirst(op.name)}${agg.name}(@PathVariable ${idJava} id) {`,
+      // The by-id read's own gate refuses first (403), exactly as `GET /{id}`
+      // does; the service then runs the operation's gate ladder (ir/plan/gate-ladder.ts).
+      ...(readGateFind?.requires ? findGateLines(readGateFind) : []),
       `        return new CanResponse(service.can${upperFirst(op.name)}(new ${idClass}(id)));`,
       `    }`,
       ``,

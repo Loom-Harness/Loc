@@ -461,6 +461,43 @@ declared `function`.  `requires` is admissible in workflow
 bodies too; the workflow handler / route handler maps it to 403
 the same way as the operation route does.
 
+#### Gate order
+
+Every backend refuses a request on an aggregate row in one order
+(`src/ir/plan/gate-ladder.ts`, D-GATE-LADDER):
+
+| # | Step | Status |
+|---|---|---|
+| 1 | authentication | 401 |
+| 2 | request shape (framework binding) | 422 |
+| 3 | `requires` that reads no row (the principal, the parameters) | 403 |
+| 4 | load through the read scope (`policy { read }`, tenancy, shares) | 404 |
+| 5 | `requires` that reads the row; the write scope | 403 / 404 |
+| 6 | version (`If-Match`) | 409 |
+| 7 | `when` | 409 |
+| 8 | preconditions, invariants | 409 / 422 |
+
+A caller refused at step 3 gets 403 for an existing id, a missing id, a stale
+`If-Match` and a row in the wrong state alike, so the refusal reveals nothing
+about the row.  A body that does not bind is refused (422) before any gate, by
+the framework, on every backend.  A row outside the read scope answers 404, never 403.
+
+```ddd
+operation reopen() when !open {
+  requires currentUser.role == "agent"   // step 3: before the load
+  open := true
+}
+```
+```
+POST /api/tickets/<missing id>/reopen   (role: "clerk")  → 403
+POST /api/tickets/<missing id>/reopen   (role: "agent")  → 404
+```
+
+`GET /{id}/can_<op>`, the probe of a `when`-gated operation, runs the same
+ladder without a body.  The by-id read's gate refuses it (403) and a row the
+caller cannot read is 404, exactly as `GET /{id}` answers.  The operation's
+own `requires` and `when` answer `{ "allowed": false }`.
+
 #### Guarded state transitions — close the generic-update side door
 
 A `requires` gate guards **its own route**.  It does not make the field the
@@ -1792,12 +1829,13 @@ the token with 401. Value-object, enum, `money` and `json` claims are not decode
 The playground preview runs the generated **OIDC verifier** of an
 `auth { oidc }` system unchanged — discovery, JWKS, signature, `iss`, `aud`,
 `exp` and the claim projection — against an identity provider that runs in the
-browser's infra worker (`web/src/runtime/infra/oidc.ts`):
+browser's infra worker — the emulation core's provider (`src/emulation/oidc.ts`),
+wrapped by `web/src/runtime/infra/oidc.ts`:
 
 - **Realm.** The provider answers under the `OIDC_ISSUER` the backend's compose
   service names, with Keycloak's endpoint paths
   (`/.well-known/openid-configuration`, `/protocol/openid-connect/certs`,
-  `…/token`, `…/userinfo`). Tokens are RS256, signed with a WebCrypto key whose
+  `…/token`, `…/userinfo`, `…/logout`). Tokens are RS256, signed with a WebCrypto key whose
   public half is the JWKS. `aud` is `OIDC_AUDIENCE` when compose sets it,
   otherwise what the dev realm's audience mapper mints (the declared
   `audience:`), otherwise the client id.

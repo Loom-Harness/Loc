@@ -5985,6 +5985,34 @@ message-less domain-floor rule carries no `errors[]`.
 
 ---
 
+## D-GATE-LADDER — one refusal order for every request on an aggregate row, on every backend
+
+**Status:** owner ruling, 2026-11-13; applied to operation routes and `can_<op>` on all five backends.
+
+**Decision.** A request on an aggregate row is refused in one order:
+authn (401) → request shape (422) → a `requires` that reads no row (403) →
+load through the read scope (404) → a `requires` that reads the row, and the
+write scope (403 / 404) → version `If-Match` (409) → `when` (409) →
+preconditions and invariants (409 / 422). `src/ir/plan/gate-ladder.ts` encodes
+it; every backend renders the checks it lists in that order.
+`GET /{id}/can_<op>` runs the same ladder without a body: the by-id read gate
+refuses (403) and a row outside the read scope is 404, as `GET /{id}` answers;
+the operation's own `requires` and `when` answer `{ "allowed": false }`, and a
+gate that reads an operation parameter answers `false`.
+
+**Why.** A caller refused at the row-independent gate gets the same 403 for an
+existing id, a missing id, a stale `If-Match` and a row in the wrong state, so
+the refusal is no existence, version or state oracle. Shape precedes `requires`
+because every backend's framework binding validates the body before any handler
+runs; the shape rung depends only on the body and the published schema, so
+answering it first leaks nothing (D-CREATE-GATE-ORDER).
+
+**Consequence.** Pinned by the gate-order and `can_<op>` rungs of
+`AUTHZ_LADDERS["auth-simple"]` and `AUTHZ_LADDERS["read-gates"]` in
+`test/behavioral/cases.mjs`, run by every behavioural runner.
+
+---
+
 ## D-REF-ADMISSION — a request-supplied reference to tenant-owned data resolves under the target's read scope
 
 **Status:** owner rulings, 2026-11-13; applied on all five backends.
@@ -6838,6 +6866,72 @@ byte-identical at every step.
 - `heex-coverage.test.ts`, the walker-core framework census, and the
   D-LIVEVIEW-REFERENCE legs.
 
+## D-PROJECTION-FOLD — a projection fold means the same thing on every backend, and one plan says what
+
+**Status:** owner ruling, 2026-11-13.
+
+**Decision.** A materialized projection's `on(e: Event) { … }` fold body is
+compiled once, by `foldSteps` (`src/ir/plan/projection-fold.ts`), into ordered
+steps. Every backend renders those steps and decides nothing about them.
+
+- *The key is immutable.* An assignment to the projection's key field is
+  refused (`loom.projection-key-assign`). The row is allocated with the key
+  the fold routes by: `e.<key>`, or the handler's `by <expr>`.
+- *Sequential.* Each statement reads the row as the statements before it left
+  it. Two `+=` on one column both count.
+- *Collection `-=` removes every match.* Repeating a removal changes nothing.
+  Collection `+=` appends one element.
+
+**Why.** These were order decisions written five times, and the five copies
+disagreed: two backends moved the row on a key assignment, two removed every
+match while three removed the first, and one built its write from the
+pre-fold row so a later statement read a stale value. A fact computed once
+cannot disagree with itself.
+
+**Enforced by** `test/system/projection-fold-census.test.ts`: no emitter under
+`src/generator/` or `src/platform/` reads a fold handler's raw `statements`
+(checked with the TypeScript type checker), and every fold emitter calls
+`foldSteps`.
+
+## D-PROJECTION-FOLD-AFTER-COMMIT — a fold runs after the command commits, isolated per handler
+
+**Status:** owner ruling, 2026-11-13.
+
+**Decision.** A projection fold delivered in-process runs after the command
+that raised its event has committed, in its own transaction, like a workflow
+reactor. A fold that fails is logged `reactor_failed`; the command stays
+committed, its response is unchanged, and the row keeps its last good state.
+The other folds and reactors for the same event still run.
+
+**Why.** A read model is derived. Letting its write fail or roll back the
+command would make the source of truth depend on the view of it.
+
+## D-PROJECTION-ROW-SEED — what a fresh projection row starts at
+
+**Status:** owner ruling, 2026-11-13.
+
+**Decision.** When a fold allocates a row for a new key, each non-key column
+starts at a value `foldRowSeeds` (`src/ir/plan/projection-fold.ts`) decides:
+
+- a field with a declared default starts at it;
+- a required field whose type has a neutral zero starts at it: `0` for an
+  int, long, decimal or money, `false`, `""`, the empty list;
+- an optional field starts null until a fold writes it.
+
+A required field whose type has no neutral zero (a datetime, a date, an enum,
+an id, a value object) and that declares no default is refused
+(`loom.projection-field-no-start`, `foldRowUnseeded`): a required column never
+starts null. Declare its default, or make it optional. A `+=` or `-=` on an
+optional field without a default is refused
+(`loom.projection-accumulate-optional`): it has no value to start from.
+
+**Why.** One backend started an unwritten int at `0` and the others at null,
+so the same read answered differently. A running total also needs a defined
+start. A datetime, enum or id has no value that means "nothing yet", so
+inventing one (the current instant, the first member) would read as data, and
+starting it null would break the field's own declaration: the model asks the
+author to say which.
+
 ## D-WORKFLOW-TX-BOUNDARY — a workflow command commits each save on its own unless it is `transactional`
 
 **Status:** decided by the owner, 2026-11-13.
@@ -6888,3 +6982,59 @@ function would force callers to duplicate the predicate or to wrap it in an
 `operation`, which is a mutating member with its own gates. A pure query on an
 already-loaded aggregate leaks no state the caller could not read, so the
 public form costs nothing and matches what the emitters already do.
+
+## D-FRONTEND-CONTRACT — a frontend target emits from the Frontend Contract, an allowlisted projection of the UI and the exposed wire surface
+
+**Status:** owner rulings, 2026-11-13 (the wire source and the four borderline
+derivations); the contract's shape follows from them.
+
+**Decision.** `src/ir/contract/` builds the Frontend Contract
+(`buildFrontendContract`), and `ddd emit-frontend-contract <file.ddd>` writes it
+as JSON (stdout, or `<out>/.loom/frontend-contract.json`). It has two halves:
+
+- **UI:** the system's `ui`s, root components and layouts, with every page
+  body, action, store and derived expression resolved (`refKind`,
+  `receiverType` / `memberType`, `callKind`). Types are nominal, so a type edge
+  names a wire record instead of embedding a domain node.
+- **Wire:** the exposed API — the operations of every context an `api`
+  exposes, one response record per exposed aggregate and part, the declared
+  `command` / `query` / `error` / `payload` records with the paged and union
+  carriers, the events a UI notification names, and the value objects (fields,
+  derived members, wire-validated invariants) and enums the contract names.
+
+**Built by allowlist.** Every reachable IR type has a spec in
+`src/ir/contract/` naming each of its fields as kept, projected, dropped or
+denied. The spec types are mapped over the IR types, so a field added to one
+fails to compile until it is classified; a field present at runtime that no
+spec names stops the build. Denied fields and kinds are the ones whose presence
+means a domain fact would ship: a repository read, an `exists` read, a
+capability filter, a domain-service, workflow-helper, private-operation or
+service-to-service call, a mask-write gate, provenance capture, a domain
+`emit`. Source origins are dropped. The result is JSON-exact: it equals its own
+`JSON.parse(JSON.stringify(…))`.
+
+**The wire half reads through `declaredResponseFor`.** Response records come
+from `contractResponsesFor` (`src/ir/util/declared-response.ts`), which returns
+the declared `<Entity>Response` records of an aggregate and its parts as
+`declaredResponseFor` gives them, each field carrying its aggregate's mask. The
+derived wire shape is never read: no contract module names a `wireFieldsFor*`
+helper, `test/ir/contract/frontend-contract-census.test.ts` enforces it, and a
+declared record states the `id` every backend serializes first. An aggregate
+whose context declares no response record is not exposed over a declared
+contract and is absent. Request shapes are the declared `command` / `query`
+records; no derived create-input or operation-input shape ships, and the
+synthesized `<Agg>Wire` record (a restatement of the derived shape) is left out.
+
+**Masks ship as a flag.** A masked response field carries `maskable: true`. The
+`mask unless` predicate and the mask-taint analysis stay server-side.
+
+**Which derivations are shared.** `invariant-classify`, `wire-policy` and
+`wire-projection` are shared read helpers; `wire-projection` (`wireFieldsFor*`)
+is internal-only and never part of a published contract package's API, so its
+retirement is not a breaking change for third-party frontends. `mask-taint` is
+server-only.
+
+**Why an allowlist, not a pruned clone.** Types erase on serialization, so the
+only protection the contract has is what its bytes contain. A pruned clone
+ships every field nobody remembered to prune, including back-links into the
+pruned subtrees; an allowlist ships only what someone added on purpose.

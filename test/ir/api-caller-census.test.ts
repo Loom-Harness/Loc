@@ -567,7 +567,9 @@ describe("api caller census — cross-checked against the wire goldens", () => {
           routed.find((r) => r.method === method && r.re.test(p))?.id;
         // Unmapped routes are the NOT-LIFTED classes (projection reads,
         // workflows) — `apiSurfaceCoverage.notLifted`, out of scope by design.
-        if (id) fromGolden.add(id);
+        // A `can_<op>` probe has no e2e verb: when the fixture's authz ladder
+        // requests it, that is the ladder's call, not one the e2e IR makes.
+        if (id && UNCALLED_PINS[c.key]?.[id] !== R.gateProbe) fromGolden.add(id);
       }
       expect(
         [...fromGolden].sort(),
