@@ -394,14 +394,14 @@ refusal:
 
 | Backend | Probe | Refusal |
 |---|---|---|
-| node (Drizzle) | `tx.select(…).where(and(inArray(t.id, ids), <target>Scope()))` | an error carrying SQLSTATE 23503, answered by the 23503 arm of every router |
+| node (Drizzle / MikroORM) | `tx.select(…).where(and(inArray(t.id, ids), <target>Scope()))` / `em.count(<Target>Row, { id: { $in: ids } })` under the Row's schema filters | an error carrying SQLSTATE 23503, answered by the 23503 arm of every router |
 | .NET (EF Core / Dapper) | `_db.<Targets>.CountAsync(x => keys.Contains(x.Id))` under the named query filters / the target's `<Target>Scope.Where` | `Npgsql.PostgresException` 23503, answered by `DomainExceptionFilter` |
 | java (JPA) | JPQL `select count(e) from <Target> e where e.id in :ids` with the entity's auto-enabled `@Filter`s | `DataIntegrityViolationException` caused by 23503, answered by the integrity advice |
 | python (SQLAlchemy) | `select(<Target>Row.id).where(id.in_(…))`, narrowed by the read-scope hook | `IntegrityError` with SQLSTATE 23503, answered by the integrity handler |
 | elixir (Ecto) | `Repo.aggregate(where id in ^ids)` through `Repo.prepare_query/3` | the changeset's `foreign_key_constraint` error: 422 `problem.field-invalid`, its field entry `problem.dangling-reference` |
 
 A reference persisted by an event-sourced, `shape: document` or `shape:
-embedded` aggregate, or on the node MikroORM adapter, has no probe: the model
+embedded` aggregate has no probe: the model
 is refused with `loom.target-unsupported#reference-admission-unrealized`.
 
 ## Event-sourced aggregates — the tenant lives on the stream

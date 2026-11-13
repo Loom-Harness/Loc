@@ -803,13 +803,6 @@ export interface AdapterRefusal {
 }
 
 export const ADAPTER_REFUSALS: readonly AdapterRefusal[] = [
-  // The MikroORM repository's save has no reference-admission probe.
-  {
-    family: "node",
-    persistence: "mikroorm",
-    construct: "reference:tenant-owned@state",
-    verdict: { verdict: "refused", slug: "reference-admission-unrealized" },
-  },
   // The MikroORM event store does not carry a stream's tenant yet (#4686).
   {
     family: "node",

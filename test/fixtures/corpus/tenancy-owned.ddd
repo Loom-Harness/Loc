@@ -129,6 +129,20 @@ system TenantOwned {
     expect(deferred.reason).toBe("parts")
     expect(api.invoices.owed(inv)).toBe(250)
 
+    // Reference admission, as the single principal sees it: its own invoice and
+    // any `crossTenant` plan are admitted on every write path.  The refusals —
+    // another tenant's invoice answered exactly like a missing one — need two
+    // tenants, so they are the isolation e2e's rung.
+    let pay = api.payments.create({ invoice: inv.id, plan: p.id, amount: 3 })
+    let readPay = api.payments.getById(pay)
+    expect(readPay.invoice).toBe(inv.id)
+    expect(readPay.plan).toBe(p.id)
+    api.payments.update(pay, { invoice: inv.id, amount: 4 })
+    api.payments.relink(pay, { to: inv.id })
+    expect(api.payments.getById(pay).amount).toBe(4)
+    expect(api.payments.all().total).toBe(1)
+    api.payments.destroy(pay)
+
     // DELETE on both stances.  The tenant-owned delete must load through the
     // tenant scope before removing (the same narrowing the update above proved
     // on the write path); the `crossTenant` one has no scope to narrow.

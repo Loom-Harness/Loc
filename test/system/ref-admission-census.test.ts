@@ -29,7 +29,16 @@ const FIXTURES = ["tenancy-owned", "policy-row-rules", "shareable", "org-context
 
 import type { Backend } from "../fixtures/corpus/backends.js";
 
-const BACKENDS: readonly Backend[] = ["node", "dotnet", "java", "python", "vanilla"];
+/** Every backend on its default persistence, plus the alternate adapters. */
+const LEGS: readonly { backend: Backend; persistence?: string }[] = [
+  { backend: "node" },
+  { backend: "node", persistence: "mikroorm" },
+  { backend: "dotnet" },
+  { backend: "dotnet", persistence: "dapper" },
+  { backend: "java" },
+  { backend: "python" },
+  { backend: "vanilla" },
+];
 
 const snake = (n: string): string => n.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 const lowerFirst = (n: string): string => n.charAt(0).toLowerCase() + n.slice(1);
@@ -82,15 +91,17 @@ describe("reference admission census — every admitting save probes", () => {
     it(`${fixture}: carries an admitted reference`, async () => {
       expect(await admittingAggregates(fixture)).not.toEqual([]);
     });
-    for (const backend of BACKENDS) {
-      it(`${fixture} × ${backend}: each admitting repository spells the probe`, async () => {
+    for (const leg of LEGS) {
+      const { backend, persistence } = leg;
+      const label = persistence ? `${backend}/${persistence}` : backend;
+      it(`${fixture} × ${label}: each admitting repository spells the probe`, async () => {
         const aggs = await admittingAggregates(fixture);
         expectReach(`${fixture} admitting aggregates`, aggs.length, 1);
-        const files = await generateSystemFiles(corpusSourceFor(fixture, backend));
+        const files = await generateSystemFiles(corpusSourceFor(fixture, backend, persistence));
         for (const agg of aggs) {
           const hits = [...files.entries()].filter(([p]) => PROBE[backend].file(agg).test(`/${p}`));
-          expect(hits.length, `${backend}: no repository file for ${agg}`).toBe(1);
-          expect(hits[0]![1], `${backend}: ${agg}'s save does not probe its references`).toContain(
+          expect(hits.length, `${label}: no repository file for ${agg}`).toBe(1);
+          expect(hits[0]![1], `${label}: ${agg}'s save does not probe its references`).toContain(
             PROBE[backend].probe,
           );
         }

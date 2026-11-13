@@ -19,6 +19,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { PG_FOREIGN_KEY_VIOLATION } from "../_persistence/pg-sqlstate.js";
+import { rowClassOf } from "./emit/mikroorm-entities.js";
 import { drizzleScopeFnName, repoTableName } from "./repository-find-predicate.js";
 
 /** The name of the module-level helper a repository with admitted references
@@ -93,4 +94,22 @@ function valuesExpr(r: ScopedReference): string {
   const f = member(r.field);
   expr += r.collection ? `.flatMap((o) => o.${f} ?? [])` : `.map((o) => o.${f})`;
   return `${expr}.filter((v) => v != null).map((v) => v as string)`;
+}
+
+/** The MikroORM twin of {@link refAdmissionLines}, at the head of the save
+ *  transaction (4-space indent, the forked `em` in scope).  `em.count` keeps the
+ *  target Row's schema filters on, which carry its read scope. */
+export function mikroRefAdmissionLines(agg: AggregateIR, ctx: BoundedContextIR): string[] {
+  const out: string[] = [];
+  admittedReferences(agg, ctx.aggregates).forEach((r, i) => {
+    const values = `admit${i}`;
+    out.push(
+      `    const ${values} = ${valuesExpr(r)};`,
+      `    if (${values}.length > 0) {`,
+      `      const found = await em.count(${rowClassOf(r.target)}, { id: { $in: [...new Set(${values})] } });`,
+      `      if (found !== new Set(${values}).size) throw ${REFUSE}();`,
+      `    }`,
+    );
+  });
+  return out;
 }
