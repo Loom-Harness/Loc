@@ -4,6 +4,7 @@ import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import {
+  channelPlan,
   eventSourcedWorkflows,
   observableWorkflows,
   routedPolymorphicRead,
@@ -11,7 +12,6 @@ import {
 } from "../../ir/plan/index.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
-  ChannelIR,
   DeployableIR,
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -75,7 +75,6 @@ import { plural, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { bootRequiredAuthEnv } from "../_auth/boot-required.js";
-import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { spellMarkers } from "../_imports/symbol.js";
@@ -406,7 +405,8 @@ function emitProjectFromContexts(
   // broker-carried event type is broker-routed: its dispatcher handlers drop
   // the local @EventListener (design §4 delivery uniformity) and are invoked
   // by the ChannelConsumerService on delivery instead.
-  const channelBindings = system ? brokerChannelBindings(system.deployable, system.sys) : [];
+  const chPlan = channelPlan(contexts, system);
+  const channelBindings = chPlan.bindings;
   const hasChannels = channelBindings.length > 0;
   // Durable broker-bound events (M-T4.4): HOSTED durable events
   // carried by a wired `queue`/`work` (or future `log`) channel — their
@@ -429,15 +429,7 @@ function emitProjectFromContexts(
       .flatMap((b) => b.events)
       .filter((ev) => hostedDurable.has(ev)),
   );
-  const hostedChannelNames = new Set(contexts.flatMap((c) => c.channels).map((ch) => ch.name));
-  const wiredForeignChannels: ChannelIR[] = channelBindings
-    .filter((b) => !hostedChannelNames.has(b.channelName))
-    .map((b) => ({
-      name: b.channelName,
-      carries: b.events,
-      delivery: b.delivery,
-      retention: b.retention,
-    }));
+  const wiredForeignChannels = chPlan.foreignChannels;
   const brokerEvents = new Set(channelBindings.flatMap((b) => b.events));
   // Standalone (no-broker) outbox tier (dispatch-delivery-semantics.md §1-2):
   // hosted durable events on a channel with NO `channelSource` still get

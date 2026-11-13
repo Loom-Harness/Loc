@@ -235,6 +235,33 @@ const DRIVEN_PROBES = [
       await waitForText(page, ["Confirmed"], "after the confirm operation");
     },
   },
+  {
+    // A workflow whose start answers the created record's id opens that record
+    // (`placeOrder: … Order id`): fill the form through the accessibility tree,
+    // run it, and require the created order's detail page.
+    name: "a workflow run opens the record it created",
+    route: "#/workflows/place_order",
+    expect: [],
+    api: "",
+    async drive(page, origin, seeded) {
+      const pick = async (label, option) => {
+        await clickSemantic(page, label);
+        await clickSemantic(page, option);
+      };
+      await pick("Customer Id", "Zaphod Beeblebrox");
+      await pick("Product Id", "FLUTTER-WIDGET");
+      await page.getByRole("textbox", { name: /Qty/ }).fill("3");
+      await clickSemantic(page, "Run");
+      const deadline = Date.now() + 30_000;
+      while (!/#\/orders\/[0-9a-f-]{36}$/.test(page.url())) {
+        if (Date.now() > deadline) {
+          throw new Error(`the workflow run did not open the order it created (at ${page.url()})`);
+        }
+        await page.waitForTimeout(250);
+      }
+      await waitForText(page, ["Confirmed"], "on the order the workflow created");
+    },
+  },
 ];
 
 /** Load a hash route, turn the semantics tree on, and return what the app

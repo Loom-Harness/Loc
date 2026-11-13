@@ -106,6 +106,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "flat visibility inside a registry tree is a runtime row-visibility question; `test:tenancy-hierarchy-*` boots it outside the corpus tier.  The corpus cell needs a principal whose claim is a registry ROW id (a registry read narrows to `this.id == currentUser.<claim>`), which the behavioural harness does not mint — #3422",
   "optional-let":
     "the emitted null-handling form of a `let`-bound optional read is a compile-tier fact (an unwrapped java `Optional`, a .NET `GetByIdAsync`, an elixir nil match); the booted block over the absent-row and present-row branches is #4335",
+  "resource-endpoints":
+    "every external-service client against its provider; the SES / SendGrid fakes that answer on the endpoint override are #5616 — #4212",
   "api-call-auth":
     "in-system api call to an `auth: required` callee; needs both deployables booted.  BY DESIGN for the corpus tier, which boots one deployable per case: the `api-call-e2e` leg boots both, with auth required on each, and asserts the callee stamps the forwarded principal",
   "api-call":
