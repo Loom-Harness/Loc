@@ -1609,6 +1609,7 @@ function emitAggregate(
             [...repoImplUsings].sort(),
             ctx.aggregates,
             aggRetrievals,
+            hasDurableEvents(ctx),
           )
         : isDoc
           ? renderDapperDocumentRepository(
@@ -1658,6 +1659,7 @@ function emitAggregate(
         idClass,
         pool: ctx.aggregates,
         retrievals: aggRetrievals,
+        durable: hasDurableEvents(ctx),
       }),
       repoOrigin,
     );
