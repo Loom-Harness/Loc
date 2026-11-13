@@ -13,6 +13,7 @@ import { workflowEmitsCommandRoute } from "../../src/ir/types/queries.js";
 import { declaredResponseFor } from "../../src/ir/util/declared-response.js";
 import { buildWireSpec } from "../../src/system/wire-spec.js";
 import { upperFirst } from "../../src/util/naming.js";
+import { expectReach } from "../_helpers/census-reach.js";
 import { dddSourceOf, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 import { parseString } from "../_helpers/parse.js";
 
@@ -112,8 +113,8 @@ describe("wire-spec request contracts (corpus census)", () => {
       }
     }
     // The denominator: a census over an empty population proves nothing.
-    expect(requests).toBeGreaterThan(200);
-    expect(workflows).toBeGreaterThan(5);
+    expectReach("served requests", requests, 900);
+    expectReach("command-started workflows", workflows, 50);
     expect(missing.sort()).toEqual([...UNCONTRACTED_REQUESTS].sort());
   }, 180_000);
 });
