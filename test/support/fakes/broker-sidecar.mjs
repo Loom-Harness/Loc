@@ -25,6 +25,7 @@
 // It is ASYNC (the tap is drained over HTTP / a socket); callers `await` it.
 
 import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import net from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -98,6 +99,78 @@ export function runContainer(image, ports, env = {}, cmd = [], kind = "broker") 
     hostPorts[p] = Number(line.slice(line.lastIndexOf(":") + 1));
   }
   return { id, hostPorts };
+}
+
+/** The compose service name of a storage (`src/util/resource-env.ts`'s
+ *  `storageServiceHost`: snake_case, lower). */
+const serviceSlug = (storageName) => storageName.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+
+/** A compose scalar as written by `generate system`: bare, or a JSON-style
+ *  double-quoted string. */
+function composeScalar(raw) {
+  const v = raw.trim();
+  return v.startsWith('"') ? JSON.parse(v) : v;
+}
+
+/** The `environment:` map of one compose service. */
+export function composeServiceEnv(compose, service) {
+  const lines = compose.split("\n");
+  const start = lines.findIndex((l) => l === `  ${service}:`);
+  if (start < 0) return null;
+  const env = {};
+  let inEnv = false;
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^ {0,2}\S/.test(l)) break;
+    if (/^ {4}environment:\s*$/.test(l)) {
+      inEnv = true;
+      continue;
+    }
+    if (inEnv) {
+      const m = /^ {6}([A-Za-z0-9_]+):\s*(.*)$/.exec(l);
+      if (!m) {
+        if (/^ {4}\S/.test(l)) inEnv = false;
+        continue;
+      }
+      env[m[1]] = composeScalar(m[2]);
+    }
+  }
+  return env;
+}
+
+/** The first value compose assigns to `name` in any service's environment. */
+export function composeEnvValue(compose, name) {
+  const m = new RegExp(`^\\s+${name}:\\s*(.+)$`, "m").exec(compose);
+  return m ? composeScalar(m[1]) : undefined;
+}
+
+/** Fill a plan's broker inputs from the case's generated tree: the broker-init
+ *  definitions, each channel binding's compose URL (its credentials, vhost and
+ *  for valkey its password), and kafka's service env.  Explicit options win. */
+async function withGenerated(opts) {
+  if (!opts.genDir) return opts;
+  const composePath = join(opts.genDir, "docker-compose.yml");
+  if (!existsSync(composePath)) return opts;
+  const compose = readFileSync(composePath, "utf8");
+  const names = await envNames();
+  const slug = serviceSlug(opts.storage.name);
+  const out = { ...opts };
+  const defsPath = [opts.storage.name, slug]
+    .map((n) => join(opts.genDir, "broker-init", `${n}-definitions.json`))
+    .find((p) => existsSync(p));
+  if (out.definitions === undefined && defsPath) out.definitions = JSON.parse(readFileSync(defsPath, "utf8"));
+  out.channelSources = (opts.channelSources ?? []).map((c) => ({
+    ...c,
+    url: c.url ?? composeEnvValue(compose, names.channelUrlVar(c.name)),
+  }));
+  if (out.password === undefined && opts.storage.type === "redis") {
+    const withPw = out.channelSources.find((c) => c.url && new URL(c.url).password);
+    if (withPw) out.password = decodeURIComponent(new URL(withPw.url).password);
+  }
+  if (out.containerEnv === undefined && opts.storage.type === "kafka") {
+    out.containerEnv = composeServiceEnv(compose, slug) ?? undefined;
+  }
+  return out;
 }
 
 /** Point a compose-network broker URL (`amqp://d:pw@bus:5672/loom`) at the
@@ -458,7 +531,8 @@ async function startRedis(opts) {
  *           channelSources?: Array<{ name: string, url?: string }>,
  *           resources?: Array<{ name: string, url?: string }> }} opts
  */
-export async function start(opts) {
+export async function start(given) {
+  const opts = await withGenerated(given);
   const type = opts?.storage?.type;
   if (type === "rabbitmq") return startRabbit(opts);
   if (type === "redis") return startRedis(opts);

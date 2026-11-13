@@ -12,6 +12,9 @@ export interface BrokerEffect {
 export interface BrokerStartOptions {
   storage: { name: string; type: "rabbitmq" | "redis" };
   /** rabbitmq: the case's generated `broker-init/<storage>-definitions.json`. */
+  /** The case's generated tree: definitions, channel URLs and the broker env
+   *  are read from it when not given explicitly. */
+  genDir?: string;
   definitions?: object;
   /** redis: the `requirepass` the case's compose URL carries. */
   password?: string;
@@ -47,3 +50,8 @@ export function summarise(
 ): BrokerEffect[];
 export function cloudEventType(body: string | Uint8Array): string | null;
 export function parseResp(buf: Buffer): { values: unknown[]; rest: Buffer };
+
+/** The `environment:` map of one service in a generated `docker-compose.yml`. */
+export function composeServiceEnv(compose: string, service: string): Record<string, string> | null;
+/** The first value a generated `docker-compose.yml` assigns to env var `name`. */
+export function composeEnvValue(compose: string, name: string): string | undefined;

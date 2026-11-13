@@ -12,6 +12,8 @@ import { resourceEnvUrlVar } from "../../../src/util/resource-env.js";
 import {
   BROKER_IMAGES,
   cloudEventType,
+  composeEnvValue,
+  composeServiceEnv,
   parseResp,
   rehost,
   start,
@@ -80,6 +82,38 @@ describe("broker sidecar — pure helpers", () => {
       );
     expect(found.length).toBeGreaterThanOrEqual(5);
     for (const [, image] of found) expect(image).toBe(BROKER_IMAGES.rabbitmq);
+  });
+
+  it("reads a service's environment and a deployable's env value out of generated compose", () => {
+    // The shapes `generate system` writes: bare and JSON-quoted scalars, an
+    // escaped quote inside a quoted one, and the next service after it.
+    const compose = [
+      "services:",
+      "  d:",
+      "    build: ./d",
+      "    environment:",
+      '      LOOM_CHANNEL_LIFECYCLE_BUS_URL: "amqp://d:pw@bus:5672/loom"',
+      "  bus:",
+      "    image: apache/kafka:4.1.0",
+      "    environment:",
+      "      KAFKA_NODE_ID: 1",
+      '      KAFKA_JAAS: "x required user_d=\\"pw\\";"',
+      "    healthcheck:",
+      '      test: ["CMD"]',
+      "  other:",
+      "    environment:",
+      "      KAFKA_NODE_ID: 2",
+      "",
+    ].join("\n");
+    expect(composeServiceEnv(compose, "bus")).toEqual({
+      KAFKA_NODE_ID: "1",
+      KAFKA_JAAS: 'x required user_d="pw";',
+    });
+    expect(composeServiceEnv(compose, "nope")).toBeNull();
+    expect(composeEnvValue(compose, "LOOM_CHANNEL_LIFECYCLE_BUS_URL")).toBe(
+      "amqp://d:pw@bus:5672/loom",
+    );
+    expect(composeEnvValue(compose, "LOOM_CHANNEL_MISSING_URL")).toBeUndefined();
   });
 
   it("refuses a broker type it has no sidecar for", async () => {
