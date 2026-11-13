@@ -26,6 +26,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
+import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import { resolveContextSchema } from "../../ir/util/resolve-datasource.js";
 import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
 import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../../ir/util/walk.js";
@@ -361,7 +362,7 @@ function ectoStateFieldType(t: TypeIR, enums: readonly EnumIR[]): string {
     if (values.length > 0) return `Ecto.Enum, values: [${values.map((v) => `:${v}`).join(", ")}]`;
     return ":string";
   }
-  if (t.kind === "array" && t.element.kind === "id") {
+  if (isRefCollectionType(t)) {
     return `{:array, ${exEctoIdJsonType()}}`;
   }
   return mapTypeToEcto(t, new Map()) ?? ":string";

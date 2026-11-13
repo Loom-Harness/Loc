@@ -46,6 +46,8 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.precondition-not-bool":
     "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
   "loom.assign-to-derived": "06-behavior-and-statements.md#assignment-----",
+  "loom.assign-to-local": "06-behavior-and-statements.md#assignment-----",
+  "loom.assign-through-local-unsupported": "06-behavior-and-statements.md#assignment-----",
   "loom.assign-type-mismatch": "06-behavior-and-statements.md#assignment-----",
   "loom.collection-mutation-non-collection": "06-behavior-and-statements.md#assignment-----",
   "loom.collection-mutation-element-type": "06-behavior-and-statements.md#assignment-----",

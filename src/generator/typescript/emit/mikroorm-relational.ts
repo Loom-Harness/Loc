@@ -7,7 +7,7 @@
 // logic change.
 // -------------------------------------------------------------------------
 
-import { readSortFor } from "../../../ir/enrich/read-scope.js";
+import { readOrderFor } from "../../../ir/enrich/read-scope.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -23,6 +23,7 @@ import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { discriminatorValue, tableOwnerName } from "../../../ir/util/inheritance.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
@@ -33,7 +34,6 @@ import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
 import { joinColumnName } from "../emit.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
-import { isRefCollection } from "../repository-associations-builder.js";
 import { deserializeField, serializeField } from "../repository-document-builder.js";
 import { hydrateRootExpr } from "../repository-find-builder.js";
 import { hydrateEntityExpr } from "../repository-find-hydrate.js";
@@ -73,7 +73,14 @@ import {
 } from "./mikroorm-entities.js";
 import { AMBIENT_PRINCIPAL, mikroFilterOrRefuse, mikroGetByIdLines } from "./mikroorm-filter.js";
 import { mikroFilterOption } from "./mikroorm-schema-filters.js";
-import { maskUserImport, tsParamType, usesRawFragment } from "./mikroorm-shared.js";
+import {
+  maskUserImport,
+  mikroClientSortTieBreak,
+  mikroFindOneOptions,
+  mikroOrderBy,
+  tsParamType,
+  usesRawFragment,
+} from "./mikroorm-shared.js";
 
 // ---------------------------------------------------------------------------
 // `Id[]` reference-collection associations (many-to-many pivot tables).  The
@@ -570,12 +577,10 @@ export function mikroRetrievalMethod(
   );
   const params = [...baseParams, `${L.page}?: { offset?: number; limit?: number }`].join(", ");
   const filter = mikroFilterOrRefuse(r.where, AMBIENT_PRINCIPAL, agg.associations, pool);
-  // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`).
+  // The declared terms with the `id` tie-break, or `id` alone (`readOrderFor`).
   // Only the first path segment (a direct column) is used in v1 — nested /
   // collection sort paths are gated by validateRetrievals, same as drizzle.
-  const orderBy = `, orderBy: { ${readSortFor(r.sort)
-    .map((s) => `${s.path[0]!.name}: "${s.direction}"`)
-    .join(", ")} }`;
+  const orderBy = `, ${mikroOrderBy(readOrderFor(r.sort))}`;
   return lines(
     `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
     `    const ${L.em} = this.em.fork({ keepTransactionContext: true });`,
@@ -616,7 +621,7 @@ export function renderMikroRepository(
   // serialised through the shared `serializeField` (VO elements → plain objects,
   // money/id → strings) — the root analogue of the part-collection jsonb column.
   const scalarFields = agg.fields.filter(
-    (f) => !isRefCollection(f.type) && !isValueCollectionType(f.type),
+    (f) => !isRefCollectionType(f.type) && !isValueCollectionType(f.type),
   );
   const valueCollFields = valueCollFieldsOf(agg);
   const valueCollEntries = valueCollFields.map((f) => ({
@@ -804,7 +809,7 @@ export function renderMikroRepository(
         `    const ${L.em} = this.em.fork({ keepTransactionContext: true });`,
         `    const ${L.sortable} = new Set<string>([${sortable}]);`,
         `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : ${declaredOrder ? "null" : '"id"'};`,
-        `    const ${L.orderBy}: Record<string, "asc" | "desc"> = ${declaredOrder ? `${L.sortField} === null ? { ${declaredOrder} } : ` : ""}{ [${L.sortField}]: dir === "desc" ? "desc" : "asc" };`,
+        `    const ${L.orderBy}: Record<string, "asc" | "desc">[] = ${declaredOrder ? `${L.sortField} === null ? [{ ${declaredOrder} }] : ` : ""}[{ [${L.sortField}]: dir === "desc" ? "desc" : "asc" }, ${mikroClientSortTieBreak()}];`,
         `    const ${L.total} = await ${L.em}.count(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
         `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
         `    const ${L.rows} = await ${L.em}.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`}${ignoring ? `, ${ignoring}` : ""} });`,
@@ -840,7 +845,7 @@ export function renderMikroRepository(
       return lines(
         `  async ${name}(${params}): Promise<${rowType}> {`,
         `    const em = this.em.fork({ keepTransactionContext: true });`,
-        `    const row = await em.findOne(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
+        `    const row = await em.findOne(${row}, ${readArgs(filter, mikroFindOneOptions(f, ignoring))});`,
         `    if (row === null) ${onMiss};`,
         ...assocInlineLoadLines(agg, "em", "row.id", "    "),
         ...containInlineLoadLines(agg, ctx, "em", "row.id", "    "),
@@ -852,7 +857,7 @@ export function renderMikroRepository(
     return lines(
       `  async ${name}(${params}): Promise<${rowType}> {`,
       `    const em = this.em.fork({ keepTransactionContext: true });`,
-      `    const row = await em.findOne(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
+      `    const row = await em.findOne(${row}, ${readArgs(filter, mikroFindOneOptions(f, ignoring))});`,
       optional
         ? `    return row === null ? null : ${hydrate("row")};`
         : [`    if (row === null) ${onMiss};`, `    return ${hydrate("row")};`],

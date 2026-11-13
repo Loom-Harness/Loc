@@ -2,6 +2,7 @@ import { createInputFields, forApiRead, wireFieldsFor } from "../../ir/enrich/wi
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
+  PAGED_MAX_PAGE_SIZE,
   pagedReturn,
 } from "../../ir/stdlib/generics.js";
 import { unionReturn, variantTag } from "../../ir/stdlib/unions.js";
@@ -756,6 +757,28 @@ export function buildAngularApiModule(
           `  }));`,
           "}",
         ]),
+    "",
+    "/** Every row of the collection, for a form's reference picker — a paged read",
+    " *  is walked page by page at the largest page size the list route accepts,",
+    " *  so a picker offers row 21 and row 2,001 alike.  `data` is the bare array. */",
+    `export function use${plural(single)}Options() {`,
+    `  const service = inject(${serviceName});`,
+    `  return injectQuery(() => ({`,
+    `    queryKey: ["${tag}", "options"] as const,`,
+    ...(allPaged
+      ? [
+          `    queryFn: async () => {`,
+          `      const rows: ${responseName}[] = [];`,
+          `      for (let page = 1; ; page++) {`,
+          `        const r = await firstValueFrom(service.findAll({ page, pageSize: ${PAGED_MAX_PAGE_SIZE} }));`,
+          `        rows.push(...r.items);`,
+          `        if (page >= r.totalPages) return rows;`,
+          `      }`,
+          `    },`,
+        ]
+      : [`    queryFn: () => firstValueFrom(service.findAll()),`]),
+    `  }));`,
+    "}",
     "",
     "/** `findById` query — the single-record sibling.  `enabled: !!id` keeps the",
     " *  query idle (no request) when the route param is absent; the record is",

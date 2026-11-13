@@ -120,11 +120,13 @@ describe.each([
     expect(page).toContain('formControlName="title"');
   });
 
-  it("renders the array field as a disabled placeholder input, like the JSX packs", async () => {
+  it("renders the collections as native list inputs writing the array (a checkbox group / a comma list), not a disabled stub", async () => {
     const page = await formPage(design);
-    const field = page.split("<").find((f) => f.includes('data-testid="posts-new-input-tags"'))!;
-    expect(field).toContain("disabled");
-    expect(field).toContain('placeholder="(arrays not yet supported in forms)"');
+    expect(page).not.toContain("arrays not yet supported");
+    const names = page.split("<").find((f) => f.includes('data-testid="posts-new-input-names"'))!;
+    expect(names).toContain("setListItems(postForm.controls.names");
+    expect(page).toContain('data-testid="posts-new-input-tags"');
+    expect(page).toContain("toggleListItem(postForm.controls.tags");
   });
 
   it("still submits getRawValue() — so the array seed is what reaches the wire", async () => {

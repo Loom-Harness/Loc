@@ -3,6 +3,7 @@ import type { BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
 import { contextStaticSubpathRoutes } from "../../../ir/util/api-surface.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
 import { answersEntryResults } from "../../../ir/util/entry-result.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV } from "../../../util/dev-claims.js";
@@ -1895,7 +1896,7 @@ function meClaimValue(f: FieldIR): string {
   const optional = f.optional || f.type.kind === "optional";
   const t = f.type.kind === "optional" ? f.type.inner : f.type;
   if (t.kind === "id") return `${access}${optional ? "?" : ""}.Value`;
-  if (t.kind === "array" && t.element.kind === "id") {
+  if (isRefCollectionType(t)) {
     return `${access}${optional ? "?" : ""}.Select(v => v.Value).ToList()`;
   }
   return access;

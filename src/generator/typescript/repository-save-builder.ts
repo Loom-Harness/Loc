@@ -17,6 +17,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, upperFirst } from "../../util/naming.js";
@@ -25,7 +26,7 @@ import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { aggregateIsAudited, stampInsertCall, stampUpdateCall } from "./emit/audit-stamp.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
-import { associationsOf, isRefCollection } from "./repository-associations-builder.js";
+import { associationsOf } from "./repository-associations-builder.js";
 import { drizzleKindPredicate } from "./repository-find-predicate.js";
 import { inRowTenant } from "./row-tenant.js";
 import {
@@ -371,7 +372,7 @@ function rootEntries(
     // Reference collections live in join tables, not on the root row.
     ...agg.fields
       .filter(
-        (f) => !isRefCollection(f.type) && !isValueCollectionType(f.type) && !omit.has(f.name),
+        (f) => !isRefCollectionType(f.type) && !isValueCollectionType(f.type) && !omit.has(f.name),
       )
       .flatMap((f) => projectFieldEntries(f, varExpr, ctx)),
     ...provColumnEntries(agg.fields, varExpr),
