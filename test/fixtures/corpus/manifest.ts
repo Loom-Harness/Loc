@@ -1014,6 +1014,11 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "domain-services",
     backends: ALL,
     note: "The reduction's fold reads the λ body's type off the IR; a CALL body carries it only through the call's recorded `resultType`. Without it java emitted `mapToInt(...).sum()` (javac) and elixir `Enum.sum` over `%Decimal{}` (500).",
+    id: "empty-list-ternary",
+    title: "an empty list literal `[]` as a ternary branch (+ `avg`'s null branch, a narrowed `[x]`)",
+    doc: "language",
+    backends: ALL,
+    note: "The typing join is element-wise, so `[]` takes the other branch's element type; lowering records it on the empty literal (`ExprIR.list.elementType`) for java `List.<T>of()` / .NET `new List<T>()`. .NET also unwraps a narrowed `[x]` element and types a `c ? null : <value T>` null as `T?`.",
   },
   {
     id: "scaffold-macros",

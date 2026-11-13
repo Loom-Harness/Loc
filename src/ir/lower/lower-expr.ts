@@ -1488,12 +1488,25 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
     return lowerBinaryChain(expr, env);
   }
   if (isTernaryExpr(expr)) {
+    const thenIR = lowerExpr(expr.thenExpr, env);
+    const otherwiseIR = lowerExpr(expr.elseExpr, env);
+    // An empty `[]` branch takes the ternary's element type (see
+    // `ExprIR.list.elementType`).
+    const joined = resolvedPassType(expr, env);
+    const unwrapped = joined?.kind === "optional" ? joined.inner : joined;
+    if (unwrapped?.kind === "array") {
+      for (const branch of [thenIR, otherwiseIR]) {
+        if (branch.kind === "list" && branch.elements.length === 0) {
+          branch.elementType = unwrapped.element;
+        }
+      }
+    }
     return {
       kind: "ternary",
       cond: lowerExpr(expr.cond, env),
       // biome-ignore lint/suspicious/noThenProperty: the ternary IR node's branch field is named `then` across the IR
-      then: lowerExpr(expr.thenExpr, env),
-      otherwise: lowerExpr(expr.elseExpr, env),
+      then: thenIR,
+      otherwise: otherwiseIR,
     };
   }
   if (isLambda(expr)) {

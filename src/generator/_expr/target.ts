@@ -261,7 +261,9 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
    *  backend's *lint-clean* nil test (Python `is not None`, C# `is not null`,
    *  Elixir `!= nil`, TS `!== null`, Java `!= null`). */
   absenceCheck(subject: string): string;
-  list(elements: string[]): string;
+  /** `e` carries an empty literal's `elementType`, for the targets that
+   *  must spell it. */
+  list(elements: string[], e: Extract<ExprIR, { kind: "list" }>): string;
 }
 
 /** Source-level type name of a variant arm's `varType` — the comparand for a
@@ -419,7 +421,7 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
       );
     }
     case "list":
-      return t.list(e.elements.map(r));
+      return t.list(e.elements.map(r), e);
     case "action-ref":
       // A named page/component action reference is a UI-handler-arg form
       // (named-actions-and-stores.md, Proposal A Stage 1).  It is consumed by
@@ -961,7 +963,13 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
     }
     case "list": {
       const elements = e.elements.map(rm);
-      return compose(t.list(elements.map((el) => el.text)), elements);
+      return compose(
+        t.list(
+          elements.map((el) => el.text),
+          e,
+        ),
+        elements,
+      );
     }
     case "action-ref":
       throw new Error("renderExprWithMarks: 'action-ref' is not a domain expression");
