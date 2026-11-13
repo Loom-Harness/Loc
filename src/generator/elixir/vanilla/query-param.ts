@@ -202,7 +202,7 @@ function renderQueryParamCheck(kinds: ReadonlySet<QueryParamCheck["kind"]>): str
           nil -> []
           :missing -> [%{pointer: "/" <> name, message: name <> ${exLit(` ${exMissingSuffix()}`)}, code: ${exFieldCode("missing")}}]
 ${[...kinds].includes("integer") ? `          {code, message, params} -> [%{pointer: "/" <> name, message: message, code: code, params: params}]
-` : ""}${kinds.has("uuid") || kinds.has("integer") ? `          {code, message} -> [%{pointer: "/" <> name, message: message, code: code}]
+` : ""}${kinds.has("uuid") ? `          {code, message} -> [%{pointer: "/" <> name, message: message, code: code}]
 ` : ""}          message -> [%{pointer: "/" <> name, message: message, code: ${exFieldCode("type-mismatch")}}]
         end
       end)
