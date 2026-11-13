@@ -901,6 +901,7 @@ const REALIZATION_WITNESSES: Partial<
   // The by-id read cache module (`src/ir/plan/cache.ts` rendered).
   "resource:cache@resource": {
     node: (paths) => paths.some((p) => p.endsWith("cache/by-id-cache.ts")),
+    java: (paths) => paths.some((p) => p.endsWith("config/ByIdCaches.java")),
   },
 };
 
