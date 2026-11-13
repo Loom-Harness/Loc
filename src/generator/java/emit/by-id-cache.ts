@@ -50,7 +50,7 @@ function storeConstant(storage: string): string {
 }
 
 /** `ByIdCaches.<CONSTANT>`, the cache of `read`'s aggregate. */
-export function javaByIdCacheRef(read: Pick<CachedByIdRead, "aggregate">): string {
+function javaByIdCacheRef(read: Pick<CachedByIdRead, "aggregate">): string {
   return `${BY_ID_CACHES_CLASS}.${cacheConstant(read)}`;
 }
 

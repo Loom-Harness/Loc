@@ -2938,7 +2938,7 @@ describe("Loom IR validation (post-lowering)", async () => {
     ).toEqual([]);
   });
 
-  it("refuses a wired kind: cache dataSource (with keyPrefix) on a backend that does not cache", async () => {
+  it("accepts a wired kind: cache dataSource with keyPrefix on every backend", async () => {
     const loom = await loomFrom(`
       system S {
         subdomain M { context C { aggregate A { x: int } } }
@@ -2953,10 +2953,7 @@ describe("Loom IR validation (post-lowering)", async () => {
       }
     `);
     const errors = validateLoomModel(loom).filter((d) => d.code === "loom.target-unsupported");
-    expect(
-      errors.some((d) => /resource 'cCache' \(kind: cache/.test(d.message)),
-      JSON.stringify(errors),
-    ).toBe(true);
+    expect(errors, JSON.stringify(errors)).toEqual([]);
   });
 
   it("does NOT warn when only 'schema' / 'tablePrefix' are set (both are wired)", async () => {

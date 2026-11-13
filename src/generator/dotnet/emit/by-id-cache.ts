@@ -45,7 +45,7 @@ function cacheNs(ns: string): string {
 }
 
 /** The `ByIdCache` subclass of one cached aggregate. */
-export function byIdCacheClass(read: Pick<CachedByIdRead, "aggregate">): string {
+function byIdCacheClass(read: Pick<CachedByIdRead, "aggregate">): string {
   return `${read.aggregate}ByIdCache`;
 }
 
@@ -65,7 +65,7 @@ function scopeValue(input: CacheScopeInput): string {
 }
 
 /** True when the cached read keys on the caller. */
-export function cacheReadsPrincipal(read: CachedByIdRead): boolean {
+function cacheReadsPrincipal(read: CachedByIdRead): boolean {
   return read.scope.length > 0;
 }
 

@@ -279,7 +279,7 @@ Each optional knob is gated to the kinds / storage types where it's meaningful (
 
 > **Not realized on any backend.** `kind: snapshot` and `kind: replica`, and the `every` / `retain` / `readonly` knobs, parse and type-check but no emitter reads them. They are refused as `loom.target-unsupported#resource-kind-unrealized` / `#resource-knob-unrealized` rather than accepted as a no-op.
 >
-> `kind: cache` (with `ttl` / `keyPrefix`) is the by-id read cache — [resources.md → The by-id read cache](../resources.md#the-by-id-read-cache--kind-cache). A backend that does not realize it refuses a deployable that wires it.
+> `kind: cache` (with `ttl` / `keyPrefix`) is the by-id read cache — [resources.md → The by-id read cache](../resources.md#the-by-id-read-cache--kind-cache).
 
 ### Manual indexes
 

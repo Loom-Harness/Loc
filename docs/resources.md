@@ -365,13 +365,16 @@ The route sets `x-loom-cache: hit | miss`, which the e2e matcher
 down never fails a request: the read goes to the database, and a failed
 eviction is logged (`cache_unavailable`) and expires at its ttl.
 
-| backend | store client | eviction |
+| backend | store client (`redis` / `inMemory`) | eviction |
 |---|---|---|
-| node | `ioredis` (`redis`), a `Map` with expiry (`inMemory`) | `save` / `delete` of every repository class, wrapped once in `cache/by-id-cache.ts` |
+| node | `ioredis` / a `Map` with expiry (`cache/by-id-cache.ts`) | `save` / `delete` of every repository class, wrapped once at `createApp` |
+| .NET | `StackExchange.Redis` / a `ConcurrentDictionary` with expiry (`Infrastructure/Caching/ByIdCache.cs`) | a `DispatchProxy` decorator over `I<Agg>Repository`, registered in DI |
+| Java | Lettuce / a `ConcurrentHashMap` with expiry (`config/ByIdCaches.java`) | the repository's `save` / `delete`, after commit when a transaction is active |
+| Python | `redis.asyncio` / a dict with expiry (`app/by_id_cache.py`) | the repository's `save` / `delete`, wrapped at app startup |
+| Phoenix | `Redix` / an ETS table with expiry (`lib/<app>/by_id_cache.ex`) | the repository's insert / update / delete, after commit through `PostCommit` |
 
-The other backends refuse a wired cache resource with
-`loom.target-unsupported#resource-kind-unrealized`.  A sibling deployable that
-does not list the resource reads the database.
+A backend that sends an `ETag` on `GET /{id}` (node) stores it beside the
+body; the others send none and store the body alone.  A deployable that does not list the cache resource reads the database.
 
 The node read, for `Item with tenantOwned` and a `cost` masked unless
 `currentUser.role == "manager"`:

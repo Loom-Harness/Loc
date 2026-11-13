@@ -549,7 +549,8 @@ const UNREALIZED_RESOURCES: Pick<
   | "storage:nats@declaration"
 > = {
   "resource:replica@resource": refused("resource-kind-unrealized"),
-  "resource:cache@resource": refused("resource-kind-unrealized"),
+  // The by-id read cache: `src/ir/plan/cache.ts` rendered on every backend.
+  "resource:cache@resource": SUPPORTED,
   "resource:snapshot@resource": refused("resource-kind-unrealized"),
   "knob:every@resource": refused("resource-knob-unrealized"),
   "knob:retain@resource": refused("resource-knob-unrealized"),
@@ -748,9 +749,6 @@ const STATIC_HOST_BACKEND_ROWS: Readonly<Record<BackendConstruct, CapabilityVerd
 const NODE_BACKEND: TargetCapabilityTable = {
   backend: {
     ...STATIC_HOST_BACKEND_ROWS,
-    // The by-id read cache (`src/ir/plan/cache.ts`): ioredis or an in-process
-    // map, read through on `GET /{id}`, evicted by the repository's writes.
-    "resource:cache@resource": SUPPORTED,
     // The save inserts the events and then dispatches outside the transaction.
     "publish:event-sourced@broker-channel": refused("feature-composition-broken"),
   },

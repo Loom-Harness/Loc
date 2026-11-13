@@ -902,6 +902,9 @@ const REALIZATION_WITNESSES: Partial<
   "resource:cache@resource": {
     node: (paths) => paths.some((p) => p.endsWith("cache/by-id-cache.ts")),
     java: (paths) => paths.some((p) => p.endsWith("config/ByIdCaches.java")),
+    dotnet: (paths) => paths.some((p) => p.endsWith("Infrastructure/Caching/ByIdCache.cs")),
+    python: (paths) => paths.some((p) => p.endsWith("app/by_id_cache.py")),
+    elixir: (paths) => paths.some((p) => p.endsWith("by_id_cache.ex")),
   },
 };
 
