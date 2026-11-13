@@ -546,6 +546,7 @@ describe.runIf(RUN)("lifecycle: reboot, regenerate, broker outage, DB pause", ()
                 "services:",
                 "  d2:",
                 "    extends:",
+                "      file: docker-compose.yml",
                 "      service: d",
                 `    image: ${sh(`docker inspect -f '{{.Config.Image}}' ${container()}`, out).trim()}`,
                 "    ports: !reset []",
