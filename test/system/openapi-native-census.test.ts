@@ -60,13 +60,6 @@ const WAIVERS: Record<string, Waiver> = {
     reviewUntil: "2027-03-31",
     blockedBy: "#5321",
   },
-  "src/generator/python/": {
-    deferred:
-      "custom_openapi() rewrites 4xx/5xx content after get_openapi(); replaced by " +
-      "per-route responses= and Pydantic discriminated unions",
-    reviewUntil: "2027-03-31",
-    blockedBy: "#4872",
-  },
 };
 
 function sourceFiles(dir: string, out: string[] = []): string[] {

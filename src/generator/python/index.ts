@@ -75,7 +75,6 @@ import {
   TEST_RESET_TOKEN_ENV,
 } from "../../util/test-reset.js";
 import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
-import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV, devClaimFields } from "../_auth/dev-claims.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { DEBIAN_CERTS_BLOCK, NODE_CERTS_BLOCK, NPM_INSTALL_BLOCK } from "../_docker/node-stage.js";
@@ -85,7 +84,6 @@ import { PY_IMPORTS, pyModule, pyRef } from "../_imports/python.js";
 import { ref, spellMarkers } from "../_imports/symbol.js";
 import {
   errorArmProblemJsonSchema,
-  errorStatusJsonSchema,
   opUnionResponses,
   unionMembersJsonSchema,
 } from "../_payload/union-wire.js";
@@ -129,6 +127,7 @@ import { renderPyEnumsAndValueObjects } from "./emit/value-objects.js";
 import { emitPyExplicitHandlers, emitPyExplicitRouteRouter } from "./explicit-handlers-emit.js";
 import { buildPyExternHookModule, externHookModulePath } from "./extern-builder.js";
 import { renderPyFileRefModel, renderPyFilesRoutes } from "./files-routes-builder.js";
+import { componentRef } from "./openapi-responses-py.js";
 import { PYTHON_PINS } from "./pins.js";
 import { buildPyProjectionsFile } from "./projections-builder.js";
 import { PyOutputMap } from "./py-output.js";
@@ -1385,7 +1384,7 @@ function renderMain(
     ...routerAggs.map(
       (name) => `from app.http.${snake(name)}_routes import router as ${snake(name)}_router`,
     ),
-    `from app.http.problem import JsonBodyMiddleware, install_error_handlers, install_openapi${hasStaticSubpathGuard ? ", problem" : ""}`,
+    `from app.http.problem import JsonBodyMiddleware, install_error_handlers${hasStaticSubpathGuard ? ", problem" : ""}`,
     "from app.http.security_headers import SecurityHeadersMiddleware",
     ...explicitRouteApis.map(
       (name) => `from app.http.${snake(name)}_routes import router as ${snake(name)}_router`,
@@ -1527,7 +1526,6 @@ function renderMain(
     '    redoc_url="/redoc" if _openapi_ui else None,',
     ")",
     "install_error_handlers(app)",
-    "install_openapi(app)",
     "# Innermost: the request-body media-type contract (RS-39) runs closest to",
     "# the routes, so every outer middleware still brackets a 415 it answers.",
     "app.add_middleware(JsonBodyMiddleware)",
@@ -1846,86 +1844,49 @@ def money_str(amount: Decimal) -> str:
     return format(amount.quantize(Decimal("${pyMoneyQuantum()}"), rounding="ROUND_HALF_UP"), "f")
 `;
 
-/** One exception-less op-return union to surface in the OpenAPI spec:
- *  the POST path it answers on, the component name, and the raw oneOf
- *  JSON schema (built by `collectOpUnions`). */
-interface PyOpUnion {
-  path: string;
-  /** The route's method when it is not `post` (a routed `GET` handler). */
-  method?: string;
+/** One response body whose JSON schema `problem.py` declares on a pydantic
+ *  model (`DeclaredSchema`): an op-return union's 200 body or an error arm's
+ *  problem body.  Routes return these as plain dicts; the model is what a
+ *  route's `responses=` names, so FastAPI publishes the component. */
+interface PyDeclaredSchema {
   name: string;
   schema: unknown;
-  /** The error arms' problem responses, keyed by status (M-FT.24); empty when
-   *  the union has no error arm. */
-  errors: Record<string, unknown>;
-  /** The components the split adds: the error arms' problem bodies. */
-  problems: Record<string, unknown>;
 }
 
-/** Operation-return unions across the deployable's contexts — the tagged
- *  wire union each exception-less op's 200 carries.  The route handler
- *  already returns the tagged dict; the spec side injects the component +
- *  200 in `install_openapi` (a pydantic Union response_model would
- *  register per-variant components no other backend publishes). */
+/** The declared-schema bodies of every routed op-return union across the
+ *  deployable's contexts: each union's success body and each error arm's
+ *  problem body (`opUnionResponses`), one per component name.  The routes
+ *  name them in their own `responses=` (`pyResponseEntries`). */
 function collectOpUnions(
   contexts: readonly EnrichedBoundedContextIR[],
   entryRoutes: readonly RouteIR[] = [],
-): PyOpUnion[] {
-  const seen = new Set<string>();
-  const out: PyOpUnion[] = [];
+): PyDeclaredSchema[] {
+  const out = new Map<string, unknown>();
+  const add = (variants: TypeIR[], ctx: EnrichedBoundedContextIR): void => {
+    const split = opUnionResponses(variants, ctx);
+    out.set(split.successName, unionMembersJsonSchema(split.success));
+    for (const a of split.errors) {
+      out.set(a.problemName, errorArmProblemJsonSchema(a, componentRef("ProblemDetails")));
+    }
+  };
   for (const ctx of contexts) {
-    // The injected 200's path comes from the derivation — the same absolute
-    // path the route decorator mounts (unification seam), so the spec can no
-    // longer document a path the router does not serve.  An operation the
-    // derivation does not lift (private / abstract host) injects nothing.
-    const derivedPaths = new Map<unknown, string>(
+    // Only an operation the derivation lifts onto a route has a body to
+    // declare (a private / abstract host's operation has none).
+    const routed = new Set<unknown>(
       deriveContextOperations(ctx)
         .filter((o) => o.kind === "operation")
-        .map((o) => [o.operation, o.path]),
+        .map((o) => o.operation),
     );
     for (const agg of ctx.aggregates) {
       for (const op of agg.operations) {
-        if (op.returnType?.kind !== "union") continue;
-        const path = derivedPaths.get(op);
-        if (path === undefined) continue;
-        // The OpenAPI split (M-FT.24): the 200 carries the success arms only;
-        // each error arm's status carries ProblemDetails or its problem body.
-        const split = opUnionResponses(op.returnType.variants, ctx);
-        const name = split.successName;
-        if (seen.has(`${path}|${name}`)) continue;
-        seen.add(`${path}|${name}`);
-        const ref = (n: string): string => `#/components/schemas/${n}`;
-        out.push({
-          path,
-          name,
-          schema: unionMembersJsonSchema(split.success),
-          errors: Object.fromEntries(
-            split.errorStatuses.map((e) => [
-              String(e.status),
-              errorStatusJsonSchema(e.arms, "ProblemDetails", ref),
-            ]),
-          ),
-          problems: Object.fromEntries(
-            split.errors.map((a) => [
-              a.problemName,
-              errorArmProblemJsonSchema(a, ref("ProblemDetails")),
-            ]),
-          ),
-        });
+        if (op.returnType?.kind === "union" && routed.has(op)) add(op.returnType.variants, ctx);
       }
     }
     // The routed command entry points whose result is an expected failure
     // (`T or E`) split their union exactly as an operation does.
-    const entries: { path: string; method: string; type: TypeIR }[] = [];
     for (const wf of ctx.workflows) {
       const r = commandCreateResult(wf);
-      if (r?.type.kind === "union" && commandCreateEntryResult(wf)) {
-        entries.push({
-          path: `${API_BASE_PATH}/workflows/${snake(wf.name)}`,
-          method: "post",
-          type: r.type,
-        });
-      }
+      if (r?.type.kind === "union" && commandCreateEntryResult(wf)) add(r.type.variants, ctx);
     }
     for (const r of entryRoutes) {
       if (r.target.context !== ctx.name) continue;
@@ -1933,37 +1894,10 @@ function collectOpUnions(
         (ctx.commandHandlers ?? []).find((x) => x.name === r.target.handler) ??
         (ctx.queryHandlers ?? []).find((x) => x.name === r.target.handler);
       if (!h || h.extern || h.returnType?.kind !== "union" || !entryResult(h)) continue;
-      entries.push({
-        path: explicitRoutePath(r),
-        method: r.method.toLowerCase(),
-        type: h.returnType,
-      });
-    }
-    for (const e of entries) {
-      if (e.type.kind !== "union") continue;
-      const split = opUnionResponses(e.type.variants, ctx);
-      const ref = (n: string): string => `#/components/schemas/${n}`;
-      out.push({
-        path: e.path,
-        ...(e.method !== "post" ? { method: e.method } : {}),
-        name: split.successName,
-        schema: unionMembersJsonSchema(split.success),
-        errors: Object.fromEntries(
-          split.errorStatuses.map((es) => [
-            String(es.status),
-            errorStatusJsonSchema(es.arms, "ProblemDetails", ref),
-          ]),
-        ),
-        problems: Object.fromEntries(
-          split.errors.map((a) => [
-            a.problemName,
-            errorArmProblemJsonSchema(a, ref("ProblemDetails")),
-          ]),
-        ),
-      });
+      add(h.returnType.variants, ctx);
     }
   }
-  return out;
+  return [...out].map(([name, schema]) => ({ name, schema }));
 }
 
 /** True when some aggregate declares an `extern` operation or the context
@@ -1988,7 +1922,7 @@ function hasExternOperation(ctx: {
 // with the §3.2 `errors[]` extension (RFC 6901 pointers), matching the other
 // backends' ProblemDetails.
 function renderProblemPy(
-  opUnions: PyOpUnion[],
+  opUnions: PyDeclaredSchema[],
   hasUniqueKeys = false,
   hasVersioned = false,
   /** True when a write here can name a reference row that does not exist — the
@@ -2041,41 +1975,36 @@ function renderProblemPy(
   const notFoundStatus = wireStatus("not-found", structuralErrorStatuses);
   const title = (cls: WireRejectionClass): string =>
     JSON.stringify(wireTitle(cls, structuralErrorStatuses));
-  // JSON literals are valid Python for the value kinds used here (strings,
-  // arrays, objects — no booleans/nulls cross).
-  const responsesDict = JSON.stringify(Object.fromEntries(opUnions.map((u) => [u.path, u.name])));
-  // A routed `GET` handler's union: its path-op is not under `post`.
-  const methods = opUnions.filter((u) => u.method !== undefined);
-  const methodsDecl = methods.length
-    ? `\n_OP_UNION_METHODS: dict[str, str] = ${JSON.stringify(Object.fromEntries(methods.map((u) => [u.path, u.method])))}`
-    : "";
-  const methodOf = methods.length ? `_OP_UNION_METHODS.get(path, "post")` : `"post"`;
-  const componentsDict = JSON.stringify(
-    Object.fromEntries(
-      opUnions.flatMap((u) => [[u.name, u.schema] as const, ...Object.entries(u.problems)]),
-    ),
-  );
-  // Only an app with an op-union error arm carries the error-arm table and its
-  // injection loop, so every other app's problem.py is unchanged.
-  const opUnionErrors = opUnions.filter((u) => Object.keys(u.errors).length > 0);
-  const errorsDecl = opUnionErrors.length
-    ? `\n_OP_UNION_ERRORS: dict[str, dict[str, Any]] = ${JSON.stringify(
-        Object.fromEntries(opUnionErrors.map((u) => [u.path, u.errors])),
-      )}`
-    : "";
-  const errorsLoop = opUnionErrors.length
-    ? `
-        # An error arm answers a problem at its own status, so that status
-        # declares ProblemDetails or the arm's problem body (M-FT.24).
-        for path, by_status in _OP_UNION_ERRORS.items():
-            post_op = cast(dict[str, Any], schema.get("paths", {})).get(path, {}).get(${methodOf})
-            if not isinstance(post_op, dict):
-                continue
-            responses = cast(dict[str, Any], post_op.setdefault("responses", {}))
-            for code, problem_schema in by_status.items():
-                entry = cast(dict[str, Any], responses.setdefault(code, {"description": "Error"}))
-                entry["content"] = {"application/problem+json": {"schema": problem_schema}}`
-    : "";
+  // The op-return union bodies, each a model whose JSON schema is declared.
+  // JSON literals are valid Python for the value kinds a schema uses here
+  // (strings, arrays, objects — no booleans/nulls cross).  The base class is
+  // always present; only a model a route names becomes a component.
+  const declaredModels = `
+
+
+class DeclaredSchema(RootModel[Any]):
+    """A response body whose JSON schema is declared rather than derived from
+    fields: an op-return union's tagged 200 body, or an error arm's problem
+    body (ProblemDetails plus the arm's fields).  The route returns a plain
+    dict; naming one of these in its \`responses=\` publishes the schema as a
+    component.  A pydantic Union would publish a component per arm, which no
+    other backend does."""
+
+    wire_schema: ClassVar[dict[str, Any]] = {}
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, core_schema: CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        return copy.deepcopy(cls.wire_schema)${opUnions
+          .map(
+            (u) => `
+
+
+class ${u.name}(DeclaredSchema):
+    wire_schema: ClassVar[dict[str, Any]] = ${JSON.stringify(u.schema)}`,
+          )
+          .join("")}`;
   // One IntegrityError handler, two SQLSTATE arms — emitted when EITHER can
   // fire, so an app that can trip neither stays byte-identical (the proposal's
   // strict-additivity guarantee).  Each arm carries its own gate, so a
@@ -2214,16 +2143,18 @@ def parse_if_match(request: Request) -> int | None:
     : "";
   return `"""RFC 7807 problem responses + exception handlers.  Auto-generated."""
 
+import copy
 import re
 from http import HTTPStatus
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, GetJsonSchemaHandler, RootModel
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import CoreSchema
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send${integrityImport}
@@ -2240,6 +2171,17 @@ from app.obs.log import correlation_id, log, new_id
 from app.obs.metrics import record_domain_fault
 
 
+class ProblemDetailsError(BaseModel):
+    """One RFC 7807 §3.2 \`errors[]\` entry: the RFC 6901 pointer to the
+    offending request member, its message, and the catalog key + values a
+    client localizes it by."""
+
+    pointer: str
+    message: str
+    code: str | None = None
+    params: dict[str, Any] | None = None
+
+
 class ProblemDetails(BaseModel):
     """RFC 7807 body (+ the §3.2 errors[] extension on 422) — the shared
     cross-backend error component the conformance gate compares."""
@@ -2253,68 +2195,16 @@ class ProblemDetails(BaseModel):
     # message names; \`title\` / \`detail\` stay English for API callers and logs.
     code: str | None = None
     params: dict[str, Any] | None = None
-    errors: list[dict[str, Any]] | None = None
+    errors: list[ProblemDetailsError] | None = None
 
 
-# Exception-less op-return unions (path → tagged-union component name, and
-# the raw oneOf components) — injected into the spec by install_openapi.
-_OP_UNION_RESPONSES: dict[str, str] = ${responsesDict}
-_OP_UNION_COMPONENTS: dict[str, Any] = ${componentsDict}${errorsDecl}${methodsDecl}
-
-
-def install_openapi(app: FastAPI) -> None:
-    """Post-process the generated OpenAPI for cross-backend parity:
-    error responses ride as application/problem+json (the declared
-    \`model\` registers the ProblemDetails component under
-    application/json), and FastAPI's auto-added 422
-    HTTPValidationError responses (+ their components) are dropped —
-    routes declare their own 422 where the shared error matrix
-    (openapi-errors.ts) says so."""
-
-    def custom_openapi() -> dict[str, Any]:
-        if app.openapi_schema:
-            return app.openapi_schema
-        schema = get_openapi(title=app.title, version=app.version, routes=app.routes)
-        for item in cast(dict[str, Any], schema.get("paths", {})).values():
-            for op in item.values():
-                if not isinstance(op, dict):
-                    continue
-                responses = cast(dict[str, Any], op.get("responses", {}))
-                for code in list(responses):
-                    if not (code[:1] in "45" and len(code) == 3):
-                        continue
-                    content = cast(dict[str, Any], responses[code].get("content", {}))
-                    ref = (
-                        content.get("application/json", {}).get("schema", {}).get("$ref", "")
-                    )
-                    if ref.endswith("/HTTPValidationError"):
-                        del responses[code]
-                    elif ref.endswith("/ProblemDetails"):
-                        content["application/problem+json"] = content.pop("application/json")
-        components = cast(dict[str, Any], schema.get("components", {})).get("schemas", {})
-        components.pop("HTTPValidationError", None)
-        components.pop("ValidationError", None)
-        # Exception-less operation-return unions: the route handler returns
-        # the tagged dict (no pydantic response_model — a Union model would
-        # register per-variant components no other backend publishes), so the
-        # 200 + the named oneOf component are wired here for parity with
-        # Hono's discriminatedUnion / .NET's Application union DTO.
-        for path, union_name in _OP_UNION_RESPONSES.items():
-            post_op = cast(dict[str, Any], schema.get("paths", {})).get(path, {}).get(${methodOf})
-            if isinstance(post_op, dict):
-                cast(dict[str, Any], post_op.setdefault("responses", {}))["200"] = {
-                    "description": "OK",
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/" + union_name}
-                        }
-                    },
-                }${errorsLoop}
-        components.update(_OP_UNION_COMPONENTS)
-        app.openapi_schema = schema
-        return schema
-
-    app.openapi = custom_openapi  # type: ignore[method-assign]
+# The body every error status a route declares carries, under the media type
+# the problem responder answers with.  A route's \`responses=\` entry names
+# ProblemDetails as its \`model\` too, which publishes the component (FastAPI
+# also lists that model under the route's own media type, application/json).
+PROBLEM_JSON: dict[str, Any] = {
+    "application/problem+json": {"schema": {"$ref": "#/components/schemas/ProblemDetails"}}
+}${declaredModels}
 
 
 # The one wording every backend sends for a body it could not read.  Shared as

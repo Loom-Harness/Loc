@@ -159,7 +159,7 @@ describe("workflow instance-read gate", () => {
       await fileEndingWith("dotnet", READ_GATE, "OrdersWorkflowInstancesController.cs"),
     ).toContain('[ProducesResponseType(typeof(ProblemResponse), 403, "application/problem+json")]');
     expect(await fileEndingWith("python", READ_GATE, "http/workflows_routes.py")).toContain(
-      '403: {"model": ProblemDetails, "description": "Forbidden"}',
+      '403: {"model": ProblemDetails, "description": "Forbidden", "content": PROBLEM_JSON}',
     );
   });
 });

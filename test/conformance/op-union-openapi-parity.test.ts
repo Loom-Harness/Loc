@@ -143,26 +143,25 @@ function fromNode(out: Map<string, string>): Published {
 
 function fromPython(out: Map<string, string>): Published {
   const src = fileEnding(out, "app/http/problem.py");
-  // `_OP_UNION_ERRORS` is emitted only when some union has an error arm, so
-  // its absence reads as "no error-arm status declared", not as a crash.
-  const dict = (name: string): Record<string, unknown> => {
-    const m = src.match(new RegExp(`^${name}: [^=]+= (.*)$`, "m"));
-    return m ? JSON.parse(m[1]!) : {};
-  };
-  const responses = dict("_OP_UNION_RESPONSES") as Record<string, string>;
-  const components = dict("_OP_UNION_COMPONENTS") as Record<string, never>;
-  const errorsByPath = dict("_OP_UNION_ERRORS") as Record<string, Record<string, never>>;
+  const routes = fileEnding(out, "app/http/order_routes.py");
+  // Each body is a `DeclaredSchema` model carrying its JSON schema; the route
+  // names the models in its own `responses=`.
+  const components = Object.fromEntries(
+    [...src.matchAll(/^class (\w+)\(DeclaredSchema\):\n {4}wire_schema: [^=]+= (.*)$/gm)].map(
+      (m) => [m[1]!, JSON.parse(m[2]!)],
+    ),
+  );
   const ops: Published["ops"] = {};
   for (const op of OPS) {
-    const path = Object.keys(responses).find((p) => p.endsWith(`/${op}`))!;
-    const success = responses[path]!;
-    ops[op] = {
-      success,
-      successTags: jsonTags(components[success]!),
-      errors: Object.fromEntries(
-        Object.entries(errorsByPath[path] ?? {}).map(([s, sc]) => [s, jsonAnyOfRefs(sc)]),
-      ),
-    };
+    const decorator = routes.split("\n").find((l) => l.includes(`operation_id="${op}Order"`))!;
+    const success = decorator.match(/200: \{"model": (\w+)/)![1]!;
+    const errors: Record<string, string[]> = {};
+    for (const m of decorator.matchAll(
+      /(\d{3}): \{"model": [^{]*"content": (\{"application\/problem\+json":\{"schema":\{"anyOf":\[[^\]]*\]\}\}\})/g,
+    )) {
+      errors[m[1]!] = jsonAnyOfRefs(JSON.parse(m[2]!)["application/problem+json"].schema);
+    }
+    ops[op] = { success, successTags: jsonTags(components[success]!), errors };
   }
   const problems = Object.fromEntries(
     Object.entries(components)
