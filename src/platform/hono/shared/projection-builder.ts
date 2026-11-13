@@ -170,9 +170,14 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
       (e) =>
         `const ${e.name}Schema = z.enum([${e.values.map((v) => `"${v}"`).join(", ")}]).openapi("${e.name}");`,
     );
-  const enumValueImports = enumPool(ctx)
-    .filter((e) => new RegExp(`\\b${e.name}\\.`).test(bodyText))
-    .map((e) => e.name);
+  // Enum values read in the body, and value-object classes a fold seed
+  // constructs (`new Stamp(...)`), both live in the domain value-objects module.
+  const enumValueImports = [
+    ...enumPool(ctx)
+      .filter((e) => new RegExp(`\\b${e.name}\\.`).test(bodyText))
+      .map((e) => e.name),
+    ...valueObjectPool(ctx).filter((vo) => new RegExp(`\\bnew ${vo.name}\\(`).test(bodyText)).map((vo) => vo.name),
+  ];
   const enumValueImportLine =
     enumValueImports.length > 0
       ? `import { ${enumValueImports.join(", ")} } from "../domain/value-objects";`
@@ -356,10 +361,22 @@ function emitFoldHandler(
   // outside any principal) has no tenant's row to fold into.
   const tenancy = foldTenancyFor(p);
   const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
+  // A value-object default is bound once and spread over its leaf columns,
+  // exactly as a fold write of the same field stores it.
+  const seeds = foldRowSeeds(p).map((sd) => {
+    if (sd.kind === "default" && ctxDecls && isFlattenedValueObject(sd.field.type, ctxDecls)) {
+      const tmp = `__seed_${sd.field.name}`;
+      return {
+        pre: [`  const ${tmp} = ${renderTsExpr(sd.expr, { thisName: "state" })};`],
+        entries: voLeafValues(sd.field.name, sd.field.type, ctxDecls, tmp).map((l) => `${l.prop}: ${l.value}`),
+      };
+    }
+    return { pre: [] as string[], entries: [`${sd.field.name}: ${tsRowSeed(sd)}`] };
+  });
   const seed = [
     `${corr}: __key`,
     ...(cols ? [`${cols.tenant.field}: __tenant`] : []),
-    ...foldRowSeeds(p).map((sd) => `${sd.field.name}: ${tsRowSeed(sd)}`),
+    ...seeds.flatMap((sd) => sd.entries),
   ].join(", ");
   const allocate = usingMikro
     ? `Object.assign(new ${mikroProjectionRowClass(p)}(), { ${seed} })`
@@ -377,6 +394,7 @@ function emitFoldHandler(
         ]
       : []),
     `  const __key = ${keyExpr};`,
+    ...seeds.flatMap((sd) => sd.pre),
     // MikroORM: the fold loads and upserts through its own fork, so a write
     // the database refuses is dropped with the fork instead of staying in a
     // shared identity map where a later read would serve it.
@@ -464,24 +482,10 @@ function renderFoldStep(
       // the leaves the same derivation the read route nests back.  The domain
       // value is bound once rather than re-rendered per leaf.
       if (voFields && step.type && isFlattenedValueObject(step.type, voFields)) {
-        const leaves = voLeaves(field, step.type, voFields);
         const tmp = `__${field}`;
         return [
           `  const ${tmp} = ${rendered};`,
-          ...leaves.map((l) => {
-            // A leaf under an OPTIONAL ancestor hops with `?.` the whole way (an
-            // absent ancestor makes every descendant absent, not just the first);
-            // a leaf that is merely optional itself sits on a present object and
-            // reads with a plain `.`.
-            const read = `${tmp}${l.path.map((seg) => (l.viaOptional ? `?.${seg}` : `.${seg}`)).join("")}`;
-            const stored = toColumn(l.type, read);
-            // The null guard is only needed when the column conversion would run
-            // on an absent value — `toColumn`'s money arm is `(v).toString()`,
-            // which throws.  A leaf stored as-is needs no guard.
-            const value =
-              l.nullable && stored !== read ? `${read} == null ? null : ${stored}` : stored;
-            return `  state.${l.prop} = ${value};`;
-          }),
+          ...voLeafValues(field, step.type, voFields, tmp).map((l) => `  state.${l.prop} = ${l.value};`),
         ].join("\n");
       }
       return `  state.${field} = ${toColumn(step.type, rendered)};`;
@@ -501,6 +505,30 @@ function renderFoldStep(
       return _exhaustive;
     }
   }
+}
+
+/** The leaf columns of a flattened value-object `field` read off the bound
+ *  domain value `tmp`, each in its column representation — what a fold write
+ *  and a fresh row's seed both store, so the two can never flatten apart. */
+function voLeafValues(
+  field: string,
+  type: TypeIR,
+  voFields: EnrichedBoundedContextIR,
+  tmp: string,
+): { prop: string; value: string }[] {
+  return voLeaves(field, type, voFields).map((l) => {
+    // A leaf under an OPTIONAL ancestor hops with `?.` the whole way (an
+    // absent ancestor makes every descendant absent, not just the first);
+    // a leaf that is merely optional itself sits on a present object and
+    // reads with a plain `.`.
+    const read = `${tmp}${l.path.map((seg) => (l.viaOptional ? `?.${seg}` : `.${seg}`)).join("")}`;
+    const stored = toColumn(l.type, read);
+    // The null guard is only needed when the column conversion would run on
+    // an absent value — `toColumn`'s money arm is `(v).toString()`, which
+    // throws.  A leaf stored as-is needs no guard.
+    const value = l.nullable && stored !== read ? `${read} == null ? null : ${stored}` : stored;
+    return { prop: l.prop, value };
+  });
 }
 
 /** The read-model COLUMN representation of a folded domain value.

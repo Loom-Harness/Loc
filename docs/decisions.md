@@ -6938,6 +6938,7 @@ earlier ids were applied.
 persistence adapter, a forced redelivery of the same outbox row leaves the
 fold's count at 1. `test/system/projection-fold-census.test.ts` refuses a
 hand-written inbox statement outside `src/ir/plan/`.
+
 ## D-WORKFLOW-TX-BOUNDARY — a workflow command commits each save on its own unless it is `transactional`
 
 **Status:** decided by the owner, 2026-11-13.

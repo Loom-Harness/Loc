@@ -61,9 +61,13 @@ system ProjectionVoRow {
 
       projection OrderBoard keyed by orderRef {
         orderRef: Order id
+        // A required value-object column starts from its declared default: the
+        // seed flattens it onto the leaf columns exactly as a fold write does.
         stamp: Stamp = Stamp { atTime: now(), who: "" }
         // Never folded by any handler, so it stays absent — the wire `null` arm.
         seen: Stamp?
+        // The default omits the optional `note` — a positional constructor
+        // still takes it, as an explicit null.
         audit: Audit = Audit { made: Stamp { atTime: now(), who: "" } }
         on(e: OrderPlaced) {
           stamp := e.stamp
