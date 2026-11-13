@@ -84,7 +84,9 @@ describe("versioned → 409 declared on the update op (cross-backend OpenAPI par
       Math.max(0, ctrl.indexOf("UpdateCustomer") - 400),
       ctrl.indexOf("UpdateCustomer"),
     );
-    expect(around).toContain('ProducesResponseType(typeof(ProblemResponse), 409, "application/problem+json")');
+    expect(around).toContain(
+      'ProducesResponseType(typeof(ProblemResponse), 409, "application/problem+json")',
+    );
     expect(win).toBeTruthy();
   });
 
@@ -95,7 +97,9 @@ describe("versioned → 409 declared on the update op (cross-backend OpenAPI par
       Math.max(0, ctrl.indexOf("UpdateCustomer") - 400),
       ctrl.indexOf("UpdateCustomer"),
     );
-    expect(around).toContain('ProducesResponseType(typeof(ProblemResponse), 409, "application/problem+json")');
+    expect(around).toContain(
+      'ProducesResponseType(typeof(ProblemResponse), 409, "application/problem+json")',
+    );
   });
 
   /** The `@ApiResponse` codes on the Java update mapping, in order. */
