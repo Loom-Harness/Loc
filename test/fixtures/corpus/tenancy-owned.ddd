@@ -30,6 +30,24 @@ system TenantOwned {
         monthlyPrice: int
       }
       repository Invoices for Invoice { }
+      // Request-supplied references (docs/tenancy.md → "Reference
+      // admission"): every `X id` that enters through a create, an update, an
+      // operation parameter or a workflow parameter resolves in the target's
+      // scope.  `Invoice` is tenant-owned, so only an invoice of the caller's
+      // operating tenant is admitted; `Plan` is `crossTenant`, so any plan is.
+      // A foreign tenant's invoice answers exactly like a missing one.
+      aggregate Payment with tenantOwned, crudish {
+        invoice: Invoice id
+        plan: Plan id?
+        amount: int
+        operation relink(to: Invoice id) { invoice := to }
+      }
+      repository Payments for Payment { }
+      workflow payInvoice {
+        create(inv: Invoice id, amt: int) {
+          let p = Payment.create(invoice: inv, amount: amt)
+        }
+      }
       criterion InvoicesByNumber(n: string) of Invoice = this.number == n
       queryHandler ListInvoicesByNumber(n: string): Invoice[] {
         let r = Invoices.all(InvoicesByNumber(n))
