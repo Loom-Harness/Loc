@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import { declaredCreateParamNames } from "../../../ir/enrich/wire-projection.js";
+import { singleReadOrder } from "../../../ir/plan/index.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -660,10 +661,13 @@ function renderFindFn(
   }
   // A first-match read (`takeFirst`) may match many rows; `Repo.one` raises
   // on a second, so it takes the first in id order.
-  const firstMatch = "from(record in query, order_by: [asc: record.id], limit: 1)";
+  const firstMatchOrder = singleReadOrder(f);
+  const firstMatch = firstMatchOrder
+    ? `from(record in query, order_by: [${firstMatchOrder.map((t) => `${t.direction}: record.${snake(t.field)}`).join(", ")}], limit: 1)`
+    : undefined;
   const fetchCall =
     (single
-      ? f.takeFirst
+      ? firstMatch
         ? `Repo.one(${[firstMatch, opts].filter(Boolean).join(", ")})`
         : `Repo.one(${fetchArgs})`
       : `Repo.all(${fetchArgs})`) + preload;

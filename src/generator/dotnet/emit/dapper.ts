@@ -1,5 +1,5 @@
 import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
-import { eventLogTable, foldedEventNames } from "../../../ir/plan/index.js";
+import { eventLogTable, foldedEventNames, singleReadOrder } from "../../../ir/plan/index.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import {
   recordDurableLines,
@@ -33,7 +33,8 @@ import {
 
 import {
   existsScopePredicates,
-  readSortFor,
+  type ReadOrderTerm,
+  readOrderFor,
   withExistsScopes,
 } from "../../../ir/enrich/read-scope.js";
 import { aggregateTableName, partTableName } from "../../../ir/enrich/storage-names.js";
@@ -1853,9 +1854,8 @@ export function renderDapperRepository(
         // compile tier because the whole thing is a string (M-T6.42).
         .map((wf) => `"${wf}" => "${sqlIdent(snake(wf))}"`)
         .join(", ");
-      const declaredOrder = defaultSortOrder(f.defaultSort)
-        ?.map((t) => `${sqlIdent(snake(t.field))} ${t.direction.toUpperCase()}`)
-        .join(", ");
+      const declaredTerms = defaultSortOrder(f.defaultSort);
+      const declaredOrder = declaredTerms ? dapperOrderSql(declaredTerms) : undefined;
       return lines(
         `    public async Task<${ret}> ${name}(${renderParams(f.params, ["int page", "int pageSize", "string sort", "string dir"], usesUser)})`,
         `    {`,
@@ -1930,6 +1930,8 @@ export function renderDapperRepository(
     // /warnaserror` rejects it with CS8603 ("Possible null reference return").
     // Nothing caught it because the `dotnet-build` fixture matrix has no
     // `persistence: dapper` case that declares a non-optional find.
+    const firstMatch = singleReadOrder(f);
+    const firstMatchSql = firstMatch ? ` ORDER BY ${dapperOrderSql(firstMatch)}` : "";
     const absent = f.returnType.kind === "optional" ? "null" : `throw ${csFindAbsentException()}`;
     const absentGuard =
       f.returnType.kind === "optional"
@@ -1939,7 +1941,7 @@ export function renderDapperRepository(
       `    public async Task<${ret}> ${name}(${renderParams(f.params, [], usesUser)})`,
       `    {`,
       `        ${dapperOpenConn(ns, L("conn"), ct)}`,
-      `        var ${L("r")} = await ${L("conn")}.QueryFirstOrDefaultAsync<Row>(new CommandDefinition(${csSqlLiteral(`${sql} LIMIT 1`)}${paramObj}, cancellationToken: ${ct}));`,
+      `        var ${L("r")} = await ${L("conn")}.QueryFirstOrDefaultAsync<Row>(new CommandDefinition(${csSqlLiteral(`${sql}${firstMatchSql} LIMIT 1`)}${paramObj}, cancellationToken: ${ct}));`,
       ...(hasContains
         ? [
             absentGuard,
@@ -1975,10 +1977,8 @@ export function renderDapperRepository(
     const own = csReadOwnParams(r.params.map((p) => p.name));
     // As on the find path: a refusal is `loom.query-emission-invalid`, not a stub.
     const whereSql = whereToSql(r.where, sqlCtx);
-    // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`).
-    const orderSql = ` ORDER BY ${readSortFor(r.sort)
-      .map((s) => `${sqlIdent(snake(s.path[0]!.name))} ${s.direction === "desc" ? "DESC" : "ASC"}`)
-      .join(", ")}`;
+    // The declared terms with the `id` tie-break, or `id` alone (`readOrderFor`).
+    const orderSql = ` ORDER BY ${dapperOrderSql(readOrderFor(r.sort))}`;
     // A retrieval's `ignoring` clause arrives at RUNTIME (the `FilterBypass
     // bypass` port param a workflow's inline `Repo.run(...) ignoring …` binds),
     // so unlike the find path the SQL cannot be decided at emit time: the
@@ -2952,4 +2952,11 @@ function renderDapperDateOnlyHandler(ns: string): string {
     "        value is DateOnly d ? d : DateOnly.FromDateTime((DateTime)value);",
     "}",
   );
+}
+
+/** `col DIR, …` — a list of order terms over the candidate's own columns. */
+function dapperOrderSql(terms: readonly ReadOrderTerm[]): string {
+  return terms
+    .map((t) => `${sqlIdent(snake(t.field))} ${t.direction === "desc" ? "DESC" : "ASC"}`)
+    .join(", ");
 }

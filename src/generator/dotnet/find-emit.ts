@@ -1,4 +1,5 @@
-import { readSortFor } from "../../ir/enrich/read-scope.js";
+import { type ReadOrderTerm, readSortFor } from "../../ir/enrich/read-scope.js";
+import { singleReadOrder } from "../../ir/plan/index.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
@@ -78,14 +79,26 @@ export function buildFindBodies(
   agg: EnrichedAggregateIR,
   repo: RepositoryIR | undefined,
   ctx: BoundedContextIR,
-): Array<{ name: string; ignoreClause: string; filterClause: string; projectionClause: string }> {
+): Array<{
+  name: string;
+  ignoreClause: string;
+  filterClause: string;
+  orderClause: string;
+  projectionClause: string;
+}> {
   if (!repo) return [];
   return repo.finds.map((raw) => {
     const find = domainFindShape(raw, agg.name);
+    const order = singleReadOrder(find);
     return {
       name: find.name,
       ignoreClause: ignoreFiltersClause(agg, ctx.aggregates, find),
       filterClause: filterClauseFor(find, agg, ctx),
+      // The row a first-match read answers; a server-side read only — the
+      // in-memory document read orders its whole set itself.
+      orderClause: order
+        ? renderCsOrderTerms(order, csLocalNamer(find.params.map((p) => p.name))("x"))
+        : "",
       projectionClause: projectionClauseFor(
         find.returnType,
         csReadOwnParams(find.params.map((p) => p.name)).ct,
@@ -169,9 +182,18 @@ export function inMemoryOrderByClauseFor(r: RetrievalIR, x: string): string {
 }
 
 function renderOrderBy(terms: RetrievalIR["sort"], x: string): string {
+  return renderCsOrderTerms(
+    terms.map((s) => ({ field: s.path[0]!.name, direction: s.direction })),
+    x,
+  );
+}
+
+/** `.OrderBy(x => x.Col)[.ThenBy…]` for a list of order terms over the
+ *  candidate's own columns.  `x` is the lambda parameter. */
+export function renderCsOrderTerms(terms: readonly ReadOrderTerm[], x: string): string {
   return terms
     .map((s, i) => {
-      const col = upperFirst(s.path[0]!.name);
+      const col = upperFirst(s.field);
       const method =
         i === 0
           ? s.direction === "desc"

@@ -7,7 +7,7 @@
 // logic change.
 // -------------------------------------------------------------------------
 
-import { readSortFor } from "../../../ir/enrich/read-scope.js";
+import { readOrderFor } from "../../../ir/enrich/read-scope.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -73,7 +73,13 @@ import {
 } from "./mikroorm-entities.js";
 import { AMBIENT_PRINCIPAL, mikroFilterOrRefuse, mikroGetByIdLines } from "./mikroorm-filter.js";
 import { mikroFilterOption } from "./mikroorm-schema-filters.js";
-import { maskUserImport, tsParamType, usesRawFragment } from "./mikroorm-shared.js";
+import {
+  maskUserImport,
+  mikroFindOneOptions,
+  mikroOrderBy,
+  tsParamType,
+  usesRawFragment,
+} from "./mikroorm-shared.js";
 
 // ---------------------------------------------------------------------------
 // `Id[]` reference-collection associations (many-to-many pivot tables).  The
@@ -570,12 +576,10 @@ export function mikroRetrievalMethod(
   );
   const params = [...baseParams, `${L.page}?: { offset?: number; limit?: number }`].join(", ");
   const filter = mikroFilterOrRefuse(r.where, AMBIENT_PRINCIPAL, agg.associations, pool);
-  // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`).
+  // The declared terms with the `id` tie-break, or `id` alone (`readOrderFor`).
   // Only the first path segment (a direct column) is used in v1 — nested /
   // collection sort paths are gated by validateRetrievals, same as drizzle.
-  const orderBy = `, orderBy: { ${readSortFor(r.sort)
-    .map((s) => `${s.path[0]!.name}: "${s.direction}"`)
-    .join(", ")} }`;
+  const orderBy = `, ${mikroOrderBy(readOrderFor(r.sort))}`;
   return lines(
     `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
     `    const ${L.em} = this.em.fork({ keepTransactionContext: true });`,
@@ -840,7 +844,7 @@ export function renderMikroRepository(
       return lines(
         `  async ${name}(${params}): Promise<${rowType}> {`,
         `    const em = this.em.fork({ keepTransactionContext: true });`,
-        `    const row = await em.findOne(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
+        `    const row = await em.findOne(${row}, ${readArgs(filter, mikroFindOneOptions(f, ignoring))});`,
         `    if (row === null) ${onMiss};`,
         ...assocInlineLoadLines(agg, "em", "row.id", "    "),
         ...containInlineLoadLines(agg, ctx, "em", "row.id", "    "),
@@ -852,7 +856,7 @@ export function renderMikroRepository(
     return lines(
       `  async ${name}(${params}): Promise<${rowType}> {`,
       `    const em = this.em.fork({ keepTransactionContext: true });`,
-      `    const row = await em.findOne(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
+      `    const row = await em.findOne(${row}, ${readArgs(filter, mikroFindOneOptions(f, ignoring))});`,
       optional
         ? `    return row === null ? null : ${hydrate("row")};`
         : [`    if (row === null) ${onMiss};`, `    return ${hydrate("row")};`],
