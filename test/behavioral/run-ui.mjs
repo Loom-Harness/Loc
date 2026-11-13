@@ -294,7 +294,7 @@ async function formSpecProbe(origin) {
     }
     if (why.length === 0) {
       const withVehicle = after;
-      await driveAddRider(page, origin, before.id).catch(async (e) => {
+      const widgetWhy = await driveAddRider(page, origin, before.id).catch(async (e) => {
         const ids = await page
           .locator('[data-testid*="riders"]')
           .evaluateAll((els) => els.map((el) => el.getAttribute("data-testid")))
@@ -306,7 +306,7 @@ async function formSpecProbe(origin) {
         if ((after.riders ?? []).length > 1) break;
         await page.waitForTimeout(500);
       }
-      why.push(...judgeRiderAdded(withVehicle, after));
+      why.push(...widgetWhy, ...judgeRiderAdded(withVehicle, after));
     }
     if (why.length === 0) {
       await seedCoverage(origin, before.id);

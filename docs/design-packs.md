@@ -483,7 +483,7 @@ or workflow form.
 | `field-input-id-text` | id (raw text input fallback) |
 | `field-input-enum-select` | enum |
 | `field-input-valueobject` | value object (recursive) |
-| `field-input-array` | array of any of the above |
+| `field-input-array` | array of any of the above; for an array of value objects, the row markup arrives pre-rendered as `rowHtml` (each row field through its own `field-input-*` template, bound to the row's `index`) |
 
 ### Field-row templates (8)
 

@@ -208,10 +208,37 @@ export async function driveAddRider(page, origin, id) {
   await page.goto(`${origin}/policies/${id}`);
   await page.locator('[data-testid="policies-op-update"]').first().click({ timeout: 20000 });
   await (await inputOf(page, "policies-op-update-input-riders-0-code", "policies-op-update-riders-row-input-code", 0)).waitFor();
+  const widgets = await judgeRowWidgets(page);
   await page.getByRole("button", { name: /Add Rider/i }).first().click({ timeout: 15000 });
   await (await inputOf(page, "policies-op-update-input-riders-1-code", "policies-op-update-riders-row-input-code", 1)).fill("R2");
   await (await inputOf(page, "policies-op-update-input-riders-1-premium", "policies-op-update-riders-row-input-premium", 1)).fill("4");
   await page.locator('[data-testid="policies-op-update-submit"]').first().click();
+  return widgets;
+}
+
+const CHOICE = 'select, [role="combobox"], [aria-haspopup="listbox"]';
+const TOGGLE = 'input[type="checkbox"], [role="switch"], [role="checkbox"]';
+
+/** A row's enum and reference fields are choice controls and its bool a
+ *  toggle — the inputs the same fields get at the top level, not text boxes. */
+async function judgeRowWidgets(page) {
+  const why = [];
+  const cells = [
+    ["peril", CHOICE],
+    ["insurer", CHOICE],
+    ["waived", TOGGLE],
+  ];
+  for (const [sub, want] of cells) {
+    const ok = await page
+      .locator(
+        `[data-testid="policies-op-update-input-riders-0-${sub}"], [data-testid="policies-op-update-riders-row-input-${sub}"]`,
+      )
+      .first()
+      .evaluate((el, sel) => el.matches(sel) || el.querySelector(sel) !== null, want)
+      .catch(() => false);
+    if (!ok) why.push(`riders row ${sub}: not rendered as its field's input (${want})`);
+  }
+  return why;
 }
 
 /** Judge the record after the rider row was added: the seeded row kept its
