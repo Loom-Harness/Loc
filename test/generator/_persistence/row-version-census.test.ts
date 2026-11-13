@@ -116,8 +116,8 @@ const NOT_THE_COUNTER: readonly { readonly re: RegExp; readonly why: string }[] 
   },
   { re: /version-conflict/, why: "the wire-policy class of the 409, named in prose" },
   {
-    re: /caller's expected version|get_openapi\(title=app\.title, version=app\.version/,
-    why: "docstring prose / the FastAPI app's own version",
+    re: /caller's expected version/,
+    why: "docstring prose",
   },
   {
     re: /int Version \{ get; \}/,

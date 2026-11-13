@@ -11,7 +11,7 @@
 // Emitted before:
 //
 //     public record TopUpRequest(int qty, boolean flag, @NotNull String note) {}
-//     new RequiredSet("TopUpRequest", List.of("flag", "note", "qty"))
+//     @Schema(requiredProperties = {"flag", "note", "qty"})
 //
 // The published contract claimed all three required; the DTO could enforce one.
 // An omitted `qty` ran the workflow with `0`, and an explicit `null` failed
@@ -94,9 +94,9 @@ describe("java workflow request DTO — RS-26 boxing of primitive params", () =>
   it("the DTO can now enforce exactly what the published contract requires", async () => {
     const files = await generateSystemFiles(SRC);
     const comps = components(fileEndingWith(files, "TopUpRequest.java"));
-    const customizer = fileEndingWith(files, "OpenApiContractCustomizer.java");
-    const m = /new RequiredSet\("TopUpRequest", List\.of\(([^)]*)\)\)/.exec(customizer);
-    expect(m, "no RequiredSet for TopUpRequest").not.toBeNull();
+    const record = fileEndingWith(files, "TopUpRequest.java");
+    const m = /requiredProperties = \{([^}]*)\}/.exec(record);
+    expect(m, "TopUpRequest publishes no required set").not.toBeNull();
     const required = m![1]!.split(",").map((s) => s.trim().replace(/"/g, ""));
     // Every field the spec publishes as required is a component the record can
     // detect the absence of — the two halves that disagreed before.

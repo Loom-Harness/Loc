@@ -8,7 +8,9 @@
 // (.NET's half lives beside its routes controller, in
 // `dotnet/explicit-handlers.test.ts`.)
 import { describe, expect, it } from "vitest";
+import { elixirDocumentedOperations } from "../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { javaDocumentedRoutes } from "../_helpers/java-openapi-annotations.js";
 
 const src = (platform: string) => `
 system S {
@@ -50,21 +52,19 @@ describe("routed read — the OpenAPI contract every backend declares", () => {
   });
 
   it("java: the contract customizer pins the 200 body and the error set", async () => {
-    const customizer = await fileEndingWith("java", "OpenApiContractCustomizer.java");
-    expect(customizer).toContain(
-      'new Route("get", "/api/orders/by_code", "OrderResponse", new int[] {400, 404, 422}, null, 0)',
-    );
+    const files = await generateSystemFiles(src("java"));
+    const route = javaDocumentedRoutes(files).get("get /api/orders/by_code");
+    expect(route).toBeDefined();
+    expect(route?.errors).toEqual([400, 404, 422]);
+    expect(route?.success).toEqual([200]);
+    expect(route?.successSchema).toBe("OrderResponse");
   });
 
-  it("elixir: the spec module publishes the routed path", async () => {
+  it("elixir: the routed action declares the operation", async () => {
     const files = await generateSystemFiles(src("elixir"));
-    const key = [...files.keys()].find((k) => /\/api\/a_spec\.ex$/.test(k));
-    expect(key, "spec module not emitted").toBeDefined();
-    const spec = files.get(key!)!;
-    const at = spec.indexOf('"/api/orders/by_code" => %OpenApiSpex.PathItem{');
-    expect(at).toBeGreaterThanOrEqual(0);
-    const item = spec.slice(at, spec.indexOf("\n      }", at));
-    expect(item).toContain('operationId: "getOrderByCode"');
+    const item = elixirDocumentedOperations(files).get("get /api/orders/by_code") ?? "";
+    expect(item, "routed action declares no operation").not.toBe("");
+    expect(item).toContain('operation_id: "getOrderByCode"');
     expect(item).toContain("name: :code, in: :query, required: true");
     expect(item).toMatch(/schema: \w+Web\.Api\.Schemas\.OrderResponse\}/);
     expect(item).toMatch(/400 => %OpenApiSpex\.Response/);

@@ -176,7 +176,8 @@ describe("request hardening — the paged controls carry declared upper bounds (
   });
 
   it("elixir publishes minimum/maximum and REJECTS out-of-range in page_param/4", async () => {
-    const spec = await fileMatching(/api\/f_api_spec\.ex$/);
+    // The list action's `operation` spec sits on the controller itself.
+    const spec = await fileMatching(/shipment_controller\.ex$/);
     expect(spec).toContain(
       `%OpenApiSpex.Schema{type: :integer, minimum: 1, maximum: ${PAGED_MAX_PAGE}}`,
     );

@@ -84,7 +84,10 @@ describe("phoenix — read requires gate", () => {
     // …and the read itself is still emitted and still reachable.
     expect(ctrl).toContain("Tickets.list_tickets(");
     // Byte-identical to the ungated spelling — the guard is absent, not inverted.
-    expect(await controller("requires true ")).toBe(await controller(""));
+    // The actions' `operation` specs are set aside: a declared `requires`
+    // publishes its 403 from the shared status matrix either way.
+    const actions = (src: string) => src.replace(/^ {2}operation :\w+,\n[\s\S]*?\n\n/gm, "");
+    expect(actions(await controller("requires true "))).toBe(actions(await controller("")));
   });
 
   it("a REAL gate is unaffected by the always-true carve-out", async () => {
