@@ -1,0 +1,5 @@
+{
+  "title": "resource endpoints — every external-service client (s3, localDisk, rabbitmq, restApi, smtp, ses, sendgrid) reads its host override",
+  "doc": "resources",
+  "backends": "ALL"
+}

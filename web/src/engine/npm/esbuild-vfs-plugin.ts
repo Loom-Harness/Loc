@@ -186,7 +186,7 @@ export const BROWSER_STUBBED_PACKAGES: Record<string, string> = {
   ].join("\n"),
 };
 const STUBBED = "vfs-stubbed-package";
-// The resource facades (nodemailer, @sendgrid/mail) are stubbed packages too.
+// The resource facades (nodemailer, @sendgrid/*) are stubbed packages too.
 Object.assign(BROWSER_STUBBED_PACKAGES, RESOURCE_FACADE_PACKAGES);
 
 /** A node builtin: `node:*`, an exact name, or a subpath like
