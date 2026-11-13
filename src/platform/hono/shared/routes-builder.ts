@@ -80,7 +80,7 @@ import {
   wireCreateDefault,
   wireFieldsFor,
 } from "../../../ir/enrich/wire-projection.js";
-import { gateReadsRow } from "../../../ir/plan/gate-ladder.js";
+import { gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -1923,12 +1923,13 @@ function emitCanOpRoute(
   const aggSlug = routeSegmentFor(agg.name);
   const pred = renderTsExpr(op.when, { thisName: "aggregate" });
   const gates = operationGates(op);
-  // A probe carries no body: a gate that reads an operation parameter cannot
-  // be decided, so it answers `false`.
   const gateTest = (g: (typeof gates)[number]): string =>
-    renderTsExpr(g.expr, { thisName: "aggregate", paramExpr: () => "undefined" });
-  const rowFree = gates.filter((g) => !gateReadsRow(g));
-  const rowReading = gates.filter(gateReadsRow);
+    renderTsExpr(g.expr, { thisName: "aggregate" });
+  // A gate that reads an operation parameter cannot be decided without a
+  // body: it answers `false`, after the load so a missing row is still 404.
+  const undecidable = gates.filter(gateReadsParam);
+  const rowFree = gates.filter((g) => !gateReadsParam(g) && !gateReadsRow(g));
+  const rowReading = gates.filter((g) => !gateReadsParam(g) && gateReadsRow(g));
   const needsUser =
     (readFind?.requires !== undefined && findGateUsesCurrentUser(readFind)) ||
     gates.some((g) => exprUsesCurrentUser(g.expr));
@@ -1960,11 +1961,17 @@ function emitCanOpRoute(
   for (const g of rowFree) {
     out.push(`    if (!(${gateTest(g)})) return c.json({ allowed: false }, 200);`);
   }
-  out.push(`    const aggregate = await repo.getById(${T.Ids}.${agg.name}Id(id));`);
-  for (const g of rowReading) {
-    out.push(`    if (!(${gateTest(g)})) return c.json({ allowed: false }, 200);`);
+  const load = `await repo.getById(${T.Ids}.${agg.name}Id(id));`;
+  if (undecidable.length > 0 && rowReading.length === 0) {
+    out.push(`    ${load}`);
+    out.push(`    return c.json({ allowed: false }, 200);`);
+  } else {
+    out.push(`    const aggregate = ${load}`);
+    for (const g of rowReading) {
+      out.push(`    if (!(${gateTest(g)})) return c.json({ allowed: false }, 200);`);
+    }
+    out.push(`    return c.json({ allowed: ${undecidable.length > 0 ? "false" : pred} }, 200);`);
   }
-  out.push(`    return c.json({ allowed: ${pred} }, 200);`);
   out.push(`  },`);
   out.push(`);`);
   return out;

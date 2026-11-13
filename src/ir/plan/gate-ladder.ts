@@ -96,3 +96,14 @@ export function gateReadsRow(g: RequiresStmtIR): boolean {
   });
   return reads;
 }
+
+/** True when a `requires` gate reads an operation parameter.  A
+ *  `can_<op>` probe carries no body, so such a gate cannot be decided there:
+ *  the probe answers `{ allowed: false }` for it. */
+export function gateReadsParam(g: RequiresStmtIR): boolean {
+  let reads = false;
+  walkExprDeep(g.expr, (e) => {
+    if (e.kind === "ref" && e.refKind === "param") reads = true;
+  });
+  return reads;
+}

@@ -30,6 +30,7 @@ export {
   type GateCheck,
   type GateStep,
   gateRank,
+  gateReadsParam,
   gateReadsRow,
   operationLadder,
 } from "./gate-ladder.js";
