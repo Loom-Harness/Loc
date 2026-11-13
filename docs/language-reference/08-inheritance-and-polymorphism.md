@@ -215,7 +215,7 @@ The two differences that follow from the table shape:
 
 ### `sharedTable` beats the `shape:` modifier
 
-A concrete carries its own storage modifiers (`shape:`, `persistedAs:`), and under `sharedTable` they collide with the strategy: the concrete owns no table of its own, so there is nowhere to put a document column. The rule is **TPH wins** ([D-TPH-BEATS-SHAPE](../decisions.md)), and the language splits the three shapes by whether they *can* degrade:
+A concrete carries its own storage modifiers (`shape:`, `persistedAs:`), and under `sharedTable` they collide with the strategy: the concrete owns no table of its own, so there is nowhere to put a document column. The rule is **TPH wins** ([D-TPH-BEATS-SHAPE](../decisions/D-TPH-BEATS-SHAPE.md)), and the language splits the three shapes by whether they *can* degrade:
 
 | concrete declares | under a `sharedTable` base |
 |---|---|

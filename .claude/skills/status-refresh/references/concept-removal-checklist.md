@@ -42,7 +42,7 @@ Run it across **all five surfaces** — missing one is how the tail re-accretes:
    → `scaffold-page-bodies.test.ts` rename). A green test with a stale name still teaches
    the wrong concept.
 3. **`docs/` — reference docs.** Every reference doc (incl. `docs/language-reference/`
-   and `docs/decisions.md`) that documented the concept.
+   and `docs/decisions/`) that documented the concept.
 4. **`CLAUDE.md`.** The architecture summary names phases and concepts directly (it
    describes the ten-phase pipeline, `classifyPage`, the lack of a phase ⑤c) — a removal
    that touched the pipeline shape almost certainly has a CLAUDE.md line to update.

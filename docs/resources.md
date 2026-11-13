@@ -480,7 +480,7 @@ A typed client call answers the callee's declared response: `getOrderById` is
 `Order` with 404 among its error statuses, so absence there is an error the
 client raises (`RemoteCallError` / `RemoteCallException`).  Repository reads
 never return an absence union (`find` declarations are removed —
-[D-FINDDECL-REMOVED](decisions.md)).
+[D-FINDDECL-REMOVED](decisions/D-FINDDECL-REMOVED.md)).
 
 ## Custom source types (out-of-tree)
 
