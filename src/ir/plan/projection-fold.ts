@@ -1,8 +1,7 @@
 // The fold plan: what one `on(e: Event) { … }` handler of a materialized
 // projection does to its row, as ordered steps every backend renders.
 //
-// The semantics are decided here, once, and are the same as an aggregate
-// body's:
+// The semantics are decided here, once:
 //
 //   - The key column is immutable.  A `:=` to the projection's key field is
 //     refused at validation (`loom.projection-key-assign`), so it never

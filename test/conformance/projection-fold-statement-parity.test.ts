@@ -74,7 +74,7 @@ const ARMS: Record<string, Record<string, RegExp>> = {
     "add (int)": /state\.Entries = \(state\.Entries \?\? 0\) \+ notification\.Amount/,
     "add (money)": /state\.Charged = \(state\.Charged \?\? 0\) \+ notification\.Fee/,
     "remove (int)": /state\.Entries = \(state\.Entries \?\? 0\) - notification\.Amount/,
-    "remove (collection)": /state\.Tags\.Remove\(notification\.Tag\)/,
+    "remove (collection)": /state\.Tags\.RemoveAll\(__x => Equals\(__x, notification\.Tag\)\)/,
   },
   java: {
     let: /var stamped = e\.at\(\);[\s\S]*state\.setAt\(stamped\);/,

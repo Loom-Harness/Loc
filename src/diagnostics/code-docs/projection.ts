@@ -13,6 +13,9 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
   "loom.paged-query-handler-shape":
     "10-repositories-and-queries.md#repoall--the-paged-queryhandler",
+  "loom.projection-key-assign": "10-repositories-and-queries.md#folded--keyed-by--one-event",
+  "loom.projection-accumulate-optional":
+    "10-repositories-and-queries.md#folded--keyed-by--one-event",
   "loom.projection-select-duration": "04-type-system.md#duration--expression-only",
   "loom.projection-aggregate-arg-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-aggregate-arity":
