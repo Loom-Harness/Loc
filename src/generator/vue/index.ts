@@ -52,6 +52,7 @@ import {
   deriveSidebarFromUi,
   type NavEntryVM,
   type NavSectionVM,
+  navPageNameFallbacksFor,
 } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { VUE_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
@@ -231,6 +232,7 @@ export function generateVueForContexts(
     sentences: pack.manifest.sentenceChrome ?? [],
     implicitModelText: vueTarget.modelTextImplicitSites === true,
     sessionView: authUi,
+    menuPageNames: navPageNameFallbacksFor(ui, contexts),
   };
   if (i18nEnabled) {
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
@@ -672,6 +674,7 @@ export function generateVueForContexts(
     pageCtx,
     authUi,
     deriveNavSections(defaultPages, pageCtx, authUi),
+    { nameLabelKeys: true },
   );
   const navSections: Array<{
     label: string;

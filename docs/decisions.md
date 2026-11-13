@@ -765,8 +765,9 @@ plural/select would be lost outright. One `messageKey()` → one catalog →
 one message is the invariant the whole i18n design rests on.
 
 **Second-tier gate.** The CLDR backend costs real compile time, so it
-ships only for a ui with an **interpolated** message — one tier below
-the existing "has any string at all" gate. A translatable-but-literal-only
+ships only for a ui with an **interpolated** message (or a `DateDisplay`,
+`D-HEEX-I18N-FORMAT`) — one tier below the existing "has any string at
+all" gate. A translatable-but-literal-only
 Phoenix app keeps the deps, files and bytes it had before. The gate reads
 the extraction pass's per-entry `icu` marker, not a `{`-sniff over the
 catalog: merged pack chrome carries holes too (`chrome.pageOf` is "Page
@@ -774,11 +775,11 @@ catalog: merged pack chrome carries holes too (`chrome.pageOf` is "Page
 
 **Documented degradation.** `ex_cldr_messages` implements ICU
 MessageFormat but not ICU number **skeletons** — `{total, number,
-::currency/USD}`, the spelling Loom's own grammar documents — and raises
-on a `date` style unless `ex_cldr_dates_times` is configured. An
-unformattable message degrades to raw hole substitution rather than
-crashing the render: the value appears unformatted, which is what the
-page showed before it was translatable. Same trade, same reason, as the
+::currency/USD}`, the spelling Loom's own grammar documents — so the
+generated runtime formats the skeletons Loom spells through `Cldr.Number`
+(`D-HEEX-I18N-FORMAT`). A message the engine still cannot format degrades
+to raw hole substitution rather than crashing the render: the value appears
+unformatted, which is what the page showed before it was translatable. Same trade, same reason, as the
 Flutter runtime's `_substitute` fallback — though Flutter no longer
 *needs* it for skeletons: its runtime pre-formats the `, number` /
 `, date` / `, time` holes through `intl`'s `NumberFormat`/`DateFormat`
@@ -4749,57 +4750,51 @@ than done here.
 
 ---
 
-## D-HEEX-I18N-FORMAT — `i18nFormat` is a documented permanent LiveView divergence, not a gap
+## D-HEEX-I18N-FORMAT — Phoenix formats numbers and dates through CLDR, in the negotiated locale
 
-**Status:** applied — the proposed default took effect 2026-09-24 (merged to `main` 2026-09-22 in #2970; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
-Raised by wave C2 packet 2a (§7.1 of its hand-off), which found the ledger's own
-proposed disposition unavailable, and taken by packet 2m.
+**Status:** applied.
 
-**Question.** `G2646-open-heex-layout-inert` carries two live arms. One is the
-missing pager on a non-server-paged `Table` — built in packet 2m. The other is
-the `i18nFormat` wrapper, which `heex-walker-core.ts`'s arm drops by design ("the
-format is dropped: render the wrapped operand"). The ledger's fix line says
-"honour it or pin it in the heex-parity freeze list with a reason" — but that
-freeze list is over walker PRIMITIVES, and `i18nFormat` is an `ExprIR` kind, so
-the pin it proposes does not exist.
+**Question.** The four JS frontends, Feliz and Flutter format a number or a
+date in the active locale through their platform (`Intl`, `intl`). Phoenix
+renders on the server, where the equivalent is a CLDR library compiled into
+the app. Does a generated Phoenix app carry one, and what does it format?
 
-**Options.** (a) add a CLDR-shaped number/date formatter dependency to every
-generated Phoenix app and honour the wrapper; (b) ratify the drop as a permanent,
-documented LiveView divergence and retire the arm from the ledger row; (c) mint
-a `loom.*` code so the author is told their format is ignored.
+**Decision.** Yes, behind the second-tier i18n gate that already ships the
+ICU engine (`D-I18N-HEEX-ICU`). The gate is "an interpolated message, or a
+`DateDisplay`", so a translatable-but-literal-only app stays CLDR-free: its
+text resolves through gettext alone and its dependency list is the
+gettext-only one. When the gate opens the app gets `ex_cldr`,
+`ex_cldr_numbers`, `ex_cldr_dates_times` and `ex_cldr_messages`, and a
+backend that compiles every shipped locale's data.
 
-**Decision.** (b), with the operand's rendering unchanged. The value still
-renders — what is dropped is the LOCALE-AWARE FORMATTING of it.
+What is formatted:
 
-**Rationale.**
+- **ICU holes.** `{d, date}` / `{d, time}` and `{n, number}` format through
+  the message engine's number and date providers. The number **skeletons**
+  Loom spells (`::currency/<ISO>`, `::percent`) are formatted by the
+  generated runtime through `Cldr.Number` before the message step, because
+  the engine does not implement skeletons.
+- **`DateDisplay`.** Under i18n it renders through `loom_date/1`, which formats
+  the value in the locale the request negotiated; the `<time datetime>`
+  attribute stays ISO. Without i18n it keeps `Calendar.strftime` ISO output.
+- **The `i18nFormat` wrapper** is carried inside the interpolated message's
+  ICU text (the shared `icuFromConcat` re-detection), so the same message and
+  the same key reach the `.po` catalog as on the other frontends. A wrapper
+  that is not part of a message still renders its operand unformatted.
 
-- **(a) is a dependency decision wearing a gap's clothes.** The four JSX targets
-  format through `Intl`, which is in every browser at zero cost. Phoenix renders
-  on the server, where the equivalent is a CLDR library compiled into the app
-  (`ex_cldr` and friends) — a new hex dependency, a compile-time locale set, and
-  a per-app configuration surface, added to EVERY generated Phoenix app for a
-  wrapper most models never use. That is a feature with a dependency ruling in
-  it, not a drain.
-- **(c) would fire on a model that is otherwise fully supported.** The i18n
-  layer itself ships on this target — `pgettext` keys every user-visible slot,
-  and packet-era work added the ICU engine for INTERPOLATION
-  (`D-I18N-HEEX-ICU`). Only the number/date FORMAT wrapper is dropped. An error
-  there would refuse a page whose text is already translated.
-- **The drop is already local and documented at the emission site**, which is
-  where a reader meets it.
+**Degradation.** A message the engine still cannot format (a skeleton token
+outside `currency/<ISO>` and `percent`, a malformed translation) renders its
+holes by raw substitution rather than crashing the page, and `loom_date/1`
+falls back to the ISO date.
 
-**Consequences.** The `i18nFormat` arm is retired from
-`G2646-open-heex-layout-inert`; with its pager arm built in packet 2m and its
-Grid arm already retired as stale, the ledger row closes. The emission-site
-comment in `src/generator/elixir/heex-walker-core.ts` is the record. If a
-generated Phoenix app ever gains a CLDR dependency for another reason, this
-ruling should be re-opened — the cost argument is the whole argument.
+**Not covered.** `Money { format: "locale" }` stays refused on Phoenix
+(`loom.target-unsupported#money-locale-format`); the amount in an interpolated
+message formats through its ICU hole.
 
-**Unblocks.** `G2646-open-heex-layout-inert` → `done` (wave **C2 packet 2m**).
-
-**Sources.** `src/generator/elixir/heex-walker-core.ts` (the `i18nFormat` arm);
-[`targets-completeness-2026-08-30.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/targets-completeness-2026-08-30.md);
-`D-I18N-HEEX-ICU` above (the interpolation half, which DID get an engine).
+**Affects.** `generator/elixir/i18n.ts` (the CLDR backend, the `loom_icu/2` /
+`loom_date/1` runtime, the gate), `generator/elixir/heex-pack.ts`
+(`renderDateDisplay`), `generator/_i18n/locale-format.ts` (`uiUsesLocaleFormat`),
+`generator/elixir/vanilla/shell-emit.ts`.
 
 ---
 
@@ -6015,6 +6010,31 @@ answering it first leaks nothing (D-CREATE-GATE-ORDER).
 **Consequence.** Pinned by the gate-order and `can_<op>` rungs of
 `AUTHZ_LADDERS["auth-simple"]` and `AUTHZ_LADDERS["read-gates"]` in
 `test/behavioral/cases.mjs`, run by every behavioural runner.
+
+---
+
+## D-REF-ADMISSION — a request-supplied reference to tenant-owned data resolves under the target's read scope
+
+**Status:** owner rulings, 2026-11-13; applied on all five backends.
+
+**Decision.** A persisted `X id` whose target is `tenantOwned` is probed at
+the repository save, inside the write transaction, under the target's read
+scope (`src/ir/plan/ref-scope.ts`). A miss is refused exactly like a reference
+to a row that does not exist. A `crossTenant` target and the tenancy registry
+are checked by the foreign key alone: a row may name another org (a share's
+grantee). A `tenantOwned` target in another context has no table beside the
+row, so it cannot be checked: `loom.tenancy-ref-unresolvable` is an error under
+`enforcement: denyByDefault` and a warning under `opt`.
+
+**Why.** Admission under the read scope reuses the restriction every read of
+the target already applies (the tenant floor on the operating org, row rules,
+shares, `deny`), so the probe and the reads cannot disagree, and the refusal is
+no existence oracle. A strict model must not compile with a write it cannot
+check.
+
+**Consequence.** Pinned by the isolation e2e's `assertReferenceAdmission` rung
+(every backend), `test/system/ref-admission-census.test.ts`, and
+`test/ir/ref-scope-checks.test.ts`.
 
 ---
 

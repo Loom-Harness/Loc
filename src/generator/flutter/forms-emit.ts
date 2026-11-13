@@ -72,6 +72,7 @@ import {
   renderFormField,
 } from "../_frontend/form-spec.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
+import { workflowResultSegment } from "../_frontend/workflow-result.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { chromeKey, chromeMessage, sentenceChromeName } from "../_walker/i18n-chrome.js";
 import {
@@ -184,6 +185,9 @@ export interface FlutterFormField {
    *  (`operationFormSpec` → `prefill.from === "record"`).  A flattened
    *  value-object leaf reads through its `objectPath`. */
   fromRecord?: true;
+  /** The record field is `provenanced`: its value is the wire carrier's
+   *  `value`. */
+  recordCarrier?: true;
   /** Client-side rules derived from the aggregate's (or operation's)
    *  wire-translatable `invariant`s — M-T1.16 / ledger row
    *  `M-T1.16-invariant-validation-feliz-flutter`.  Empty/absent ⇒ the emitted
@@ -244,6 +248,9 @@ export interface FlutterFormSpec {
   /** A workflow run may write any aggregate, so its success drops every cached
    *  read rather than one aggregate's. */
   invalidatesAllReads?: boolean;
+  /** A workflow run whose start route answers with the created record's id:
+   *  the route segment of that record, which the form opens on success. */
+  resultSegment?: string;
   /** Whether the widget takes a `required String id` ctor arg (op / destroy). */
   needsId: boolean;
   /** Fully-built request path (a Dart string-literal body, e.g. `/products` or
@@ -955,7 +962,16 @@ export function flutterOperationForm(
     const seeded = new Set(
       spec.fields.filter((f) => f.prefill.from === "record").map((f) => f.name),
     );
-    for (const f of fields) if (seeded.has(f.objectPath?.[0] ?? f.jsonKey)) f.fromRecord = true;
+    const carriers = new Set(
+      spec.fields
+        .filter((f) => f.prefill.from === "record" && f.prefill.carrier)
+        .map((f) => f.name),
+    );
+    for (const f of fields) {
+      const root = f.objectPath?.[0] ?? f.jsonKey;
+      if (seeded.has(root)) f.fromRecord = true;
+      if (carriers.has(root)) f.recordCarrier = true;
+    }
   }
   attachRules(
     fields,
@@ -1036,6 +1052,7 @@ export function flutterWorkflowForm(
     needsId: false,
     pathExpr: `/workflows/${snake(wf.name)}`,
     invalidatesAllReads: true,
+    ...(workflowResultSegment(wf) ? { resultSegment: workflowResultSegment(wf) } : {}),
     submitLabel: run ? run.defaultText : opDefaultText(wf.name, "run"),
     ...(text && run ? { submitExpr: dartTranslate(run.key, run.defaultText) } : {}),
     fields,
@@ -1400,7 +1417,8 @@ function loaderId(wireName: string): string {
 function recordLeaf(f: FlutterFormField, rowKey = f.jsonKey): string {
   let e = "r";
   for (const k of f.objectPath ?? []) e = `(${e}['${dartStr(k)}'] as Map<String, dynamic>?)`;
-  return `${e}${(f.objectPath ?? []).length > 0 ? "?" : ""}['${dartStr(rowKey)}']`;
+  const leaf = `${e}${(f.objectPath ?? []).length > 0 ? "?" : ""}['${dartStr(rowKey)}']`;
+  return f.recordCarrier ? `(${leaf} as Map<String, dynamic>?)?['value']` : leaf;
 }
 
 /** One object-array cell's initial slot value, read out of the row map `m`. */
@@ -2262,7 +2280,10 @@ function submitMethod(spec: FlutterFormSpec, invalidates: boolean): string[] {
     "      if (res.statusCode >= 200 && res.statusCode < 300) {",
     "        if (!mounted) return;",
     ...invalidateCall(spec, invalidates),
-    "        Navigator.of(context).pop();",
+    // A run that created a record opens it in place of the form.
+    spec.resultSegment
+      ? `        Navigator.of(context).pushReplacementNamed('/${spec.resultSegment}/\${jsonDecode(res.body) as String}');`
+      : "        Navigator.of(context).pop();",
     "        return;",
     "      }",
     // A rejection lands at the fields its ProblemDetails pointers name; the

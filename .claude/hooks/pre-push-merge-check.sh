@@ -39,9 +39,21 @@ command="$(printf '%s' "$input" | jq -r '.tool_input.command // ""' 2>/dev/null)
 
 # Only act on a real `git … push` invocation; defer (allow) everything else.
 # Matches `git push`, `git -C dir push`, `git --no-pager push`, and pushes
-# inside compound commands / retry loops.  Read-only commands that merely
-# mention "push" in a string are not git pushes and fall through.
-if ! [[ "$command" =~ (^|[^[:alnum:]_/.])git([[:space:]]+-C[[:space:]]+[^[:space:]]+|[[:space:]]+-[^[:space:]]+)*[[:space:]]+push([[:space:]]|$) ]]; then
+# inside compound commands / retry loops.  The words "git push" inside a
+# quoted string or a heredoc body (a line echoed into a log, a commit message,
+# a brief sent to another session) are text, not a push: quoted strings and
+# heredoc bodies are blanked before matching, so such a command falls through.
+# Without perl the raw command is scanned, which only errs toward running the
+# gates on a command that does not push.
+scan="$command"
+if command -v perl >/dev/null 2>&1; then
+  scan="$(printf '%s' "$command" | perl -0777 -pe '
+    s/<<-?[ \t]*([\x27"]?)(\w+)\1[^\n]*\n.*?\n[ \t]*\2[ \t]*(?=\n|\z)/<<HEREDOC/gs;
+    s/\x27[^\x27]*\x27/\x27\x27/g;
+    s/"(?:[^"\\]|\\.)*"/""/gs;
+  ' 2>/dev/null)" || scan="$command"
+fi
+if ! [[ "$scan" =~ (^|[^[:alnum:]_/.])git([[:space:]]+-C[[:space:]]+[^[:space:]]+|[[:space:]]+-[^[:space:]]+)*[[:space:]]+push([[:space:]]|$) ]]; then
   exit 0
 fi
 
@@ -203,6 +215,10 @@ CENSUS_SLOW='diagnostic-firing-census|openapi-component-uniqueness-census|/ddd-s
 # The censuses that scan every tracked text file, prose included — the only
 # ones a docs-only push can trip.
 TEXT_CENSUSES='test/system/conflict-marker-census.test.ts test/system/nul-byte-census.test.ts'
+# Whole-tree checks whose file names the census/ratchet globs don't reach, but
+# which compare the merged tree against a shared register and so eject queue
+# entries the same way.
+EXTRA_CENSUSES='test/system/unsupported-register.test.ts test/ir/api-caller-census.test.ts'
 census_merged() {
   local dir="$1" mode="${2:-code}" files out rc
   [ -n "${LOOM_SKIP_PUSH_CENSUS:-}" ] && return 0
@@ -211,7 +227,7 @@ census_merged() {
     files="$(cd "$dir" && ls $TEXT_CENSUSES 2>/dev/null)"
   else
     files="$(cd "$dir" && ls test/system/*census*.test.ts test/system/*ratchet*.test.ts \
-      test/system/typing-differential.test.ts 2>/dev/null | grep -vE "$CENSUS_SLOW")"
+      test/system/typing-differential.test.ts $EXTRA_CENSUSES 2>/dev/null | grep -vE "$CENSUS_SLOW")"
   fi
   [ -n "$files" ] || return 0
   # A whole-tree scan can outlast vitest's 30 s default per-test timeout on a

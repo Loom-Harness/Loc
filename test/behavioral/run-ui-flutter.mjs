@@ -47,6 +47,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import { chromiumLaunchOptions } from "./browser-fallback.mjs";
 import { copyLocales, localesBeside } from "./case-source.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE, moneyCompareExpected } from "./money-compare-ui.mjs";
 import { flutterExpectations, numericSeedBody } from "./numeric-ui-contract.mjs";
@@ -388,6 +389,7 @@ async function runCase(c) {
       // WebGL context, and swiftshader is what provides it on a GPU-less runner.
       channel: "chromium",
       args: ["--no-sandbox", "--enable-unsafe-swiftshader"],
+      ...chromiumLaunchOptions(chromium.executablePath()),
     });
     for (const probe of probes) {
       const page = await browser.newPage();

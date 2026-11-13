@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ExprIR } from "../../ir/types/loom-ir.js";
-import { elixirString, humanize, snake } from "../../util/naming.js";
+import { humanize, snake } from "../../util/naming.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { opDialogChrome } from "../_walker/i18n-chrome.js";
 import { paramLabelOwner } from "../_walker/model-text-sites.js";
@@ -21,7 +21,7 @@ import {
   renderInTemplate,
   type WalkContext,
 } from "./heex-walker-core.js";
-import { formChromeAttr } from "./i18n.js";
+import { chromeExpr, formChromeAttr } from "./i18n.js";
 import { updateSeamGates } from "./vanilla/gate.js";
 import { liveViewCallsOp, liveViewOpReturnsRecord, servesCanProbe } from "./vanilla/op-form.js";
 
@@ -133,6 +133,7 @@ ${heading}${childrenHeex}
   registerBinding(ctx, ctx.formBindings, {
     kind: "operation",
     name: ofName,
+    opName,
     op: opSnake,
     modalId,
     params,
@@ -210,9 +211,7 @@ ${heading}${childrenHeex}
   // tooltip.  Un-gated ops render byte-identically.
   const canAssign = `@can_${opSnake}`;
   const disabledAttr = gated
-    ? ` disabled={!${canAssign}} title={unless ${canAssign}, do: ${elixirString(
-        `${humanize(opName)} is not available in the current state`,
-      )}}`
+    ? ` disabled={!${canAssign}} title={unless ${canAssign}, do: ${chromeExpr("opNotAllowed", Boolean(ctx.i18nPrefix))}}`
     : "";
   const submitDisabled = gated ? ` disabled={!${canAssign}}` : "";
   const dialog = [
