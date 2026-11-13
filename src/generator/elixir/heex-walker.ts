@@ -1,13 +1,9 @@
 // ---------------------------------------------------------------------------
-// HEEx walker — public facade.
+// HEEx walker — the public entry the LiveView emitters import.
 //
-// The walker was split into two cohesive halves for readability:
-//   - heex-walker-core.ts  — the expression/statement engine, WalkContext,
-//     the generic `renderPrimitive`, and the markup helpers.
-//   - heex-primitives.ts    — the leaf presentational component renderers.
-// This module re-exports both so importers (and the walker registry at
-// src/generator/_walker/registry.ts) keep importing from "./heex-walker.js".
+// A HEEx page or component body renders on the shared walker core through
+// `heexTarget` (`heex-target.ts`); `heex-walker-core.ts` holds the walk
+// context, the entry (`walkBodyToHeex`) and the HEEx expression renderer.
 // ---------------------------------------------------------------------------
 
-export * from "./heex-primitives.js";
 export * from "./heex-walker-core.js";

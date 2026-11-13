@@ -7,7 +7,7 @@
 // primitives then rendered WITHOUT navigation and said nothing: a computed
 // destination (`to: "/greet/" + who`) produced a link that goes nowhere and a
 // button that does nothing, on SIX of the seven frontends, with no diagnostic
-// anywhere in the pipeline.  HEEx — which runs its own engine — always rendered
+// anywhere in the pipeline.  HEEx — whose expression renderer renders the value itself — always rendered
 // it correctly, which is what fixed the intended semantics.
 //
 // The destination now rides `emitExpr`, i.e. the same per-target leaf table the

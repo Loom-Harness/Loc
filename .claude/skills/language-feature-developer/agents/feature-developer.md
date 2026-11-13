@@ -39,7 +39,7 @@ Method:
    reaches. After a grammar edit, run `npm run langium:generate` and commit the
    regenerated `src/language/generated/*`. Add the printer arm
    (print-completeness), both walker mirrors + HEEx renderer (walker-stdlib +
-   heex-parity), and a stable `loom.*` code (diagnostic-codes) as the relevant
+   heex-coverage), and a stable `loom.*` code (diagnostic-codes) as the relevant
    gates demand.
 4. **Honour the seams.** A new `ExprIR.kind` is one arm in `_expr/target.ts` + one
    leaf per backend; a new UI primitive rides `WalkerTarget` + the registry. Do

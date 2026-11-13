@@ -19,8 +19,8 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 // (packName, platform) — one row per JSX/markup pack the a11y contract covers.
-// Feliz/HEEx render through their own engines (own per-target tests) and don't
-// share the Handlebars pack layer, so they're excluded here.
+// Feliz/HEEx render through their own procedural packs (own per-target tests)
+// and don't share the Handlebars pack layer, so they're excluded here.
 const PACKS: ReadonlyArray<{ pack: string; platform: string }> = [
   { pack: "mantine", platform: "static" }, // react
   { pack: "shadcn", platform: "static" }, // react

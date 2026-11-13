@@ -143,8 +143,8 @@ describe("loom.target-unsupported#datagrid", () => {
   //     DOM island it must not patch.
   //
   // phoenixLiveView was NOT exercised here until the pin re-examination, even
-  // though `heex-parity.test.ts` and `page-metamodel.md` both promise "a
-  // DataGrid on HEEx is a compile error, not a blank space".  That promise was
+  // though `page-metamodel.md` promises "a DataGrid on HEEx is a compile
+  // error, not a blank space".  That promise was
   // load-bearing (it is what makes the HEEx gap honest rather than silent) and
   // untested — the gate's own coverage stopped at flutter.
   for (const fw of ["flutter", "phoenixLiveView"]) {

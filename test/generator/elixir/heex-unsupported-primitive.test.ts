@@ -57,19 +57,18 @@ describe("HEEx unsupported-primitive fallthrough", () => {
   it("emits an EEx-native comment, never an EEx-wrapped HTML comment", async () => {
     const heex = await landingHeex();
     expect(heex).toContain(
-      "<%!-- loom:unrendered [loom.page-primitive-target-gap] Tab: not supported by Phoenix LiveView target --%>",
+      "<%!-- loom:unrendered [loom.sub-primitive-misplaced] Tab: not supported by the walker yet --%>",
     );
     // The exact uncompilable shape the old fallthrough produced.
     expect(heex).not.toContain("<%= <!--");
     // And no bare HTML comment form survives to be wrapped by a future caller.
     expect(heex).not.toContain("<!-- Tab:");
     // The comment sits in MARKUP position — a comment of EITHER form nested in
-    // an `<%= … %>` is a syntax error, so `isHEExCall` must keep every
-    // registered primitive out of expression position, not just the ones with
-    // a HEEx renderer.
+    // an `<%= … %>` is a syntax error, so every registered primitive stays out
+    // of expression position, renderable or not.
     expect(heex).not.toContain("<%= <%!--");
     expect(heex).toMatch(
-      /^\s*<%!-- loom:unrendered \[loom\.page-primitive-target-gap\] Tab: not supported by Phoenix LiveView target --%>\s*$/m,
+      /^\s*<%!-- loom:unrendered \[loom\.sub-primitive-misplaced\] Tab: not supported by the walker yet --%>\s*$/m,
     );
     // The surrounding children still render.
     expect(heex).toContain("before");

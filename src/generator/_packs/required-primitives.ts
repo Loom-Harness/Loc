@@ -103,34 +103,14 @@ const SHARED_PRIMITIVES: readonly string[] = [
 // the closed primitive library and the validator accepts it on ANY target,
 // so a JSX pack that omits the template crashes codegen at the `pack.render`
 // call site rather than failing validation — these MUST be required.  HEEx is
-// exempt only because its walker emits them INLINE (no pack template):
-//   - `primitive-code-block`  — not in the HEEx pack; emitted inline by
-//                                `heex-walker.ts:renderCodeBlock`.
-//   - `primitive-icon`        — not in the HEEx pack; emitted inline by
-//                                `heex-walker.ts:renderIcon`.
-//   - `primitive-modal`       — emitted inline by `heex-walker.ts:renderModal`
-//                                as a `<.button phx-click={show_modal(id)}>`
-//                                trigger + `<.modal id=…>` body hosting a
-//                                `<.simple_form>`.  HEEx body primitives are
-//                                walker-inline by design (one CoreComponents
-//                                convention vs TSX's competing libraries) — no
-//                                pack template is needed and the gate is
-//                                deliberately not extended to HEEx for these.
-//   - `primitive-section`     — plain `<section>` semantic anchor wrapper;
-//                                HEEx renders it inline via `renderSectionHeex`.
-//   - `primitive-sticky`      — `position: sticky` wrapper; HEEx renders it
-//                                inline via `renderStickyHeex`.
+// exempt: its pack is procedural (`elixir/heex-pack.ts`), not a template set a
+// design pack could leave incomplete, and the HEEx design packs own the shell
+// (`REQUIRED_PRIMITIVES.heex`), not call-site primitives.  Its coverage is
+// gated by the HEEx showcase (`heex-coverage.test.ts`).
 const TSX_ONLY_PRIMITIVES: readonly string[] = [
   "primitive-code-block",
   // The standalone `FileUpload { bind: … }` input.  Required on every
   // JSX-family format (tsx / svelte / vue / angular — each spreads this list).
-  // HEEx is exempt for a TEMPLATE reason, NOT a rendering gap: `FileUpload`
-  // HAS a HEEx renderer (`renderFileUploadHeex`, wired in
-  // `_walker/registry.ts`, using LiveView's native
-  // `allow_upload`/`<.live_file_input>` flow), and `KNOWN_HEEX_GAPS` in
-  // heex-parity.test.ts does not list it — `DataGrid` is the sole entry.
-  // It is exempt because heex's required set is `SHARED_PRIMITIVES` only:
-  // HEEx packs own no call-site primitive templates at all.
   "primitive-file-upload",
   "primitive-icon",
   "primitive-modal",

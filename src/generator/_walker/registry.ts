@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
-// Walker primitive registry — typed dispatch table consumed by both
-// per-platform walkers (src/generator/react/body-walker.ts for TSX,
-// src/generator/elixir/heex-walker.ts for HEEx).
+// Walker primitive registry — the typed dispatch table the shared walker core
+// (`walker-core.ts`) renders every frontend's primitives through, Phoenix
+// LiveView included.
 //
 // One entry per closed-primitive-library name (`Stack`, `Heading`,
 // `Button`, …).  The entry carries:
@@ -12,24 +12,18 @@
 //   - `admissibleInSource` : whether the validator accepts the name
 //                            as a v2 `BuilderCall` type without it
 //                            resolving to a user-declared type.
-//   - `tsx`                : renderer for the React/TSX target, or
-//                            undefined if the TSX walker doesn't
-//                            handle this primitive directly (Action /
-//                            user-component / helper / fallthrough).
-//   - `heex`               : renderer for the Phoenix/HEEx target,
-//                            or undefined if HEEx doesn't support
-//                            the primitive (Phoenix supports a
-//                            subset — Field/Toggle/Money/Avatar/etc.
-//                            currently fall through with a visible
-//                            comment in generated output).
+//   - `tsx`                : the shared renderer, which renders through
+//                            the active target's seams and design pack,
+//                            or undefined for a sub-primitive its parent
+//                            consumes inline (`Tab`, `Column`).
 //
-// Without this registry both walkers hand-code a `switch` over primitive
-// names and the language-side stdlib mirrors them with three
-// `ReadonlySet<string>` exports — three sources of truth kept in sync by
-// code review.  Instead:
+// Without this registry the walker hand-codes a `switch` over primitive
+// names and the language-side stdlib mirrors it with three
+// `ReadonlySet<string>` exports — sources of truth kept in sync by code
+// review.  Instead:
 //
-//   - The walkers consume `WALKER_PRIMITIVES[name].tsx?.(call, ctx,
-//     depth)` (or `.heex(call, ctx)`).  No switches.
+//   - The walker consumes `WALKER_PRIMITIVES[name].tsx?.(call, ctx,
+//     depth)`.  No switches.
 //   - The language-side stdlib's three sets are pinned to this
 //     registry by `test/language/walker-stdlib-completeness.test.ts`
 //     — drift surfaces as a test failure, not as a runtime gap.
@@ -48,7 +42,6 @@
 // ---------------------------------------------------------------------------
 
 import type { ExprIR } from "../../ir/types/loom-ir.js";
-import type { WalkContext as HeexWalkContext } from "../elixir/heex-walker.js";
 import type { A11yContract } from "./a11y.js";
 // Re-exported emitters from the React/TSX walker.  Each function
 // takes `(call, ctx, depth)` and returns the JSX fragment.
@@ -134,10 +127,6 @@ export type TsxRenderer = (
   slot?: ChildSlot,
 ) => string;
 
-/** Renderer signature for the Phoenix/HEEx target.  Returns the
- *  rendered HEEx fragment.  Reads/writes pass through `ctx`. */
-export type HeexRenderer = (call: ExprIR & { kind: "call" }, ctx: HeexWalkContext) => string;
-
 /** Grouping — drives the language-side admissibility sets:
  *    layout → top-level layout / display / formatter primitives.
  *    sub    → sub-elements only valid nested inside a parent
@@ -171,12 +160,6 @@ export interface PrimitiveDef {
    *  NOT dispatch on this primitive directly (e.g. `Tab`/`Column` only
    *  appear as children of their parent, which consumes them inline). */
   tsx?: TsxRenderer;
-  /** Phoenix/HEEx target renderer, or undefined if the HEEx walker
-   *  does NOT support this primitive — Phoenix supports a subset
-   *  today (no Field/Toggle/Money/Avatar/etc.).  When undefined,
-   *  the HEEx walker emits a visible HEEx comment marking the
-   *  divergence rather than silently producing wrong markup. */
-  heex?: HeexRenderer;
   /** WCAG 2.2 AA obligation this primitive's emit must clear — the
    *  single source of truth for the a11y semantics later phases render
    *  (accessibility.md).  Either `"presentational"` (no ARIA obligation)
@@ -269,13 +252,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     a11y: "presentational",
   },
   // --- Semantic anchor target + sticky-position wrapper ---------
-  // Both Section and Sticky DO render on HEEx (`renderSectionHeex` /
-  // `renderStickyHeex` below) — a `<section>` and a `position: sticky`
-  // wrapper are plain markup with no LiveView divergence.  (This block used
-  // to read "HEEx renderer is intentionally absent: the Phoenix walker falls
-  // through to the visible 'not supported' comment"; the renderers landed and
-  // the note did not.  `KNOWN_HEEX_GAPS` in heex-parity.test.ts is the live
-  // list of TSX-without-HEEx primitives, and it holds only `DataGrid`.)
   // A `<section>` is a region landmark (when named) and increments the
   // heading-nesting depth.
   Section: {
@@ -290,7 +266,7 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     tsx: emitSticky,
     a11y: "presentational",
   },
-  // --- Inputs (TSX-only; HEEx renders inputs via Form-level dispatch) ----
+  // --- Inputs ------------------------------------------------------------
   // (`Switch` is deliberately absent: docs/page-metamodel.md removed it from
   // the closed set — control-flow `Switch` is subsumed by `match`, and the
   // boolean input is `Toggle`.)
@@ -337,7 +313,7 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
   // The JSX frontends POST the file to `/files` and bind the returned FileRef;
   // Phoenix has no such endpoint, so the HEEx renderer uses the LiveView-native
   // `allow_upload`/`<.live_file_input>` flow (a channel-streamed upload consumed
-  // into the bound state assign) — see heex-primitives.ts::renderFileUpload.
+  // into the bound state assign) — see `heexTarget.renderFileUpload`.
   FileUpload: {
     group: "layout",
     admissibleInSource: true,
@@ -403,7 +379,7 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     a11y: "presentational",
   },
   // Inline-emphasis primitives — `<strong>`/`<em>`/`<code>` spans on
-  // both targets (TSX via the design pack; HEEx via plain inline tags).
+  // every target, through its design pack.
   // Native inline semantics; no ARIA obligation.
   Bold: {
     group: "layout",
@@ -458,8 +434,8 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
   },
   // TanStack-Table-backed grid (multi-sort / per-column filters / column
   // visibility).  React-only for now: it emits a hook-bearing child component,
-  // which the other frontends need their own port of.  `heex` is intentionally
-  // absent and pinned in heex-parity — LiveView would need a server round-trip
+  // which the other frontends need their own port of.  LiveView refuses it
+  // (`loom.datagrid-unsupported-target`) — it would need a server round-trip
   // per interaction, a different design, not a markup mapping.
   DataGrid: {
     group: "layout",
@@ -471,8 +447,8 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
   // (M-T1.3).  The `tsx` renderer serves react — all eight packs, each
   // binding its own charting library — AND, through the `renderChartData` seam
   // plus their procedural packs, Feliz and Flutter, which render it as inline
-  // SVG / a `CustomPainter` with no library at all.  HEEx has its own renderer
-  // below on the same terms: the rows are already server-side in an assign, so
+  // SVG / a `CustomPainter` with no library at all.  HEEx overrides the whole
+  // primitive (`renderChart`) on the same terms: the rows are already server-side in an assign, so
   // the geometry is arithmetic (`renderChart` → the generated `LoomChart.chart/1`
   // component).  Vue, Svelte and Angular render it too — one SHARED template
   // per format (`vue/`, `sveltekit/`, `angular/` `primitive-chart.hbs`) that
@@ -520,7 +496,7 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
   },
   // A download link for a `File` field — a plain `<a href download>` labelled
   // by the FileRef `key`.  Built inline via the target markup seams (no pack
-  // template); Feliz forks to `Html.a`, HEEx to its parallel-walker renderer.
+  // template); Feliz and HEEx override the whole primitive (`renderFileLink`).
   // A link needs discernible text (the file's `key`).
   FileLink: {
     group: "layout",
@@ -531,9 +507,8 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
   // A "?" disclosure over a `provenanced` field's lineage — a native
   // `<details>`/`<summary>` (no design-pack component, no client state) that
   // expands to the rule id + computed value + the input list that produced the
-  // value.  React-first: the TSX renderer emits the disclosure for the react
-  // target and falls through to a visible comment on the other JSX frontends;
-  // HEEx is intentionally absent (pinned in heex-parity's KNOWN_HEEX_GAPS).
+  // value.  The JSX frontends render it from the shared emitter; Feliz and
+  // HEEx override the whole primitive (`renderProvenanceInfo`).
   // Native disclosure carries its own semantics — no ARIA obligation.
   ProvenanceInfo: {
     group: "layout",
@@ -546,8 +521,7 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
   // whom.  Native `<ol>`/`<li>`/`<time>`/`<dl>`, like ProvenanceInfo: no
   // design-pack component to keep in sync across 13 packs, no client state, and
   // a timeline IS an ordered list — saying so in HTML beats styling a `<div>`.
-  // HEEx is implemented, NOT waived: Phoenix serves the endpoint too, so a
-  // TSX-only Timeline is the silent LiveView degradation heex-parity guards.
+  // HEEx renders it too (`renderTimeline`): Phoenix serves the endpoint.
   // `<ol>` carries its own list semantics — no ARIA obligation.
   Timeline: {
     group: "layout",
@@ -584,11 +558,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     a11y: { role: "dialog", modal: true, needsName: true, focus: "trap-restore" },
   },
   // --- Code / icon primitives ------------------------------------
-  // Both CodeBlock and Icon DO render on HEEx (`renderCodeBlockHeex` /
-  // `renderIconHeex` below).  Same correction as the Section/Sticky block
-  // above: the note claiming the HEEx renderer was "intentionally absent"
-  // outlived the renderers.  `KNOWN_HEEX_GAPS` (heex-parity.test.ts) is the
-  // authority on what actually lacks one — currently `DataGrid` alone.
   CodeBlock: {
     group: "layout",
     admissibleInSource: true,
@@ -626,7 +595,7 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
   },
   // Confirmation-only destroy form (loom-forms.md).  HEEx renders a
   // confirm-delete `<.button>` wired to the aggregate's delete context function
-  // (renderDestroyForm); the create/op/workflow form shapes use renderFormHeex.
+  // (`heexTarget.renderDestroyForm`).
   DestroyForm: {
     group: "layout",
     admissibleInSource: true,
@@ -654,8 +623,7 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
   },
   // --- Sub-element primitives (always nested inside a parent) ----------
   // `Tab` is consumed inline by `Tabs`; `Column` by `Table`.  Validator
-  // accepts them as builder-call types; the HEEx `Column` renderer is
-  // wired through Table so it stays out of the top-level dispatch.
+  // accepts them as builder-call types; neither has a renderer of its own.
   Tab: { group: "sub", admissibleInSource: true, a11y: { role: "tab", needsName: true } },
   Column: {
     group: "sub",

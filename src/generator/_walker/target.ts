@@ -23,11 +23,13 @@
 // consults it at each of the seams above; the rest (pack dispatch,
 // attribute formatting, lambda traversal) stays in the shared walker.
 //
-// Every implementation is driven by the shared `walkBody` core
-// (`walker-core.ts`).  `heexTarget` enters it too, but overrides every node
-// (`renderNodeOverride`) and hands it to LiveView's own engine
-// (`heex-walker-core.ts`), which renders the whole subtree; its primitives
-// move onto the shared core one at a time by narrowing that override:
+// Every implementation is driven by the one shared `walkBody` core
+// (`walker-core.ts`), Phoenix LiveView included.  `heexTarget` renders its
+// expressions through its own Elixir expression renderer (`renderExprOverride`
+// / `renderTextContentOverride`, over `heex-walker-core.ts`) and the
+// primitives whose LiveView wiring the shared emitters do not model (forms, the
+// table, uploads, modals, charts) through whole-primitive overrides; the walk
+// itself, and every other primitive, is the shared core's:
 //
 //   - `src/generator/react/walker/tsx-target.ts`         → `tsxTarget`
 //   - `src/generator/vue/walker/vue-target.ts`           → `vueTarget`
@@ -55,8 +57,8 @@
 // Out of scope deliberately:
 //
 //   - Position-dependent `this` rendering (`@record` in template position,
-//     `socket.assigns.record` in a handler) — a HEEx oddity its own engine
-//     handles; the JSX-family frameworks render `this` the same everywhere.
+//     `socket.assigns.record` in a handler) — a HEEx oddity its expression
+//     renderer handles; the JSX-family frameworks render `this` the same everywhere.
 //   - Toast / put_flash — a framework-private rendering surface.
 //
 // Adding either to `WalkerTarget` would extend the interface for no
@@ -127,7 +129,11 @@ export type WalkScope =
       readonly kind: "query-data";
       readonly query: ExprIR & { kind: "call" };
       readonly param: string;
-    };
+    }
+  /** A `Tabs` group about to walk its panels.  A target that numbers groups in
+   *  document order takes the group's number here, before a nested group
+   *  inside one of its panels takes a later one. */
+  | { readonly kind: "tab-group"; readonly tabs: ExprIR & { kind: "call" } };
 
 /** An event handler a use site binds: an inline lambda, a named page
  *  `action`, a store action, or a controlled input's write-back (see
@@ -744,8 +750,8 @@ export interface WalkerTarget {
    *  setter (`setOrder({ ...order, shipping: { ...order.shipping, zip: v }})`);
    *  Vue refs and Svelte `$state` are mutated in place
    *  (`order.shipping.zip = v`).  Single-segment writes go through
-   *  `renderStateWrite`; HEEx renders state through its own engine and
-   *  never reaches this seam. */
+   *  `renderStateWrite`; HEEx writes state in hoisted `handle_event` clauses
+   *  and never reaches this seam. */
   renderNestedStateWrite(segments: readonly string[], valueJs: string): string;
 
   // --- Data-access seam ---------------------------------------------------
@@ -980,7 +986,7 @@ export interface WalkerTarget {
    *  HTML restricted to `<strong>` / `<em>` / `<code>`) and bind it as inner HTML
    *  (`jsRichTranslateCall`); Feliz and Flutter parse the translated sentence
    *  into styled spans natively.  `spec.values` are already rendered in the
-   *  target's expression language.  HEEx renders through its own walker. */
+   *  target's expression language.  HEEx calls `loom_rich/2`. */
   renderRichText(spec: TranslateSpec): string;
 
   /** Render a DYNAMIC attribute bound to a JS expression, leading
@@ -1127,7 +1133,7 @@ export interface WalkerTarget {
    *
    *  Targets that own their no-op spelling elsewhere need no override: the
    *  Feliz pack maps `""`/`"null"` to `Html.none`, Flutter's to
-   *  `SizedBox.shrink()`, and the HEEx engine substitutes its own default
+   *  `SizedBox.shrink()`, and the HEEx pack substitutes its own default
    *  loading/error/empty chrome.
    *
    *  Distinct from `renderConditionalChild`'s `elseS === "null"` sentinel: that
@@ -1434,43 +1440,25 @@ export interface WalkerTarget {
    *  .add(call.name)` so the shell wires the class import + directive. */
   renderUserComponent?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
 
-  /** OPTIONAL — whole-node override, consulted by `walk` before anything else
-   *  (before api-read detection and before the per-kind dispatch).  A string
-   *  return is used verbatim as that node's markup; `undefined` sends the node
-   *  through the shared path.
-   *
-   *  It is the escape hatch for a target moving onto the shared core one node
-   *  kind at a time: a node kind or primitive the target has not ported yet
-   *  keeps rendering through the target's previous renderer, with the subtree
-   *  beneath it, so output stays byte-identical while each piece moves.  The
-   *  previous renderer's own walk state travels in `ctx.sink`, seeded through
-   *  `walkBody`'s `sink` argument.  Targets fully on the shared core leave it
-   *  undefined. */
-  renderNodeOverride?(
-    expr: ExprIR,
-    ctx: WalkContext,
-    depth: number,
-    slot: ChildSlot,
-  ): string | undefined;
-
   /** OPTIONAL — whole-expression override, consulted by `emitExpr` before
-   *  anything else.  The expression-position twin of `renderNodeOverride`: a
-   *  string return is used verbatim as the expression in the target's own
-   *  language; `undefined` sends the expression through the shared leaves.
-   *  A target whose expression language is rendered by its own engine (the
-   *  one `renderNodeOverride` hands unported nodes to) answers every
-   *  expression here, so a ported primitive's dynamic argument — a `testid:`
-   *  binding, a `style:` value, an ICU hole — renders exactly as that
-   *  engine renders it. */
+   *  anything else.  A string return is used verbatim as the expression in
+   *  the target's own language; `undefined` sends the expression through the
+   *  shared leaves.  A target with its own expression renderer (HEEx, whose
+   *  Elixir expressions resolve names through its LiveView walk context)
+   *  answers every expression here, so a primitive's dynamic argument — a
+   *  `testid:` binding, a `style:` value, an ICU hole — renders as that
+   *  renderer renders it. */
   renderExprOverride?(expr: ExprIR, ctx: WalkContext): string | undefined;
 
-  /** OPTIONAL — text-position override, consulted by `renderTextContent`
-   *  before anything else: the markup a non-literal expression renders as when
-   *  it is a primitive's TEXT (a `Heading`'s caption, a `Divider`'s label).  A
-   *  string return is used verbatim; `undefined` sends the expression through
-   *  the shared path.  Same escape hatch as `renderExprOverride`, for the
-   *  position where the shared path would otherwise resolve refs against its
-   *  own lookups. */
+  /** OPTIONAL — text-position override, consulted by `walk` for every child
+   *  and by `renderTextContent` before anything else: the markup an expression
+   *  renders as when it is TEXT — a value child of a container, or a
+   *  primitive's caption (a `Heading`'s title, a `Divider`'s label).  A string
+   *  return is used verbatim; `undefined` sends the node through the shared
+   *  path, which is the answer for markup (a primitive or component call, a
+   *  `match` over markup).  The text-position twin of `renderExprOverride`,
+   *  for the position where the shared path would otherwise resolve refs
+   *  against its own lookups. */
   renderTextContentOverride?(expr: ExprIR, ctx: WalkContext): string | undefined;
 
   /** OPTIONAL — the TEXT an `EnumBadge` shows for `value`, for a target that
@@ -1486,7 +1474,7 @@ export interface WalkerTarget {
    *  `<a href download>`, built inline via the markup seams (no pack template).
    *  Feliz overrides here because its "markup" is F# (`Html.a [ … ]`, not an
    *  HTML string), matching a `FileRef option` wire field with a `Some`/`None`
-   *  guard.  Phoenix/HEEx renders through its own parallel walker, not this. */
+   *  guard.  Phoenix/HEEx overrides it to read the file map's string keys. */
   renderFileLink?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
 
   /** OPTIONAL — whole-primitive override for `ProvenanceInfo(of: <record>,
@@ -1644,9 +1632,9 @@ export interface WalkerTarget {
   // The use-site methods are OPTIONAL on the interface so a frontend that
   // hasn't wired stores yet still typechecks — walker-core fails loud at the
   // seam rather than dropping the read/call.  Phoenix
-  // LiveView implements the store seam through its PARALLEL heex walker (a
-  // dedicated `<App>Web.Stores.<Store>` module + per-page assign), NOT these
-  // shared-`walkBody` methods — see `src/generator/elixir/store-emit.ts` and
+  // LiveView renders store reads and calls in its expression renderer (a
+  // dedicated `<App>Web.Stores.<Store>` module + per-page assign), NOT through
+  // these methods — see `src/generator/elixir/store-emit.ts` and
   // the store seams in `heex-target.ts`.
 
   /** Render the SELECTOR for a `<Store>.<field>` read (Stage 5).  React

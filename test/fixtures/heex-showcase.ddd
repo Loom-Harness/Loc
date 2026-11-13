@@ -234,7 +234,8 @@ system HeexShowcase {
                 FileLink { attachment },
                 Button { "Toggle", onClick: toggle }
               }
-            }
+            },
+            Tab { "Notes", Text { "Tab panel" } }
           }
         },
         Section {

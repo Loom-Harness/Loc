@@ -17,6 +17,11 @@
 // The queue therefore lives at module scope — outside the component that drains
 // it — precisely because that component may not exist yet.  One slot: a later
 // reveal supersedes an earlier one, which is what "put the cursor here" means.
+//
+// A replayed reveal lands seconds after the click that queued it, and by then
+// the user may be typing somewhere else (a file-name field, a dialog).  It
+// still moves the editor's cursor, but it takes focus only when nothing else
+// editable holds it — `replayMayFocus`.
 import type { EditorRange } from "./editor-handle";
 
 let pending: EditorRange | null = null;
@@ -31,4 +36,22 @@ export function takeQueuedReveal(): EditorRange | null {
   const queued = pending;
   pending = null;
   return queued;
+}
+
+/** The parts of a DOM element `replayMayFocus` reads. */
+export interface FocusTarget {
+  tagName: string;
+  isContentEditable?: boolean;
+}
+
+const EDITABLE_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
+
+/** Whether a replayed reveal may move focus into the editor: not while an
+ *  editable element outside the editor holds it. */
+export function replayMayFocus(
+  active: FocusTarget | null,
+  insideEditor: (el: FocusTarget) => boolean,
+): boolean {
+  if (!active || insideEditor(active)) return true;
+  return !(EDITABLE_TAGS.has(active.tagName.toUpperCase()) || active.isContentEditable === true);
 }

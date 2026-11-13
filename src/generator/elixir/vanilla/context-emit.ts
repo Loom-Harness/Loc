@@ -739,7 +739,7 @@ ${auditedWrite("    ")}
     // A `destroy` action (e.g. from `with crudish`) lets a detail page host a
     // `DestroyForm(of: <Agg>)`, whose hoisted `handle_event` calls
     // `<Ctx>.destroy_<agg>!(id)` directly (a `byId` ActionBinding — see
-    // `heex-primitives.ts`).  Emit that bang fn: load the record by id (raising
+    // `heex-form.ts`).  Emit that bang fn: load the record by id (raising
     // if missing), hard-delete it (`Repo.delete!`), returning the deleted struct.
     // Mirror the LiveView's emit condition on the aggregate IR — it has a
     // `destroy` action.

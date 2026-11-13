@@ -2,11 +2,9 @@
 // drained (after Feliz's F# table #2439 and Flutter's Dart table #2466) in
 // the frontend-intrinsic slice of the frontend-expression plan.
 //
-// HEEx is architecturally separate from the other five frontends: it does not
-// consume `_walker/walker-core.ts`'s shared `emitExpr` — `heex-walker-core.ts`
-// runs a parallel engine, because LiveView's output topology diverges (inline
-// lambdas vs hoisted `handle_event` clauses, `for`-comprehensions vs `.map`,
-// `if`-blocks vs ternaries). Its own `renderMethodCall` had no intrinsic arm,
+// HEEx does not consume `_walker/walker-core.ts`'s shared `emitExpr`: it renders
+// every expression as Elixir through its own renderer (`heex-walker-core.ts`).
+// That renderer's `renderMethodCall` had no intrinsic arm,
 // so a page-body call like `s.toUpper()` fell through to a VERBATIM
 // `recv.member(args)`, snake-cased on the way out into `s.to_upper()` — not a
 // real `String` function, so it fails at `mix compile`.

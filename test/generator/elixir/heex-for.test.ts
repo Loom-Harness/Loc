@@ -2,11 +2,9 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
-// HEEx For-comprehension (DEBT-05).  `For` was TSX-only (the Phoenix walker
-// fell through to the "not supported" comment); it now renders LiveView's
-// `<%= for item <- coll do %> … <% end %>` block, so the heex-parity pin
-// stays empty.  The TSX/Vue/Svelte siblings go through the shared
-// `renderForEach` target seam; HEEx runs its parallel `renderFor`.
+// HEEx For-comprehension (DEBT-05).  `For` renders LiveView's
+// `<%= for item <- coll do %> … <% end %>` block through the shared
+// `renderForEach` target seam, as the TSX/Vue/Svelte siblings do.
 // ---------------------------------------------------------------------------
 
 const phoenixSystem = (uiBody: string): string => `

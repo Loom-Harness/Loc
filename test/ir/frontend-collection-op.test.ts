@@ -11,7 +11,7 @@
 //
 // The gate is now a REMAINDER.  Nine of the seventeen ops have a real
 // per-target renderer behind `WalkerTarget.renderCollectionOp` (and, on the
-// HEEx parallel walker, its own `renderCollectionOp`), so this suite pins two
+// HEEx expression renderer, its own `renderCollectionOp`), so this suite pins two
 // things that must both stay true:
 //
 //   • the nine RESHAPING ops are ACCEPTED on every frontend — the split is
@@ -202,9 +202,9 @@ describe("loom.frontend-collection-op-unsupported — the gate", () => {
     }
   });
 
-  it("fires on Phoenix/HEEx too — its parallel walker gets the same split", async () => {
-    // HEEx does NOT consume the shared `walkBody`; `elixir/heex-walker-core.ts`
-    // is a separate engine with its own `renderCollectionOp`.  It renders the
+  it("fires on Phoenix/HEEx too — its expression renderer gets the same split", async () => {
+    // HEEx renders expressions through its own renderer
+    // (`elixir/heex-walker-core.ts`), with its own `renderCollectionOp`.  It renders the
     // same nine ops (see `test/generator/elixir/heex-collection-ops.test.ts`)
     // and refuses the same eight, so the gate stays target-agnostic: a `.ddd`
     // works on every target or fails on every one.

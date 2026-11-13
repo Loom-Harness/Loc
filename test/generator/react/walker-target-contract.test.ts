@@ -155,8 +155,8 @@ describe("WalkerTarget — TSX and HEEx diverge per seam (anti-collapse)", () =>
     // Vue + Svelte mutate the reactive object in place — no spread.
     expect(vueTarget.renderNestedStateWrite(seg, "v")).toBe("order.shipping.zip = v");
     expect(svelteTarget.renderNestedStateWrite(seg, "v")).toBe("order.shipping.zip = v");
-    // HEEx renders state through its own engine and never reaches the seam.
-    expect(() => heexTarget.renderNestedStateWrite([], "")).toThrow(/own engine/);
+    // HEEx writes state in hoisted handle_event clauses and never reaches the seam.
+    expect(() => heexTarget.renderNestedStateWrite([], "")).toThrow(/hoisted handle_event clauses/);
   });
 
   it("svelteTarget diverges from TSX where runes differ, matches where shared", () => {
