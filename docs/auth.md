@@ -461,6 +461,46 @@ declared `function`.  `requires` is admissible in workflow
 bodies too; the workflow handler / route handler maps it to 403
 the same way as the operation route does.
 
+#### Gate order
+
+Every backend refuses a request on an aggregate row in one order
+(`src/ir/plan/gate-ladder.ts`, D-GATE-LADDER):
+
+| # | Step | Status |
+|---|---|---|
+| 1 | authentication | 401 |
+| 2 | request shape (framework binding) | 422 |
+| 3 | `requires` that reads no row (the principal, the parameters) | 403 |
+| 4 | load through the read scope (`policy { read }`, tenancy, shares) | 404 |
+| 5 | `requires` that reads the row; the write scope | 403 / 404 |
+| 6 | version (`If-Match`) | 409 |
+| 7 | `when` | 409 |
+| 8 | preconditions, invariants | 409 / 422 |
+
+A caller refused at step 3 gets 403 for an existing id, a missing id, a stale
+`If-Match` and a row in the wrong state alike, so the refusal reveals nothing
+about the row.  A body that does not bind is refused (422) before any gate, by
+the framework, on every backend.  A row outside the read scope answers 404, never 403.
+
+```ddd
+operation reopen() when !open {
+  requires currentUser.role == "agent"   // step 3: before the load
+  open := true
+}
+```
+```
+POST /api/tickets/<missing id>/reopen   (role: "clerk")  → 403
+POST /api/tickets/<missing id>/reopen   (role: "agent")  → 404
+```
+
+The canonical `DELETE /{id}` and the generic `update` follow the same order:
+their `requires` that read no row refuse before the load.
+
+`GET /{id}/can_<op>`, the probe of a `when`-gated operation, runs the same
+ladder without a body.  The by-id read's gate refuses it (403) and a row the
+caller cannot read is 404, exactly as `GET /{id}` answers.  The operation's
+own `requires` and `when` answer `{ "allowed": false }`.
+
 #### Guarded state transitions — close the generic-update side door
 
 A `requires` gate guards **its own route**.  It does not make the field the
@@ -679,10 +719,12 @@ await repo.delete(Ids.ShipmentId(id));
   field-derived create input rather than the declared parameter list, so a
   parameter has no wire slot either.  Both are refused by
   `loom.lifecycle-guard-unreadable`, which names the offending refs.
-- A **`destroy`** guard may also read `this`: the route already loads the row for
-  its 404 probe, and the gate runs against that load.  So an unreachable id
-  answers **404**, not 403 — same order as the operation routes.  A parameter is
-  still out (a DELETE carries no body).
+- A **`destroy`** guard may also read `this`.  It follows the
+  [gate order](#gate-order), like an operation's: a guard that reads only the
+  principal refuses before the load, so a refused caller gets **403** for a
+  missing id too; a guard that reads the row (the `quantity == 0` above) runs
+  against the load, after the 404.  A parameter is still out (a DELETE carries
+  no body).
 - The gate precedes the write **and** any audit staging, so a denied create
   constructs nothing and a denied destroy records nothing.
 - `errorStatuses("create" | "destroy", guarded)` declares the 403, so a generated

@@ -1,0 +1,8 @@
+{
+  "title": "resource endpoints \u2014 every external-service client (s3, localDisk, rabbitmq, restApi, smtp, ses, sendgrid) reads its host override",
+  "doc": "resources",
+  "backends": "ALL",
+  "apiCaller": {
+    "e2eLess": "A compile witness for the resource clients' host overrides: its workflows dial S3, RabbitMQ, a REST api and three mailers, so a behavioural block needs the provider fakes that answer on those overrides."
+  }
+}

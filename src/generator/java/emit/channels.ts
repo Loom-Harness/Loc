@@ -10,7 +10,11 @@ import {
 import { lines } from "../../../util/code-builder.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { lowerFirst } from "../../../util/naming.js";
-import { type BrokerBinding, kafkaStartsAtEarliest } from "../../_channels/bindings.js";
+import {
+  type BrokerBinding,
+  kafkaStartsAtEarliest,
+  uniqueBindings,
+} from "../../_channels/bindings.js";
 import {
   CHANNEL_CONSUMER,
   CHANNEL_RECONNECT,
@@ -84,15 +88,6 @@ export interface ChannelConsumerHandler {
   dispatcherPkg: string;
   method: string;
   event: string;
-}
-
-function uniqueBindings(bindings: BrokerBinding[]): BrokerBinding[] {
-  const seen = new Set<string>();
-  return bindings.filter((b) => {
-    if (seen.has(b.csName)) return false;
-    seen.add(b.csName);
-    return true;
-  });
 }
 
 /** The per-binding driver pick in `ChannelTransports` — a ctor reference

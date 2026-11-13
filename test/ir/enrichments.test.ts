@@ -95,11 +95,11 @@ describe("enrichment — associations (T id[] join tables)", () => {
   it("derives one association per T id[] field with snake-cased join metadata", async () => {
     const loom = await buildLoomModel(ASSOC_SRC);
     const trainer = allAggregates(loom).find((a) => a.name === "Trainer")!;
-    expect(trainer.associations?.map((a) => a.joinTable)).toEqual([
+    expect(trainer.associations.map((a) => a.joinTable)).toEqual([
       "trainer_party",
       "trainer_caught",
     ]);
-    const party = trainer.associations!.find((a) => a.fieldName === "party")!;
+    const party = trainer.associations.find((a) => a.fieldName === "party")!;
     expect(party).toMatchObject({
       ownerAgg: "Trainer",
       targetAgg: "Pokemon",

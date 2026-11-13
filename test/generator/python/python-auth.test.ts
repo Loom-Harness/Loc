@@ -98,13 +98,14 @@ describe("python auth gate", () => {
     expect(routes).toContain(
       '403: {"model": ProblemDetails, "description": "Forbidden", "content": PROBLEM_JSON}',
     );
-    // Post-load and pre-call: a row-aware gate can read `found`, and the
-    // domain body never runs for an unauthorized caller.
+    // The gate reads no row, so it runs before the load (the gate ladder,
+    // ir/plan/gate-ladder.ts) and the domain body never runs for an
+    // unauthorized caller.
     const load = routes.indexOf("found = await repo.");
     const gate = routes.indexOf("raise ForbiddenError(");
     const call = routes.indexOf("found.cancel()");
-    expect(load).toBeLessThan(gate);
-    expect(gate).toBeLessThan(call);
+    expect(gate).toBeLessThan(load);
+    expect(load).toBeLessThan(call);
   });
 
   it("a currentUser-scoped criterion read reads the actor into the repository predicate", async () => {

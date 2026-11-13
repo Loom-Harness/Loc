@@ -2,9 +2,7 @@ import type { ThrowKindName } from "../../util/intrinsic-matchers.js";
 import type { ExprIR } from "./expr.js";
 import type {
   ApplyIR,
-  AssociationIR,
   ContainmentIR,
-  CreateInputFieldIR,
   DerivedIR,
   EntityPartIR,
   FieldIR,
@@ -45,15 +43,6 @@ export interface AggregateIR extends Sourced {
   destroys: OperationIR[];
   parts: EntityPartIR[];
   tests: TestIR[];
-  /** Reified create-input contract — the client-suppliable field set with
-   * per-field required-ness.  Populated by `enrichLoomModel`
-   * (`buildCreateInput`); the single source backends consume instead of
-   * re-deriving the create payload.  See {@link CreateInputFieldIR}. */
-  createInput?: CreateInputFieldIR[];
-  /** Many-to-many associations derived from `Target id[]` fields.
-   * Populated by `enrichLoomModel`; one entry per reference-collection
-   * field.  Empty array when the aggregate has none. */
-  associations?: AssociationIR[];
   /** Filter predicates contributed by `filter <expr>` declarations
    * (hand-written or macro-emitted) on the aggregate, plus any
    * propagated from the enclosing context.  Each entry is a lowered
