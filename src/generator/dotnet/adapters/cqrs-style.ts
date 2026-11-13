@@ -17,6 +17,7 @@
 // styles and orchestrators that want operation-grained placement.
 // ---------------------------------------------------------------------------
 
+import { cachedByIdRead } from "../../../ir/plan/cache.js";
 import type {
   AggregateIR,
   EnrichedAggregateIR,
@@ -228,6 +229,7 @@ export const cqrsStyleAdapter: StyleAdapter = {
       routePrefix,
       emitTrace: !!ctx.emitTrace,
       usingDapper: ctx.deployable.persistence === "dapper",
+      cache: cachedByIdRead(ctx.sys, owningCtx, agg.name, ctx.deployable),
     });
     const out: EmittedArtifact[] = [];
     for (const [path, content] of [...collected.entries()].sort()) {

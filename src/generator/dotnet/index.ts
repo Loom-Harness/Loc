@@ -4,6 +4,7 @@ import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant, eventsKeepOriginFrame } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
+import { type CachedByIdRead, cachePlanFor } from "../../ir/plan/cache.js";
 import { hasDurableEvents } from "../../ir/plan/index.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
@@ -133,6 +134,7 @@ import {
   renderDapperAuditHistoryReader,
   renderEfAuditHistoryReader,
 } from "./emit/audit-history.js";
+import { BY_ID_CACHE_PATH, renderByIdCacheModule } from "./emit/by-id-cache.js";
 import { renderDotnetChannels } from "./emit/channels.js";
 import {
   renderDapperDocumentRepository,
@@ -612,6 +614,12 @@ function emitProjectFromContexts(
   // the outbox row, every envelope carries it, and the relay / consumer
   // deliver inside its system principal (ruling D1, `Auth/EventOrigin.cs`).
   const deployableCarriesAuth = !!(system.deployable.auth?.required && system.sys.user);
+  // The by-id read cache (`src/ir/plan/cache.ts`): one module per deployable —
+  // the stores, a `ByIdCache` per cached aggregate and the eviction decorator
+  // Program.cs wraps each cached repository with.
+  const byIdCaches = contexts.flatMap((c) => cachePlanFor(system.sys, c, system.deployable).cached);
+  const byIdCacheModule = renderByIdCacheModule(system.sys, system.deployable, byIdCaches, ns);
+  if (byIdCacheModule) out.set(BY_ID_CACHE_PATH, byIdCacheModule);
   if (hasChannels) {
     out.set(
       "Infrastructure/Channels/ChannelTransport.cs",
@@ -1122,8 +1130,11 @@ function emitProjectFromContexts(
     hasChannels,
     hasChannelConsumers,
     outboxNoopInner: hasOutbox && !hasSubscriptions,
+    byIdCaches,
     channelTransports: {
-      redis: channelBindings.some((b) => b.transport === "redis"),
+      redis:
+        channelBindings.some((b) => b.transport === "redis") ||
+        byIdCaches.some((r) => r.storageType === "redis"),
       rabbit: channelBindings.some((b) => b.transport === "rabbitmq"),
       kafka: channelBindings.some((b) => b.transport === "kafka"),
     },
@@ -1743,6 +1754,9 @@ function emitProject(
      *  the per-transport csproj package refs (StackExchange.Redis /
      *  RabbitMQ.Client). */
     channelTransports?: { redis: boolean; rabbit: boolean; kafka?: boolean };
+    /** The cached by-id reads of this deployable (`src/ir/plan/cache.ts`):
+     *  Program.cs wraps each cached repository with its eviction. */
+    byIdCaches?: readonly CachedByIdRead[];
     /** M-T4.4: the workflow-less durable-broker producer shape — the
      *  outbox dispatcher wraps the Noop, so Program.cs registers it concretely
      *  instead of the InProcess scoped line. */
@@ -1854,6 +1868,7 @@ function emitProject(
       hasSubscriptions: !!options?.hasSubscriptions,
       hasChannels: !!options?.hasChannels,
       hasChannelConsumers: !!options?.hasChannelConsumers,
+      byIdCaches: options?.byIdCaches,
       hasOutbox: !!options?.hasOutbox,
       outboxNoopInner: !!options?.outboxNoopInner,
       hasRealtime: !!options?.hasRealtime,
