@@ -1460,7 +1460,7 @@ function renderPutAssocPartsHelper(partValueFields: [string, string][] = []): st
   # A part's own value-object collection is rewritten as fresh child rows, each
   # stamped with its position: a value object has no identity to keep, and
   # \`on_replace: :delete\` drops the rows the part held.
-${partValueFields.map(([mod, f]) => `  defp __put_assoc_field(${mod}, :${f}, v), do: __put_value_rows(v)`).join("\n")}
+${partValueFields.map(([mod, f]) => `  defp __put_assoc_field(${mod}, :${f}, v), do: __put_value_rows(v, ${mod}, :${f})`).join("\n")}
   defp __put_assoc_field(_part, _k, v), do: __put_assoc_nested(v)`
       : ""
   }
@@ -1488,22 +1488,32 @@ function renderPutValueRowsHelper(): string {
   return `  # Normalise a value-object collection to \`put_assoc\`-ready rows: a value object
   # has no identity, so each element is a NEW row stamped with its position, and
   # \`on_replace: :delete\` drops the rows the loaded struct held.
-  defp __put_value_rows(list) when is_list(list) do
+  #
+  # A loaded row (a struct) is already typed.  Anything else — an operation's
+  # value-object PARAM (string keys, a datetime as text, an enum as a string) —
+  # is cast through the element schema's own \`changeset/2\`, so it is typed the
+  # way a create body is and its invariants run: bad input is a 422, not an
+  # \`ArgumentError\` / \`Ecto.ChangeError\` 500.
+  defp __put_value_rows(list, owner, field) do
+    related = owner.__schema__(:association, field).related
+
     list
+    |> List.wrap()
     |> Enum.with_index()
-    |> Enum.map(fn {el, i} -> el |> __value_row_fields() |> Map.put(:ordinal, i) end)
+    |> Enum.map(fn {el, i} -> __value_row(el, i, related) end)
   end
 
-  defp __put_value_rows(nil), do: []
-
-  defp __value_row_fields(%{__struct__: _} = el) do
+  defp __value_row(%{__struct__: _} = el, i, _related) do
     el
     |> Map.from_struct()
     |> Map.drop([:__meta__, :id, :ordinal])
     |> Map.reject(fn {_k, v} -> match?(%Ecto.Association.NotLoaded{}, v) end)
+    |> Map.put(:ordinal, i)
   end
 
-  defp __value_row_fields(%{} = el), do: el`;
+  defp __value_row(%{} = el, i, related) do
+    related.changeset(struct(related), el) |> Ecto.Changeset.put_change(:ordinal, i)
+  end`;
 }
 
 /** The two private helpers a context module emits when a named op mutates a

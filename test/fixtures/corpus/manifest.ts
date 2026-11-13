@@ -1029,6 +1029,11 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "elixir casts each element through the child schema's `changeset/2`, which now runs the same `validate_invariants/1` seam an aggregate and a part use; before it carried only `validate_required` and accepted bad rows with 201/204.",
+    id: "value-collection-op-param",
+    title: "an operation's value-object param appended to a value collection (own route + workflow)",
+    doc: "language",
+    backends: ALL,
+    note: "elixir rewrites the collection with `put_assoc`; a JSON-shaped element (string keys, datetime text, enum string) is now cast through the element schema's `changeset/2`, so it is typed and its invariants run. Before: `ArgumentError` / `Ecto.ChangeError`, a 500 where the other backends answer 204 / 422.",
   },
   {
     id: "scaffold-macros",

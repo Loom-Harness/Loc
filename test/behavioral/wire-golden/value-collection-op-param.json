@@ -1,0 +1,180 @@
+{
+  "case": "value-collection-op-param",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/providers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/providers/{id}/put_attribute",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/workflows/grant",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/providers/{id}",
+      "status": 200,
+      "body": {
+        "attributes": [
+          {
+            "kind": "Licence",
+            "name": "cpr",
+            "until": "<timestamp>",
+            "weight": 1.5
+          },
+          {
+            "kind": "Skill",
+            "name": "triage",
+            "until": null,
+            "weight": 2
+          }
+        ],
+        "id": "<volatile:key>",
+        "name": "p",
+        "rowVersion": 3
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/providers/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/providers/{id}",
+      "status": 200,
+      "body": {
+        "attributes": [],
+        "id": "<volatile:key>",
+        "name": "p2",
+        "rowVersion": 4
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/providers",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "attributes": [],
+            "id": "<volatile:key>",
+            "name": "p2",
+            "rowVersion": 4
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "DELETE",
+      "path": "/api/providers/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/providers/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Provider {id} not found",
+        "instance": "/api/providers/{id}",
+        "params": {
+          "type": "Matching.Provider"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "PATCH",
+      "path": "/api/providers",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/providers",
+        "instance": "/api/providers",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/providers",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/providers",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/providers/{id}/put_attribute",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.missing",
+            "message": "v is required",
+            "pointer": "/v"
+          }
+        ],
+        "instance": "/api/providers/{id}/put_attribute",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

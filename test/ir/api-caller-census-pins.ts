@@ -603,6 +603,8 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   "corpus/decimal-call-reductions": ["api.scoreProvider.run (no such aggregate)"],
   // A workflow run carrying a stale `If-Match` — not a lifted route class.
   "corpus/concurrency-workflow-ifmatch": ["api.renameBoth.run (no such aggregate)"],
+  // A workflow run — the `notLifted` class.
+  "corpus/value-collection-op-param": ["api.grant.run (no such aggregate)"],
   // Workflow runs (M-T6.98) — not a lifted route class.
   "corpus/workflow-two-handles-document-eventlog": [
     "api.hitSameTwice.run (no such aggregate)",
