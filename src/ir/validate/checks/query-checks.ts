@@ -296,7 +296,7 @@ function describeSeedValue(e: ExprIR): string {
 // ---------------------------------------------------------------------------
 
 /** The literal `true` as a whole `where` — the match-everything filter. */
-export function isMatchAll(e: ExprIR): boolean {
+function isMatchAll(e: ExprIR): boolean {
   const inner = e.kind === "paren" ? isMatchAll(e.inner) : false;
   return inner || (e.kind === "literal" && e.lit === "bool" && e.value === "true");
 }

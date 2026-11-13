@@ -583,6 +583,8 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // A workflow run (`POST /api/workflows/drop_via`) — the not-yet-lifted
   // workflow-run class, like `corpus/vo-invariant-in-body`'s `api.bump.run`.
   "corpus/contained-part-removal": ["api.dropVia.run (no such aggregate)"],
+  // A workflow run — the `notLifted` class.
+  "corpus/criterion-match-all": ["api.bumpAll.run (no such aggregate)"],
   // M-T5.1 — the workflow router is one of the two body sites a value-object
   // breach answers through, so the fixture drives `POST /api/workflows/bump`.
   // A workflow run is the `notLifted` class (same as `workflow-create-state`).
@@ -595,8 +597,6 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   ],
   // A workflow run (`POST /api/workflows/labeller`) — the `notLifted` class.
   "corpus/nullable-load": ["api.labeller.run (no such aggregate)"],
-  // A workflow run — the `notLifted` class.
-  "corpus/criterion-match-all": ["api.bumpAll.run (no such aggregate)"],
   // A workflow run carrying a stale `If-Match` — not a lifted route class.
   "corpus/concurrency-workflow-ifmatch": ["api.renameBoth.run (no such aggregate)"],
   // Workflow runs (M-T6.98) — not a lifted route class.
