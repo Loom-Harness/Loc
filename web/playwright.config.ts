@@ -47,6 +47,7 @@ const HEAVY_PREVIEW_SPECS = [
   "**/cross-deployable-runtime.spec.ts",
   "**/resource-fakes.spec.ts",
   "**/infra-panel-resources.spec.ts",
+  "**/first-boot-initial-migration.spec.ts",
   "**/oidc-identity-provider.spec.ts",
   "**/oidc-login-preview.spec.ts",
   "**/infra-panel-broker.spec.ts",
