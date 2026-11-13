@@ -580,6 +580,11 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // `deriveContextOperations` lists under `apiSurfaceCoverage.notLifted`.
   "corpus/projection-valueobject-row": ["api.orderBoard.byKey (no such aggregate)"],
   "corpus/projection-fold-statements": ["api.accountBoard.byKey (no such aggregate)"],
+  // A workflow run — the `notLifted` class.
+  "corpus/value-collection-copy": [
+    "api.adoptFrom.run (no such aggregate)",
+    "api.draftNext.run (no such aggregate)",
+  ],
   // A workflow run (`POST /api/workflows/drop_via`) — the not-yet-lifted
   // workflow-run class, like `corpus/vo-invariant-in-body`'s `api.bump.run`.
   "corpus/contained-part-removal": ["api.dropVia.run (no such aggregate)"],
