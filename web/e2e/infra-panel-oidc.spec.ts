@@ -27,7 +27,7 @@ test("infra panel — OIDC tab shows personas and every issued token, decoded", 
     await expect(tab.getByTestId("infra-oidc-realm")).toContainText("/realms/desk");
     await expect(tab.locator('[data-testid="infra-oidc-persona"][data-persona="demo-admin"]')).toBeVisible();
     await tab.getByTestId("infra-emulated").hover();
-    await expect(page.getByTestId("infra-emulated-notes")).toContainText("persona picker");
+    await expect(page.getByTestId("infra-emulated-notes")).toContainText("no consent screen");
     await expect(tab.getByTestId("infra-oidc-no-tokens")).toBeVisible();
   });
 

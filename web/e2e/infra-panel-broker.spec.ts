@@ -134,7 +134,8 @@ test("infra panel — Broker tab shows and manages the emulated brokers", async 
         .length;
     const before = await storefrontDeliveries();
     await group.getByTestId("infra-broker-seek-earliest").click();
-    await expect(tab.locator('[data-testid="infra-broker-journal"][data-kind="seeked"]')).toHaveCount(1);
+    // The broker journals one `seeked` line per moved partition: all three.
+    await expect(tab.locator('[data-testid="infra-broker-journal"][data-kind="seeked"]')).toHaveCount(3);
     // The group re-consumes its three retained records.
     await expect.poll(storefrontDeliveries, { timeout: 30_000 }).toBe(before + 3);
   });
