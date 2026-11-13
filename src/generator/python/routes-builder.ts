@@ -13,7 +13,7 @@ import {
   forApiRead,
   wireFieldsFor,
 } from "../../ir/enrich/wire-projection.js";
-import { gateReadsParam, gateReadsRow } from "../../ir/plan/gate-ladder.js";
+import { destroyLadder, gateReadsParam, gateReadsRow } from "../../ir/plan/gate-ladder.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -59,6 +59,7 @@ import {
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
+  type RequiresStmtIR,
 } from "../../ir/util/op-gates.js";
 import { errorStatuses, type OpErrorKind } from "../../ir/util/openapi-errors.js";
 import {
@@ -1006,10 +1007,12 @@ function destroyRoute(
         "    )",
       ]
     : [];
-  // The canonical destroy's `requires` gate runs AFTER the load (it may read
-  // the row) and BEFORE the audit row is staged, so a denied delete records
-  // nothing.  A principal-only gate reads no field, so it needs no receiver —
-  // the load still runs as the 404 probe but is not bound (ruff F841).
+  // The canonical destroy's `requires` gates run in ladder order
+  // (`destroyLadder`): one that reads no row before the load, one that reads
+  // the row after it, and all of them BEFORE the audit row is staged, so a
+  // denied delete records nothing.  A principal-only gate reads no field, so it
+  // needs no receiver — the load still runs as the 404 probe but is not bound
+  // (ruff F841).
   const destroyGateReadsRow = lifecycleGatesReadRow(canonicalDestroy(agg));
   const destroyGateUsesUser = lifecycleGatesUseCurrentUser(canonicalDestroy(agg));
   // A `versioned` row's DELETE reads `If-Match` like a named operation
@@ -1021,11 +1024,20 @@ function destroyRoute(
     `@router.delete("${relativeOpPath(apiOp)}", status_code=204, operation_id="${camelId(opDestroy(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
     `async def destroy_${snake(agg.name)}(${ID_PARAM}, ${PY_REQUEST_PARAM}, session: SessionDep) -> ${H.Response}:`,
     "    repo = _repo(session)",
-    bindLoaded
-      ? `    __loaded = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`
-      : `    await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
     destroyGateUsesUser ? PY_USER_BIND : null,
-    ...lifecycleGate(canonicalDestroy(agg), destroyGateReadsRow ? "__loaded" : undefined),
+    ...destroyLadder(canonicalDestroy(agg), { readsIfMatch: false }).flatMap((step) =>
+      step.step === "requires"
+        ? lifecycleGateStmt(step.gate)
+        : step.step === "row-requires"
+          ? lifecycleGateStmt(step.gate, "__loaded")
+          : step.step === "load"
+            ? [
+                bindLoaded
+                  ? `    __loaded = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`
+                  : `    await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
+              ]
+            : [],
+    ),
     ...(destroyIfMatch
       ? [
           // `chr(34)` is a literal double-quote (see `versionedSave`).
@@ -1103,8 +1115,8 @@ function requiresGate(
  *
  *    create  — none.  It runs BEFORE the factory, so it reads the principal
  *              only (`loom.lifecycle-guard-unreadable` enforces that).
- *    destroy — `__loaded`, the row the route already loaded for its 404 probe,
- *              so an unreachable id answers 404 before 403. */
+ *    destroy — `__loaded` for a gate that reads the row, after the load; a
+ *              gate that reads no row runs before it (`destroyLadder`). */
 function lifecycleGate(
   action: OperationIR | null | undefined,
   thisName?: string,
@@ -1112,10 +1124,19 @@ function lifecycleGate(
 ): string[] {
   // A create gate's parameters are the create-input fields the body carries
   // (`loom.lifecycle-guard-unreadable` admits no other).
-  return lifecycleGates(action).flatMap((g) => [
+  return lifecycleGates(action).flatMap((g) => lifecycleGateStmt(g, thisName, paramExpr));
+}
+
+/** One lifecycle gate's refusal. */
+function lifecycleGateStmt(
+  g: RequiresStmtIR,
+  thisName?: string,
+  paramExpr?: (name: string) => string | undefined,
+): string[] {
+  return [
     `    if ${renderPyNegatedGuard(g.expr, { thisName: thisName ?? "self", ...(paramExpr ? { paramExpr } : {}) })}:`,
     `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)})`,
-  ]);
+  ];
 }
 
 function whenGate(agg: EnrichedAggregateIR, op: OperationIR): string[] {
