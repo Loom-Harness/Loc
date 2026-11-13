@@ -1019,6 +1019,19 @@ system OptRefColl {
     }
   } }
 }`,
+  // A running total over an optional field with nothing to start from.
+  "loom.projection-accumulate-optional": `
+system AccumOptional {
+  subdomain S { context C {
+    aggregate Order with crudish { code: string }
+    event OrderPlaced { order: Order id, n: int }
+    projection Board keyed by order {
+      order: Order id
+      seen: int?
+      on(e: OrderPlaced) { seen += e.n }
+    }
+  } }
+}`,
   // A fold assigning its own key: the row is created with the routing key.
   "loom.projection-key-assign": `
 system KeyAssign {

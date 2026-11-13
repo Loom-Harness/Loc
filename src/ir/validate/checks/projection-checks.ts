@@ -751,6 +751,29 @@ function validateHandlers(
       }
     }
 
+    // A running total needs a starting value.  A required field starts at its
+    // type's zero; an optional one starts absent, and `absent + n` has no
+    // answer, so it must declare the value it starts from.
+    for (const stmt of h.statements) {
+      if ((stmt.kind !== "add" && stmt.kind !== "remove") || stmt.collection) continue;
+      const fieldName = stmt.target.segments[stmt.target.segments.length - 1];
+      const field = proj.stateFields.find((f) => f.name === fieldName);
+      if (!field?.optional || field.default) continue;
+      diags.push({
+        severity: "error",
+        code: "loom.projection-accumulate-optional",
+        message: diagMessage("loom.projection-accumulate-optional", {
+          name: proj.name,
+          param: h.param,
+          event: h.event,
+          field: field.name,
+          op: stmt.kind === "add" ? "+=" : "-=",
+        }),
+        source: `${ctx.name}/${proj.name}`,
+        origin: proj.origin,
+      });
+    }
+
     // The key is immutable: the row is addressed by it, so a fold that assigns
     // it would move the row (or, under `by <expr>`, write a key the routing
     // never reads).  The allocation stamps the key from the routing value.

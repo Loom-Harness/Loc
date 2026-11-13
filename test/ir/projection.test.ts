@@ -98,6 +98,18 @@ describe("projection lowering", () => {
 });
 
 describe("projection validation", () => {
+  it("refuses a running total over an optional field without a default", async () => {
+    const codes = await projectionErrors(`
+      projection OrderBook keyed by order {
+        order: Order id
+        seen: int?
+        started: int? = 0
+        count: int
+        on(e: OrderPlaced) { seen += 1  started += 1  count += 1 }
+      }`);
+    expect(codes.filter((c) => c === "loom.projection-accumulate-optional")).toHaveLength(1);
+  });
+
   it("refuses an assignment to the key field (loom.projection-key-assign)", async () => {
     const codes = await projectionErrors(`
       projection OrderBook keyed by order {

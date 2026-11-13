@@ -99,7 +99,7 @@ function withoutLedger(src: string): string {
   return src
     .replace(/ {6}aggregate Ledger persistedAs[\s\S]*?\n {6}}\n/, "")
     .replace(/ {6}workflow topUp \{[\s\S]*?\n {6}}\n/, "")
-    .replace("        on(e: Deposited) { acct := e.acct  deposited := e.amount }\n", "")
+    .replace("        on(e: Deposited) { deposited := e.amount }\n", "")
     .replace("      repository Ledgers for Ledger { }\n", "")
     .replace("      event Opened { ledger: Ledger id, owner: string }\n", "")
     .replace("      event Deposited { ledger: Ledger id, acct: Acct id, amount: int }\n", "")
@@ -119,10 +119,10 @@ describe("node (mikroorm): tenant-scoped fold", async () => {
   it("keys, stamps and scopes the fold row", () => {
     expect(projections).toContain("db.findOne(TotalsRow, { acct: key, tenantId: tenant })");
     expect(projections).toContain(
-      "db.find(TotalsRow, { tenantId: String(requireCurrentUser().tenantId) })",
+      "db.fork().find(TotalsRow, { tenantId: String(requireCurrentUser().tenantId) })",
     );
     expect(projections).toContain(
-      "db.findOne(TotalsRow, { acct: key, tenantId: String(requireCurrentUser().tenantId) })",
+      "db.fork().findOne(TotalsRow, { acct: key, tenantId: String(requireCurrentUser().tenantId) })",
     );
   });
 });
