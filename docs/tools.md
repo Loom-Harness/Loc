@@ -1593,7 +1593,9 @@ worktrees and `settings.local.json` stay local.
    a push changes nothing a reviewer reads but re-runs the whole per-PR check
    set; dozens at once starve the shared runner pool. The merge queue re-tests
    every entry on current `main` anyway. Merging another PR's branch (a stack),
-   a rebase, or any push with a commit of its own passes. Pinned by
+   a rebase, or any push with a commit of its own passes, and so does a sync
+   whose old head has several merge bases with `main` (git and GitHub can
+   disagree on whether that merge conflicts). Pinned by
    `test/system/pre-push-sync-gate.test.ts`. The rules behind it are in
    `.claude/skills/steward/SKILL.md`.
 1. **Textual** — `git merge-tree --write-tree origin/main HEAD`. A definite

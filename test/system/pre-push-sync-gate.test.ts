@@ -156,6 +156,27 @@ describe.skipIf(!hasTools)("pre-push sync-only gate", () => {
     expect(denied(runHook(work))).toBe(false);
   });
 
+  // A criss-cross (main merged the branch while the branch merged main) leaves
+  // two merge bases. git resolves them into a virtual base and calls the old
+  // head clean; GitHub's check does not, and can report a conflict. The gate
+  // cannot tell, so it lets the sync through.
+  it("allows a sync when the old head has several merge bases with main", () => {
+    const { work, other } = setup();
+    advanceMain(other, "c.txt", "c1\n");
+    const a = git(other, "rev-parse", "HEAD");
+    git(other, "fetch", "-q", "origin", "feat");
+    git(other, "merge", "-q", "--no-edit", "origin/feat");
+    git(other, "push", "-q", "origin", "main");
+    git(work, "fetch", "-q", "origin", "main");
+    git(work, "merge", "-q", "--no-edit", a);
+    git(work, "push", "-q", "origin", "feat");
+    git(work, "merge", "-q", "--no-edit", "origin/main");
+    expect(git(work, "merge-base", "--all", "origin/main", "origin/feat").split("\n")).toHaveLength(
+      2,
+    );
+    expect(denied(runHook(work))).toBe(false);
+  });
+
   it("allows merging another PR's branch (a stack)", () => {
     const { work, other } = setup();
     git(other, "fetch", "-q", "origin");

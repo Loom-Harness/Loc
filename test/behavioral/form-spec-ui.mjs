@@ -124,18 +124,8 @@ function normalize(v) {
 
 /** The `<input>` a test id names — the element itself, or the first input
  *  inside a wrapper that carries the id. */
-async function inputOf(page, testId, rowTestId, rowIndex) {
-  // Angular names a row input by a row-wide id; the row is its nth match.
-  let el = page.locator(`[data-testid="${testId}"]`).first();
-  if (rowTestId) {
-    await page
-      .locator(`[data-testid="${testId}"], [data-testid="${rowTestId}"]`)
-      .first()
-      .waitFor({ state: "attached", timeout: 15000 });
-  }
-  if (rowTestId && (await page.locator(`[data-testid="${rowTestId}"]`).count()) > 0) {
-    el = page.locator(`[data-testid="${rowTestId}"]`).nth(rowIndex);
-  }
+async function inputOf(page, testId) {
+  const el = page.locator(`[data-testid="${testId}"]`).first();
   await el.waitFor({ state: "attached", timeout: 15000 });
   const tag = await el.evaluate((n) => n.tagName);
   return tag === "INPUT" || tag === "TEXTAREA" ? el : el.locator("input, textarea").first();
@@ -242,11 +232,11 @@ export async function judgeWorkflowOpensResult(page, origin) {
 export async function driveAddRider(page, origin, id) {
   await page.goto(`${origin}/policies/${id}`);
   await page.locator('[data-testid="policies-op-update"]').first().click({ timeout: 20000 });
-  await (await inputOf(page, "policies-op-update-input-riders-0-code", "policies-op-update-riders-row-input-code", 0)).waitFor();
+  await (await inputOf(page, "policies-op-update-input-riders-0-code")).waitFor();
   const widgets = await judgeRowWidgets(page);
   await page.getByRole("button", { name: /Add Rider/i }).first().click({ timeout: 15000 });
-  await (await inputOf(page, "policies-op-update-input-riders-1-code", "policies-op-update-riders-row-input-code", 1)).fill("R2");
-  await (await inputOf(page, "policies-op-update-input-riders-1-premium", "policies-op-update-riders-row-input-premium", 1)).fill("4");
+  await (await inputOf(page, "policies-op-update-input-riders-1-code")).fill("R2");
+  await (await inputOf(page, "policies-op-update-input-riders-1-premium")).fill("4");
   await page.locator('[data-testid="policies-op-update-submit"]').first().click();
   return widgets;
 }

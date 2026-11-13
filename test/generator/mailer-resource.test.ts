@@ -72,8 +72,8 @@ describe("mailer resource — hono/node", () => {
     expect(ses).toMatch(/@aws-sdk\/client-ses/);
     expect(ses).toMatch(/new SendEmailCommand/);
     const sg = (await generateSystemFiles(src("node", "sendgrid"))).get("d/resources/sendgrid.ts")!;
-    expect(sg).toMatch(/import sgMail from "@sendgrid\/mail";/);
-    expect(sg).toMatch(/sgMail\.send\(\{ to, from: mailFrom, subject, text: body \}\)/);
+    expect(sg).toMatch(/import \{ MailService \} from "@sendgrid\/mail";/);
+    expect(sg).toMatch(/mailMail\.send\(\{ to, from: mailFrom, subject, text: body \}\)/);
   });
 });
 
