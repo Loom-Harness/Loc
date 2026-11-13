@@ -6,7 +6,6 @@
 import {
   aggregateProblemParams,
   errorVariantCode,
-  errorVariantResponse,
   FIND_ABSENT_DETAIL,
   fieldFixedMessage,
   fieldSentenceSuffix,
@@ -249,27 +248,4 @@ export function csIntegerRangeMessage(): string {
 /** The refusal message of a `money` value whose integer part overflows the column. */
 export function csMoneyRangeMessage(): string {
   return fieldValuePrefix("money-range");
-}
-
-const RESOLVED_CLASS: Readonly<Record<string, WireRejectionClass>> = {
-  ReferencedInUse: "referenced-in-use",
-  DomainError: "domain-floor",
-  Forbidden: "forbidden",
-  NotFound: "not-found",
-  Disallowed: "state-gate",
-  UniquenessConflict: "unique-conflict",
-  ConcurrencyConflict: "version-conflict",
-};
-
-/** The status resolver `errorStatuses` takes: a stdlib rung name resolved
- *  through the fact's rejection class and the context's `httpStatus` map. */
-export function wireStatusResolver(overrides?: Overrides): (name: string) => number {
-  return (name) => {
-    const cls = RESOLVED_CLASS[name];
-    // A name with no rejection class is a declared `error` variant: its status
-    // is the fact's variant mapping (the override, else the stdlib default).
-    return cls === undefined
-      ? errorVariantResponse(name, overrides).status
-      : wireStatus(cls, overrides);
-  };
 }

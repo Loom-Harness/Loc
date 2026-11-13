@@ -53,6 +53,7 @@ export {
   workflowNeedsCurrentUser,
 } from "./workflow-needs.js";
 export { commandCreateReturnsSelf, isWorkflowSelfType } from "./workflow-result.js";
+export { liveLetNames, nestedSaves } from "./workflow-saves.js";
 export {
   eventSourcedWorkflows,
   hasStateRow,
@@ -64,4 +65,8 @@ export {
   type SubscriptionHandler,
   subscriptionHandler,
 } from "./workflow-subscriptions.js";
-export { workflowIsolation, workflowRunsInTransaction } from "./workflow-transaction.js";
+export {
+  workflowCapturesDurableEmits,
+  workflowIsolation,
+  workflowRunsInTransaction,
+} from "./workflow-transaction.js";

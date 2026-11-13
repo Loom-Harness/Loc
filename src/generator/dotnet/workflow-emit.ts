@@ -1,4 +1,4 @@
-import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
+import { notFoundStmtDetail, wireStatusResolver } from "../../ir/enrich/wire-policy.js";
 import { createInputFields, createOmissionValue } from "../../ir/enrich/wire-projection.js";
 import {
   auditedOpCallAggregates,
@@ -13,6 +13,7 @@ import {
   serviceOpReadPorts,
   servicesCalled,
   subscriptionHandler,
+  workflowCapturesDurableEmits,
   workflowIsolation,
   workflowRunsInTransaction,
 } from "../../ir/plan/index.js";
@@ -107,7 +108,7 @@ import { csFilterBypassArg, csReadOwnParams } from "./local-names.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "./render-expr.js";
 import { collectCsStmtUsings, renderCsStatements } from "./render-stmt.js";
-import { csNotFoundException, csRuleParams, wireStatusResolver } from "./wire-policy-cs.js";
+import { csNotFoundException, csRuleParams } from "./wire-policy-cs.js";
 import {
   esCorrIdClass,
   esEventDbSet,
@@ -1563,6 +1564,13 @@ function renderHandler(
       `        {\n` +
       stmtLines.map((l) => "    " + l).join("\n") +
       "\n" +
+      // A durable workflow emit is owed with the workflow's writes: its outbox
+      // row commits with `tx`, and only the remaining events dispatch after.
+      (workflowCapturesDurableEmits(wf, ctx)
+        ? `            var __afterCommit = new List<IDomainEvent>(await tx.CaptureDurableAsync(_events, _workflowEvents, cancellationToken));\n` +
+          `            _workflowEvents.Clear();\n` +
+          `            _workflowEvents.AddRange(__afterCommit);\n`
+        : "") +
       (er && result
         ? `            if (${entryErrorTestCs(er, result.type, ns, "workflowResult")}) await tx.RollbackAsync(cancellationToken);\n` +
           `            else await tx.CommitAsync(cancellationToken);\n`

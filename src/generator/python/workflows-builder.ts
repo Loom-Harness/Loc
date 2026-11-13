@@ -1,6 +1,7 @@
-import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
+import { notFoundStmtDetail, wireStatusResolver } from "../../ir/enrich/wire-policy.js";
 import {
   isWorkflowSelfType,
+  liveLetNames,
   lookupOp,
   namesUsed,
   observableWorkflows,
@@ -11,6 +12,7 @@ import {
   withReadPortRepos,
   workflowIsolation,
   workflowNeedsCurrentUser,
+  workflowRunsInTransaction,
 } from "../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../ir/stdlib/unions.js";
 import {
@@ -31,7 +33,7 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../ir/util/openapi-ids.js";
-import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
+import { workflowEmits } from "../../ir/util/walk.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,
@@ -98,7 +100,7 @@ import {
   requestFieldDecl,
 } from "./routes-builder.js";
 import { type PySaveLines, pySaveRenderer } from "./stamp-call.js";
-import { pyNotFoundRaise, pyRuleParams, wireStatusResolver } from "./wire-policy-py.js";
+import { pyNotFoundRaise, pyRuleParams } from "./wire-policy-py.js";
 import { esFns } from "./workflow-eventsourced-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -109,9 +111,11 @@ import { esFns } from "./workflow-eventsourced-emit.js";
 // request session, let-bound aggregates save at exit, collected emits
 // dispatch at the end, 204 on success.
 //
-// One DB transaction per request: repositories flush, the session
-// dependency commits once after the handler returns — so a
-// `transactional` workflow's saves are atomic by construction.
+// One DB transaction per request: repositories flush, and the session
+// commits once after the handler returns, so a `transactional` workflow's
+// saves are atomic by construction.  A workflow that is not `transactional`
+// commits after each save instead (`commit_save`), so a failure keeps the
+// rows saved before it.
 //
 // Event-triggered starters / `on(...)` reactors (the saga dispatcher +
 // correlation state tables) live in `dispatch-builder.ts` / `schema.ts`;
@@ -329,62 +333,6 @@ function mergeReadPortRepos(
   return withReadPortRepos(own, serviceReadPorts(wf.statements, [], ctx));
 }
 
-/** Names of `let` bindings the emitted body still needs — every `let`
- *  read in an expression (`refsRead`), PLUS the bindings a
- *  statement names structurally rather than through an `ExprIR`: an `op-call`
- *  receiver (`j.mark(…)` carries `target: "j"`, not a `ref`) and every
- *  exit / per-iteration / branch save (`await jobs.save(j)`).  A `repo-let`
- *  absent from this set is a pure existence check (`let t = Techs.getById(tech)`
- *  then never touched) — the emitter keeps the awaited `get_by_id` (it still
- *  404s on a missing id) but drops the dead assignment, or ruff F841 rejects
- *  the route. */
-export function collectLiveLetNames(
-  sts: readonly WorkflowStmtIR[],
-  savesAtExit: readonly { name: string }[],
-): Set<string> {
-  const live = refsRead(sts, [], "let");
-  for (const s of savesAtExit) live.add(s.name);
-  // Closed, never-checked: a new statement kind that names a binding
-  // outside an `ExprIR` must decide here whether it keeps a `let` alive.
-  for (const st of sts)
-    walkWorkflowStmtsDeep(st, (n) => {
-      switch (n.kind) {
-        case "op-call":
-          live.add(n.target);
-          return;
-        case "for-each":
-          for (const s of n.savesPerIteration) live.add(s.name);
-          return;
-        case "if-let":
-          for (const s of [...n.savesInThen, ...n.savesInElse]) live.add(s.name);
-          return;
-        case "variant-match":
-          for (const s of [...n.arms.flatMap((a) => a.savesInArm), ...n.savesInElse]) {
-            live.add(s.name);
-          }
-          return;
-        case "precondition":
-        case "requires":
-        case "emit":
-        case "factory-let":
-        case "repo-let":
-        case "expr-let":
-        case "repo-run":
-        case "repo-delete":
-        case "resource-call":
-        case "domain-service-call":
-        case "assign":
-        case "not-found":
-          return;
-        default: {
-          const _exhaustive: never = n;
-          return _exhaustive;
-        }
-      }
-    });
-  return live;
-}
-
 /** Whether a `match` arm (or any arm of `st` — a binding name is scoped to
  *  its arm, and arms that share one read it the same way) names `binding`:
  *  an expression read, an operation called on it, or a save of it. */
@@ -593,7 +541,16 @@ function workflowRoute(
   }
   const hasEmit = workflowEmits(wf.statements).length > 0;
   if (hasEmit) out.push(`        workflow_events: list[${DOMAIN_EVENT}] = []`);
-  const saveLines = pySaveRenderer(wf.statements, ctx.aggregates);
+  // A workflow that is not `transactional` commits each save on its own (the
+  // plan's `workflowRunsInTransaction`), so a later failure keeps the rows
+  // saved before it — every backend's transaction boundary for a workflow.
+  const saveEach = pySaveRenderer(wf.statements, ctx.aggregates);
+  const saveLines: PySaveLines = workflowRunsInTransaction(wf, ctx)
+    ? saveEach
+    : (save, indent) => [
+        ...saveEach(save, indent),
+        `${indent}await ${pyRef("app.db.transaction", "commit_save")}(session)`,
+      ];
   // Chunked (one lines-array per top-level statement) rather than the
   // pre-flattened `renderWorkflowStmts` — byte-identical either way
   // (`renderWorkflowStmts` IS `chunks.flat()` by construction), but the
@@ -616,7 +573,7 @@ function workflowRoute(
         readPortArgs: pyReadPortResolver(ctx),
       },
       ctx,
-      collectLiveLetNames(wf.statements, wf.savesAtExit),
+      liveLetNames(wf.statements, wf.savesAtExit),
       saveLines,
       writeScopeContext(wf.statements, ctx),
     ),

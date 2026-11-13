@@ -67,6 +67,31 @@ import { expectReach } from "../_helpers/census-reach.js";
 //               call — the hand-spelled "does this body run in one
 //               transaction" test.
 //               → use `workflowRunsInTransaction`.
+//   tx-boundary a read of a workflow's `.transactional` in a generator or a
+//               platform package (not a `db.transactional(…)` call) — a
+//               backend choosing its own transaction boundary.  A workflow
+//               runs in one transaction exactly when the plan says so; any
+//               other commits each save on its own.
+//               → use `workflowRunsInTransaction` / `workflowIsolation`.
+//   wire-status a `workflowCanAnswerNotFound(…)` call that is not an argument
+//               of `errorStatuses` (or a backend wrapper that forwards to it:
+//               `errorResponsesKwarg`, `errorResponseEntries`) — a backend
+//               deciding a workflow route's declared not-found rung itself;
+//               or a `defaultErrorStatus(…)` call / an `errorStatusOverrides[…]`
+//               lookup — a backend mapping an error variant to its wire status
+//               itself.  Both mappings live in the IR's wire policy.
+//               → use `errorStatuses("workflow", …)` / `errorVariantResponse`.
+//   saves       an object literal carrying `name`, `aggName` and `repoName` in a
+//               workflow / reactor / dispatch emitter — a backend building its
+//               own save entry.  Which bindings save, at the exit or at the end
+//               of a loop iteration or branch, is lowered onto the IR.
+//               → read `wf.savesAtExit` / a statement's `saves` (`nestedSaves`).
+//   outbox-capture  a `&&` chain that calls `workflowRunsInTransaction` and
+//               asks about durable events (`hasDurableEvents`,
+//               `durableEventTypes`, `workflowEmits`) — the hand-spelled "does
+//               this workflow write its outbox rows inside its transaction"
+//               test.
+//               → use `workflowCapturesDurableEmits`.
 //   folded-events  a `.map(…)` over an `appliers` list whose callback returns
 //               the applier's `.event` — the hand-rolled "which events does
 //               this stream fold" list.
@@ -194,6 +219,10 @@ interface Violation {
     | "durable"
     | "isolation"
     | "implicit-tx"
+    | "tx-boundary"
+    | "wire-status"
+    | "saves"
+    | "outbox-capture"
     | "folded-events"
     | "event-log"
     | "repos"
@@ -206,6 +235,25 @@ interface Violation {
     | "es-shared";
   where: string;
   text: string;
+}
+
+/** The callees that own a route's declared error-status set. */
+const STATUS_TABLES = new Set(["errorStatuses", "errorResponsesKwarg", "errorResponseEntries"]);
+
+/** Is `n` (transitively) an argument of a call to one of `STATUS_TABLES`? */
+function insideStatusTable(n: ts.Node): boolean {
+  for (let p = n.parent; p && !ts.isSourceFile(p); p = p.parent) {
+    if (
+      ts.isCallExpression(p) &&
+      ts.isIdentifier(p.expression) &&
+      STATUS_TABLES.has(p.expression.text) &&
+      p.arguments.some((a) => a.pos <= n.pos && n.end <= a.end)
+    ) {
+      return true;
+    }
+    if (ts.isFunctionLike(p)) return false;
+  }
+  return false;
 }
 
 /** Bodies of the function-like callbacks among `args`: an inline arrow or
@@ -585,6 +633,59 @@ function scan(file: string): Violation[] {
       }
     }
     if (
+      ts.isPropertyAccessExpression(n) &&
+      n.name.text === "transactional" &&
+      !(ts.isCallExpression(n.parent) && n.parent.expression === n) &&
+      (rel.startsWith("src/generator/") || rel.startsWith("src/platform/"))
+    ) {
+      out.push({ rule: "tx-boundary", where: at(n), text: n.getText(sf) });
+    }
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      ((n.expression.text === "workflowCanAnswerNotFound" && !insideStatusTable(n)) ||
+        n.expression.text === "defaultErrorStatus")
+    ) {
+      out.push({ rule: "wire-status", where: at(n), text: n.getText(sf) });
+    }
+    if (
+      ts.isObjectLiteralExpression(n) &&
+      (rel.startsWith("src/generator/") || rel.startsWith("src/platform/")) &&
+      /(workflow|dispatch|reactor)[^/]*\.ts$/.test(rel) &&
+      ["name", "aggName", "repoName"].every((k) =>
+        n.properties.some((pr) => pr.name && ts.isIdentifier(pr.name) && pr.name.text === k),
+      )
+    ) {
+      out.push({ rule: "saves", where: at(n), text: n.getText(sf) });
+    }
+    if (
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+      !(
+        ts.isBinaryExpression(n.parent) &&
+        n.parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+      )
+    ) {
+      const called = new Set<string>();
+      const look = (m: ts.Node): void => {
+        if (ts.isCallExpression(m) && ts.isIdentifier(m.expression)) called.add(m.expression.text);
+        ts.forEachChild(m, look);
+      };
+      look(n);
+      if (
+        called.has("workflowRunsInTransaction") &&
+        ["hasDurableEvents", "durableEventTypes", "workflowEmits"].some((f) => called.has(f))
+      ) {
+        out.push({ rule: "outbox-capture", where: at(n), text: n.getText(sf) });
+      }
+    }
+    if (
+      ts.isElementAccessExpression(n) &&
+      /\berrorStatusOverrides$/.test(n.expression.getText(sf))
+    ) {
+      out.push({ rule: "wire-status", where: at(n), text: n.getText(sf) });
+    }
+    if (
       ts.isCallExpression(n) &&
       ts.isPropertyAccessExpression(n.expression) &&
       n.expression.name.text === "map" &&
@@ -721,6 +822,26 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend re-spells when a workflow body runs in one transaction (use workflowRunsInTransaction)", () => {
     const hits = violations.filter((v) => v.rule === "implicit-tx");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend chooses its own workflow transaction boundary (use workflowRunsInTransaction / workflowIsolation)", () => {
+    const hits = violations.filter((v) => v.rule === "tx-boundary");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no workflow emitter builds its own save entry (read savesAtExit / a statement's saves)", () => {
+    const hits = violations.filter((v) => v.rule === "saves");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-spells the durable outbox-capture test (use workflowCapturesDurableEmits)", () => {
+    const hits = violations.filter((v) => v.rule === "outbox-capture");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend maps a workflow error to its wire status itself (use errorStatuses / errorVariantResponse)", () => {
+    const hits = violations.filter((v) => v.rule === "wire-status");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 

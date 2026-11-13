@@ -34,7 +34,24 @@ import {
 
 type ByKind<K extends WorkflowStmtIR["kind"]> = Extract<WorkflowStmtIR, { kind: K }>;
 
-export interface WorkflowStmtTarget {
+/** A statement kind's leaf-method name: `repo-let` → `repoLet`. */
+type LeafName<K extends string> = K extends `${infer Head}-${infer Rest}`
+  ? `${Head}${Capitalize<LeafName<Rest>>}`
+  : K;
+
+/** One leaf method per workflow statement kind.  Both target contracts extend
+ *  it, so a new kind is a required member of every backend's leaf table: the
+ *  tables fail to type-check until they render it, and nothing else does
+ *  (beyond the spine's own exhaustive dispatch). */
+type LeafPerKind<Rendered> = {
+  [K in WorkflowStmtIR["kind"] as LeafName<K>]: (
+    st: ByKind<K>,
+    // biome-ignore lint/suspicious/noExplicitAny: each leaf declares its own trailing parameters
+    ...rest: any[]
+  ) => Rendered;
+};
+
+export interface WorkflowStmtTarget extends LeafPerKind<string[]> {
   /** Indent step the spine adds for a `for-each` body — `"  "` (Hono) /
    *  `"    "` (Python). The target reuses the same unit when rendering the
    *  loop's per-iteration saves. */
@@ -154,42 +171,6 @@ export function presenceSides(
       ? absentSide
       : undefined;
   return { ...(present ? { present } : {}), ...(absent ? { absent } : {}) };
-}
-
-type SaveEntry = { name: string; aggName: string; repoName: string };
-
-/** The saves a NESTING statement stages at the end of its own branches — a
- *  `for` iteration's, each `if let` branch's, each `match` arm's — in source
- *  order; empty for every other kind.  An emitter that injects the
- *  repositories a body saves through reads them here instead of re-listing
- *  the nesting kinds. */
-export function nestedSaves(st: WorkflowStmtIR): SaveEntry[] {
-  switch (st.kind) {
-    case "for-each":
-      return st.savesPerIteration;
-    case "if-let":
-      return [...st.savesInThen, ...st.savesInElse];
-    case "variant-match":
-      return [...st.arms.flatMap((a) => a.savesInArm), ...st.savesInElse];
-    case "precondition":
-    case "requires":
-    case "emit":
-    case "factory-let":
-    case "repo-let":
-    case "expr-let":
-    case "assign":
-    case "repo-run":
-    case "op-call":
-    case "repo-delete":
-    case "resource-call":
-    case "domain-service-call":
-    case "not-found":
-      return [];
-    default: {
-      const _exhaustive: never = st;
-      return _exhaustive;
-    }
-  }
 }
 
 /** Let-bound names whose RHS was a UNION-returning find (`find x(): Agg or
@@ -370,7 +351,7 @@ export interface PipelineBody {
   readonly carried: ReadonlySet<string>;
 }
 
-export interface WorkflowPipelineTarget {
+export interface WorkflowPipelineTarget extends LeafPerKind<PipelineStep[]> {
   precondition(st: ByKind<"precondition">, scope: PipelineScope): PipelineStep[];
   requires(st: ByKind<"requires">, scope: PipelineScope): PipelineStep[];
   emit(st: ByKind<"emit">, scope: PipelineScope): PipelineStep[];
