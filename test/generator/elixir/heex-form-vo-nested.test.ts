@@ -1,24 +1,18 @@
-// HEEx form — value-object field renders as <.inputs_for :let={…}> nested form.
+// HEEx form — a value-object field renders as one plain `<.input>` per VO leaf.
 //
-// Phase D Slice D from
-// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/platform-expansion-roadmap.md`.  Closes the VO half
-// of the "expand types beyond text input" gap; arrays remain as
-// future work (need event-handler scaffolding for add/remove).
+// Not `<.inputs_for>`: phoenix_ecto's `to_form` raises "could not generate
+// inputs for :<field>" on a field that is neither an association nor an embed,
+// and a Loom VO is neither (a `Loom.ValueObject` column, cast as a plain map).
+// Each leaf is named `<form>[<field>][<sub>]` off the field's `FormField.name`,
+// so the submit carries the same nested map the REST route takes as JSON.
 //
-// What this file pins:
-//   1. A VO-typed aggregate field renders as
-//      `<fieldset><legend>…</legend><.inputs_for :let={<f>_form}
-//         field={@form[:<f>]}> … sub-inputs … </.inputs_for></fieldset>`
-//      where each VO field becomes a nested `<.input>` whose
-//      field-binding is the local `<f>_form[:<sub>]` (no `@` prefix
-//      because the let-bound var is a local, not an assign).
-//   2. VO sub-fields dispatch through the same renderer recursively
-//      — primitives become typed inputs, enums become selects.
-//   3. Optional VO fields unwrap before the VO lookup.
-//   4. Operation-modal forms (renderModal path) honour VO nesting
-//      too (the same renderFieldInputForField is the dispatch core).
-//   5. Anti-regression — non-VO field types stay on their previous
-//      dispatch shape.
+// String-tier claims, by category:
+//   - ABSENCE: no `<.inputs_for` is emitted for a VO, on the create path, an
+//     optional VO, or an operation modal — a render-time raise no compile
+//     tier observes.
+//   - WIRING: the leaf `name` the submit is keyed by.  The runtime proof that
+//     the submitted map reaches the operation is the `setReserve` leg of
+//     `test/behavioral/heex-ui-auth.pw.ts`.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
@@ -71,26 +65,17 @@ function findNewProductHeex(files: Map<string, string>): string {
   );
 }
 
-describe("HEEx form — value-object field renders as <.inputs_for> nested form", () => {
-  it("emits a <fieldset><.inputs_for>…</.inputs_for></fieldset> wrapping VO sub-inputs", async () => {
+describe("HEEx form — value-object field renders as plain leaf inputs", () => {
+  it("emits one named leaf input per VO field and no <.inputs_for> (absence + wiring)", async () => {
     const files = await generateSystemFiles(phoenixSystem(`CreateForm { of: Product }`));
     const heex = findNewProductHeex(files);
-    // Fieldset wrapper with humanized legend.
     expect(heex).toMatch(/<fieldset><legend>Price<\/legend>/);
-    // inputs_for :let={…} bound to @form[:price].
-    expect(heex).toMatch(/<\.inputs_for :let=\{price_form\} field=\{@form\[:price\]\}>/);
-    // Sub-inputs reference the local `price_form` (no @ prefix).
-    expect(heex).toMatch(/<\.input field=\{price_form\[:amount\]\} type="number"/);
-    expect(heex).toMatch(/<\.input field=\{price_form\[:currency\]\} type="text"/);
-    // Closing tags.
-    expect(heex).toContain(`</.inputs_for></fieldset>`);
+    expect(heex).not.toContain("<.inputs_for");
+    expect(heex).toContain('<.input name={@form[:price].name <> "[amount]"}');
+    expect(heex).toContain('<.input name={@form[:price].name <> "[currency]"}');
   });
 
-  it("VO sub-fields dispatch recursively — enum inside VO renders as select", async () => {
-    // Use a separate fixture so Product.price points at the Price VO
-    // (with a currency: Currency enum field) rather than the default
-    // Money VO.  Recursing into the VO should hit the enum branch
-    // and emit a select-with-options.
+  it("an enum inside a VO renders as a select leaf (wiring)", async () => {
     const files = await generateSystemFiles(`
       system Demo {
         subdomain M {
@@ -121,12 +106,13 @@ describe("HEEx form — value-object field renders as <.inputs_for> nested form"
       }
     `);
     const heex = findNewProductHeex(files);
-    expect(heex).toMatch(
-      /<\.input field=\{price_form\[:currency\]\}[^>]*type="select"[^>]*options=\{\["USD", "EUR", "GBP"\]\}/,
-    );
+    const leaf = heex
+      .split("<.input ")
+      .find((tag) => tag.startsWith('name={@form[:price].name <> "[currency]"}'));
+    expect(leaf).toContain('type="select" label="Currency" options={["USD", "EUR", "GBP"]}');
   });
 
-  it("optional `Money?` field still routes to nested form", async () => {
+  it("an optional `Money?` field renders no <.inputs_for> either (absence)", async () => {
     const files = await generateSystemFiles(`
       system Demo {
         subdomain M {
@@ -153,7 +139,8 @@ describe("HEEx form — value-object field renders as <.inputs_for> nested form"
       }
     `);
     const heex = findNewProductHeex(files);
-    expect(heex).toMatch(/<\.inputs_for :let=\{price_form\}/);
+    expect(heex).not.toContain("<.inputs_for");
+    expect(heex).toContain('<.input name={@form[:price].name <> "[amount]"}');
   });
 
   it("non-VO fields stay on previous dispatch (anti-regression)", async () => {
@@ -165,12 +152,7 @@ describe("HEEx form — value-object field renders as <.inputs_for> nested form"
     expect(heex).toMatch(/<\.input field=\{@form\[:notes\]\} type="text"/);
   });
 
-  it("operation-modal form (renderModal path) honours VO nesting", async () => {
-    // The walker's renderModal builds its input list from operation
-    // params via the same renderFieldInputForField; ctx.valueObjectsByName
-    // threads through.  storefront-elixir's `topUp(amount: Money)`
-    // already exercises this path — the test here pins the shape
-    // explicitly against a minimal fixture.
+  it("an operation-modal VO param renders leaf inputs, no <.inputs_for> (absence + wiring)", async () => {
     const files = await generateSystemFiles(`
       system Demo {
         subdomain M {
@@ -194,20 +176,12 @@ describe("HEEx form — value-object field renders as <.inputs_for> nested form"
         }
       }
     `);
-    // Find the detail live module that hosts the top_up modal.
-    let foundNested = false;
-    for (const [path, content] of files) {
-      if (
-        path.endsWith(".ex") &&
-        content.includes("top_up_form") &&
-        content.includes("<.inputs_for :let={amount_form} field={@top_up_form[:amount]}>") &&
-        content.includes('<.input field={amount_form[:amount]} type="number"') &&
-        content.includes('<.input field={amount_form[:currency]} type="text"')
-      ) {
-        foundNested = true;
-        break;
-      }
-    }
-    expect(foundNested, "operation-modal Money param should render as nested form").toBe(true);
+    const detail = [...files].find(
+      ([path, content]) => path.endsWith(".ex") && content.includes("top_up_form"),
+    )?.[1];
+    expect(detail, "the detail LiveView hosts the topUp modal").toBeDefined();
+    expect(detail).not.toContain("<.inputs_for");
+    expect(detail).toContain('<.input name={@top_up_form[:amount].name <> "[amount]"}');
+    expect(detail).toContain('<.input name={@top_up_form[:amount].name <> "[currency]"}');
   });
 });
