@@ -84,7 +84,6 @@ const NO_READER_DEBT: Readonly<Record<string, string>> = {
   execTestsByCodeElement: "#4636",
   generic: "#4636",
   impliedBy: "#4636",
-  keyPrefix: "#4636",
   loadPlan: "#4636",
   needs: "#4636",
   overlap: "#4636",
@@ -97,7 +96,6 @@ const NO_READER_DEBT: Readonly<Record<string, string>> = {
   sessions: "#4636",
   sourceAlias: "#4636",
   testCaseId: "#4636",
-  ttl: "#4636",
   urlStyle: "#4636",
   verifiesTestCase: "#4636",
 };

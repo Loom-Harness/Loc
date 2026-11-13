@@ -179,6 +179,9 @@ export function renderHttpIndex(
      *  caller's credential, so the request's credential is captured right
      *  after the auth middleware.  Absent → byte-identical output. */
     forwardCallerCredential?: boolean;
+    /** The deployable caches by-id reads (`cache/by-id-cache.ts`): imported
+     *  here, before any repository is written through, so every write evicts. */
+    byIdCache?: boolean;
   },
 ): string {
   const authRequired = !!options?.authRequired;
@@ -549,6 +552,9 @@ export function renderHttpIndex(
       `  events: ${TT.DomainEventDispatcher} = ${defaultEventsExpr},`,
       "): OpenAPIHono {",
       authVerifyAssert,
+      ...(options?.byIdCache
+        ? [`  ${ref(tsNamed("~/cache/by-id-cache", "installByIdCacheEviction"))}();`]
+        : []),
       "  const app = new OpenAPIHono();",
       "  // Per-request correlation id + structured request_start /",
       "  // request_end JSON log lines.  Mounted FIRST so every",

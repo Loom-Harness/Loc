@@ -8,6 +8,7 @@ import salesSystemSource from "./sales-system.ddd?raw";
 import crossDeployableSystemSource from "./cross-deployable-system.ddd?raw";
 import sharedStorageSystemSource from "./shared-storage-system.ddd?raw";
 import brokerChannelsSystemSource from "./broker-channels-system.ddd?raw";
+import cacheSystemSource from "./cache-system.ddd?raw";
 import resourceFakesSystemSource from "./resource-fakes-system.ddd?raw";
 import oidcAuthSystemSource from "./oidc-auth-system.ddd?raw";
 import bankingSystemSource from "./banking-system.ddd?raw";
@@ -296,6 +297,13 @@ export const examples: LoomExample[] = [
     source: brokerChannelsSystemSource,
     blurb:
       "Two Node backends on one channel of each broker kind, emulated in the browser: redis broadcast, a rabbitmq work queue with a dead-letter queue, a kafka log a returning consumer replays.",
+  },
+  {
+    id: "cache-system",
+    label: "Cache (Hono backend + redis read cache)",
+    source: cacheSystemSource,
+    blurb:
+      "A `kind: cache` resource on redis in front of single-row reads, emulated in the browser: the second read of a product is a hit, a write evicts it.",
   },
   {
     id: "cross-deployable-system",

@@ -32,7 +32,8 @@ function storageServiceHost(storageName: string): string {
 
 /** The connection URL a storage-backed resource dials inside the dev compose
  *  network, for the storage types whose sidecar compose emits with a fixed
- *  address (`smtp` → Mailpit, `rabbitmq` → the queue broker).  Compose
+ *  address (`smtp` → Mailpit, `rabbitmq` → the queue broker, `redis` → the
+ *  valkey a cache resource reads through).  Compose
  *  injects it as `<RESOURCE>_URL` and every backend's client bakes the same
  *  string as its fallback, so the two cannot disagree.  `undefined` for a
  *  type with no such sidecar (cloud SaaS mailers, s3's per-store endpoint). */
@@ -40,5 +41,6 @@ export function resourceSidecarUrl(storageType: string, storageName: string): st
   const host = storageServiceHost(storageName);
   if (storageType === "smtp") return `smtp://${host}:1025`;
   if (storageType === "rabbitmq") return `amqp://guest:guest@${host}:5672`;
+  if (storageType === "redis") return `redis://${host}:6379`;
   return undefined;
 }
