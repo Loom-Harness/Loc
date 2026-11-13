@@ -50,7 +50,6 @@ system Kernel {
         shipment: Shipment id
         route: Outer
         on(e: Rerouted) {
-          shipment := e.shipment
           route := e.route
         }
       }

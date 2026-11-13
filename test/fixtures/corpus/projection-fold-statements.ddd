@@ -68,7 +68,6 @@ system FoldStatementsSys {
         charged: money
         tags: string[]
         on(e: AccountOpened) {
-          accountRef := e.accountRef
           status := Opened
           at := e.at
           entries += e.amount

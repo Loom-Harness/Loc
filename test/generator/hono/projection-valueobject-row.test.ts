@@ -52,7 +52,7 @@ system V {
         st: Stamp
         seen: Stamp?
         au: Audit
-        on(e: OrderPlaced) { orderRef := e.orderRef  st := e.st  seen := e.st  au := e.au }
+        on(e: OrderPlaced) { st := e.st  seen := e.st  au := e.au }
       }
     }
   }
@@ -150,7 +150,7 @@ system N {
       projection Plain keyed by orderRef {
         orderRef: Order id
         at: datetime
-        on(e: OrderPlaced) { orderRef := e.orderRef  at := e.at }
+        on(e: OrderPlaced) { at := e.at }
       }
     }
   }

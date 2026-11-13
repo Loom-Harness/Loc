@@ -20,6 +20,7 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { nearestName } from "../../../util/edit-distance.js";
+import { assignsFoldKey } from "../../plan/index.js";
 import type {
   BoundedContextIR,
   ExprIR,
@@ -744,6 +745,26 @@ function validateHandlers(
                   correlationField: proj.correlationField,
                   param: h.param,
                 }),
+          source: `${ctx.name}/${proj.name}`,
+          origin: proj.origin,
+        });
+      }
+    }
+
+    // The key is immutable: the row is addressed by it, so a fold that assigns
+    // it would move the row (or, under `by <expr>`, write a key the routing
+    // never reads).  The allocation stamps the key from the routing value.
+    for (const stmt of h.statements) {
+      if (assignsFoldKey(proj, stmt)) {
+        diags.push({
+          severity: "error",
+          code: "loom.projection-key-assign",
+          message: diagMessage("loom.projection-key-assign", {
+            name: proj.name,
+            param: h.param,
+            event: h.event,
+            key: proj.correlationField,
+          }),
           source: `${ctx.name}/${proj.name}`,
           origin: proj.origin,
         });

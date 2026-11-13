@@ -979,7 +979,7 @@ channel Lifecycle { carries: OrderConfirmed  delivery: broadcast  retention: eph
 projection OrderBoard keyed by orderRef {
   orderRef: Order id
   confirmedAt: datetime
-  on(e: OrderConfirmed) { orderRef := e.orderRef  confirmedAt := e.at }
+  on(e: OrderConfirmed) { confirmedAt := e.at }
 }
 ```
 

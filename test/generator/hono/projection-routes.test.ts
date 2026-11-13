@@ -22,7 +22,7 @@ const SRC = `
       order: Order id
       customer: Customer id
       status: OrderStatus
-      on(e: OrderPlaced)  { order := e.order  customer := e.customer  status := Placed }
+      on(e: OrderPlaced)  { customer := e.customer  status := Placed }
       on(e: OrderShipped) { status := Shipped }
     }
   }

@@ -448,7 +448,7 @@ aggregate Acct with tenantOwned, crudish {
 projection Totals keyed by acct {
   acct: Acct id
   paid: int
-  on(e: Paid) { acct := e.acct  paid := e.amount }
+  on(e: Paid) { paid := e.amount }
 }
 ```
 

@@ -26,7 +26,7 @@ system S {
     projection OrderTotals keyed by orderId {
       orderId: Order id
       total: int
-      on(e: OrderPlaced) by e.order { orderId := e.order  total := e.total }
+      on(e: OrderPlaced) by e.order { total := e.total }
     }
     projection LiveTotals {
       orderId: Order id

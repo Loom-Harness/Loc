@@ -24,11 +24,11 @@ import {
   wireStatus,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
+import { type FoldStep, foldSteps } from "../../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
   ProjectionIR,
   ProjectionOnIR,
-  StmtIR,
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
@@ -364,48 +364,30 @@ function emitFoldHandler(
     `  const __key = ${keyExpr};`,
     `  const state = (await load${T}(db, __key${cols ? ", __tenant" : ""})) ?? ${allocate};`,
   ];
-  for (const stmt of h.statements) out.push(renderFoldStatement(stmt, p, h, ctxDecls));
+  for (const step of foldSteps(p, h)) out.push(renderFoldStep(step, ctxDecls));
   out.push(`  await save${T}(db, state);`);
   out.push(`}`);
   return out;
 }
 
-/** Render ONE fold-body statement against the `state` row.
- *
- *  This loop used to be `if (stmt.kind === "assign")` with no else, so every
- *  other statement kind a fold body can carry vanished from the emitted
- *  handler — a `let` binding disappeared while its USES survived (TS2304 on
- *  the reference), and `+=` / `-=` / a resource call were dropped outright
- *  with no diagnostic and no compile error, so the column was simply never
- *  written.  The set is now exhaustive over `StmtIR`: the four kinds a pure
- *  fold can express are rendered, and everything else is an internal
- *  invariant violation because `checkProjections`
- *  (`src/ir/validate/checks/projection-checks.ts`) rejects it as impure.
- *  Mirrors the elixir applier's `renderFoldStatement`
- *  (`generator/elixir/vanilla/fold-stmt-emit.ts:54`), including the loud
- *  `default:` — a dropped statement is worse than a crash, because it ships. */
-function renderFoldStatement(
-  stmt: StmtIR,
-  p: ProjectionIR,
-  h: ProjectionOnIR,
+/** One fold step (`foldSteps`) as TypeScript against the loaded row `state`. */
+function renderFoldStep(
+  step: FoldStep,
   /** The hosting context — needed only to resolve a value-object field's leaf
    *  columns (`vo-flatten.ts`); absent leaves every field on its single prop. */
   voFields?: EnrichedBoundedContextIR,
 ): string {
   const ctx = { thisName: "state" } as const;
-  switch (stmt.kind) {
-    case "assign": {
-      const field = lastSegment(stmt.target);
-      const rendered = renderTsExpr(stmt.value, ctx);
+  switch (step.kind) {
+    case "set": {
+      const field = step.field;
+      const rendered = renderTsExpr(step.value, ctx);
       // A VALUE-OBJECT field is not one column — the row holds one prop per leaf
-      // (`st_atTime` / `st_who`, see `vo-flatten.ts`).  `state.st = e.st` named a
-      // prop the row type does not have (TS2339, a generated project that does
-      // not compile), so the write fans out over the leaves the same derivation
-      // the read route nests back.  The domain value is bound once: a fold is
-      // pure, but re-rendering it per leaf would still duplicate the work and
-      // read badly at three leaves.
-      if (voFields && stmt.targetType && isFlattenedValueObject(stmt.targetType, voFields)) {
-        const leaves = voLeaves(field, stmt.targetType, voFields);
+      // (`st_atTime` / `st_who`, see `vo-flatten.ts`), so the write fans out over
+      // the leaves the same derivation the read route nests back.  The domain
+      // value is bound once rather than re-rendered per leaf.
+      if (voFields && step.type && isFlattenedValueObject(step.type, voFields)) {
+        const leaves = voLeaves(field, step.type, voFields);
         const tmp = `__${field}`;
         return [
           `  const ${tmp} = ${rendered};`,
@@ -418,61 +400,27 @@ function renderFoldStatement(
             const stored = toColumn(l.type, read);
             // The null guard is only needed when the column conversion would run
             // on an absent value — `toColumn`'s money arm is `(v).toString()`,
-            // which throws.  A leaf stored as-is needs no guard, and emitting
-            // `x == null ? null : x` would be dead weight in the generated file.
+            // which throws.  A leaf stored as-is needs no guard.
             const value =
               l.nullable && stored !== read ? `${read} == null ? null : ${stored}` : stored;
             return `  state.${l.prop} = ${value};`;
           }),
         ].join("\n");
       }
-      return `  state.${field} = ${toColumn(stmt.targetType, rendered)};`;
+      return `  state.${field} = ${toColumn(step.type, rendered)};`;
     }
     case "let":
       // `let`-names may collide with a JS reserved word; escape consistently
       // with the matching `refKind: "let"` use sites in `renderRef`.
-      return `  const ${escapeTsIdent(stmt.name)} = ${renderTsExpr(stmt.expr, ctx)};`;
-    case "add": {
-      // `xs += v` appends to the folded collection; a scalar `n += v`
-      // (`collection: false`) is arithmetic on the folded column.  Every
-      // non-key read-model column is NULLABLE (the allocate seeds the key
-      // only), so both forms coalesce the current value first — otherwise the
-      // first event for a key reads `null` and the fold produces `null` /
-      // `NaN` instead of the first increment.
-      const field = lastSegment(stmt.target);
-      const value = renderTsExpr(stmt.value, ctx);
-      return stmt.collection
-        ? `  state.${field} = [...(state.${field} ?? []), ${toColumn(stmt.elementType, value)}];`
-        : `  state.${field} = ${accumulate(stmt.elementType, field, "+", value)};`;
-    }
-    case "remove": {
-      // `xs -= v` drops the matching element; scalar `n -= v` subtracts.
-      const field = lastSegment(stmt.target);
-      const value = renderTsExpr(stmt.value, ctx);
-      return stmt.collection
-        ? `  state.${field} = (state.${field} ?? []).filter((__e) => __e !== ${toColumn(stmt.elementType, value)});`
-        : `  state.${field} = ${accumulate(stmt.elementType, field, "-", value)};`;
-    }
-    // The impure remainder — refused, and enumerated rather than swept into a
-    // bare `default` so a NEW `StmtIR` kind is a compile error here (the
-    // `never` below) and gets classified deliberately.  This mirrors the
-    // elixir twin, `generator/elixir/dispatch-emit.ts#renderStmt`.
-    case "expression":
-    case "return":
-    case "precondition":
-    case "requires":
-    case "emit":
-    case "call":
-    case "variant-match":
-    case "if":
-      throw new Error(
-        `hono projection fold: unsupported fold statement '${stmt.kind}' in ` +
-          `projection '${p.name}' on(${h.param}: ${h.event}) — a fold applies pure ` +
-          `assignments / collection mutations / let bindings only; ` +
-          `'loom.projection-fold-impure' should have rejected this.`,
-      );
+      return `  const ${escapeTsIdent(step.name)} = ${renderTsExpr(step.expr, ctx)};`;
+    case "accumulate":
+      return `  state.${step.field} = ${accumulate(step.type, step.field, step.op, renderTsExpr(step.value, ctx))};`;
+    case "append":
+      return `  state.${step.field} = [...(state.${step.field} ?? []), ${toColumn(step.elementType, renderTsExpr(step.value, ctx))}];`;
+    case "remove-all":
+      return `  state.${step.field} = (state.${step.field} ?? []).filter((__e) => __e !== ${toColumn(step.elementType, renderTsExpr(step.value, ctx))});`;
     default: {
-      const _exhaustive: never = stmt;
+      const _exhaustive: never = step;
       return _exhaustive;
     }
   }
@@ -519,7 +467,7 @@ function unwrapOptional(t: TypeIR | undefined): TypeIR | undefined {
 }
 
 /** The written column of a fold assignment target (`this`-rooted path). */
-function lastSegment(target: { segments: string[] }): string {
+function _lastSegment(target: { segments: string[] }): string {
   return target.segments[target.segments.length - 1] ?? "";
 }
 

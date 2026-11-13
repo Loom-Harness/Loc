@@ -67,7 +67,6 @@ function sys(body: string, stateField = "total: int", resources = ""): string {
         order: Order id
         ${stateField}
         on(e: OrderPlaced) {
-          order := e.order
           ${body}
         }
       }

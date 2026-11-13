@@ -64,7 +64,7 @@ system S {
         orderRef: Order id
         units: int
         at: datetime
-        on(e: OrderPlaced) { orderRef := e.orderRef  units := e.units  at := e.at }
+        on(e: OrderPlaced) { units := e.units  at := e.at }
       }
 
       projection OrderTotals {

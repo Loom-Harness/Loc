@@ -43,7 +43,7 @@ system M {
         orderRef: Order id
         status: BoardStatus
         at: datetime
-        on(e: OrderPlaced)  { orderRef := e.orderRef  status := Placed  at := e.at }
+        on(e: OrderPlaced)  { status := Placed  at := e.at }
         on(e: OrderShipped) { status := Shipped  at := e.at }
       }
     }

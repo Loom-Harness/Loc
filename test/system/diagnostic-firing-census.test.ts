@@ -1019,6 +1019,19 @@ system OptRefColl {
     }
   } }
 }`,
+  // A fold assigning its own key: the row is created with the routing key.
+  "loom.projection-key-assign": `
+system KeyAssign {
+  subdomain S { context C {
+    aggregate Order with crudish { code: string }
+    event OrderPlaced { order: Order id }
+    projection Board keyed by order {
+      order: Order id
+      placed: bool
+      on(e: OrderPlaced) { order := e.order  placed := true }
+    }
+  } }
+}`,
   // A query-time projection selecting a \`datetime - datetime\` span: a
   // \`duration\` has no column and no wire form, and node / .NET crashed on it.
   "loom.projection-select-duration": `
@@ -4507,7 +4520,7 @@ system S {
     projection Totals keyed by acct {
       acct: Acct id
       paid: int
-      on(e: Paid) { acct := e.acct  paid := e.amount }
+      on(e: Paid) { paid := e.amount }
     }
   } }
   api Api from D
@@ -4534,7 +4547,7 @@ system S {
     projection Totals keyed by acct {
       acct: Acct id
       paid: int
-      on(e: Paid) { acct := e.acct  paid := e.amount }
+      on(e: Paid) { paid := e.amount }
     }
     projection Big {
       n: int
