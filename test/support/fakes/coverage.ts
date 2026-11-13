@@ -103,7 +103,7 @@ export const COVERAGE: readonly CoverageRow[] = [
     kind: "channel",
     fake: "real-sidecar",
     module: "broker-sidecar.mjs",
-    pending: pending("#5613"),
+    witness: { fixture: "channels-broker-redis", effects: "broker" },
   },
   {
     sourceType: "rabbitmq",
