@@ -5,7 +5,7 @@ import {
   wireStatus,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
-import { hasDurableEvents } from "../../../ir/plan/index.js";
+import { hasDurableEvents, routedPolymorphicRead } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR } from "../../../ir/types/loom-ir.js";
 import { isMaterializedProjection, isQueryTimeProjection } from "../../../ir/types/loom-ir.js";
 import {
@@ -36,11 +36,7 @@ import {
 import { ref } from "../../_imports/symbol.js";
 import { tsImportSlot, tsNamed } from "../../_imports/ts.js";
 import { renderHonoBaseLogCall, renderHonoLogCall } from "../../_obs/render-hono.js";
-import {
-  baseRoutesImports,
-  baseRoutesMount,
-  routesPolymorphicRead,
-} from "../base-reader-builder.js";
+import { baseRoutesImports, baseRoutesMount } from "../base-reader-builder.js";
 import { T, TT } from "../ts-symbols.js";
 import { tsNotFoundThrow, tsSentence } from "../wire-policy-ts.js";
 // The per-aggregate routes file is built procedurally in
@@ -209,7 +205,7 @@ export function renderHttpIndex(
   // Polymorphic base reads (aggregate-inheritance.md) — the paged
   // `GET /api/<bases>` of each abstract base whose read is routed, on either
   // persistence adapter.
-  const routedBases = ctx.aggregates.filter((a) => a.isAbstract && routesPolymorphicRead(a, ctx));
+  const routedBases = ctx.aggregates.filter((a) => a.isAbstract && !!routedPolymorphicRead(a, ctx));
   const baseImports = routedBases.flatMap(baseRoutesImports);
   const baseRoutes = routedBases.map(baseRoutesMount);
   const aggregateRoutes = aggregates.map((a) => {

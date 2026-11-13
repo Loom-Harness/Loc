@@ -51,22 +51,6 @@ function variantsOf(read: PolymorphicRead, ctx: EnrichedBoundedContextIR): Varia
   });
 }
 
-/** True when the read is served over HTTP: every concrete's own `all` read is
- *  ungated (no `requires`, so no `denyByDefault` gate either) and no concrete
- *  masks a field — otherwise the base route would bypass that gate or mask. */
-export function routesPolymorphicRead(
-  read: PolymorphicRead,
-  ctx: EnrichedBoundedContextIR,
-): boolean {
-  return read.variants.every((v) => {
-    const concrete = ctx.aggregates.find((a) => a.name === v.aggregate);
-    const all = ctx.repositories
-      .find((r) => r.aggregateName === v.aggregate)
-      ?.finds.find((f) => f.name === "all");
-    return !!concrete && !!all && !all.requires && !carriesFieldMask(concrete);
-  });
-}
-
 /** The read-only `I<Base>Repository` interface (Domain layer). */
 export function renderBaseReaderInterface(
   base: EnrichedAggregateIR,

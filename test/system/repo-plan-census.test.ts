@@ -19,6 +19,10 @@ import { expectReach } from "../_helpers/census-reach.js";
 //   first-match  a read of a find's `.takeFirst` flag — the per-adapter
 //               decision whether a single-row read is ordered.
 //               → use `singleReadOrder`.
+//   routed-read  an `.every(…)` callback that compares a name with `"all"`
+//               and reads `.requires` — the hand-rolled "is every concrete's
+//               list read open, so the base read may be routed" test.
+//               → use `routedPolymorphicRead`.
 //
 // SCOPE.  `src/generator/`, `src/platform/`, `src/system/`, `src/ir/validate/`.
 // The plan itself (`src/ir/plan/`) is the one place allowed to spell them.
@@ -55,10 +59,40 @@ function scanSource(file: string, text: string): Violation[] {
     if (ts.isPropertyAccessExpression(n) && n.name.text === "takeFirst") {
       out.push({ rule: "first-match", where: at(n), text: n.getText(sf) });
     }
+    if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      n.expression.name.text === "every" &&
+      n.arguments.some((a) => isOpenListTest(a))
+    ) {
+      out.push({ rule: "routed-read", where: at(n), text: n.expression.getText(sf) });
+    }
     ts.forEachChild(n, visit);
   };
   visit(sf);
   return out;
+}
+
+/** True when `fn` is a callback that compares something with `"all"` and
+ *  reads a `.requires` — the open-list-read test behind a routed base read. */
+function isOpenListTest(fn: ts.Node): boolean {
+  if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) return false;
+  let comparesAll = false;
+  let readsRequires = false;
+  const walk = (n: ts.Node): void => {
+    if (
+      ts.isBinaryExpression(n) &&
+      (n.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+        n.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken) &&
+      [n.left, n.right].some((e) => ts.isStringLiteral(e) && e.text === "all")
+    ) {
+      comparesAll = true;
+    }
+    if (ts.isPropertyAccessExpression(n) && n.name.text === "requires") readsRequires = true;
+    ts.forEachChild(n, walk);
+  };
+  walk(fn);
+  return comparesAll && readsRequires;
 }
 
 function scan(file: string): Violation[] {
@@ -79,6 +113,22 @@ describe("repo-plan census: repository read facts are not recomputed outside src
       "const order = f.takeFirst ? 'order by id' : '';",
     );
     expect(hits.map((h) => h.rule)).toEqual(["first-match"]);
+  });
+
+  it("the detector fires on a hand-spelled routed-read test", () => {
+    const hits = scanSource(
+      path.join(repoRoot, "src/generator/x.ts"),
+      `read.variants.every((v) => {
+        const all = repo.finds.find((f) => f.name === "all");
+        return !!all && !all.requires;
+      });`,
+    );
+    expect(hits.map((h) => h.rule)).toEqual(["routed-read"]);
+  });
+
+  it("no backend re-decides whether a polymorphic base read is routed (use routedPolymorphicRead)", () => {
+    const hits = violations.filter((v) => v.rule === "routed-read");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 
   it("no backend decides on its own whether a single-row read is ordered (use singleReadOrder)", () => {

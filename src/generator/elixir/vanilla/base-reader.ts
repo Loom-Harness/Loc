@@ -51,26 +51,6 @@ export function hasPolymorphicConcretes(base: AggregateIR, ctx: BoundedContextIR
   return concretesOf(base, ctx).length > 0;
 }
 
-/** True when `base`'s polymorphic read is routed (`GET /<bases>`, and on TPH
- *  `GET /<bases>/{id}`).
- *
- *  The route answers every subtype's rows, so it exists only where every
- *  subtype's own list read is open to the same caller: a concrete whose `all`
- *  carries a `requires` gate (author-written, or the `denyByDefault`
- *  synthesised one) or whose wire masks a field would have that gate or mask
- *  bypassed by the base route. */
-export function routesPolymorphicRead(base: AggregateIR, ctx: BoundedContextIR): boolean {
-  const read = polymorphicReadFor(base, ctx.aggregates);
-  if (!read) return false;
-  return read.variants.every((v) => {
-    const concrete = ctx.aggregates.find((a) => a.name === v.aggregate);
-    const all = (ctx.repositories ?? [])
-      .find((r) => r.aggregateName === v.aggregate)
-      ?.finds?.find((f) => f.name === "all");
-    return !!concrete && !!all && !all.requires && !carriesFieldMask(concrete);
-  });
-}
-
 /** The polymorphic reader module, `<Base>Repository`: `list/3` (paged, global
  *  `id` order) and `find_by_id/2`, each returning concrete structs. */
 export function renderPolymorphicReader(
