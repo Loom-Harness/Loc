@@ -32,6 +32,7 @@ import type {
 import { outboundReferenceFields } from "../../../ir/util/aggregate-flags.js";
 import { baseOf, ownFieldsOf, uniqueKeyIndex } from "../../../ir/util/inheritance.js";
 import { aggregateHasMergePatchUpdate } from "../../../ir/util/merge-patch.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
@@ -70,7 +71,7 @@ import { isEventSourced } from "./eventsourced-emit.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import { isVoValuedType, NORMALIZE_KEYS_DEFP, NORMALIZE_VO_KEYS_DEFP } from "./key-normalize.js";
 import { managedTimestampNames } from "./managed-timestamps.js";
-import { isRefCollField, refCollFieldNames } from "./ref-collection-emit.js";
+import { refCollFieldNames } from "./ref-collection-emit.js";
 import { usesRelationalContainments } from "./schema-emit.js";
 import { stampedFieldNames } from "./stamp-emit.js";
 import { valueCollectionsWithVo } from "./value-collection-schema-emit.js";
@@ -115,7 +116,7 @@ function filterCastableFields(
       !managedTs.has(f.name) &&
       !stampedFields.has(snake(f.name)) &&
       !vcFieldNames.has(f.name) &&
-      !isRefCollField(f),
+      !isRefCollectionType(f.type),
   );
 }
 

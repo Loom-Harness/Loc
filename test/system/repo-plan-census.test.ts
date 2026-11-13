@@ -27,6 +27,11 @@ import { expectReach } from "../_helpers/census-reach.js";
 //               `returnType: { kind: "optional", … }` — the hand-rolled
 //               union-find → optional-twin rewrite.
 //               → use `domainFindShape`.
+//   ref-coll     a `&&` / `||` testing a type's `.kind` against `"array"` and
+//               its `.element.kind` against `"id"` — the hand-spelled
+//               "is this an `X id[]` reference collection" test.  Scanned
+//               under `src/generator/` and `src/platform/` only.
+//               → use `isRefCollectionType` (`src/ir/util/ref-collection.ts`).
 //
 // SCOPE.  `src/generator/`, `src/platform/`, `src/system/`, `src/ir/validate/`.
 // The plan itself (`src/ir/plan/`) is the one place allowed to spell them.
@@ -71,6 +76,16 @@ function scanSource(file: string, text: string): Violation[] {
     ) {
       out.push({ rule: "routed-read", where: at(n), text: n.expression.getText(sf) });
     }
+    if (
+      ts.isBinaryExpression(n) &&
+      (n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+        n.operatorToken.kind === ts.SyntaxKind.BarBarToken) &&
+      comparesKind(n.left, "array", false) &&
+      comparesKind(n.right, "id", true) &&
+      /^src\/(generator|platform)\//.test(rel)
+    ) {
+      out.push({ rule: "ref-coll", where: at(n), text: n.getText(sf) });
+    }
     if (ts.isObjectLiteralExpression(n) && isOptionalTwinLiteral(n)) {
       out.push({ rule: "find-shape", where: at(n), text: n.getText(sf).slice(0, 80) });
     }
@@ -78,6 +93,23 @@ function scanSource(file: string, text: string): Violation[] {
   };
   visit(sf);
   return out;
+}
+
+/** True when `e` compares `<x>.kind` (or `<x>.element.kind` when `onElement`)
+ *  with the string `lit`, by `===` or `!==`. */
+function comparesKind(e: ts.Expression, lit: string, onElement: boolean): boolean {
+  if (!ts.isBinaryExpression(e)) return false;
+  const op = e.operatorToken.kind;
+  if (
+    op !== ts.SyntaxKind.EqualsEqualsEqualsToken &&
+    op !== ts.SyntaxKind.ExclamationEqualsEqualsToken
+  )
+    return false;
+  if (!ts.isStringLiteral(e.right) || e.right.text !== lit) return false;
+  const l = e.left;
+  if (!ts.isPropertyAccessExpression(l) || l.name.text !== "kind") return false;
+  if (!onElement) return true;
+  return ts.isPropertyAccessExpression(l.expression) && l.expression.name.text === "element";
 }
 
 /** `{ ...x, returnType: { kind: "optional", … } }` — a copy of a find with its
@@ -150,6 +182,19 @@ describe("repo-plan census: repository read facts are not recomputed outside src
       });`,
     );
     expect(hits.map((h) => h.rule)).toEqual(["routed-read"]);
+  });
+
+  it("the detector fires on a hand-spelled reference-collection test", () => {
+    const hits = scanSource(
+      path.join(repoRoot, "src/generator/x.ts"),
+      `if (f.type.kind !== "array" || f.type.element.kind !== "id") continue;`,
+    );
+    expect(hits.map((h) => h.rule)).toEqual(["ref-coll"]);
+  });
+
+  it("no backend re-spells the X id[] reference-collection test (use isRefCollectionType)", () => {
+    const hits = violations.filter((v) => v.rule === "ref-coll");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 
   it("the detector fires on a hand-spelled optional-twin rewrite", () => {

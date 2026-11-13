@@ -64,7 +64,7 @@ import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { idColumnVsOperatingOrg, orgAncestorsMembershipArg } from "../../../ir/util/org-context.js";
 import { type PrincipalTerm, principalTerm } from "../../../ir/util/principal-term.js";
-import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
+import { isRefCollectionType, refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { eventsCarryRowTenant, guidFromStringSelfScope } from "../../../ir/util/tenant-stance.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
@@ -1150,7 +1150,7 @@ export function collectFilterPrincipalRefs(
     const claimProp = upperFirst(member);
     // A principal list of typed ids (the operating org's lineage) binds as the
     // raw uuid array `= ANY(@…)` reads.
-    if (type?.kind === "array" && type.element.kind === "id") {
+    if (type && isRefCollectionType(type)) {
       add({
         param: currentUserParam(member),
         claimProp,

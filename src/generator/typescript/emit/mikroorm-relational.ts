@@ -23,6 +23,7 @@ import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { discriminatorValue, tableOwnerName } from "../../../ir/util/inheritance.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
@@ -33,7 +34,6 @@ import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
 import { joinColumnName } from "../emit.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
-import { isRefCollection } from "../repository-associations-builder.js";
 import { deserializeField, serializeField } from "../repository-document-builder.js";
 import { hydrateRootExpr } from "../repository-find-builder.js";
 import { hydrateEntityExpr } from "../repository-find-hydrate.js";
@@ -621,7 +621,7 @@ export function renderMikroRepository(
   // serialised through the shared `serializeField` (VO elements → plain objects,
   // money/id → strings) — the root analogue of the part-collection jsonb column.
   const scalarFields = agg.fields.filter(
-    (f) => !isRefCollection(f.type) && !isValueCollectionType(f.type),
+    (f) => !isRefCollectionType(f.type) && !isValueCollectionType(f.type),
   );
   const valueCollFields = valueCollFieldsOf(agg);
   const valueCollEntries = valueCollFields.map((f) => ({

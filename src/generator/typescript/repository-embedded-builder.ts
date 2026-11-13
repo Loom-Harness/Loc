@@ -10,6 +10,7 @@ import type {
 import { aggregateUsesMoneyDeep, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
@@ -72,10 +73,6 @@ import { tsNotFoundThrow } from "./wire-policy-ts.js";
 // `toWire` is reused unchanged.
 // ---------------------------------------------------------------------------
 
-function isRefCollection(t: TypeIR): boolean {
-  return t.kind === "array" && t.element.kind === "id";
-}
-
 /** Per-containment local-const declarations that materialise the jsonb
  *  columns into part instances, named `<c.name>` so `hydrateRootExpr`'s
  *  bare-name containment refs resolve to them.  `rowVar` is the loaded
@@ -83,7 +80,7 @@ function isRefCollection(t: TypeIR): boolean {
 function hydrateLocals(agg: EnrichedAggregateIR, rowVar: string, indent: string): string[] {
   const out: string[] = [];
   for (const f of agg.fields) {
-    if (isRefCollection(f.type) && f.type.kind === "array" && f.type.element.kind === "id") {
+    if (isRefCollectionType(f.type)) {
       const target = f.type.element.targetName;
       out.push(
         `${indent}const ${f.name} = ((${rowVar}.${f.name} ?? []) as string[]).map((s) => ${T.Ids}.${target}Id(s));`,
@@ -142,7 +139,7 @@ export function buildEmbeddedRepositoryFile(
   // + ref-collection jsonb arrays + one jsonb entry per containment.
   const rootEntries: string[] = [`id: aggregate.id as string`];
   for (const f of agg.fields) {
-    if (isRefCollection(f.type)) {
+    if (isRefCollectionType(f.type)) {
       rootEntries.push(
         `${f.name}: aggregate.${escapeTargetFieldMember("ts", f.name)}.map((x) => x as string)`,
       );

@@ -30,6 +30,7 @@
 import type { PolymorphicRead } from "../../ir/enrich/read-scope.js";
 import { reasonPhrase, wireStatus } from "../../ir/enrich/wire-policy.js";
 import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
+import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import { isValueCollectionType } from "../../ir/util/value-collections.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
@@ -37,7 +38,6 @@ import { lowerFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { rowClassOf } from "./emit/mikroorm-entities.js";
-import { isRefCollection } from "./repository-associations-builder.js";
 import { hydrateRootExpr } from "./repository-find-hydrate.js";
 import {
   drizzleOrderBy,
@@ -78,7 +78,7 @@ export function buildBaseUnionFile(
 function hydratesFromRow(agg: EnrichedAggregateIR): boolean {
   return (
     agg.contains.length === 0 &&
-    !agg.fields.some((f) => isRefCollection(f.type) || isValueCollectionType(f.type))
+    !agg.fields.some((f) => isRefCollectionType(f.type) || isValueCollectionType(f.type))
   );
 }
 
