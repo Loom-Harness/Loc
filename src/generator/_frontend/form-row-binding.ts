@@ -24,7 +24,7 @@
 import type { FormFieldVM } from "./view-models.js";
 
 /** The path sentinel a row field renders under. */
-export const ROW_PATH = "__loomRow__";
+const ROW_PATH = "__loomRow__";
 /** The test-id sentinel a row field renders under. */
 const ROW_ID = "__loomRowId__";
 
