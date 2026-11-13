@@ -3,6 +3,7 @@
 // are built the way a path-style SDK client sends them.
 import { describe, expect, it } from "vitest";
 import { createS3 } from "../../src/emulation/aws.js";
+import { memoryBlobStore } from "../../src/emulation/blob-store.js";
 import type { HttpRequestData } from "../../src/emulation/http.js";
 
 const enc = new TextEncoder();
@@ -75,6 +76,46 @@ describe("S3 model", () => {
     const loc = s3.http(req("GET", "/fresh?location"));
     expect(loc.status).toBe(200);
     expect(dec.decode(loc.body)).toContain("<LocationConstraint");
+  });
+
+  it("list() is sorted by bucket then key, whatever the write order", () => {
+    const s3 = createS3();
+    for (const [b, k] of [
+      ["b", "z"],
+      ["a", "y"],
+      ["a", "x"],
+    ] as const)
+      s3.http(req("PUT", `/${b}/${k}`, "1"));
+    expect(s3.list().map((o) => `${o.bucket}/${o.key}`)).toEqual(["a/x", "a/y", "b/z"]);
+  });
+
+  it("pre-created buckets exist from the start and survive reset; others do not", () => {
+    const s3 = createS3({ buckets: ["app-files"] });
+    expect(s3.buckets()).toEqual(["app-files"]);
+    s3.http(req("PUT", "/extra/o", "1"));
+    s3.http(req("PUT", "/app-files/o", "1"));
+    expect(s3.buckets()).toEqual(["app-files", "extra"]);
+    s3.reset();
+    expect(s3.buckets()).toEqual(["app-files"]);
+    expect(s3.list()).toEqual([]);
+  });
+
+  it("the direct ops and the wire see one store", async () => {
+    const blobs = memoryBlobStore();
+    const s3 = createS3({ store: blobs });
+    s3.put("b", "k", enc.encode("direct"), "text/plain");
+    const got = s3.http(req("GET", "/b/k"));
+    expect(dec.decode(got.body)).toBe("direct");
+    expect(got.headers["content-type"]).toBe("text/plain");
+    s3.http(req("PUT", "/b/w", "wire", { "content-type": "application/json" }));
+    expect(s3.get("b", "w")).toEqual({ body: enc.encode("wire"), contentType: "application/json" });
+    expect(s3.get("b", "missing")).toBeNull();
+    s3.delete("b", "k");
+    expect(s3.http(req("GET", "/b/k")).status).toBe(404);
+    // A direct write is as durable as a wire write.
+    const again = createS3();
+    await again.persist(blobs);
+    expect(again.list().map((o) => o.key)).toEqual(["w"]);
   });
 
   it("refuses a bucket verb outside the subset as NotImplemented", () => {
