@@ -362,7 +362,7 @@ async function runCase(c) {
     const srcPath = join(workDir, "system.ddd");
     writeCaseSource(srcPath, c.source, c.locales);
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", srcPath, "-o", genDir], { stdio: "pipe" });
-    fakes = await startSidecars(srcPath, c.source, { genDir });
+    fakes = await startSidecars(srcPath, c.source, { genDir, caseName: c.name });
     const deplDir = findElixirDeployable(genDir);
     const e2eDir = join(genDir, "e2e");
     const e2eFile = existsSync(e2eDir) ? (walk(e2eDir, (p) => p.endsWith(".e2e.test.ts"))[0] ?? null) : null;
@@ -510,6 +510,8 @@ async function runCase(c) {
       // the wrong app against a freshly-dropped schema is exactly the 500 this
       // guards (see waitForPortFree).
       await waitForPortFree(PORT);
+      // A gated broker counts the backend's boot from here.
+      fakes.backendStarting();
       server = spawn("mix", ["phx.server"], {
         cwd: deplDir,
         stdio: "pipe",

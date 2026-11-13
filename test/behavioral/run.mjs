@@ -349,7 +349,7 @@ async function runCase(c) {
     const srcPath = join(workDir, "system.ddd");
     writeCaseSource(srcPath, c.source, c.locales);
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", srcPath, "-o", genDir], { stdio: "pipe" });
-    fakes = await startSidecars(srcPath, c.source, { genDir });
+    fakes = await startSidecars(srcPath, c.source, { genDir, caseName: c.name });
     const deplDir = findNodeDeployable(genDir);
     const e2eDir = join(genDir, "e2e");
     // Tiers are DERIVED from the emitted file map, not declared: a system that
@@ -414,6 +414,8 @@ async function runCase(c) {
       seedFile, mountsFiles, channelBoot, outboxDrain,
     }));
     await build({ entryPoints: [entry], outfile: bundle, bundle: true, platform: "node", format: "esm", target: "node20", packages: "external", logLevel: "warning" });
+    // A gated broker counts the backend's boot from here (the worker boots it).
+    fakes.backendStarting();
     const out = await runInWorker(bundle, fakes.env);
     return { ...out, effects: await fakes.effects() };
   } finally {
