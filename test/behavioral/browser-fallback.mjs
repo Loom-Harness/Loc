@@ -33,10 +33,16 @@ function newestInstalled(root, exists, readdir) {
   return found.find((f) => exists(f.path))?.path;
 }
 
+/** The one place the env knob is read: canonical name, then the deprecated alias. */
+export function chromiumOverride(env = process.env) {
+  return env.LOOM_CHROMIUM_PATH || env.LOOM_PW_CHROMIUM || undefined;
+}
+
 /**
  * The `executablePath` to launch instead of the pinned browser, or `undefined`
  * when the pinned one is installed (or nothing usable is).
- * Preference: `LOOM_CHROMIUM_PATH`, `<root>/chromium`, newest installed build.
+ * Preference: `LOOM_CHROMIUM_PATH` (deprecated alias `LOOM_PW_CHROMIUM`; the
+ * canonical name wins when both are set), `<root>/chromium`, newest installed build.
  */
 export function resolveChromiumFallback({
   pinned,
@@ -46,7 +52,8 @@ export function resolveChromiumFallback({
   readdir = readdirSync,
 }) {
   if (pinned && exists(pinned)) return undefined;
-  if (env.LOOM_CHROMIUM_PATH && exists(env.LOOM_CHROMIUM_PATH)) return env.LOOM_CHROMIUM_PATH;
+  const override = chromiumOverride(env);
+  if (override && exists(override)) return override;
   const stable = join(root, "chromium");
   if (exists(stable)) return stable;
   return newestInstalled(root, exists, readdir);
@@ -78,4 +85,14 @@ export default {
 `,
   );
   return ["--config", FALLBACK_CONFIG];
+}
+
+/**
+ * Launch options for an in-harness `chromium.launch(...)`: `{ executablePath }`
+ * when the pinned browser (`pinnedExecutablePath`, from the `chromium` import's
+ * own `executablePath()`) is not installed and a fallback is, else `{}`.
+ */
+export function chromiumLaunchOptions(pinnedExecutablePath, env = process.env, deps = {}) {
+  const executablePath = resolveChromiumFallback({ pinned: pinnedExecutablePath, env, ...deps });
+  return executablePath ? { executablePath } : {};
 }

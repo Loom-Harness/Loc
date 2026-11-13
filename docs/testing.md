@@ -125,7 +125,7 @@ reached an assertion proves nothing. A deliberate `test.skip`/`test.fixme` passe
 only when it is listed in an explicit `allowSkips` entry (`{ title, reason }`).
 Direct-probe cases that do not use Playwright keep their own counting.
 
-Those runners launch the Chromium their pinned `@playwright/test` expects. When that revision is not installed under `PLAYWRIGHT_BROWSERS_PATH` (default `/opt/pw-browsers` in the sandbox), `test/behavioral/browser-fallback.mjs` runs the suite through a generated wrapper config using `LOOM_CHROMIUM_PATH`, else `<store>/chromium`, else the newest installed `chromium-*` build; it is a no-op whenever the pinned revision is present.
+Those runners launch the Chromium their pinned `@playwright/test` expects. When that revision is not installed under `PLAYWRIGHT_BROWSERS_PATH` (default `/opt/pw-browsers` in the sandbox), `test/behavioral/browser-fallback.mjs` runs the suite through a generated wrapper config using `LOOM_CHROMIUM_PATH` (the one knob; `LOOM_PW_CHROMIUM` is a deprecated alias, read in the same place, and loses when both are set), else `<store>/chromium`, else the newest installed `chromium-*` build. The in-harness `chromium.launch()` callers (`run-ui*.mjs`, `i18n-ui.mjs`) spread `chromiumLaunchOptions(chromium.executablePath())` from the same module into their launch call. Both paths are a no-op whenever the pinned revision is present.
 
 ### Why so many gates
 

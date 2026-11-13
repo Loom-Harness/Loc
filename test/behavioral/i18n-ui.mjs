@@ -24,6 +24,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { chromiumLaunchOptions } from "./browser-fallback.mjs";
 import { copyLocales, localesBeside } from "./case-source.mjs";
 import {
   buildFrontend,
@@ -227,7 +228,7 @@ async function runFrontend(platform) {
       stdio: "pipe",
     });
     const { chromium } = await import("playwright");
-    browser = await chromium.launch();
+    browser = await chromium.launch({ ...chromiumLaunchOptions(chromium.executablePath()) });
     for (const p of probes(invoice.id)) {
       let v;
       try {
