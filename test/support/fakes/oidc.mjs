@@ -7,8 +7,9 @@
 // Kit contract: `start(opts)` → `{ env, observe(), reset(), stop() }`, plus the
 // issuer's own handles (`issuer`, `principals`, `mint`, `setAutoLogin`).
 // `env` names the variables the generated backends already read.  `observe()`
-// is the provider's grant log in issue order, `{ grant, principal, sub }` per
-// token the token endpoint handed out — no token, code or timestamp.
+// is the provider's issued-token log in issue order, `{ grant, principal, sub }`
+// per token set it handed out (`grant` is `mint` for a direct mint) — no token,
+// code or timestamp.
 
 import { createServer } from "node:http";
 import { createOidcProvider } from "../../../out/emulation/oidc.js";
@@ -104,8 +105,8 @@ export async function start(opts) {
     },
     observe() {
       return provider
-        .grants()
-        .map((g) => ({ grant: g.grant, principal: g.persona, sub: principals[g.persona]?.sub }));
+        .issued()
+        .map((t) => ({ grant: t.source, principal: t.persona, sub: principals[t.persona]?.sub }));
     },
     reset() {
       provider.reset();

@@ -114,6 +114,18 @@ export interface TokenSet {
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 const DEFAULT_LIFETIME_S = 3600;
+/** How many issued tokens `issued()` keeps (the oldest drop off). */
+const ISSUED_CAP = 100;
+
+/** Where this provider differs from a Keycloak realm — what a test or a
+ *  preview against it does not exercise. */
+export const OIDC_EMULATION_NOTES: readonly string[] = [
+  "The authorization endpoint signs a persona in directly (auto-login, login_hint) or shows one login page: a username/password form plus one button per persona. There is no consent screen, MFA or required action.",
+  "Passwords are checked only for a persona that declares one; any password signs in a persona without one.",
+  'One signing key per provider, never rotated; a forged token (signWith: "foreign") is signed with a second key the JWKS does not publish.',
+  "end_session redirects to post_logout_redirect_uri (or answers a signed-out page); there is no IdP session, so the next authorization asks again or signs the auto-login persona straight back in.",
+  "Refresh tokens rotate (each redeems once) and do not expire; access tokens are not revocable.",
+];
 
 const b64url = (bytes: Uint8Array): string => {
   let bin = "";
@@ -228,6 +240,20 @@ function subjectOf(jwt: string): string | null {
   }
 }
 
+/** One token set the provider issued: a `mint()` or a token-endpoint grant. */
+export interface IssuedToken {
+  /** 1, 2, … in issue order; keeps counting across the cap. */
+  seq: number;
+  /** Epoch milliseconds, from the provider's clock. */
+  at: number;
+  source: "mint" | "password" | "authorization_code" | "refresh_token";
+  persona: string;
+  access_token: string;
+  id_token: string;
+  /** Epoch seconds. */
+  expiresAt: number;
+}
+
 /** One grant the token endpoint served. */
 export interface OidcGrant {
   grant: string;
@@ -250,6 +276,9 @@ export interface OidcProvider {
   };
   /** The grants the token endpoint served, oldest first. */
   grants(): OidcGrant[];
+  /** Every token set issued — `mint()` and each token-endpoint grant — oldest
+   *  first, the newest 100 kept. */
+  issued(): IssuedToken[];
   jwks(): Promise<{ keys: JsonWebKey[] }>;
   /** Sign a payload with the realm key (or a key the JWKS does not publish). */
   signJwt(payload: Record<string, unknown>, which?: "realm" | "foreign"): Promise<string>;
@@ -308,6 +337,9 @@ export function createOidcProvider(options: OidcProviderOptions = {}): OidcProvi
   let autoLogin: string | null = null;
   /** The grants the token endpoint served, oldest first. */
   const grants: OidcGrant[] = [];
+  /** Every token set issued, oldest first (capped). */
+  const issuedLog: IssuedToken[] = [];
+  let issuedSeq = 0;
 
   /** Refresh tokens still redeemable → who they were issued to.  Single use:
    *  redeeming one replaces it (rotation). */
@@ -338,7 +370,23 @@ export function createOidcProvider(options: OidcProviderOptions = {}): OidcProvi
     return p;
   }
 
-  async function mint(params: MintParams): Promise<TokenSet> {
+  /** Mint a token set and record it as issued by `source`. */
+  async function issue(source: IssuedToken["source"], params: MintParams): Promise<TokenSet> {
+    const set = await mintTokens(params);
+    issuedLog.push({
+      seq: ++issuedSeq,
+      at: nowMs(),
+      source,
+      persona: params.persona,
+      access_token: set.access_token,
+      id_token: set.id_token,
+      expiresAt: Math.floor(nowMs() / 1000) + set.expires_in,
+    });
+    if (issuedLog.length > ISSUED_CAP) issuedLog.splice(0, issuedLog.length - ISSUED_CAP);
+    return set;
+  }
+
+  async function mintTokens(params: MintParams): Promise<TokenSet> {
     const realm = realmFor(params.issuer);
     const persona = personaFor(params.persona);
     const now = Math.floor(nowMs() / 1000);
@@ -476,7 +524,11 @@ export function createOidcProvider(options: OidcProviderOptions = {}): OidcProvi
       grants.push({ grant: "password", persona: username });
       return json(
         200,
-        await mint({ persona: username, issuer: realm.issuer, expiresIn: grantLifetime }),
+        await issue("password", {
+          persona: username,
+          issuer: realm.issuer,
+          expiresIn: grantLifetime,
+        }),
       );
     }
     if (grant === "authorization_code") {
@@ -498,7 +550,11 @@ export function createOidcProvider(options: OidcProviderOptions = {}): OidcProvi
       grants.push({ grant: "authorization_code", persona: held.persona });
       return json(
         200,
-        await mint({ persona: held.persona, issuer: realm.issuer, expiresIn: grantLifetime }),
+        await issue("authorization_code", {
+          persona: held.persona,
+          issuer: realm.issuer,
+          expiresIn: grantLifetime,
+        }),
       );
     }
     if (grant === "refresh_token") {
@@ -510,7 +566,7 @@ export function createOidcProvider(options: OidcProviderOptions = {}): OidcProvi
       grants.push({ grant: "refresh_token", persona: held.persona });
       return json(
         200,
-        await mint({
+        await issue("refresh_token", {
           persona: held.persona,
           claims: held.claims,
           issuer: realm.issuer,
@@ -641,7 +697,7 @@ export function createOidcProvider(options: OidcProviderOptions = {}): OidcProvi
     },
     realms: () => realms,
     personas: () => personas,
-    mint,
+    mint: (params) => issue("mint", params),
     authorize,
     settings(p) {
       if (p.accessTokenLifetime !== undefined) grantLifetime = p.accessTokenLifetime;
@@ -649,6 +705,7 @@ export function createOidcProvider(options: OidcProviderOptions = {}): OidcProvi
       return { accessTokenLifetime: grantLifetime, autoLogin };
     },
     grants: () => [...grants],
+    issued: () => issuedLog.map((t) => ({ ...t })),
     jwks: async () => ({ keys: [(await keyOf("realm")).jwk] }),
     signJwt,
     serve,
@@ -658,6 +715,7 @@ export function createOidcProvider(options: OidcProviderOptions = {}): OidcProvi
       refreshTokens.clear();
       codes.clear();
       grants.length = 0;
+      issuedLog.length = 0;
       grantLifetime = DEFAULT_LIFETIME_S;
       autoLogin = null;
     },

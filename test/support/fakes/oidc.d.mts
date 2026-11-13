@@ -6,8 +6,8 @@ import type {
   OidcRoutes,
 } from "../../../src/emulation/oidc.js";
 
-/** One token the token endpoint handed out, as `observe()` reports it. */
-export interface IssuedToken {
+/** One token set the provider issued, as `observe()` reports it. */
+export interface ObservedToken {
   readonly grant: string;
   readonly principal: string;
   readonly sub: string | undefined;
@@ -33,7 +33,7 @@ export interface FakeOidc {
   readonly env: Record<string, string>;
   mint(persona: string, claims?: Record<string, unknown>): Promise<string>;
   setAutoLogin(persona: string | null): void;
-  observe(): IssuedToken[];
+  observe(): ObservedToken[];
   reset(): void;
   stop(): Promise<void>;
 }

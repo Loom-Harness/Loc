@@ -229,6 +229,35 @@ describe("fake OIDC issuer", () => {
     expect(out.headers.get("location")).toBe("http://app.test/");
   });
 
+  it("logs every issued token set — mints and grants — oldest first, capped at 100", async () => {
+    const o = await issuer();
+    await o.mint("visitor");
+    await fetch(
+      `${o.issuer}${KC}/token`,
+      form({ grant_type: "password", username: "agent", password: "x", client_id: o.clientId }),
+    );
+    const log = o.provider.issued();
+    expect(log.map((t) => [t.seq, t.source, t.persona])).toEqual([
+      [1, "mint", "visitor"],
+      [2, "password", "agent"],
+    ]);
+    const [, granted] = log;
+    expect(
+      JSON.parse(Buffer.from(granted.access_token.split(".")[1], "base64url").toString()).sub,
+    ).toBe(AGENT_SUB);
+    expect(granted.expiresAt).toBeGreaterThan(granted.at / 1000);
+    expect(o.observe()).toEqual([
+      { grant: "mint", principal: "visitor", sub: "00000000-0000-0000-0000-0000000000ff" },
+      { grant: "password", principal: "agent", sub: AGENT_SUB },
+    ]);
+    for (let i = 0; i < 100; i++) await o.mint("agent");
+    const capped = o.provider.issued();
+    expect(capped).toHaveLength(100);
+    expect(capped[0].seq).toBe(3);
+    o.reset();
+    expect(o.provider.issued()).toEqual([]);
+  });
+
   it("answers /userinfo for a token it issued and 401 otherwise", async () => {
     const o = await issuer();
     const ok = await fetch(`${o.issuer}${KC}/userinfo`, {
