@@ -2669,7 +2669,11 @@ function emitResponseDtoSchema(
       const t: TypeIR = provenanced.has(f.name)
         ? { kind: "genericInstance", ctor: "provenanced", arg: f.type }
         : f.type;
-      lines.push(`  ${f.name}: ${zodForResponseField(t, f.optional)},`);
+      // A masked field is redacted to `null` for a caller who fails its
+      // predicate (`toWireMasked`), so it admits null exactly as below.
+      const z = zodForResponseField(t, f.optional);
+      const masked = f.maskUnless !== undefined && !z.endsWith(".nullish()") ? ".nullish()" : "";
+      lines.push(`  ${f.name}: ${z}${masked},`);
     }
   } else {
     const fields = forApiRead(wireFieldsFor(ent));

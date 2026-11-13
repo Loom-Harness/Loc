@@ -1083,7 +1083,26 @@ function renderMethodCall(recv: string, args: string[], e: MethodCallExpr, ctx: 
   if (e.receiverType.kind === "entity") {
     return `${ctx.contextModule}.${snake(e.member)}(${[recv, ...args].join(", ")})`;
   }
+  // A value-object `function` — a value object is a plain map here, so the
+  // function is a module function on the VO's own module taking the value
+  // first (`valueobject-emit.ts` / `renderValueObjectFunctions`).
+  if (e.receiverType.kind === "valueobject") {
+    return valueObjectFunctionCall(ctx.contextModule, e.receiverType.name, e.member, recv, args);
+  }
   return `${recv}.${snake(e.member)}(${args.join(", ")})`;
+}
+
+/** `<App>.<Ctx>.<Vo>.<fn>(value, args…)` — the call that reaches a value
+ *  object's `function` on this backend; shared by the domain renderer and the
+ *  ExUnit test renderer. */
+export function valueObjectFunctionCall(
+  contextModule: string,
+  voName: string,
+  fnName: string,
+  recv: string,
+  args: readonly string[],
+): string {
+  return `${contextModule}.${upperFirst(voName)}.${snake(fnName)}(${[recv, ...args].join(", ")})`;
 }
 
 /** The `"guid-from-string"` registry self-scope (`this.id ==

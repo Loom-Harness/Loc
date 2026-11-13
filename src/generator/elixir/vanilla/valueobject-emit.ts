@@ -1,8 +1,15 @@
 import type { BoundedContextIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
-import { enumPool } from "../../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { isStringField } from "./changeset-ingress.js";
-import { taggedConstraintLines, voEctoType, voHasConstraints } from "./changeset-validators.js";
+import { renderInvariantValidatorFn } from "./changeset-invariant-emit.js";
+import {
+  taggedConstraintLines,
+  voEctoType,
+  voHasConstraints,
+  voUncarriedInvariants,
+} from "./changeset-validators.js";
+import { renderValueObjectFunctions } from "./function-emit.js";
 
 // ---------------------------------------------------------------------------
 // Validating value-object constructor (Ecto/Phoenix)
@@ -39,19 +46,39 @@ export function emitVanillaValueObjects(
 ): void {
   const appSnake = appModule.replace(/([A-Z])/g, (_, c, i) => (i ? "_" : "") + c.toLowerCase());
   const ctxSnake = snake(ctx.name);
-  for (const vo of ctx.valueObjects) {
-    if (!voHasConstraints(vo)) continue;
+  const own = new Set(ctx.valueObjects.map((v) => v.name));
+  for (const vo of valueObjectPool(ctx)) {
+    // A value object's validating constructor lives with its own context; a
+    // sibling (shared-kernel) value object read here still needs its
+    // `function`s, which every call site in this context reaches as
+    // `<App>.<Ctx>.<Vo>.<fn>`.
+    const rules = own.has(vo.name) && voHasConstraints(vo);
+    const fns = renderValueObjectFunctions(`${appModule}.${upperFirst(ctx.name)}`, vo);
+    if (!rules && fns.length === 0) continue;
     out.set(
       `lib/${appSnake}/${ctxSnake}/${snake(vo.name)}.ex`,
-      renderValueObjectModule(appModule, ctx, vo),
+      rules
+        ? renderValueObjectModule(appModule, ctx, vo, fns)
+        : renderFunctionsOnlyModule(voModule(appModule, ctx, vo), fns),
     );
   }
+}
+
+/** The module of a value object with functions and no rules to judge. */
+function renderFunctionsOnlyModule(moduleName: string, fns: string[]): string {
+  return `# Auto-generated.
+defmodule ${moduleName} do
+  @moduledoc false
+${fns.slice(1).join("\n")}
+end
+`;
 }
 
 function renderValueObjectModule(
   appModule: string,
   ctx: BoundedContextIR,
   vo: ValueObjectIR,
+  fns: string[],
 ): string {
   const moduleName = voModule(appModule, ctx, vo);
   const enums = new Map(enumPool(ctx).map((e) => [e.name, e]));
@@ -61,6 +88,24 @@ function renderValueObjectModule(
   const tagging = taggedConstraintLines(vo);
   const validators = tagging.lines.join("\n");
   const tagDefs = tagging.defs ? `\n${tagging.defs}` : "";
+  // A cross-field or guarded rule (`checkOut > checkIn`) has no native
+  // validator line; it runs through the same `validate_invariants/1` carrier an
+  // aggregate, a part and a value-collection row use, judged on the cast map.
+  // Gated on `valid?`: a field that failed to cast is absent from the applied
+  // map, and the comparison would read nil.
+  const invariantFn = renderInvariantValidatorFn(
+    { invariants: voUncarriedInvariants(vo), fields: vo.fields, derived: [] },
+    `${appModule}.${upperFirst(ctx.name)}`,
+  );
+  const invariantPipe = invariantFn ? "\n    |> __loom_validate_invariants()" : "";
+  const invariantDefs = invariantFn
+    ? `
+${invariantFn}
+
+  defp __loom_validate_invariants(%{valid?: false} = changeset), do: changeset
+  defp __loom_validate_invariants(changeset), do: validate_invariants(changeset)
+`
+    : "";
   // A string leaf keeps a blank value so the value object's own rule answers
   // it with its rule text (`changeset-ingress.ts`) — Ecto's default
   // `empty_values` would turn `""` into `nil`, which every length/format
@@ -85,14 +130,13 @@ defmodule ${moduleName} do
   @doc "Validate a value-object map against its declared invariants (schemaless — VOs persist as plain maps)."
   def changeset(attrs) when is_map(attrs) do
     {%{}, @types}
-${castLine}
-${validators}
+${castLine}${validators ? `\n${validators}` : ""}${invariantPipe}
   end
 
   @doc "Build + validate a value object — {:ok, map} on success, {:error, changeset} on an invariant violation."
   def new(attrs) when is_map(attrs) do
     apply_action(changeset(attrs), :insert)
   end
-${tagDefs}end
+${tagDefs}${invariantDefs}${fns.length > 0 ? `${fns.join("\n")}\n` : ""}end
 `;
 }

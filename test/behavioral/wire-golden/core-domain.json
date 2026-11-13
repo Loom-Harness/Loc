@@ -83,6 +83,37 @@
     {
       "seq": 6,
       "method": "POST",
+      "path": "/api/orders/{id}/add_tip",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "code": "CD2",
+        "id": "<volatile:key>",
+        "isDraft": false,
+        "lines": [
+          {
+            "id": "<volatile:key>",
+            "qty": 2,
+            "sku": "S1"
+          }
+        ],
+        "rowVersion": 5,
+        "status": "Placed",
+        "total": {
+          "amount": 15,
+          "currency": "USD"
+        }
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
       "path": "/api/orders",
       "status": 201,
       "body": {
@@ -90,7 +121,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 9,
       "method": "GET",
       "path": "/api/orders?dir=asc&sort=code",
       "status": 200,
@@ -107,10 +138,10 @@
                 "sku": "S1"
               }
             ],
-            "rowVersion": 4,
+            "rowVersion": 5,
             "status": "Placed",
             "total": {
-              "amount": 12,
+              "amount": 15,
               "currency": "USD"
             }
           },
@@ -134,14 +165,14 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 10,
       "method": "DELETE",
       "path": "/api/orders/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 9,
+      "seq": 11,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 404,
@@ -158,7 +189,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 12,
       "method": "GET",
       "path": "/api/orders",
       "status": 200,
@@ -175,10 +206,10 @@
                 "sku": "S1"
               }
             ],
-            "rowVersion": 4,
+            "rowVersion": 5,
             "status": "Placed",
             "total": {
-              "amount": 12,
+              "amount": 15,
               "currency": "USD"
             }
           }
@@ -190,7 +221,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 13,
       "method": "GET",
       "path": "/api/orders/by_status/Placed",
       "status": 200,
@@ -206,24 +237,24 @@
               "sku": "S1"
             }
           ],
-          "rowVersion": 4,
+          "rowVersion": 5,
           "status": "Placed",
           "total": {
-            "amount": 12,
+            "amount": 15,
             "currency": "USD"
           }
         }
       ]
     },
     {
-      "seq": 12,
+      "seq": 14,
       "method": "GET",
       "path": "/api/orders/by_status/Draft",
       "status": 200,
       "body": []
     },
     {
-      "seq": 13,
+      "seq": 15,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -237,7 +268,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 16,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -251,7 +282,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 17,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,
@@ -265,41 +296,41 @@
       }
     },
     {
-      "seq": 16,
-      "method": "POST",
-      "path": "/api/orders/{id}/place",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Order {id} not found",
-        "instance": "/api/orders/{id}/place",
-        "params": {
-          "type": "Orders.Order"
-        },
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
-      }
-    },
-    {
-      "seq": 17,
-      "method": "POST",
-      "path": "/api/orders/{id}/place",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Order {id} not found",
-        "instance": "/api/orders/{id}/place",
-        "params": {
-          "type": "Orders.Order"
-        },
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
-      }
-    },
-    {
       "seq": 18,
+      "method": "POST",
+      "path": "/api/orders/{id}/place",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/place",
+        "params": {
+          "type": "Orders.Order"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "POST",
+      "path": "/api/orders/{id}/place",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/place",
+        "params": {
+          "type": "Orders.Order"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 20,
       "method": "POST",
       "path": "/api/orders/{id}/place",
       "status": 415,
@@ -309,6 +340,27 @@
         "instance": "/api/orders/{id}/place",
         "status": 415,
         "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/orders/{id}/add_tip",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.missing",
+            "message": "tip is required",
+            "pointer": "/tip"
+          }
+        ],
+        "instance": "/api/orders/{id}/add_tip",
+        "status": 422,
+        "title": "Validation failed",
         "type": "about:blank"
       }
     }
