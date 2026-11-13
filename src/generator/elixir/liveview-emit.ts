@@ -2087,6 +2087,7 @@ function renderOperationEventClauses(
         if (fb.callsOp && opIR) {
           return renderNamedOpClauses(fb, opIR, ctxModule, aggSnake, rec, {
             human,
+            succeeded,
             gateRefresh,
             labelRefresh,
             reload,
@@ -2150,6 +2151,8 @@ function renderNamedOpClauses(
   rec: string,
   parts: {
     human: string;
+    /** The rendered success flash (a catalogued sentence under i18n). */
+    succeeded: string;
     gateRefresh: string;
     labelRefresh: string;
     reload: string;
@@ -2157,7 +2160,7 @@ function renderNamedOpClauses(
   },
 ): string {
   const op = fb.op!;
-  const { human, gateRefresh, labelRefresh, reload } = parts;
+  const { human, succeeded, gateRefresh, labelRefresh, reload } = parts;
   const guardErrorModule = `${ctxModule.slice(0, ctxModule.lastIndexOf("."))}.GuardError`;
   const cu = opUsesCurrentUser(opIR);
   const params = opIR.params;
@@ -2181,17 +2184,17 @@ function renderNamedOpClauses(
           {:ok, record} ->
             {:noreply,
              socket
-             |> put_flash(:info, "${human} succeeded")
+             |> put_flash(:info, ${succeeded})
              |> assign(:${rec}, record)
              |> assign(:${op}_form, ${opFormExpr(fb, ctxModule, aggSnake, "record")})${gateRefresh.replace(/\n/g, "\n    ")}${labelRefresh.replace(/\n/g, "\n    ")}${reload.replace(/\n/g, "\n    ")}}
 
           _ ->
-            {:noreply, put_flash(socket, :info, "${human} succeeded")}
+            {:noreply, put_flash(socket, :info, ${succeeded})}
         end`
     : `{:ok, record} ->
         {:noreply,
          socket
-         |> put_flash(:info, "${human} succeeded")
+         |> put_flash(:info, ${succeeded})
          |> assign(:${rec}, record)
          |> assign(:${op}_form, ${opFormExpr(fb, ctxModule, aggSnake, "record")})${gateRefresh}${labelRefresh}${reload}}`;
   const tagArm = fb.reloads
