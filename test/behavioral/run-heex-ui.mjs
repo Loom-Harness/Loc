@@ -53,8 +53,6 @@
 //   LOOM_HEEX_UI_IMAGE      elixir image for the no-`mix`-on-PATH path
 //   LOOM_HEEX_UI_FORCE_DOCKER=1  use the container even when `mix` is on PATH
 //   LOOM_HEX_MIRROR=1       route hex.pm through the loopback mirror
-//   LOOM_HEEX_UI_SEED_DIR   a tree copied over the generated project before the
-//                           boot (CLDR locale data for a no-GitHub sandbox)
 //   PLAYWRIGHT_BROWSERS_PATH  when set, the chromium download step is SKIPPED
 //                           (the browser is already provisioned)
 
@@ -275,14 +273,6 @@ async function main() {
     const assetsDir = join(projDir, "assets");
     execFileSync(npm, ["install", "--no-audit", "--no-fund"], { cwd: assetsDir, stdio: "pipe", timeout: 600_000 });
     execFileSync(npm, ["run", "build"], { cwd: assetsDir, stdio: "pipe", timeout: 600_000 });
-
-    // A tree overlaid onto the generated project before it boots.  `ex_cldr`
-    // downloads each shipped locale's data from raw.githubusercontent.com at
-    // compile time; behind an egress proxy that Erlang's `:ssl` cannot pass,
-    // seed `priv/cldr/locales/<tag>.json` here instead.
-    if (process.env.LOOM_HEEX_UI_SEED_DIR) {
-      cpSync(process.env.LOOM_HEEX_UI_SEED_DIR, projDir, { recursive: true });
-    }
 
     log("▶ starting postgres");
     pg = startPostgres(pgName);
