@@ -26,6 +26,10 @@ describe("unsupported-platform labels", () => {
       svelte: "SvelteKit",
       vue: "Vue",
       angular: "Angular",
+      java: "Spring Boot",
+      python: "FastAPI",
+      feliz: "Feliz",
+      flutter: "Flutter",
     };
     for (const [platform, label] of Object.entries(labels)) {
       expect(unsupportedPlatformLabel(platform as UnsupportedPlatform)).toBe(label);
