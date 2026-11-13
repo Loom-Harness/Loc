@@ -36,11 +36,10 @@ This adds, alongside the normal output:
 - **`out/.loom/sourcemap.json`** — the generic, cross-target map (`.ddd`
   spans ↔ generated file regions) that `ddd trace` / `ddd breakpoints` /
   `ddd-dap` all read.  Frontends record one region per emitted page file and
-  one per user component: react, vue, svelte, angular and **flutter** do
+  one per user component: react, vue, svelte, angular, **flutter** and **feliz** do
   (flutter's components share one pooled `lib/components.dart`, so each one is
-  anchored inside it rather than claiming the whole file); **feliz records
-  nothing yet** — ledger row `sourcemap-feliz-flutter-not-emitted`, whose
-  flutter half closed in wave C2.
+  anchored inside it rather than claiming the whole file; feliz holds the whole
+  ui in a single `App.fs`, so each page is a region inside it).
 - **Per-target native debug metadata**, woven into the generated projects
   themselves:
 
@@ -51,7 +50,7 @@ This adds, alongside the normal output:
   | Java / Spring | JSR-45 SMAP in the class file's `SourceDebugExtension` | any JDWP debugger (VS Code `java`) — the same mechanism JSP debugging uses |
   | Python / Elixir | *no native `#line`* — use the CLI trace path (§3) | `ddd trace` |
   | Feliz (F#/Fable) | *no native metadata* — but every page IS in `.loom/sourcemap.json` as a REGION of the single `web/src/App.fs` (one file holds the whole ui), so `ddd trace` / `ddd breakpoints` resolve into it | `ddd trace` |
-  | Flutter (Dart) | *nothing yet* — neither native metadata nor `.loom/sourcemap.json` entries | — |
+  | Flutter (Dart) | *no native metadata* — every page is in `.loom/sourcemap.json` as one region per `lib/pages/*_page.dart` file | `ddd trace` |
 
 - **`out/.vscode/launch.json`** — one launch configuration per debuggable
   deployable (node / .NET / Java), pre-wired to the metadata above.

@@ -20,7 +20,7 @@ The reference is **non-sequential**. Each chapter stands alone and
 cross-links the others. Two ways in:
 
 - **Answer a question** — jump straight to the chapter for the construct
-  (the [index](README.md) maps every keyword to its home).
+  (the [README](README.md) lists the chapters).
 - **Learn a surface** — read a chapter end to end; features within it are
   ordered from foundational to advanced.
 

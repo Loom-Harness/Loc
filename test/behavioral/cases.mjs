@@ -77,6 +77,9 @@ export async function loadCorpusFeatures(workDir) {
     platform: "node",
     logLevel: "silent",
   });
+  // The bundle lives in workDir, so the manifest cannot find its sidecars
+  // from its own URL; it reads the corpus dir from here instead.
+  process.env.LOOM_CORPUS_DIR = CORPUS_DIR;
   const { CORPUS } = await import(pathToFileURL(bundled).href);
   return CORPUS;
 }
@@ -891,6 +894,14 @@ export const AUTHZ_LADDERS = {
         path: "/api/invoices/{id}",
         note: "same-tenant caller has no requires to fail - its DELETE would succeed and make the cross-tenant 404 after it meaningless",
         arms: { anonymous: null, unauthorized: null, otherTenant: 404, authorized: 204 },
+      },
+      {
+        // The natural-key read names `number` alone; the floor supplies the
+        // tenant column, so another tenant's lookup of the same number misses.
+        label: "orgId floor — a foreign tenant's natural-key read",
+        method: "GET",
+        path: "/api/invoices/amount?n=LADDER-1",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
       },
     ],
     arms: { anonymous: null, unauthorized: 200, authorized: 200 },

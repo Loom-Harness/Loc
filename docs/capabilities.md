@@ -212,6 +212,11 @@ principal term is the way to scope single-record reads by role today (the
 by-id route has no `requires` surface; see `loom.default-deny-by-id-ungated`
 in [auth.md](auth.md)).  A filtered-out row reads 404 there.
 
+A typed `kind: api` call to another deployable forwards the caller's own
+credential ([auth.md](auth.md#calling-an-api-that-requires-auth)), so the
+callee's capability filters and stamps (`currentUser` included) run against
+that forwarded principal.
+
 Only `==` / `!=` qualify — an ordering between two host values has no single
 meaning across the host languages — and only in a capability `filter` (inline,
 or through a named `criterion` installed as `filter <Criterion>`).  A `find` /
@@ -222,18 +227,10 @@ per-read principal test is what `requires` is for.
 ### Backend emission
 
 All five backends — .NET, Hono, Java, Phoenix, and Python — reify
-relational capability filters, both non-principal and principal-referencing
-(tenancy).  Principal predicates and non-relational shapes have **since
-landed** (DEBT-01 / DEBT-02): Python's relational principal case landed
-(`supportsPrincipalFilter` now returns `true` for it, `system-checks.ts`) and
-Python's `shape: embedded` filters landed too (#1571 —
-`supportsNonRelationalFilter`/`supportsPrincipalNonRelationalFilter` now
-include `python` for `embedded`).  Principal filters on non-relational shapes
-ship on node/Java (`document` + `embedded`), elixir + Python (`embedded`), and
-.NET (all shapes).  What stays gated is narrow: **a capability filter on a
-`shape: document` aggregate hosted on Python** (Python wires relational +
-`embedded` only; `document` is a single jsonb blob it doesn't filter in-app) —
-and elixir has no `document` shape at all.  See *Deferred cases* below.
+capability filters on every persistence shape (relational, `shape: document`,
+`shape: embedded`), both non-principal and principal-referencing (tenancy).
+There is no per-backend deferral table; the one gate is shape- and
+backend-independent (see *What the validator gates* below).
 
 - **.NET / EF Core 10** — every aggregate that has any propagated
   `contextFilters` gets one **named** `b.HasQueryFilter("<Name>", x => …)`
@@ -260,7 +257,7 @@ and elixir has no `document` shape at all.  See *Deferred cases* below.
   concrete starts from the root set (`_db.Vehicles.OfType<Car>()`), the source
   over which EF translates the guard (docs/inheritance.md).  EF Core resolves the
   DI-scoped principal and queries jsonb transparently, so .NET has no other
-  deferred cases.  See
+  further gates.  See
   `src/generator/dotnet/emit/efcore.ts`.
 - **Hono / Drizzle** — Drizzle has no global query filter, so the
   repository builder AND-s each predicate into every root-table read
@@ -329,30 +326,18 @@ deduped with any find/retrieval consumers of the same criterion.  Behaviour-iden
 to the inline form; only the generated code is organised around the
 criterion as a first-class, reusable predicate.
 
-### Deferred cases
+### What the validator gates
 
-One narrow case remains gated by the IR validator
-(`validateContextFilterSupport`, code `loom.context-filter-no-principal`):
-
-- **A capability filter on a `shape: document` aggregate hosted on
-  Python.**  Python wires relational + `shape: embedded` filters
-  (principal and non-principal, DEBT-01/DEBT-02, #1571) but does not
-  filter a `document` blob in-app, so `supportsNonRelationalFilter` /
-  `supportsPrincipalNonRelationalFilter` (`system-checks.ts`) include
-  `python` for `embedded` only.  (Elixir has no `document` shape at all,
-  so the case can't arise there.)
-
-Everything else now ships (per the validator gate): a **principal**
-predicate on a *relational* aggregate on all five backends (DEBT-01); a
-**non-principal** predicate on a *non-relational* aggregate on node/Java
-(`document` + `embedded`), elixir + Python (`embedded`), and .NET (all);
-and **the principal × non-relational intersection** on node/Java
-(`document` + `embedded`), elixir + Python (`embedded`), and .NET —
-`supportsPrincipalNonRelationalFilter` accepts it, and the `embedded` case
-is gate-verified by `embedded-tenancy.ddd` in the Java build corpus.  Host
-a `document` aggregate that needs a
-filter on any non-Python backend, or hand-write the predicate inside
-individual `repository find` bodies, in the meantime.
+One model-level rule remains (`validateContextFilterSupport`, code
+`loom.context-filter-no-principal`): a principal-referencing filter needs a
+request principal, so a deployable **without** `auth: required` (and a system
+`user {}` block) that hosts one is refused.  It holds on every backend and
+every shape.  A query-time `projection` aggregating in SQL over a filtered
+`shape: document` aggregate has no column to name
+(`loom.projection-document-source-capability-filtered`); per-row reads still
+apply the filter on hydration.  Chapter 11 of the
+[language reference](language-reference/11-capabilities-filters-stamps.md)
+carries the per-shape detail.
 
 ## `stamp <event> { … }`
 
@@ -363,25 +348,25 @@ is the same `AssignOrCallStmt*` shape as an `operation` body, with
 
 ```ddd
 aggregate Order {
+  subject: string
   createdAt: datetime
   updatedAt: datetime
-  createdBy: User id
-  updatedBy: User id
 
   stamp onCreate {
     createdAt := now()
-    createdBy := currentUser
   }
   stamp onUpdate {
     updatedAt := now()
-    updatedBy := currentUser
   }
 }
 ```
 
 To apply stamps to some aggregates and not others, bundle them in a
 `capability` (the built-in `auditable` is exactly this) and opt in per
-aggregate with `with auditable`.
+aggregate with `with auditable`, which contributes the four audit fields
+(`createdAt`, `updatedAt`, `createdBy`, `updatedBy`) and both stamps — nothing
+is declared by hand. The principal-typed `createdBy` / `updatedBy` come only
+from `auditable`: a hand-written `createdBy: User id` does not resolve.
 
 ### Stamp targets are server-owned wire fields
 
@@ -439,9 +424,7 @@ Read surfaces (responses, views, detail/list pages) keep the field —
   binding takes the create stamp, a loaded one the update stamp, and a
   principal stamp reads the ambient principal (`app.auth.user.current_user()`);
   a save with no principal in scope (an outbox-relayed reactor) persists
-  unstamped, as Hono's does.  Support is gated by
-  `validatePythonStampSupport` (a principal stamp without auth, or any stamp on
-  an event-sourced aggregate, stays a fail-fast `loom.python-stamp-unsupported`).
+  unstamped, as Hono's does.
 - **Phoenix** (`elixir`, plain-Ecto foundation) — context stamps
   are applied as `Ecto.Changeset.put_change` pipe lines on the changeset right
   before `Repo.insert` / `Repo.update` (threaded through the context
@@ -455,10 +438,15 @@ Read surfaces (responses, views, detail/list pages) keep the field —
   The audit `createdAt`/`updatedAt` become real Ecto schema fields (replacing the
   bundled `timestamps()`), and the managed `createdBy`/`updatedBy` are excluded
   from the changeset cast.  See `src/generator/elixir/vanilla/stamp-emit.ts`.
-- The elixir backend keeps the same two fail-fast cases
-  (`loom.elixir-stamp-unsupported`, `validateElixirStampSupport`): a
-  `currentUser` stamp on a deployable WITHOUT auth (no actor to thread), and
-  stamps on an event-sourced aggregate.
+
+### Validator-gated stamp cases
+
+Stamp refusals read only the model, so they are the same on every backend:
+`loom.stamp-principal-without-auth` (a `currentUser` stamp on a deployable
+without auth), `loom.stamp-on-event-sourced-invalid` (a lifecycle stamp on an
+event-sourced aggregate), `loom.stamp-read-before-flush` and, for one elixir
+shape, `loom.stamp-reads-aggregate-unsupported`.  See chapter 11
+([Validator-gated stamp cases](language-reference/11-capabilities-filters-stamps.md#validator-gated-stamp-cases)).
 
 ## `implements <Cap>` / `with <Cap>`
 
@@ -554,8 +542,8 @@ wins.
 - A capability with no implementors is allowed (declared but unused).
 - Field references inside a capability's `filter` / `stamp` body
   type-check against each implementing aggregate, so a capability whose
-  `stamp onCreate { createdBy := currentUser }` assigns `createdBy`
-  requires every implementor to have a `createdBy: User id` field — a
+  `stamp onCreate { createdAt := now() }` assigns `createdAt`
+  requires every implementor to have a `createdAt: datetime` field — a
   missing field is an IR-validation error.
 
 ## Feature compositions
@@ -582,7 +570,6 @@ Pairs whose features meet at a deployable, a resource or a field, rather than on
 | pair | refused on |
 |---|---|
 | an event-sourced aggregate emitting an event a broker-bound channel carries | node, dotnet (the event append and the outbox row commit separately); python, java, elixir (unwitnessed) |
-| a typed `kind: api` resource calling an `auth: required` deployable | every backend (no credentials are forwarded) |
 | a `timerSource` whose event rides a broker-bound channel | node (the tick is dispatched in-process); the other four (unwitnessed) |
 | a value object field whose type is a value object with an invariant | elixir (the inner invariant never runs) |
 | an event carrying a `mask unless` value on a channel | every backend (`loom.field-mask-event-channel`) |

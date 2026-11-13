@@ -440,7 +440,13 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   scalarVariantValue: (carrier) => `${carrier}.value()`,
   // Union-find repos return a nullable aggregate (payloads.md §Union finds).
   absenceCheck: (subject) => `${subject} != null`,
-  list: (elements) => `${J.List}.of(${elements.join(", ")})`,
+  // An empty literal with a known element type names it: a bare `List.of()`
+  // in a `var`'s conditional infers `List<Object>`, and every member read off
+  // its elements is then `cannot find symbol`.
+  list: (elements, e) =>
+    elements.length === 0 && e.elementType
+      ? `${J.List}.<${boxedJavaType(e.elementType)}>of()`
+      : `${J.List}.of(${elements.join(", ")})`,
   // An in-app `exists`: the service holding the gate has the quantified
   // aggregate's repository injected (`javaExistsReadField`).  A Java find
   // binds the request principal through SpEL, never as a parameter, so the

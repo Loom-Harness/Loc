@@ -171,3 +171,15 @@ describe("loom.create-field-id-target — the wrong aggregate's id", () => {
     expect(lspCodes(diagnostics)).not.toContain(TYPE);
   });
 });
+
+// A typed `X id` into a `guid` field is not a wire coercion: .NET and java give
+// every aggregate its own id type, so the factory call would not compile.
+describe("loom.create-field-id-target#guid — a typed id into a guid field", () => {
+  it("rejects an `A id` expression where the field declares `guid`", async () => {
+    const { diagnostics } = await parseString(
+      twoAggregates(`let r = R.create(a: aid, n: 1, at: now(), ref: aid)`),
+      { validate: true },
+    );
+    expect(lspCodes(diagnostics)).toContain(ID_TARGET);
+  });
+});

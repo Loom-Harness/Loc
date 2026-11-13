@@ -215,7 +215,7 @@ replaced the old `push: main` re-runs (see "Post-merge net").
   serve are already ONE matrix workflow each (`tenancy-e2e` 18 cells,
   `channels-e2e` 17, `email-e2e`/`migration-evolution-e2e`/`schemathesis`
   5 each), so a new backend cell is one matrix row in one file today, and a
-  new corpus feature is one manifest row for all five compile legs. What
+  new corpus feature is one `<id>.corpus.json` manifest row for all five compile legs. What
   remains per backend is the boot harness — one `test/e2e/*-<backend>.test.ts`
   per backend with genuinely different boot mechanics, each with its script.
   Folding those into parameterised scripts is a `test/e2e/**` + `package.json`

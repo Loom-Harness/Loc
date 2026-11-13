@@ -1,0 +1,6 @@
+{
+  "title": "two `getById` loads of one row inside a workflow are two handles over a contained collection — each saves its own child graph with the version it read",
+  "doc": "workflow",
+  "backends": "INDEPENDENT_HANDLES",
+  "note": "Added with M-T6.90.  .NET EF handed both loads ONE tracked instance (identity map); the fix loads a second handle of a tracked row into a forked change tracker.  That puts the second handle's OWNED `lines` graph on a different context from the first, so this case pins that a child INSERT and a child DELETE through the second handle persist exactly once, and that two handles both adding a child still conflict (409, neither persisted).  java had the same identity-map defect under JPA (M-T6.93: a repeat load of a managed row now reads a detached copy through a connection-sharing child Session).  Backend scope is the named `INDEPENDENT_HANDLES` set above."
+}

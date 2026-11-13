@@ -1,0 +1,5 @@
+{
+  "title": "first-class tenancy — `tenancy by` + tenantOwned + crossTenant",
+  "doc": "tenancy",
+  "backends": "ALL"
+}

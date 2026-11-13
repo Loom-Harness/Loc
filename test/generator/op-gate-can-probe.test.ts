@@ -97,7 +97,7 @@ const CASES: Case[] = [
     name: "feliz",
     platform: "feliz",
     client: '/can_complete" id',
-    disabled: "prop.disabled (model.CanCompleteTask = Loaded false)",
+    disabled: "prop.ariaDisabled (model.CanCompleteTask = Loaded false)",
     ungated: /CanRename|can_rename/,
   },
   {

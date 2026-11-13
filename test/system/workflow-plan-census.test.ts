@@ -67,6 +67,12 @@ import { expectReach } from "../_helpers/census-reach.js";
 //               call — the hand-spelled "does this body run in one
 //               transaction" test.
 //               → use `workflowRunsInTransaction`.
+//   tx-boundary a read of a workflow's `.transactional` in a generator or a
+//               platform package (not a `db.transactional(…)` call) — a
+//               backend choosing its own transaction boundary.  A workflow
+//               runs in one transaction exactly when the plan says so; any
+//               other commits each save on its own.
+//               → use `workflowRunsInTransaction` / `workflowIsolation`.
 //   folded-events  a `.map(…)` over an `appliers` list whose callback returns
 //               the applier's `.event` — the hand-rolled "which events does
 //               this stream fold" list.
@@ -194,6 +200,7 @@ interface Violation {
     | "durable"
     | "isolation"
     | "implicit-tx"
+    | "tx-boundary"
     | "folded-events"
     | "event-log"
     | "repos"
@@ -585,6 +592,14 @@ function scan(file: string): Violation[] {
       }
     }
     if (
+      ts.isPropertyAccessExpression(n) &&
+      n.name.text === "transactional" &&
+      !(ts.isCallExpression(n.parent) && n.parent.expression === n) &&
+      (rel.startsWith("src/generator/") || rel.startsWith("src/platform/"))
+    ) {
+      out.push({ rule: "tx-boundary", where: at(n), text: n.getText(sf) });
+    }
+    if (
       ts.isCallExpression(n) &&
       ts.isPropertyAccessExpression(n.expression) &&
       n.expression.name.text === "map" &&
@@ -721,6 +736,11 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend re-spells when a workflow body runs in one transaction (use workflowRunsInTransaction)", () => {
     const hits = violations.filter((v) => v.rule === "implicit-tx");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend chooses its own workflow transaction boundary (use workflowRunsInTransaction / workflowIsolation)", () => {
+    const hits = violations.filter((v) => v.rule === "tx-boundary");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 

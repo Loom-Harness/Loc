@@ -411,11 +411,11 @@ lifecycle + request bracket with the catalog envelope. Opt-in via env
 vars (kept out of `npm test` because they're slow):
 
 ```bash
-LOOM_OBS_E2E=1            npx vitest run test/e2e/observability-events.test.ts
-LOOM_OBS_E2E_DOTNET=1     npx vitest run test/e2e/observability-events-dotnet.test.ts
-LOOM_OBS_E2E_PHOENIX=1    npx vitest run test/e2e/observability-events-phoenix.test.ts
-LOOM_OBS_E2E_JAVA=1       npx vitest run test/e2e/observability-events-java.test.ts
-LOOM_OBS_E2E_PYTHON=1     npx vitest run test/e2e/observability-events-python.test.ts
+npm run test:obs
+npm run test:obs-dotnet
+npm run test:obs-phoenix
+npm run test:obs-java
+npm run test:obs-python
 ```
 
 Each suite:
@@ -438,7 +438,7 @@ They also assert **tracing**: `request_start` / `request_end` carry a canonical
 proving the SERVER span is created and its ids are threaded onto the log stream
 (log↔trace correlation), independent of whether a collector is configured.
 
-`.github/workflows/{hono,dotnet,phoenix,java,python}-obs-e2e.yml` run their
+`.github/workflows/{hono,dotnet,elixir-vanilla,java,python}-obs-e2e.yml` run their
 respective suites on every PR that touches the matching generator,
 the shared catalog, or the renderer. Each opts in via the
 backend-specific env var (`LOOM_OBS_E2E*`) and skips locally when

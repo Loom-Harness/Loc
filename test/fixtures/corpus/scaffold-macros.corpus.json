@@ -1,0 +1,5 @@
+{
+  "title": "stdlib macros — crudish (create/update/destroy) + softDeletable capability + softDelete ops",
+  "doc": "scaffold-macros",
+  "backends": "ALL"
+}

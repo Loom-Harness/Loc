@@ -45,11 +45,13 @@ import {
   recordDurableLines,
   rowDispatchLines,
   rowOriginDeclLines,
+  streamCaptureLines,
   streamOriginFrameLines,
   streamScopePredicate,
   streamScopeWhere,
 } from "./event-store.js";
 import { joinDbSetName, joinEntityName, joinFkPropName } from "./join-entities.js";
+import { efRefAdmissionLines } from "./ref-admission.js";
 import { handleSaveOverloadLines, saveInterfaceLines, saveParamsCs } from "./version-check-cs.js";
 
 /** Ardalis' `IQueryable.WithSpecification` extension (a retrieval run). */
@@ -588,6 +590,9 @@ export function renderRepositoryImpl(
       ...handleSaveOverloadLines(agg, bclTask),
       `    public async ${bclTask} SaveAsync(${agg.name} aggregate, ${saveParamsCs(agg)})`,
       "    {",
+      // Reference admission (ref-admission.ts): a refused reference throws
+      // before anything is tracked or written.
+      ...efRefAdmissionLines(agg, pool),
       // The context tracking this handle — a fork for a second load of a row
       // (see GetByIdAsync), else the scoped context.
       "        var __db = _db.TrackerOf(aggregate);",
@@ -1299,6 +1304,9 @@ export function renderEventSourcedRepositoryImpl(
     /** Context retrievals over this aggregate — each a `Run<Name>Async`
      *  answered in memory (`inMemoryRunMethodLines`). */
     retrievals?: readonly RetrievalIR[];
+    /** The context routes events through the transactional outbox: the
+     *  append's SaveChangesAsync also writes the durable events' outbox rows. */
+    durable?: boolean;
   },
 ): string {
   // A type named `Task` reached through this file's `using <ns>.Domain.<Plural>;`
@@ -1321,6 +1329,7 @@ export function renderEventSourcedRepositoryImpl(
   // tenancy restrictions in-app over it.
   const pool = options?.pool ?? [];
   const tenancy = streamTenancyFor(agg, pool);
+  const durable = options?.durable ?? false;
   const defaultScope = streamScopePredicate(agg, pool);
   // Union-returning finds (P4c) reach the Domain repository as their optional
   // twin (single-row select returning `Agg?`); the Application query handler
@@ -1510,6 +1519,7 @@ export function renderEventSourcedRepositoryImpl(
       `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
       "    {",
       "        var __pending = aggregate.PullEvents();",
+      ...(durable ? ["        IReadOnlyList<IDomainEvent> __afterCommit = __pending;"] : []),
       "        if (__pending.Count > 0)",
       "        {",
       "            var __sid = aggregate.Id.Value.ToString();",
@@ -1548,6 +1558,17 @@ export function renderEventSourcedRepositoryImpl(
       // DbUpdateException with a PostgresException inner; translate it to the EF
       // concurrency exception the DomainExceptionFilter maps to 409 (parity with
       // the `versioned` guarded write's stale-write rejection).
+      // Transactional outbox: the durable events' outbox rows are staged on the
+      // same change tracker BEFORE the one SaveChangesAsync, so they commit with
+      // the stream rows; only the rest dispatch after it.
+      ...(durable
+        ? streamCaptureLines(
+            ns,
+            "            ",
+            "_events.RecordDurableAsync(__pending, null, cancellationToken)",
+            !!tenancy,
+          )
+        : []),
       "            try",
       "            {",
       "                await _db.SaveChangesAsync(cancellationToken);",
@@ -1571,7 +1592,7 @@ export function renderEventSourcedRepositoryImpl(
         { name: "id", valueExpr: "aggregate.Id.Value" },
       ])}`,
       ...(tenancy ? streamOriginFrameLines(ns, "        ") : []),
-      "        foreach (var ev in __pending)",
+      `        foreach (var ev in ${durable ? "__afterCommit" : "__pending"})`,
       "        {",
       `            ${renderDotnetLogCall("eventDispatched", [
         { name: "event_type", valueExpr: "ev.GetType().Name" },

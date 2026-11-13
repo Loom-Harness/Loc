@@ -57,6 +57,21 @@ system DatetimeWire {
       repository Venues for Venue { }
       repository Slots for Slot { }
 
+      // A datetime INSIDE a value object — collection and single.  Python's
+      // value-object wire model is shared by request and response, so it
+      // re-parsed the `iso()` string and re-serialized it with six fractional
+      // digits (`.345000Z`) while the aggregate's own datetimes shipped three.
+      valueobject Window {
+        label: string
+        until: datetime?
+      }
+      aggregate Roster with crudish {
+        name: string
+        windows: Window[]
+        main: Window?
+      }
+      repository Rosters for Roster { }
+
       projection SlotBoard {
         slotId: Slot id
         label: string
@@ -154,5 +169,21 @@ system DatetimeWire {
     api.slots.destroy(a)
     api.venues.destroy(hall)
     expect(api.venues.getById(hall)).toThrow(404)
+
+    let rost = api.rosters.create({ name: "R", windows: [
+      { label: "whole", until: "2027-12-31T00:00:00Z" },
+      { label: "ms", until: "2027-12-31T10:11:12.345Z" },
+      { label: "open" }
+    ], main: { label: "m", until: "2027-12-31T10:11:12.345Z" } })
+    let roster = api.rosters.getById(rost)
+    expect(roster.windows.where(w => w.label == "whole").first().until).toBe("2027-12-31T00:00:00Z")
+    expect(roster.windows.where(w => w.label == "ms").first().until).toBe("2027-12-31T10:11:12.345Z")
+    expect(roster.windows.where(w => w.label == "open").first().until).toBe(null)
+    expect(roster.main.until).toBe("2027-12-31T10:11:12.345Z")
+    api.rosters.update(rost, { name: "R2", windows: [{ label: "late", until: "2028-01-02T03:04:05.006Z" }] })
+    expect(api.rosters.getById(rost).windows.first().until).toBe("2028-01-02T03:04:05.006Z")
+    expect(api.rosters.all().total).toBe(1)
+    api.rosters.destroy(rost)
+    expect(api.rosters.getById(rost)).toThrow(404)
   }
 }

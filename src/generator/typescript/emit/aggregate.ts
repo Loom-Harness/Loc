@@ -137,8 +137,7 @@ export function renderAggregate(
   const hasProv =
     emitProvenance &&
     (agg.operations.some((op) => op.statements.some(stmtHasProv)) ||
-      agg.fields.some((f) => f.provenanced) ||
-      agg.parts.some((p) => p.fields.some((f) => f.provenanced)));
+      agg.fields.some((f) => f.provenanced));
   // Domain-injected trace lines (`value_computed`, `precondition_evaluated`)
   // resolve the request-scoped logger via `requestLog()` from obs/als —
   // imported here only when --trace is on, so the default artefact keeps

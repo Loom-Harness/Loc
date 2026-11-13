@@ -58,7 +58,7 @@ describe("feliz param-less workflow forms", () => {
     expect(app).toContain('prop.custom("data-testid", "workflow-close_books-submit")');
     // No validity guard (no required fields to guard) — just the dispatch.
     expect(app).toContain(
-      'Html.button [ prop.custom("data-testid", "workflow-close_books-submit"); prop.className "btn btn-primary"; prop.onClick (fun _ -> dispatch SubmitCloseBooksWorkflowForm); prop.text (I18n.t "Acc.closeBooks.op.run" "Run") ]',
+      'Html.button [ prop.custom("data-testid", "workflow-close_books-submit"); prop.className "btn btn-primary"; prop.disabled (model.CloseBooksWorkflowFormPending); prop.onClick (fun _ -> dispatch SubmitCloseBooksWorkflowForm); prop.text (I18n.t "Acc.closeBooks.op.run" "Run") ]',
     );
   });
 
@@ -87,10 +87,14 @@ describe("feliz param-less workflow forms", () => {
   it("wires the update arm — submit posts `()`, done navigates (no form reset)", async () => {
     const app = await appFs();
     expect(app).toContain(
-      "  | SubmitCloseBooksWorkflowForm -> model, Cmd.OfAsync.perform Api.runCloseBooksWorkflow () CloseBooksWorkflowDone",
+      "  | SubmitCloseBooksWorkflowForm -> { model with CloseBooksWorkflowFormServer = ServerErrors.empty; CloseBooksWorkflowFormPending = true }, Cmd.OfAsync.either Api.runCloseBooksWorkflow () CloseBooksWorkflowDone (fun ex -> CloseBooksWorkflowDone (Error (ServerErrors.formLevel ex.Message)))",
     );
-    expect(app).toContain('  | CloseBooksWorkflowDone (Ok ()) -> model, Cmd.navigatePath("")');
-    expect(app).toContain("  | CloseBooksWorkflowDone (Error _) -> model, Cmd.none");
+    expect(app).toContain(
+      '  | CloseBooksWorkflowDone (Ok ()) -> { model with CloseBooksWorkflowFormPending = false }, Cmd.navigatePath("")',
+    );
+    expect(app).toContain(
+      "  | CloseBooksWorkflowDone (Error e) -> { model with CloseBooksWorkflowFormServer = e; CloseBooksWorkflowFormPending = false }, Cmd.none",
+    );
   });
 
   // The submit posts through `Api` and navigates on success, so both opens must

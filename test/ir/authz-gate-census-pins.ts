@@ -432,6 +432,12 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "find GET /api/organizations": R.sharedTenancyIdentity,
     "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
     "operation POST /api/organizations/{id}/update": R.sharedTenancyIdentity,
+    "create POST /api/payments": R.sharedTenancyIdentity,
+    "getById GET /api/payments/{id}": R.sharedTenancyIdentity,
+    "destroy DELETE /api/payments/{id}": R.sharedTenancyIdentity,
+    "operation POST /api/payments/{id}/relink": R.sharedTenancyIdentity,
+    "operation POST /api/payments/{id}/update": R.sharedTenancyIdentity,
+    "find GET /api/payments": R.sharedTenancyIdentity,
   },
 
   // The #3954 inheritance fixture.  Every gate is the tenant floor and there is
@@ -541,6 +547,6 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   importGateOnly: 1,
   principalFreeGate: 20,
   rowDataGate: 4,
-  sharedTenancyIdentity: 105,
+  sharedTenancyIdentity: 111,
   oneSeededId: 6,
 };

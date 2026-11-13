@@ -26,8 +26,10 @@ The tools (`src/tools/catalog.ts`) come in three families. Every tool is a **pur
 |---|---|---|
 | `loom_validate` | `{ source }` | Validate a model. Returns coded, located diagnostics (each with an optional fix-hint patch) plus the outline. The repair loop's oracle. |
 | `loom_outline` | `{ source }` | The model's address book — contexts, aggregates, members. The addresses here are exactly the `target`s `loom_apply_patch` takes and the diagnostics point at. |
+| `loom_read_model` | `{ source }` | The RESOLVED model: each system's deployables plus every aggregate's canonical wire shape (ordered DTO fields with rendered type, optionality, provenance). The semantic contract `loom_outline` (a name-only address book) omits. Empty when the source cannot lower. |
+| `loom_list_primitives` | `{}` | The closed page-body primitive vocabulary the UI walker admits — the only names valid as component types without declaring a domain type. |
 | `loom_generate` | `{ source }` | Validate, and report the deployable manifest (name / platform / port). Writes no files. |
-| `loom_apply_patch` | `{ source, patches[] }` | Apply node-addressed edits atomically. Each patch is `{ op: add\|replace\|remove\|insert, target, source?, position? }`. If any patch fails to resolve, nothing is applied. Returns the patched source or per-patch errors. |
+| `loom_apply_patch` | `{ source, patches[] }` | Apply node-addressed edits atomically. Each patch is `{ op: add\|replace\|remove\|insert\|rename, target, source?, position? }` (`rename` takes the new name as `source` and rewrites every cross-reference). If any patch fails to resolve, nothing is applied. Returns `{ ok, text, applied, errors }` — `text` is the patched source, or the original when a patch failed. |
 
 **Navigational family** — over the LSP providers, addressed by symbol name:
 
@@ -90,12 +92,12 @@ A raw `tools/call` frame to validate a model:
   "method": "tools/call",
   "params": {
     "name": "loom_validate",
-    "arguments": { "source": "system Shop { context Sales { aggregate Order { id: Id } } }" }
+    "arguments": { "source": "system Shop { subdomain Sales { context Orders { aggregate Order with crudish { total: int } } } }" }
   }
 }
 ```
 
-The response `content[0].text` is the JSON `ValidateReport` (diagnostics + outline).
+The response `content[0].text` is the JSON `ValidateReport` (`ok`, `summary`, `diagnostics`, `outline`) — `"ok": true` for this model.
 
 The advertised server identity is `{ name: "ddd-mcp", version: "0.0.0-experimental" }` — the package is currently `private` and experimental (`loom: { kind: "mcp-server" }`), so the `npx ddd-mcp` form depends on a published or locally-linked build.
 
