@@ -27,6 +27,7 @@ import {
   exprUsesCurrentUser,
   isMaterializedProjection,
   isQueryTimeProjection,
+  PLAIN_FIND_FLAGS,
   workflowEmitsCommandRoute,
 } from "../../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../../ir/types/migrations-ir.js";
@@ -1926,7 +1927,9 @@ function emitAggregate(
   };
   // Views + query-time projections sourced from this aggregate both ride
   // synthesized parameterless finds (the mergeViewsAsFinds analog).
-  const viewFinds: RepositoryIR["finds"] = queryProjectionFindsFor(agg.name, ctx, contexts);
+  const viewFinds: RepositoryIR["finds"] = queryProjectionFindsFor(agg.name, ctx, contexts).map(
+    (f) => ({ ...PLAIN_FIND_FLAGS, ...f }),
+  );
   const repoWithViews: RepositoryIR =
     viewFinds.length > 0
       ? repo

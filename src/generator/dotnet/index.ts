@@ -18,7 +18,11 @@ import type {
   TypeIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
-import { isMaterializedProjection, isQueryTimeProjection } from "../../ir/types/loom-ir.js";
+import {
+  isMaterializedProjection,
+  isQueryTimeProjection,
+  PLAIN_FIND_FLAGS,
+} from "../../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../../ir/types/migrations-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import {
@@ -2111,6 +2115,7 @@ function mergeViewsAsFinds(
   };
   const synthesised = [
     ...matchingQp.map((p) => ({
+      ...PLAIN_FIND_FLAGS,
       name: p.name,
       // The projection's OWN parameters — its inlined `where` references them,
       // so a parameterless read emitted a LINQ predicate over a free variable.

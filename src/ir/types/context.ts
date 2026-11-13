@@ -107,14 +107,14 @@ export interface FindIR extends Bypassing, ReadGated, Filtered, CriterionReified
    *  `Repo.find(<Criterion>) ignoring …` read (`synthesizeBypassReadFinds`),
    *  which keeps `find(C)`'s first-match meaning.  Absent, a single-row find
    *  reads a key, and a backend may treat a second match as an error. */
-  takeFirst?: boolean;
+  takeFirst: boolean;
   /** Compiler-synthesized find — NOT author-declared and NOT auto-exposed as
    *  its own HTTP route.  Set by enrich when a paged `queryHandler` over
    *  `Repo.all(<Criterion>)` (paged-run) needs the #1904 paged FIND repo-method
    *  emitted for it to call; the exposure is the queryHandler's own route, so
    *  the aggregate router skips this find (route + query schema + paged DTO).
    *  The repository builder still emits the method. */
-  synthesized?: boolean;
+  synthesized: boolean;
   /** The order a PAGED find's page is taken in when the caller's `sort` key
    *  names no whitelisted column — its route's `sort` then defaults to `""`
    *  (`pagedSortDefault`).  Absent: the `id` order every paged read falls back
@@ -133,14 +133,14 @@ export interface FindIR extends Bypassing, ReadGated, Filtered, CriterionReified
    *  entity read.  The flag exists because the SOURCE diverges: the generic
    *  find-route + repository builders skip it and each backend's audit emitter
    *  serves it instead. */
-  auditHistory?: boolean;
+  auditHistory: boolean;
   /** `requires` is the DENY gate enrichment synthesised (a `false` literal),
    *  not one the author wrote (M-T3.19).  Set on the list read (`all`) — and
    *  on the by-id read `byIdRouteFind` synthesises — of a repository marked
    *  `readsDefaultDenied`, when the author declared no gate for it: under
    *  `denyByDefault` that read fails closed (403 before the load) on every
    *  backend, and the validator still reports it as ungated. */
-  defaultDenied?: boolean;
+  defaultDenied: boolean;
 }
 
 /** A natural-key read's key (`Repo.getBy(sku: s)` / `Repo.findBy(…)`,
@@ -589,3 +589,10 @@ export interface CriterionReified {
 export interface CallerConditioned {
   when?: ExprIR;
 }
+
+/** The four synthesis flags of a plain, author-declared find — all off.  A
+ *  construction site spreads this first and sets the flag its read needs. */
+export const PLAIN_FIND_FLAGS: Pick<
+  FindIR,
+  "takeFirst" | "synthesized" | "auditHistory" | "defaultDenied"
+> = { takeFirst: false, synthesized: false, auditHistory: false, defaultDenied: false };

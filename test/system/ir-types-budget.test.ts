@@ -36,7 +36,7 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   // service op's return, a retrieval's criterion, the shared `Bypassing`
   // stance, `readsDefaultDenied`, and the enrichment-derived maps and sibling
   // pools (absent on a loose, single-context lowering).
-  "context.ts": 21,
+  "context.ts": 17,
 
   // Kept: a binding's per-kind knobs (absent = not declared, which the
   // capability check tells apart from a declared knob), a frontend's target /
