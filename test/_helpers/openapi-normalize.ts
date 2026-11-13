@@ -671,12 +671,14 @@ export function queryParamSignatures(spec: OpenApiSpec): Map<string, string> {
 //   - A named component referenced ONLY as a union arm is inlined at that
 //     arm, and its mapping entry keeps the tag but not the name: whether a
 //     framework names an arm is spelling, its structure and tag are contract.
-//   - At an error status, `anyOf: [ProblemDetails, <X>]` where every `<X>` is
-//     `allOf` ProblemDetails is plain ProblemDetails.  ProblemDetails is an
-//     open object, so the union accepts exactly the bodies ProblemDetails
-//     accepts; a framework that cannot spell `anyOf` (Swashbuckle) publishes
-//     the plain body.  A `<X>Problem` component nothing else references then
-//     drops out.
+//   - Only in a pair with a backend whose generator cannot spell `anyOf`
+//     (`NO_ANYOF_BACKENDS`: Swashbuckle on .NET): at an error status,
+//     `anyOf: [ProblemDetails, <X>]` where every `<X>` is `allOf`
+//     ProblemDetails is plain ProblemDetails, and a `<X>Problem` component
+//     nothing else references drops out.  ProblemDetails is an open object,
+//     so the union accepts exactly the bodies plain ProblemDetails accepts,
+//     but the typed error-arm body is lost to a generated client; every
+//     other pair still compares the arms.
 //   - An inline object or union schema structurally identical to exactly one
 //     named component (in either document) becomes a `$ref` to it, so `$ref`
 //     vs an inlined identical schema compares equal.
@@ -1017,6 +1019,12 @@ function inlineArmOnlyComponents(spec: OpenApiSpec): OpenApiSpec {
   return out;
 }
 
+/** Backends whose OpenAPI generator cannot spell `anyOf`, so an
+ *  operation-return union's error-arm status publishes plain ProblemDetails
+ *  (Swashbuckle composes only `oneOf`, which would reject an arm body that
+ *  also matches the open ProblemDetails). */
+export const NO_ANYOF_BACKENDS: ReadonlySet<string> = new Set(["dotnet"]);
+
 /** The shared RFC 7807 error body every backend publishes. */
 const PROBLEM_SCHEMA = "ProblemDetails";
 
@@ -1182,14 +1190,20 @@ function foldInlineIntoComponents(a: OpenApiSpec, b: OpenApiSpec): [OpenApiSpec,
  * Rewrite a pair of documents into one canonical spelling (see the section
  * header).  Pure: the inputs are not modified.
  */
-export function canonicalizePair(a: OpenApiSpec, b: OpenApiSpec): [OpenApiSpec, OpenApiSpec] {
+export function canonicalizePair(
+  a: OpenApiSpec,
+  b: OpenApiSpec,
+  /** Fold an error-arm `anyOf` into plain ProblemDetails: set only for a pair
+   *  with a `NO_ANYOF_BACKENDS` member. */
+  problemUnionsAsProblem = false,
+): [OpenApiSpec, OpenApiSpec] {
   const one = (spec: OpenApiSpec): OpenApiSpec => {
     const flat = flattenAllOf(spec);
     let s = inlineArrayAliases(flat.spec);
     s = polymorphicBasesAsUnions(s, flat.bases);
     s = refNamedUnions(s);
     s = pinDiscriminatorTags(s);
-    s = collapseProblemUnions(s, flat.bases);
+    if (problemUnionsAsProblem) s = collapseProblemUnions(s, flat.bases);
     s = inlineArmOnlyComponents(s);
     return canonicalizeUnions(s);
   };
@@ -1327,7 +1341,11 @@ export function diffSpecs(
 ): ParityDiff {
   // Compare the canonical spelling of both documents (see `canonicalizePair`):
   // framework-native spellings of one contract are not divergences.
-  const [refSpec, otherSpec] = canonicalizePair(refIn.spec, otherIn.spec);
+  const [refSpec, otherSpec] = canonicalizePair(
+    refIn.spec,
+    otherIn.spec,
+    NO_ANYOF_BACKENDS.has(refIn.name) || NO_ANYOF_BACKENDS.has(otherIn.name),
+  );
   const ref = { name: refIn.name, spec: refSpec };
   const other = { name: otherIn.name, spec: otherSpec };
   const refOps = collectOps(ref.spec);
