@@ -57,7 +57,6 @@ export const OPEN_TRACKING_ISSUES: ReadonlySet<string> = new Set([
   "#4440",
   "#5614",
   "#5617",
-  "#5618",
   "#5619",
   "#5712",
 ]);
@@ -143,8 +142,13 @@ export const COVERAGE: readonly CoverageRow[] = [
     module: "s3-sidecar.mjs",
     witness: { fixture: "resources", effects: "objects" },
   },
-  // Waits on one localDisk directory env name across the five backends.
-  { sourceType: "localDisk", kind: "objectStore", fake: "n/a", pending: pending("#5618") },
+  {
+    sourceType: "localDisk",
+    kind: "objectStore",
+    fake: "in-process-fake",
+    module: "localdisk.mjs",
+    witness: { fixture: "resources-localdisk", effects: "files" },
+  },
   // ── outbound apis and mail ─────────────────────────────────────────────
   {
     sourceType: "restApi",

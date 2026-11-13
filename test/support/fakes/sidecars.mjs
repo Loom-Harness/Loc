@@ -37,6 +37,7 @@ export const STORAGE_FAKES = {
   rabbitmq: () => import("./broker-sidecar.mjs"),
   redis: () => import("./broker-sidecar.mjs"),
   kafka: () => import("./broker-sidecar.mjs"),
+  localDisk: () => import("./localdisk.mjs"),
 };
 
 /**

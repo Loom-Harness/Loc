@@ -30,9 +30,9 @@ const PORT = 9090;
 async function envFor(resources, endpoint) {
   if (resources.length === 0) return {};
   const re = await import(pathToFileURL(join(OUT, "util", "resource-env.js")).href);
-  if (typeof re.resourceEnvEndpointVar !== "function" || re.S3_DEV_SIDECAR === undefined) {
+  if (typeof re.resourceHostEnvVar !== "function" || re.S3_DEV_SIDECAR === undefined) {
     throw new Error(
-      "s3 sidecar: out/util/resource-env.js lacks resourceEnvEndpointVar / S3_DEV_SIDECAR — rebuild on a tree with the object-store endpoint contract",
+      "s3 sidecar: out/util/resource-env.js lacks resourceHostEnvVar / S3_DEV_SIDECAR — rebuild on a tree with the resource host env contract",
     );
   }
   const env = {
@@ -41,7 +41,7 @@ async function envFor(resources, endpoint) {
     AWS_REGION: re.S3_DEV_SIDECAR.region,
   };
   for (const r of resources) {
-    env[re.resourceEnvEndpointVar(r.name)] = endpoint;
+    env[re.resourceHostEnvVar("s3", r.name)] = endpoint;
     env[`${re.resourceEnvUrlVar(r.name)}_BUCKET`] = r.bucket;
   }
   return env;

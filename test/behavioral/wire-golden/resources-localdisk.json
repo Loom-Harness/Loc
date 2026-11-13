@@ -1,0 +1,34 @@
+{
+  "case": "resources-localdisk",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/workflows/archive",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/workflows/archive",
+      "status": 204,
+      "body": ""
+    }
+  ],
+  "effects": {
+    "files": [
+      {
+        "resource": "orderFiles",
+        "key": "orders_ada",
+        "size": 5
+      },
+      {
+        "resource": "orderFiles",
+        "key": "orders_bo-long-name",
+        "size": 14
+      }
+    ]
+  }
+}
