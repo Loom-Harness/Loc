@@ -329,7 +329,7 @@ The answer is the operation's `or E` translation: a success variant answers **20
 
 **An error answer rolls the whole command back** (D-FAILURE-MODEL).  The entry point runs in ONE transaction whether or not it is `transactional` (no `loom.transactional-with-continuations` follows from it): the aggregates it saved, the saga row, outbox / audit / provenance rows and the error arm's own writes (the `Note` above) are discarded, and no event is dispatched — neither the workflow's `emit`s nor the aggregates' events.  A success commits, then dispatches.
 
-The body answers once, after the `match`: lowering keeps each arm's statements in the statement `match` and answers a value `match` over the same subject, so an arm's `return` may read the arm's binding and the lets declared before the `match`, not a `let` declared inside the arm (`loom.workflow-return-not-last#arm-local-let`; `loom.handler-return-not-last#arm-local-let` on a handler).  A union with no `error` variant stays a transport shape out of place (`loom.union-position`), and an `on(…)` reactor, an event-triggered or named create, and an `eventSourced` workflow keep refusing a result.  Elixir refuses an expected-failure entry point (`loom.elixir-entry-result-unsupported`, tracked by #4571).
+The body answers once, after the `match`: lowering keeps each arm's statements in the statement `match` and answers a value `match` over the same subject, so an arm's `return` may read the arm's binding and the lets declared before the `match`, not a `let` declared inside the arm (`loom.workflow-return-not-last#arm-local-let`; `loom.handler-return-not-last#arm-local-let` on a handler).  A union with no `error` variant stays a transport shape out of place (`loom.union-position`), and an `on(…)` reactor, an event-triggered or named create, and an `eventSourced` workflow keep refusing a result.
 
 ::: tabs backend
 == node
@@ -435,9 +435,22 @@ if (result instanceof ReceiptOrPaymentDeclinedResponse_PaymentDeclined __e) {
 return ResponseEntity.ok(result);
 ```
 == elixir
-```text
-loom.elixir-entry-result-unsupported — workflow 'Pay' declares an expected-failure result ('T or E'), and the
-Phoenix/Elixir deployable 'd' hosts its context. …
+```elixir
+# Workflows.Pay — inside PostCommit.transaction(fn -> Repo.transaction(…) end)
+with {:ok, a} <- …,
+     r <- Context.withdraw_account(a, %{"amt" => amt}),
+     {:ok, _} <- (case Function.identity(r) do … end) do
+  (case Function.identity(r) do
+     {:ok, %{value: left}} -> {:ok, {"Receipt", %{left: left}}}
+     {:error, "Insufficient", e} -> {:error, {:variant, "PaymentDeclined", %{available: amt - e.needed}}}
+   end)
+end
+# commit_result({:error, reason}) rolls the transaction back.
+
+# WorkflowsController
+def respond_entry(conn, {:ok, {"Receipt", v}}), do: json(conn, Map.put(v, :type, "Receipt"))
+def respond_entry(conn, {:error, {:variant, "PaymentDeclined", data}}),
+  do: problem_variant(conn, 409, "/errors/payment-declined", "PaymentDeclined", "Ledger.PaymentDeclined.message", data)
 ```
 ::: end
 
@@ -578,7 +591,7 @@ switch (r) {
 
 .NET renders `_accounts.Discard(a);` in the error arm for the same reason (EF Core writes a tracked entity at the next `SaveChanges`); python writes only on a save, as node does. The `Discard` / `discard` repository method exists only for an aggregate some body drops.
 
-`loom.workflow-mutation-result-unmatched` refuses the three shapes that cannot place the save: a result no `match` reads (returning it from a workflow is not supported yet); an `else` arm that covers both a success and an error variant (give one of them arms of its own); and any other change to the same aggregate in that body — another call on it, or creating it there — since that change would be saved outside the match. An elixir deployable refuses the bound form (`loom.elixir-bound-mutating-call-unsupported`).
+`loom.workflow-mutation-result-unmatched` refuses the three shapes that cannot place the save: a result no `match` reads (returning it from a workflow is not supported yet); an `else` arm that covers both a success and an error variant (give one of them arms of its own); and any other change to the same aggregate in that body — another call on it, or creating it there — since that change would be saved outside the match. An elixir deployable refuses the bound form only for a `mutating` domain service (`loom.elixir-bound-mutating-call-unsupported`), which it inlines clause by clause.
 
 ## `function` — the private pure helper
 

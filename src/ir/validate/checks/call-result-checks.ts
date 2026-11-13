@@ -227,13 +227,6 @@ export function validateElixirBoundMutatingCalls(
   }
 }
 
-/** `loom.elixir-entry-result-unsupported` — a routed command entry point an
- *  elixir deployable emits whose result is an expected failure (`T or E`), or
- *  a workflow `create` answering the workflow itself (`return this`).  The
- *  other four backends run such an entry point in one transaction, roll it
- *  back whole on an error answer and translate the error at the edge; the
- *  Phoenix workflow / handler emitters have no tagged result and no rollback
- *  seam for it yet, so it is refused rather than emitted half-wired. */
 /** The routed entry points of `ctx` answering an expected failure, or a
  *  workflow `create` answering the workflow itself (`#workflow-state`) — the
  *  uses of `return:expected-failure@entry-point`. */
@@ -254,35 +247,4 @@ export function expectedFailureEntryPoints(
     if (!h.extern && entryResult(h)) out.push({ where: `handler '${h.name}'`, slug: "" });
   }
   return out;
-}
-
-export function validateElixirEntryResults(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
-  for (const sys of loom.systems) {
-    const elixirHost = ownerHosts(
-      sys.deployables,
-      "return:expected-failure@entry-point",
-      "loom.elixir-entry-result-unsupported",
-    );
-    if (elixirHost.size === 0) continue;
-    for (const mod of sys.subdomains) {
-      for (const ctx of mod.contexts) {
-        const deployable = elixirHost.get(ctx.name);
-        if (!deployable) continue;
-        for (const { where, slug } of expectedFailureEntryPoints(ctx)) {
-          diags.push({
-            severity: "error",
-            code: "loom.elixir-entry-result-unsupported",
-            message:
-              slug === ""
-                ? diagMessage("loom.elixir-entry-result-unsupported", { where, deployable })
-                : diagMessage("loom.elixir-entry-result-unsupported#workflow-state", {
-                    where,
-                    deployable,
-                  }),
-            source: `${ctx.name}/${where}`,
-          });
-        }
-      }
-    }
-  }
 }

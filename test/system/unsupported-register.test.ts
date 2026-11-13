@@ -472,13 +472,8 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  share rules `shareable` unfolds to) on an inheritance hierarchy are refused
  *  on every backend; the code predates its row, which the capability table's
  *  shareable × hierarchy cells made visible to this scan.  Drains with #5074.
- *
- *  17 -> 18: `loom.elixir-entry-result-unsupported`.  A routed workflow
- *  `create` / handler answering `T or E` (and a create answering its own
- *  workflow) ships on the other four backends, each running the command in
- *  one transaction rolled back whole on an error answer; the Phoenix routes
- *  have neither a tagged result nor a rollback seam for it, and refuse it. */
-const MAX_OPEN_GAPS = 20;
+ */
+const MAX_OPEN_GAPS = 19;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

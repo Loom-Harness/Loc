@@ -71,6 +71,7 @@
 // ---------------------------------------------------------------------------
 
 import {
+  isWorkflowSelfType,
   lookupOp,
   namesUsed,
   refsRead,
@@ -98,7 +99,10 @@ import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { classifyDomainServiceTier } from "../../../ir/util/domain-service-tier.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
-import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
+import {
+  commandCreateEntryResult,
+  commandCreateResult,
+} from "../../../ir/util/workflow-command-route.js";
 import {
   bodyWriteScopeGuards,
   writeScopeContext,
@@ -144,8 +148,15 @@ import {
   respondErrorTail,
   workflowDenialTerm,
 } from "./denial.js";
+import {
+  entrySerializers,
+  opResultNames,
+  renderEntryOutcome,
+  renderEntryResponders,
+} from "./entry-result-emit.js";
 import { renderFunctionBodyLines } from "./function-emit.js";
 import { armsCoverUnion, elixirUnionScrutinee, elixirVariantPattern } from "./match-stmt-emit.js";
+import { renderProblemVariantHelper } from "./operation-returns-emit.js";
 import {
   renderRequiredParamsPlug,
   renderStrictParamsPlug,
@@ -1115,6 +1126,9 @@ function assembleBody(
    *  set it IS the success result (`{:ok, <expr>}`, which the controller
    *  answers as a 200 body) in every arm, instead of the last-bind default. */
   declaredResult?: string,
+  /** The whole success-path result tuple, verbatim — an entry outcome
+   *  (`renderEntryOutcome`), which may answer an `error` variant. */
+  outcome?: string,
 ): string {
   const withClauses = lines.filter((l) => l.kind === "with-clause");
   const emitLines = lines.filter((l) => l.kind === "emit");
@@ -1122,11 +1136,13 @@ function assembleBody(
   const lastBind = [...withClauses].reverse().find((l) => l.bindName)?.bindName;
 
   const resultExpr =
-    declaredResult !== undefined
-      ? `{:ok, ${declaredResult}}`
-      : lastBind
-        ? `{:ok, ${lastBind}}`
-        : "{:ok, params}";
+    outcome !== undefined
+      ? outcome
+      : declaredResult !== undefined
+        ? `{:ok, ${declaredResult}}`
+        : lastBind
+          ? `{:ok, ${lastBind}}`
+          : "{:ok, params}";
   // The `do`-branch body: emits first (only run on with-chain success),
   // then `workflow_completed` (the success tail), then the success result.
   // Indented to match the `with ... do ... end` shape — 6 spaces under
@@ -1145,7 +1161,9 @@ function assembleBody(
     return [
       ...at(4, persistLines),
       `    ${completedCall}`,
-      declaredResult !== undefined ? `    ${resultExpr}` : "    {:ok, params}",
+      declaredResult !== undefined || outcome !== undefined
+        ? `    ${resultExpr}`
+        : "    {:ok, params}",
     ].join("\n");
   }
 
@@ -1156,7 +1174,9 @@ function assembleBody(
       ...emitLines.map((l) => `    ${l.text}`),
       ...at(4, persistLines),
       `    ${completedCall}`,
-      declaredResult !== undefined ? `    ${resultExpr}` : "    {:ok, :emitted}",
+      declaredResult !== undefined || outcome !== undefined
+        ? `    ${resultExpr}`
+        : "    {:ok, :emitted}",
     ].join("\n");
   }
 
@@ -1388,11 +1408,27 @@ function renderWorkflowModule(
           : "Repo.insert_or_update!(Ecto.Changeset.change(loom_state))",
       ]
     : [];
+  // An expected-failure result (`T or E`) or the workflow answering itself
+  // closes the chain with its outcome tuple (`entry-result-emit.ts`): an
+  // `error` variant rolls the transaction back.
+  const entry = commandCreateEntryResult(wf);
+  const outcomeOpts = {
+    render: (e: ExprIR) => renderExpr(e, renderCtx),
+    contextModule: contextModuleFq,
+    taggedSubjects: opResultNames(wf.statements ?? []),
+    selfValue: bindsState ? "state" : "loom_state",
+  };
+  const outcome = entry
+    ? renderEntryOutcome(entry, outcomeOpts)
+    : result && isWorkflowSelfType(wf, result.type)
+      ? `{:ok, {:instance, ${JSON.stringify(wf.name)}, ${outcomeOpts.selfValue}}}`
+      : undefined;
   const body = assembleBody(
     lines,
     completedCall,
     persistLines,
-    result ? renderExpr(result.value, renderCtx) : undefined,
+    result && !outcome ? renderExpr(result.value, renderCtx) : undefined,
+    outcome,
   );
   // A workflow that names `currentUser` in a guard/body — or calls a
   // `currentUser`-gated op, or creates a principal-stamped aggregate — threads
@@ -1721,7 +1757,13 @@ function renderWorkflowsController(appModule: string, groups: WorkflowController
         const needsUser = workflowThreadsActor(wf, g.ctx);
         // `create(…): T` answers 200 with the value (`respond_result`); a
         // result-less workflow keeps the shared 204 `respond`.
-        const responder = commandCreateResult(wf) ? "respond_result" : "respond";
+        const r = commandCreateResult(wf);
+        const responder =
+          commandCreateEntryResult(wf) || (r && isWorkflowSelfType(wf, r.type))
+            ? "respond_entry"
+            : r
+              ? "respond_result"
+              : "respond";
         if (needsUser) {
           return `  def ${wfSnake}(conn, params) do
     current_user = Map.get(conn.assigns, :current_user)
@@ -1755,6 +1797,41 @@ function renderWorkflowsController(appModule: string, groups: WorkflowController
   def respond_result(conn, other), do: respond(conn, other)
 `
     : "";
+
+  // Entry results (`T or E`, `return this`): the outcome tuple's responders,
+  // the serializers they call and the problem body of an `error` variant.
+  const entries = groups.flatMap((g) =>
+    g.workflows.flatMap((wf) => {
+      const r = commandCreateResult(wf);
+      const entry = commandCreateEntryResult(wf);
+      if (entry) return [{ r: entry, ctx: g.ctx, wf }];
+      if (r && isWorkflowSelfType(wf, r.type)) {
+        const arm = { kind: "workflow" as const, tag: wf.name, name: wf.name };
+        return [{ r: { arms: [arm], leaves: [] }, ctx: g.ctx, wf, plain: true }];
+      }
+      return [];
+    }),
+  );
+  const entryResponder =
+    entries.length === 0
+      ? ""
+      : `
+  # An expected-failure entry point (\`create(…): T or E\`) answers 200 with
+  # the tagged success value, an \`error\` variant at its mapped status (the
+  # transaction already rolled back), and anything else through \`respond\`.
+${entries
+  .filter((e) => "plain" in e)
+  .map(
+    (e) =>
+      `  def respond_entry(conn, {:ok, {:instance, ${JSON.stringify(e.wf.name)}, v}}), do: json(conn, serialize_${snake(e.wf.name)}(v))\n\n`,
+  )
+  .join("")}${renderEntryResponders(
+  "respond_entry",
+  "respond",
+  entries.filter((e) => !("plain" in e)),
+)}
+${[...entrySerializers(entries).values()].join("\n\n")}
+${entries.some((e) => e.r.arms.some((a) => a.kind === "error")) ? `\n${renderProblemVariantHelper()}\n` : ""}`;
 
   return `# Auto-generated.
 defmodule ${webModule}.WorkflowsController do
@@ -1798,7 +1875,7 @@ ${respondErrorTail(
   true,
   groups.some((g) => g.workflows.some(workflowLoadsById)),
   groups.some((g) => aggregatesNeedConcurrency(g.ctx.aggregates)),
-)}${resultResponder}
+)}${resultResponder}${entryResponder}
 end
 `;
 }

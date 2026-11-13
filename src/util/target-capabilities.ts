@@ -859,13 +859,10 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
       // The changeset casts the nested value object inline and never runs its
       // invariant.
       "invariant:nested-valueobject@valueobject": refused("feature-composition-broken"),
-      // A context operation persists inside its own function, and every
-      // with-chain site matches its `{:ok, _}` away, so a bound result has no
-      // tentative save to drop on the error arm.
+      // A `mutating` domain service is inlined clause by clause, which
+      // computes no value to bind.
       "call:bound-mutating@entry-body": owned("loom.elixir-bound-mutating-call-unsupported"),
-      // The workflow and handler emitters have no tagged result and no
-      // rollback seam for an error answer.
-      "return:expected-failure@entry-point": owned("loom.elixir-entry-result-unsupported"),
+      "return:expected-failure@entry-point": SUPPORTED,
       // An Elixir body has no early exit, guards hoist into a leading
       // `with` chain, and the success value travels bare in `{:ok, value}`.
       "stmt:match-arm-shape@body": owned("loom.elixir-match-stmt-unsupported"),

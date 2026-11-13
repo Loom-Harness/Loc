@@ -223,10 +223,10 @@ describe("expected-failure result — validation", () => {
     expect(codes).toEqual([]);
   });
 
-  it("refuses the result on an elixir-hosted context", async () => {
+  it("accepts the result on an elixir-hosted context", async () => {
     const codes = await errorCodes(
       SYS(`workflow W { create(n: int): int or Declined { return n } }`, "elixir"),
     );
-    expect(codes).toContain("loom.elixir-entry-result-unsupported");
+    expect(codes).toEqual([]);
   });
 });

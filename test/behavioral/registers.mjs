@@ -282,24 +282,6 @@ export const BEHAVIOURAL_XFAIL = {
       },
       reason: "elixir validates only a value object's single-field invariants",
     },
-    // An expected-failure entry point (`T or E`) is refused on Phoenix, so
-    // generation stops at phase ⑦ (unsupported register).
-    "workflow-expected-failure": {
-      issue: "#4571",
-      expect: "error",
-      match: "loom\\.elixir-entry-result-unsupported",
-      reason:
-        "a workflow `create` / handler answering `T or E`: the Phoenix routes have no tagged result and no rollback seam that undoes the whole command on the error",
-    },
-    // The scaffolded handler answers its operation's `T or E`, an
-    // expected-failure entry point Phoenix refuses (unsupported register).
-    "scaffold-handlers-or-e": {
-      issue: "#4571",
-      expect: "error",
-      match: "loom\\.elixir-entry-result-unsupported",
-      reason:
-        "a scaffolded commandHandler answering its operation's `T or E`: the Phoenix routes have no tagged result and no rollback seam",
-    },
     // A value object nested inside another is cast as `:map`, so the nested
     // VO's invariant would never run; the capability table refuses the shape
     // on elixir until it does.
