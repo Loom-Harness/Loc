@@ -46,6 +46,12 @@ const DURABLE = (platform: string) => `system OS {
         orderId: Order id
         create(p: OrderPlaced) by p.order { orderId := p.order }
       }
+      workflow Replay transactional {
+        create(o: Order id) {
+          let x = Orders.get(o)
+          emit OrderPlaced { order: x.id, at: now() }
+        }
+      }
     }
   }
   api A from D
@@ -150,6 +156,22 @@ describe("outbox write atomicity — node/Hono (drizzle)", () => {
     // The inline `dispatch` arm (relay re-entry, timer emits — no enclosing
     // write tx) stays on the pool handle; that is the fallback, not the save path.
     expect(wf).toContain("await db.insert(schema.loomOutbox).values({ type: event.type");
+  });
+
+  it("a transactional workflow records its durable emits inside its own transaction", async () => {
+    // Structural: only a crash between commit and a later insert tells the two
+    // placements apart, which no booted tier stages.
+    const files = await emit("node");
+    const wf = fileEndingWith(files, "http/workflows.ts");
+    const route = from(wf, '"/replay"');
+    const txOpen = route.indexOf("await db.transaction(async (tx) => {");
+    const record = route.indexOf("await events.recordDurable?.(workflowEvents, tx)");
+    const txClose = route.indexOf("});", record);
+    const dispatch = route.indexOf("for (const ev of workflowEvents) await events.dispatch(ev);");
+    expect(txOpen, "the workflow runs in a transaction").toBeGreaterThan(-1);
+    expect(record, "durable capture is INSIDE the transaction callback").toBeGreaterThan(txOpen);
+    expect(record).toBeLessThan(txClose);
+    expect(dispatch, "the rest dispatch after the commit").toBeGreaterThan(txClose);
   });
 
   it("the channel publish tee forwards the capture instead of swallowing it", async () => {

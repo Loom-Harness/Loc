@@ -745,6 +745,9 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // B-03 — the workflow `create(…): T` result fixture drives three command
   // workflows (two answering a value, one the 204 sibling); same not-lifted
   // workflow-route class.
+  // The transactional workflow that emits the durable event; same not-lifted
+  // workflow-route class.
+  "corpus/saga-durable-cross-context": ["api.relog.run (no such aggregate)"],
   "corpus/workflow-create-result": [
     "api.openAccount.run (no such aggregate)",
     "api.topUp.run (no such aggregate)",
