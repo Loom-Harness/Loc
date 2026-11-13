@@ -84,7 +84,9 @@ describe("value-object subform rows render per type, not as free text (#2864)", 
       expect(page.match(/__locations/g)?.length ?? 0).toBeGreaterThan(1);
 
       // …and it is bound as a picker, not spliced into a text input.
-      expect(page).toMatch(/__voyages\.data\?\.items/);
+      // The options hook returns a bare array, so the row reads `.data` itself.
+      expect(page).toContain("(__voyages.data ?? [])");
+      expect(page).not.toMatch(/__voyages\.data\?\.items/);
     });
 
     it(`${design}: a \`datetime\` row sub-field carries type="datetime-local"`, async () => {

@@ -72,7 +72,6 @@ import { corpusSource } from "../fixtures/corpus/harness.js";
 import { CORPUS } from "../fixtures/corpus/manifest.js";
 import {
   E2E_LESS_CORPUS_FIXTURES,
-  PIN_CLASS_CENSUS,
   R,
   UNATTRIBUTED_CALLS,
   UNCALLED_PINS,
@@ -152,6 +151,15 @@ function loadPopulation(): { cases: CensusCase[]; e2eLessCorpus: string[] } {
 }
 
 const { cases: POPULATION, e2eLessCorpus: E2E_LESS } = loadPopulation();
+
+/** Where a case's pins are written: a corpus fixture's sidecar, or the map in
+ *  `api-caller-census-pins.ts` for every other case. */
+function pinHome(key: string, field: "uncalled" | "unattributed"): string {
+  const corpus = /^corpus\/(.+)$/.exec(key);
+  if (corpus) return `apiCaller.${field} in test/fixtures/corpus/${corpus[1]}.corpus.json`;
+  const map = field === "uncalled" ? "UNCALLED_PINS" : "UNATTRIBUTED_CALLS";
+  return `${map}["${key}"] (test/ir/api-caller-census-pins.ts)`;
+}
 
 // ---------------------------------------------------------------------------
 // The census
@@ -375,7 +383,7 @@ function censusFailures(
       `${c.key}: derived api operation \`${op.id}\` (${op.method.toUpperCase()} ${op.path}) ` +
         `has NO caller in any \`test e2e\` block of ${c.file}. ` +
         `Remedy: add a call to ${op.callHint} in a \`test e2e\` block of ${c.file}, ` +
-        `or pin it in UNCALLED_PINS["${c.key}"] (test/ir/api-caller-census-pins.ts) with a reason.`,
+        `or pin it with a reason class in ${pinHome(c.key, "uncalled")}.`,
     );
   }
   for (const id of Object.keys(pins)) {
@@ -386,7 +394,7 @@ function censusFailures(
         (exists
           ? "this operation now HAS a caller. Delete the pin in the same PR that added the caller."
           : `no such derived operation in ${c.file} (renamed or removed). Delete the pin.`) +
-        ` (UNCALLED_PINS["${c.key}"], test/ir/api-caller-census-pins.ts)`,
+        ` (${pinHome(c.key, "uncalled")})`,
     );
   }
   // A call the census cannot map to a derived operation credits nothing — so an
@@ -400,8 +408,8 @@ function censusFailures(
       `${c.key}: unattributable \`api.*\` calls changed — got [${seen.join(", ")}], ` +
         `pinned [${expected.join(", ")}]. A call that maps to no derived operation credits no ` +
         "coverage: confirm it is a not-yet-lifted route class (projection read, workflow run — " +
-        "`apiSurfaceCoverage.notLifted`) and update UNATTRIBUTED_CALLS" +
-        `["${c.key}"] (test/ir/api-caller-census-pins.ts), or fix the call.`,
+        `\`apiSurfaceCoverage.notLifted\`) and update ${pinHome(c.key, "unattributed")}, ` +
+        "or fix the call.",
     );
   }
   return out;
@@ -418,29 +426,19 @@ describe("api caller census — every derived operation has a runtime caller or 
     expect(POPULATION.length).toBeGreaterThanOrEqual(30);
   });
 
-  it("keeps the per-class pin census honest", () => {
-    // The counts used to live in a header comment and drifted to 15/2/1 against
-    // 17/3/1 actual — prose nothing reads cannot be contradicted.  Recompute
-    // from the pins themselves and compare both ways: an added pin whose count
-    // was not raised fails, and so does a drained one whose count was not
-    // lowered.  Reasons are matched by their `R.*` STRING (the pins store the
-    // value, not the key), so a renamed class shows up here as an unknown
-    // reason rather than as a silently-zero count.
-    const byReason = new Map<string, string>(Object.entries(R).map(([k, v]) => [v, k]));
-    const actual: Record<string, number> = {};
-    for (const ops of Object.values(UNCALLED_PINS)) {
-      for (const reason of Object.values(ops)) {
-        const cls = byReason.get(reason);
-        expect(cls, `pin reason is not one of the R.* constants: ${reason}`).toBeDefined();
-        actual[cls as string] = (actual[cls as string] ?? 0) + 1;
-      }
-    }
-    expect(
-      actual,
-      "PIN_CLASS_CENSUS (test/ir/api-caller-census-pins.ts) disagrees with the pins " +
-        "below it. Adding a pin raises its count; draining one lowers it; a class at " +
-        "zero is deleted from the census.",
-    ).toEqual(PIN_CLASS_CENSUS);
+  it("every pin names one of the R reason classes", () => {
+    // The class is the honest explanation of a pin, so an unclassified one is
+    // refused.  There is no per-class COUNT to keep in step: the exact-set
+    // comparison per case already makes every added or drained pin a failing
+    // test until it is reviewed, and a shared counter only made two trains that
+    // each added a pin of one class merge cleanly into a wrong number.
+    const reasons = new Set<string>(Object.values(R));
+    const unclassified = Object.entries(UNCALLED_PINS).flatMap(([key, ops]) =>
+      Object.entries(ops)
+        .filter(([, reason]) => !reasons.has(reason))
+        .map(([op]) => `${key}: ${op}`),
+    );
+    expect(unclassified, "pin reason is not one of the R.* constants").toEqual([]);
   });
 
   it("pins no case that left the population", () => {
@@ -460,8 +458,9 @@ describe("api caller census — every derived operation has a runtime caller or 
     expect(
       [...E2E_LESS].sort(),
       "corpus fixtures with no `test e2e` block changed. A fixture that GAINED one must be " +
-        "removed from E2E_LESS_CORPUS_FIXTURES and gains a census case (with pins); a NEW " +
-        "e2e-less fixture must be added there, and is a runtime-coverage gap in its own right.",
+        "removed from E2E_LESS_CORPUS_FIXTURES (delete `apiCaller.e2eLess` from its " +
+        "test/fixtures/corpus/<id>.corpus.json) and gains a census case (with pins); a NEW " +
+        "e2e-less fixture sets `apiCaller.e2eLess` to why, and is a runtime-coverage gap in its own right.",
     ).toEqual([...E2E_LESS_CORPUS_FIXTURES].sort());
   });
 
@@ -647,7 +646,7 @@ describe("api caller census — mutation proof", () => {
     expect(named[0]).toContain("mutation/widget"); // the system
     expect(named[0]).toContain("POST /api/widgets/{id}/rename"); // the route
     expect(named[0]).toContain("add a call to api.widgets.rename(id, {…})"); // the remedy
-    expect(named[0]).toContain("or pin it in UNCALLED_PINS"); // the other remedy
+    expect(named[0]).toContain("or pin it with a reason class in UNCALLED_PINS"); // the other remedy
   });
 
   it("goes GREEN for that operation once the caller is added", async () => {
