@@ -532,6 +532,14 @@ then reads exactly that many records with the image's console consumer.
 - **Between cases.** `load(definitions)` and `reset()` delete every vhost and
   every non-admin user, then re-arm the broker. Nothing leaks from one case to
   the next.
+- **The boot gate.** A fixture whose corpus.json carries
+  `"fakes": { "broker": "after-boot" }` (`channels-broker-late`) gets its broker
+  behind `tcpGate`, a loopback proxy that refuses every connection until 3 s
+  after the first one it refused. Its backstop is 60 s after
+  `fakes.backendStarting()`, which every runner calls immediately before it
+  boots the backend. A kafka broker advertises the gate, so post-bootstrap
+  connections are gated as well. A gated case whose gate refused nothing
+  fails, because it proved nothing about boot.
 
 The broker's own tests run under `npm run test:fakes-docker`, which needs
 docker. The pure helpers run in the fast suite.

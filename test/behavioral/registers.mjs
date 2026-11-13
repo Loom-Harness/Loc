@@ -312,6 +312,13 @@ export const BEHAVIOURAL_XFAIL = {
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
   java: {
+    // Same kafka envelope record as channels-broker-kafka.
+    "channels-broker-late": {
+      issue: "#5715",
+      expect: "error",
+      match: "dangling-doc-comments",
+      reason: "the generated java envelope record emits a dangling doc comment on a kafka binding",
+    },
     // A kafka binding's LoomEventEnvelope carries a doc comment no
     // declaration follows; the leg's -Werror build refuses it.
     "channels-broker-kafka": {
@@ -334,6 +341,14 @@ export const BEHAVIOURAL_XFAIL = {
     },
   },
   python: {
+    // The kafka client starts inside the startup path with no retry; a broker
+    // that is down while the app boots fails the startup.
+    "channels-broker-late": {
+      issue: "#5718",
+      expect: "error",
+      match: "KafkaConnectionError",
+      reason: "the python kafka channel client connects once at startup and fails it when the broker is down",
+    },
     // A routed command handler's body model takes snake_case keys.
     "extern-handlers": {
       issue: "#4211",
@@ -348,6 +363,14 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
+    // The kafka consumer connects synchronously in `init`; the boot gate's
+    // down-at-boot broker makes it fail, and the app does not start.
+    "channels-broker-late": {
+      issue: "#4740",
+      expect: "error",
+      match: "ChannelConsumer",
+      reason: "the Elixir channel consumer connects in init and crashes the boot when the broker is down",
+    },
     // The S3 put hands ExAws the body unencoded, so a string is stored raw
     // under content-type application/json; the golden's object sizes differ.
     resources: {

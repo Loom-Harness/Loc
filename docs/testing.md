@@ -184,7 +184,12 @@ them on every leg. The node leg boots a channel-bound deployable through its
 generated `bootApp`, the only place its broker transports exist, and before it
 stops it waits for the outbox relay to drain, so its publishes, durable ones
 included, reach the sidecar too. A kafka sidecar runs per case, started from
-the case's compose environment, so its SASL users are the deployed ones. `npm run test:fakes-docker` runs the kit's
+the case's compose environment, so its SASL users are the deployed ones. A
+corpus fixture whose `<id>.corpus.json` says `"fakes": { "broker": "after-boot" }`
+gets its broker behind a boot gate: a loopback proxy that refuses every
+connection until shortly after the backend's first attempt. Every runner calls
+`fakes.backendStarting()` right before the backend starts, so the broker is down
+for exactly the boot, and a backend that cannot boot without it fails its cell. `npm run test:fakes-docker` runs the kit's
 own container tests.
 
 ### External services and the `effects` golden
