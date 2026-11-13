@@ -306,6 +306,14 @@ const REGISTERED: Ratchet[] = [
     kind: "nested-record",
     max: 0,
   },
+  // The harness's waits for open product defects (each masks one).  Pinned so
+  // a new wait is a reviewed act; the coverage census expires each one.
+  {
+    file: "test/behavioral/registers.mjs",
+    name: "HARNESS_WAITS",
+    kind: "record",
+    max: 1,
+  },
   // The Elixir corpus compile tier's skip map — the fifth leg of the per-backend
   // set registered above (java / python / dotnet / tsc), left out only because
   // it lives in its own workflow (`corpus-elixir-build.yml`, split off for the
@@ -387,7 +395,7 @@ const REGISTERED: Ratchet[] = [
     // 21 → 22: `domain-symbol-collisions`, a compile-tier row (domain names
     // colliding with a symbol the target binds: TS2304, CS0104, a python
     // decorator rebound); every fix is a host spelling the wire cannot see.
-    max: 22,
+    max: 20,
   },
 ];
 

@@ -236,6 +236,23 @@ function baseReads({ passes = [], pins = {} } = {}) {
  *  the one test a `race` entry may pin: only a race can show what it measures. */
 export const RACE_PROBE_TEST = "two writers with the same If-Match";
 
+/**
+ * HARNESS WAITS — places where the harness waits out a product defect rather
+ * than racing it, each tied to the open issue that fixes it.  A wait MASKS its
+ * defect, so it may not outlive the fix: the coverage census
+ * (test/support/fakes/coverage.test.ts) fails a wait whose issue is no longer
+ * in its open-issue set, or whose `reviewUntil` has passed.  Delete the entry
+ * (and its read site) in the fix's PR.
+ */
+export const HARNESS_WAITS = {
+  "#5712": {
+    reviewUntil: "2027-02-15",
+    ms: 1000,
+    what:
+      "the node leg settles after bootApp for a channel-bound deployable: a producer's broker publisher connects asynchronously and nothing holds boot for it, so a request served at once loses its ephemeral event",
+  },
+};
+
 export const BEHAVIOURAL_XFAIL = {
   node: {},
   mikroorm: {},

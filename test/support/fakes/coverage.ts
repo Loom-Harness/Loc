@@ -54,6 +54,7 @@ export const OPEN_TRACKING_ISSUES: ReadonlySet<string> = new Set([
   "#5615",
   "#5617",
   "#5619",
+  "#5712",
 ]);
 
 /** A pending row may not be parked further out than this. */

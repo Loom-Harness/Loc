@@ -31,6 +31,7 @@ import { fileURLToPath } from "node:url";
 import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { localesBeside, writeCaseSource } from "./case-source.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
+import { HARNESS_WAITS } from "./registers.mjs";
 import { authzLadderTail, makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
 import { MIGRATOR_IMPORT, SCHEMA_AGREEMENT_IMPORT, applyMigrationsStmt, schemaAgreementStmt } from "./emitted-schema.mjs";
@@ -158,11 +159,12 @@ function entrySource({ deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, aut
     : `import { createApp } from ${J(join(deplDir, "http/index.ts"))};`;
   const bootedDecl = channelBoot ? "\n  let booted;" : "";
   // A producer-only deployable's broker publisher connects asynchronously
-  // and nothing holds boot for it, so the harness gives it a moment
-  // before the first request, as the slower process boot of the other legs
-  // does by accident.
+  // and nothing holds boot for it, so the harness gives it a moment before
+  // the first request — a registered, expiring wait (HARNESS_WAITS), since it
+  // masks the defect.
+  const settleMs = HARNESS_WAITS["#5712"]?.ms ?? 0;
   const appBoot = channelBoot
-    ? "\n  booted = await bootApp(db);\n  await new Promise((r) => setTimeout(r, 1000));\n  const app = booted.app;"
+    ? `\n  booted = await bootApp(db);${settleMs ? `\n  await new Promise((r) => setTimeout(r, ${settleMs}));` : ""}\n  const app = booted.app;`
     : "";
   const appCreate = channelBoot ? "" : "\n  const app = createApp(db);";
   const appStop = channelBoot ? "\n    await booted?.stop();" : "";

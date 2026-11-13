@@ -19,6 +19,7 @@ import {
   SURFACE_KIND_MAP,
   supportsSurfaceKind,
 } from "../../../src/util/source-types.js";
+import { HARNESS_WAITS } from "../../behavioral/registers.mjs";
 import { COVERAGE, type CoverageRow, MAX_PENDING_DAYS, OPEN_TRACKING_ISSUES } from "./coverage.js";
 
 const HERE = __dirname;
@@ -43,7 +44,12 @@ function requiredPairs(): { pair: string; unbindable: boolean }[] {
 /** The census verdicts over a table, against an issue-state lookup and a clock. */
 function censusProblems(
   rows: readonly CoverageRow[],
-  opts: { today: Date; open: ReadonlySet<string>; isClosed?: (issue: string) => boolean },
+  opts: {
+    today: Date;
+    open: ReadonlySet<string>;
+    isClosed?: (issue: string) => boolean;
+    waits?: Readonly<Record<string, { reviewUntil: string }>>;
+  },
 ): string[] {
   const out: string[] = [];
   const byPair = new Map(rows.map((r) => [key(r.sourceType, r.kind), r]));
@@ -95,7 +101,24 @@ function censusProblems(
       }
     }
   }
-  const used = new Set<string>(rows.flatMap((r) => (r.pending ? [r.pending.issue] : [])));
+  // A harness wait masks an open defect: held to the same open issue and
+  // dated review as a pending row, and it counts as leaning on that issue.
+  const waits = Object.entries(opts.waits ?? {});
+  for (const [issue, w] of waits) {
+    const at = `harness wait ${issue}`;
+    if (!opts.open.has(issue)) out.push(`${at}: ${issue} is not in OPEN_TRACKING_ISSUES`);
+    if (opts.isClosed?.(issue)) out.push(`${at}: ${issue} is closed — delete the wait`);
+    const due = new Date(`${w.reviewUntil}T00:00:00Z`);
+    if (Number.isNaN(due.getTime())) out.push(`${at}: reviewUntil ${w.reviewUntil} is not a date`);
+    else if (due < opts.today) out.push(`${at}: review date ${w.reviewUntil} has passed`);
+    else if (due.getTime() - opts.today.getTime() > MAX_PENDING_DAYS * 86_400_000) {
+      out.push(`${at}: review date ${w.reviewUntil} is more than ${MAX_PENDING_DAYS} days out`);
+    }
+  }
+  const used = new Set<string>([
+    ...rows.flatMap((r) => (r.pending ? [r.pending.issue] : [])),
+    ...waits.map(([issue]) => issue),
+  ]);
   for (const i of OPEN_TRACKING_ISSUES)
     if (!used.has(i)) out.push(`${i}: in OPEN_TRACKING_ISSUES but no row is pending on it`);
   return out;
@@ -105,7 +128,9 @@ const today = new Date();
 
 describe("coverage census", () => {
   it("every registered sourceType × kind is backed, and every claim holds", () => {
-    expect(censusProblems(COVERAGE, { today, open: OPEN_TRACKING_ISSUES })).toEqual([]);
+    expect(
+      censusProblems(COVERAGE, { today, open: OPEN_TRACKING_ISSUES, waits: HARNESS_WAITS }),
+    ).toEqual([]);
   });
 
   it("a newly registered sourceType fails until it has a row", () => {
@@ -114,9 +139,9 @@ describe("coverage census", () => {
       supports: { objectStore: { capabilities: new Set(), interfaces: new Set() } },
     });
     try {
-      expect(censusProblems(COVERAGE, { today, open: OPEN_TRACKING_ISSUES })).toContain(
-        "loomFakeStore × objectStore: no coverage row",
-      );
+      expect(
+        censusProblems(COVERAGE, { today, open: OPEN_TRACKING_ISSUES, waits: HARNESS_WAITS }),
+      ).toContain("loomFakeStore × objectStore: no coverage row");
     } finally {
       _unregisterSourceTypeForTests("loomFakeStore");
     }
@@ -127,12 +152,35 @@ describe("coverage census", () => {
     const at = key(row.sourceType, row.kind);
     const issue = row.pending?.issue as string;
     expect(
-      censusProblems(COVERAGE, { today, open: OPEN_TRACKING_ISSUES, isClosed: (i) => i === issue }),
+      censusProblems(COVERAGE, {
+        today,
+        open: OPEN_TRACKING_ISSUES,
+        waits: HARNESS_WAITS,
+        isClosed: (i) => i === issue,
+      }),
     ).toContain(`${at}: pending on ${issue}, which is closed`);
     const later = new Date(`${row.pending?.reviewUntil}T00:00:00Z`);
     later.setUTCDate(later.getUTCDate() + 1);
-    expect(censusProblems(COVERAGE, { today: later, open: OPEN_TRACKING_ISSUES })).toContain(
-      `${at}: review date ${row.pending?.reviewUntil} has passed`,
+    expect(
+      censusProblems(COVERAGE, { today: later, open: OPEN_TRACKING_ISSUES, waits: HARNESS_WAITS }),
+    ).toContain(`${at}: review date ${row.pending?.reviewUntil} has passed`);
+  });
+
+  it("a harness wait fails once its issue closes or its review date passes", () => {
+    const [issue, wait] = Object.entries(HARNESS_WAITS)[0] as [string, { reviewUntil: string }];
+    const base = { open: OPEN_TRACKING_ISSUES, waits: HARNESS_WAITS };
+    expect(censusProblems(COVERAGE, { ...base, today, isClosed: (i) => i === issue })).toContain(
+      `harness wait ${issue}: ${issue} is closed — delete the wait`,
+    );
+    const later = new Date(`${wait.reviewUntil}T00:00:00Z`);
+    later.setUTCDate(later.getUTCDate() + 1);
+    expect(censusProblems(COVERAGE, { ...base, today: later })).toContain(
+      `harness wait ${issue}: review date ${wait.reviewUntil} has passed`,
+    );
+    // Dropping the issue from the open set fails the wait that leans on it.
+    const open = new Set([...OPEN_TRACKING_ISSUES].filter((i) => i !== issue));
+    expect(censusProblems(COVERAGE, { ...base, open, today })).toContain(
+      `harness wait ${issue}: ${issue} is not in OPEN_TRACKING_ISSUES`,
     );
   });
 
@@ -156,6 +204,7 @@ describe("coverage census", () => {
         censusProblems(COVERAGE, {
           today,
           open: OPEN_TRACKING_ISSUES,
+          waits: HARNESS_WAITS,
           isClosed: (i) => closed.has(i),
         }),
       ).toEqual([]);
