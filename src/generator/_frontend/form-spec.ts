@@ -139,7 +139,7 @@ export interface FormSpecEnv {
   /** The fields of a resolvable value object. */
   valueObjectFields(
     name: string,
-  ): readonly { name: string; type: TypeIR; optional?: boolean }[] | undefined;
+  ): readonly { name: string; type: TypeIR; optional?: boolean; default?: ExprIR }[] | undefined;
   /** The referenced aggregate declares `derived display`. */
   hasDisplay(aggregate: string): boolean;
   /** The aggregate's list read is a paged envelope. */
@@ -288,7 +288,7 @@ export function formFieldSpec(
         spec.valueObject = voName;
         spec.children = voFields.map((vf) =>
           formFieldSpec(
-            { name: vf.name, type: vf.type, optional: vf.optional },
+            { name: vf.name, type: vf.type, optional: vf.optional, default: vf.default },
             env,
             kind === "objectArray" ? vf.name : `${path}.${vf.name}`,
           ),
