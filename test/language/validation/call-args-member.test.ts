@@ -64,3 +64,43 @@ describe("expression-position member-call args (M-T6.18 gap #2)", () => {
     expect(await codes('operation go() { let d = price.scaled("x")  qty := qty }')).toContain(TYPE);
   });
 });
+
+// A domain-service call's head names a declaration, not a value, so the
+// running-receiver walk had nothing to step into and its arguments went
+// unchecked: a `Speciality id[]` reached a `guid[]` param and every typed
+// backend failed to compile the call (`List<SpecialityId>` → `List<Guid>`).
+describe("domain-service call args", () => {
+  const svc = (body: string) => `
+system Demo {
+  subdomain S {
+    context C {
+      aggregate Spec with crudish { name: string }
+      aggregate Prov with crudish { specs: Spec id[] }
+      domainService Scoring {
+        operation overlapOf(wanted: guid[], has: guid[]): int { return 1 }
+        operation byId(s: Spec id[]): int { return 1 }
+        operation f(p: Prov): int { return ${body} }
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
+}`;
+  const svcCodes = async (body: string) =>
+    lspCodes((await parseString(svc(body), { validate: true })).diagnostics);
+
+  it("refuses an `X id[]` argument for a `guid[]` param", async () => {
+    expect(await svcCodes("Scoring.overlapOf(p.specs, p.specs)")).toContain(TYPE);
+  });
+
+  it("is CLEAN when the param declares the id type", async () => {
+    const c = await svcCodes("Scoring.byId(p.specs)");
+    expect(c).not.toContain(TYPE);
+    expect(c).not.toContain(COUNT);
+  });
+
+  it("flags a wrong arg count", async () => {
+    expect(await svcCodes("Scoring.byId()")).toContain(COUNT);
+  });
+});

@@ -28,7 +28,7 @@ import {
   isObjectLit,
   isPostfixChain,
 } from "../../language/generated/ast.js";
-import { declaredKeyTuples } from "../../language/repo-key-tuples.js";
+import { callableKeyTuples } from "../../language/repo-key-tuples.js";
 import { classifyRepoArg, type QueryNames, queryRefOf } from "../../language/repo-query-arg.js";
 import {
   bypassReadMethodName,
@@ -118,7 +118,7 @@ export function matchKeyLookupCall(
   const callArgs = s.args ?? [];
   const res = resolveKeyTuple(
     callArgs.map((a) => a.name),
-    declaredKeyTuples(repo.aggregate?.ref),
+    callableKeyTuples(repo.aggregate?.ref, expr),
   );
   const own = callArgs.map((a, i) => a.name ?? `arg${i}`);
   const columns = res.kind === "match" ? [...res.tuple] : own;
