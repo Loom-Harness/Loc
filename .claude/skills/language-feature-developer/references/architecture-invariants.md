@@ -87,8 +87,9 @@ object link Loom deliberately doesn't model.
 
 ## 10. Completeness gates are part of the contract
 A new grammar node needs a printer arm (`print-completeness`); a new UI
-primitive needs both walker mirrors (`walker-stdlib-completeness`) and a HEEx
-renderer or a pinned reason (`heex-parity`); a new IR diagnostic needs a stable
+primitive needs both walker mirrors (`walker-stdlib-completeness`) and must
+render on HEEx — the showcase reaches it (`heex-coverage`) unless the capability
+table refuses it on LiveView; a new IR diagnostic needs a stable
 `loom.*` code (`diagnostic-codes-completeness`). *Why:* these gates turn "I
 forgot to update the other half" into a CI failure instead of a silently
 degraded target.

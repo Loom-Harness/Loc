@@ -6,17 +6,19 @@ import {
   formatHeexCoverage,
   type HeexCoverageRecorder,
   type HeexCoverageReport,
+  heexRenderedPrimitives,
   installHeexCoverage,
 } from "../../../scripts/heex-coverage.mjs";
 import { WALKER_PRIMITIVES } from "../../../src/generator/_walker/registry.js";
-import { HEEX_SHARED_PRIMITIVES } from "../../../src/generator/elixir/heex-pack.js";
 import type { WalkResult } from "../../../src/generator/elixir/heex-walker.js";
+import { uiCapability } from "../../../src/util/target-capabilities.js";
 import { repoRoot } from "../../_helpers/examples.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // The HEEx showcase fixture reaches every walker primitive the HEEx target
-// renders (a `heex` renderer, or the shared core's for `HEEX_SHARED_PRIMITIVES`)
-// and every `WalkResult` accumulator the HEEx walker fills.
+// renders (`heexRenderedPrimitives`: every registered primitive the capability
+// table admits on LiveView) and every `WalkResult` accumulator the HEEx walker
+// fills.  This is the per-target primitive completeness check for HEEx.
 //
 // This is the coverage floor the HEEx walker refactors rely on: the corpus
 // diff (`scripts/heex-corpus-diff.mjs`) can only prove a change byte-identical
@@ -56,7 +58,10 @@ describe("HEEx showcase coverage", () => {
   let files: Map<string, string>;
 
   beforeAll(async () => {
-    recorder = installHeexCoverage(WALKER_PRIMITIVES, HEEX_SHARED_PRIMITIVES);
+    recorder = installHeexCoverage(
+      WALKER_PRIMITIVES,
+      heexRenderedPrimitives(WALKER_PRIMITIVES, uiCapability),
+    );
     recorder.setInput("heex-showcase");
     try {
       files = await generateSystemFiles(fs.readFileSync(FIXTURE, "utf8"));

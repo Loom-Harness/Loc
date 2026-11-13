@@ -2,8 +2,7 @@
 // A `Tab` panel renders EVERY body child — every one after the first was
 // dropped, on all SEVEN targets (A7, the #2567 `Card` class).
 //
-// `emitTabs` read the panel body as ONE expression (`tabPositionals[1]`), and
-// the HEEx engine carried the identical line (`body: pos[1]`).  So
+// `emitTabs` read the panel body as ONE expression (`tabPositionals[1]`).  So
 // `Tab { "Ovw", Text { "A" }, Text { "B" } }` rendered `A` and silently deleted
 // `B` — while the exact same body under a `Stack` worked.  The give-away that
 // it was a DROP rather than a language limit: the deleted literal still
@@ -117,10 +116,9 @@ describe("a Tab panel keeps every body child", () => {
     expect(src).toContain("missing tab body");
   });
 
-  it("HEEx — the parallel engine renders every panel child too", async () => {
-    // Phoenix/LiveView does not consume `walkBody`; `heex-primitives.ts` had
-    // the identical single-slot read and needed the identical fix.  Pinned so
-    // the two engines cannot drift apart again.
+  it("HEEx renders every panel child too", async () => {
+    // Phoenix/LiveView renders `Tabs` through the shared emitter and the HEEx
+    // pack; pinned so its panels keep every child.
     const files = await generateSystemFiles(`
 system TabChildrenHeex {
   subdomain M {

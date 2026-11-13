@@ -19,10 +19,10 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 //     against an `%Aggregate{}` struct — `Protocol.UndefinedError`, because a
 //     struct is not Enumerable.
 //
-// The JSX walker had always derived paged-ness; HEEx runs a parallel engine and
-// did not.  Both now go through the one `queryShape` derivation
-// (`_walker/paged-query.ts`), which is what makes the two engines' answers
-// impossible to disagree rather than merely equal today.
+// The JSX walker had always derived paged-ness; HEEx's read binding did not.
+// Both now go through the one `queryShape` derivation
+// (`_walker/paged-query.ts`), which is what makes their answers impossible to
+// disagree rather than merely equal today.
 // ---------------------------------------------------------------------------
 
 const phoenixSystem = (route: string, uiBody: string): string => `

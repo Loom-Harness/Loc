@@ -251,7 +251,7 @@ function walkRenderedPrimitives(
 // the rows client-side.  It renders on the six frameworks that ride the shared
 // `walkBody` core — all six declare the `renderFilteredRows` +
 // `renderFilterInput` seams — and, since wave C2 packet 2m, on HEEx too: the
-// parallel engine (`elixir/heex-primitives.ts` `renderTable`) emits the bound
+// table renderer (`elixir/heex-table.ts` `renderTable`) emits the bound
 // `<.input type="search">` plus `LoomTable.filter_rows/2` around the bound
 // rows.  So the per-framework arm below is now a LATENT seam for a new
 // frontend, and what still bites is the second clause:
@@ -272,8 +272,8 @@ function walkRenderedPrimitives(
 
 /** Frontends whose walker renders `Table { filter: … }` — the six that declare
  *  `renderFilteredRows` + `renderFilterInput` on their `WalkerTarget`, plus
- *  phoenixLiveView, whose parallel engine grew the pair's equivalent in wave
- *  C2 packet 2m.  That is EVERY shipping frontend, so this arm is now a latent
+ *  phoenixLiveView, whose `renderTable` override renders the pair's
+ *  equivalent.  That is EVERY shipping frontend, so this arm is now a latent
  *  seam: it fires for a frontend that has not been written yet.
  *
  *  EXPORTED so its own test can prove the gate still bites: with every

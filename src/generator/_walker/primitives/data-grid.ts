@@ -3,8 +3,8 @@
 // WHY THIS IS NOT `Table`
 // -----------------------
 // `Table` is deliberately simple and portable: it renders markup around a
-// rows expression the walker has already sorted/sliced, so all six frontends
-// (plus the parallel HEEx engine) can implement it.  It covers single-column
+// rows expression the walker has already sorted/sliced, so all seven frontends
+// can implement it (HEEx through its `renderTable` override).  It covers single-column
 // sort, one substring filter, and prev/next paging — and for the scaffold's
 // server-paged list the server does the work anyway.
 //

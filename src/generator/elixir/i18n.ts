@@ -52,6 +52,7 @@ import {
   optionalProblemKeys,
 } from "../_frontend/i18n-runtime.js";
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
+import { uiUsesLocaleFormat } from "../_i18n/locale-format.js";
 import { sourceText } from "../_i18n/source-text.js";
 import {
   APP_SHELL_CHROME,
@@ -74,7 +75,12 @@ export const GETTEXT_DEP = `{:gettext, "0.26.2"}`;
  *  the four JS frontends and Feliz, and of `package:intl`'s `MessageFormat` on
  *  Flutter.  It pulls `ex_cldr` + `ex_cldr_numbers` transitively; `ex_cldr` is
  *  named explicitly because the generated backend module `use`s it. */
-export const ICU_DEPS = [`{:ex_cldr, "2.47.5"}`, `{:ex_cldr_messages, "1.0.4"}`];
+export const ICU_DEPS = [
+  `{:ex_cldr, "2.47.5"}`,
+  `{:ex_cldr_numbers, "2.38.4"}`,
+  `{:ex_cldr_dates_times, "2.25.8"}`,
+  `{:ex_cldr_messages, "1.0.4"}`,
+];
 
 /** True when this ui has any extractable user-visible string — the single gate
  *  for the whole runtime (backend module + `.po`/`.pot` + the `mix.exs` dep +
@@ -94,6 +100,15 @@ export function heexI18nEnabled(ui: UiIR): boolean {
  *  translatable app instead of the ones that use interpolation. */
 export function heexIcuEnabled(ui: UiIR): boolean {
   return collectUiMessages(ui).some((m) => m.icu);
+}
+
+/** True when this ui needs the CLDR runtime — the SECOND-tier gate: an
+ *  interpolated message ({@link heexIcuEnabled}) or a `DateDisplay`, whose
+ *  output follows the active locale.  A
+ *  translatable ui with neither stays CLDR-free: its text resolves through
+ *  gettext alone and its dependency list is the gettext-only one. */
+export function heexCldrEnabled(ui: UiIR): boolean {
+  return heexIcuEnabled(ui) || uiUsesLocaleFormat(ui);
 }
 
 /** `lib/<app>/cldr.ex` — the CLDR backend `ex_cldr_messages` formats against.
@@ -133,7 +148,7 @@ export function renderCldrBackend(
     "  use Cldr,",
     "    locales: @known,",
     `    default_locale: ${JSON.stringify(sourceLocale)},`,
-    "    providers: [Cldr.Number, Cldr.Message]",
+    "    providers: [Cldr.Number, Cldr.Date, Cldr.Time, Cldr.DateTime, Cldr.Message]",
     "end",
   );
 }
@@ -145,15 +160,22 @@ export function renderCldrBackend(
  *  template through `html_helpers`, where a generic name would collide with
  *  Phoenix's own helpers or the page's.
  *
- *  The FALLBACK is the interesting half.  `ex_cldr_messages` implements ICU
- *  MessageFormat but not ICU number SKELETONS — `{total, number,
- *  ::currency/USD}`, which is the canonical currency spelling Loom's own
- *  grammar documents — and raises outright on a `date`/`time` style unless
- *  `ex_cldr_dates_times` is also configured.  Rather than crash a page render
- *  on a message shape the DSL admits, an unformattable message degrades to raw
- *  hole substitution: the value is interpolated unformatted, which is EXACTLY
- *  what pre-i18n Phoenix rendered for that hole.  Same trade, and same reason,
- *  as the Flutter runtime's documented `_substitute` fallback.
+ *  `ex_cldr_messages` implements ICU MessageFormat — including `{d, date}` and
+ *  `{n, number}` against the CLDR backend's date and number providers — but not
+ *  ICU number SKELETONS (`{total, number, ::currency/USD}`, the canonical
+ *  currency spelling Loom's own grammar documents).  The skeletons Loom spells
+ *  (`currency/<ISO>`, `percent`) are therefore formatted here through
+ *  `Cldr.Number` before the message step.
+ *
+ *  The FALLBACK is the interesting half.  A message the engine still cannot
+ *  format (a skeleton token outside that set, a malformed translation) degrades
+ *  to raw hole substitution rather than crash a page render: the value is
+ *  interpolated unformatted, which is EXACTLY what pre-i18n Phoenix rendered
+ *  for that hole.  Same trade, and same reason, as the Flutter runtime's
+ *  documented `_substitute` fallback.
+ *
+ *  `loom_date/1` is `DateDisplay`'s runtime: the date renders in the locale the
+ *  request negotiated.
  *
  *  Both the `{:error, _}` tuple and a raise are caught: the library reports a
  *  parse/bind failure as a tuple but a missing date provider as a
@@ -170,18 +192,86 @@ export function renderIcuRuntime(appModule: string): string {
     "",
     '      loom_icu(pgettext("page.Home.text.k2f", "Status: {code}"), code: @code)',
     "",
-    "  An unformattable message (an ICU number SKELETON such as",
-    "  `::currency/USD`, or a date style with no `ex_cldr_dates_times`) falls",
-    "  back to raw hole substitution rather than raising — the value renders",
-    "  unformatted, which is what this app rendered before it was translatable.",
+    "  ICU number skeletons (`::currency/USD`, `::percent`) are formatted through",
+    "  `Cldr.Number`.  A message the engine still cannot format falls back to raw",
+    "  hole substitution rather than raising — the value renders unformatted,",
+    "  which is what this app rendered before it was translatable.",
+    "",
+    "  `loom_date/1` formats a date in the negotiated locale for `DateDisplay`.",
     '  """',
     "",
     '  @doc "Format an ICU message against its bindings; never raises."',
     "  def loom_icu(message, bindings) when is_binary(message) do",
-    "    case safe_format(message, bindings) do",
+    "    {expanded, expanded_bindings} = expand_skeletons(message, bindings)",
+    "",
+    "    case safe_format(expanded, expanded_bindings) do",
     "      {:ok, formatted} -> formatted",
     "      :error -> substitute(message, bindings)",
     "    end",
+    "  end",
+    "",
+    '  @doc "A date in the active locale (`Date`, `DateTime` or `NaiveDateTime`); never raises."',
+    '  def loom_date(nil), do: ""',
+    "",
+    "  def loom_date(value) do",
+    `    case ${appModule}.Cldr.Date.to_string(value) do`,
+    "      {:ok, text} -> text",
+    "      _ -> iso_date(value)",
+    "    end",
+    "  rescue",
+    "    _ -> iso_date(value)",
+    "  end",
+    "",
+    '  defp iso_date(%{year: _, month: _, day: _} = value), do: Calendar.strftime(value, "%Y-%m-%d")',
+    "  defp iso_date(value), do: to_string(value)",
+    "",
+    "  # A numeric string (a projection field) parses to a Decimal so CLDR can format it.",
+    "  defp number(value) when is_binary(value) do",
+    "    case Decimal.parse(value) do",
+    '      {decimal, ""} -> decimal',
+    "      _ -> value",
+    "    end",
+    "  end",
+    "",
+    "  defp number(value), do: value",
+    "",
+    "  # `{x, number, ::currency/USD}` is an ICU number SKELETON, which Cldr.Message",
+    "  # does not implement.  Each skeleton is formatted here through Cldr.Number",
+    "  # and its hole replaced by a plain one bound to the text.  A skeleton this",
+    "  # cannot express stays in the message, so the whole message degrades to raw",
+    "  # substitution.  The new hole names derive from the match index, never from",
+    "  # message text, so the atom table stays bounded.",
+    "  @skeleton ~r/\\{\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*,\\s*number\\s*,\\s*::([^{}]*?)\\s*\\}/",
+    "",
+    "  defp expand_skeletons(message, bindings) do",
+    "    @skeleton",
+    "    |> Regex.scan(message)",
+    "    |> Enum.with_index()",
+    "    |> Enum.reduce({message, bindings}, fn {[whole, name, skeleton], index}, {msg, binds} ->",
+    "      with {_, value} <- Enum.find(binds, fn {key, _} -> Atom.to_string(key) == name end),",
+    "           {:ok, opts} <- skeleton_options(skeleton),",
+    `           {:ok, text} <- ${appModule}.Cldr.Number.to_string(number(value), opts) do`,
+    '        hole = String.to_atom("loom_skeleton_#{index}")',
+    '        {String.replace(msg, whole, "{#{hole}}", global: false), [{hole, text} | binds]}',
+    "      else",
+    "        _ -> {msg, binds}",
+    "      end",
+    "    end)",
+    "  end",
+    "",
+    "  defp skeleton_options(skeleton) do",
+    "    skeleton",
+    "    |> String.split()",
+    "    |> Enum.reduce_while({:ok, []}, fn",
+    '      "currency/" <> code, {:ok, opts} when byte_size(code) == 3 ->',
+    "        {:cont, {:ok, [{:currency, String.upcase(code)} | opts]}}",
+    "",
+    '      "percent", {:ok, opts} ->',
+    "        {:cont, {:ok, [{:format, :percent} | opts]}}",
+    "",
+    "      _, _ ->",
+    "        {:halt, :error}",
+    "    end)",
     "  end",
     "",
     '  @doc """',

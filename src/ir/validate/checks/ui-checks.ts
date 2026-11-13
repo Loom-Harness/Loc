@@ -451,7 +451,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
 /** …with ONE framework carved out.  The walker has no `exprLambda` seam: a
  *  `.map(λ)` falls through to `<recv>.map(<args>)` with a hardcoded JS arrow
  *  (`(x) => …`).  That is real code on React/Vue/Svelte/Angular, valid Dart on
- *  Flutter, and HEEx routes it through its own engine — but on FELIZ it emits
+ *  Flutter, and HEEx renders it through its own expression renderer — but on FELIZ it emits
  *  verbatim JS into an F# file, which `dotnet fable` rejects.  So `map` keeps
  *  its exemption everywhere except Feliz, where it joins the gated ops rather
  *  than shipping unbuildable output.  Delete this carve-out when the walker

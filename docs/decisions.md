@@ -753,8 +753,9 @@ plural/select would be lost outright. One `messageKey()` → one catalog →
 one message is the invariant the whole i18n design rests on.
 
 **Second-tier gate.** The CLDR backend costs real compile time, so it
-ships only for a ui with an **interpolated** message — one tier below
-the existing "has any string at all" gate. A translatable-but-literal-only
+ships only for a ui with an **interpolated** message (or a `DateDisplay`,
+`D-HEEX-I18N-FORMAT`) — one tier below the existing "has any string at
+all" gate. A translatable-but-literal-only
 Phoenix app keeps the deps, files and bytes it had before. The gate reads
 the extraction pass's per-entry `icu` marker, not a `{`-sniff over the
 catalog: merged pack chrome carries holes too (`chrome.pageOf` is "Page
@@ -762,11 +763,11 @@ catalog: merged pack chrome carries holes too (`chrome.pageOf` is "Page
 
 **Documented degradation.** `ex_cldr_messages` implements ICU
 MessageFormat but not ICU number **skeletons** — `{total, number,
-::currency/USD}`, the spelling Loom's own grammar documents — and raises
-on a `date` style unless `ex_cldr_dates_times` is configured. An
-unformattable message degrades to raw hole substitution rather than
-crashing the render: the value appears unformatted, which is what the
-page showed before it was translatable. Same trade, same reason, as the
+::currency/USD}`, the spelling Loom's own grammar documents — so the
+generated runtime formats the skeletons Loom spells through `Cldr.Number`
+(`D-HEEX-I18N-FORMAT`). A message the engine still cannot format degrades
+to raw hole substitution rather than crashing the render: the value appears
+unformatted, which is what the page showed before it was translatable. Same trade, same reason, as the
 Flutter runtime's `_substitute` fallback — though Flutter no longer
 *needs* it for skeletons: its runtime pre-formats the `, number` /
 `, date` / `, time` holes through `intl`'s `NumberFormat`/`DateFormat`
@@ -4737,57 +4738,51 @@ than done here.
 
 ---
 
-## D-HEEX-I18N-FORMAT — `i18nFormat` is a documented permanent LiveView divergence, not a gap
+## D-HEEX-I18N-FORMAT — Phoenix formats numbers and dates through CLDR, in the negotiated locale
 
-**Status:** applied — the proposed default took effect 2026-09-24 (merged to `main` 2026-09-22 in #2970; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
-Raised by wave C2 packet 2a (§7.1 of its hand-off), which found the ledger's own
-proposed disposition unavailable, and taken by packet 2m.
+**Status:** applied.
 
-**Question.** `G2646-open-heex-layout-inert` carries two live arms. One is the
-missing pager on a non-server-paged `Table` — built in packet 2m. The other is
-the `i18nFormat` wrapper, which `heex-walker-core.ts`'s arm drops by design ("the
-format is dropped: render the wrapped operand"). The ledger's fix line says
-"honour it or pin it in the heex-parity freeze list with a reason" — but that
-freeze list is over walker PRIMITIVES, and `i18nFormat` is an `ExprIR` kind, so
-the pin it proposes does not exist.
+**Question.** The four JS frontends, Feliz and Flutter format a number or a
+date in the active locale through their platform (`Intl`, `intl`). Phoenix
+renders on the server, where the equivalent is a CLDR library compiled into
+the app. Does a generated Phoenix app carry one, and what does it format?
 
-**Options.** (a) add a CLDR-shaped number/date formatter dependency to every
-generated Phoenix app and honour the wrapper; (b) ratify the drop as a permanent,
-documented LiveView divergence and retire the arm from the ledger row; (c) mint
-a `loom.*` code so the author is told their format is ignored.
+**Decision.** Yes, behind the second-tier i18n gate that already ships the
+ICU engine (`D-I18N-HEEX-ICU`). The gate is "an interpolated message, or a
+`DateDisplay`", so a translatable-but-literal-only app stays CLDR-free: its
+text resolves through gettext alone and its dependency list is the
+gettext-only one. When the gate opens the app gets `ex_cldr`,
+`ex_cldr_numbers`, `ex_cldr_dates_times` and `ex_cldr_messages`, and a
+backend that compiles every shipped locale's data.
 
-**Decision.** (b), with the operand's rendering unchanged. The value still
-renders — what is dropped is the LOCALE-AWARE FORMATTING of it.
+What is formatted:
 
-**Rationale.**
+- **ICU holes.** `{d, date}` / `{d, time}` and `{n, number}` format through
+  the message engine's number and date providers. The number **skeletons**
+  Loom spells (`::currency/<ISO>`, `::percent`) are formatted by the
+  generated runtime through `Cldr.Number` before the message step, because
+  the engine does not implement skeletons.
+- **`DateDisplay`.** Under i18n it renders through `loom_date/1`, which formats
+  the value in the locale the request negotiated; the `<time datetime>`
+  attribute stays ISO. Without i18n it keeps `Calendar.strftime` ISO output.
+- **The `i18nFormat` wrapper** is carried inside the interpolated message's
+  ICU text (the shared `icuFromConcat` re-detection), so the same message and
+  the same key reach the `.po` catalog as on the other frontends. A wrapper
+  that is not part of a message still renders its operand unformatted.
 
-- **(a) is a dependency decision wearing a gap's clothes.** The four JSX targets
-  format through `Intl`, which is in every browser at zero cost. Phoenix renders
-  on the server, where the equivalent is a CLDR library compiled into the app
-  (`ex_cldr` and friends) — a new hex dependency, a compile-time locale set, and
-  a per-app configuration surface, added to EVERY generated Phoenix app for a
-  wrapper most models never use. That is a feature with a dependency ruling in
-  it, not a drain.
-- **(c) would fire on a model that is otherwise fully supported.** The i18n
-  layer itself ships on this target — `pgettext` keys every user-visible slot,
-  and packet-era work added the ICU engine for INTERPOLATION
-  (`D-I18N-HEEX-ICU`). Only the number/date FORMAT wrapper is dropped. An error
-  there would refuse a page whose text is already translated.
-- **The drop is already local and documented at the emission site**, which is
-  where a reader meets it.
+**Degradation.** A message the engine still cannot format (a skeleton token
+outside `currency/<ISO>` and `percent`, a malformed translation) renders its
+holes by raw substitution rather than crashing the page, and `loom_date/1`
+falls back to the ISO date.
 
-**Consequences.** The `i18nFormat` arm is retired from
-`G2646-open-heex-layout-inert`; with its pager arm built in packet 2m and its
-Grid arm already retired as stale, the ledger row closes. The emission-site
-comment in `src/generator/elixir/heex-walker-core.ts` is the record. If a
-generated Phoenix app ever gains a CLDR dependency for another reason, this
-ruling should be re-opened — the cost argument is the whole argument.
+**Not covered.** `Money { format: "locale" }` stays refused on Phoenix
+(`loom.target-unsupported#money-locale-format`); the amount in an interpolated
+message formats through its ICU hole.
 
-**Unblocks.** `G2646-open-heex-layout-inert` → `done` (wave **C2 packet 2m**).
-
-**Sources.** `src/generator/elixir/heex-walker-core.ts` (the `i18nFormat` arm);
-[`targets-completeness-2026-08-30.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/targets-completeness-2026-08-30.md);
-`D-I18N-HEEX-ICU` above (the interpolation half, which DID get an engine).
+**Affects.** `generator/elixir/i18n.ts` (the CLDR backend, the `loom_icu/2` /
+`loom_date/1` runtime, the gate), `generator/elixir/heex-pack.ts`
+(`renderDateDisplay`), `generator/_i18n/locale-format.ts` (`uiUsesLocaleFormat`),
+`generator/elixir/vanilla/shell-emit.ts`.
 
 ---
 
@@ -6745,3 +6740,55 @@ and fetches over HTTP.
 - `server-session-data-access.test.ts`: every `server-session` target's
   generated pages import no HTTP API client, run no hook runtime, validate no
   zod wire schema, and make every data read as an in-process context call.
+
+---
+
+## D-HEEX-SHARED-WALKER — Phoenix LiveView renders on the shared walker core; there is no second page walker
+
+**Status:** PINNED, 2026-11-11. Supersedes the June 2026 architecture review's
+§5 call to keep the HEEx page walker separate
+([history](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/architecture-review-2026-06.md)).
+
+**Context.** The June review kept LiveView on its own recursion engine
+because the `WalkerTarget` contract could not express three things LiveView
+needs: lambdas hoisted to `handle_event/3` clauses, `for` comprehensions and
+`if`-block children. The shared core has since gained a seam for each of them,
+built for other frontends: hoisted handlers for Feliz (`bindEventHandler`),
+`renderForEach` for Svelte, Vue and Angular, and the block forms of
+`renderConditionalChild` / `renderMatchChild`. It also gained the data-access
+seam for a server-session target (D-LIVEVIEW-REFERENCE). The HEEx engine was
+moved onto the core one primitive at a time, and the HEEx corpus diff stayed
+byte-identical at every step.
+
+**Decision.**
+- Every frontend, LiveView included, renders a page or component body through
+  `walkBody` (`src/generator/_walker/walker-core.ts`). `heexTarget`
+  (`src/generator/elixir/heex-target.ts`) is a target like the others. It has
+  no whole-node escape hatch, and the `WalkerTarget` contract has none.
+- LiveView's differences are seams on `heexTarget`:
+  - Its expressions render as Elixir through its own expression renderer
+    (`heex-walker-core.ts`, reached by `renderExprOverride` /
+    `renderTextContentOverride`).
+  - Its handlers are bound through `bindEventHandler`.
+  - Its per-scope walk state uses `scopeSink`, including the `tab-group` scope
+    that numbers `Tabs` in document order.
+  - Its user components render through `renderUserComponent`.
+- A primitive whose LiveView form needs wiring the shared emitter does not
+  model renders whole through a named override on `heexTarget`. The wiring
+  covers an Ecto changeset bound in `mount`, a hoisted sort/page/upload
+  handler, and an assign the page loads. The overrides are the forms,
+  `Table`, `FileUpload`, `Modal`, `FileLink`, `ProvenanceInfo`, `Timeline`,
+  `IdLink`, `Chart` and `Action`, and they live in their own modules
+  (`heex-form.ts`, `heex-table.ts`, `heex-display.ts`, …). Every other
+  primitive renders through its shared emitter and the procedural HEEx pack
+  (`heex-pack.ts`).
+- The primitive registry has one renderer slot. Primitive coverage on LiveView
+  is the HEEx showcase gate (`heex-coverage.test.ts`), which must reach every
+  primitive that the capability table admits on `phoenixLiveView`. `DataGrid`
+  stays refused (`loom.target-unsupported#datagrid`).
+
+**Guards.**
+- The HEEx corpus diff (`scripts/heex-corpus-diff.mjs`) for any change to the
+  walker or the HEEx target.
+- `heex-coverage.test.ts`, the walker-core framework census, and the
+  D-LIVEVIEW-REFERENCE legs.

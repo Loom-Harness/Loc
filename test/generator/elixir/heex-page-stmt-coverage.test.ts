@@ -149,7 +149,7 @@ describe("HEEx page statement coverage (Bucket E2)", () => {
       false,
       new Map([["Line", "PhoenixApp.Sales"]]),
     ).heex;
-    expect(heex).toBe('%PhoenixApp.Sales.Line{sku: "abc"}');
+    expect(heex).toBe('<%= %PhoenixApp.Sales.Line{sku: "abc"} %>');
     expect(heex).not.toContain("TODO");
     expect(heex).not.toContain("unsupported in page body");
   });
@@ -165,7 +165,7 @@ describe("HEEx page statement coverage (Bucket E2)", () => {
     } as unknown as PageIR;
     const ui = { pages: [], components: [], helperImports: [] } as unknown as UiIR;
     const heex = walkBodyToHeex(body, page, ui, "PhoenixApp").heex;
-    expect(heex).toBe("%PhoenixApp.Line{}");
+    expect(heex).toBe("<%= %PhoenixApp.Line{} %>");
     expect(heex).not.toContain("TODO");
   });
 });

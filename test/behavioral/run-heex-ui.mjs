@@ -42,7 +42,9 @@
 // killed run).  Postgres comes from a docker sidecar unless `LOOM_HEEX_UI_PG_URL`
 // supplies one.
 //
-// Usage:  cd test/behavioral && npm ci ; node run-heex-ui.mjs
+// Usage:  cd test/behavioral && npm ci ; node run-heex-ui.mjs [i18n]
+//         (`i18n` — the translated-locale case: boots `heex-i18n/heex-i18n.ddd`
+//         with its `fr` tree and reads the French text off the rendered DOM)
 // Exit non-zero on any failed spec, or if the stack never boots.
 //
 // Env knobs:
@@ -74,9 +76,16 @@ import { outcomesFromPlaywrightJson } from "./ui-stack.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..", "..");
-const WORK = join(HERE, ".work-heex-ui");
-const DDD = join(HERE, "heex-ui.ddd");
-const ROUNDTRIP_SPEC = join(HERE, "heex-ui-roundtrip.pw.ts");
+// Two cases share one boot recipe.  `ui` (default) is the create → list → detail
+// round-trip; `i18n` boots the translated-locale fixture and reads the French
+// text off the rendered DOM (`heex-i18n/heex-i18n.pw.ts`, a `fr` translator tree
+// beside the fixture).
+const CASE = process.argv[2] === "i18n" ? "i18n" : "ui";
+const WORK = join(HERE, CASE === "i18n" ? ".work-heex-i18n" : ".work-heex-ui");
+const DDD = CASE === "i18n" ? join(HERE, "heex-i18n", "heex-i18n.ddd") : join(HERE, "heex-ui.ddd");
+const ROUNDTRIP_SPEC =
+  CASE === "i18n" ? join(HERE, "heex-i18n", "heex-i18n.pw.ts") : join(HERE, "heex-ui-roundtrip.pw.ts");
+const HAND_SPEC = CASE === "i18n" ? "heex-i18n.spec.ts" : "heex-roundtrip.spec.ts";
 
 // Pinned to the same image the compile gate uses
 // (test/e2e/generated-elixir-vanilla-build.test.ts), so a dep set that
@@ -251,7 +260,8 @@ async function main() {
     if (!existsSync(join(projDir, "mix.exs"))) throw new Error("no phoenix deployable generated");
     const emittedSpec = join(e2eDir, "HeexUiSystem.ui.spec.ts");
     // A missing emitted spec is the WHOLE point of the leg — never skip past it.
-    if (!existsSync(emittedSpec)) {
+    // (The i18n case has no `test e2e` block: its spec is the hand-written one.)
+    if (CASE === "ui" && !existsSync(emittedSpec)) {
       throw new Error("the emitted HeexUiSystem.ui.spec.ts is absent — nothing to drive");
     }
 
@@ -319,7 +329,7 @@ async function main() {
 
     // The hand-written list leg, alongside the emitted spec.  Renamed on the
     // way in so the repo's own vitest run never discovers it.
-    copyFileSync(ROUNDTRIP_SPEC, join(e2eDir, "heex-roundtrip.spec.ts"));
+    copyFileSync(ROUNDTRIP_SPEC, join(e2eDir, HAND_SPEC));
 
     log("▶ driving the rendered LiveView in a browser");
     execFileSync(npm, ["install", "--no-audit", "--no-fund"], { cwd: e2eDir, stdio: "pipe", timeout: 600_000 });
@@ -347,7 +357,10 @@ async function main() {
       // --workers=1: both specs write to the SAME database, and the round-trip
       // spec asserts a row DELTA on the list.  Parallel workers would make that
       // delta depend on interleaving.
-      const cp = spawn(npx, ["playwright", "test", "--workers=1", "--reporter=list,json"], {
+      // The i18n case runs only its own spec: the emitted smoke spec is the
+      // `ui` case's concern, and its routes carry no locale.
+      const only = CASE === "i18n" ? [HAND_SPEC] : [];
+      const cp = spawn(npx, ["playwright", "test", ...only, "--workers=1", "--reporter=list,json"], {
         cwd: e2eDir,
         stdio: "inherit",
         env: { ...process.env, E2E_BASE_URL: base, PLAYWRIGHT_JSON_OUTPUT_NAME: reportFile },

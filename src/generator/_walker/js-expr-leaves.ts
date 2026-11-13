@@ -202,18 +202,19 @@ export function renderJsCollectionOp(spec: {
   return render?.(`(${spec.recv})`, [...spec.args], spec.call);
 }
 
-/** Fail-loud expression leaves for a target that FORKS `emitExpr` (HEEx runs a
- *  parallel walker and never reaches the shared dispatcher).  Satisfies the
- *  required interface while asserting the fork invariant: if one is ever
- *  called, the fork regressed and the output would be wrong — throw instead. */
+/** Fail-loud expression leaves for a target that answers every expression
+ *  itself (`renderExprOverride` — HEEx renders Elixir through its own
+ *  expression renderer and never reaches the shared dispatcher).  Satisfies the
+ *  required interface while asserting that invariant: if one is ever called,
+ *  the override regressed and the output would be wrong — throw instead. */
 const unreachedExprLeaf = (name: string) => (): never => {
   throw new Error(
-    `${name}: this target forks emitExpr (parallel walker) and must never reach the shared expression dispatcher`,
+    `${name}: this target overrides every expression and must never reach the shared expression dispatcher`,
   );
 };
 export const unreachableExprLeaves: ExprLeaves = {
-  // HEEx forks the dispatcher entirely; it renders intrinsics and collection
-  // ops in its own engine, so it never consults either seam.
+  // HEEx overrides every expression; it renders intrinsics and collection
+  // ops in its own expression renderer, so it never consults either seam.
   renderIntrinsic: undefined,
   renderCollectionOp: undefined,
   exprMoneyBinary: undefined,

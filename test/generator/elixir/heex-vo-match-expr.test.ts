@@ -12,7 +12,7 @@
 // never sets).  `heex-walker-core.ts`'s `renderCall` therefore fell straight
 // to the `WALKER_PRIMITIVES["Money"]` registry lookup — a REAL primitive
 // (`Money(value, currency?, decimals?)` renders a `<span class="money">…`
-// display widget, `heex-primitives.ts::renderMoney`) — producing that
+// display widget) — producing that
 // primitive's raw HEEx MARKUP in a VALUE position, with the trailing
 // `.currency` appended as literal text after the closing tag:
 //

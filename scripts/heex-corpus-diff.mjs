@@ -38,10 +38,14 @@ import path from "node:path";
 import { NodeFileSystem } from "langium/node";
 import { URI } from "vscode-uri";
 import { WALKER_PRIMITIVES } from "../out/generator/_walker/registry.js";
-import { HEEX_SHARED_PRIMITIVES } from "../out/generator/elixir/heex-pack.js";
 import { createDddServices } from "../out/language/ddd-module.js";
 import { generateSystems } from "../out/system/index.js";
-import { formatHeexCoverage, installHeexCoverage } from "./heex-coverage.mjs";
+import { uiCapability } from "../out/util/target-capabilities.js";
+import {
+  formatHeexCoverage,
+  heexRenderedPrimitives,
+  installHeexCoverage,
+} from "./heex-coverage.mjs";
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 
@@ -206,7 +210,10 @@ async function diff(baseline) {
 
 /** Print which heex primitives and accumulators the inputs reach; exit 1 on a gap. */
 async function coverage() {
-  const recorder = installHeexCoverage(WALKER_PRIMITIVES, HEEX_SHARED_PRIMITIVES);
+  const recorder = installHeexCoverage(
+    WALKER_PRIMITIVES,
+    heexRenderedPrimitives(WALKER_PRIMITIVES, uiCapability),
+  );
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loom-heex-coverage-"));
   for (const { name, file } of inputs(tmp)) {
     recorder.setInput(name);

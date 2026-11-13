@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 //
 // The repo suppresses known gaps with explicit allowlists / skip-lists —
 // showcase-completeness's ALLOWLIST of un-emitted grammar kinds, the corpus
-// compile-tier skip maps, the heex-parity frozen gap set, and so on.  Each is
+// compile-tier skip maps, the Flutter parity freeze's gap set, and so on.  Each is
 // a legitimate, reviewed escape valve.  The failure mode is SILENT GROWTH: a PR
 // that can't make its feature pass on a backend quietly adds a skip entry, the
 // gate goes green, and the coverage claim hollows out one line at a time.
@@ -93,36 +93,6 @@ const REGISTERED: Ratchet[] = [
     // 19 -> 17: -IntConfigValue, -BoolConfigValue — both left the grammar (no
     // sourceType config key is numeric or boolean).
     max: 17,
-  },
-  // Walker primitives with a TSX renderer but no HEEx one.  Empty: the last
-  // entry — `ProvenanceInfo`, the provenance "?" disclosure — landed its HEEx
-  // renderer (a native `<details>` over the co-located `<field>_provenance`
-  // jsonb column, read server-side off the Ecto struct; M-T1.19), so it now
-  // renders on all six frontends.  Lowered 1→0 as the drain (M-T9.8).
-  {
-    file: "test/generator/elixir/heex-parity.test.ts",
-    name: "KNOWN_HEEX_GAPS",
-    kind: "record",
-    // 1 = `DataGrid`, and this one does NOT drain: it is a SETTLED refusal
-    // under D-DATAGRID-TARGETS ("a frontend ships DataGrid iff it can run
-    // TanStack itself"), the same rule that permanently excludes Flutter.
-    // HEEx's two roads — a hand-rolled Elixir row model, or a `phx-hook`
-    // island LiveView must not patch — both FORK the semantics the
-    // `renderDataGridChild` seam exists to share.  `Table` is the fallback,
-    // server-driven on HEEx, so Phoenix is not silently degraded.
-    //
-    // The earlier version of this note repeated the pin's own false blocker
-    // ("multi-column ORDER BY has no backend support").  `DataGrid` drives no
-    // server read on any target — it grids the array it was handed — so
-    // `list/4`'s sort/dir pair was never on its path.  See the corrected
-    // reason in `heex-parity.test.ts`.
-    //
-    // Lowered 2→1 as the drain (M-T9.8): `Chart` shipped its HEEx
-    // renderer.  Its pinned reason — "no JS-free LiveView charting" — was
-    // false: the rows a chart plots are a grouped projection's, already
-    // server-side in an assign, so the geometry is arithmetic and the output
-    // is inline SVG with no library and no JS.
-    max: 1,
   },
   // Per-backend corpus compile-tier skips (a widening gate FIXES the emitter
   // and drops the entry — see each file's header).
@@ -359,8 +329,8 @@ const REGISTERED: Ratchet[] = [
     kind: "record",
     max: 0,
   },
-  // The Flutter parity freeze's pinned-gap allowlist — the sibling of
-  // `KNOWN_HEEX_GAPS` above, and the one suppression construct the 2026-07-13
+  // The Flutter parity freeze's pinned-gap allowlist — the one suppression
+  // construct the 2026-07-13
   // sweep that built this register MISSED (M-T1.18 recorded the omission in
   // prose and nothing acted on it; wave C2 packet 2j is that action).
   //
@@ -374,8 +344,7 @@ const REGISTERED: Ratchet[] = [
   //
   // The freeze test already fails on a re-added entry that matches no finding;
   // this ratchet is the other direction — a NEW pin quietly added next to a new
-  // degradation.  Belt and braces on the same construct, which is exactly the
-  // arrangement `KNOWN_HEEX_GAPS` has.
+  // degradation.  Belt and braces on the same construct.
   {
     file: "test/generator/flutter/parity-freeze.test.ts",
     name: "KNOWN_FLUTTER_GAPS",
