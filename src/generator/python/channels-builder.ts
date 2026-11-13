@@ -2,6 +2,7 @@ import type { EventIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent } from "../../util/naming.js";
 import { type BrokerBinding, kafkaStartsAtEarliest } from "../_channels/bindings.js";
+import { CHANNEL_CONSUMER } from "../_channels/delivery-policy.js";
 import { pyModule, pyRef } from "../_imports/python.js";
 import { ref } from "../_imports/symbol.js";
 import { pyEnvelopeInstant } from "./codec-spelling.js";
@@ -280,7 +281,7 @@ export function buildPyChannelsFile(
       ? [
           "# Bounded per-message retries before a poisoned message parks in the",
           "# DLQ (mirrors the outbox relay's max_attempts).",
-          "CHANNEL_MAX_ATTEMPTS = 5",
+          `CHANNEL_MAX_ATTEMPTS = ${CHANNEL_CONSUMER.maxAttempts}`,
           "",
           "# The rabbit consumer callback contract (subscribe's handler param).",
           `ChannelEnvelopeHandler = ${C.Callable}[[dict[str, object]], ${C.Awaitable}[None]]`,
@@ -686,8 +687,18 @@ export function buildPyChannelsFile(
           "    address = DURABLE_CHANNEL_ROUTING.get(event.type)",
           "    if address is None:",
           "        return False",
-          "    await _publish_to(address, _envelope_for(event, address, event_id), event.type)",
+          "    try:",
+          "        await _publish_to(address, _envelope_for(event, address, event_id), event.type)",
+          "    except Exception as err:  # noqa: BLE001 — any transport failure",
+          "        # The relay halts its pass on this and spends no attempt.",
+          "        raise BrokerUnavailable(str(err)) from err",
           "    return True",
+          "",
+          "",
+          "class BrokerUnavailable(Exception):",
+          `    """A relay publish the broker could not take: the outbox relay halts`,
+          "    its pass on it and backs off without spending the row's attempt.",
+          `    """`,
         ]
       : []),
     ...(hasChannelConsumers
