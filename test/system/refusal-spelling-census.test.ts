@@ -20,6 +20,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 import {
   FIELD_REASONS,
   type FieldRejectionReason,
@@ -140,6 +141,8 @@ describe("refusal-spelling census", () => {
   it("reaches the emitters it names", () => {
     // Guards against a census that scans nothing (a moved directory).
     for (const dir of BACKEND_DIRS) expect(tsFiles(join(ROOT, dir)).length).toBeGreaterThan(0);
+    const scanned = BACKEND_DIRS.reduce((n, dir) => n + tsFiles(join(ROOT, dir)).length, 0);
+    expectReach("backend emitter files", scanned, 400);
     expect(wireCodes()).toContain("field.type-mismatch");
     expect(sentences()).toContain(QUERY_PARAM_MISMATCH_MESSAGES.bool);
   });
