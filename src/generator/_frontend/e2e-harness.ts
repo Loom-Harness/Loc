@@ -137,7 +137,7 @@ const STORAGE_STATE = ".auth/state.json";
 
 /** The Playwright config of a signed-in suite: the SPA config plus the global
  *  setup and the saved session every test starts from. */
-export const PLAYWRIGHT_CONFIG_SIGN_IN_TS = PLAYWRIGHT_CONFIG_TS.replace(
+const PLAYWRIGHT_CONFIG_SIGN_IN_TS = PLAYWRIGHT_CONFIG_TS.replace(
   '  reporter: [["list"]],\n',
   `  reporter: [["list"]],\n  // Signs in once through the IdP; every test reuses the saved session.\n  globalSetup: "./global-setup.ts",\n`,
 ).replace(
@@ -148,7 +148,7 @@ export const PLAYWRIGHT_CONFIG_SIGN_IN_TS = PLAYWRIGHT_CONFIG_TS.replace(
 /** `e2e/global-setup.ts` of a signed-in suite.  Credentials come only from
  *  E2E_OIDC_USERNAME / E2E_OIDC_PASSWORD — the same variables the api suite's
  *  password grant reads — defaulting to the generated dev realm's `demo` user. */
-export const E2E_GLOBAL_SETUP_TS = `// Auto-generated.
+const E2E_GLOBAL_SETUP_TS = `// Auto-generated.
 import { type FullConfig, chromium } from "@playwright/test";
 
 const ME = /\\/auth\\/me(?:\\?.*)?$/;
@@ -188,7 +188,7 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
 `;
 
 /** `e2e/.gitignore` of a signed-in suite: the saved session holds live tokens. */
-export const E2E_SIGN_IN_GITIGNORE = `${STORAGE_STATE.split("/")[0]}/\n`;
+const E2E_SIGN_IN_GITIGNORE = `${STORAGE_STATE.split("/")[0]}/\n`;
 
 /** The Playwright harness files every SPA frontend emits under `e2e/`, minus
  *  its package manifest: the smoke spec, the fixtures, the config, and — for a
