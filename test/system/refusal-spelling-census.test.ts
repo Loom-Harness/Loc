@@ -57,7 +57,7 @@ function tsFiles(dir: string): string[] {
 
 const isCommentLine = (line: string): boolean => /^\s*(\/\/|\*|\/\*|#)/.test(line);
 
-const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Every wire code a backend could hand-spell. */
 function wireCodes(): string[] {
@@ -101,8 +101,8 @@ const WAIVERS: Readonly<Record<string, string>> = {
 
 function hits(): Map<string, string> {
   const needles = [
-    ...wireCodes().map((c) => ({ text: c, re: new RegExp(`(?<![\\w.-])${escape(c)}(?![\\w-])`) })),
-    ...sentences().map((s) => ({ text: s, re: new RegExp(escape(s)) })),
+    ...wireCodes().map((c) => ({ text: c, re: new RegExp(`(?<![\\w.-])${escapeRe(c)}(?![\\w-])`) })),
+    ...sentences().map((s) => ({ text: s, re: new RegExp(escapeRe(s)) })),
   ];
   const found = new Map<string, string>();
   for (const dir of BACKEND_DIRS) {
