@@ -264,7 +264,9 @@ describe("angular generator — display + layout primitives", () => {
   it("walks each primitive to its pack markup", async () => {
     const page = await displayPage();
     expect(page).toContain('<div class="loom-container">');
-    expect(page).toContain('<div class="loom-toolbar" role="toolbar" aria-label="Actions">');
+    expect(page).toContain(
+      `<div class="loom-toolbar" role="toolbar" [attr.aria-label]='t("chrome.toolbarActions", "Actions")'>`,
+    );
     expect(page).toContain('<div class="loom-group">');
     expect(page).toContain('<div class="loom-paper">');
     // Badge label + Stat label/value walk through the i18n seam (M-T1.11).

@@ -1,0 +1,5 @@
+{
+  "title": "value-object array (`Money[]`) stored inline",
+  "doc": "language",
+  "backends": "ALL"
+}

@@ -1,3 +1,4 @@
+import { navPageNameFallbacksFor } from "../generator/_frontend/menu-emitter.js";
 import { sourceText } from "../generator/_i18n/source-text.js";
 import { collectWireValidationMessages } from "../generator/_i18n/validation-catalog.js";
 import { loadPack, resolvePackDir } from "../generator/_packs/loader-fs.js";
@@ -5,6 +6,7 @@ import { packChromeCatalog } from "../generator/_packs/pack-chrome.js";
 import {
   chromeMergedWhenEnabled,
   HAND_BUILT_FORM_SENTENCES,
+  HEEX_SENTENCES,
 } from "../generator/_walker/i18n-chrome.js";
 import { collectUiMessages } from "../generator/_walker/i18n-extract.js";
 import type { BoundedContextIR, EnrichedSystemIR, UiIR } from "../ir/types/loom-ir.js";
@@ -87,6 +89,7 @@ function packSentencesForUi(sys: EnrichedSystemIR, ui: UiIR): string[] {
     if (packFormatForBuiltin(design) === undefined) continue;
     const manifest = loadPack(resolvePackDir(design, dep.designBaseDir)).manifest;
     for (const base of manifest.sentenceChrome ?? []) out.add(base);
+    if (packFormatForBuiltin(design) === "heex") for (const base of HEEX_SENTENCES) out.add(base);
   }
   return [...out].sort();
 }
@@ -106,6 +109,9 @@ export const IMPLICIT_MODEL_TEXT_FORMATS: ReadonlySet<string> = new Set([
   "flutter",
   "heex",
 ]);
+
+/** The pack-rendered SPA formats whose nav links read a page's `name` key. */
+const SPA_NAV_FORMATS = ["tsx", "vue", "svelte", "angular"] as const;
 
 /** The frontend format a deployable renders its UI in: its platform's
  *  `selfRenderedUiFormat` for a pack-less frontend, else its design pack's format (a
@@ -188,6 +194,7 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
         // The HEEx create form renders optional inputs too (it has no update
         // flow to defer them to), so their labels are catalogued.
         optionalCreateInputs: formats.has("heex"),
+        flashOnCustomSubmit: formats.has("heex"),
         authGate: uiDrawsAuthGate(sys, ui),
         sessionView: uiDrawsSessionView(sys, ui),
         fallbackLabels: formats.has("heex"),
@@ -197,6 +204,11 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
           : formats.has("feliz")
             ? ("navbar" as const)
             : undefined,
+        // The pack-rendered SPA frontends label a menu link to an untitled page
+        // by its name.
+        menuPageNames: SPA_NAV_FORMATS.some((f) => formats.has(f))
+          ? navPageNameFallbacksFor(ui, contexts)
+          : undefined,
       };
       for (const [key, message] of Object.entries(chromeMergedWhenEnabled(ui, scope)))
         byKey.set(key, message);

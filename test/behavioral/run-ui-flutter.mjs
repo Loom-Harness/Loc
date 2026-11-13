@@ -47,6 +47,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import { chromiumLaunchOptions } from "./browser-fallback.mjs";
 import { copyLocales, localesBeside } from "./case-source.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE, moneyCompareExpected } from "./money-compare-ui.mjs";
 import { flutterExpectations, numericSeedBody } from "./numeric-ui-contract.mjs";
@@ -189,6 +190,53 @@ const MONEY_COMPARE_PROBES = [
   },
 ];
 
+/** Probes that DRIVE the app after it renders: each `drive(page, origin, seeded)`
+ *  throws on a miss.  They run on a plain (non-`textProbe`) case, whose seed
+ *  gives them an order and a customer. */
+const DRIVEN_PROBES = [
+  {
+    // The app's only navigation to an aggregate's list is the drawer the app bar
+    // opens: land on Home, open it, follow the Customers link, and require the
+    // list read to fire and the seeded row to render.
+    name: "the navigation drawer reaches a list page",
+    route: "#/",
+    expect: [],
+    api: "/api/customers",
+    async drive(page) {
+      await clickSemantic(page, "Open navigation menu");
+      // Let the drawer finish sliding in: its tiles take taps once settled.
+      await page.waitForTimeout(1_500);
+      await clickSemantic(page, "Customers");
+      await waitForText(page, ["Zaphod Beeblebrox"], "after following the drawer's Customers link");
+    },
+  },
+  {
+    // A successful operation drops the aggregate's cached reads, so the detail
+    // page the dialog closed over shows the new state without a reload.
+    name: "an operation's new state shows on the detail page without a reload",
+    route: "",
+    expect: [],
+    api: "",
+    async drive(page, origin, seeded) {
+      const draft = await create(origin, "orders", {
+        customerId: seeded.customer,
+        status: "Draft",
+        placedAt: "2024-01-01T00:00:00Z",
+      });
+      const line = await fetch(`${origin}/api/orders/${draft}/add_line`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ productId: seeded.product, qty: 1 }),
+      });
+      if (line.status >= 300) throw new Error(`add_line -> ${line.status}`);
+      await renderRoute(page, origin, `#/orders/${draft}`, ["Draft"]);
+      await clickSemantic(page, "Confirm");
+      await clickSemantic(page, "Confirm");
+      await waitForText(page, ["Confirmed"], "after the confirm operation");
+    },
+  },
+];
+
 /** Load a hash route, turn the semantics tree on, and return what the app
  *  actually rendered (accessible text) once it settles.
  *
@@ -228,6 +276,59 @@ async function renderRoute(page, origin, route, expect) {
     await page.waitForTimeout(250);
   }
   return text;
+}
+
+/** Click the semantics node whose accessible text or label is exactly `label`
+ *  (the LAST one when several match: an operation's dialog submit repeats its
+ *  trigger's label and renders after it).  Flutter builds its tappable nodes as
+ *  DOM elements that act on `click`, the same way the placeholder is enabled. */
+async function clickSemantic(page, label) {
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    const hit = await page.evaluate((want) => {
+      const nodes = [...document.querySelectorAll("flt-semantics")].filter(
+        (e) => (e.getAttribute("aria-label") ?? e.innerText ?? "").trim() === want,
+      );
+      const el = nodes[nodes.length - 1];
+      if (!el) return false;
+      el.click();
+      return true;
+    }, label);
+    if (hit) return;
+    if (Date.now() > deadline) {
+      const seen = await page.evaluate(() =>
+        [...document.querySelectorAll("flt-semantics")]
+          .map((e) => `${e.getAttribute("role") ?? ""}:${(e.getAttribute("aria-label") ?? e.innerText ?? "").trim().slice(0, 40)}`)
+          .slice(0, 60),
+      );
+      throw new Error(`no semantics node labelled ${JSON.stringify(label)} (saw ${JSON.stringify(seen)})`);
+    }
+    await page.waitForTimeout(250);
+  }
+}
+
+/** The accessible text now on screen (see `renderRoute`). */
+async function accessibleText(page) {
+  return page.evaluate(
+    () =>
+      `${document.body.innerText ?? ""}\n${[...document.querySelectorAll("[aria-label]")]
+        .map((e) => e.getAttribute("aria-label"))
+        .join("\n")}`,
+  );
+}
+
+/** Poll the accessible text until it carries every string in `want`. */
+async function waitForText(page, want, what) {
+  const deadline = Date.now() + 30_000;
+  let text = "";
+  for (;;) {
+    text = await accessibleText(page);
+    if (want.every((w) => text.includes(w))) return text;
+    if (Date.now() > deadline) {
+      throw new Error(`${what}: not rendered: ${want.join(", ")} — accessible text was ${JSON.stringify(text.slice(0, 300))}`);
+    }
+    await page.waitForTimeout(250);
+  }
 }
 
 async function runCase(c) {
@@ -272,8 +373,8 @@ async function runCase(c) {
     const origin = `http://127.0.0.1:${server.port}`;
     process.stdout.write(`    stack on :${server.port}\n`);
 
-    const probes = c.textProbe === "money-compare" ? MONEY_COMPARE_PROBES : PROBES;
-    if (!c.textProbe) await seed(origin);
+    const probes = c.textProbe === "money-compare" ? MONEY_COMPARE_PROBES : [...PROBES, ...DRIVEN_PROBES];
+    const seeded = c.textProbe ? undefined : await seed(origin);
 
     // Fetch the browser build THIS playwright expects (run-ui.mjs does the same
     // in the generated e2e dir).  A no-op once cached; without it a harness
@@ -288,6 +389,7 @@ async function runCase(c) {
       // WebGL context, and swiftshader is what provides it on a GPU-less runner.
       channel: "chromium",
       args: ["--no-sandbox", "--enable-unsafe-swiftshader"],
+      ...chromiumLaunchOptions(chromium.executablePath()),
     });
     for (const probe of probes) {
       const page = await browser.newPage();
@@ -339,7 +441,12 @@ async function runCase(c) {
         }
       });
       try {
-        const text = await renderRoute(page, origin, probe.route, probe.expect);
+        let text;
+        if (probe.drive) {
+          if (probe.route) await renderRoute(page, origin, probe.route, probe.expect);
+          await probe.drive(page, origin, seeded);
+          text = "";
+        } else text = await renderRoute(page, origin, probe.route, probe.expect);
         const missing = probe.judge ? [] : probe.expect.filter((e) => !text.includes(e));
         const read = api.find((r) => r.method === "GET" && r.path === probe.api);
         const bad = api.filter((r) => r.status >= 400);
@@ -347,6 +454,8 @@ async function runCase(c) {
         if (probe.judge) {
           const wrong = probe.judge(text);
           if (wrong.length) why.push(`${wrong.join(", ")} — accessible text was ${JSON.stringify(text.slice(0, 400))}`);
+        } else if (!probe.api) {
+          // A driven probe with no fixed read asserts through `drive` alone.
         } else if (!read) why.push(`the app never issued GET ${probe.api} (saw: ${api.map((r) => `${r.method} ${r.path}`).join(", ") || "nothing"})`);
         else if (read.status >= 300) why.push(`GET ${probe.api} -> ${read.status}`);
         if (bad.length) why.push(`api errors: ${bad.map((r) => `${r.method} ${r.path} -> ${r.status}`).join(", ")}`);

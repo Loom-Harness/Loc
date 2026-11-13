@@ -40,7 +40,7 @@ per-PR and queue paths. `docs/ci-gating.md` has the tiers in full.
 | **`test/` typecheck** | `test/**` — and `src/**` under the test project's options — COMPILES. `tsconfig.json` excludes `test/`, so nothing else reads it, which is why an exhaustiveness `Record<Union, …>` written in a test could silently prove nothing. Landed as a shrink-only RATCHET over 768 errors; **drained to zero and promoted to a plain gate** (M-T9.50), so any error now fails. ~35s. | `npm run test:typecheck` | `test.yml` (lint job) | ✅ |
 | **Behavioral — api / unit** | The **generated Hono backend** behaves: boots on PGlite (in-process, no docker) and runs the DSL-emitted `test e2e … against <node>` (api) + aggregate `test "…"` (unit) suites. DoD rollup onto the requirements graph. | `cd test/behavioral && npm ci && node run.mjs` | `behavioral-e2e.yml` | ✅ |
 | **Behavioral — ui** | The **generated React frontend** behaves: `vite build` it, serve it + the Hono backend from one in-process origin, run the emitted `test e2e … against <react>` Playwright round-trips in headless Chromium. | `cd test/behavioral && npm ci && node run-ui.mjs` | `behavioral-ui-e2e.yml` | ✅ |
-| **Behavioral — HEEx ui** | The **rendered LiveView** behaves: boot the generated Phoenix app against a real postgres, then drive a create → LIST → detail round-trip through the rendered DOM in headless Chromium (the emitted `.ui.spec.ts` + the hand-written list leg). Asserts on rendered TEXT, so a 200 with an empty page fails. | `npm run test:behavioral-heex-ui` | `behavioral-heex-ui-e2e.yml` | ✅ |
+| **Behavioral — HEEx ui** | The **rendered LiveView** behaves: boot the generated Phoenix app against a real postgres, then drive a create → LIST → detail round-trip through the rendered DOM in headless Chromium (the emitted `.ui.spec.ts` + the hand-written list leg). Asserts on rendered TEXT, so a 200 with an empty page fails. A second case, `i18n`, boots the translated-locale fixture (`test/behavioral/heex-i18n/`, a `fr` tree beside it) and reads the French nav label, ICU money hole, `DateDisplay` and provenance labels off the rendered DOM. | `npm run test:behavioral-heex-ui` (+ `npm run test:behavioral-heex-i18n`) | `behavioral-heex-ui-e2e.yml` | ✅ |
 | **Per-backend build** | Generated backend **compiles** clean. TS (`tsc --noEmit` + tsup), .NET (`build /warnaserror`, and the emitted xUnit project built and run), Java (`gradle bootJar` with javac at `-Xlint:all -Werror`), Python (`uv` + ruff + mypy + pytest), Elixir (plain Ecto/Phoenix `mix compile --warnings-as-errors`). | `npm run test:tsc` / `:dotnet` / `:java` / `:python` / `:phoenix` | `hono-build` / `dotnet-build` / `java-build` / `python-build` / `elixir-vanilla-build` | ✅ |
 | **Generated frontend build** | Generated frontend typechecks + `vite build`s, per `{example × pack}`. React (`tsc`), Svelte (`svelte-check` + build), Vue (`vue-tsc` + build). | `npm run test:tsc-react` / `:svelte-build` / `:vue-build` | `generated-react-build` / `generated-svelte-build` / `generated-vue-build` | ✅ |
 | **Generated frontend runtime** | The built React/Vue/Svelte/Angular bundle actually **runs** — `vite build` (`ng build` for Angular) + preview + the emitted Playwright smoke spec (every param-less route loads). Pure client-side, no backend. | `npm run test:react-e2e` / `:vue-e2e` / `:svelte-e2e` / `:angular-e2e` | `generated-{react,vue,svelte,angular}-e2e` | ✅ path-scoped (each fires on its own framework's emitters, the shared frontend/walker/pack seams and its example + stack — see the file's `pull_request.paths`; it carries a `!src/generator/{java,dotnet,python,elixir}/**` negation tail so a backend-only PR doesn't wake it) |
@@ -112,6 +112,30 @@ Walk these in order; stop at the first match.
    network-gated, and self-skips when the sandbox can't reach the
    registry — so it's a signal, not a per-PR gate.
 
+### Adding a corpus fixture
+
+A corpus feature is two files in `test/fixtures/corpus/`: the `<id>.ddd` and
+its manifest row `<id>.corpus.json` (`title`, optional `doc` / `note` /
+`deployables`, and `backends` — a list of backend keys or a named set from
+`BACKEND_SETS` in `manifest.ts`). `CORPUS` is discovered from the sidecars, so
+fixtures added by different changes never conflict; the manifest refuses to
+load on an unpaired `.ddd` or sidecar or a malformed sidecar.
+
+A fixture with a `test e2e` block also enters the **api-caller census**
+(`test/ir/api-caller-census.test.ts`). Before the first full run, make sure
+its `test e2e` blocks:
+
+- **call every derived route** of every aggregate a backend deployable serves
+  — the crudish `create` / `getById` / `update` / `destroy` / `all`, each
+  declared operation and each find. An operation with no caller fails the
+  census unless it is pinned in `UNCALLED_PINS`
+  (`test/ir/api-caller-census-pins.ts`) with a reason class; pins are for
+  routes the `test e2e` surface cannot reach, not for tests nobody wrote.
+- **pin the calls the census cannot attribute.** A workflow run or a
+  projection read maps to no derived operation, so each such `api.*` call
+  must be listed in `UNATTRIBUTED_CALLS` for the fixture. The census compares
+  both sets exactly, so a pin that goes stale fails too.
+
 ### Behavioral corpus constraint
 
 The docker-free behavioral tiers (`test/behavioral/`) require each corpus
@@ -120,6 +144,19 @@ host-agnostic, path-matched dispatch is unambiguous. Multi-backend
 systems (`examples/showcase.ddd`, `examples/acme.ddd`) stay in the docker
 `conformance-full` leg. See `test/behavioral/README.md` for the full
 runner mechanics (one-origin serving, async-spawn, the DoD rollup).
+
+### Behavioral UI runner pass/fail semantics
+
+Every Playwright-driven behavioral UI runner (`run-ui.mjs`, `run-heex-ui.mjs`,
+`paged-ui.mjs`) classifies the JSON report through the one pure helper
+`test/behavioral/playwright-outcome.mjs`. A test that did not run — Playwright
+reports it as `skipped` with `ok: true`, e.g. after a failed `beforeAll` — is a
+**failure**, as is an empty run or a report-level error: a probe that never
+reached an assertion proves nothing. A deliberate `test.skip`/`test.fixme` passes
+only when it is listed in an explicit `allowSkips` entry (`{ title, reason }`).
+Direct-probe cases that do not use Playwright keep their own counting.
+
+Those runners launch the Chromium their pinned `@playwright/test` expects. When that revision is not installed under `PLAYWRIGHT_BROWSERS_PATH` (default `/opt/pw-browsers` in the sandbox), `test/behavioral/browser-fallback.mjs` runs the suite through a generated wrapper config using `LOOM_CHROMIUM_PATH` (the one knob; `LOOM_PW_CHROMIUM` is a deprecated alias, read in the same place, and loses when both are set), else `<store>/chromium`, else the newest installed `chromium-*` build. The in-harness `chromium.launch()` callers (`run-ui*.mjs`, `i18n-ui.mjs`) spread `chromiumLaunchOptions(chromium.executablePath())` from the same module into their launch call. Both paths are a no-op whenever the pinned revision is present.
 
 ### Why so many gates
 
@@ -202,6 +239,8 @@ serves every pg row below, or the suite starts its own sidecar where noted);
 proxy (`docs/tools.md` → "Compiling generated backends in Docker" has the
 full per-toolchain write-ups).
 
+`npm run prequeue` runs the cheap queue-blocking gates (typecheck, lint, fast censuses) on `origin/main` + HEAD in a throwaway worktree and lists the per-backend compile gates the diff reaches; `--heavy` runs them (`scripts/prequeue.mjs` holds the backend → command table).
+
 Completeness is pinned by `test/system/local-run-mapping.test.ts` — every
 workflow file must have a row here, so a new gate without a local recipe
 fails the fast suite.
@@ -236,9 +275,9 @@ fails the fast suite.
 | `behavioral-e2e-java.yml` | `cd test/behavioral && node run-java.mjs` | pg |
 | `behavioral-e2e-elixir.yml` | `cd test/behavioral && node run-elixir.mjs` | pg, mirror |
 | `behavioral-e2e-mikroorm.yml` | `cd test/behavioral && node run-mikroorm.mjs` | pg |
-| `behavioral-ui-e2e.yml` | `cd test/behavioral && node run-ui.mjs` | — |
+| `behavioral-ui-e2e.yml` | `cd test/behavioral && node run-ui.mjs` (then `node paged-ui.mjs`, `node i18n-ui.mjs` — the translated-locale leg, all four static-bundle frontends) | — |
 | `behavioral-ui-vue-e2e.yml` | `cd test/behavioral && node run-ui.mjs sales-system-vue` (the Vue/Vuetify round-trip + the numeric LIST probe; same harness as the React cell) | — |
-| `behavioral-heex-ui-e2e.yml` | `npm run test:behavioral-heex-ui` (add `LOOM_HEX_MIRROR=1` behind a TLS-fingerprint proxy) | pg, mirror |
+| `behavioral-heex-ui-e2e.yml` | `npm run test:behavioral-heex-ui`, then `npm run test:behavioral-heex-i18n` (add `LOOM_HEX_MIRROR=1` behind a TLS-fingerprint proxy) | pg, mirror |
 | `conformance-parity.yml` | `LOOM_E2E_STRICT_PARITY=1 npx vitest run test/e2e/e2e.test.ts` (spec-level parity, no stack boot), then `npm run test:shared-storage` (boots a two-storage compose stack: a write through one deployable is a read through the other on the same storage) | — |
 | `conformance-full.yml` | `LOOM_E2E=1 npm run test:e2e` | docker |
 | `differential-report.yml` | `LOOM_DIFF_REPORT=1 npx vitest run test/e2e/e2e.test.ts` | docker |

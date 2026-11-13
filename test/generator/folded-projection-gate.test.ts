@@ -150,10 +150,10 @@ describe("folded projection `requires` gate", () => {
       '403: { description: "Forbidden", content: { "application/problem+json": { schema: ProblemDetails } } },',
     );
     expect(await fileEndingWith("dotnet", GATE, "OrdersProjectionsController.cs")).toContain(
-      "[ProducesResponseType(typeof(ProblemDetails), 403)]",
+      '[ProducesResponseType(typeof(ProblemResponse), 403, "application/problem+json")]',
     );
     expect(await fileEndingWith("python", GATE, "http/projections_routes.py")).toContain(
-      '403: {"model": ProblemDetails, "description": "Forbidden"}',
+      '403: {"model": ProblemDetails, "description": "Forbidden", "content": PROBLEM_JSON}',
     );
   });
 });

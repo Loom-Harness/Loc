@@ -91,7 +91,7 @@ import {
 } from "./explicit-handlers-emit.js";
 import { emitVanillaExternModules } from "./extern-emit.js";
 import { emitVanillaFilesController } from "./files-controller-emit.js";
-import { emitOpenApiSpec } from "./openapi-emit.js";
+import { annotateApiControllers, emitOpenApiSpec } from "./openapi-emit.js";
 import { contextsHavePagedReads } from "./page-param.js";
 import { renderVanillaProblemDetailsModule } from "./problem-details-emit.js";
 import {
@@ -587,7 +587,11 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // the router ROOT (not under /api) so the spec sits at /openapi.json on every
   // backend — joining the 5-backend conformance-parity diff.  The generated
   // Auth plug already bypasses /openapi.json so it serves without a token.
-  const { files: openApiFiles, routes: openApiRoutes } = emitOpenApiSpec({
+  const {
+    files: openApiFiles,
+    routes: openApiRoutes,
+    operations: openApiOperations,
+  } = emitOpenApiSpec({
     contexts,
     deployable,
     sys,
@@ -596,6 +600,10 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   });
   for (const [path, content] of openApiFiles) out.set(path, content);
   apiRoutes.push(...openApiRoutes);
+  // Every route is collected and every API controller emitted by now: each
+  // documented operation is declared on the controller action its route
+  // mounts, and the spec module reads them back through the router.
+  annotateApiControllers(out, apiRoutes, openApiOperations, `${appModule}Web`);
 
   // Provenance runtime — the `<App>.Provenance` SDK (trace buffer + history
   // flush + the `Json` Ecto type + `Record` schema).  Its DDL — the co-located

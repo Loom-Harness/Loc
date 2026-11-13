@@ -13,6 +13,10 @@ export type ThrowClassification =
   | { deferred: string; mission: string; reviewUntil: string };
 
 export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
+  "src/generator/_frontend/form-row-binding.ts#settled": {
+    invariant:
+      "a shipped pack's field template binds its path or test id through a site the row binder does not rewrite; every shipped pack's dynamic rows render in the form-spec census and the walker suites, so only a new pack template shape reaches it",
+  },
   // src/generator/java/wire-policy-java.ts
   "src/generator/java/wire-policy-java.ts#javaIngressCoercions": {
     invariant:
@@ -807,6 +811,26 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   // src/generator/elixir/vanilla/operation-returns-emit.ts
+  "src/generator/elixir/vanilla/openapi-emit.ts#annotateApiControllers": {
+    invariant:
+      "Two documented operations share a method + path only if two derived builders mint the same route; the derived surface keys each route once (deriveAggregateOperations / servedOperationEntries), and an explicit route on a derived path is skipped by apiOperations' `published` check.",
+  },
+  "src/generator/elixir/vanilla/openapi-emit.ts#annotateApiControllers$2": {
+    invariant:
+      "Each routed controller action is mounted by exactly one router route per documented operation: every emitter that pushes an ApiRoute names a distinct action per method + path.",
+  },
+  "src/generator/elixir/vanilla/openapi-emit.ts#annotateApiControllers$3": {
+    invariant:
+      "Every ApiRoute is pushed by the emitter that writes its controller module into the same output map before annotateApiControllers runs (index.ts calls it after the last route is collected).",
+  },
+  "src/generator/elixir/vanilla/openapi-emit.ts#withOperations": {
+    invariant:
+      "Every emitted Phoenix controller opens with `use <App>Web, :controller`; a routed controller without it would not compile.",
+  },
+  "src/generator/elixir/vanilla/openapi-emit.ts#withOperations$2": {
+    invariant:
+      "A router route names a controller action the same emitter defines as a `def <action>(` clause; an undefined action would fail `mix compile --warnings-as-errors`.",
+  },
   "src/generator/elixir/vanilla/operation-returns-emit.ts#renderReturningStmt": {
     guardedBy: ["loom.elixir-match-stmt-unsupported", "loom.variant-match-placement"],
     note: "The gate runs the identical elixirMatchRefusal predicate (or the stricter event-sourced one) over every aggregate operation / create / destroy in an elixir-hosted context; a pure fold or function is refused by the placement rule on every backend.",
@@ -1224,7 +1248,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   // src/generator/sql-pg-expr.ts
   "src/generator/sql-pg-expr.ts#renderSqlScalarExpr": {
     invariant:
-      "Backfill rendering is wrapped in try/catch (and reported by loom.migration-expr-unsupported), and the column-default path is gated by sqlLiteralColumnDefault, which admits no this-prop ref. (src/system/migrations-builder.ts:2266-2270, :3291-3295)",
+      "Backfill rendering is wrapped in try/catch (and reported by loom.migration-expr-invalid), and the column-default path is gated by sqlLiteralColumnDefault, which admits no this-prop ref. (src/system/migrations-builder.ts:2266-2270, :3291-3295)",
   },
 
   // src/generator/sql-pg.ts

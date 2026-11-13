@@ -87,7 +87,7 @@ describe("HEEx layout primitives carry real Tailwind geometry", () => {
   it("Toolbar is a space-between row (and keeps its a11y contract attrs)", async () => {
     const heex = await landingHeex(`Toolbar { Text { "a" } }`);
     expect(heex).toMatch(
-      /<div class="flex flex-row items-center justify-between gap-4" role="toolbar" aria-label="Actions">/,
+      /<div class="flex flex-row items-center justify-between gap-4" role="toolbar" aria-label=\{pgettext\("chrome\.toolbarActions", "Actions"\)\}>/,
     );
   });
 

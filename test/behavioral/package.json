@@ -10,7 +10,8 @@
     "behavioral:ui-auth": "node run-ui-auth.mjs",
     "behavioral:pagination": "node pagination.mjs",
     "behavioral:create-contract": "node create-contract.mjs",
-    "behavioral:paged-ui": "node paged-ui.mjs"
+    "behavioral:paged-ui": "node paged-ui.mjs",
+    "behavioral:i18n-ui": "node i18n-ui.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.4.5",

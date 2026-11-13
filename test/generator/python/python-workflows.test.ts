@@ -35,7 +35,7 @@ describe("python workflows", () => {
     // propagation)" — while the set asserted here omitted it; a workflow whose
     // body touches no repository still declares no 404.
     expect(wf).toContain(
-      '@router.post("/rename_customer", status_code=204, operation_id="renameCustomerWorkflow", responses={400: {"model": ProblemDetails, "description": "Bad Request"}, 404: {"model": ProblemDetails, "description": "Not Found"}, 415: {"model": ProblemDetails, "description": "Unsupported Media Type"}, 422: {"model": ProblemDetails, "description": "Unprocessable Entity"}})',
+      '@router.post("/rename_customer", status_code=204, operation_id="renameCustomerWorkflow", responses={400: {"model": ProblemDetails, "description": "Bad Request", "content": PROBLEM_JSON}, 404: {"model": ProblemDetails, "description": "Not Found", "content": PROBLEM_JSON}, 415: {"model": ProblemDetails, "description": "Unsupported Media Type", "content": PROBLEM_JSON}, 422: {"model": ProblemDetails, "description": "Unprocessable Entity", "content": PROBLEM_JSON}})',
     );
     // The route runs in a child execution-context frame under the request root
     // (parent_id chaining), so its audit/provenance rows are distinguishable

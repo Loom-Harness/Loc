@@ -1,0 +1,5 @@
+{
+  "title": "external resources — objectStore / queue / http api / mailer (smtp) clients",
+  "doc": "resources",
+  "backends": "ALL"
+}

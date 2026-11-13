@@ -1,0 +1,6 @@
+{
+  "title": "a NAMED rule reading an entity-part collection — its wire `params` carry the scalar it read (`reason`), never the collection (`holds`)",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "python serialized the whole part collection (each part's private fields, every other row's data) into the 422 body's `params`.  The rule's placeholder candidates (`ruleParamRefs`) are now the echoable reads only — a scalar, id, enum or value object — on every backend."
+}

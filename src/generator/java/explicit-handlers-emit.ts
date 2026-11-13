@@ -67,7 +67,7 @@ import {
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
-import { routedParamSource } from "../../ir/util/routed-handler.js";
+import { routedErrorStatuses, routedParamSource } from "../../ir/util/routed-handler.js";
 import { workflowEmits } from "../../ir/util/walk.js";
 import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { lines } from "../../util/code-builder.js";
@@ -76,6 +76,7 @@ import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { javaRef } from "../_imports/java.js";
 import { javaLogEvent } from "../_obs/render-java.js";
+import { opUnionResponses } from "../_payload/union-wire.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { JAVA_FIND_ABSENCE_THROW, javaPagedQueryParams } from "./emit/common.js";
 import {
@@ -85,6 +86,13 @@ import {
   entryUnionFiles,
   entryUnionJava,
 } from "./emit/entry-result.js";
+import {
+  type JavaRouteDoc,
+  javaRouteDocAnnotations,
+  renderJavaUnionDocFiles,
+  unionErrorExtensions,
+  unionSuccessClass,
+} from "./emit/openapi-docs.js";
 import { domainToWire, javaIdValueType } from "./emit/wire.js";
 import {
   boundLocal,
@@ -701,6 +709,11 @@ export function emitExplicitHandlers(
       for (const f of entryUnionFiles(h.returnType, ctx, appPkg, basePkg)) {
         if (!files.some((x) => x.name === f.name)) files.push(f);
       }
+      const split = opUnionResponses(h.returnType.variants, ctx);
+      for (const f of renderJavaUnionDocFiles(split, appPkg, basePkg)) {
+        const name = `${f.name}.java`;
+        if (!files.some((x) => x.name === name)) files.push({ name, content: f.content });
+      }
     }
     files.push({
       name: `${h.name}Handler.java`,
@@ -903,6 +916,49 @@ function projectReturn(
   return domainToWire(retType, "result");
 }
 
+/** The OpenAPI metadata of one explicit route (openapi-docs.ts).  The action
+ *  answers `ResponseEntity<?>`, so springdoc infers no body: a single entity
+ *  return names its `<Agg>Response`, an entity collection an array of it, an
+ *  expected-failure union (`T or E`) its split, and a void command 204. */
+function explicitRouteDoc(
+  r: RouteIR,
+  h: Handler,
+  ctx: EnrichedBoundedContextIR,
+  retType: TypeIR | undefined,
+  basePkg: string,
+  appPkg: string,
+  responsePkgOf: (agg: string) => string,
+): string[] {
+  const errors = routedErrorStatuses(r, h, ctx);
+  const split =
+    !h.extern && h.returnType?.kind === "union" && entryResult(h)
+      ? opUnionResponses(h.returnType.variants, ctx)
+      : undefined;
+  if (split) {
+    return javaRouteDocAnnotations(basePkg, {
+      success: { status: 200, schemaClass: `${appPkg}.${unionSuccessClass(split)}` },
+      errors: [...errors, ...split.errorStatuses.map((e) => e.status)],
+      errorExtensions: unionErrorExtensions(split, appPkg),
+    });
+  }
+  if (!retType) return javaRouteDocAnnotations(basePkg, { success: { status: 204 }, errors });
+  const success: JavaRouteDoc["success"] = { status: 200 };
+  if (!h.extern) {
+    const info = wireTypeInfo(retType, "response");
+    const owning =
+      info.refKind === "entity"
+        ? (ctx.aggregates.find((a) => a.name === info.base) ??
+          ctx.aggregates.find((a) => a.parts.some((p) => p.name === info.base)))
+        : undefined;
+    if (owning) {
+      const cls = `${responsePkgOf(owning.name)}.${info.base}Response`;
+      if (info.isCollection) success.arrayOf = cls;
+      else success.schemaClass = cls;
+    }
+  }
+  return javaRouteDocAnnotations(basePkg, { success, errors });
+}
+
 /** Emit one `@RestController` per api whose route list is non-empty: each
  *  `route` becomes an action that coerces its (wire-typed) path params into the
  *  target handler's domain params and calls the handler bean directly.  Returns
@@ -962,8 +1018,22 @@ export function emitExplicitRouteController(
     if (h.returnType && pagedReturn(h.returnType)) {
       usesPaged = true;
       if (h.params.some((p) => isEnumType(p.type))) usesEnumParam = true;
+      const paged = emitPagedRunAction(
+        r,
+        explicitRoutePath(r),
+        h,
+        ctx,
+        field,
+        responsePkgOf,
+        responsePkgs,
+      );
       actions.push(
-        ...emitPagedRunAction(r, explicitRoutePath(r), h, ctx, field, responsePkgOf, responsePkgs),
+        paged[0]!,
+        ...javaRouteDocAnnotations(basePkg, {
+          success: { status: 200 },
+          errors: routedErrorStatuses(r, h, ctx),
+        }),
+        ...paged.slice(1),
       );
       continue;
     }
@@ -1097,6 +1167,7 @@ export function emitExplicitRouteController(
             ];
     actions.push(
       `    @${annot}("${explicitRoutePath(r)}")`,
+      ...explicitRouteDoc(r, h, ctx, retType, basePkg, appPkg, responsePkgOf),
       `    public ResponseEntity<?> ${lowerFirst(h.name)}(${actionParams}) {`,
       ...callLines,
       `    }`,

@@ -117,8 +117,8 @@ byte-identical to one generated before the feature existed.
 Every broker-published event rides a [CloudEvents 1.0](https://cloudevents.io)
 JSON envelope, built and parsed per backend from one pinned field list
 (`LOOM_ENVELOPE_REQUIRED`/`OPTIONAL` in `src/util/channels.ts`): `specversion`,
-`id`, `type` (`<Context>.<Event>`), `source` (`/loom/<deployable>/<context>`),
-`time`, `datacontenttype`, `loomchannel`, `data` (the event's existing wire
+`id`, `type` (`<Context>.<Event>`), `source` (`/loom/<Context>`),
+`time`, `datacontenttype`, `loomchannel` (`loom.<Context>.<Channel>`, the broker address), `data` (the event's existing wire
 shape — no second DTO), plus optional `loomkey` (the `key:` field value),
 `correlationid`, `scopeid`, `tenantid` (observability/partition affinity only —
 never authorization). A Hono producer's envelope parses byte-for-byte in a
@@ -159,6 +159,11 @@ Every backend's relay behaves the same way on `__loom_outbox`:
   AND dead_at IS NULL ORDER BY occurred_at`, 50 per pass every 500 ms. The
   partial index `__loom_outbox_pending_idx` carries the same predicate, so the
   poll cost tracks the backlog, not the table's history.
+- **Broker outage.** A publish the broker cannot take halts the pass without
+  spending the row's attempt; the rows already published commit. After a
+  failed pass (broker or database unreachable) the next one waits
+  500 ms × 2^n, capped at 30 s, and a clean pass resets it. An outage of any
+  length delays rows and dead-letters none of them.
 - **Dead letters.** A failed delivery increments `attempts`. On the 5th
   failure the relay sets `dead_at = now()`. The row then leaves the poll and is
   never retried or purged. Each row going dead logs one `event_dead_lettered`

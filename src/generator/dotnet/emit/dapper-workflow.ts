@@ -40,6 +40,7 @@ import {
 import { OUTBOX_PENDING_PREDICATE, OUTBOX_PURGE_BATCH } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { OUTBOX_RELAY } from "../../_channels/delivery-policy.js";
 import { csSqlType } from "../codec-spelling.js";
 import {
   projectionRowClass,
@@ -60,6 +61,7 @@ import {
 } from "./dapper-session.js";
 import { eventRecordClass, renderEventRecordPoco } from "./event-store.js";
 import {
+  DOTNET_RELAY_HALT_ON_BROKER_DOWN,
   outboxDeadLetteredLog,
   outboxExecuteLoop,
   outboxOriginFrame,
@@ -692,9 +694,9 @@ namespace ${ns}.Infrastructure.Events;
 /// sibling of the EF OutboxRelayService (persistence: dapper).</summary>
 public sealed class OutboxRelayService : BackgroundService
 {
-    private const int MaxAttempts = 5;
-    private const int BatchSize = 50;
-    private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(500);
+    private const int MaxAttempts = ${OUTBOX_RELAY.maxAttempts};
+    private const int BatchSize = ${OUTBOX_RELAY.batchSize};
+    private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(${OUTBOX_RELAY.intervalMs});
 ${outboxRetentionMembers(`            await using var conn = await _db.OpenConnectionAsync(cancellationToken);
             await conn.ExecuteAsync(new CommandDefinition(
                 "DELETE FROM __loom_outbox WHERE id IN (SELECT id FROM __loom_outbox WHERE dispatched_at < @cutoff LIMIT ${OUTBOX_PURGE_BATCH})",
@@ -749,7 +751,7 @@ ${outboxExecuteLoop()}
             catch (OperationCanceledException)
             {
                 throw;
-            }
+            }${opts.durableBroker ? DOTNET_RELAY_HALT_ON_BROKER_DOWN : ""}
             catch (Exception ex)
             {
                 var attempts = row.attempts + 1;

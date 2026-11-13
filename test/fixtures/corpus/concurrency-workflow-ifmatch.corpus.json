@@ -1,0 +1,6 @@
+{
+  "title": "a workflow's saves are checked against the version each handle loaded, never the request's `If-Match` — a stale tag on a workflow that changes two rows at different versions still lands",
+  "doc": "capabilities",
+  "backends": "ALL",
+  "note": "Minted with the .NET move onto the `checksVersion` fact (#4324).  .NET carried the request's `If-Match` as an ambient expected version, so every save in the request — a workflow's included — was checked against the header and one of two rows at different versions answered a spurious 409.  Runs on every leg: the other four read `If-Match` only on a named-operation route, so a workflow body never sees it."
+}

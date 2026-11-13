@@ -234,8 +234,9 @@ export const loaded = { ApiError, run };`;
         '(get.Optional.Field "pointer" Decode.string |> Option.defaultValue ""),',
       );
       expect(app).toContain('Message = get.Required.Field "message" Decode.string');
-      expect(app, "a rejected create must land on the Model").toContain(
-        "| TicketCreated (Error e) -> { model with TicketCreateFormServer = e }, Cmd.none",
+      // The rejection also clears the form's in-flight flag.
+      expect(app, "a rejected create must land on the Model").toMatch(
+        /\| TicketCreated \(Error e\) -> \{ model with TicketCreateFormServer = e;[^}]*\}, Cmd\.none/,
       );
       expect(app, `the "${field}" field must render its server message`).toContain(
         `(View.serverError model.TicketCreateFormServer "${field}" "tickets-new-server-error-${field}")`,

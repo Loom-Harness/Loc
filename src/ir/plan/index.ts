@@ -38,6 +38,14 @@ export {
   foldSteps,
   foldsDedupe,
 } from "./projection-fold.js";
+export {
+  admittedReferences,
+  type ContainStep,
+  type RefScope,
+  refScopeOf,
+  type ScopedReference,
+  scopedReferences,
+} from "./ref-scope.js";
 export { domainFindShape } from "./repo-find-shape.js";
 export { routedPolymorphicRead } from "./repo-polymorphic.js";
 export { clientSortTieBreak, singleReadOrder } from "./repo-read.js";
@@ -77,4 +85,8 @@ export {
   type SubscriptionHandler,
   subscriptionHandler,
 } from "./workflow-subscriptions.js";
-export { workflowIsolation, workflowRunsInTransaction } from "./workflow-transaction.js";
+export {
+  workflowCapturesDurableEmits,
+  workflowIsolation,
+  workflowRunsInTransaction,
+} from "./workflow-transaction.js";

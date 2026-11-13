@@ -71,9 +71,11 @@ describe("flutter a11y — derived Semantics emission", () => {
   });
 
   it("Toolbar re-expresses its accessible name as Semantics(container:, label:)", async () => {
-    // Default name is "Actions" (the Toolbar contract default).
+    // Default name is "Actions" (the Toolbar contract default), read through the catalog.
     const dart = await pageDart(`Toolbar { Button { "Go" } }`);
-    expect(dart).toContain("Semantics(container: true, label: 'Actions', child: Row(");
+    expect(dart).toContain(
+      "Semantics(container: true, label: t('chrome.toolbarActions', 'Actions'), child: Row(",
+    );
   });
 
   it("Toolbar honours an explicit label: as its accessible name", async () => {

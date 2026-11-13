@@ -224,6 +224,8 @@ export async function assertCrossTenantIsolation(base: string): Promise<void> {
   const planAsB = await fetch(`${base}/api/plans/${planId}`, { headers: claims("org-b") });
   expect(planAsB.status).toBe(200);
 
+  await assertReferenceAdmission(base, { foreignInvoice: id, crossTenantPlan: planId });
+
   // --- registry self-scope + claim-less bootstrap (Phase 1b) ---
   // The registry's create is NOT filter-gated, so a principal whose token has
   // no usable tenant claim can create an org (the built-in stub identity's
@@ -291,6 +293,95 @@ export async function assertCrossTenantIsolation(base: string): Promise<void> {
   const badInvoices = await fetch(`${base}/api/invoices`, { headers: malformed });
   expect(badInvoices.status, await badInvoices.clone().text()).toBe(200);
   expect(rows<{ id: string }>(await badInvoices.json()).map((r) => r.id)).not.toContain(id);
+}
+
+/** The parts of a refusal a client can observe, minus the per-request ones
+ *  (`instance`, trace ids).  Two refusals that agree here are indistinguishable
+ *  to the caller. */
+async function refusal(
+  r: Response,
+): Promise<{ status: number; code: unknown; title: unknown; detail: unknown }> {
+  const text = await r.text();
+  let body: Record<string, unknown> = {};
+  try {
+    body = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    /* a non-JSON body still has a status to compare */
+  }
+  return { status: r.status, code: body.code, title: body.title, detail: body.detail };
+}
+
+/**
+ * Write-time reference admission (docs/tenancy.md → "Reference admission").
+ *
+ * A request-supplied `X id` resolves in the target's scope: an id naming
+ * ANOTHER tenant's `tenantOwned` row is refused, and refused exactly as an id
+ * naming no row at all — same status, same problem body — so the refusal is
+ * no existence oracle.  A `crossTenant` target admits any id.  Driven through
+ * every path a reference enters by: the create body, the canonical update, an
+ * operation parameter, and a workflow parameter.
+ */
+async function assertReferenceAdmission(
+  base: string,
+  refs: { foreignInvoice: string; crossTenantPlan: string },
+): Promise<void> {
+  const asB = claims("org-b");
+  const post = (url: string, body: unknown): Promise<Response> =>
+    fetch(`${base}${url}`, { method: "POST", headers: asB, body: JSON.stringify(body) });
+  const missing = "00000000-0000-4000-8000-000000000001";
+
+  const ownInvoice = await post("/api/invoices", { number: "INV-B", amountDue: 7 });
+  expect(ownInvoice.status, await ownInvoice.clone().text()).toBe(201);
+  const { id: invB } = (await ownInvoice.json()) as { id: string };
+
+  // Admitted: the caller's own invoice, and a `crossTenant` plan another
+  // tenant created.
+  const paid = await post("/api/payments", {
+    invoice: invB,
+    plan: refs.crossTenantPlan,
+    amount: 1,
+  });
+  expect(paid.status, await paid.clone().text()).toBe(201);
+  const { id: payment } = (await paid.json()) as { id: string };
+
+  // Refused like a missing id, on every entry path.  `missing` first, so a
+  // backend that answers the foreign id with 2xx fails on the comparison, not
+  // on a status guess.
+  const paths: { name: string; send: (invoice: string) => Promise<Response> }[] = [
+    { name: "create", send: (inv) => post("/api/payments", { invoice: inv, amount: 1 }) },
+    {
+      name: "update",
+      send: (inv) =>
+        post(`/api/payments/${payment}/update`, { invoice: inv, plan: null, amount: 2 }),
+    },
+    {
+      name: "operation parameter",
+      send: (inv) => post(`/api/payments/${payment}/relink`, { to: inv }),
+    },
+    {
+      name: "workflow parameter",
+      send: (inv) => post("/api/workflows/pay_invoice", { inv, amt: 3 }),
+    },
+  ];
+  for (const path of paths) {
+    const absent = await refusal(await path.send(missing));
+    expect(absent.status, `${path.name}: a missing invoice id is refused`).toBeGreaterThanOrEqual(
+      400,
+    );
+    expect(absent.status, `${path.name}: a missing invoice id is a client error`).toBeLessThan(500);
+    const foreign = await refusal(await path.send(refs.foreignInvoice));
+    expect(
+      foreign,
+      `${path.name}: another tenant's invoice answers exactly like a missing one`,
+    ).toEqual(absent);
+  }
+
+  // Nothing the refused requests named reached a row: org-b still has the one
+  // payment, still linked to its own invoice.
+  const payments = rows<{ id: string; invoice: string }>(
+    await (await fetch(`${base}/api/payments`, { headers: asB })).json(),
+  );
+  expect(payments.map((p) => [p.id, p.invoice])).toEqual([[payment, invB]]);
 }
 
 // ---------------------------------------------------------------------------

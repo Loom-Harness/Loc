@@ -16,6 +16,7 @@ import { forApiRead, wireFieldsFor } from "../../src/ir/enrich/wire-projection.j
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { EnrichedAggregateIR } from "../../src/ir/types/loom-ir.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { javaRequiredSets } from "../_helpers/java-openapi-annotations.js";
 import { parseString } from "../_helpers/parse.js";
 
 const SRC = `system S {
@@ -102,11 +103,10 @@ describe("mask unless — the response required set agrees on every backend", ()
 
   it("java leaves the masked field out of the response's required set", async () => {
     const files = await generateSystemFiles(served("java"));
-    const cfg = fileEnding(files, "config/OpenApiContractCustomizer.java");
-    const row = cfg.split("\n").find((l) => l.includes('new RequiredSet("PResponse"'));
-    expect(row).toBeDefined();
-    expect(row).toContain('"name"');
-    expect(row).not.toContain('"salary"');
+    const req = javaRequiredSets(files).get("PResponse");
+    expect(req).toBeDefined();
+    expect(req).toContain("name");
+    expect(req).not.toContain("salary");
   });
 
   it("phoenix leaves the masked field out of the response's required set", async () => {

@@ -32,6 +32,9 @@ system FormSpecUi {
       valueobject Rider {
         code: string
         premium: decimal
+        peril: Peril
+        insurer: Provider id?
+        waived: bool
       }
 
       aggregate Provider with crudish {
@@ -72,6 +75,15 @@ system FormSpecUi {
         }
       }
       repository Providers for Provider { }
+
+      // A workflow whose start answers the created record's id: its form opens
+      // that record.
+      workflow openProvider {
+        create(name: string): Provider id {
+          let provider = Provider.create(name: name)
+          return provider.id
+        }
+      }
       repository Policies for Policy { }
     }
   }

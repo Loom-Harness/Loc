@@ -117,7 +117,7 @@ aggregate's repository — the auto-`findAll` analog, in the same pure pass — 
 the backend serves it from `audit_records`.
 
 > **Backend support — all five, and don't take that from prose.** The
-> `audit-history` row in `test/fixtures/corpus/manifest.ts` names exactly the
+> `audit-history` row (`test/fixtures/corpus/audit-history.corpus.json`) names exactly the
 > backends that serve the endpoint, and widening that row *is* what "backend X
 > now serves history" means. It currently reads `ALL`, so the read side has
 > caught up with the write side; a hand-maintained list here would be one more

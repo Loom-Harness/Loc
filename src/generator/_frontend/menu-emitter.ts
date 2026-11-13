@@ -37,7 +37,7 @@
 // page already claims is dropped so the frontends whose default is
 // "one link per routed page" (angular, phoenix) don't list it twice.
 
-import type { PageIR, UiIR } from "../../ir/types/loom-ir.js";
+import type { BoundedContextIR, PageIR, UiIR } from "../../ir/types/loom-ir.js";
 import { areaQualifiedName, classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
 import {
   menuLinkPage,
@@ -46,7 +46,13 @@ import {
 } from "../../ir/util/page-menu.js";
 import { snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import { menuKeyPrefix, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
+import {
+  humanizePageName,
+  menuKeyPrefix,
+  messageKey,
+  pageKeyPrefix,
+  pageNameEntry,
+} from "../_walker/i18n-extract.js";
 import { renderGateExpr } from "./gate-expr.js";
 
 /** A page's declared `title:` as a plain string, usable as a default menu
@@ -65,6 +71,28 @@ function pageTitleLabel(p: PageIR): string | undefined {
 function pageTitleLabelKey(ui: UiIR, p: PageIR): string | undefined {
   const title = pageTitleLabel(p);
   return title === undefined ? undefined : messageKey(pageKeyPrefix(ui, p), "title", title);
+}
+
+/** Options of {@link deriveSidebarFromUi}. */
+export interface DeriveSidebarOptions {
+  /** A link whose label falls back to the page NAME (no override, no `menu`
+   *  label, no literal `title:`) carries the page's `name` catalog key and the
+   *  humanised name, the pair {@link pageNameEntry} catalogs.  Only the
+   *  frontends whose catalog scope lists these pages (the SPA frontends, via
+   *  {@link navPageNameFallbacks}) opt in: elsewhere the key would resolve to
+   *  nothing. */
+  readonly nameLabelKeys?: boolean;
+}
+
+/** A page's nav label when nothing authored names it: the page name, with the
+ *  `name` catalog key when {@link DeriveSidebarOptions.nameLabelKeys} is on. */
+function nameFallback(
+  ui: UiIR,
+  p: PageIR,
+  opts: DeriveSidebarOptions | undefined,
+): { label: string; labelKey?: string } {
+  const entry = opts?.nameLabelKeys ? pageNameEntry(ui, p) : undefined;
+  return entry ? { label: humanizePageName(p.name), labelKey: entry.key } : { label: p.name };
 }
 
 /** A single sidebar nav entry — framework-neutral data the React and
@@ -138,11 +166,12 @@ function isNavigable(p: PageIR): boolean {
 }
 
 /** A page a frontend's DEFAULT sidebar links: one with a parameterless route
- *  inside the app shell (`isNavigable`), and not a create or detail
+ *  inside the app shell (`isNavigable`), not hidden by its own
+ *  `menu { hidden: true }`, and not a create or detail
  *  page of a scaffolded aggregate or workflow — those are reached from their
  *  list, and a detail route's `:id` has no value to link to. */
 export function isDefaultNavPage(p: PageIR, pageCtx: PageNameCtx): boolean {
-  if (!isNavigable(p)) return false;
+  if (!isNavigable(p) || readMenuMetaBool(p, "hidden")) return false;
   const kind = classifyPage(p, pageCtx).kind;
   return (
     kind !== "aggregate-new" && kind !== "aggregate-detail" && kind !== "workflow-instance-detail"
@@ -190,6 +219,7 @@ export function deriveSidebarFromUi(
    *  routed page on angular/phoenix).  Omitted ⇒ page-derived sections
    *  only. */
   defaultSections: readonly NavSectionVM[] = [],
+  opts?: DeriveSidebarOptions,
 ): NavSectionVM[] | undefined {
   if (ui.menu) {
     return ui.menu.sections.map(
@@ -201,7 +231,7 @@ export function deriveSidebarFromUi(
           ? { labelKey: messageKey(menuKeyPrefix(ui), "section", section.label) }
           : {}),
         entries: section.links
-          .map((link) => navEntryForLink(link, ui, nameCtx, authUi))
+          .map((link) => navEntryForLink(link, ui, nameCtx, authUi, opts))
           .filter((e): e is NavEntryVM => e !== undefined),
       }),
     );
@@ -264,7 +294,12 @@ export function deriveSidebarFromUi(
         : {}),
       entries: pages.map((p): NavEntryVM => {
         const metaLabel = readMenuMetaString(p, "label");
-        const label = metaLabel ?? pageTitleLabel(p) ?? p.name;
+        const titleLabel = pageTitleLabel(p);
+        const fallback =
+          metaLabel === undefined && titleLabel === undefined
+            ? nameFallback(ui, p, opts)
+            : undefined;
+        const label = metaLabel ?? titleLabel ?? fallback?.label ?? p.name;
         const tIdAndActive = testIdAndActive(p, nameCtx);
         return {
           to: p.route ?? "",
@@ -275,8 +310,8 @@ export function deriveSidebarFromUi(
                   menuMetaIdentityKey(p, "label") ??
                   messageKey(pageKeyPrefix(ui, p), "menu.label", metaLabel),
               }
-            : pageTitleLabelKey(ui, p)
-              ? { labelKey: pageTitleLabelKey(ui, p) }
+            : (pageTitleLabelKey(ui, p) ?? fallback?.labelKey)
+              ? { labelKey: pageTitleLabelKey(ui, p) ?? fallback?.labelKey }
               : {}),
           testId: tIdAndActive.testId,
           activeArgs: tIdAndActive.activeArgs,
@@ -343,6 +378,7 @@ function navEntryForLink(
   ui: UiIR,
   nameCtx: PageNameCtx,
   authUi: boolean,
+  opts?: DeriveSidebarOptions,
 ): NavEntryVM | undefined {
   if (link.kind === "external") {
     // External links don't go through React Router; render as a plain
@@ -366,12 +402,18 @@ function navEntryForLink(
   // page's menuMeta `label` and finally to the page name.
   const overrideLabel = stringPropOf(link.props, "label");
   const metaLabel = readMenuMetaString(page, "label");
-  const label = overrideLabel ?? metaLabel ?? pageTitleLabel(page) ?? page.name;
+  const titleLabel = pageTitleLabel(page);
+  const fallback =
+    overrideLabel === undefined && metaLabel === undefined && titleLabel === undefined
+      ? nameFallback(ui, page, opts)
+      : undefined;
+  const label = overrideLabel ?? metaLabel ?? titleLabel ?? fallback?.label ?? page.name;
   // Only the two AUTHORED spellings are in the catalog: the link's own `label:`
   // (extracted under the `menu` prefix) and the page's `menu { label: … }`
   // metadata (extracted under the page's prefix).  A page title / page name
   // fallback is not extracted, so it carries no key and stays untranslated
-  // rather than emitting a key that resolves to nothing.  A page `title:` literal
+  // rather than emitting a key that resolves to nothing (a page NAME fallback
+  // is keyed only for callers that opt in: `DeriveSidebarOptions.nameLabelKeys`).  A page `title:` literal
   // IS extracted (under the page's own `title` role), so it reuses that key.
   const labelKey =
     overrideLabel !== undefined
@@ -379,7 +421,7 @@ function navEntryForLink(
       : metaLabel !== undefined
         ? (menuMetaIdentityKey(page, "label") ??
           messageKey(pageKeyPrefix(ui, page), "menu.label", metaLabel))
-        : pageTitleLabelKey(ui, page);
+        : (pageTitleLabelKey(ui, page) ?? fallback?.labelKey);
   // Identify well-known page kinds via `classifyPage` so testid
   // and active-route semantics match main's hardcoded conventions.
   const tIdAndActive = testIdAndActive(page, nameCtx);
@@ -398,6 +440,35 @@ function navEntryForLink(
       ? { requiresJs: renderGateExpr(page.requires, "currentUser") }
       : {}),
   };
+}
+
+/** The pages whose nav link falls back to the page NAME under
+ *  {@link DeriveSidebarOptions.nameLabelKeys} — exactly the pages whose `name`
+ *  catalog entry the emitted nav reads, so the catalog scope and the shell
+ *  cannot disagree.  Derived from the same sidebar the shell renders (no
+ *  default sections: those are scaffold-labelled, never name-labelled). */
+export function navPageNameFallbacks(ui: UiIR, nameCtx: PageNameCtx): PageIR[] {
+  const out = new Set<PageIR>();
+  const sections = deriveSidebarFromUi(ui, nameCtx, false, [], { nameLabelKeys: true }) ?? [];
+  for (const entry of sections.flatMap((s) => s.entries)) {
+    if (entry.external || !entry.labelKey) continue;
+    for (const page of ui.pages) {
+      if (page.route === entry.to && pageNameEntry(ui, page)?.key === entry.labelKey) out.add(page);
+    }
+  }
+  return [...out];
+}
+
+/** {@link navPageNameFallbacks} over the contexts a frontend serves — the
+ *  catalog-scope entry the SPA generators and `system/i18n-catalog.ts` share. */
+export function navPageNameFallbacksFor(
+  ui: UiIR,
+  contexts: readonly Pick<BoundedContextIR, "aggregates" | "workflows">[],
+): PageIR[] {
+  return navPageNameFallbacks(ui, {
+    aggregateNames: contexts.flatMap((c) => c.aggregates.map((a) => a.name)),
+    workflowNames: contexts.flatMap((c) => c.workflows.map((w) => w.name)),
+  });
 }
 
 function testIdAndActive(

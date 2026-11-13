@@ -7,6 +7,7 @@ import {
   serviceOpReadPorts,
   servicesCalled,
   workflowIsolation,
+  workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
 import {
   isScalarVariant,
@@ -48,6 +49,7 @@ import { workflowPreconditionThrowArgs } from "../../_i18n/domain-floor.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
+import { opUnionResponses } from "../../_payload/union-wire.js";
 import {
   workflowParamPayloads,
   workflowParamTypeSeeds,
@@ -83,6 +85,12 @@ import {
   entryUnionFiles,
   entryUnionJava,
 } from "./entry-result.js";
+import {
+  javaRecordSchemaAnnotation,
+  javaWorkflowCommandDoc,
+  renderJavaUnionDocFiles,
+  requiredParams,
+} from "./openapi-docs.js";
 import { publishesInRowTenant } from "./service.js";
 import {
   bearsNestedRecord,
@@ -94,7 +102,6 @@ import {
 } from "./wire.js";
 import { setterName, workflowStateClass } from "./workflow-state.js";
 
-const SCHEMA = javaRef("io.swagger.v3.oas.annotations.media", "Schema");
 const VALID = javaRef("jakarta.validation", "Valid");
 const NOT_NULL = javaRef("jakarta.validation.constraints", "NotNull");
 const APP_EVENT_PUBLISHER = javaRef("org.springframework.context", "ApplicationEventPublisher");
@@ -662,7 +669,8 @@ export function javaWorkflowStmtTarget(
     // A held row is re-loaded through `getById` — the write-scope load every
     // mutation route uses — before the statement mutates or deletes it; a row
     // outside the caller's write scope throws the same not-found (→ 404), and
-    // the `@Transactional` service rolls back.
+    // the workflow's `@Transactional` method (a write-scope re-check runs in a
+    // transaction) rolls back.
     ...(writeScope
       ? {
           writeScope: {
@@ -684,10 +692,11 @@ function firstRowOf(field: string, retrievalName: string, args: readonly string[
 }
 
 /** Publish what a just-saved aggregate drained (`pullEvents()`) on Spring's
- *  in-process bus.  On the command path this runs inside the workflow
- *  service's `@Transactional`, so the reactors' `@TransactionalEventListener
+ *  in-process bus.  In a workflow that runs in a transaction this is inside
+ *  its `@Transactional` method, so the reactors' `@TransactionalEventListener
  *  (AFTER_COMMIT)` entry (`ReactorListener`, dispatch.ts) delivers each event
- *  only once the workflow commits and never on a rollback, while the durable
+ *  only once the workflow commits and never on a rollback (outside one, the
+ *  save has already committed and `fallbackExecution` delivers at once), while the durable
  *  outbox's plain `@EventListener` still records its row inside the
  *  transaction (D-WRITE-TX). */
 function publishDrainedLine(binding: string, publisher: string): string {
@@ -1089,9 +1098,10 @@ export function renderJavaWorkflows(
           `import ${wctx.basePkg}.domain.ids.*;`,
           `import ${wctx.basePkg}.domain.valueobjects.*;`,
           ``,
-          publishedReqName !== reqType
-            ? `@${SCHEMA}(name = ${JSON.stringify(publishedReqName)})`
-            : null,
+          javaRecordSchemaAnnotation({
+            name: publishedReqName !== reqType ? publishedReqName : undefined,
+            required: requiredParams(wf.params),
+          }),
           `public record ${reqType}(${components.join(", ")}) {`,
           `}`,
           ``,
@@ -1149,7 +1159,8 @@ export function renderJavaWorkflows(
     // logged — so no reactor ever saw a workflow-raised event on java.  Each
     // save is now followed by publishing its drained events, and the body's
     // `emit`s collect into `__events`, published after the exit saves.  The
-    // service is `@Transactional`, so the reactors (AFTER_COMMIT) run after
+    // method is `@Transactional` when the workflow runs in a transaction, so the
+    // reactors (AFTER_COMMIT, or at once outside a transaction) run after
     // the commit and a rollback discards them.
     const publishes = workflowPublishes(wf);
     if (publishes) anyPublishes = true;
@@ -1212,14 +1223,14 @@ export function renderJavaWorkflows(
     // Persist the row (a fresh allocation, or a `this.<stateField>` write) so a
     // later `on` reactor for the same key routes instead of dropping the event.
     const stateSave = corrParam ? [`            ${stateRepoField(wf)}.save(state);`] : [];
-    // The service carries a class-level `@Transactional`; a workflow that pins
-    // an isolation level (`transactional(<level>)`, or its state dataSource's
-    // `isolationLevel:`) overrides it per-method — parity with the .NET
+    // A workflow that pins an isolation level (`transactional(<level>)`, or
+    // its state dataSource's `isolationLevel:`) carries it on its method's
+    // `@Transactional` — parity with the .NET
     // BeginTransactionAsync(IsolationLevel.X) path.
     const isolation = workflowIsolation(wf, ctx, sys);
     // `create(…): T { … return <expr> }` — the method returns the WIRE value
-    // (an id's raw `value()`), read inside the class-level `@Transactional`
-    // boundary and handed back after it commits.  No result keeps `void`.
+    // (an id's raw `value()`), read inside the workflow's transaction boundary
+    // and handed back after it commits.  No result keeps `void`.
     const result = commandCreateResult(wf);
     const er = commandCreateEntryResult(wf);
     const selfResult = isWorkflowSelfType(wf, result?.type);
@@ -1267,6 +1278,10 @@ export function renderJavaWorkflows(
       for (const f of entryUnionFiles(result.type, ctx, wctx.pkg, wctx.basePkg)) {
         out.set(f.name, { category: "request-dto", content: f.content });
       }
+      const split = opUnionResponses(result.type.variants, ctx);
+      for (const f of renderJavaUnionDocFiles(split, wctx.pkg, wctx.basePkg)) {
+        out.set(`${f.name}.java`, { category: "request-dto", content: f.content });
+      }
     }
     const resultJava =
       er && result?.type.kind === "union"
@@ -1276,9 +1291,17 @@ export function renderJavaWorkflows(
           : result
             ? workflowResultWireRef(result.type)
             : "void";
+    // The transaction boundary is the plan's: a workflow that runs in a
+    // transaction is one `@Transactional` method (pinning its isolation level
+    // when it has one); any other commits each repository save on its own, so
+    // a later failure keeps the rows saved before it.
     methods.push(
-      ...(isolation
-        ? [`    @Transactional(isolation = ${ISOLATION}.${javaIsolation(isolation)})`]
+      ...(workflowRunsInTransaction(wf, ctx)
+        ? [
+            isolation
+              ? `    @Transactional(isolation = ${ISOLATION}.${javaIsolation(isolation)})`
+              : `    @Transactional`,
+          ]
         : []),
       `    public ${resultJava} ${lowerFirst(wf.name)}(${wf.params.length > 0 ? `${reqType} request` : ""}) {`,
       // A workflow is a per-dispatch boundary: run it in a child execution frame
@@ -1386,6 +1409,11 @@ export function renderJavaWorkflows(
         `import ${wctx.basePkg}.domain.ids.*;`,
         `import ${wctx.basePkg}.domain.valueobjects.*;`,
         ``,
+        javaRecordSchemaAnnotation({
+          required: pl.fields
+            .filter((f) => !f.optional && f.type.kind !== "optional")
+            .map((f) => f.name),
+        }),
         `public record ${pl.name}Response(${wireComponents.join(", ")}) {`,
         `}`,
         ``,
@@ -1525,7 +1553,6 @@ export function renderJavaWorkflows(
       `import ${wctx.basePkg}.domain.valueobjects.*;`,
       ``,
       `@Service`,
-      `@Transactional`,
       `public class ${serviceName} {`,
       anyPublishes ? `    private final ${APP_EVENT_PUBLISHER} ${WORKFLOW_PUBLISHER};` : null,
       ...repoFields.map((a) => `    private final ${a}Repository ${repoField(a)};`),
@@ -1556,6 +1583,17 @@ export function renderJavaWorkflows(
   // text/plain — the same M-T6.73 fix the explicit-handler routes carry.
   let ctlJson = false;
   const routes = cmdWorkflows.flatMap((wf) => {
+    // The mapping plus its OpenAPI metadata (openapi-docs.ts).
+    const mapping = [
+      `    @PostMapping("/${snake(wf.name)}")`,
+      ...javaWorkflowCommandDoc(
+        wf,
+        ctx,
+        wctx.basePkg,
+        wctx.pkg,
+        reqNameFor({ kind: "workflow", workflow: wf.name }),
+      ),
+    ];
     const arg = wf.params.length > 0 ? "request" : "";
     const sig =
       wf.params.length > 0
@@ -1565,7 +1603,7 @@ export function renderJavaWorkflows(
     const result = commandCreateResult(wf);
     if (!result) {
       return [
-        `    @PostMapping("/${snake(wf.name)}")`,
+        ...mapping,
         `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
         `    public void ${lowerFirst(wf.name)}(${sig}) {`,
         `        ${call};`,
@@ -1576,7 +1614,7 @@ export function renderJavaWorkflows(
     const er = commandCreateEntryResult(wf);
     if (er && result.type.kind === "union") {
       return [
-        `    @PostMapping("/${snake(wf.name)}")`,
+        ...mapping,
         `    public ${RESPONSE_ENTITY}<?> ${lowerFirst(wf.name)}(${sig}) {`,
         `        var result = ${call};`,
         ...entryControllerJava(er, result.type, ctx, "result", "        ", {
@@ -1591,7 +1629,7 @@ export function renderJavaWorkflows(
     }
     if (isWorkflowSelfType(wf, result.type)) {
       return [
-        `    @PostMapping("/${snake(wf.name)}")`,
+        ...mapping,
         `    public ${upperFirst(wf.name)}InstanceResponse ${lowerFirst(wf.name)}(${sig}) {`,
         `        return ${call};`,
         `    }`,
@@ -1602,7 +1640,7 @@ export function renderJavaWorkflows(
     if (wire === "String") {
       ctlJson = true;
       return [
-        `    @PostMapping("/${snake(wf.name)}")`,
+        ...mapping,
         `    public ${RESPONSE_ENTITY}<String> ${lowerFirst(wf.name)}(${sig}) {`,
         `        return ${RESPONSE_ENTITY}.ok().contentType(${MEDIA_TYPE}.APPLICATION_JSON)`,
         `            .body(JSON.writeValueAsString(${call}));`,
@@ -1611,7 +1649,7 @@ export function renderJavaWorkflows(
       ];
     }
     return [
-      `    @PostMapping("/${snake(wf.name)}")`,
+      ...mapping,
       `    public ${workflowResultWireRef(result.type)} ${lowerFirst(wf.name)}(${sig}) {`,
       `        return ${call};`,
       `    }`,

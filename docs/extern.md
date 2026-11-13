@@ -391,9 +391,11 @@ A workflow can invoke a parameterless extern op as if it were any
 other public operation:
 
 ```ddd
-workflow placeAndConfirm(orderId: Order id) {
-  let order = Orders.get(orderId)
-  order.confirm()   // confirm() is extern — workflow runs the dance
+workflow PlaceAndConfirm {
+  create(orderId: Order id) {
+    let order = Orders.get(orderId)
+    order.confirm()   // confirm() is extern — workflow runs the dance
+  }
 }
 ```
 
@@ -418,16 +420,18 @@ scaffolds a **user-owned impl file once** and the generated dispatch calls it,
 preserving your implementation across regenerations.
 
 ```ddd
-context Ordering {
-  aggregate Order { code: string }
-  repository Orders for Order { }
+subdomain Sales {
+  context Ordering {
+    aggregate Order { code: string }
+    repository Orders for Order { }
 
-  // Bodyless (`;`) — the signature is the contract; the impl is yours.
-  extern commandHandler PlaceOrder(code: string): Order id;
-  extern queryHandler   GetQuote(sku: string): string;   // external read-projection
+    // Bodyless (`;`) — the signature is the contract; the impl is yours.
+    extern commandHandler PlaceOrder(code: string): Order id;
+    extern queryHandler   GetQuote(sku: string): string;   // external read-projection
+  }
 }
 
-api SalesApi from Ordering {
+api SalesApi from Sales {
   route POST "/orders"       -> Ordering.PlaceOrder
   route GET  "/quotes/{sku}" -> Ordering.GetQuote
 }

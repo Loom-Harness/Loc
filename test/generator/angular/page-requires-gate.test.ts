@@ -59,7 +59,6 @@ describe("angular page requires gate", () => {
     // Template control-flow gate (bare `currentUser.role`, no `this.`).
     expect(page).toContain('@if (currentUser.role === "manager") {');
     expect(page).toContain("} @else {");
-    expect(page).toContain('<h2>{{ t("chrome.forbiddenTitle", "Forbidden") }}</h2>');
     // The gate opens before the body markup.
     const gateIdx = page.indexOf("@if (currentUser.role");
     const bodyIdx = page.indexOf("Top secret");

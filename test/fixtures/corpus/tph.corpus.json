@@ -1,0 +1,5 @@
+{
+  "title": "TPH-only (sharedTable) hierarchy — Vehicle/Car/Truck canonical fixture",
+  "doc": "inheritance",
+  "backends": "ALL"
+}
