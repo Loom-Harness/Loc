@@ -196,7 +196,7 @@ describe("If-Match: the self-hosted frontends send the loaded version", () => {
     // The version comes from the Model's byId read, and only when it is the
     // record the route id addresses.
     expect(app).toContain(
-      "  | SubmitUpdateDocOpForm id -> { model with UpdateDocOpFormServer = ServerErrors.empty }, Cmd.OfAsync.perform (Api.updateDoc id (match model.DocById with | Loaded (Some __loaded) when __loaded.id = id -> Some (string __loaded.rowVersion) | _ -> None)) model.UpdateDocOpForm UpdateDocOpDone",
+      "  | SubmitUpdateDocOpForm id -> { model with UpdateDocOpFormServer = ServerErrors.empty; UpdateDocOpFormPending = true }, Cmd.OfAsync.either (Api.updateDoc id (match model.DocById with | Loaded (Some __loaded) when __loaded.id = id -> Some (string __loaded.rowVersion) | _ -> None)) model.UpdateDocOpForm UpdateDocOpDone (fun ex -> UpdateDocOpDone (Error (ServerErrors.formLevel ex.Message)))",
     );
   }, 90_000);
 
@@ -205,13 +205,15 @@ describe("If-Match: the self-hosted frontends send the loaded version", () => {
     const forms = [...files].find(([p]) => p.endsWith("lib/forms.dart"))![1];
     expect(forms).toContain("  final int? expectedVersion;");
     expect(forms).toContain(
-      "const UpdateDocForm({super.key, required this.id, this.expectedVersion});",
+      "const UpdateDocForm({super.key, required this.id, this.expectedVersion, this.record});",
     );
     expect(forms, "the entity-tag must be QUOTED (RFC 9110 §8.8.3)").toContain(
       "headers: {'Content-Type': 'application/json', if (widget.expectedVersion != null) 'If-Match': '\"${widget.expectedVersion}\"'},",
     );
     const detail = [...files].find(([p]) => p.endsWith("lib/pages/doc_detail_page.dart"))![1];
-    expect(detail).toContain("UpdateDocForm(id: id, expectedVersion: docById.rowVersion)");
+    expect(detail).toContain(
+      "UpdateDocForm(id: id, expectedVersion: docById.rowVersion, record: docById.toJson())",
+    );
   }, 90_000);
 
   it("the precondition rides the guarded write only (self-hosted)", async () => {

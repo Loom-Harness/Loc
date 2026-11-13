@@ -29,8 +29,9 @@ node, EF Core on .NET). Persistence is a selectable realization axis —
 `platform: dotnet { persistence: dapper }`, `platform: node { persistence:
 mikroorm }` — see the "Realization axes" section of [`platforms.md`](platforms.md).
 The alternates (`dapper`, `mikroorm`) share the domain layer below and only
-swap the repository/schema layer; both are now at full parity with their
-default (M-T6.9) — see [`platforms.md`](platforms.md) → "Realization axes".
+swap the repository/schema layer; both match their default on aggregate shape;
+the placement and migration limits are listed in
+[`platforms.md`](platforms.md) → "Realization axes".
 Schema evolution differs between them. **Dapper** applies the same versioned
 `MigrationsIR` chain as EF Core: `Migrations/*.cs`, run at boot by
 `DbSchema.EnsureAsync` behind `public.__loom_migrations`, projected onto its
@@ -132,7 +133,8 @@ For a context with aggregates `Order` (containing parts) and `Product`:
 ├── boot.ts                          # bootApp(db, opts) → { app, stop }: seeds, verifier, dispatchers, channel transports + consumers, outbox relay, timers (the playground runs it too)
 ├── scheduler.ts                     # timerSource jobs (when the deployable owns any) — see "Timer sources"
 ├── drizzle.config.ts                # Drizzle Kit config (db:generate, db:push, db:studio)
-├── Dockerfile                       # multi-stage node:22-alpine; runtime serves `node out/index.js`
+├── tsup.config.ts + vitest.config.ts # bundle / test config
+├── Dockerfile                       # multi-stage node build; runtime serves the bundled `dist/index.js` with source maps
 ├── .dockerignore
 ├── certs/.gitkeep                   # proxy-CA escape hatch (drop *.crt files here at build time)
 ├── domain/
@@ -140,16 +142,20 @@ For a context with aggregates `Order` (containing parts) and `Product`:
 │   ├── value-objects.ts             # enums + value-object classes with invariant ctors
 │   ├── events.ts                    # discriminated event union + dispatcher type + Noop dispatcher
 │   ├── errors.ts                    # DomainError, AggregateNotFoundError
+│   ├── repository-ports.ts          # repository interfaces the domain depends on
 │   ├── order.ts                     # Order class + OrderLine part class(es)
 │   ├── order.test.ts                # vitest from `test "name" { … }` blocks (when present)
 │   └── product.ts
 ├── db/
 │   ├── schema.ts                    # Drizzle pgTable / enum value tuples
+│   ├── migrations/                  # <version>_<name>.sql + meta/_journal.json (the rendered migration chain)
 │   └── repositories/
 │       ├── order-repository.ts      # findById / getById / save / find* / all() / toWire
 │       └── product-repository.ts
+├── obs/                             # als, log, metrics, request-id, tracing
 └── http/
     ├── index.ts                     # Hono app composer: CORS, /health, sub-routers, /openapi.json
+    ├── problem-details.ts           # RFC 7807 error mapping
     ├── order.routes.ts              # OpenAPIHono router with createRoute() + Zod request/response schemas
     └── product.routes.ts
 ```
@@ -337,8 +343,10 @@ field is **not** persisted as a column on the owner table.
 <deployable>/
 ├── <Namespace>.csproj               # net10.0, EF Core 10, Mediator source-gen, Swashbuckle, EF Tools
 ├── Program.cs                       # AddDbContext, AddMediator, AddCors, AddSwaggerGen, MapControllers,
-│                                    # camelCase JSON, EnsureCreated, /health
+│                                    # camelCase JSON, db.Database.Migrate(), /health
 ├── Dockerfile                       # multi-stage dotnet/sdk → dotnet/aspnet
+├── Migrations/                      # <Version>_<Name>.cs — the rendered migration chain
+├── Middleware/ Observability/ Serialization/   # problem-details mapping, logging/metrics/tracing, JSON converters
 ├── .dockerignore
 ├── certs/.gitkeep                   # proxy-CA escape hatch
 ├── Domain/
@@ -465,7 +473,11 @@ twins: hono `emptyBodyAsEmptyObject`, python `JsonBodyMiddleware`, java
 - `AddScoped<I<Agg>Repository, <Agg>Repository>` per aggregate
 - `AddControllers().AddJsonOptions(...)` — camelCase property naming
 - `AddCors` (permissive default; pin to tighten in prod)
-- `AddSwaggerGen` — spec at `/openapi.json` (aligned across backends)
+- `AddSwaggerGen` — spec at `/openapi.json` (aligned across backends).
+  Swashbuckle composes only `oneOf`, never `anyOf`, so an operation-return
+  union's error-arm status publishes plain `ProblemDetails`; the typed
+  `<Tag>Problem` body the other backends declare beside it is not in the .NET
+  document.
 - `app.MapGet("/health", ...)` + `UseCors() / UseSwagger() / MapControllers()`
 - the boot migration (`Database.Migrate()`, or `DbSchema.EnsureAsync` under
   Dapper) on the database's migrator; a deployable whose storage's database
@@ -492,10 +504,12 @@ web_app/
 ├── tsconfig.json + tsconfig.node.json
 ├── vite.config.ts                   # @vitejs/plugin-react, dev/preview bind 0.0.0.0:<port:> (PORT overrides; the image passes --port 3000)
 ├── index.html
-├── Dockerfile                       # multi-stage node:22-alpine; runtime: vite preview
+├── Dockerfile                       # multi-stage node build; runtime: vite preview
 ├── .dockerignore                    # excludes e2e/, dist/, playwright-report/, test-results/
 ├── certs/.gitkeep
 ├── src/
+│   ├── i18n.ts + locales/en.json    # the t() runtime and the extracted string catalog
+│   ├── lib/ logger.ts ErrorBoundary.tsx theme.ts   # shared helpers
 │   ├── main.tsx                     # MantineProvider + QueryClientProvider + Router + Notifications + ModalsProvider
 │   ├── App.tsx                      # AppShell + <Routes>: home, /<plural>, /<plural>/new, /<plural>/:id — each page a React.lazy chunk behind a Suspense (pack loader fallback)
 │   ├── api/
@@ -771,8 +785,8 @@ Pack selection per platform when `design:` is omitted:
 | `react`, `static`, fullstack `dotnet` (with `ui:`) | `mantine` |
 | `vue` | `vuetify` |
 | `svelte` | `shadcnSvelte` |
-| `angular` | `angularMaterial` |
-| `phoenixLiveView` | `coreComponents` (default; `daisyui` also available) |
+| `angular` | `angularMaterial` (`primeng` and `spartanNg` also available) |
+| `elixir` (ui `framework: phoenixLiveView`) | `coreComponents` (default; `daisyui` also available) |
 | `node`, backend-only `dotnet` | none (no UI mount) |
 
 Picking a pack also locks in a **stack** (a coherent React + router +
@@ -811,7 +825,7 @@ generator uses (`src/generator/_walker/walker-core.ts`) with
 | Realtime | `realtime` channels emit a `RealtimeHandlers.svelte` that subscribes via a `$effect` to `src/lib/api/realtime.ts` (shared transport contract `src/generator/_frontend/realtime.ts`), surfacing a `realtime-toast` on events — parity with the react realtime client. |
 | Extern hatch | `extern function` → a typed signature stub `src/lib/extern/<name>.signature.ts` re-exported through `$lib/<name>`.  `extern component` → a forwarding `<Name>.svelte` wrapper rendering `<Impl {...props} />` against a typed `<Name>.props.ts` (slots typed as `Snippet`). |
 | e2e | Same testid-keyed Playwright surface as react: page objects from the shared `_frontend` builders (api imports root at `src/lib/api`), smoke spec, fixtures, config.  `test e2e … against <svelte deployable>` lowers to a Playwright ui spec, gated at runtime by `generated-svelte-e2e.yml` (`vite preview` + the spec). |
-| Embedding | Every backend host can embed the SvelteKit SPA (`framework: svelte` on the ui binding).  dotnet/java fullstack hosts mount it under `ClientApp/` (Dockerfile copies `build/` → wwwroot); phoenix mounts it under `assets/` served at `/app`, with `kit.paths.base = "/app"` so asset URLs resolve (the fleet-wide base-path fix also covers react/vue). |
+| Embedding | Every backend host that mounts a UI can embed the SvelteKit SPA (`framework: svelte` on the ui binding; `node` mounts none).  dotnet/java fullstack hosts mount it under `ClientApp/` (Dockerfile copies `build/` → wwwroot); phoenix mounts it under `assets/` served at `/app`, with `kit.paths.base = "/app"` so asset URLs resolve (the fleet-wide base-path fix also covers react/vue). |
 | CI | `generated-svelte-build.yml` — per `{example × pack}`: `npm install` + `svelte-check --fail-on-warnings` + `vite build` (`npm run test:svelte-build` locally); `generated-svelte-e2e.yml` adds the runtime preview + Playwright gate. |
 
 ## Vue frontend (`platform: vue`)
@@ -899,7 +913,7 @@ Angular 22 SPA** per angular deployable — `bootstrapApplication` + `appConfig`
 the same `vite preview`-style way as the other SPAs in docker.  Pages flow
 through the **same shared markup walker** the React / Vue / Svelte generators use
 (`src/generator/_walker/walker-core.ts`) with `angularTarget` + the
-`angularMaterial` design pack.  See [`docs/old/plans/angular-frontend-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/angular-frontend-plan.md).
+`angularMaterial` design pack by default (`primeng` and `spartanNg` are the other angular-format packs).  See [`docs/old/plans/angular-frontend-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/angular-frontend-plan.md).
 
 Angular renders **idiomatic Angular**, not a transliterated React app: standalone
 `@Component`s, signals/`computed` for view state, typed Reactive Forms, and —
@@ -921,7 +935,7 @@ suite gate this).
 | Operations | `Action(inst.op)` → a "dumb template" button (`renderAction` seam): `(click)="on<Op><Agg>()"` + `[disabled]="<localVar>.isPending()"`, with an `async on<Op><Agg>()` method that reads the record id inside (a `?.id` guard + early return), `await`s `<localVar>.mutateAsync({ id, input })`, then runs the optional `then:` effect (`this.`-prefixed).  `Modal { OperationForm(…) }` → a **signal-toggled** inline Reactive Form (`renderModal` seam): the trigger captures the record id into an `<op>Id` signal and flips `<op>Open`; an `@if (<op>Open())` block holds the op `FormGroup`; submit reads the id signal, `mutateAsync({ id, input })`s, then closes. |
 | User components | A walked `component <Name>(p: T) { body: … }` emits a standalone `@Component` class at `src/app/components/<Name>.ts` (`components-emit.ts`) — assembled by the SAME shell that assembles a page (`renderAngularPage` in `componentMode`), so state signals, `derived` `computed`s, action methods, api-read hoists, Reactive Forms and the `t` / `FORMAT_HELPERS` / `String` / `Decimal` member lifts all apply.  Params bind as plain `@Input()` fields (bare template reads, like a bound route param; NOT `required: true` — a call site may omit an arg, and the other frontends render that as `undefined`).  A call site uses the component's OWN kebab selector — `<app-tier-badge [label]='tier()'>` — with the class in the page's standalone `imports: []`, since Loom stamped that selector itself; an `extern` component keeps the selector-free `NgComponentOutlet` form (its `@Component({ selector })` is the author's, so Loom has no tag to spell) and its shim sits at `src/components/` rather than `src/app/components/`.  Only the tag form has a content-projection channel, so children passed at a call site — `Panel("a", Text { "child" })` — reach a walked component's `Slot { }` (emitted as `<ng-content>`) and are still dropped on an `extern` one (`loom.component-children-unsupported`, D-ANGULAR-EXTERN-CHILDREN).  Deferred (call site keeps the walker's give-up comment, never a dangling reference): a `slot` / `action(T)` param, and an api read whose ARG reads an `@Input()` (a read hoists as a class-FIELD initializer, which runs before Angular sets inputs; an arg-less read and a reactive find are supported). |
 | Page stub | Only a page with **no body** (route/title-only) renders a title stub; every form / action / read primitive now renders a real body.  The `pageNeedsDeferredFeatures` predicate is defence-in-depth (the shared react-hook-form `formOfs` / `actionMutations` sinks are never populated on Angular — each primitive forks via its `render<X>Form` seam), and `validateRequired` keeps any unsupported construct a compile error rather than a codegen crash. |
-| CI | `generated-angular-build.yml` — per `{case × pack}` (`minimal` / `scaffold` / `showcase` × `angularMaterial`): `npm install` + `ng build` (the Angular CLI typechecks + bundles in one step; `npm run test:angular-build` locally). |
+| CI | `generated-angular-build.yml` — per `{case × pack}` (`minimal` / `scaffold` / `showcase` × each angular-format pack): `npm install` + `ng build` (the Angular CLI typechecks + bundles in one step; `npm run test:angular-build` locally). |
 
 ## Feliz frontend (`platform: feliz`)
 
@@ -1131,7 +1145,7 @@ Per deployable it emits:
 | Domain | typed-id records (`@Embeddable`, `newId()`), enums (DSL-cased constants — the wire), VO records running invariants in the compact constructor, event records implementing a `DomainEvent` marker (jMolecules-annotated), aggregate/part classes with package-private fields + record-style accessors, `create(...)` factory, `pullEvents()`, positional part `_create` factories |
 | Persistence | JPA annotations mirroring the shared `MigrationsIR` schema (`@EmbeddedId` typed ids, flattened-VO `@AttributeOverride`s, unidirectional `@OneToMany` containments with `nullable = false` join columns, `@ElementCollection` join tables for `X id[]` + value collections, `@MappedSuperclass` TPC bases); repository triple — domain port (`save`/`findById`/`getById`/`findAll`/`delete` + declared finds), Spring Data interface with `@Query` JPQL finds, `@Repository` impl mapping misses to 404 |
 | Migrations | `MigrationsIR` → Flyway `db/migration/V<ts>.<n>__*.sql` via the shared Postgres-SQL renderer |
-| API | `@RestController` per aggregate (`POST /` 201 `{id}`+Location, `GET /{id}`, `GET /`, `POST /{id}/<op_snake>` 204, `GET /<find_snake>`, `DELETE /{id}`), DTO records in `wireShape` order (money/datetime as strings), wire validators from the shared invariant classifier → 422 RFC 7807 with `errors[]`, `@RestControllerAdvice` (400/403/404/422/500 problem+json — 400 only for a malformed body, the domain floor is 422), springdoc `/openapi.json` brought to cross-backend parity by an `OpenApiContractCustomizer` (named `<Agg>ListResponse` array wrappers, RFC 7807 error responses, named enum components, empty request bodies for param-less ops, per-component `required` sets, `Workflow` operationId suffixes) |
+| API | `@RestController` per aggregate (`POST /` 201 `{id}`+Location, `GET /{id}`, `GET /`, `POST /{id}/<op_snake>` 204, `GET /<find_snake>`, `DELETE /{id}`), DTO records in `wireShape` order (money/datetime as strings), wire validators from the shared invariant classifier → 422 RFC 7807 with `errors[]`, `@RestControllerAdvice` (400/403/404/422/500 problem+json — 400 only for a malformed body, the domain floor is 422), springdoc `/openapi.json` built from source metadata only (`@ApiResponse` success + RFC 7807 error responses per method, `@Schema(enumAsRef)` enums, `@Schema(requiredProperties)` records, named empty request bodies for param-less ops, `Workflow` operationId suffixes via `@Operation`) |
 | Auth | `auth: required` + `user {}` → typed `User` record, `UserVerifier` boundary + the dev stub (no `auth { oidc }`; on only under `LOOM_DEV_AUTH=1`), 401 filter, ThreadLocal accessor; `currentUser` threads into ops as a trailing parameter |
 | Workflows | `POST /workflows/<snake>` via a per-context `@Service` (loops over `Repo.all(...)` retrievals incl. the call-site `page:` tuple, workflow-level `emit` logging the `domain_event` envelope) |
 | Retrievals / criteria | reified criteria → `<Agg>Criteria` `Specification<T>` factories (java consumes `CriterionIR` directly — the first backend to); `run<Name>` port methods: an exact-criterion-ref retrieval rides `JpaSpecificationExecutor.findAll(spec, Sort)`, composed `where`s fall back to `@Query` JPQL with `order by`; paged runs via the `OffsetLimitPageRequest` Pageable |
@@ -1215,7 +1229,7 @@ Emission for a keyword-free model is byte-identical to before.
 ## Python backend (`platform: python`)
 
 FastAPI / SQLAlchemy 2 (typed declarative, async) / asyncpg / Postgres,
-managed by **uv** (Python 3.12) and held to `ruff check` + `mypy
+managed by **uv** (Python 3.13) and held to `ruff check` + `mypy
 --strict` + `pytest` by the `LOOM_PYTHON_BUILD` gate.  Emission lives in
 `src/generator/python/`; the surface is `src/platform/python.ts`
 (`python@v1`; `python` is the only spelling — the `fastapi` platform alias
@@ -1229,11 +1243,11 @@ Per deployable it emits:
 
 | Piece | Files |
 |---|---|
-| Project shell | `pyproject.toml` (uv, pinned deps, ruff/mypy/pytest config), `app/main.py` (lifespan: verifier/extern asserts → migrations → seeds; CORS; `/health` + `/ready`), `app/settings.py`, `app/db/engine.py`, `python:3.12-slim + uv` Dockerfile |
+| Project shell | `pyproject.toml` (uv, pinned deps, ruff/mypy/pytest config), `app/main.py` (lifespan: verifier/extern asserts → migrations → seeds; CORS; `/health` + `/ready`), `app/settings.py`, `app/db/engine.py`, uv-based Dockerfile |
 | Domain | `NewType`-branded str ids, `StrEnum`s, VO classes with invariant ctors, frozen-dataclass events + dispatcher protocol, aggregate/part classes (private state, `@property` accessors, `create` factory, `pull_events()`) |
 | Persistence | `app/db/schema.py` SQLAlchemy models (`Mapped[...]`, dataSource-routed `__table_args__` schema, `Uuid(as_uuid=False)` ids, flattened VO columns, join tables), per-aggregate repositories (`find_by_id`/`get_by_id`/`all`/declared finds/`save` diff-sync/`to_wire` from `wireShape`), `where` clauses lowered to SQLAlchemy predicates incl. correlated-EXISTS `contains` |
 | Migrations | `MigrationsIR` → `migrations/*.sql` via the shared Postgres-SQL renderer + `app/db/migrate.py`, a `__loom_migrations`-tracked boot-time runner (also `python -m app.db.migrate`) |
-| API | APIRouter per aggregate (`POST /` 201 `{id}`, `GET /`, `GET /{id}`, `POST /{id}/<op_snake>` 204, `GET /<find_snake>`, `DELETE /{id}` with 409), Pydantic wire DTOs in `wireShape` order, named `<Agg>ListResponse` array components, paged carriers, discriminated-union operation returns (union finds are untagged, optional-style), RFC 7807 handlers (+ §3.2 `errors[]` on 422), the shared per-route error matrix re-keyed to `application/problem+json` by an `install_openapi` post-processor |
+| API | APIRouter per aggregate (`POST /` 201 `{id}`, `GET /`, `GET /{id}`, `POST /{id}/<op_snake>` 204, `GET /<find_snake>`, `DELETE /{id}` with 409), Pydantic wire DTOs in `wireShape` order, named `<Agg>ListResponse` array components, paged carriers, discriminated-union operation returns (union finds are untagged, optional-style), RFC 7807 handlers (+ §3.2 `errors[]` on 422), the shared per-route error matrix declared per route in `responses=` under `application/problem+json` (an op-return union names its tagged 200 body and its error arms' problem bodies as declared-schema Pydantic models) |
 | Inheritance / ES | TPC + TPH (`kind`-scoped shared table, base readers), `persistedAs: eventLog` append-only stream + applier folds |
 | Sagas | `app/dispatch.py` in-process dispatcher when a channel routes a subscribed event — `create(e) by …` load-or-allocates the persisted correlation row, `on(e) by …` routes or drops + logs `event_unrouted`; handler emits re-enter |
 | Auth | `auth: required` + `user {}` → `app/auth/` (frozen `User` dataclass, verifier registry, middleware with the cross-backend bypass list) + a dev-stub verifier registered in `main.py`; `current_user` threads into ops/finds/workflows as a trailing parameter |
@@ -1280,9 +1294,10 @@ world sees are pinned back on:
 ```ddd
 aggregate Thing with crudish {
   def: string
-  operation class(except: int) { … }
+  unique (def)
+  operation class(except: int) { this.def := "x" }
 }
-repository Things for Thing { find byDef(def: string): Thing? where this.def == def }
+repository Things for Thing { }
 ```
 
 | position | what is emitted |
@@ -1360,11 +1375,36 @@ module, the TypeScript scanner's reserved-word range).
 | elixir | `elixirLocal(name)` for every parameter / bound op input (`do_`); `elixirOpAction(name)` for a controller action (`def do_`, and `show` / `index` step aside to `show_op` from the CRUD read actions); an OpenApiSpex schema with a reserved property key opts out of the derived struct (`struct?: false`) |
 | java | already clean through `jid` (M-T6.36) |
 
-**Not covered yet** — tracked by #4213: a FIELD named `constructor` on node
-(its getter cannot carry that name), TYPE names that shadow a target's
-globals / BCL / framework types (`valueobject Promise` / `String` / `Symbol` on
-node; `.NET` handles `Task`-like names via `dotnet-bcl-type-collision`), and the
-frontends (the fixture declares no `ui`).
+**One plan per target.** The domain class emitters (aggregate, part, value object,
+enum, event, domain service) read every identifier from the symbol plan,
+`src/generator/_symbols/plan.ts`, rather than calling the escaping funnels themselves.
+So a definition and each of its uses get one spelling:
+
+- a TS domain-service operation is defined as `<service>_<op>`, and a bare sibling
+  call inside the service resolves to that same function;
+- a python method escaped at its `def` (`raise_`) is called by the same name from
+  a workflow;
+- python also escapes the decorators a generated class body applies (`property`,
+  `classmethod`, `staticmethod`).
+
+`test/system/symbol-plan-census.test.ts` keeps the raw funnels out of those files.
+
+**Type names a target imports implicitly.** On .NET, a domain type whose simple
+name an imported framework namespace also exports (`TaskStatus` from
+`System.Threading.Tasks`, `ServiceProvider` from
+`Microsoft.Extensions.DependencyInjection`) is aliased on the namespace line of
+each compilation unit that sees both. The table of non-generic framework type
+names per namespace, `src/generator/_symbols/ambient-dotnet.ts`, is generated
+from the SDK reference packs and the pinned packages by
+`scripts/gen-dotnet-ambient-types.mjs`. The gate is the corpus fixture
+`domain-symbol-collisions`, on every backend's compile leg.
+
+The plan does not cover:
+
+- a FIELD named `constructor` on node (its getter cannot carry that name);
+- type names that shadow a node or java global (`Promise`, `Record`, `String`,
+  `Object`, …), which the generated framework code spells bare in the same unit;
+- the frontends.
 
 ---
 
@@ -1397,7 +1437,10 @@ writes everything to a flat tree:
 | `dotnet` | 8080 | `ConnectionStrings__Default=Host=db;Port=5432;Database=<slug>;…` | yes | `/ready` |
 | `node` | 3000 | `DATABASE_URL=postgres://…/<slug>` | yes | `/ready` |
 | `react` / `static` (also `vue`, `svelte`) | 3000 | `VITE_API_BASE_URL=…/api` (build-time base override; the bundle defaults to a relative `/api`) + `VITE_API_PROXY_TARGET=http://<backend-svc>:<port>` | no | `/` |
-| `phoenixLiveView` | 4000 | `DATABASE_URL=ecto://…/<slug>`, `SECRET_KEY_BASE`, `PHX_HOST`, `PHX_SERVER=true`, `PORT=4000` | yes | `/health` |
+| `python` | 8000 | `DATABASE_URL=postgresql+asyncpg://…/<slug>` | yes | `/ready` |
+| `java` | 8080 | `SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/<slug>`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | yes | `/ready` |
+| `elixir` | 4000 | `DATABASE_URL=ecto://…/<slug>`, `SECRET_KEY_BASE`, `PHX_HOST`, `PHX_SERVER=true`, `PORT=4000` | yes | `/health` |
+| `angular` / `feliz` / `flutter` | 3000 | `VITE_API_BASE_URL` (flutter: its own API base define) | no | `/` |
 
 **Frontend same-origin in compose.** A vite-served frontend's built bundle
 fetches `/api` **relative**, and its image runs `vite preview`. So compose
@@ -1410,8 +1453,8 @@ of the k8s same-origin Ingress. (Local `vite dev` falls back to the baked
 
 The platform contract decides UI mount admissibility and DB ownership
 via two `PlatformSurface` flags (`src/platform/surface.ts`):
-`mountsUi` (true on `react`, `static`, `phoenixLiveView`) and
-`needsDb` (true on `dotnet`, `node`, `phoenixLiveView`).  The system
+`mountsUi` and `needsDb`; the per-platform values are the table in
+[`platforms.md`](platforms.md#registered-platforms).  The system
 orchestrator consults these instead of hardcoding platform names, so
 adding a new platform extends the registry + the two flags only.
 
@@ -1455,10 +1498,13 @@ Postgres-backed emitters lives in
 | --- | --- | --- |
 | Phoenix | `priv/repo/migrations/<ts>_<name>.exs` (Ecto DSL) | `mix ecto.migrate` at boot via the existing release config |
 | Hono | `db/migrations/<version>_<name>.sql` + `db/migrations/meta/_journal.json` | the generated `db/migrate.ts`: `await migrate(db, { migrationsFolder })` in `index.ts` reads the journal + .sql files and tracks state in `__drizzle_migrations` as Drizzle's migrator does, and applies a `-- loom:no-transaction` file (a `CREATE INDEX CONCURRENTLY` unit) outside a transaction.  `npm run db:migrate` runs the same `migrate` out of band (`tsx db/migrate-cli.ts`, a pool from `DATABASE_URL`); `drizzle-kit migrate` is not wired, since it runs every file inside one transaction |
+| Java | `src/main/resources/db/migration/V<version>.<n>__<Module>_<Name>.sql` (Flyway) | Flyway at boot |
+| Python | `migrations/<version>_<module>_<name>.sql` | `run_migrations()` in the `app/main.py` lifespan |
 | .NET | `Migrations/<Version>_<Name>.cs` (`migrationBuilder.Sql(@"...")`) | `db.Database.Migrate()` in `Program.cs` after `builder.Build()`; no `ModelSnapshot` is emitted — Loom owns SQL generation, so `dotnet ef migrations add` is never run and the runtime migrator is happy without one |
 
-Phoenix stays in Ecto DSL because its output is Elixir.  Hono and
-.NET share `src/generator/sql-pg.ts` for bit-identical Postgres DDL.
+Phoenix stays in Ecto DSL because its output is Elixir.  All five
+backends share `src/generator/sql-pg.ts` for bit-identical Postgres DDL (Phoenix
+wraps it in Ecto DSL).
 
 Every `generate system` renders the whole chain: one file per backend
 per recorded generation, the first of each subdomain its "Initial".
@@ -1518,21 +1564,17 @@ Out of scope for v1 (intentional):
   flag is never a lie.
 - **Multi-target frontends**: a `react` deployable has exactly one
   `targets:`.  Hosting against several APIs is deferred.
-- ~~**Typeahead lookups for `X id` form fields**~~ — **stale, corrected
-  2026-09-10.**  An `X id` field renders a **Select picker** populated
-  from the target's own list hook whenever the target declares
-  `derived display: string` (`prepareFormFieldVM` →
-  `field-input-id-select`, `src/generator/_walker/form-fields-vm.ts`);
-  the option label is read off the wire `display` field, so a compound
-  (`firstName + " " + lastName`), member-access or conditional display
-  works without the picker knowing the source expression.  Several
-  packs make it searchable client-side (mantine's `<Select searchable>`).
-  It falls back to `field-input-id-text` in exactly two cases — the
-  target aggregate is unresolved, or it declares no `derived display` —
-  and the text input's placeholder then names which.  What is still
-  out of scope is a **server-side** typeahead: the picker loads the
-  target's list, so a target with more rows than a page is not
-  searchable beyond what it loaded.
+- **Typeahead lookups for `X id` form fields**: an `X id` field renders a
+  picker over every row of the target — a Select for `X id`/`X id?`, a
+  checkbox group for `X id[]` — whenever the target declares
+  `derived display: string`.  Its options come from the target's
+  `use<Plural>Options()` read (every list page, walked at the largest page
+  size the route accepts), and each option is labelled by the wire `display`
+  field, so a compound, member-access or conditional display works without the
+  picker knowing the source expression.  A target with no `derived display`
+  (or an unresolved one) falls back to a text input whose placeholder says
+  why.  A **server-side** typeahead is out of scope: the picker loads every
+  row of the target.
 - **Ordering on `X id[]` collections**: `Target id[]` is a set
   ([D-REFCOLL-SET](decisions.md)).  On all five backends the join table
   is only the composite `(owner, target)` key — no `ordinal` column —

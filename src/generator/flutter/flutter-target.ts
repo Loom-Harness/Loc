@@ -43,6 +43,7 @@ import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
+import { optionalChainedMemberRead } from "../_frontend/optional-member.js";
 import { renderValueEqualsCall } from "../_frontend/value-equals.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
@@ -74,9 +75,11 @@ import {
   createFormWidgetName,
   destroyFormWidgetName,
   operationFormWidgetName,
+  opFormTakesRecord,
   workflowFormWidgetName,
 } from "./forms-emit.js";
 import { dartStringLit } from "./i18n.js";
+import { FLUTTER_INVALIDATE_MARKER } from "./reads-emit.js";
 import { storeProviderName } from "./store-names.js";
 
 /** True when a value is provably a `string` already, so a `Text(…)` child can
@@ -174,7 +177,18 @@ function instanceOperation(
   const versionExpr = sendsIfMatchPrecondition(agg, op)
     ? `${emitExpr(inst.receiver, ctx)}.${ROW_VERSION_FIELD}`
     : undefined;
-  return { agg, op, idExpr, ...(versionExpr ? { versionExpr } : {}) };
+  // The instance is the decoded record: its wire map seeds the form's inputs
+  // (`recordSeeds`), so an `update` opens on the current values.
+  const recordExpr = opFormTakesRecord(agg, op)
+    ? `${emitExpr(inst.receiver, ctx)}.toJson()`
+    : undefined;
+  return {
+    agg,
+    op,
+    idExpr,
+    ...(versionExpr ? { versionExpr } : {}),
+    ...(recordExpr ? { recordExpr } : {}),
+  };
 }
 
 /** A resolved op-form reference: the aggregate + op, the Dart expression for the
@@ -184,13 +198,16 @@ interface OpFormTarget {
   op: AggregateIR["operations"][number];
   idExpr: string;
   versionExpr?: string;
+  /** The loaded record's wire map, when the form prefills from it. */
+  recordExpr?: string;
 }
 
 /** The constructor call of an op-form widget: `UpdateNoteForm(id: id)`, plus
  *  `expectedVersion:` when the call site holds the loaded record. */
 function opFormWidgetCall(r: OpFormTarget, extra = ""): string {
   const version = r.versionExpr ? `, expectedVersion: ${r.versionExpr}` : "";
-  return `${operationFormWidgetName(r.agg.name, r.op.name)}(id: ${r.idExpr}${version}${extra})`;
+  const record = r.recordExpr ? `, record: ${r.recordExpr}` : "";
+  return `${operationFormWidgetName(r.agg.name, r.op.name)}(id: ${r.idExpr}${version}${record}${extra})`;
 }
 
 /** The op-form widget reference for an instance-qualified `OperationForm`, or
@@ -448,10 +465,16 @@ export const flutterTarget: WalkerTarget = {
   /** A wire field named after a Dart RESERVED word (`default`, `enum`,
    *  `extends`, …) or an `Object` member (`toString`, `hashCode`, …) is the
    *  `<name>_` member on the generated model (`dart-member.ts`), so
-   *  `row.default` — a parse error — reads `row.default_`.  Every other member
-   *  falls through `undefined` to the shared bare emit. */
-  renderMemberRead: ({ receiver, member }) =>
-    dartMember(member) !== member ? `${receiver}.${dartMember(member)}` : undefined,
+   *  `row.default` — a parse error — reads `row.default_`.  A read off an
+   *  OPTIONAL receiver (`policy.vehicle.vin` with `vehicle: Vehicle?`) takes
+   *  Dart's `?.`: a plain `.` on a nullable is `unchecked_use_of_nullable_value`.
+   *  Every other member falls through `undefined` to the shared bare emit. */
+  renderMemberRead: (spec) => {
+    const member = dartMember(spec.member);
+    const optional = optionalChainedMemberRead({ ...spec, member });
+    if (optional !== undefined) return optional;
+    return member !== spec.member ? `${spec.receiver}.${member}` : undefined;
+  },
 
   /** Dart NAMED RECORD for a find's query bag — `(page: 1, pageSize: 10, …)`.
    *  The shared default is a JavaScript object literal, whose bare `page:` keys
@@ -786,6 +809,7 @@ export const flutterTarget: WalkerTarget = {
     const provider = canProbeProviderName(agg.name, op.name);
     const thenArg = namedArg(call, "then");
     const onSuccess =
+      `${FLUTTER_INVALIDATE_MARKER}context, ${dartString(agg.name)}); ` +
       (gate ? `ref.invalidate(${provider}(id)); ` : "") +
       (thenArg
         ? flutterActionThen(thenArg, ctx)

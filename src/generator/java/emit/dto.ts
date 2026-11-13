@@ -31,6 +31,7 @@ import { wireSurfaceTypes } from "../../_payload/union-wire.js";
 import { jid, jsonProp } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { renderJavaExpr } from "../render-expr.js";
+import { javaRecordSchemaAnnotation, requiredParams, requiredWireFields } from "./openapi-docs.js";
 import { JAVA_PROVENANCED_RECORD, javaProvSibling } from "./provenance.js";
 import {
   bearsNestedRecord,
@@ -89,6 +90,10 @@ function recordFile(
    *  Omitted (or equal to `name`) emits nothing, so every non-colliding record
    *  stays byte-identical. */
   schemaName?: string,
+  /** The fields the published schema marks required — the set every backend
+   *  derives from the IR (openapi-docs.ts); springdoc on its own marks only
+   *  `@NotNull` members. */
+  required?: readonly string[],
 ): string {
   // A `File` component is the shared `FileRef` record in domain.common (M-T1.2)
   // — imported precisely (not wildcarded) so a File-free DTO stays byte-identical.
@@ -105,7 +110,7 @@ function recordFile(
     usesFileRef ? `import ${basePkg}.domain.common.FileRef;` : null,
     entityImport ? entityImport : null,
     ``,
-    publishAs ? `@${SCHEMA}(name = ${JSON.stringify(publishAs)})` : null,
+    javaRecordSchemaAnnotation({ name: publishAs, required }),
     `public record ${name}(${components.join(", ")}) {`,
     ...body,
     `}`,
@@ -268,6 +273,7 @@ export function renderDtoFiles(
         imports,
         undefined,
         reqNameFor({ kind: "create", aggregate: agg.name }),
+        (agg.createInput ?? []).filter((c) => c.requiredInput).map((c) => c.field.name),
       ),
     });
   }
@@ -323,6 +329,7 @@ export function renderDtoFiles(
         imports,
         undefined,
         reqNameFor({ kind: "operation", aggregate: agg.name, operation: op.name }),
+        requiredParams(op.params),
       ),
     });
   }
@@ -377,6 +384,9 @@ export function renderDtoFiles(
         ],
         [],
         new Set<string>(),
+        undefined,
+        undefined,
+        ["items", "page", "pageSize", "total", "totalPages"],
       ),
     });
   }
@@ -388,7 +398,17 @@ export function renderDtoFiles(
     out.push({
       name: `Create${agg.name}Response.java`,
       category: "response-dto",
-      content: recordFile(pkg, basePkg, `Create${agg.name}Response`, [`${idJava} id`], [], imports),
+      content: recordFile(
+        pkg,
+        basePkg,
+        `Create${agg.name}Response`,
+        [`${idJava} id`],
+        [],
+        imports,
+        undefined,
+        undefined,
+        ["id"],
+      ),
     });
   }
 
@@ -697,7 +717,19 @@ function wireRecord(
   return {
     name: `${recordName}.java`,
     category: "response-dto",
-    content: recordFile(pkg, basePkg, recordName, components, body, imports, entityImport),
+    content: recordFile(
+      pkg,
+      basePkg,
+      recordName,
+      components,
+      body,
+      imports,
+      entityImport,
+      undefined,
+      requiredWireFields(
+        forApiRead("parts" in entity ? wireFieldsForAggregate(entity) : wireFieldsForPart(entity)),
+      ),
+    ),
   };
 }
 

@@ -1,0 +1,6 @@
+{
+  "title": "M-T1.11 (c) — a named invariant / precondition tripped at the DOMAIN FLOOR answers 422 with an `errors[]` entry carrying the rule's `<Ctx>.<Owner>.rule.<name>` code",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "the domain-floor half of the message ladder: every rule reads aggregate STATE, so no wire validator sees it.  Before item (c) node/.NET/java/python answered `detail` only (no `errors[]`, no code) and elixir answered the wire rung's shape for invariants and the bare floor for preconditions.  One case per pointer shape (state-vs-param precondition \"\", single-field invariant \"/balance\", cross-field invariant \"\") plus the unnamed control."
+}

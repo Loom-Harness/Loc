@@ -19,9 +19,9 @@ public sealed class SalesApiRoutesController : ControllerBase
 
     [HttpGet("/api/orders/by_customer/{customerId}")]
     [ProducesResponseType(200)]
-    [ProducesResponseType(typeof(ProblemDetails), 400)]
-    [ProducesResponseType(typeof(ProblemDetails), 404)]
-    [ProducesResponseType(typeof(ProblemDetails), 422)]
+    [ProducesResponseType(typeof(ProblemResponse), 400, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 404, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemResponse), 422, "application/problem+json")]
     public async Task<IActionResult> ListOrdersByCustomer(string customerId)
     {
         var __result = await _mediator.Send(new ListOrdersByCustomerQuery(customerId));

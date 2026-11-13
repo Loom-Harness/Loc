@@ -250,7 +250,7 @@ const SITES: Record<Platform, Site[]> = {
       rung: "NotFound",
       what: "getById's DECLARED [ProducesResponseType] set",
       file: "Api/LinesController.cs",
-      at: /ProducesResponseType\(typeof\(ProblemDetails\), (\d+)\)\][\s\S]{0,200}?GetLineById\(/,
+      at: /ProducesResponseType\(typeof\(ProblemResponse\), (\d+), "application\/problem\+json"\)\][\s\S]{0,200}?GetLineById\(/,
     },
     {
       rung: "Disallowed",
@@ -286,7 +286,7 @@ const SITES: Record<Platform, Site[]> = {
       rung: "Forbidden",
       what: "the gated list read's DECLARED [ProducesResponseType] set",
       file: "Api/ItemsController.cs",
-      at: /\[ProducesResponseType\(typeof\(Paged<ItemResponse>\), 200\)\]\s*(?:\[ProducesResponseType\(typeof\(ProblemDetails\), 422\)\]\s*)?\[ProducesResponseType\(typeof\(ProblemDetails\), (\d+)\)\][\s\S]{0,400}?public async Task<[^\n]*> AllItem/,
+      at: /\[ProducesResponseType\(typeof\(Paged<ItemResponse>\), 200\)\]\s*(?:\[ProducesResponseType\(typeof\(ProblemResponse\), 422, "application\/problem\+json"\)\]\s*)?\[ProducesResponseType\(typeof\(ProblemResponse\), (\d+), "application\/problem\+json"\)\][\s\S]{0,400}?public async Task<[^\n]*> AllItem/,
     },
   ],
   java: [
@@ -298,14 +298,12 @@ const SITES: Record<Platform, Site[]> = {
     },
     {
       rung: "NotFound",
-      what: "getById's DECLARED response set in the OpenAPI customizer",
-      file: "config/OpenApiContractCustomizer.java",
-      // The array carries the wire-validation 422 alongside the rung (#2612 —
-      // a malformed `{id}` is parsed and refused), so the pattern must tolerate
-      // trailing entries.  Capture group 1 is the FIRST, which is the rung:
-      // the emitter sorts ascending and both 404 and the override sort below
-      // 422.
-      at: /"\/api\/lines\/\{id\}", null, new int\[\] \{(\d+)(?:, \d+)*\}/,
+      what: "getById's DECLARED @ApiResponse set",
+      file: "LinesController.java",
+      // The declared problem responses ascend; the rung sorts below the
+      // wire-validation 422 a malformed `{id}` also declares, so the FIRST
+      // problem+json response after the mapping is the rung.
+      at: /@GetMapping\("\/\{id\}"\)[\s\S]*?responseCode = "(\d+)", description = "[^"]*", content = @[\w.]+\.Content\(mediaType/,
     },
     {
       rung: "Disallowed",
@@ -339,9 +337,9 @@ const SITES: Record<Platform, Site[]> = {
     },
     {
       rung: "Forbidden",
-      what: "the gated list read's DECLARED response set in the OpenAPI customizer",
-      file: "config/OpenApiContractCustomizer.java",
-      at: /new Route\("get", "\/api\/items", null, new int\[\] \{(?:422, )?(\d+)/,
+      what: "the gated list read's DECLARED @ApiResponse set",
+      file: "ItemsController.java",
+      at: /@GetMapping\n[\s\S]*?responseCode = "(?!422")(\d{3})", description = "[^"]*", content = @[\w.]+\.Content\(mediaType/,
     },
   ],
   python: [
@@ -397,10 +395,10 @@ const SITES: Record<Platform, Site[]> = {
   elixir: [
     {
       rung: "NotFound",
-      what: "getById's DECLARED OpenApiSpex response set",
-      file: "api/a_spec.ex",
+      what: "getById's DECLARED OpenApiSpex operation response set",
+      file: "controllers/line_controller.ex",
       // Skips past the 200 success entry — the error entry is the SECOND.
-      at: /operationId: "getLineById",[\s\S]{0,600}?200 => %OpenApiSpex\.Response\{[\s\S]{0,400}?\n\s*(\d+) => %OpenApiSpex\.Response\{/,
+      at: /operation_id: "getLineById",[\s\S]{0,600}?200 => %OpenApiSpex\.Response\{[^\n]*\n\s*(\d+) => %OpenApiSpex\.Response\{/,
     },
     {
       rung: "Disallowed",
@@ -452,10 +450,10 @@ const SITES: Record<Platform, Site[]> = {
     },
     {
       rung: "Forbidden",
-      what: "the gated list read's DECLARED OpenApiSpex response set",
-      file: "api/a_spec.ex",
+      what: "the gated list read's DECLARED OpenApiSpex operation response set",
+      file: "controllers/item_controller.ex",
       // Skips past the 200 success entry — the error entry is the SECOND.
-      at: /operationId: "allItem",[\s\S]{0,1200}?200 => %OpenApiSpex\.Response\{[\s\S]{0,400}?\n\s*(?:422 => %OpenApiSpex\.Response\{[\s\S]{0,300}?\n\s*\},\n\s*)?(\d+) => %OpenApiSpex\.Response\{/,
+      at: /operation_id: "allItem",[\s\S]{0,1600}?200 => %OpenApiSpex\.Response\{[^\n]*\n\s*(?:422 => [^\n]*\n\s*)?(\d+) => %OpenApiSpex\.Response\{/,
     },
   ],
 };

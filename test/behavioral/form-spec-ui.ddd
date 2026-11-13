@@ -1,0 +1,108 @@
+// Scaffolded-form semantics, one model on every frontend (#5212).
+//
+// `Policy` carries one field of every form-field kind the shared form model
+// (`src/generator/_frontend/form-spec.ts`) classifies: scalars, money, date and
+// datetime, a file, an enum, a required and an optional reference, a required
+// and an OPTIONAL value object, and arrays of scalars, enums, references and
+// value objects.  Its crudish `update` is a record-prefilled update form.
+//
+// `test/generator/_frontend/form-spec-census.test.ts` generates this system on
+// every frontend and fails on a kind a target renders as a stub.  The behavioural
+// UI runners boot it per frontend; `__FRONTEND__` is swapped per case
+// (test/behavioral/corpus.json → `frontend`).  Kept out of `systems/`, which
+// every BACKEND leg iterates.
+system FormSpecUi {
+  subdomain Cover {
+    context Cover {
+      enum Usage { Private, Commercial }
+      enum Peril { Fire, Flood, Theft }
+
+      valueobject Vehicle {
+        vin: string
+        year: int
+        usage: Usage
+        invariant vinLength: vin.length == 17
+      }
+
+      valueobject Limit {
+        amount: money
+        note: string?
+      }
+
+      valueobject Rider {
+        code: string
+        premium: decimal
+      }
+
+      aggregate Provider with crudish {
+        name: string
+        derived display: string = name
+      }
+
+      aggregate Policy with crudish {
+        holder: string
+        region: string?
+        priority: int
+        rate: decimal
+        premium: money
+        active: bool
+        startsOn: date
+        reviewAt: datetime
+        schedule: File?
+        usage: Usage
+        provider: Provider id
+        backup: Provider id?
+        limit: Limit
+        vehicle: Vehicle?
+        tags: string[]
+        perils: Peril[]
+        alternates: Provider id[]
+        riders: Rider[]
+        contains coverages: Coverage[]
+        derived display: string = holder
+
+        operation addCoverage(code: string, limit: Limit, premium: money) {
+          coverages += Coverage { code: code, limit: limit, premium: premium }
+        }
+
+        entity Coverage {
+          code: string
+          limit: Limit
+          premium: money
+        }
+      }
+      repository Providers for Provider { }
+
+      // A workflow whose start answers the created record's id: its form opens
+      // that record.
+      workflow openProvider {
+        create(name: string): Provider id {
+          let provider = Provider.create(name: name)
+          return provider.id
+        }
+      }
+      repository Policies for Policy { }
+    }
+  }
+  api CoverApi from Cover
+
+  ui WebApp with scaffold(subdomains: [Cover]) { }
+
+  storage primary { type: postgres }
+  storage uploads { type: localDisk }
+  resource coverState { for: Cover, kind: state, use: primary }
+  resource coverFiles { for: Cover, kind: objectStore, use: uploads }
+  deployable api {
+    platform: node
+    contexts: [Cover]
+    dataSources: [coverState, coverFiles]
+    serves: CoverApi
+    port: 3000
+  }
+  deployable webApp {
+    platform: __FRONTEND__
+    targets: api
+    ui: WebApp
+    port: 3001
+  }
+}

@@ -32,6 +32,7 @@ import type {
 import { outboundReferenceFields } from "../../../ir/util/aggregate-flags.js";
 import { baseOf, ownFieldsOf, uniqueKeyIndex } from "../../../ir/util/inheritance.js";
 import { aggregateHasMergePatchUpdate } from "../../../ir/util/merge-patch.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
@@ -70,7 +71,7 @@ import { isEventSourced } from "./eventsourced-emit.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import { isVoValuedType, NORMALIZE_KEYS_DEFP, NORMALIZE_VO_KEYS_DEFP } from "./key-normalize.js";
 import { managedTimestampNames } from "./managed-timestamps.js";
-import { isRefCollField, refCollFieldNames } from "./ref-collection-emit.js";
+import { refCollFieldNames } from "./ref-collection-emit.js";
 import { usesRelationalContainments } from "./schema-emit.js";
 import { stampedFieldNames } from "./stamp-emit.js";
 import { valueCollectionsWithVo } from "./value-collection-schema-emit.js";
@@ -115,7 +116,7 @@ function filterCastableFields(
       !managedTs.has(f.name) &&
       !stampedFields.has(snake(f.name)) &&
       !vcFieldNames.has(f.name) &&
-      !isRefCollField(f),
+      !isRefCollectionType(f.type),
   );
 }
 
@@ -577,6 +578,7 @@ ${keyAliasPairs.join(",\n")}
             items
             |> Enum.with_index()
             |> Enum.map(fn {item, i} ->
+              item = vc_element_params(item)
               if is_map(item), do: Map.put(item, ordinal_key(item), i), else: item
             end)
 
@@ -588,6 +590,19 @@ ${keyAliasPairs.join(",\n")}
   end
 
   defp prepare_vc_attrs(attrs), do: attrs
+
+  # A value object has no identity, so an element copied from another row (a
+  # loaded child struct — \`src.conditions\` handed to a create) is its fields
+  # alone: \`cast_assoc\` takes params, not structs, and the source row's
+  # \`id\` would make Ecto match it as an existing child.
+  defp vc_element_params(%{__struct__: _} = item) do
+    item
+    |> Map.from_struct()
+    |> Map.drop([:__meta__, :id, :ordinal])
+    |> Map.reject(fn {_k, v} -> match?(%Ecto.Association.NotLoaded{}, v) end)
+  end
+
+  defp vc_element_params(item), do: item
 
   # An element map is keyed by strings (controller) or atoms (workflow); the
   # ordinal takes the element's own key type, since Ecto \`cast\` rejects a map

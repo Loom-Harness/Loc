@@ -38,6 +38,10 @@ const guidClaim = (src: string): string =>
     .replace(
       "aggregate Invoice with tenantOwned, crudish",
       "aggregate Invoice crossTenant with crudish",
+    )
+    .replace(
+      "aggregate Payment with tenantOwned, crudish",
+      "aggregate Payment crossTenant with crudish",
     );
 
 describe("dotnet generator — derived registry self-scope filter", () => {

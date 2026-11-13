@@ -138,6 +138,7 @@
     "test:contrast": "vitest run test/generator/frontend/theme-contrast.test.ts",
     "prepare": "npm run langium:generate && npm run build && npm run build:web",
     "lint": "biome ci . --error-on-warnings",
+    "prequeue": "node scripts/prequeue.mjs",
     "format": "biome format --write .",
     "cli": "node bin/cli.js",
     "test:svelte-build": "LOOM_SVELTE_BUILD=1 vitest run test/e2e/generated-svelte-build.test.ts",

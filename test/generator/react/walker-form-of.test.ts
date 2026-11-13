@@ -4,7 +4,7 @@
 // RHF-bound input per non-optional field, dispatching by type
 // (string→TextInput, int/decimal→NumberInput, bool→Switch via
 // Controller, datetime→TextInput[type=datetime-local], enum→Select,
-// `X id`→Select with auto-injected `useAllX()` picker, value-
+// `X id`→Select with auto-injected `useXOptions()` picker, value-
 // object→nested Fieldset).  Required-field metadata becomes RHF
 // rules through Zod (zodResolver(Create<Agg>Request)).
 //
@@ -12,7 +12,7 @@
 //   1. The page TSX emits with `useForm` + `zodResolver` + a
 //      `useCreate<Agg>()` mutation hook.
 //   2. Each non-optional aggregate field surfaces in the form.
-//   3. `X id` targets auto-inject `useAll<TargetPlural>()` hooks at
+//   3. `X id` targets auto-inject `use<TargetPlural>Options()` hooks at
 //      page-top.
 //   4. The default submit handler matches scaffold parity
 //      (`create.mutateAsync` + notify + navigate to `/<plural>/{id}`).
@@ -108,7 +108,7 @@ describe("CreateForm { of: <Aggregate> } auto-dispatch", () => {
     expect(tsx).not.toMatch(/note:/);
   });
 
-  it("X id targets auto-inject useAll<TargetPlural>() at page-top", async () => {
+  it("X id targets auto-inject use<TargetPlural>Options() at page-top", async () => {
     const files = await buildAndGenerate(`
       system S {
         subdomain M {
@@ -136,8 +136,8 @@ describe("CreateForm { of: <Aggregate> } auto-dispatch", () => {
     `);
     const tsx = files.get("web/src/pages/create_order.tsx")!;
     expect(tsx).toBeDefined();
-    expect(tsx).toMatch(/import \{ useAllCustomers \} from "\.\.\/api\/customer"/);
-    expect(tsx).toMatch(/const __customers = useAllCustomers\(\)/);
+    expect(tsx).toMatch(/import \{ useCustomersOptions \} from "\.\.\/api\/customer"/);
+    expect(tsx).toMatch(/const __customers = useCustomersOptions\(\)/);
     // Field is a Select with options from the hook.
     expect(tsx).toMatch(/<Select[\s\S]*data=\{\(__customers\.data/);
   });
@@ -179,7 +179,7 @@ describe("CreateForm { of: <Aggregate> } auto-dispatch", () => {
     const tsx = files.get("web/src/pages/create_order.tsx")!;
     expect(tsx).toBeDefined();
     // Hook is still imported and the Select is rendered.
-    expect(tsx).toMatch(/import \{ useAllCustomers \} from "\.\.\/api\/customer"/);
+    expect(tsx).toMatch(/import \{ useCustomersOptions \} from "\.\.\/api\/customer"/);
     expect(tsx).toMatch(/<Select[\s\S]*data=\{\(__customers\.data/);
     // Label binding reads the canonical wire `display` field — the
     // expression shape is opaque to the client.

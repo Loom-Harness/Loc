@@ -1,4 +1,5 @@
 {
+  "seedsOpFormRecord": true,
   "name": "shadcnSvelte",
   "version": "v1",
   "format": "svelte",

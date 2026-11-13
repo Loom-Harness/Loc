@@ -67,3 +67,18 @@ export function pickSuiteDeps(
   }
   return { install, undeclared: [...undeclared].sort() };
 }
+
+/** A generated suite that failed to build or import during discovery. */
+export interface SuiteLoadFailure {
+  /** The suite's label in the Tests list ("orders", "UI", "API"). */
+  suite: string;
+  /** The generated file it was loaded from. */
+  path: string;
+  message: string;
+}
+
+/** The discovery error for the suites that failed to load: one paragraph per
+ *  suite, naming it and its file, so the raw text says which and why. */
+export function formatSuiteLoadFailures(failures: readonly SuiteLoadFailure[]): string {
+  return failures.map((f) => `${f.suite} (${f.path}): ${f.message}`).join("\n\n");
+}

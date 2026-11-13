@@ -40,6 +40,7 @@ import {
   ownFieldsOf,
 } from "../../../ir/util/inheritance.js";
 import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
+import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { OUTBOX_PENDING_PREDICATE } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
@@ -48,7 +49,6 @@ import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { TIMER_CLAIM_TABLE } from "../../../util/timer.js";
 import { type MikroScalar, mikroScalar } from "../codec-spelling.js";
 import { joinColumnName, joinTableConstName } from "../emit.js";
-import { isRefCollection } from "../repository-associations-builder.js";
 import { docFieldType } from "../repository-document-builder.js";
 import {
   mikroSchemaFilterLines,
@@ -245,7 +245,7 @@ function columnsOf(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): Mik
   // not columns on the aggregate row — skip them here.  Value-object collections
   // (`<VO>[]`) fold onto one inline jsonb column each (see valueCollectionColumn).
   const scalarFields = agg.fields.filter(
-    (f) => !isRefCollection(f.type) && !isValueCollectionType(f.type),
+    (f) => !isRefCollectionType(f.type) && !isValueCollectionType(f.type),
   );
   const valueCollFields = agg.fields.filter((f) => isValueCollectionType(f.type));
   return [
@@ -269,7 +269,7 @@ function tphRootColumns(base: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR
   ];
   const seen = new Set(cols.map((c) => c.prop));
   for (const f of base.fields) {
-    if (isRefCollection(f.type)) continue;
+    if (isRefCollectionType(f.type)) continue;
     for (const c of fieldColumns(f, ctx)) {
       if (seen.has(c.prop)) continue;
       seen.add(c.prop);
@@ -290,7 +290,7 @@ function tphConcreteColumns(
   const cols: MikroColumn[] = [];
   const seen = new Set(taken);
   for (const f of ownFieldsOf(concrete, base)) {
-    if (isRefCollection(f.type)) continue;
+    if (isRefCollectionType(f.type)) continue;
     for (const c of fieldColumns(f, ctx)) {
       if (seen.has(c.prop)) continue;
       seen.add(c.prop);
@@ -503,7 +503,7 @@ function embeddedColumnsOf(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContext
   // (the embedded analogue of the relational pivot table) — `columnsOf` skips
   // them, so add them here, keeping the field's declared nullability.
   for (const f of agg.fields) {
-    if (!isRefCollection(f.type)) continue;
+    if (!isRefCollectionType(f.type)) continue;
     cols.push({
       prop: f.name,
       mikroType: "json",
@@ -720,7 +720,7 @@ export const mikroWorkflowRowClass = (wf: WorkflowIR): string => `${upperFirst(w
  *  migration's `JSONB` (a state row has no pivot table); everything else
  *  maps through the shared `fieldColumns`. */
 function stateFieldColumns(f: FieldIR, ctx: EnrichedBoundedContextIR): MikroColumn[] {
-  if (!isRefCollection(f.type)) return fieldColumns(f, ctx);
+  if (!isRefCollectionType(f.type)) return fieldColumns(f, ctx);
   return [
     {
       prop: f.name,

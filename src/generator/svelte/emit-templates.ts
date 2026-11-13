@@ -73,8 +73,19 @@ export type FormValues<T> = T extends FileRefValue
   : T extends readonly (infer E)[]
     ? FormValues<NonNullable<E>>[]
     : T extends Record<string, unknown>
-      ? { [K in keyof T]-?: FormValues<NonNullable<T[K]>> }
+      ? { [K in keyof T]-?: BoundField<T[K]> }
       : T;
+
+/** One bound field: \`null | undefined\` stripped, except that an OPTIONAL value
+ *  object keeps \`null\` — its form group is opt-in, and \`null\` is how the form
+ *  holds "not added" (the group's inputs mount only while it is present). */
+type BoundField<V> = null extends V
+  ? NonNullable<V> extends Record<string, unknown>
+    ? NonNullable<V> extends FileRefValue
+      ? FormValues<NonNullable<V>>
+      : FormValues<NonNullable<V>> | null
+    : FormValues<NonNullable<V>>
+  : FormValues<NonNullable<V>>;
 
 export interface LoomForm<T> {
   values: FormValues<T>;

@@ -67,7 +67,11 @@ type Node = Record<string, unknown>;
 
 /** Visit every plain object under the verified bodies of `model`'s contexts;
  *  stops at the first `visit` that returns true. */
-function visitVerified(model: LoomModel, visit: (n: Node) => boolean): boolean {
+function walkFrom(
+  roots: readonly unknown[],
+  skip: ReadonlySet<string>,
+  visit: (n: Node) => boolean,
+): boolean {
   const go = (v: unknown): boolean => {
     if (Array.isArray(v)) return v.some(go);
     if (!v || typeof v !== "object") return false;
@@ -76,14 +80,50 @@ function visitVerified(model: LoomModel, visit: (n: Node) => boolean): boolean {
     // A workflow's `statements` / `params` are a facade over its primary create.
     const workflow = "creates" in n && "subscriptions" in n;
     for (const [k, child] of Object.entries(n)) {
-      if (k === "origin" || UNVERIFIED_KEYS.has(k)) continue;
+      if (k === "origin" || skip.has(k)) continue;
       if (workflow && (k === "statements" || k === "params")) continue;
       if (go(child)) return true;
     }
     return false;
   };
-  return allContexts(model).some(go);
+  return roots.some(go);
 }
+
+function visitVerified(model: LoomModel, visit: (n: Node) => boolean): boolean {
+  return walkFrom(allContexts(model), UNVERIFIED_KEYS, visit);
+}
+
+/** Ui surfaces the verifier does not walk: menus, page metadata, layouts. */
+const UI_UNVERIFIED = new Set(["menu", "menuMeta", "metadata", "layout", "notifications"]);
+
+/** Every page / component / store body. */
+function visitUi(model: LoomModel, visit: (n: Node) => boolean): boolean {
+  return walkFrom(
+    model.systems.flatMap((s) => s.uis),
+    UI_UNVERIFIED,
+    visit,
+  );
+}
+
+/** Every test body — unit, context integration and e2e. */
+function visitTests(model: LoomModel, visit: (n: Node) => boolean): boolean {
+  const tests = allContexts(model).flatMap((c) => [
+    ...c.tests,
+    ...c.aggregates.flatMap((a) => a.tests),
+    ...c.valueObjects.flatMap((v) => v.tests),
+    ...c.domainServices.flatMap((d) => d.tests),
+  ]);
+  const e2e = model.systems.flatMap((s) => s.e2eTests);
+  return walkFrom([...tests, ...e2e], new Set(["principal"]), visit);
+}
+
+const renameRef =
+  (kinds: readonly string[]) =>
+  (n: Node): boolean => {
+    if (n.kind !== "ref" || !kinds.includes(String(n.refKind))) return false;
+    n.name = `${String(n.name)}__seeded`;
+    return true;
+  };
 
 interface Mutation {
   kind: LoweringViolationKind;
@@ -191,6 +231,79 @@ const MUTATIONS: Record<string, Mutation> = {
           const i = v.findIndex((s) => (s as Node | undefined)?.kind === "let");
           if (i < 0) continue;
           v.splice(i + 1, 0, structuredClone(v[i]));
+          return true;
+        }
+        return false;
+      }),
+  },
+  // The ui encoding: params are `param`, state and derived read as `let`.
+  "ui state / param ref → unbound": {
+    kind: "ref-unresolved",
+    floor: 100,
+    seed: (m) => visitUi(m, renameRef(["let", "param"])),
+  },
+  "ui read of an aggregate → no such member": {
+    kind: "member-unresolved",
+    floor: 20,
+    seed: (m) =>
+      visitUi(m, (n) => {
+        const recv = n.receiverType as { kind?: string; declKind?: string } | undefined;
+        if (n.kind !== "member" || recv?.kind !== "entity" || recv.declKind !== "aggregate")
+          return false;
+        n.member = `${String(n.member)}__seeded`;
+        return true;
+      }),
+  },
+  // A projection's fold and query halves: state fields, params, the source row.
+  "projection ref → unbound": {
+    kind: "ref-unresolved",
+    floor: 12,
+    seed: (m) =>
+      walkFrom(
+        allContexts(m).flatMap((c) => c.projections),
+        new Set(["wireShape"]),
+        renameRef(["this-prop", "param", "let", "row"]),
+      ),
+  },
+  "test let ref → unbound": {
+    kind: "ref-unresolved",
+    floor: 30,
+    seed: (m) => visitTests(m, renameRef(["let"])),
+  },
+  "workflow let → bound twice": {
+    kind: "duplicate-let",
+    floor: 30,
+    seed: (m) =>
+      visitVerified(m, (n) => {
+        for (const [k, v] of Object.entries(n)) {
+          if (k === "origin" || !Array.isArray(v)) continue;
+          const i = v.findIndex((s) => {
+            const kind = (s as Node | undefined)?.kind;
+            return kind === "repo-let" || kind === "expr-let" || kind === "factory-let";
+          });
+          if (i < 0) continue;
+          v.splice(i + 1, 0, structuredClone(v[i]));
+          return true;
+        }
+        return false;
+      }),
+  },
+  // The handler `y := 2` shape: a statement lowering has no form for.
+  "workflow statement → placeholder": {
+    kind: "unlowered-statement",
+    floor: 30,
+    seed: (m) =>
+      visitVerified(m, (n) => {
+        for (const [k, v] of Object.entries(n)) {
+          if (k === "origin" || !Array.isArray(v)) continue;
+          const i = v.findIndex((s) => (s as Node | undefined)?.kind === "op-call");
+          if (i < 0) continue;
+          v[i] = {
+            kind: "expr-let",
+            name: "__bad__",
+            type: { kind: "primitive", name: "string" },
+            expr: { kind: "literal", lit: "null", value: "null" },
+          };
           return true;
         }
         return false;

@@ -909,6 +909,11 @@ in the language reference
 ([§17](language-reference/17-auth.md#sharing--shareable)); the design record is
 [D-SHARING](decisions.md#d-sharing--visibility-composes-from-the-tenancy-default-row-rules-and-shares-add-to-it-relations-are-predicates).
 
+
+A reference written to a `tenantOwned` row is admitted under the target's read
+scope, so a row shared with the caller can be referenced like one of its own;
+see [`tenancy.md` → "Reference admission"](tenancy.md#reference-admission).
+
 ### Deny carve-outs
 
 A **`deny` rule** is the negative twin of `allow`: a **deny-wins** carve-out that
@@ -1651,6 +1656,11 @@ JSON** — overlaying it on the `User` shape, so you can exercise
 curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"t-1"}' | base64)" \
   http://localhost:8080/api/orders
 ```
+
+On Phoenix LiveView the same header also names the **page** principal. The
+dev-stub `:browser` pipeline (`DevBrowserAuth`) writes it into the session, so
+the LiveView mounts as that principal. A browser that sends no header runs as
+the stub's built-in identity.
 
 > **The stub exists only without an `auth { oidc … }` block.** Declaring one
 > replaces the stub with the generated OIDC verifier on every backend

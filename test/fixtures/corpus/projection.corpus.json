@@ -1,0 +1,4 @@
+{
+  "title": "folded projection — read model folded from aggregate events (keyed row + on() folds)",
+  "backends": "ALL"
+}

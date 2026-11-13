@@ -39,6 +39,7 @@ on:
       - 'src/util/**'
       - 'src/generator/flutter/**'
       - 'src/generator/_frontend/**'
+      - 'src/generator/_docker/**'
       - 'src/generator/_openapi/**'
       - 'src/generator/_walker/**'
       - 'src/generator/_packs/required-primitives.ts'
@@ -401,15 +402,23 @@ jobs:
             subdomain Sales {
               context Orders {
                 aggregate Product with crudish { name: string  price: money }
-                aggregate Customer with crudish { name: string  email: string }
+                // An OPTIONAL value object with an enum sub-field: the scaffolded
+                // Detail page reads `data.vehicle?.usage`, which must be null-safe.
+                enum Usage { Private Commercial }
+                valueobject Vehicle { vin: string  year: int  usage: Usage }
+                aggregate Customer with crudish { name: string  email: string  vehicle: Vehicle? }
+                // Named like riverpod's `Provider` class: every page imports both,
+                // so the build proves the generated imports disambiguate them.
+                aggregate Provider with crudish { name: string }
                 repository Products for Product { }
                 repository Customers for Customer { }
+                repository Providers for Provider { }
               }
             }
             api ShopApi from Sales
             storage pg { type: postgres }
             resource ordersState { for: Orders, kind: state, use: pg }
-            ui App with scaffold(aggregates: [Product, Customer]) { api Shop: ShopApi }
+            ui App with scaffold(aggregates: [Product, Customer, Provider]) { api Shop: ShopApi }
             deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: ShopApi port: 3000 }
             deployable app { platform: flutter targets: api ui: App { Shop: api } port: 3006 }
           }

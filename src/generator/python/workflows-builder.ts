@@ -11,6 +11,7 @@ import {
   withReadPortRepos,
   workflowIsolation,
   workflowNeedsCurrentUser,
+  workflowRunsInTransaction,
 } from "../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../ir/stdlib/unions.js";
 import {
@@ -109,9 +110,11 @@ import { esFns } from "./workflow-eventsourced-emit.js";
 // request session, let-bound aggregates save at exit, collected emits
 // dispatch at the end, 204 on success.
 //
-// One DB transaction per request: repositories flush, the session
-// dependency commits once after the handler returns — so a
-// `transactional` workflow's saves are atomic by construction.
+// One DB transaction per request: repositories flush, and the session
+// commits once after the handler returns, so a `transactional` workflow's
+// saves are atomic by construction.  A workflow that is not `transactional`
+// commits after each save instead (`commit_save`), so a failure keeps the
+// rows saved before it.
 //
 // Event-triggered starters / `on(...)` reactors (the saga dispatcher +
 // correlation state tables) live in `dispatch-builder.ts` / `schema.ts`;
@@ -472,8 +475,9 @@ function workflowRoute(
   // the 200 schema from the return annotation (the response-direction wire type
   // the aggregate DTOs use: an id is its `str`).  No result keeps the 204.
   const result = commandCreateResult(wf);
-  // An expected-failure result (`T or E`): the tagged dict at 200 (its schema
-  // is injected by `install_openapi`), each error arm at its mapped status.
+  // An expected-failure result (`T or E`): the tagged dict at 200 (its
+  // `responses=` entry names the union's success body), each error arm at its
+  // mapped status.
   const er = commandCreateEntryResult(wf);
   const selfResult = isWorkflowSelfType(wf, result?.type);
   const returnAnnotation = er
@@ -492,6 +496,7 @@ function workflowRoute(
       {
         readsAggregate: workflowCanAnswerNotFound(wf, ctx),
       },
+      er && result?.type.kind === "union" ? { variants: result.type.variants, ctx } : undefined,
     )})`,
     // A route-invoked workflow runs in a child frame under the request root, so
     // its audit / provenance rows are distinguishable from a direct operation's.
@@ -593,7 +598,16 @@ function workflowRoute(
   }
   const hasEmit = workflowEmits(wf.statements).length > 0;
   if (hasEmit) out.push(`        workflow_events: list[${DOMAIN_EVENT}] = []`);
-  const saveLines = pySaveRenderer(wf.statements, ctx.aggregates);
+  // A workflow that is not `transactional` commits each save on its own (the
+  // plan's `workflowRunsInTransaction`), so a later failure keeps the rows
+  // saved before it — every backend's transaction boundary for a workflow.
+  const saveEach = pySaveRenderer(wf.statements, ctx.aggregates);
+  const saveLines: PySaveLines = workflowRunsInTransaction(wf, ctx)
+    ? saveEach
+    : (save, indent) => [
+        ...saveEach(save, indent),
+        `${indent}await ${pyRef("app.db.transaction", "commit_save")}(session)`,
+      ];
   // Chunked (one lines-array per top-level statement) rather than the
   // pre-flattened `renderWorkflowStmts` — byte-identical either way
   // (`renderWorkflowStmts` IS `chunks.flat()` by construction), but the

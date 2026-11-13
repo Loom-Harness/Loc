@@ -11,12 +11,14 @@ import { rowVersionGuarded } from "../../ir/enrich/version-check.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
+  EnrichedBoundedContextIR,
   EntityPartIR,
   FieldIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, upperFirst } from "../../util/naming.js";
@@ -25,7 +27,8 @@ import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { aggregateIsAudited, stampInsertCall, stampUpdateCall } from "./emit/audit-stamp.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
-import { associationsOf, isRefCollection } from "./repository-associations-builder.js";
+import { refAdmissionLines } from "./ref-admission.js";
+import { associationsOf } from "./repository-associations-builder.js";
 import { drizzleKindPredicate } from "./repository-find-predicate.js";
 import { inRowTenant } from "./row-tenant.js";
 import {
@@ -271,13 +274,15 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
 
 export function saveMethod(
   agg: EnrichedAggregateIR,
-  ctx: BoundedContextIR,
+  ctx: EnrichedBoundedContextIR,
   emitTrace = false,
 ): string {
   // Inner body of the save transaction at 6-space indent.  Built into a
   // local array so the trace-on variant can wrap it with try/catch +
   // tx_* logs without duplicating the body.
-  const body = saveTxBody(agg, ctx, emitTrace);
+  // Reference admission (ref-admission.ts) runs first, so a refused reference
+  // rolls the transaction back before anything is written.
+  const body = [...refAdmissionLines(agg, ctx), ...saveTxBody(agg, ctx, emitTrace)];
   // A versioned aggregate's save accepts the client's expected version
   // (threaded from the route's `If-Match` header) as an optional second
   // arg — optional so every other mutate route, which only ever loaded
@@ -371,7 +376,7 @@ function rootEntries(
     // Reference collections live in join tables, not on the root row.
     ...agg.fields
       .filter(
-        (f) => !isRefCollection(f.type) && !isValueCollectionType(f.type) && !omit.has(f.name),
+        (f) => !isRefCollectionType(f.type) && !isValueCollectionType(f.type) && !omit.has(f.name),
       )
       .flatMap((f) => projectFieldEntries(f, varExpr, ctx)),
     ...provColumnEntries(agg.fields, varExpr),

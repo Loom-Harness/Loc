@@ -89,7 +89,7 @@ export class ProductRepository implements ProductRepositoryPort {
     const countRows = await this.db.select({ value: count() }).from(schema.products);
     const total = Number(countRows[0]?.value ?? 0);
     const totalPages = pageSize > 0 ? Math.ceil(total / pageSize) : 0;
-    const rootRows = await this.db.select().from(schema.products).orderBy(orderBy).limit(pageSize).offset(offset);
+    const rootRows = await this.db.select().from(schema.products).orderBy(orderBy, asc(schema.products.id)).limit(pageSize).offset(offset);
     if (rootRows.length === 0) {
       requestLog().debug({ event: "find_executed", aggregate: "Product", find: "all", rows: 0 });
       return { items: [], page, pageSize, total, totalPages };

@@ -256,9 +256,16 @@ public sealed class DomainEventDeferral : IDisposable
 /// The paged carrier (payload-transport-layer.md, P3b).  Serializes camelCase to
 /// the same wire JSON as the Hono / React backends (items/page/pageSize/total/
 /// totalPages).  Used both domain-side (Paged&lt;Order&gt; off the repository) and
-/// wire-side (Paged&lt;OrderResponse&gt; from the controller).
+/// wire-side (Paged&lt;OrderResponse&gt; from the controller).  Every member is
+/// always present, so each is published required; the carrier is never
+/// model-bound, so the property-targeted [Required] is documentation only.
 /// </summary>
-public sealed record Paged<T>(IReadOnlyList<T> Items, int Page, int PageSize, int Total, int TotalPages);
+public sealed record Paged<T>(
+    [property: System.ComponentModel.DataAnnotations.Required] IReadOnlyList<T> Items,
+    [property: System.ComponentModel.DataAnnotations.Required] int Page,
+    [property: System.ComponentModel.DataAnnotations.Required] int PageSize,
+    [property: System.ComponentModel.DataAnnotations.Required] int Total,
+    [property: System.ComponentModel.DataAnnotations.Required] int TotalPages);
 
 /// <summary>
 /// Domain-termed read-scope bypass for a retrieval (the DSL <c>ignoring</c>
@@ -295,6 +302,17 @@ public interface IDomainTransaction : IAsyncDisposable
 {
     Task CommitAsync(CancellationToken cancellationToken = default);
     Task RollbackAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Writes the outbox rows of the durable events among <paramref name="events"/>
+    /// in THIS transaction, so they commit with it, and returns the rest for
+    /// dispatch after the commit.  A workflow's own durable emits are owed
+    /// exactly when its writes commit.
+    /// </summary>
+    Task<IReadOnlyList<IDomainEvent>> CaptureDurableAsync(
+        IDomainEventDispatcher dispatcher,
+        IReadOnlyList<IDomainEvent> events,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>The shape a workflow event-stream record exposes to the event-store

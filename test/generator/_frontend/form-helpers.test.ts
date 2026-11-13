@@ -147,9 +147,10 @@ describe("needsController — true for exactly the non-DOM-event input set", () 
     expect(needsController([f(enumOf("Status"))], ctx, none)).toBe(true);
   });
 
-  it("is false for an array — object arrays go through useFieldArray + register", () => {
-    expect(needsController([f(arr(prim("int")))], ctx, none)).toBe(false);
-    expect(needsController([f(arr(enumOf("Status")))], ctx, none)).toBe(false);
+  it("is true for a scalar / enum / reference array — a Controller-bound collection input", () => {
+    expect(needsController([f(arr(prim("int")))], ctx, none)).toBe(true);
+    expect(needsController([f(arr(enumOf("Status")))], ctx, none)).toBe(true);
+    expect(needsController([f(arr(idOf("Product")))], ctx, none)).toBe(true);
   });
 
   it("splits `X id` on the TARGET's display field — select (true) vs plain text (false)", () => {

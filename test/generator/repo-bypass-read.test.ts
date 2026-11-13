@@ -72,7 +72,7 @@ describe("dotnet (EF)", () => {
   it("the widened reads ignore the IsDeleted query filter", () => {
     const repo = file("dotnet_api/Infrastructure/Repositories/ProductRepository.cs");
     expect(repo).toContain(
-      '_db.Products.IgnoreQueryFilters(["IsDeletedFilter"]).Where(new ProductsInRegionCriterion(region).ToExpression()).FirstOrDefaultAsync(cancellationToken)',
+      '_db.Products.IgnoreQueryFilters(["IsDeletedFilter"]).Where(new ProductsInRegionCriterion(region).ToExpression()).OrderBy(x => x.Id).FirstOrDefaultAsync(cancellationToken)',
     );
     expect(repo).toContain(
       "_db.Products.IgnoreQueryFilters().Where(new ProductsInRegionCriterion(region).ToExpression())",
@@ -193,7 +193,7 @@ describe("dotnet (Dapper)", () => {
     );
     const repo = out.get(key!)!;
     expect(block(repo, "FindFirstBigIgnoringSoftDeletable(", "\n    }\n")).toContain(
-      'FROM orders WHERE (total > @min) LIMIT 1"',
+      'FROM orders WHERE (total > @min) ORDER BY id ASC LIMIT 1"',
     );
     expect(block(repo, "FindByIdIgnoringAll(", "\n    }\n")).toContain(
       'FROM orders WHERE (id = @id) LIMIT 1"',

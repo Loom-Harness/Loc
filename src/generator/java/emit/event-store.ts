@@ -1,5 +1,5 @@
 import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
-import { foldedEventNames } from "../../../ir/plan/index.js";
+import { domainFindShape, foldedEventNames } from "../../../ir/plan/index.js";
 import type { EnrichedAggregateIR, ExprIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import { lines } from "../../../util/code-builder.js";
@@ -20,7 +20,6 @@ import {
   inMemoryParamExpr,
   inMemoryRetrievalLines,
   isPagedFind,
-  unionFindAsOptionalTwin,
 } from "./repository.js";
 import { esEventLogTable } from "./workflow-eventsourced.js";
 import { javaBlobWriteGuardLines, writeScopeUsesPrincipal } from "./write-scope.js";
@@ -73,7 +72,7 @@ export function renderJavaEventSourcedRepositoryImpl(
           : "sid";
   // The event types this stream can contain — the events the appliers fold.
   const eventNames = foldedEventNames(agg);
-  const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
+  const finds = declaredFinds(repo).map((f) => domainFindShape(f, agg.name));
 
   // --- stream tenancy (stream-tenancy.ts) ------------------------------------
   const tenancy = streamTenancyFor(agg, pool);

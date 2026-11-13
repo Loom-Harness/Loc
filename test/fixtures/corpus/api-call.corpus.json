@@ -1,0 +1,11 @@
+{
+  "//": "The emitted DIR names, which are snake_cased from the deployable names (`ordersSvc` → `orders_svc`) — the coverage gate cross-checks these against what actually lands on disk.",
+  "title": "typed in-system api call — `resource { kind: api, use: <Api> }` a sibling deployable serves",
+  "doc": "resources",
+  "backends": "ALL",
+  "deployables": [
+    "orders_svc",
+    "shipping_svc"
+  ],
+  "note": "Two deployables: the caller's client is DERIVED from the callee's served operation set, so a single-deployable fixture cannot exercise it."
+}

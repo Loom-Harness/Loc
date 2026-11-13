@@ -6,6 +6,7 @@ import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import {
   eventSourcedWorkflows,
   observableWorkflows,
+  routedPolymorphicRead,
   stateRowWorkflows,
 } from "../../ir/plan/index.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
@@ -62,6 +63,7 @@ import {
   valueObjectFieldLookup,
   valueObjectPool,
 } from "../../ir/util/reachable-types.js";
+import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import {
   effectiveSavingShape,
   resolveContextSchema,
@@ -80,7 +82,7 @@ import {
   type RequestComponentOwner,
   requestComponentNamerFor,
 } from "../_openapi/request-component-names.js";
-import { unionMembers } from "../_payload/union-wire.js";
+import { opUnionResponses, unionMembers } from "../_payload/union-wire.js";
 import { registryTableSql } from "../_persistence/registry-walk.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
@@ -123,7 +125,7 @@ import {
   renderJavaAuditHistorySupport,
 } from "./emit/audit-history.js";
 import { renderAuthFiles } from "./emit/auth.js";
-import { renderJavaBaseReadController, routedJavaPolymorphicRead } from "./emit/base-read.js";
+import { renderJavaBaseReadController } from "./emit/base-read.js";
 import {
   AMQP_CLIENT_VERSION,
   type ChannelConsumerHandler,
@@ -173,9 +175,12 @@ import {
   renderRequestCatalogFilter,
 } from "./emit/observability.js";
 import {
-  buildJavaOpenApiContract,
-  renderJavaOpenApiCustomizer,
-} from "./emit/openapi-customizer.js";
+  javaContractPkg,
+  javaEmptyRequestNames,
+  renderJavaEmptyRequestFile,
+  renderJavaProblemDetailsFiles,
+  renderJavaUnionDocFiles,
+} from "./emit/openapi-docs.js";
 import {
   renderApplication,
   renderApplicationYml,
@@ -963,7 +968,7 @@ function emitProjectFromContexts(
       construct: string,
     ): void => {
       for (const f of fields) {
-        if (f.type.kind !== "array" || f.type.element.kind !== "id") continue;
+        if (!isRefCollectionType(f.type)) continue;
         place(
           `${f.type.element.targetName}IdJsonListConverter.java`,
           "id",
@@ -1611,19 +1616,21 @@ function emitProjectFromContexts(
   if (realtimeController) {
     out.set(mainSourcePath(`${basePkg}.api`, "RealtimeController.java"), realtimeController);
   }
-  // springdoc OpenApiCustomizer — align the emitted /openapi.json with the
-  // other backends' contract (success bodies under application/json + named
-  // <Agg>ListResponse array wrappers; RFC 7807 ProblemDetails error responses
-  // under application/problem+json).  Skipped when there's no API surface.
-  const servedRoutes = system
-    ? system.deployable.serves.flatMap(
-        (n) => system.sys.apis.find((a) => a.name === n)?.routes ?? [],
-      )
-    : [];
-  const openApiContract = buildJavaOpenApiContract(contexts, routePrefix, servedRoutes);
-  const openApiCustomizer = renderJavaOpenApiCustomizer(basePkg, openApiContract);
-  if (openApiCustomizer) {
-    place("OpenApiContractCustomizer.java", "config", openApiCustomizer);
+  // OpenAPI contract types springdoc reads through `@ApiResponse` /
+  // `@RequestBody` (openapi-docs.ts): the RFC 7807 body, and the named empty
+  // request of each param-less command a route serves.
+  const contractPkg = javaContractPkg(basePkg);
+  const hasApiSurface = contexts.some(
+    (c) => c.aggregates.some((a) => !a.isAbstract) || c.workflows.some(workflowEmitsCommandRoute),
+  );
+  if (hasApiSurface) {
+    for (const f of renderJavaProblemDetailsFiles(basePkg)) {
+      out.set(mainSourcePath(contractPkg, `${f.name}.java`), f.content);
+    }
+    for (const name of javaEmptyRequestNames(contexts, reqNameFor)) {
+      const f = renderJavaEmptyRequestFile(basePkg, name);
+      out.set(mainSourcePath(contractPkg, `${f.name}.java`), f.content);
+    }
   }
   // SvelteKit's adapter-static writes `build/`; Angular's `ng build`
   // (@angular/build:application) nests the browser bundle under
@@ -1764,7 +1771,7 @@ function emitAggregate(
       construct,
     );
     // The polymorphic base read (`GET /api/<bases>`, TPH `/{id}`).
-    const read = routedJavaPolymorphicRead(agg, ctx);
+    const read = routedPolymorphicRead(agg, ctx);
     if (read) {
       place(
         `${plural(agg.name)}Controller.java`,
@@ -2077,6 +2084,19 @@ function emitAggregate(
       place(f.name, "response-dto", f.content, agg.name, agg.origin, construct);
     }
   }
+  // The OpenAPI split of each operation-return union (openapi-docs.ts): the
+  // schema-only 200 body and error-arm problem types the controller's
+  // `@ApiResponse`s name.
+  const docUnions = new Set<string>();
+  for (const op of agg.operations) {
+    if (op.returnType?.kind !== "union") continue;
+    const split = opUnionResponses(op.returnType.variants, ctx);
+    if (docUnions.has(split.successName)) continue;
+    docUnions.add(split.successName);
+    for (const f of renderJavaUnionDocFiles(split, pkgFor("response-dto", agg.name), basePkg)) {
+      place(`${f.name}.java`, "response-dto", f.content, agg.name, agg.origin, construct);
+    }
+  }
   // Single-success union finds (`Order or NotFound` / `Order option`) emit no
   // tagged wire DTO: the service returns the success variant's `<Agg>Response`
   // and the controller returns it directly at 200, with the error/absent
@@ -2109,6 +2129,8 @@ function emitAggregate(
       boundedContext: ctx,
       idClass,
       routePrefix,
+      responseDtoPkg: pkgFor("response-dto", agg.name),
+      ...(reqNameFor ? { requestComponentName: reqNameFor } : {}),
     }),
     agg.name,
     agg.origin,

@@ -31,6 +31,7 @@ import {
 } from "../dto-mapping.js";
 import { renderRequestDtos, renderResponseDtos } from "../emit.js";
 import { renderCsExpr } from "../render-expr.js";
+import { renderUnionRecordFamily, splitUnionSuccessTags } from "../union-records.js";
 import { renderRequestValidators } from "../validator-emit.js";
 import { hasNullableWireDefault, omitsToEmptyCollection } from "../wire-default.js";
 
@@ -155,7 +156,14 @@ export function emitUnionDtos(
   for (const u of aggregateUnionReturns(agg, repo)) {
     out.set(
       `Application/${aggFolder}/Responses/${u.name}.cs`,
-      renderUnionDto(u.name, unionMembers(u.variants, ctx), ns, aggFolder, ctx),
+      renderUnionDto(
+        u.name,
+        unionMembers(u.variants, ctx),
+        ns,
+        aggFolder,
+        ctx,
+        splitUnionSuccessTags(u.variants, ctx),
+      ),
     );
   }
 }
@@ -251,8 +259,8 @@ function renderUnionDto(
   ns: string,
   aggFolder: string,
   ctx: EnrichedBoundedContextIR,
+  successTags: readonly string[] | undefined,
 ): string {
-  const variantRecord = (tag: string): string => `${name}_${tag}`;
   const memberParams = (m: (typeof members)[number]): string => {
     if (m.shape === "none") return "";
     if (m.shape === "scalar") return dtoParam(wireType(m.type, ctx, "response"), "Value");
@@ -270,12 +278,11 @@ function renderUnionDto(
     "",
     `namespace ${ns}.Application.${aggFolder}.Responses;`,
     "",
-    '[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]',
-    ...members.map((m) => `[JsonDerivedType(typeof(${variantRecord(m.tag)}), "${m.tag}")]`),
-    `public abstract record ${name};`,
-    "",
-    ...members.map(
-      (m) => `public sealed record ${variantRecord(m.tag)}(${memberParams(m)}) : ${name};`,
+    ...renderUnionRecordFamily(
+      name,
+      members.map((m) => m.tag),
+      (tag) => memberParams(members.find((m) => m.tag === tag)!),
+      successTags,
     ),
   );
 }

@@ -15,6 +15,7 @@
 // Always-on `test` gate.
 
 import { describe, expect, it } from "vitest";
+import { elixirDocumentedOperations } from "../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** A single aggregate with one scalar-return op (`describe(): string`) and one
@@ -76,14 +77,9 @@ describe("scalar-return operations — 200-with-value across all five backends (
 
   it("vanilla Phoenix OpenAPI declares 200 (a string schema), not 204, for the scalar op", async () => {
     const files = await generateSystemFiles(system("elixir"));
-    const spec = fileEndingWith(files, "o_api_spec.ex");
-    // Slice the describe operation's PathItem so the assertions bind to IT, not
-    // to some unrelated 200 elsewhere in the single spec module.
-    const start = spec.indexOf('"/api/orders/{id}/describe"');
-    expect(start, "expected the describe path in the OpenAPI spec").toBeGreaterThanOrEqual(0);
-    const rest = spec.slice(start);
-    const end = rest.indexOf('"/api/orders/{id}', 1);
-    const block = end > 0 ? rest.slice(0, end) : rest;
+    // The describe action's own `operation` spec, so the assertions bind to IT.
+    const block = elixirDocumentedOperations(files).get("post /api/orders/{id}/describe") ?? "";
+    expect(block, "expected the describe operation").not.toBe("");
     // 200 with an inline :string schema — the scalar body — and no 204 discard.
     expect(block).toMatch(/200 => %OpenApiSpex\.Response\{/);
     expect(block).toContain("%OpenApiSpex.Schema{type: :string}");

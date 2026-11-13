@@ -40,7 +40,7 @@ Disambiguation by "presence of `for:`" is an accident, not a design.
 | Keyword | Role | Carries |
 |---|---|---|
 | `storage` | Physical infrastructure instance | `type`, `instance`, `connection`, `outbox`, `follows` |
-| `dataSource` | Logical (context, kind) → storage binding | `for: <Context>`, `kind: <state\|eventLog\|snapshot\|cache\|replica>`, `use: <storage>`, plus per-`kind` config (`schema`/`ttl`/`every`/`retain`/`keyPrefix`/…) |
+| `resource` | Logical (context, kind) → storage binding | `for: <Context>`, `kind: <state\|eventLog\|snapshot\|cache\|replica>`, `use: <storage>`, plus per-`kind` config (`schema`/`ttl`/`every`/`retain`/`keyPrefix`/…) |
 | `deployable` | Process/runtime unit | `contexts: [...]`, `dataSources: [...]`, platform config |
 
 Worked example:
@@ -50,13 +50,14 @@ storage pg     { type: postgres }
 storage kafka  { type: kafka }
 storage redis  { type: redis }
 
-dataSource ordersState    { for: Orders, kind: state,    use: pg }
-dataSource ordersEvents   { for: Orders, kind: eventLog, use: kafka }
-dataSource ordersCache    { for: Orders, kind: cache,    use: redis, ttl: 60 }
-dataSource ordersSnapshot { for: Orders, kind: snapshot, use: redis,
-                            every: 100, retain: 5 }
+resource ordersState      { for: Orders, kind: state,    use: pg }
+resource ordersEvents     { for: Orders, kind: eventLog, use: kafka }
+resource ordersCache      { for: Orders, kind: cache,    use: redis, ttl: 60 }
+resource ordersSnapshot   { for: Orders, kind: snapshot, use: redis,
+                          every: 100, retain: 5 }
 
 deployable api {
+  platform:    node
   contexts:    [Orders]
   dataSources: [ordersState, ordersEvents, ordersCache, ordersSnapshot]
 }
@@ -68,7 +69,7 @@ deployable api {
   separate concepts that happen to live in the same domain. A naming
   rule that makes them parse identically and rely on a sentinel field
   (`for:`) is fragile.
-- `dataSource` reads naturally for "a configured source/sink of data
+- `resource` reads naturally for "a configured source/sink of data
   for one purpose within one context."
 - Keeping `storage` for the physical form preserves the most-typed
   surface (every project has physical stores; only some need rich
@@ -78,17 +79,17 @@ deployable api {
 
 **Validator rules implied.**
 
-- `dataSource` requires both `for:` (a context) and `kind:`. Missing
+- `resource` requires both `for:` (a context) and `kind:`. Missing
   either → parse / validate error.
 - For each `(context, kind)` actually needed by aggregates in the
-  context, exactly one `dataSource` must exist with matching `for:`
+  context, exactly one `resource` must exist with matching `for:`
   and `kind:`. State-based aggregate → `kind: state` required;
   ES aggregate → `kind: eventLog` required; `cache`-annotated
   aggregate → `kind: cache` required; etc.
 - A deployable's `dataSources:` must include exactly the dataSources
   `for:` the contexts it hosts (one per needed kind) — validator
   rejects under-listing (missing binding for a needed kind) and
-  over-listing (a dataSource `for:` a context the deployable does
+  over-listing (a resource `for:` a context the deployable does
   not host).
 - Per-`kind:` config keys validated against the resolved physical
   store's `type` (e.g., `ttl:` only on Redis kinds).
@@ -591,25 +592,36 @@ conventional REST that hand-written clients already understand.
 
 **Status:** PINNED.
 
-**Decision.** **Option B as default, Option C as escape hatch.**
+**Decision.** Two key families, chosen by what the text describes.
 
-- **Inline user-visible literals** are keyed by a content hash —
-  `page.<page>.<role>.<sha-6>` (6-char base64 of `sha512(source)`).
-  Placeholders are **normalised to positional for hashing** (`"Order
-  {0}"`) but **rendered named** at use (`{orderNumber}`). Effect: a
-  placeholder *rename* leaves the hash stable; `ddd i18n sync` rewrites
-  the placeholder name in the catalog without re-keying (Option B).
-- **Named `text { }` entries** get true stable keys
-  (`text.<Namespace>.<name>`) with author-chosen placeholder names —
-  the escape hatch (Option C) for strings that must survive *content*
-  edits, not just renames.
+- **Model-derived text** (a type's name, a field / operation / enum-value
+  label, a named rule or error message) is keyed by **context-qualified model
+  identity**: `<Ctx>.<Type>.<facet>[.<member>]`, constructed in one place
+  (`src/util/model-text-key.ts`). The source spelling is the `label(…)` /
+  `plural(…)` intrinsics; the English default is derived from the identifier.
+  The key survives any rewording of the default, and changes only when the
+  model element is renamed or moved — which `ddd i18n sync` follows (declared
+  `migration` steps, then an unambiguous inference), re-keying the translation
+  instead of dropping it.
+- **Hand-written literals** in page, component and menu bodies are keyed by a
+  **content hash**: `<Ui>.page.<Page>.<role>.<hash>` (and `component` / `menu`
+  forms), where `<hash>` is a 6-character FNV-1a base-36 hash of the source
+  text (`src/util/content-hash.ts`). A reword re-keys: the old key goes
+  stale and the new one starts untranslated. The slot `role` is part of the key
+  so equal text in two slots stays two entries.
 
-Option A (live with churn) is rejected; positional-only hashing without
-named render is rejected (leaks DSL/source structure to the client).
-The unnamed-placeholder fallback warns (`loom.unnamed-placeholder`).
+Placeholders are carried as ICU holes (`{name}`) in the message; a placeholder
+rename is a source change like any other, and `sync` flags the translations
+that need review rather than rewriting them. There is no named-message
+construct in the grammar, and no invariant `message` clause: an unnamed rule
+gets a generic message, a named rule gets `<Ctx>.<Agg>.rule.<name>`.
 
-**Affects.** `i18n.md`, `i18n-strings.md`; the `ddd i18n sync`
-three-way merge; the generated catalog key shape.
+Rejected: live with positional-only hashing (leaks source structure to the
+client), and runtime noun insertion (`{entity}`) — placeholders carry data,
+never words.
+
+**Affects.** [`i18n.md`](i18n.md); the `ddd i18n sync` three-way merge; the
+generated catalog key shape.
 
 ---
 
@@ -6680,10 +6692,13 @@ discriminator separates; explicit, implicit and inferred discriminator
 mappings; a polymorphic base whose subtypes `allOf` it and a `oneOf` over the
 subtypes; a union arm's tag pinned on the arm (`enum`) and the same tag given
 only in the discriminator mapping; a union arm inlined and the same arm as a
-named component nothing else references; and, at an error status,
-`anyOf: [ProblemDetails, <X>Problem]` (each `<X>Problem` extending
-ProblemDetails) and plain ProblemDetails, which accept the same bodies because
-ProblemDetails is open. Real contract differences still fail — operations, success and error
+named component nothing else references. One equivalence is scoped to a
+framework limitation rather than spelling: in a pair with the .NET backend
+(Swashbuckle cannot spell `anyOf`), an operation-return union's error-arm
+status declaring `anyOf: [ProblemDetails, <X>Problem]` (each `<X>Problem`
+extending ProblemDetails) matches plain ProblemDetails. The two accept the
+same bodies, because ProblemDetails is open, but the .NET document does not
+carry the typed arm body; every other pair compares the arms. Real contract differences still fail — operations, success and error
 statuses, media types, required sets, field schemas, enum values, union arms
 and tags. Every accepted equivalence and its nearest rejected difference is a
 fixture pair under `test/_helpers/openapi-parity-fixtures/`.
@@ -6802,3 +6817,54 @@ byte-identical at every step.
   walker or the HEEx target.
 - `heex-coverage.test.ts`, the walker-core framework census, and the
   D-LIVEVIEW-REFERENCE legs.
+
+## D-WORKFLOW-TX-BOUNDARY — a workflow command commits each save on its own unless it is `transactional`
+
+**Status:** decided by the owner, 2026-11-13.
+
+**Question.** When a workflow command without `transactional` fails part-way, do
+the saves it already made stay, or does the whole command roll back?
+
+**Options.** (a) every save commits on its own, as `docs/workflow.md` says;
+(b) every workflow command is atomic, and `transactional` only pins an isolation
+level.
+
+**Decision.** (a). **The rule, stated once:** a workflow command runs in one
+transaction exactly when the plan's `workflowRunsInTransaction` holds — the
+workflow is `transactional`, its `create` answers an expected failure (`T or E`),
+or it re-checks a held row's write scope.  Any other workflow command commits each
+repository save on its own, so a failure keeps the rows saved before it.  Every
+backend reads that fact; none chooses its own boundary (the `tx-boundary` rule of
+`test/system/workflow-plan-census.test.ts`).  Reactors and event-triggered
+starters are unaffected: a failed reaction leaves no effects of its own
+(workflow.md § Reactor failures).
+
+**Rationale.** The aggregate is the consistency boundary; a workflow that wants
+all-or-nothing across aggregates says so with `transactional`, at the cost of the
+locks and the distribution barrier the keyword names.  The consequence is the
+caveat the docs carry: a client that retries a failed non-transactional workflow
+re-runs it against the saves the failed run kept, so such a workflow must be
+written to be safe to retry.
+
+**Proof.** `test/fixtures/corpus/workflow-partial-commit.ddd`: a workflow saves a
+counter, then fails; the counter keeps its bump on all five backends, and the
+`transactional` twin keeps nothing.
+
+---
+
+## D-AGGREGATE-FUNCTION-PUBLIC — an aggregate `function` is a public, pure query
+
+**Status:** owner ruling, 2026-10-21.
+
+**Decision.** A `function` declared on an aggregate, entity part or value
+object is a public, pure query. Workflows and domain services that hold a
+loaded aggregate may call it (`t.hasSkill(skill)`), and every backend emits it
+public: `public` on node, .NET and Java, an unprefixed method on Python, a
+context-facade function on Phoenix. It stays pure (no mutation, no `emit`, no
+repository or operation call) and is never an HTTP route.
+
+**Why not refuse the call.** Refusing a workflow's call to an aggregate
+function would force callers to duplicate the predicate or to wrap it in an
+`operation`, which is a mutating member with its own gates. A pure query on an
+already-loaded aggregate leaks no state the caller could not read, so the
+public form costs nothing and matches what the emitters already do.

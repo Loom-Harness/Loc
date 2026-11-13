@@ -163,10 +163,11 @@ shared IR vocabulary are exempt), and
   `DocumentState.IndexedContent` (before scope computation).
 - `src/macros/registry.ts` — process-global macro registry.
 - `src/macros/api/` — the `defineMacro(...)` authoring API.
-- `src/macros/stdlib/` — stdlib macros: `scaffold` (+ `scaffoldModule`
+- `src/macros/stdlib/` — stdlib macros: `scaffold` (+ `scaffoldSubdomain`
   / `scaffoldContext` / `scaffoldAggregate` /
-  `scaffoldWorkflow`), `audit` (+ `auditable` / `auditedByDefault`),
-  `softDelete` (+ `softDeletable` / `softDeleteByDefault`), `crudish`.
+  `scaffoldWorkflow`), `softDelete` (+ `softDeleteByDefault`), `crudish`.
+  The `auditable` / `softDeletable` capabilities are prelude mixins
+  (`src/macros/prelude.ts`).
 - Wired by `bootMacros(shared)` in `src/language/ddd-module.ts`, which
   loads the stdlib once and registers the `DocumentState.IndexedContent`
   listener for the expander.
@@ -192,7 +193,7 @@ shared IR vocabulary are exempt), and
   an AST → AST' rewrite. Macros that need IR-level introspection
   (e.g. `with crudish(...)`) inspect the host AST, not the IR.
 
-**Relationship to the capability surface.** The `audit` /
+**Relationship to the capability surface.** The
 `softDelete` / etc. macros don't emit a parallel machinery — they
 expand into ordinary `filter` / `stamp` / `implements` AST nodes
 (the capability source surface described in
@@ -358,7 +359,7 @@ sub-pass runs once per `lowerModel` call:
 
 ### Phase ⑤a — Structure layer
 
-**File**: `src/ir/lower/lower.ts` (~1.3k lines) — a thin **orchestrator**.
+**File**: `src/ir/lower/lower.ts` — a thin **orchestrator**.
 The per-declaration-kind lowerers were extracted into sibling leaf modules
 it imports (the graph is acyclic — leaves never import `lower.ts`):
 `lower-platform.ts` (design/platform qualification), `lower-requirements.ts`,
@@ -408,7 +409,7 @@ the rest of the cross-cutting derivations now live in **phase ⑥
 
 ### Phase ⑤b — Expression layer
 
-**File**: `src/ir/lower/lower-expr.ts` (~1650 lines).
+**File**: `src/ir/lower/lower-expr.ts`.
 
 **Responsibilities** — name resolution + member typing + IR
 expression / statement construction:
@@ -481,7 +482,7 @@ interface LoomModel {
 
 interface SystemIR {
   name: string;
-  modules: ModuleIR[];
+  subdomains: SubdomainIR[];
   deployables: DeployableIR[];
   e2eTests: TestE2EIR[];
 }
@@ -507,7 +508,8 @@ interface AggregateIR {
 
 ```
 literal | this | id | ref | member | method-call | call |
-lambda | new | object | paren | unary | binary | ternary
+lambda | new | object | paren | unary | binary | ternary |
+convert | duration | list | match | action-ref | authz-filter | ...
 ```
 
 Each carries enough context for backends to render without
@@ -519,7 +521,8 @@ re-running inference: a `ref` carries `refKind` and `type?`; a
 **Statements**:
 
 ```
-precondition | let | assign | add | remove | emit | call | expression
+precondition | requires | let | assign | add | remove | emit | call |
+expression | if | return | variant-match
 ```
 
 `assign / add / remove` carry the typed `target: PathIR` plus the
@@ -533,11 +536,28 @@ mutator without re-walking the env.
 itself: every `ref` names a declaration of its `refKind` the body can see,
 every `assign` / `add` / `remove` path is rooted at a stored member, every
 `member` read on an aggregate / part / value-object receiver names a member
-of that type, every `call` names a target of its `callKind`, and no
-statement block binds one `let` twice.  It covers the domain-logic bodies —
-aggregates, parts, value objects, domain services, workflows, command /
-query handlers, repository finds and criteria — and walks them through
+of that type, every `call` names a target of its `callKind`, no
+statement block binds one `let` twice, and no workflow / handler statement
+reached the IR as lowering's `__bad__` placeholder.  It covers every
+body that carries expressions — aggregates, parts, value objects, domain
+services, workflows, command / query handlers, repository finds, criteria,
+projections (fold handlers and query), tests (unit, context and e2e), and
+ui pages, components and stores — and walks them through
 `src/ir/util/walk.ts`.
+
+A ui body follows the page walker's encoding, which the verifier models
+explicitly rather than tolerating: state and derived values read as `let`
+refs; a bare name the page walker resolves itself (`Customer.all`,
+`S.Order.all` through an `api S: …` handle, `navigate(Home)`, `op: rename`,
+a design token such as `variant: primary`) stays `refKind: "unknown"`, and the
+verifier makes no claim about it; an aggregate's operations and finds read as
+its members; and the view-effect builtins (`navigate`, `toast`) and a ui
+`function` called from an action lower as `private-operation`-shaped call
+statements.  A sibling context's enum values resolve model-wide, and a
+projection query reads the state fields of the workflow or projection it
+selects from.
+A projection `select` aggregation carries its column on `aggregate.arg`, so
+the verifier checks that rather than the bare `count` spelling.
 
 A violation is a lowering defect, never an author error: a construct
 lowering cannot express is refused by an AST validator before lowering.  The
@@ -554,7 +574,7 @@ holds the corpus to zero violations and mutation-proves each check.
 
 After lowering returns a faithful AST projection, `enrichLoomModel(loom)`
 runs a single pure pass that populates everything cross-cutting
-the IR consumers need.  Five derivations, in order:
+the IR consumers need.  The derivations, in order:
 
 1. **Wire-shape on every aggregate / part / value object.**  The
    canonical, ordered list of fields that appear on the wire for
@@ -657,11 +677,11 @@ backend.
 
 ## Phase ⑦ — IR validation
 
-**File**: `src/ir/validate/validate.ts` (~220 lines) — a thin
+**File**: `src/ir/validate/validate.ts` — a thin
 `validateLoomModel` orchestrator that fans out to per-theme check
 leaves under `src/ir/validate/checks/` (`system-checks` /
 `query-checks` / `test-checks` / `workflow-checks` /
-`structural-checks`, plus `shared.ts` helpers and `diagnostic.ts`
+and dozens more, one per theme, plus `shared.ts` helpers and `diagnostic.ts`
 for the `LoomDiagnostic` type).  `firstNonQueryableNode` +
 `LoomDiagnostic` are re-exported from `validate.ts`, so its public
 surface is unchanged.  Alongside sits
@@ -723,7 +743,7 @@ consumed by multiple platforms.  The four principal ones:
 | Subdir | Consumed by | What it owns |
 |---|---|---|
 | `_packs/` | the JSX/markup frontends (react, vue, svelte, angular) + the Phoenix HEEx path | Design-pack discovery + loader.  `loader-fs.ts` / `loader-vfs.ts` are the FS / browser-VFS backends.  (The pack-identity metadata — `BUILTIN_PACK_FORMATS` / `BUILTIN_PACK_LATEST` + the `parseBuiltinDesignRef` parser — lives in [`src/util/builtin-formats.ts`](../src/util/builtin-formats.ts): language validators and IR lowering consume it too, so it sits at the foundational `util/` layer.)  See [`design-packs.md`](design-packs.md). |
-| `_expr/` | every domain-logic backend (TS, .NET, Phoenix, Python, Java) | `target.ts` defines the `ExprTarget` interface (the eight leaf-divergence axes — operators, naming, money arithmetic, collection ops, `refColl.contains` membership, regex, `ref` role, `callKind` call syntax) and `renderExprWith(e, target, ctx)`, which owns the 17-arm `ExprIR.kind` dispatch + all recursion.  Each backend's `render-expr.ts` supplies only the leaf table (`TS_TARGET` / `CS_TARGET` / `ELIXIR_TARGET` / `PY_TARGET` / `JAVA_TARGET`).  Expression-side analogue of `WalkerTarget`; already five backends — a 6th domain-logic backend writes one target, not a 6th dispatcher. |
+| `_expr/` | every domain-logic backend (TS, .NET, Phoenix, Python, Java) | `target.ts` defines the `ExprTarget` interface (the eight leaf-divergence axes — operators, naming, money arithmetic, collection ops, `refColl.contains` membership, regex, `ref` role, `callKind` call syntax) and `renderExprWith(e, target, ctx)`, which owns the exhaustive `ExprIR.kind` dispatch + all recursion.  Each backend's `render-expr.ts` supplies only the leaf table (`TS_TARGET` / `CS_TARGET` / `ELIXIR_TARGET` / `PY_TARGET` / `JAVA_TARGET`).  Expression-side analogue of `WalkerTarget`; already five backends — a 6th domain-logic backend writes one target, not a 6th dispatcher. |
 | `_walker/` | all seven frontends (react, vue, svelte, angular, feliz, flutter, phoenixLiveView) | `target.ts` defines the `WalkerTarget` interface that captures the framework-shaped seams (state read/write, navigation, API call lowering, `match` rendering).  Seven targets drive the shared `walker-core.ts`: `react/walker/tsx-target.ts`, `vue/walker/vue-target.ts`, `svelte/walker/svelte-target.ts`, `angular/walker/angular-target.ts`, `feliz/feliz-target.ts` (emits F#), `flutter/flutter-target.ts` (emits Dart), and `elixir/heex-target.ts` (emits HEEx; its expressions render through the Elixir expression renderer in `elixir/heex-walker-core.ts`, and the primitives that bind a changeset or load an assign render through whole-primitive overrides). |
 | `_obs/` | hono, dotnet, phoenixLiveView, python | Observability catalog + per-backend renderers.  `log-events.ts` defines the envelope schema; `render-<platform>.ts` emits the per-backend instrumentation (hono / dotnet / phoenix; python wires the shared catalog from its own `emit/obs.ts`).  Java emits an equivalent catalog-JSON channel without sharing this subdir.  See [`observability.md`](observability.md). |
 
@@ -789,7 +809,7 @@ emitters that the registered package calls.
 | `generator/typescript/repository-builder.ts` | Per-aggregate repository — find-by-id (load + hydrate), get-by-id (throws), save (upsert + diff-sync + dispatch), find-all + user finds (with Drizzle `where`-clause lowering), `toWire` serializer. |
 | `generator/typescript/repository-imports-builder.ts` | Imports the per-aggregate repository needs (drizzle ops, id types, etc.). |
 | `generator/typescript/extern-builder.ts` | Generated handler stubs for `extern` operations. |
-| `generator/typescript/zod-refine.ts` | Shared helpers for emitting Zod `refine` chains from wire-translatable invariants. |
+| `generator/zod-refine.ts` | Shared helpers for emitting Zod `refine` chains from wire-translatable invariants. |
 | `generator/typescript/render-expr.ts` / `render-stmt.ts` | IR → idiomatic TS for invariants / preconditions / op bodies. |
 
 ### .NET backend (`src/generator/dotnet/`)
@@ -807,7 +827,7 @@ emitters that the registered package calls.
 | `emit/cqrs.ts` | Command + Query records, handler scaffolds. |
 | `emit/dto.ts` | Request + Response record headers (params come from `dto-mapping`). |
 | `emit/api.ts` | `[ApiController]` + `[Route]` controller per aggregate, plus `DomainExceptionFilter`. |
-| `emit/program.ts` | Hosting entry: DbContext, Mediator, Swashbuckle, CORS, camelCase JSON, `EnsureCreated`, `/health`. |
+| `emit/program.ts` | Hosting entry: DbContext, Mediator, Swashbuckle, CORS, camelCase JSON, `Database.Migrate()` (system mode; `EnsureCreated` only when there are no migrations), `/health`. |
 | `emit/tests.ts` | xUnit project + per-aggregate test class. |
 | `dto-mapping.ts` | Wire ↔ domain conversion: `wireType`, `wireToCommandArgument`, `projectToResponse`, `projectEntityExpr`, `aggregateResponseParams`, `entityResponseParams`.  Walks `wireFieldsForAggregate` so the DTOs line up with every other backend. |
 | `cqrs-emit.ts` | Per-aggregate orchestration: emits Request / Response DTO files, Command + Handler per public op, Query + Handler per find, controller. |
@@ -818,22 +838,45 @@ emitters that the registered package calls.
 | `emit.ts` | Top-level barrel that `index.ts` invokes per context. |
 | `render-expr.ts` / `render-stmt.ts` | IR → idiomatic C#, with a `thisName` context (e.g., `x` for find filters' `.Where(x => …)`). |
 
+### Scaffolded forms — the shared form model (`src/generator/_frontend/form-spec.ts`)
+
+Every frontend renders create / update / operation / workflow forms from one
+framework-neutral `FormSpec`.  For each field it decides:
+
+| Fact | Rule |
+| --- | --- |
+| **kind** | One of 17 (`string`, `int`, `decimal`, `money`, `bool`, `date`, `datetime`, `file`, `enum`, `ref`, `optionalRef`, `valueObject`, `optionalValueObject`, `scalarArray`, `enumArray`, `refArray`, `objectArray`). |
+| **absence** | An optional field left empty submits `null` (a cleared text-like input is `""` → `null`; an un-added optional value object is `null`); a collection with no items submits `[]`. |
+| **prefill** | An operation param named and typed like an aggregate field seeds from the loaded record (so a scaffold `update` opens on the current values); otherwise the declared `= <expr>` default when the client can evaluate it; otherwise the kind's zero. |
+| **picker** | A reference reads every row of its target (`use<Plural>Options()` on the JS frontends, the equivalent page walk on Angular / Feliz / Flutter). |
+
+Each target renders a field through a `FormFieldArms` table — one arm per kind
+— so a new kind fails to type-check until every target has an arm.
+`test/generator/_frontend/form-spec-census.test.ts` pins every table to the full
+kind set and generates `test/behavioral/form-spec-ui.ddd` (one field of every
+kind) on all six frontends, failing on a placeholder stub.  The booted form
+behaviour (prefill, absence, collections, pickers, the opt-in optional group,
+part-table columns) is the `form-spec` probe of the behavioural UI legs
+(`test/behavioral/form-spec-ui.mjs`).
+
+The JSX-family binding syntax for the two inputs no design pack template covers
+— the optional value object's opt-in group and the collection inputs — lives in
+`_frontend/form-optional-group.ts` and `_frontend/form-array-input.ts`, one
+renderer per framework.
+
 ### React frontend (`src/generator/react/`)
 
 | File | Owns |
 | --- | --- |
 | `index.ts` | Project shell (Vite, package.json, tsconfig, index.html, Dockerfile, certs/ dir, App.tsx with router, main.tsx with providers, e2e/ suite shell). |
-| `api-builder.ts` | Per-aggregate API module: Zod schemas (request + response, walked via `wireFieldsForAggregate`) + React Query hooks (one per route, plus one `use<Op><Agg>` mutation hook per public operation). |
 | `body-walker.ts` | The **single** page-codegen path.  Walks a page's `body:` `ExprIR` and emits TSX by dispatching every walker-stdlib primitive (`Stack`/`Table`/`QueryView`/`CreateForm`/`Modal`/`KeyValueRow`/…) through the active design pack's `primitive-*` templates.  No archetype renderers — `page <Name> { body: … }` and scaffolded pages share this one walker. |
-| `form-helpers.ts` | Per-type form-input dispatch (`prepareFormFieldVM`/`renderFormField`): text/number/switch/select/fieldset/datetime, RHF `register` vs `Controller`, initial-value generation, `X id` → `useAll<Target>()` picker injection.  Shared by `CreateForm { of: }`, `WorkflowForm { runs: }`, and operation-modal forms. |
+| `form-helpers.ts` | Form seeding and `Controller` need over the shared form model: `formSeedTs` (a form's `defaultValues` from its `FormSpec` — record prefill, declared default, or the kind's zero), `needsController`, the `X id` picker targets. |
 | `pages-emitter.ts` | Page shell: wraps the walker's body TSX with `useForm`/mutation-hook/`useParams`/import declarations the body recorded on the walk context. |
 | `page-objects-builder.ts` / `walker-page-objects.ts` | Per-aggregate Playwright page-object class — keyed off the `data-testid` strings every primitive threads through (`testid:` named arg). |
 | `layouts-emitter.ts` | Per-layout shell (`<Outlet/>` wrappers, header/footer, sidebar slots). |
 | `menu-emitter.ts` | Sidebar / nav menu from `menu:` declarations + scaffold defaults. |
-| `workflow-builder.ts` | Per-workflow page module. |
 | `walker/tsx-target.ts` | `WalkerTarget` implementation for TSX — state read/write, navigation, API call lowering, `match` rendering.  Imported by `body-walker.ts`. |
-| `walker/api-hooks.ts` / `context.ts` / `icons.ts` / `import-lines.ts` / `page-shell.ts` | Walker helpers — TanStack Query hook import collection, walk-context plumbing, design-pack icon resolution, deduped import lines, page-shell wrapping. |
-| `walker/primitives/` | Per-primitive TSX dispatch entries (`Stack`, `Table`, `CreateForm`, `QueryView`, `Modal`, `KeyValueRow`, etc.) called from `body-walker.ts`. |
+| `walker/import-lines.ts` / `page-shell.ts` / `data-grid-child.ts` / `shared/` | Walker helpers — deduped import lines, page-shell wrapping, data-grid child rendering, shared argument helpers. The per-aggregate API module and the workflow and projection modules come from the shared `src/generator/_frontend/` emitters (`api-module.ts`, `workflows-module.ts`, `projections-module.ts`). |
 | `templating/` | Procedural TSX assembly helpers shared across the walker. |
 
 The React side has no `render-expr.ts` / `render-stmt.ts`: the
@@ -864,10 +907,10 @@ compile-time rewrite that lowers a domain selector into ordinary
 walker-stdlib pages a user could have hand-written:
 
 ```
-ui { scaffold modules: Sales }
+ui { scaffold subdomains: Sales }
         │
         ▼  phase ② macro expansion            src/macros/stdlib/scaffold/
-   The `scaffold` macro (and its sub-macros scaffoldModule /
+   The `scaffold` macro (and its sub-macros scaffoldSubdomain /
    scaffoldContext / scaffoldAggregate /
    scaffoldWorkflow) synthesise `Page` AST nodes (name, route, menu)
    whose body is the FULL walker-stdlib tree, built directly as Langium
@@ -985,10 +1028,10 @@ calls.  Per-call dispatch:
 
 | DSL form (api) | Lowered to (vitest+fetch) |
 | --- | --- |
-| `api.<aggregate>.create({...})` | `__post(\`${base}/<plural>\`, {...})` |
-| `api.<aggregate>.getById(idExpr)` | `__get(\`${base}/<plural>/${idExpr}.id\`)` (`.id` auto-appended for known let-bindings) |
-| `api.<aggregate>.<op>(idExpr, body?)` | `__post(\`${base}/<plural>/${idExpr}.id/<op_snake>\`, body ?? {})` |
-| `api.<aggregate>.<find>(args)` | `__getQuery(\`${base}/<plural>/<find_snake>\`, args)` |
+| `api.<aggregate>.create({...})` | `__post(\`${base}/api/<plural>\`, {...})` |
+| `api.<aggregate>.getById(idExpr)` | `__get(\`${base}/api/<plural>/${idExpr}.id\`)` (`.id` auto-appended for known let-bindings) |
+| `api.<aggregate>.<op>(idExpr, body?)` | `__post(\`${base}/api/<plural>/${idExpr}.id/<op_snake>\`, body ?? {})` |
+| `api.<aggregate>.<find>(args)` | `__getQuery(\`${base}/api/<plural>/<find_snake>\`, args)` |
 
 | DSL form (ui — target is react) | Lowered to (Playwright via page objects) |
 | --- | --- |
@@ -1035,10 +1078,10 @@ reserved `'ui'` modifier (which would shadow the body's
    without touching the filesystem.
 
 **Non-responsibilities**
-- Migration directories (`db/migrations/`,
-  `Infrastructure/Persistence/Migrations/`) are never in the
-  generated map, so they're safe by construction.  The output
-  layer doesn't need a special exclusion rule.
+- Migration directories (`api/db/migrations/*.sql`,
+  `api_net/Migrations/*.cs`) are emitted, but a migration already
+  written to disk is not re-emitted, so hand edits survive regeneration.
+  The output layer doesn't need a special exclusion rule.
 
 ---
 
@@ -1300,9 +1343,9 @@ layout mirrors the pipeline:
 | `test/ir/enrichments.test.ts`, `test/ir/wire/wire-shape.test.ts`, `test/ir/wire/wire-spec.test.ts` | ⑥ enrichment |
 | `test/ir/multifile-validate.test.ts`, `test/ir/invariant-classify.test.ts` | ⑦ IR validation |
 | `test/system/architecture-*.test.ts`, `test/system/deployable-composition.test.ts`, `test/system/traceability.test.ts` | ⑨ system orchestration |
-| `test/generator/*` (per backend, ~409 files) | ⑧ per-platform output |
+| `test/generator/*` (per backend) | ⑧ per-platform output |
 | `test/cli/*.test.ts` | ⑩ output writing (`.loomignore`, `--dry-run`) |
-| `test/generator/walker-*.test.ts` (~44 files) | ⑧ body-walker primitives |
+| `test/generator/walker-*.test.ts` | ⑧ body-walker primitives |
 | `LOOM_TS_BUILD=1 npm run test:tsc` | ⑧ regression — generated TS compiles under strict tsc |
 | `LOOM_E2E=1 npm run test:e2e` | full pipeline + content-shape OpenAPI parity + Playwright UI suite |
 

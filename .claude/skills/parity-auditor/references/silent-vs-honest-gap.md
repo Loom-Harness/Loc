@@ -126,7 +126,7 @@ Three outcomes map straight to the three classes:
 
 If the feature has no corpus fixture yet, adding one is in-scope: drop a
 platform-agnostic `<feature>.ddd` (using the `platform: __PLATFORM__` token) under
-`test/fixtures/corpus/` and a row in `manifest.ts` (`corpus-coverage.test.ts`
+`test/fixtures/corpus/` and its manifest row `<feature>.corpus.json` beside it (`corpus-coverage.test.ts`
 enforces the manifest↔fixture↔doc completeness). Keep it token-parameterized so
 every backend reuses the one source.
 

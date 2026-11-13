@@ -159,6 +159,20 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "#3367",
   },
   {
+    code: "loom.assign-through-local-unsupported",
+    kind: "scope",
+    site: "src/language/validators/statements.ts:434",
+    what:
+      "an aggregate-operation assignment whose path writes through a local — `let task = " +
+      "tasks.where(…).first; task.status := Done`, or the same through a parameter.  An " +
+      "assignment target is a path rooted at a stored member of `this` (`PathIR`), so a write " +
+      "to one element of a containment selected into a local has no representation for the " +
+      "five backends to render.  The successor is a target rooted at the local, rendered as a " +
+      "write to the selected part on every backend.",
+    mission: "#5179",
+    verified: false,
+  },
+  {
     code: "loom.workflow-return-type-unsupported",
     kind: "scope",
     site: "src/language/validators/structural.ts:533",
@@ -317,13 +331,15 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // proves every supported cell renders and every refused one is raised.
     code: "loom.target-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/target-capability-checks.ts:744",
+    site: "src/ir/validate/checks/target-capability-checks.ts:781",
     what:
       "a construct × position, or a feature pair, its target cannot render, per the capability " +
       "table.  `DataGrid` on flutter and phoenixLiveView is a settled never (D-DATAGRID-TARGETS); " +
       "the `#feature-composition-broken` / `#feature-composition-unwitnessed` cells are gaps, " +
       "each lifted by a corpus fixture that runs the pair on that backend (#4028), and so is a " +
-      "`tenantOwned` event-sourced aggregate on node's mikroorm (`#tenant-owned-event-sourced`, #4686)",
+      "`tenantOwned` event-sourced aggregate on node's mikroorm (`#tenant-owned-event-sourced`, #4686), " +
+      "and a reference to a `tenantOwned` target persisted by a non-relational save " +
+      "(`#reference-admission-unrealized`, #5565)",
     mission: "#3592",
     verified: true,
   },
@@ -772,17 +788,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: true,
   },
   {
-    code: "loom.migration-expr-unsupported",
-    kind: "scope",
-    site: "src/ir/validate/checks/migration-checks.ts:74",
-    what:
-      "backfill exprs are a narrow validated ExprIR subset — a permanent, documented limit " +
-      "(docs/migrations.md § Data migrations), widened only for a shape a real model needs.  " +
-      "No successor: the owning item renames the code out of the suffix",
-    mission: "#4217",
-    verified: true,
-  },
-  {
     code: "loom.retrieval-loads-unsupported",
     kind: "scope",
     site: "src/ir/validate/checks/query-checks.ts:389",
@@ -813,7 +818,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1826",
+    site: "src/ir/validate/checks/workflow-checks.ts:1848",
     what: "workflow load of an array result — a `let` binds one row",
     mission: "#3376",
     verified: true,

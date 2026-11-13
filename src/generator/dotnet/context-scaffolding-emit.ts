@@ -1,4 +1,5 @@
 import { polymorphicReadFor } from "../../ir/enrich/read-scope.js";
+import { routedPolymorphicRead } from "../../ir/plan/index.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
@@ -14,11 +15,7 @@ import {
   type DotnetArtifact,
   type DotnetArtifactCategory,
 } from "./adapters/by-layer-layout.js";
-import {
-  emitsBaseReader,
-  renderBaseController,
-  routesPolymorphicRead,
-} from "./emit/base-reader.js";
+import { emitsBaseReader, renderBaseController } from "./emit/base-reader.js";
 import { renderDapperTphBaseReaderImpl } from "./emit/dapper-base-reader.js";
 import {
   renderAuditableInterceptor,
@@ -232,7 +229,7 @@ export function emitBaseReaders(
           )
         : renderBaseReaderImpl(base, read, ctx, ns),
     );
-    if (opts.routePrefix !== undefined && routesPolymorphicRead(read, ctx)) {
+    if (opts.routePrefix !== undefined && routedPolymorphicRead(base, ctx)) {
       place(
         `${plural(upperFirst(base.name))}Controller.cs`,
         "controller",

@@ -58,7 +58,7 @@ function fakeVee() {
 
 const load = (source: string, t: typeof frT) =>
   loadTs(source, {
-    vue: { reactive: <T>(x: T) => x },
+    vue: { reactive: <T>(x: T) => x, watch: () => undefined },
     "vee-validate": fakeVee(),
     "./locale": { t },
   }) as {

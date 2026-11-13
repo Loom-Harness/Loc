@@ -67,12 +67,13 @@ lockstep, leaving Hono behind. Without them, the reference-diffs would
 each report "X drifts from Hono" without making the joint relationship
 explicit.
 
-Java's spec is springdoc-inferred and is brought to structural parity by a
-data-driven `OpenApiContractCustomizer` (`src/generator/java/emit/openapi-customizer.ts`)
-that edits the document to match the other four backends — named array
-wrappers, RFC 7807 error responses, named enum components, empty
-request-body schemas for param-less ops, per-component `required` sets,
-and the `Workflow`/`View` operationId suffixes. Each diff dimension is
+Java's spec is springdoc-inferred from source metadata
+(`src/generator/java/emit/openapi-docs.ts`): `@ApiResponse` per method for
+the success status and RFC 7807 error responses, `@Operation` for the
+`Workflow` operationId suffix, `@RequestBody` naming a param-less command's
+empty request, `@Schema(requiredProperties)` on records,
+`@Schema(enumAsRef = true)` on enums, and schema-only types for the problem
+body and an operation-return union's split. Each diff dimension is
 strict-asserted for Java like every other backend.
 
 ---
@@ -140,10 +141,10 @@ diff focused on app-authored contracts.
 
 ### Provenance fields
 
-`fieldSet(spec, schemaName)` filters keys ending in `_provenance` — a
-TS/Hono-only wire extension (only the TS backend persists lineage).
-Without the filter, every provenanced field on the showcase would read
-as a Hono-only divergence.
+`fieldSet(spec, schemaName)` filters keys ending in `_provenance` — the
+lineage companion key a provenanced field carries beside its value.
+Lineage is runtime data rather than part of the declared contract, so the
+diff leaves it out and compares only the fields the model declares.
 
 ### Temporary drop-in tolerances (tracked)
 
@@ -171,10 +172,9 @@ All ten pairs over the five diffed backends (`hono↔dotnet`, `hono↔phoenix`,
 under `LOOM_E2E_STRICT_PARITY=1` (the `conformance-parity.yml` job). #707
 brought .NET byte-identical with Hono; #716 brought Phoenix in line (named
 enum schemas, `{id}` create response, bare-array views, request-bool
-optionality); #1618 added Java to the diff and closed its spec gaps via the
-`OpenApiContractCustomizer` (response cardinality, RFC 7807 errors, enum
-components, required sets, operationId suffixes), so the gate is strict for
-every pair.
+optionality); Java's spec gaps (response cardinality, RFC 7807 errors, enum
+components, required sets, operationId suffixes) are closed by springdoc
+source metadata, so the gate is strict for every pair.
 
 ---
 

@@ -4,7 +4,7 @@ How an aggregate changes state: the four action members — `operation` (a mutat
 
 > **Grammar:** `Operation`, `Create`, `Destroy`, `Apply`, `CommandHandler` / `QueryHandler`, `Statement` (`PreconditionStmt`, `RequiresStmt`, `LetStmt`, `EmitStmt` / `EmitField`, `ReturnStmt`, `AssignOrCallStmt` / `LValue`, `MatchStmt` / `VariantStmtArm`; `ForStmt` / `IfLetStmt` are workflow-body only — see [Workflows](13-workflows.md)) · **Validators:** `loom.this-id-in-create`, `loom.extern-body-not-precondition`, `loom.lifecycle-body-dropped` / `loom.create-param-not-a-field` / `loom.create-param-required-omitted` / `loom.named-lifecycle-dropped` / `loom.lifecycle-guard-unreadable` / `loom.target-unsupported#lifecycle-guard-event-sourced`, `loom.applier-*` / `loom.emitted-event-*`, `loom.audited-backend-unsupported`, `loom.repository-access-outside-workflow`, `loom.when-references-op-param` / `loom.unmapped-error-status`, `loom.missing-effect-marker` / `loom.effect-in-lambda` / `loom.match-await-*` / `loom.instance-effect-needs-route-id`, `loom.handler-*` / `loom.query-handler-saves` / `loom.command-handler-multi-aggregate` (`src/language/validators/statements.ts`, `handlers.ts`; `src/ir/validate/checks/structural-checks.ts`, `system-checks.ts`, `api-checks.ts`, `ui-checks.ts`) · **Lowering:** [`src/ir/lower/lower-stmt.ts`](../../src/ir/lower/lower-stmt.ts), `lower-members.ts`, `lower-workflow.ts` (handler bodies); shared dispatch in [`_stmt/target.ts`](../../src/generator/_stmt/target.ts) · **Docs:** [`../language.md`](../language.md), [`../actions.md`](../actions.md), [`../workflow.md`](../workflow.md), [`../auth.md`](../auth.md)
 
-Every aggregate body lowers through one shared `lowerStatement`, so an `operation`, a `create`, a `destroy`, and an `apply` all draw from the same statement set; the **kind tag** (not the body syntax) carries the lifecycle asymmetry. The lowered `StmtIR` has **11 kinds** — `precondition`, `requires`, `let`, `assign`, `add`, `remove`, `emit`, `call`, `expression`, `return`, `variant-match` — and `src/generator/_stmt/target.ts` owns the dispatch once; each backend's `render-stmt.ts` is a leaf table. Every tab below was generated from one scratch system with one deployable per backend (`node bin/cli.js generate system … -o out`) and excerpted; statements are separated by newlines (there is no `;` statement separator). The C# tabs are excerpted one step further than the rest: the .NET emitter weaves a C#10 `#line (a,b)-(c,d) "…ddd"` directive ahead of each mapped statement of a named operation (`weaveLineDirectives`, `src/generator/dotnet/emit/entity.ts`), so a debugger steps the `.ddd` source; those directives are elided here.
+Every aggregate body lowers through one shared `lowerStatement`, so an `operation`, a `create`, a `destroy`, and an `apply` all draw from the same statement set; the **kind tag** (not the body syntax) carries the lifecycle asymmetry. The lowered `StmtIR` has **12 kinds** — `precondition`, `requires`, `let`, `assign`, `add`, `remove`, `emit`, `call`, `expression`, `if`, `return`, `variant-match` — and `src/generator/_stmt/target.ts` owns the dispatch once; each backend's `render-stmt.ts` is a leaf table. Every tab below was generated from one scratch system with one deployable per backend (`node bin/cli.js generate system … -o out`) and excerpted; statements are separated by newlines (there is no `;` statement separator). The C# tabs are excerpted one step further than the rest: the .NET emitter weaves a C#10 `#line (a,b)-(c,d) "…ddd"` directive ahead of each mapped statement of a named operation (`weaveLineDirectives`, `src/generator/dotnet/emit/entity.ts`), so a debugger steps the `.ddd` source; those directives are elided here.
 
 ## `operation` — a mutating method
 
@@ -327,7 +327,7 @@ workflow Sweep { create(n: int) {
 
 ## `let` & `emit`
 
-`let name = Expr` binds a local; `emit Event { field: value, … }` records a domain event (`EmitField`s are `name: value` pairs; a missing or ill-typed field is reported at the construction site, and the event must be declared in the same context). Field names re-quote and re-case per backend; emit-field order is normalized to the event's declared field order on positional-constructor backends (Java/.NET).
+`let name = Expr` binds a local. A name binds once per body: a `let` that rebinds an earlier `let` (in its block or an enclosing one) or a parameter is `loom.duplicate-let`, since Java and C# refuse a local that redeclares or shadows another. A `let` named like a member is fine — the member stays reachable as `this.<name>`. `emit Event { field: value, … }` records a domain event (`EmitField`s are `name: value` pairs; a missing or ill-typed field is reported at the construction site, and the event must be declared in the same context). Field names re-quote and re-case per backend; emit-field order is normalized to the event's declared field order on positional-constructor backends (Java/.NET).
 
 ```ddd
 operation addLine(price: money) {
@@ -439,7 +439,19 @@ operation rename(name: int) {
 }
 ```
 
-(Before M-T5.42 the bare form resolved its head to the int parameter, validated clean, and emitted an assignment its own target language rejected.) Prefer the explicit prefix whenever a parameter shares a field's name. The same applies to a this-rooted **call**: `this.files.put(k, v)` is a member call on the aggregate even when a `resource files` is in scope, which the bare spelling would otherwise resolve to the resource.
+Prefer the explicit prefix whenever a parameter shares a field's name.
+
+A head that names a local — a `let` or a parameter — and no member is refused: locals are immutable, and a write through one has no member of `this` to land on. Changing a part selected into a local (`let task = tasks.where(…).first`) is not supported yet.
+
+```ddd
+operation finish(code: string) {
+  let n = 1
+  n := 2                  // error: loom.assign-to-local
+  code := "x"             // error: loom.assign-to-local (a parameter)
+  let task = tasks.where(t => t.code == code).first
+  task.status := Done     // error: loom.assign-through-local-unsupported
+}
+``` The same applies to a this-rooted **call**: `this.files.put(k, v)` is a member call on the aggregate even when a `resource files` is in scope, which the bare spelling would otherwise resolve to the resource.
 
 ```ddd
 aggregate Order {
@@ -598,7 +610,7 @@ The record form `Appointment.create({ doctor: d, minutes: 30 })` is refused (`lo
 
 **Call sites are checked against the same contract.** An `Agg.create(…)` written in a `test`, a workflow body or a handler is validated against the factory the emitters actually emit, using those same two derivations: calling it on an aggregate that is not constructible is `loom.create-call-not-constructible` (the message names the invariant that removed the factory — e.g. `invariant lines.all(l => l.currency == currency)`, which reaches a containment and so cannot be satisfied from the create input), omitting a required create-input field is `loom.create-call-missing-field` (`loom.workflow-create-missing-field` inside a workflow body), and passing a field a narrowed `create(…)` does not list is `loom.create-args`. Both used to pass validation and then fail the *generated* project's own compiler — `TS2551: Property 'create' does not exist on type 'typeof Order'` and `TS2345: Property 'binCode' is missing`. Unknown and server-owned argument names at the same call site stay `loom.create-unknown-field` / `loom.create-server-field`, and any other argument list that maps onto no create input is `loom.create-args` too.
 
-A `requires` **is** rendered for the canonical pair (every backend evaluates it at its own chokepoint and denies with 403). Note the spelling: `Create`/`Destroy` have no header `requires` clause in the grammar — `create(name: string) requires … { }` is a parse error — so a lifecycle guard is written as the first *statement* of the body. What it may read is narrow: a `create` guard may read `currentUser` only; a `destroy` guard may read `currentUser` and `this` — never a parameter (`loom.lifecycle-guard-unreadable`). On an event-sourced aggregate a `create` guard is enforceable only on `elixir`, which hoists it to the context function and binds a principal there; the other four render the create body into a domain `_init` with no principal in scope, so `loom.target-unsupported#lifecycle-guard-event-sourced` refuses it — naming the hosting backends that cannot enforce it, and for *every* create on the aggregate (the rendered one is `creates[0]` by index, so a named `create open(...)` is covered too). Gate the operation that issues the create instead. Where that refusal applies the create has no usable gate surface, so `denyByDefault` reports a missing gate as a warning (`loom.default-deny-es-create-ungateable`) rather than an unsatisfiable error; on an `elixir` host it stays a hard error, because there the gate is accepted.
+A `requires` **is** rendered for the canonical pair (every backend evaluates it at its own chokepoint and denies with 403). Note the spelling: `Create`/`Destroy` have no header `requires` clause in the grammar — `create(name: string) requires … { }` parses but is refused with `loom.callable-modifier-not-allowed-here` — so a lifecycle guard is written as the first *statement* of the body. What it may read is narrow: a `create` guard may read `currentUser` only; a `destroy` guard may read `currentUser` and `this` — never a parameter (`loom.lifecycle-guard-unreadable`). On an event-sourced aggregate a `create` guard is enforceable only on `elixir`, which hoists it to the context function and binds a principal there; the other four render the create body into a domain `_init` with no principal in scope, so `loom.target-unsupported#lifecycle-guard-event-sourced` refuses it — naming the hosting backends that cannot enforce it, and for *every* create on the aggregate (the rendered one is `creates[0]` by index, so a named `create open(...)` is covered too). Gate the operation that issues the create instead. Where that refusal applies the create has no usable gate surface, so `denyByDefault` reports a missing gate as a warning (`loom.default-deny-es-create-ungateable`) rather than an unsatisfiable error; on an `elixir` host it stays a hard error, because there the gate is accepted.
 
 ```ddd
 aggregate Wallet {
@@ -616,7 +628,7 @@ aggregate Wallet {
 ```ts
 // domain/wallet.ts — the factory is synthesised from the field set
 static create(input: { name: string; balance: number }): Wallet {
-  return new Wallet({ id: Ids.newWalletId(), name: input.name, balance: input.balance, version: 0 });
+  return new Wallet({ id: Ids.newWalletId(), name: input.name, balance: input.balance, version: 1 });
 }
 // http/wallet.routes.ts — POST / (operationId createWallet) …
 const created = Wallet.create({ name: body.name, balance: body.balance });
@@ -1177,7 +1189,7 @@ aggregate Order {
 }
 ```
 
-The two codes say different things on purpose. `loom.if-let-placement` is a **permanent** placement rule: `if let` exists to bind the optional result of a repository read, and a domain body reaches its own state through `this` (a cross-aggregate read from inside an aggregate is already refused by `loom.infra-call-from-aggregate`). `loom.for-placement` is an **honest gap** — nothing about a loop is workflow-specific, only the per-iteration save the workflow lowering owns is — and its message names the successor mission (M-T5.30) that tracks lowering `for` into domain bodies.
+The two codes say different things on purpose. `loom.if-let-placement` is a **permanent** placement rule: `if let` exists to bind the optional result of a repository read, and a domain body reaches its own state through `this` (a cross-aggregate read from inside an aggregate is already refused by `loom.repository-access-outside-workflow`). `loom.for-placement` is an **honest gap** — nothing about a loop is workflow-specific, only the per-iteration save the workflow lowering owns is — and its message names the successor mission (M-T5.30) that tracks lowering `for` into domain bodies.
 
 Before the gates landed, `operation touch() { for n in notes { owner := n } }` validated clean (`0 error(s), 0 warning(s)`) and every backend emitted a call to a method that does not exist — `this.<unknown>()` (node/.NET/Java), `self._<unknown>()` (Python), `_ = <unknown>(record)` (Elixir).
 

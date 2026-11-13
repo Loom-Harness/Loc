@@ -55,7 +55,7 @@ export type ServerErrorOutcome =
  *  first message no control could take, and "unhandled" for a failure that
  *  carries no \`errors[]\` at all. */
 export function applyServerErrors(error: unknown, form: ServerErrorForm): ServerErrorOutcome {
-  const body = error && typeof error === "object" ? (error as { body?: unknown }).body : undefined;
+  const body = problemBodyOf(error);
   const entries =
     body && typeof body === "object" ? (body as { errors?: unknown }).errors : undefined;
   if (!Array.isArray(entries)) {
@@ -92,6 +92,15 @@ export function applyServerErrors(error: unknown, form: ServerErrorForm): Server
   }
   if (formLevel !== undefined) return { kind: "global", title: formLevel };
   return placed ? { kind: "fields" } : { kind: "unhandled" };
+}
+
+/** The ProblemDetails body a failed call carries.  The services call through
+ *  \`HttpClient\`, whose \`HttpErrorResponse\` holds the parsed payload in
+ *  \`error\`; the fetch client's \`ApiError\` holds it in \`body\`. */
+function problemBodyOf(error: unknown): unknown {
+  if (!error || typeof error !== "object") return undefined;
+  const e = error as { body?: unknown; error?: unknown };
+  return e.body !== undefined ? e.body : e.error;
 }
 
 /** The submit handlers' catch: field errors stay on the form; anything a field

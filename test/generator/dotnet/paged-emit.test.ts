@@ -29,8 +29,8 @@ async function files(): Promise<Map<string, string>> {
 describe(".NET generator — paged reads (P3b)", () => {
   it("emits the shared Paged<T> record into Domain.Common", async () => {
     const common = (await files()).get("Domain/Common/DomainException.cs")!;
-    expect(common).toContain(
-      "public sealed record Paged<T>(IReadOnlyList<T> Items, int Page, int PageSize, int Total, int TotalPages);",
+    expect(common).toMatch(
+      /public sealed record Paged<T>\([^;]*IReadOnlyList<T> Items,[^;]*int Page,[^;]*int PageSize,[^;]*int Total,[^;]*int TotalPages\);/,
     );
   });
 
@@ -47,7 +47,7 @@ describe(".NET generator — paged reads (P3b)", () => {
       'var sortColumn = sort switch { "ref" => "Ref", "region" => "Region", _ => "Id" };',
     );
     expect(repo).toContain(
-      'var ordered = dir == "desc" ? _db.Orders.OrderByDescending(e => EF.Property<object>(e, sortColumn)) : _db.Orders.OrderBy(e => EF.Property<object>(e, sortColumn));',
+      'var ordered = dir == "desc" ? _db.Orders.OrderByDescending(e => EF.Property<object>(e, sortColumn)).ThenBy(e => e.Id) : _db.Orders.OrderBy(e => EF.Property<object>(e, sortColumn)).ThenBy(e => e.Id);',
     );
     expect(repo).toContain(
       "var items = await ordered.Skip(offset).Take(pageSize).ToListAsync(cancellationToken);",

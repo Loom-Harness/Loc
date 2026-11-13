@@ -1,0 +1,5 @@
+{
+  "title": "tenancy claim not named `tenantId` — the declared claim binds the tenantOwned stamp/filter",
+  "doc": "tenancy",
+  "backends": "ALL"
+}

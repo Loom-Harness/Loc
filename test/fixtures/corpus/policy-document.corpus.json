@@ -1,0 +1,5 @@
+{
+  "title": "`policy { allow local / deny }` on a `shape: document` aggregate — the authz ladder applied IN-APP, where it cannot be a column predicate",
+  "doc": "auth",
+  "backends": "IN_APP_DOCUMENT_FILTER"
+}

@@ -525,10 +525,8 @@ export function buildRoutesFile(
   // `ProvenanceLineage` schema) follows the field's existence, not whether
   // it is ever written — so a never-written provenanced field still emits
   // a (perpetually null) column and DTO key.
-  const fileHasProvField =
-    emitProvenance &&
-    (agg.fields.some((f) => f.provenanced) ||
-      agg.parts.some((p) => p.fields.some((f) => f.provenanced)));
+  // Only a root field can be provenanced (`loom.provenanced-part-field`).
+  const fileHasProvField = emitProvenance && agg.fields.some((f) => f.provenanced);
   // Either feature pulls in the transactional handler + its db/events/
   // schema/randomUUID imports.
   const needsTx = fileHasAudit || fileHasProv;
