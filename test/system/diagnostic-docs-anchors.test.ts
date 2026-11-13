@@ -185,7 +185,9 @@ describe("the undocumented-codes ratchet", () => {
 // 347 -> 343: the codes only declared finds could raise left with FindDecl
 // (D-FINDDECL-REMOVED), and the capability table folded one more.
 // 343 -> 342: `loom.datasource-knob-unwired` retired (now target-unsupported rows).
-const UNDOCUMENTED_BASELINE = 335;
+// 335 -> 336: `loom.ir-ill-formed`, an internal compiler error like `loom.ir-internal`;
+// it explains no construct of the language, so there is no section to anchor.
+const UNDOCUMENTED_BASELINE = 336;
 
 describe("the undocumented-codes LENGTH ratchet", () => {
   it("only shrinks", () => {

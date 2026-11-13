@@ -288,9 +288,17 @@ target language.
 through the map. Launch it over stdio pointed at a generated map:
 
 ```bash
-npx ddd-dap --map out/.loom/sourcemap.json
+npx ddd-dap --map out/.loom/sourcemap.json      # or --map=out/.loom/sourcemap.json
 # or: LOOM_DAP_MAP=out/.loom/sourcemap.json npx ddd-dap
 ```
+
+Any other argument is an error (exit 1, message on stderr). Every request
+outside `initialize` / `setBreakpoints` / `stackTrace` /
+`configurationDone` / `disconnect` — `launch`, `attach`, `continue`,
+`threads`, … — answers `success: false` ("… is not supported by the remap
+layer"). A breakpoint is `verified` only on a line that maps to a generated
+statement of its own; a property or `invariant` line, which `ddd breakpoints`
+answers with the enclosing `file:1`, comes back `verified: false`.
 
 **What it does not do yet:** delegate to a running target debugger. Live
 stepping (`launch`/`attach`/`continue`/`stepIn` against an actual running

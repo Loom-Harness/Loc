@@ -158,19 +158,12 @@ joins it against the panel's results — no extra step.
 ### In CI — `ddd verify`
 
 ```bash
-ddd verify <file.ddd> [--results <results.json>]... [--from-vitest <report.json>]... \
-           [--from-playwright <report.json>]... [--out <dir>] [--require-all] [--min <pct>] [--json]
+ddd verify <file.ddd> --from-vitest <report.json> [--from-playwright <report.json>] [--out <dir>]
 ```
 
-`results.json` is `{ "version": 1, "results": [{ "name": "...", "status": "pass"|"fail"|"skip", "suite": "..." }] }`
-— mapped from your runner's report; vitest and Playwright JSON reports are
-read as-is with `--from-vitest` / `--from-playwright`. Every flag is
-repeatable, so each runner project's report (unit, api e2e, ui e2e) goes
-into one verdict. The command writes
-`.loom/verification.{md,json,mmd}` (the `.mmd` is a verdict-colored
-requirements graph) and gates the exit code:
+`verify` joins your runners' reports onto the requirements graph and writes
+`.loom/verification.{md,json,mmd}`. It runs no suite. The exit code gates CI:
+`1` for a `FAILING` requirement **or a declared test with no result** (unless
+`--allow-missing`), `2` for bad input. The full flag list, the results
+contract, and the exit-code rules are in [`verify.md`](verify.md).
 
-- exit `0` — gate passes;
-- exit `1` — a requirement is `FAILING` (default), or below `--min`, or not all
-  `VERIFIED` under `--require-all`;
-- exit `2` — bad input (parse/validation error, missing or malformed results).

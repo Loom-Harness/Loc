@@ -30,12 +30,13 @@ build on.
 Run it over stdio, pointed at a generated map:
 
 ```bash
-npx ddd-dap --map path/to/.loom/sourcemap.json
+npx ddd-dap --map path/to/.loom/sourcemap.json   # or --map=path/to/...
 # or via env:
 LOOM_DAP_MAP=path/to/.loom/sourcemap.json npx ddd-dap
 ```
 
-With neither, it defaults to `./.loom/sourcemap.json`.
+With neither, it defaults to `./.loom/sourcemap.json`. Any other argument
+is an error (exit 1, message on stderr).
 
 An editor launches it as a DAP subprocess; `stdout` is the protocol
 channel, so diagnostics go to `stderr`.
@@ -43,7 +44,12 @@ channel, so diagnostics go to `stderr`.
 ## Scope — remap layer only
 
 This adapter ships the **remap layer**: position translation over the map.
-It does **not** yet delegate to a running target debugger. Live stepping
+It answers `initialize` / `setBreakpoints` / `stackTrace` /
+`configurationDone` / `disconnect`; every other request (`launch`,
+`attach`, `continue`, `threads`, …) answers `success: false`. A breakpoint
+on a line with no generated statement of its own (a property, an
+`invariant`) is `verified: false`. It does **not** yet delegate to a
+running target debugger. Live stepping
 (`launch` / `attach` / `continue` / `stepIn` against an actual running
 backend) requires spawning and proxying the target's own debugger
 (`js-debug` / `coreclr` / JDWP) and remapping only line/scope on top — the

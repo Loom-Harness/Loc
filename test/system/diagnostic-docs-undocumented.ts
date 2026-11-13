@@ -143,6 +143,7 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.intrinsic-bare",
   "loom.intrinsic-named-arg",
   "loom.intrinsic-unknown",
+  "loom.ir-ill-formed",
   "loom.ir-internal",
   "loom.join-non-string",
   "loom.legacy-part-call",

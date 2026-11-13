@@ -166,6 +166,7 @@ import { DEFAULT_SOURCE_LOCALE, lit } from "../types/loom-ir.js";
 import { type ApiOperationIR, deriveContextOperations } from "../util/api-surface.js";
 import { classifyPage, type PageKind, type PageNameCtx } from "../util/page-kind.js";
 import { computePermissionClosures, type PermissionEdge } from "../util/permission-closure.js";
+import { verifyLoweredModel } from "../verify/verify-lowered.js";
 import { lowerAuth } from "./lower-auth.js";
 import type { ContextLevelCapabilities } from "./lower-capabilities.js";
 import {
@@ -260,7 +261,14 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
   // Every read of an expression the typing pass left unresolved travels with
   // the model, for `validateLoomModel` to refuse it (`loom.unresolved-type`).
   const { result, sites } = collectUnresolvedTypes(() => lowerProjectBody(models));
-  return sites.length > 0 ? { ...result, unresolvedTypes: sites } : result;
+  // The well-formedness verifier runs on every lowering; what it finds travels
+  // with the model for `validateLoomModel` to refuse (`loom.ir-ill-formed`).
+  const violations = verifyLoweredModel(result);
+  return {
+    ...result,
+    ...(sites.length > 0 ? { unresolvedTypes: sites } : {}),
+    ...(violations.length > 0 ? { loweringViolations: violations } : {}),
+  };
 }
 
 function lowerProjectBody(models: ReadonlyArray<Model>): RawLoomModel {
@@ -615,6 +623,9 @@ export function mergeLoomModels(models: RawLoomModel[]): RawLoomModel {
     enumValueRenameIntents: models.flatMap((m) => m.enumValueRenameIntents),
     unresolvedTypes: models.some((m) => m.unresolvedTypes)
       ? models.flatMap((m) => m.unresolvedTypes ?? [])
+      : undefined,
+    loweringViolations: models.some((m) => m.loweringViolations)
+      ? models.flatMap((m) => m.loweringViolations ?? [])
       : undefined,
   };
 }

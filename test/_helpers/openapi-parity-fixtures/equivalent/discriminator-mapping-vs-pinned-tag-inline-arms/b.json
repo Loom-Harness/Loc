@@ -1,0 +1,80 @@
+{
+  "openapi": "3.0.3",
+  "paths": {
+    "/things/{id}/act": {
+      "post": {
+        "operationId": "act",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Result": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "Thing": "#/components/schemas/Result_Thing",
+            "Other": "#/components/schemas/Result_Other"
+          }
+        }
+      },
+      "Result_Thing": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Result"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
+        ]
+      },
+      "Result_Other": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Result"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "code"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
