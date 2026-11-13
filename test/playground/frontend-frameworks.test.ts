@@ -15,6 +15,14 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 // this is the fast, network-free half.
 // ---------------------------------------------------------------------------
 
+/** A root devDependency's pinned version. */
+function rootDevDependency(name: string): string | undefined {
+  const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "../../package.json"), "utf8")) as {
+    devDependencies: Record<string, string>;
+  };
+  return pkg.devDependencies[name];
+}
+
 type OnLoad = (args: { path: string }) => Promise<{
   contents?: string;
   loader?: string;
@@ -73,6 +81,8 @@ describe("the Vue frontend compiler", () => {
     };
     expect(runtime).toBeDefined();
     expect(web.dependencies["@vue/compiler-sfc"]).toBe(runtime);
+    // The root suite (this file) loads the compiler from the root install.
+    expect(rootDevDependency("@vue/compiler-sfc")).toBe(runtime);
   });
 
   it("reports a component the compiler rejects as a bundle error, naming the file", async () => {
@@ -166,5 +176,6 @@ describe("the SvelteKit stand-in", () => {
     };
     expect(runtime).toBeDefined();
     expect(web.dependencies.svelte).toBe(runtime);
+    expect(rootDevDependency("svelte")).toBe(runtime);
   });
 });
