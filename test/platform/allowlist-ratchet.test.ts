@@ -387,7 +387,10 @@ const REGISTERED: Ratchet[] = [
     // 21 → 22: `domain-symbol-collisions`, a compile-tier row (domain names
     // colliding with a symbol the target binds: TS2304, CS0104, a python
     // decorator rebound); every fix is a host spelling the wire cannot see.
-    max: 22,
+    // 22 → 23: `channels-broker-projection`, a broker + second-deployable row:
+    // a fold on one service over an event published from another needs a
+    // broker between two booted services (#5613).
+    max: 23,
   },
 ];
 
