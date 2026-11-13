@@ -27,6 +27,7 @@ import {
 } from "../../../generator/typescript/repository-wire-builder.js";
 import { T } from "../../../generator/typescript/ts-symbols.js";
 import { readDiscriminator, readScopeFor } from "../../../ir/enrich/read-scope.js";
+import { projectionQueryParams } from "../../../ir/plan/index.js";
 import {
   wireCode,
   wireFixedDetail,
@@ -380,9 +381,10 @@ export function buildQueryProjectionsFile(
     // identically on both reads.  Without this the parameters were dropped
     // wholesale: the route took no input and the synthesised repo method read a
     // free variable (see `synthProjectionFinds`).
-    if (p.params.length > 0) {
+    const params = projectionQueryParams(p, ctx);
+    if (params.length > 0) {
       lines.push(`const ${T}Query = z.object({`);
-      for (const param of p.params) {
+      for (const param of params) {
         lines.push(`  ${param.name}: ${zodFor(param.type, "query")},`);
       }
       lines.push(`}).openapi("${T}Query");`);
@@ -481,7 +483,16 @@ export function buildQueryProjectionsFile(
           `import { type DomainEventDispatcher } from "../domain/events";\nimport { requireCurrentUser } from "../auth/middleware";`,
         )
       : body;
-  const file = withPrincipal(lines.join("\n"));
+  // An `X id` / `guid` parameter's query schema is the shared `UuidString`
+  // (`zodFor(…, "query")`), the same one the aggregate routes import.
+  const withUuid = (body: string): string =>
+    /\bUuidString\b/.test(body)
+      ? body.replace(
+          `import { frameworkProblemBody, newApp, problemParams } from "./problem-details";`,
+          `import { UuidString, frameworkProblemBody, newApp, problemParams } from "./problem-details";`,
+        )
+      : body;
+  const file = withUuid(withPrincipal(lines.join("\n")));
   if (!usingMikro) return `${file}\n`;
   // Body-scan the emitted routes for the mikro-only names: `raw` (the SQL
   // fragments) and each Row entity class a direct-table shape reads.  A
@@ -536,7 +547,8 @@ function emitQueryProjectionRoute(
   out.push(`    path: "/${snake(p.name)}",`);
   out.push(`    tags: ["projections", "${aggSlug}"],`);
   out.push(`    operationId: "projection${T}",`);
-  if (p.params.length > 0) {
+  const params = projectionQueryParams(p, ctx);
+  if (params.length > 0) {
     out.push(`    request: { query: ${T}Query },`);
   }
   out.push(`    responses: {`);
@@ -553,11 +565,14 @@ function emitQueryProjectionRoute(
   // aggregate's own `wireProjectionValue`.
   const rowFieldType = new Map(p.stateFields.map((f) => [f.name, f.type] as const));
   out.push(`  async (httpCtx) => {`);
-  // The projection's own parameters, validated + coerced by the `<T>Query`
-  // schema above.  Bound BEFORE the gate: a `requires` predicate may read a
-  // parameter, exactly as a find's gate may.
-  if (p.params.length > 0) {
-    out.push(`    const params = httpCtx.req.valid("query");`);
+  // The projection's DECLARED parameters — its only filter input
+  // (D-PROJECTION-PARAMS) — validated + coerced by the `<T>Query` schema above,
+  // then bound by name: every arm's `where` (the drizzle / mikro lowering, the
+  // gate, the repository call) reads a parameter as the bare name it declares.
+  // Bound BEFORE the gate: a `requires` predicate may read a parameter, exactly
+  // as a find's gate may.
+  if (params.length > 0) {
+    out.push(`    const { ${params.map((q) => q.name).join(", ")} } = httpCtx.req.valid("query");`);
   }
   // The `requires` gate (and any currentUser-scoped filter) needs the request
   // principal in scope; a failing gate denies with 403 (ForbiddenError → 403)
@@ -794,7 +809,7 @@ function emitQueryProjectionRoute(
   // declared params, then the trailing `currentUser` a principal-reading
   // predicate adds — the same order `findQueryMethod` emits.
   const projArgs = [
-    ...p.params.map((param) => wireToDomainExpr(`params.${param.name}`, param.type, ctx)),
+    ...params.map((param) => wireToDomainExpr(param.name, param.type, ctx)),
     ...(usesUser ? ["currentUser"] : []),
   ];
   out.push(`    const rows = await repo.${lowerFirst(p.name)}(${projArgs.join(", ")});`);

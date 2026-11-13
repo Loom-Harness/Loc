@@ -17,10 +17,9 @@
 // ---------------------------------------------------------------------------
 
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { type QueryParamCheck, queryParamCheck } from "../../../ir/plan/index.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
-import { enumPool } from "../../../ir/util/reachable-types.js";
 import { exFieldCode, exFieldMessage, exLit, exMissingSuffix } from "../wire-policy-ex.js";
-import { exIntegerRange } from "./codec-spelling-ex.js";
 
 /** One query/path param an action reads: its wire name and declared type. */
 export interface QueryParam {
@@ -92,61 +91,8 @@ export function findParamRead(p: { name: string; type?: TypeIR }): string {
   }
 }
 
-/** What one declared query/path param is checked against before the action
- *  runs: the type this app's own OpenAPI document publishes for it
- *  (`openapi-emit.ts` derives the parameter schema from the same
- *  `wireTypeInfo(…, "request")`).  `present` is the fallback for a shape a
- *  query string cannot carry as one scalar — only absence is refused. */
-type FindParamCheck =
-  | { kind: "present" }
-  | { kind: "string" }
-  | { kind: "uuid" }
-  | { kind: "integer"; min: number; max: number }
-  | { kind: "decimal" }
-  | { kind: "bool" }
-  | { kind: "datetime" }
-  | { kind: "date" }
-  | { kind: "enum"; values: readonly string[] };
-
-function findParamCheck(t: TypeIR, ctx: BoundedContextIR): FindParamCheck {
-  const info = wireTypeInfo(t, "request");
-  if (info.isCollection) return { kind: "present" };
-  switch (info.refKind) {
-    case "primitive":
-      switch (info.primitive) {
-        case "int":
-        case "long":
-          return { kind: "integer", ...exIntegerRange(info.primitive) };
-        case "decimal":
-        case "money":
-          return { kind: "decimal" };
-        case "bool":
-          return { kind: "bool" };
-        case "datetime":
-          return { kind: "datetime" };
-        case "date":
-          return { kind: "date" };
-        case "guid":
-          return { kind: "uuid" };
-        case "string":
-          return { kind: "string" };
-        default:
-          return { kind: "present" };
-      }
-    case "id":
-      // Every aggregate id is a guid on the wire.
-      return { kind: "uuid" };
-    case "enum": {
-      const values = enumPool(ctx).find((e) => e.name === info.base)?.values;
-      return values ? { kind: "enum", values } : { kind: "string" };
-    }
-    default:
-      return { kind: "present" };
-  }
-}
-
 /** The Elixir term naming a check in the `__check_find_params/2` spec list. */
-function checkTerm(c: FindParamCheck): string {
+function checkTerm(c: QueryParamCheck): string {
   switch (c.kind) {
     case "integer":
       return `{:integer, ${c.min}, ${c.max}}`;
@@ -163,7 +109,7 @@ function checkTerm(c: FindParamCheck): string {
 export function queryParamSpecs(params: readonly QueryParam[], ctx: BoundedContextIR): string {
   const specs = params.map(
     (p) =>
-      `{${JSON.stringify(p.name)}, ${checkTerm(findParamCheck(p.type, ctx))}, ${
+      `{${JSON.stringify(p.name)}, ${checkTerm(queryParamCheck(p.type, ctx))}, ${
         wireTypeInfo(p.type, "request").isNullable ? "false" : "true"
       }}`,
   );
@@ -173,7 +119,7 @@ export function queryParamSpecs(params: readonly QueryParam[], ctx: BoundedConte
 /** The `__check_find_params/2` helper, with one `__find_param_error/3` clause
  *  per check kind this controller's finds use — an unreachable clause is dead
  *  code the compiler is entitled to warn on. */
-function renderFindParamCheck(kinds: ReadonlySet<FindParamCheck["kind"]>): string {
+function renderQueryParamCheck(kinds: ReadonlySet<QueryParamCheck["kind"]>): string {
   const clauses: string[] = [
     `  defp __find_param_error(nil, _check, required), do: if(required, do: :missing, else: nil)`,
   ];
@@ -273,10 +219,10 @@ export function renderQueryParamHelpers(params: readonly ScopedQueryParam[]): st
       .map(({ param }) => findParamCoercion(param.type))
       .filter((k): k is "int" | "decimal" | "bool" | "datetime" | "date" => k !== undefined),
   );
-  const checks = params.map(({ param, ctx }) => findParamCheck(param.type, ctx));
+  const checks = params.map(({ param, ctx }) => queryParamCheck(param.type, ctx));
   const checkKinds = new Set(checks.map((c) => c.kind));
   return [
-    checks.length > 0 ? renderFindParamCheck(checkKinds) : "",
+    checks.length > 0 ? renderQueryParamCheck(checkKinds) : "",
     neededCoercions.has("int")
       ? `
   # A declared \`int\` param — Phoenix delivers it as a string, and

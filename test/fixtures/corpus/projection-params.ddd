@@ -1,0 +1,121 @@
+// PARAMETERISED query-time projections — `projection X(p: T, …) { … }`.
+//
+// A projection's declared parameters are its ONLY filter input: the route
+// binds exactly those names off the query string, each checked against its
+// declared type the way an operation input is (malformed → the 422
+// `field-invalid` envelope, one `errors[]` pointer per param), and the
+// `where` reads the bound, typed value.  Every emission arm takes them the same
+// way, so this fixture crosses all three a `from <Aggregate>` source has:
+//
+//   * `RunOutcome` — GROUPED (`group by`), the arm that read its param as a
+//     free variable on four backends;
+//   * `TopRanked`  — the whole-table SINGLETON aggregation;
+//   * `Qualifying` — the REPOSITORY arm, over decimal / bool / date params,
+//     the coercions Phoenix delivers as strings.
+system ProjectionParamsSys {
+  subdomain Matching {
+    context Runs {
+      aggregate Run with crudish {
+        label: string
+      }
+
+      aggregate MatchResult with crudish {
+        run: Run id
+        provider: string
+        score: decimal
+        rank: int
+        qualifies: bool
+        matchedOn: date
+      }
+
+      repository Runs for Run { }
+      repository MatchResults for MatchResult { }
+
+      // GROUPED + an id param.
+      projection RunOutcome(r: Run id) {
+        qualifies: bool
+        providers: int
+        bestScore: decimal
+        from MatchResult as m
+        where m.run == r
+        group by m.qualifies
+        select qualifies = m.qualifies, providers = count(), bestScore = max(m.score)
+      }
+
+      // SINGLETON (whole-table aggregation) + an int param.
+      projection TopRanked(maxRank: int) {
+        providers: int
+        from MatchResult as m
+        where m.rank <= maxRank
+        select providers = count()
+      }
+
+      // REPOSITORY arm + decimal / bool / date params.
+      projection Qualifying(minScore: decimal, q: bool, since: date) {
+        provider: string
+        score: decimal
+        from MatchResult as m
+        where m.score >= minScore && m.qualifies == q && m.matchedOn >= since
+        select provider = m.provider, score = m.score
+      }
+    }
+  }
+
+  api RunsApi from Matching
+
+  storage pg { type: postgres }
+  resource runsState { for: Runs, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Runs]
+    dataSources: [runsState]
+    serves: RunsApi
+    port: 4000
+  }
+
+  test e2e "declared params filter every arm, and are checked like inputs" against d {
+    let r1 = api.runs.create({ label: "first" })
+    let r2 = api.runs.create({ label: "second" })
+    let a = api.matchResults.create({ run: r1.id, provider: "acme", score: 9.5, rank: 1, qualifies: true, matchedOn: "2026-08-01" })
+    let b = api.matchResults.create({ run: r1.id, provider: "globex", score: 7.25, rank: 3, qualifies: true, matchedOn: "2026-07-01" })
+    let c = api.matchResults.create({ run: r1.id, provider: "initech", score: 4, rank: 5, qualifies: false, matchedOn: "2026-08-02" })
+    let d2 = api.matchResults.create({ run: r2.id, provider: "umbrella", score: 8, rank: 2, qualifies: true, matchedOn: "2026-08-03" })
+
+    // ── GROUPED: only run r1's rows, one group per `qualifies` ─────────────
+    let outcome = api.runOutcome.list(r1)
+    expect(outcome.count()).toBe(2)
+    let passing = outcome.where(o => o.qualifies).first()
+    expect(passing.providers).toBe(2)
+    expect(decimal(passing.bestScore)).toBe(9.5)
+    let other = api.runOutcome.list(r2)
+    expect(other.count()).toBe(1)
+    expect(other.first().providers).toBe(1)
+
+    // ── SINGLETON: the int param bounds the count ──────────────────────────
+    expect(api.topRanked.list(2).providers).toBe(2)
+    expect(api.topRanked.list(5).providers).toBe(4)
+    expect(api.topRanked.list(0).providers).toBe(0)
+
+    // ── REPOSITORY arm: decimal + bool + date together ─────────────────────
+    let q = api.qualifying.list(7.5, true, "2026-07-15")
+    expect(q.count()).toBe(2)
+    expect(q.map(x => x.provider).join("|")).toBe("acme|umbrella")
+    let none = api.qualifying.list(1, false, "2026-09-01")
+    expect(none.count()).toBe(0)
+
+    // ── malformed params are refused before any query runs ─────────────────
+    // The two refusals the wire policy rules for a scalar (`malformed-id`,
+    // `integer-range`): the same 422 `field-invalid` envelope, code and
+    // sentence an operation input gets, with the param's pointer.
+    expect(api.runOutcome.list("not-a-uuid")).toThrow(422)
+    expect(api.topRanked.list(3000000000)).toThrow(422)
+
+    api.matchResults.destroy(a)
+    api.matchResults.destroy(b)
+    api.matchResults.destroy(c)
+    api.matchResults.destroy(d2)
+    expect(api.runOutcome.list(r1).count()).toBe(0)
+    api.runs.destroy(r1)
+    api.runs.destroy(r2)
+  }
+}

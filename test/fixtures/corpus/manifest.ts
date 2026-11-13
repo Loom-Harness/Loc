@@ -505,6 +505,13 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "**D-PROJECTION-IMPLICIT-SUB**.  `deriveEventSubscriptions` used to open with `if (!channels || channels.length === 0) return []` and then keep only events some channel `carries:`, so an uncarried `on(e: E)` produced NO subscription on ANY backend — python emitted no `dispatch.py`, java/.NET/elixir no fold or reactor, node's route tee nothing to tee — and the read model it folds was never written.  The audit that found it had to construct the shape by DELETING the `channel` block from `projection.ddd`; this fixture is that shape, so the compile tier can finally see it.  No `test e2e`: the carried twin (`projection.ddd`) already runs the fold at runtime on the behavioural tier through the same dispatch path",
   },
   { id: "projection-aggregation", title: "whole-table aggregation — singleton query-time projection (count/sum/avg/min/max pushed to SQL)", doc: "language", backends: ALL },
+  {
+    id: "projection-params",
+    title:
+      "parameterised query-time projections — declared params are the only filter on the grouped, singleton and repository arms, checked like operation inputs (malformed → 422)",
+    doc: "language",
+    backends: ALL,
+  },
   { id: "projection-groupby", title: "group by — grouped query-time projection (one row per group, key selects + per-group aggregates, GROUP BY/ORDER BY pushed to SQL)", doc: "language", backends: ALL },
   {
     id: "projection-agg-filters",
