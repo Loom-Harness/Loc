@@ -93,6 +93,11 @@ export interface FormFieldSpec {
   children?: FormFieldSpec[];
   /** `scalarArray`: the element's scalar kind. */
   elementKind?: FormScalarKind;
+  /** The declared type has no form input of its own: a `string` field over a
+   *  type that is not a string (an unresolved value object, a record), or a
+   *  `scalarArray` whose element is not a scalar, enum or reference (a `File`, a
+   *  record).  A target that refuses to fake such a field as text reads this. */
+  opaque?: true;
 }
 
 export type FormSpecKind = "update" | "operation";
@@ -249,6 +254,7 @@ export function formFieldSpec(
     absence,
     prefill,
     ...(f.default ? { default: f.default } : {}),
+    ...(isOpaque(kind, inner) ? { opaque: true as const } : {}),
   };
   switch (kind) {
     case "enum":
@@ -300,6 +306,16 @@ export function formFieldSpec(
       break;
   }
   return spec;
+}
+
+/** The kind fell back to a text input the type does not fit (see
+ *  {@link FormFieldSpec.opaque}).  An unresolved enum stays a plain string. */
+function isOpaque(kind: FormFieldKind, inner: TypeIR): boolean {
+  if (kind === "string") return inner.kind !== "primitive" && inner.kind !== "enum";
+  if (kind !== "scalarArray" || inner.kind !== "array") return false;
+  const el = peel(inner.element).inner;
+  if (el.kind === "primitive") return scalarKindOf(el.name) === "file";
+  return el.kind !== "enum" && el.kind !== "id";
 }
 
 function enumNameOf(t: TypeIR): string | undefined {
