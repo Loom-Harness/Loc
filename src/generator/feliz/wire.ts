@@ -246,6 +246,13 @@ export function readFieldName(aggregate: string): string {
   return `All${plural(upperFirst(aggregate))}`;
 }
 
+/** The Model field holding an aggregate's FORM-PICKER options (`Provider` →
+ *  `ProviderOptions`) — separate from `All<Aggs>` because a page's own list read
+ *  may be a single page (`QueryView paged`), while a picker needs every row. */
+export function pickerFieldName(aggregate: string): string {
+  return `${upperFirst(aggregate)}Options`;
+}
+
 /** The Model field name for an aggregate byId read (`Order` → `OrderById`). */
 export function byIdFieldName(aggregate: string): string {
   return `${upperFirst(aggregate)}ById`;
@@ -271,7 +278,7 @@ export interface FelizAllReadOpts {
 
 /** Build the `FelizRead` for a `.all` read of `aggregate`. */
 export function felizAllRead(aggregate: string, opts: FelizAllReadOpts = {}): FelizRead {
-  const field = readFieldName(aggregate);
+  const field = opts.allPages ? pickerFieldName(aggregate) : readFieldName(aggregate);
   const paging: FelizReadPaging | undefined = opts.paged
     ? { controls: opts.controls, metaField: pageMetaFieldName(field) }
     : undefined;
@@ -547,7 +554,8 @@ export type FelizInputKind =
   | "select"
   | "idselect"
   | "file"
-  | "date";
+  | "date"
+  | "checkgroup";
 
 /** One field of a create form — an F# form-record field (string-typed, bound to
  *  an `Html.input`), its `Set<Form><Field>` update `Msg`, the Thoth encoder
@@ -999,8 +1007,10 @@ export const FELIZ_FORM_FIELD_ARMS: FormFieldArms<FelizInputKind> = {
   valueObject: felizText,
   optionalValueObject: felizText,
   scalarArray: felizText,
-  enumArray: felizText,
-  refArray: felizText,
+  // An enum / reference collection is a checkbox group over a comma-joined
+  // cell (one box per option); an unresolvable element stays a text box.
+  enumArray: (f) => (f.enumValues ? "checkgroup" : "text"),
+  refArray: (f) => (f.picker?.hasDisplay ? "checkgroup" : "text"),
   objectArray: felizText,
 };
 
@@ -1058,9 +1068,19 @@ function buildField(
 ): FelizFormField {
   const base = scalarBase(type);
   const inputKind = inputKindFor(type, enumsByName, idLabels);
+  const element = base.kind === "array" ? scalarBase(base.element) : undefined;
+  const group = inputKind === "checkgroup";
+  const enumOf = group ? element : base;
   const enumValues =
-    inputKind === "select" && base.kind === "enum" ? enumsByName.get(base.name) : undefined;
-  const idTarget = inputKind === "idselect" && base.kind === "id" ? base.targetName : undefined;
+    (inputKind === "select" || group) && enumOf?.kind === "enum"
+      ? enumsByName.get(enumOf.name)
+      : undefined;
+  const idTarget =
+    inputKind === "idselect" && base.kind === "id"
+      ? base.targetName
+      : group && element?.kind === "id"
+        ? element.targetName
+        : undefined;
   const idLabelField = idTarget ? (idLabels.get(idTarget) ?? "id") : undefined;
   // A REQUIRED enum defaults to its first value so the select and the string
   // state agree from the start (and the required guard passes); everything else
@@ -1297,7 +1317,7 @@ function buildFieldArray(
         setMsg: `Set${formType}${upperFirst(field.name)}${upperFirst(vf.name)}`,
         // A per-row FK select would need the target list in every row; v1 renders
         // the id as plain text instead.
-        inputKind: kind === "idselect" || rowFile ? "text" : kind,
+        inputKind: kind === "idselect" || kind === "checkgroup" || rowFile ? "text" : kind,
         encodeExpr: rowFile
           ? `Encode.string row.${fsIdent(vf.name)}`
           : encodeExprFor(vf.type, `row.${vf.name}`, optional),

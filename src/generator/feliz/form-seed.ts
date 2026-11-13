@@ -99,10 +99,17 @@ function fieldCells(f: FormFieldSpec, acc: string): Cell[] {
         ...presence,
         ...(f.children ?? []).flatMap((c) => {
           const sub = fieldCells(c, `${optional ? "__vo" : acc}.${fsIdent(c.name)}`);
+          // An absent optional VO seeds each sub-cell with its form default: a
+          // required enum's select always holds a value (its first), so a blank
+          // seed would make the opt-in group unsubmittable.
+          const absent =
+            c.kind === "enum" && !c.optional && c.enumValues?.[0] !== undefined
+              ? JSON.stringify(c.enumValues[0])
+              : '""';
           return sub.map((s) => ({
             name: `${f.name}${upperFirst(s.name)}`,
             value: optional
-              ? `(match ${acc} with | Some __vo -> ${s.value} | None -> "")`
+              ? `(match ${acc} with | Some __vo -> ${s.value} | None -> ${absent})`
               : s.value,
           }));
         }),

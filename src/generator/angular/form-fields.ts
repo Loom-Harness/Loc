@@ -63,9 +63,9 @@ export interface AngularFormControlSpec {
  *  <hookFn>();`); the field markup reads its options off `<hookVar>.data()`,
  *  a bare array whatever the list route's shape. */
 export interface AngularIdTargetSpec {
-  /** Class field name the page-shell hoists (`customerAll`). */
+  /** Class field name the page-shell hoists (`customerOptions`). */
   hookVar: string;
-  /** `useAll<X>` factory the field calls (imported from `importFrom`). */
+  /** `use<X>Options` factory the field calls (imported from `importFrom`). */
   hookFn: string;
   /** `src/api/<x>` module path the `hookFn` is imported from (page-relative). */
   importFrom: string;
@@ -73,12 +73,12 @@ export interface AngularIdTargetSpec {
   optionsExpr: string;
 }
 
-/** Resolve the `useAll<X>()` query an `X id` field needs to render a Select,
+/** Resolve the `use<X>Options()` query an `X id` field needs to render a Select,
  *  or `undefined` when the field is not a Select-rendered id (not an id type,
  *  the target aggregate is unresolved, or it carries no `derived display`).
  *
  *  Mirrors the shared `form-fields-vm.ts` gate (`inner.kind === "id"` with a
- *  resolvable `target.displayDerived`): the page-shell hoists `useAll<X>()`
+ *  resolvable `target.displayDerived`): the page-shell hoists `use<X>Options()`
  *  exactly for the fields {@link fieldInput} renders as a `<select>`. */
 export function idTargetForField(
   t: TypeIR,
@@ -100,9 +100,9 @@ export function idTargetForField(
   };
 }
 
-/** Collect the de-duplicated `useAll<X>()` queries a form's fields need —
+/** Collect the de-duplicated `use<X>Options()` queries a form's fields need —
  *  one per distinct Select-rendered `X id` target.  The page-shell hoists each
- *  as a class field and imports its `useAll<X>` factory. */
+ *  as a class field and imports its `use<X>Options` factory. */
 export function collectIdTargets(
   fields: { type: TypeIR }[],
   bc: BoundedContextIR,

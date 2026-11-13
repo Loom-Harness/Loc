@@ -11,6 +11,7 @@
 //                    a checkbox group; both submit arrays.
 //   pickers          a reference collection offers every row of its target,
 //                    not one list page (the 25th provider is tickable).
+//   part tables      a part's value-object fields are columns of its table.
 //   optional group   checking an optional value object's presence box and
 //                    filling it saves the object.
 //
@@ -155,4 +156,33 @@ export function judgeVehicleAdded(after) {
     return [`vehicle: the opt-in group did not save it, got ${JSON.stringify(v)}`];
   }
   return [];
+}
+
+/** Add one coverage — a part row carrying a value object — over the api, for
+ *  the part-table check. */
+export async function seedCoverage(base, id) {
+  const r = await fetch(`${base}/api/policies/${id}/add_coverage`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code: "COV-1", limit: { amount: "777.00", note: "per claim" }, premium: "12.00" }),
+  });
+  if (!r.ok) throw new Error(`seed failed: POST add_coverage → ${r.status} ${await r.text()}`);
+}
+
+/** The detail page's coverages table shows the part's value-object fields as
+ *  columns (header and cell), not just its scalars. */
+export async function judgePartTable(page, origin, id) {
+  await page.goto(`${origin}/policies/${id}`);
+  const card = page.locator('[data-testid="policies-detail-coverages"]').first();
+  let text = "";
+  for (let i = 0; i < 30; i++) {
+    text = await card.innerText().catch(() => "");
+    if (text.includes("COV-1")) break;
+    await page.waitForTimeout(500);
+  }
+  const why = [];
+  if (!text.includes("COV-1")) why.push("coverages: the part row never rendered");
+  if (!/Limit Amount/i.test(text)) why.push("coverages: no Limit Amount column");
+  if (!text.includes("777")) why.push(`coverages: the limit amount cell is missing (card text ${JSON.stringify(text.slice(0, 300))})`);
+  return why;
 }
