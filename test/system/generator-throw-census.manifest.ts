@@ -773,12 +773,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "validateElixirMatchStatements refuses ANY statement match in an event-sourced operation / create / destroy on an elixir-hosted context (`#event-sourced`).",
   },
 
-  // src/generator/elixir/vanilla/workflow-eventsourced-emit.ts
-  "src/generator/elixir/vanilla/workflow-eventsourced-emit.ts#renderEsWorkflowHandler": {
-    guardedBy: ["loom.elixir-match-stmt-unsupported"],
-    note: "validateElixirMatchStatements refuses ANY statement match in an `eventSourced` workflow's create / on bodies on an elixir-hosted context (`#event-sourced`).",
-  },
-
   // src/generator/elixir/vanilla/fold-stmt-emit.ts
   "src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldNewMap": {
     guardedBy: ["loom.cross-aggregate-entity-part"],
