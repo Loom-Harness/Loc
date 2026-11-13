@@ -1,0 +1,5 @@
+{
+  "title": "a `return match` whose arms build different union variants, tagged per arm",
+  "doc": "payloads",
+  "backends": "ALL"
+}

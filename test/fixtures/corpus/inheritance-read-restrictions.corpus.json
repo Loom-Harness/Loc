@@ -1,0 +1,6 @@
+{
+  "title": "inheritance (TPH + TPC) × a subtype capability × a subtype-only-column filter × `ignoring` × polymorphic base reads × `tenantOwned` across two tenants",
+  "doc": "inheritance",
+  "backends": "ALL",
+  "note": "The behavioural answer key of epic #3954, which every backend's ORM-native rework (#3960–#3965) is proven against.  Every backend builds it; a leg that still gets a crossing wrong boots it as a tracked expected failure (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs)."
+}

@@ -1,0 +1,10 @@
+{
+  "//": "Two services on purpose — the deployable that does not host the registry must emit nothing that names it.",
+  "title": "a registry tree on one deployable, and an `auth: required` deployable beside it hosting only `crossTenant` data",
+  "doc": "tenancy",
+  "backends": "ALL",
+  "deployables": [
+    "orgs",
+    "catalog"
+  ]
+}

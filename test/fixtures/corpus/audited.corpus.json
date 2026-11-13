@@ -1,0 +1,5 @@
+{
+  "title": "command audit — aggregate-wide `audited` + per-command `audited`, transactional audit_records rows",
+  "doc": "audit",
+  "backends": "ALL"
+}

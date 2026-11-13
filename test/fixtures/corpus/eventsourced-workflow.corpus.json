@@ -1,0 +1,5 @@
+{
+  "title": "event-sourced saga folding its own emitted events",
+  "doc": "workflow",
+  "backends": "ALL"
+}

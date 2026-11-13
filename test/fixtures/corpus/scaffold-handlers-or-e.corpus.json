@@ -1,0 +1,11 @@
+{
+  "title": "`scaffoldHandlers` over an operation answering `T or E`: the handler returns the result",
+  "doc": "scaffold-macros",
+  "backends": [
+    "node",
+    "dotnet",
+    "java",
+    "python"
+  ],
+  "note": "elixir refuses an expected-failure entry point (`loom.elixir-entry-result-unsupported`)."
+}

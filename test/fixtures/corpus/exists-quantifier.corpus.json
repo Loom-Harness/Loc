@@ -1,0 +1,5 @@
+{
+  "title": "`exists <Aggregate> as <row> where …` — a correlated SQL EXISTS in a row `filter` (the policy position) and in a criterion read, with the quantified aggregate's own read scope applied inside the subquery",
+  "doc": "criterion",
+  "backends": "ALL"
+}
