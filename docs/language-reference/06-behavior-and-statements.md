@@ -1261,7 +1261,7 @@ else
   record
 end
 ```
-:::
+::: end
 
 Each `else if` renders as an `else` wrapping a nested `if` on every target; the elixir tab shows the statement as a rebinding expression because the record is immutable.
 

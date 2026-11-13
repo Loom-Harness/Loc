@@ -362,7 +362,7 @@ def label(self) -> str:
 ```elixir
 "label" => (case record.last_note do nil -> record.note; loom_c -> loom_c end)
 ```
-:::
+::: end
 
 ## Member access & calls
 
