@@ -1184,12 +1184,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "buildPyChannelsFile is only called when channelBindings is non-empty, and every binding's transport is redis|rabbitmq|kafka. (src/generator/python/index.ts:211,622; src/generator/_channels/bindings.ts:22)",
   },
 
-  // src/generator/python/dispatch-builder.ts
-  "src/generator/python/dispatch-builder.ts#renderProjectionFoldStmt": {
-    guardedBy: ["loom.projection-fold-impure"],
-    note: "foldImpurity rejects every non-assign/add/remove/let statement in a projection fold, exactly the kinds this arm throws on.",
-  },
-
   // src/generator/python/emit/integration-tests.ts
   "src/generator/python/emit/integration-tests.ts#renderStmt": {
     guardedBy: ["loom.test-statement-invalid", "loom.aggregate-test-context"],
