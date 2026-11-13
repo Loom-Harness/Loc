@@ -1,4 +1,11 @@
 {
   "title": "folded projection — read model folded from aggregate events (keyed row + on() folds)",
-  "backends": "ALL"
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "`api.orderBoard.byKey(...)` reads a folded PROJECTION (`GET /api/projections/order_board/{key}`), which `deriveContextOperations` lists under `apiSurfaceCoverage.notLifted`.  Lifting projection queries into the derivation would make this attributable — and this entry stale.",
+    "unattributed": [
+      "api.orderBoard.byKey (no such aggregate)",
+      "api.orderBoard.list (no such aggregate)"
+    ]
+  }
 }
