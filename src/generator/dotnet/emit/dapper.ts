@@ -1,5 +1,10 @@
 import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
-import { eventLogTable, foldedEventNames, singleReadOrder } from "../../../ir/plan/index.js";
+import {
+  clientSortTieBreak,
+  eventLogTable,
+  foldedEventNames,
+  singleReadOrder,
+} from "../../../ir/plan/index.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import {
   recordDurableLines,
@@ -1867,12 +1872,12 @@ export function renderDapperRepository(
         // declared order (`defaultSortOrder`).
         ...(declaredOrder
           ? [
-              `        var ${L("orderClause")} = ${L("sortColumn")} is null ? "${declaredOrder}" : $"{${L("sortColumn")}} {${L("sortDir")}}";`,
+              `        var ${L("orderClause")} = ${L("sortColumn")} is null ? "${declaredOrder}" : $"{${L("sortColumn")}} {${L("sortDir")}}, ${dapperOrderSql(clientSortTieBreak())}";`,
             ]
           : []),
         `        var ${L("total")} = await ${L("conn")}.ExecuteScalarAsync<int>(new CommandDefinition(${csSqlLiteral(`SELECT COUNT(*) ${fromClause}`)}${paramObj}, cancellationToken: ${ct}));`,
         `        var ${L("totalPages")} = pageSize > 0 ? (int)System.Math.Ceiling((double)${L("total")} / pageSize) : 0;`,
-        `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition($"SELECT ${colList} ${csSqlInterpolated(fromClause)} ORDER BY ${declaredOrder ? `{${L("orderClause")}}` : `{${L("sortColumn")}} {${L("sortDir")}}`} LIMIT @__take OFFSET @__offset", new { __take = pageSize, __offset = ${L("offset")}${allFindParamsSuffix} }, cancellationToken: ${ct}));`,
+        `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition($"SELECT ${colList} ${csSqlInterpolated(fromClause)} ORDER BY ${declaredOrder ? `{${L("orderClause")}}` : `{${L("sortColumn")}} {${L("sortDir")}}, ${dapperOrderSql(clientSortTieBreak())}`} LIMIT @__take OFFSET @__offset", new { __take = pageSize, __offset = ${L("offset")}${allFindParamsSuffix} }, cancellationToken: ${ct}));`,
         ...(hasContains
           ? [
               `        var ${L("items")} = await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), ${ct});`,

@@ -13,7 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import { declaredCreateParamNames } from "../../../ir/enrich/wire-projection.js";
-import { singleReadOrder } from "../../../ir/plan/index.js";
+import { clientSortTieBreak, singleReadOrder } from "../../../ir/plan/index.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -364,7 +364,7 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
 
     items =
       query
-      |> order_by([record], [{^dir_atom, field(record, ^sort_col)}])
+      |> order_by([record], [{^dir_atom, field(record, ^sort_col)}, ${exTieBreak("record")}])
       |> limit(^page_size)
       |> offset(^offset)
       |> Repo.all(${listOpts})${preload}
@@ -722,13 +722,13 @@ ${
   declaredOrder
     ? `
     order =
-      if sort_col, do: [{dir_atom, sort_col}], else: [${declaredOrder}]
+      if sort_col, do: [{dir_atom, sort_col}, ${exTieBreak()}], else: [${declaredOrder}]
 `
     : ""
 }
     items =
       query
-      |> ${declaredOrder ? "order_by(^order)" : "order_by([record], [{^dir_atom, field(record, ^sort_col)}])"}
+      |> ${declaredOrder ? "order_by(^order)" : `order_by([record], [{^dir_atom, field(record, ^sort_col)}, ${exTieBreak("record")}])`}
       |> limit(^page_size)
       |> offset(^offset)
       |> Repo.all(${opts})${preload}
@@ -763,4 +763,15 @@ ${
     query = ${query}
     {:ok, ${fetchCall}}
   end`;
+}
+
+/** The `order_by` keyword terms a page sorted by the caller's `?sort=` key
+ *  takes after that key (`clientSortTieBreak`): over the query binding
+ *  (`asc: record.id`), or as atoms for a dynamic `order_by(^order)`. */
+function exTieBreak(binding?: string): string {
+  return clientSortTieBreak()
+    .map(
+      (t) => `${t.direction}: ${binding ? `${binding}.${snake(t.field)}` : `:${snake(t.field)}`}`,
+    )
+    .join(", ");
 }

@@ -25,7 +25,7 @@
 export { hasDurableEvents } from "./context-events.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
 export { lookupOp } from "./operation-lookup.js";
-export { singleReadOrder } from "./repo-read.js";
+export { clientSortTieBreak, singleReadOrder } from "./repo-read.js";
 export { type RepoNeed, reposNeeded } from "./repos-needed.js";
 export {
   domainServiceReadPorts,

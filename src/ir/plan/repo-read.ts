@@ -15,3 +15,11 @@ import type { FindIR } from "../types/loom-ir.js";
 export function singleReadOrder(find: FindIR): ReadOrderTerm[] | undefined {
   return find.takeFirst ? readOrderFor() : undefined;
 }
+
+/** The terms a page sorted by the caller's `?sort=` key takes after that key:
+ *  `id` ascending, whatever the key's direction.  Rows equal on the key then
+ *  keep one order, so a row is neither repeated nor skipped across pages.
+ *  A repeated `id` term after a `?sort=id` key changes nothing. */
+export function clientSortTieBreak(): ReadOrderTerm[] {
+  return [{ field: "id", direction: "asc" }];
+}

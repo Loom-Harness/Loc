@@ -75,6 +75,7 @@ import { AMBIENT_PRINCIPAL, mikroFilterOrRefuse, mikroGetByIdLines } from "./mik
 import { mikroFilterOption } from "./mikroorm-schema-filters.js";
 import {
   maskUserImport,
+  mikroClientSortTieBreak,
   mikroFindOneOptions,
   mikroOrderBy,
   tsParamType,
@@ -808,7 +809,7 @@ export function renderMikroRepository(
         `    const ${L.em} = this.em.fork({ keepTransactionContext: true });`,
         `    const ${L.sortable} = new Set<string>([${sortable}]);`,
         `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : ${declaredOrder ? "null" : '"id"'};`,
-        `    const ${L.orderBy}: Record<string, "asc" | "desc"> = ${declaredOrder ? `${L.sortField} === null ? { ${declaredOrder} } : ` : ""}{ [${L.sortField}]: dir === "desc" ? "desc" : "asc" };`,
+        `    const ${L.orderBy}: Record<string, "asc" | "desc">[] = ${declaredOrder ? `${L.sortField} === null ? [{ ${declaredOrder} }] : ` : ""}[{ [${L.sortField}]: dir === "desc" ? "desc" : "asc" }, ${mikroClientSortTieBreak()}];`,
         `    const ${L.total} = await ${L.em}.count(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
         `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
         `    const ${L.rows} = await ${L.em}.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`}${ignoring ? `, ${ignoring}` : ""} });`,

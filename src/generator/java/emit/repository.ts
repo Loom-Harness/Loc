@@ -2,7 +2,7 @@ import { readSortFor } from "../../../ir/enrich/read-scope.js";
 import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
-import { singleReadOrder } from "../../../ir/plan/index.js";
+import { clientSortTieBreak, singleReadOrder } from "../../../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
   FindIR,
@@ -165,6 +165,15 @@ function springSort(sort: readonly SortTermIR[]): string {
     (t) => `${SORT}.Order.${t.direction}(${JSON.stringify(dottedSortPath(t))})`,
   );
   return `${SORT}.by(${orders.join(", ")})`;
+}
+
+/** `.and(Sort.by(Sort.Order.asc("id")))` — the terms a page sorted by the
+ *  caller's `?sort=` key takes after that key (`clientSortTieBreak`). */
+function javaClientSortTieBreak(): string {
+  const orders = clientSortTieBreak().map(
+    (t) => `${SORT}.Order.${t.direction}(${JSON.stringify(jid(t.field))})`,
+  );
+  return `.and(${SORT}.by(${orders.join(", ")}))`;
 }
 
 /** ` order by e.a.b asc, …, e.id asc` for the JPQL path (`readSortFor`). */
@@ -814,8 +823,8 @@ export function renderJavaRepositoryImpl(
           // An unwhitelisted `sort` (the route's `""` default) takes the read's
           // declared order (`defaultSortOrder`).
           declaredOrder
-            ? `        ${SORT} __sort = java.util.List.of(${sortWhitelist}).contains(sort) ? ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)}) : ${SORT}.by(${declaredOrder});`
-            : `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)});`,
+            ? `        ${SORT} __sort = java.util.List.of(${sortWhitelist}).contains(sort) ? ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)})${javaClientSortTieBreak()} : ${SORT}.by(${declaredOrder});`
+            : `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)})${javaClientSortTieBreak()};`,
           `        var result = jpa.${jid(f.name)}(${args});`,
           findExecutedLog(f, "result.getTotalElements()"),
           `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
@@ -1016,7 +1025,7 @@ export function renderJavaRepositoryImpl(
           `    public ${pagedRef(ctx.basePkg)}<${agg.name}> findAllPaged(int page, int pageSize, String sort, String dir) {`,
           `        String __sortField = java.util.List.of(${pagedAllSortWhitelist}).contains(sort) ? sort : "id";`,
           ...sortPropertyLines(agg),
-          `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)});`,
+          `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)})${javaClientSortTieBreak()};`,
           `        var result = jpa.findAllPaged(${PAGE_REQUEST}.of(page - 1, pageSize, __sort));`,
           `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "all", "rows", result.getTotalElements());`,
           `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
