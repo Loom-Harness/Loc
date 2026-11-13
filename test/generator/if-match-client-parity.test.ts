@@ -196,7 +196,7 @@ describe("If-Match: the self-hosted frontends send the loaded version", () => {
     // The version comes from the Model's byId read, and only when it is the
     // record the route id addresses.
     expect(app).toContain(
-      "  | SubmitUpdateDocOpForm id -> { model with UpdateDocOpFormServer = ServerErrors.empty }, Cmd.OfAsync.perform (Api.updateDoc id (match model.DocById with | Loaded (Some __loaded) when __loaded.id = id -> Some (string __loaded.rowVersion) | _ -> None)) model.UpdateDocOpForm UpdateDocOpDone",
+      "  | SubmitUpdateDocOpForm id -> { model with UpdateDocOpFormServer = ServerErrors.empty; UpdateDocOpFormPending = true }, Cmd.OfAsync.either (Api.updateDoc id (match model.DocById with | Loaded (Some __loaded) when __loaded.id = id -> Some (string __loaded.rowVersion) | _ -> None)) model.UpdateDocOpForm UpdateDocOpDone (fun ex -> UpdateDocOpDone (Error (ServerErrors.formLevel ex.Message)))",
     );
   }, 90_000);
 

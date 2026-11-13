@@ -80,8 +80,18 @@ function renameStmt(s: StmtIR, names: ReadonlyMap<string, string>): StmtIR {
           ? { elseBody: withExprs.elseBody.map((n) => renameStmt(n, names)) }
           : {}),
       };
-    default:
+    case "precondition":
+    case "requires":
+    case "let":
+    case "expression":
+    case "return":
+    case "emit":
+    case "call":
       return withExprs;
+    default: {
+      const _exhaustive: never = withExprs;
+      return _exhaustive;
+    }
   }
 }
 
