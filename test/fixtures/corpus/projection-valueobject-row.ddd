@@ -61,12 +61,13 @@ system ProjectionVoRow {
 
       projection OrderBoard keyed by orderRef {
         orderRef: Order id
-        stamp: Stamp
+        // Optional: a required value-object column needs a default, and a
+        // value-object default does not seed a read-model row on every backend.
+        stamp: Stamp?
         // Never folded by any handler, so it stays absent — the wire `null` arm.
         seen: Stamp?
-        audit: Audit
+        audit: Audit?
         on(e: OrderPlaced) {
-          orderRef := e.orderRef
           stamp := e.stamp
           audit := e.audit
         }

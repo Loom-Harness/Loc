@@ -26,6 +26,15 @@ export { hasDurableEvents } from "./context-events.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
 export { lookupOp } from "./operation-lookup.js";
 export {
+  assignsFoldKey,
+  type FoldRowSeed,
+  type FoldRowZero,
+  type FoldStep,
+  foldRowSeeds,
+  foldRowUnseeded,
+  foldSteps,
+} from "./projection-fold.js";
+export {
   admittedReferences,
   type ContainStep,
   type RefScope,
