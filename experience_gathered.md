@@ -1705,13 +1705,18 @@ typing + `Workflow`/`View` operationId suffixes.
 
 Gotchas worth keeping:
 
-- **A document-filter, not new Java types.** Java represents enum fields as bare
-  `String` and emits no body for param-less ops, so springdoc's *inferred* spec
-  structurally diverges from the hand-built node/.NET/Phoenix/Python specs. The fix
-  is a post-hoc `OpenApiCustomizer` that edits the `OpenAPI` model (bake a per-route/
-  per-schema contract off the same IR the controllers walk, then register/retarget/
-  set on the document) — the established "spec-alignment layer" here, *not* a change
-  to the actual Java records. Mirrors .NET's document-filter approach.
+- **Superseded: source metadata, not a document filter.** The customizer was
+  later removed under D-OPENAPI-FRAMEWORK-NATIVE (no post-processing of the
+  served document). Every fix it made has a springdoc source-metadata spelling:
+  `springdoc.default-produces-media-type`, `@ApiResponse` per method (list
+  EVERY response — springdoc drops its inferred 2xx once a method declares any
+  `@ApiResponse`; a response without `content` still gets the return type's
+  body), `@Schema(enumAsRef = true)`, class-level
+  `@Schema(requiredProperties = …)`, `@Operation(operationId = …)`, and
+  schema-only types read through `implementation =` for bodies a
+  `ResponseEntity<?>` hides. springdoc cannot inline a `oneOf` arm or read the
+  Jackson `type` tag off a sealed interface's subtype, so the union arm is a
+  schema-only record carrying `@Schema(allowableValues = {"Tag"}) String type`.
 
 - **The strict gate asserts EVERY diffSpecs dimension, not a subset.** Under
   `LOOM_E2E_STRICT_PARITY=1`, `test/e2e/e2e.test.ts` `expect(...).toEqual([])`s all

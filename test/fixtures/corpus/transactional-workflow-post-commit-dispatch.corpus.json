@@ -1,0 +1,13 @@
+{
+  "title": "WHEN a transactional workflow's aggregate event reaches its reactor — after the commit, never inside the transaction, and not at all after a rollback",
+  "doc": "workflow",
+  "backends": "ALL",
+  "note": "Minted by M-T4.3 item 6 (banking-eval B-04, #3137) to give the post-commit rule a discriminating runtime gate on EVERY backend.  The sibling `transactional-workflow-event-rollback` counts the reactor's Audit rows, which only tells the two orders apart where the reactor runs outside the workflow's transaction (node); on python / elixir / .NET the reactor joined the open transaction, so its row rolled back either way and the count was blind.  Here both workflows save `src` inside an `if let` branch (mid-body, so its `Debited` is drained there) and the reactor records the balance it reads for the PEER account the workflow credits only AFTER that branch: 100 means it ran inside the transaction, 110 after the commit — true even where the reactor shares the workflow's identity map (EF Core, JPA).  Pre-fix measured: python `expected 100 to be 110`; java ran no reactor at all (its workflow route never published).  The rollback run drains the same way and then trips the overdraft precondition (422 on every backend, unlike the sibling's two-handle 409 that JPA / EF Core cannot reach, M-T6.90); a deferral that survived the rollback runs the reactor and writes a second Audit (python, mutation-proved: `expected 2 to be 1`).",
+  "apiCaller": {
+    "//": "M-T4.3 item 6 — the same two shapes, the rollback one forced by a failed precondition after an `if let` branch saved.",
+    "unattributed": [
+      "api.debitOnce.run (no such aggregate)",
+      "api.debitThenOverdraw.run (no such aggregate)"
+    ]
+  }
+}

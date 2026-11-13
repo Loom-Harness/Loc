@@ -1,0 +1,12 @@
+{
+  "title": "a value object BUILT by a domain body whose invariant refuses the value — 422 with an RFC 7807 `errors[]` entry; plus the `getById` miss on every load path",
+  "doc": "payloads",
+  "backends": "ALL",
+  "note": "M-T5.1 (VO→422 + A4).  Every other VO invariant in the corpus is exercised at the WIRE, where the request schema carries the rule; a value object constructed from a scalar parameter inside an operation reaches the constructor instead.  Before M-T5.1 that answered the domain-floor 422 with no `errors[]` on node/.NET/java/python — and on elixir the in-body construction was not checked at all (`resize(0)` persisted `{\"value\": 0}` and answered 204).  Carries a named and an unnamed rule, and both body routers (aggregate operation, workflow step).",
+  "apiCaller": {
+    "//": "M-T5.1 — the workflow router is one of the two body sites a value-object breach answers through, so the fixture drives `POST /api/workflows/bump`. A workflow run is the `notLifted` class (same as `workflow-create-state`).",
+    "unattributed": [
+      "api.bump.run (no such aggregate)"
+    ]
+  }
+}

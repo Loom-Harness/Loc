@@ -52,7 +52,9 @@ describe("dotnet generator — when canCommand gate", () => {
     const ctrl = (await files()).get("Api/OrdersController.cs")!;
     expect(ctrl).toContain('[HttpGet("{id}/can_cancel")]');
     expect(ctrl).toContain("new CanCancelQuery(new OrderId(id))");
-    expect(ctrl).toContain("[ProducesResponseType(typeof(ProblemDetails), 409)]");
+    expect(ctrl).toContain(
+      '[ProducesResponseType(typeof(ProblemResponse), 409, "application/problem+json")]',
+    );
   });
 
   it("DomainExceptionFilter maps DisallowedException to 409 Disallowed", async () => {

@@ -1,9 +1,9 @@
 # Wire envelope — the four response shapes
 
 > **Pins [D-ENVELOPE](../decisions/D-ENVELOPE.md).**
-> Status: design pinned. The bare-entity and `Paged<T>` shapes overlap
-> existing emit; ProblemDetails arrives with exception-less (A3);
-> event-frame with workflow-and-applier.
+> Status: bare-value, `Paged<T>` and ProblemDetails are emitted by every
+> backend as described below; event-frame is the pinned shape for event
+> streams.
 
 ## The rule
 
@@ -14,7 +14,7 @@ envelope, and never a discriminated wrapper on the success path.
 | # | Shape | When | Body |
 |---|---|---|---|
 | 1 | **Bare value** | success, single entity / payload / primitive | the `wireShape` object, or the bare scalar for a primitive return |
-| 2 | **`Paged<T>`** | success, a list | `{ items: T[], page: { offset, limit, total } }` |
+| 2 | **`Paged<T>`** | success, a list | `{ items: T[], page, pageSize, total, totalPages }` |
 | 3 | **ProblemDetails** | any error | RFC 7807 object |
 | 4 | **Event-frame** | event stream / SSE / queue payload | `{ kind, occurredAt, correlationId, data }` |
 
@@ -37,14 +37,14 @@ JSON scalar, not `{ value: 5 }`. No envelope.
 ## 2 — `Paged<T>` (pagination-design-note.md)
 
 ```jsonc
-{ "items": [ /* T wireShape */ ], "page": { "offset": 0, "limit": 25, "total": 142 } }
+{ "items": [ /* T wireShape */ ], "page": 1, "pageSize": 20, "total": 142, "totalPages": 8 }
 ```
 
 Every list-returning operation returns `Paged<T>` by default. An
 aggregate or query marked `unpaged` (small reference lists — the
 `Country` case) returns a bare `T[]` (a degenerate shape-1 array), not a
-`Paged<T>` with a synthetic page block. The `page` object's defaults
-(offset 0, limit 25) are pinned in `pagination-design-note.md`.
+`Paged<T>` with a synthetic page block. `page` is 1-based and `pageSize` defaults to 20
+([payloads.md](../payloads.md)).
 
 **As shipped, the declared return type is the switch.** The compiler-injected
 list read is `find all(): T paged` (the envelope, served as `{ items, page,
@@ -63,8 +63,8 @@ gate without changing the shape clients parse.
 
 ```jsonc
 {
-  "type":   "https://errors.loom/<error-slug>",  // auto-derived from the error name
-  "title":  "Already cancelled",                  // auto-derived; i18n via RequestContext.locale
+  "type":   "about:blank",                        // the status carries the meaning
+  "title":  "Already cancelled",                  // auto-derived; static English
   "status": 409,                                   // from the api-surface `status` mapping (D18)
   "detail": "…",                                   // optional, env-aware (D21)
   "instance": "/orders/42"                          // request path
@@ -78,8 +78,8 @@ gate without changing the shape clients parse.
 - `detail` is env-aware (D21): full internals in dev
   (`LOOM_EXPOSE_INTERNAL_ERRORS` / native dev check), redacted in prod;
   sensitive fields stay redacted even in dev (modifier-propagation).
-- `title` renders through the i18n catalog keyed by error name, using
-  `RequestContext.locale`.
+- `title` is static English derived from the error name; it is not
+  localized.
 
 ## 4 — Event-frame (workflow-and-applier.md / observability.md)
 

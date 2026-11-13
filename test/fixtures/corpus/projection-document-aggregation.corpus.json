@@ -1,0 +1,13 @@
+{
+  "title": "whole-table aggregation over a `shape: document` source — the row count (`count(*)` over the `(id, data, version)` triple), beside the per-row arm over the same source",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "minted by audit A1: `loom.projection-columnless-source` deliberately allows `count()` over a document source, and NOTHING pinned that the allowed cell still emits — while java's cell was broken outright.  Java JOINED the row 2026-09-13 (M-T4.2, wave C2 packet 2d): its aggregation over a document source runs the same query NATIVE (`createNativeQuery`, `select count(*) from <schema>.<table> e`) instead of as JPQL over an `@Entity` a document aggregate does not have, so the per-backend gate and its two `#document` message variants are deleted.  Proved on a BOOTED Spring Boot app against Postgres 18: the singleton arm answers `{\"articles\":0}` then `{\"articles\":3}` after three creates, and the grouped arm answers one row per id — numbers from the database, not from the emitter.  The filtered crossing is still refused universally (`loom.projection-document-source-capability-filtered`); that negative lives in `test/ir/projection-document-aggregation.test.ts`.",
+  "apiCaller": {
+    "//": "The document-source pair (wave-3 row 3.3).  `articleVolume` is the table-level `count(*)` over the `(id, data, version)` triple; `articleTitles` is the repository-hydrated per-row arm over the SAME source.  Both are projection reads, so neither lifts to a derived operation — the `notLifted` class, same as every sibling here.",
+    "unattributed": [
+      "api.articleTitles.list (no such aggregate)",
+      "api.articleVolume.list (no such aggregate)"
+    ]
+  }
+}

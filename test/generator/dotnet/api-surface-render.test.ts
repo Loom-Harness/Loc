@@ -130,7 +130,7 @@ function scrapeShapes(files: Map<string, string>): Map<string, MaybeShape> {
   return out;
 }
 
-/** The 4xx/5xx `[ProducesResponseType(typeof(ProblemDetails), NNN)]` per route. */
+/** The 4xx/5xx `[ProducesResponseType(typeof(ProblemResponse), NNN, "application/problem+json")]` per route. */
 function scrapeErrors(files: Map<string, string>): Map<string, number[]> {
   const { src, base } = controller(files);
   const out = new Map<string, number[]>();
@@ -138,7 +138,11 @@ function scrapeErrors(files: Map<string, string>): Map<string, number[]> {
     /\[Http(Get|Post|Put|Patch|Delete)(?:\("([^"]*)"\))?\]([\s\S]*?)public\s/g,
   )) {
     const seg = m[2] ? `/${m[2]}` : "";
-    const codes = [...m[3]!.matchAll(/\[ProducesResponseType\((?:typeof\(.+?\), )?([45]\d\d)\)\]/g)]
+    const codes = [
+      ...m[3]!.matchAll(
+        /\[ProducesResponseType\((?:typeof\(.+?\), )?([45]\d\d)(?:, "application\/problem\+json")?\)\]/g,
+      ),
+    ]
       .map((c) => Number(c[1]))
       .sort((a, b) => a - b);
     out.set(key({ method: m[1]!, path: normalisePath(`/${base}${seg}`) }), codes);

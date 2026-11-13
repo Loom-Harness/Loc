@@ -1,0 +1,12 @@
+{
+  "title": "first-class tenancy — `tenancy by` + tenantOwned + crossTenant",
+  "doc": "tenancy",
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "Many pins, one cause: the derived self-scope filter narrows every read (and every write's load-before-save) to the row whose id IS the principal's claim, and the harness principal's claim is not a row id.  See `R.tenantRegistryRow` — draining them needs a harness change, not a test. `Organization` is this system's TENANT REGISTRY.  `create`, `getById` and `all` ARE called there (M-T9.42, the registry self-scope promotion): the by-id read is asserted 404 and the list empty — the pin's own reason, asserted.  Only the two writes that need a VISIBLE row stay pinned.",
+    "uncalled": {
+      "destroyOrganization": "tenantRegistryRow",
+      "updateOrganization": "tenantRegistryRow"
+    }
+  }
+}

@@ -34,40 +34,35 @@ and tooling see [`tools.md`](tools.md).
   span is built by the `days(n)` / `hours(n)` / `minutes(n)` constructors
   instead — see [Temporal arithmetic](#temporal-arithmetic).
 - **Whitespace** and comments are ignored between tokens.
-- **Member separators**: `aggregate` / `entity` / `valueobject` members are
-  **newline-separated** — a comma is rejected (`Expecting token of type '}'
-  but found ','`).  `event` fields, `enum` values, and every clause-style
-  block (`deployable`, `resource`, `storage`, `ui: X { … }` bindings, …)
-  accept commas **or** newlines.  When in doubt, **use newlines**: they are
-  accepted everywhere.
+- **Member separators**: a comma between members (and a trailing one) is
+  **optional and carries no meaning** in every member list — `aggregate` /
+  `entity` / `valueobject` members, `event` fields, `enum` values, and every
+  clause-style block (`deployable`, `resource`, `storage`, `ui: X { … }`
+  bindings, …) — so `aggregate Order { qty: int, total: money }` and the
+  newline-separated spelling parse identically.  The member lists are
+  enumerated in
+  [chapter 1](language-reference/01-lexical-structure.md).
 
 #### Keywords — hard vs. soft
 
-Loom keeps the *hard*-reserved set to declaration heads, type names and
-expression keywords (`context`, `aggregate`, `entity`, `event`, `repository`,
-`find`, `where`, `derived`, `invariant`, `unique`, `function`, `operation`,
-`create`, `destroy`, `apply`, `precondition`, `requires`, `emit`, `let`,
-`return`, `for`, `in`, `if`, `match`, `else`, `expect`, `test`, `when`,
-`extends`, `abstract`, `private`, `extern`, `audited`, `mask`, `unless`,
-`true`, `false`, `null`, `this`, `now`, `id`, `Self`, and the primitive
-type names `int long decimal money string bool datetime guid json File`
-(`date` is a primitive type name too, but a SOFT one — a field may still be
-named `date`),
-plus the system-level heads — `system`, `subdomain`, `deployable`,
-`storage`, `api`, `ui`, `component`, `theme`, `user`,
-`auth`, `policy`, `projection`, `workflow`, `capability`, `seed`,
-`criterion`, `domainService`, `commandHandler`, `queryHandler`, `channel`,
-`channelSource`, `timerSource`, `requirement`, `solution`, `testCase`,
-`layout`, `import`).  None of these can name a **field**, and none can name
-a **declaration** either — `command File { … }` is a parse error for the same
-reason `File: string` is.  Both now say so: a keyword in a name
-position reports `'File' is a Loom keyword, so it cannot be used as a name
-here`, rather than Chevrotain's `Expecting token of type 'ID'` (audit #2864).
-The wording says "here" because most of Loom's keywords are soft — `page` is a
-field name but not a `derived` name — so the bar is positional, not global.
-A handful (`api`, `ui`, `component`, `policy`, `id`, `contains`,
-`permissions`, `create`, `destroy`) are nonetheless admitted as parameter /
-argument names or bare expression refs by the per-rule extras described next.
+Loom keeps the *hard*-reserved set short: the words that are **not** field
+names are `apply`, `as`, `bool`, `contains`, `create`, `datetime`, `decimal`,
+`DELETE`, `derived`, `destroy`, `else`, `emit`, `entity`, `expect`, `false`,
+`File`, `find`, `for`, `from`, `function`, `GET`, `guid`, `id`, `if`, `in`,
+`int`, `invariant`, `json`, `let`, `long`, `match`, `notFound`, `now`, `null`,
+`on`, `operation`, `PATCH`, `persist`, `POST`, `precondition`, `private`,
+`PUT`, `requires`, `return`, `Self`, `string`, `test`, `this`, `true`,
+`unique`, `unless`, `when`, `where`, `with`.  Every other word keyword —
+declaration heads (`system`, `subdomain`, `deployable`, `storage`, `api`,
+`ui`, `layout`, `import`, `extends`, `abstract`, `extern`, `audited`, `mask`,
+`route`, …) included — is **soft**: reserved only where its own rule begins
+and admitted as an ordinary identifier elsewhere, so `aggregate Order {
+system: string  route: string  audited: string }` parses.  The full list and
+the reasons the hard words stay hard are in
+[chapter 1](language-reference/01-lexical-structure.md#soft-keywords).  A hard word
+in a name position reports `'File' is a Loom keyword, so it cannot be used as
+a name here`; the wording says "here" because the bar is positional, not
+global.
 
 Everything else that acts as a keyword *somewhere* is a **soft keyword** —
 reserved only where its own rule begins, and admitted as an ordinary
@@ -85,10 +80,9 @@ example `await` is admissible as a **field** / parameter name but not as a
 bare expression ref (it is the `match await` marker there); `api`, `route`,
 `component`, `menu`, `section`, `link`, `targets`, `framework`, `design`,
 `ui`, `page` … are admissible as parameter / argument names and expression
-refs but — apart from `page` — **not** as field names (`aggregate Order {
-route: string }` is a parse error).  `of`, `allow`, `deny`, `local`, `deep`,
+refs and, being soft, field names too.  `of`, `allow`, `deny`, `local`, `deep`,
 `global`, `policy` and `persistence` are in the shared set, so `aggregate Claim { policy:
-Policy id }` parses.  `slot` joined them for #2864: its only hard position is
+Policy id }` parses.  `slot` is in the set too: its only hard position is
 the `component` element-param type, exactly the shape `money` and `action`
 already had, so `valueobject Berth { slot: int }` parses now.  The source of truth is the rule set in
 `src/language/ddd.langium`, pinned by
@@ -342,8 +336,8 @@ order:
 | `payload Name { … }` / `command` / `query` / `response` / `error` / `payload U = A \| B` | Transport records and discriminated unions — the workflow / handler command surface and `or`-union return arms.  See [`payloads.md`](payloads.md). |
 | `repository Name for Aggregate { find … }` | Repository declaration with optional find queries (see [Repositories](#repositories)). |
 | `criterion Name(params) of Aggregate = Expr` / `retrieval Name of Aggregate { where: Expr sort: [field desc, other asc] }` | Reusable, SQL-inlinable predicate specifications and the named list-read shapes `Repo.all(...)` consumes.  A retrieval also has a one-line form, `retrieval Name of Aggregate = Expr`.  **The block's clauses are NOT comma-separated** — `where:` / `sort:` follow one another directly (a newline between them is the readable spelling); only the items *inside* `sort: [...]` take commas.  The grammar also admits a `loads: [path, …]` clause, but declaring one is rejected today (`loom.retrieval-loads-unsupported` — a retrieval loads the whole aggregate).  See [`criterion.md`](criterion.md). |
-| `projection Name[(params)] [keyed by <field>] [requires Expr] { <fields> from <Source> [as x] [where …] [ignoring …] [join Agg as a on …] [group by …] select f = …, … }` / `projection Name keyed by k { <fields> on(e: Event) [by e.key] { … } }` | A read model: **query-time** (a `select` over an aggregate / projection / workflow source — optional `where`, `join`, `group by`, whole-table aggregation, paged reads) or **folded** (`on(e: Event)` arms folding a stream into a keyed row).  Exposed as `GET /projections/<name>` and readable from pages.  The `from` source may be declared in another context of the subdomain; the read applies that source's own scope (tenant floor, capability filters).  Under `tenancy by` a fold over `tenantOwned` producers' events stamps, keys and scopes its rows by the event's tenant ([`tenancy.md`](tenancy.md#folded-projections--rows-carry-the-events-tenant)).  ~50 `loom.projection-*` gates; see [`language-reference/10-repositories-and-queries.md`](language-reference/10-repositories-and-queries.md) and [`scaffold-macros.md`](scaffold-macros.md) (`scaffoldDashboard`). |
-| `workflow Name { create(...)[: T] …, on(e: Event) …, function … }` | Context-level orchestration across aggregates, with `create` starters, `on` reactors and workflow-local state (a named command entry is a context-level `commandHandler` — there is no workflow `handle`).  A command-triggered `create(…): T { … return <expr> }` answers its `POST` with 200 + the value (an `X id` / `string` / `int` / `long` / `bool`); without `: T` it stays 204.  See [`workflow.md`](workflow.md#returning-a-result--create-t). |
+| `projection Name[(params)] [keyed by <field>] [requires Expr] { <fields> from <Source> [as x] [where …] [ignoring …] [join Agg as a on …] [group by …] select f = …, … }` / `projection Name keyed by k { <fields> on(e: Event) [by e.key] { … } }` | A read model: **query-time** (a `select` over an aggregate / projection / workflow source — optional `where`, `join`, `group by`, whole-table aggregation, paged reads) or **folded** (`on(e: Event)` arms folding a stream into a keyed row).  Exposed as `GET /projections/<name>` and readable from pages.  The `from` source may be declared in another context of the subdomain; the read applies that source's own scope (tenant floor, capability filters).  Under `tenancy by` a fold over `tenantOwned` producers' events stamps, keys and scopes its rows by the event's tenant ([`tenancy.md`](tenancy.md#folded-projections--rows-carry-the-events-tenant)).  The `loom.projection-*` family gates it; see [`language-reference/10-repositories-and-queries.md`](language-reference/10-repositories-and-queries.md) and [`scaffold-macros.md`](scaffold-macros.md) (`scaffoldDashboard`). |
+| `workflow Name { create(...)[: T] …, on(e: Event) …, function … }` | Context-level orchestration across aggregates, with `create` starters, `on` reactors and workflow-local state (a named command entry is a context-level `commandHandler` — there is no workflow `handle`).  A command-triggered `create(…): T { … return <expr> }` answers its `POST` with 200 + the value (an `X id` / `string` / `int` / `long` / `bool`); without `: T` it stays 204.  An `on(e: Event)` reactor only routes to an existing instance, so a workflow that declares one needs an event-triggered `create(e: Event) by <expr>` starter (`loom.reactor-without-starter`) and an id-shaped correlation state field (`loom.workflow-correlation-required`).  See [`workflow.md`](workflow.md#returning-a-result--create-t). |
 | `[extern] commandHandler Name(cmd: Cmd)[: Response] { … }` / `[extern] queryHandler Name(q: Query): Response { … }` | Application-layer handlers — a single-aggregate `handle` lifted out of a workflow (load → mutate → save → `return`), routable from an `api { … }` body.  `queryHandler` must not save (`loom.query-handler-saves`); `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`).  An `extern` handler is bodyless (`;`) — see [`extern.md`](extern.md). |
 | `domainService Name { operation calc(...): T { … } }` | A stateless, pure cross-aggregate calculator.  See [`domain-services.md`](domain-services.md). |
 | `channel Name { carries: EventA, EventB, delivery: broadcast\|queue, retention: ephemeral\|log\|work, key: field }` | Publisher-side contract for how a context's events are transported (paired with a system `channelSource`).  **`carries:` takes a bare comma-separated event list — no `[ ]`** (unlike `contexts:` / `dataSources:` on a deployable, which do take brackets).  See [`channels.md`](channels.md). |
@@ -459,13 +453,13 @@ Inside an aggregate or an `entity` part:
 | `derived inspect: string = Expression` | **Reserved** — declares the aggregate's developer-facing debug form.  Auto-generated when omitted (structural form, sensitive fields shown as `<redacted>`).  Backends emit it as `ToString()` / `[util.inspect.custom]` / `Inspect` so debugger watches, exceptions, and logger output get a useful representation. |
 | `[private] invariant [name:] Expression [when Expression]` | `bool` predicate; checked after every mutation. Optional `when` is a guard; the optional `name:` keys the rule's user-facing text (`<Ctx>.<Owner>.rule.<name>`, English in `locales/en/<Ctx>.json`) — see [Naming a rule](language-reference/07-invariants-derived-functions.md#naming-a-rule). The `message "…"` clause is removed (`loom.rule-message-removed`, an error that names the rule to write). `private` keeps the rule off the wire-layer schemas (Zod / FluentValidation / OpenAPI) — it runs only in the domain floor. |
 | `unique (a, b)` | Set-level natural-key invariant — derived into a DB unique index (partial under `softDeletable`) plus a per-backend 23505 → 409 mapping (`loom.unique-*`).  A find that returns a single row (`T` / `T?`) by equality on fields no `unique (…)` covers gets the advisory `loom.single-row-find-not-unique` — with duplicates, every backend would return whichever row the database yields first. |
-| `function name(params): TypeRef = Expression` | Pure helper (expression form); callable from any expression in the same aggregate. Stays SQL-inlinable like a `criterion`. |
-| `function name(params): TypeRef { … }` | Pure helper (block form); `let` + branch (ternary/`match`, or a statement `if`/`else`) + bug-regime `precondition`/`requires`, returning a value on **every path** (`loom.function-block-no-return` — a `return` inside an `if` counts, but an `if` with no `else` leaves one path valueless). Still **pure** — no mutation, no `emit`, no repository / operation / domain-service / extern call (the IR validator rejects each). **Not queryable** (a block-form call is rejected in a `where` / `criterion` filter). |
+| `function name(params): TypeRef = Expression` | Pure helper (expression form); a **public**, pure query: callable from any expression in the aggregate and, on a loaded aggregate, from workflows and domain services (every backend emits it public). Stays SQL-inlinable like a `criterion`. |
+| `function name(params): TypeRef { … }` | Pure helper (block form), public like the expression form; `let` + branch (ternary/`match`, or a statement `if`/`else`) + bug-regime `precondition`/`requires`, returning a value on **every path** (`loom.function-block-no-return` — a `return` inside an `if` counts, but an `if` with no `else` leaves one path valueless). Still **pure** — no mutation, no `emit`, no repository / operation / domain-service / extern call (the IR validator rejects each). **Not queryable** (a block-form call is rejected in a `where` / `criterion` filter). |
 | `[private] operation name(params) [extern] [audited] [: ReturnType] [requires Expr] [when Expr] { … }` | Mutating method (root only). `private` = callable only from within the same aggregate root (no route). `audited` records an `audit_records` row per call. `: A or B` declares an exception-less outcome returned via `return` (an `error` variant maps to a ProblemDetails status — [`payloads.md`](payloads.md)). `requires` is the authorization gate (403; [`auth.md`](auth.md)). |
 | `operation name(params) extern { precondition … }` | Public op whose business decision lives in user code; body must contain only `precondition` statements. See [`extern.md`](extern.md). |
 | `operation name(params) when <pred> { … }` | **canCommand state gate** ([`criterion.md`](criterion.md), use site 2): `<pred>` is a pure bool predicate over the aggregate's own state — referencing an operation parameter is an error (move argument-aware checks into a `precondition`); evaluated against the loaded instance before the body. False → 409 "Disallowed" ProblemDetails; a side-effect-free `GET /{id}/can_<op>` companion returns `{ allowed }` for UI enablement (so `when` on a `private` operation is rejected — nothing could read it). Named criteria / aggregate functions inline like any bool position. Supported on all five backends. Distinct from `requires` (auth, 403) and `precondition` (domain validity, 422). |
 | `create [name](params) [audited] [{ … }]` | Lifecycle factory — the unnamed form is the aggregate's canonical creator, and its parameter list IS the `POST /<plural>` request contract (a field it leaves out takes its declared default; the empty `create()` keeps the full field-derived input).  The body is optional: `create(title: string)` is the same declaration as `create(title: string) { }` (likewise a workflow starter).  On a state-based aggregate the body runs against the constructed instance like an operation body: a `requires` gates the route (403), a `precondition` refuses with the domain-floor 422, an `emit` publishes on save, and a `let` binds a value either reads.  Any other statement (a computed assignment, `+=`, a call) is refused by `loom.lifecycle-body-dropped`.  On a `persistedAs: eventLog` aggregate the `create` emits the creation event and the applier folds it.  See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md). |
-| `destroy [name][(params)] [audited] { … }` | Lifecycle terminator — loaded by id, the body runs (a throw aborts removal), then the framework removes the row; the unnamed `destroy { }` is the canonical `DELETE`. |
+| `destroy [name][(params)] [audited] { … }` | Lifecycle terminator — loaded by id, then the framework removes the row; the unnamed `destroy { }` is the canonical `DELETE`. On a state-based aggregate the body may hold only a `requires` guard (403); any other statement is refused by `loom.lifecycle-body-dropped`, because the removal does not run it. See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md#create--destroy--lifecycle-actions). |
 | `apply(e: <Event>) { … }` | **Event-sourcing fold** (only on a `persistedAs: eventLog` aggregate).  Folds one emitted event type into state — a pure transition: assignments / collection mutations / `let` only, no `emit`, no side-effecting calls, no guards (`loom.applier-impure`).  One `apply` per event type.  See the event-sourcing note below. |
 | `filter …` / `stamp …` / `implements Cap` | Aggregate-level capability contributions — a read-side query filter, a write-side stamp, a typed capability application.  See [`capabilities.md`](capabilities.md). |
 | `entity Name { … }` | Nested part declaration (inside an aggregate). |
@@ -945,13 +939,13 @@ Conventional tag names (not enforced):
 | `pii` | Personally identifiable information (name, email, phone, address). |
 | `phi` | Protected health information (HIPAA-adjacent). |
 | `cred` | Credentials (passwords, API keys, tokens). |
-| `audited` | The field's value lineage should be retained for audit. |
+| `audit` | The field's value lineage should be retained for audit. (Tags must not be Loom keywords; `audited` is refused.) |
 
 ```ddd
 aggregate Patient {
   fullName: string sensitive(pii)
   diagnosis: string sensitive(pii, phi)
-  ssn: string sensitive(pii, audited) secret    // sensitive + secret access
+  ssn: string sensitive(pii, audit) secret    // sensitive + secret access
 }
 ```
 
@@ -1174,7 +1168,7 @@ call inside a `find … where` stays queryable.
 
 ```ddd
 function isBlank(s: string): bool = s.trim().length == 0
-function withTax(amount: int, pct: int): int = amount + amount * pct / 100
+function withTax(amount: int, pct: int): int = amount + (amount * pct).divTrunc(100)
 
 context Sales {
   aggregate Invoice {
@@ -1188,8 +1182,8 @@ context Sales {
 
 ```csharp
 // .NET — inlined, no helper function/class emitted
-if (!(!(CustomerName.Trim().Length == 0))) throw new DomainInvariantException(...);
-public int Gross => (Net + Net * 20 / 100);
+if (!(!(this.CustomerName.Trim().EnumerateRunes().Count() == 0))) throw new DomainException("Business rule violated", DomainErrorKind.Invariant);
+public int Gross => (checked(this.Net + (checked(this.Net * 20)) / 100));
 ```
 
 Rules:
@@ -1324,8 +1318,8 @@ get label(): string { return "Order #" + String(this._quantity) + " for " + this
   non-`datetime`, a `number` on a non-numeric, a `select`
   on a non-string/enum) is `loom.interp-hole-type`.  These drive the i18n
   string catalog — see [`new-plan/archive/T1-done.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/archive/T1-done.md) § M-T1.11.
-  **Formats only render in a `ui` page slot** (on the JS/TS frontends; LiveView
-  drops the number/date formatting — `D-HEEX-I18N-FORMAT`).  In backend domain code (a
+  **Formats only render in a `ui` page slot** (on the JS/TS frontends through
+  `Intl`; on LiveView through CLDR in the negotiated locale — `D-HEEX-I18N-FORMAT`).  In backend domain code (a
   `derived`, `function` or `operation` body) every backend renders a formatted
   hole as its bare value: `{qty, number, ::currency/USD}` loses its formatting,
   and `{qty, plural, one {# item} other {# items}}` / `select` / `selectordinal`
@@ -2175,14 +2169,14 @@ The validator runs after parsing and reports errors for:
   frontend deployable, or without a `ui:` binding.
 - A non-frontend deployable using `targets:` (only valid on frontends).
 
-The list above is the classic core.  The catalogue today carries ~460
+The list above is the classic core.  The catalogue today carries several hundred
 `loom.*` codes (`src/diagnostics/messages.ts` is the single source of the
 wording; `test/system/diagnostic-catalog.test.ts` pins that every code a
 validator raises is in it).  By family, with the doc that explains each:
 
 | Family (prefix) | What it gates | Reference |
 |---|---|---|
-| `loom.projection-*` (~35) | Projection sources / `select` / `group by` / `keyed` / folds / paging / per-backend support | [`language-reference/10-repositories-and-queries.md`](language-reference/10-repositories-and-queries.md) |
+| `loom.projection-*` | Projection sources / `select` / `group by` / `keyed` / folds / paging / per-backend support | [`language-reference/10-repositories-and-queries.md`](language-reference/10-repositories-and-queries.md) |
 | `loom.workflow-*` (~30), `loom.applier-*`, `loom.lifecycle-*` | Workflow bodies, reactors, `create`, appliers, event-sourced lifecycle | [`workflow.md`](workflow.md) |
 | `loom.policy-*`, `loom.permission-*`, `loom.field-mask-*`, `loom.auth-*`, `loom.*-gate-not-current-user`, `loom.guard-principal-without-auth` | `policy {}` rules / deny carve-outs / named policy functions, `implies`, `mask unless`, OIDC config, `requires` gates | [`auth.md`](auth.md) |
 | `loom.tenancy-*`, `loom.tenant-*`, `loom.cross-tenant-without-tenancy`, `loom.org-context-*` | The explicit-stance rule, registry / claim wiring, `crossTenant` | [`tenancy.md`](tenancy.md) |

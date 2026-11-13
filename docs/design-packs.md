@@ -322,7 +322,7 @@ upgrade pain — the project ships a small set of **stacks** under
 | `v3` | 19.2 | `react-router@^7` | 4 | 6 | 8 | the React packs: `chakra@v3`, `mantine@v9`, `mui@v7`, `shadcn@v4` |
 | `sv1` | (Svelte 5 / SvelteKit) | SvelteKit routing | 4 | 6 | 8 | the svelte packs (`shadcnSvelte`, `flowbite`) |
 | `vue1` | (Vue 3) | vue-router | 4 | 6 | 8 | the vue packs (`vuetify`, `shadcnVue`) |
-| `ng1` | (Angular 22) | `@angular/router` | 4 | 6 | (Angular build) | the angular pack (`angularMaterial`) |
+| `ng1` | (Angular 22) | `@angular/router` | 4 | 6 | (Angular build) | the angular packs (`angularMaterial`, `primeng`, `spartanNg`) |
 
 Each stack ships:
 
@@ -395,12 +395,30 @@ if it did not.
 
 ## 3. Required emits
 
-The generator dispatches the following 80+ logical names.  Every pack
-must emit a file for each.  Logical names are conceptual contracts;
-the .hbs file behind each can render whatever the design system needs
-to fulfill the contract.
+The required set is `REQUIRED_PRIMITIVES[format]` in
+`src/generator/_packs/required-primitives.ts`, enforced when the pack
+loads: a pack that omits a name fails with
+`loader: pack X (format: tsx): missing required template(s): …`.  Each
+entry splits into four groups — `core` (the `primitive-*` templates the body
+walker dispatches into), `shell`, `fieldInput`, `form`.  Logical names are
+conceptual contracts; the `.hbs` file behind each renders whatever the design
+system needs.  Page, list and detail structure is **not** a pack template:
+the body walker renders it from the scaffold-macro page bodies, and only the
+primitives below are pack-owned.
 
-### Project shell (3)
+| Format | `core` | `shell` | `fieldInput` | `form` |
+|---|---|---|---|---|
+| `tsx` | shared + JSX-only + `primitive-modal-controlled` + `primitive-data-grid` + `primitive-chart` | project shell | yes | yes |
+| `svelte` | as `tsx` minus `primitive-chart` | project shell + `svelte-config` | yes | yes |
+| `vue` | as `svelte` | project shell | yes | yes + `op-dialog` |
+| `angular` | as `svelte` minus `primitive-form-of` and `primitive-modal` | `app-shell`, `format-helpers`, `main`, `package-json`, `theme`, `tsconfig`, `angular-json` | none (forms render inline) | `realtime-toast` only |
+| `heex` | none (the walker renders inline) | the ten-name HEEx shell (§ 10) | none | none |
+
+`vue`, `svelte` and `angular` need no per-pack `primitive-chart`: a shared
+template in `vue/`, `sveltekit/` and `angular/` serves every pack of the
+format.
+
+### Project shell
 
 | Name | Purpose |
 |---|---|
@@ -411,7 +429,6 @@ to fulfill the contract.
 | `vite-config` | `vite.config.ts`.  shadcn adds Vite resolver alias for `@/*`. |
 | `format-helpers` | Per-pack runtime helpers (`IdValue`, `DateTimeValue`, `BoolValue`, `NumberValue`, `EmptyValue`, `KeyValueRow`, and the money helper — see the money-display contract below).  Output written to `src/lib/format.tsx` (`src/lib/format.ts` on Vue/Svelte/Angular). |
 | `app-shell` | App-shell layout: navbar/sidebar/main outlet.  Under `auth: ui` (the `authUi` view-model flag) it also renders the **Sign out** control (`data-testid="sign-out"`, label via `{{{chrome "signOut"}}}`) in its header/toolbar — the pack-agnostic `AuthGate` renders none, so it never floats over page content.  Pinned for every pack by `test/generator/_frontend/sign-out-in-shell.test.ts`. |
-| `home` | Home/dashboard page. |
 
 #### The money-display contract (a pack does not own it)
 
@@ -449,117 +466,48 @@ pack-manifest knob.  A new pack that hand-rolls its own money formatter fails
 `test/generator/_packs/money-display-cross-pack.test.ts`, which bans `"USD"`,
 `style: "currency"` and `Number(` on the money path across every pack at once.
 
-### Page templates (4)
+### Field-input templates (tsx / svelte / vue)
 
-| Name | Purpose |
-|---|---|
-| `page-list` | Aggregate list page: header + create button + table + empty/error/loading states. |
-| `page-detail` | Aggregate detail page: header + breadcrumbs + identity block + parts/operations. |
-| `page-new` | Aggregate creation page: react-hook-form scaffold. |
-| `operation-modal` | Modal/dialog rendering for aggregate operations. |
+One per input kind a creation or workflow form can render: `field-input-string`,
+`-int`, `-decimal`, `-money`, `-bool`, `-date`, `-datetime`, `-enum-select`,
+`-id-select` (id from a known aggregate, dropdown), `-id-text` (raw id
+fallback), `-valueobject` (recursive), `-array` and `-file` (file input +
+upload to a `FileRef`).  For an array of value objects, `-array` receives each
+row pre-rendered as `rowHtml`: every row field goes through its own
+`field-input-*` template, bound to the row's `index`.
 
-### Workflow + view templates (4)
+### Form templates (tsx / svelte / vue)
 
-| Name | Purpose |
-|---|---|
-| `workflow-form` | One workflow's form page. |
-| `workflow-index` | All-workflows index page. |
-| `views-index` | All-views index page. |
-| `view-table` | One view's tabular page. |
+`form-default-onsubmit`, `form-of-decls`, `form-op-decls`, `form-op-module`,
+`form-runs-decls`, and `realtime-toast` — the one toast statement rendered
+into `RealtimeHandlers.tsx` per `on <channel>.<Event> { toast(…) }` handler
+(channels.md Part I).  It receives `{{{message}}}` (a TS expression); declare
+the toast lib under `imports["realtime-toast"]`.  Packs whose toast is
+hook-based may ship an optional `realtime-toast-setup` line rendered inside the
+component body (chakra v2's `const toast = useToast();`).  `vue` adds
+`op-dialog`.
 
-### Field-input templates (10)
+### Core primitives
 
-One per primitive type the DSL can declare as an input on a creation
-or workflow form.
+The body walker dispatches every page-metamodel node through
+`pack.render("primitive-X", vm)` and expects design-system-appropriate markup.
 
-| Name | DSL type |
-|---|---|
-| `field-input-string` | string |
-| `field-input-int` | int |
-| `field-input-decimal` | decimal |
-| `field-input-bool` | bool |
-| `field-input-datetime` | datetime |
-| `field-input-id-select` | id (from a known aggregate, dropdown) |
-| `field-input-id-text` | id (raw text input fallback) |
-| `field-input-enum-select` | enum |
-| `field-input-valueobject` | value object (recursive) |
-| `field-input-array` | array of any of the above |
+- **Every JSX-family format** (`SHARED_PRIMITIVES`): `primitive-alert`,
+  `-anchor`, `-avatar`, `-badge`, `-bold`, `-breadcrumbs`, `-button`, `-card`,
+  `-container`, `-date-display`, `-divider`, `-empty`, `-enum-badge`, `-field`,
+  `-form-of`, `-grid`, `-group`, `-heading`, `-id-link`, `-image`,
+  `-inline-code`, `-italic`, `-key-value-row`, `-loader`, `-money`,
+  `-multiline-field`, `-number-field`, `-paper`, `-password-field`,
+  `-query-view`, `-select-field`, `-skeleton`, `-stack`, `-stat`, `-table`,
+  `-tabs`, `-text`, `-toggle`, `-toolbar`.
+- **JSX-only** (HEEx renders these inline): `primitive-code-block`,
+  `-file-upload`, `-icon`, `-modal`, `-section`, `-sticky`.
+- **Also required** on the JSX formats: `primitive-modal-controlled` (the
+  state-controlled `Modal { open: … }` dialog), `primitive-data-grid`, and on
+  `tsx` alone `primitive-chart`.
 
-### Field-row templates (8)
-
-Field-rows render an aggregate's fields on the detail page.  Each
-wraps `<KeyValueRow>` from `format-helpers`.
-
-| Name | DSL kind |
-|---|---|
-| `field-row-string` | string |
-| `field-row-id` | id |
-| `field-row-id-link` | id with aggregate link |
-| `field-row-datetime` | datetime |
-| `field-row-bool` | bool |
-| `field-row-number` | int / decimal |
-| `field-row-enum` | enum |
-| `field-row-valueobject` | value object (recursive) |
-
-### Cell templates (8)
-
-Cells render an aggregate's columns on the list page and view tables.
-Each wraps the pack's `<TableCell>`-equivalent.
-
-| Name | DSL kind |
-|---|---|
-| `cell-string` | string |
-| `cell-id` | id |
-| `cell-id-link` | id with link |
-| `cell-row-id-link` | row-level id link |
-| `cell-datetime` | datetime |
-| `cell-bool` | bool |
-| `cell-number` | int / decimal |
-| `cell-enum` | enum |
-
-### Aggregate piece templates (2)
-
-| Name | Purpose |
-|---|---|
-| `part-table` | Table rendering aggregate "parts" (collection-of-X on the detail page). |
-| `op-button` | A single operation-trigger button on the detail page. |
-
-### Realtime templates (1, tsx only)
-
-| Name | Purpose |
-|---|---|
-| `realtime-toast` | One toast statement rendered into `RealtimeHandlers.tsx` per `on <channel>.<Event> { toast(…) }` handler (channels.md Part I).  Receives `{{{message}}}` (a TS expression).  Declare the toast lib under `imports["realtime-toast"]`.  Packs whose toast is hook-based may ship an optional `realtime-toast-setup` line rendered inside the component body (chakra v2's `const toast = useToast();`). |
-
-### Walker primitives (22)
-
-The body-walker dispatches every page-metamodel node through these
-primitives.  The walker calls `pack.render("primitive-X", vm)` and
-expects the pack's template to produce design-system-appropriate JSX.
-
-| Primitive | Use |
-|---|---|
-| `primitive-heading` | Section heading |
-| `primitive-text` | Body text |
-| `primitive-divider` | Visual separator |
-| `primitive-stack` | Vertical flex container |
-| `primitive-group` | Horizontal flex container |
-| `primitive-toolbar` | Horizontal toolbar (group variant) |
-| `primitive-grid` | Grid container |
-| `primitive-container` | Width-constrained container |
-| `primitive-empty` | Empty-state message |
-| `primitive-button` | Action button |
-| `primitive-card` | Card with title + content |
-| `primitive-stat` | Stat block (label + value) |
-| `primitive-badge` | Status pill / chip |
-| `primitive-field` | Labeled text input |
-| `primitive-toggle` | Labeled switch / checkbox |
-| `primitive-number-field` | Labeled number input |
-| `primitive-password-field` | Labeled password input |
-| `primitive-loader` | Loading spinner |
-| `primitive-anchor` | Link / `<a>` |
-| `primitive-image` | `<img>` wrapper |
-| `primitive-avatar` | User-avatar component |
-| `primitive-tabs` | Tabs container with header + content slots |
+The list in `required-primitives.ts` is authoritative; the walker's
+primitive library is in [`page-metamodel.md`](page-metamodel.md).
 
 ## 4. Inherited shared sources
 
@@ -572,8 +520,14 @@ the repo-root sibling directories:
 |         | `tsconfig-node` → `tsconfig.node.json` |
 | `api/`  | `api-client` → `src/api/client.ts` |
 |         | `api-config` → `src/api/config.ts` |
+| `api/`  | also `error-boundary` (React) and `logger` |
 | `docker/` | `dockerfile` → `Dockerfile` |
 |           | `dockerignore` → `.dockerignore` |
+
+These are the `tsx` directories.  Other formats read their own layers:
+`vue` reads `vue/`, `api/` and `docker/`; `svelte` reads `sveltekit/` alone
+(its own dockerfile and api client); `angular` reads `angular/` and `api/`
+(`angular/` ships its own dockerfile); `heex` reads `phoenix/`.
 
 A pack CAN override any of these by emitting a template with the same
 logical name — the loader registers shared partials first, then pack
@@ -592,6 +546,8 @@ registers these helpers globally:
   `value={{expr valueExpr}}`.
 - `json <value>` — JSON-stringifies the value.  Use for inline
   literals: `defaultRadius={{json radius}}`.
+- Naming and comparison helpers: `humanize`, `camel`, `pascal`, `plural`,
+  `snake`, `eq`, `join`, `concat` (`src/generator/_packs/loader.ts`).
 
 Some view-models additionally carry a **context function** — called like a
 helper, but supplied per render by the walker because its output is
@@ -945,15 +901,15 @@ design: "mantine@v9"             // pinned to v9
 design: shadcn                   // → shadcn@v4
 design: "mui@v7"
 design: chakra                   // → chakra@v3
-design: coreComponents           // default for phoenixLiveView platform (daisyui also available)
+design: coreComponents           // default for the elixir platform (daisyui also available)
 ```
 
 The shipped families: `mantine` (v9), `shadcn` (v4),
 `mui` (v7), `chakra` (v3), the HEEx packs `coreComponents` (v3) and `daisyui` (v1), the vue
 packs `vuetify` (v3 — tracks Vuetify 3) and `shadcnVue` (v1 — the
 shadcn-vue flavour: reka-ui + Tailwind 4, source-copy distribution),
-the svelte packs `shadcnSvelte` and `flowbite`, and the angular pack
-`angularMaterial`.
+the svelte packs `shadcnSvelte` and `flowbite`, and the angular packs
+`angularMaterial`, `primeng` and `spartanNg`.
 The current bareword defaults live in `BUILTIN_PACK_LATEST` in
 `src/util/builtin-formats.ts`.
 
@@ -1055,7 +1011,6 @@ my-pack/
   theme.hbs                       # empty export
   main.hbs                        # plain React boot
   app-shell.hbs                   # <div>{children}</div>
-  home.hbs
   ...
   primitive-button.hbs            # <button>{{label}}</button>
   primitive-card.hbs              # <div className="card">...
@@ -1185,10 +1140,10 @@ fixture under `test/fixtures/baseline-output/`.
 
 ### Step 6 — Add the version to the test matrix
 
-`test/e2e/generated-react-build.test.ts`:
+`test/e2e/react-build-cases.ts`:
 
 ```ts
-const PACKS: readonly PackSpec[] = [
+export const reactBuildPacks: readonly ReactPackSpec[] = [
   // ... existing entries ...
   { family: "<family>", version: "<vNew>" },
 ];

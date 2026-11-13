@@ -40,7 +40,7 @@ describe("Toolbar + Empty in walker stdlib", () => {
     expect(content).toMatch(/import \{ Button, Group, Title \} from "@mantine\/core";/);
     // Toolbar is a labelled ARIA toolbar (a11y contract).
     expect(content).toMatch(
-      /<Group justify="space-between" align="center" gap="md" role="toolbar" aria-label="Actions">/,
+      /<Group justify="space-between" align="center" gap="md" role="toolbar" aria-label=\{t\("chrome\.toolbarActions", "Actions"\)\}>/,
     );
     expect(content).toMatch(/<Title order=\{2\}>\{t\("[^"]*", "Orders"\)\}<\/Title>/);
     expect(content).toMatch(

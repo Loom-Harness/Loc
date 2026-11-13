@@ -944,6 +944,9 @@ function javaClassify(label: string): ReadKind | undefined {
   )
     return "root";
   if (l === "rehydrateall") return "helper";
+  // The save's reference-admission probe reads the referenced aggregate, and
+  // must carry its full read scope, like a by-id read.
+  if (l === "admitreferences") return "root";
   // The polymorphic base read (`<Bases>Controller`): `all<Base>`, `get<Base>ById`.
   if (/^all\w+$/.test(l) || /^get\w+byid$/.test(l)) return "root";
   // Java's `getById` is the COMMAND load (a command handler's load-then-

@@ -554,6 +554,15 @@ ${opts.e2e ?? ""}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A backfill expression outside the SQL-renderable subset: a call.
+  "loom.migration-expr-invalid": `
+system S {
+  subdomain M { context C {
+    aggregate Order with crudish { label: string  code: string }
+    repository Orders for Order { }
+  } }
+}
+migration "fill-code" { Order.code = label.toUpper() }`,
   // `provenanced` on an entity part's field: lineage lives on the root only.
   "loom.provenanced-part-field": `
 system S {
@@ -669,6 +678,36 @@ system S {
   deployable db { platform: node, contexts: [B], port: 3001, auth: required }
 }`,
   // `shareable` with no `tenancy by … of <Registry>` to name grantee orgs by.
+  // A principal read inside a stateless domain service.
+  "loom.domain-service-no-principal": `
+system R {
+  user { id: string  permissions: string[] }
+  subdomain S {
+    context C {
+      domainService Calc {
+        operation f(x: int): int {
+          requires currentUser.permissions.contains("x")
+          return x + 1
+        }
+      }
+    }
+  }
+}`,
+  // A tenantOwned row referencing a tenantOwned aggregate of another context.
+  "loom.tenancy-ref-unresolvable": `
+system S {
+  user { id: string  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context A {
+      aggregate Org with crudish { name: string }
+      aggregate Invoice with tenantOwned, crudish { number: string }
+    }
+    context B {
+      aggregate Claim with tenantOwned, crudish { invoice: Invoice id }
+    }
+  }
+}`,
   "loom.shareable-no-tenancy": `
 context C {
   aggregate Doc with tenantOwned, shareable, crudish { title: string }

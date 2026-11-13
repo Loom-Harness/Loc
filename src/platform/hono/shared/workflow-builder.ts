@@ -1,3 +1,4 @@
+import { OUTBOX_RELAY } from "../../../generator/_channels/delivery-policy.js";
 import {
   hasDomainFloorAnswer,
   workflowPreconditionThrowArgs,
@@ -17,6 +18,7 @@ import {
   recordPayloadOf,
   workflowParamPayloads,
 } from "../../../generator/_payload/workflow-param-payloads.js";
+import { PG_FOREIGN_KEY_VIOLATION } from "../../../generator/_persistence/pg-sqlstate.js";
 import { statementSubRegions } from "../../../generator/_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../../generator/_workflow/create-state.js";
 import {
@@ -94,6 +96,7 @@ import {
 } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import {
+  aggregatesCanTripDanglingReference,
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
@@ -534,6 +537,14 @@ export function buildWorkflowsFile(
   body.push(
     `    if (err instanceof AggregateNotFoundError) return problem(${wfNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
   );
+  // PG foreign_key_violation — a write named a reference that does not resolve
+  // (a missing row, or one outside the row's tenant: ref-admission).  Answered
+  // as the aggregate router answers it: the domain floor, dangling-reference.
+  if (aggregatesCanTripDanglingReference(ctx.aggregates)) {
+    body.push(
+      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === ${JSON.stringify(PG_FOREIGN_KEY_VIOLATION)})) return problem(${wfDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, ${JSON.stringify(wireFixedDetail("dangling-reference"))}, ${JSON.stringify(wireCode("dangling-reference"))});`,
+    );
+  }
   if (wfHasUniqueKeys) {
     body.push(
       // PG unique_violation — SQLSTATE read off `err` AND `err.cause` (drizzle
@@ -1804,6 +1815,53 @@ function emitSubscriptionHandlers(
  *  carrying the row id an operator replays it by. */
 const TS_DEAD_LETTERED_LOG = `baseLogger.warn({ event: "event_dead_lettered", id: row.id, type: row.type, attempts, error: err instanceof Error ? err.message : String(err) });`;
 
+/** The relay's knobs, defaulting to the shared relay policy. */
+function relayOptionLines(): string[] {
+  return [
+    `  const intervalMs = opts.intervalMs ?? ${OUTBOX_RELAY.intervalMs};`,
+    `  const maxAttempts = opts.maxAttempts ?? ${OUTBOX_RELAY.maxAttempts};`,
+    `  const batchSize = opts.batchSize ?? ${OUTBOX_RELAY.batchSize};`,
+  ];
+}
+
+/** A row whose publish found the broker unreachable is not at fault: the
+ *  pass halts there without spending the row's attempt (the shared relay
+ *  policy), and the pass's failure backs the relay off. */
+const RELAY_HALT_ON_BROKER_DOWN = `          if (err instanceof Error && err.name === "BrokerUnavailableError") throw err;`;
+
+/** The pass's end and the relay's schedule: a failed pass (database or
+ *  broker unreachable) is logged, and the next one waits the policy's capped
+ *  exponential backoff; a clean pass resets it. */
+function relayPassTail(): string[] {
+  return [
+    `      return true;`,
+    `    } catch (err) {`,
+    `      ${OUTBOX_RELAY_ERROR_LOG}`,
+    `      return false;`,
+    `    } finally {`,
+    `      draining = false;`,
+    `    }`,
+    `  };`,
+    `  let failures = 0;`,
+    `  let stopped = false;`,
+    `  let timer: ReturnType<typeof setTimeout>;`,
+    `  const pass = async (): Promise<void> => {`,
+    `    failures = (await drain()) ? 0 : failures + 1;`,
+    `    if (stopped) return;`,
+    `    const delay =`,
+    `      failures === 0`,
+    `        ? intervalMs`,
+    `        : Math.min(intervalMs * 2 ** Math.min(failures, ${OUTBOX_RELAY.maxBackoffDoublings}), ${OUTBOX_RELAY.maxBackoffMs});`,
+    `    timer = setTimeout(() => void pass(), delay);`,
+    `  };`,
+    `  timer = setTimeout(() => void pass(), intervalMs);`,
+    `  return () => {`,
+    `    stopped = true;`,
+    `    clearTimeout(timer);`,
+    `  };`,
+  ];
+}
+
 /** `outboxRetentionDays()` — the retention window read from the environment,
  *  falling back to the default on a missing, non-numeric or non-positive value. */
 function emitOutboxRetention(): string[] {
@@ -1929,14 +1987,12 @@ function emitOutboxMachinery(
   out.push(`  inner: DomainEventDispatcher,`);
   out.push(`  opts: { intervalMs?: number; maxAttempts?: number; batchSize?: number } = {},`);
   out.push(`): () => void {`);
-  out.push(`  const intervalMs = opts.intervalMs ?? 500;`);
-  out.push(`  const maxAttempts = opts.maxAttempts ?? 5;`);
-  out.push(`  const batchSize = opts.batchSize ?? 50;`);
+  out.push(...relayOptionLines());
   out.push(`  const retentionMs = outboxRetentionDays() * 86_400_000;`);
   out.push(`  let lastPurge = Date.now();`);
   out.push(`  let draining = false;`);
-  out.push(`  const drain = async (): Promise<void> => {`);
-  out.push(`    if (draining) return;`);
+  out.push(`  const drain = async (): Promise<boolean> => {`);
+  out.push(`    if (draining) return true;`);
   out.push(`    draining = true;`);
   out.push(`    try {`);
   out.push(
@@ -1962,6 +2018,7 @@ function emitOutboxMachinery(
     `          await db.update(schema.loomOutbox).set({ dispatchedAt: new Date() }).where(eq(schema.loomOutbox.id, row.id));`,
   );
   out.push(`        } catch (err) {`);
+  out.push(RELAY_HALT_ON_BROKER_DOWN);
   out.push(`          const attempts = row.attempts + 1;`);
   out.push(`          const dead = attempts >= maxAttempts;`);
   out.push(
@@ -1972,14 +2029,7 @@ function emitOutboxMachinery(
   out.push(`          }`);
   out.push(`        }`);
   out.push(`      }`);
-  out.push(`    } catch (err) {`);
-  out.push(`      ${OUTBOX_RELAY_ERROR_LOG}`);
-  out.push(`    } finally {`);
-  out.push(`      draining = false;`);
-  out.push(`    }`);
-  out.push(`  };`);
-  out.push(`  const timer = setInterval(() => void drain(), intervalMs);`);
-  out.push(`  return () => clearInterval(timer);`);
+  out.push(...relayPassTail());
   out.push(`}`);
   return out;
 }
@@ -2056,14 +2106,12 @@ function emitMikroOutboxMachinery(
     `  inner: DomainEventDispatcher,`,
     `  opts: { intervalMs?: number; maxAttempts?: number; batchSize?: number } = {},`,
     `): () => void {`,
-    `  const intervalMs = opts.intervalMs ?? 500;`,
-    `  const maxAttempts = opts.maxAttempts ?? 5;`,
-    `  const batchSize = opts.batchSize ?? 50;`,
+    ...relayOptionLines(),
     `  const retentionMs = outboxRetentionDays() * 86_400_000;`,
     `  let lastPurge = Date.now();`,
     `  let draining = false;`,
-    `  const drain = async (): Promise<void> => {`,
-    `    if (draining) return;`,
+    `  const drain = async (): Promise<boolean> => {`,
+    `    if (draining) return true;`,
     `    draining = true;`,
     `    try {`,
     `      const em = db.fork();`,
@@ -2081,6 +2129,7 @@ function emitMikroOutboxMachinery(
     ...redeliver("          "),
     `          await em.nativeUpdate(${ROW}, { id: row.id }, { dispatchedAt: new Date() });`,
     `        } catch (err) {`,
+    RELAY_HALT_ON_BROKER_DOWN,
     `          const attempts = row.attempts + 1;`,
     `          const dead = attempts >= maxAttempts;`,
     `          await em.nativeUpdate(${ROW}, { id: row.id }, { attempts, deadAt: dead ? new Date() : null });`,
@@ -2089,14 +2138,7 @@ function emitMikroOutboxMachinery(
     `          }`,
     `        }`,
     `      }`,
-    `    } catch (err) {`,
-    `      ${OUTBOX_RELAY_ERROR_LOG}`,
-    `    } finally {`,
-    `      draining = false;`,
-    `    }`,
-    `  };`,
-    `  const timer = setInterval(() => void drain(), intervalMs);`,
-    `  return () => clearInterval(timer);`,
+    ...relayPassTail(),
     `}`,
   ];
 }

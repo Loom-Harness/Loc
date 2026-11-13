@@ -12,8 +12,16 @@
 //   pickers          a reference collection offers every row of its target,
 //                    not one list page (the 25th provider is tickable).
 //   part tables      a part's value-object fields are columns of its table.
+//   navigation       an update stays on the record; a workflow whose start
+//                    answers the created record's id opens it; a fresh form
+//                    shows no error before a touch.
 //   optional group   checking an optional value object's presence box and
 //                    filling it saves the object.
+//   rows             a value-object row renders each field's own input: the
+//                    seeded row keeps its enum, reference and flag through an
+//                    update, and an added row saves its defaults (first enum
+//                    value, unchecked flag, unset reference as null).
+//   detail arrays    the Detail page shows the record's array fields.
 //
 // Inputs are found by the shared test ids (`<slug>-op-<op>-input-<field>`);
 // where a pack puts the id on a wrapper, the probe reaches the input inside it.
@@ -54,7 +62,7 @@ export async function seedFormSpec(base) {
     tags: ["a", "b"],
     perils: ["Fire"],
     alternates: [],
-    riders: [{ code: "R1", premium: 2.5 }],
+    riders: [{ code: "R1", premium: 2.5, peril: "Flood", insurer: provider.id, waived: true }],
   });
   return { ...(await readPolicy(base, created.id)), lastProviderId: lastProvider.id };
 }
@@ -116,8 +124,18 @@ function normalize(v) {
 
 /** The `<input>` a test id names — the element itself, or the first input
  *  inside a wrapper that carries the id. */
-async function inputOf(page, testId) {
-  const el = page.locator(`[data-testid="${testId}"]`).first();
+async function inputOf(page, testId, rowTestId, rowIndex) {
+  // Angular names a row input by a row-wide id; the row is its nth match.
+  let el = page.locator(`[data-testid="${testId}"]`).first();
+  if (rowTestId) {
+    await page
+      .locator(`[data-testid="${testId}"], [data-testid="${rowTestId}"]`)
+      .first()
+      .waitFor({ state: "attached", timeout: 15000 });
+  }
+  if (rowTestId && (await page.locator(`[data-testid="${rowTestId}"]`).count()) > 0) {
+    el = page.locator(`[data-testid="${rowTestId}"]`).nth(rowIndex);
+  }
   await el.waitFor({ state: "attached", timeout: 15000 });
   const tag = await el.evaluate((n) => n.tagName);
   return tag === "INPUT" || tag === "TEXTAREA" ? el : el.locator("input, textarea").first();
@@ -184,5 +202,122 @@ export async function judgePartTable(page, origin, id) {
   if (!text.includes("COV-1")) why.push("coverages: the part row never rendered");
   if (!/Limit Amount/i.test(text)) why.push("coverages: no Limit Amount column");
   if (!text.includes("777")) why.push(`coverages: the limit amount cell is missing (card text ${JSON.stringify(text.slice(0, 300))})`);
+  return why;
+}
+
+/** The record stays open after an operation: the update dialog closes onto the
+ *  same detail page, not the list. */
+export function judgeStaysOnRecord(page, id) {
+  const path = new URL(page.url()).pathname;
+  return path === `/policies/${id}`
+    ? []
+    : [`after the update the page left the record: ${path}`];
+}
+
+/** A fresh create form shows no field error before the user touched anything. */
+export async function judgeNoEarlyErrors(page, origin) {
+  await page.goto(`${origin}/policies/new`);
+  await page.locator('[data-testid="policies-new-submit"]').first().waitFor({ timeout: 20000 });
+  const text = await page.locator("body").innerText().catch(() => "");
+  return /invalid|required|must match/i.test(text)
+    ? [`the create form shows errors before any touch: ${JSON.stringify(text.slice(0, 300))}`]
+    : [];
+}
+
+/** A workflow whose start answers the created record's id opens that record. */
+export async function judgeWorkflowOpensResult(page, origin) {
+  await page.goto(`${origin}/workflows/open_provider`);
+  await (await inputOf(page, "workflow-open_provider-input-name")).fill("From workflow");
+  await page.locator('[data-testid="workflow-open_provider-submit"]').first().click();
+  for (let i = 0; i < 30; i++) {
+    if (/\/providers\/[0-9a-f-]{36}$/.test(new URL(page.url()).pathname)) return [];
+    await page.waitForTimeout(500);
+  }
+  return [`the workflow run did not open the provider it created (at ${new URL(page.url()).pathname})`];
+}
+
+/** Add a rider row through the Update dialog, filling only its text inputs: the
+ *  row's enum starts on its first value, its bool unchecked and its optional
+ *  reference unset. */
+export async function driveAddRider(page, origin, id) {
+  await page.goto(`${origin}/policies/${id}`);
+  await page.locator('[data-testid="policies-op-update"]').first().click({ timeout: 20000 });
+  await (await inputOf(page, "policies-op-update-input-riders-0-code", "policies-op-update-riders-row-input-code", 0)).waitFor();
+  const widgets = await judgeRowWidgets(page);
+  await page.getByRole("button", { name: /Add Rider/i }).first().click({ timeout: 15000 });
+  await (await inputOf(page, "policies-op-update-input-riders-1-code", "policies-op-update-riders-row-input-code", 1)).fill("R2");
+  await (await inputOf(page, "policies-op-update-input-riders-1-premium", "policies-op-update-riders-row-input-premium", 1)).fill("4");
+  await page.locator('[data-testid="policies-op-update-submit"]').first().click();
+  return widgets;
+}
+
+const CHOICE = 'select, [role="combobox"], [aria-haspopup="listbox"]';
+const TOGGLE = 'input[type="checkbox"], [role="switch"], [role="checkbox"]';
+
+/** A row's enum and reference fields are choice controls and its bool a
+ *  toggle — the inputs the same fields get at the top level, not text boxes. */
+async function judgeRowWidgets(page) {
+  const why = [];
+  const cells = [
+    ["peril", CHOICE],
+    ["insurer", CHOICE],
+    ["waived", TOGGLE],
+  ];
+  for (const [sub, want] of cells) {
+    const ok = await page
+      .locator(
+        `[data-testid="policies-op-update-input-riders-0-${sub}"], [data-testid="policies-op-update-riders-row-input-${sub}"]`,
+      )
+      .first()
+      .evaluate((el, sel) => el.matches(sel) || el.querySelector(sel) !== null, want)
+      .catch(() => false);
+    if (!ok) why.push(`riders row ${sub}: not rendered as its field's input (${want})`);
+  }
+  return why;
+}
+
+/** Judge the record after the rider row was added: the seeded row kept its
+ *  enum, reference and flag, and the new one saved its row defaults. */
+export function judgeRiderAdded(before, after) {
+  const why = [];
+  const rows = after.riders ?? [];
+  if (rows.length !== 2) return [`riders: expected 2 rows, got ${JSON.stringify(rows)}`];
+  const [kept, added] = rows;
+  const seeded = before.riders[0];
+  if (kept.peril !== seeded.peril || kept.insurer !== seeded.insurer || kept.waived !== seeded.waived) {
+    why.push(`riders[0]: the row lost its values (${JSON.stringify(seeded)} → ${JSON.stringify(kept)})`);
+  }
+  if (added.code !== "R2" || Number(added.premium) !== 4) {
+    why.push(`riders[1]: the typed values did not save, got ${JSON.stringify(added)}`);
+  }
+  if (added.peril !== "Fire") why.push(`riders[1].peril: expected the first value, got ${JSON.stringify(added.peril)}`);
+  if (added.waived !== false) why.push(`riders[1].waived: expected false, got ${JSON.stringify(added.waived)}`);
+  if (added.insurer !== null && added.insurer !== undefined) {
+    why.push(`riders[1].insurer: an unset reference must submit null, got ${JSON.stringify(added.insurer)}`);
+  }
+  return why;
+}
+
+/** The Detail page shows the record's array fields: the joined strings, the
+ *  enum items and the value-object rows, each where its test id says. */
+export async function judgeDetailCollections(page, origin, id) {
+  const record = await readPolicy(origin, id);
+  await page.goto(`${origin}/policies/${id}`);
+  const why = [];
+  const expect = [
+    ["policies-detail-tags", record.tags.join(", ")],
+    ["policies-detail-perils", record.perils[0]],
+    ["policies-detail-riders", record.riders[0].code],
+  ];
+  for (const [testId, text] of expect) {
+    const el = page.locator(`[data-testid="${testId}"]`).first();
+    const shown = await el
+      .waitFor({ state: "attached", timeout: 15000 })
+      .then(() => el.innerText())
+      .catch(() => "(absent)");
+    if (!shown.includes(text)) {
+      why.push(`${testId}: the detail page shows ${JSON.stringify(shown)}, not "${text}"`);
+    }
+  }
   return why;
 }

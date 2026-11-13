@@ -73,7 +73,7 @@ feature.
 | `currentUser.id` | auth middleware (from token) | audit (actor), authorization (gates), provenance (who computed) |
 | `currentUser.tenantId` | auth middleware (from `user.tenantId` claim) | multi-tenancy (query filter + write-stamp) |
 | `currentUser.permissions` | auth middleware (from `user {}` claim record) | authorization (operation/view/workflow gates), sensitivity (declassification clearance) |
-| `locale` | i18n middleware (`Accept-Language` / explicit) | i18n (catalog lookup), error rendering (ProblemDetails `title`) |
+| `locale` | i18n middleware (`Accept-Language` / explicit) | i18n (catalog lookup) |
 | `startedAt` | boundary middleware | audit (timestamp), observability (duration) |
 
 **Consumer reads emitted today.** Observability reads `correlationId` on every

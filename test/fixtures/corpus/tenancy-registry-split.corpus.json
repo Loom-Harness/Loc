@@ -1,0 +1,13 @@
+{
+  "//": "Two services on purpose — the deployable that does not host the registry must emit nothing that names it.",
+  "title": "a registry tree on one deployable, and an `auth: required` deployable beside it hosting only `crossTenant` data",
+  "doc": "tenancy",
+  "backends": "ALL",
+  "deployables": [
+    "orgs",
+    "catalog"
+  ],
+  "apiCaller": {
+    "e2eLess": "The defect is a COMPILE failure on the deployable that does NOT host the tenant registry (node TS2339 `schema.orgs`, .NET CS0246/CS1061, elixir an undefined schema module), so the corpus compile legs are its oracle.  Two deployables, so the behavioural runner cannot pick one.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT."
+  }
+}

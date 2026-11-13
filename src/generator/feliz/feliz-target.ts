@@ -12,7 +12,7 @@ import type { BoundedContextIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../i
 import { operationFormParams } from "../../ir/util/op-gates.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
 import { requireFrontendAxes } from "../../util/frontend-axes.js";
-import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { apiReadMemberType } from "../_frontend/optional-member.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
@@ -69,7 +69,10 @@ import {
   fieldErrorFn,
   formFieldServerKey,
   formFileSelectMsg,
+  formOpenField,
+  formPendingField,
   formServerField,
+  formToggleMsg,
   formTouchedField,
   formTouchMsg,
   historyFieldName,
@@ -383,8 +386,15 @@ function withServerErrors(
   textOf: (fld: FelizFormField) => FelizInputText | undefined = () => undefined,
 ): { inputs: string[]; formError: string[] } {
   const inputs = fields.map((fld) => renderFormInput(formField, fld, base, textOf(fld)));
-  if (!hasRecord) return { inputs, formError: [] };
   const errs = `model.${formServerField(formField)}`;
+  // A record-less form (param-less op / workflow) has no field to point at, but
+  // its refusal still shows: every message is form-level.
+  if (!hasRecord) {
+    return {
+      inputs,
+      formError: [`(View.serverFormError ${errs} [] "${base}-server-error")`],
+    };
+  }
   return {
     inputs: fields.map((fld, i) => {
       const key = formFieldServerKey(fld);
@@ -396,22 +406,52 @@ function withServerErrors(
   };
 }
 
-/** One dynamic-row sub-field input — the row-scoped sibling of `renderFormInput`.
- *  Bound to `row.<wireName>` (the `List.mapi` lambda binds `row` + the index `i`)
- *  and dispatching the INDEXED setter `<setMsg> (i, v)`.  One line (offside-safe
- *  inside the row's Feliz children list). */
-function renderRowInput(fld: FelizRowField, text?: FelizInputText): string {
+/** The submit button's `prop.disabled …; ` clause: off while the previous submit
+ *  is still in flight (a second click must not double-post) or, when the form has
+ *  flat fields, while a required one is empty; `extra` ORs in a caller's own
+ *  condition (a `when`-gated op's probe). */
+function submitDisabled(
+  form: { formField: string; validFn: string; fields: readonly unknown[] },
+  extra?: string,
+): string {
+  const conds = [
+    ...(extra ? [extra] : []),
+    `model.${formPendingField(form.formField)}`,
+    ...(form.fields.length > 0 ? [`not (Validation.${form.validFn} model.${form.formField})`] : []),
+  ];
+  return `prop.disabled (${conds.join(" || ")}); `;
+}
+
+/** One dynamic-row sub-field input — the row-scoped sibling of `renderFormInput`,
+ *  under its own label.  Bound to `row.<wireName>` (the `List.mapi` lambda binds
+ *  `row` + the index `i`) and dispatching the INDEXED setter `<setMsg> (i, v)`.
+ *  One line (offside-safe inside the row's Feliz children list). */
+function renderRowInput(fld: FelizRowField, testId: string, text?: FelizInputText): string {
   const value = `row.${fld.fsName}`;
+  const tid = `prop.custom("data-testid", ${testId}); `;
   const set = (v: string): string => `dispatch (${fld.setMsg} (i, ${v}))`;
+  const labelText = text?.label ?? fsString(humanize(fld.wireName));
+  const labelled = (input: string): string =>
+    `Html.label [ prop.className "form-control"; prop.children [ Html.span [ prop.className "label-text"; prop.text ${labelText} ]; ${input} ] ]`;
   if (fld.inputKind === "checkbox") {
-    return `Html.input [ prop.className "checkbox"; prop.type'.checkbox; prop.isChecked (${value} = "true"); prop.onChange (fun (v: bool) -> ${set('if v then "true" else "false"')}) ]`;
+    return labelled(
+      `Html.input [ ${tid}prop.className "checkbox"; prop.type'.checkbox; prop.isChecked (${value} = "true"); prop.onChange (fun (v: bool) -> ${set('if v then "true" else "false"')}) ]`,
+    );
   }
   if (fld.inputKind === "select") {
     const opts = (fld.enumValues ?? []).map(
       (v) => `Html.option [ prop.value "${v}"; prop.text ${text?.options?.get(v) ?? `"${v}"`} ]`,
     );
     const allOpts = fld.required ? opts : ['Html.option [ prop.value ""; prop.text "" ]', ...opts];
-    return `Html.select [ prop.className "select select-bordered"; prop.value ${value}; prop.onChange (fun (v: string) -> ${set("v")}); prop.children [ ${allOpts.join("; ")} ] ]`;
+    return labelled(
+      `Html.select [ ${tid}prop.className "select select-bordered"; prop.value ${value}; prop.onChange (fun (v: string) -> ${set("v")}); prop.children [ ${allOpts.join("; ")} ] ]`,
+    );
+  }
+  if (fld.inputKind === "idselect" && fld.idTarget) {
+    const listField = `model.${pickerFieldName(fld.idTarget)}`;
+    return labelled(
+      `Html.select [ ${tid}prop.className "select select-bordered"; prop.value ${value}; prop.onChange (fun (v: string) -> ${set("v")}); prop.children (Html.option [ prop.value ""; prop.text "" ] :: View.idOptions ${listField} (fun x -> x.id) (fun x -> x.${fld.idLabelField ?? "id"})) ]`,
+    );
   }
   const typeProp =
     fld.inputKind === "number"
@@ -419,7 +459,9 @@ function renderRowInput(fld: FelizRowField, text?: FelizInputText): string {
       : fld.inputKind === "date"
         ? "prop.type'.date; "
         : "";
-  return `Html.input [ prop.className "input input-bordered"; ${typeProp}prop.placeholder ${text?.label ?? `"${fld.wireName}"`}; prop.value ${value}; prop.onChange (fun (v: string) -> ${set("v")}) ]`;
+  return labelled(
+    `Html.input [ ${tid}prop.className "input input-bordered"; ${typeProp}prop.value ${value}; prop.onChange (fun (v: string) -> ${set("v")}) ]`,
+  );
 }
 
 /** A dynamic-row form field (`items: LineItem[]`) → a repeatable sub-form: a
@@ -432,9 +474,14 @@ function renderFieldArray(
   fa: FelizFieldArray,
   ctx: WalkContext,
   src: FormTextSource,
+  base: string,
 ): string {
   const rowInputs = fa.rowFields.map((rf) =>
-    renderRowInput(rf, felizInputText(ctx, src, [fa.jsonKey], rf.jsonKey)),
+    renderRowInput(
+      rf,
+      `"${base}-input-${fa.jsonKey}-" + string i + "-${rf.jsonKey}"`,
+      felizInputText(ctx, src, [fa.jsonKey], rf.jsonKey),
+    ),
   );
   const remove = `Html.button [ prop.className "btn btn-sm btn-error"; prop.onClick (fun _ -> dispatch (${fa.removeMsg} i)); prop.text ${localizedPageChromeValue(ctx, sentenceChromeName("removeItem", fa.elementName))} ]`;
   const row = `Html.div [ prop.className "flex gap-2 items-end"; prop.children [ ${[...rowInputs, remove].join("; ")} ] ]`;
@@ -884,12 +931,11 @@ export const felizTarget: WalkerTarget = {
     const { inputs, formError } = withServerErrors(form.formField, form.fields, base, true, (f) =>
       fieldInputText(ctx, src, f),
     );
-    const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa, ctx, src));
+    const arrays = form.fieldArrays.map((fa) =>
+      renderFieldArray(form.formField, fa, ctx, src, base),
+    );
     const createLabel = src.bc ? opModelText(ctx, src.bc, agg.name, "create") : undefined;
-    const disabled =
-      form.fields.length > 0
-        ? `prop.disabled (not (Validation.${form.validFn} model.${form.formField})); `
-        : "";
+    const disabled = submitDisabled(form);
     const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text ${createLabel?.expr ?? fsString(opDefaultText(agg.name, "create"))} ]`;
     return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...formError, submit].join("; ")} ] ]`;
   },
@@ -954,21 +1000,18 @@ export const felizTarget: WalkerTarget = {
       opHasForm(form),
       (f) => fieldInputText(ctx, src, f),
     );
-    const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa, ctx, src));
+    const arrays = form.fieldArrays.map((fa) =>
+      renderFieldArray(form.formField, fa, ctx, src, base),
+    );
     const opLabel = src.bc ? opModelText(ctx, src.bc, agg.name, op.name) : undefined;
     // The submit guard reads `Validation.<validFn>`, only emitted when the form
     // has flat fields; an array-only form has no required-field guard.
-    const disabled =
-      form.fields.length > 0
-        ? `prop.disabled (not (Validation.${form.validFn} model.${form.formField})); `
-        : "";
+    const disabled = submitDisabled(form);
     // A `when`-gated op also disables on its `can_<op>` probe (a page-entry read
     // collected by `collectPageGateProbes`), with the reason as the title.
     const gate = opGateFor(ctx, agg, op, canProbeFieldName(agg.name, op.name));
     const gated = gate
-      ? form.fields.length > 0
-        ? `prop.disabled (${gate.disabledExpr} || not (Validation.${form.validFn} model.${form.formField})); prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); `
-        : `prop.disabled ${gate.disabledExpr}; prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); `
+      ? `${submitDisabled(form, gate.disabledExpr)}prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); `
       : disabled;
     const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${gated}prop.onClick (fun _ -> dispatch (${form.submitMsg} id)); prop.text ${opLabel?.expr ?? `"${upperFirst(form.op)} ${upperFirst(form.aggregate)}"`} ]`;
     return `Html.div [ prop.custom("data-testid", "${base}-form"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...formError, submit].join("; ")} ] ]`;
@@ -1012,12 +1055,11 @@ export const felizTarget: WalkerTarget = {
       wfHasForm(form),
       (f) => fieldInputText(ctx, src, f),
     );
-    const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa, ctx, src));
+    const arrays = form.fieldArrays.map((fa) =>
+      renderFieldArray(form.formField, fa, ctx, src, base),
+    );
     const runLabel = src.bc ? workflowRunExpr(ctx, src.bc, wfName) : undefined;
-    const disabled =
-      form.fields.length > 0
-        ? `prop.disabled (not (Validation.${form.validFn} model.${form.formField})); `
-        : "";
+    const disabled = submitDisabled(form);
     const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text ${runLabel ?? fsString(opDefaultText(wf.name, "run"))} ]`;
     return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...formError, submit].join("; ")} ] ]`;
   },
@@ -1045,9 +1087,27 @@ export const felizTarget: WalkerTarget = {
     // never opens) and the summary carries `aria-disabled` + the reason.  The
     // inner submit is disabled too (`renderOperationForm`).
     const gate = modalOpGate(formChild, ctx);
+    // The disclosure is CONTROLLED: the summary click is taken over (the browser's
+    // own toggle is cancelled) and flips the form's `Open` flag, which drives
+    // both `open` and whether the form is rendered at all.  That is what lets a
+    // successful submit close it — the form leaves the page, as the other
+    // frontends' modal does — instead of navigating the user away.
+    const found0 = modalOp(formChild, ctx);
+    const opForm = found0
+      ? felizOperationForm(
+          found0.agg,
+          found0.op,
+          enumsFromBc(ctx.bcByAggregate.get(found0.agg.name)),
+          idLabelsFrom(ctx.aggregatesByName.values()),
+          vosFromBc(ctx.bcByAggregate.get(found0.agg.name)),
+        )
+      : undefined;
+    if (!opForm) return null;
+    const open = `model.${formOpenField(opForm.formField)}`;
+    const toggle = `dispatch ${formToggleMsg(opForm.formType)}`;
     const summaryGate = gate
-      ? `prop.ariaDisabled ${gate.disabledExpr}; prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); prop.onClick (fun e -> if ${gate.disabledExpr} then e.preventDefault()); `
-      : "";
+      ? `prop.ariaDisabled ${gate.disabledExpr}; prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); prop.onClick (fun e -> e.preventDefault(); if not ${gate.disabledExpr} then ${toggle}); `
+      : `prop.onClick (fun e -> e.preventDefault(); ${toggle}); `;
     // The trigger label is the `button` user-visible slot — already extracted
     // into the catalog as `page.<Page>.button.<hash>`, and read RAW here, so the
     // key was dead and the summary shipped in English at every locale (A13).
@@ -1100,7 +1160,7 @@ export const felizTarget: WalkerTarget = {
     // the enclosing Group's children list; paren-wrapped against sibling absorption.
     // A native <details> styled as a daisyUI `collapse` disclosure — the summary
     // is the trigger, the operation form the revealed `collapse-content`.
-    const disclosure = `(Html.details [ prop.className "collapse collapse-arrow border border-base-300 bg-base-200"; prop.children [ Html.summary [ ${summaryTid}${summaryGate}prop.className "collapse-title font-medium"; ${summaryText} ]; Html.div [ prop.className "collapse-content"; prop.children [ ${title}${form} ] ] ] ])`;
+    const disclosure = `(Html.details [ prop.className "collapse collapse-arrow border border-base-300 bg-base-200"; prop.isOpen ${open}; prop.children [ Html.summary [ ${summaryTid}${summaryGate}prop.className "collapse-title font-medium"; ${summaryText} ]; Html.div [ prop.className "collapse-content"; prop.children [ (if ${open} then Html.div [ prop.children [ ${title}${form} ] ] else Html.none) ] ] ] ])`;
     // A currentUser-only `requires` hides the disclosure for a principal it
     // refuses — the same one-line `match` over the decoded claims `Action` uses.
     const found = ctx.authUi ? modalOp(formChild, ctx) : undefined;

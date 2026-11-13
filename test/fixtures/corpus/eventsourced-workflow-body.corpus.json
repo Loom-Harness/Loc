@@ -1,0 +1,11 @@
+{
+  "title": "an event-sourced workflow handler loads a row, calls an operation on it and emits a value it read — one transaction, rolled back by a later guard",
+  "doc": "workflow",
+  "backends": "ALL",
+  "note": "Elixir's event-sourced handler rendered only guards, `let x = <expr>` and emits: a `let o = Orders.get(…)`, an operation call and a create were dropped with no diagnostic, so an emit reading `o` did not compile.  It also ran without a transaction, so nothing rolled back a failure after a write.",
+  "apiCaller": {
+    "unattributed": [
+      "api.billing.instance (no such aggregate)"
+    ]
+  }
+}

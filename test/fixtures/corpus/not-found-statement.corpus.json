@@ -1,0 +1,12 @@
+{
+  "title": "`notFound` / `notFound \"detail\"` in the `else` of an `if let` over a criterion read — a routed commandHandler and a workflow body answer the same ProblemDetails 404 a `getById` miss does",
+  "doc": "workflow",
+  "backends": "ALL",
+  "note": "#4259.  A criterion read has no uniqueness guarantee, so `get(C)` is refused and a must-exist lookup is an `if let … else { notFound }`.  The wire golden carries the statement's 404 next to a by-id miss, so a backend that answered it with a different envelope (or status) diverges per-PR.",
+  "apiCaller": {
+    "//": "A workflow run whose `if let` else answers `notFound` — same class.",
+    "unattributed": [
+      "api.escalateFirst.run (no such aggregate)"
+    ]
+  }
+}

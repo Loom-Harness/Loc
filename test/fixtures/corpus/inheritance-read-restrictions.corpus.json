@@ -1,0 +1,12 @@
+{
+  "title": "inheritance (TPH + TPC) × a subtype capability × a subtype-only-column filter × `ignoring` × polymorphic base reads × `tenantOwned` across two tenants",
+  "doc": "inheritance",
+  "backends": "ALL",
+  "note": "The behavioural answer key of epic #3954, which every backend's ORM-native rework (#3960–#3965) is proven against.  Every backend builds it; a leg that still gets a crossing wrong boots it as a tracked expected failure (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs).",
+  "apiCaller": {
+    "//": "`handler-triad`'s whole api is explicit `route … -> Sales.<Handler>` bindings, and all five are now driven (`api.sales.echo(…)` &c) along with the aggregate's two collection reads.  These two are what is left: `Order` declares no `crudish` and no author-declared create, so there is no `POST /api/orders` and no row to address.  See `R.noCreateRoute`. The #3954 fixture's tenant registry exists only so `tenancy … of Organization` resolves; it declares no create, so its collection read is driven (empty) and the id-taking read has no row to address.",
+    "uncalled": {
+      "getOrganizationById": "noCreateRoute"
+    }
+  }
+}

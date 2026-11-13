@@ -642,44 +642,21 @@ hand-write the member with its own `requires`.
 
 ## Audit — now the builtin `capability auditable`
 
-> **Removed as macros.** `audit` / `auditable` / `auditedByDefault`
-> no longer exist as macros.  Audit ships as the **builtin
-> `capability auditable`** declared in `src/macros/prelude.ts` — apply
-> it directly via the capability surface (`implements auditable` +
-> the prelude's `filter` / `stamp` rules) rather than a `with`
-> clause.  See [`capabilities.md`](capabilities.md).
+> **Not a macro.** Audit ships as the **builtin `capability auditable`**
+> declared in `src/macros/prelude.ts`; apply it with `with auditable` (or
+> `implements auditable`). See [`capabilities.md`](capabilities.md).
 
-The capability adds the four canonical audit fields (`createdAt`,
-`updatedAt`, `createdBy: User id`, `updatedBy: User id`) and the
-context-level stamping rules:
+The capability contributes the four canonical audit fields (`createdAt`,
+`updatedAt`, `createdBy`, `updatedBy` — the last two name the principal) and the
+stamping rules that fill them, so there is nothing to declare by hand:
 
 ```ddd
 context Sales {
-  stamp onCreate {
-    createdAt := now()
-    createdBy := currentUser
-  }
-  stamp onUpdate {
-    updatedAt := now()
-    updatedBy := currentUser
-  }
-
-  aggregate Order {
+  aggregate Order with auditable {
     subject: string
-    createdAt: datetime
-    updatedAt: datetime
-    createdBy: User id
-    updatedBy: User id
-    implements auditable
   }
 }
 ```
-
-Why keep fields and stamps separate?  The stamping rules are a
-*context-level* concern — they assign the same fields the same way
-for every audited aggregate — while the field declarations and the
-`implements auditable` opt-in are *per-aggregate*.  See
-[`capabilities.md`](capabilities.md) for the underlying surface.
 
 ## `softDelete` / `softDeleteByDefault`
 

@@ -27,8 +27,9 @@ plural/select would be lost outright. One `messageKey()` → one catalog →
 one message is the invariant the whole i18n design rests on.
 
 **Second-tier gate.** The CLDR backend costs real compile time, so it
-ships only for a ui with an **interpolated** message — one tier below
-the existing "has any string at all" gate. A translatable-but-literal-only
+ships only for a ui with an **interpolated** message (or a `DateDisplay`,
+`D-HEEX-I18N-FORMAT`) — one tier below the existing "has any string at
+all" gate. A translatable-but-literal-only
 Phoenix app keeps the deps, files and bytes it had before. The gate reads
 the extraction pass's per-entry `icu` marker, not a `{`-sniff over the
 catalog: merged pack chrome carries holes too (`chrome.pageOf` is "Page
@@ -36,11 +37,11 @@ catalog: merged pack chrome carries holes too (`chrome.pageOf` is "Page
 
 **Documented degradation.** `ex_cldr_messages` implements ICU
 MessageFormat but not ICU number **skeletons** — `{total, number,
-::currency/USD}`, the spelling Loom's own grammar documents — and raises
-on a `date` style unless `ex_cldr_dates_times` is configured. An
-unformattable message degrades to raw hole substitution rather than
-crashing the render: the value appears unformatted, which is what the
-page showed before it was translatable. Same trade, same reason, as the
+::currency/USD}`, the spelling Loom's own grammar documents — so the
+generated runtime formats the skeletons Loom spells through `Cldr.Number`
+(`D-HEEX-I18N-FORMAT`). A message the engine still cannot format degrades
+to raw hole substitution rather than crashing the render: the value appears
+unformatted, which is what the page showed before it was translatable. Same trade, same reason, as the
 Flutter runtime's `_substitute` fallback — though Flutter no longer
 *needs* it for skeletons: its runtime pre-formats the `, number` /
 `, date` / `, time` holes through `intl`'s `NumberFormat`/`DateFormat`

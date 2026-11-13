@@ -1,0 +1,9 @@
+{
+  "title": "domain names that collide with a symbol the target already binds: a domain-service operation calling its sibling by bare name, an enum / aggregate named after a .NET implicit-using type (`TaskStatus`, `ServiceProvider`), a value-object function naming its own class, a python field `property`, and a python-keyword operation (`raise`) called from a workflow",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "The gate of the per-target symbol plan (`src/generator/_symbols/`): each declaration was fatal on at least one backend's compile or import, and the compile legs are the oracle.  The plan escapes or aliases only colliding names, so the rest of the corpus is byte-identical.",
+  "apiCaller": {
+    "e2eLess": "The defect is a COMPILE failure on node / .NET / python (a domain name colliding with a symbol the target already binds); every fix is a host-source spelling the wire cannot see.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT."
+  }
+}

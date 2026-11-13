@@ -747,8 +747,14 @@ function buildDataCardParts(
 ): { card: Expression; related: Expression[] } {
   const slug = routeSegmentFor(agg.name);
   const rows: Array<{ name?: string; value: Expression }> = [];
+  const collectionCards: Expression[] = [];
   for (const f of userFacingProperties(agg)) {
-    if (f.type.array) continue;
+    if (f.type.array) {
+      const shown = collectionDetail(agg.name, f, cellVar, slug);
+      if (shown?.row) rows.push({ value: shown.row });
+      if (shown?.card) collectionCards.push(shown.card);
+      continue;
+    }
     const name = String(f.name);
     const vo = valueObjectTarget(f.type);
     if (vo) {
@@ -811,7 +817,7 @@ function buildDataCardParts(
     });
   }
 
-  const related: Expression[] = [];
+  const related: Expression[] = [...collectionCards];
   for (const c of agg.members.filter((m): m is Containment => m.$type === "Containment")) {
     const part = c.partType.ref;
     if (!part) continue;
@@ -819,6 +825,72 @@ function buildDataCardParts(
   }
 
   return { card: callExpr("Card", [{ value: callExpr("Stack", rows) }]), related };
+}
+
+/** How the Detail page shows an array field.  String items read as one joined
+ *  `KeyValueRow` (`join` takes a string collection); any other element — a
+ *  number, an enum, a reference, a value object, money, a date-time, a file —
+ *  is a `Card` framing a `Table` with one row per item, each cell typed as a
+ *  scalar field of that type is (a value object flattens into its leaf
+ *  columns, as a part's does).  An optional array
+ *  has no detail rendering: a join over an absent list has no safe reading on
+ *  every frontend. */
+function collectionDetail(
+  aggName: string,
+  f: Property,
+  cellVar: string,
+  slug: string,
+): { row?: Expression; card?: Expression } | undefined {
+  if (f.type.optional) return undefined;
+  const name = String(f.name);
+  const items = (): Expression => memberAccess(nameRefExpr(cellVar), name);
+  const element = { ...f.type, array: false } as TypeRef;
+  const vo = valueObjectTarget(element);
+  const kind = vo ? null : kindForType(element, false);
+  if (!vo && !kind) return undefined;
+  const base = element.base;
+  if (base.$type === "PrimitiveType" && base.name === "string") {
+    return {
+      row: callExpr("KeyValueRow", [
+        { value: labelOf(aggName, name) },
+        {
+          value: callExpr("Text", [
+            { value: memberAccess(items(), "join", { call: true, args: [stringLit(", ")] }) },
+          ]),
+        },
+        { name: "testid", value: stringLit(`${slug}-detail-${name}`) },
+      ]),
+    };
+  }
+  const columns: PartColumn[] = vo
+    ? valueObjectColumns((row) => row(), humanize(name), vo)
+    : [{ label: labelOf(aggName, name), cell: (row) => typedCell(row, kind!) }];
+  const table = callExpr("Table", [
+    ...columns.map((col) => ({
+      value: callExpr("Column", [
+        { value: col.label },
+        {
+          value: lambda(
+            "row",
+            col.cell(() => nameRefExpr("row")),
+          ),
+        },
+      ]),
+    })),
+    { name: "rows", value: items() },
+    { name: "striped", value: boolLit(true) },
+    { name: "keyExpr", value: stringLit("idx") },
+  ]);
+  const heading = callExpr("Heading", [
+    { value: labelOf(aggName, name) },
+    { name: "level", value: intLit(4) },
+  ]);
+  return {
+    card: callExpr("Card", [
+      { value: callExpr("Stack", [{ value: heading }, { value: table }]) },
+      { name: "testid", value: stringLit(`${slug}-detail-${snake(name)}`) },
+    ]),
+  };
 }
 
 /** One related-entity `Card` for a containment — a framed `Table` over the

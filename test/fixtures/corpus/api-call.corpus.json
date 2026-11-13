@@ -1,0 +1,14 @@
+{
+  "//": "The emitted DIR names, which are snake_cased from the deployable names (`ordersSvc` → `orders_svc`) — the coverage gate cross-checks these against what actually lands on disk.",
+  "title": "typed in-system api call — `resource { kind: api, use: <Api> }` a sibling deployable serves",
+  "doc": "resources",
+  "backends": "ALL",
+  "deployables": [
+    "orders_svc",
+    "shipping_svc"
+  ],
+  "note": "Two deployables: the caller's client is DERIVED from the callee's served operation set, so a single-deployable fixture cannot exercise it.",
+  "apiCaller": {
+    "e2eLess": "TWO DEPLOYABLES — the caller's client is derived from the callee's served operation set (see the manifest note), and the behavioural corpus requires exactly one `platform: node` deployable per case so dispatch is unambiguous. Its own runtime leg is `api-call-e2e.yml` (label/post-merge). RE-CHECKED in wave C3 packet 3a: still true — the same exclusion `projection-split-deployables` carries (every runner's deployable finder throws on a second backend).  A reasoned permanent entry for THIS tier; promoting `api-call-e2e` into the queue is packet 3e's row."
+  }
+}

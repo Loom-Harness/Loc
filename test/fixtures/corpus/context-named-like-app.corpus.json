@@ -1,0 +1,12 @@
+{
+  "title": "a deployable named like the context it hosts (`deployable claims` hosting `context Claims`) — on elixir the app module and the context facade share a name (`Claims` / `Claims.Claims`)",
+  "doc": "language",
+  "backends": "ALL",
+  "deployables": [
+    "claims"
+  ],
+  "note": "Minted by the claims developer-persona eval (wave 2).  Every elixir controller opened with `alias Claims.Claims`, which rebinds `Claims` itself, so the same file's `rescue guard_error in Claims.GuardError` resolved to `Claims.Claims.GuardError` and `mix compile --warnings-as-errors` failed — while `generate system` reported `0 error(s), 0 warning(s)`.  Repaired, not refused: when the context name equals the app module the controller drops the facade alias and calls `Claims.Claims.<fn>` fully qualified (`contextCallRef` in `src/generator/elixir/vanilla/denial.ts`), so every non-clashing model stays byte-identical.  Both controller emitters (relational + event-sourced) are exercised.  The row is ALL because the other four backends have no alias semantics here and must keep compiling the same names.",
+  "apiCaller": {
+    "e2eLess": "The defect is an elixir COMPILE failure (`alias Claims.Claims` shadowing the app module in every controller, so `Claims.GuardError` was undefined); the fix only changes how the controller spells the facade, which is not observable on the wire.  `corpus-elixir-build` is its oracle.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT."
+  }
+}

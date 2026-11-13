@@ -1372,8 +1372,8 @@ When the same subdomain is hosted on more than one deployable across
 different platforms (Hono, .NET, Phoenix, Python, Java — all five are
 diffed), the e2e additionally diffs their OpenAPI specs across every
 backend pair to catch generator drift. Each backend self-describes via
-its framework-native OpenAPI emitter (Java's springdoc spec is brought
-to parity by an `OpenApiContractCustomizer` document filter):
+its framework-native OpenAPI emitter, from generator configuration and
+source metadata only (D-OPENAPI-FRAMEWORK-NATIVE):
 
 Every backend serves the spec at the **aligned** path `/openapi.json` (root):
 
@@ -1563,7 +1563,7 @@ worktrees and `settings.local.json` stay local.
 |---|---|---|
 | `SessionStart` | `session-start.sh` | `npm install` (the `prepare` lifecycle) on a fresh remote container. Idempotent, remote-only (`$CLAUDE_CODE_REMOTE`). |
 | `Stop` | `biome-gate.sh` | `npm run lint` (`biome ci .`, the exact `test.yml` step) when a turn ends with work in the tree. Blocks and feeds the output back, then releases with a loud warning after **one** fix cycle so it cannot loop. Never blocks when Biome isn't installed. |
-| `PreToolUse(Bash)` | `pre-push-merge-check.sh` | Gates `git push` — see below. Non-push Bash calls early-exit, so it costs nothing per call. |
+| `PreToolUse(Bash)` | `pre-push-merge-check.sh` | Gates `git push` — see below. Non-push Bash calls early-exit, so it costs nothing per call; `git push` inside a quoted string or a heredoc body is text, not a push. |
 
 ### The push preflight
 
@@ -1595,7 +1595,8 @@ worktrees and `settings.local.json` stay local.
 
    Then, in the same worktree, the fast whole-tree **censuses and ratchets**
    (`test/system/*census*.test.ts`, `*ratchet*.test.ts`,
-   `typing-differential.test.ts`) — every one except the three corpus-wide
+   `typing-differential.test.ts`, `unsupported-register.test.ts`,
+   `test/ir/api-caller-census.test.ts`) — every one except the three corpus-wide
    censuses that take 1.5–5 min each (`diagnostic-firing`,
    `openapi-component-uniqueness`, `ddd-source`), which stay CI-only.  A census
    pins a whole-tree count, so two branches that each pass it can fail it

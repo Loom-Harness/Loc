@@ -72,6 +72,7 @@ import {
   renderFormField,
 } from "../_frontend/form-spec.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
+import { workflowResultSegment } from "../_frontend/workflow-result.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { chromeKey, chromeMessage, sentenceChromeName } from "../_walker/i18n-chrome.js";
 import {
@@ -184,6 +185,9 @@ export interface FlutterFormField {
    *  (`operationFormSpec` → `prefill.from === "record"`).  A flattened
    *  value-object leaf reads through its `objectPath`. */
   fromRecord?: true;
+  /** The record field is `provenanced`: its value is the wire carrier's
+   *  `value`. */
+  recordCarrier?: true;
   /** Client-side rules derived from the aggregate's (or operation's)
    *  wire-translatable `invariant`s — M-T1.16 / ledger row
    *  `M-T1.16-invariant-validation-feliz-flutter`.  Empty/absent ⇒ the emitted
@@ -241,6 +245,12 @@ export interface FlutterFormSpec {
   kind: "create" | "operation" | "destroy";
   /** The aggregate operated on (`Product`). */
   aggregate: string;
+  /** A workflow run may write any aggregate, so its success drops every cached
+   *  read rather than one aggregate's. */
+  invalidatesAllReads?: boolean;
+  /** A workflow run whose start route answers with the created record's id:
+   *  the route segment of that record, which the form opens on success. */
+  resultSegment?: string;
   /** Whether the widget takes a `required String id` ctor arg (op / destroy). */
   needsId: boolean;
   /** Fully-built request path (a Dart string-literal body, e.g. `/products` or
@@ -952,7 +962,16 @@ export function flutterOperationForm(
     const seeded = new Set(
       spec.fields.filter((f) => f.prefill.from === "record").map((f) => f.name),
     );
-    for (const f of fields) if (seeded.has(f.objectPath?.[0] ?? f.jsonKey)) f.fromRecord = true;
+    const carriers = new Set(
+      spec.fields
+        .filter((f) => f.prefill.from === "record" && f.prefill.carrier)
+        .map((f) => f.name),
+    );
+    for (const f of fields) {
+      const root = f.objectPath?.[0] ?? f.jsonKey;
+      if (seeded.has(root)) f.fromRecord = true;
+      if (carriers.has(root)) f.recordCarrier = true;
+    }
   }
   attachRules(
     fields,
@@ -1032,6 +1051,8 @@ export function flutterWorkflowForm(
     aggregate: wf.name,
     needsId: false,
     pathExpr: `/workflows/${snake(wf.name)}`,
+    invalidatesAllReads: true,
+    ...(workflowResultSegment(wf) ? { resultSegment: workflowResultSegment(wf) } : {}),
     submitLabel: run ? run.defaultText : opDefaultText(wf.name, "run"),
     ...(text && run ? { submitExpr: dartTranslate(run.key, run.defaultText) } : {}),
     fields,
@@ -1396,7 +1417,8 @@ function loaderId(wireName: string): string {
 function recordLeaf(f: FlutterFormField, rowKey = f.jsonKey): string {
   let e = "r";
   for (const k of f.objectPath ?? []) e = `(${e}['${dartStr(k)}'] as Map<String, dynamic>?)`;
-  return `${e}${(f.objectPath ?? []).length > 0 ? "?" : ""}['${dartStr(rowKey)}']`;
+  const leaf = `${e}${(f.objectPath ?? []).length > 0 ? "?" : ""}['${dartStr(rowKey)}']`;
+  return f.recordCarrier ? `(${leaf} as Map<String, dynamic>?)?['value']` : leaf;
 }
 
 /** One object-array cell's initial slot value, read out of the row map `m`. */
@@ -2231,7 +2253,7 @@ class ServerErrors {
 }
 
 /** The `_submit` method for a fields-bearing (create / operation) form. */
-function submitMethod(spec: FlutterFormSpec): string[] {
+function submitMethod(spec: FlutterFormSpec, invalidates: boolean): string[] {
   // A param-less form has no field to point at: its rejection is all banner.
   const hasSlots = spec.fields.length > 0;
   const gate =
@@ -2257,7 +2279,11 @@ function submitMethod(spec: FlutterFormSpec): string[] {
     "          body: jsonEncode(body));",
     "      if (res.statusCode >= 200 && res.statusCode < 300) {",
     "        if (!mounted) return;",
-    "        Navigator.of(context).pop();",
+    ...invalidateCall(spec, invalidates),
+    // A run that created a record opens it in place of the form.
+    spec.resultSegment
+      ? `        Navigator.of(context).pushReplacementNamed('/${spec.resultSegment}/\${jsonDecode(res.body) as String}');`
+      : "        Navigator.of(context).pop();",
     "        return;",
     "      }",
     // A rejection lands at the fields its ProblemDetails pointers name; the
@@ -2282,8 +2308,20 @@ function submitMethod(spec: FlutterFormSpec): string[] {
   ];
 }
 
+/** The cache drop a successful write runs before it closes: the operated-on
+ *  aggregate's reads, or every read for a workflow.  Absent when the ui issues
+ *  no reads (`lib/reads.dart` does not exist). */
+function invalidateCall(spec: FlutterFormSpec, invalidates: boolean): string[] {
+  if (!invalidates) return [];
+  return [
+    spec.invalidatesAllReads
+      ? "        invalidateReads(context);"
+      : `        invalidateReads(context, '${dartStr(spec.aggregate)}');`,
+  ];
+}
+
 /** The `_submit` method for a destroy form (no fields, a DELETE). */
-function destroySubmitMethod(spec: FlutterFormSpec): string[] {
+function destroySubmitMethod(spec: FlutterFormSpec, invalidates: boolean): string[] {
   return [
     "  Future<void> _submit() async {",
     "    setState(() {",
@@ -2294,6 +2332,7 @@ function destroySubmitMethod(spec: FlutterFormSpec): string[] {
     `      final res = await http.delete(apiUri('${spec.pathExpr}'));`,
     "      if (res.statusCode >= 200 && res.statusCode < 300) {",
     "        if (!mounted) return;",
+    ...invalidateCall(spec, invalidates),
     "        Navigator.of(context).pop();",
     "        return;",
     "      }",
@@ -2322,7 +2361,7 @@ function submitButton(spec: FlutterFormSpec): string {
 }
 
 /** Emit one form widget class (a `StatefulWidget` + its `State`). */
-export function renderFormWidget(spec: FlutterFormSpec): string {
+export function renderFormWidget(spec: FlutterFormSpec, invalidates = false): string {
   const w = spec.widgetName;
   const ctorArgs =
     spec.needsId || spec.gateProbe
@@ -2407,7 +2446,10 @@ export function renderFormWidget(spec: FlutterFormSpec): string {
       ? ["", "  @override", "  void dispose() {", ...dispose, "    super.dispose();", "  }"]
       : [];
 
-  const submit = spec.kind === "destroy" ? destroySubmitMethod(spec) : submitMethod(spec);
+  const submit =
+    spec.kind === "destroy"
+      ? destroySubmitMethod(spec, invalidates)
+      : submitMethod(spec, invalidates);
   const pickers = filePickers(spec.fields);
 
   return lines(
@@ -2458,9 +2500,12 @@ export function renderFormsFile(
   /** True when the ui ships `lib/i18n.dart`: the server's refusals localize by
    *  code through its `t`. */
   i18n = false,
+  /** True when the ui issues reads (`lib/reads.dart` exists): a successful write
+   *  drops the cached reads it made stale. */
+  invalidatesReads = false,
 ): string {
   if (forms.length === 0) return "";
-  const blocks = forms.map(renderFormWidget);
+  const blocks = forms.map((f) => renderFormWidget(f, invalidatesReads));
   // A `file` input picks through `file_picker` and reifies the uploaded
   // `FileRef` from `models.dart`; a File-free form set keeps its old import
   // list byte-identical.
@@ -2480,6 +2525,7 @@ export function renderFormsFile(
     "import 'config.dart';",
     ...(i18n || blocks.some(callsTranslate) ? ["import 'i18n.dart';"] : []),
     ...(usesFile ? ["import 'models.dart';"] : []),
+    ...(invalidatesReads ? ["import 'reads.dart';"] : []),
     "",
     ...blocks.flatMap((b, i) => (i === 0 ? [b] : ["", b])),
     "",

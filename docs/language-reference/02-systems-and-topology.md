@@ -389,7 +389,7 @@ The backend families and what they generate (registered in `src/platform/registr
 | `python` | FastAPI + SQLAlchemy 2 (async) | 8000 | postgres | embeds a SPA |
 | `elixir` | Phoenix + Ecto, LiveView when a `ui:` is mounted — fullstack | 4000 | postgres | LiveView or a SPA |
 
-These are the only spellings — the legacy aliases (`hono` → `node`, `fastapi` → `python`, `phoenix`/`phoenixLiveView` → `elixir`) were **retired**; writing them now fails validation as an unknown platform. A backend may pin a `family@version` via the `STRING` alternative — `platform: "node@v5"` selects the zod-4 / TS-6 Hono package, which is also what bareword `platform: node` resolves to. `node@v4` (zod 3 / TS 5) was retired; pinning it is a validation error naming `node@v5`. `elixir` is dual-natured: it owns a database **and** mounts a `ui:` (Phoenix LiveView), so it is the one *fullstack* platform; `dotnet`, `java` and `python` are backend-only until the deployable declares `ui:`, at which point they embed the referenced SPA bundle under their served static root.
+These are the only spellings — the legacy aliases (`hono` → `node`, `fastapi` → `python`, `phoenix`/`phoenixLiveView` → `elixir`) were **retired**; writing them is a parse error (`Unexpected 'phoenix'. Expected one of: 'dotnet', 'node', …`). A backend may pin a `family@version` via the `STRING` alternative — `platform: "node@v5"` selects the zod-4 / TS-6 Hono package, which is also what bareword `platform: node` resolves to. `node@v4` (zod 3 / TS 5) was retired; pinning it is a validation error naming `node@v5`. `elixir` is dual-natured: it owns a database **and** mounts a `ui:` (Phoenix LiveView), so it is the one *fullstack* platform; `dotnet`, `java` and `python` are backend-only until the deployable declares `ui:`, at which point they embed the referenced SPA bundle under their served static root.
 
 Per-platform output for the same `aggregate Order` is the subject of [Aggregates & domain model](03-domain-modeling.md); here the platform choice is what selects the *whole project shape* shown above.
 
@@ -621,6 +621,15 @@ system Shop {
 ```
 
 Data visibility is flat: a `tenantOwned` row is visible to its own org only (`tenant_id = <operating org>`), and `tenantId` is the only column tenancy adds. The registry tree (`parent`, an ordinary mutable field — a move is an operation the author writes) is for managing sub-tenants and takes no part in a data read. The generated filters, stamps, and the `loom.tenancy-*` / `loom.policy-*` gate catalogue are covered in [`../tenancy.md`](../tenancy.md) and [Capabilities, filters & stamps](11-capabilities-filters-stamps.md).
+
+### Reference admission
+
+An `X id` a row stores from a request resolves in the target's scope: an id of
+another tenant's `tenantOwned` row is refused exactly like an id of no row
+(422 — the backend's answer to a dangling reference); `crossTenant` and registry targets are
+checked by the foreign key alone; a `tenantOwned` target in another context
+cannot be checked: `loom.tenancy-ref-unresolvable` is an error under `enforcement: denyByDefault` and a warning under `opt`.  See
+[`../tenancy.md` → "Reference admission"](../tenancy.md#reference-admission).
 
 ### `organizationContext` — the operating scope
 

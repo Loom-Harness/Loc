@@ -1,0 +1,13 @@
+{
+  "title": "a loaded value collection copied into another aggregate (create + `:=`)",
+  "doc": "language",
+  "backends": "ALL",
+  "note": ".NET element-copies a value-object list (`x with { }`) at the create factory and at `:=`, so EF never re-parents another owner's tracked owned instances; elixir turns a loaded child-row struct into params before `cast_assoc`. Both answered 500 before.",
+  "apiCaller": {
+    "//": "A workflow run — the `notLifted` class.",
+    "unattributed": [
+      "api.adoptFrom.run (no such aggregate)",
+      "api.draftNext.run (no such aggregate)"
+    ]
+  }
+}

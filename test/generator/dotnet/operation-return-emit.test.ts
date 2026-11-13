@@ -82,7 +82,9 @@ describe("dotnet — exception-less operation returns (A3)", () => {
     expect(c).toMatch(
       /return new ObjectResult\(\(\S+\.OrderOrNotFound\)new \S+\.OrderOrNotFound_Order\(v\.Id, v\.Code, v.RowVersion\)\) \{ StatusCode = 200, DeclaredType = typeof\(\S+\.OrderOrNotFound\) \};/,
     );
-    expect(c).toMatch(/\[ProducesResponseType\(typeof\(\S+\.OrderOrNotFound\), 200\)\]/);
+    // The 200 declares only the success arms (`<Union>Success`): the error arm
+    // answers as a problem at its own status.
+    expect(c).toMatch(/\[ProducesResponseType\(typeof\(\S+\.OrderOrNotFoundSuccess\), 200\)\]/);
   });
 
   it("imports the owning aggregate's Responses namespace when a variant flattens a containment", async () => {

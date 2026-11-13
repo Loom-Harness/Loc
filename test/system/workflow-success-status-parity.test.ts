@@ -96,12 +96,10 @@ const BACKENDS: {
     platform: "elixir",
     handler: "controllers/workflows_controller.ex",
     serves: /def respond\(conn, \{:ok, _result\}\), do: send_resp\(conn, 204, ""\)/,
-    spec: "_api_spec.ex",
+    // The action's `operation` spec sits on the workflows controller.
+    spec: "controllers/workflows_controller.ex",
     declaredSuccess: (src) =>
-      successOf(
-        sliceAfter(src, /"\/api\/workflows\/place_order"/),
-        /(\d{3}) => %OpenApiSpex\.Response\{/g,
-      ),
+      successOf(sliceAfter(src, /operation :place_order,/), /(\d{3}) => %OpenApiSpex\.Response\{/g),
   },
   {
     platform: "python",
@@ -147,7 +145,7 @@ function sliceAfter(src: string, marker: RegExp): string {
   const next = rest
     .slice(1)
     .search(
-      /@PostMapping|@router\.(post|get)|\[HttpPost|\[HttpGet|app\.openapi\(|"\/workflows\/\w+\/|"\/[^"]+" => %OpenApiSpex\.PathItem/,
+      /@PostMapping|@router\.(post|get)|\[HttpPost|\[HttpGet|app\.openapi\(|"\/workflows\/\w+\/|\n {2}def place_order\(/,
     );
   return next === -1 ? rest : rest.slice(0, next + 1);
 }

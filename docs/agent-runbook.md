@@ -81,12 +81,14 @@ A fleet does not send one PR per worker through the merge queue. Each queue entr
 **Coordinator**
 1. Branch the train from fresh `main`. Merge each finished member in with a **merge commit** — never squash or rebase — so each member's commits survive, `git bisect` can walk them, and a member PR based on `main` is closed as merged when the train lands.
 2. **3–8 members**, preferably one `area:`. Resolve conflicts between members once, here, instead of in the queue.
-3. Before queueing: merge `origin/main` once, run the push preflight and the heavy gates for every area the train touches. Then open **one** ready-for-review PR (title `Train: #a #b #c`, members listed in the body, each `Fixes #N` carried over), push **once**, enable auto-merge.
+3. Before queueing: merge `origin/main` once, run the push preflight, then `npm run prequeue` — it checks `origin/main` + the train in a throwaway worktree (`tsc -b`, test typecheck, lint, the fast censuses) and lists the per-backend compile gates the diff reaches; `npm run prequeue -- --heavy` runs them one at a time. Run it for every area the train touches. Then open **one** ready-for-review PR (title `Train: #a #b #c`, members listed in the body, each `Fixes #N` carried over), push **once**, enable auto-merge.
 4. **Red, in CI or after a queue ejection:** read which check failed and find the member from the log; when that is not obvious, `git bisect` over the member merges **locally** — never re-run CI to bisect. Rebuild the train without that member (do not revert on top), push once, and hand the member back to its worker on its draft.
 5. A member that keeps conflicting with `main` lands first, alone: ask the owner to jump it to the front of the queue rather than syncing it again.
 
 **Rules learned the hard way**
 - No pushes while the train is queued — GitHub refuses them (GH006), and a sync of a queued PR re-runs everything for nothing.
+- **Pulling a queued train to fix it.** A session has no dequeue button, and a push to a queued PR is refused with GH006. The lever is: close the PR (closing removes it from the queue), push the fix, reopen it, mark it ready for review, and enable auto-merge again. Closing and reopening keeps the PR number, its `Fixes #N` lines and its review history.
+- **Rebuild before a mutation run.** `bin/cli.js` runs the compiled `out/`, so a mutation made in `src/` reaches no CLI-driven leg until `npx tsc -b` has run. The CLI refuses to start while a `src/` file is newer than the last build.
 - A member PR whose base is another member (a stacked PR) is **not** auto-closed when the train lands; close it by hand.
 - One push per fix. A conflict with `main` is the only reason to sync an open train.
 - **A queue timeout drops auto-merge.** When the merge queue removes a train for exceeding its checks timeout (a `removed_from_merge_queue` event, not a failed check), auto-merge is switched off. Re-enable it by hand once the cause is clear, or the train sits ready and never re-enters the queue.

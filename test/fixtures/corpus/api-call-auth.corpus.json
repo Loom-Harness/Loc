@@ -1,0 +1,13 @@
+{
+  "title": "typed in-system api call to an `auth: required` callee — the caller's credential is forwarded",
+  "doc": "auth",
+  "backends": "ALL",
+  "deployables": [
+    "orders_svc",
+    "shipping_svc"
+  ],
+  "note": "Two deployables, both `auth: required`: each backend's client copies the inbound bearer token (or the dev-stub claims header) from its request-scoped carrier onto every call.  The runtime half is `api-call-e2e`, whose fixture requires auth on both sides.",
+  "apiCaller": {
+    "e2eLess": "TWO DEPLOYABLES, as `api-call` above, with auth required on both: the runtime half (the callee stamping the forwarded principal) is `api-call-e2e`, whose fixture requires auth on both sides."
+  }
+}

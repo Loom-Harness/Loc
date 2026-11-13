@@ -1,0 +1,15 @@
+{
+  "title": "tenancy claim not named `tenantId` — the declared claim binds the tenantOwned stamp/filter",
+  "doc": "tenancy",
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "Same registry class, under the `orgId` claim.",
+    "uncalled": {
+      "createOrganization": "tenantRegistryRow",
+      "getOrganizationById": "tenantRegistryRow",
+      "destroyOrganization": "tenantRegistryRow",
+      "updateOrganization": "tenantRegistryRow",
+      "allOrganization": "tenantRegistryRow"
+    }
+  }
+}

@@ -17,7 +17,7 @@ Disambiguation by "presence of `for:`" is an accident, not a design.
 | Keyword | Role | Carries |
 |---|---|---|
 | `storage` | Physical infrastructure instance | `type`, `instance`, `connection`, `outbox`, `follows` |
-| `dataSource` | Logical (context, kind) → storage binding | `for: <Context>`, `kind: <state\|eventLog\|snapshot\|cache\|replica>`, `use: <storage>`, plus per-`kind` config (`schema`/`ttl`/`every`/`retain`/`keyPrefix`/…) |
+| `resource` | Logical (context, kind) → storage binding | `for: <Context>`, `kind: <state\|eventLog\|snapshot\|cache\|replica>`, `use: <storage>`, plus per-`kind` config (`schema`/`ttl`/`every`/`retain`/`keyPrefix`/…) |
 | `deployable` | Process/runtime unit | `contexts: [...]`, `dataSources: [...]`, platform config |
 
 Worked example:
@@ -27,13 +27,14 @@ storage pg     { type: postgres }
 storage kafka  { type: kafka }
 storage redis  { type: redis }
 
-dataSource ordersState    { for: Orders, kind: state,    use: pg }
-dataSource ordersEvents   { for: Orders, kind: eventLog, use: kafka }
-dataSource ordersCache    { for: Orders, kind: cache,    use: redis, ttl: 60 }
-dataSource ordersSnapshot { for: Orders, kind: snapshot, use: redis,
-                            every: 100, retain: 5 }
+resource ordersState      { for: Orders, kind: state,    use: pg }
+resource ordersEvents     { for: Orders, kind: eventLog, use: kafka }
+resource ordersCache      { for: Orders, kind: cache,    use: redis, ttl: 60 }
+resource ordersSnapshot   { for: Orders, kind: snapshot, use: redis,
+                          every: 100, retain: 5 }
 
 deployable api {
+  platform:    node
   contexts:    [Orders]
   dataSources: [ordersState, ordersEvents, ordersCache, ordersSnapshot]
 }
@@ -45,7 +46,7 @@ deployable api {
   separate concepts that happen to live in the same domain. A naming
   rule that makes them parse identically and rely on a sentinel field
   (`for:`) is fragile.
-- `dataSource` reads naturally for "a configured source/sink of data
+- `resource` reads naturally for "a configured source/sink of data
   for one purpose within one context."
 - Keeping `storage` for the physical form preserves the most-typed
   surface (every project has physical stores; only some need rich
@@ -55,17 +56,17 @@ deployable api {
 
 **Validator rules implied.**
 
-- `dataSource` requires both `for:` (a context) and `kind:`. Missing
+- `resource` requires both `for:` (a context) and `kind:`. Missing
   either → parse / validate error.
 - For each `(context, kind)` actually needed by aggregates in the
-  context, exactly one `dataSource` must exist with matching `for:`
+  context, exactly one `resource` must exist with matching `for:`
   and `kind:`. State-based aggregate → `kind: state` required;
   ES aggregate → `kind: eventLog` required; `cache`-annotated
   aggregate → `kind: cache` required; etc.
 - A deployable's `dataSources:` must include exactly the dataSources
   `for:` the contexts it hosts (one per needed kind) — validator
   rejects under-listing (missing binding for a needed kind) and
-  over-listing (a dataSource `for:` a context the deployable does
+  over-listing (a resource `for:` a context the deployable does
   not host).
 - Per-`kind:` config keys validated against the resolved physical
   store's `type` (e.g., `ttl:` only on Redis kinds).

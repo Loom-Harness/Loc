@@ -1,0 +1,15 @@
+{
+  "title": "`policy { deny [write] on <Agg> }` — the deny-wins carve-out on both the read-filter and write-scope seams",
+  "doc": "auth",
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "`policy-deny` declares `tenancy by user.tenantId of Org`, so `Org` is a third TENANT REGISTRY and its five routes join the ten above under the same one cause — not a deny question at all (the deny stances themselves are fully driven: read-denied with and without a tenant floor, write-denied, and the undenied control).  Asserting the 404s these routes DO answer would pin the harness artefact rather than the feature, and would have to be inverted by the same harness fix that drains the other ten.",
+    "uncalled": {
+      "createOrg": "tenantRegistryRow",
+      "getOrgById": "tenantRegistryRow",
+      "destroyOrg": "tenantRegistryRow",
+      "updateOrg": "tenantRegistryRow",
+      "allOrg": "tenantRegistryRow"
+    }
+  }
+}

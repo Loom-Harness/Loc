@@ -1,0 +1,13 @@
+{
+  "title": "command-triggered `create(…): T { … return <expr> }` — the workflow route answers 200 with the declared value (an `X id`, a scalar read after a transactional body); a result-less create keeps 204",
+  "doc": "workflow",
+  "backends": "ALL",
+  "note": "Banking eval B-03: a workflow POST could only answer 204, so `openAccount` could never tell its caller the new account's id.  The fixture pins the three per-backend hazards: an id result crossing as its raw value (not the java/.NET id record), a transactional result read after two operations (elixir must rebind the updated struct, not return the one its `with`-chain loaded), and a sibling result-less create still answering 204.",
+  "apiCaller": {
+    "unattributed": [
+      "api.openAccount.run (no such aggregate)",
+      "api.topUp.run (no such aggregate)",
+      "api.transfer.run (no such aggregate)"
+    ]
+  }
+}
