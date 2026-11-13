@@ -659,6 +659,10 @@ export interface FelizRowField {
   jsonKey: string;
   /** For a `select` sub-field, the enum's allowed values. */
   enumValues?: string[];
+  /** For an `idselect` sub-field, the referenced aggregate (its options are the
+   *  same all-pages list a flat picker reads) and the field its options show. */
+  idTarget?: string;
+  idLabelField?: string;
   /** Whether the sub-field is required (non-optional) — informational for v1
    *  (row validity does not gate submit yet). */
   required: boolean;
@@ -1293,10 +1297,9 @@ function isExpandableInput(t: TypeIR, vosByName: ReadonlyMap<string, readonly Fi
 
 /** Build a dynamic-row `FelizFieldArray` from an `X[]`-of-value-object input, or
  *  null when the field isn't an array-of-VO (or the VO isn't resolvable).  Only
- *  SCALAR sub-fields render in v1 — a nested VO / array inside the row element is
- *  dropped (mirrors the flat-form scalar limit).  An `id` sub-field degrades to a
- *  plain text input (the raw id string) since a per-row FK `<select>` would need
- *  the target list threaded into every row. */
+ *  SCALAR sub-fields render — a nested VO / array inside the row element is
+ *  dropped (mirrors the flat-form scalar limit).  An `id` sub-field is a picker
+ *  over the target's list, the same list a flat picker of that target reads. */
 function buildFieldArray(
   formType: string,
   field: { name: string; type: TypeIR },
@@ -1325,9 +1328,12 @@ function buildFieldArray(
         wireName: vf.name,
         fsName: fsIdent(vf.name),
         setMsg: `Set${formType}${upperFirst(field.name)}${upperFirst(vf.name)}`,
-        // A per-row FK select would need the target list in every row; v1 renders
-        // the id as plain text instead.
-        inputKind: kind === "idselect" || kind === "checkgroup" || rowFile ? "text" : kind,
+        // A reference picks from the target's list, like a flat picker; a
+        // collection inside a row stays text.
+        inputKind: kind === "checkgroup" || rowFile ? "text" : kind,
+        ...(kind === "idselect" && eb.kind === "id"
+          ? { idTarget: eb.targetName, idLabelField: idLabels.get(eb.targetName) ?? "id" }
+          : {}),
         encodeExpr: rowFile
           ? `Encode.string row.${fsIdent(vf.name)}`
           : encodeExprFor(vf.type, `row.${vf.name}`, optional),
@@ -3602,7 +3608,12 @@ export function renderFormTypes(forms: FormRecord[]): string {
         "",
         `let ${fa.emptyRowBinding} : ${fa.rowType} =`,
         "  {",
-        ...fa.rowFields.map((rf) => `    ${rf.wireName} = ""`),
+        // A required enum starts on its first value, the option its select
+        // shows; every other cell starts empty.
+        ...fa.rowFields.map(
+          (rf) =>
+            `    ${rf.wireName} = ${JSON.stringify(rf.inputKind === "select" && rf.required ? (rf.enumValues?.[0] ?? "") : "")}`,
+        ),
         "  }",
       );
     }
