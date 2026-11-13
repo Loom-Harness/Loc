@@ -20,6 +20,7 @@ import {
   workflowEmitsCommandRoute,
 } from "../../../ir/types/loom-ir.js";
 import {
+  aggregatesCanTripDanglingReference,
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
@@ -246,6 +247,9 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
         : undefined,
       aggregateRouteTypes(contexts),
       constraintTypeEntries(contexts),
+      contexts.some((c) => aggregatesCanTripDanglingReference(c.aggregates))
+        ? exStatus("dangling-reference", structuralStatuses)
+        : undefined,
     );
   out.set(`lib/${appName}_web/problem_details.ex`, renderProblemDetails(false));
 
