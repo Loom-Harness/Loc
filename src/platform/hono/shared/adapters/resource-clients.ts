@@ -12,7 +12,11 @@
 
 import type { Lines, ResourceAdapter } from "../../../../generator/_adapters/index.js";
 import type { DataSourceIR, StorageIR } from "../../../../ir/types/loom-ir.js";
-import { resourceEnvBase, resourceSidecarUrl } from "../../../../util/resource-env.js";
+import {
+  resourceEnvBase,
+  resourceEnvEndpointVar,
+  resourceSidecarUrl,
+} from "../../../../util/resource-env.js";
 
 /** Read a string `config` value from a storage by key. */
 function cfg(store: StorageIR | undefined, key: string): string | undefined {
@@ -70,14 +74,15 @@ export const s3ResourceAdapter: ResourceAdapter = {
       out.push(
         `export const ${r.name}Bucket = process.env.${envVar(r.name)}_BUCKET ?? ${JSON.stringify(bucket)};`,
       );
+      // An S3-compatible endpoint (the dev MinIO sidecar, or the storage's
+      // declared one) is addressed path-style; none set means AWS proper.
+      out.push(
+        `const ${r.name}Endpoint = process.env.${resourceEnvEndpointVar(r.name)} || ${endpoint ? JSON.stringify(endpoint) : "undefined"};`,
+      );
       out.push(`export const ${r.name} = new S3Client({`);
       out.push(`  region: process.env.${envVar(r.name)}_REGION ?? ${JSON.stringify(region)},`);
-      if (endpoint) {
-        out.push(
-          `  endpoint: process.env.${envVar(r.name)}_ENDPOINT ?? ${JSON.stringify(endpoint)},`,
-        );
-        out.push(`  forcePathStyle: true,`);
-      }
+      out.push(`  endpoint: ${r.name}Endpoint,`);
+      out.push(`  forcePathStyle: ${r.name}Endpoint !== undefined,`);
       out.push(`});`);
       out.push(``);
       // Verb helpers consumed by workflow bodies (`files.put`/`files.get`
