@@ -48,7 +48,10 @@ import {
   driveUpdate,
   judgeFormSpec,
   judgeVehicleAdded,
+  judgeNoEarlyErrors,
   judgePartTable,
+  judgeStaysOnRecord,
+  judgeWorkflowOpensResult,
   readPolicy,
   seedCoverage,
   seedFormSpec,
@@ -259,7 +262,7 @@ async function moneyCompareProbe(origin) {
  * record back (`form-spec-ui.mjs`): the other fields must survive and the
  * cleared one must be `null`.
  */
-async function formSpecProbe(origin) {
+async function formSpecProbe(origin, opensWorkflowResult) {
   const name =
     "form-spec probe: update prefill, absence as null, collections, every-row pickers, the optional group and part-table columns";
   execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], {
@@ -282,6 +285,7 @@ async function formSpecProbe(origin) {
       await page.waitForTimeout(500);
     }
     why.push(...judgeFormSpec(before, after));
+    why.push(...judgeStaysOnRecord(page, before.id));
     if (why.length === 0) {
       await driveAddVehicle(page, origin, before.id);
       for (let i = 0; i < 30; i++) {
@@ -290,6 +294,11 @@ async function formSpecProbe(origin) {
         await page.waitForTimeout(500);
       }
       why.push(...judgeVehicleAdded(after));
+    }
+    if (why.length === 0) why.push(...(await judgeNoEarlyErrors(page, origin)));
+    // Feliz and Flutter workflow calls do not hand back the created id yet.
+    if (why.length === 0 && opensWorkflowResult) {
+      why.push(...(await judgeWorkflowOpensResult(page, origin)));
     }
     if (why.length === 0) {
       await seedCoverage(origin, before.id);
@@ -363,7 +372,7 @@ async function runCase(c) {
       const results = [];
       if (c.textProbe === "form-spec") {
         results.push(
-          await formSpecProbe(`http://127.0.0.1:${server.port}`).catch((err) => ({
+          await formSpecProbe(`http://127.0.0.1:${server.port}`, c.frontend !== "feliz").catch((err) => ({
             tier: "ui-probe",
             name: "form-spec probe",
             status: "fail",

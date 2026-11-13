@@ -40,10 +40,13 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { detectAwaitedOp } from "../../ir/util/awaited-op.js";
+import type { PageNameCtx } from "../../ir/util/page-kind.js";
+import { menuMetaString } from "../../ir/util/page-menu.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { walkExprDeep, walkExprStmtsDeep, walkStmtsDeep } from "../../ir/util/walk.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { humanize } from "../../util/naming.js";
+import { isDefaultNavPage } from "../_frontend/menu-emitter.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { WIRE_ERROR_MESSAGES } from "../_i18n/wire-error-text.js";
 import { type MessageEntry, pageNameEntry } from "./i18n-extract.js";
@@ -797,11 +800,24 @@ function uiUsesProvenanceInfo(ui: UiIR): boolean {
 
 /** The pages whose name a frontend renders (see
  *  {@link FormSentenceScope.pageNames}). */
-function pagesNamedBy(ui: UiIR, mode: "all" | "navbar"): readonly PageIR[] {
+function pagesNamedBy(
+  ui: UiIR,
+  mode: "all" | "navbar",
+  contexts: readonly BoundedContextIR[],
+): readonly PageIR[] {
   if (mode === "all") return ui.pages;
   if (ui.menu) return [];
   const topLevel = ui.pages.filter((p) => !(p.route ?? "/").includes(":"));
-  return topLevel.length >= 2 ? topLevel : [];
+  if (topLevel.length < 2) return [];
+  // The bar links the default nav pages; a link with its own `menu { label }`
+  // reads that label's key, not the page name's.
+  const nameCtx: PageNameCtx = {
+    aggregateNames: contexts.flatMap((c) => c.aggregates.map((a) => a.name)),
+    workflowNames: contexts.flatMap((c) => c.workflows.map((w) => w.name)),
+  };
+  return topLevel.filter(
+    (p) => isDefaultNavPage(p, nameCtx) && menuMetaString(p, "label") === undefined,
+  );
 }
 
 /** Every chrome table merged into a catalog ONLY when the UI is already
@@ -832,7 +848,7 @@ export function chromeMergedWhenEnabled(
       out[chromeKey(name)] = chromeMessage(name);
     }
     if (scope?.pageNames) {
-      for (const page of pagesNamedBy(ui, scope.pageNames)) {
+      for (const page of pagesNamedBy(ui, scope.pageNames, scope.contexts)) {
         const entry = pageNameEntry(ui, page);
         if (entry) out[entry.key] = entry.message;
       }

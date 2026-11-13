@@ -87,13 +87,24 @@ import {
   renderFlutterI18nModule,
 } from "./i18n.js";
 import { collectBoundInputFields, uiUsesFileUpload } from "./inputs-emit.js";
-import { FLUTTER_NAV_MENU_WIDGET, renderFlutterNavMenu } from "./menu-emit.js";
+import {
+  type FlutterNavKind,
+  navAppBarArg,
+  navScaffoldLines,
+  renderFlutterNav,
+} from "./menu-emit.js";
 import { renderFlutterModalRuntime } from "./modal-runtime.js";
 import { renderFlutterMoneyRuntime, usesMoney } from "./money-runtime.js";
 import { FLUTTER_NAV_MARKER, renderFlutterNavRuntime } from "./nav-runtime.js";
 import { flutterPack, usesIntl, usesMath } from "./pack.js";
 import { dartPackageName } from "./package-name.js";
-import { collectFlutterReads, renderAppConfig, renderReadProviders } from "./reads-emit.js";
+import {
+  collectFlutterReads,
+  FLUTTER_INVALIDATE_MARKER,
+  renderAppConfig,
+  renderReadProviders,
+  renderReadsInvalidationOnly,
+} from "./reads-emit.js";
 import {
   flutterHasRealtimeHandlers,
   REALTIME_EVENT_DART,
@@ -283,7 +294,7 @@ export function generateFlutterForContexts(
     );
   }
   if (forms.length > 0) {
-    out.set("lib/forms.dart", renderFormsFile(forms, apiClient, uiI18n));
+    out.set("lib/forms.dart", renderFormsFile(forms, apiClient, uiI18n, reads.length > 0));
   }
   const gates = renderGatesFile(
     contexts.flatMap((c) => c.aggregates),
@@ -338,9 +349,10 @@ export function generateFlutterForContexts(
   const pageRoutes = new Map<string, string>(
     pages.map((p) => [p.name, p.route ?? `/${pageFileBase(p, nameCtx)}`]),
   );
-  // The explicit `menu { }` — one shared widget every page's app bar mounts.
-  const navMenuSource = renderFlutterNavMenu(ui, nameCtx, authUi, i18nEnabled);
-  if (navMenuSource) out.set("lib/nav_menu.dart", navMenuSource);
+  // The navigation — one shared widget every page mounts: the explicit
+  // `menu { }` as a row under the app bar, else the derived default as a drawer.
+  const nav = renderFlutterNav(ui, nameCtx, authUi, i18nEnabled);
+  if (nav) out.set("lib/nav_menu.dart", nav.source);
   const usedComponents = new Set<string>();
   const rendered = pages.map((page) => {
     const r = renderPage(page, ui as UiIR, contexts, aggregatesByName, bcByAggregate, {
@@ -353,7 +365,7 @@ export function generateFlutterForContexts(
       nameCtx,
       pageRoutes,
       credentialed: apiClient,
-      navMenu: navMenuSource !== "",
+      navMenu: nav?.kind,
       localeSwitcher: localeSwitchable,
     });
     for (const name of r.usedComponents) usedComponents.add(name);
@@ -542,6 +554,16 @@ export function generateFlutterForContexts(
   // enabled and asserts Flutter's built-in WCAG guidelines on the first frame.
   // Runs under the same `flutter test` step (whole `test/` dir) as the smoke.
   out.set("test/a11y_test.dart", renderA11yTest(pkg, rendered));
+
+  // A page that invalidates reads after an inline op with no read of its own
+  // still resolves `invalidateReads`: the ui then ships the (empty) cache-drop
+  // entry points alone.
+  if (
+    reads.length === 0 &&
+    [...out.values()].some((content) => content.includes(FLUTTER_INVALIDATE_MARKER))
+  ) {
+    out.set("lib/reads.dart", renderReadsInvalidationOnly());
+  }
 
   // The money runtime.  Same use-driven rule as the modal bridge and
   // the chart painter above, but the scan is over EVERY emitted file and it
@@ -801,9 +823,9 @@ function renderPage(
      *  — the page shell then imports the credentialed `api_client.dart` drop-in
      *  instead of `package:http/http.dart`. */
     credentialed: boolean;
-    /** True when the ui declares an explicit `menu { }` — every page's app bar
-     *  then mounts it (`lib/nav_menu.dart`). */
-    navMenu: boolean;
+    /** The navigation every page mounts (`lib/nav_menu.dart`): the explicit
+     *  `menu { }` row under the app bar, or the derived default drawer. */
+    navMenu: FlutterNavKind | undefined;
     /** Two or more locales ship: every page's app bar carries the language
      *  picker. */
     localeSwitcher: boolean;
@@ -819,7 +841,7 @@ function renderPage(
     nameCtx,
     pageRoutes,
     credentialed,
-    navMenu,
+    navMenu: navKind,
     localeSwitcher,
   } = workflows;
   // Identity comes from the page's EMIT NAME, never its bare `page.name`.  The
@@ -831,6 +853,11 @@ function renderPage(
   // `info`, so the CI gate (`--no-fatal-infos`) stayed green on a frontend that
   // showed the wrong aggregate.
   const emitName = pageEmitName(page, nameCtx);
+  // A page mounted outside the app chrome (`layout: none`) has no drawer.
+  const navMenu =
+    navKind === "drawer" && page.layout?.kind === "preset" && page.layout.name === "none"
+      ? undefined
+      : navKind;
   const className = `${upperFirst(emitName)}Page`;
   const fileBase = `${pageFileBase(page, nameCtx)}_page`;
   // Fallback route for a page with no `route:` — area-qualified for the same
@@ -1085,8 +1112,8 @@ interface ConsumerBindings {
    *  `package:http/http.dart` (D-FLUTTER-BEARER).  False keeps the emitted
    *  bytes identical. */
   credentialed: boolean;
-  /** True when the ui has an explicit `menu { }`: the app bar mounts it. */
-  navMenu: boolean;
+  /** The navigation this page mounts, if any. */
+  navMenu: FlutterNavKind | undefined;
   /** Two or more locales ship: the app bar carries the language picker. */
   localeSwitcher: boolean;
 }
@@ -1181,8 +1208,9 @@ function renderStatelessPage(
      *  FileUpload carry the credential (D-FLUTTER-BEARER).  False keeps the
      *  emitted bytes identical. */
     credentialed: boolean;
-    /** True when the ui has an explicit `menu { }`: the app bar mounts it. */
-    navMenu: boolean;
+    /** The navigation every page mounts (`lib/nav_menu.dart`): the explicit
+     *  `menu { }` row under the app bar, or the derived default drawer. */
+    navMenu: FlutterNavKind | undefined;
     /** Two or more locales ship: the app bar carries the language picker. */
     localeSwitcher: boolean;
   },
@@ -1194,6 +1222,7 @@ function renderStatelessPage(
   if (bodyWidget.includes("Consumer(builder:")) {
     imports.push("import 'package:flutter_riverpod/flutter_riverpod.dart';");
   }
+  if (bodyWidget.includes(FLUTTER_INVALIDATE_MARKER)) imports.push("import '../reads.dart';");
   if (opts.hostsForm) imports.push("import '../forms.dart';");
   if (usesGateProbe(bodyWidget)) imports.push("import '../gates.dart';");
   // The controlled-Modal bridge, imported only where a page actually opens one
@@ -1238,7 +1267,8 @@ function renderStatelessPage(
     wrapPageTitle(
       [
         "    return Scaffold(",
-        `      appBar: AppBar(title: ${appBarTitle(page.name, opts.titleDart, opts.nameDart)}${appBarLocale(opts.localeSwitcher)}${opts.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
+        `      appBar: AppBar(title: ${appBarTitle(page.name, opts.titleDart, opts.nameDart)}${appBarLocale(opts.localeSwitcher)}${navAppBarArg(opts.navMenu)}),`,
+        ...navScaffoldLines(opts.navMenu),
         "      body: SingleChildScrollView(",
         `        child: ${indentContinuation(bodyWidget, 8)},`,
         "      ),",
@@ -1394,7 +1424,9 @@ function renderConsumerPage(
   ];
   if (b.pageGate) imports.push("import '../auth.dart';");
   if (b.navMenu) imports.push("import '../nav_menu.dart';");
-  if (b.dataBindings.size > 0) imports.push("import '../reads.dart';");
+  if (b.dataBindings.size > 0 || bodyWidget.includes(FLUTTER_INVALIDATE_MARKER)) {
+    imports.push("import '../reads.dart';");
+  }
   if (b.hostsForm) imports.push("import '../forms.dart';");
   if (usesGateProbe(bodyWidget)) imports.push("import '../gates.dart';");
   if (b.usesComponent) imports.push("import '../components.dart';");
@@ -1466,7 +1498,8 @@ function renderConsumerPage(
     wrapPageTitle(
       [
         "    return Scaffold(",
-        `      appBar: AppBar(title: ${appBarTitle(page.name, b.titleDart, b.nameDart)}${appBarLocale(b.localeSwitcher)}${b.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
+        `      appBar: AppBar(title: ${appBarTitle(page.name, b.titleDart, b.nameDart)}${appBarLocale(b.localeSwitcher)}${navAppBarArg(b.navMenu)}),`,
+        ...navScaffoldLines(b.navMenu),
         "      body: SingleChildScrollView(",
         `        child: ${guarded},`,
         "      ),",

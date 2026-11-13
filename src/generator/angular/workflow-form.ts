@@ -1,6 +1,7 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { lowerFirst, snake } from "../../util/naming.js";
 import { frontendRequestNames } from "../_frontend/request-names.js";
+import { workflowResultSegment } from "../_frontend/workflow-result.js";
 import { giveUp } from "../_walker/give-up.js";
 import { workflowRunModelText } from "../_walker/model-text-sites.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
@@ -50,6 +51,9 @@ export interface AngularWorkflowFormSpec {
    *  `onFileUpload` method once per component. */
   hasFile?: boolean;
   hasList?: boolean;
+  /** The route segment of the record a successful run created, when the
+   *  start route answers its id (`workflowResultSegment`). */
+  resultSegment?: string;
 }
 
 export function renderAngularWorkflowForm(
@@ -149,6 +153,8 @@ export function renderAngularWorkflowForm(
     hasFile: parts.hasFileField,
     hasList: parts.hasListField,
   };
+  const resultSegment = workflowResultSegment(workflow);
+  if (resultSegment) spec.resultSegment = resultSegment;
   angularSink(ctx).workflowForms.push(spec);
 
   return [

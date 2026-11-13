@@ -60,7 +60,9 @@ describe("feliz Action(x.op)", () => {
     expect(app).toContain(
       "  | ActivateProduct id -> model, Cmd.OfAsync.perform Api.activateProductAction id ActivateProductDone",
     );
-    expect(app).toContain("  | ActivateProductDone (Ok ()) -> model, pageCmd model.CurrentPage");
+    expect(app).toContain(
+      "  | ActivateProductDone (Ok ()) -> model, pageCmd model model.CurrentPage",
+    );
     expect(app).toContain("  | ActivateProductDone (Error _) -> model, Cmd.none");
     // Api: empty-body POST to /<id>/<op> → unit.
     expect(app).toContain("let activateProductAction (id: string) : Async<Result<unit, string>> =");

@@ -72,6 +72,15 @@ system FormSpecUi {
         }
       }
       repository Providers for Provider { }
+
+      // A workflow whose start answers the created record's id: its form opens
+      // that record.
+      workflow openProvider {
+        create(name: string): Provider id {
+          let provider = Provider.create(name: name)
+          return provider.id
+        }
+      }
       repository Policies for Policy { }
     }
   }
