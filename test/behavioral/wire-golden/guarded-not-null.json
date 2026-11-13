@@ -61,18 +61,18 @@
       "body": {
         "conditions": [
           {
-            "kind": "Equals",
-            "label": "x"
+            "label": "x",
+            "op": "Equals"
           },
           {
-            "kind": "Scale",
-            "label": null
+            "label": null,
+            "op": "Scale"
           }
         ],
         "id": "<volatile:key>",
-        "kind": "Equals",
         "name": "ok",
         "note": "n",
+        "op": "Equals",
         "rowVersion": 1
       }
     },
@@ -91,9 +91,9 @@
       "body": {
         "conditions": [],
         "id": "<volatile:key>",
-        "kind": "Scale",
         "name": "ok2",
         "note": "n",
+        "op": "Scale",
         "rowVersion": 2
       }
     },
@@ -107,9 +107,9 @@
           {
             "conditions": [],
             "id": "<volatile:key>",
-            "kind": "Scale",
             "name": "ok2",
             "note": "n",
+            "op": "Scale",
             "rowVersion": 2
           }
         ],
