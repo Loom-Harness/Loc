@@ -33,18 +33,19 @@ Payload names share one namespace per context with value objects and events;
 duplicates and empty/repeated field names are rejected (`loom.*` payload
 checks). Payloads are offered as a **type** only where a transport record makes
 sense — today that is a workflow `create` parameter, a generic
-carrier argument, a union variant, and (auto-synthesized) the per-aggregate
-`<Agg>Wire`. They are **not** admissible as a stored aggregate field type.
+carrier argument, a union variant, and the per-aggregate `<Agg>Response` read
+record. They are **not** admissible as a stored aggregate field type.
 
-### `<Agg>Wire` — the auto-synthesized wire shape
+### `<Agg>Response` — the read record
 
-Every aggregate, part, and value object carries a canonical, ordered
-`wireShape` (id → declared properties → containments → derived), synthesized
-once in enrichment. Every backend's DTO emitter walks the *same* list, so the
-JSON an aggregate takes on the network is identical across Hono, .NET, Phoenix,
-Python, Java (and the React/Vue/Svelte/Angular/Feliz frontends) by construction — not
-by coincidence. This is the shape a union
-variant or a carrier argument projects through when it names an aggregate.
+Every exposed aggregate and entity part has a declared `response
+<Agg>Response` record (spliced by `scaffoldHandlers` and `api X from
+<Subdomain>`, or written by hand): its read contract. Every backend's response
+DTO and serializer render its rows — `id`, then the record's fields in order —
+so the JSON an aggregate takes on the network is identical across Hono, .NET,
+Phoenix, Python, Java (and the React/Vue/Svelte/Angular/Feliz frontends) by
+construction, not by coincidence. This is the shape a union variant or a
+carrier argument projects through when it names an aggregate.
 
 ### Numeric wire forms — `money` is a string, `decimal` is a number
 
@@ -145,7 +146,7 @@ queryHandler ListOrders(region: string): Order paged   # paged(Order) — the { 
 ```
 
 The argument must be a **carrier**: a primitive, an `X id`, an enum, a value
-object, or an aggregate/entity (which projects through its `<Agg>Wire`). A
+object, or an aggregate/entity (which projects through its `<Agg>Response` record). A
 carrier may appear only in a **transport position** — a `queryHandler`'s
 return type or a payload field — never as a stored property.  (The implicit
 list read `all` is paged too.) v1 ships only this
@@ -225,7 +226,7 @@ its quick fix rewrites it.
 Every variant serializes as an object with a **`type` discriminator** plus its
 data:
 
-- a **record variant** (an aggregate → its `<Agg>Wire`, or a payload/event →
+- a **record variant** (an aggregate → its `<Agg>Response` record, or a payload/event →
   its fields) flattens its fields alongside `type`:
   `{ "type": "Order", "id": …, "code": …, "region": … }`;
 - a **scalar variant** (primitive / `id`) carries a single `value` field;

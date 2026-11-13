@@ -16,12 +16,7 @@
 // only resolves *which* fields each variant contributes.
 
 import { scalarCodecOf } from "../../ir/enrich/codec.js";
-import {
-  forApiRead,
-  wireFieldsForAggregate,
-  wireFieldsForPart,
-  wireFieldsForValueObject,
-} from "../../ir/enrich/wire-projection.js";
+import { forApiRead, wireFieldsForValueObject } from "../../ir/enrich/wire-projection.js";
 import { unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import {
   type BoundedContextIR,
@@ -30,6 +25,7 @@ import {
   type WireField,
 } from "../../ir/types/loom-ir.js";
 import { peelCollection, peelNullable, wireTypeInfo } from "../../ir/types/wire-types.js";
+import { responseWireFor } from "../../ir/util/response-wire.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 
 /** A normalized field contributed by a record-shaped union variant. */
@@ -66,12 +62,12 @@ function recordFields(v: TypeIR, ctx: BoundedContextIR): UnionMemberField[] | nu
     switch (v.declKind) {
       case "aggregate": {
         const agg = ctx.aggregates.find((a) => a.name === v.name);
-        return agg ? wireToMembers(wireFieldsForAggregate(agg)) : null;
+        return agg ? wireToMembers(responseWireFor(ctx.payloads, agg)) : null;
       }
       case "part": {
         for (const a of ctx.aggregates) {
           const part = a.parts.find((p) => p.name === v.name);
-          if (part) return wireToMembers(wireFieldsForPart(part));
+          if (part) return wireToMembers(responseWireFor(ctx.payloads, part));
         }
         return null;
       }

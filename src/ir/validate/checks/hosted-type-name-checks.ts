@@ -45,7 +45,7 @@ function declaredTypes(ctx: BoundedContextIR): [TypeKind, string, string?][] {
   for (const h of [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])])
     out.push(["handler", h.name]);
   // An event is reachable as a same-named payload (already reported as the
-  // event); a synthesized `<Agg>Wire` follows its aggregate.
+  // event); a synthesized generic / union payload follows its arguments.
   const eventNames = new Set(ctx.events.map((e) => e.name));
   for (const p of ctx.payloads)
     if (!p.synthesized && !eventNames.has(p.name))
