@@ -695,16 +695,26 @@ describe.runIf(RUN)("lifecycle: fail closed on security env", () => {
           async () => {
             let output = "";
             let exited = 0;
+            let timedOut = false;
             try {
               output = execSync(
                 `${compose} run --rm --no-deps -e OIDC_ISSUER= -e OIDC_AUDIENCE=gate d`,
-                { cwd: out, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 300_000 },
+                { cwd: out, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 180_000 },
               );
             } catch (err) {
-              const e = err as { status?: number; stdout?: string; stderr?: string };
+              const e = err as {
+                status?: number | null;
+                signal?: string | null;
+                stdout?: string;
+                stderr?: string;
+              };
+              // A service still running when the timeout kills it booted:
+              // that is the failure, not a refusal.
+              timedOut = e.signal != null;
               exited = e.status ?? 1;
               output = `${e.stdout ?? ""}${e.stderr ?? ""}`;
             }
+            expect(timedOut, "the service kept running instead of exiting").toBe(false);
             expect(exited, "the service refused to boot").not.toBe(0);
             expect(output, "it logged config_missing").toContain("config_missing");
           },
