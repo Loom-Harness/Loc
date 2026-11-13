@@ -26,6 +26,7 @@ export { hasDurableEvents } from "./context-events.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
 export { lookupOp } from "./operation-lookup.js";
 export {
+  admissionFilter,
   admittedReferences,
   type ContainStep,
   type RefScope,

@@ -3,20 +3,28 @@
 // `src/ir/plan/ref-scope.ts`).
 //
 // Inside the save transaction, before the row is written, every reference the
-// plan marks `row-tenant` is probed against its target table under the tenant
-// the write stamps (the principal's operating tenant), and every
-// `tenant-registry` reference is compared with that tenant.  A reference that
+// plan admits is probed against its target table under the target's own
+// tenant restriction (`admissionFilter`: the `tenantOwned` floor, or the
+// registry's self-scope), lowered exactly as the target's read scope lowers it.  A reference that
 // does not resolve raises an error carrying Postgres' `foreign_key_violation`
 // SQLSTATE, so every arm that already answers a dangling reference answers it
 // the same way: a foreign tenant's row is indistinguishable from a missing one.
 
-import { admittedReferences, type ScopedReference } from "../../ir/plan/ref-scope.js";
-import type { AggregateIR, BoundedContextIR } from "../../ir/types/loom-ir.js";
-import { tableOwnerName } from "../../ir/util/inheritance.js";
-import { TENANT_OWNED_TENANT_ID_FIELD } from "../../ir/util/tenant-stance.js";
-import { lowerFirst, plural } from "../../util/naming.js";
+import {
+  admissionFilter,
+  admittedReferences,
+  type ScopedReference,
+} from "../../ir/plan/ref-scope.js";
+import type {
+  AggregateIR,
+  BoundedContextIR,
+  EnrichedAggregateIR,
+  EnrichedBoundedContextIR,
+} from "../../ir/types/loom-ir.js";
 import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
+import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { PG_FOREIGN_KEY_VIOLATION } from "../_persistence/pg-sqlstate.js";
+import { lowerToDrizzle, repoTableName } from "./repository-find-predicate.js";
 
 /** The name of the module-level helper a repository with admitted references
  *  declares. */
@@ -44,24 +52,28 @@ export function refAdmissionHelper(agg: AggregateIR, ctx: BoundedContextIR): str
 
 /** The probe lines at the head of the save transaction body (6-space indent,
  *  `tx` in scope).  Empty when the aggregate admits no reference. */
-export function refAdmissionLines(agg: AggregateIR, ctx: BoundedContextIR): string[] {
+export function refAdmissionLines(
+  agg: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+): string[] {
   const refs = admittedReferences(agg, ctx.aggregates);
-  if (refs.length === 0) return [];
-  const out: string[] = ["      const admitTenant = requireCurrentUser().tenantId;"];
+  const out: string[] = [];
   refs.forEach((r, i) => {
-    const values = `admit${i}`;
-    out.push(`      const ${values} = ${valuesExpr(r)};`);
-    if (r.scope === "tenant-registry") {
-      out.push(
-        `      if (${values}.some((v) => v.toLowerCase() !== String(admitTenant).toLowerCase())) throw ${REFUSE}();`,
-      );
-      return;
-    }
     const target = ctx.aggregates.find((a) => a.name === r.target)!;
-    const table = `schema.${lowerFirst(plural(tableOwnerName(target, ctx.aggregates)))}`;
+    const tableName = repoTableName(target, ctx);
+    const table = `schema.${tableName}`;
+    const filter = admissionFilter(r, ctx.aggregates);
+    const scope = filter
+      ? (
+          lowerToDrizzle(filter, tableName, ctx, { principalAccessor: "requireCurrentUser()" }) ??
+          refuseOutOfVocabulary("drizzle-predicate", `reference admission on '${target.name}'`)
+        ).expr
+      : refuseOutOfVocabulary("drizzle-predicate", `reference admission on '${target.name}'`);
+    const values = `admit${i}`;
     out.push(
+      `      const ${values} = ${valuesExpr(r)};`,
       `      if (${values}.length > 0) {`,
-      `        const found = await tx.select({ id: ${table}.id }).from(${table}).where(and(inArray(${table}.id, ${values}), eq(${table}.${TENANT_OWNED_TENANT_ID_FIELD}, admitTenant)));`,
+      `        const found = await tx.select({ id: ${table}.id }).from(${table}).where(and(inArray(${table}.id, ${values}), ${scope}));`,
       `        if (new Set(found.map((row) => row.id as string)).size !== new Set(${values}).size) throw ${REFUSE}();`,
       `      }`,
     );

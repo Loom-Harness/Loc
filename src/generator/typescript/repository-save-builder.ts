@@ -11,6 +11,7 @@ import { rowVersionGuarded } from "../../ir/enrich/version-check.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
+  EnrichedBoundedContextIR,
   EntityPartIR,
   FieldIR,
   TypeIR,
@@ -273,7 +274,7 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
 
 export function saveMethod(
   agg: EnrichedAggregateIR,
-  ctx: BoundedContextIR,
+  ctx: EnrichedBoundedContextIR,
   emitTrace = false,
 ): string {
   // Inner body of the save transaction at 6-space indent.  Built into a
