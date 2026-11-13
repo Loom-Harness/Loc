@@ -43,7 +43,7 @@ async function pickFrontend(page: Page, label: string): Promise<void> {
 async function expectProducts(page: Page, shown: string, hidden: string): Promise<void> {
   const app = page.frameLocator('[data-testid="preview-iframe"]');
   await expect(app.getByText(/Welcome/i).first()).toBeVisible({ timeout: 60_000 });
-  await app.getByRole("link", { name: /Products/ }).first().click();
+  await app.getByRole("link", { name: /Open products/ }).click();
   await expect(app.getByText(shown, { exact: true }).first()).toBeVisible({ timeout: 30_000 });
   await expect(app.getByText(hidden, { exact: true })).toHaveCount(0);
 }
