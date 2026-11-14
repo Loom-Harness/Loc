@@ -7025,13 +7025,6 @@ contract and is absent. Request shapes are the declared `command` / `query`
 records; no derived create-input or operation-input shape ships, and the
 synthesized `<Agg>Wire` record (a restatement of the derived shape) is left out.
 
-**The host rides beside the contract, not in it.** What a target needs about
-the deployable it emits for (port, design pack, theme, source locale, the
-target's port, the `auth: ui` guard, whether the target serves the realtime
-wire and the stream credential) is a `FrontendHost` (`src/ir/contract/host.ts`).
-The auth guard and the realtime credential are decided there once, so a target
-renders them and never re-derives them.
-
 **Masks ship as a flag.** A masked response field carries `maskable: true`. The
 `mask unless` predicate and the mask-taint analysis stay server-side.
 
