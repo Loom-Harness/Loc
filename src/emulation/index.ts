@@ -40,6 +40,7 @@ export {
   type ServedRequest,
 } from "./http-mock.js";
 export { createMailbox, type Mailbox, type MailInput, type MailMessage } from "./mailbox.js";
+export { addressList, decodeHeaderWords, type ParsedMail, parseMail } from "./mime.js";
 export {
   createOidcProvider,
   discovery,
@@ -55,3 +56,4 @@ export {
   type OidcRoutes,
   type TokenSet,
 } from "./oidc.js";
+export { createSendgrid, type Sendgrid } from "./sendgrid.js";

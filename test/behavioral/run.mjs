@@ -31,10 +31,13 @@ import { fileURLToPath } from "node:url";
 import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { localesBeside, writeCaseSource } from "./case-source.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
+import { HARNESS_WAITS } from "./registers.mjs";
+const { OUTBOX_PENDING_PREDICATE } = await import(new URL("../../out/util/channels.js", import.meta.url).href);
 import { authzLadderTail, makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
 import { MIGRATOR_IMPORT, SCHEMA_AGREEMENT_IMPORT, applyMigrationsStmt, schemaAgreementStmt } from "./emitted-schema.mjs";
 import { optInTestReset } from "./proc.mjs";
+import { startSidecars } from "../support/fakes/index.mjs";
 
 // The generated reset seam is opt-in and token-gated (H-30, src/util/test-reset.ts);
 // this leg relied on it being on by default, so it now opts in explicitly.
@@ -90,7 +93,7 @@ function findNodeDeployable(genDir) {
 }
 
 /** Synthesise the per-case boot+run entry (bundled by esbuild). */
-function entrySource({ deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, authMode, bearerToken, unauthorizedToken, authzLadder, seedFile, mountsFiles }) {
+function entrySource({ deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, authMode, bearerToken, unauthorizedToken, authzLadder, seedFile, mountsFiles, channelBoot, outboxDrain }) {
   const J = JSON.stringify;
   // When the deployable is `auth: required` the generated boot module
   // (index.ts) registers a verifier before serving — but we boot via
@@ -141,8 +144,38 @@ function entrySource({ deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, aut
   // Running the EMITTED seeder — not a re-implementation — is what makes the
   // oracle leg start from the same table as the others; it also gives `seed`
   // datasets their first runtime coverage on this leg at all.
-  const seedImport = seedFile ? `import { runSeeds } from ${J(seedFile)};` : "";
-  const seedRun = seedFile ? "await runSeeds(db);" : "";
+  // CHANNEL BINDINGS.  A broker-bound event reaches the broker only through
+  // the transports the generated `bootApp` (boot.ts) creates — `createApp`
+  // alone hands every event to the in-process dispatcher, so the oracle would
+  // record no publish where the four entrypoint-booted legs record one.  A
+  // deployable with channel bindings therefore boots through `bootApp`, like
+  // its entrypoint; every other deployable keeps `createApp`, byte-identical.
+  // `bootApp` runs the first-boot seeds and registers its own verifier, so
+  // the harness skips its seed call there and registers its verifier AFTER,
+  // which keeps the harness's verifier the one in force.
+  const seedImport = seedFile && !channelBoot ? `import { runSeeds } from ${J(seedFile)};` : "";
+  const seedRun = seedFile && !channelBoot ? "await runSeeds(db);" : "";
+  const appImport = channelBoot
+    ? `import { bootApp } from ${J(join(deplDir, "boot.ts"))};`
+    : `import { createApp } from ${J(join(deplDir, "http/index.ts"))};`;
+  const bootedDecl = channelBoot ? "\n  let booted;" : "";
+  // A producer-only deployable's broker publisher connects asynchronously
+  // and nothing holds boot for it, so the harness gives it a moment before
+  // the first request — a registered, expiring wait (HARNESS_WAITS), since it
+  // masks the defect.
+  const settleMs = HARNESS_WAITS["#5712"]?.ms ?? 0;
+  const appBoot = channelBoot
+    ? `\n  booted = await bootApp(db);${settleMs ? `\n  await new Promise((r) => setTimeout(r, ${settleMs}));` : ""}\n  const app = booted.app;`
+    : "";
+  const appCreate = channelBoot ? "" : "\n  const app = createApp(db);";
+  // A durable event leaves through the outbox relay, on its own poll; the
+  // entrypoint-booted legs keep serving while it drains, but this worker ends
+  // as soon as its requests do.  So before stopping, it waits (bounded) until
+  // no outbox row is pending, as a running server would have let it.
+  const drain = outboxDrain
+    ? `\n    if (booted) { const __until = Date.now() + 15000; for (;;) { const __r = await pglite.query(${J(`SELECT count(*)::int AS n FROM "${outboxDrain.table}" WHERE ${outboxDrain.predicate}`)}); if (__r.rows[0].n === 0 || Date.now() > __until) break; await new Promise((r) => setTimeout(r, 100)); } }`
+    : "";
+  const appStop = channelBoot ? `${drain}\n    await booted?.stop();` : "";
   return `
 ${recorderPreamble()}
 ${MIGRATOR_IMPORT}
@@ -150,7 +183,7 @@ ${SCHEMA_AGREEMENT_IMPORT}
 import { loadApiTests } from ${J(join(REPO, "web/src/testing/run-api-tests.ts"))};
 import { createHarness, runTests } from ${J(join(REPO, "web/src/testing/harness.ts"))};
 import { computeVerification } from ${J(join(REPO, "src/verify/verification.ts"))};
-import { createApp } from ${J(join(deplDir, "http/index.ts"))};
+${appImport}
 import * as schema from ${J(join(deplDir, "db/schema.ts"))};
 ${authImport}
 ${authMode === "oidc" ? `import { probeCodeFlow } from ${J(join(REPO, "test/support/oidc-code-flow.mjs"))};` : ""}
@@ -173,15 +206,14 @@ const SHIM = ${J(SHIM)};
 
 export async function run() {
   const pglite = new PGlite();
-  const out = [];
+  const out = [];${bootedDecl}
   // try/finally: a case that throws must still release its WASM Postgres.
   try {
   const db = drizzle(pglite, { schema });
   ${applyMigrationsStmt(deplDir)}
   ${schemaAgreementStmt()}
-  ${seedRun}
-  ${authRegister}
-  const app = createApp(db);
+  ${seedRun}${appBoot}
+  ${authRegister}${appCreate}
 
   // Recorded at the ONE dispatch chokepoint — see wire-differential.mjs.
   const dispatch = __record(async (req) => {
@@ -222,7 +254,7 @@ export async function run() {
     for (const r of await runTests(harness.tests)) out.push({ tier: "unit", ...r });
     delete globalThis.__loomUnit;
   }
-  } finally {
+  } finally {${appStop}
     __releaseDispatch();
     await pglite.close?.();
   }
@@ -267,9 +299,9 @@ export async function run() {
  *  and the leg was OOM-killed partway through the corpus.  A `run()` throw
  *  re-throws here with the same message; a worker that dies without answering
  *  is a case error naming its exit code/signal. */
-function runInWorker(bundle) {
+function runInWorker(bundle, env = {}) {
   return new Promise((resolve, reject) => {
-    const child = fork(WORKER, [bundle], { cwd: HERE, stdio: "inherit", serialization: "advanced" });
+    const child = fork(WORKER, [bundle], { cwd: HERE, stdio: "inherit", serialization: "advanced", env: { ...process.env, ...env } });
     let reply = null;
     child.once("message", (m) => {
       reply = m;
@@ -313,10 +345,15 @@ async function runCase(c) {
   const genDir = mkdtempSync(join(tmpdir(), `loom-bh-${c.name}-`));
   const workDir = join(WORK, c.name);
   mkdirSync(workDir, { recursive: true });
+  // The fake services the case's model needs (test/support/fakes/).  They
+  // listen in THIS process; the case's worker reaches them through the env
+  // its generated resource clients read at module load.
+  let fakes = null;
   try {
     const srcPath = join(workDir, "system.ddd");
     writeCaseSource(srcPath, c.source, c.locales);
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", srcPath, "-o", genDir], { stdio: "pipe" });
+    fakes = await startSidecars(srcPath, c.source, { genDir, caseName: c.name });
     const deplDir = findNodeDeployable(genDir);
     const e2eDir = join(genDir, "e2e");
     // Tiers are DERIVED from the emitted file map, not declared: a system that
@@ -361,16 +398,32 @@ async function runCase(c) {
     // seeds boots byte-identically to before.
     const seedPath = join(deplDir, "db", "seed.ts");
     const seedFile = existsSync(seedPath) ? seedPath : null;
+    // Channel-bound deployables boot through the generated `bootApp` (see
+    // entrySource): the transports exist only there.
+    const channelsPath = join(deplDir, "http", "channels.ts");
+    const channelBoot =
+      existsSync(channelsPath) &&
+      /export function createChannelTransports\b/.test(readFileSync(channelsPath, "utf8")) &&
+      existsSync(join(deplDir, "boot.ts"));
+    // The outbox a channel-bound deployable's relay drains: its table as the
+    // generated schema names it, its pending rows as every backend selects them.
+    const schemaSrc = channelBoot ? readFileSync(join(deplDir, "db", "schema.ts"), "utf8") : "";
+    const outboxTable = /pgTable\("([^"]*outbox[^"]*)"/.exec(schemaSrc)?.[1];
+    const outboxDrain = outboxTable ? { table: outboxTable, predicate: OUTBOX_PENDING_PREDICATE } : null;
     const entry = join(workDir, "entry.mts");
     const bundle = join(workDir, "bundle.mjs");
     writeFileSync(entry, entrySource({
       deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, authMode, bearerToken, unauthorizedToken,
       authzLadder: AUTHZ_LADDERS[c.name] ?? null,
-      seedFile, mountsFiles,
+      seedFile, mountsFiles, channelBoot, outboxDrain,
     }));
     await build({ entryPoints: [entry], outfile: bundle, bundle: true, platform: "node", format: "esm", target: "node20", packages: "external", logLevel: "warning" });
-    return await runInWorker(bundle);
+    // A gated broker counts the backend's boot from here (the worker boots it).
+    fakes.backendStarting();
+    const out = await runInWorker(bundle, fakes.env);
+    return { ...out, effects: await fakes.effects() };
   } finally {
+    await fakes?.stop();
     rmSync(genDir, { recursive: true, force: true });
   }
 }

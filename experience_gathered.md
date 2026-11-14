@@ -7072,3 +7072,18 @@ The playground boots each Node deployable in its own worker and one PGlite per
   `page.addInitScript` and read per-component render counts around an action
   (`web/e2e/shell-render-scope.spec.ts`). For timing, sum the React bundle's
   `FunctionCall` events in a CDP trace window after a `performance.mark`.
+
+## 141. A mutation reverted with `cp` trips the stale-build guard (2026-11-13)
+
+- **`cp` restores the content and bumps the mtime.** A mutation proof that
+  copies a `src/` file aside, mutates it, and copies it back leaves the file
+  NEWER than the last `npx tsc -b`. `bin/fresh-build.mjs` then refuses to start
+  the CLI, so every CLI-driven test in the next run fails with a stale-build
+  message that has nothing to do with the change. One full fast-suite run was
+  lost to this. After the last revert, run `npx tsc -b` (or `cp -p` the backup
+  back, which keeps the original mtime) before running anything that goes
+  through `bin/cli.js`.
+- **An in-process fake must not block its own event loop.** A smoke script that
+  drove the in-process SMTP fake with `execFileSync` hung: the fake listens in
+  the same process, and a synchronous child blocks the loop it answers on. Drive
+  an in-process fake with an async child (`execFile`), or from another process.

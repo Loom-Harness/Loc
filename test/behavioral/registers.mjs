@@ -236,10 +236,52 @@ function baseReads({ passes = [], pins = {} } = {}) {
  *  the one test a `race` entry may pin: only a race can show what it measures. */
 export const RACE_PROBE_TEST = "two writers with the same If-Match";
 
+/**
+ * HARNESS WAITS — places where the harness waits out a product defect rather
+ * than racing it, each tied to the open issue that fixes it.  A wait MASKS its
+ * defect, so it may not outlive the fix: the coverage census
+ * (test/support/fakes/coverage.test.ts) fails a wait whose issue is no longer
+ * in its open-issue set, or whose `reviewUntil` has passed.  Delete the entry
+ * (and its read site) in the fix's PR.
+ */
+export const HARNESS_WAITS = {
+  "#5712": {
+    reviewUntil: "2027-02-15",
+    ms: 1000,
+    what:
+      "the node leg settles after bootApp for a channel-bound deployable: a producer's broker publisher connects asynchronously and nothing holds boot for it, so a request served at once loses its ephemeral event",
+  },
+};
+
 export const BEHAVIOURAL_XFAIL = {
   node: {},
   mikroorm: {},
   dotnet: {
+    // .NET's `ToJson` passes a string through raw, so `salesFiles.put(k, "x")`
+    // stores `x` under content-type application/json where every other
+    // backend stores the JSON text `"x"`: the golden's object sizes differ.
+    resources: {
+      issue: "#5685",
+      expect: "wire",
+      reason: "the .NET objectStore put stores a string body raw under a JSON content type",
+    },
+    "handler-resource-ops": {
+      issue: "#5685",
+      expect: "wire",
+      reason: "the .NET objectStore put stores a string body raw under a JSON content type",
+    },
+    "resources-localdisk": {
+      issue: "#5685",
+      expect: "wire",
+      reason: "the .NET localDisk objectStore put stores a string body raw",
+    },
+    // The restApi client posts a string body unencoded under
+    // `content-type: application/json`; the effects golden records it.
+    "resource-mail-api": {
+      issue: "#5685",
+      expect: "wire",
+      reason: "`RestApiResources.ToJson` passes a string body through raw, so `crm.post(path, \"…\")` sends text that is not JSON",
+    },
     "contained-part-rebuild": {
       issue: "#4136",
       expect: "fail",
@@ -252,11 +294,76 @@ export const BEHAVIOURAL_XFAIL = {
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
   dapper: {
+    // .NET's `ToJson` passes a string through raw, so `salesFiles.put(k, "x")`
+    // stores `x` under content-type application/json where every other
+    // backend stores the JSON text `"x"`: the golden's object sizes differ.
+    resources: {
+      issue: "#5685",
+      expect: "wire",
+      reason: "the .NET objectStore put stores a string body raw under a JSON content type",
+    },
+    "handler-resource-ops": {
+      issue: "#5685",
+      expect: "wire",
+      reason: "the .NET objectStore put stores a string body raw under a JSON content type",
+    },
+    "resources-localdisk": {
+      issue: "#5685",
+      expect: "wire",
+      reason: "the .NET localDisk objectStore put stores a string body raw",
+    },
+    // The restApi client posts a string body unencoded under
+    // `content-type: application/json`; the effects golden records it.
+    "resource-mail-api": {
+      issue: "#5685",
+      expect: "wire",
+      reason: "`RestApiResources.ToJson` passes a string body through raw, so `crm.post(path, \"…\")` sends text that is not JSON",
+    },
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
   java: {
+    // Same kafka envelope record as channels-broker-kafka.
+    "channels-broker-late": {
+      issue: "#5715",
+      expect: "error",
+      match: "dangling-doc-comments",
+      reason: "the generated java envelope record emits a dangling doc comment on a kafka binding",
+    },
+    // A kafka binding's LoomEventEnvelope carries a doc comment no
+    // declaration follows; the leg's -Werror build refuses it.
+    "channels-broker-kafka": {
+      issue: "#5715",
+      expect: "error",
+      match: "dangling-doc-comments",
+      reason: "the generated java envelope record emits a dangling doc comment on a kafka binding",
+    },
+    // `toJson` returns a String as-is, so a string is stored raw under
+    // content-type application/json; the golden's object sizes differ.
+    resources: {
+      issue: "#5697",
+      expect: "wire",
+      reason: "the Java objectStore put stores a string body raw under a JSON content type",
+    },
+    "handler-resource-ops": {
+      issue: "#5697",
+      expect: "wire",
+      reason: "the Java objectStore put stores a string body raw under a JSON content type",
+    },
+    "resources-localdisk": {
+      issue: "#5697",
+      expect: "wire",
+      reason: "the Java localDisk objectStore put stores a string body raw",
+    },
   },
   python: {
+    // The kafka client starts inside the startup path with no retry; a broker
+    // that is down while the app boots fails the startup.
+    "channels-broker-late": {
+      issue: "#5718",
+      expect: "error",
+      match: "KafkaConnectionError",
+      reason: "the python kafka channel client connects once at startup and fails it when the broker is down",
+    },
     // A routed command handler's body model takes snake_case keys.
     "extern-handlers": {
       issue: "#4211",
@@ -271,6 +378,41 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
+    // The kafka consumer connects synchronously in `init`; the boot gate's
+    // down-at-boot broker makes it fail, and the app does not start.
+    "channels-broker-late": {
+      issue: "#4740",
+      expect: "error",
+      match: "ChannelConsumer",
+      reason: "the Elixir channel consumer connects in init and crashes the boot when the broker is down",
+    },
+    // The S3 put hands ExAws the body unencoded, so a string is stored raw
+    // under content-type application/json; the golden's object sizes differ.
+    resources: {
+      issue: "#5696",
+      expect: "wire",
+      reason: "the Elixir s3 objectStore put stores a string body raw under a JSON content type",
+    },
+    "handler-resource-ops": {
+      issue: "#5696",
+      expect: "wire",
+      reason: "the Elixir s3 objectStore put stores a string body raw under a JSON content type",
+    },
+    // A workflow's emit broadcasts locally instead of dispatching through the
+    // channels module, so the durable event never reaches the outbox.
+    "channels-broker-workflow": {
+      issue: "#5745",
+      expect: "wire",
+      reason: "an Elixir workflow emit of a durable channel event bypasses the outbox; the broker records no publish",
+    },
+    // Swoosh's AmazonSES adapter encodes its raw MIME with `:mimemail`
+    // (gen_smtp), which the generated mix.exs does not declare.
+    "resource-mailer-ses": {
+      issue: "#5759",
+      expect: "fail",
+      tests: { "the mailer reaches its provider": "workflows/issue → 500" },
+      reason: "an `ses`-only system's SES send raises UndefinedFunctionError :mimemail.encode/2",
+    },
     // An expected-failure entry point (`T or E`) is refused on Phoenix, so
     // generation stops at phase ⑦ (unsupported register).
     "workflow-expected-failure": {

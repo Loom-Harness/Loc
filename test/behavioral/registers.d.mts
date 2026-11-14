@@ -43,6 +43,16 @@ export interface ExpectedFailure {
   readonly reason: string;
 }
 
+/** A wait the harness makes for an open product defect, by tracking issue. */
+export interface HarnessWait {
+  reviewUntil: string;
+  ms: number;
+  what: string;
+}
+
+/** The harness's waits, keyed by the issue each masks; ratcheted by the coverage census. */
+export const HARNESS_WAITS: Readonly<Record<string, HarnessWait>>;
+
 /** The one test name a `race` entry may pin — the wire tier's two-writer probe. */
 export const RACE_PROBE_TEST: string;
 

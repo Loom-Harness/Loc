@@ -5,13 +5,18 @@
 // RabbitMQ.Client/amqp-client/hex-amqp producer tee + outbox relay publish),
 // not just the postgres outbox relay `outbox.ddd` already exercises. The
 // deployable hosts `Orders` (the channel's owning context), so it counts as
-// a producer and draws no `loom.deployable-channel-unrelated` warning.
+// a producer and draws no `loom.deployable-channel-unrelated` warning.  The
+// behavioural legs run it against the kit's rabbitmq sidecar, loaded with the
+// case's generated broker-init definitions, so the golden's `broker` effects
+// are each placed order's OrderPlaced as published under the deployable's own
+// grants.
 system ChannelsBrokerSys {
   subdomain Sales {
     context Orders {
       aggregate Order {
         customerId: string
-        status: string
+        status: string = "Draft"
+        create(customerId: string) { }
         operation place() {
           precondition status == "Draft"
           status := "Placed"
@@ -39,5 +44,11 @@ system ChannelsBrokerSys {
     channels: [lifecycleBus]
     serves: OrdersApi
     port: 4000
+  }
+  test e2e "placing an order publishes OrderPlaced to the channel's exchange" against d {
+    let a = api.orders.create({ customerId: "c1" })
+    let b = api.orders.create({ customerId: "c2" })
+    api.orders.place(a)
+    api.orders.place(b)
   }
 }

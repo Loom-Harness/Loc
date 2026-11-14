@@ -1,0 +1,57 @@
+// A broker that is DOWN while the backend boots.  The deployable both
+// produces and CONSUMES its kafka channel (an event-triggered workflow), so
+// every backend opens a consumer at boot.  The corpus.json asks the kit for
+// its boot gate: the broker refuses every connection until the backend has
+// tried it, then comes up.  A backend whose consumer connects once, at init,
+// and gives up fails to boot; one that retries boots, and the orders placed
+// after it is up reach the topic and are consumed.
+system ChannelsBrokerLateSys {
+  subdomain Sales {
+    context Orders {
+      aggregate Order {
+        customerId: string
+        status: string = "Draft"
+        create(customerId: string) { }
+        operation place() {
+          precondition status == "Draft"
+          status := "Placed"
+          emit OrderPlaced { order: id, at: now() }
+        }
+      }
+      repository Orders for Order { }
+      event OrderPlaced { order: Order id, at: datetime }
+      // The consumer: one trail per placed order, started by the event as it
+      // arrives from the broker.
+      workflow PlacedTrail {
+        orderRef: Order id
+        create(e: OrderPlaced) by e.order {
+          orderRef := e.order
+        }
+      }
+      channel Lifecycle {
+        carries: OrderPlaced
+        delivery: queue
+        retention: work
+      }
+    }
+  }
+  api OrdersApi from Sales
+  storage pg { type: postgres }
+  storage bus { type: kafka }
+  resource ordersState { for: Orders, kind: state, use: pg }
+  channelSource lifecycleBus { for: Lifecycle, use: bus }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Orders]
+    dataSources: [ordersState]
+    channels: [lifecycleBus]
+    serves: OrdersApi
+    port: 4000
+  }
+  test e2e "placing an order after a late broker comes up reaches the topic" against d {
+    let a = api.orders.create({ customerId: "c1" })
+    let b = api.orders.create({ customerId: "c2" })
+    api.orders.place(a)
+    api.orders.place(b)
+  }
+}

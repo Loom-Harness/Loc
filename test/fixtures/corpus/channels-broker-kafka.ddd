@@ -1,0 +1,48 @@
+// The kafka arm of the channel transport matrix: the `channels-broker`
+// producer bound to a `kafka` storage with `queue`/`work` — durable, so each
+// event leaves through the outbox relay.  The behavioural legs run it against
+// the kit's KRaft sidecar, started from the case's own compose env (its SASL
+// users included); the golden's `broker` effects are the records each placed
+// order left on the topic.
+system ChannelsBrokerKafkaSys {
+  subdomain Sales {
+    context Orders {
+      aggregate Order {
+        customerId: string
+        status: string = "Draft"
+        create(customerId: string) { }
+        operation place() {
+          precondition status == "Draft"
+          status := "Placed"
+          emit OrderPlaced { order: id, at: now() }
+        }
+      }
+      repository Orders for Order { }
+      event OrderPlaced { order: Order id, at: datetime }
+      channel Lifecycle {
+        carries: OrderPlaced
+        delivery: queue
+        retention: work
+      }
+    }
+  }
+  api OrdersApi from Sales
+  storage pg { type: postgres }
+  storage bus { type: kafka }
+  resource ordersState { for: Orders, kind: state, use: pg }
+  channelSource lifecycleBus { for: Lifecycle, use: bus }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Orders]
+    dataSources: [ordersState]
+    channels: [lifecycleBus]
+    serves: OrdersApi
+    port: 4000
+  }
+  test e2e "placing an order puts OrderPlaced on the topic" against d {
+    let a = api.orders.create({ customerId: "c1" })
+    let b = api.orders.create({ customerId: "c2" })
+    api.orders.place(a)
+    api.orders.place(b)
+  }
+}

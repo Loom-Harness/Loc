@@ -135,7 +135,49 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      # The broker sidecar of the hermetic fake-service kit
+      # (test/support/fakes/broker-sidecar.mjs): a case whose model declares a
+      # `rabbitmq` storage gets its generated definitions imported here and
+      # its publishes tapped.  Pinned to the same digest as BROKER_IMAGES.
+      rabbitmq:
+        image: mirror.gcr.io/library/rabbitmq:4.1-management-alpine@sha256:42c6214e0e2093caa2484718faacb733631cc9ddc869b3298397613237dbea4a
+        env:
+          RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit loopback_users []"
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 10s
+          --health-retries 20
+
+      # The object-store sidecar of the same kit
+      # (test/support/fakes/s3-sidecar.mjs): an S3-compatible server a case's
+      # `s3` storage is pointed at.  Pinned to the same digest as S3_IMAGE.
+      s3:
+        image: mirror.gcr.io/adobe/s3mock:4.7.0@sha256:468ba0b0e87f20ad54fbb6085e98c143f5bd1e384a844fa12a58535b4e39d4aa
+        ports:
+          - 9090:9090
+
+
+      # The mail sidecar of the same kit (test/support/fakes/mailpit-sidecar.mjs):
+      # a case whose model declares an `smtp` storage sends to it, and its inbox
+      # is read back into the golden's `effects`.  Pinned to MAILPIT_IMAGE.
+      mailpit:
+        image: mirror.gcr.io/axllent/mailpit:v1.27.10@sha256:b1f1be18af530d939a11ee8820b379e0c88eeec204d904bfad68862adced3a5a
+        env:
+          MP_SMTP_AUTH_ACCEPT_ANY: "1"
+          MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+        ports:
+          - 1025:1025
+          - 8025:8025
     env:
+      LOOM_MAILPIT_SMTP: localhost:1025
+      LOOM_MAILPIT_API: http://localhost:8025
+      LOOM_FAKE_AMQP_URL: amqp://guest:guest@localhost:5672
+      LOOM_FAKE_AMQP_MGMT_URL: http://localhost:15672
+      LOOM_FAKE_S3_URL: http://localhost:9090
       # Ecto's DATABASE_URL (config/dev.exs honors it). Point at the postgres
       # sidecar above (POSTGRES_DB: app).
       DATABASE_URL: ecto://postgres:postgres@127.0.0.1:5432/app

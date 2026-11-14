@@ -82,6 +82,21 @@ jobs:
     # Measured 2026-11-02, n=20 successful runs: p95 11m21s, max 11m30s.
     # Re-derive with `node test/behavioral/ci-budget-report.mjs`.
     timeout-minutes: 20
+    services:
+      # The mail sidecar of the same kit (test/support/fakes/mailpit-sidecar.mjs):
+      # a case whose model declares an `smtp` storage sends to it, and its inbox
+      # is read back into the golden's `effects`.  Pinned to MAILPIT_IMAGE.
+      mailpit:
+        image: mirror.gcr.io/axllent/mailpit:v1.27.10@sha256:b1f1be18af530d939a11ee8820b379e0c88eeec204d904bfad68862adced3a5a
+        env:
+          MP_SMTP_AUTH_ACCEPT_ANY: "1"
+          MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+        ports:
+          - 1025:1025
+          - 8025:8025
+    env:
+      LOOM_MAILPIT_SMTP: localhost:1025
+      LOOM_MAILPIT_API: http://localhost:8025
     steps:
       - uses: actions/checkout@v6
 

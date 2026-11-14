@@ -230,7 +230,7 @@ one instance of its model, routes the infra ops to it and hands it the OPFS
 | `s3` | the real `@aws-sdk/client-s3` + presigner; a `fetch` wrapper hands SigV4-signed requests to the fake | S3 REST subset (put / get / head / delete / list, path-style and virtual-hosted, presigned GET) over an object map, written through to OPFS |
 | `localDisk` | `node:fs` → a facade with the `fs.promises` verbs the generated client uses | one tree, shared by every deployable, written through to OPFS |
 | `smtp`, `sendgrid` | `nodemailer` / `@sendgrid/mail` → facades | the Mailbox |
-| `ses` | the real `@aws-sdk/client-ses`; its `SendEmail` is answered by the fake | the Mailbox |
+| `ses` | the real `@aws-sdk/client-ses`; its `SendEmail` (or a `SendRawEmail` MIME message) is answered by the fake | the Mailbox |
 | `restApi` | the generated `fetch` → the `httpMock` service | sample data for the storage's `config: { spec }` OpenAPI document (`openapi-sampler`); an echo when it has none |
 | `redis` (`kind: cache`) | `ioredis` → a facade forwarding each command (`GET`, `SET … PX`, `DEL`, `INCR`, `EXISTS`, `PTTL`, `FLUSHDB`) | one keyspace per server URL with TTLs and least-recently-used eviction (`src/emulation/cache.ts`), in memory only; the Cache tab lists the keys with their remaining TTL and evicts or flushes them |
 

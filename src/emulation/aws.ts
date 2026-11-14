@@ -4,15 +4,18 @@
 //
 // S3 is path-style (`host/bucket/key`) or virtual-hosted
 // (`bucket.s3.…amazonaws.com/key`): PutObject (incl. `aws-chunked` bodies),
-// GetObject, HeadObject, DeleteObject, ListObjectsV2.  SES is v1 `SendEmail`,
-// captured into a `Mailbox`.
+// GetObject, HeadObject, DeleteObject, ListObjectsV2.  SES is v1 `SendEmail`
+// and `SendRawEmail`, captured into a `Mailbox`.
 
 import type { BlobStore } from "./blob-store.js";
 import type { HttpRequestData, HttpResponseData } from "./http.js";
 import type { Mailbox } from "./mailbox.js";
+import { parseMail } from "./mime.js";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
+const fromBase64 = (s: string): Uint8Array =>
+  Uint8Array.from(atob(s.replace(/\s+/g, "")), (c) => c.charCodeAt(0));
 
 interface StoredObject {
   body: Uint8Array;
@@ -331,7 +334,9 @@ export function createS3(
   }
 }
 
-/** SES v1 `SendEmail` (awsQuery: a form-encoded body). */
+/** SES v1 `SendEmail` and `SendRawEmail` (awsQuery: a form-encoded body).
+ *  `SendRawEmail` carries the whole MIME message, base64-encoded; libraries
+ *  that build their own MIME (Swoosh, for one) send it. */
 export interface Ses {
   http(req: HttpRequestData): HttpResponseData;
 }
@@ -340,10 +345,24 @@ export function createSes(opts: { mailbox: Mailbox }): Ses {
   return { http };
   function http(req: HttpRequestData): HttpResponseData {
     const form = new URLSearchParams(dec.decode(req.body));
-    if (form.get("Action") !== "SendEmail") {
+    const action = form.get("Action");
+    if (action === "SendRawEmail") {
+      const destinations: string[] = [];
+      for (const [k, v] of form) if (k.startsWith("Destinations.member.")) destinations.push(v);
+      const parsed = parseMail(dec.decode(fromBase64(form.get("RawMessage.Data") ?? "")), {
+        from: form.get("Source") ?? undefined,
+        to: destinations,
+      });
+      const raw = opts.mailbox.capture({ via: "ses", ...parsed });
+      return xml(
+        200,
+        `<SendRawEmailResponse xmlns="http://ses.amazonaws.com/doc/2010-12-01/"><SendRawEmailResult><MessageId>${raw.id}</MessageId></SendRawEmailResult><ResponseMetadata><RequestId>loom-playground</RequestId></ResponseMetadata></SendRawEmailResponse>`,
+      );
+    }
+    if (action !== "SendEmail") {
       return xml(
         400,
-        `<ErrorResponse><Error><Code>InvalidAction</Code><Message>Only SendEmail is supported.</Message></Error></ErrorResponse>`,
+        `<ErrorResponse><Error><Code>InvalidAction</Code><Message>Only SendEmail and SendRawEmail are supported.</Message></Error></ErrorResponse>`,
       );
     }
     const to: string[] = [];

@@ -1,0 +1,17 @@
+{
+  "title": "external resources \u2014 a localDisk objectStore client (get / put / delete)",
+  "doc": "resources",
+  "backends": "ALL",
+  "apiCaller": {
+    "uncalled": {
+      "allOrder": "autoFindAll",
+      "createOrder": "create",
+      "destroyOrder": "destroy",
+      "getOrderById": "getById",
+      "updateOrder": "crudishUpdate"
+    },
+    "unattributed": [
+      "api.archive.run (no such aggregate)"
+    ]
+  }
+}

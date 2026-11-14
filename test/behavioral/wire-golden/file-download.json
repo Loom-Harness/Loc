@@ -185,5 +185,8 @@
         "type": "about:blank"
       }
     }
-  ]
+  ],
+  "effects": {
+    "files": []
+  }
 }

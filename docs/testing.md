@@ -171,6 +171,61 @@ systems (`examples/showcase.ddd`, `examples/acme.ddd`) stay in the docker
 `conformance-full` leg. See `test/behavioral/README.md` for the full
 runner mechanics (one-origin serving, async-spawn, the DoD rollup).
 
+### Broker and object-store sidecars for the behavioural legs
+
+A corpus case whose model declares a `rabbitmq`, `redis` or `kafka` storage runs against
+a real, digest-pinned broker (`test/support/fakes/broker-sidecar.mjs`). The kit starts
+it with `docker run` locally, or uses the workflow's `services: rabbitmq`
+container when `LOOM_FAKE_AMQP_URL` names one. The case's generated
+`broker-init` definitions are imported, so the backend runs with the vhost,
+user and permissions it is deployed with. Its publishes reach the wire golden
+as `{ exchange, routingKey, type, count }` rows. A case with an `s3` storage
+likewise runs against a pinned `adobe/s3mock` container
+(`test/support/fakes/s3-sidecar.mjs`, CI: `services: s3`, `LOOM_FAKE_S3_URL`),
+and its objects reach the golden as sorted `{ bucket, key, size, contentType }`
+rows read back over the S3 API. They land in the golden's `effects` under
+`broker` and `objects`; the `resources`, `handler-resource-ops`,
+`channels-broker` (rabbitmq), `channels-broker-workflow`, `channels-broker-redis`
+and `channels-broker-kafka` corpus fixtures witness them on every leg. A
+`localDisk` object store needs no container: the kit hands each resource an
+empty temporary directory through `<RES>_DIR` (`test/support/fakes/local-disk.mjs`)
+and records its stored objects as `{ resource, key, size }` rows under
+`files`, leaving out the metadata file each backend keeps beside an object;
+`resources-localdisk` witnesses it. The node leg boots a channel-bound deployable through its
+generated `bootApp`, the only place its broker transports exist, and before it
+stops it waits for the outbox relay to drain, so its publishes, durable ones
+included, reach the sidecar too. The real-process legs read the broker
+effects only once no outbox row in their Postgres is still owed delivery, for
+the same reason: a durable event leaves on the relay's own poll. A kafka sidecar runs per case, started from
+the case's compose environment, so its SASL users are the deployed ones. A
+corpus fixture whose `<id>.corpus.json` says `"fakes": { "broker": "after-boot" }`
+gets its broker behind a boot gate: a loopback proxy that refuses every
+connection until shortly after the backend's first attempt. Every runner calls
+`fakes.backendStarting()` right before the backend starts, so the broker is down
+for exactly the boot, and a backend that cannot boot without it fails its cell. `npm run test:fakes-docker` runs the kit's
+own container tests.
+
+### External services and the `effects` golden
+
+The behavioural legs boot a backend against **the external services its model
+declares**, real wherever they can run: a digest-pinned Mailpit for `smtp`, the
+broker and object-store sidecars above. A service that cannot run for real (a
+third-party `restApi`, the SaaS mailers `ses` and `sendgrid`) is an
+**in-process fake**: a loopback transport over a model of the emulation core (`src/emulation/`, see "Test infrastructure /
+emulation"). `test/support/fakes/sidecars.mjs` reads which services a case needs
+off its model, starts them, and hands the backend the env its emitted client
+already reads — the host override `resourceHostEnvVar` names in
+`src/util/resource-env.ts`. What the backend sent — the mail in
+Mailpit's inbox, the requests the restApi fake answered, the broker publishes,
+the objects stored — lands in the wire recording's `effects` section and is
+diffed against the golden on every leg, so a mail's envelope or a remote call's
+path and body is asserted by golden, not by emitted text. A new service
+implements `start(opts) → { kind, env, observe(), reset(), stop() }` and
+registers its storage type in `sidecars.mjs`; `test/support/fakes/coverage.ts`
+says which fake backs each source type. A pair every backend refuses at validate is a
+`refused` row naming its diagnostic code; the census proves it by validating a
+model that binds the pair, and fails the day the code stops firing.
+
 ### Behavioral UI runner pass/fail semantics
 
 Every Playwright-driven behavioral UI runner (`run-ui.mjs`, `run-heex-ui.mjs`,
@@ -327,7 +382,7 @@ fails the fast suite.
 | `phoenix-ui-e2e.yml` | `npm run test:phoenix-ui-e2e` | docker, mirror |
 | `api-call-e2e.yml` | `LOOM_API_CALL_CALLER=<node\|python\|dotnet\|java\|elixir> npm run test:api-call` (pg via `LOOM_API_CALL_PG_URL`; elixir caller adds mirror) | pg |
 | `channels-e2e.yml` | `npm run test:channels` family — `test:channels{,-mikroorm,-python,-dotnet,-java,-elixir}`, `-rabbit*` (incl. `-rabbit-mikroorm`), `-kafka*`, `-auth` (pg via `LOOM_CHANNELS_PG_URL`; redis/rabbit/kafka via docker; the two `*-mikroorm` legs are the redis/rabbit suites with `LOOM_CHANNELS_PERSISTENCE=mikroorm` and shifted ports, so they run beside the default ones — the RABBIT one is the durable/outbox-relay leg) | docker, pg |
-| `email-e2e.yml` | `npm run test:email{,-python,-dotnet,-java,-elixir}` (pg + a Mailpit container: `LOOM_MAILPIT_SMTP`/`LOOM_MAILPIT_API`) | docker, pg |
+| `email-e2e.yml` | `npm run test:email{,-python,-dotnet,-java,-elixir}` (pg; the SMTP sink is in-process unless `LOOM_MAILPIT_SMTP`/`LOOM_MAILPIT_API` name a Mailpit) | docker, pg |
 | `lifecycle-e2e.yml` | `npm run test:lifecycle` (every backend; `LOOM_LIFECYCLE_CELLS=node,dotnet:dapper` narrows to `<backend>[:<persistence>]` cells; behind a TLS proxy add `LOOM_E2E_CA_DIR=<dir of *.crt>`) | docker + compose |
 | `timer-e2e.yml` | `npm run test:timer` (all five backends; `LOOM_TIMER_E2E_BACKENDS=node,…` narrows; behind a TLS proxy add `LOOM_E2E_CA_DIR=<dir of *.crt>`) | docker + compose |
 | `context-integration-e2e.yml` | `bash scripts/context-integration-e2e.sh <node\|python\|dotnet\|java\|elixir>` | pg |

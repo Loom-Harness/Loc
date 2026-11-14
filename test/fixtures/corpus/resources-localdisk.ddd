@@ -1,0 +1,37 @@
+// The localDisk arm of the object-store matrix (resources.md): a workflow
+// reads, writes and deletes objects in a `localDisk` store.  The behavioural
+// legs hand each resource an empty directory through `<RES>_DIR`, so the
+// golden's `files` effects are exactly the objects the workflow left behind,
+// keyed by their path under that directory.
+system ResourcesLocalDiskSys {
+  subdomain Sales {
+    context Orders {
+      aggregate Order with crudish { name: string }
+      repository Orders for Order { }
+      workflow archive {
+        create(name: string) {
+          orderFiles.get("orders/" + name)
+          orderFiles.put("orders/" + name, name)
+          orderFiles.put("scratch/" + name, name)
+          orderFiles.delete("scratch/" + name)
+        }
+      }
+    }
+  }
+  api OrdersApi from Sales
+  storage pg { type: postgres }
+  storage disk { type: localDisk }
+  resource ordersState { for: Orders, kind: state, use: pg }
+  resource orderFiles { for: Orders, kind: objectStore, use: disk }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Orders]
+    dataSources: [ordersState, orderFiles]
+    serves: OrdersApi
+    port: 4000
+  }
+  test e2e "the archive workflow keeps one object per order on disk" against d {
+    api.archive.run({ name: "ada" })
+    api.archive.run({ name: "bo-long-name" })
+  }
+}
