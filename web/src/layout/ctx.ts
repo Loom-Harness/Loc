@@ -532,6 +532,9 @@ export interface LayoutCtx {
   /** The booted system's declared `storage`s (empty before the first boot) —
    *  the Infrastructure panel shows each tab's empty state against them. */
   infraResources: DeclaredResource[];
+  /** The system's deployables the last boot left out — a platform the browser
+   *  cannot run, or a backend whose bundle failed — with why. */
+  unavailableDeployables: ReadonlyArray<{ slug: string; reason: string }>;
   /** Mint a token for `persona` (its realm claims, `claims` merged over) and
    *  send it from now on.  Rejects when no system with `auth { oidc }` is
    *  booted. */

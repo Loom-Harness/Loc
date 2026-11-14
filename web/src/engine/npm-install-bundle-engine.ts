@@ -387,7 +387,7 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
         bundleCode: b.bundleCode,
         synthDdl: wantsDdl,
         env: b.env,
-        serviceHosts: plan.backends.map((o) => o.slug).filter((h) => h !== b.slug),
+        serviceHosts: serviceHostsOf(plan, b.slug),
         ...(b.verifier ? { verifier: b.verifier } : {}),
       });
       if (!res.ok) return this.failed(res, b.slug);
@@ -456,7 +456,7 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       bundleCode: b.bundleCode,
       synthDdl: false,
       env: b.env,
-      serviceHosts: (this.booted?.backends ?? []).map((o) => o.slug).filter((h) => h !== slug),
+      serviceHosts: this.booted ? serviceHostsOf(this.booted, slug) : [],
       ...(b.verifier ? { verifier: b.verifier } : {}),
     });
     if (!loaded.ok) return loaded;
@@ -492,6 +492,13 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
   };
 
   dispatch(req: SerializedRequest, target?: string): Promise<DispatchResult> {
+    const away = target === undefined ? undefined : this.booted?.unavailable?.find((d) => d.slug === target);
+    if (away) {
+      return Promise.resolve({
+        ok: false,
+        message: `Deployable "${away.slug}" is not running in the playground: ${away.reason}.`,
+      });
+    }
     const rt = this.target(target);
     if (!rt) {
       return Promise.resolve({
@@ -586,3 +593,12 @@ engineRegistry.register(
   "npm-install-bundle",
   (opts) => new NpmInstallBundleEngine(opts),
 );
+
+/** The compose hosts a deployable's `fetch` routes inside the playground: the
+ *  other booted deployables, and the ones that do not run here — a call to
+ *  one of those fails with its reason rather than leaving for the network. */
+function serviceHostsOf(plan: BootPlan, self: string): string[] {
+  return [...plan.backends.map((o) => o.slug), ...(plan.unavailable ?? []).map((d) => d.slug)].filter(
+    (h) => h !== self,
+  );
+}
