@@ -34,6 +34,7 @@ export {
   type ChannelPlan,
   type ChannelPlanSystem,
   channelPlan,
+  contextReceivesDurable,
   deliversLocally,
   type EventRoute,
   eventRoute,

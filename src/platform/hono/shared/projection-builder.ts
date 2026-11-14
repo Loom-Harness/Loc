@@ -28,6 +28,7 @@ import {
   type FoldRowSeed,
   type FoldStep,
   foldInboxClaimSql,
+  foldInboxPurgeSql,
   foldRowSeeds,
   foldSteps,
   foldsDedupe,
@@ -47,6 +48,11 @@ import {
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
+import {
+  OUTBOX_PURGE_INTERVAL_SECONDS,
+  OUTBOX_RETENTION_DEFAULT_DAYS,
+  OUTBOX_RETENTION_ENV,
+} from "../../../util/channels.js";
 import { escapeTsIdent, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { emitWireSchema, zodFor, zodForResponse } from "./routes-builder.js";
 
@@ -103,7 +109,17 @@ const projDbType = (usingMikro: boolean): string =>
  *  MikroORM EntityManager over the generated `<Proj>Row` entities (db/entities.ts)
  *  instead of Drizzle — load/save via `em.findOne`/`em.upsert`, routes via
  *  `em.find`/`em.findOne` (mirrors the workflow builder's `usingMikro` branch). */
-export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro = false): string {
+export function buildProjectionsFile(
+  ctx: EnrichedBoundedContextIR,
+  usingMikro = false,
+  /** The deployable's consumers run the redelivery dedupe
+   *  (`channelPlan(...).receivesDurable`).  Absent → this context hosts a
+   *  durable channel. */
+  receivesDurable: boolean = hasDurableEvents(ctx),
+  /** No outbox relay runs on the deployable to purge the fold inbox: emit
+   *  `startFoldInboxPurge` for boot to start. */
+  standaloneInboxPurge = false,
+): string {
   // FOLDED (materialized) projections only — the event-folded read model with a
   // physical row table + by-key routes.  Query-time projections
   // (read-path-architecture.md rev.13) have no folds / table and are emitted by
@@ -129,7 +145,7 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
 
   // A durably delivered event can arrive twice with one id: each fold then
   // claims `(projection, event_id)` in the inbox before it applies.
-  const dedupe = foldsDedupe(ctx, hasDurableEvents(ctx));
+  const dedupe = foldsDedupe(ctx, receivesDurable);
   const body: string[] = [];
   for (const p of folded) body.push(...emitResponseSchemas(p), "");
   for (const p of folded) {
@@ -143,6 +159,7 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
     for (const h of hs) body.push(...emitFoldHandler(p, h, usingMikro, ctx, dedupe), "");
   }
   body.push(...emitProjectionTee(folded, foldHandlers, usingMikro), "");
+  if (dedupe && standaloneInboxPurge) body.push(...emitFoldInboxPurge(usingMikro), "");
   body.push(...emitProjectionRoutes(folded, usingMikro, ctx));
   const bodyText = body.join("\n");
 
@@ -838,4 +855,28 @@ function emitProjectionRoutes(
   out.push(`  return app;`);
   out.push(`}`);
   return out;
+}
+
+/** The fold inbox's retention purge for a deployable that runs no outbox relay
+ *  (the relay purges the inbox beside the outbox otherwise): a consumer that
+ *  only receives durable events off a broker still claims every delivery, so
+ *  its claims need the same retention window. */
+function emitFoldInboxPurge(usingMikro: boolean): string[] {
+  const del = usingMikro
+    ? `db.fork().getConnection().execute(${JSON.stringify(foldInboxPurgeSql("?"))}, [cutoff])`
+    : `db.execute(${TS.sql}\`${foldInboxPurgeSql("${cutoff}")}\`)`;
+  return [
+    `export function startFoldInboxPurge(db: ${projDbType(usingMikro)}): () => void {`,
+    `  const days = Number(process.env.${OUTBOX_RETENTION_ENV});`,
+    `  const retentionMs = (Number.isFinite(days) && days > 0 ? days : ${OUTBOX_RETENTION_DEFAULT_DAYS}) * 86_400_000;`,
+    `  const timer = setInterval(() => {`,
+    `    const cutoff = new Date(Date.now() - retentionMs);`,
+    `    ${del}.catch((err: unknown) => {`,
+    `      ${TS.baseLogger}.warn({ event: "outbox_relay_error", error: err instanceof Error ? err.message : String(err) });`,
+    `    });`,
+    `  }, ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000});`,
+    `  timer.unref();`,
+    `  return () => clearInterval(timer);`,
+    `}`,
+  ];
 }

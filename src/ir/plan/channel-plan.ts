@@ -79,6 +79,12 @@ export interface ChannelPlan {
   /** Consumed events whose redelivery the consumer must dedupe on the
    *  envelope id: every consumed durable event, hosted or foreign. */
   dedupedEvents: ReadonlySet<string>;
+  /** The deployable's consumers run the redelivery dedupe — the saga
+   *  `last_event_id` marker and the projection fold inbox: it hosts a durable
+   *  channel, or it consumes a durable event a wired foreign channel carries.
+   *  A broker redelivers a foreign durable event exactly as the local relay
+   *  redelivers a hosted one. */
+  receivesDurable: boolean;
 }
 
 /** The deployable a plan is built for, when the backend has one. */
@@ -146,6 +152,9 @@ export function channelPlan(
     [...consumed].filter((ev) => hostedDurable.has(ev) || foreignDurable.has(ev)),
   );
 
+  const receivesDurable =
+    hostedDurable.size > 0 || [...consumed].some((ev) => foreignDurable.has(ev));
+
   return {
     bindings,
     uniqueBindings: uniqueBindings(bindings),
@@ -161,6 +170,7 @@ export function channelPlan(
     outboxEvents,
     producerOnly,
     dedupedEvents,
+    receivesDurable,
   };
 }
 
@@ -176,4 +186,24 @@ export function eventRoute(plan: ChannelPlan, event: string): EventRoute {
  *  so each delivery happens once. */
 export function deliversLocally(plan: ChannelPlan, event: string): boolean {
   return !plan.brokerEvents.has(event);
+}
+
+/** Per context: whether `ctx` runs the redelivery dedupe on some deployable
+ *  that hosts it — it hosts a durable channel, or a deployable hosting it wires
+ *  a durable foreign channel carrying an event it consumes.  The per-context
+ *  view of `ChannelPlan.receivesDurable`, for the emitters and the migrations
+ *  that work one context at a time. */
+export function contextReceivesDurable(ctx: BoundedContextIR, sys?: SystemIR): boolean {
+  if (durableCarries(ctx.channels ?? []).size > 0) return true;
+  if (!sys) return false;
+  const consumed = consumedEventNames({ contextNames: [ctx.name] }, new Map([[ctx.name, ctx]]));
+  if (consumed.size === 0) return false;
+  for (const deployable of sys.deployables) {
+    if (!deployable.contextNames.includes(ctx.name)) continue;
+    for (const b of brokerChannelBindings(deployable, sys)) {
+      if (b.retention !== "log" && b.retention !== "work") continue;
+      if (b.events.some((ev) => consumed.has(ev))) return true;
+    }
+  }
+  return false;
 }
