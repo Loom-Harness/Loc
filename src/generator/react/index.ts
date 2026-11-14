@@ -16,7 +16,6 @@ import { realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
-import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
@@ -24,7 +23,7 @@ import { humanize, lowerFirst, snake } from "../../util/naming.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_SESSION_TS, authGateTsx } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
-import { requireFrontendContract } from "../_frontend/contract.js";
+import { clientFinds, requireFrontendContract, servesHistory } from "../_frontend/contract.js";
 import {
   renderI18nModule,
   renderLocaleCatalog,
@@ -147,7 +146,6 @@ export function generateReactForContexts(
 
   const host = buildFrontendHost(sys, deployable);
   const contract = requireFrontendContract(options.frontendContract, host.deployable);
-  const target = sys.deployables.find((d) => d.name === deployable.targetName);
   // Standalone react fetches the API same-origin via the relative
   // `/api` base; `vite dev` proxies it to the target backend (below),
   // docker-compose overrides via `VITE_API_BASE_URL`, and fullstack
@@ -211,13 +209,12 @@ export function generateReactForContexts(
   // `ui.pages` for both pages and page-objects (single source).
   // A synthesized paged find is reachable only through the explicit route
   // the backend serves for it, so its hook binds to that route (or is absent).
-  const findRoutes = pagedFindRoutes(sys, target ?? deployable);
   for (const { agg, ctx } of aggregates) {
-    const repo = ctx.repositories.find((r) => r.aggregateName === agg.name);
     out.set(
       `src/api/${lowerFirst(agg.name)}.ts`,
-      buildApiModule(agg, repo, ctx, {
-        pagedFindRoutes: findRoutes,
+      buildApiModule(agg, ctx, {
+        finds: clientFinds(contract, agg.name, host.serves),
+        history: servesHistory(contract, agg.name),
         operations: contract.wire.operations,
       }),
     );
