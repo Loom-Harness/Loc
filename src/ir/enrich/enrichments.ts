@@ -59,7 +59,7 @@ import type {
   WorkflowIR,
   WorkflowStmtIR,
 } from "../types/loom-ir.js";
-import { isShorthandProjection } from "../types/loom-ir.js";
+import { isShorthandProjection, PLAIN_FIND_FLAGS } from "../types/loom-ir.js";
 import { explicitRouteSlot } from "../util/api-surface.js";
 import { aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
 import { isTpcConcrete, isTphConcrete } from "../util/inheritance.js";
@@ -1168,6 +1168,7 @@ function synthesizePagedQueryHandlerFinds(
       const crit = crits.find((c) => c.name === run.synthCriterion!.name);
       if (!crit) continue;
       repo.finds.push({
+        ...PLAIN_FIND_FLAGS,
         name: run.retrievalName,
         params: crit.params,
         returnType: h.returnType,
@@ -1192,6 +1193,7 @@ function synthesizePagedQueryHandlerFinds(
     const r = (retrievals ?? []).find((x) => x.name === baseName);
     if (!r) continue;
     repo.finds.push({
+      ...PLAIN_FIND_FLAGS,
       name: pagedRunFindName(run),
       params: r.params,
       returnType: h.returnType,
@@ -2066,6 +2068,7 @@ function ensureFindAll(
         (agg.savingShape ?? "relational") === "relational" &&
         !isTpcConcrete(agg, aggregates);
       const all: FindIR = {
+        ...PLAIN_FIND_FLAGS,
         name: "all",
         params: [],
         returnType: paged

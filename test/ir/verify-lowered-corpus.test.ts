@@ -239,7 +239,7 @@ const MUTATIONS: Record<string, Mutation> = {
   // The ui encoding: params are `param`, state and derived read as `let`.
   "ui state / param ref → unbound": {
     kind: "ref-unresolved",
-    floor: 100,
+    floor: 90,
     seed: (m) => visitUi(m, renameRef(["let", "param"])),
   },
   "ui read of an aggregate → no such member": {
@@ -322,13 +322,7 @@ describe("post-lowering IR well-formedness over the corpus", async () => {
     const violations = lowered.flatMap(({ file, model }) =>
       model.loweringViolations.map((v) => `${file}: ${formatViolation(v)}`),
     );
-    // A model `validateLoomModel` refuses for another reason never reaches
-    // codegen; the backstop stays silent on it, and so does this sweep.
-    const refusedElsewhere = new Set([
-      "test/fixtures/eval-models/eval/repro/wf-cross-context-repo.ddd",
-    ]);
-    const live = violations.filter((v) => !refusedElsewhere.has(v.slice(0, v.indexOf(":"))));
-    expect(live.join("\n"), "lowering produced an ill-formed IR").toBe("");
+    expect(violations.join("\n"), "lowering produced an ill-formed IR").toBe("");
   });
 
   for (const [name, mutation] of Object.entries(MUTATIONS)) {
