@@ -40,6 +40,21 @@ contract and is absent. Request shapes are the declared `command` / `query`
 records; no derived create-input or operation-input shape ships, and the
 synthesized `<Agg>Wire` record (a restatement of the derived shape) is left out.
 
+**The host rides beside the contract, not in it.** What a target needs about
+the deployable it emits for (port, design pack, theme, source locale, the
+target's port, the apis it reads through, the `auth: ui` guard, whether the
+target serves the realtime wire and the stream credential) is a `FrontendHost`
+(`src/ir/contract/host.ts`). The auth guard and the realtime credential are
+decided there once, so a target renders them and never re-derives them.
+
+**Operations and finds carry their decisions.** A contract operation carries
+the facts a client needs about the domain operation behind it — its name,
+whether the backend guards the write on the row version (`ifMatch`), and which
+body params a merge-patch form may omit (`optionalParams`) — and a find carries
+the `{api, path}` routes that serve it. A client keeps the first route on an api
+its host reads through (`clientFinds`, `src/generator/_frontend/contract.ts`),
+which is the route the target backend mounts.
+
 **Masks ship as a flag.** A masked response field carries `maskable: true`. The
 `mask unless` predicate and the mask-taint analysis stay server-side.
 
