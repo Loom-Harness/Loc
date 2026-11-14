@@ -40,12 +40,12 @@ import {
 import { eventsCarryRowTenant } from "../../../ir/util/tenant-stance.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
-import { upperFirst } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
-import { javaLocals, jid, localOf } from "../java-ident.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { javaLocals, localOf } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { javaExistsReadField, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import {
@@ -174,7 +174,7 @@ export function renderJavaService(
   );
   const createLets = createParams.map((f) => {
     const local = localOf(createLocals, f.name);
-    const raw = `request.${jid(f.name)}()`;
+    const raw = `request.${DOMAIN_NAMES.java.prop(f.name)}()`;
     // A create-input field with a declared default (`field: T = <expr>`) is
     // boxed/nullable in the request record (see dto.ts): an omitted key arrives
     // null, so materialize the declared default here — parity with node/python
@@ -412,8 +412,8 @@ export function renderJavaService(
         const pagedArgs = [args, "page, pageSize, sort, dir"].filter(Boolean).join(", ");
         return [
           `    @Transactional(readOnly = true)`,
-          `    public Paged<${agg.name}Response> ${jid(f.name)}(${pagedParams}) {`,
-          `        var result = repository.${jid(f.name)}(${pagedArgs});`,
+          `    public Paged<${agg.name}Response> ${DOMAIN_NAMES.java.op(f.name)}(${pagedParams}) {`,
+          `        var result = repository.${DOMAIN_NAMES.java.op(f.name)}(${pagedArgs});`,
           `        return new Paged<>(result.items().stream().map(${agg.name}Response::${respFrom}).toList(),`,
           `            result.page(), result.pageSize(), result.total(), result.totalPages());`,
           `    }`,
@@ -423,8 +423,8 @@ export function renderJavaService(
       if (f.returnType.kind !== "array") {
         return [
           `    @Transactional(readOnly = true)`,
-          `    public ${agg.name}Response ${jid(f.name)}(${params}) {`,
-          `        var found = repository.${jid(f.name)}(${args});`,
+          `    public ${agg.name}Response ${DOMAIN_NAMES.java.op(f.name)}(${params}) {`,
+          `        var found = repository.${DOMAIN_NAMES.java.op(f.name)}(${args});`,
           `        return found == null ? null : ${agg.name}Response.${respFrom}(found);`,
           `    }`,
           ``,
@@ -432,8 +432,8 @@ export function renderJavaService(
       }
       return [
         `    @Transactional(readOnly = true)`,
-        `    public List<${agg.name}Response> ${jid(f.name)}(${params}) {`,
-        `        return repository.${jid(f.name)}(${args}).stream().map(${agg.name}Response::${respFrom}).toList();`,
+        `    public List<${agg.name}Response> ${DOMAIN_NAMES.java.op(f.name)}(${params}) {`,
+        `        return repository.${DOMAIN_NAMES.java.op(f.name)}(${args}).stream().map(${agg.name}Response::${respFrom}).toList();`,
         `    }`,
         ``,
       ];
@@ -523,7 +523,7 @@ export function renderJavaService(
           `        }`,
           `        var actor = new java.util.LinkedHashMap<String, Object>();`,
           ...(ctx.userFields ?? []).map(
-            (f) => `        actor.put(${JSON.stringify(f)}, user.${jid(f)}());`,
+            (f) => `        actor.put(${JSON.stringify(f)}, user.${DOMAIN_NAMES.java.prop(f)}());`,
           ),
           `        return actor;`,
           `    }`,
@@ -563,7 +563,7 @@ export function renderJavaService(
     .filter((op) => op.visibility === "public")
     .flatMap((op) => {
       const hasParams = op.params.length > 0;
-      const reqType = `${upperFirst(op.name)}${agg.name}Request`;
+      const reqType = `${DOMAIN_NAMES.java.type(op.name)}${agg.name}Request`;
       const paramSig =
         (hasParams ? `${idClass} id, ${reqType} request` : `${idClass} id`) + ifMatchParam(op);
       const opLocals = javaLocals(
@@ -575,7 +575,7 @@ export function renderJavaService(
       // for every key outside `request.has(...)`.
       const patch = isMergePatchUpdate(op);
       const letValue = (p: (typeof op.params)[number]): string => {
-        const raw = `request.${jid(p.name)}()`;
+        const raw = `request.${DOMAIN_NAMES.java.prop(p.name)}()`;
         const parsed = wireToDomain(p.type, raw, `/${p.name}`);
         return patch && p.type.kind !== "optional" && parsed !== raw
           ? `${raw} == null ? null : ${parsed}`
@@ -598,7 +598,7 @@ export function renderJavaService(
       const args = [
         ...op.params.map((p) =>
           patch
-            ? `request.has(${JSON.stringify(p.name)}) ? ${localOf(opLocals, p.name)} : aggregate.${jid(p.name)}()`
+            ? `request.has(${JSON.stringify(p.name)}) ? ${localOf(opLocals, p.name)} : aggregate.${DOMAIN_NAMES.java.prop(p.name)}()`
             : localOf(opLocals, p.name),
         ),
         ...(passUser ? ["currentUser"] : []),
@@ -611,7 +611,7 @@ export function renderJavaService(
         // guards, calls, saves, drains — identical to a plain void operation; the
         // injected handler + `ExternHandlerException` wrap are gone.
         return [
-          `    public void ${jid(op.name)}(${paramSig}) {`,
+          `    public void ${DOMAIN_NAMES.java.op(op.name)}(${paramSig}) {`,
           usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
           ...rowFreeGateLines,
           ...lets,
@@ -619,7 +619,7 @@ export function renderJavaService(
           ...requiresGateLines(op, opLocals, "row-reading"),
           ifMatchGuardFor(op),
           whenGateLine(op, opLocals),
-          `        aggregate.${jid(op.name)}(${args});`,
+          `        aggregate.${DOMAIN_NAMES.java.op(op.name)}(${args});`,
           `        repository.save(aggregate);`,
           `        publishEvents(aggregate);`,
           `    }`,
@@ -667,7 +667,7 @@ export function renderJavaService(
             ]
           : [];
       return [
-        `    public ${retType} ${jid(op.name)}(${paramSig}) {`,
+        `    public ${retType} ${DOMAIN_NAMES.java.op(op.name)}(${paramSig}) {`,
         usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
         ...rowFreeGateLines,
         ...lets,
@@ -677,8 +677,8 @@ export function renderJavaService(
         whenGateLine(op, opLocals),
         audited ? `        var __before = ${agg.name}Response.from(aggregate);` : null,
         returnsValue
-          ? `        var result = aggregate.${jid(op.name)}(${args});`
-          : `        aggregate.${jid(op.name)}(${args});`,
+          ? `        var result = aggregate.${DOMAIN_NAMES.java.op(op.name)}(${args});`
+          : `        aggregate.${DOMAIN_NAMES.java.op(op.name)}(${args});`,
         ...errorGuard,
         `        repository.save(aggregate);`,
         audited ? `        var __after = ${agg.name}Response.from(aggregate);` : null,
@@ -706,7 +706,9 @@ export function renderJavaService(
           ? [
               `        if (result instanceof ${ctx.entityPkg}.${spec.name}_${hostArm.tag}) result = new ${ctx.entityPkg}.${spec.name}_${hostArm.tag}(${
                 hostArm.member.shape === "record"
-                  ? hostArm.member.fields.map((f) => `aggregate.${jid(f.name)}()`).join(", ")
+                  ? hostArm.member.fields
+                      .map((f) => `aggregate.${DOMAIN_NAMES.java.prop(f.name)}()`)
+                      .join(", ")
                   : ""
               });`,
             ]
@@ -792,7 +794,7 @@ export function renderJavaService(
       .map((f) =>
         wireToDomain(
           eff(f.type, f.optional),
-          `request.${jid(f.name)}()`,
+          `request.${DOMAIN_NAMES.java.prop(f.name)}()`,
           `/${f.name}`,
           undefined,
           "at",
@@ -829,7 +831,7 @@ export function renderJavaService(
         );
     const usesUser = !!ctx.authed && operationGatesUseCurrentUser(op);
     return [
-      `    public boolean can${upperFirst(op.name)}(${idClass} id) {`,
+      `    public boolean can${DOMAIN_NAMES.java.type(op.name)}(${idClass} id) {`,
       usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
       ...gateLines("row-free"),
       `        var aggregate = repository.getById(id);`,

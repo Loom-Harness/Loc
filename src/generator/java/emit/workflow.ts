@@ -45,7 +45,7 @@ import {
 } from "../../../ir/util/workflow-command-route.js";
 import { type WriteScopeContext, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
+import { plural, snake, workflowFnCamel } from "../../../util/naming.js";
 import { workflowPreconditionThrowArgs } from "../../_i18n/domain-floor.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
@@ -55,6 +55,7 @@ import {
   workflowParamPayloads,
   workflowParamTypeSeeds,
 } from "../../_payload/workflow-param-payloads.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../_workflow/create-state.js";
 import {
@@ -64,7 +65,7 @@ import {
   renderWorkflowStmtChunks,
   type WorkflowStmtTarget,
 } from "../../_workflow/stmt-target.js";
-import { javaLocals, jid, jsonProp, localOf, movedLocalOrUndefined } from "../java-ident.js";
+import { javaLocals, jsonProp, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import {
   type JavaRenderContext,
@@ -217,7 +218,7 @@ const baseRenderCtx = { thisName: "this" };
 /** The saga-state repository field name (`fulfillmentStateRepository`) — the
  *  same name `dispatch.ts` / `workflow-instances.ts` inject under. */
 function stateRepoField(wf: WorkflowIR): string {
-  return `${lowerFirst(wf.name)}StateRepository`;
+  return `${DOMAIN_NAMES.java.stem(wf.name)}StateRepository`;
 }
 
 /** Aggregates whose repository the given workflow BODIES touch — repo binds,
@@ -485,7 +486,7 @@ export function javaWorkflowStmtTarget(
       const bind = s.result ? `var ${bound(s.result.name)} = ` : "";
       return [
         ...gateLines,
-        `${indent}${bind}${bound(s.target)}.${jid(s.op)}(${callArgs.join(", ")});`,
+        `${indent}${bind}${bound(s.target)}.${DOMAIN_NAMES.java.op(s.op)}(${callArgs.join(", ")});`,
       ];
     },
     repoDelete: (s, indent) => {
@@ -522,7 +523,7 @@ export function javaWorkflowStmtTarget(
         );
       }
       return [
-        `${indent}var ${bound(s.name)} = ${repoField(s.aggName)}.run${upperFirst(s.retrievalName)}(${args.join(", ")});`,
+        `${indent}var ${bound(s.name)} = ${repoField(s.aggName)}.run${DOMAIN_NAMES.java.type(s.retrievalName)}(${args.join(", ")});`,
       ];
     },
     forEach: (s, indent, body) => {
@@ -633,15 +634,15 @@ export function javaWorkflowStmtTarget(
         const scalar = isScalarVariant(arm.varType);
         const binder =
           arm.binding && !scalar
-            ? jid(arm.binding)
+            ? DOMAIN_NAMES.java.binding(arm.binding)
             : arm.binding
-              ? `${jid(arm.binding)}Carrier`
+              ? `${DOMAIN_NAMES.java.binding(arm.binding)}Carrier`
               : `unusedArm${i}`;
         out.push(
           `${indent}    case ${carrier} ${binder} -> {`,
           ...discardsAt(caseInner, arm.discardsInArm),
           ...(arm.binding && scalar
-            ? [`${caseInner}var ${jid(arm.binding)} = ${binder}.value();`]
+            ? [`${caseInner}var ${DOMAIN_NAMES.java.binding(arm.binding)} = ${binder}.value();`]
             : []),
           ...shift(armLines[i]!),
           ...savesAt(caseInner, arm.savesInArm),
@@ -705,7 +706,7 @@ export function javaWorkflowStmtTarget(
  *  read behind `Repo.find(<Criterion>)` in a `let` and an `if let`: the
  *  `(…, offset, limit)` overload capped at 1. */
 function firstRowOf(field: string, retrievalName: string, args: readonly string[]): string {
-  return `${field}.run${upperFirst(retrievalName)}(${[...args, "null", "1"].join(", ")}).stream().findFirst().orElse(null)`;
+  return `${field}.run${DOMAIN_NAMES.java.type(retrievalName)}(${[...args, "null", "1"].join(", ")}).stream().findFirst().orElse(null)`;
 }
 
 /** Publish what a just-saved aggregate drained (`pullEvents()`) on Spring's
@@ -801,7 +802,7 @@ export function workflowBodyDerefNames(
     for (const top of body) {
       walkWorkflowStmtExprsDeep(top, (e) => {
         if (e.kind === "call" && e.callKind === "domain-service" && e.serviceRef) {
-          out.push(e.serviceRef.service, lowerFirst(e.serviceRef.service));
+          out.push(e.serviceRef.service, DOMAIN_NAMES.java.stem(e.serviceRef.service));
         }
       });
     }
@@ -835,11 +836,11 @@ export function withLetLocals(
  *  declarations, its uses and the exit saves a caller renders outside it
  *  share. */
 export function boundLocal(renderCtx: JavaRenderContext, name: string): string {
-  return renderCtx.letExpr?.(name) ?? jid(name);
+  return renderCtx.letExpr?.(name) ?? DOMAIN_NAMES.java.binding(name);
 }
 
 export function repoField(aggName: string): string {
-  return `${lowerFirst(plural(aggName))}Repository`;
+  return `${DOMAIN_NAMES.java.stem(plural(aggName))}Repository`;
 }
 
 /** Normalise the optional flag into the type (mirrors `dto.ts` / `service.ts`'s
@@ -874,7 +875,7 @@ function workflowVoMappers(
       .map((f) =>
         wireToDomain(
           effType(f.type, !!f.optional),
-          `request.${jid(f.name)}()`,
+          `request.${DOMAIN_NAMES.java.prop(f.name)}()`,
           `/${f.name}`,
           undefined,
           "at",
@@ -983,7 +984,7 @@ export function renderJavaWorkflows(
    *  namespace is the whole document, so the collision set is decided across
    *  every hosted context by `emitProjectFromContexts`, not here. */
   reqNameFor: (owner: RequestComponentOwner) => string = (o) =>
-    o.kind === "workflow" ? `${upperFirst(o.workflow)}Request` : "",
+    o.kind === "workflow" ? `${DOMAIN_NAMES.java.type(o.workflow)}Request` : "",
 ): Map<string, { category: "service" | "controller" | "request-dto"; content: string }> | null {
   // Only command-surfaced workflows get a service method + POST route.  An
   // event-triggered (saga) workflow is invoked by the in-process dispatcher,
@@ -1047,7 +1048,7 @@ export function renderJavaWorkflows(
     for (const agg of reposUsed(wf, ctx)) repoAggs.add(agg);
     for (const s of readingServicesCalled(wf, ctx)) readingSvcs.add(s);
     for (const s of staticServicesCalled(wf, ctx)) staticSvcs.add(s);
-    const reqType = `${upperFirst(wf.name)}Request`;
+    const reqType = `${DOMAIN_NAMES.java.type(wf.name)}Request`;
     // The PUBLISHED schema name.  The Java class name stays -- it is part of
     // the generated code's own API (the controller signature below binds it) --
     // so only the document-facing name diverges when it would collide (F-026).
@@ -1084,7 +1085,7 @@ export function renderJavaWorkflows(
         const nested = bearsNestedRecord(p.type);
         // A reserved-word param mangles (`case_`) — the `request.<jid>()`
         // accessor below reads it — and keeps its wire key (`jsonProp`).
-        return `${jsonProp(p.name, reqImports)}${required ? `@${NOT_NULL} ` : ""}${nested ? `@${VALID} ` : ""}${javaType} ${jid(p.name)}`;
+        return `${jsonProp(p.name, reqImports)}${required ? `@${NOT_NULL} ` : ""}${nested ? `@${VALID} ` : ""}${javaType} ${DOMAIN_NAMES.java.prop(p.name)}`;
       });
       // A VO-typed param's `<Vo>Request` record lives in an aggregate's
       // application package, not `domain.valueobjects.*` — import it
@@ -1160,7 +1161,7 @@ export function renderJavaWorkflows(
     );
     const paramLets = wf.params.map((p) => {
       collectWireToDomainImports(p.type, imports, wctx.basePkg);
-      return `            var ${localOf(paramLocals, p.name)} = ${wireToDomain(p.type, `request.${jid(p.name)}()`, `/${p.name}`, payloadNames)};`;
+      return `            var ${localOf(paramLocals, p.name)} = ${wireToDomain(p.type, `request.${DOMAIN_NAMES.java.prop(p.name)}()`, `/${p.name}`, payloadNames)};`;
     });
     // Chunked (one lines-array per top-level statement) rather than the
     // pre-flattened `renderWorkflowStmts` — byte-identical either way
@@ -1280,10 +1281,10 @@ export function renderJavaWorkflows(
           ]
         : selfResult
           ? [
-              `            var workflowResult = new ${upperFirst(wf.name)}InstanceResponse(${(
+              `            var workflowResult = new ${DOMAIN_NAMES.java.type(wf.name)}InstanceResponse(${(
                 wf.instanceWireShape ?? []
               )
-                .map((f) => domainToWire(f.type, `state.${jid(f.name)}()`))
+                .map((f) => domainToWire(f.type, `state.${DOMAIN_NAMES.java.prop(f.name)}()`))
                 .join(", ")});`,
             ]
           : result
@@ -1304,7 +1305,7 @@ export function renderJavaWorkflows(
       er && result?.type.kind === "union"
         ? entryUnionJava(result.type)
         : selfResult
-          ? `${upperFirst(wf.name)}InstanceResponse`
+          ? `${DOMAIN_NAMES.java.type(wf.name)}InstanceResponse`
           : result
             ? workflowResultWireRef(result.type)
             : "void";
@@ -1320,7 +1321,7 @@ export function renderJavaWorkflows(
               : `    @Transactional`,
           ]
         : []),
-      `    public ${resultJava} ${lowerFirst(wf.name)}(${wf.params.length > 0 ? `${reqType} request` : ""}) {`,
+      `    public ${resultJava} ${DOMAIN_NAMES.java.stem(wf.name)}(${wf.params.length > 0 ? `${reqType} request` : ""}) {`,
       // A workflow is a per-dispatch boundary: run it in a child execution frame
       // (fresh scope_id, parent_id ← the request's root scope) so its audit /
       // provenance rows record their call-structure position.
@@ -1362,12 +1363,14 @@ export function renderJavaWorkflows(
     // ordinary workflow render context.  Both the expression form and the pure
     // block form (domain-services.md rev. 4) are supported.
     for (const fn of wf.functions ?? []) {
-      const params = fn.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`).join(", ");
+      const params = fn.params
+        .map((p) => `${renderJavaType(p.type)} ${DOMAIN_NAMES.java.binding(p.name)}`)
+        .join(", ");
       const name = workflowFnCamel(wf.name, fn.name);
       // The params are method locals a body lambda may not redeclare.
       const fnCtx = withLambdaScope(
         renderCtxFor(ctx, wctx),
-        fn.params.map((p) => jid(p.name)),
+        fn.params.map((p) => DOMAIN_NAMES.java.binding(p.name)),
       );
       const bodyLine =
         "expr" in fn.body
@@ -1508,7 +1511,7 @@ export function renderJavaWorkflows(
     ...(anyPublishes ? [`${APP_EVENT_PUBLISHER} ${WORKFLOW_PUBLISHER}`] : []),
     ...repoFields.map((a) => `${a}Repository ${repoField(a)}`),
     ...sagaWorkflows.map((wf) => `${workflowStateClass(wf)}Repository ${stateRepoField(wf)}`),
-    ...readingServices.map((s) => `${s} ${lowerFirst(s)}`),
+    ...readingServices.map((s) => `${s} ${DOMAIN_NAMES.java.stem(s)}`),
     ...(anyUser ? [`CurrentUserAccessor currentUserAccessor`] : []),
   ].join(", ");
   out.set(`${serviceName}.java`, {
@@ -1576,14 +1579,16 @@ export function renderJavaWorkflows(
       ...sagaWorkflows.map(
         (wf) => `    private final ${workflowStateClass(wf)}Repository ${stateRepoField(wf)};`,
       ),
-      ...readingServices.map((s) => `    private final ${s} ${lowerFirst(s)};`),
+      ...readingServices.map((s) => `    private final ${s} ${DOMAIN_NAMES.java.stem(s)};`),
       anyUser ? `    private final CurrentUserAccessor currentUserAccessor;` : null,
       ``,
       `    public ${serviceName}(${ctorParams}) {`,
       anyPublishes ? `        this.${WORKFLOW_PUBLISHER} = ${WORKFLOW_PUBLISHER};` : null,
       ...repoFields.map((a) => `        this.${repoField(a)} = ${repoField(a)};`),
       ...sagaWorkflows.map((wf) => `        this.${stateRepoField(wf)} = ${stateRepoField(wf)};`),
-      ...readingServices.map((s) => `        this.${lowerFirst(s)} = ${lowerFirst(s)};`),
+      ...readingServices.map(
+        (s) => `        this.${DOMAIN_NAMES.java.stem(s)} = ${DOMAIN_NAMES.java.stem(s)};`,
+      ),
       anyUser ? `        this.currentUserAccessor = currentUserAccessor;` : null,
       `    }`,
       ``,
@@ -1614,15 +1619,15 @@ export function renderJavaWorkflows(
     const arg = wf.params.length > 0 ? "request" : "";
     const sig =
       wf.params.length > 0
-        ? `@Valid @RequestBody ${upperFirst(wf.name)}Request request`
+        ? `@Valid @RequestBody ${DOMAIN_NAMES.java.type(wf.name)}Request request`
         : EMPTY_COMMAND_BODY_PARAM;
-    const call = `workflows.${lowerFirst(wf.name)}(${arg})`;
+    const call = `workflows.${DOMAIN_NAMES.java.stem(wf.name)}(${arg})`;
     const result = commandCreateResult(wf);
     if (!result) {
       return [
         ...mapping,
         `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
-        `    public void ${lowerFirst(wf.name)}(${sig}) {`,
+        `    public void ${DOMAIN_NAMES.java.stem(wf.name)}(${sig}) {`,
         `        ${call};`,
         `    }`,
         ``,
@@ -1632,7 +1637,7 @@ export function renderJavaWorkflows(
     if (er && result.type.kind === "union") {
       return [
         ...mapping,
-        `    public ${RESPONSE_ENTITY}<?> ${lowerFirst(wf.name)}(${sig}) {`,
+        `    public ${RESPONSE_ENTITY}<?> ${DOMAIN_NAMES.java.stem(wf.name)}(${sig}) {`,
         `        var result = ${call};`,
         ...entryControllerJava(er, result.type, ctx, "result", "        ", {
           problemDetail: PROBLEM_DETAIL,
@@ -1647,7 +1652,7 @@ export function renderJavaWorkflows(
     if (isWorkflowSelfType(wf, result.type)) {
       return [
         ...mapping,
-        `    public ${upperFirst(wf.name)}InstanceResponse ${lowerFirst(wf.name)}(${sig}) {`,
+        `    public ${DOMAIN_NAMES.java.type(wf.name)}InstanceResponse ${DOMAIN_NAMES.java.stem(wf.name)}(${sig}) {`,
         `        return ${call};`,
         `    }`,
         ``,
@@ -1658,7 +1663,7 @@ export function renderJavaWorkflows(
       ctlJson = true;
       return [
         ...mapping,
-        `    public ${RESPONSE_ENTITY}<String> ${lowerFirst(wf.name)}(${sig}) {`,
+        `    public ${RESPONSE_ENTITY}<String> ${DOMAIN_NAMES.java.stem(wf.name)}(${sig}) {`,
         `        return ${RESPONSE_ENTITY}.ok().contentType(${MEDIA_TYPE}.APPLICATION_JSON)`,
         `            .body(JSON.writeValueAsString(${call}));`,
         `    }`,
@@ -1667,7 +1672,7 @@ export function renderJavaWorkflows(
     }
     return [
       ...mapping,
-      `    public ${workflowResultWireRef(result.type)} ${lowerFirst(wf.name)}(${sig}) {`,
+      `    public ${workflowResultWireRef(result.type)} ${DOMAIN_NAMES.java.stem(wf.name)}(${sig}) {`,
       `        return ${call};`,
       `    }`,
       ``,
@@ -1686,7 +1691,7 @@ export function renderJavaWorkflows(
   for (const v of wfValidators)
     out.set(`${v.className}.java`, { category: "service", content: v.content });
   const binderTargets = wfValidators.filter((v) =>
-    cmdWorkflows.some((wf) => `${upperFirst(wf.name)}Request` === v.requestType),
+    cmdWorkflows.some((wf) => `${DOMAIN_NAMES.java.type(wf.name)}Request` === v.requestType),
   );
   const initBinder =
     binderTargets.length > 0

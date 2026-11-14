@@ -22,10 +22,10 @@ import type {
 import { reactorNeedsPrincipal } from "../../../ir/util/system-principal.js";
 import { workflowEmits } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeJavaIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
 import { spellMarkers } from "../../_imports/symbol.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../../_workflow/stmt-target.js";
 import { javaJsonSqlType } from "../codec-spelling.js";
@@ -125,7 +125,7 @@ interface ResolvedHandler {
 
 /** The saga-state repository field name (`orderFulfillmentStateRepository`). */
 function stateRepoField(wf: WorkflowIR): string {
-  return `${lowerFirst(wf.name)}StateRepository`;
+  return `${DOMAIN_NAMES.java.stem(wf.name)}StateRepository`;
 }
 
 /** Names an `@EventListener` reactor METHOD spells itself: the routing key, the
@@ -190,7 +190,7 @@ function withEventParam(base: JavaRenderContext, param: string, local: string): 
 
 /** The projection read-model row repository field name (`orderBookRowRepository`). */
 function projRepoField(proj: ProjectionIR): string {
-  return `${lowerFirst(proj.name)}RowRepository`;
+  return `${DOMAIN_NAMES.java.stem(proj.name)}RowRepository`;
 }
 
 /** One pure projection fold (projection.md): loads-or-allocates the read-model
@@ -229,7 +229,7 @@ function renderProjectionFold(
   // gets the `<Corr>Id` it expects.
   const keyExpr = on.correlation
     ? renderJavaExpr(on.correlation, renderCtx)
-    : `${param}.${lowerFirst(corr)}()`;
+    : `${param}.${DOMAIN_NAMES.java.prop(corr)}()`;
 
   // A tenant-scoped fold (`fold-tenancy.ts`) reads the event's tenant from its
   // metadata — the dispatching frame's event origin — keys the row by it and
@@ -262,7 +262,7 @@ function renderProjectionFold(
   return [
     ...(dedupe ? [`    @org.springframework.transaction.annotation.Transactional`] : []),
     `    @EventListener`,
-    `    public void on${upperFirst(proj.name)}On${upperFirst(sub.event)}(${sub.event} ${param}) {`,
+    `    public void on${DOMAIN_NAMES.java.type(proj.name)}On${DOMAIN_NAMES.java.type(sub.event)}(${sub.event} ${param}) {`,
     ...body,
     `    }`,
     ``,
@@ -283,28 +283,28 @@ function renderProjectionFoldStep(
   const expr = (e: ExprIR): string => renderJavaExpr(e, renderCtx);
   switch (step.kind) {
     case "set":
-      return [`        state.set${upperFirst(step.field)}(${expr(step.value)});`];
+      return [`        state.set${DOMAIN_NAMES.java.type(step.field)}(${expr(step.value)});`];
     case "let":
       // `let`-names may collide with a Java keyword; escape consistently with
       // the matching `refKind: "let"` use sites in `render-expr.ts`.
       return [
-        `        var ${renderCtx?.letExpr?.(step.name) ?? escapeJavaIdent(step.name)} = ${expr(step.expr)};`,
+        `        var ${renderCtx?.letExpr?.(step.name) ?? DOMAIN_NAMES.java.binding(step.name)} = ${expr(step.expr)};`,
       ];
     case "accumulate":
       return [
-        `        state.set${upperFirst(step.field)}(${accumulateJava(proj, step.field, step.op, expr(step.value))});`,
+        `        state.set${DOMAIN_NAMES.java.type(step.field)}(${accumulateJava(proj, step.field, step.op, expr(step.value))});`,
       ];
     case "append":
       // Every non-key read-model column is NULLABLE (`_allocate` is an empty
       // seed), so the list is materialised before the append — otherwise the
       // first event for a key NPEs.
       return [
-        `        if (state.${step.field}() == null) state.set${upperFirst(step.field)}(new java.util.ArrayList<>());`,
-        `        state.${step.field}().add(${expr(step.value)});`,
+        `        if (state.${DOMAIN_NAMES.java.prop(step.field)}() == null) state.set${DOMAIN_NAMES.java.type(step.field)}(new java.util.ArrayList<>());`,
+        `        state.${DOMAIN_NAMES.java.prop(step.field)}().add(${expr(step.value)});`,
       ];
     case "remove-all":
       return [
-        `        if (state.${step.field}() != null) state.${step.field}().removeIf(__x -> java.util.Objects.equals(__x, ${expr(step.value)}));`,
+        `        if (state.${DOMAIN_NAMES.java.prop(step.field)}() != null) state.${DOMAIN_NAMES.java.prop(step.field)}().removeIf(__x -> java.util.Objects.equals(__x, ${expr(step.value)}));`,
       ];
     default: {
       const _exhaustive: never = step;
@@ -339,7 +339,7 @@ function resolveHandler(wf: WorkflowIR, sub: EventSubscriptionIR): ResolvedHandl
  *  event-triggered create, `on<Wf>On<Event>` for an `on` reactor. */
 function handlerName(sub: EventSubscriptionIR): string {
   const mid = sub.trigger === "create" ? "Start" : "On";
-  return `on${upperFirst(sub.workflow)}${mid}${upperFirst(sub.event)}`;
+  return `on${DOMAIN_NAMES.java.type(sub.workflow)}${mid}${DOMAIN_NAMES.java.type(sub.event)}`;
 }
 
 /** Factory-let aggregate names in a statement list (need `<Agg>` imported for
@@ -444,7 +444,7 @@ export function renderJavaDispatcher(
       const on = proj.handlers.find((h) => h.event === sub.event && h.param === sub.param);
       if (!on) continue;
       pushHandler(
-        `on${upperFirst(proj.name)}On${upperFirst(sub.event)}`,
+        `on${DOMAIN_NAMES.java.type(proj.name)}On${DOMAIN_NAMES.java.type(sub.event)}`,
         sub.event,
         renderProjectionFold(proj, on, sub, dctx.basePkg, dedupe),
         true,
@@ -467,7 +467,7 @@ export function renderJavaDispatcher(
       if (!createResolved || !onSub || !onResolved) continue;
       const construct = `${ctx.name}.${wf.name}`;
       pushHandler(
-        `on${upperFirst(wf.name)}${upperFirst(sub.event)}`,
+        `on${DOMAIN_NAMES.java.type(wf.name)}${DOMAIN_NAMES.java.type(sub.event)}`,
         sub.event,
         renderEsMergedHandler(
           ctx,
@@ -772,13 +772,13 @@ function renderReactorListener(
       ...(authPkg
         ? [
             `        @org.springframework.context.event.EventListener`,
-            `        public void ${h.method}(${upperFirst(h.event)} e) {`,
+            `        public void ${h.method}(${DOMAIN_NAMES.java.type(h.event)} e) {`,
             `            afterCommit(${authPkg}.User.currentEventOrigin(), () -> react("${h.method}", e, () -> dispatcher.${h.method}(e)));`,
             `        }`,
           ]
         : [
             `        @org.springframework.transaction.event.TransactionalEventListener(phase = org.springframework.transaction.event.TransactionPhase.AFTER_COMMIT, fallbackExecution = true)`,
-            `        public void ${h.method}(${upperFirst(h.event)} e) {`,
+            `        public void ${h.method}(${DOMAIN_NAMES.java.type(h.event)} e) {`,
             `            react("${h.method}", e, () -> dispatcher.${h.method}(e));`,
             `        }`,
           ]),
@@ -831,7 +831,7 @@ function renderHandler(
   // correlation field (omitted-`by` rule).
   const keyExpr = resolved.correlation
     ? renderJavaExpr(resolved.correlation, renderCtx)
-    : `${param}.${lowerFirst(corr)}()`;
+    : `${param}.${DOMAIN_NAMES.java.prop(corr)}()`;
 
   const hasEmit = bodyHasEmit(resolved.statements);
   const stateClass = workflowStateClass(wf);
@@ -978,7 +978,7 @@ function renderEsHandler(
   );
   const keyExpr = resolved.correlation
     ? renderJavaExpr(resolved.correlation, renderCtx)
-    : `${param}.${lowerFirst(corr)}()`;
+    : `${param}.${DOMAIN_NAMES.java.prop(corr)}()`;
 
   const hasEmit = bodyHasEmit(resolved.statements);
   const cls = esWorkflowStateClass(wf);
@@ -1257,7 +1257,7 @@ function renderEsMergedHandler(
   );
   const keyExpr = createResolved.correlation
     ? renderJavaExpr(createResolved.correlation, renderCtx)
-    : `${param}.${lowerFirst(corr)}()`;
+    : `${param}.${DOMAIN_NAMES.java.prop(corr)}()`;
 
   const createBranch = esMergedBranchLines(
     ctx,
@@ -1314,7 +1314,7 @@ function renderEsMergedHandler(
 
   return [
     `    @EventListener`,
-    `    public void on${upperFirst(wf.name)}${upperFirst(createSub.event)}(${createSub.event} ${param}) {`,
+    `    public void on${DOMAIN_NAMES.java.type(wf.name)}${DOMAIN_NAMES.java.type(createSub.event)}(${createSub.event} ${param}) {`,
     `        try (var _ = RequestContext.openChild()) {`,
     ...principalBinding([createResolved.statements, onResolved.statements], ctx),
     ...body.map((l) => `    ${l}`),

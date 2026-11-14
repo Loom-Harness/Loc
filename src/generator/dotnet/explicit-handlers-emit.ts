@@ -68,9 +68,10 @@ import { routedErrorStatuses, routedParamSource } from "../../ir/util/routed-han
 import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
 import { bodyWriteScopeGuards, writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { rewrite } from "../../util/emission-sink.js";
-import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
+import { plural } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { sortedCsUsings } from "./cs-symbols.js";
 import {
@@ -229,13 +230,13 @@ function renderRecord(
   agg: string | undefined,
   kind: "Command" | "Query",
 ): string {
-  const recName = `${upperFirst(h.name)}${kind}`;
+  const recName = `${DOMAIN_NAMES.csharp.type(h.name)}${kind}`;
   // The Mediator record FLATTENS a request record's fields (byte-identical to
   // the flat-param form); the internal return types on the entity, not its
   // `<Agg>Response` contract (the route projects at the boundary).
   const ret = internalReturnType(h, ctx);
   const params = flatHandlerParams(h, ctx)
-    .map((p) => `${renderCsType(p.type)} ${upperFirst(p.name)}`)
+    .map((p) => `${renderCsType(p.type)} ${DOMAIN_NAMES.csharp.prop(p.name)}`)
     .join(", ");
   const retCs = ret ? handlerResultCs(h, ret, ns) : undefined;
   const iface =
@@ -270,8 +271,8 @@ function renderHandlerClass(
    *  renderer still reports loudly rather than dropping. */
   resourceClasses: Map<string, string> = new Map(),
 ): string {
-  const recName = `${upperFirst(h.name)}${kind}`;
-  const handlerName = `${upperFirst(h.name)}Handler`;
+  const recName = `${DOMAIN_NAMES.csharp.type(h.name)}${kind}`;
+  const handlerName = `${DOMAIN_NAMES.csharp.type(h.name)}Handler`;
   const retType = internalReturnType(h, ctx);
   const ret = retType ? handlerResultCs(h, retType, ns) : "Unit";
   // An expected-failure result (`T or E`): one transaction, rolled back on an
@@ -313,7 +314,8 @@ function renderHandlerClass(
   const fields = [
     ...[...repos].map(([repo, a]) => `    private readonly I${a}Repository ${repoField(repo)};`),
     ...calledServices.reading.map(
-      (svc) => `    private readonly ${upperFirst(svc)} _${lowerFirst(svc)};`,
+      (svc) =>
+        `    private readonly ${DOMAIN_NAMES.csharp.type(svc)} _${DOMAIN_NAMES.csharp.stem(svc)};`,
     ),
     ...(usesUser ? ["    private readonly ICurrentUserAccessor _currentUser;"] : []),
     ...(needsUow ? [`    private readonly global::${ns}.Domain.Common.IUnitOfWork _uow;`] : []),
@@ -321,14 +323,18 @@ function renderHandlerClass(
   ];
   const ctorParams = [
     ...[...repos].map(([repo, a]) => `I${a}Repository ${repoField(repo).slice(1)}`),
-    ...calledServices.reading.map((svc) => `${upperFirst(svc)} ${lowerFirst(svc)}`),
+    ...calledServices.reading.map(
+      (svc) => `${DOMAIN_NAMES.csharp.type(svc)} ${DOMAIN_NAMES.csharp.stem(svc)}`,
+    ),
     ...(usesUser ? ["ICurrentUserAccessor currentUser"] : []),
     ...(needsUow ? [`global::${ns}.Domain.Common.IUnitOfWork uow`] : []),
     ...(hasEmit ? ["IDomainEventDispatcher events"] : []),
   ].join(", ");
   const ctorAssigns = [
     ...[...repos].map(([repo]) => `${repoField(repo)} = ${repoField(repo).slice(1)}`),
-    ...calledServices.reading.map((svc) => `_${lowerFirst(svc)} = ${lowerFirst(svc)}`),
+    ...calledServices.reading.map(
+      (svc) => `_${DOMAIN_NAMES.csharp.stem(svc)} = ${DOMAIN_NAMES.csharp.stem(svc)}`,
+    ),
     ...(usesUser ? ["_currentUser = currentUser"] : []),
     ...(needsUow ? ["_uow = uow"] : []),
     ...(hasEmit ? ["_events = events"] : []),
@@ -528,7 +534,7 @@ function renderPagedQueryRecord(
   agg: string,
 ): string {
   const params = [
-    ...h.params.map((p) => `${renderCsType(p.type)} ${upperFirst(p.name)}`),
+    ...h.params.map((p) => `${renderCsType(p.type)} ${DOMAIN_NAMES.csharp.prop(p.name)}`),
     "int Page",
     "int PageSize",
     "string Sort",
@@ -544,7 +550,7 @@ using ${ns}.Application.${plural(agg)}.Responses;
 
 namespace ${ns}.Application.${plural(agg)}.Queries;
 
-public sealed record ${upperFirst(h.name)}Query(${params}) : IQuery<Paged<${agg}Response>>;
+public sealed record ${DOMAIN_NAMES.csharp.type(h.name)}Query(${params}) : IQuery<Paged<${agg}Response>>;
 `;
 }
 
@@ -561,7 +567,7 @@ function renderPagedQueryHandlerClass(
   const run = pagedRunStmt(h, ctx);
   const aggIR = ctx.aggregates.find((a) => a.name === agg)!;
   const field = repoField(run.repoName);
-  const critArgs = h.params.map((p) => `query.${upperFirst(p.name)}`);
+  const critArgs = h.params.map((p) => `query.${DOMAIN_NAMES.csharp.prop(p.name)}`);
   const callArgs = [...critArgs, "query.Page", "query.PageSize", "query.Sort", "query.Dir"].join(
     ", ",
   );
@@ -573,7 +579,8 @@ function renderPagedQueryHandlerClass(
   const paramNames = new Set(h.params.map((p) => p.name));
   const gateCtx = {
     thisName: "this",
-    paramExpr: (n: string) => (paramNames.has(n) ? `query.${upperFirst(n)}` : undefined),
+    paramExpr: (n: string) =>
+      paramNames.has(n) ? `query.${DOMAIN_NAMES.csharp.prop(n)}` : undefined,
   };
   const extraUsings = new Set<string>();
   for (const g of gates) collectCsExprUsings(g.expr, extraUsings, ns);
@@ -590,13 +597,13 @@ function renderPagedQueryHandlerClass(
   const ctor = usesUser
     ? [
         "    private readonly ICurrentUserAccessor _currentUser;",
-        `    public ${upperFirst(h.name)}Handler(${repoParam}, ICurrentUserAccessor currentUser)`,
+        `    public ${DOMAIN_NAMES.csharp.type(h.name)}Handler(${repoParam}, ICurrentUserAccessor currentUser)`,
         "    {",
         `        ${field} = ${field.slice(1)};`,
         "        _currentUser = currentUser;",
         "    }",
       ].join("\n")
-    : `    public ${upperFirst(h.name)}Handler(${repoParam}) => ${field} = ${field.slice(1)};`;
+    : `    public ${DOMAIN_NAMES.csharp.type(h.name)}Handler(${repoParam}) => ${field} = ${field.slice(1)};`;
   const extraUsingLines = [...extraUsings]
     .sort()
     .map((u) => `using ${u};\n`)
@@ -615,12 +622,12 @@ using ${ns}.Application.${plural(agg)}.Responses;
 ${extraUsingLines}
 namespace ${ns}.Application.${plural(agg)}.Queries;
 
-public sealed class ${upperFirst(h.name)}Handler : IQueryHandler<${upperFirst(h.name)}Query, Paged<${agg}Response>>
+public sealed class ${DOMAIN_NAMES.csharp.type(h.name)}Handler : IQueryHandler<${DOMAIN_NAMES.csharp.type(h.name)}Query, Paged<${agg}Response>>
 {
     private readonly I${agg}Repository ${field};
 ${ctor}
 
-    public async ValueTask<Paged<${agg}Response>> Handle(${upperFirst(h.name)}Query query, CancellationToken cancellationToken)
+    public async ValueTask<Paged<${agg}Response>> Handle(${DOMAIN_NAMES.csharp.type(h.name)}Query query, CancellationToken cancellationToken)
     {
 ${gateLines.map((l) => `${l}\n`).join("")}        var domain = await ${field}.${csFindMethodName(pagedRunFindName(run))}(${callArgs}, cancellationToken);
         return new Paged<${agg}Response>(domain.Items.Select(d => ${projectEntityExpr("d", aggIR, ctx)}).ToList(), domain.Page, domain.PageSize, domain.Total, domain.TotalPages);
@@ -643,14 +650,16 @@ const EXTERN_HANDLERS_NS = (ns: string): string => `${ns}.Application.Handlers`;
 /** The port method's C# param list + trailing CancellationToken. */
 function externPortParams(h: Handler): string {
   return [
-    ...h.params.map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`),
+    ...h.params.map((p) => `${renderCsType(p.type)} ${DOMAIN_NAMES.csharp.binding(p.name)}`),
     "CancellationToken cancellationToken",
   ].join(", ");
 }
 
 /** The `<Name>Command` / `<Name>Query` Mediator record for an extern handler. */
 function renderExternRecord(h: Handler, ns: string, kind: "Command" | "Query"): string {
-  const params = h.params.map((p) => `${renderCsType(p.type)} ${upperFirst(p.name)}`).join(", ");
+  const params = h.params
+    .map((p) => `${renderCsType(p.type)} ${DOMAIN_NAMES.csharp.prop(p.name)}`)
+    .join(", ");
   const iface =
     kind === "Command"
       ? h.returnType
@@ -665,7 +674,7 @@ using ${ns}.Domain.Enums;
 
 namespace ${EXTERN_HANDLERS_NS(ns)};
 
-public sealed record ${upperFirst(h.name)}${kind}(${params}) : ${iface};
+public sealed record ${DOMAIN_NAMES.csharp.type(h.name)}${kind}(${params}) : ${iface};
 `;
 }
 
@@ -681,10 +690,10 @@ using ${ns}.Domain.Enums;
 
 namespace ${EXTERN_HANDLERS_NS(ns)};
 
-/// <summary>Extern-handler contract for ${upperFirst(h.name)} — the one external-service
+/// <summary>Extern-handler contract for ${DOMAIN_NAMES.csharp.type(h.name)} — the one external-service
 /// call this handler wraps.  Implemented by the scaffold-once, user-owned
-/// [ExternHandler] class ${upperFirst(h.name)}ExternHandler (regeneration never overwrites it).</summary>
-public interface I${upperFirst(h.name)}Handler
+/// [ExternHandler] class ${DOMAIN_NAMES.csharp.type(h.name)}ExternHandler (regeneration never overwrites it).</summary>
+public interface I${DOMAIN_NAMES.csharp.type(h.name)}Handler
 {
     ${ret} Handle(${externPortParams(h)});
 }
@@ -693,15 +702,16 @@ public interface I${upperFirst(h.name)}Handler
 
 /** The generated Mediator handler that delegates to the injected port. */
 function renderExternHandlerClass(h: Handler, ns: string, kind: "Command" | "Query"): string {
-  const recName = `${upperFirst(h.name)}${kind}`;
+  const recName = `${DOMAIN_NAMES.csharp.type(h.name)}${kind}`;
   const ret = h.returnType ? renderCsType(h.returnType) : "Unit";
   const iface =
     kind === "Command"
       ? `ICommandHandler<${recName}, ${ret}>`
       : `IQueryHandler<${recName}, ${ret}>`;
-  const args = [...h.params.map((p) => `command.${upperFirst(p.name)}`), "cancellationToken"].join(
-    ", ",
-  );
+  const args = [
+    ...h.params.map((p) => `command.${DOMAIN_NAMES.csharp.prop(p.name)}`),
+    "cancellationToken",
+  ].join(", ");
   const body = h.returnType
     ? `        return await _impl.Handle(${args});`
     : `        await _impl.Handle(${args});\n        return Unit.Value;`;
@@ -715,10 +725,10 @@ using ${ns}.Domain.Enums;
 
 namespace ${EXTERN_HANDLERS_NS(ns)};
 
-public sealed class ${upperFirst(h.name)}Handler : ${iface}
+public sealed class ${DOMAIN_NAMES.csharp.type(h.name)}Handler : ${iface}
 {
-    private readonly I${upperFirst(h.name)}Handler _impl;
-    public ${upperFirst(h.name)}Handler(I${upperFirst(h.name)}Handler impl) => _impl = impl;
+    private readonly I${DOMAIN_NAMES.csharp.type(h.name)}Handler _impl;
+    public ${DOMAIN_NAMES.csharp.type(h.name)}Handler(I${DOMAIN_NAMES.csharp.type(h.name)}Handler impl) => _impl = impl;
 
     public async ValueTask<${ret}> Handle(${recName} command, CancellationToken cancellationToken)
     {
@@ -736,7 +746,7 @@ function renderExternImpl(
   kindLabel: "commandHandler" | "queryHandler",
 ): string {
   const ret = h.returnType ? `ValueTask<${renderCsType(h.returnType)}>` : "ValueTask";
-  const msg = `extern ${kindLabel} '${upperFirst(h.name)}' is not implemented — fill in Application/Handlers/${upperFirst(h.name)}ExternHandler.cs`;
+  const msg = `extern ${kindLabel} '${DOMAIN_NAMES.csharp.type(h.name)}' is not implemented — fill in Application/Handlers/${DOMAIN_NAMES.csharp.type(h.name)}ExternHandler.cs`;
   return `// ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first
 // \`generate\` and NEVER overwrites it again, so your implementation survives every
 // regenerate.  Replace the \`throw\` with the extern handler's real logic.
@@ -751,7 +761,7 @@ using ${ns}.Domain.Enums;
 namespace ${EXTERN_HANDLERS_NS(ns)};
 
 [ExternHandler]
-public sealed class ${upperFirst(h.name)}ExternHandler : I${upperFirst(h.name)}Handler
+public sealed class ${DOMAIN_NAMES.csharp.type(h.name)}ExternHandler : I${DOMAIN_NAMES.csharp.type(h.name)}Handler
 {
     public ${ret} Handle(${externPortParams(h)})
         => throw new ExternNotImplementedException(${JSON.stringify(msg)});
@@ -766,14 +776,20 @@ function emitExternHandler(
   kind: "Command" | "Query",
   out: Map<string, string>,
 ): void {
-  out.set(`Application/Handlers/${upperFirst(h.name)}${kind}.cs`, renderExternRecord(h, ns, kind));
-  out.set(`Application/Handlers/I${upperFirst(h.name)}Handler.cs`, renderExternPort(h, ns));
   out.set(
-    `Application/Handlers/${upperFirst(h.name)}Handler.cs`,
+    `Application/Handlers/${DOMAIN_NAMES.csharp.type(h.name)}${kind}.cs`,
+    renderExternRecord(h, ns, kind),
+  );
+  out.set(
+    `Application/Handlers/I${DOMAIN_NAMES.csharp.type(h.name)}Handler.cs`,
+    renderExternPort(h, ns),
+  );
+  out.set(
+    `Application/Handlers/${DOMAIN_NAMES.csharp.type(h.name)}Handler.cs`,
     renderExternHandlerClass(h, ns, kind),
   );
   out.set(
-    `Application/Handlers/${upperFirst(h.name)}ExternHandler.cs`,
+    `Application/Handlers/${DOMAIN_NAMES.csharp.type(h.name)}ExternHandler.cs`,
     renderExternImpl(h, ns, kind === "Command" ? "commandHandler" : "queryHandler"),
   );
 }
@@ -865,14 +881,14 @@ function handlerSlice(
     paged
       ? renderPagedQueryRecord(named, ns, ctx, pagedRunStmt(h, ctx).aggName)
       : renderRecord(named, ns, ctx, primaryAgg(h), kind);
-  const existing = out.get(`${home}/${upperFirst(h.name)}${kind}.cs`);
+  const existing = out.get(`${home}/${DOMAIN_NAMES.csharp.type(h.name)}${kind}.cs`);
   const shape = existing === undefined ? undefined : recordShape(existing);
   const standsIn =
     existing === undefined || (shape !== undefined && shape === recordShape(render(h)));
   const name = standsIn ? h.name : `${h.name}Entry`;
   return {
-    record: `${home}/${upperFirst(name)}${kind}.cs`,
-    handler: `${home}/${upperFirst(name)}Handler.cs`,
+    record: `${home}/${DOMAIN_NAMES.csharp.type(name)}${kind}.cs`,
+    handler: `${home}/${DOMAIN_NAMES.csharp.type(name)}Handler.cs`,
     typed: name === h.name ? h : { ...h, name },
   };
 }
@@ -944,7 +960,7 @@ function pathParamNames(path: string): Set<string> {
  *  wrapped in `new <Agg>Id`; scalar → direct. */
 function pathActionParam(p: ParamIR): { actionParam: string; commandArg: string } {
   const t: TypeIR = p.type;
-  const n = escapeCsharpIdent(p.name);
+  const n = DOMAIN_NAMES.csharp.binding(p.name);
   if (t.kind === "id") {
     // The SHARED derivation (`csIdValueClrType`), not a local switch: the copy
     // that used to live here mapped `int` to `long`, so an `int`-keyed
@@ -974,7 +990,7 @@ export function queryActionParam(
   } = {},
 ): { actionParam: string; commandArg: string } {
   const t: TypeIR = p.type;
-  const n = escapeCsharpIdent(p.name);
+  const n = DOMAIN_NAMES.csharp.binding(p.name);
   // A required param of a routed handler binds required, so Swashbuckle
   // publishes `required: true` as node / phoenix do: a non-nullable reference
   // type alone reads as optional.  Fully qualified to avoid an unused `using`
@@ -1067,8 +1083,8 @@ export function emitExplicitRouteController(
       actions.push(
         `    [HttpGet("${explicitRoutePath(r)}")]\n` +
           routedResponseDecls("    [ProducesResponseType(200)]", r, h, ctx) +
-          `    public async Task<IActionResult> ${upperFirst(h.name)}(${actionParams})\n` +
-          `    {\n        var ${RESULT_LOCAL} = await _mediator.Send(new ${upperFirst(handlerSlice(h, ctx, ns, "Query", out).typed.name)}Query(${queryArgs}));\n        return Ok(${RESULT_LOCAL});\n    }`,
+          `    public async Task<IActionResult> ${DOMAIN_NAMES.csharp.type(h.name)}(${actionParams})\n` +
+          `    {\n        var ${RESULT_LOCAL} = await _mediator.Send(new ${DOMAIN_NAMES.csharp.type(handlerSlice(h, ctx, ns, "Query", out).typed.name)}Query(${queryArgs}));\n        return Ok(${RESULT_LOCAL});\n    }`,
       );
       continue;
     }
@@ -1105,9 +1121,9 @@ export function emitExplicitRouteController(
     const actionParamParts = urlParams.map((p) => urlArg.get(p.name)!.actionParam);
     let bodyRecName: string | undefined;
     if (bodyParams.length > 0) {
-      bodyRecName = `${upperFirst(h.name)}Body`;
+      bodyRecName = `${DOMAIN_NAMES.csharp.type(h.name)}Body`;
       const fields = bodyParams
-        .map((p) => `${renderCsType(p.type)} ${upperFirst(p.name)}`)
+        .map((p) => `${renderCsType(p.type)} ${DOMAIN_NAMES.csharp.prop(p.name)}`)
         .join(", ");
       bodyRecords.push(`public sealed record ${bodyRecName}(${fields});`);
       actionParamParts.push(`[FromBody] ${bodyRecName} body`);
@@ -1116,10 +1132,10 @@ export function emitExplicitRouteController(
     // Command/query ctor args stay in flat declared order: path params coerce
     // from the route token, body params read off `body.<Pascal>`.
     const ctorArgs = effParams
-      .map((p) => urlArg.get(p.name)?.commandArg ?? `body.${upperFirst(p.name)}`)
+      .map((p) => urlArg.get(p.name)?.commandArg ?? `body.${DOMAIN_NAMES.csharp.prop(p.name)}`)
       .join(", ");
 
-    const rec = `${upperFirst(h.extern ? h.name : handlerSlice(h, ctx, ns, kind, out).typed.name)}${kind}`;
+    const rec = `${DOMAIN_NAMES.csharp.type(h.extern ? h.name : handlerSlice(h, ctx, ns, kind, out).typed.name)}${kind}`;
     const attr = HTTP_ATTR[r.method] ?? "HttpGet";
     // A query always returns; a command returns only with an explicit type.  A
     // scaffolded read declares `<Agg>Response` — normalise to the entity the
@@ -1210,7 +1226,7 @@ export function emitExplicitRouteController(
       `    [${attr}("${explicitRoutePath(r)}")]\n` +
         routedResponseDecls(successDecl, r, h, ctx) +
         armDecls +
-        `    public async Task<IActionResult> ${upperFirst(h.name)}(${actionParams})\n` +
+        `    public async Task<IActionResult> ${DOMAIN_NAMES.csharp.type(h.name)}(${actionParams})\n` +
         `    {\n${sendBlock}\n    }`,
     );
   }

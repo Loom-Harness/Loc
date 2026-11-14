@@ -37,6 +37,7 @@ import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
 import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 import { finalizeCsUnit } from "../_imports/dotnet.js";
 import { spellMarkers } from "../_imports/symbol.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { CS, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
 
 /** The resolved body of one subscription (the `on` reactor or event-`create`
@@ -66,7 +67,7 @@ import {
 } from "../../ir/util/workflow-command-route.js";
 import { type WriteScopeContext, writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { emissionSink } from "../../util/emission-sink.js";
-import { escapeCsharpIdent, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { plural, snake } from "../../util/naming.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
 import {
   workflowParamPayloads,
@@ -203,7 +204,7 @@ export function emitWorkflows(
   for (const wf of commandWfs) {
     const usage = analyseWorkflow(wf);
     const construct = `${ctx.name}.${wf.name}`;
-    const requestPath = `Application/Workflows/${upperFirst(wf.name)}Request.cs`;
+    const requestPath = `Application/Workflows/${DOMAIN_NAMES.csharp.type(wf.name)}Request.cs`;
     const requestContent = renderRequestDto(wf, ctx, ns);
     out.set(requestPath, requestContent);
     sourcemap?.file(requestPath, finalizeCsUnit(requestContent), wf.origin, construct);
@@ -213,11 +214,11 @@ export function emitWorkflows(
       const f = renderEntryUnionFile(routed.type, ctx, ns);
       if (!out.has(f.path)) out.set(f.path, f.content);
     }
-    const commandPath = `Application/Workflows/${upperFirst(wf.name)}Command.cs`;
+    const commandPath = `Application/Workflows/${DOMAIN_NAMES.csharp.type(wf.name)}Command.cs`;
     const commandContent = renderCommand(wf, ns);
     out.set(commandPath, commandContent);
     sourcemap?.file(commandPath, finalizeCsUnit(commandContent), wf.origin, construct);
-    const handlerPath = `Application/Workflows/${upperFirst(wf.name)}Handler.cs`;
+    const handlerPath = `Application/Workflows/${DOMAIN_NAMES.csharp.type(wf.name)}Handler.cs`;
     // Only collected when a recorder is actually threaded in — a
     // no-sourcemap run pays no per-statement bookkeeping cost.
     const opFragments: OpFragment[] | undefined = sourcemap ? [] : undefined;
@@ -239,7 +240,7 @@ export function emitWorkflows(
     }
     const fnsContent = renderWorkflowFunctions(wf, ns);
     if (fnsContent) {
-      const fnsPath = `Application/Workflows/${upperFirst(wf.name)}Functions.cs`;
+      const fnsPath = `Application/Workflows/${DOMAIN_NAMES.csharp.type(wf.name)}Functions.cs`;
       out.set(fnsPath, fnsContent);
       sourcemap?.file(fnsPath, finalizeCsUnit(fnsContent), wf.origin, construct);
     }
@@ -308,7 +309,9 @@ function renderWorkflowPayloadWireRecords(
   const recs = payloads
     .map((pl) => {
       const params = pl.fields
-        .map((f) => dtoParam(wireType(f.type, ctx, "request"), upperFirst(f.name), "request"))
+        .map((f) =>
+          dtoParam(wireType(f.type, ctx, "request"), DOMAIN_NAMES.csharp.prop(f.name), "request"),
+        )
         .join(", ");
       return `${csSchemaRequiredAttr(params)}public sealed record ${pl.name}Response(${params});\n`;
     })
@@ -345,7 +348,7 @@ function renderWorkflowPayloadDomainRecords(
       // is not C#.  (The same normalisation the java arm gets from `effType`.)
       .map(
         (f) =>
-          `${renderCsType(f.type)}${f.optional && f.type.kind !== "optional" ? "?" : ""} ${upperFirst(f.name)}`,
+          `${renderCsType(f.type)}${f.optional && f.type.kind !== "optional" ? "?" : ""} ${DOMAIN_NAMES.csharp.prop(f.name)}`,
       )
       .join(", ");
     files.set(
@@ -389,7 +392,9 @@ function renderWorkflowValueObjectRequests(
     .filter((v) => valueObjects.has(v.name))
     .map((vo) => {
       const params = vo.fields
-        .map((f) => dtoParam(wireType(f.type, ctx, "request"), upperFirst(f.name), "request"))
+        .map((f) =>
+          dtoParam(wireType(f.type, ctx, "request"), DOMAIN_NAMES.csharp.prop(f.name), "request"),
+        )
         .join(", ");
       return `${csSchemaRequiredAttr(params)}public sealed record ${vo.name}Request(${params});\n`;
     })
@@ -468,7 +473,7 @@ export function emitDispatchHandlers(
       );
       const onResolved = onSub ? resolveSub(wf, onSub) : null;
       if (!createResolved || !onSub || !onResolved) continue;
-      const className = `${upperFirst(wf.name)}On${upperFirst(sub.event)}Handler`;
+      const className = `${DOMAIN_NAMES.csharp.type(wf.name)}On${DOMAIN_NAMES.csharp.type(sub.event)}Handler`;
       const construct = `${ctx.name}.${wf.name}`;
       const path = `Application/Workflows/${className}.cs`;
       // Only collected when a recorder is actually threaded in — a
@@ -504,7 +509,7 @@ export function emitDispatchHandlers(
     }
     const resolved = resolveSub(wf, sub);
     if (!resolved) continue;
-    const className = `${upperFirst(wf.name)}${sub.trigger === "on" ? "On" : "Start"}${upperFirst(sub.event)}Handler`;
+    const className = `${DOMAIN_NAMES.csharp.type(wf.name)}${sub.trigger === "on" ? "On" : "Start"}${DOMAIN_NAMES.csharp.type(sub.event)}Handler`;
     const construct = `${ctx.name}.${wf.name}`;
     const path = `Application/Workflows/${className}.cs`;
     const opFragments: OpFragment[] | undefined = sourcemap ? [] : undefined;
@@ -613,7 +618,7 @@ function renderEventReactorHandler(
     ctorAssigns.push("_events = events");
   }
   for (const ext of usage.externs.values()) {
-    const ifaceName = `I${upperFirst(ext.opName)}${ext.aggName}Handler`;
+    const ifaceName = `I${DOMAIN_NAMES.csharp.type(ext.opName)}${ext.aggName}Handler`;
     const fieldName = `_${ext.opName}${ext.aggName}Handler`;
     fields.push(`    private readonly ${ifaceName} ${fieldName};`);
     ctorParamPairs.push(`${ifaceName} ${fieldName.replace(/^_/, "")}`);
@@ -707,7 +712,7 @@ function renderEventReactorHandler(
   // Correlation routing: load-or-allocate (create) / route-or-drop+log (on).
   if (persisted) {
     const corr = wf.correlationField as string;
-    const corrPascal = upperFirst(corr);
+    const corrPascal = DOMAIN_NAMES.csharp.prop(corr);
     // The routing key: the `by <expr>` value, else the event field that
     // name-matches the correlation field (the omitted-`by` rule).
     const keyExpr = correlation
@@ -1030,7 +1035,7 @@ function renderMergedEventSourcedHandler(
     ctorAssigns.push("_events = events");
   }
   for (const ext of usage.externs.values()) {
-    const ifaceName = `I${upperFirst(ext.opName)}${ext.aggName}Handler`;
+    const ifaceName = `I${DOMAIN_NAMES.csharp.type(ext.opName)}${ext.aggName}Handler`;
     const fieldName = `_${ext.opName}${ext.aggName}Handler`;
     fields.push(`    private readonly ${ifaceName} ${fieldName};`);
     ctorParamPairs.push(`${ifaceName} ${fieldName.replace(/^_/, "")}`);
@@ -1064,7 +1069,7 @@ function renderMergedEventSourcedHandler(
   if (usesResourcesNamespace(mergedStatements, resourceClasses)) usings.add(`${ns}.Resources`);
 
   const corr = wf.correlationField as string;
-  const corrPascal = upperFirst(corr);
+  const corrPascal = DOMAIN_NAMES.csharp.prop(corr);
   const keyExpr = createResolved.correlation
     ? renderExprWithEventParam(createResolved.correlation, createSub.param, resourceClasses)
     : `notification.${corrPascal}`;
@@ -1186,7 +1191,9 @@ function analyseWorkflow(wf: WorkflowIR): WorkflowUsage {
 
 function renderRequestDto(wf: WorkflowIR, ctx: EnrichedBoundedContextIR, ns: string): string {
   const params = wf.params
-    .map((p) => dtoParam(wireType(p.type, ctx, "request"), upperFirst(p.name), "request"))
+    .map((p) =>
+      dtoParam(wireType(p.type, ctx, "request"), DOMAIN_NAMES.csharp.prop(p.name), "request"),
+    )
     .join(", ");
   return `// Auto-generated.
 using System.ComponentModel.DataAnnotations;
@@ -1195,7 +1202,7 @@ using ${ns}.Domain.Enums;
 ${noNulCharUsing(ns, params)}
 namespace ${ns}.Application.Workflows;
 
-${csSchemaRequiredAttr(params)}public sealed record ${upperFirst(wf.name)}Request(${params});
+${csSchemaRequiredAttr(params)}public sealed record ${DOMAIN_NAMES.csharp.type(wf.name)}Request(${params});
 `;
 }
 
@@ -1204,7 +1211,9 @@ ${csSchemaRequiredAttr(params)}public sealed record ${upperFirst(wf.name)}Reques
 // ---------------------------------------------------------------------------
 
 function renderCommand(wf: WorkflowIR, ns: string): string {
-  const params = wf.params.map((p) => `${renderCsType(p.type)} ${upperFirst(p.name)}`).join(", ");
+  const params = wf.params
+    .map((p) => `${renderCsType(p.type)} ${DOMAIN_NAMES.csharp.prop(p.name)}`)
+    .join(", ");
   // `create(…): T` — the command carries its result type (`ICommand<T>`), the
   // commandHandler shape; a result-less workflow keeps the unit `ICommand`.
   const result = commandCreateResult(wf);
@@ -1217,7 +1226,7 @@ using ${ns}.Domain.Enums;
 
 namespace ${ns}.Application.Workflows;
 
-public sealed record ${upperFirst(wf.name)}Command(${params}) : ${iface};
+public sealed record ${DOMAIN_NAMES.csharp.type(wf.name)}Command(${params}) : ${iface};
 `;
 }
 
@@ -1244,9 +1253,9 @@ function renderWorkflowFunctions(wf: WorkflowIR, ns: string): string | undefined
   ]);
   const methods = fns.flatMap((fn) => {
     const params = fn.params
-      .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+      .map((p) => `${renderCsType(p.type)} ${DOMAIN_NAMES.csharp.binding(p.name)}`)
       .join(", ");
-    const head = `    public static ${renderCsType(fn.returnType)} ${upperFirst(fn.name)}(${params})`;
+    const head = `    public static ${renderCsType(fn.returnType)} ${DOMAIN_NAMES.csharp.op(fn.name)}(${params})`;
     if ("expr" in fn.body) {
       collectCsExprUsings(fn.body.expr, usings, ns);
       return [`${head} => ${renderCsExpr(fn.body.expr, renderCtx)};`];
@@ -1260,7 +1269,7 @@ function renderWorkflowFunctions(wf: WorkflowIR, ns: string): string | undefined
 ${usingLines.join("\n")}${usingLines.length > 0 ? "\n" : ""}
 namespace ${ns}.Application.Workflows;
 
-public static class ${upperFirst(wf.name)}Functions
+public static class ${DOMAIN_NAMES.csharp.type(wf.name)}Functions
 {
 ${methods.join("\n")}
 }
@@ -1284,8 +1293,8 @@ function renderHandler(
    *  bookkeeping cost. */
   opFragments?: OpFragment[],
 ): string {
-  const cmdName = `${upperFirst(wf.name)}Command`;
-  const handlerName = `${upperFirst(wf.name)}Handler`;
+  const cmdName = `${DOMAIN_NAMES.csharp.type(wf.name)}Command`;
+  const handlerName = `${DOMAIN_NAMES.csharp.type(wf.name)}Handler`;
   // Not `workflowUsesCurrentUser(wf)`: a hoisted `requires` gate is rendered at
   // the INLINE op-call site inside this body, so the principal can be needed by
   // a workflow that never spells `currentUser` itself (CS0103 otherwise).
@@ -1378,7 +1387,7 @@ function renderHandler(
   // user-supplied IXAggHandler injected.  Field name follows the
   // op+agg convention (`_confirmOrderHandler`).
   for (const ext of usage.externs.values()) {
-    const ifaceName = `I${upperFirst(ext.opName)}${ext.aggName}Handler`;
+    const ifaceName = `I${DOMAIN_NAMES.csharp.type(ext.opName)}${ext.aggName}Handler`;
     const fieldName = `_${ext.opName}${ext.aggName}Handler`;
     fields.push(`    private readonly ${ifaceName} ${fieldName};`);
     ctorParamPairs.push(`${ifaceName} ${fieldName.replace(/^_/, "")}`);
@@ -1415,9 +1424,15 @@ function renderHandler(
   // service, NOT that repo (the .NET divergence from the TS read-port arg).
   const readingServices = collectReadingServices(wf, ctx);
   for (const svcName of readingServices) {
-    fields.push(`    private readonly ${upperFirst(svcName)} _${lowerFirst(svcName)};`);
-    ctorParamPairs.push(`${upperFirst(svcName)} ${lowerFirst(svcName)}`);
-    ctorAssigns.push(`_${lowerFirst(svcName)} = ${lowerFirst(svcName)}`);
+    fields.push(
+      `    private readonly ${DOMAIN_NAMES.csharp.type(svcName)} _${DOMAIN_NAMES.csharp.stem(svcName)};`,
+    );
+    ctorParamPairs.push(
+      `${DOMAIN_NAMES.csharp.type(svcName)} ${DOMAIN_NAMES.csharp.stem(svcName)}`,
+    );
+    ctorAssigns.push(
+      `_${DOMAIN_NAMES.csharp.stem(svcName)} = ${DOMAIN_NAMES.csharp.stem(svcName)}`,
+    );
   }
   if (readingServices.size > 0) usings.add(`${ns}.Domain.Services`);
   const readingCall = workflowReadingServiceCallResolver(ctx);
@@ -1464,14 +1479,14 @@ function renderHandler(
     // transactional path this rides `stmtLines`, which the tx branch below
     // re-indents into the `try` — so the instance write commits (or rolls back)
     // with the aggregates the workflow orchestrates.
-    const corrPascal = upperFirst(wf.correlationField as string);
+    const corrPascal = DOMAIN_NAMES.csharp.prop(wf.correlationField as string);
     // The key comes off the COMMAND PARAM (`corrParam`), which is only the
     // correlation field's own name in the name-match spelling; in the
     // `create start(order: Order id) { orderId := order }` spelling the record
     // member is `Order`, and `command.OrderId` would be a CS1061 on a record
     // with no such member.  The state-side comparison stays `corrPascal` —
     // that IS the row's column.
-    stmtLines.push(`        var __key = command.${upperFirst(corrParam.name)};`);
+    stmtLines.push(`        var __key = command.${DOMAIN_NAMES.csharp.prop(corrParam.name)};`);
     stmtLines.push(
       `        var state = await _sagaState.FindAsync(x => x.${corrPascal} == __key, cancellationToken);`,
     );
@@ -1529,10 +1544,10 @@ function renderHandler(
   } else if (result && isWorkflowSelfType(wf, result.type)) {
     // `create(…): <Wf> { …; return this }` — the saved instance state.
     stmtLines.push(
-      `        workflowResult = new ${upperFirst(wf.name)}InstanceResponse(${(
+      `        workflowResult = new ${DOMAIN_NAMES.csharp.type(wf.name)}InstanceResponse(${(
         wf.instanceWireShape ?? []
       )
-        .map((f) => projectToResponse(`${wfThis}.${upperFirst(f.name)}`, f.type, ctx))
+        .map((f) => projectToResponse(`${wfThis}.${DOMAIN_NAMES.csharp.prop(f.name)}`, f.type, ctx))
         .join(", ")});`,
     );
   } else if (result) {
@@ -1743,7 +1758,7 @@ export function csWorkflowStmtTarget(
     ].join(", ");
     const hits = `__${name}Hits`;
     return [
-      `${indent}var ${hits} = await ${fieldName}.Run${upperFirst(retrievalName)}Async(${callArgs});`,
+      `${indent}var ${hits} = await ${fieldName}.Run${DOMAIN_NAMES.csharp.type(retrievalName)}Async(${callArgs});`,
       `${indent}var ${name} = ${hits}.Count > 0 ? ${hits}[0] : null;`,
     ];
   };
@@ -1764,7 +1779,9 @@ export function csWorkflowStmtTarget(
       ];
     },
     emit: (st, indent) => {
-      const args = st.fields.map((f) => `${upperFirst(f.name)}: ${renderArg(f.value)}`).join(", ");
+      const args = st.fields
+        .map((f) => `${DOMAIN_NAMES.csharp.prop(f.name)}: ${renderArg(f.value)}`)
+        .join(", ");
       return [`${indent}_workflowEvents.Add(new ${st.eventName}(${args}));`];
     },
     factoryLet: (st, indent) => {
@@ -1772,7 +1789,9 @@ export function csWorkflowStmtTarget(
       // (matching the source field name), so the named-arg call site
       // must use the same casing — PascalCase here would fail with
       // CS1739 "best overload does not have a parameter named X".
-      const provided = st.fields.map((f) => `${escapeCsharpIdent(f.name)}: ${renderArg(f.value)}`);
+      const provided = st.fields.map(
+        (f) => `${DOMAIN_NAMES.csharp.binding(f.name)}: ${renderArg(f.value)}`,
+      );
       // The .NET Create(...) factory declares *every* canonical create
       // input as a required parameter (no C# default — optionals would
       // have to trail the required params, which the wire-shape ordering
@@ -1787,7 +1806,7 @@ export function csWorkflowStmtTarget(
         .filter((f) => !named.has(f.name))
         .map(
           (f) =>
-            `${escapeCsharpIdent(f.name)}: ${renderCsOmission(createOmissionValue(f), renderArg)}`,
+            `${DOMAIN_NAMES.csharp.binding(f.name)}: ${renderCsOmission(createOmissionValue(f), renderArg)}`,
         );
       const args = [...provided, ...omitted].join(", ");
       // C# doesn't support reordering positional args; using named
@@ -1870,8 +1889,8 @@ export function csWorkflowStmtTarget(
         )});`;
       });
       // `let r = a.op(…)` binds the call's value; the bare statement discards it.
-      const bind = st.result ? `var ${escapeCsharpIdent(st.result.name)} = ` : "";
-      const callLine = `${indent}${bind}${st.target}.${upperFirst(st.op)}(${callArgs});`;
+      const bind = st.result ? `var ${DOMAIN_NAMES.csharp.binding(st.result.name)} = ` : "";
+      const callLine = `${indent}${bind}${st.target}.${DOMAIN_NAMES.csharp.op(st.op)}(${callArgs});`;
       // Audited op invoked inline → stage an AuditRecord bracketing the call
       // with before/after wire snapshots, mirroring the per-operation command
       // handler.  The handler runs inside the Mediator dispatch's child frame,
@@ -1958,7 +1977,7 @@ export function csWorkflowStmtTarget(
       // positional token would bind to `page`.  Named, it skips the defaults.
       const callArgs = [...args, ...bypassArgs, `${own.ct}: cancellationToken`].join(", ");
       return [
-        `${indent}var ${st.name} = await ${fieldName}.Run${upperFirst(st.retrievalName)}Async(${callArgs});`,
+        `${indent}var ${st.name} = await ${fieldName}.Run${DOMAIN_NAMES.csharp.type(st.retrievalName)}Async(${callArgs});`,
       ];
     },
     forEach: (st, indent, body) => {
@@ -2073,7 +2092,7 @@ export function csWorkflowStmtTarget(
           side
             ? [
                 ...(side.binding
-                  ? [`${inner}var ${escapeCsharpIdent(side.binding)} = ${subject};`]
+                  ? [`${inner}var ${DOMAIN_NAMES.csharp.binding(side.binding)} = ${subject};`]
                   : []),
                 ...side.lines,
                 ...savesAt(inner, side.saves),
@@ -2093,7 +2112,7 @@ export function csWorkflowStmtTarget(
       const discardsAt = (drops: readonly { name: string; repoName: string }[] | undefined) =>
         (drops ?? []).map((d) => {
           const f = `_${d.repoName.charAt(0).toLowerCase() + d.repoName.slice(1)}`;
-          return `${inner}${f}.Discard(${escapeCsharpIdent(d.name)});`;
+          return `${inner}${f}.Discard(${DOMAIN_NAMES.csharp.binding(d.name)});`;
         });
       const section = (
         label: string,
@@ -2164,7 +2183,7 @@ export function csWorkflowStmtTarget(
     // synchronous static call).  The mutated args are EF-tracked entities →
     // they flush at the orchestrator's single `await db.SaveChangesAsync()`.
     domainServiceCall: (st, indent) => [
-      `${indent}${st.result ? `var ${escapeCsharpIdent(st.result.name)} = ` : ""}${renderArg(st.call)};`,
+      `${indent}${st.result ? `var ${DOMAIN_NAMES.csharp.binding(st.result.name)} = ` : ""}${renderArg(st.call)};`,
     ],
     // The exception a by-id miss throws, so `DomainExceptionFilter`'s
     // not-found arm renders the identical ProblemDetails.
@@ -2180,7 +2199,7 @@ export function csWorkflowStmtTarget(
           writeScope: {
             cx: writeScope,
             guard: (g, indent) => [
-              `${indent}_ = await _${lowerFirst(g.repoName)}.GetByIdForWriteAsync(${g.name}.Id, cancellationToken) ?? throw ${csNotFoundException(null, `${g.aggName} {${g.name}.Id}`)};`,
+              `${indent}_ = await _${DOMAIN_NAMES.csharp.stem(g.repoName)}.GetByIdForWriteAsync(${g.name}.Id, cancellationToken) ?? throw ${csNotFoundException(null, `${g.aggName} {${g.name}.Id}`)};`,
             ],
           },
         }
@@ -2227,7 +2246,7 @@ export function renderExprWithCmdParams(
     if (r.refKind !== "param") return undefined;
     if (recordParams?.has(r.name)) return { ...r, name: "command", refKind: "let" };
     if (paramNames.has(r.name))
-      return { ...r, name: `command.${upperFirst(r.name)}`, refKind: "let" };
+      return { ...r, name: `command.${DOMAIN_NAMES.csharp.prop(r.name)}`, refKind: "let" };
     return undefined;
   });
   return renderCsExpr(rewritten, { thisName, resourceClasses, domainServiceReadingCall });
@@ -2251,7 +2270,10 @@ export function workflowReadingServiceCallResolver(
 ): NonNullable<CsRenderContext["domainServiceReadingCall"]> {
   return (service, op) => {
     if (serviceOpReadPorts(ctx, service, op).length === 0) return undefined;
-    return { receiver: `_${lowerFirst(service)}`, method: `${upperFirst(op)}Async` };
+    return {
+      receiver: `_${DOMAIN_NAMES.csharp.stem(service)}`,
+      method: `${DOMAIN_NAMES.csharp.op(op)}Async`,
+    };
   };
 }
 
@@ -2287,7 +2309,7 @@ function workflowResultCs(
 ): string {
   if (t.kind === "union") return `global::${entryResultNs(ns)}.${entryUnionName(t)}`;
   if (isWorkflowSelfType(wf, t))
-    return `global::${ns}.Application.Workflows.${upperFirst(wf.name)}InstanceResponse`;
+    return `global::${ns}.Application.Workflows.${DOMAIN_NAMES.csharp.type(wf.name)}InstanceResponse`;
   return renderCsType(t);
 }
 
@@ -2316,14 +2338,14 @@ function renderController(
     // A param bearing a rule-carrying value object is judged at the wire, as an
     // operation param is (`renderWorkflowRequestValidators`).
     const wireValidator = requestVoValidatorName(
-      `${upperFirst(wf.name)}Request`,
+      `${DOMAIN_NAMES.csharp.type(wf.name)}Request`,
       valueObjectParams(wf.params).map(({ param }) => param),
       ctx.valueObjects,
     );
     if (wireValidator) anyWireValidator = true;
     const cmdArgs = wf.params
       .map((p) =>
-        wireToCommandArgument(`request.${upperFirst(p.name)}`, p.type, ctx, {
+        wireToCommandArgument(`request.${DOMAIN_NAMES.csharp.prop(p.name)}`, p.type, ctx, {
           ns,
           pointer: `/${p.name}`,
         }),
@@ -2388,10 +2410,10 @@ function renderController(
         success +
         errorAttrs +
         armAttrs +
-        `    public async Task<IActionResult> ${upperFirst(camelId(opWorkflow(wf.name)))}([FromBody] ${upperFirst(wf.name)}Request request)\n` +
+        `    public async Task<IActionResult> ${DOMAIN_NAMES.csharp.type(camelId(opWorkflow(wf.name)))}([FromBody] ${DOMAIN_NAMES.csharp.type(wf.name)}Request request)\n` +
         `    {\n` +
         (wireValidator ? `        new ${wireValidator}().ValidateAndThrow(request);\n` : "") +
-        `        var cmd = new ${upperFirst(wf.name)}Command(\n            ${cmdArgs});\n` +
+        `        var cmd = new ${DOMAIN_NAMES.csharp.type(wf.name)}Command(\n            ${cmdArgs});\n` +
         send +
         `    }\n`,
     );
@@ -2445,7 +2467,7 @@ export function emitWorkflowInstanceReads(
   if (observable.length === 0) return;
   for (const wf of observable) {
     out.set(
-      `Application/Workflows/${upperFirst(wf.name)}InstanceResponse.cs`,
+      `Application/Workflows/${DOMAIN_NAMES.csharp.type(wf.name)}InstanceResponse.cs`,
       renderInstanceResponseDto(wf, ctx, ns),
     );
   }
@@ -2473,7 +2495,9 @@ function renderInstanceResponseDto(
   // OpenAPI required-set matches Hono/Python (which require every
   // non-optional instance field) — see dto-mapping.ts.
   const params = (wf.instanceWireShape ?? [])
-    .map((f) => dtoParam(wireType(f.type, ctx, "response"), upperFirst(f.name), "response"))
+    .map((f) =>
+      dtoParam(wireType(f.type, ctx, "response"), DOMAIN_NAMES.csharp.prop(f.name), "response"),
+    )
     .join(", ");
   return `// Auto-generated.
 using System;
@@ -2483,7 +2507,7 @@ using ${ns}.Domain.Enums;
 
 namespace ${ns}.Application.Workflows;
 
-public sealed record ${upperFirst(wf.name)}InstanceResponse(${params});
+public sealed record ${DOMAIN_NAMES.csharp.type(wf.name)}InstanceResponse(${params});
 `;
 }
 
@@ -2514,15 +2538,15 @@ function renderInstancesController(
   let needsCurrentUser = false;
   for (const wf of workflows) {
     const slug = snake(wf.name);
-    const T = upperFirst(wf.name);
+    const T = DOMAIN_NAMES.csharp.type(wf.name);
     const dbSet = workflowStateDbSet(wf);
     const shape = wf.instanceWireShape ?? [];
     const corr = shape.find((f) => f.source === "id");
-    const corrName = upperFirst(wf.correlationField as string);
+    const corrName = DOMAIN_NAMES.csharp.prop(wf.correlationField as string);
     const targetName = corr && corr.type.kind === "id" ? corr.type.targetName : "";
     const proj = (rowVar: string): string =>
       shape
-        .map((f) => projectToResponse(`${rowVar}.${upperFirst(f.name)}`, f.type, ctx))
+        .map((f) => projectToResponse(`${rowVar}.${DOMAIN_NAMES.csharp.prop(f.name)}`, f.type, ctx))
         .join(", ");
     // The read body diverges on `wf.eventSourced`: a state-based saga reads the
     // `<Wf>State` saga row, while an event-sourced workflow folds the
@@ -2646,7 +2670,7 @@ function renderInstancesController(
       `    [HttpGet("${slug}/instances")]\n` +
         `    [ProducesResponseType(typeof(IEnumerable<${T}InstanceResponse>), 200)]\n` +
         forbiddenAttr +
-        `    public async Task<IActionResult> ${upperFirst(camelId(opWorkflowInstances(wf.name)))}()\n` +
+        `    public async Task<IActionResult> ${DOMAIN_NAMES.csharp.type(camelId(opWorkflowInstances(wf.name)))}()\n` +
         `    {\n` +
         gateLines +
         listBody +
@@ -2670,7 +2694,7 @@ function renderInstancesController(
         errorStatuses("getById", false, wireStatusResolver(ctx.structuralErrorStatuses))
           .map((s) => `    ${csProblemResponseAttr(s, "")}\n`)
           .join("") +
-        `    public async Task<IActionResult> ${upperFirst(camelId(opWorkflowInstanceById(wf.name)))}(${corrClr} id)\n` +
+        `    public async Task<IActionResult> ${DOMAIN_NAMES.csharp.type(camelId(opWorkflowInstanceById(wf.name)))}(${corrClr} id)\n` +
         `    {\n` +
         gateLines +
         byIdBody +

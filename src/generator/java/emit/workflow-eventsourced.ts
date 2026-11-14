@@ -1,8 +1,7 @@
 import { eventLogTable, foldedEventNames, requiredStateFields } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { upperFirst } from "../../../util/naming.js";
-import { jid } from "../java-ident.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { renderJavaType } from "../render-expr.js";
 import { renderJavaStatements } from "../render-stmt.js";
 import { javaStateDefault } from "./workflow-state.js";
@@ -31,7 +30,7 @@ import { javaStateDefault } from "./workflow-state.js";
 
 /** The fold-target class name (`TallyState`). */
 export function esWorkflowStateClass(wf: WorkflowIR): string {
-  return `${upperFirst(wf.name)}State`;
+  return `${DOMAIN_NAMES.java.type(wf.name)}State`;
 }
 
 /** The single per-context event log `<ctx>_events`, schema-qualified for native
@@ -80,7 +79,7 @@ export function renderEsWorkflowFoldClass(
   // them as `state.<field>` (no accessors needed; the fold target is internal).
   const fieldLines = [
     `    ${corrId} ${corr};`,
-    ...stateOnly.map((f) => `    ${renderJavaType(f.type)} ${jid(f.name)};`),
+    ...stateOnly.map((f) => `    ${renderJavaType(f.type)} ${DOMAIN_NAMES.java.prop(f.name)};`),
   ];
 
   // Record-style public accessors (`<field>()`) so the cross-package
@@ -91,7 +90,7 @@ export function renderEsWorkflowFoldClass(
     `    public ${corrId} ${corr}() { return this.${corr}; }`,
     ...stateOnly.map(
       (f) =>
-        `    public ${renderJavaType(f.type)} ${jid(f.name)}() { return this.${jid(f.name)}; }`,
+        `    public ${renderJavaType(f.type)} ${DOMAIN_NAMES.java.prop(f.name)}() { return this.${DOMAIN_NAMES.java.prop(f.name)}; }`,
     ),
   ];
 
@@ -115,7 +114,7 @@ export function renderEsWorkflowFoldClass(
   // Fold-from-zero: seed correlation key + a typed default per required
   // (non-optional, non-correlation) state field.
   const seeds = requiredStateFields(wf).map(
-    (f) => `        s.${jid(f.name)} = ${javaStateDefault(f, ctx)};`,
+    (f) => `        s.${DOMAIN_NAMES.java.prop(f.name)} = ${javaStateDefault(f, ctx)};`,
   );
 
   return lines(
