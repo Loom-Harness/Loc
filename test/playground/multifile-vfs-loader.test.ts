@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { EmptyFileSystem } from "langium";
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
-import { lowerModel, mergeLoomModels } from "../../src/ir/lower/lower.js";
+import { lowerModel, lowerProject, mergeLoomModels } from "../../src/ir/lower/lower.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 import { loadProjectFromVfs } from "../../web/src/build/project-loader.js";
@@ -74,8 +74,7 @@ describe("playground project loader (VFS-backed)", () => {
     expect(errors.map((e) => e.message)).toEqual([]);
 
     // Merge + enrich → root Money present, Order references it.
-    const merged = mergeLoomModels(all.map((d) => lowerModel(d.parseResult?.value as Model)));
-    const loom = enrichLoomModel(merged);
+    const loom = enrichLoomModel(lowerProject(all.map((d) => d.parseResult?.value as Model)));
     expect(loom.rootValueObjects.map((v) => v.name)).toEqual(["Money"]);
     const allCtxs = [
       ...loom.contexts,
@@ -167,8 +166,8 @@ describe("playground project loader (VFS-backed)", () => {
   });
 
   // Mirrors the worker's full pipeline (`build.worker.ts`
-  // handleGenerateFromPath path): load via VFS → lower per doc →
-  // merge → enrich → validate → generate.  Proves the playground
+  // handleGenerateFromPath path): load via VFS → `lowerProject` →
+  // enrich → validate → generate.  Proves the playground
   // wiring actually produces a usable file map for a real
   // multi-file source.
   it("end-to-end: VFS multi-file project produces a system file map", async () => {
@@ -203,8 +202,7 @@ describe("playground project loader (VFS-backed)", () => {
     const errors = all.flatMap((d) => (d.diagnostics ?? []).filter((x) => x.severity === 1));
     expect(errors.map((e) => e.message)).toEqual([]);
 
-    const merged = mergeLoomModels(all.map((d) => lowerModel(d.parseResult?.value as Model)));
-    const loom = enrichLoomModel(merged);
+    const loom = enrichLoomModel(lowerProject(all.map((d) => d.parseResult?.value as Model)));
     const files = await generateSystemFilesFromLoom(loom);
 
     // Money emitted into the deployable's value-objects bundle.

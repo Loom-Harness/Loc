@@ -162,7 +162,7 @@ export function buildRepositoryFile(
   // Response-boundary read masking (`mask unless`): a sibling serializer that
   // redacts masked fields per the caller.  Only for aggregates that declare a
   // mask — a mask-free aggregate emits no `toWireMasked` and stays byte-identical.
-  const toWireMaskedM = aggHasFieldMask(agg) ? toWireMaskedMethod(agg) : "";
+  const toWireMaskedM = aggHasFieldMask(agg) ? toWireMaskedMethod(agg, ctx.payloads) : "";
 
   // Render the class body first so the file's imports + `type Tx` can be
   // narrowed to what's actually referenced — keeps the generated header
