@@ -71,3 +71,28 @@ describe("node: the outbox relay runs whenever the deployable has an outbox tier
     expect(boot).toContain("createApp(db, createOutboxDispatcher(db, requestEvents))");
   });
 });
+
+describe("java: a broker-wired deployable keeps the outbox for its unbound durable channel", () => {
+  // `OrderNoted` rides a durable channel no binding carries, on a deployable
+  // that relays `OrderPlaced` to the broker.  It must be recorded by the local
+  // tee and redelivered by the local relay; the two relays split the table by
+  // event type so each row has one relay.  Booting it needs the broker sidecar
+  // (#5613), and the redelivery is asynchronous.
+  it("records the unbound durable event and partitions the two relays", async () => {
+    const out = await files("channels-broker-mixed-durable", "java");
+    const find = (suffix: string): string => {
+      const path = [...out.keys()].find((p) => p.endsWith(suffix));
+      if (!path) throw new Error(`not emitted: *${suffix}`);
+      return file(out, path);
+    };
+    expect(find("/LoomEventOutbox.java")).toContain(
+      'static final Set<String> DURABLE = Set.of("OrderNoted");',
+    );
+    expect(find("/LocalOutboxRelay.java")).toContain(
+      "AndTypeInOrderByOccurredAtAsc(LoomEventOutbox.DURABLE)",
+    );
+    expect(find("/OutboxRelayService.java")).toContain(
+      "outbox.claimPendingOfTypes(ChannelBindings.DURABLE_ROUTING.keySet())",
+    );
+  });
+});

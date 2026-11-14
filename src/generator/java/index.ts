@@ -431,13 +431,16 @@ function emitProjectFromContexts(
   );
   const wiredForeignChannels = chPlan.foreignChannels;
   const brokerEvents = new Set(channelBindings.flatMap((b) => b.events));
-  // Standalone (no-broker) outbox tier (dispatch-delivery-semantics.md §1-2):
-  // hosted durable events on a channel with NO `channelSource` still get
-  // crash-safe in-process delivery (the tee records → LocalOutboxRelay
-  // redelivers), parity with node/dotnet/python.  Only when this deployable
-  // wires no broker at all — the broker path owns the `channels:`-wired case, so
-  // exactly one relay drains __loom_outbox (no double-processing race).
-  const standaloneOutbox = !hasChannels && hostedDurable.size > 0;
+  // Local outbox tier (channels.md "Event routing"): the outbox events no wired
+  // binding carries are recorded by the LoomEventOutbox tee and redelivered
+  // in-process by the LocalOutboxRelay — on a broker-wired deployable too.
+  // When the broker relay also drains broker-routed rows from the same table,
+  // the two relays partition it by event type, so each row has one relay.
+  const localDurable: ReadonlySet<string> = new Set(
+    [...chPlan.outboxEvents].filter((ev) => !brokerEvents.has(ev)),
+  );
+  const standaloneOutbox = localDurable.size > 0;
+  const partitionedOutbox = standaloneOutbox && durableBrokerEvents.size > 0;
   // Dispatcher handler methods for broker-routed events, collected across the
   // per-context loop below — the ChannelConsumerService's dispatch table.
   const consumerHandlers: ChannelConsumerHandler[] = [];
@@ -1074,7 +1077,7 @@ function emitProjectFromContexts(
         extraChannels: hasChannels ? wiredForeignChannels : undefined,
         brokerEvents: hasChannels ? brokerEvents : undefined,
         deployableDurable: hostedDurable.size > 0,
-        localDurableEvents: standaloneOutbox ? hostedDurable : undefined,
+        localDurableEvents: standaloneOutbox ? localDurable : undefined,
         resources: { classes: resourceEmission.classes, pkg: pkgFor("resource-client") },
       },
       dispatcherOpFragments,
@@ -1102,7 +1105,7 @@ function emitProjectFromContexts(
       if (standaloneOutbox) {
         localOutboxHandlers.push(
           ...dispatcher.handlers
-            .filter((h) => hostedDurable.has(h.event))
+            .filter((h) => localDurable.has(h.event))
             .map((h) => ({
               dispatcherClass: `${ctx.name}Dispatcher`,
               dispatcherPkg: pkgFor("workflow-service"),
@@ -1301,23 +1304,27 @@ function emitProjectFromContexts(
   // emitted above (hostedDurable > 0).  Broker-wired projects take the broker
   // path below instead; channel-less projects emit none of this.
   if (standaloneOutbox) {
-    for (const f of renderJavaOutboxFiles({
-      configPkg: pkgFor("config"),
-      entityPkg: pkgFor("infra-persistence"),
-      repoPkg: pkgFor("spring-data-repository"),
-    })) {
-      // The broker relay (OutboxRelayService) is replaced by LocalOutboxRelay;
-      // reuse only the shared __loom_outbox entity + repository.
-      if (f.name === "OutboxRelayService.java") continue;
-      place(f.name, f.category, f.content);
+    // The shared __loom_outbox entity + repository, unless the broker path
+    // below emits them (partitioned, with the per-type claim queries).
+    if (!partitionedOutbox) {
+      for (const f of renderJavaOutboxFiles({
+        configPkg: pkgFor("config"),
+        entityPkg: pkgFor("infra-persistence"),
+        repoPkg: pkgFor("spring-data-repository"),
+      })) {
+        // The broker relay (OutboxRelayService) is replaced by LocalOutboxRelay.
+        if (f.name === "OutboxRelayService.java") continue;
+        place(f.name, f.category, f.content);
+      }
     }
     for (const f of renderJavaStandaloneOutboxFiles(basePkg, {
-      durableEvents: [...hostedDurable],
+      durableEvents: [...localDurable],
       handlers: localOutboxHandlers,
       configPkg: pkgFor("config"),
       entityPkg: pkgFor("infra-persistence"),
       repoPkg: pkgFor("spring-data-repository"),
       carriesOrigin: authRequired,
+      partitioned: partitionedOutbox,
     })) {
       place(f.name, f.category, f.content);
     }
@@ -1433,6 +1440,7 @@ function emitProjectFromContexts(
         repoPkg: pkgFor("spring-data-repository"),
         carriesOrigin: authRequired,
         basePkg,
+        partitioned: partitionedOutbox,
       })) {
         place(f.name, f.category, f.content);
       }
