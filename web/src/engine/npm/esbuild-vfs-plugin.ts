@@ -164,11 +164,6 @@ export const BACKEND_LOWERED_SYNTAX: Record<string, boolean> = {
 };
 
 export const BROWSER_STUBBED_PACKAGES: Record<string, string> = {
-  ioredis: [
-    unavailable("ioredis"),
-    "export class Redis { constructor() { unavailable('new Redis()'); } }",
-    "export default Redis;",
-  ].join("\n"),
   kafkajs: [
     unavailable("kafkajs"),
     "export class Kafka { constructor() { unavailable('new Kafka()'); } }",
@@ -186,7 +181,7 @@ export const BROWSER_STUBBED_PACKAGES: Record<string, string> = {
   ].join("\n"),
 };
 const STUBBED = "vfs-stubbed-package";
-// The resource facades (nodemailer, @sendgrid/*) are stubbed packages too.
+// The resource facades (nodemailer, @sendgrid/*, ioredis) are stubbed packages too.
 Object.assign(BROWSER_STUBBED_PACKAGES, RESOURCE_FACADE_PACKAGES);
 
 /** A node builtin: `node:*`, an exact name, or a subpath like

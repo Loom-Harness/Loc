@@ -61,6 +61,12 @@ export {
   foldSteps,
 } from "./projection-fold.js";
 export {
+  type ProjectionQueryParam,
+  projectionQueryParams,
+  type QueryParamCheck,
+  queryParamCheck,
+} from "./projection-params.js";
+export {
   admittedReferences,
   type ContainStep,
   type RefScope,

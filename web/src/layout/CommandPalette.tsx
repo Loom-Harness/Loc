@@ -123,6 +123,7 @@ function CommandPaletteView({ ctx }: Props): JSX.Element {
         dock("migrations", PANE.migrations, "migrations"),
         dock("history", PANE.history, "history"),
         dock("auth", PANE.auth, "auth"),
+        dock("infra", PANE.infra, "infra"),
       ],
     },
     {

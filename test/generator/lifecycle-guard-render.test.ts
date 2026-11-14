@@ -20,8 +20,9 @@
 //      not one shared helper that could be wrong in the same way five times.)
 //   2. ORDERING, by INDEX arithmetic in the emitted text.  The create gate must
 //      precede the factory (a guard that runs after construction is not a
-//      gate); the destroy gate must FOLLOW the by-id load (so an unreachable id
-//      still answers 404) and PRECEDE the delete and any audit staging (a
+//      gate); a destroy gate that reads the row must FOLLOW the by-id load, one
+//      that reads only the principal must PRECEDE it (the gate ladder), and
+//      every destroy gate must PRECEDE the delete and any audit staging (a
 //      denial must not roll back work it should never have started).
 //
 // And it pins the two shapes only a second aggregate can show:
@@ -107,8 +108,11 @@ const SPECS: Record<Backend, BackendSpec> = {
     principalOnlyDestroy: {
       region: { file: "http/crate.routes.ts", from: 'operationId: "destroyCrate"', to: "\n  );" },
       gate: 'if (!((currentUser.permissions).includes("ops.manage"))) throw new ForbiddenError("Forbidden: currentUser.permissions.contains(permissions.manage)");',
-      after: ["await repo.getById(Ids.CrateId(id));"],
-      before: ["tx.insert(schema.auditRecords)", "await repoTx.delete(Ids.CrateId(id));"],
+      before: [
+        "await repo.getById(Ids.CrateId(id));",
+        "tx.insert(schema.auditRecords)",
+        "await repoTx.delete(Ids.CrateId(id));",
+      ],
     },
   },
   python: {
@@ -149,8 +153,11 @@ const SPECS: Record<Backend, BackendSpec> = {
       gate:
         'if "ops.manage" not in current_user.permissions:\n' +
         '        raise ForbiddenError("Forbidden: currentUser.permissions.contains(permissions.manage)")',
-      after: ["await repo.get_by_id(CrateId(id))"],
-      before: ["await repo.record_audit(", "await repo.delete(CrateId(id))"],
+      before: [
+        "await repo.get_by_id(CrateId(id))",
+        "await repo.record_audit(",
+        "await repo.delete(CrateId(id))",
+      ],
     },
   },
   java: {
@@ -185,8 +192,11 @@ const SPECS: Record<Backend, BackendSpec> = {
         to: "\n    }",
       },
       gate: 'if (!(currentUser.permissions().contains("ops.manage"))) throw new ForbiddenException("Forbidden: currentUser.permissions.contains(permissions.manage)");',
-      after: ["var aggregate = repository.getById(id);"],
-      before: ["auditRecords.save(new AuditRecord(", "repository.delete(aggregate);"],
+      before: [
+        "var aggregate = repository.getById(id);",
+        "auditRecords.save(new AuditRecord(",
+        "repository.delete(aggregate);",
+      ],
     },
   },
   dotnet: {
@@ -234,8 +244,8 @@ const SPECS: Record<Backend, BackendSpec> = {
         'if (!((currentUser.Permissions).Contains("ops.manage")))\n' +
         "        {\n" +
         '            throw new ForbiddenException("Forbidden: currentUser.permissions.contains(permissions.manage)");',
-      after: ["var aggregate = await _repo.GetByIdAsync(command.Id, cancellationToken)"],
       before: [
+        "var aggregate = await _repo.GetByIdAsync(command.Id, cancellationToken)",
         "_audit.Stage(new AuditRecord",
         "await _repo.DeleteAsync(aggregate, cancellationToken);",
       ],

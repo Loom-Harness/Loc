@@ -41,6 +41,7 @@ import {
   collectionSuccess,
 } from "../../../ir/util/api-surface.js";
 import { escapeJavaIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
+import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { resourceEnvUrlVar } from "../../../util/resource-env.js";
 import { type PolymorphicRow, polymorphicRowOf } from "../../_api/polymorphic-row.js";
 // `API_CLIENT_CLASS` lives in `render-expr.ts` for the same reason as on .NET:
@@ -395,7 +396,8 @@ export function emitJavaApiClients(
 /** The caller's credential, copied per call from the inbound request: the
  *  bearer token the auth filter accepted (an `Authorization` header, or the
  *  HttpOnly `session` cookie the OIDC handshake sets) and, under the dev-stub
- *  verifier, the `x-loom-dev-claims` override. */
+ *  verifier, the `x-loom-dev-claims` override, plus the requested operating-org
+ *  switch the callee re-gates. */
 function callerCredentialForwarding(): string[] {
   return [
     "    private static HttpRequest.Builder withCallerCredential(HttpRequest.Builder req) {",
@@ -418,6 +420,10 @@ function callerCredentialForwarding(): string[] {
     '        var devClaims = inbound.getHeader("x-loom-dev-claims");',
     "        if (devClaims != null && !devClaims.isEmpty()) {",
     '            req.header("x-loom-dev-claims", devClaims);',
+    "        }",
+    `        var orgContext = inbound.getHeader("${ORG_CONTEXT_HEADER}");`,
+    "        if (orgContext != null && !orgContext.isEmpty()) {",
+    `            req.header("${ORG_CONTEXT_HEADER}", orgContext);`,
     "        }",
     "        return req;",
     "    }",

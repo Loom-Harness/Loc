@@ -41,6 +41,7 @@ import {
   collectionSuccess,
 } from "../../../ir/util/api-surface.js";
 import { escapeCsharpIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
+import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { resourceEnvUrlVar } from "../../../util/resource-env.js";
 import { type PolymorphicRow, polymorphicRowOf } from "../../_api/polymorphic-row.js";
 // `API_CLIENT_CLASS` lives in `render-expr.ts`, not here: this module already
@@ -373,7 +374,8 @@ export function emitDotnetApiClients(
 /** The caller's credential, copied per call from the inbound request: the
  *  bearer token the auth middleware accepted (an `Authorization` header, or
  *  the HttpOnly `session` cookie the OIDC handshake sets) and, under the
- *  dev-stub verifier, the `x-loom-dev-claims` override.  Headers go on the
+ *  dev-stub verifier, the `x-loom-dev-claims` override, plus the requested
+ *  operating-org switch the callee re-gates.  Headers go on the
  *  request message, never on the shared client's defaults. */
 function callerCredentialForwarding(): string[] {
   return [
@@ -394,6 +396,9 @@ function callerCredentialForwarding(): string[] {
     '        var devClaims = inbound.Headers["x-loom-dev-claims"].ToString();',
     "        if (!string.IsNullOrEmpty(devClaims))",
     '            req.Headers.TryAddWithoutValidation("x-loom-dev-claims", devClaims);',
+    `        var orgContext = inbound.Headers["${ORG_CONTEXT_HEADER}"].ToString();`,
+    "        if (!string.IsNullOrEmpty(orgContext))",
+    `            req.Headers.TryAddWithoutValidation("${ORG_CONTEXT_HEADER}", orgContext);`,
     "    }",
     "",
   ];

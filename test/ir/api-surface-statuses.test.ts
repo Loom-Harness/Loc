@@ -25,6 +25,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { BoundedContextIR, FindIR, LoomModel } from "../../src/ir/types/loom-ir.js";
+import { PLAIN_FIND_FLAGS } from "../../src/ir/types/loom-ir.js";
 import {
   type ApiOperationIR,
   absenceUnionAbsent,
@@ -168,6 +169,7 @@ describe("api-surface — 422 follows the PARSED request part, not the kind (F6)
     expect(all.name).toBe("all");
     expect(findValidatesRequest(all), "paged return").toBe(true);
     const byCode: FindIR = {
+      ...PLAIN_FIND_FLAGS,
       name: "byCode",
       params: [{ name: "code", type: { kind: "primitive", name: "string" } }],
       returnType: {

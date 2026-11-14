@@ -88,66 +88,7 @@ function projectMembers(files: readonly string[]): Set<string> {
 // ---------------------------------------------------------------------------
 
 /** Files that cannot parse, each pinned with its reason. */
-const UNPARSEABLE = [
-  // The recorded repro for the "a `let` inside a `for` body is required"
-  // refusal (FieldOps evaluation, F-002): `for l in ls { Parts.getById(
-  // l.partId).consume(l.qty) }` does not parse — a call cannot be chained onto
-  // a repository read inside a `for`.  Pinned rather than fixed because the
-  // file IS the evidence; when the grammar accepts the chained form this pin
-  // goes stale and the check below says so.
-  "test/fixtures/eval-models/eval/repro/wf-for-let-d.ddd",
-  // Evaluation models — frozen evidence of what the evaluated toolchain
-  // accepted — that declare repository `find`s.  `find` declarations are out of
-  // the grammar (D-FINDDECL-REMOVED), so each is now a parse error at its first
-  // `find` (`loom.parse-error#find-removed`).  They are kept as recorded, not
-  // migrated: the register entries they evidence cite them as written.  Two of
-  // them were negative fixtures until the cutover — `eval-fieldops/repro/
-  // H-rowlevel-currentuser.ddd` and the helpdesk H-24 pair (`eval-helpdesk/v2|v3/
-  // main.ddd`, refused by `loom.create-field-type`); a parse error now stops them
-  // before that gate, so they leave DELIBERATELY_INVALID rather than pass its
-  // control vacuously.
-  "eval-helpdesk/repro/find-all-array-picker.ddd",
-  "eval-helpdesk/v2/main.ddd",
-  "eval-helpdesk/v3/main.ddd",
-  "test/fixtures/eval-models/eval-clinica/repro/r05-criterion-join-system.ddd",
-  "test/fixtures/eval-models/eval-clinica/repro/r08-retrieval-no-route.ddd",
-  "test/fixtures/eval-models/eval-fieldops/repro/H-rowlevel-currentuser.ddd",
-  "test/fixtures/eval-models/eval-fieldops/repro/H2-rowlevel-denormalized.ddd",
-  "test/fixtures/eval-models/eval-fieldops/repro/I-byid-gate.ddd",
-  "test/fixtures/eval-models/eval-fieldops/repro/broken/09-unqueryable-filter.ddd",
-  "test/fixtures/eval-models/eval/commons/breadth.ddd",
-  "test/fixtures/eval-models/eval/commons/s4.ddd",
-  "test/fixtures/eval-models/eval/fieldops/main-devauth.ddd",
-  "test/fixtures/eval-models/eval/fieldops/main.ddd",
-  "test/fixtures/eval-models/eval/fieldops/scale.ddd",
-  "test/fixtures/eval-models/eval/fieldops/slice2.ddd",
-  "test/fixtures/eval-models/eval/fieldops/with-notifier.ddd",
-  "test/fixtures/eval-models/eval/matrix/be-dotnet.ddd",
-  "test/fixtures/eval-models/eval/matrix/be-elixir.ddd",
-  "test/fixtures/eval-models/eval/matrix/be-java.ddd",
-  "test/fixtures/eval-models/eval/matrix/be-node.ddd",
-  "test/fixtures/eval-models/eval/matrix/be-python.ddd",
-  "test/fixtures/eval-models/eval/matrix/fe-angular-native.ddd",
-  "test/fixtures/eval-models/eval/matrix/fe-angular.ddd",
-  "test/fixtures/eval-models/eval/matrix/fe-feliz.ddd",
-  "test/fixtures/eval-models/eval/matrix/fe-flutter.ddd",
-  "test/fixtures/eval-models/eval/matrix/fe-react.ddd",
-  "test/fixtures/eval-models/eval/matrix/fe-svelte-native.ddd",
-  "test/fixtures/eval-models/eval/matrix/fe-svelte.ddd",
-  "test/fixtures/eval-models/eval/matrix/fe-vue-native.ddd",
-  "test/fixtures/eval-models/eval/matrix/fe-vue.ddd",
-  "test/fixtures/eval-models/eval/phase0/main.ddd",
-  "test/fixtures/eval-models/eval/probe/search.ddd",
-  "test/fixtures/eval-models/eval/repro/F006-denybydefault-list-reads-open.ddd",
-  "test/fixtures/eval-models/eval/repro/VERIFIED-GOOD-mask-holds-on-audit-history.ddd",
-  "test/fixtures/eval-models/eval/repro/broken/b08-unsupported-expr.ddd",
-  "test/fixtures/eval-models/eval/repro/create-gate.ddd",
-  "test/fixtures/eval-models/eval/repro/crudish-vs-denybydefault.ddd",
-  "test/fixtures/eval-models/eval/repro/elixir-currentuser-find.ddd",
-  "test/fixtures/eval-models/eval/repro/nullable-claim-find.ddd",
-  "test/fixtures/eval-models/eval/repro/paged-vs-array-picker.ddd",
-  "test/fixtures/eval-models/eval/repro/scaffold-gate-permissions.ddd",
-] as const;
+const UNPARSEABLE = [] as const;
 
 /** Parses, but is INVALID ON PURPOSE — the subject of a negative test. Its own
  *  name says so; `test/cli/*` asserts the diagnostics it produces, and the
@@ -161,112 +102,9 @@ const UNPARSEABLE = [
  *  keep refusing — a gate deleted by accident fails here too. */
 const DELIBERATELY_INVALID = [
   "test/cli/fixtures/bad-model.ddd",
-  // The #2922 audit's F-014 repro: a `valueobject Money` constructed with
-  // `currency` omitted.  Before #2923 this validated CLEAN — a record named
-  // after a walker primitive skipped construction validation entirely — and
-  // emitted `new Money(new Decimal("1.00"))` against a 2-arg constructor.  It
-  // is kept as tracked evidence beside the audit, and the negative control
-  // below turns it into a live regression guard: revert #2923 and it validates
-  // clean again, failing here.
-  "test/fixtures/eval-models/eval/repro/F014-money-ctor-unchecked.ddd",
   "test/language/validators/fixtures/stmt-placement-variant-match.ddd",
   "test/language/validators/fixtures/stmt-placement-for.ddd",
   "test/language/validators/fixtures/stmt-placement-if-let.ddd",
-  // The error-QUALITY corpus from the external evaluation (`test/fixtures/eval-models/eval/`): ten models,
-  // each carrying one realistic authoring mistake, written to measure whether the
-  // diagnostic points at the right line and is actionable.  Being refused IS the
-  // assertion, so they belong here rather than being "fixed".
-  //
-  // Pinning them buys something beyond silencing this gate: the control below
-  // asserts each still produces at least one error, so this list is now a
-  // regression net for the eight diagnostics the evaluation measured.  If a
-  // validator change ever made one of these validate clean, that control fails.
-  //
-  // Only the AST-level ones are listed.  Two of the ten are absent on purpose:
-  // `broken/08-page-wrong-aggregate.ddd` is refused at the IR layer (phase
-  // (7)), which this census does not run, and `broken/09-unqueryable-filter.ddd`
-  // declares a `find`, so it is pinned in UNPARSEABLE.
-  //
-  // `broken/05-cyclic-containment.ddd` joined this list when F-020 was fixed, as
-  // the earlier revision of this comment said it must: it used to validate clean
-  // and crash the generator with a `RangeError` naming an `out/**.js` frame, and
-  // now `checkContainmentCycles` refuses it at the AST layer with a real
-  // file:line ("Cyclic containment in aggregate 'A': X -> Y -> X").
-  "test/fixtures/eval-models/eval-fieldops/repro/broken/05-cyclic-containment.ddd",
-  // Joined when F-003 was fixed, for the same reason as 05: the cross-aggregate
-  // `invariant Technicians.getById(...)` used to validate clean and emit an
-  // unresolvable identifier on four backends (and nothing at all on Phoenix);
-  // `checkRuleExprPurity` now refuses it at the rule's own line.
-  "test/fixtures/eval-models/eval-fieldops/repro/A-cross-agg-invariant.ddd",
-  "test/fixtures/eval-models/eval-fieldops/repro/broken/01-typo-type.ddd",
-  "test/fixtures/eval-models/eval-fieldops/repro/broken/02-invariant-unknown-field.ddd",
-  "test/fixtures/eval-models/eval-fieldops/repro/broken/03-wrong-arity.ddd",
-  "test/fixtures/eval-models/eval-fieldops/repro/broken/04-bare-aggregate-ref.ddd",
-  "test/fixtures/eval-models/eval-fieldops/repro/broken/06-duplicate-names.ddd",
-  "test/fixtures/eval-models/eval-fieldops/repro/broken/07-bad-enum-value.ddd",
-  "test/fixtures/eval-models/eval-fieldops/repro/broken/10-type-mismatch.ddd",
-  // A SECOND, independent evaluation's repro corpus (`eval-clinica/`), already on
-  // main.  It found two of the same defects this branch fixes, which is useful
-  // corroboration in itself: r02 is a cross-aggregate `invariant` reaching a
-  // repository (F-003) and r18 is cyclic containment (F-020).  Both were written
-  // as deliberately-broken evidence and validated clean until these gates landed,
-  // so they belong here for exactly the reason the entries above do.
-  "test/fixtures/eval-models/eval-clinica/repro/r02-overlap.ddd",
-  "test/fixtures/eval-models/eval-clinica/repro/r02-overlap-system.ddd",
-  "test/fixtures/eval-models/eval-clinica/repro/r18-recursive-containment-crash.ddd",
-  // Probes that read `currentUser.id` in a bare context with no `user { }`
-  // block: the principal declares no claim, so the read is refused
-  // (`loom.unknown-user-claim`).  Typed, each also compares a `Member id` /
-  // `Patient` field with the principal's id — a mismatch the untyped read hid.
-  "test/fixtures/eval-models/eval-clinica/repro/r05-criterion-join.ddd",
-  "test/fixtures/eval-models/eval/probe/feed-a.ddd",
-  "test/fixtures/eval-models/eval/probe/visibility2.ddd",
-  "test/fixtures/eval-models/eval/probe/visibility3.ddd",
-  // `test/fixtures/eval-models/eval/repro/broken/` — the error-QUALITY corpus of the FieldOps
-  // evaluation: ten models each carrying exactly one ordinary mistake, used to
-  // score what the toolchain says back.  Being refused is the whole point, so
-  // they belong here rather than being fixed or untracked.  The ones that fail
-  // at the AST layer are listed — `b05` and `b09` joined when their gates
-  // landed (see their entries); the day another starts being refused, its pin
-  // is what should be added, not a comment.
-  //
-  // Listing them here also puts them under the negative control below, which
-  // turns the corpus into a standing ratchet: a gate that stops firing fails
-  // this file.
-  "test/fixtures/eval-models/eval/repro/broken/b01-typo-type.ddd",
-  "test/fixtures/eval-models/eval/repro/broken/b02-missing-field.ddd",
-  "test/fixtures/eval-models/eval/repro/broken/b03-wrong-arity.ddd",
-  "test/fixtures/eval-models/eval/repro/broken/b04-bare-aggregate-ref.ddd",
-  // `b05` was this corpus's F-040 — cyclic containment validating clean — and
-  // it is now REFUSED, by the `loom.containment-cycle` AST gate this branch adds
-  // for the same defect it found independently as F-020.  Per the note above
-  // ("the day either starts being refused, its pin is what should be added"),
-  // here is the pin.  Two evaluations reaching the same defect, one of them
-  // closing it, is the corroboration both registers were written to produce.
-  "test/fixtures/eval-models/eval/repro/broken/b05-cyclic-containment.ddd",
-  "test/fixtures/eval-models/eval/repro/broken/b06-duplicate-names.ddd",
-  "test/fixtures/eval-models/eval/repro/broken/b07-bad-enum-value.ddd",
-  // `b09` was this corpus's F-041 — a typo'd field (`o.totl`) read off a page
-  // `QueryView`'s `data:` row validated clean, because the language layer never
-  // typed the row.  The single typing pass (M-T5.47 cutover 3b) types it, and
-  // `loom.unknown-member` now refuses it — so, per the note above, its pin.
-  "test/fixtures/eval-models/eval/repro/broken/b09-page-wrong-aggregate.ddd",
-  "test/fixtures/eval-models/eval/repro/broken/b10-money-decimal-mix.ddd",
-  // The Commons register's (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/eval/FINDINGS.md) repro sources, ported from the
-  // evaluation branch (`loom-dsl-evaluation-bxc2c6`) on 2026-09-29 so the
-  // register's citations resolve (eval-closure review G8-09a).  Three of them
-  // are refused, each for the reason its finding records:
-  //  - `adversarial/05-missing-ctor-field.ddd` is F-014 — a `Money { … }`
-  //    construction omitting `currency` validated CLEAN before #2923; it is the
-  //    same regression guard as `test/fixtures/eval-models/eval/repro/F014-money-ctor-unchecked.ddd`.
-  //  - `probe/rowlevel.ddd` is F-012's "own rows" probe written with the claim
-  //    typed `string`, which the register records is refused until the claim is
-  //    typed `Member id` in `user { }`.
-  //  - `probe/searchstore.ddd` is F-010 — `meilisearch` bound to a `replica`
-  //    resource, an HONEST refusal ("no resource kind accepts it").
-  "test/fixtures/eval-models/eval/adversarial/05-missing-ctor-field.ddd",
-  "test/fixtures/eval-models/eval/probe/rowlevel.ddd",
-  "test/fixtures/eval-models/eval/probe/searchstore.ddd",
 ] as const;
 
 // A third exclusion list used to sit here — `PROJECT_MEMBER_NOT_IMPORTED`,
@@ -291,7 +129,7 @@ describe("`.ddd` source census — every tracked file, not a hand-kept list", ()
   it("finds the whole population (the census must not silently shrink)", () => {
     // Guards the scanner itself: a broken `git ls-files` or glob would make
     // every assertion below pass vacuously.
-    expectReach("tracked .ddd files", files.length, 577);
+    expectReach("tracked .ddd files", files.length, 546);
     expect(files).toContain("test/fixtures/corpus/core-domain.ddd");
     expect(files).toContain("examples/acme.ddd");
   });

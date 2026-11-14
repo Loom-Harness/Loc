@@ -78,11 +78,13 @@ import { isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced, renderEsController } from "./eventsourced-emit.js";
 import { renderPageParamHelper } from "./find-controller.js";
 import {
+  destroyRowFreeGates,
   effectiveGate,
   opRowFreeGates,
   probeRowGates,
   renderGateCondition,
   updateSeamGates,
+  updateSeamRowFreeGates,
 } from "./gate.js";
 import { isAbstractBase, isTphBase } from "./inheritance-emit.js";
 import {
@@ -608,6 +610,13 @@ ${cuBind}${showBody}
   // already binds `current_user` for a principal-filtered read; bind it here
   // when only the gate needs it (a double bind is a compile error).
   const destroyActor = destroyGated ? ", current_user" : "";
+  // The gate ladder (`ir/plan/gate-ladder.ts`): the gates that read no row run
+  // before the load (`delete_<agg>_gate/1`, `update_<agg>_gate/1`), so a caller
+  // one refuses gets 403 whether or not the row exists.
+  const destroyPreGate =
+    destroyRowFreeGates(agg).length > 0
+      ? `:ok <- ${ctxModule}.delete_${aggSnake}_gate(current_user),\n         `
+      : "";
   const destroyCuBind =
     destroyGated && !principal ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
   // The `{:error, {:forbidden, detail}}` arm the gated create / destroy needs —
@@ -647,6 +656,10 @@ ${cuBind}${showBody}
       ? "    current_user = Map.get(conn.assigns, :current_user)\n"
       : "";
   const updateActor = stampPrincipal || updateGated ? ", current_user" : "";
+  const updatePreGate =
+    updateSeamRowFreeGates(agg.operations.find((o) => o.name === "update")).length > 0
+      ? `:ok <- ${ctxModule}.update_${aggSnake}_gate(current_user),\n         `
+      : "";
 
   // Per-operation member actions.  A returning operation (`: A or B`) translates
   // its tagged result to HTTP (success → 200, error variant → ProblemDetails);
@@ -974,7 +987,7 @@ ${createCuBind}    case ${ctxModule}.create_${aggSnake}(params${createActor}) do
     ? ""
     : auditDestroy
       ? `  def delete(conn, %{"id" => id}) do
-${cuBind}${destroyCuBind}${destroyVersionBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),${destroyVersionClause}
+${cuBind}${destroyCuBind}${destroyVersionBind}    with ${destroyPreGate}{:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),${destroyVersionClause}
          {:ok, _} <-
            ${appModule}.Repo.transaction(fn ->
 ${auditRecordCall({
@@ -1008,7 +1021,7 @@ ${auditRecordCall({
     end${fkRestrictRescue}
   end`
       : `  def delete(conn, %{"id" => id}) do
-${cuBind}${destroyCuBind}${destroyVersionBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),${destroyVersionClause}
+${cuBind}${destroyCuBind}${destroyVersionBind}    with ${destroyPreGate}{:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),${destroyVersionClause}
          {:ok, _} <- ${ctxModule}.delete_${aggSnake}(record${destroyActor}) do
       send_resp(conn, 204, "")
     else
@@ -1075,7 +1088,7 @@ ${cuBind}${destroyCuBind}${destroyVersionBind}    with {:ok, record} <- ${ctxMod
     : `  def update(conn, %{"id" => id} = params) do
     attrs = Map.drop(params, ["id"])
 ${cuBind}${updateCuBind}${versionBind}
-    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),
+    with ${updatePreGate}{:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),
          {:ok, _updated} <- ${ctxModule}.update_${aggSnake}(record, attrs${updateActor}${versionCallArg}) do
       send_resp(conn, 204, "")
     else

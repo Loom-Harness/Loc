@@ -104,6 +104,10 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "HARD compile error in the emitted project (TS2304 for `createOutboxDispatcher` plus three " +
     "TS2305 for the missing exports), so the compile tier IS its oracle — a booted leg would " +
     "re-run `channels-broker`'s delivery with a workflow in the tree and assert nothing new",
+  "channels-broker-projection":
+    "same broker-container reason as `channels-broker`: the behavioural claim (place on " +
+    "salesApi, then an OrderBook row on shipApi) needs a broker between two booted services " +
+    "— #5613.  Until then the compile tier proves every backend emits and wires the consumer",
   "projection-split-deployables":
     "the defect is a hard compile error in the emitted project (`TS2306: File " +
     "'domain/value-objects.ts' is not a module`), so the compile tier is the oracle.  A " +

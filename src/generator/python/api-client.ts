@@ -30,6 +30,7 @@ import {
 } from "../../ir/util/api-surface.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
+import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { resourceEnvUrlVar } from "../../util/resource-env.js";
 import { type PolymorphicRow, polymorphicRowOf } from "../_api/polymorphic-row.js";
 import { renderPyType } from "./render-expr.js";
@@ -354,7 +355,8 @@ export function emitPythonApiClients(
 /** The per-request capture of the caller's credential: the bearer token the
  *  auth middleware accepted (an `Authorization` header, or the HttpOnly
  *  `session` cookie the OIDC handshake sets) and, under the dev-stub verifier,
- *  the `x-loom-dev-claims` override.  A pure ASGI middleware, so the value is
+ *  the `x-loom-dev-claims` override, plus the requested operating-org switch
+ *  the callee re-gates.  A pure ASGI middleware, so the value is
  *  set in the request's own context and every handler task inherits it. */
 function callerCredentialCapture(): string[] {
   return [
@@ -392,6 +394,9 @@ function callerCredentialCapture(): string[] {
     `        dev_claims = inbound.get("x-loom-dev-claims")`,
     `        if dev_claims:`,
     `            captured["x-loom-dev-claims"] = dev_claims`,
+    `        org_context = inbound.get("${ORG_CONTEXT_HEADER}")`,
+    `        if org_context:`,
+    `            captured["${ORG_CONTEXT_HEADER}"] = org_context`,
     `        token = _caller_credential.set(captured)`,
     `        try:`,
     `            await self.app(scope, receive, send)`,

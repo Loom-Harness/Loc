@@ -530,6 +530,68 @@
     },
     {
       "seq": 45,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/notes/{id}",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 46,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}",
+        "params": {
+          "type": "Tickets.Note"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 47,
+      "method": "POST",
+      "path": "/api/notes/{id}/update",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/notes/{id}/update",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 48,
+      "method": "POST",
+      "path": "/api/notes/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}/update",
+        "params": {
+          "type": "Tickets.Note"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 49,
       "method": "POST",
       "path": "/api/memos",
       "status": 201,
@@ -538,7 +600,7 @@
       }
     },
     {
-      "seq": 46,
+      "seq": 50,
       "method": "POST",
       "path": "/api/memos/{id}/update",
       "status": 403,
@@ -552,7 +614,7 @@
       }
     },
     {
-      "seq": 47,
+      "seq": 51,
       "method": "POST",
       "path": "/api/memos/{id}/update",
       "status": 409,
@@ -569,7 +631,7 @@
       }
     },
     {
-      "seq": 48,
+      "seq": 52,
       "method": "POST",
       "path": "/api/tickets",
       "status": 201,
@@ -578,7 +640,7 @@
       }
     },
     {
-      "seq": 49,
+      "seq": 53,
       "method": "POST",
       "path": "/api/tickets/{id}/reopen",
       "status": 403,
@@ -592,7 +654,7 @@
       }
     },
     {
-      "seq": 50,
+      "seq": 54,
       "method": "POST",
       "path": "/api/tickets/{id}/reopen",
       "status": 409,
@@ -609,7 +671,7 @@
       }
     },
     {
-      "seq": 51,
+      "seq": 55,
       "method": "POST",
       "path": "/api/tickets",
       "status": 201,
@@ -618,7 +680,7 @@
       }
     },
     {
-      "seq": 52,
+      "seq": 56,
       "method": "GET",
       "path": "/api/tickets/{id}/can_reopen",
       "status": 200,
@@ -627,7 +689,7 @@
       }
     },
     {
-      "seq": 53,
+      "seq": 57,
       "method": "GET",
       "path": "/api/tickets/{id}/can_reopen",
       "status": 200,
