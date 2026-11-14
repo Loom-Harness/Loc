@@ -275,6 +275,7 @@ export function generateVueForContexts(
         finds: clientFinds(contract, agg.name, serves),
         history: servesHistory(contract, agg.name),
         operations: contract.wire.operations,
+        responses: contract.wire.responses,
       }),
     );
   }

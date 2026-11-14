@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { buildApiModule } from "../../../src/generator/_frontend/api-module.js";
 import { contractOperations } from "../../../src/ir/contract/frontend-contract.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
+import { forApiRead, wireFieldsFor } from "../../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { pagedReturn, pagedSortDefault } from "../../../src/ir/stdlib/generics.js";
 import { withBackendSystem } from "../../_helpers/backend-system.js";
@@ -42,6 +43,16 @@ async function apiModule(): Promise<string> {
     operations: contractOperations(ctx),
     finds,
     history: false,
+    // No declared response records either: the derived read wire stands in.
+    responses: [agg, ...agg.parts].map((ent) => ({
+      name: `${ent.name}Response`,
+      entity: ent.name,
+      fields: forApiRead(wireFieldsFor(ent)).map((w) => ({
+        name: w.name,
+        type: w.type,
+        optional: w.optional,
+      })),
+    })),
   });
 }
 

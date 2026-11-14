@@ -216,6 +216,7 @@ export function generateReactForContexts(
         finds: clientFinds(contract, agg.name, host.serves),
         history: servesHistory(contract, agg.name),
         operations: contract.wire.operations,
+        responses: contract.wire.responses,
       }),
     );
   }
