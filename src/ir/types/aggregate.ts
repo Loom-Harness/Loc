@@ -11,7 +11,6 @@ import type {
   OperationIR,
   UniqueKeyIR,
 } from "./members.js";
-import type { OriginRef } from "./origin.js";
 import type { StmtIR } from "./stmt.js";
 import type { Sourced } from "./types.js";
 
@@ -251,7 +250,7 @@ export type TestStmtIR =
    *  until the next such line.  Context integration and api e2e tests only
    *  (`loom.test-principal-placement` / `loom.e2e-principal-ui`). */
   | { kind: "principal"; principal: TestPrincipalIR }
-  | {
+  | ({
       kind: "expect-throws";
       expr: ExprIR;
       source: string;
@@ -265,8 +264,7 @@ export type TestStmtIR =
        *  Mutually exclusive with `status` by grammar: the `ThrowKind` slot and
        *  the `CallArg` list are alternatives on the same suffix. */
       throwKind?: ThrowKindName;
-      /** The `expect(...)` statement's own span, present with `throwKind` —
-       *  an IR-phase diagnostic about the rung points at the assertion that
-       *  wrote it rather than at the enclosing test or declaration. */
-      origin?: OriginRef;
-    };
+      // `origin` (from `Sourced`) is the `expect(...)` statement's own span,
+      // present with `throwKind`: an IR-phase diagnostic about the rung
+      // points at the assertion that wrote it.
+    } & Sourced);

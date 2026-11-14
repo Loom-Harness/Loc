@@ -1,3 +1,4 @@
+import { PLAIN_FIND_FLAGS } from "../types/loom-ir.js";
 // Phase ⑥ — `exists <Agg> [for write] as <row> where …` beyond the plain read.
 //
 // Two derivations, both pure functions of facts enrichment already holds:
@@ -164,6 +165,7 @@ function existsFind(
   const entity: TypeIR = { kind: "entity", name: target.name, declKind: "aggregate" };
   return {
     find: {
+      ...PLAIN_FIND_FLAGS,
       name,
       params,
       returnType: { kind: "optional", inner: entity },

@@ -96,7 +96,7 @@ system S {
     const { model } = await parseString(source, { validate: false });
     const ctx = enrichLoomModel(lowerModel(model)).systems[0]!.subdomains[0]!.contexts[0]!;
     const op = deriveContextOperations(ctx).find((o) => o.kind === "getById");
-    expect(op?.find?.defaultDenied).toBeUndefined();
+    expect(op?.find?.defaultDenied).toBe(false);
     expect(op?.find?.requires?.kind).toBe("binary");
   });
 

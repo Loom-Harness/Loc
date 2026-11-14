@@ -880,7 +880,7 @@ rejected as `loom.unresolved-page-ref`, the ref-spelling twin of
 `List` / `Detail` / `MasterDetail` were also retired: they were legacy
 archetype names that never had walker renderers (they silently degraded to a
 `// not supported` comment), so they're gone as standalone primitives — see
-[decisions.md → D-NO-PAGE-ARCHETYPES](decisions.md#d-no-page-archetypes).  The
+[decisions.md → D-NO-PAGE-ARCHETYPES](decisions/D-NO-PAGE-ARCHETYPES.md).  The
 list / detail use case is served by the `scaffold` macro (§10), or by composing
 `QueryView` + `Table` directly.  The **`scaffoldList { of: T }` /
 `scaffoldDetails { of: T }` body sentinels earlier drafts of this doc described

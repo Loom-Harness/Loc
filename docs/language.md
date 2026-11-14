@@ -537,7 +537,7 @@ the same thing in an operation, a workflow or handler body and a test. A `seed`
 row stays a record literal, `Order { … }`: it is data, not a factory call.
 
 The record form `Order.create({ customerId: "c1", total: m })` is retired
-(`loom.create-record-form`, [D-CREATE-CALL-STYLE](decisions.md)): it put the
+(`loom.create-record-form`, [D-CREATE-CALL-STYLE](decisions/D-CREATE-CALL-STYLE.md)): it put the
 create-command wire record into the domain language. `node
 scripts/codemod-create-record-to-call.mjs <path>` rewrites it into the named
 form. Writing `Order { … }` in an expression position is an error too; the
@@ -2036,7 +2036,7 @@ criterion OrdersActiveForCustomer(forCustomer: Customer id) of Order = this.cust
 ```
 
 A repository declares no reads of its own (`find` declarations were removed —
-[D-FINDDECL-REMOVED](decisions.md); a leftover `find` is a parse error).  Every
+[D-FINDDECL-REMOVED](decisions/D-FINDDECL-REMOVED.md); a leftover `find` is a parse error).  Every
 read is a contract verb, generated on every backend: `getById` / `findById`,
 `getBy(<col>: v)` / `findBy(…)` over a declared `unique (…)` key,
 `find(<Criterion>)` (the first match, `T?`), `findAll(<Criterion>)` /

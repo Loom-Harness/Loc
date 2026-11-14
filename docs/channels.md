@@ -176,7 +176,7 @@ consumer-side idempotency key (a redelivered envelope is a no-op). A saga
 reactor checks it against its row's `last_event_id`; a projection fold claims
 it in the fold inbox, `__loom_fold_inbox (projection, event_id)`, in the
 transaction that saves its row, and the relay's retention purge prunes the
-inbox on the outbox's window ([decisions.md](decisions.md), D-PROJECTION-FOLD-INBOX).
+inbox on the outbox's window ([D-PROJECTION-FOLD-INBOX](decisions/D-PROJECTION-FOLD-INBOX.md)).
 `ephemeral` events publish inline post-dispatch (the tee). Backends without a
 prior outbox tier (java, elixir) gained one with their rabbit legs.
 
@@ -245,7 +245,7 @@ get distinct groups.
 Kafka's per-deployable groups realise broadcast ACROSS deployables and
 competition WITHIN one — the same two knobs, one mechanism.
 
-**New-group start offset** ([D-KAFKA-START-OFFSET](decisions.md#d-kafka-start-offset--a-new-kafka-group-starts-at-earliest-on-a-work-queue-latest-on-a-log)).
+**New-group start offset** ([D-KAFKA-START-OFFSET](decisions/D-KAFKA-START-OFFSET.md)).
 A consumer group with committed offsets always resumes from them. Only a
 group's FIRST join (a fresh deployable, or a rejoin after the broker expired
 its offsets) picks a start point, and that pick follows the channel:
@@ -315,7 +315,7 @@ structural half.
 ## Event origin — the reactor's tenant across the outbox and the broker
 
 A reactor runs as the **system principal of its triggering event's tenant**
-([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)).
+([D-REACTOR-SYSTEM-PRINCIPAL](decisions/D-REACTOR-SYSTEM-PRINCIPAL.md)).
 In-process that tenant is the raising request's; once the event crosses the
 outbox relay or a broker the request is gone, so on a deployable with
 `auth: required` the event carries its **origin** `{tenant, causedBy}`:
