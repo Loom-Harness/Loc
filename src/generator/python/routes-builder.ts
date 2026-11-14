@@ -7,12 +7,7 @@ import {
   wireCode,
   wireSentenceFor,
 } from "../../ir/enrich/wire-policy.js";
-import {
-  createInputFields,
-  emitsRestCreate,
-  forApiRead,
-  wireFieldsFor,
-} from "../../ir/enrich/wire-projection.js";
+import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../ir/plan/cache.js";
 import { destroyLadder, gateReadsParam, gateReadsRow } from "../../ir/plan/gate-ladder.js";
 import {
@@ -35,7 +30,6 @@ import {
   findUsesCurrentUser,
   type InvariantIR,
   type OperationIR,
-  type PayloadIR,
   type RepositoryIR,
   type TypeIR,
 } from "../../ir/types/loom-ir.js";
@@ -49,7 +43,6 @@ import {
 } from "../../ir/util/api-surface.js";
 import { canonicalCreate, canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
-import { declaredResponseFor } from "../../ir/util/declared-response.js";
 import { disallowedDetail } from "../../ir/util/denial-detail.js";
 import { mergePatchFields } from "../../ir/util/merge-patch.js";
 import {
@@ -73,6 +66,7 @@ import {
 } from "../../ir/util/openapi-ids.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { listReadFind } from "../../ir/util/read-gates.js";
+import { responseWireFor } from "../../ir/util/response-wire.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import {
@@ -269,7 +263,7 @@ export function buildPyRoutesFile(
   }
   const models = lines(
     ...parts.map((p) => responseModel(p.name, p, ctx)),
-    responseModel(agg.name, agg, ctx, declaredResponseFor(ctx.payloads, agg)),
+    responseModel(agg.name, agg, ctx),
     // Named array component for list endpoints (`<Agg>ListResponse`,
     // RootModel so FastAPI emits a $ref instead of an inline array) —
     // response-schema parity with the other backends.
@@ -441,43 +435,11 @@ function responseModel(
   name: string,
   ent: EnrichedAggregateIR | EnrichedEntityPartIR,
   ctx: EnrichedBoundedContextIR,
-  declared?: PayloadIR,
 ): string {
-  // (M-T6.12) A provenanced field's lineage rides INSIDE its own response key
-  // as the `Provenanced[T]` carrier — no trailing `<field>_provenance` model
-  // field.  A DECLARED response record names DOMAIN types, so the wrap is
-  // re-applied below for those (the wireShape path already carries it).
-  const provenanced = new Set(ent.fields.filter((f) => f.provenanced).map((f) => f.name));
-  // M-T5.10 (PR4): when the context declares a `response <Agg>Response` record
-  // (spliced by `scaffoldHandlers`), READ that record's fields instead of
-  // re-deriving from `wireShape` — byte-identical for the scaffolded form,
-  // authoritative for a hand-declared divergent one.  The record omits `id`
-  // (grammar-reserved), so the synthetic wire-shape id row is re-prepended;
-  // a containment field is already the sibling `<Part>Response` name and is
-  // rendered directly to avoid a double `Response` suffix.
-  if (declared) {
-    const idWf = forApiRead(wireFieldsFor(ent)).find((wf) => wf.source === "id");
-    return lines(
-      `class ${name}Response(${H.BaseModel}):`,
-      idWf ? withFieldConstraint(idWf.name, responsePyType(idWf.type, ctx), undefined) : [],
-      declared.fields.map((f) => {
-        const t = payloadFieldPyType(
-          provenanced.has(f.name)
-            ? { kind: "genericInstance", ctor: "provenanced", arg: f.type }
-            : f.type,
-          ctx,
-        );
-        // A masked field can be redacted to null, so the model admits None.
-        const optional = f.optional || f.type.kind === "optional" || f.maskUnless !== undefined;
-        const suffix =
-          optional && !t.endsWith("| None") ? " | None = None" : optional ? " = None" : "";
-        return withFieldConstraint(f.name, `${t}${suffix}`, undefined);
-      }),
-      "",
-      "",
-    );
-  }
-  const fields = forApiRead(wireFieldsFor(ent));
+  // The rows of the declared response record (`responseWireFor`): a
+  // provenanced field's lineage rides inside its own key as the
+  // `Provenanced[T]` carrier, a containment is the part entity type.
+  const fields = responseWireFor(ctx.payloads, ent);
   return lines(
     `class ${name}Response(${H.BaseModel}):`,
     fields.map((wf) => {
@@ -502,24 +464,6 @@ function containmentResponseType(t: TypeIR): string {
   if (t.kind === "array" && t.element.kind === "entity") return `list[${t.element.name}Response]`;
   if (t.kind === "entity") return `${t.name}Response | None`;
   return "object";
-}
-
-/** Pydantic type for a field of a DECLARED `response` payload record (M-T5.10).
- *  A VO / scalar / enum / id field carries its DOMAIN type, so `responsePyType`
- *  maps it as the wireShape path does.  A CONTAINMENT field is ALREADY the
- *  sibling `<Part>Response` name (PR1 rewrote the raw entity part, which context
- *  scope can't reference) — it must be rendered DIRECTLY (`list[LineResponse]`),
- *  since running it through `containmentResponseType` would append a second
- *  `Response` (`list[LineResponseResponse]`). */
-function payloadFieldPyType(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
-  if (t.kind === "array" && t.element.kind === "entity" && t.element.declKind === "response")
-    return `list[${t.element.name}]`;
-  if (t.kind === "entity" && t.declKind === "response") return `${t.name} | None`;
-  // An OPTIONAL single containment (`note: MemoResponse?`) is the same
-  // nullable record reference, not a re-suffixed one.
-  if (t.kind === "optional" && t.inner.kind === "entity" && t.inner.declKind === "response")
-    return `${t.inner.name} | None`;
-  return responsePyType(t, ctx);
 }
 
 /** The Pydantic declaration of one aggregate create-request field: a

@@ -249,7 +249,7 @@ export function renderMikroEventSourcedRepository(
     // the crash-shaped failure of the one feature whose quiet failure is a leak.
     // Invisible until `field-mask` got its first runtime caller (#2468).
     // Mask-free aggregates emit nothing here and stay byte-identical.
-    ...(aggHasFieldMask(agg) ? ["", toWireMaskedMethod(agg)] : []),
+    ...(aggHasFieldMask(agg) ? ["", toWireMaskedMethod(agg, ctx.payloads)] : []),
     "}",
     "",
     "function eventToData(ev: Events.DomainEvent): Record<string, unknown> {",

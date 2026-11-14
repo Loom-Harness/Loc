@@ -5,7 +5,7 @@ import { URI } from "langium";
 import { NodeFileSystem } from "langium/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
-import { lowerModel, mergeLoomModels } from "../../src/ir/lower/lower.js";
+import { lowerProject } from "../../src/ir/lower/lower.js";
 import type { LoomDiagnostic } from "../../src/ir/validate/validate.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
@@ -23,8 +23,10 @@ function writeProject(rootDir: string, files: Record<string, string>): void {
 async function validateProject(entryDdd: string): Promise<LoomDiagnostic[]> {
   const services = createDddServices(NodeFileSystem);
   const { all } = await loadProject(URI.file(entryDdd), services.shared);
-  const merged = mergeLoomModels(all.map((d) => lowerModel(d.parseResult.value as Model)));
-  const loom = enrichLoomModel(merged);
+  // The CLI's own path: one `lowerProject` over the import graph, so a
+  // macro-spliced record typed by a sibling document's root-level value
+  // object or enum resolves through the project-wide declaration index.
+  const loom = enrichLoomModel(lowerProject(all.map((d) => d.parseResult.value as Model)));
   return validateLoomModel(loom);
 }
 
@@ -138,7 +140,9 @@ describe("workspace-uniqueness validation (multi-file)", () => {
         import "./sales.ddd"
         system Shop {
           subdomain M { }
-          deployable api { platform: node, contexts: [Sales] }
+          storage db { type: postgres }
+          resource salesState { for: Sales, kind: state, use: db }
+          deployable api { platform: node, contexts: [Sales], dataSources: [salesState] }
         }
       `,
       "shared.ddd": `

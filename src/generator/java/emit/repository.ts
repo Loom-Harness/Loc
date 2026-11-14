@@ -1,12 +1,12 @@
 import { readSortFor } from "../../../ir/enrich/read-scope.js";
 import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
-import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import { clientSortTieBreak, domainFindShape, singleReadOrder } from "../../../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
   FindIR,
+  PayloadIR,
   RepositoryIR,
   RetrievalIR,
   SortTermIR,
@@ -14,6 +14,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { type AggPool, discriminatorValue } from "../../../ir/util/inheritance.js";
 import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
+import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
@@ -127,6 +128,9 @@ export interface JavaRepoCtx {
   schema?: string;
   /** The aggregate pool, to resolve a TPH concrete's shared table + `kind`. */
   pool?: AggPool;
+  /** The context's payloads — the declared `<Agg>Response` record the in-memory
+   *  sort reads its column types from. */
+  payloads: readonly PayloadIR[];
 }
 
 /** The version-counter CAS of a row-version-guarded save, as NATIVE SQL over
@@ -349,10 +353,13 @@ export function isPagedAutoAll(repo: RepositoryIR | undefined): boolean {
  *  rest, `id.toString()` as the stable default — reversed for `dir == "desc"`.
  *  Returns the declaration lines; the caller sorts `<listVar>` through `__cmp`.
  *  Uses record-style accessors (`Agg::field`). */
-export function inMemoryPagedSortLines(agg: EnrichedAggregateIR): string[] {
+export function inMemoryPagedSortLines(
+  agg: EnrichedAggregateIR,
+  payloads: readonly PayloadIR[],
+): string[] {
   const fields = sortableFields(agg).filter((wf) => wf !== "id");
   const wireType = (wf: string): TypeIR | undefined =>
-    wireFieldsForAggregate(agg).find((f) => f.name === wf)?.type;
+    responseWireFor(payloads, agg).find((f) => f.name === wf)?.type;
   const arm = (wf: string): string => {
     const t = wireType(wf);
     const prim = t?.kind === "primitive" ? t.name : undefined;

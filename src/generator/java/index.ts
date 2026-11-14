@@ -1988,6 +1988,7 @@ function emitAggregate(
     schema,
     pool: ctx.aggregates,
     ...(cache ? { cache } : {}),
+    payloads: ctx.payloads,
   };
   const repoOrigin = repo?.origin ?? agg.origin;
   place(

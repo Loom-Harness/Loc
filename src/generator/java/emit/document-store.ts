@@ -192,7 +192,7 @@ export function renderJavaDocumentRepositoryImpl(
         `    public ${paged}<${agg.name}> ${f.name}(${sig}) {`,
         ...prelude,
         `        var all = ${baseCall}.stream()${filter}.toList();`,
-        ...inMemoryPagedSortLines(agg),
+        ...inMemoryPagedSortLines(agg, ctx.payloads),
         `        var items = all.stream().sorted(__cmp).skip((long) (page - 1) * pageSize).limit(pageSize).toList();`,
         findExecutedLog(f.name, "all.size()"),
         `        return new Paged<>(items, page, pageSize, all.size(), (all.size() + pageSize - 1) / pageSize);`,
