@@ -98,6 +98,16 @@ system HeexUiSystem {
       }
       repository Memos for Memo { }
 
+      // A write-denied aggregate whose operation a LiveView `Action` button
+      // invokes: the button's handler must load the row through the write
+      // scope, as the REST op route does, so the click changes nothing.
+      aggregate Ledger with crudish {
+        tally: int
+        operation bump() { tally := tally + 1 }
+      }
+      repository Ledgers for Ledger { }
+      policy { deny write on Ledger }
+
       // Covers every read of Claim: the list LiveView, the detail LiveView,
       // and the REST list / by-id routes.  `admin` is the dev stub's built-in
       // principal, which the emitted smoke spec navigates as; the read-gate
@@ -137,6 +147,19 @@ system HeexUiSystem {
     // A hand-written detail page whose QueryView data lambda param is NOT
     // `data`: the bump form's validate/submit clauses must read the assign
     // the lambda param was bound to (`widget`), not a fixed `data` assign.
+    page LedgerBump(id: Ledger id) {
+      route: "/ledger-bumps/:id"
+      title: "Bump ledger"
+      body: QueryView {
+        of: C.Ledger.byId(id),
+        single: true,
+        data: ledger => Stack {
+          Text { ledger.tally, testid: "ledger-tally" },
+          Action { ledger.bump }
+        }
+      }
+    }
+
     page WidgetBump(id: Widget id) {
       route: "/widget-bumps/:id"
       title: "Bump widget"

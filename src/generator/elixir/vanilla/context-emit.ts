@@ -865,22 +865,20 @@ ${destroyBangBody}
     end
   end`
       : "";
-    // §13: a LiveView `Action { c.<op> }` button on a NON-destroy operation
-    // hoists a `handle_event` that calls `<Ctx>.get_<agg>!(id)` then
-    // `<Ctx>.<op>_<agg>!(record)` (`liveview-emit.ts` ~`:396-397`) — bang seams
-    // the non-bang op/getter don't provide, so without them `mix compile
-    // --warnings-as-errors` fails on the undefined calls.  Emit them for any
-    // aggregate carrying operations: a load-or-raise getter (arity-1 `id`, the
-    // exact call-site arity — the non-bang `get_<agg>` takes `current_user \\ nil`
-    // so this resolves for principal aggregates too) and, per operation, an
-    // arity-1 bang that runs the op (empty params) and raises on `{:error, _}`.
+    // A LiveView `Action { c.<op> }` button on a NON-destroy operation hoists a
+    // `handle_event` that loads the row with `<Ctx>.get_<agg>_for_write!` and
+    // runs `<Ctx>.<op>_<agg>!(record)` (`liveview-emit.ts`).  The load is the
+    // command load the REST op route uses — the write scope when the aggregate
+    // has one (`deny write`, write row rules), with the socket's principal — so
+    // the button can write no row the route would refuse.  Per operation, an
+    // arity-1 bang runs the op (empty params) and raises on `{:error, _}`.
     const bangOps = (agg.operations ?? []).filter((op) => !CRUD_RESERVED_NAMES.has(op.name));
     const opBangFacade =
       bangOps.length > 0
         ? `\n
-  @doc "Load a ${aggPascal} by id or raise (LiveView Action seam)."
-  def get_${aggSnake}!(id) do
-    case get_${aggSnake}(id) do
+  @doc "Load a ${aggPascal} through the command load (its write scope) or raise (LiveView Action seam)."
+  def get_${aggSnake}_for_write!(id${principal ? ", current_user" : ""}) do
+    case ${agg.writeScopeFilter ? `get_${aggSnake}_for_write` : `get_${aggSnake}`}(id${principal ? ", current_user" : ""}) do
       {:ok, record} -> record
       {:error, _} -> raise Ecto.NoResultsError, queryable: ${facadeMod}.${aggPascal}
     end

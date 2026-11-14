@@ -843,6 +843,15 @@ function buildActionHandlers(
     // default arg makes silent rather than a compile error.
     const op = (aggregatesByName.get(b.agg)?.operations ?? []).find((o) => snake(o.name) === b.op);
     const actorArg = op && opUsesCurrentUser(op) ? ", Map.get(socket.assigns, :current_user)" : "";
+    // The row loads through the command load the REST op route uses (the write
+    // scope, with the socket's principal when the aggregate's scope reads one),
+    // never the read getter: a `deny write` / write-row-rule row is refused
+    // here exactly as the route refuses it.
+    const loadAgg = aggregatesByName.get(b.agg);
+    const loadActorArg =
+      loadAgg && aggregateUsesPrincipalContextFilter(loadAgg)
+        ? ", Map.get(socket.assigns, :current_user)"
+        : "";
     // `byId` actions (DestroyForm) call the code interface with the id
     // directly — the `get_by: [:id]` interface does the lookup.  Other
     // actions load the record first, then invoke the op on it.
@@ -859,7 +868,7 @@ function buildActionHandlers(
           `    {:noreply, socket |> put_flash(:info, ${flash})${navPipe}}`,
         ]
       : [
-          `    record = ${ctxModule}.get_${aggSnake}!(id)`,
+          `    record = ${ctxModule}.get_${aggSnake}_for_write!(id${loadActorArg})`,
           `    ${ctxModule}.${b.eventName}!(record${actorArg})`,
           `    {:noreply, socket |> put_flash(:info, ${flash})${navPipe}}`,
         ];

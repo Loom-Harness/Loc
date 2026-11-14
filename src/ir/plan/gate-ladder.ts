@@ -99,14 +99,19 @@ export function destroyLadder(
 }
 
 /** True when a `requires` gate reads the addressed row — a field, a value
- *  object member of one, or a derived — so it can only run after the load. */
+ *  object member of one, a derived, or a call to one of the aggregate's own
+ *  functions / operations (every backend renders it on the loaded instance,
+ *  whatever the callee's body reads) — so it can only run after the load. */
 export function gateReadsRow(g: RequiresStmtIR): boolean {
   let reads = false;
   walkExprDeep(g.expr, (e) => {
     if (
       e.kind === "this" ||
       (e.kind === "ref" &&
-        (e.refKind === "this-prop" || e.refKind === "this-vo-prop" || e.refKind === "this-derived"))
+        (e.refKind === "this-prop" ||
+          e.refKind === "this-vo-prop" ||
+          e.refKind === "this-derived")) ||
+      (e.kind === "call" && (e.callKind === "function" || e.callKind === "private-operation"))
     ) {
       reads = true;
     }
