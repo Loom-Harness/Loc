@@ -60,7 +60,9 @@ describe("routed Repo.run handlers", () => {
   it("node: typed path tokens parse to the domain type", async () => {
     const routes = fileEndingWith(await generateSystemFiles(src("node")), "http/shopApi-routes.ts");
     expect(routes).toContain('params: z.object({ s: z.enum(["Open", "Closed"]) })');
-    expect(routes).toContain("params: z.object({ t: z.coerce.date() })");
+    expect(routes).toContain(
+      'params: z.object({ t: z.coerce.date({ error: "Expected an ISO 8601 date-time." }) })',
+    );
     expect(routes).toContain("params: z.object({ m: moneySchema })");
     expect(routes).toContain('import { moneySchema } from "../lib/schemas";');
   });

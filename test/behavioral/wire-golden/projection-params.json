@@ -186,6 +186,90 @@
     {
       "seq": 15,
       "method": "GET",
+      "path": "/api/projections/top_ranked?maxRank=many",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.type-mismatch",
+            "message": "Expected an integer.",
+            "pointer": "/maxRank"
+          }
+        ],
+        "instance": "/api/projections/top_ranked",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/projections/qualifying?minScore=lots&q=true&since=2026-07-15",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.type-mismatch",
+            "message": "Expected a number.",
+            "pointer": "/minScore"
+          }
+        ],
+        "instance": "/api/projections/qualifying",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/projections/qualifying?minScore=1&q=maybe&since=2026-07-15",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.type-mismatch",
+            "message": "Expected true or false.",
+            "pointer": "/q"
+          }
+        ],
+        "instance": "/api/projections/qualifying",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/projections/qualifying?minScore=1&q=true&since=yesterday",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.type-mismatch",
+            "message": "Expected an ISO 8601 date.",
+            "pointer": "/since"
+          }
+        ],
+        "instance": "/api/projections/qualifying",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "GET",
       "path": "/api/runs/{id}",
       "status": 200,
       "body": {
@@ -195,14 +279,14 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 20,
       "method": "POST",
       "path": "/api/runs/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 17,
+      "seq": 21,
       "method": "GET",
       "path": "/api/runs",
       "status": 200,
@@ -226,7 +310,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 22,
       "method": "GET",
       "path": "/api/match_results/{id}",
       "status": 200,
@@ -242,14 +326,14 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 23,
       "method": "POST",
       "path": "/api/match_results/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 20,
+      "seq": 24,
       "method": "GET",
       "path": "/api/projections/top_ranked?maxRank=2",
       "status": 200,
@@ -258,7 +342,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 25,
       "method": "GET",
       "path": "/api/match_results",
       "status": 200,
@@ -312,56 +396,56 @@
       }
     },
     {
-      "seq": 22,
-      "method": "DELETE",
-      "path": "/api/match_results/{id}",
-      "status": 204,
-      "body": ""
-    },
-    {
-      "seq": 23,
-      "method": "DELETE",
-      "path": "/api/match_results/{id}",
-      "status": 204,
-      "body": ""
-    },
-    {
-      "seq": 24,
-      "method": "DELETE",
-      "path": "/api/match_results/{id}",
-      "status": 204,
-      "body": ""
-    },
-    {
-      "seq": 25,
-      "method": "DELETE",
-      "path": "/api/match_results/{id}",
-      "status": 204,
-      "body": ""
-    },
-    {
       "seq": 26,
-      "method": "GET",
-      "path": "/api/projections/run_outcome?r=<uuid>",
-      "status": 200,
-      "body": []
+      "method": "DELETE",
+      "path": "/api/match_results/{id}",
+      "status": 204,
+      "body": ""
     },
     {
       "seq": 27,
       "method": "DELETE",
-      "path": "/api/runs/{id}",
+      "path": "/api/match_results/{id}",
       "status": 204,
       "body": ""
     },
     {
       "seq": 28,
       "method": "DELETE",
-      "path": "/api/runs/{id}",
+      "path": "/api/match_results/{id}",
       "status": 204,
       "body": ""
     },
     {
       "seq": 29,
+      "method": "DELETE",
+      "path": "/api/match_results/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 30,
+      "method": "GET",
+      "path": "/api/projections/run_outcome?r=<uuid>",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 31,
+      "method": "DELETE",
+      "path": "/api/runs/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 32,
+      "method": "DELETE",
+      "path": "/api/runs/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 33,
       "method": "PATCH",
       "path": "/api/runs",
       "status": 405,
@@ -375,7 +459,7 @@
       }
     },
     {
-      "seq": 30,
+      "seq": 34,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -389,7 +473,7 @@
       }
     },
     {
-      "seq": 31,
+      "seq": 35,
       "method": "POST",
       "path": "/api/runs",
       "status": 400,
@@ -403,7 +487,7 @@
       }
     },
     {
-      "seq": 32,
+      "seq": 36,
       "method": "POST",
       "path": "/api/runs/{id}/update",
       "status": 404,

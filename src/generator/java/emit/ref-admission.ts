@@ -16,6 +16,7 @@
 // pending row it guards.  A write with no ambient principal (a seed, a system
 // write) is unprobed, as it is unstamped.
 
+import { wireFixedDetail } from "../../../ir/enrich/wire-policy.js";
 import { admittedReferences, type ScopedReference } from "../../../ir/plan/ref-scope.js";
 import type { AggregateIR } from "../../../ir/types/loom-ir.js";
 import { PG_FOREIGN_KEY_VIOLATION } from "../../_persistence/pg-sqlstate.js";
@@ -64,7 +65,7 @@ export function refAdmissionMethod(agg: AggregateIR, ctx: RefAdmissionCtx): stri
     ``,
     `    private static org.springframework.dao.DataIntegrityViolationException _referenceNotAdmitted() {`,
     `        return new org.springframework.dao.DataIntegrityViolationException(`,
-    `            "The request references a record that does not exist.",`,
+    `            ${JSON.stringify(wireFixedDetail("dangling-reference"))},`,
     `            new java.sql.SQLException("reference not admitted", ${JSON.stringify(PG_FOREIGN_KEY_VIOLATION)}));`,
     `    }`,
     ``,

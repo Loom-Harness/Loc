@@ -4,8 +4,10 @@ import type { SaveEntry } from "../../ir/plan/index.js";
 import {
   type FoldRowSeed,
   type FoldStep,
+  foldInboxClaimSql,
   foldRowSeeds,
   foldSteps,
+  foldsDedupe,
   hasStateRow,
   requiredStateFields,
   subscriptionHandler,
@@ -315,6 +317,7 @@ export function emitDispatch(
       contextModule,
       ps.projection,
       ps.on,
+      foldsDedupe(ctx, durable),
       channels?.foreignEventModules.get(ps.event) ?? contextModule,
     );
     const path = `lib/${appName}/${ctxSnake}/projections/${snake(ps.projection.name)}/on_${snake(ps.event)}.ex`;
@@ -791,6 +794,8 @@ function renderProjectionFoldHandler(
   contextModule: string,
   proj: ProjectionIR,
   on: ProjectionOnIR,
+  /** Folds claim each durably delivered event in the fold inbox (`foldsDedupe`). */
+  dedupe: boolean,
   /** The module the event struct lives under: its OWNING context's, which
    *  differs from `contextModule` for an event consumed off a wired channel
    *  declared in a context this deployable does not host. */
@@ -865,6 +870,34 @@ function renderProjectionFoldHandler(
     `    :ok`,
   ];
   const event = `%${eventModule}.Events.${upperFirst(on.event)}{} = event`;
+  const args = cols ? "event, tenant" : "event";
+  // A durably delivered event folds once: the claim on `(projection, event_id)`
+  // in the fold inbox commits with the row write, in one transaction.  An
+  // event dispatched inline has no id and is never redelivered.
+  const claimSql = foldInboxClaimSql("$1", "$2", true);
+  const once = dedupe
+    ? `  defp fold(${args}) do
+    case Process.get(:loom_event_id) do
+      nil ->
+        apply_fold(${args})
+
+      event_id ->
+        {:ok, :ok} =
+          ${appModule}.Repo.transaction(fn ->
+            case ${appModule}.Repo.query!(${JSON.stringify(claimSql)}, [${JSON.stringify(proj.name)}, to_string(event_id)]) do
+              %{num_rows: 0} -> :ok
+              _ -> apply_fold(${args})
+            end
+          end)
+
+        :ok
+    end
+  end
+
+  defp apply_fold(${args}) do
+${body.join("\n")}
+  end`
+    : undefined;
   const handle = cols
     ? `  def handle(${event}) do
     origin = ${appModule}Web.Auth.current_event_origin() || %{}
@@ -875,10 +908,17 @@ function renderProjectionFoldHandler(
     end
   end
 
-  defp fold(event, tenant) do
+${
+  once ??
+  `  defp fold(event, tenant) do
 ${body.join("\n")}
   end`
-    : `  def handle(${event}) do
+}`
+    : once
+      ? `  def handle(${event}), do: fold(event)
+
+${once}`
+      : `  def handle(${event}) do
 ${body.join("\n")}
   end`;
   return `# Auto-generated.

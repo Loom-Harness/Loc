@@ -16,6 +16,7 @@ import { bootRequiredAuthEnv } from "../../_auth/boot-required.js";
 
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
+import { foldsDedupe } from "../../../ir/plan/index.js";
 import { sourceLocaleOf, workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
 import {
   aggregatesCanTripDanglingReference,
@@ -815,6 +816,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
         durableBroker: durableBrokerEvents.size > 0,
         carriesOrigin: deployable.auth?.required === true && !!sys.user,
         localOutbox: localOutboxBesideBroker,
+        pruneInbox: contexts.some((c) => foldsDedupe(c, true)),
       },
     );
     for (const [path, content] of emission.files) out.set(path, content);
@@ -839,6 +841,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       hostedDispatchers,
       deployable.auth?.required === true && !!sys.user,
       localOutboxBesideBroker ? { emitsSchema: durableBrokerEvents.size === 0 } : undefined,
+      contexts.some((c) => foldsDedupe(c, true)),
     );
     for (const [path, content] of emission.files) out.set(path, content);
     channelChildren = [...channelChildren, ...emission.children];

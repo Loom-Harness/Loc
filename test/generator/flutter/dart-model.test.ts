@@ -14,6 +14,7 @@ import {
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { allContexts } from "../../../src/ir/types/loom-ir.js";
+import { withBackendSystem } from "../../_helpers/backend-system.js";
 import { parseString } from "../../_helpers/parse.js";
 
 // One aggregate with a couple of typed fields (incl. an optional, a
@@ -46,7 +47,7 @@ const SRC = `
 `;
 
 async function salesContext() {
-  const { model } = await parseString(SRC, { validate: false });
+  const { model } = await parseString(withBackendSystem(SRC, "node").source, { validate: false });
   const enriched = enrichLoomModel(lowerModel(model));
   return allContexts(enriched).find((c) => c.name === "Sales")!;
 }
@@ -55,7 +56,7 @@ describe("flutter Dart wire-model emitter", () => {
   it("emits a Dart class for an aggregate off its wire shape", async () => {
     const ctx = await salesContext();
     const agg = ctx.aggregates.find((a) => a.name === "Product")!;
-    const dart = renderDartModel(dartRecordForAggregate(agg));
+    const dart = renderDartModel(dartRecordForAggregate(agg, ctx.payloads));
 
     // Class + const constructor.
     expect(dart).toContain("class Product {");

@@ -3,7 +3,9 @@ import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
 import {
   esStarterSharesEvent,
   type FoldStep,
+  foldInboxClaimSql,
   foldSteps,
+  foldsDedupe,
   namesBound,
   subscriptionHandler,
 } from "../../../ir/plan/index.js";
@@ -202,6 +204,7 @@ function renderProjectionFold(
   on: ProjectionOnIR,
   sub: EventSubscriptionIR,
   basePkg: string,
+  dedupe = false,
 ): string[] {
   const corr = proj.correlationField as string;
   const cls = projectionRowClass(proj);
@@ -209,7 +212,7 @@ function renderProjectionFold(
   const steps = foldSteps(proj, on);
   // The event param is the method's own parameter — moved off `__key` /
   // `state` / the row repository it shares the method with.
-  const foldNames = ["__key", "state", repo, cls];
+  const foldNames = ["__key", "state", "__eventId", "jdbc", repo, cls];
   const param = eventParamLocal(sub.param, new Set(foldNames));
   // this-prop refs resolve through the row's record-style accessors
   // (`state.status()`); writes go through the JavaBean setter (spelled below).
@@ -232,21 +235,32 @@ function renderProjectionFold(
   // metadata — the dispatching frame's event origin — keys the row by it and
   // stamps it on allocation.  An event with no tenant has no tenant's row.
   const tenancy = foldTenancyFor(proj);
+  // A durably delivered event folds once: the claim on `(projection, event_id)`
+  // in the fold inbox commits with the row save, in the method's transaction.
+  const claim = dedupe
+    ? [
+        `        var __eventId = OutboxDelivery.currentEventId();`,
+        `        if (__eventId != null && jdbc.update(${JSON.stringify(foldInboxClaimSql("?", "?", false))}, ${JSON.stringify(proj.name)}, __eventId) == 0) return;`,
+      ]
+    : [];
   const body: string[] = tenancy
     ? [
         `        var __origin = ${basePkg}.auth.User.currentEventOrigin();`,
         `        if (__origin == null || __origin.tenant() == null) return;`,
         `        var __tenant = __origin.tenant();`,
+        ...claim,
         `        var __key = ${keyExpr};`,
         `        var state = ${repo}.findByTenantAndKey(__tenant, __key).orElseGet(() -> ${cls}._allocate(__tenant, __key));`,
       ]
     : [
+        ...claim,
         `        var __key = ${keyExpr};`,
         `        var state = ${repo}.findById(__key).orElseGet(() -> ${cls}._allocate(__key));`,
       ];
   for (const step of steps) body.push(...renderProjectionFoldStep(step, proj, renderCtx));
   body.push(`        ${repo}.save(state);`);
   return [
+    ...(dedupe ? [`    @org.springframework.transaction.annotation.Transactional`] : []),
     `    @EventListener`,
     `    public void on${upperFirst(proj.name)}On${upperFirst(sub.event)}(${sub.event} ${param}) {`,
     ...body,
@@ -379,6 +393,8 @@ export function renderJavaDispatcher(
   // Projections whose fold this dispatcher wires — each injects a read-model row
   // Spring Data repo (deduped, declaration order).
   const touchedProjections: ProjectionIR[] = [];
+  // Folds claim each durably delivered event in the fold inbox (`foldsDedupe`).
+  const dedupe = foldsDedupe(ctx, dctx.deployableDurable === true);
 
   // Event-sourced saga double-append (S5b): when an event-sourced workflow has
   // BOTH an `on` reactor and an event-`create` starter for the SAME event,
@@ -430,7 +446,7 @@ export function renderJavaDispatcher(
       pushHandler(
         `on${upperFirst(proj.name)}On${upperFirst(sub.event)}`,
         sub.event,
-        renderProjectionFold(proj, on, sub, dctx.basePkg),
+        renderProjectionFold(proj, on, sub, dctx.basePkg, dedupe),
         true,
       );
       if (foldTenancyFor(proj) && !relayDelivered(sub.event)) foldReadsOrigin = true;
@@ -517,6 +533,8 @@ export function renderJavaDispatcher(
   // fold their `<wf>_events` stream over a shared JdbcTemplate instead.
   const stateWfs = subscribedWfs.filter((wf) => !wf.eventSourced);
   const esPresent = subscribedWfs.some((wf) => wf.eventSourced);
+  // The fold-inbox claim runs over the same JdbcTemplate.
+  const jdbcPresent = esPresent || (dedupe && touchedProjections.length > 0);
   // The bodies THIS class renders are the reactor / event-create ones, so size
   // the injected repository set from those — not from `reposUsed`, which reads
   // `wf.statements` (the primary-create facade) and is empty for a reactor-only
@@ -538,7 +556,7 @@ export function renderJavaDispatcher(
   const fields = [
     `    private final ApplicationEventPublisher events;`,
     ...repoAggs.map((a) => `    private final ${a}Repository ${repoField(a)};`),
-    ...(esPresent ? [`    private final ${JDBC_TEMPLATE} jdbc;`] : []),
+    ...(jdbcPresent ? [`    private final ${JDBC_TEMPLATE} jdbc;`] : []),
     ...stateWfs.map(
       (wf) => `    private final ${workflowStateClass(wf)}Repository ${stateRepoField(wf)};`,
     ),
@@ -549,14 +567,14 @@ export function renderJavaDispatcher(
   const ctorParams = [
     "ApplicationEventPublisher events",
     ...repoAggs.map((a) => `${a}Repository ${repoField(a)}`),
-    ...(esPresent ? [`${JDBC_TEMPLATE} jdbc`] : []),
+    ...(jdbcPresent ? [`${JDBC_TEMPLATE} jdbc`] : []),
     ...stateWfs.map((wf) => `${workflowStateClass(wf)}Repository ${stateRepoField(wf)}`),
     ...touchedProjections.map((p) => `${projectionRowClass(p)}Repository ${projRepoField(p)}`),
   ].join(", ");
   const ctorAssigns = [
     "        this.events = events;",
     ...repoAggs.map((a) => `        this.${repoField(a)} = ${repoField(a)};`),
-    ...(esPresent ? ["        this.jdbc = jdbc;"] : []),
+    ...(jdbcPresent ? ["        this.jdbc = jdbc;"] : []),
     ...stateWfs.map((wf) => `        this.${stateRepoField(wf)} = ${stateRepoField(wf)};`),
     ...touchedProjections.map((p) => `        this.${projRepoField(p)} = ${projRepoField(p)};`),
   ];
@@ -628,7 +646,10 @@ export function renderJavaDispatcher(
   }
   // The idempotent-consumer marker preamble (renderHandler, above) references
   // OutboxDelivery only for non-event-sourced sagas under a durable channel.
-  if (dctx.deployableDurable === true && stateWfs.length > 0) {
+  if (
+    dctx.deployableDurable === true &&
+    (stateWfs.length > 0 || (dedupe && touchedProjections.length > 0))
+  ) {
     imports.add(`${dctx.basePkg}.domain.common.OutboxDelivery`);
   }
 

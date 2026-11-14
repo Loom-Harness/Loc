@@ -1,3 +1,5 @@
+import { foldInboxClaimSql } from "../../../ir/plan/index.js";
+
 // ---------------------------------------------------------------------------
 // EF Core adapters for the domain persistence ports.
 //
@@ -123,6 +125,28 @@ public sealed class EfReadModelStore<TRow> : IReadModelStore<TRow> where TRow : 
         => _db.Set<TRow>().FirstOrDefaultAsync(predicate, cancellationToken);
     public void Add(TRow row) => _db.Set<TRow>().Add(row);
     public Task SaveChangesAsync(CancellationToken cancellationToken = default) => _db.SaveChangesAsync(cancellationToken);
+
+    // The claim runs first, so a skipped event leaves nothing tracked for a
+    // later SaveChanges on the same scope to write.
+    public async Task FoldOnceAsync(string projection, string? eventId, Func<Task> fold, CancellationToken cancellationToken = default)
+    {
+        if (eventId is null)
+        {
+            await fold();
+            await _db.SaveChangesAsync(cancellationToken);
+            return;
+        }
+        await using var tx = _db.Database.CurrentTransaction is null
+            ? await _db.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        var claimed = await _db.Database.ExecuteSqlInterpolatedAsync(
+            $"${foldInboxClaimSql("{projection}", "{eventId}", false)}",
+            cancellationToken);
+        if (claimed == 0) return;
+        await fold();
+        await _db.SaveChangesAsync(cancellationToken);
+        if (tx is not null) await tx.CommitAsync(cancellationToken);
+    }
 }
 `;
 }

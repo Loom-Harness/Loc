@@ -1464,7 +1464,7 @@ function lowerContext(
     // Unified payload-family view: the context's `event`s projected in as
     // `kind: "event"` payloads, then the author-declared `PayloadDecl`s.
     // `events` above stays populated so existing event emission is
-    // untouched.  P2's synthesized `<Agg>Wire` payloads are appended in
+    // untouched.  The synthesized generic / union payloads are appended in
     // enrichment, not here.
     payloads: [...events.map(eventToPayload), ...payloads],
     aggregates,

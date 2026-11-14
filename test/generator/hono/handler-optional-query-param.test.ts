@@ -34,10 +34,10 @@ beforeAll(async () => {
 
 describe("node: an optional query param decodes like the required one", () => {
   it.each([
-    ["decimal?", "min: z.coerce.number().optional()"],
+    ["decimal?", 'min: z.coerce.number({ error: "Expected a number." }).optional()'],
     [
       "int?",
-      'n: z.coerce.number().int().min(-2147483648, "Integer out of range").max(2147483647, "Integer out of range").openapi({ format: "int32" }).optional()',
+      'n: z.coerce.number({ error: "Expected an integer." }).int({ error: "Expected an integer." }).min(-2147483648, "Integer out of range").max(2147483647, "Integer out of range").openapi({ format: "int32" }).optional()',
     ],
   ])("%s parses with the inner query schema, absent allowed", (_t, schema) => {
     expect(routes).toContain(`query: z.object({ ${schema} })`);

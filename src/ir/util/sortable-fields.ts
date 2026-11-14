@@ -19,43 +19,28 @@
 // equal to this list by test/macro/scaffold-sortable-allowlist.test.ts.  Change
 // one, change both; never widen this list to match a frontend — that is the leak.
 
-import { wireFieldsForAggregate } from "../enrich/wire-projection.js";
 import type { AggregateIR } from "../types/loom-ir.js";
 
 /** The ordered list of field names a paged list may be sorted by — `id` first,
- *  then declared scalar properties in wire order.  Always non-empty (`id` is
- *  always present).  Reads the enriched `wireShape` (present at every call site
- *  — the emitters run post-enrichment); guards `undefined` so a base-typed
- *  `AggregateIR` param still compiles. */
+ *  then the declared scalar and enum properties in declaration order.  Always
+ *  non-empty.  A field is left off when ordering by it would disclose what the
+ *  read surface hides:
+ *    - a `token` field (the `rowVersion` concurrency token) is infrastructure,
+ *      not a sort dimension;
+ *    - a `secret` or `internal` field is never on the read surface, and as a
+ *      `?sort=` key it would be an ordering oracle over the hidden column
+ *      (binary-searchable through pagination);
+ *    - a `mask unless` field: the mask is per caller and the sort enum is
+ *      emitted once, so ordering by it would leak the value through row order;
+ *    - a `provenanced` field crosses as its carrier, not a scalar. */
 export function sortableFields(agg: AggregateIR): string[] {
-  const out: string[] = [];
-  for (const f of wireFieldsForAggregate(agg)) {
-    if (f.source !== "id" && f.source !== "property") continue;
-    // The default-on `version` token (M-T3.4) is a scalar `property` column, but
-    // it is optimistic-concurrency infrastructure — not a meaningful user sort
-    // dimension — so it stays off the whitelist (like `id`, `version` rides the
-    // read wire without becoming a `?sort=` option).  `id` is source `"id"`, so
-    // this only drops the token property; declared token fields are none today.
-    if (f.source === "property" && f.access === "token") continue;
-    // `secret` (client write-only, never disclosed in any read) and `internal`
-    // (server-managed, excluded from API reads by `forApiRead`) columns are not
-    // part of the read surface — but they still live in `wireShape`, so without
-    // this guard they became accepted `?sort=` keys, turning a hidden column
-    // into a controllable ordering oracle (binary-searchable via pagination).
-    // Match exactly the set `forApiRead` hides.
-    if (f.access === "secret" || f.access === "internal") continue;
-    // `mask unless <expr>` (authorization.md §5) redacts the value at the wire
-    // boundary for a caller the predicate rejects — but ORDERING by it leaks it
-    // anyway: `?sort=salary&dir=asc` plus pagination binary-searches a hidden
-    // column out of the row ORDER, without the value ever crossing the wire.
-    // The read-mask is per-caller and the enum is emitted once, so the only
-    // sound whitelist is one a masked field never enters.
-    if (f.maskUnless) continue;
+  const out = ["id"];
+  for (const f of agg.fields) {
+    const access = f.access ?? "editable";
+    if (access === "token" || access === "secret" || access === "internal") continue;
+    if (f.maskUnless || f.provenanced) continue;
     if (f.type.kind === "primitive" || f.type.kind === "enum") out.push(f.name);
   }
-  // `id` is always sortable and the stable default; guarantee it leads even if a
-  // future wire projection reorders.
-  if (!out.includes("id")) out.unshift("id");
   return out;
 }
 

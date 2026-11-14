@@ -10,6 +10,7 @@
 // SQLSTATE, so every arm that already answers a dangling reference answers it
 // the same way: a foreign tenant's row is indistinguishable from a missing one.
 
+import { wireFixedDetail } from "../../ir/enrich/wire-policy.js";
 import { admittedReferences, type ScopedReference } from "../../ir/plan/ref-scope.js";
 import type {
   AggregateIR,
@@ -46,7 +47,7 @@ export function refAdmissionHelper(agg: AggregateIR, ctx: BoundedContextIR): str
     " *  violation SQLSTATE, so it is answered exactly as a reference to a row",
     " *  that does not exist. */",
     `function ${REFUSE}(): Error {`,
-    `  return Object.assign(new Error("The request references a record that does not exist."), { code: ${JSON.stringify(PG_FOREIGN_KEY_VIOLATION)} });`,
+    `  return Object.assign(new Error(${JSON.stringify(wireFixedDetail("dangling-reference"))}), { code: ${JSON.stringify(PG_FOREIGN_KEY_VIOLATION)} });`,
     "}",
     "",
   ];

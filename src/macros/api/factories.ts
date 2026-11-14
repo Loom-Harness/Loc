@@ -1310,9 +1310,19 @@ function stampTargetNames(target: Aggregate): ReadonlySet<string> {
  * `create` operation in a future phase, this is the helper it
  * iterates to derive the request-body shape. */
 export function writableCreateFields(target: Aggregate): readonly Property[] {
+  return writableCreateFieldsOf(target, targetFields(target));
+}
+
+/** The members of `fields` a create may set on `target` (see
+ *  {@link writableCreateFields}). */
+function writableCreateFieldsOf(target: Aggregate, fields: readonly Property[]): Property[] {
   const stamped = stampTargetNames(target);
-  return targetFields(target).filter((f) => {
-    if ((f as { [ORIGIN_PROP]?: OriginToken })[ORIGIN_PROP] !== undefined) return false;
+  // A field another macro added is bookkeeping; one spliced with the
+  // aggregate itself (a macro-synthesized aggregate) is its own declaration.
+  const own = (target as { [ORIGIN_PROP]?: OriginToken })[ORIGIN_PROP];
+  return fields.filter((f) => {
+    const origin = (f as { [ORIGIN_PROP]?: OriginToken })[ORIGIN_PROP];
+    if (origin !== undefined && origin !== own) return false;
     if (stamped.has(f.name)) return false;
     const access = (f as { access?: FieldAccess }).access;
     if (access === "managed" || access === "token" || access === "internal") {
@@ -1333,8 +1343,15 @@ export function writableCreateFields(target: Aggregate): readonly Property[] {
  * Mirrors the IR rule: a macro-synthesized create (`with crudish`, tagged with
  * an origin token) and an event-sourced aggregate are never narrowed.
  */
-export function createInputProperties(target: Aggregate): readonly Property[] {
-  const writable = writableCreateFields(target);
+export function createInputProperties(
+  target: Aggregate,
+  opts: { inherited?: boolean } = {},
+): readonly Property[] {
+  // Inherited fields lead, root-most first, as in the IR's merged field list.
+  const writable = [
+    ...(opts.inherited ? writableCreateFieldsOf(target, inheritedProperties(target)) : []),
+    ...writableCreateFields(target),
+  ];
   if ((target as { persistedAs?: string }).persistedAs === "eventLog") return writable;
   const create = (target.members ?? []).find(
     (m) =>

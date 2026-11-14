@@ -4,7 +4,7 @@ import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant, eventsKeepOriginFrame } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
-import { channelPlan, hasDurableEvents } from "../../ir/plan/index.js";
+import { channelPlan, foldsDedupe, hasDurableEvents } from "../../ir/plan/index.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   BoundedContextIR,
@@ -635,7 +635,7 @@ function emitProjectFromContexts(
     // Projection fold handlers (one INotificationHandler<TEvent> per fold),
     // derived over the merged context so a fold can route off another hosted
     // context's channel — mirrors the reactor derivation above.
-    emitProjectionDispatch(merged, ns, out);
+    emitProjectionDispatch(merged, ns, out, foldsDedupe(merged, hasDurableEvents(merged)));
   }
   // Transactional outbox (dispatch-delivery-semantics.md): durable channels
   // (`retention: log | work`) record their events in __loom_outbox and a relay
@@ -659,6 +659,7 @@ function emitProjectFromContexts(
       durableBroker: durableBrokerEvents.size > 0,
       hasSubscriptions,
       carriesOrigin: deployableCarriesAuth,
+      pruneInbox: foldsDedupe(merged, true),
     };
     out.set("Domain/Common/OutboxDelivery.cs", renderOutboxDelivery(ns));
     if (outboxUsesDapper) {

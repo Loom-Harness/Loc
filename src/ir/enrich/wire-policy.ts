@@ -628,10 +628,13 @@ export function errorVariantCode(ctx: string | undefined, name: string): string 
  *                        column.
  *   - `rule`           — a wire-stage rule (`ruleStage`): its rule text,
  *                        or the unnamed default (RS-43).
- *   - `type-mismatch`  — the JSON value has the wrong type (`"5"` for an `int`,
- *                        `12.5` for a `money`).  Not yet one sentence: each
- *                        framework's own text, so the golden compares status
- *                        and pointer only.
+ *   - `type-mismatch`  — the value has the wrong type.  For a query/path
+ *                        param whose text does not parse (`?n=many` for an
+ *                        `int`) the sentence is ruled per check kind
+ *                        (`QUERY_PARAM_MISMATCH_MESSAGES`, `src/ir/plan/projection-params.ts`).
+ *                        For a BODY value of the wrong JSON type (`"5"` for an
+ *                        `int`) it is each framework's own text, so the golden
+ *                        compares status, code and pointer only.
  *   - a {@link FieldLimitReason} — one side of a field's declared limit (an
  *                        unnamed single-field `check` / `invariant` /
  *                        `precondition` the wire absorbs as a native bound),
