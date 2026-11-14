@@ -20,6 +20,15 @@ system SimpleAuth {
           requires currentUser.role == "agent"
           open := true
         }
+        // A gate that calls one of the aggregate's own functions reads the
+        // row, whatever the function's body reads: every backend renders the
+        // call on the loaded instance, so the gate runs after the load (a
+        // missing id is 404, a closed ticket 403).
+        function isOpenNow(): bool = open
+        operation archive() {
+          requires isOpenNow()
+          open := false
+        }
       }
       repository Tickets for Ticket { }
 
@@ -104,5 +113,16 @@ system SimpleAuth {
     expect(api.notes.all().items.length).toBe(1)
     api.notes.destroy(n)
     expect(api.notes.all().items.length).toBe(0)
+  }
+
+  test e2e "a requires that calls the aggregate's own function runs against the loaded row" against d {
+    let t = api.tickets.create({ subject: "Stale", open: true })
+    api.tickets.archive(t)
+    expect(api.tickets.getById(t).open).toBe(false)
+    // The gate reads the loaded row: archived once, the ticket is refused.
+    expect(api.tickets.archive(t)).toThrow(403)
+    // … and an id with no row is 404 — the load runs before the gate.
+    api.tickets.destroy(t)
+    expect(api.tickets.archive(t)).toThrow(404)
   }
 }

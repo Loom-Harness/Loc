@@ -6,7 +6,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // foundation.
 //
 // A `Detail` page hosting `Action { c.<op> }` on a non-destroy operation hoists a
-// `handle_event/3` that calls `<Ctx>.get_<agg>!(id)` then `<Ctx>.<op>_<agg>!(record)`
+// `handle_event/3` that calls `<Ctx>.get_<agg>_for_write!(id)` then `<Ctx>.<op>_<agg>!(record)`
 // (`liveview-emit.ts`).  The context module emits only the non-bang `get_<agg>`
 // (`{:ok|:error}`) and `<op>_<agg>(record, params)`, so without the bang seams
 // `mix compile --warnings-as-errors` fails on the undefined calls.  This pins the
@@ -68,9 +68,9 @@ function ctxOf(files: Map<string, string>): string {
 }
 
 describe("vanilla LiveView operation-action bang seams (§13)", () => {
-  it("emits get_<agg>!/1 — a load-or-raise getter (arity-1, the call-site arity)", async () => {
+  it("emits get_<agg>_for_write!/1 — a load-or-raise getter (arity-1, the call-site arity)", async () => {
     const ctx = ctxOf(await generateSystemFiles(withOps("")));
-    expect(ctx).toContain("def get_customer!(id) do");
+    expect(ctx).toContain("def get_customer_for_write!(id) do");
     expect(ctx).toMatch(/case get_customer\(id\) do\s*\n\s*\{:ok, record\} -> record/);
     expect(ctx).toContain("raise Ecto.NoResultsError");
   });
@@ -174,7 +174,6 @@ system S2 {
 `;
     const key = [...(await generateSystemFiles(SRC)).keys()].find((k) => k.endsWith("/cat.ex"));
     const cat = (await generateSystemFiles(SRC)).get(key!)!;
-    expect(cat).not.toContain("def get_item!(");
-    expect(cat).not.toContain("def get_item!");
+    expect(cat).not.toContain("def get_item_for_write!");
   });
 });

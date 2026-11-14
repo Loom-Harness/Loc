@@ -265,6 +265,9 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
   // `{ allowed: false }`, a 200 (the gate order, docs/auth.md).
   "corpus/auth-simple": {
     "gateProbe GET /api/tickets/{id}/can_reopen": R.probeAnswersFalse,
+    // `requires isOpenNow()` reads the row's own state, not the caller: the
+    // fixture's `test e2e` drives the admitted (204) and refused (403) arms.
+    "operation POST /api/tickets/{id}/archive": R.rowDataGate,
   },
 
   // ── mask unless — no status to refuse ────────────────────────────────────
@@ -592,7 +595,7 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   importGateOnly: 1,
   probeAnswersFalse: 1,
   principalFreeGate: 20,
-  rowDataGate: 4,
+  rowDataGate: 5,
   // Includes the two polymorphic base list reads of
   // `inheritance-read-restrictions`: their refusals are the ladder's
   // cross-tenant `rowVisible` rungs, like every other collection read in that

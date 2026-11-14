@@ -73,7 +73,7 @@ describe("Phoenix Action — instance-qualified operation button", () => {
     const files = await build();
     const live = files.get("phoenix_app/lib/phoenix_app_web/live/detail_live.ex")!;
     expect(live).toMatch(/def handle_event\("confirm_customer", %\{"id" => id\}, socket\) do/);
-    expect(live).toMatch(/record = PhoenixApp\.Sales\.get_customer!\(id\)/);
+    expect(live).toMatch(/record = PhoenixApp\.Sales\.get_customer_for_write!\(id\)/);
     expect(live).toMatch(/PhoenixApp\.Sales\.confirm_customer!\(record\)/);
     expect(live).toContain(
       'put_flash(:info, pgettext("chrome.actionSucceeded.confirm", "Confirm succeeded"))',
