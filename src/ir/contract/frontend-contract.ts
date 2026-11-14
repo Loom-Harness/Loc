@@ -32,8 +32,10 @@ import type {
   EventIR,
   ExprIR,
   FieldIR,
+  InvariantIR,
   LayoutIR,
   MessageIR,
+  OperationIR,
   PayloadIR,
   RouteIR,
   TypeIR,
@@ -56,7 +58,7 @@ import { pagedFindRoutes } from "../util/paged-find-routes.js";
 import { aggregateIsVersioned } from "../util/versioned-capability.js";
 import { classifyForWire } from "../validate/invariant-classify.js";
 import { drop, keep, list, type Rule, record } from "./allowlist.js";
-import { componentRule, exprRule, layoutRule, typeRule, uiRule } from "./ui-spec.js";
+import { componentRule, exprRule, layoutRule, messageRule, typeRule, uiRule } from "./ui-spec.js";
 
 /** Bumped on any change a consumer must react to. */
 const FRONTEND_CONTRACT_VERSION = 1;
@@ -154,6 +156,16 @@ interface OperationFacts {
   /** Body params a merge-patch form may leave out: a masked field the caller
    *  may not read is written only when sent. */
   optionalParams?: string[];
+  /** The rules a client validates its request against before sending: the
+   *  aggregate's invariants and the operation's preconditions that read only
+   *  the request body (`classifyForWire`), in that order. */
+  invariants?: ContractInvariant[];
+}
+
+export interface ContractInvariant {
+  expr: ExprIR;
+  guard?: ExprIR;
+  message?: MessageIR;
 }
 
 const field = record<ContractField>("ContractField", {
@@ -197,6 +209,13 @@ const operationRule = record<ApiOperationIR & OperationFacts>("ContractOperation
   opName: keep,
   ifMatch: keep,
   optionalParams: keep,
+  invariants: list(
+    record<ContractInvariant>("ContractInvariant", {
+      expr: exprRule,
+      guard: exprRule,
+      message: messageRule,
+    }),
+  ),
 });
 
 const aggregateRule = record<ContractAggregate>("ContractAggregate", {
@@ -498,11 +517,31 @@ function operationFacts(op: ApiOperationIR, agg: AggregateIR | undefined): Opera
   const domain = op.operation;
   if (!domain) return {};
   const optional = [...maskedPatchParams(domain)];
+  const available = new Set(domain.params.map((p) => p.name));
+  const invariants =
+    op.kind === "operation"
+      ? [...(agg?.invariants ?? []), ...preconditionsOf(domain)]
+          .filter((inv) => classifyForWire(inv, { available }))
+          .map((inv) => ({
+            expr: inv.expr,
+            ...(inv.guard ? { guard: inv.guard } : {}),
+            ...(inv.message ? { message: inv.message } : {}),
+          }))
+      : [];
   return {
     opName: domain.name,
     ...(domain.name === "update" && agg && aggregateIsVersioned(agg)
       ? { ifMatch: true as const }
       : {}),
     ...(optional.length > 0 ? { optionalParams: optional } : {}),
+    ...(invariants.length > 0 ? { invariants } : {}),
   };
+}
+
+/** An operation's `precondition` statements, as the invariants a request is
+ *  validated against. */
+function preconditionsOf(op: OperationIR): InvariantIR[] {
+  return op.statements.flatMap((s) =>
+    s.kind === "precondition" ? [{ expr: s.expr, source: s.source, message: s.message }] : [],
+  );
 }

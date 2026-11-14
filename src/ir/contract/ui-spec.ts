@@ -208,7 +208,7 @@ export const exprRule: Rule = union<ExprIR>("ExprIR", {
   },
 });
 
-const message = record<MessageIR>("MessageIR", { key: keep, text: keep });
+export const messageRule = record<MessageIR>("MessageIR", { key: keep, text: keep });
 const path = record<PathIR>("PathIR", { segments: keep });
 const PROVENANCE = "provenance capture is server-side";
 
@@ -216,7 +216,7 @@ type StmtCase<K extends StmtIR["kind"]> = Extract<StmtIR, { kind: K }>;
 type VariantStmtArm = StmtCase<"variant-match">["arms"][number];
 
 const stmtRule: Rule = union<StmtIR>("StmtIR", {
-  precondition: { expr, source: keep, message, origin: drop },
+  precondition: { expr, source: keep, message: messageRule, origin: drop },
   requires: {
     expr,
     source: keep,
