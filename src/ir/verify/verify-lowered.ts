@@ -48,7 +48,7 @@ import type {
   WorkflowIR,
   WorkflowStmtIR,
 } from "../types/loom-ir.js";
-import { allContexts } from "../types/loom-ir.js";
+import { aggregateArg, allContexts } from "../types/loom-ir.js";
 import type { OriginRef } from "../types/origin.js";
 import type { SystemIR } from "../types/system.js";
 import {
@@ -1168,7 +1168,7 @@ function verifyProjection(p: ProjectionIR, index: ContextIndex, out: LoweringVio
       ...(q.criterionRef?.args ?? []),
       // An aggregation select carries its column as `aggregate.arg`; its
       // `expr` is the source spelling (a bare `count` is an unbound ref).
-      ...(q.selects ?? []).map((s) => (s.aggregate ? s.aggregate.arg : s.expr)),
+      ...(q.selects ?? []).map((s) => (s.aggregate ? aggregateArg(s.aggregate) : s.expr)),
       ...(q.groupBy ?? []),
       ...q.joins.map((j) => j.idRef),
       ...paramDefaults(p.params),

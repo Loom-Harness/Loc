@@ -87,7 +87,7 @@ import {
   wireFieldsFor,
 } from "../../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
-import { gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
+import { destroyLadder, gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -150,6 +150,7 @@ import {
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
+  type RequiresStmtIR,
 } from "../../../ir/util/op-gates.js";
 import {
   camelId,
@@ -1398,11 +1399,9 @@ export function buildRoutesFile(
     // (`destroyVersionCheck`): a stale tag is refused before the delete.
     const destroyIfMatch = readsIfMatch(destroyVersionCheck(agg));
     if (destroyGates.length > 0) {
-      // GUARDED destroy — the row loads FIRST (a destroy guard may read `this`,
-      // and the route loads anyway for the 404 probe), then the gate, then the
-      // delete.  The order is the security property: 404 (unreachable) wins
-      // over 403 (unauthorized), and the deny precedes both the delete and —
-      // on an audited destroy — the audit row it would otherwise have staged.
+      // GUARDED destroy — the gates in ladder order around the load, then the
+      // delete.  The deny precedes both the delete and — on an audited
+      // destroy — the audit row it would otherwise have staged.
       // The load is BOUND here even on the audited path, which re-loads inside
       // its transaction: the gate must not run inside the audit tx, or a denial
       // rolls back work it should never have started.
@@ -1410,18 +1409,25 @@ export function buildRoutesFile(
       // BOUND there — it still runs (it is the 404 probe), it just has no
       // receiver to name.
       const readsRow = lifecycleGatesReadRow(canonicalDestroy(agg));
-      lines.push(
-        readsRow || destroyIfMatch
-          ? `      const __loaded = await repo.getById(${T.Ids}.${agg.name}Id(id));`
-          : `      await repo.getById(${T.Ids}.${agg.name}Id(id));`,
-      );
       if (lifecycleGatesUseCurrentUser(canonicalDestroy(agg))) {
         lines.push(currentUserBindLine("      "));
       }
-      lines.push(
-        ...lifecycleGateLines(canonicalDestroy(agg), "      ", readsRow ? "__loaded" : undefined),
-      );
-      if (destroyIfMatch) lines.push(...destroyIfMatchLines(agg, "__loaded", "      "));
+      // The gate ladder (`ir/plan/gate-ladder.ts` → `destroyLadder`): a gate
+      // that reads no row refuses before the load, so a missing id answers
+      // the refused caller's 403; one that reads the row runs after it.
+      for (const step of destroyLadder(canonicalDestroy(agg), { readsIfMatch: destroyIfMatch })) {
+        if (step.step === "requires") lines.push(...lifecycleGateLine(step.gate, "      "));
+        else if (step.step === "load")
+          lines.push(
+            readsRow || destroyIfMatch
+              ? `      const __loaded = await repo.getById(${T.Ids}.${agg.name}Id(id));`
+              : `      await repo.getById(${T.Ids}.${agg.name}Id(id));`,
+          );
+        else if (step.step === "row-requires")
+          lines.push(...lifecycleGateLine(step.gate, "      ", "__loaded"));
+        else if (step.step === "version")
+          lines.push(...destroyIfMatchLines(agg, "__loaded", "      "));
+      }
     } else if (!auditDestroy) {
       // Non-audited: the not-found probe stays OUTSIDE the FK-violation
       // try, byte-identical to the pre-audit baseline.  getById throws
@@ -1892,26 +1898,34 @@ function requiresGateLines(
  *    create  — no receiver.  The gate runs BEFORE the factory (there is no
  *              instance yet), so it reads the principal only, which
  *              `loom.lifecycle-guard-unreadable` enforces.
- *    destroy — `__loaded`.  The gate runs AFTER the by-id load the route
- *              already performs for its 404 probe, so an unreachable id still
- *              answers 404 rather than 403, matching the operation routes. */
+ *    destroy — `__loaded` for a gate that reads the row, which runs after
+ *              the by-id load; a gate that reads no row runs before it
+ *              (`destroyLadder`), matching the operation routes. */
 function lifecycleGateLines(
   action: OperationIR | null | undefined,
   pad: string,
   thisName?: string,
   paramExpr?: (name: string) => string | undefined,
 ): string[] {
-  return lifecycleGates(action).map((g) => {
-    // A create gate's parameters are the create-input fields the body
-    // carries (`loom.lifecycle-guard-unreadable` admits no other).
-    const pred = renderTsExpr(g.expr, {
-      thisName: thisName ?? "this",
-      ...(paramExpr ? { paramExpr } : {}),
-    });
-    return `${pad}if (!(${pred})) throw new ForbiddenError(${JSON.stringify(
-      `Forbidden: ${g.source}`,
-    )});`;
+  return lifecycleGates(action).flatMap((g) => lifecycleGateLine(g, pad, thisName, paramExpr));
+}
+
+/** One lifecycle gate's refusal line. */
+function lifecycleGateLine(
+  g: RequiresStmtIR,
+  pad: string,
+  thisName?: string,
+  paramExpr?: (name: string) => string | undefined,
+): string[] {
+  // A create gate's parameters are the create-input fields the body
+  // carries (`loom.lifecycle-guard-unreadable` admits no other).
+  const pred = renderTsExpr(g.expr, {
+    thisName: thisName ?? "this",
+    ...(paramExpr ? { paramExpr } : {}),
   });
+  return [
+    `${pad}if (!(${pred})) throw new ForbiddenError(${JSON.stringify(`Forbidden: ${g.source}`)});`,
+  ];
 }
 
 /** The `currentUser` binding line the route uses for a lifecycle gate — the

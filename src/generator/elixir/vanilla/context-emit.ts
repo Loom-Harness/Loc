@@ -34,6 +34,7 @@ import {
   createBodyStatements,
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
+  type RequiresStmtIR,
 } from "../../../ir/util/op-gates.js";
 import { isOrgAncestorsRead } from "../../../ir/util/org-context.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
@@ -82,7 +83,14 @@ import {
 } from "./eventsourced-emit.js";
 import { externImplModule, externPersistForceChanges, isExternOp } from "./extern-emit.js";
 import { collidingFacadeFunctions, renderAggregateFunctions } from "./function-emit.js";
-import { opRowFreeGates, probeRowGates, renderGateCondition, updateSeamGates } from "./gate.js";
+import {
+  destroyRowFreeGates,
+  opRowFreeGates,
+  probeRowGates,
+  renderGateCondition,
+  updateSeamGates,
+  updateSeamRowFreeGates,
+} from "./gate.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { paramGuardClause } from "./op-param-guards.js";
@@ -207,6 +215,33 @@ function lifecycleEnsureClauses(
     const guarded = stmtUsesCurrentUser(g) ? `not is_nil(current_user) and (${pred})` : `(${pred})`;
     return `:ok <- ensure(${guarded}, ${denialTerm(g, undefined, (e) => renderExpr(e, rc))})`;
   });
+}
+
+/** A controller's pre-load gate (`update_<agg>_gate/1`, `delete_<agg>_gate/1`):
+ *  the `requires` gates that read no row, evaluated before the row is loaded
+ *  so a caller one refuses gets 403 whether or not the row exists (the gate
+ *  ladder, `ir/plan/gate-ladder.ts`).  The seam the controller then calls
+ *  evaluates every gate again, so the LiveView doors, which call the seam
+ *  directly, stay gated.  Empty when there is no such gate. */
+function renderPreLoadGateFn(
+  fnName: string,
+  what: string,
+  gates: readonly RequiresStmtIR[],
+  rc: RenderCtx,
+): string {
+  if (gates.length === 0) return "";
+  const clauses = gates.map((g) => {
+    const pred = renderGateCondition(g.expr, (x) => renderExpr(x, rc));
+    const guarded = stmtUsesCurrentUser(g) ? `not is_nil(current_user) and (${pred})` : `(${pred})`;
+    return `:ok <- ensure(${guarded}, ${denialTerm(g, undefined, (e) => renderExpr(e, rc))})`;
+  });
+  return `\n
+  @doc "The ${what}'s \`requires\` gates that read no row — evaluated before the row is loaded."
+  def ${fnName}(${gates.some(stmtUsesCurrentUser) ? "current_user" : "_current_user"}) do
+    with ${clauses.join(",\n         ")} do
+      :ok
+    end
+  end`;
 }
 
 /** The `current_user` parameter a guarded lifecycle function takes.  Underscored
@@ -1072,6 +1107,25 @@ ${
   `Create a ${aggPascal} with NO authorization gate — the in-process entry (workflow step, event dispatch, emitted integration test), which carries no request principal; it validates, runs the canonical \`create\` body over the draft, inserts and dispatches its events.  Request-side callers use \`create_${aggSnake}/2\`.`,
 )}`;
     const deleteClauses = lifecycleEnsureClauses(canonicalDestroy(agg), destroyGateRc);
+    const preGateRc: RenderCtx = {
+      thisName: "record",
+      contextModule: facadeMod,
+      agg: agg as EnrichedAggregateIR,
+    };
+    const updatePreGate = renderPreLoadGateFn(
+      `update_${aggSnake}_gate`,
+      "`update`",
+      updateSeamRowFreeGates(agg.operations.find((o) => o.name === "update")),
+      preGateRc,
+    );
+    const deletePreGate = emitsRestDelete(agg)
+      ? renderPreLoadGateFn(
+          `delete_${aggSnake}_gate`,
+          "canonical `destroy`",
+          destroyRowFreeGates(agg),
+          preGateRc,
+        )
+      : "";
     const deleteDelegate = !emitsRestDelete(agg)
       ? ""
       : deleteClauses.length === 0
@@ -1096,7 +1150,7 @@ ${
       : ""
   }
 ${createDelegate}
-${updateSeam}${deleteDelegate}${changeFacade}${destroyFacade}${opBangFacade}${opGateFacade}${canFacade}${renderRefLabelFacade(appModule, facadeMod, agg, ctx, sys)}
+${updateSeam}${deleteDelegate}${updatePreGate}${deletePreGate}${changeFacade}${destroyFacade}${opBangFacade}${opGateFacade}${canFacade}${renderRefLabelFacade(appModule, facadeMod, agg, ctx, sys)}
 ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privateOpHelpers.length > 0 ? `${privateOpHelpers.join("\n")}\n` : ""}${functionBlock}`;
   });
 

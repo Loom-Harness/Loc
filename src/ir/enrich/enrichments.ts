@@ -95,7 +95,7 @@ import {
 import { applyHandlerReadGates, applyPolicyReadGates } from "./policy-read-gates.js";
 import { applyPolicyScopes } from "./policy-scopes.js";
 import { applyShareGates } from "./share-gates.js";
-import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
+import { wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
 // Loom IR enrichments — pure derivations layered on top of the IR
@@ -1682,7 +1682,6 @@ function enrichAggregate(
     destroys,
     parts,
     associations: associationsForAggregate(resolved),
-    createInput: buildCreateInput(resolved),
     displayDerived: derived.find((d) => d.name === "display"),
     inspectDerived,
   };
