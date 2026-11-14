@@ -13,6 +13,7 @@ import type {
   EntityPartIR,
   EnumIR,
   FindIR,
+  PayloadIR,
   RepositoryIR,
   TypeIR,
   ValueObjectIR,
@@ -29,6 +30,7 @@ import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
 import { maskedPatchParams } from "../../ir/util/op-gates.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
+import { responseWireFor } from "../../ir/util/response-wire.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
@@ -199,11 +201,11 @@ export function exportedResponseTypes(
 ): { vos: ValueObjectIR[]; enums: EnumIR[] } {
   return collectResponseTypes(
     [
-      ...forApiRead(wireFieldsFor(agg))
+      ...responseWireFor(bc?.payloads ?? [], agg)
         .filter((f) => f.source !== "id")
         .map((f) => f.type),
       ...partsChildrenFirst(agg.parts).flatMap((p) =>
-        forApiRead(wireFieldsFor(p))
+        responseWireFor(bc?.payloads ?? [], p)
           .filter((f) => f.source !== "id")
           .map((f) => f.type),
       ),
@@ -248,10 +250,10 @@ const PROV_LINEAGE_INTERFACE: string[] = [
  *  precise type an aggregate's `contains lines: OrderLine[]` field points at.
  *  Nested containments in the part peel to their own `<Part>Response` too, so
  *  the parts must be emitted children-first (`partsChildrenFirst`). */
-function emitPartResponseInterface(part: EntityPartIR): string[] {
+function emitPartResponseInterface(part: EntityPartIR, payloads: readonly PayloadIR[]): string[] {
   return [
     `export interface ${part.name}Response {`,
-    ...forApiRead(wireFieldsFor(part)).map(
+    ...responseWireFor(payloads, part).map(
       (f) => `  ${f.name}: ${f.source === "id" ? "string" : wireTsType(f.type, true)};`,
     ),
     "}",
@@ -369,7 +371,7 @@ export function buildAngularApiModule(
   const allPaged = allFind ? pagedReturn(allFind.returnType) : null;
   const pagedName = `${single}Paged`;
 
-  const fields = forApiRead(wireFieldsFor(agg));
+  const fields = responseWireFor(bc?.payloads ?? [], agg);
   const createFields = createInputFields(agg);
   // Containment parts → a `<Part>Response` interface each, children-first so a
   // nested part is declared before the sibling that references it.  The
@@ -653,7 +655,7 @@ export function buildAngularApiModule(
     ...responseVos.flatMap(emitVoResponseInterface),
     // Containment-part response interfaces (children-first) — the precise types
     // the aggregate's `contains` fields point at.
-    ...parts.flatMap(emitPartResponseInterface),
+    ...parts.flatMap((p) => emitPartResponseInterface(p, bc?.payloads ?? [])),
     `export interface ${responseName} {`,
     ...fields.map(
       (f) => `  ${f.name}: ${f.source === "id" ? "string" : wireTsType(f.type, true)};`,

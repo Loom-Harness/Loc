@@ -82,7 +82,9 @@ describe("entity history — derived find", () => {
     expect(history?.params.map((p) => p.name)).toEqual(["id"]);
     // An unaudited aggregate has no trail to read, so no find is derived.
     expect(repoFor(ctx, "Plain").historyFind).toBeUndefined();
-    expect(aggServesHistory(ctx.aggregates.find((a) => a.name === "Plain")!)).toBe(false);
+    expect(aggServesHistory(ctx.payloads, ctx.aggregates.find((a) => a.name === "Plain")!)).toBe(
+      false,
+    );
   });
 
   it("stays out of `finds` — the ~120 generic find consumers must not see it", async () => {
@@ -105,18 +107,20 @@ describe("entity history — derived find", () => {
 describe("entity history — the diff boundary (security)", () => {
   it("never exposes a `secret` or `internal` field, though the snapshot holds it", async () => {
     const ctx = await contextOf(SRC);
-    const names = historyDiffFields(ctx.aggregates.find((a) => a.name === "Employee")!).map(
-      (f) => f.name,
-    );
+    const names = historyDiffFields(
+      ctx.payloads,
+      ctx.aggregates.find((a) => a.name === "Employee")!,
+    ).map((f) => f.name);
     expect(names).not.toContain("ssn");
     expect(names).not.toContain("scratch");
   });
 
   it("excludes managed stamps and the `version` token — otherwise they ARE the timeline", async () => {
     const ctx = await contextOf(SRC);
-    const names = historyDiffFields(ctx.aggregates.find((a) => a.name === "Employee")!).map(
-      (f) => f.name,
-    );
+    const names = historyDiffFields(
+      ctx.payloads,
+      ctx.aggregates.find((a) => a.name === "Employee")!,
+    ).map((f) => f.name);
     // `after` is captured post-save, so a stamp differs on EVERY entry.
     expect(names).not.toContain("touchedAt");
     // `versioned` increments per command — stamp churn by another name.
@@ -130,8 +134,8 @@ describe("entity history — the diff boundary (security)", () => {
   it("flags the `mask unless` field so its change entry can be dropped per caller", async () => {
     const ctx = await contextOf(SRC);
     const agg = ctx.aggregates.find((a) => a.name === "Employee")!;
-    expect(maskedHistoryFields(agg).map((f) => f.name)).toEqual(["salary"]);
-    expect(maskedHistoryFields(agg)[0].maskUnless).toBeDefined();
+    expect(maskedHistoryFields(ctx.payloads, agg).map((f) => f.name)).toEqual(["salary"]);
+    expect(maskedHistoryFields(ctx.payloads, agg)[0].maskUnless).toBeDefined();
   });
 });
 

@@ -44,7 +44,9 @@ describe("cache model — the redis commands the generated cache module sends", 
   });
 
   it("honours NX / XX and EX, deletes, and refuses commands it does not emulate", () => {
-    const m = new CacheModel();
+    // A fixed clock: `SET … EX` and `PTTL` each read it, and a real one can
+    // tick between the two reads.
+    const m = new CacheModel(() => 1_000);
     expect(runCommand(m, "set", ["a", "1", "XX"])).toBeNull();
     expect(runCommand(m, "set", ["a", "1", "NX"])).toBe("OK");
     expect(runCommand(m, "set", ["a", "2", "NX"])).toBeNull();

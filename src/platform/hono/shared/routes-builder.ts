@@ -104,6 +104,7 @@ import type {
   FindIR,
   InvariantIR,
   OperationIR,
+  PayloadIR,
   RepositoryIR,
   TypeIR,
   ValueObjectIR,
@@ -266,6 +267,7 @@ export function txWrapperCall(usingMikro: boolean): string {
  *  alone leaks masked fields to legitimate readers, and the mask alone leaves
  *  the endpoint open. */
 function emitHistoryRoute(
+  payloads: readonly PayloadIR[],
   agg: EnrichedAggregateIR,
   find: FindIR,
   usingMikro: boolean,
@@ -336,14 +338,14 @@ function emitHistoryRoute(
   // masked field's change entry is dropped.  Bound only when there is a mask;
   // otherwise the mapper takes no principal (and the project need not carry an
   // `auth/user-types` module at all).
-  if (historyNeedsPrincipal(agg)) {
+  if (historyNeedsPrincipal(payloads, agg)) {
     out.push(
       `    const __histUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User | undefined }).get("currentUser") ?? null;`,
     );
   }
   out.push(...historySelectStatement(agg, usingMikro).map((l) => `    ${l}`));
   out.push(
-    `    return c.json(__rows.map((r) => ${historyMapperName(agg)}(${historyMapperArgs(agg)})), 200);`,
+    `    return c.json(__rows.map((r) => ${historyMapperName(agg)}(${historyMapperArgs(payloads, agg)})), 200);`,
   );
   out.push(`  },`);
   out.push(`);`);
@@ -1041,7 +1043,7 @@ export function buildRoutesFile(
   // route handler stays a few lines.  It is where `mask unless` composes into
   // the trail (see `renderHistoryEntryMapper`).
   if (historyFind) {
-    lines.push(renderHistoryEntryMapper(agg));
+    lines.push(renderHistoryEntryMapper(ctx.payloads, agg));
     lines.push("");
   }
 
@@ -1255,9 +1257,13 @@ export function buildRoutesFile(
   // one-segment find can; registered here anyway to keep the reads together.
   if (historyFind) {
     lines.push(
-      ...emitHistoryRoute(agg, historyFind, usingMikro, ctx.structuralErrorStatuses).map(
-        (l) => `  ${l}`,
-      ),
+      ...emitHistoryRoute(
+        ctx.payloads,
+        agg,
+        historyFind,
+        usingMikro,
+        ctx.structuralErrorStatuses,
+      ).map((l) => `  ${l}`),
     );
     lines.push("");
   }

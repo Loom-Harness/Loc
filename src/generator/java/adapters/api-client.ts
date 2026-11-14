@@ -10,7 +10,7 @@
 // Both halves stay derived, so neither can drift from the callee:
 //   - paths from `contextOperations` (what the callee actually mounts, its
 //     abstract bases' polymorphic reads included),
-//   - the response record from `forApiRead(wireFieldsForAggregate(...))` (the
+//   - the response record from the callee's declared response record (the
 //     field list the callee serializes).
 //
 // Two deliberate divergences from the .NET sibling:
@@ -28,7 +28,6 @@
 // ---------------------------------------------------------------------------
 
 import { apiCallPrincipal } from "../../../ir/enrich/hosting-facts.js";
-import { forApiRead, wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import { contextOperations } from "../../../ir/plan/index.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import {
@@ -40,6 +39,7 @@ import {
   absenceUnionSuccess,
   collectionSuccess,
 } from "../../../ir/util/api-surface.js";
+import { responseWireIn } from "../../../ir/util/response-wire.js";
 import { escapeJavaIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { resourceEnvUrlVar } from "../../../util/resource-env.js";
@@ -106,13 +106,13 @@ function pathExpr(op: ApiOperationIR): string {
 }
 
 /** A `record` mirroring the aggregate's read wire shape. */
-function responseRecord(agg: AggregateIR, recordName: string): string[] {
-  return [`    public record ${recordName}(${recordComponents(agg)}) { }`, ""];
+function responseRecord(sys: SystemIR, agg: AggregateIR, recordName: string): string[] {
+  return [`    public record ${recordName}(${recordComponents(sys, agg)}) { }`, ""];
 }
 
 /** The record components of `agg`'s read wire shape. */
-function recordComponents(agg: AggregateIR): string {
-  return forApiRead(wireFieldsForAggregate(agg))
+function recordComponents(sys: SystemIR, agg: AggregateIR): string {
+  return responseWireIn(sys, agg)
     .map((wf) => `${wf.source === "id" ? "String" : boxedJavaType(wf.type)} ${arg(wf.name)}`)
     .join(", ");
 }
@@ -122,7 +122,7 @@ function recordComponents(agg: AggregateIR): string {
  *  concrete's read wire fields.  The `type` tag is the type id Jackson
  *  consumes, so it is no component of any arm.  The annotations stay in
  *  `com.fasterxml.jackson.annotation`, the package Jackson 3 kept. */
-function taggedRowInterface(poly: PolymorphicRow, recordName: string): string[] {
+function taggedRowInterface(sys: SystemIR, poly: PolymorphicRow, recordName: string): string[] {
   const ann = "com.fasterxml.jackson.annotation";
   const arms = poly.variants.map((v) => `${recordName}.${v.aggregate.name}`);
   return [
@@ -136,7 +136,7 @@ function taggedRowInterface(poly: PolymorphicRow, recordName: string): string[] 
     `    public sealed interface ${recordName} permits ${arms.join(", ")} {`,
     ...poly.variants.map(
       (v) =>
-        `        record ${v.aggregate.name}(${recordComponents(v.aggregate)}) implements ${recordName} { }`,
+        `        record ${v.aggregate.name}(${recordComponents(sys, v.aggregate)}) implements ${recordName} { }`,
     ),
     "    }",
     "",
@@ -191,7 +191,9 @@ export function emitJavaApiClients(
         if (agg && recordName && !emittedRecords.has(recordName)) {
           emittedRecords.add(recordName);
           records.push(
-            ...(poly ? taggedRowInterface(poly, recordName) : responseRecord(agg, recordName)),
+            ...(poly
+              ? taggedRowInterface(sys, poly, recordName)
+              : responseRecord(sys, agg, recordName)),
           );
         }
         // The paged envelope mirrors the callee's `<Agg>Paged` field for field.

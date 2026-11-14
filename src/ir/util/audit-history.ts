@@ -11,12 +11,14 @@
 //      emitter already consumes.  One definition, five backends, byte-identical
 //      key sets by construction rather than by five people agreeing.
 //
-//   2. `historyDiffFields(agg)` — WHICH of the aggregate's wire fields the
-//      per-entry diff is computed over.  Derived at read time from the two
-//      snapshots and never stored (a stored diff is a cache with no
-//      invalidation story), minus the stamp churn `forHistoryDiff` excludes.
+//   2. `historyDiffFields(payloads, agg)` — WHICH of the aggregate's wire
+//      fields the per-entry diff is computed over: the rows of its declared
+//      `<Agg>Response` record minus the stamp churn (`managed` / `token`
+//      rows).  Derived at read time from the two snapshots and never stored (a
+//      stored diff is a cache with no invalidation story).  An aggregate with
+//      no declared record has no read contract, hence no history.
 //
-//   3. `maskedHistoryFields(agg)` — the fields whose change entry must be
+//   3. `maskedHistoryFields(payloads, agg)` — the fields whose change entry must be
 //      DROPPED for a caller who fails the field's `mask unless` predicate.
 //
 // (3) is the load-bearing one.  The snapshots are written server-side INSIDE
@@ -38,10 +40,11 @@ import {
   type AuditWireMember,
 } from "../../util/audit-names.js";
 import { partContentMask } from "../enrich/mask-taint.js";
-import { forHistoryDiff, wireFieldsFor } from "../enrich/wire-projection.js";
-import type { AggregateIR, FindIR, TypeIR, WireField } from "../types/loom-ir.js";
+import type { AggregateIR, FindIR, PayloadIR, TypeIR, WireField } from "../types/loom-ir.js";
 import { PLAIN_FIND_FLAGS } from "../types/loom-ir.js";
 import { aggHasAuditedTarget } from "./audit-capability.js";
+import { declaredResponseFor } from "./declared-response.js";
+import { responseWireFor } from "./response-wire.js";
 
 /** Name of the derived per-entity history read — re-exported from `util/` so
  *  the phase-② scaffold macro can name the same read without value-importing
@@ -62,7 +65,7 @@ function memberType(t: AuditWireMember["type"]): TypeIR {
 /** Build a wire field in the canonical history vocabulary.  Everything here is
  *  server-derived and read-only, so the access role is `immutable` — never
  *  `managed`, which would make the entry's own fields self-excluding if this
- *  shape were ever fed back through `forHistoryDiff`. */
+ *  shape were ever fed back through the history-diff filter. */
 function wf(name: string, type: TypeIR, optional = false): WireField {
   return { name, type, optional, source: "property", access: "immutable" };
 }
@@ -96,8 +99,8 @@ export function auditEntryWireShape(): WireField[] {
   return AUDIT_ENTRY_MEMBERS.map((m) => wf(m.name, memberType(m.type), m.optional));
 }
 
-/** The aggregate wire fields an entry's `changes` list may cover — the API-read
- *  set minus stamp churn (`forHistoryDiff`).  A backend derives the diff by
+/** The aggregate wire fields an entry's `changes` list may cover — the rows of
+ *  the declared response record minus stamp churn (`managed` / `token`).  A backend derives the diff by
  *  comparing these keys across the two snapshots; a key absent here is never
  *  looked at, so a `secret` or `internal` field cannot reach the timeline even
  *  though the snapshot holds it.
@@ -106,8 +109,12 @@ export function auditEntryWireShape(): WireField[] {
  *  whole value, so its change entry holds that member in the clear: the entry
  *  carries the conjunction of every mask inside the part (`partContentMask`)
  *  and is dropped for a caller who could not read all of it. */
-export function historyDiffFields(agg: AggregateIR): WireField[] {
-  return forHistoryDiff(wireFieldsFor(agg)).map((wf) => {
+export function historyDiffFields(payloads: readonly PayloadIR[], agg: AggregateIR): WireField[] {
+  if (!declaredResponseFor(payloads, agg)) return [];
+  const rows = responseWireFor(payloads, agg).filter(
+    (f) => f.access !== "managed" && f.access !== "token",
+  );
+  return rows.map((wf) => {
     if (wf.source !== "containment") return wf;
     const part = agg.parts.find((p) => p.name === containedPartName(wf.type));
     const mask = part ? partContentMask(part, agg.parts) : undefined;
@@ -124,14 +131,17 @@ function containedPartName(t: TypeIR): string | undefined {
  *  entry is DROPPED (not redacted) when the caller fails the predicate.  Same
  *  predicate the aggregate's own read surface applies, so history can never
  *  disclose a field the entity read would have hidden. */
-export function maskedHistoryFields(agg: AggregateIR): WireField[] {
-  return historyDiffFields(agg).filter((f) => f.maskUnless !== undefined);
+export function maskedHistoryFields(payloads: readonly PayloadIR[], agg: AggregateIR): WireField[] {
+  return historyDiffFields(payloads, agg).filter((f) => f.maskUnless !== undefined);
 }
 
 /** The diff fields with no mask — always visible to any caller who cleared the
  *  read gate. */
-export function unmaskedHistoryFields(agg: AggregateIR): WireField[] {
-  return historyDiffFields(agg).filter((f) => f.maskUnless === undefined);
+export function unmaskedHistoryFields(
+  payloads: readonly PayloadIR[],
+  agg: AggregateIR,
+): WireField[] {
+  return historyDiffFields(payloads, agg).filter((f) => f.maskUnless === undefined);
 }
 
 /** True when this aggregate serves a history read: it has at least one audited
@@ -139,8 +149,8 @@ export function unmaskedHistoryFields(agg: AggregateIR): WireField[] {
  *  say something).  The second half matters — an aggregate whose every field is
  *  `managed`/`secret` would serve a timeline of empty entries, which reads as
  *  authoritative while carrying no information. */
-export function aggServesHistory(agg: AggregateIR): boolean {
-  return aggHasAuditedTarget(agg) && historyDiffFields(agg).length > 0;
+export function aggServesHistory(payloads: readonly PayloadIR[], agg: AggregateIR): boolean {
+  return aggHasAuditedTarget(agg) && historyDiffFields(payloads, agg).length > 0;
 }
 
 /** The compiler-synthesized `find history(id)` for an audited aggregate.
