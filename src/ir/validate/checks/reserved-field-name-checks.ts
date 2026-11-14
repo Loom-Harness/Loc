@@ -51,8 +51,7 @@ function fieldHolders(ctx: BoundedContextIR): [string, string, FieldIR[]][] {
   }
   for (const v of ctx.valueObjects) out.push(["value object", v.name, v.fields]);
   for (const e of ctx.events) out.push(["event", e.name, e.fields]);
-  // A synthesized `<Agg>Wire` mirrors its aggregate's fields — already reported
-  // on the aggregate itself.
+  // A synthesized generic / union payload has compiler-chosen fields, never an author's.
   for (const p of ctx.payloads) if (!p.synthesized) out.push(["payload", p.name, p.fields]);
   return out;
 }

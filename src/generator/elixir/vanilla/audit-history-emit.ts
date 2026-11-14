@@ -33,6 +33,7 @@ import type {
   BoundedContextIR,
   EnrichedAggregateIR,
   FindIR,
+  PayloadIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import {
@@ -61,8 +62,11 @@ export function vanillaHistoryMapperName(agg: AggregateIR): string {
  *  field to test it against.  Exposed so the LiveView caller emits the matching
  *  arity: an unused parameter is a `--warnings-as-errors` failure, and a
  *  missing one is an UndefinedFunctionError. */
-export function vanillaHistoryMapperTakesPrincipal(agg: AggregateIR): boolean {
-  return maskedHistoryFields(agg as EnrichedAggregateIR).length > 0;
+export function vanillaHistoryMapperTakesPrincipal(
+  payloads: readonly PayloadIR[],
+  agg: AggregateIR,
+): boolean {
+  return maskedHistoryFields(payloads, agg as EnrichedAggregateIR).length > 0;
 }
 
 /** The repository's enrichment-derived history find, when this aggregate serves
@@ -202,8 +206,8 @@ export function renderVanillaHistoryMapper(
    *  gates' explicit principal argument — see `context-emit.ts`'s header. */
   principalSource: "ambient" | "param" = "ambient",
 ): string {
-  const unmasked = unmaskedHistoryFields(agg as EnrichedAggregateIR);
-  const masked = maskedHistoryFields(agg as EnrichedAggregateIR);
+  const unmasked = unmaskedHistoryFields(ctx.payloads, agg as EnrichedAggregateIR);
+  const masked = maskedHistoryFields(ctx.payloads, agg as EnrichedAggregateIR);
   const history = `${appModule}.Audit.History`;
   const takesPrincipal = principalSource === "param" && masked.length > 0;
   const lines: string[] = [
@@ -354,6 +358,6 @@ ${inner
 export function aggregateServesHistoryRoute(ctx: BoundedContextIR, agg: AggregateIR): boolean {
   return (
     vanillaHistoryFind(ctx, agg) !== undefined &&
-    historyDiffFields(agg as EnrichedAggregateIR).length > 0
+    historyDiffFields(ctx.payloads, agg as EnrichedAggregateIR).length > 0
   );
 }

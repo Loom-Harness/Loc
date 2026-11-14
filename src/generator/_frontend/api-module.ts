@@ -1,5 +1,5 @@
 import type { ContractOperation } from "../../ir/contract/frontend-contract.js";
-import { createInputFields, forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -30,6 +30,7 @@ import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
 import { maskedPatchParams } from "../../ir/util/op-gates.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
+import { responseWireFor } from "../../ir/util/response-wire.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
@@ -791,14 +792,10 @@ function emitResponseSchema(
   const lines: string[] = [];
   const name = `${ent.name}Response`;
   lines.push(`export const ${name} = z.object({`);
-  // Single canonical walk — `wireFieldsFor` recomputes the wire shape from the
-  // enriched node's fields (the scaffold-time helper in wire-projection.ts).
-  // Backends + frontend all read the same field list, so Zod schemas line up
-  // field-for-field with what the wire actually carries.  `forApiRead` strips
-  // `internal` and `secret` fields so the response schema matches what the
-  // .NET and Hono backends actually serve.
-  const fields = forApiRead(wireFieldsFor(ent));
-  void ctx;
+  // The rows come from the context's declared `<X>Response` record, the same
+  // field list every backend serves, so Zod schemas line up field-for-field
+  // with what the wire actually carries.
+  const fields = responseWireFor(ctx.payloads, ent);
   void isAgg;
   for (const wf of fields) {
     if (wf.source === "id") {
