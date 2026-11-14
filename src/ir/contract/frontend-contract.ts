@@ -21,8 +21,10 @@
 // its own `JSON.parse(JSON.stringify(…))`.
 
 import type {
+  AggregateIR,
   ApiIR,
   ComponentIR,
+  EnrichedBoundedContextIR,
   EnrichedLoomModel,
   EnrichedSystemIR,
   EnumIR,
@@ -48,6 +50,8 @@ import {
   contractResponsesFor,
 } from "../util/declared-response.js";
 import { exposedContexts } from "../util/exposed-contexts.js";
+import { maskedPatchParams } from "../util/op-gates.js";
+import { aggregateIsVersioned } from "../util/versioned-capability.js";
 import { classifyForWire } from "../validate/invariant-classify.js";
 import { drop, keep, list, type Rule, record } from "./allowlist.js";
 import { componentRule, exprRule, layoutRule, typeRule, uiRule } from "./ui-spec.js";
@@ -102,7 +106,20 @@ export interface ContractValueObject {
   invariants: { expr: ExprIR; guard?: ExprIR; message?: MessageIR }[];
 }
 
-export type ContractOperation = Omit<ApiOperationIR, "find" | "operation">;
+/** One operation the exposed api serves, with the facts a client needs about
+ *  its domain operation decided here rather than re-derived from it. */
+export type ContractOperation = Omit<ApiOperationIR, "find" | "operation"> & OperationFacts;
+
+interface OperationFacts {
+  /** The domain operation's name, on an `operation` / `gateProbe` entry. */
+  opName?: string;
+  /** The client sends the `If-Match` precondition: the backend guards this
+   *  write on the row version. */
+  ifMatch?: true;
+  /** Body params a merge-patch form may leave out: a masked field the caller
+   *  may not read is written only when sent. */
+  optionalParams?: string[];
+}
 
 const field = record<ContractField>("ContractField", {
   name: keep,
@@ -122,7 +139,7 @@ const fieldIR = record<FieldIR>("FieldIR", {
   origin: drop,
 });
 
-const operationRule = record<ApiOperationIR>("ApiOperationIR", {
+const operationRule = record<ApiOperationIR & OperationFacts>("ContractOperation", {
   idTokens: keep,
   id: keep,
   method: keep,
@@ -142,6 +159,9 @@ const operationRule = record<ApiOperationIR>("ApiOperationIR", {
   operation: drop,
   claimedByExplicitRoute: keep,
   polymorphicBase: drop,
+  opName: keep,
+  ifMatch: keep,
+  optionalParams: keep,
 });
 
 const apiRule = record<ApiIR>("ApiIR", {
@@ -215,9 +235,7 @@ export function buildFrontendContract(
         responses.push(as(responseRule, r, `${at}.responses.${r.name}`));
       }
     }
-    for (const op of deriveContextOperations(ctx)) {
-      operations.push(as(operationRule, op, `${at}.operations.${op.id}`));
-    }
+    operations.push(...contractOperations(ctx, at));
   }
   for (const ctx of contexts) {
     for (const p of ctx.payloads) {
@@ -362,4 +380,33 @@ function namedTypes(roots: readonly unknown[]): { valueObjects: string[]; enums:
 /** The contract as the bytes `ddd emit-frontend-contract` writes. */
 export function renderFrontendContract(contract: FrontendContract): string {
   return `${JSON.stringify(contract, null, 2)}\n`;
+}
+
+/** The operations `ctx` serves, as the contract carries them. */
+export function contractOperations(
+  ctx: EnrichedBoundedContextIR,
+  at = `context ${ctx.name}`,
+): ContractOperation[] {
+  return deriveContextOperations(ctx).map((op) => {
+    const agg = ctx.aggregates.find((a) => a.name === op.aggregate);
+    return as<ContractOperation>(
+      operationRule,
+      { ...op, ...operationFacts(op, agg) },
+      `${at}.operations.${op.id}`,
+    );
+  });
+}
+
+/** What a client needs about the domain operation behind `op`. */
+function operationFacts(op: ApiOperationIR, agg: AggregateIR | undefined): OperationFacts {
+  const domain = op.operation;
+  if (!domain) return {};
+  const optional = [...maskedPatchParams(domain)];
+  return {
+    opName: domain.name,
+    ...(domain.name === "update" && agg && aggregateIsVersioned(agg)
+      ? { ifMatch: true as const }
+      : {}),
+    ...(optional.length > 0 ? { optionalParams: optional } : {}),
+  };
 }

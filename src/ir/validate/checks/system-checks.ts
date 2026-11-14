@@ -50,7 +50,6 @@ export {
   validateEventSourcedStorage,
   validateFieldMask,
   validateInheritanceStorage,
-  validatePolymorphicReadRouting,
   validateProvenancedStorage,
 } from "./storage-inheritance-checks.js";
 export {

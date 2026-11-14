@@ -193,6 +193,7 @@
   "test/fixtures/corpus/implicit-find-filter.ddd :: ir-differs": 12,
   "test/fixtures/corpus/inheritance-base-reads.ddd :: ir-differs": 35,
   "test/fixtures/corpus/inheritance-base-reads.ddd :: unknown{unresolved-name}": 2,
+  "test/fixtures/corpus/inheritance-read-gates.ddd :: ir-differs": 27,
   "test/fixtures/corpus/inheritance-read-restrictions.ddd :: ir-differs": 38,
   "test/fixtures/corpus/inheritance.ddd :: ir-differs": 19,
   "test/fixtures/corpus/intrinsics.ddd :: ir-differs": 28,

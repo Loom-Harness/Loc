@@ -143,7 +143,7 @@ export function buildPyEmbeddedRepositoryFile(
     //
     // #2528 fixed exactly this on the TypeScript builders and stopped there —
     // which is why the register recorded F2 as closed while python still had it.
-    ...(aggHasFieldMask(agg) ? [toWireMaskedMethod(agg)] : []),
+    ...(aggHasFieldMask(agg) ? [toWireMaskedMethod(agg, ctx.payloads)] : []),
     // Audit trail (pairwise F7).  The routes call `repo.record_audit(...)` from
     // the create / update / destroy paths and `repo.history(...)` from the
     // history route whenever the aggregate is `audited` — with NO check on

@@ -31,7 +31,6 @@ import {
   type StreamTenancy,
   streamTenancyFor,
 } from "../../../ir/enrich/stream-tenancy.js";
-import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import { eventLogTable, foldedEventNames } from "../../../ir/plan/index.js";
 import {
   PAGED_DEFAULT_PAGE,
@@ -265,10 +264,15 @@ function toAppSnake(appModule: string): string {
   return appModule.replace(/([A-Z])/g, (_, c, i) => (i ? "_" : "") + c.toLowerCase());
 }
 
-/** Field names carried on the in-memory aggregate struct — the canonical
- *  wire shape (id, then declared properties / containments / derived). */
+/** Field names carried on the in-memory aggregate struct: `id`, then the
+ *  declared properties, containments and derived values (never `inspect`). */
 function structFields(agg: AggregateIR): string[] {
-  return wireFieldsForAggregate(agg).map((f) => snake(f.name));
+  return [
+    "id",
+    ...agg.fields.map((f) => f.name),
+    ...agg.contains.map((c) => c.name),
+    ...agg.derived.filter((d) => d.name !== "inspect").map((d) => d.name),
+  ].map((n) => snake(n));
 }
 
 // --- `<Agg>` plain struct ---------------------------------------------------

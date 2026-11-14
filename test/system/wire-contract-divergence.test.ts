@@ -32,6 +32,7 @@ import {
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { BoundedContextIR, ExprIR, TypeIR } from "../../src/ir/types/loom-ir.js";
 import { declaredResponseFor } from "../../src/ir/util/declared-response.js";
+import { responseWireFor } from "../../src/ir/util/response-wire.js";
 import { dddSourceOf, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 import { parseString } from "../_helpers/parse.js";
 
@@ -130,6 +131,16 @@ function corpusFixtures(): { name: string; source: string }[] {
     .map((f) => ({ name: f.slice("test/fixtures/corpus/".length), source: dddSourceOf(f) }));
 }
 
+/** Every node whose record-sourced rows differ from the derived rows. */
+const rowMismatch: string[] = [];
+function rowsDiffer(at: string, derived: unknown, fromRecord: unknown): void {
+  if (JSON.stringify(derived) !== JSON.stringify(fromRecord)) {
+    rowMismatch.push(
+      `${at}\n  derived: ${JSON.stringify(derived)}\n  record:  ${JSON.stringify(fromRecord)}`,
+    );
+  }
+}
+
 async function census(): Promise<{
   found: Record<string, Divergence>;
   nodes: number;
@@ -155,6 +166,11 @@ async function census(): Promise<{
         if (!rec) uncontracted.push(`${name} ${ctx.name}.${agg.name}`);
         if (rec) {
           nodes++;
+          rowsDiffer(
+            `${name} ${ctx.name}.${agg.name}`,
+            forApiRead(wireFieldsForAggregate(agg)),
+            responseWireFor(ctx.payloads, agg),
+          );
           // The record omits the grammar-reserved `id` row; re-prepend it so the
           // comparison is of the fields the record actually chose to carry.
           const d = classify(derived, [derived[0], ...rec.fields.map(key)]);
@@ -167,6 +183,11 @@ async function census(): Promise<{
             continue;
           }
           nodes++;
+          rowsDiffer(
+            `${name} ${ctx.name}.${agg.name}.${part.name}`,
+            forApiRead(wireFieldsForPart(part)),
+            responseWireFor(ctx.payloads, part),
+          );
           const pd = forApiRead(wireFieldsForPart(part)).map(key);
           const d = classify(pd, [pd[0], ...prec.fields.map(key)]);
           if (d) found[`${name} ${ctx.name}.${agg.name}.${part.name}`] = d;
@@ -191,6 +212,7 @@ describe("wire shape vs. the declared response contract (M-T5.40 census)", () =>
     // node the scaffold never contracts is one the comparison cannot see.
     expect(nodes).toBeGreaterThanOrEqual(120);
     expect(uncontracted.sort()).toEqual(UNCONTRACTED);
+    expect(rowMismatch.slice(0, 5)).toEqual([]);
 
     const fixed = Object.keys(BASELINE).filter((k) => !(k in found));
     expect(

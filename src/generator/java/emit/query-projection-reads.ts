@@ -1,4 +1,3 @@
-import { forApiRead, wireFieldsFor } from "../../../ir/enrich/wire-projection.js";
 import { type ProjectionQueryParam, projectionQueryParams } from "../../../ir/plan/index.js";
 import type {
   AggregateIR,
@@ -6,6 +5,7 @@ import type {
   EnrichedBoundedContextIR,
   ExprIR,
   ParamIR,
+  PayloadIR,
   ProjectionAggregateIR,
   ProjectionIR,
   TypeIR,
@@ -22,6 +22,7 @@ import {
 } from "../../../ir/util/projection-aggregate.js";
 import { aggregateArgColumn, sqlColumnName } from "../../../ir/util/projection-column.js";
 import { projectionSourceContext } from "../../../ir/util/projection-source.js";
+import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
@@ -770,14 +771,14 @@ export function renderJavaQueryProjections(
       // fields / no `select`): the row shape is enriched to the source
       // aggregate's full wire shape, so project each domain row `a` exactly like
       // the aggregate's own `<Agg>Response.from(a)` — reusing the aggregate's
-      // domain→wire arg builder (`forApiRead(wireFieldsFor)` order + provenance
+      // domain→wire arg builder (`responseWireFor` order + provenance
       // trailers) instead of the per-select map, which would emit `null` for
       // every field.
       const isShorthand = (proj.query!.selects?.length ?? 0) === 0;
       const sourceAgg = srcAgg;
       const args =
         isShorthand && sourceAgg
-          ? aggregateWireArgs(sourceAgg, "a")
+          ? aggregateWireArgs(home.payloads, sourceAgg, "a")
           : shape.map((f) => {
               const sel = selectByField.get(f.name);
               if (!sel) return `null`;
@@ -1137,14 +1138,18 @@ function effOptional(t: TypeIR, optional: boolean): TypeIR {
 
 /** Positional `new <Proj>Row(...)` args for a SHORTHAND projection sourced from
  *  `agg` — the exact domain→wire projection the aggregate's own `<Agg>Response`
- *  DTO uses (`dto.ts`'s non-declared `wireRecord` path): `forApiRead`-filtered
- *  wire fields in wireShape order (`domainToWire` over each field, the id row
+ *  DTO uses (`dto.ts`'s non-declared `wireRecord` path): the declared
+ *  record's wire rows in record order (`domainToWire` over each field, the id row
  *  carrying its bare value type) plus one trailing `<field>Provenance` arg per
  *  provenanced field.  `<Proj>Row`'s components ≡ these wire fields (same
  *  names/order/types), so the row is populated, not `null`-filled. */
-function aggregateWireArgs(agg: EnrichedAggregateIR, domainVar: string): string[] {
+function aggregateWireArgs(
+  payloads: readonly PayloadIR[],
+  agg: EnrichedAggregateIR,
+  domainVar: string,
+): string[] {
   const args: string[] = [];
-  for (const w of forApiRead(wireFieldsFor(agg))) {
+  for (const w of responseWireFor(payloads, agg)) {
     const t = w.source === "id" ? w.type : effOptional(w.type, w.optional);
     args.push(domainToWire(t, `${domainVar}.${jid(w.name)}()`));
   }

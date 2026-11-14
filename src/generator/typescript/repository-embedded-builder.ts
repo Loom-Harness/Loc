@@ -314,7 +314,7 @@ export function buildEmbeddedRepositoryFile(
     // `mask unless` response redaction — the routes call
     // `repo.toWireMasked(row, __maskUser)` for every masked aggregate whatever
     // its saving shape (pairwise F2).
-    ...(aggHasFieldMask(agg) ? [toWireMaskedMethod(agg), ""] : []),
+    ...(aggHasFieldMask(agg) ? [toWireMaskedMethod(agg, ctx.payloads), ""] : []),
     `}`,
     "",
     // Containment (de)serialisers — parts only; the root uses columns.
