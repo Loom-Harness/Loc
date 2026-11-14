@@ -12,7 +12,6 @@ import {
   type UiIR,
   uiUsesMoney,
 } from "../../ir/types/loom-ir.js";
-import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
@@ -25,6 +24,7 @@ import { humanize, lowerFirst, snake } from "../../util/naming.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_SESSION_TS, authGateTsx } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
+import { requireFrontendContract } from "../_frontend/contract.js";
 import {
   renderI18nModule,
   renderLocaleCatalog,
@@ -146,6 +146,7 @@ export function generateReactForContexts(
   const out = emissionSink("generator/react/index");
 
   const host = buildFrontendHost(sys, deployable);
+  const contract = requireFrontendContract(options.frontendContract, host.deployable);
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   // Standalone react fetches the API same-origin via the relative
   // `/api` base; `vite dev` proxies it to the target backend (below),
@@ -215,7 +216,10 @@ export function generateReactForContexts(
     const repo = ctx.repositories.find((r) => r.aggregateName === agg.name);
     out.set(
       `src/api/${lowerFirst(agg.name)}.ts`,
-      buildApiModule(agg, repo, ctx, { pagedFindRoutes: findRoutes }),
+      buildApiModule(agg, repo, ctx, {
+        pagedFindRoutes: findRoutes,
+        operations: contract.wire.operations,
+      }),
     );
   }
 
@@ -335,7 +339,9 @@ export function generateReactForContexts(
   // `api.delete` helper only when some served aggregate has a canonical
   // destroy (declared or via `crudish`) — keeps the shared client
   // byte-identical for projects without any hard-delete.
-  const hasDelete = aggregates.some((a) => !!canonicalDestroy(a.agg));
+  const hasDelete = aggregates.some(({ agg }) =>
+    contract.wire.operations.some((o) => o.aggregate === agg.name && o.kind === "destroy"),
+  );
   // `authUi` computed above (before page emission, which consumes it for the
   // `page { requires … }` gate).  Drives the session client + route guard emits.
   out.set(
@@ -521,9 +527,7 @@ export function generateReactForContexts(
   // The aggregates whose api serves a create, read off the contract's
   // operations.
   const creatable = new Set(
-    contractOf(options, host)
-      .wire.operations.filter((o) => o.kind === "create")
-      .map((o) => o.aggregate),
+    contract.wire.operations.filter((o) => o.kind === "create").map((o) => o.aggregate),
   );
   out.set(
     "src/App.tsx",
@@ -745,15 +749,3 @@ function staticTitleOf(page: PageIR | undefined): string | undefined {
 
 // smokeSpec moved to src/generator/_frontend/smoke-spec.ts (shared
 // with the Svelte + Vue frontends — it drives routes, not framework code).
-
-/** The Frontend Contract this generation reads.  Every caller — the system
- *  orchestrator through `emitProject`, and a backend embedding the bundle —
- *  passes it; a generation without one is a wiring defect. */
-function contractOf(options: GenerateReactOptions, host: FrontendHost): FrontendContract {
-  if (!options.frontendContract) {
-    throw new Error(
-      `React deployable '${host.deployable}' was generated without the system's Frontend Contract; the caller must pass \`frontendContract\`.`,
-    );
-  }
-  return options.frontendContract;
-}

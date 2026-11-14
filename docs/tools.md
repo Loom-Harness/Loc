@@ -1037,6 +1037,10 @@ docker pull mirror.gcr.io/hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-2026
 `scripts/sandbox-bootstrap.sh` retries a failed pull, then falls back to
 `mirror.gcr.io` for Docker Hub images.
 
+CI pulls the same way: every workflow `services:` image is a `mirror.gcr.io`
+reference, and `test/system/workflow-service-images.test.ts` refuses a direct
+Docker Hub one.
+
 **Maven Central `429` inside `gradle:9-jdk25`** (`Could not GET
 'https://repo.maven.apache.org/maven2/…'. Received status code 429`).  The
 429 is intermittent.  Resolve through Google's Maven Central mirror with the

@@ -1058,6 +1058,68 @@ export const AUTHZ_LADDERS = {
     anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
   },
 
+  /** The polymorphic base reads under each concrete's read gate
+   *  (inheritance-read-gates.ddd): one gated concrete in each hierarchy makes
+   *  the whole base read 403 for a caller who fails its gate, on the list and
+   *  the TPH by-id read, and 200 for one who passes. */
+  "inheritance-read-gates": {
+    seed: { path: "/api/cars", body: { plate: "LADDER-C", seats: 2 } },
+    gated: [
+      { label: "TPH base — the polymorphic list read", method: "GET", path: "/api/vehicles" },
+      { label: "TPH base — the polymorphic by-id read", method: "GET", path: "/api/vehicles/{id}" },
+      {
+        label: "TPC base — the polymorphic list read",
+        seed: { path: "/api/dispatchers", body: { name: "LADDER-D", desk: 1 } },
+        method: "GET",
+        path: "/api/crews",
+      },
+      // The gated concretes' own reads — the 403 the base read mirrors.
+      { label: "TPH concrete — the gated list read", method: "GET", path: "/api/cars" },
+      { label: "TPH concrete — the gated by-id read", method: "GET", path: "/api/cars/{id}" },
+      {
+        label: "TPC concrete — the gated list read",
+        seed: { path: "/api/dispatchers", body: { name: "LADDER-D2", desk: 2 } },
+        method: "GET",
+        path: "/api/dispatchers",
+      },
+      {
+        label: "TPC concrete — the gated by-id read",
+        seed: { path: "/api/dispatchers", body: { name: "LADDER-D3", desk: 3 } },
+        method: "GET",
+        path: "/api/dispatchers/{id}",
+      },
+      // The masked concretes' write gate (docs/auth.md): neither harness
+      // principal is an auditor, so a new masked value is refused for both;
+      // the control is the same update without it going through.
+      {
+        label: "TPH concrete — a new value for a masked field is refused",
+        seed: { path: "/api/trucks", body: { plate: "LADDER-T", payloadKg: 1, vin: "V-L" } },
+        method: "POST",
+        path: "/api/trucks/{id}/update",
+        body: { vin: "V-2" },
+        arms: { anonymous: null, unauthorized: 403, authorized: 403 },
+      },
+      {
+        label: "TPH concrete — the same update without the masked field goes through",
+        seed: { path: "/api/trucks", body: { plate: "LADDER-T2", payloadKg: 1, vin: "V-L2" } },
+        method: "POST",
+        path: "/api/trucks/{id}/update",
+        body: { payloadKg: 2 },
+        arms: { anonymous: null, unauthorized: 204, authorized: 204 },
+      },
+      {
+        label: "TPC concrete — a new value for a masked field is refused",
+        seed: { path: "/api/drivers", body: { name: "LADDER-DR", licence: "L-L" } },
+        method: "POST",
+        path: "/api/drivers/{id}/update",
+        body: { licence: "L-2" },
+        arms: { anonymous: null, unauthorized: 403, authorized: 403 },
+      },
+    ],
+    arms: { anonymous: null, unauthorized: 403, authorized: 200 },
+    anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
+  },
+
   /** The TENANT half of `find … ignoring` on both persistence shapes: `acme`
    *  seeds a row and tenant `globex` reads it back.  Every clause-less read
    *  hides it (404 by id and by find; ABSENT from the 2xx collection), and the
