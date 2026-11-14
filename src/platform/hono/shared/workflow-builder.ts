@@ -229,6 +229,10 @@ export function buildWorkflowsFile(
    *  resolves it because a merged multi-context deployable's `ctx` is not the
    *  workflow's owning context.  Absent → the workflow's own level only. */
   resolveIsolation: (wf: WorkflowIR) => IsolationLevel | undefined = (wf) => wf.isolation,
+  /** The deployable's consumers run the redelivery dedupe
+   *  (`channelPlan(...).receivesDurable`): it hosts a durable channel or
+   *  consumes a durable foreign one.  Absent → this context hosts one. */
+  receivesDurable: boolean = hasDurableEvents(ctx),
 ): string {
   if (ctx.workflows.length === 0) return buildProducerOutboxFile(ctx, usingMikro, carriesOrigin);
   // Build the body first; imports are derived from what the body actually
@@ -433,6 +437,7 @@ export function buildWorkflowsFile(
         opFragments,
         usingMikro,
         resolveIsolation,
+        receivesDurable,
       ).map((l) => `  ${l}`),
     );
     body.push("");
@@ -608,6 +613,7 @@ export function buildWorkflowsFile(
         resolveStreamContext,
         usingMikro,
         carriesOrigin,
+        receivesDurable,
       ),
     );
   } else if (hasDurableEvents(ctx)) {
@@ -983,6 +989,7 @@ function emitWorkflowRoute(
    *  Drizzle builds stay byte-identical. */
   usingMikro = false,
   resolveIsolation: (wf: WorkflowIR) => IsolationLevel | undefined = (wf) => wf.isolation,
+  receivesDurable: boolean = hasDurableEvents(ctx),
 ): string[] {
   const out: string[] = [];
   out.push(`app.openapi(`);
@@ -1219,7 +1226,7 @@ function emitWorkflowRoute(
             ctx,
             {
               keyExpr: corrParam.name,
-              mikroDurable: usingMikro && hasDurableEvents(ctx),
+              mikroDurable: usingMikro && receivesDurable,
             },
           )};`,
         ]
@@ -1705,6 +1712,7 @@ function emitSubscriptionHandlers(
   /** Durable events carry their event origin through the outbox (ruling D1)
    *  — see `buildWorkflowsFile`. */
   carriesOrigin = false,
+  receivesDurable: boolean = hasDurableEvents(ctx),
 ): string[] {
   const subs = ctx.eventSubscriptions;
   const out: string[] = [];
@@ -1767,7 +1775,7 @@ function emitSubscriptionHandlers(
             statements,
             saves,
             ctx,
-            hasDurableEvents(ctx),
+            receivesDurable,
             opFragments,
             usingMikro,
           )),

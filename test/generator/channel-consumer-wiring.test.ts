@@ -108,3 +108,17 @@ describe("elixir: a broker-wired deployable keeps the outbox for its unbound dur
     expect(file(out, "d/lib/d/outbox_relay.ex")).toContain('@types ["OrderPlaced"]');
   });
 });
+
+describe("node: a consumer of a foreign durable channel dedupes its folds", () => {
+  // `shipApi` hosts no durable channel; it folds an event the wired durable
+  // `Lifecycle` channel carries, which a broker may redeliver.  The fold claims
+  // the inbox, and with no outbox relay on the deployable boot runs the
+  // inbox's retention purge itself.  The saga half is behavioural
+  // (channels-e2e-rabbit "applies a redelivered envelope … once"); this half
+  // needs the broker between two booted services (#5613).
+  it("claims the fold inbox and boots the inbox purge", async () => {
+    const out = await files("channels-broker-projection", "node");
+    expect(file(out, "ship_api/http/projections.ts")).toContain("__loom_fold_inbox");
+    expect(file(out, "ship_api/boot.ts")).toContain("startFoldInboxPurge(db)");
+  });
+});
