@@ -20,6 +20,7 @@
 // the result was copied on purpose, so the result is JSON-exact — it equals
 // its own `JSON.parse(JSON.stringify(…))`.
 
+import { pagedReturn, pagedSortDefault } from "../stdlib/generics.js";
 import type {
   AggregateIR,
   ApiIR,
@@ -51,6 +52,7 @@ import {
 } from "../util/declared-response.js";
 import { exposedContexts } from "../util/exposed-contexts.js";
 import { maskedPatchParams } from "../util/op-gates.js";
+import { pagedFindRoutes } from "../util/paged-find-routes.js";
 import { aggregateIsVersioned } from "../util/versioned-capability.js";
 import { classifyForWire } from "../validate/invariant-classify.js";
 import { drop, keep, list, type Rule, record } from "./allowlist.js";
@@ -73,6 +75,11 @@ export interface FrontendContract {
   wire: {
     apis: ApiIR[];
     operations: ContractOperation[];
+    /** Every aggregate the exposed contexts serve, with the read surface beside
+     *  its operations. */
+    aggregates: ContractAggregate[];
+    /** Every repository find of an exposed aggregate a client may call. */
+    finds: ContractFind[];
     responses: ContractResponse[];
     /** Declared `command` / `query` / `error` / `payload` records, plus any
      *  `response` record no aggregate claims, and the paged / union carriers. */
@@ -82,6 +89,34 @@ export interface FrontendContract {
     valueObjects: ContractValueObject[];
     enums: { name: string; values: string[] }[];
   };
+}
+
+export interface ContractAggregate {
+  name: string;
+  /** The bounded context that owns it. */
+  context: string;
+  /** The aggregate serves its entity-history trail (`GET /<tag>/{id}/history`). */
+  history?: true;
+}
+
+/** A repository find, as a client calls it.  The auto-`all` is always served;
+ *  every other find is synthesized and reachable only through an explicit api
+ *  route, so it carries the routes that serve it — a client keeps the first one
+ *  on an api its target backend serves. */
+export interface ContractFind {
+  aggregate: string;
+  name: string;
+  params: ContractParam[];
+  returnType: TypeIR;
+  /** A paged find's `sort` default: empty when the find declares its own
+   *  order, else `id`. */
+  sortDefault?: string;
+  routes?: { api: string; path: string }[];
+}
+
+export interface ContractParam {
+  name: string;
+  type: TypeIR;
 }
 
 export interface ContractField {
@@ -164,6 +199,23 @@ const operationRule = record<ApiOperationIR & OperationFacts>("ContractOperation
   optionalParams: keep,
 });
 
+const aggregateRule = record<ContractAggregate>("ContractAggregate", {
+  name: keep,
+  context: keep,
+  history: keep,
+});
+
+const findRule = record<ContractFind>("ContractFind", {
+  aggregate: keep,
+  name: keep,
+  params: list(record<ContractParam>("ContractParam", { name: keep, type: typeRule })),
+  returnType: typeRule,
+  sortDefault: keep,
+  routes: list(
+    record<{ api: string; path: string }>("ContractFindRoute", { api: keep, path: keep }),
+  ),
+});
+
 const apiRule = record<ApiIR>("ApiIR", {
   name: keep,
   sourceModule: keep,
@@ -225,6 +277,12 @@ export function buildFrontendContract(
   const responses: ContractResponse[] = [];
   const claimed = new Set<string>();
   const operations: ContractOperation[] = [];
+  const aggregates: ContractAggregate[] = [];
+  const finds: ContractFind[] = [];
+  const findRoutesByApi = sys.apis.map((api) => ({
+    api: api.name,
+    routes: pagedFindRoutes(sys, { serves: [api.name] }),
+  }));
   const records: ContractRecord[] = [];
   const recordNames = new Set<string>();
   for (const ctx of contexts) {
@@ -236,6 +294,41 @@ export function buildFrontendContract(
       }
     }
     operations.push(...contractOperations(ctx, at));
+    for (const agg of ctx.aggregates) {
+      const repo = ctx.repositories.find((r) => r.aggregateName === agg.name);
+      aggregates.push(
+        as(
+          aggregateRule,
+          {
+            name: agg.name,
+            context: ctx.name,
+            ...(repo?.historyFind ? { history: true as const } : {}),
+          },
+          `${at}.aggregates.${agg.name}`,
+        ),
+      );
+      for (const find of repo?.finds ?? []) {
+        const routes = findRoutesByApi.flatMap(({ api, routes: byAgg }) => {
+          const route = byAgg.get(agg.name)?.get(find.name);
+          return route ? [{ api, path: route.path }] : [];
+        });
+        if (find.name !== "all" && routes.length === 0) continue;
+        finds.push(
+          as(
+            findRule,
+            {
+              aggregate: agg.name,
+              name: find.name,
+              params: find.params.map((p) => ({ name: p.name, type: p.type })),
+              returnType: find.returnType,
+              ...(pagedReturn(find.returnType) ? { sortDefault: pagedSortDefault(find) } : {}),
+              ...(routes.length > 0 ? { routes } : {}),
+            },
+            `${at}.finds.${agg.name}.${find.name}`,
+          ),
+        );
+      }
+    }
   }
   for (const ctx of contexts) {
     for (const p of ctx.payloads) {
@@ -279,6 +372,8 @@ export function buildFrontendContract(
     wire: {
       apis: sys.apis.map((a) => as<ApiIR>(apiRule, a, `${at}.api ${a.name}`)),
       operations,
+      aggregates,
+      finds,
       responses,
       records,
       events,
