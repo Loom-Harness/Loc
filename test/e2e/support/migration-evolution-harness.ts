@@ -50,6 +50,8 @@ export function readFixture(
     | "evolved"
     | "vo-collection-base"
     | "vo-collection-evolved"
+    | "childless-tph-base"
+    | "childless-tph-evolved"
     | "field-default-base"
     | "field-default-evolved"
     | "guid-backfill-evolved"
@@ -841,6 +843,114 @@ export async function runValueCollectionEvolutionGate(): Promise<void> {
       fs.rmSync(tree, { recursive: true, force: true });
     } catch {
       /* best-effort */
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Childless-TPH evolution gate.
+//
+// A `sharedTable` base with no shared-table subtype owns an ordinary table
+// with no `kind` discriminator.  Adding the first subtype migrates it to the
+// discriminated layout, and dropping the last subtype migrates it back.  One
+// tree, one database, three generations (fixtures: childless-tph-{base,
+// evolved}.ddd):
+//
+//   v1 — childless: the Initial creates `assets` with no `kind`.
+//   v2 — `Lathe` arrives: `kind TEXT NOT NULL` + `spindles` are added with NO
+//        flag (the childless table has no write path, so it is empty), and the
+//        migrated schema equals a fresh create of v2.  A Lathe row inserts.
+//   v3 — `Lathe` is gone again: refused without `--allow-destructive` (its
+//        rows lose their subtype), applied with it, and the migrated schema
+//        equals a fresh create of v1.
+//
+// Deliberately does NOT boot the backend — the claim is about the emitted DDL
+// chain, so psql alone is a complete proof.
+// ---------------------------------------------------------------------------
+export async function runChildlessTphEvolutionGate(): Promise<void> {
+  const v1 = readFixture("childless-tph-base");
+  const v2 = readFixture("childless-tph-evolved");
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-childless-tph-"));
+  const freshTrees: string[] = [];
+  let server: PgServer | undefined;
+  const sqlFiles = (dir: string): string[] =>
+    fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith(".sql"))
+      .sort();
+  const migDirOf = (t: string): string => path.join(t, "d", "db", "migrations");
+  // Fingerprint of a fresh create of `source`, loaded into its own database.
+  const freshFingerprint = (pg: PgServer, source: string, db: string): string => {
+    const fresh = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-childless-tph-fresh-"));
+    freshTrees.push(fresh);
+    generate(source, "node", fresh);
+    resetDatabase(pg, db);
+    for (const f of sqlFiles(migDirOf(fresh))) {
+      psql(pg, db, fs.readFileSync(path.join(migDirOf(fresh), f), "utf8"));
+    }
+    return fingerprintSchema(pg, db);
+  };
+  const assetColumns = (pg: PgServer): string =>
+    psql(
+      pg,
+      "childlesstph",
+      `SELECT string_agg(column_name, ',' ORDER BY column_name) FROM information_schema.columns ` +
+        `WHERE table_schema = 'shop' AND table_name = 'assets'`,
+    );
+  try {
+    const pg = await startPgServer();
+    server = pg;
+    resetDatabase(pg, "childlesstph");
+    const migDir = migDirOf(tree);
+    const applyNew = (applied: Set<string>): string[] => {
+      const fresh = sqlFiles(migDir).filter((f) => !applied.has(f));
+      for (const f of fresh) {
+        psql(pg, "childlesstph", fs.readFileSync(path.join(migDir, f), "utf8"));
+        applied.add(f);
+      }
+      return fresh;
+    };
+    const applied = new Set<string>();
+
+    // v1 — the childless base's table carries no discriminator.
+    generate(v1, "node", tree);
+    applyNew(applied);
+    expect(assetColumns(pg)).toBe("id,label,row_version");
+
+    // v2 — the first subtype: recorded with no flag, adds `kind` + `spindles`.
+    generate(v2, "node", tree);
+    const v2Deltas = applyNew(applied);
+    expect(v2Deltas).toHaveLength(1);
+    expect(assetColumns(pg)).toBe("id,kind,label,row_version,spindles");
+    psql(
+      pg,
+      "childlesstph",
+      `INSERT INTO "shop"."assets" ("id", "kind", "label", "spindles") ` +
+        `VALUES ('11111111-1111-1111-1111-111111111111', 'Lathe', 'L-1', 4)`,
+    );
+    assertSchemaEquivalent(
+      fingerprintSchema(pg, "childlesstph"),
+      freshFingerprint(pg, v2, "childlesstph_fresh2"),
+    );
+
+    // v3 — the last subtype goes: its rows lose their subtype, so the drop is
+    // destructive and needs the flag.
+    expect(() => generate(v1, "node", tree)).toThrow(/destructive/);
+    generate(v1, "node", tree, { allowDestructive: true });
+    expect(applyNew(applied)).toHaveLength(1);
+    expect(assetColumns(pg)).toBe("id,label,row_version");
+    assertSchemaEquivalent(
+      fingerprintSchema(pg, "childlesstph"),
+      freshFingerprint(pg, v1, "childlesstph_fresh1"),
+    );
+  } finally {
+    server?.stop();
+    for (const dir of [tree, ...freshTrees]) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
     }
   }
 }

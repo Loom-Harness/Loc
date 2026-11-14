@@ -111,33 +111,89 @@
       "method": "GET",
       "path": "/api/trucks",
       "status": 200,
-      "body": [
-        {
-          "capacity": 2,
-          "id": "<volatile:key>",
-          "name": "Hauler",
-          "payloadKg": 7000,
-          "rowVersion": 2
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "capacity": 2,
+            "id": "<volatile:key>",
+            "name": "Hauler",
+            "payloadKg": 7000,
+            "rowVersion": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 11,
       "method": "GET",
       "path": "/api/cars",
       "status": 200,
-      "body": [
-        {
-          "capacity": 5,
-          "doors": 3,
-          "id": "<volatile:key>",
-          "name": "Sedan",
-          "rowVersion": 3
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "capacity": 5,
+            "doors": 3,
+            "id": "<volatile:key>",
+            "name": "Sedan",
+            "rowVersion": 3
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 12,
+      "method": "GET",
+      "path": "/api/vehicles",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "capacity": 5,
+            "doors": 3,
+            "id": "<volatile:key>",
+            "name": "Sedan",
+            "rowVersion": 3,
+            "type": "Car"
+          },
+          {
+            "capacity": 2,
+            "id": "<volatile:key>",
+            "name": "Hauler",
+            "payloadKg": 7000,
+            "rowVersion": 2,
+            "type": "Truck"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/vehicles/{id}",
+      "status": 200,
+      "body": {
+        "capacity": 2,
+        "id": "<volatile:key>",
+        "name": "Hauler",
+        "payloadKg": 7000,
+        "rowVersion": 2,
+        "type": "Truck"
+      }
+    },
+    {
+      "seq": 14,
       "method": "POST",
       "path": "/api/cars",
       "status": 201,
@@ -146,14 +202,14 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 15,
       "method": "DELETE",
       "path": "/api/cars/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 14,
+      "seq": 16,
       "method": "GET",
       "path": "/api/cars/{id}",
       "status": 404,
@@ -170,29 +226,35 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 17,
       "method": "GET",
       "path": "/api/cars",
       "status": 200,
-      "body": [
-        {
-          "capacity": 5,
-          "doors": 3,
-          "id": "<volatile:key>",
-          "name": "Sedan",
-          "rowVersion": 3
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "capacity": 5,
+            "doors": 3,
+            "id": "<volatile:key>",
+            "name": "Sedan",
+            "rowVersion": 3
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
-      "seq": 16,
+      "seq": 18,
       "method": "DELETE",
       "path": "/api/trucks/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 17,
+      "seq": 19,
       "method": "GET",
       "path": "/api/trucks/{id}",
       "status": 404,
@@ -209,29 +271,41 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 20,
       "method": "GET",
       "path": "/api/trucks",
       "status": 200,
-      "body": []
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
     },
     {
-      "seq": 19,
+      "seq": 21,
       "method": "GET",
       "path": "/api/cars",
       "status": 200,
-      "body": [
-        {
-          "capacity": 5,
-          "doors": 3,
-          "id": "<volatile:key>",
-          "name": "Sedan",
-          "rowVersion": 3
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "capacity": 5,
+            "doors": 3,
+            "id": "<volatile:key>",
+            "name": "Sedan",
+            "rowVersion": 3
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
-      "seq": 20,
+      "seq": 22,
       "method": "PATCH",
       "path": "/api/cars",
       "status": 405,
@@ -245,7 +319,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 23,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -259,7 +333,7 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 24,
       "method": "POST",
       "path": "/api/cars",
       "status": 400,
@@ -273,7 +347,7 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 25,
       "method": "POST",
       "path": "/api/cars/{id}/update",
       "status": 404,

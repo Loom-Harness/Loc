@@ -55,7 +55,13 @@ import {
   hostedContextIdTypeSources,
   userClaimIdTypeSources,
 } from "../../ir/util/foreign-ids.js";
-import { isTpcBase, isTphBase, isTphConcrete, tableOwnerName } from "../../ir/util/inheritance.js";
+import {
+  isDiscriminatedTphBase,
+  isTpcBase,
+  isTphBase,
+  isTphConcrete,
+  tableOwnerName,
+} from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import { orgContextPlan } from "../../ir/util/org-context.js";
 import {
@@ -1755,6 +1761,7 @@ function emitAggregate(
       "entity",
       renderJavaAbstractBaseEntity(agg, basePkg, pkgFor("entity", agg.name), {
         tph,
+        discriminated: isDiscriminatedTphBase(agg, ctx.aggregates),
         persistence: {
           tableName: aggregateTableName(agg, ctx.aggregates),
           schema,

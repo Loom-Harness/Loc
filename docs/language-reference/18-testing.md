@@ -279,7 +279,7 @@ A claim names a field of the system's `user { … }` block (`loom.test-principal
 
 A request body carries **wire** values, so each literal must be the JSON form of the field's declared type, or `loom.e2e-body-type-mismatch` refuses it: an enum member as its string (`"Placed"`), a `datetime` as an ISO-8601 string, and a `money` as its fixed-scale string, `"2.50"` or `money("2.50")`. A bare number for a `money` field is refused, because every backend's money ingress takes the string form only. A `decimal` takes a JSON number.
 
-The verb vocabulary per aggregate is `create`, `getById`, `all` (the paged list), every **public** operation, every repository `find`, `update` / `destroy` when declared, plus `api.<projection>.byKey(…)` / `.list()`, a workflow's own `api.<workflow>.run(…)` / `.instances()` / `.instance(key)`, and an explicit route's `api.<context>.<handler>(…)` (both below).
+The verb vocabulary per aggregate is `create`, `getById`, `all` (the paged list), every **public** operation, every repository `find`, `update` / `destroy` when declared, plus `api.<projection>.byKey(…)` / `.list(…)` (a parameterised projection takes its declared parameters, positionally, as the query string), a workflow's own `api.<workflow>.run(…)` / `.instances()` / `.instance(key)`, and an explicit route's `api.<context>.<handler>(…)` (both below).
 
 #### Calling a routed handler
 

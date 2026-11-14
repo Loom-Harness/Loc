@@ -19,6 +19,7 @@ import { isQueryTimeProjection } from "../../../ir/types/loom-ir.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
 import {
   discriminatorValue,
+  isDiscriminatedTphBase,
   isTphBase,
   isTphConcrete,
   ownFieldsOf,
@@ -702,9 +703,12 @@ function renderTphModel(
   prefix?: string,
 ): string {
   const tableName = `${prefix ?? ""}${aggregateTableName(base, ctx.aggregates)}`;
+  // A childless base (`isDiscriminatedTphBase` false) maps a plain table: no
+  // `kind` column and no polymorphic mapper args.
+  const discriminated = isDiscriminatedTphBase(base, ctx.aggregates);
   const cols: PyColumn[] = [
     { attr: "id", pyType: "str", saType: pyIdColumnType(), optional: false, primaryKey: true },
-    { attr: "kind", pyType: "str", saType: "Text", optional: false },
+    ...(discriminated ? [{ attr: "kind", pyType: "str", saType: "Text", optional: false }] : []),
     ...columnsForFields(base.fields, ctx),
   ];
   const seen = new Set(base.fields.map((f) => f.name));
@@ -737,8 +741,9 @@ function renderTphModel(
     `class ${rowClassName(base.name)}(Base):`,
     `    __tablename__ = "${tableName}"`,
     schema ? ["    __table_args__ = (", `        {"schema": "${schema}"},`, "    )"] : null,
-    `    __mapper_args__ = {"polymorphic_on": "kind", "polymorphic_abstract": True}`,
-    "",
+    discriminated
+      ? [`    __mapper_args__ = {"polymorphic_on": "kind", "polymorphic_abstract": True}`, ""]
+      : [""],
     cols.map(renderColumn),
     ...concreteRows,
   );

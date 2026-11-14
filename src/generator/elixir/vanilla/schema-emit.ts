@@ -46,6 +46,7 @@ import { isVanillaDocAgg, renderDocSchema } from "./document-emit.js";
 import { needsPureDomainCore, renderAggregatePureCore } from "./domain-core-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
 import {
+  isDiscriminatedTphBase,
   isTpcBase,
   isTphBase,
   isTphConcrete,
@@ -412,8 +413,9 @@ function renderSchema(
   const tableName = vanillaTableName(agg, pool);
   // TPH base/concrete carry the `kind` discriminator (a real text column the
   // shared migration adds).  The concrete filters reads by it + stamps it on
-  // insert (repository-emit); the base reads it to hydrate per subtype.
-  const isTph = isTphBase(agg, pool) || isTphConcrete(agg, pool);
+  // insert (repository-emit); the base reads it to hydrate per subtype.  A
+  // childless base's table has no `kind` column (`isDiscriminatedTphBase`).
+  const isTph = isDiscriminatedTphBase(agg, pool) || isTphConcrete(agg, pool);
   const kindLine = isTph ? "    field :kind, :string" : "";
   // The schema's declared fields.  A TPH BASE must declare the UNION of every
   // subtype's columns (its own + each concrete's own) so the polymorphic reader

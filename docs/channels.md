@@ -123,7 +123,7 @@ four routes:
 | Route | When | Delivery |
 |---|---|---|
 | `inline-local` | no durable channel carries it, no wired binding carries it | in-process, after commit, at most once |
-| `outbox-local` | a hosted `retention: log \| work` channel carries it, no wired binding does | written to `__loom_outbox` in the raising transaction; the relay redelivers it in-process |
+| `outbox-local` | a hosted `retention: log \| work` channel carries it, no wired binding does, and the deployable has an outbox tier | written to `__loom_outbox` in the raising transaction; the relay redelivers it in-process |
 | `broker-inline` | a wired binding carries it, its channel is `ephemeral` | published by the tee after commit, at most once |
 | `broker-outbox` | a wired binding carries it, its channel is durable | written to `__loom_outbox`; the relay publishes it |
 
@@ -137,9 +137,13 @@ The plan also decides:
 - **Consumer.** A deployable runs a broker consumer when it wires a binding and
   a hosted reactor, event-triggered `create` or projection fold consumes an
   event that binding carries.
-- **Outbox tier.** A deployable owns the outbox table, capture and relay when
-  some event it raises is durable. With no in-process subscriber it is the
-  producer-only shape: every drained row goes to the broker.
+- **Outbox tier.** A deployable runs outbox capture and the relay when it
+  hosts a durable channel and either consumes events in-process (a reactor,
+  event-triggered `create` or projection fold in any hosted context) or a wired
+  binding carries one of its durable events. Capture and relay always come
+  together, and the tier captures every hosted durable event. With no
+  in-process consumer the tier is the producer-only shape: every drained row
+  goes to the broker.
 - **Dedupe.** A consumer dedupes redelivery on the envelope `id` for every
   durable event it consumes, whether its channel is hosted or foreign.
 

@@ -60,6 +60,7 @@ on:
       - 'src/util/**'
       - 'src/generator/typescript/**'
       - 'src/platform/hono/**'
+      - 'src/generator/_api/**'
       - 'src/generator/_obs/**'
       - 'src/generator/_openapi/**'
       # Shared emission seams the platform tree above delegates into: `_stmt` is
