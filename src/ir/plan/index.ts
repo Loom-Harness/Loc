@@ -42,14 +42,19 @@ export {
 export { hasDurableEvents } from "./context-events.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
 export {
+  type CanCheck,
   canOpLadder,
+  destroyLadder,
   GATE_ORDER,
   type GateCheck,
   type GateStep,
   gateRank,
   gateReadsParam,
   gateReadsRow,
+  ladderGates,
+  mergePatchUpdateLadder,
   operationLadder,
+  probeUndecided,
 } from "./gate-ladder.js";
 export { lookupOp } from "./operation-lookup.js";
 export {

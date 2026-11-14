@@ -20,6 +20,14 @@ system OpGuard {
           requires currentUser.role == "admin"
           status := "cancelled"
         }
+        // A row-free gate that reads a parameter: the `can_reopen` probe cannot
+        // decide it and drops it, so the probe's pre-load gates are not the
+        // operation's own and it calls its own `can_reopen_order_gate`.
+        operation reopen(note: string) when status == "cancelled" {
+          requires currentUser.role == "admin"
+          requires note.length > 0
+          status := "open"
+        }
         // A `test` block forces the pure-domain-core emission (where the gap lives).
         test "a fresh order takes its defaults" {
           let o = Order.create(customer: "acme")

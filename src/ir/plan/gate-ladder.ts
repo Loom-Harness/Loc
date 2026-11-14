@@ -14,13 +14,17 @@
 // refuses gets 403 for an existing id, a missing id, a stale `If-Match` and a
 // wrong-state row alike; a row outside the read scope answers 404, never 403.
 //
-// `GET /{id}/can_<op>` runs the same ladder (steps 1, 3–7, no body) and
-// answers `{ allowed }` for the steps after the load: a row it cannot read is
-// still 404, and a caller the read gate refuses is still 403.
+// `GET /{id}/can_<op>` runs the same ladder (steps 1, 3–5, 7; no body, no
+// `If-Match`) and answers `{ allowed }`: the operation's own `requires` gates
+// and its `when` fold into `allowed`, before and after the load alike.  A row
+// it cannot read is still 404, and a caller the by-id read's gate refuses is
+// still 403, exactly as `GET /{id}` answers.
 //
 // Steps 1, 2 and 8 are the framework's and the domain method's: a body that
 // does not bind is refused before any handler runs, on every backend.  A
-// backend renders the checks this plan lists (3–7) in the listed order.
+// backend renders the checks this plan lists (3–7) in the listed order, and
+// takes the gates of each rung from `ladderGates` — it never re-partitions a
+// gate list itself (`test/system/gate-ladder-census.test.ts`).
 
 import type { OperationIR } from "../types/loom-ir.js";
 import { lifecycleGates, operationGates, type RequiresStmtIR } from "../util/op-gates.js";
@@ -75,11 +79,45 @@ export function operationLadder(op: OperationIR, opts: { readsIfMatch: boolean }
   ];
 }
 
+/** One check `GET /{id}/can_<op>` renders, at its rung. */
+export type CanCheck =
+  | { step: "requires" | "row-requires"; gate: RequiresStmtIR }
+  | { step: "load" }
+  | { step: "undecided" }
+  | { step: "when" };
+
 /** The checks `GET /{id}/can_<op>` renders: the operation's ladder without the
- *  version check (a probe carries no `If-Match`).  The `requires` rungs refuse
- *  (403) exactly as the operation does; only `when` folds into `allowed`. */
-export function canOpLadder(op: OperationIR): GateCheck[] {
-  return operationLadder(op, { readsIfMatch: false });
+ *  version check (a probe carries no `If-Match`).  A `requires` rung answers
+ *  `{ allowed: false }` when its gate refuses — it does not 403 — so the probe
+ *  tells a caller whether it may run the operation, not why.  A gate that reads
+ *  an operation parameter cannot be decided without a body: such a gate is
+ *  dropped from its rung and the probe answers `{ allowed: false }` at the
+ *  `undecided` rung, after the load so a missing row is still 404.  Only a
+ *  decidable probe reaches `when`, which folds into `allowed`. */
+export function canOpLadder(op: OperationIR): CanCheck[] {
+  const gates = operationGates(op);
+  const decided = gates.filter((g) => !gateReadsParam(g));
+  const undecided = decided.length < gates.length;
+  return [
+    ...decided.filter((g) => !gateReadsRow(g)).map((gate) => ({ step: "requires" as const, gate })),
+    { step: "load" },
+    ...decided.filter(gateReadsRow).map((gate) => ({ step: "row-requires" as const, gate })),
+    ...(undecided ? [{ step: "undecided" as const }] : op.when ? [{ step: "when" as const }] : []),
+  ];
+}
+
+/** The `requires` gates a ladder renders at one rung, in order. */
+export function ladderGates(
+  ladder: readonly (GateCheck | CanCheck)[],
+  step: "requires" | "row-requires",
+): RequiresStmtIR[] {
+  return ladder.flatMap((c) => (c.step === step ? [c.gate] : []));
+}
+
+/** True when a `can_<op>` probe answers `{ allowed: false }` at its
+ *  `undecided` rung, whatever the row holds. */
+export function probeUndecided(ladder: readonly CanCheck[]): boolean {
+  return ladder.some((c) => c.step === "undecided");
 }
 
 /** The ordered checks a canonical `DELETE /{id}` renders: the destroy's
@@ -95,6 +133,22 @@ export function destroyLadder(
     { step: "load" },
     ...gates.filter(gateReadsRow).map((gate) => ({ step: "row-requires" as const, gate })),
     ...(opts.readsIfMatch ? [{ step: "version" as const }] : []),
+  ];
+}
+
+/** The ordered checks the generic merge-patch `update` seam renders around
+ *  `gates` (the operation's `requires` plus its `mask unless` write gates): a
+ *  gate that reads neither the row nor a parameter runs before the load; a
+ *  parameter gate reads the MERGED value (the stored one when the body omits
+ *  the key) and a mask write gate runs only when the body carries its key, so
+ *  both run after the load, on the merged row. */
+export function mergePatchUpdateLadder(gates: readonly RequiresStmtIR[]): GateCheck[] {
+  const preLoad = (g: RequiresStmtIR): boolean =>
+    g.maskWriteOf === undefined && !gateReadsRow(g) && !gateReadsParam(g);
+  return [
+    ...gates.filter(preLoad).map((gate) => ({ step: "requires" as const, gate })),
+    { step: "load" },
+    ...gates.filter((g) => !preLoad(g)).map((gate) => ({ step: "row-requires" as const, gate })),
   ];
 }
 

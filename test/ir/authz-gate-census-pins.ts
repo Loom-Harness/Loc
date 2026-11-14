@@ -268,6 +268,10 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     // `requires isOpenNow()` reads the row's own state, not the caller: the
     // fixture's `test e2e` drives the admitted (204) and refused (403) arms.
     "operation POST /api/tickets/{id}/archive": R.rowDataGate,
+    // `requires to != subject` reads the body and the row, not the caller;
+    // the fixture's `test e2e` drives its 403 and its 204.
+    "operation POST /api/tickets/{id}/retitle": R.rowDataGate,
+    "gateProbe GET /api/tickets/{id}/can_retitle": R.probeAnswersFalse,
   },
 
   // ── mask unless — no status to refuse ────────────────────────────────────
@@ -593,9 +597,9 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   sharedPrincipalId: 6,
   notABehaviouralCase: 11,
   importGateOnly: 1,
-  probeAnswersFalse: 1,
+  probeAnswersFalse: 2,
   principalFreeGate: 20,
-  rowDataGate: 5,
+  rowDataGate: 6,
   // Includes the two polymorphic base list reads of
   // `inheritance-read-restrictions`: their refusals are the ladder's
   // cross-tenant `rowVisible` rungs, like every other collection read in that

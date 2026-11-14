@@ -85,7 +85,13 @@ import {
   wireCreateDefault,
 } from "../../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
-import { destroyLadder, gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
+import {
+  canOpLadder,
+  destroyLadder,
+  ladderGates,
+  operationLadder,
+  probeUndecided,
+} from "../../../ir/plan/gate-ladder.js";
 import {
   QUERY_PARAM_MISMATCH_MESSAGES,
   type QueryParamMismatchKind,
@@ -1871,29 +1877,30 @@ function requiresGateLines(
 ): string[] {
   // The gate ladder (`ir/plan/gate-ladder.ts`): a gate that reads no row runs
   // before the load, one that reads the row after it.
-  return operationGates(op)
-    .filter((g) => gateReadsRow(g) === (which === "row-reading"))
-    .map((g) => {
-      const pred = renderTsExpr(g.expr, {
-        thisName: "aggregate",
-        // Operation params are NOT locals here — the handler holds them at the
-        // wire-read expression the call is about to pass (`body.<name>`), so an
-        // arg-aware gate (`requires amount <= limit`) must read the same thing.
-        paramExpr:
-          argExpr ??
-          ((name) => {
-            const p = op.params.find((q) => q.name === name);
-            return p ? wireToDomainExpr(`body.${p.name}`, p.type, ctx) : undefined;
-          }),
-      });
-      // A merge-patch update's mask write gate runs only when the body carries
-      // the masked key (an absent key keeps the stored value).
-      const present = maskWritePresenceParam(op, g);
-      const cond = present ? `body.${present} !== undefined && !(${pred})` : `!(${pred})`;
-      return `${pad}if (${cond}) throw new ForbiddenError(${JSON.stringify(
-        `Forbidden: ${g.source}`,
-      )});`;
+  return ladderGates(
+    operationLadder(op, { readsIfMatch: false }),
+    which === "row-reading" ? "row-requires" : "requires",
+  ).map((g) => {
+    const pred = renderTsExpr(g.expr, {
+      thisName: "aggregate",
+      // Operation params are NOT locals here — the handler holds them at the
+      // wire-read expression the call is about to pass (`body.<name>`), so an
+      // arg-aware gate (`requires amount <= limit`) must read the same thing.
+      paramExpr:
+        argExpr ??
+        ((name) => {
+          const p = op.params.find((q) => q.name === name);
+          return p ? wireToDomainExpr(`body.${p.name}`, p.type, ctx) : undefined;
+        }),
     });
+    // A merge-patch update's mask write gate runs only when the body carries
+    // the masked key (an absent key keeps the stored value).
+    const present = maskWritePresenceParam(op, g);
+    const cond = present ? `body.${present} !== undefined && !(${pred})` : `!(${pred})`;
+    return `${pad}if (${cond}) throw new ForbiddenError(${JSON.stringify(
+      `Forbidden: ${g.source}`,
+    )});`;
+  });
 }
 
 /** The canonical `create` / `destroy` authorization gate, in the ROUTE.
@@ -1976,11 +1983,13 @@ function emitCanOpRoute(
   const gates = operationGates(op);
   const gateTest = (g: (typeof gates)[number]): string =>
     renderTsExpr(g.expr, { thisName: "aggregate" });
-  // A gate that reads an operation parameter cannot be decided without a
-  // body: it answers `false`, after the load so a missing row is still 404.
-  const undecidable = gates.filter(gateReadsParam);
-  const rowFree = gates.filter((g) => !gateReadsParam(g) && !gateReadsRow(g));
-  const rowReading = gates.filter((g) => !gateReadsParam(g) && gateReadsRow(g));
+  // The probe's ladder (`canOpLadder`): an undecidable gate (one that reads an
+  // operation parameter) answers `false` after the load, so a missing row is
+  // still 404.
+  const ladder = canOpLadder(op);
+  const undecided = probeUndecided(ladder);
+  const rowFree = ladderGates(ladder, "requires");
+  const rowReading = ladderGates(ladder, "row-requires");
   const needsUser =
     (readFind?.requires !== undefined && findGateUsesCurrentUser(readFind)) ||
     gates.some((g) => exprUsesCurrentUser(g.expr));
@@ -2013,7 +2022,7 @@ function emitCanOpRoute(
     out.push(`    if (!(${gateTest(g)})) return c.json({ allowed: false }, 200);`);
   }
   const load = `await repo.getById(${T.Ids}.${agg.name}Id(id));`;
-  if (undecidable.length > 0 && rowReading.length === 0) {
+  if (undecided && rowReading.length === 0) {
     out.push(`    ${load}`);
     out.push(`    return c.json({ allowed: false }, 200);`);
   } else {
@@ -2021,7 +2030,7 @@ function emitCanOpRoute(
     for (const g of rowReading) {
       out.push(`    if (!(${gateTest(g)})) return c.json({ allowed: false }, 200);`);
     }
-    out.push(`    return c.json({ allowed: ${undecidable.length > 0 ? "false" : pred} }, 200);`);
+    out.push(`    return c.json({ allowed: ${undecided ? "false" : pred} }, 200);`);
   }
   out.push(`  },`);
   out.push(`);`);

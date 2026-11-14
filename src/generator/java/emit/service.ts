@@ -10,7 +10,13 @@ import {
   emitsRestCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
-import { destroyLadder, gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
+import {
+  canOpLadder,
+  destroyLadder,
+  ladderGates,
+  operationLadder,
+  probeUndecided,
+} from "../../../ir/plan/gate-ladder.js";
 import { domainFindShape } from "../../../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
@@ -33,7 +39,6 @@ import {
   lifecycleGatesUseCurrentUser,
   maskWritePresenceParam,
   operationBodyUsesCurrentUser,
-  operationGates,
   operationGatesUseCurrentUser,
   type RequiresStmtIR,
 } from "../../../ir/util/op-gates.js";
@@ -469,29 +474,28 @@ export function renderJavaService(
     which: "row-free" | "row-reading" = "row-reading",
     paramOverride?: (name: string) => string | undefined,
   ): string[] =>
-    operationGates(op)
-      // The gate ladder (`ir/plan/gate-ladder.ts`): a gate that reads no row
-      // runs before the load, one that reads the row after it.
-      .filter((g) => gateReadsRow(g) === (which === "row-reading"))
-      .map((g) => {
-        // The gate's own expression imports (`java.util.Objects` for a string
-        // comparison, enum/id types, …) are collected HERE, since the gate lives
-        // in this file rather than the ENTITY's `collectJavaStmtImports` sweep
-        // over `op.statements` — a `tsc`-green emitter can still emit Java that
-        // doesn't compile.
-        const pred = renderJavaExpr(g.expr, {
-          thisName: "aggregate",
-          accessorProps: true,
-          paramExpr: paramOverride ?? ((n) => locals.get(n)),
-        });
-        // A merge-patch update's mask write gate runs only when the body carries
-        // the masked key (an absent key keeps the stored value).
-        const present = maskWritePresenceParam(op, g);
-        const cond = present
-          ? `request.has(${JSON.stringify(present)}) && !(${pred})`
-          : `!(${pred})`;
-        return `        if (${cond}) throw new ${forbidden}(${JSON.stringify(`Forbidden: ${g.source}`)});`;
+    // The gate ladder (`ir/plan/gate-ladder.ts`): a gate that reads no row
+    // runs before the load, one that reads the row after it.
+    ladderGates(
+      operationLadder(op, { readsIfMatch: false }),
+      which === "row-reading" ? "row-requires" : "requires",
+    ).map((g) => {
+      // The gate's own expression imports (`java.util.Objects` for a string
+      // comparison, enum/id types, …) are collected HERE, since the gate lives
+      // in this file rather than the ENTITY's `collectJavaStmtImports` sweep
+      // over `op.statements` — a `tsc`-green emitter can still emit Java that
+      // doesn't compile.
+      const pred = renderJavaExpr(g.expr, {
+        thisName: "aggregate",
+        accessorProps: true,
+        paramExpr: paramOverride ?? ((n) => locals.get(n)),
       });
+      // A merge-patch update's mask write gate runs only when the body carries
+      // the masked key (an absent key keeps the stored value).
+      const present = maskWritePresenceParam(op, g);
+      const cond = present ? `request.has(${JSON.stringify(present)}) && !(${pred})` : `!(${pred})`;
+      return `        if (${cond}) throw new ${forbidden}(${JSON.stringify(`Forbidden: ${g.source}`)});`;
+    });
   const whenGateLine = (
     op: (typeof agg.operations)[number],
     locals: ReadonlyMap<string, string>,
@@ -824,14 +828,13 @@ export function renderJavaService(
   // the probe answers `false` for it, after the load so a missing row is still
   // 404.
   const canLines = gatedOps.flatMap((op) => {
-    const undecidable = operationGates(op).some(gateReadsParam);
+    const ladder = canOpLadder(op);
+    const undecidable = probeUndecided(ladder);
     const gateLines = (which: "row-free" | "row-reading"): string[] =>
-      operationGates(op)
-        .filter((g) => !gateReadsParam(g) && gateReadsRow(g) === (which === "row-reading"))
-        .map(
-          (g) =>
-            `        if (!(${renderJavaExpr(g.expr, { thisName: "aggregate", accessorProps: true })})) return false;`,
-        );
+      ladderGates(ladder, which === "row-reading" ? "row-requires" : "requires").map(
+        (g) =>
+          `        if (!(${renderJavaExpr(g.expr, { thisName: "aggregate", accessorProps: true })})) return false;`,
+      );
     const usesUser = !!ctx.authed && operationGatesUseCurrentUser(op);
     return [
       `    public boolean can${DOMAIN_NAMES.java.type(op.name)}(${idClass} id) {`,

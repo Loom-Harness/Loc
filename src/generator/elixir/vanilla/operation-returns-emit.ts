@@ -13,7 +13,7 @@
 
 import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
 import { errorVariantCode } from "../../../ir/enrich/wire-policy.js";
-import { gateReadsRow } from "../../../ir/plan/gate-ladder.js";
+import { operationLadder } from "../../../ir/plan/gate-ladder.js";
 import { variantTag } from "../../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -466,13 +466,23 @@ export function collectOpGuardClauses(aggName: string, op: OperationIR, rc: Rend
   // The gate ladder (`ir/plan/gate-ladder.ts`): the leading `requires` gates
   // that read no row, then those that read the row, then `when`, then the
   // remaining `requires`/`precondition`s in body order.
-  const gates = operationGates(op);
-  const leading = new Set<StmtIR>(gates);
-  const clauses: string[] = [
-    ...gates.filter((g) => !gateReadsRow(g)).flatMap((g) => gateClauses(g, rc, wireAvailable)),
-    ...gates.filter(gateReadsRow).flatMap((g) => gateClauses(g, rc, wireAvailable)),
-  ];
-  if (op.when) clauses.push(renderWhenGateClause(aggName, op, rc));
+  const leading = new Set<StmtIR>(operationGates(op));
+  const clauses: string[] = operationLadder(op, { readsIfMatch: false }).flatMap((step) => {
+    switch (step.step) {
+      case "requires":
+      case "row-requires":
+        return gateClauses(step.gate, rc, wireAvailable);
+      case "when":
+        return [renderWhenGateClause(aggName, op, rc)];
+      case "load":
+      case "version":
+        return [];
+      default: {
+        const unreachable: never = step;
+        return unreachable;
+      }
+    }
+  });
   for (const s of op.statements) {
     if ((s.kind === "requires" || s.kind === "precondition") && !leading.has(s)) {
       clauses.push(...gateClauses(s, rc, wireAvailable));

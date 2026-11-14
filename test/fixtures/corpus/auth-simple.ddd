@@ -24,6 +24,13 @@ system SimpleAuth {
         // row, whatever the function's body reads: every backend renders the
         // call on the loaded instance, so the gate runs after the load (a
         // missing id is 404, a closed ticket 403).
+        // A gate that reads an operation parameter: the `can_retitle` probe
+        // carries no body, so it cannot decide it and answers
+        // `{ allowed: false }` on every backend, whatever the row holds.
+        operation retitle(to: string) when open {
+          requires to != subject
+          subject := to
+        }
         function isOpenNow(): bool = open
         operation archive() {
           requires isOpenNow()
@@ -124,5 +131,11 @@ system SimpleAuth {
     // … and an id with no row is 404 — the load runs before the gate.
     api.tickets.destroy(t)
     expect(api.tickets.archive(t)).toThrow(404)
+
+    // A gate on an operation parameter: refused and admitted with a body.
+    let r = api.tickets.create({ subject: "Old", open: true })
+    expect(api.tickets.retitle(r, { to: "Old" })).toThrow(403)
+    api.tickets.retitle(r, { to: "New" })
+    expect(api.tickets.getById(r).subject).toBe("New")
   }
 }
