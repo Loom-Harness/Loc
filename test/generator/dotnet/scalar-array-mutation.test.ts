@@ -52,7 +52,7 @@ describe("dotnet scalar-array mutation targets the public property, not a `_` ba
       "        Codes.Add(v);",
     );
     expect(renderCsStatements([remove("codes", INT)], { thisName: "this", agg })).toBe(
-      "        Codes.Remove(v);",
+      "        { var __rm = v; Codes.RemoveAll(__e => Equals(__e, __rm)); }",
     );
   });
 

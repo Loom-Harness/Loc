@@ -130,7 +130,9 @@ describe("vanilla — workflow body lowering (for-each over a repo-run binding)"
 
   it("each body op-call is a with-clause: {:cont, _} on success, {:halt, err} on failure", async () => {
     const wf = await loadWorkflow();
-    expect(wf).toMatch(/with \{:ok, _\} <- Context\.mark_done_task\(x, %\{\}\) do/);
+    expect(wf).toMatch(
+      /with \{:ok, x\} <- Context\.__apply_mark_done_task\(x, %\{\}\),\s*\n\s*\{:ok, _\} <- Context\.__save_task\(x\) do/,
+    );
     expect(wf).toContain("{:cont, {:ok, nil}}");
     expect(wf).toContain("err -> {:halt, err}");
   });

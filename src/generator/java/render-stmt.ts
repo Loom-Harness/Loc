@@ -146,19 +146,11 @@ function javaStmtTarget(ctx: JavaRenderContext, traceCtx: JavaTraceCtx): StmtTar
     },
 
     remove: (s, ix) => {
-      // `codes -= v` over an `int[]` is a `List<Integer>` in Java, where
-      // `remove(int)` and `remove(Object)` are BOTH applicable — and overload
-      // resolution picks the primitive `remove(int index)` (phase 1, no
-      // boxing), so the statement removes the element AT INDEX v, or throws
-      // IndexOutOfBoundsException.  Box explicitly to reach the value
-      // overload.  Audit finding A13.  `long`/`money`/`string`/entity element
-      // types already bind `remove(Object)` and are left alone.
+      // `xs -= v` removes every element equal to `v`.  `removeIf` compares
+      // by value (`Objects.equals`), so an `int[]` (`List<Integer>`) element
+      // never resolves to the `remove(int index)` overload.
       const value = renderJavaExpr(s.value, ctx);
-      const boxed =
-        s.collection && s.elementType.kind === "primitive" && s.elementType.name === "int"
-          ? `Integer.valueOf(${value})`
-          : value;
-      const base = `${INDENT}${renderPath(s.target)}.remove(${boxed});`;
+      const base = `${INDENT}{ var __rm = ${value}; ${renderPath(s.target)}.removeIf(__e -> java.util.Objects.equals(__e, __rm)); }`;
       return withProvCapture(base, s.prov, s.target, s.value, ix.prov, ctx);
     },
 

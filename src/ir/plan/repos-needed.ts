@@ -43,6 +43,10 @@ export function reposNeeded(
           case "for-each":
             s.savesPerIteration.forEach(add);
             break;
+          case "if":
+            s.savesInThen.forEach(add);
+            s.savesInElse.forEach(add);
+            break;
           case "variant-match":
             for (const arm of s.arms) {
               arm.savesInArm.forEach(add);

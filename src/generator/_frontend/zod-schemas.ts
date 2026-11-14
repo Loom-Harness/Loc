@@ -17,7 +17,6 @@ import type {
   EnumIR,
   InvariantIR,
   OperationIR,
-  RepositoryIR,
   TypeIR,
   ValueObjectIR,
 } from "../../ir/types/loom-ir.js";
@@ -404,7 +403,7 @@ export function zodForResponseInner(t: TypeIR): string {
 // CountrySchema").
 export function collectUsedTypes(
   agg: AggregateIR,
-  repo: RepositoryIR | undefined,
+  repo: { readonly finds: readonly { readonly params: readonly { type: TypeIR }[] }[] } | undefined,
   ctx: BoundedContextIR,
 ): { valueObjects: ValueObjectIR[]; enums: EnumIR[] } {
   const seeds = function* (): Generator<TypeIR> {

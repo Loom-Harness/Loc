@@ -197,8 +197,8 @@ export function walkStmtChildren(
  * Visit the immediate children of a workflow-body statement — one level only.
  *
  * Exhaustive over every `WorkflowStmtIR.kind`.  Unlike the operation-body
- * `StmtIR`, three kinds nest further workflow statements (`for-each.body`,
- * `if-let.thenBody`/`elseBody`, `variant-match` arm / else bodies), delivered
+ * `StmtIR`, four kinds nest further workflow statements (`for-each.body`,
+ * `if-let` / `if` `thenBody`/`elseBody`, `variant-match` arm / else bodies), delivered
  * through the `workflowStmt` channel;
  * expression children go through `expr`.  The trailing `never` makes a new
  * workflow-statement kind a compile error until wired.
@@ -241,6 +241,11 @@ export function walkWorkflowStmtChildren(s: WorkflowStmtIR, v: WorkflowStmtChild
       break;
     case "if-let":
       for (const a of s.retrievalArgs) expr?.(a);
+      for (const st of s.thenBody) wf?.(st);
+      for (const st of s.elseBody ?? []) wf?.(st);
+      break;
+    case "if":
+      expr?.(s.cond);
       for (const st of s.thenBody) wf?.(st);
       for (const st of s.elseBody ?? []) wf?.(st);
       break;

@@ -21,13 +21,12 @@
 // (`let r = Transfer.run(src, dst, amount)` over an error-carrying result): its
 // mutated aggregate arguments take the place of `a`.
 //
-// `loom.elixir-bound-mutating-call-unsupported` refuses every `let`-bound
-// mutating call in a body an elixir deployable emits.  A Phoenix context
-// operation persists inside its own function, so the bound form needs the
-// call's `{:ok, value}` / `{:error, "Tag", fields}` tuple bound instead of
-// matched away at each with-chain site that renders an op call, and a
-// `mutating` domain service is inlined clause by clause, which computes no
-// value to bind.
+// `loom.elixir-bound-mutating-call-unsupported` refuses a `let`-bound
+// `mutating` domain-service call in a body an elixir deployable emits.  The
+// Phoenix pipeline inlines such a service clause by clause, which computes no
+// value to bind.  A bound aggregate op call is rendered: the with-chain binds
+// the op's `{:ok, value}` / `{:error, "Tag", fields}` tuple, and the op
+// persists only on `{:ok, _}`, so the error arms of the `match` leave no trace.
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
@@ -160,6 +159,8 @@ export function checkGuardedCallResults(
 
 /** Every `let`-bound mutating call in a workflow / handler body of `ctx` —
  *  the uses of `call:bound-mutating@entry-body`. */
+/** The `let`-bound `mutating` domain-service calls of `ctx`'s workflow and
+ *  handler bodies — the shape the Phoenix pipeline cannot bind. */
 export function boundMutatingCalls(
   ctx: BoundedContextIR,
 ): { where: string; st: GuardedCall & { result: NonNullable<GuardedCall["result"]> } }[] {
@@ -183,7 +184,7 @@ export function boundMutatingCalls(
   for (const { where, stmts } of bodies) {
     for (const root of stmts) {
       walkWorkflowStmtsDeep(root, (st) => {
-        if ((st.kind !== "op-call" && st.kind !== "domain-service-call") || !st.result) return;
+        if (st.kind !== "domain-service-call" || !st.result) return;
         out.push({ where, st: st as ReturnType<typeof boundMutatingCalls>[number]["st"] });
       });
     }
@@ -226,13 +227,6 @@ export function validateElixirBoundMutatingCalls(
   }
 }
 
-/** `loom.elixir-entry-result-unsupported` — a routed command entry point an
- *  elixir deployable emits whose result is an expected failure (`T or E`), or
- *  a workflow `create` answering the workflow itself (`return this`).  The
- *  other four backends run such an entry point in one transaction, roll it
- *  back whole on an error answer and translate the error at the edge; the
- *  Phoenix workflow / handler emitters have no tagged result and no rollback
- *  seam for it yet, so it is refused rather than emitted half-wired. */
 /** The routed entry points of `ctx` answering an expected failure, or a
  *  workflow `create` answering the workflow itself (`#workflow-state`) — the
  *  uses of `return:expected-failure@entry-point`. */
@@ -253,35 +247,4 @@ export function expectedFailureEntryPoints(
     if (!h.extern && entryResult(h)) out.push({ where: `handler '${h.name}'`, slug: "" });
   }
   return out;
-}
-
-export function validateElixirEntryResults(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
-  for (const sys of loom.systems) {
-    const elixirHost = ownerHosts(
-      sys.deployables,
-      "return:expected-failure@entry-point",
-      "loom.elixir-entry-result-unsupported",
-    );
-    if (elixirHost.size === 0) continue;
-    for (const mod of sys.subdomains) {
-      for (const ctx of mod.contexts) {
-        const deployable = elixirHost.get(ctx.name);
-        if (!deployable) continue;
-        for (const { where, slug } of expectedFailureEntryPoints(ctx)) {
-          diags.push({
-            severity: "error",
-            code: "loom.elixir-entry-result-unsupported",
-            message:
-              slug === ""
-                ? diagMessage("loom.elixir-entry-result-unsupported", { where, deployable })
-                : diagMessage("loom.elixir-entry-result-unsupported#workflow-state", {
-                    where,
-                    deployable,
-                  }),
-            source: `${ctx.name}/${where}`,
-          });
-        }
-      }
-    }
-  }
 }
