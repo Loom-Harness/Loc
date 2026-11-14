@@ -74,18 +74,12 @@ import { workflowEmits } from "../../ir/util/walk.js";
 import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { walkExpr } from "../../ir/validate/checks/shared.js";
 import { lines } from "../../util/code-builder.js";
-import {
-  plural,
-  pythonIdent,
-  pythonModuleFn,
-  pythonWireIdent,
-  pythonWireNeedsAlias,
-  snake,
-} from "../../util/naming.js";
+import { plural, pythonWireIdent, pythonWireNeedsAlias, snake } from "../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../util/repository-contract.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { hasMarkers } from "../_imports/symbol.js";
+import { DOMAIN_NAMES, pythonModuleFnName } from "../_symbols/plan.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { paramPyType, requestPyType } from "./emit/http-models.js";
 import { withFieldConstraint } from "./emit/wire-constraints.js";
@@ -121,7 +115,7 @@ const DOMAIN_EVENT = pyRef("app.domain.events", "DomainEvent");
  *  (`Def` → `def_`, which `import` could not spell) and a builtin (`All` →
  *  `all_`), so the module-level `def` never rebinds the builtin its own body or
  *  the importing router calls. */
-const handlerFn = (name: string): string => pythonModuleFn(name);
+const handlerFn = (name: string): string => pythonModuleFnName(name);
 /** A handler's application function (`from app.application.<fn> import <fn>`). */
 const handlerFnRef = (name: string): string =>
   pyRef(`app.application.${handlerFn(name)}`, handlerFn(name));
@@ -176,9 +170,10 @@ function recordParamNames(h: Handler, ctx: EnrichedBoundedContextIR): Set<string
 // DETERMINISTIC and stable forever (renames orphan user code).
 
 /** The user impl module's file path (`out.set` key). */
-const externImplPath = (name: string): string => `app/application/impl/${snake(name)}_impl.py`;
+const externImplPath = (name: string): string =>
+  `app/application/impl/${DOMAIN_NAMES.python.stem(name)}_impl.py`;
 /** The impl function name (`PlaceOrder` → `place_order_impl`). */
-const externImplFn = (name: string): string => `${snake(name)}_impl`;
+const externImplFn = (name: string): string => `${DOMAIN_NAMES.python.stem(name)}_impl`;
 
 /** The generated extern DISPATCH module: same `async def <snake>(session, …)`
  *  the router already imports, but its body delegates to the user impl.  For a
@@ -186,10 +181,12 @@ const externImplFn = (name: string): string => `${snake(name)}_impl`;
  *  value verbatim (the impl owns the return contract). */
 function renderPyExternDispatch(h: Handler): string {
   const fnName = handlerFn(h.name);
-  const paramSig = h.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
+  const paramSig = h.params.map(
+    (p) => `${DOMAIN_NAMES.python.binding(p.name)}: ${renderPyType(p.type)}`,
+  );
   const params = [`session: ${H.AsyncSession}`, ...paramSig].join(", ");
   const ret = h.returnType ? renderPyType(h.returnType) : "None";
-  const callArgs = h.params.map((p) => pythonIdent(p.name)).join(", ");
+  const callArgs = h.params.map((p) => DOMAIN_NAMES.python.binding(p.name)).join(", ");
   const call = `${externImplRef(h.name)}(${callArgs})`;
   const bodyLine = h.returnType ? `    return await ${call}` : `    await ${call}`;
   return lines(
@@ -209,7 +206,9 @@ function renderPyExternDispatch(h: Handler): string {
  *  preserves it on regen). */
 function renderPyExternImpl(h: Handler, ctx: EnrichedBoundedContextIR): string {
   const implFn = externImplFn(h.name);
-  const paramSig = h.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
+  const paramSig = h.params.map(
+    (p) => `${DOMAIN_NAMES.python.binding(p.name)}: ${renderPyType(p.type)}`,
+  );
   const ret = h.returnType ? renderPyType(h.returnType) : "None";
   const kind = (ctx.queryHandlers ?? []).includes(h as QueryHandlerIR)
     ? "queryHandler"
@@ -290,7 +289,7 @@ function renderPagedRunHandlerModule(
 ): string {
   const fnName = handlerFn(h.name);
   const run = pagedRunStmt(h, ctx);
-  const repoVar = pythonIdent(run.repoName);
+  const repoVar = DOMAIN_NAMES.python.binding(run.repoName);
   const dispatcherExpr = dispatcherFor(hasDispatch);
   const rctx: PyRenderContext = { thisName: "self", recordParamNames: new Set() };
   const critArgs = run.retrievalArgs.map((a) => renderPyExpr(a, rctx));
@@ -311,7 +310,7 @@ function renderPagedRunHandlerModule(
   ).flat();
   const sigParams = [
     `session: ${H.AsyncSession}`,
-    ...h.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
+    ...h.params.map((p) => `${DOMAIN_NAMES.python.binding(p.name)}: ${renderPyType(p.type)}`),
     ...(usesUser ? [`current_user: ${H.User}`] : []),
     "page: int",
     "page_size: int",
@@ -322,7 +321,7 @@ function renderPagedRunHandlerModule(
     `async def ${fnName}(${sigParams}) -> dict[str, object]:`,
     ...gateLines,
     `    ${repoVar} = ${repoClassRef(run.aggName)}(session, ${dispatcherExpr})`,
-    `    result = await ${repoVar}.${snake(pagedRunFindName(run))}(${callArgs})`,
+    `    result = await ${repoVar}.${DOMAIN_NAMES.python.op(pagedRunFindName(run))}(${callArgs})`,
     "    return {",
     `        "items": [${repoVar}.${runWire}(__e) for __e in result.items],`,
     '        "page": result.page,',
@@ -389,7 +388,9 @@ function renderHandlerModule(
   };
   const params = [
     `session: ${H.AsyncSession}`,
-    ...flatHandlerParams(h, ctx).map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
+    ...flatHandlerParams(h, ctx).map(
+      (p) => `${DOMAIN_NAMES.python.binding(p.name)}: ${renderPyType(p.type)}`,
+    ),
     ...(usesUser ? [`current_user: ${H.User}`] : []),
   ].join(", ");
 
@@ -428,7 +429,7 @@ function renderHandlerModule(
       if (projAgg && aggHasFieldMask(projAgg)) projectWire = "to_wire_masked";
       for (const [repo, agg] of repos) {
         if (agg === info.base) {
-          projectRepoHandle = pythonIdent(repo);
+          projectRepoHandle = DOMAIN_NAMES.python.binding(repo);
           break;
         }
       }
@@ -436,7 +437,7 @@ function renderHandlerModule(
       // construct a repo purely to project it, keyed by its plural name.
       if (!projectRepoHandle) {
         const repoName = plural(info.base);
-        projectRepoHandle = pythonIdent(repoName);
+        projectRepoHandle = DOMAIN_NAMES.python.binding(repoName);
         repos.set(repoName, info.base);
       }
     }
@@ -459,7 +460,8 @@ function renderHandlerModule(
         ? renderPyType(normRet)
         : "None";
   const repoLines = [...repos].map(
-    ([repo, agg]) => `    ${pythonIdent(repo)} = ${repoClassRef(agg)}(session, ${dispatcherExpr})`,
+    ([repo, agg]) =>
+      `    ${DOMAIN_NAMES.python.binding(repo)} = ${repoClassRef(agg)}(session, ${dispatcherExpr})`,
   );
 
   // A dead `let` would trip ruff F841 — keep the used set current by folding the
@@ -521,7 +523,10 @@ function renderHandlerModule(
             ctx,
             "    ",
             "handler_result",
-            (agg) => snake([...repos].find(([, a]) => a === agg)?.[0] ?? plural(agg)),
+            (agg) =>
+              DOMAIN_NAMES.python.binding(
+                [...repos].find(([, a]) => a === agg)?.[0] ?? plural(agg),
+              ),
           ),
           "    return handler_result",
         ]
@@ -618,7 +623,7 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
   const method = r.method.toLowerCase();
   const path = snakePath(r.path);
   const opId = camelName(h.name);
-  const routeName = `${snake(h.name)}_route`;
+  const routeName = `${DOMAIN_NAMES.python.stem(h.name)}_route`;
   const usesUser = pagedRunGatesUseCurrentUser(h);
   // Non-default params first (Python signature order): path + criterion query
   // params + session, then the defaulted pagination controls.
@@ -635,7 +640,7 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
   // pagination controls (pageSize → the handler's snake `page_size`).
   const callArgs = [
     "session",
-    ...h.params.map((p) => pyWireToDomain(pythonIdent(p.name), p.type, ctx)),
+    ...h.params.map((p) => pyWireToDomain(DOMAIN_NAMES.python.binding(p.name), p.type, ctx)),
     ...(usesUser ? ["current_user"] : []),
     "page",
     "pageSize",
@@ -663,7 +668,7 @@ function routedResponseModel(h: Handler, ctx: EnrichedBoundedContextIR): string 
     ctx.aggregates.find((a) => a.name === info.base) ??
     ctx.aggregates.find((a) => a.parts.some((p) => p.name === info.base));
   return owning
-    ? pyRef(`app.http.${snake(owning.name)}_routes`, `${info.base}Response`)
+    ? pyRef(`app.http.${DOMAIN_NAMES.python.stem(owning.name)}_routes`, `${info.base}Response`)
     : undefined;
 }
 
@@ -773,10 +778,10 @@ export function emitPyExplicitRouteRouter(
       "session",
       ...effParams.map((p) =>
         source(p) === "path"
-          ? pyWireToDomain(pythonIdent(p.name), p.type, ctx)
+          ? pyWireToDomain(DOMAIN_NAMES.python.binding(p.name), p.type, ctx)
           : source(p) === "query"
             ? pyWireToDomain(pythonWireIdent(p.name), p.type, ctx)
-            : pyWireToDomain(`body.${pythonIdent(p.name)}`, p.type, ctx),
+            : pyWireToDomain(`body.${DOMAIN_NAMES.python.binding(p.name)}`, p.type, ctx),
       ),
       ...(usesUser ? ["current_user"] : []),
     ].join(", ");
@@ -787,7 +792,7 @@ export function emitPyExplicitRouteRouter(
     // A query always returns; a command returns iff its body yields a value
     // (`returnValue`) OR — for an extern command — it declares a returnType.
     const hasReturn = !!qry || !!cmd?.returnValue || !!(cmd?.extern && cmd.returnType);
-    const routeName = `${snake(h.name)}_route`;
+    const routeName = `${DOMAIN_NAMES.python.stem(h.name)}_route`;
 
     const responses = routedResponsesKwarg(
       hasReturn && !h.extern && !er ? routedResponseModel(h, ctx) : undefined,
@@ -857,6 +862,6 @@ export function emitPyExplicitRouteRouter(
     body,
     "",
   );
-  out.set(`app/http/${snake(apiName)}_routes.py`, file);
+  out.set(`app/http/${DOMAIN_NAMES.python.stem(apiName)}_routes.py`, file);
   return true;
 }

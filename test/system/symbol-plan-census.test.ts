@@ -78,6 +78,16 @@ const USE_SITE_EMITTERS: Readonly<Record<string, readonly CasingWaiver[]>> = {
     { call: "snake(name)", count: 1, standing: "file stem of the extern handler module" },
     { call: "lowerFirst(h.name)", count: 2, standing: "OpenAPI operationId, a wire identifier" },
   ],
+  "src/generator/python/workflows-builder.ts": [
+    { call: "snake(wf.name)", count: 2, standing: "route segment of the workflow's endpoints" },
+  ],
+  "src/generator/python/workflow-eventsourced-emit.ts": [],
+  "src/generator/python/explicit-handlers-emit.ts": [
+    { call: "snake(name)", count: 2, standing: "route path parameter, a wire name" },
+    { call: "snake(p.name)", count: 1, standing: "request-model attribute, a wire name" },
+  ],
+  "src/generator/python/dispatch-builder.ts": [],
+  "src/generator/python/entry-result-emit.ts": [],
 };
 
 /** The raw escaping funnels the plan wraps. */
@@ -149,7 +159,7 @@ describe("symbol-plan census: the use-site emitters spell names through the plan
     const present = Object.keys(USE_SITE_EMITTERS).filter((rel) =>
       fs.existsSync(path.join(ROOT, rel)),
     );
-    expectReach("use-site emitter files", present.length, 3);
+    expectReach("use-site emitter files", present.length, 8);
   });
 
   it("the detector reads a casing call with its argument and ignores a plan read", () => {

@@ -20,8 +20,8 @@ import {
   entryErrorTags,
 } from "../../ir/util/entry-result.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
-import { pythonIdent } from "../../util/naming.js";
 import { unionMembers } from "../_payload/union-wire.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { PY, pyIdType } from "./py-symbols.js";
 import { renderPyType } from "./render-expr.js";
 import { pyScalarReturnToWire } from "./routes-builder.js";
@@ -131,7 +131,7 @@ export function entryResultPyLines(
     out.push(
       `${indent}${first ? "if" : "elif"} ${subject}["type"] == ${JSON.stringify(variantTag(arm.varType))}:`,
       ...(arm.binding && reads(leaf.value, arm.binding) && !direct
-        ? [`${indent}    ${pythonIdent(arm.binding)} = ${value}`]
+        ? [`${indent}    ${DOMAIN_NAMES.python.binding(arm.binding)} = ${value}`]
         : []),
       assign(leaf, `${indent}    `, direct ? subject : undefined),
     );

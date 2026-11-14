@@ -42,14 +42,7 @@ import {
 import { workflowBodyUsesOwnState } from "../../ir/util/workflow-own-state.js";
 import { type WriteScopeContext, writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
-import {
-  plural,
-  pythonIdent,
-  pythonWireIdent,
-  snake,
-  upperFirst,
-  workflowFnSnake,
-} from "../../util/naming.js";
+import { plural, pythonWireIdent, snake, workflowFnSnake } from "../../util/naming.js";
 import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { spellMarkers } from "../_imports/symbol.js";
@@ -220,7 +213,7 @@ export function buildPyWorkflowsFile(
   const models = wfs
     .map((wf) =>
       lines(
-        `class ${upperFirst(wf.name)}Request(${H.BaseModel}):`,
+        `class ${DOMAIN_NAMES.python.type(wf.name)}Request(${H.BaseModel}):`,
         wf.params.length > 0
           ? wf.params.map((p) =>
               withFieldConstraint(p.name, requestFieldDecl(p.type, false, ctx), undefined),
@@ -317,7 +310,8 @@ function reposFor(wf: WorkflowIR): RepoNeed[] {
 export function pyReadPortResolver(
   ctx: EnrichedBoundedContextIR,
 ): (service: string, op: string) => string[] {
-  return (service, op) => serviceOpReadPorts(ctx, service, op).map((p) => pythonIdent(p.repo));
+  return (service, op) =>
+    serviceOpReadPorts(ctx, service, op).map((p) => DOMAIN_NAMES.python.binding(p.repo));
 }
 
 /** Merge a workflow's directly-used repos with the read-port repos its
@@ -369,7 +363,7 @@ function workflowFnHelpers(wf: WorkflowIR): string[] {
   const out: string[] = [];
   for (const fn of wf.functions ?? []) {
     const params = fn.params
-      .map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`)
+      .map((p) => `${DOMAIN_NAMES.python.binding(p.name)}: ${renderPyType(p.type)}`)
       .join(", ");
     const name = workflowFnSnake(wf.name, fn.name);
     const head = `def ${name}(${params}) -> ${renderPyType(fn.returnType)}:`;
@@ -389,9 +383,9 @@ function workflowFnHelpers(wf: WorkflowIR): string[] {
  *  same way on both paths. */
 function stateLoader(wf: WorkflowIR): string {
   const row = rowRef(wf);
-  const corr = snake(wf.correlationField as string);
+  const corr = DOMAIN_NAMES.python.prop(wf.correlationField as string);
   return lines(
-    `async def _load_${snake(wf.name)}(session: ${H.AsyncSession}, key: str) -> ${row} | None:`,
+    `async def _load_${DOMAIN_NAMES.python.stem(wf.name)}(session: ${H.AsyncSession}, key: str) -> ${row} | None:`,
     `    return (`,
     `        await session.execute(${SELECT}(${row}).where(${row}.${corr} == key).limit(1))`,
     "    ).scalars().first()",
@@ -412,7 +406,7 @@ function workflowRoute(
   const usesUser = workflowNeedsCurrentUser(wf, ctx);
   const needsRequest = usesUser || commandCreateEntryResult(wf) !== undefined;
   const sig = [
-    pyCommandBodyParam(`${upperFirst(wf.name)}Request`, wf.params),
+    pyCommandBodyParam(`${DOMAIN_NAMES.python.type(wf.name)}Request`, wf.params),
     ...(needsRequest ? [PY_REQUEST_PARAM] : []),
     "session: SessionDep",
   ].join(", ");
@@ -433,7 +427,7 @@ function workflowRoute(
         ? responsePyType(result.type, ctx)
         : H.Response;
   const out: string[] = [
-    `@router.post("/${snake(wf.name)}", ${er ? "response_model=None, " : selfResult ? `response_model=${upperFirst(wf.name)}InstanceResponse, ` : ""}status_code=${result ? 200 : 204}, operation_id="${camelId(opWorkflow(wf.name))}"${errorResponsesKwarg(
+    `@router.post("/${snake(wf.name)}", ${er ? "response_model=None, " : selfResult ? `response_model=${DOMAIN_NAMES.python.type(wf.name)}InstanceResponse, ` : ""}status_code=${result ? 200 : 204}, operation_id="${camelId(opWorkflow(wf.name))}"${errorResponsesKwarg(
       "workflow",
       workflowIsGuarded(wf),
       er ? entryErrorStatusesPy(er, ctx) : [],
@@ -446,7 +440,7 @@ function workflowRoute(
     // A route-invoked workflow runs in a child frame under the request root, so
     // its audit / provenance rows are distinguishable from a direct operation's.
     `@${IN_CHILD_CONTEXT}`,
-    `async def ${snake(wf.name)}_workflow(${sig}) -> ${returnAnnotation}:`,
+    `async def ${DOMAIN_NAMES.python.stem(wf.name)}_workflow(${sig}) -> ${returnAnnotation}:`,
     ...(usesUser ? [PY_USER_BIND] : []),
     // Workflow narrative — `workflow_started` at the route entry; shared catalog
     // identity (field `workflow`) across every backend.
@@ -484,7 +478,7 @@ function workflowRoute(
   for (const p of wf.params) {
     if (!readParams.has(p.name)) continue;
     out.push(
-      `        ${pythonIdent(p.name)} = ${pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx)}`,
+      `        ${DOMAIN_NAMES.python.binding(p.name)} = ${pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx)}`,
     );
   }
   // F58 — a CORRELATED command workflow addresses a real persisted saga row:
@@ -500,8 +494,8 @@ function workflowRoute(
   // `on` reactor for the same key logged `event_unrouted` forever.
   const corrParam = commandCreateCorrelationParam(wf);
   if (corrParam) {
-    out.push(`        __key = str(${snake(corrParam.name)})`);
-    out.push(`        state = await _load_${snake(wf.name)}(session, __key)`);
+    out.push(`        __key = str(${DOMAIN_NAMES.python.binding(corrParam.name)})`);
+    out.push(`        state = await _load_${DOMAIN_NAMES.python.stem(wf.name)}(session, __key)`);
     out.push("        if state is None:");
     out.push(`            state = ${rowRef(wf)}(${allocateKwargs(wf, ctx)})`);
     out.push("            session.add(state)");
@@ -525,7 +519,7 @@ function workflowRoute(
     // an `IndentationError` inside the route's `try:` — the scratch never
     // parsed (F58 bycatch).
     const initKwargs = (wf.stateFields ?? [])
-      .map((f) => `_${snake(f.name)}=${f.optional ? "None" : zeroFor(f, ctx)}`)
+      .map((f) => `_${DOMAIN_NAMES.python.stem(f.name)}=${f.optional ? "None" : zeroFor(f, ctx)}`)
       .join(", ");
     out.push(`        self = ${SIMPLE_NAMESPACE}(${initKwargs})`);
   }
@@ -538,7 +532,7 @@ function workflowRoute(
   const repos = mergeReadPortRepos(reposFor(wf), wf, ctx);
   for (const r of repos) {
     out.push(
-      `        ${pythonIdent(r.repoName)} = ${repoClassRef(r.aggName)}(session, ${dispatcherExpr})`,
+      `        ${DOMAIN_NAMES.python.binding(r.repoName)} = ${repoClassRef(r.aggName)}(session, ${dispatcherExpr})`,
     );
   }
   const hasEmit = workflowEmits(wf.statements).length > 0;
@@ -609,7 +603,10 @@ function workflowRoute(
         ctx,
         "        ",
         "workflow_result",
-        (agg) => snake(repos.find((r) => r.aggName === agg)?.repoName ?? plural(agg)),
+        (agg) =>
+          DOMAIN_NAMES.python.binding(
+            repos.find((r) => r.aggName === agg)?.repoName ?? plural(agg),
+          ),
         (f) => instanceFieldValue("state", f),
         wf.instanceWireShape ?? [],
       ),
@@ -657,7 +654,7 @@ function workflowRoute(
  *  FastAPI emits a `$ref` to a named array component (parity with the aggregate
  *  `<Agg>ListResponse`). */
 function instanceResponseModels(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
-  const T = upperFirst(wf.name);
+  const T = DOMAIN_NAMES.python.type(wf.name);
   const shape = wf.instanceWireShape ?? [];
   const fieldLines = shape.map((f) => {
     const t = f.source === "id" ? "str" : responsePyType(f.type, ctx);
@@ -685,7 +682,7 @@ function instanceResponseModels(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): 
  *  exactly as the aggregate `to_wire`.  `session.get` keys on the PK (the
  *  correlation field). */
 function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
-  const T = upperFirst(wf.name);
+  const T = DOMAIN_NAMES.python.type(wf.name);
   // The instance-READ gate (`workflow X requires <expr>`) — 403 before the
   // store is touched, on BOTH routes.  Declared through the shared status
   // table so a remapped `Forbidden` rung moves the handler and the published
@@ -765,7 +762,7 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
  *  value text / scalar) passes through the column verbatim.  Shared with the
  *  workflow-instance read-model emitter. */
 export function instanceFieldValue(rowVar: string, f: WireField): string {
-  const attr = `${rowVar}.${pythonIdent(f.name)}`;
+  const attr = `${rowVar}.${DOMAIN_NAMES.python.prop(f.name)}`;
   const t = f.type.kind === "optional" ? f.type.inner : f.type;
   if (t.kind === "primitive" && t.name === "datetime") {
     return f.optional || f.type.kind === "optional"
@@ -819,7 +816,7 @@ export function pyWorkflowStmtTarget(
    *  single-result read behind `Repo.find(<Criterion>)` in a `let` and an
    *  `if let`. */
   const runFirstRow = (repoName: string, retrievalName: string, args: readonly ExprIR[]): string =>
-    `await ${pythonIdent(repoName)}.run_${snake(retrievalName)}(${[...args.map((a) => renderPyExpr(a, rctx)), "limit=1"].join(", ")})`;
+    `await ${DOMAIN_NAMES.python.binding(repoName)}.run_${DOMAIN_NAMES.python.stem(retrievalName)}(${[...args.map((a) => renderPyExpr(a, rctx)), "limit=1"].join(", ")})`;
   return {
     indentUnit: "    ",
     precondition: (st, i) => [
@@ -832,15 +829,17 @@ export function pyWorkflowStmtTarget(
     ],
     emit: (st, i) => {
       const kwargs = st.fields
-        .map((f) => `${pythonIdent(f.name)}=${renderPyExpr(f.value, rctx)}`)
+        .map((f) => `${DOMAIN_NAMES.python.prop(f.name)}=${renderPyExpr(f.value, rctx)}`)
         .join(", ");
       return [`${i}workflow_events.append(${eventRef(st.eventName)}(${kwargs}))`];
     },
     factoryLet: (st, i) => {
       const kwargs = st.fields
-        .map((f) => `${pythonIdent(f.name)}=${renderPyExpr(f.value, rctx)}`)
+        .map((f) => `${DOMAIN_NAMES.python.prop(f.name)}=${renderPyExpr(f.value, rctx)}`)
         .join(", ");
-      return [`${i}${snake(st.name)} = ${aggClassRef(st.aggName)}.create(${kwargs})`];
+      return [
+        `${i}${DOMAIN_NAMES.python.binding(st.name)} = ${aggClassRef(st.aggName)}.create(${kwargs})`,
+      ];
     },
     repoLet: (st, i) => {
       // A criterion read (`let c = Repo.find(<Criterion>)`) runs the shared
@@ -848,18 +847,18 @@ export function pyWorkflowStmtTarget(
       if (st.op === "select-one" && st.retrievalName) {
         const run = runFirstRow(st.repoName, st.retrievalName, st.args);
         if (usedLets && !usedLets.has(st.name)) return [`${i}${run}`];
-        const v = snake(st.name);
+        const v = DOMAIN_NAMES.python.binding(st.name);
         const hits = `__${v}_hits`;
         return [`${i}${hits} = ${run}`, `${i}${v} = ${hits}[0] if ${hits} else None`];
       }
       const args = st.args.map((a) => renderPyExpr(a, rctx)).join(", ");
-      const call = `await ${pythonIdent(st.repoName)}.${snake(st.method)}(${args})`;
+      const call = `await ${DOMAIN_NAMES.python.binding(st.repoName)}.${DOMAIN_NAMES.python.op(st.method)}(${args})`;
       // A load nothing reads, mutates or saves is an existence check: keep the
       // awaited call (a missing id still raises → 404) but drop the dead
       // binding, or ruff rejects the unused local (F841).  `usedLets` here is
       // `collectLiveLetNames` — op-call receivers and saves count as reads.
       if (usedLets && !usedLets.has(st.name)) return [`${i}${call}`];
-      return [`${i}${snake(st.name)} = ${call}`];
+      return [`${i}${DOMAIN_NAMES.python.binding(st.name)} = ${call}`];
     },
     repoRun: (st, i) => {
       const args = [
@@ -867,12 +866,12 @@ export function pyWorkflowStmtTarget(
         ...(st.page?.offset ? [`offset=${renderPyExpr(st.page.offset, rctx)}`] : []),
         ...(st.page?.limit ? [`limit=${renderPyExpr(st.page.limit, rctx)}`] : []),
       ].join(", ");
-      const call = `await ${pythonIdent(st.repoName)}.run_${snake(st.retrievalName)}(${args})`;
+      const call = `await ${DOMAIN_NAMES.python.binding(st.repoName)}.run_${DOMAIN_NAMES.python.stem(st.retrievalName)}(${args})`;
       // A `run` retrieval is a read (no exit-save), so a binding never read is
       // dead — keep the (still-awaited) call but drop the assignment, or ruff
       // rejects the unused local (F841).  Mirrors the `exprLet` arm.
       if (usedLets && !usedLets.has(st.name)) return [`${i}${call}`];
-      return [`${i}${snake(st.name)} = ${call}`];
+      return [`${i}${DOMAIN_NAMES.python.binding(st.name)} = ${call}`];
     },
     exprLet: (st, i) => {
       const rendered = renderPyExpr(st.expr, rctx);
@@ -884,7 +883,7 @@ export function pyWorkflowStmtTarget(
         const bare = rendered.startsWith("(await ") ? rendered.slice(1, -1) : rendered;
         return [`${i}${bare}`];
       }
-      return [`${i}${snake(st.name)} = ${rendered}`];
+      return [`${i}${DOMAIN_NAMES.python.binding(st.name)} = ${rendered}`];
     },
     // `field := value` — own-state mutation.  Render the LHS as a synthetic
     // `this-prop` ref so it reuses the `state.<snake>` mapping (persisted
@@ -912,7 +911,7 @@ export function pyWorkflowStmtTarget(
       const gateLines = (op ? operationGates(op) : []).flatMap((g) => {
         const guard = renderPyNegatedGuard(g.expr, {
           ...rctx,
-          thisName: snake(st.target),
+          thisName: DOMAIN_NAMES.python.binding(st.target),
           paramExpr: (name) => {
             const idx = op!.params.findIndex((q) => q.name === name);
             return idx >= 0 ? renderedArgs[idx] : undefined;
@@ -927,23 +926,25 @@ export function pyWorkflowStmtTarget(
       // ruff F841); the bare statement discards it.
       const bind =
         st.result && (!usedLets || usedLets.has(st.result.name))
-          ? `${snake(st.result.name)} = `
+          ? `${DOMAIN_NAMES.python.binding(st.result.name)} = `
           : "";
       return [
         ...gateLines,
-        `${i}${bind}${snake(st.target)}.${DOMAIN_NAMES.python.method(st.op)}(${args})`,
+        `${i}${bind}${DOMAIN_NAMES.python.binding(st.target)}.${DOMAIN_NAMES.python.op(st.op)}(${args})`,
       ];
     },
     repoDelete: (st, i) => {
       // `<Repo>.delete(o)` → `await <repo>.delete(<entity>.id)`.  The generated
       // repository's `delete(id)` takes the aggregate's id token, so append
       // `.id`.  Repo var mirrors the repo-let arm (`pythonIdent(repoName)`).
-      return [`${i}await ${pythonIdent(st.repoName)}.delete(${renderPyExpr(st.entity, rctx)}.id)`];
+      return [
+        `${i}await ${DOMAIN_NAMES.python.binding(st.repoName)}.delete(${renderPyExpr(st.entity, rctx)}.id)`,
+      ];
     },
     forEach: (st, i, body) => {
       const saves = st.savesPerIteration.flatMap((s) => saveLines(s, `${i}    `));
       return [
-        `${i}for ${snake(st.var)} in ${renderPyExpr(st.iterable, rctx)}:`,
+        `${i}for ${DOMAIN_NAMES.python.binding(st.var)} in ${renderPyExpr(st.iterable, rctx)}:`,
         ...(body.length + saves.length > 0 ? [...body, ...saves] : [`${i}    pass`]),
       ];
     },
@@ -951,7 +952,7 @@ export function pyWorkflowStmtTarget(
       // `if let o = Repo.find(<Criterion>) { … } else { … }` → run the shared
       // `find_all_by_<criterion>` retrieval with `limit=1`, take the first row
       // (or `None`), and branch.  Each branch's dirty bindings save inside it.
-      const v = snake(st.var);
+      const v = DOMAIN_NAMES.python.binding(st.var);
       const hits = `__${v}_hits`;
       const inner = `${i}    `;
       const thenSaves = st.savesInThen.flatMap((s) => saveLines(s, inner));
@@ -962,7 +963,7 @@ export function pyWorkflowStmtTarget(
       // answer the row or `None`, so they bind directly; a `bound` source
       // narrows an optional binding already in scope.
       const byName = (method: string): string[] => [
-        `${i}${v} = await ${pythonIdent(st.repoName)}.${snake(method)}(${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")})`,
+        `${i}${v} = await ${DOMAIN_NAMES.python.binding(st.repoName)}.${DOMAIN_NAMES.python.op(method)}(${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")})`,
       ];
       const lookup =
         st.op === "bound"
@@ -1014,7 +1015,7 @@ export function pyWorkflowStmtTarget(
           side
             ? [
                 ...(side.binding && armReads(st, side.binding)
-                  ? [`${inner}${snake(side.binding)} = ${subject}`]
+                  ? [`${inner}${DOMAIN_NAMES.python.binding(side.binding)} = ${subject}`]
                   : []),
                 ...side.lines,
                 ...saves(side.saves),
@@ -1035,7 +1036,7 @@ export function pyWorkflowStmtTarget(
           `${i}${n === 0 ? "if" : "elif"} ${subject}["type"] == ${JSON.stringify(variantTag(arm.varType))}:`,
           ...suite([
             ...(arm.binding && armReads(st, arm.binding)
-              ? [`${inner}${pythonIdent(arm.binding)} = ${value}`]
+              ? [`${inner}${DOMAIN_NAMES.python.binding(arm.binding)} = ${value}`]
               : []),
             ...armLines[n]!,
             ...saves(arm.savesInArm),
@@ -1067,7 +1068,7 @@ export function pyWorkflowStmtTarget(
       const bare = rendered.startsWith("(await ") ? rendered.slice(1, -1) : rendered;
       const bind =
         st.result && (!usedLets || usedLets.has(st.result.name))
-          ? `${snake(st.result.name)} = `
+          ? `${DOMAIN_NAMES.python.binding(st.result.name)} = `
           : "";
       return [`${i}${bind}${bare}`];
     },
@@ -1085,7 +1086,7 @@ export function pyWorkflowStmtTarget(
           writeScope: {
             cx: writeScope,
             guard: (g, i) => [
-              `${i}await ${pythonIdent(g.repoName)}.get_by_id_for_write(${snake(g.name)}.id)`,
+              `${i}await ${DOMAIN_NAMES.python.binding(g.repoName)}.get_by_id_for_write(${DOMAIN_NAMES.python.binding(g.name)}.id)`,
             ],
           },
         }
