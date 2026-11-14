@@ -1688,6 +1688,7 @@ function emitProjectFromContexts(
           ? generateVueForContexts(contexts, system.sys, system.deployable, {
               apiBaseUrl: "/api",
               pathPrefix: "ClientApp/",
+              frontendContract: system.frontendContract,
             })
           : uiFw === "angular"
             ? generateAngularForContexts(contexts, system.sys, system.deployable, {
