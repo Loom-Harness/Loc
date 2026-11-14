@@ -47,6 +47,7 @@ import {
   type ApiOperationParamIR,
   deriveContextOperations,
 } from "../util/api-surface.js";
+import { declaredCreateCommandFor } from "../util/declared-request.js";
 import {
   type ContractResponse,
   type ContractResponseField,
@@ -125,6 +126,9 @@ export interface ContractField {
   name: string;
   type: TypeIR;
   optional: boolean;
+  /** A request field's default, which the server applies when the field is
+   *  absent and a create form seeds or fetches (`GET /<tag>/prepare`). */
+  default?: ExprIR;
 }
 
 export interface ContractRecord {
@@ -160,6 +164,9 @@ interface OperationFacts {
    *  aggregate's invariants and the operation's preconditions that read only
    *  the request body (`classifyForWire`), in that order. */
   invariants?: ContractInvariant[];
+  /** On a `create`: the declared command record its body is, when the context
+   *  declares one (`declaredCreateCommandFor`). */
+  request?: string;
 }
 
 export interface ContractInvariant {
@@ -172,6 +179,7 @@ const field = record<ContractField>("ContractField", {
   name: keep,
   type: typeRule,
   optional: keep,
+  default: exprRule,
 });
 const fieldIR = record<FieldIR>("FieldIR", {
   name: keep,
@@ -181,7 +189,7 @@ const fieldIR = record<FieldIR>("FieldIR", {
   sensitivity: drop,
   access: drop,
   accessSource: drop,
-  default: drop,
+  default: exprRule,
   maskUnless: drop,
   origin: drop,
 });
@@ -209,6 +217,7 @@ const operationRule = record<ApiOperationIR & OperationFacts>("ContractOperation
   opName: keep,
   ifMatch: keep,
   optionalParams: keep,
+  request: keep,
   invariants: list(
     record<ContractInvariant>("ContractInvariant", {
       expr: exprRule,
@@ -506,7 +515,7 @@ export function contractOperations(
     const agg = ctx.aggregates.find((a) => a.name === op.aggregate);
     return as<ContractOperation>(
       operationRule,
-      { ...op, ...operationFacts(op, agg) },
+      { ...op, ...operationFacts(op, agg), ...(agg ? createFacts(op, ctx, agg) : {}) },
       `${at}.operations.${op.id}`,
     );
   });
@@ -536,6 +545,27 @@ function operationFacts(op: ApiOperationIR, agg: AggregateIR | undefined): Opera
     ...(optional.length > 0 ? { optionalParams: optional } : {}),
     ...(invariants.length > 0 ? { invariants } : {}),
   };
+}
+
+/** What a client needs about a `create`: the declared command record its body
+ *  is, and the aggregate's invariants that read only that record's fields. */
+function createFacts(
+  op: ApiOperationIR,
+  ctx: EnrichedBoundedContextIR,
+  agg: AggregateIR,
+): OperationFacts {
+  if (op.kind !== "create") return {};
+  const record = declaredCreateCommandFor(ctx.payloads, agg);
+  if (!record) return {};
+  const available = new Set(record.fields.map((f) => f.name));
+  const invariants = agg.invariants
+    .filter((inv) => classifyForWire(inv, { available }))
+    .map((inv) => ({
+      expr: inv.expr,
+      ...(inv.guard ? { guard: inv.guard } : {}),
+      ...(inv.message ? { message: inv.message } : {}),
+    }));
+  return { request: record.name, ...(invariants.length > 0 ? { invariants } : {}) };
 }
 
 /** An operation's `precondition` statements, as the invariants a request is

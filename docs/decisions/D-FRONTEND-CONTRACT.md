@@ -55,6 +55,16 @@ the `{api, path}` routes that serve it. A client keeps the first route on an api
 its host reads through (`clientFinds`, `src/generator/_frontend/contract.ts`),
 which is the route the target backend mounts.
 
+**A request is its declared command record.** A `create` names the declared
+command record its body is (`request`, found by `declaredCreateCommandFor` in
+`src/ir/util/declared-request.ts`): `Create<Agg>Command`, or for an
+event-sourced aggregate its first `create` action's `<Verb><Agg>Command`, whose
+fields are that action's params and never the folded state. A record field
+keeps its default, which a create form seeds or fetches from the server. A
+`create` or `operation` carries the invariants a client validates its body
+against: the aggregate's invariants (and an operation's preconditions) that read
+only the request's fields (`classifyForWire`).
+
 **Masks ship as a flag.** A masked response field carries `maskable: true`. The
 `mask unless` predicate and the mask-taint analysis stay server-side.
 

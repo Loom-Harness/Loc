@@ -1,4 +1,4 @@
-import type { ContractOperation } from "../../ir/contract/frontend-contract.js";
+import type { ContractOperation, ContractRecord } from "../../ir/contract/frontend-contract.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import {
   PAGED_DEFAULT_PAGE,
@@ -15,6 +15,7 @@ import {
   type EnrichedAggregateIR,
   type EnrichedEntityPartIR,
   type EnumIR,
+  type ExprIR,
   type InvariantIR,
   type OperationIR,
   type PayloadIR,
@@ -85,6 +86,17 @@ export interface ApiModuleOptions {
   /** The aggregate's operations from the Frontend Contract: which REST
    *  surface exists (create, destroy) and which writes send `If-Match`. */
   operations: readonly ContractOperation[];
+  /** The contract's declared request records: a create whose operation names
+   *  one sends that record. */
+  records: readonly ContractRecord[];
+}
+
+/** One field of a create request: its wire type, and the default the server
+ *  applies when it is absent. */
+interface CreateRequestField {
+  name: string;
+  type: TypeIR;
+  default?: ExprIR;
 }
 
 /** The finds a frontend emits a hook for: the auto-`all`, and each
@@ -207,14 +219,26 @@ export function buildApiModule(
   // create surface emits neither the `Create<Agg>Request` schema nor the
   // `useCreate<Agg>` hook, so we never ship a create hook POSTing to a route
   // that doesn't exist.
-  const restCreate = contractOps.some((o) => o.kind === "create");
-  const requiredFields = createInputFields(agg);
+  const create = contractOps.find((o) => o.kind === "create");
+  const restCreate = create !== undefined;
+  const createRequest = create?.request
+    ? options.records.find((r) => r.name === create.request)
+    : undefined;
+  // The declared create command record, as the contract carries it, and the
+  // invariants over its fields.  An aggregate whose context declares no
+  // record sends the create input every backend's create route reads.
+  const requiredFields: readonly CreateRequestField[] = createRequest
+    ? createRequest.fields
+    : createInputFields(agg);
+  const createInvariants: InvariantIR[] = createRequest
+    ? (create?.invariants ?? []).map((inv) => ({ ...inv, source: "" }))
+    : agg.invariants;
   if (restCreate) {
     lines.push(
       ...emitObjectWithRefines(
         `Create${agg.name}Request`,
         requiredFields.map((f) => ({ name: f.name, base: zodForRequest(f.type) })),
-        agg.invariants,
+        createInvariants,
         // Only create-input fields can be validated at the wire boundary —
         // invariants over excluded fields (e.g. a `managed` collection) are
         // enforced server-side, so they must not refine an absent field.
@@ -475,7 +499,7 @@ export function buildApiModule(
     // (`GET /<tag>/prepare`); the create form overlays them on its type-zero
     // seed.  A plain `useQuery` (staleTime Infinity — the defaults are stable
     // for the session).  Emitted only when a server-sourced default exists.
-    const prepFields = serverSourcedDefaultFields(createInputFields(agg));
+    const prepFields = serverSourcedDefaultFields(requiredFields);
     if (prepFields.length > 0) {
       lines.push(`export function usePrepare${agg.name}() {`);
       lines.push(`  return useQuery({`);

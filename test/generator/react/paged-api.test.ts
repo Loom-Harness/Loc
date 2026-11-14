@@ -41,6 +41,7 @@ async function apiModule(): Promise<string> {
     }));
   return buildApiModule(agg, ctx, {
     operations: contractOperations(ctx),
+    records: ctx.payloads,
     finds,
     history: false,
     // No declared response records either: the derived read wire stands in.
