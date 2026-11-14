@@ -18,6 +18,7 @@ import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { forApiRead, wireFieldsFor } from "../../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { pagedReturn, pagedSortDefault } from "../../../src/ir/stdlib/generics.js";
+import { withBackendSystem } from "../../_helpers/backend-system.js";
 import { enrichedContexts } from "../../_helpers/ir.js";
 import { parseString } from "../../_helpers/parse.js";
 
@@ -40,7 +41,7 @@ const SRC = `
 `;
 
 async function apiModule(): Promise<string> {
-  const { model } = await parseString(SRC, { validate: false });
+  const { model } = await parseString(withBackendSystem(SRC, "node").source, { validate: false });
   const enriched = enrichLoomModel(lowerModel(model));
   const ctx = enrichedContexts(enriched).find((c) => c.name === "Sales")!;
   const agg = ctx.aggregates.find((a) => a.name === "Customer")!;

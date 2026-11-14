@@ -116,15 +116,15 @@ The record survives as a named type only where the host language has cheap recor
 
 There is no `Orders.save(o)` statement — the exit save is derived (`computeSaves`), and an explicit `save` / `insert` / `update` / `add` / `commit` call in a handler or workflow body is refused with `loom.workflow-explicit-save` (see "Save + event drain semantics" in [`../workflow.md`](../workflow.md)). A record parameter always binds to the JSON body, so bind record-param handlers to `POST`/`PUT`/`PATCH` routes.
 
-### `<Agg>Wire` — the auto-synthesized record
+### The read record
 
-Every aggregate, part, and value object carries a canonical ordered `wireShape` (`id` → the aggregate's field list in declaration order → containments → derived; the `version` token `crudish`/`versioned` splices in rides that field list, so it lands last in these examples), synthesized once in enrichment (phase ⑥). Every backend's DTO emitter walks the *same* list, so the JSON an aggregate takes on the network is identical across all five backends by construction. This is the shape a union variant or a carrier argument projects through when it names an aggregate — `OrderResponse` below is the `Order` aggregate's wire record.
+An aggregate's or part's read wire is its declared `response <Agg>Response` record (see [Record forms](#record-forms--the-five-intents)): `id`, then the record's fields in order. Every backend's response DTO and serializer render those rows, so the JSON an aggregate takes on the network is identical across all five backends by construction. This is the shape a union variant or a carrier argument projects through when it names an aggregate — `OrderResponse` below is the `Order` aggregate's read record.
 
 ## Anonymous union — `A or B`
 
 A union is a value that is **one of several distinct variants**. The inline form needs no declaration — write `A or B` directly in a transport position: an `operation` or `domainService` operation return, or — with at least one `error` variant — the result of a workflow `create`, a `commandHandler` or a `queryHandler`. `A or B or C` flattens to one variant set; `or` is associative-commutative, so an anonymous union is **structural on its variants** (`A or B` ≡ `B or A`). An inline `or` anywhere else (an aggregate field, say) is rejected with `loom.union-position` — a payload field too, because no backend renders a tagged union nested inside a record (return the union from the operation, or give the payload one optional field per variant); a repeated variant (`A or A`) with `loom.union-duplicate-variant`; a non-carrier variant (a `slot`) with `loom.union-variant-not-carrier`.
 
-An **operation return** is the tagged case — the producer picks the variant, so the wire carries a **`type` discriminator**. A record variant (an aggregate → its `<Agg>Wire`, a payload/event → its fields) flattens its fields alongside `type`; a scalar variant is wrapped as `{ type, value }`; the tag is the variant type's name:
+An **operation return** is the tagged case — the producer picks the variant, so the wire carries a **`type` discriminator**. A record variant (an aggregate → its `<Agg>Response` record, a payload/event → its fields) flattens its fields alongside `type`; a scalar variant is wrapped as `{ type, value }`; the tag is the variant type's name:
 
 ```ddd
 error OutOfStock { sku: string }
