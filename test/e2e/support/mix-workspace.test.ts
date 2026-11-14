@@ -18,7 +18,9 @@ vi.mock("./parallel.js", () => ({
   }),
 }));
 
-const { MixWorkspace, VERIFY_ARCHIVES } = await import("./mix-workspace.js");
+const { INSTALL_NATIVE_TOOLCHAIN, MixWorkspace, VERIFY_ARCHIVES } = await import(
+  "./mix-workspace.js"
+);
 
 describe("MixWorkspace Hex/rebar archives", () => {
   let mix: InstanceType<typeof MixWorkspace>;
@@ -58,5 +60,38 @@ describe("MixWorkspace Hex/rebar archives", () => {
     verifyStatus = 1;
     await expect(mix.ready()).rejects.toThrow(/a fresh container cannot use them/);
     expect(() => mix.dockerRun("", "", "true")).toThrow(/before `await ready\(\)`/);
+  });
+});
+
+describe("MixWorkspace dependency templates", () => {
+  let mix: InstanceType<typeof MixWorkspace>;
+  beforeEach(() => {
+    calls.length = 0;
+    verifyStatus = 0;
+    mix = new MixWorkspace("loom-mix-workspace-test");
+  });
+  afterEach(() => fs.rmSync(mix.root, { recursive: true, force: true }));
+
+  function project(deps: string): string {
+    const dir = fs.mkdtempSync(`${mix.root}/proj-`);
+    fs.writeFileSync(
+      `${dir}/mix.exs`,
+      `defmodule App.MixProject do\n  defp deps do\n    [\n${deps}\n    ]\n  end\nend\n`,
+    );
+    fs.mkdirSync(`${dir}/config`);
+    return dir;
+  }
+
+  // brod's crc32cer is a NIF built with make + cmake, which the slim image lacks.
+  it("installs the C toolchain before compiling a dependency set that names brod", async () => {
+    await mix.template(project(`      {:phoenix, "~> 1.7"},\n      {:brod, "~> 4.0"}`));
+    const build = calls.at(-1) as string;
+    expect(build).toContain(INSTALL_NATIVE_TOOLCHAIN);
+    expect(build.indexOf(INSTALL_NATIVE_TOOLCHAIN)).toBeLessThan(build.indexOf("deps.compile"));
+  });
+
+  it("leaves every other dependency set on the bare image", async () => {
+    await mix.template(project(`      {:phoenix, "~> 1.7"}`));
+    expect(calls.at(-1)).not.toContain("apt-get");
   });
 });

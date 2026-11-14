@@ -37,12 +37,35 @@ export const SEED_FROM_TEMPLATE = "cp -a /tpl/deps /tpl/_build /tpl/mix.lock /ap
 export const VERIFY_ARCHIVES =
   'mix run --no-mix-exs -e "Mix.Hex.start()" && ls /root/.mix/elixir/*/rebar3 >/dev/null';
 
-/** The hash of a project's `defp deps do … end` block — its dependency set. */
-export function depsSignature(projDir: string): string {
+/** A project's `defp deps do … end` block. */
+function depsBlock(projDir: string): string {
   const mix = fs.readFileSync(path.join(projDir, "mix.exs"), "utf8");
   const block = mix.match(/defp deps do[\s\S]*?\n {2}end/)?.[0];
   if (!block) throw new Error(`${projDir}/mix.exs: no \`defp deps do … end\` block`);
-  return createHash("sha256").update(block).digest("hex").slice(0, 16);
+  return block;
+}
+
+/** The hash of a project's `defp deps do … end` block — its dependency set. */
+export function depsSignature(projDir: string): string {
+  return createHash("sha256").update(depsBlock(projDir)).digest("hex").slice(0, 16);
+}
+
+/**
+ * Dependencies whose build compiles C, which the slim image cannot: `brod`
+ * pulls `crc32cer`, a NIF built with make and cmake.  The generated Dockerfile
+ * installs the same toolchain for these projects; a template whose deps name
+ * one installs it in its own container before compiling, and every other
+ * template stays on the bare image.
+ */
+const NATIVE_DEPS = /\{:brod,/;
+
+/** Shell snippet that installs the C toolchain {@link NATIVE_DEPS} build with. */
+export const INSTALL_NATIVE_TOOLCHAIN =
+  "apt-get update -qq && apt-get install -y -qq --no-install-recommends build-essential cmake >/dev/null";
+
+/** Whether a project's dependency set needs {@link INSTALL_NATIVE_TOOLCHAIN}. */
+export function needsNativeToolchain(projDir: string): boolean {
+  return NATIVE_DEPS.test(depsBlock(projDir));
 }
 
 /** One gate's working area: its temp root, hex/mix caches and built templates. */
@@ -150,11 +173,12 @@ export class MixWorkspace {
         // real one rather than none.
         fs.copyFileSync(path.join(projDir, "mix.exs"), path.join(dir, "mix.exs"));
         fs.cpSync(path.join(projDir, "config"), path.join(dir, "config"), { recursive: true });
+        const toolchain = needsNativeToolchain(projDir) ? `${INSTALL_NATIVE_TOOLCHAIN} && ` : "";
         await sh(
           this.dockerRun(
             `-v ${dir}:/app`,
             "",
-            `${mixDepsGet()} && MIX_ENV=prod mix deps.compile && MIX_ENV=test mix deps.compile`,
+            `${toolchain}${mixDepsGet()} && MIX_ENV=prod mix deps.compile && MIX_ENV=test mix deps.compile`,
           ),
           { timeout: 1_200_000 },
         );
