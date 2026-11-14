@@ -70,8 +70,8 @@ import {
   type ErrorStatusMap,
   guardErrorModule,
   guardRaiseLine,
+  opGuardEnsureClauses,
   opHasWireDenial,
-  wireLimitSides,
   wireValidationResponse,
 } from "./denial.js";
 import { opRowFreeGates } from "./gate.js";
@@ -486,11 +486,7 @@ export function gateClauses(
   rc: RenderCtx,
   wireAvailable: ReadonlySet<string>,
 ): string[] {
-  const sides = wireLimitSides(s, wireAvailable);
-  if (sides) {
-    return sides.map((side) => `:ok <- ensure(${renderExpr(side.expr, rc)}, ${side.term})`);
-  }
-  return [renderOpGuardClause(s, rc, wireAvailable)];
+  return opGuardEnsureClauses(s, wireAvailable, (e) => renderExpr(e, rc));
 }
 
 /** Wrap an operation body (its rendered 4-space-indented `bodyLines` + persist

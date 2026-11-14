@@ -1745,7 +1745,8 @@ end
 
 /** The caller's credential as outbound headers: the bearer token the plug
  *  accepted (an `Authorization` header, or the HttpOnly `session` cookie) and
- *  the dev-stub `x-loom-dev-claims` override.  Public so `BrowserAuth` can keep
+ *  the dev-stub `x-loom-dev-claims` override, plus the requested operating-org
+ *  switch.  Public so `BrowserAuth` can keep
  *  it in the Phoenix session for a LiveView process. */
 const CALLER_CREDENTIAL_DEF = `
   @doc false
@@ -1764,9 +1765,15 @@ const CALLER_CREDENTIAL_DEF = `
           end
       end
 
-    case get_req_header(conn, "x-loom-dev-claims") do
-      [claims | _] when claims != "" -> bearer ++ [{"x-loom-dev-claims", claims}]
-      _ -> bearer
+    with_claims =
+      case get_req_header(conn, "x-loom-dev-claims") do
+        [claims | _] when claims != "" -> bearer ++ [{"x-loom-dev-claims", claims}]
+        _ -> bearer
+      end
+
+    case get_req_header(conn, "${ORG_CONTEXT_HEADER}") do
+      [org | _] when org != "" -> with_claims ++ [{"${ORG_CONTEXT_HEADER}", org}]
+      _ -> with_claims
     end
   end
 `;

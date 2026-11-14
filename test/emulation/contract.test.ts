@@ -3,6 +3,7 @@
 
 import {
   createBroker,
+  createCache,
   createDisk,
   createHttpMock,
   createMailbox,
@@ -20,4 +21,5 @@ emulationContract("in-process core", {
   httpMock: (o) => createHttpMock(o),
   oidc: () => createOidcProvider(),
   broker: (o) => createBroker(o),
+  cache: (o) => createCache(o),
 });

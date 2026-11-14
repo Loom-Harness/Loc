@@ -13,6 +13,15 @@ export type ThrowClassification =
   | { deferred: string; mission: string; reviewUntil: string };
 
 export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
+  // src/generator/_api/polymorphic-row.ts
+  "src/generator/_api/polymorphic-row.ts#polymorphicRowOf": {
+    invariant:
+      "Only `contextOperations(ctx)` marks an operation `polymorphicBase`, and it derives one only for a base `routedPolymorphicRead` routes in that same ctx; no .ddd input reaches the throw.",
+  },
+  "src/generator/_api/polymorphic-row.ts#polymorphicRowOf$2": {
+    invariant:
+      "`routedPolymorphicRead(base, ctx)` draws its variants from `ctx.aggregates`, so every variant names an aggregate of that ctx; no .ddd input reaches the throw.",
+  },
   "src/generator/_frontend/form-row-binding.ts#settled": {
     invariant:
       "a shipped pack's field template binds its path or test id through a site the row binder does not rewrite; every shipped pack's dynamic rows render in the form-spec census and the walker suites, so only a new pack template shape reaches it",

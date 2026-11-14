@@ -294,13 +294,6 @@ export const BEHAVIOURAL_XFAIL = {
       expect: "wire",
       reason: "the workflow 409 `detail` names no aggregate or id (M-T6.94's removal half is fixed)",
     },
-    // Every test passes; the refused deposit's 422 carries no `errors[]`
-    // entry on elixir's event-sourced operation path.
-    "eventsourced-durable-outbox": {
-      issue: "#5469",
-      expect: "wire",
-      reason: "an event-sourced operation's refused precondition answers 422 without `errors[]`",
-    },
     // Every test passes; the recording diverges from the golden in the two
     // stale-save 409s, whose `detail` names no aggregate or id.
     "workflow-two-handles-document-eventlog": {

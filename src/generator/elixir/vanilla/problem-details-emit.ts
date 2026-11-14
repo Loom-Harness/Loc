@@ -93,6 +93,10 @@ export function renderVanillaProblemDetailsModule(
   /** The `[constraint name, params.type]` pairs (`constraintTypeEntries`) a
    *  LiveView reads the aggregate of a persistence refusal off. */
   constraintTypes: readonly (readonly [string, string])[] = [],
+  /** The status a write naming a missing reference answers with
+   *  (`dangling-reference`, resolved through the api's overrides), when some
+   *  aggregate can trip a reference FK; `undefined` ⇒ byte-identical. */
+  danglingStatus?: number,
 ): string {
   const conflict409 = exRejectionAt("version-conflict", concurrencyStatus);
   // The codes whose body carries `params.type` (`wireParams`), and the
@@ -254,6 +258,29 @@ ${baseBody422.replace(/^/gm, "    ")}
         problem_response(conn, ${opInvariants.status}, ${elixirString(opInvariants.title)}, detail, ${exCode("domain-floor")})
     end`
     : baseBody422;
+  // A reference FK violation (a changeset error tagged `constraint: :foreign`,
+  // from the database or from reference admission) is not a field failure: it
+  // answers the `dangling-reference` class body, with the addressed
+  // aggregate's `params.type`, as every other backend's 23503 arm does.
+  const dangling422 = exRejectionAt("dangling-reference", danglingStatus ?? 422);
+  const body422Routed =
+    danglingStatus === undefined
+      ? body422
+      : `    if dangling_reference?(changeset) do
+      problem_response(conn, ${dangling422.status}, ${exLit(dangling422.title)}, ${exFixedDetail("dangling-reference")}, ${exCode("dangling-reference")})
+    else
+${body422.replace(/^/gm, "  ")}
+    end`;
+  const danglingFn =
+    danglingStatus === undefined
+      ? ""
+      : `
+
+  defp dangling_reference?(%Ecto.Changeset{} = changeset) do
+    changeset
+    |> collect_changeset_errors([])
+    |> Enum.any?(&(&1.code == ${exCode("dangling-reference")}))
+  end`;
   const opInvariantFn = opInvariants
     ? `
 
@@ -463,10 +490,10 @@ ${strictIngressFns}
   end
 
   defp validation_failed_response(conn, %Ecto.Changeset{} = changeset) do
-${body422}
+${body422Routed}
   end`
     : `  def validation_error_response(conn, %Ecto.Changeset{} = changeset) do
-${body422}
+${body422Routed}
   end`;
   return `# Auto-generated.  Do not edit by hand.
 defmodule ${appModule}Web.ProblemDetails do
@@ -501,7 +528,7 @@ defmodule ${appModule}Web.ProblemDetails do
   Send a 422 ProblemDetails response carrying the §3.2 \`errors[]\`
   extension built from an \`Ecto.Changeset\` errors map.${conflictDoc}
   """
-${responseFns}${opInvariantFn}${sendValidationProblemFn}${bodyValueObjectFns}${wireErrorsFn}
+${responseFns}${danglingFn}${opInvariantFn}${sendValidationProblemFn}${bodyValueObjectFns}${wireErrorsFn}
 
   @doc """
   Send the 422 a MALFORMED path \`{id}\` earns.

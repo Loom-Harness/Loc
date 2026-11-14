@@ -213,9 +213,10 @@ by-id route has no `requires` surface; see `loom.default-deny-by-id-ungated`
 in [auth.md](auth.md)).  A filtered-out row reads 404 there.
 
 A typed `kind: api` call to another deployable forwards the caller's own
-credential ([auth.md](auth.md#calling-an-api-that-requires-auth)), so the
-callee's capability filters and stamps (`currentUser` included) run against
-that forwarded principal.
+credential and its `x-org-context` org switch
+([auth.md](auth.md#calling-an-api-that-requires-auth)), so the callee's
+capability filters and stamps (`currentUser` and `organizationContext`
+included) run against that forwarded principal and operating org.
 
 Only `==` / `!=` qualify — an ordering between two host values has no single
 meaning across the host languages — and only in a capability `filter` (inline,
