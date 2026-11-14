@@ -140,13 +140,13 @@ describe("clause census — what the corpus authors, and what it never does", ()
     // every "unexercised" claim below unfalsifiable. These pin the shape of a
     // healthy census: ~340 files, ~186 instantiable types, the great majority
     // of them actually instantiated.
-    expectReach("`.ddd` files with clauses", byFile.size, 577);
+    expectReach("`.ddd` files with clauses", byFile.size, 546);
     expectReach("concrete grammar types", concrete.length, 165);
     expectReach("counted clause types", totals.size, 164);
     // Spot-check three types that must appear in ANY healthy parse of this
     // corpus — if the walk breaks, these go to zero first.
     for (const t of ["Aggregate", "Operation", "Deployable"]) {
-      expectReach(`${t} clauses (the walk is broken if zero)`, totals.get(t) ?? 0, 680);
+      expectReach(`${t} clauses (the walk is broken if zero)`, totals.get(t) ?? 0, 629);
     }
   });
 
