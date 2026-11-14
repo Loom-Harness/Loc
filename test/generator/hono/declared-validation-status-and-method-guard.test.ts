@@ -126,7 +126,9 @@ describe("hono declared responses — 422 rides every parsed request part (F6)",
   it("a routed read WITH query params declares 422", async () => {
     const { api } = await routers();
     const byQty = routeBlock(api, "get", "/orders/projections/orders_by_qty");
-    expect(byQty).toContain("request: { query: z.object({ min: z.coerce.number().int()");
+    expect(byQty).toContain(
+      'request: { query: z.object({ min: z.coerce.number({ error: "Expected an integer." }).int({ error: "Expected an integer." })',
+    );
     expect(byQty).toContain('422: { description: "Unprocessable Entity"');
   });
 });

@@ -162,7 +162,9 @@ describe("hono request boundary — body validators are strict (F7)", () => {
   it("a QUERY parameter keeps its coercion — the value really is a string there", async () => {
     const { agg, api } = await routers();
     // `GET /orders/projections/orders_by_qty?min=…` — the criterion's param.
-    expect(api).toContain("request: { query: z.object({ min: z.coerce.number().int()");
+    expect(api).toContain(
+      'request: { query: z.object({ min: z.coerce.number({ error: "Expected an integer." }).int({ error: "Expected an integer." })',
+    );
     // And a path id stays the uuid-format string it already was.
     expect(agg).toContain("z.object({ id: UuidString })");
   });
