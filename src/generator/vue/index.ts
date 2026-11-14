@@ -1,4 +1,5 @@
 import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
+import { buildFrontendHost } from "../../ir/contract/host.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -13,12 +14,10 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { contextUsesMoney, sourceLocaleOf, uiUsesMoney } from "../../ir/types/loom-ir.js";
-import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
-import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, plural, snake } from "../../util/naming.js";
@@ -170,12 +169,13 @@ export function generateVueForContexts(
   options: GenerateVueOptions = {},
 ): Map<string, string> {
   const out = emissionSink("generator/vue/index");
-  const contract = requireFrontendContract(options.frontendContract, deployable.name);
+  const host = buildFrontendHost(sys, deployable);
+  const contract = requireFrontendContract(options.frontendContract, host.deployable);
 
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   // The frontend session guard (`auth: ui`): also decides which chrome the
   // translation catalog carries, so it is derived before the catalog scope.
-  const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
+  const authUi = host.authUi;
   // Same-origin relative `/api` base; `vite dev` proxies it to the
   // target backend, docker-compose overrides via `VITE_API_BASE_URL`.
   const apiBaseUrl = options.apiBaseUrl ?? API_BASE_PATH;
@@ -266,7 +266,7 @@ export function generateVueForContexts(
 
   // Per-aggregate api modules — 1:1 with the aggregate inventory,
   // emitted from the shared `_frontend` builder with vue-query naming.
-  const serves = (target ?? deployable).serves;
+  const serves = host.serves;
   for (const { agg, ctx } of aggregates) {
     out.set(
       `src/api/${agg.name[0]!.toLowerCase()}${agg.name.slice(1)}.ts`,
@@ -625,9 +625,7 @@ export function generateVueForContexts(
   // handlers, emit the renderless RealtimeHandlers component + the toast
   // queue the app-shell mounts; the config module exports `API_BASE_URL`
   // on Vue (the SvelteKit symbol).
-  const realtimeTypes = backendServesRealtime(target?.platform)
-    ? [...new Set(contexts.flatMap((c) => [...realtimeEventTypes(c)]))].sort()
-    : [];
+  const realtimeTypes = host.realtime.eventTypes;
   if (realtimeTypes.length > 0) {
     out.set(
       "src/api/realtime.ts",
@@ -635,11 +633,7 @@ export function generateVueForContexts(
       // SAME `auth: ui` / `auth: required` gate the api client's
       // `credentials: "include"` rides, so the SSE stream authenticates exactly
       // like an ordinary API call instead of 401-ing on an authenticated deployable.
-      renderRealtimeClient(
-        realtimeTypes,
-        "API_BASE_URL",
-        realtimeStreamCredential(deployable, target, sys.user),
-      ),
+      renderRealtimeClient(realtimeTypes, "API_BASE_URL", host.realtime.credential),
     );
   }
   const hasRealtimeHandlers = realtimeTypes.length > 0 && (ui.notifications?.length ?? 0) > 0;

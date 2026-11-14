@@ -11,7 +11,7 @@
 
 import type { DeployableIR, SystemIR, ThemeIR } from "../types/loom-ir.js";
 import { sourceLocaleOf } from "../types/loom-ir.js";
-import { backendServesRealtime } from "../util/channels.js";
+import { backendServesRealtime, realtimeEventTypes } from "../util/channels.js";
 import { type RealtimeStreamCredential, realtimeStreamCredential } from "../util/realtime-rooms.js";
 
 export interface FrontendHost {
@@ -39,13 +39,24 @@ export interface FrontendHost {
    *  `auth: ui`, its target enforces auth, and the system declares the
    *  `user { }` claim shape the session projects to. */
   authUi: boolean;
-  /** The target serves the realtime SSE wire, and the credential its stream
-   *  carries. */
-  realtime: { served: boolean; credential: RealtimeStreamCredential };
+  /** The target serves the realtime SSE wire, the credential its stream
+   *  carries, and the event types it broadcasts there: every type a
+   *  `delivery: broadcast` channel of the deployable's contexts carries,
+   *  sorted, and none when the wire is not served. */
+  realtime: {
+    served: boolean;
+    credential: RealtimeStreamCredential;
+    eventTypes: string[];
+  };
 }
 
 export function buildFrontendHost(sys: SystemIR, deployable: DeployableIR): FrontendHost {
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
+  const served = backendServesRealtime(target?.platform);
+  const contextNames = new Set(deployable.contextNames);
+  const contexts = sys.subdomains
+    .flatMap((sd) => sd.contexts)
+    .filter((c) => contextNames.has(c.name));
   return {
     system: sys.name,
     deployable: deployable.name,
@@ -60,8 +71,11 @@ export function buildFrontendHost(sys: SystemIR, deployable: DeployableIR): Fron
     serves: [...(target ?? deployable).serves],
     authUi: !!(deployable.auth?.ui && target?.auth?.required && sys.user),
     realtime: {
-      served: backendServesRealtime(target?.platform),
+      served,
       credential: realtimeStreamCredential(deployable, target, sys.user),
+      eventTypes: served
+        ? [...new Set(contexts.flatMap((c) => [...realtimeEventTypes(c)]))].sort()
+        : [],
     },
   };
 }

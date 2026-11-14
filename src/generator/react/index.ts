@@ -12,7 +12,6 @@ import {
   type UiIR,
   uiUsesMoney,
 } from "../../ir/types/loom-ir.js";
-import { realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
@@ -357,9 +356,7 @@ export function generateReactForContexts(
   // the only backend serving GET /realtime/events so far), emit the
   // EventSource subscription helper.  Pack-agnostic shared shell file —
   // user code (and the future `on <channel>.<Event>` handlers) consume it.
-  const realtimeTypes = host.realtime.served
-    ? [...new Set(contexts.flatMap((c) => [...realtimeEventTypes(c)]))].sort()
-    : [];
+  const realtimeTypes = host.realtime.eventTypes;
   if (realtimeTypes.length > 0) {
     out.set(
       "src/api/realtime.ts",
