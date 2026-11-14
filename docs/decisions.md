@@ -6966,33 +6966,6 @@ counter, then fails; the counter keeps its bump on all five backends, and the
 
 ---
 
-## D-CACHE-BY-ID — the cache resource caches the by-id read's wire answer, keyed by scope
-
-**Status:** decided by the owner, 2026-11-02.
-
-**Question.** What does `kind: cache` cache, and how does a cached read keep
-the read scopes (tenancy, policy, masks, soft delete) a database read applies?
-
-**Decision.** The by-id read only (`GET /{id}`); lists, finds and paged reads go
-to the database.  The cached value is the read's wire answer, and the scope
-goes **in the key**: the entry holds one answer per scope fingerprint — every
-principal member the read scope, the policy rungs and the masks read — and the
-read stance (which restrictions apply, which fields are masked) is hashed into
-the prefix.  Restricting the cache to unscoped aggregates and re-checking scope
-after a hit were both rejected.  Every repository `save` / `delete` evicts the
-id's entry.  `src/ir/plan/cache.ts` is the one decision; backends render it
-(`test/system/cache-plan-census.test.ts`).
-
-**Consequence.** An aggregate whose answer depends on other rows (an `exists`
-row rule, a referenced row) cannot be keyed by principal inputs alone, so it is
-read from the database and `loom.cache-read-uncached` says so.
-
-**Proof.** `test/fixtures/corpus/cache-by-id.ddd`: hits, eviction on update,
-operation, workflow and soft delete, and isolation across tenant, mask role and
-the `own` rung.
-
----
-
 ## D-AGGREGATE-FUNCTION-PUBLIC — an aggregate `function` is a public, pure query
 
 **Status:** owner ruling, 2026-10-21.
@@ -7065,3 +7038,30 @@ server-only.
 only protection the contract has is what its bytes contain. A pruned clone
 ships every field nobody remembered to prune, including back-links into the
 pruned subtrees; an allowlist ships only what someone added on purpose.
+
+## D-PROJECTION-PARAMS — a query-time projection's declared parameters are its only filter, checked like operation inputs
+
+**Status:** PINNED (owner ruling 15 on the projection semantics plan, 2026-11-13).
+
+**Question.** A parameterised query-time projection (`projection X(p: T) { from … where … }`)
+was bound differently per emission arm and per backend: the grouped and
+singleton arms read the parameter as a free variable on four backends, python
+read the snake-cased query key, and Phoenix coerced through helpers it never
+defined. Which query keys reach the query, and how is each checked?
+
+**Decision.** The declared parameters, and nothing else. One plan,
+`projectionQueryParams` (`src/ir/plan/projection-params.ts`), gives every
+backend each parameter's wire name (the declared spelling), whether it is
+required (`T?` is optional) and the check its query-string text must pass (the
+type the app's OpenAPI document publishes). Every arm binds them the same way,
+and a value that fails is refused with the 422 `field-invalid` envelope at
+`/<name>` before the gate or the query runs: `field.malformed-id` for an
+`X id` / `guid`, `field.integer-range` with its bounds for an integer outside
+`int`, `field.missing` for an absent required parameter (D-WIRE-POLICY).
+
+**Consequences.** The `projection-params` corpus fixture pins the grouped,
+singleton and repository arms and the two ruled refusals with a wire golden on
+every behavioural leg. `test/system/projection-params-census.test.ts` fails on a
+query-projection emitter that reads a projection's parameter list around the
+plan. A type-mismatch sentence (`?maxRank=many`) is still the framework's text,
+as it is for every query parameter (`FIELD_REASONS["type-mismatch"]`).
