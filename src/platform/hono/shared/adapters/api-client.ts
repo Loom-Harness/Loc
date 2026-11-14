@@ -39,6 +39,7 @@ import {
   deriveContextOperations,
 } from "../../../../ir/util/api-surface.js";
 import { escapeTsIdent } from "../../../../util/naming.js";
+import { ORG_CONTEXT_HEADER } from "../../../../util/principal.js";
 import { resourceEnvUrlVar } from "../../../../util/resource-env.js";
 
 /** The aggregate an operation answers with, looked up ACROSS the system — the
@@ -282,7 +283,8 @@ export function emitApiClientModule(
 /** The per-request capture of the caller's credential: the bearer token the
  *  auth middleware accepted (an `Authorization` header, or the HttpOnly
  *  `session` cookie the OIDC handshake sets) and, under the dev-stub verifier,
- *  the `x-loom-dev-claims` override.  Read back by every call to a callee that
+ *  the `x-loom-dev-claims` override, plus the requested operating-org switch
+ *  so the callee re-runs its own switch gate.  Read back by every call to a callee that
  *  requires auth. */
 function callerCredentialCapture(): string[] {
   return [
@@ -308,6 +310,8 @@ function callerCredentialCapture(): string[] {
     "  else if (session) headers.authorization = `Bearer ${session}`;",
     `  const devClaims = c.req.header("x-loom-dev-claims");`,
     `  if (devClaims) headers["x-loom-dev-claims"] = devClaims;`,
+    `  const orgContext = c.req.header("${ORG_CONTEXT_HEADER}");`,
+    `  if (orgContext) headers["${ORG_CONTEXT_HEADER}"] = orgContext;`,
     `  await callerCredential.run(headers, next);`,
     `});`,
     ``,
