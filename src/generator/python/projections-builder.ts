@@ -1,4 +1,5 @@
 import { foldFloorTerms, foldTenancyFor } from "../../ir/enrich/fold-tenancy.js";
+import { wireStatusResolver } from "../../ir/enrich/wire-policy.js";
 import type { EnrichedBoundedContextIR, ProjectionIR } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../ir/types/loom-ir.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
@@ -8,7 +9,7 @@ import { responsePyType } from "./emit/http-models.js";
 import { PY } from "./py-symbols.js";
 import { renderPyNegatedGuard } from "./render-expr.js";
 import { errorResponsesKwarg } from "./routes-builder.js";
-import { pyNotFoundRaise, wireStatusResolver } from "./wire-policy-py.js";
+import { pyNotFoundRaise } from "./wire-policy-py.js";
 import { instanceFieldValue } from "./workflows-builder.js";
 
 // ---------------------------------------------------------------------------

@@ -380,29 +380,14 @@ export const messages = {
   // ----------------------------------------------------------------------
   // `let r = a.withdraw(x)` / `let r = Transfer.run(…)` in a body the Phoenix
   // backend emits — the bound form of a mutating call is not rendered there.
-  "loom.elixir-entry-result-unsupported": (p: { where: unknown; deployable: unknown }) =>
-    `${p.where} declares an expected-failure result ('T or E'), and the Phoenix/Elixir ` +
-    `deployable '${p.deployable}' hosts its context.  The Phoenix workflow and handler emitters ` +
-    `have no tagged result yet, nor the rollback that undoes the whole command when the answer ` +
-    `is an error.  Drop the error variant (answer the failure with 'notFound', or from an ` +
-    `operation route), or host this context on a node / dotnet / java / python backend.`,
-  "loom.elixir-entry-result-unsupported#workflow-state": (p: {
-    where: unknown;
-    deployable: unknown;
-  }) =>
-    `${p.where} answers the workflow itself ('return this'), and the Phoenix/Elixir deployable ` +
-    `'${p.deployable}' hosts its context.  The Phoenix command route has no instance-state ` +
-    `answer yet.  Answer the correlation id and read the instance through ` +
-    `'GET /workflows/<name>/instances/{id}', or host this context on a node / dotnet / java / ` +
-    `python backend.`,
   "loom.elixir-bound-mutating-call-unsupported": (p: {
     where: unknown;
     name: unknown;
     call: unknown;
     deployable: unknown;
   }) =>
-    `${p.where} binds the result of the mutating call '${p.call}(…)' to '${p.name}', which ` +
-    `the elixir deployable '${p.deployable}' cannot render yet: a Phoenix context operation ` +
-    `persists inside its own function, and the bound form is not wired through it. Host the ` +
-    `context on a node, dotnet, java or python deployable.`,
+    `${p.where} binds the result of the mutating domain-service call '${p.call}(…)' to ` +
+    `'${p.name}', which the elixir deployable '${p.deployable}' cannot render yet: Phoenix ` +
+    `inlines a mutating service clause by clause, which computes no value to bind. Call the ` +
+    `service as a statement, or host the context on a node, dotnet, java or python deployable.`,
 } satisfies Record<string, MessageEntry>;

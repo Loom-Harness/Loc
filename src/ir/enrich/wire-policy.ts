@@ -896,6 +896,32 @@ export function noneVariantResponse(): ErrorVariantResponse {
   return errorVariantResponse("NotFound");
 }
 
+/** The rejection class a stdlib rung name resolves through. */
+const RESOLVED_CLASS: Readonly<Record<string, WireRejectionClass>> = {
+  ReferencedInUse: "referenced-in-use",
+  DomainError: "domain-floor",
+  Forbidden: "forbidden",
+  NotFound: "not-found",
+  Disallowed: "state-gate",
+  UniquenessConflict: "unique-conflict",
+  ConcurrencyConflict: "version-conflict",
+};
+
+/** The status resolver `errorStatuses` takes: a stdlib rung name resolved
+ *  through its rejection class and the context's `httpStatus` map.  A name
+ *  with no rejection class is a declared `error` variant, whose status is the
+ *  variant mapping (the override, else the stdlib default). */
+export function wireStatusResolver(
+  overrides?: Readonly<Record<string, number>>,
+): (name: string) => number {
+  return (name) => {
+    const cls = RESOLVED_CLASS[name];
+    return cls === undefined
+      ? errorVariantResponse(name, overrides).status
+      : wireStatus(cls, overrides);
+  };
+}
+
 export function errorVariantResponse(
   name: string,
   overrides?: Readonly<Record<string, number>>,

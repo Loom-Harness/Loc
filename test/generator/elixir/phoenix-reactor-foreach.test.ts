@@ -239,6 +239,7 @@ describe("phoenix reactor loop: the loop var used only as an op-call target", ()
     const src = [...files.entries()].find(([k]) => k.endsWith("on_post_published.ex"))![1];
     expect(src).toContain("Enum.reduce_while(ns, {:ok, nil}, fn n, _acc ->");
     expect(src).not.toContain("fn _n, _acc ->");
-    expect(src).toContain("Api.Community.mark_seen_note(n, %{})");
+    expect(src).toContain("Api.Community.__apply_mark_seen_note(n, %{})");
+    expect(src).toContain("Api.Community.__save_note(n)");
   });
 });

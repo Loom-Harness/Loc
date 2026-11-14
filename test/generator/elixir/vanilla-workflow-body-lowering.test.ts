@@ -83,8 +83,9 @@ describe("vanilla — workflow body lowering (factory-let + op-call)", () => {
     const wf = files.get(
       [...files.keys()].find((k) => k.endsWith("/workflows/create_and_complete.ex"))!,
     )!;
-    // `t` is used again (`t.toggle(false)`), so it is rebound to the saved record.
-    expect(wf).toContain("{:ok, t} <- Context.mark_done_task(t, %{})");
+    // `t` runs the op in memory and is rebound to the changed struct, which the
+    // body saves once at its exit.
+    expect(wf).toContain("{:ok, t} <- Context.__apply_mark_done_task(t, %{})");
   });
 
   it("keys an op-call's params map by the called op's REAL param name as a string key", async () => {
@@ -95,7 +96,7 @@ describe("vanilla — workflow body lowering (factory-let + op-call)", () => {
     const wf = files.get(
       [...files.keys()].find((k) => k.endsWith("/workflows/create_and_complete.ex"))!,
     )!;
-    expect(wf).toContain('{:ok, _} <- Context.toggle_task(t, %{"flag" => false})');
+    expect(wf).toContain('{:ok, t} <- Context.__apply_toggle_task(t, %{"flag" => false})');
     expect(wf).not.toContain("arg0:");
   });
 

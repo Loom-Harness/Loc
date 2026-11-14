@@ -17,7 +17,6 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.elixir-match-stmt-unsupported": "06-behavior-and-statements.md#match--the-statement-form",
   "loom.vanilla-op-call-actor": "06-behavior-and-statements.md#operation--a-mutating-method",
   "loom.elixir-bound-mutating-call-unsupported": "13-workflows.md#matching-a-mutating-calls-result",
-  "loom.elixir-entry-result-unsupported": "13-workflows.md#expected-failures",
 
   // --- src/language/validators/traceability.ts (M-T9.56 drain) ------------
   "loom.target-unsupported": "16-ui-walker-primitives.md#per-target-honest-gates",

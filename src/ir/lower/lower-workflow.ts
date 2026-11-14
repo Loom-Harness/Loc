@@ -23,6 +23,7 @@ import {
   isForStmt,
   isFunctionDecl,
   isIfLetStmt,
+  isIfStmt,
   isLetStmt,
   isMatchStmt,
   isMemberSuffix,
@@ -86,7 +87,14 @@ import {
   lowerExprInContext,
   passType,
 } from "./lower-expr.js";
-import { computeSaves, lowerApply, lowerField, lowerFunction, plural } from "./lower-members.js";
+import {
+  computeSaves,
+  ifBranchSaves,
+  lowerApply,
+  lowerField,
+  lowerFunction,
+  plural,
+} from "./lower-members.js";
 import { matchStmtHasElse } from "./lower-stmt.js";
 import {
   cstText,
@@ -1011,6 +1019,51 @@ function lowerWorkflowStatementInner(
         ...(elseBody.length > 0 ? { elseBody } : {}),
         savesInThen,
         savesInElse,
+      },
+      envAfter: env,
+    };
+  }
+  if (isIfStmt(stmt)) {
+    // `if <cond> { then } else { else }`.  The condition lowers in the outer
+    // env; each branch is its own scope, so a `let` inside one does not leak
+    // out.  An `else if` lowers to an `elseBody` holding the one nested `if`,
+    // through `lowerWorkflowStatement` so it carries its own origin and hoists
+    // its own condition's reads.  Each branch saves, at its own end, every
+    // binding it dirties — its own and the ones declared before the `if` — so
+    // a row the taken branch does not touch is never written.
+    const lowerBranch = (body: readonly Statement[]) =>
+      lowerWorkflowStatements(body, env, aggsByName, reposByName, repoForAgg, saveResolver)
+        .statements;
+    // An optional binding counts too: an op on it un-narrowed is refused by
+    // `loom.nullable-receiver`, which names that defect on its own.
+    const outerAgg = (name: string): string | undefined => {
+      const local = env.locals.get(name)?.type;
+      const t = local?.kind === "optional" ? local.inner : local;
+      return t?.kind === "entity" && aggsByName.has(t.name) ? t.name : undefined;
+    };
+    const thenBody = lowerBranch(stmt.thenBody);
+    const elseBody = stmt.elseIf
+      ? (() => {
+          const l = lowerWorkflowStatement(
+            stmt.elseIf,
+            env,
+            aggsByName,
+            reposByName,
+            repoForAgg,
+            saveResolver,
+          );
+          return [...(l.pre ?? []), ...(l.stmt ? [l.stmt] : [])];
+        })()
+      : lowerBranch(stmt.elseBody);
+    return {
+      stmt: {
+        kind: "if",
+        cond: lowerExpr(stmt.cond, env),
+        source: cstText(stmt.cond),
+        thenBody,
+        ...(elseBody.length > 0 ? { elseBody } : {}),
+        savesInThen: ifBranchSaves(thenBody, repoForAgg, outerAgg, saveResolver),
+        savesInElse: ifBranchSaves(elseBody, repoForAgg, outerAgg, saveResolver),
       },
       envAfter: env,
     };

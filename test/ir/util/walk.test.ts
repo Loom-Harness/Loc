@@ -462,6 +462,24 @@ function wfCases(): Record<WorkflowStmtIR["kind"], () => WfCase> {
       exprChildren: [],
       wfChildren: [],
     }),
+    if: () => {
+      const c0 = sent();
+      const t0 = sentWf();
+      const e0 = sentWf();
+      return {
+        node: {
+          kind: "if",
+          cond: c0,
+          source: "c",
+          thenBody: [t0],
+          elseBody: [e0],
+          savesInThen: [],
+          savesInElse: [],
+        },
+        exprChildren: [c0],
+        wfChildren: [t0, e0],
+      };
+    },
     "if-let": () => {
       const a0 = sent();
       const t0 = sentWf();

@@ -283,12 +283,166 @@
     {
       "seq": 10,
       "method": "POST",
-      "path": "/api/orders/{id}/update",
+      "path": "/api/orders/{id}/add_code",
       "status": 204,
       "body": ""
     },
     {
       "seq": 11,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "byPriceDesc": [
+          {
+            "id": "<volatile:key>",
+            "price": "10.0000",
+            "qty": 1,
+            "sku": "B"
+          },
+          {
+            "id": "<volatile:key>",
+            "price": "1.5000",
+            "qty": 2,
+            "sku": "A"
+          },
+          {
+            "id": "<volatile:key>",
+            "price": "1.5000",
+            "qty": 4,
+            "sku": "C"
+          }
+        ],
+        "codes": [
+          7,
+          9,
+          4,
+          9
+        ],
+        "customer": "Ada",
+        "dearest": "10.0000",
+        "discount": "2.5000",
+        "hasLines": true,
+        "id": "<volatile:key>",
+        "linePrices": [
+          "1.5000",
+          "10.0000",
+          "1.5000"
+        ],
+        "lineTotal": "19.0000",
+        "lines": [
+          {
+            "id": "<volatile:key>",
+            "price": "1.5000",
+            "qty": 2,
+            "sku": "A"
+          },
+          {
+            "id": "<volatile:key>",
+            "price": "10.0000",
+            "qty": 1,
+            "sku": "B"
+          },
+          {
+            "id": "<volatile:key>",
+            "price": "1.5000",
+            "qty": 4,
+            "sku": "C"
+          }
+        ],
+        "owed": "-2.5000",
+        "rowVersion": 7,
+        "uniquePrices": [
+          "1.5000",
+          "10.0000"
+        ]
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/orders/{id}/drop_code",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "byPriceDesc": [
+          {
+            "id": "<volatile:key>",
+            "price": "10.0000",
+            "qty": 1,
+            "sku": "B"
+          },
+          {
+            "id": "<volatile:key>",
+            "price": "1.5000",
+            "qty": 2,
+            "sku": "A"
+          },
+          {
+            "id": "<volatile:key>",
+            "price": "1.5000",
+            "qty": 4,
+            "sku": "C"
+          }
+        ],
+        "codes": [
+          7,
+          4
+        ],
+        "customer": "Ada",
+        "dearest": "10.0000",
+        "discount": "2.5000",
+        "hasLines": true,
+        "id": "<volatile:key>",
+        "linePrices": [
+          "1.5000",
+          "10.0000",
+          "1.5000"
+        ],
+        "lineTotal": "19.0000",
+        "lines": [
+          {
+            "id": "<volatile:key>",
+            "price": "1.5000",
+            "qty": 2,
+            "sku": "A"
+          },
+          {
+            "id": "<volatile:key>",
+            "price": "10.0000",
+            "qty": 1,
+            "sku": "B"
+          },
+          {
+            "id": "<volatile:key>",
+            "price": "1.5000",
+            "qty": 4,
+            "sku": "C"
+          }
+        ],
+        "owed": "-2.5000",
+        "rowVersion": 8,
+        "uniquePrices": [
+          "1.5000",
+          "10.0000"
+        ]
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/orders/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 200,
@@ -348,7 +502,7 @@
           }
         ],
         "owed": "-0.7500",
-        "rowVersion": 7,
+        "rowVersion": 9,
         "uniquePrices": [
           "1.5000",
           "10.0000"
@@ -356,7 +510,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 16,
       "method": "GET",
       "path": "/api/orders",
       "status": 200,
@@ -418,7 +572,7 @@
               }
             ],
             "owed": "-0.7500",
-            "rowVersion": 7,
+            "rowVersion": 9,
             "uniquePrices": [
               "1.5000",
               "10.0000"
@@ -432,14 +586,14 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 17,
       "method": "DELETE",
       "path": "/api/orders/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 14,
+      "seq": 18,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 404,
@@ -456,7 +610,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 19,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -470,7 +624,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 20,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -484,7 +638,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 21,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,
@@ -498,7 +652,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 22,
       "method": "POST",
       "path": "/api/orders/{id}/drop_code",
       "status": 422,

@@ -42,6 +42,7 @@ import {
 } from "../../../ir/util/api-surface.js";
 import { AUDIT_ENTRY_TYPE, auditEntryWireShape } from "../../../ir/util/audit-history.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
+import { entryResult } from "../../../ir/util/entry-result.js";
 import { foreignValueTypeSeeds, foreignValueTypes } from "../../../ir/util/foreign-event-types.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import { isMergePatchUpdate } from "../../../ir/util/merge-patch.js";
@@ -60,7 +61,10 @@ import {
 } from "../../../ir/util/openapi-ids.js";
 import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { routedErrorStatuses, routedParamSource } from "../../../ir/util/routed-handler.js";
-import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
+import {
+  commandCreateEntryResult,
+  commandCreateResult,
+} from "../../../ir/util/workflow-command-route.js";
 import { emissionSink, rewrite } from "../../../util/emission-sink.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
@@ -412,11 +416,28 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
   // success arms only (`<Union>Success`), and each error arm publishes its
   // problem body (`<Tag>Problem`) for the status it answers.
   const emittedOpUnions = new Set<string>();
-  for (const { ctx, agg } of allAggregates) {
-    for (const op of agg.operations.filter((o) => o.visibility === "public")) {
-      if (op.returnType?.kind !== "union") continue;
-      const split = opUnionResponses(op.returnType.variants, ctx);
-      const unionName = opUnionSuccessAlias(op.returnType.variants, ctx);
+  // A workflow `create(…): T or E` answers the same split union.
+  const unionReturns = [
+    ...allAggregates.flatMap(({ ctx, agg }) =>
+      agg.operations
+        .filter((o) => o.visibility === "public")
+        .map((op) => ({ ctx, type: op.returnType })),
+    ),
+    ...allWorkflows.map(({ ctx, wf }) => ({
+      ctx,
+      type: commandCreateEntryResult(wf) ? commandCreateResult(wf)?.type : undefined,
+    })),
+    ...contexts.flatMap((ctx) =>
+      [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])]
+        .filter((h) => !h.extern && entryResult(h))
+        .map((h) => ({ ctx, type: h.returnType })),
+    ),
+  ];
+  for (const { ctx, type } of unionReturns) {
+    {
+      if (type?.kind !== "union") continue;
+      const split = opUnionResponses(type.variants, ctx);
+      const unionName = opUnionSuccessAlias(type.variants, ctx);
       if (emittedOpUnions.has(unionName)) continue;
       emittedOpUnions.add(unionName);
       files.set(
@@ -641,6 +662,9 @@ function apiOperations(
   // scalar-returning operation uses.
   for (const { wf, ctx } of allWorkflows) {
     const result = commandCreateResult(wf);
+    // `create(…): T or E` answers the split union's success arms.
+    const entryUnion =
+      commandCreateEntryResult(wf) && result?.type.kind === "union" ? result.type : undefined;
     ops.push({
       method: "post",
       path: `/workflows/${snake(wf.name)}`,
@@ -654,7 +678,13 @@ function apiOperations(
       ),
       responses: [
         result
-          ? jsonResponse(200, "OK", openApiType(result.type, schemasModule))
+          ? jsonResponse(
+              200,
+              "OK",
+              entryUnion
+                ? `${schemasModule}.${opUnionSuccessAlias(entryUnion.variants, ctx)}`
+                : openApiType(result.type, schemasModule),
+            )
           : NO_CONTENT_RESPONSE,
         ...errorResponses("workflow", schemasModule, workflowIsGuarded(wf), undefined, {
           readsAggregate: workflowCanAnswerNotFound(wf, ctx),
@@ -1144,7 +1174,10 @@ function routedOperation(
       : undefined;
   const ret = normalizeHandlerReturn(h.returnType, ctx);
   let successSchema: string | undefined;
-  if (ret && !h.extern && !paged) {
+  if (ret?.kind === "union" && !h.extern) {
+    // An expected-failure result (`T or E`): the split union's success arms.
+    successSchema = `${schemasModule}.${opUnionSuccessAlias(ret.variants, ctx)}`;
+  } else if (ret && !h.extern && !paged) {
     const info = wireTypeInfo(ret, "response");
     const owning =
       info.refKind === "entity" && !info.isCollection
