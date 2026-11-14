@@ -1,3 +1,4 @@
+import { DOMAIN_NAMES } from "../../../generator/_symbols/plan.js";
 import { tsTodayCalendarDate } from "../../../generator/typescript/codec-spelling.js";
 import { eventRowClassOf } from "../../../generator/typescript/emit/mikroorm.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
@@ -19,7 +20,6 @@ import type {
   TypeIR,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
-import { escapeTsIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 
 // ---------------------------------------------------------------------------
 // Event-sourced workflows on Hono (workflow-and-applier.md A2-S5b) — the saga
@@ -42,12 +42,12 @@ import { escapeTsIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
  *  after the OWNING context so a merged multi-context deployable references the
  *  same const the schema emits (`<owner>Events`). */
 function streamTable(ownerName: string): string {
-  return `schema.${lowerFirst(ownerName)}Events`;
+  return `schema.${DOMAIN_NAMES.ts.stem(ownerName)}Events`;
 }
 
 /** `<T>State` type name. */
 export function stateTypeName(wf: WorkflowIR): string {
-  return `${upperFirst(wf.name)}State`;
+  return `${DOMAIN_NAMES.ts.type(wf.name)}State`;
 }
 
 /** A typed initial value for a required saga-state field at fold-from-zero —
@@ -108,7 +108,7 @@ function renderApplierStmt(s: StmtIR, indent: string): string {
     }
     case "let":
       // Escaped like every `refKind: "let"` use site (`let new` → `new_`).
-      return `${indent}const ${escapeTsIdent(s.name)} = ${renderTsExpr(s.expr, ES)};`;
+      return `${indent}const ${DOMAIN_NAMES.ts.binding(s.name)} = ${renderTsExpr(s.expr, ES)};`;
     case "expression":
       return `${indent}${renderTsExpr(s.expr, ES)};`;
     case "if": {
@@ -165,7 +165,7 @@ export function emitWorkflowFoldHelpers(
     usingMikro?: boolean;
   } = {},
 ): string[] {
-  const T = upperFirst(wf.name);
+  const T = DOMAIN_NAMES.ts.type(wf.name);
   const corr = wf.correlationField as string;
   // Resolve the workflow's OWNING context — `ctx` may be a merged union of
   // several contexts (multi-context deployable), so the shared `<ctx>_events`
@@ -199,8 +199,8 @@ export function emitWorkflowFoldHelpers(
   out.push(`  switch (ev.type) {`);
   for (const ap of wf.appliers ?? []) {
     out.push(`    case ${JSON.stringify(ap.event)}: {`);
-    out.push(`      const ${escapeTsIdent(ap.param)} = ev as Events.${ap.event};`);
-    out.push(`      void ${escapeTsIdent(ap.param)};`);
+    out.push(`      const ${DOMAIN_NAMES.ts.binding(ap.param)} = ev as Events.${ap.event};`);
+    out.push(`      void ${DOMAIN_NAMES.ts.binding(ap.param)};`);
     for (const s of ap.statements) out.push(renderApplierStmt(s, "      "));
     out.push(`      break;`);
     out.push(`    }`);
@@ -360,7 +360,7 @@ export function esHelperNames(wf: WorkflowIR): {
   append: string;
   foldedSet: string;
 } {
-  const T = upperFirst(wf.name);
+  const T = DOMAIN_NAMES.ts.type(wf.name);
   return {
     fold: `fold${T}`,
     load: `load${T}Events`,

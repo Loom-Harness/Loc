@@ -69,6 +69,7 @@ import {
   unionMemberObjects,
 } from "../../../generator/_payload/union-wire.js";
 import { PG_FOREIGN_KEY_VIOLATION } from "../../../generator/_persistence/pg-sqlstate.js";
+import { DOMAIN_NAMES } from "../../../generator/_symbols/plan.js";
 import { renderWorkflowStmtChunks } from "../../../generator/_workflow/stmt-target.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
 import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
@@ -121,7 +122,7 @@ import {
 } from "../../../ir/util/routed-handler.js";
 import { workflowEmits } from "../../../ir/util/walk.js";
 import { bodyWriteScopeGuards, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
-import { escapeTsIdent, lowerFirst, plural, snake } from "../../../util/naming.js";
+import { lowerFirst, plural, snake } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import {
@@ -172,7 +173,7 @@ type Handler = CommandHandlerIR | QueryHandlerIR;
 /** Kebab basename of a handler impl file (`PlaceOrder` → `place-order`). */
 const handlerKebab = (name: string): string => snake(name).replace(/_/g, "-");
 /** The exported impl function name (`PlaceOrder` → `placeOrderImpl`). */
-const externImplFn = (name: string): string => `${lowerFirst(name)}Impl`;
+const externImplFn = (name: string): string => `${DOMAIN_NAMES.ts.stem(name)}Impl`;
 /** Emitted impl file path (`out.set` key), rooted at the project src dir. */
 const externImplFilePath = (name: string): string =>
   `application/${handlerKebab(name)}-handler-impl.ts`;
@@ -297,15 +298,15 @@ function emitPagedRunHandler(
   const paramExprs = new Map<string, string>();
   for (const p of pathParams) {
     out.push(
-      `    const ${escapeTsIdent(p.name)} = ${wireToDomainExpr(`params.${p.name}`, p.type, ctx)};`,
+      `    const ${DOMAIN_NAMES.ts.binding(p.name)} = ${wireToDomainExpr(`params.${p.name}`, p.type, ctx)};`,
     );
-    paramExprs.set(p.name, escapeTsIdent(p.name));
+    paramExprs.set(p.name, DOMAIN_NAMES.ts.binding(p.name));
   }
   for (const p of queryParams) {
     out.push(
-      `    const ${escapeTsIdent(p.name)} = ${wireToDomainExpr(`query.${p.name}`, p.type, ctx)};`,
+      `    const ${DOMAIN_NAMES.ts.binding(p.name)} = ${wireToDomainExpr(`query.${p.name}`, p.type, ctx)};`,
     );
-    paramExprs.set(p.name, escapeTsIdent(p.name));
+    paramExprs.set(p.name, DOMAIN_NAMES.ts.binding(p.name));
   }
   // The handler's `requires` gates (`scaffoldPaged(requires:)` splices one) —
   // a 403 before the read, rendered through the shared workflow stmt target.
@@ -322,7 +323,7 @@ function emitPagedRunHandler(
       "    ",
     ).flat(),
   );
-  const repoVar = lowerFirst(run.repoName);
+  const repoVar = DOMAIN_NAMES.ts.stem(run.repoName);
   out.push(`    const ${repoVar} = new ${run.aggName}Repository(db, events);`);
   // Criterion args (handler params passed to the criterion) + the pagination
   // controls → the paged FIND method call.
@@ -527,15 +528,15 @@ function emitRouteHandler(
     if (m.kind === "scalar") {
       const p = h.params.find((pp) => pp.name === m.name)!;
       out.push(
-        `    const ${escapeTsIdent(m.name)} = ${wireToDomainExpr(wireSrc(m.name), p.type, ctx)};`,
+        `    const ${DOMAIN_NAMES.ts.binding(m.name)} = ${wireToDomainExpr(wireSrc(m.name), p.type, ctx)};`,
       );
     } else {
       const fields = m.fields
         .map((f) => `${f.field}: ${wireToDomainExpr(wireSrc(f.field), f.type, ctx)}`)
         .join(", ");
-      out.push(`    const ${escapeTsIdent(m.name)} = { ${fields} };`);
+      out.push(`    const ${DOMAIN_NAMES.ts.binding(m.name)} = { ${fields} };`);
     }
-    paramExprs.set(m.name, escapeTsIdent(m.name));
+    paramExprs.set(m.name, DOMAIN_NAMES.ts.binding(m.name));
   }
   // A body that reads `currentUser` (a `requires` gate — `scaffoldGet` splices
   // the aggregate's read gate in — or an expression) needs it bound, exactly as
@@ -550,7 +551,7 @@ function emitRouteHandler(
   // `buildExplicitRoutesFile`), passing the domain-coerced param locals.  The
   // impl owns the return shape, so it serialises as-is.
   if (h.extern) {
-    const call = `${externImplFn(h.name)}(${h.params.map((p) => escapeTsIdent(p.name)).join(", ")})`;
+    const call = `${externImplFn(h.name)}(${h.params.map((p) => DOMAIN_NAMES.ts.binding(p.name)).join(", ")})`;
     if (hasReturn) {
       out.push(`    const result = await ${call};`);
       out.push(`    return httpCtx.json(result as unknown, 200);`);
@@ -580,7 +581,7 @@ function emitRouteHandler(
     hasReturn && h.returnValue ? [h.returnValue] : [],
     ctx,
   );
-  const repoVarByAgg = new Map(repos.map((r) => [r.aggName, lowerFirst(r.repoName)]));
+  const repoVarByAgg = new Map(repos.map((r) => [r.aggName, DOMAIN_NAMES.ts.stem(r.repoName)]));
   if (er) {
     out.push(...entryHandlerBody(h, er, ctx, paramExprs, repos, usingMikro));
     out.push(`  },`);
@@ -606,7 +607,7 @@ function emitRouteHandler(
     : [];
   for (const r of repos) {
     out.push(
-      `    const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(${handle}, ${dispatcher});`,
+      `    const ${DOMAIN_NAMES.ts.stem(r.repoName)} = new ${r.aggName}Repository(${handle}, ${dispatcher});`,
     );
   }
   // A handler that returns a domain aggregate projects it to its wire shape via
@@ -618,7 +619,7 @@ function emitRouteHandler(
   if (ret) {
     retRepoVar = repoVarByAgg.get(ret.agg);
     if (!retRepoVar) {
-      retRepoVar = lowerFirst(plural(ret.agg));
+      retRepoVar = DOMAIN_NAMES.ts.stem(plural(ret.agg));
       out.push(`    const ${retRepoVar} = new ${ret.agg}Repository(${handle}, ${dispatcher});`);
     }
   }
@@ -632,7 +633,9 @@ function emitRouteHandler(
   );
   out.push(...chunks.flat());
   for (const save of h.savesAtExit) {
-    out.push(`    await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
+    out.push(
+      `    await ${DOMAIN_NAMES.ts.stem(save.repoName)}.save(${DOMAIN_NAMES.ts.binding(save.name)});`,
+    );
   }
   if (hasReturn) {
     const retExpr = renderExprWithParams(h.returnValue!, paramExprs, "this", readPortArgs);
@@ -708,7 +711,7 @@ function entryHandlerBody(
       all.push({ aggName: arm.name, repoName: plural(arm.name) });
     }
   }
-  const repoVarByAgg = new Map(all.map((r) => [r.aggName, lowerFirst(r.repoName)]));
+  const repoVarByAgg = new Map(all.map((r) => [r.aggName, DOMAIN_NAMES.ts.stem(r.repoName)]));
   const hasEmit = workflowEmits(h.statements).length > 0;
   out.push(`    let handlerResult!: { type: string } & Record<string, unknown>;`);
   out.push(`    const __rollback = new Error("expected failure");`);
@@ -718,7 +721,7 @@ function entryHandlerBody(
   out.push(`      await db.${usingMikro ? "transactional" : "transaction"}(async (tx) => {`);
   for (const r of all) {
     out.push(
-      `        const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(tx, __deferred);`,
+      `        const ${DOMAIN_NAMES.ts.stem(r.repoName)} = new ${r.aggName}Repository(tx, __deferred);`,
     );
   }
   const readPortArgs = readPortResolver(ctx);
@@ -730,7 +733,9 @@ function entryHandlerBody(
   const audits = auditAfterSaveLines(body, "        ");
   out.push(...audits.head, ...body);
   for (const save of h.savesAtExit) {
-    out.push(`        await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
+    out.push(
+      `        await ${DOMAIN_NAMES.ts.stem(save.repoName)}.save(${DOMAIN_NAMES.ts.binding(save.name)});`,
+    );
   }
   out.push(...audits.tail);
   const errorTest = entryErrorTags(er)
@@ -844,7 +849,7 @@ export function buildExplicitRoutesFile(
     if (!h.extern && !(h.returnType && pagedReturn(h.returnType))) {
       const ent = returnEntity(h, ctx);
       if (ent && !ent.isCollection) {
-        responseImports.set(ent.respName, `./${lowerFirst(ent.agg)}.routes`);
+        responseImports.set(ent.respName, `./${DOMAIN_NAMES.ts.stem(ent.agg)}.routes`);
       }
     }
     if (h.extern) externImplImports.set(externImplFn(h.name), externImplModule(h.name));
@@ -911,7 +916,7 @@ export function buildExplicitRoutesFile(
     );
   }
 
-  const fn = `${lowerFirst(apiName)}Routes`;
+  const fn = `${DOMAIN_NAMES.ts.stem(apiName)}Routes`;
   const body: string[] = [];
   // Signature — the route bodies reference `db`/`events`; underscore either if
   // the emitted body never does (keeps the generated-code lint clean).
@@ -1134,11 +1139,11 @@ export function buildExplicitRoutesFile(
     if (hasRef(name)) imports.push(`import { ${name} } from "${module}";`);
   }
   for (const aggName of [...new Set(aggsReferenced)]) {
-    imports.push(`import { ${aggName} } from "../domain/${lowerFirst(aggName)}";`);
+    imports.push(`import { ${aggName} } from "../domain/${DOMAIN_NAMES.ts.stem(aggName)}";`);
   }
   for (const aggName of [...new Set(reposReferenced)]) {
     imports.push(
-      `import { ${aggName}Repository } from "../db/repositories/${lowerFirst(aggName)}-repository";`,
+      `import { ${aggName}Repository } from "../db/repositories/${DOMAIN_NAMES.ts.stem(aggName)}-repository";`,
     );
   }
   if (voEnumReferenced.length > 0) {
@@ -1184,7 +1189,7 @@ export function buildExplicitRoutesFile(
 function renderExternHandlerImpl(h: Handler, ctx: EnrichedBoundedContextIR): string {
   const fn = externImplFn(h.name);
   const params = h.params
-    .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+    .map((p) => `${DOMAIN_NAMES.ts.binding(p.name)}: ${renderTsType(p.type)}`)
     .join(", ");
   const ret = h.returnType ? renderTsType(h.returnType) : "void";
   const sig = `export async function ${fn}(${params}): Promise<${ret}>`;
@@ -1210,7 +1215,7 @@ function renderExternHandlerImpl(h: Handler, ctx: EnrichedBoundedContextIR): str
   const imports: string[] = [`import { NotImplementedError } from "../domain/errors";`];
   imports.push(tsImportSlot("~/domain/ids"));
   for (const agg of aggRefs) {
-    imports.push(`import { ${agg} } from "../domain/${lowerFirst(agg)}";`);
+    imports.push(`import { ${agg} } from "../domain/${DOMAIN_NAMES.ts.stem(agg)}";`);
   }
   if (voEnumNames.length > 0) {
     imports.push(`import { ${voEnumNames.join(", ")} } from "../domain/value-objects";`);

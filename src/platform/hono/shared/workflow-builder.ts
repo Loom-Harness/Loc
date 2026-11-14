@@ -19,6 +19,7 @@ import {
   workflowParamPayloads,
 } from "../../../generator/_payload/workflow-param-payloads.js";
 import { PG_FOREIGN_KEY_VIOLATION } from "../../../generator/_persistence/pg-sqlstate.js";
+import { DOMAIN_NAMES } from "../../../generator/_symbols/plan.js";
 import { statementSubRegions } from "../../../generator/_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../../generator/_workflow/create-state.js";
 import {
@@ -140,14 +141,7 @@ import {
   OUTBOX_RETENTION_DEFAULT_DAYS,
   OUTBOX_RETENTION_ENV,
 } from "../../../util/channels.js";
-import {
-  escapeTsIdent,
-  lowerFirst,
-  plural,
-  snake,
-  upperFirst,
-  workflowFnCamel,
-} from "../../../util/naming.js";
+import { plural, snake, workflowFnCamel } from "../../../util/naming.js";
 import {
   emitWireSchema,
   txWrapperCall,
@@ -814,11 +808,11 @@ export function buildWorkflowsFile(
     );
   }
   for (const aggName of aggsReferenced) {
-    imports.push(`import { ${aggName} } from "../domain/${lowerFirst(aggName)}";`);
+    imports.push(`import { ${aggName} } from "../domain/${DOMAIN_NAMES.ts.stem(aggName)}";`);
   }
   for (const aggName of reposReferenced) {
     imports.push(
-      `import { ${aggName}Repository } from "../db/repositories/${lowerFirst(aggName)}-repository";`,
+      `import { ${aggName}Repository } from "../db/repositories/${DOMAIN_NAMES.ts.stem(aggName)}-repository";`,
     );
   }
   if (voEnumReferenced.length > 0) {
@@ -949,7 +943,7 @@ function emitWorkflowFnHelpers(wf: WorkflowIR): string[] {
   const out: string[] = [];
   for (const fn of wf.functions ?? []) {
     const params = fn.params
-      .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+      .map((p) => `${DOMAIN_NAMES.ts.binding(p.name)}: ${renderTsType(p.type)}`)
       .join(", ");
     const name = workflowFnCamel(wf.name, fn.name);
     const head = `function ${name}(${params}): ${renderTsType(fn.returnType)}`;
@@ -1018,7 +1012,7 @@ function emitWorkflowRoute(
     }
   } else if (result && commandCreateReturnsSelf(wf)) {
     out.push(
-      `      200: { description: "OK", content: { "application/json": { schema: ${upperFirst(wf.name)}InstanceResponse } } },`,
+      `      200: { description: "OK", content: { "application/json": { schema: ${DOMAIN_NAMES.ts.type(wf.name)}InstanceResponse } } },`,
     );
   } else if (result) {
     out.push(
@@ -1087,7 +1081,7 @@ function emitWorkflowRoute(
   // Map param names to local consts at the top of the route handler.
   // Avoids re-computing brand conversions on every reference.
   for (const p of wf.params) {
-    out.push(`    const ${escapeTsIdent(p.name)} = ${paramExprs.get(p.name)};`);
+    out.push(`    const ${DOMAIN_NAMES.ts.binding(p.name)} = ${paramExprs.get(p.name)};`);
   }
   // Bind the request-scoped current user when the workflow body
   // references `currentUser` (in a guard / precondition / expr).  The
@@ -1155,7 +1149,9 @@ function emitWorkflowRoute(
   const wrapsFrame = provSaves.length > 0 || auditsOps || hasNestedProvSave(ctx, wf.statements);
   // aggregate name → its repo variable, so an inline audited op-call can take
   // the before/after wire snapshots through the repo (`repo.toWire(agg)`).
-  const repoVarByAgg = new Map(reposNeeded.map((r) => [r.aggName, lowerFirst(r.repoName)]));
+  const repoVarByAgg = new Map(
+    reposNeeded.map((r) => [r.aggName, DOMAIN_NAMES.ts.stem(r.repoName)]),
+  );
   const bi = wrapsFrame ? "      " : "    ";
   // The result is computed where the body's lets are in scope (inside the
   // transaction / child frame callbacks) and answered after they complete — so
@@ -1214,7 +1210,7 @@ function emitWorkflowRoute(
   const stateLoad = (handle: string, ind: string): string[] =>
     corrParam
       ? [
-          `${ind}const state = (await load${upperFirst(wf.name)}(${handle}, ${corrParam.name})) ?? ${allocateLiteral(
+          `${ind}const state = (await load${DOMAIN_NAMES.ts.type(wf.name)}(${handle}, ${corrParam.name})) ?? ${allocateLiteral(
             wf,
             ctx,
             {
@@ -1225,7 +1221,7 @@ function emitWorkflowRoute(
         ]
       : [];
   const stateSave = (handle: string, ind: string): string[] =>
-    corrParam ? [`${ind}await save${upperFirst(wf.name)}(${handle}, state);`] : [];
+    corrParam ? [`${ind}await save${DOMAIN_NAMES.ts.type(wf.name)}(${handle}, state);`] : [];
   // An expected-failure result runs in one transaction whether or not the
   // workflow is `transactional`: an error answer rolls everything back.
   if (er) out.push(`${bi}const __rollback = new Error("expected failure");`);
@@ -1256,7 +1252,7 @@ function emitWorkflowRoute(
     out.push(`${bi}await ${txWrapperCall(usingMikro)}`);
     for (const r of reposNeeded) {
       out.push(
-        `${bi}  const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(tx, __deferred);`,
+        `${bi}  const ${DOMAIN_NAMES.ts.stem(r.repoName)} = new ${r.aggName}Repository(tx, __deferred);`,
       );
     }
     out.push(...stateLoad("tx", `${bi}  `));
@@ -1277,7 +1273,9 @@ function emitWorkflowRoute(
     out.push(...stmtChunks.flat());
     pushFragment(stmtChunks);
     for (const save of wf.savesAtExit) {
-      out.push(`${bi}  await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
+      out.push(
+        `${bi}  await ${DOMAIN_NAMES.ts.stem(save.repoName)}.save(${DOMAIN_NAMES.ts.binding(save.name)});`,
+      );
     }
     out.push(...audits.tail);
     out.push(...stateSave("tx", `${bi}  `));
@@ -1307,7 +1305,9 @@ function emitWorkflowRoute(
     }
   } else {
     for (const r of reposNeeded) {
-      out.push(`${bi}const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(db, events);`);
+      out.push(
+        `${bi}const ${DOMAIN_NAMES.ts.stem(r.repoName)} = new ${r.aggName}Repository(db, events);`,
+      );
     }
     out.push(...stateLoad("db", bi));
     const stmtChunks = renderWorkflowStmtChunks(
@@ -1327,7 +1327,9 @@ function emitWorkflowRoute(
     out.push(...stmtChunks.flat());
     pushFragment(stmtChunks);
     for (const save of wf.savesAtExit) {
-      out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
+      out.push(
+        `${bi}await ${DOMAIN_NAMES.ts.stem(save.repoName)}.save(${DOMAIN_NAMES.ts.binding(save.name)});`,
+      );
     }
     out.push(...audits.tail);
     out.push(...stateSave("db", bi));
@@ -1349,7 +1351,7 @@ function emitWorkflowRoute(
     split && result
       ? `workflowResult as unknown as z.infer<typeof ${split.successName}>`
       : result && commandCreateReturnsSelf(wf)
-        ? `workflowResult as z.infer<typeof ${upperFirst(wf.name)}InstanceResponse>`
+        ? `workflowResult as z.infer<typeof ${DOMAIN_NAMES.ts.type(wf.name)}InstanceResponse>`
         : "workflowResult";
   out.push(
     result ? `    return httpCtx.json(${answered}, 200);` : `    return httpCtx.body(null, 204);`,
@@ -1386,7 +1388,8 @@ function taggedEntryValue(
       // own `type` (the same tag); widened so the spread may restate it.
       return `{ type: ${tag}, ...(${rendered} as Record<string, unknown>) }`;
     case "aggregate": {
-      const repo = repoVarByAgg.get(leaf.arm.name) ?? `${lowerFirst(plural(leaf.arm.name))}`;
+      const repo =
+        repoVarByAgg.get(leaf.arm.name) ?? `${DOMAIN_NAMES.ts.stem(plural(leaf.arm.name))}`;
       // Read back after the body's saves: the saved row carries the version
       // the save advanced to, which the in-memory aggregate does not.  The id
       // is re-branded: a bound union arm of an operation's result carries the
@@ -1492,7 +1495,7 @@ function workflowResultTsType(t: TypeIR): string {
  *  `wireShape` — id-source rows are `z.string()`, the rest go through the
  *  shared `zodForResponse`.  File-local (`const`): nothing imports these. */
 function emitInstanceResponseSchemas(wf: WorkflowIR): string[] {
-  const T = upperFirst(wf.name);
+  const T = DOMAIN_NAMES.ts.type(wf.name);
   const out: string[] = [];
   out.push(`const ${T}InstanceResponse = z.object({`);
   for (const f of wf.instanceWireShape ?? []) {
@@ -1536,7 +1539,7 @@ function emitInstanceRoutes(
    *  status the router's `AggregateNotFoundError` arm answers with. */
   notFoundStatus: number,
 ): string[] {
-  const T = upperFirst(wf.name);
+  const T = DOMAIN_NAMES.ts.type(wf.name);
   // The instance-READ gate (`workflow X requires <expr>`).  Both routes below
   // evaluate it before touching the store, and the router's existing `onError`
   // already maps `ForbiddenError` to the resolved Forbidden rung — the same arm
@@ -1561,7 +1564,7 @@ function emitInstanceRoutes(
     reasonPhrase(forbiddenStatus),
   )}, content: { "application/problem+json": { schema: ProblemDetails } } },`;
   const slug = snake(wf.name);
-  const table = `schema.${lowerFirst(plural(wf.name))}`;
+  const table = `schema.${DOMAIN_NAMES.ts.stem(plural(wf.name))}`;
   const rowClass = mikroWorkflowRowClass(wf);
   const corr = wf.correlationField as string;
   const helpers = esHelperNames(wf);
@@ -1680,7 +1683,7 @@ function bindSystemPrincipal(statements: WorkflowStmtIR[], ctx: BoundedContextIR
 }
 
 function handlerName(workflow: string, trigger: "on" | "create", event: string): string {
-  return `${lowerFirst(workflow)}${trigger === "on" ? "On" : "Start"}${upperFirst(event)}`;
+  return `${DOMAIN_NAMES.ts.stem(workflow)}${trigger === "on" ? "On" : "Start"}${DOMAIN_NAMES.ts.type(event)}`;
 }
 
 /** Emit the in-process subscription handlers + the `createInProcessDispatcher`
@@ -2152,8 +2155,8 @@ function emitMikroOutboxMachinery(
  *  type.  `loadX` reads by the correlation column; `saveX` upserts on it.
  *  Keyed off the Drizzle table the schema emitter produces (PR #991). */
 function emitWorkflowStateHelpers(wf: WorkflowIR, usingMikro = false): string[] {
-  const T = upperFirst(wf.name);
-  const table = `schema.${lowerFirst(plural(wf.name))}`;
+  const T = DOMAIN_NAMES.ts.type(wf.name);
+  const table = `schema.${DOMAIN_NAMES.ts.stem(plural(wf.name))}`;
   const corr = wf.correlationField as string;
   const dbType = wfDbType(usingMikro);
   const codec = stateNumericFields(wf);
@@ -2227,8 +2230,8 @@ function emitCodecStateHelpers(
   codec: readonly StateNumericField[],
   usingMikro: boolean,
 ): string[] {
-  const T = upperFirst(wf.name);
-  const table = `schema.${lowerFirst(plural(wf.name))}`;
+  const T = DOMAIN_NAMES.ts.type(wf.name);
+  const table = `schema.${DOMAIN_NAMES.ts.stem(plural(wf.name))}`;
   const corr = wf.correlationField as string;
   const dbType = wfDbType(usingMikro);
   const rowType = usingMikro ? mikroWorkflowRowClass(wf) : `typeof ${table}.$inferInsert`;
@@ -2390,7 +2393,7 @@ function emitHandlerFn(
   const noParams = new Map<string, string>();
   let thisName = "this";
   if (persisted) {
-    const T = upperFirst(wf.name);
+    const T = DOMAIN_NAMES.ts.type(wf.name);
     const corr = wf.correlationField as string;
     // Correlation key: the `by <expr>` routing value, else the event field
     // that name-matches the correlation field (the omitted-`by` rule).
@@ -2442,11 +2445,15 @@ function emitHandlerFn(
   const auditsOps = callsAuditedOp(ctx, statements);
   const wrapsFrame = provSaves.length > 0 || auditsOps || hasNestedProvSave(ctx, statements);
   const reactorRepos = collectReposFromStmts(statements, saves);
-  const repoVarByAgg = new Map(reactorRepos.map((r) => [r.aggName, lowerFirst(r.repoName)]));
+  const repoVarByAgg = new Map(
+    reactorRepos.map((r) => [r.aggName, DOMAIN_NAMES.ts.stem(r.repoName)]),
+  );
   const bi = wrapsFrame ? "    " : "  ";
   if (wrapsFrame) out.push(`  await runInChildContext(async () => {`);
   for (const r of reactorRepos) {
-    out.push(`${bi}const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(db, events);`);
+    out.push(
+      `${bi}const ${DOMAIN_NAMES.ts.stem(r.repoName)} = new ${r.aggName}Repository(db, events);`,
+    );
   }
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
@@ -2473,14 +2480,16 @@ function emitHandlerFn(
     }
   }
   for (const save of saves)
-    out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
+    out.push(
+      `${bi}await ${DOMAIN_NAMES.ts.stem(save.repoName)}.save(${DOMAIN_NAMES.ts.binding(save.name)});`,
+    );
   out.push(...audits.tail);
   out.push(...renderProvFlush(provSaves, bi, "db"));
   if (wrapsFrame) out.push(`  });`);
   if (persisted && durable) {
     out.push(`  if (__eventId !== undefined) state.lastEventId = __eventId;`);
   }
-  if (persisted) out.push(`  await save${upperFirst(wf.name)}(db, state);`);
+  if (persisted) out.push(`  await save${DOMAIN_NAMES.ts.type(wf.name)}(db, state);`);
   if (hasEmit) out.push(`  for (const ev of workflowEvents) await events.dispatch(ev);`);
   out.push(`}`);
   return out;
@@ -2576,11 +2585,15 @@ function emitEventSourcedHandlerFn(
   const auditsOps = callsAuditedOp(ctx, statements);
   const wrapsFrame = provSaves.length > 0 || auditsOps || hasNestedProvSave(ctx, statements);
   const reactorRepos = collectReposFromStmts(statements, saves);
-  const repoVarByAgg = new Map(reactorRepos.map((r) => [r.aggName, lowerFirst(r.repoName)]));
+  const repoVarByAgg = new Map(
+    reactorRepos.map((r) => [r.aggName, DOMAIN_NAMES.ts.stem(r.repoName)]),
+  );
   const bi = wrapsFrame ? "    " : "  ";
   if (wrapsFrame) out.push(`  await runInChildContext(async () => {`);
   for (const r of reactorRepos) {
-    out.push(`${bi}const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(db, events);`);
+    out.push(
+      `${bi}const ${DOMAIN_NAMES.ts.stem(r.repoName)} = new ${r.aggName}Repository(db, events);`,
+    );
   }
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
@@ -2607,7 +2620,9 @@ function emitEventSourcedHandlerFn(
     }
   }
   for (const save of saves)
-    out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
+    out.push(
+      `${bi}await ${DOMAIN_NAMES.ts.stem(save.repoName)}.save(${DOMAIN_NAMES.ts.binding(save.name)});`,
+    );
   out.push(...audits.tail);
   out.push(...renderProvFlush(provSaves, bi, "db"));
   if (wrapsFrame) out.push(`  });`);
@@ -2789,7 +2804,7 @@ export function honoWorkflowStmtTarget(
 ): WorkflowStmtTarget {
   // Read-port wiring (domain-services.md rev. 4): a `reading`-tier
   // domain-service call is supplied its repository handle(s) ahead of the user
-  // args.  The handle var is `lowerFirst(repo)` — the SAME var the workflow
+  // args.  The handle var is the repository stem — the SAME var the workflow
   // constructs for that repo (`collectReposForWorkflow` includes service ports),
   // so a service reading `Accounts` is passed the workflow's `accounts` repo.
   // PURE services resolve to `[]` → byte-identical.
@@ -2805,12 +2820,15 @@ export function honoWorkflowStmtTarget(
     pad: string,
     saves: readonly { name: string; repoName: string; aggName: string }[],
   ): string[] => [
-    ...saves.map((sv) => `${pad}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`),
+    ...saves.map(
+      (sv) =>
+        `${pad}await ${DOMAIN_NAMES.ts.stem(sv.repoName)}.save(${DOMAIN_NAMES.ts.binding(sv.name)});`,
+    ),
     ...(provDbHandle
       ? renderProvFlush(
           saves
             .filter((sv) => aggHasProvSite(ctx, sv.aggName))
-            .map((sv) => ({ name: escapeTsIdent(sv.name) })),
+            .map((sv) => ({ name: DOMAIN_NAMES.ts.binding(sv.name) })),
           pad,
           provDbHandle,
         )
@@ -2837,7 +2855,9 @@ export function honoWorkflowStmtTarget(
     },
     factoryLet: (st, indent) => {
       const fields = st.fields.map((f) => `${f.name}: ${renderArg(f.value)}`).join(", ");
-      return [`${indent}const ${escapeTsIdent(st.name)} = ${st.aggName}.create({ ${fields} });`];
+      return [
+        `${indent}const ${DOMAIN_NAMES.ts.binding(st.name)} = ${st.aggName}.create({ ${fields} });`,
+      ];
     },
     repoLet: (st, indent) => {
       // A criterion read (`let c = Repo.find(<Criterion>)`) runs the shared
@@ -2845,12 +2865,12 @@ export function honoWorkflowStmtTarget(
       // over the same source does.
       if (st.op === "select-one" && st.retrievalName) {
         return [
-          `${indent}const ${escapeTsIdent(st.name)} = ${firstRowOf(st.repoName, st.retrievalName, st.args.map(renderArg))};`,
+          `${indent}const ${DOMAIN_NAMES.ts.binding(st.name)} = ${firstRowOf(st.repoName, st.retrievalName, st.args.map(renderArg))};`,
         ];
       }
       const args = st.args.map(renderArg).join(", ");
       return [
-        `${indent}const ${escapeTsIdent(st.name)} = await ${lowerFirst(st.repoName)}.${st.method}(${args});`,
+        `${indent}const ${DOMAIN_NAMES.ts.binding(st.name)} = await ${DOMAIN_NAMES.ts.stem(st.repoName)}.${st.method}(${args});`,
       ];
     },
     opCall: (st, indent) => {
@@ -2885,8 +2905,8 @@ export function honoWorkflowStmtTarget(
         )});`;
       });
       // `let r = a.op(…)` binds the call's value; the bare statement discards it.
-      const bind = st.result ? `const ${escapeTsIdent(st.result.name)} = ` : "";
-      const callLine = `${indent}${bind}${st.target}.${lowerFirst(st.op)}(${callArgs});`;
+      const bind = st.result ? `const ${DOMAIN_NAMES.ts.binding(st.result.name)} = ` : "";
+      const callLine = `${indent}${bind}${st.target}.${DOMAIN_NAMES.ts.op(st.op)}(${callArgs});`;
       // Audited op invoked inline → stage an audit_records row bracketing the
       // call with before/after wire snapshots, mirroring the per-operation
       // route.  The `before` snapshot is taken here; the row is queued and
@@ -2937,10 +2957,14 @@ export function honoWorkflowStmtTarget(
       // `<Repo>.delete(o)` → `await <repo>.delete(<entity>.id)`.  The generated
       // repository's `delete(id)` takes the aggregate's ID token (not the whole
       // aggregate), so append `.id` to the entity ref.  Repo var mirrors the
-      // repo-let arm (`lowerFirst(repoName)`).
-      return [`${indent}await ${lowerFirst(st.repoName)}.delete(${renderArg(st.entity)}.id);`];
+      // repo-let arm (the repository stem).
+      return [
+        `${indent}await ${DOMAIN_NAMES.ts.stem(st.repoName)}.delete(${renderArg(st.entity)}.id);`,
+      ];
     },
-    exprLet: (st, indent) => [`${indent}const ${escapeTsIdent(st.name)} = ${renderArg(st.expr)};`],
+    exprLet: (st, indent) => [
+      `${indent}const ${DOMAIN_NAMES.ts.binding(st.name)} = ${renderArg(st.expr)};`,
+    ],
     // `field := value` — own-state mutation: write `value` onto the loaded
     // correlation-state row (`thisName` = `state` on the persisted-state path),
     // which `save<Wf>(db, state)` flushes at handler exit.
@@ -2958,7 +2982,7 @@ export function honoWorkflowStmtTarget(
         args.push(`{ ${parts.join(", ")} }`);
       }
       return [
-        `${indent}const ${escapeTsIdent(st.name)} = await ${lowerFirst(st.repoName)}.run${upperFirst(st.retrievalName)}(${args.join(", ")});`,
+        `${indent}const ${DOMAIN_NAMES.ts.binding(st.name)} = await ${DOMAIN_NAMES.ts.stem(st.repoName)}.run${DOMAIN_NAMES.ts.type(st.retrievalName)}(${args.join(", ")});`,
       ];
     },
     forEach: (st, indent, bodyLines) => {
@@ -2968,7 +2992,7 @@ export function honoWorkflowStmtTarget(
       const inner = `${indent}  `;
       const saveLines = blockSaves(inner, st.savesPerIteration);
       return [
-        `${indent}for (const ${escapeTsIdent(st.var)} of ${renderArg(st.iterable)}) {`,
+        `${indent}for (const ${DOMAIN_NAMES.ts.binding(st.var)} of ${renderArg(st.iterable)}) {`,
         ...bodyLines,
         ...saveLines,
         `${indent}}`,
@@ -2985,7 +3009,7 @@ export function honoWorkflowStmtTarget(
       // narrows an optional binding already in scope.
       const inner = `${indent}  `;
       const args = st.retrievalArgs.map(renderArg);
-      const repoVar = lowerFirst(st.repoName);
+      const repoVar = DOMAIN_NAMES.ts.stem(st.repoName);
       const lookup =
         st.op === "bound"
           ? args.join(", ")
@@ -3000,16 +3024,16 @@ export function honoWorkflowStmtTarget(
       // branch; the binding stays narrowed to non-null after it.
       if (thenLines.length === 0 && thenSaves.length === 0 && elseLines.length > 0) {
         return [
-          `${indent}const ${escapeTsIdent(st.var)} = ${lookup};`,
-          `${indent}if (${escapeTsIdent(st.var)} === null) {`,
+          `${indent}const ${DOMAIN_NAMES.ts.binding(st.var)} = ${lookup};`,
+          `${indent}if (${DOMAIN_NAMES.ts.binding(st.var)} === null) {`,
           ...elseLines,
           ...elseSaves,
           `${indent}}`,
         ];
       }
       const out = [
-        `${indent}const ${escapeTsIdent(st.var)} = ${lookup};`,
-        `${indent}if (${escapeTsIdent(st.var)} !== null) {`,
+        `${indent}const ${DOMAIN_NAMES.ts.binding(st.var)} = ${lookup};`,
+        `${indent}if (${DOMAIN_NAMES.ts.binding(st.var)} !== null) {`,
         ...thenLines,
         ...thenSaves,
       ];
@@ -3052,7 +3076,7 @@ export function honoWorkflowStmtTarget(
           side
             ? [
                 ...(side.binding
-                  ? [`${inner}const ${escapeTsIdent(side.binding)} = ${subject};`]
+                  ? [`${inner}const ${DOMAIN_NAMES.ts.binding(side.binding)} = ${subject};`]
                   : []),
                 ...side.lines,
                 ...savesAt(inner, side.saves),
@@ -3102,7 +3126,7 @@ export function honoWorkflowStmtTarget(
     // the body — or, for a guarded result, at the end of the `match` arms
     // that are not errors.
     domainServiceCall: (st, indent) => [
-      `${indent}${st.result ? `const ${escapeTsIdent(st.result.name)} = ` : ""}${renderArg(st.call)};`,
+      `${indent}${st.result ? `const ${DOMAIN_NAMES.ts.binding(st.result.name)} = ` : ""}${renderArg(st.call)};`,
     ],
     // The by-id read's own absence error, so the router's
     // `AggregateNotFoundError` arm answers the identical ProblemDetails.
@@ -3117,7 +3141,7 @@ export function honoWorkflowStmtTarget(
           writeScope: {
             cx: writeScope,
             guard: (g, indent) => [
-              `${indent}await ${lowerFirst(g.repoName)}.getById(${escapeTsIdent(g.name)}.id);`,
+              `${indent}await ${DOMAIN_NAMES.ts.stem(g.repoName)}.getById(${DOMAIN_NAMES.ts.binding(g.name)}.id);`,
             ],
           },
         }
@@ -3128,7 +3152,7 @@ export function honoWorkflowStmtTarget(
 /** The first row of a criterion retrieval run, or `null` — the single-result
  *  read behind `Repo.find(<Criterion>)` in a `let` and an `if let`. */
 function firstRowOf(repoName: string, retrievalName: string, args: readonly string[]): string {
-  return `(await ${lowerFirst(repoName)}.run${upperFirst(retrievalName)}(${[...args, "{ limit: 1 }"].join(", ")}))[0] ?? null`;
+  return `(await ${DOMAIN_NAMES.ts.stem(repoName)}.run${DOMAIN_NAMES.ts.type(retrievalName)}(${[...args, "{ limit: 1 }"].join(", ")}))[0] ?? null`;
 }
 
 export function renderExprWithParams(
@@ -3155,12 +3179,13 @@ export function renderExprWithParams(
 
 /** Build the read-port resolver for a workflow's `reading`-tier domain-service
  *  calls (domain-services.md rev. 4).  Given a `<service>.<op>` call,
- *  returns the repository handle var names (`lowerFirst(repo)`) to prepend — the
+ *  returns the repository handle var names (the repository stem) to prepend — the
  *  read-ports the service operation consumes (derived from its body), in order.
  *  A pure service op has no ports, so the resolver returns `[]` and the call
  *  renders byte-identically. */
 export function readPortResolver(ctx: BoundedContextIR): (service: string, op: string) => string[] {
-  return (service, op) => serviceOpReadPorts(ctx, service, op).map((p) => lowerFirst(p.repo));
+  return (service, op) =>
+    serviceOpReadPorts(ctx, service, op).map((p) => DOMAIN_NAMES.ts.stem(p.repo));
 }
 
 /** Merge a workflow's directly-used repos with the read-port repos its
