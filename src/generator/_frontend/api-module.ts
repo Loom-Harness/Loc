@@ -1,5 +1,5 @@
 import type { ContractOperation } from "../../ir/contract/frontend-contract.js";
-import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import { createInputFields, forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -13,6 +13,7 @@ import {
   aggregateUsesMoneyDeep,
   type BoundedContextIR,
   type EnrichedAggregateIR,
+  type EnrichedEntityPartIR,
   type EnumIR,
   type InvariantIR,
   type OperationIR,
@@ -310,9 +311,9 @@ export function buildApiModule(
   // before the root references them — and a nested part before the sibling
   // that references it (`z.array(LabelResponse)`), hence children-first.
   for (const part of partsChildrenFirst(agg.parts)) {
-    lines.push(...emitResponseSchema(part.name, options.responses));
+    lines.push(...emitResponseSchema(part, options.responses));
   }
-  lines.push(...emitResponseSchema(agg.name, options.responses));
+  lines.push(...emitResponseSchema(agg, options.responses));
   lines.push(`export const ${agg.name}ListResponse = z.array(${agg.name}Response);`);
   lines.push(`export type ${agg.name}ListResponse = z.infer<typeof ${agg.name}ListResponse>;`);
   // Paged response DTOs (P3b) — one per distinct `<carrier> paged` find return.
@@ -785,23 +786,36 @@ function preconditionsAsInvariants(op: OperationIR): InvariantIR[] {
   return out;
 }
 
-function emitResponseSchema(entity: string, responses: readonly ContractResponse[]): string[] {
-  const response = responses.find((r) => r.entity === entity);
-  if (!response) {
-    throw new Error(`the Frontend Contract carries no response record for '${entity}'`);
-  }
+function emitResponseSchema(
+  ent: EnrichedAggregateIR | EnrichedEntityPartIR,
+  responses: readonly ContractResponse[],
+): string[] {
   const lines: string[] = [];
-  const name = `${entity}Response`;
+  const name = `${ent.name}Response`;
   lines.push(`export const ${name} = z.object({`);
-  // The declared response record, as the contract carries it: the fields the
-  // wire serves, in order.  A provenanced field rides inside its
-  // `Provenanced<T>` carrier, whose lineage `zodForResponse`'s `provenanced`
-  // arm renders from the one shape definition.
-  for (const f of response.fields) {
-    if (f.name === "id" && f.type.kind === "id") {
-      lines.push(`  ${f.name}: z.string(),`);
-    } else {
-      lines.push(`  ${f.name}: ${zodForResponse(responseWireType(f), f.optional)},`);
+  const response = responses.find((r) => r.entity === ent.name);
+  if (response) {
+    // The declared response record, as the contract carries it: the fields the
+    // wire serves, in order.  A provenanced field rides inside its
+    // `Provenanced<T>` carrier, whose lineage `zodForResponse`'s `provenanced`
+    // arm renders from the one shape definition.
+    for (const f of response.fields) {
+      if (f.name === "id" && f.type.kind === "id") {
+        lines.push(`  ${f.name}: z.string(),`);
+      } else {
+        lines.push(`  ${f.name}: ${zodForResponse(responseWireType(f), f.optional)},`);
+      }
+    }
+  } else {
+    // A served aggregate whose context declares no response record: the
+    // contract has nothing to carry for it, so the client renders the read wire
+    // every backend serializes for it.
+    for (const wf of forApiRead(wireFieldsFor(ent))) {
+      lines.push(
+        wf.source === "id"
+          ? `  ${wf.name}: z.string(),`
+          : `  ${wf.name}: ${zodForResponse(wf.type, wf.optional)},`,
+      );
     }
   }
   lines.push(`});`);
