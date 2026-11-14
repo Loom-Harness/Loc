@@ -6,7 +6,6 @@ import {
   PAGED_MAX_PAGE,
   PAGED_MAX_PAGE_SIZE,
   pagedReturn,
-  pagedSortDefault,
 } from "../../ir/stdlib/generics.js";
 import { unionInstanceName, unionReturn, variantTag } from "../../ir/stdlib/unions.js";
 import {
@@ -18,7 +17,6 @@ import {
   type EnumIR,
   type InvariantIR,
   type OperationIR,
-  type RepositoryIR,
   type TypeIR,
 } from "../../ir/types/loom-ir.js";
 import {
@@ -43,6 +41,7 @@ import {
   refineClauseFor,
   takeSingleFieldChain,
 } from "../zod-refine.js";
+import type { ClientFind } from "./contract.js";
 import { serverSourcedDefaultFields } from "./server-default.js";
 import {
   AUDIT_ENTRY_LIST_TYPE,
@@ -73,10 +72,11 @@ export interface ApiModuleOptions {
    *  `"@tanstack/react-query"` (default, byte-identical to the
    *  pre-extraction React output) or `"@tanstack/vue-query"`. */
   queryPackage?: string;
-  /** The routes the target backend serves for SYNTHESIZED paged finds
-   *  (`pagedFindRoutes`).  A synthesized find gets a hook only when it is
-   *  routed here, and the hook calls that route; absent ⇒ no such hook. */
-  pagedFindRoutes?: PagedFindRoutes;
+  /** The aggregate's finds a client can call (`clientFinds`): the auto-`all`
+   *  and each synthesized find with the route its target serves it on. */
+  finds: readonly ClientFind[];
+  /** The aggregate serves its entity-history trail. */
+  history: boolean;
   /** The aggregate's operations from the Frontend Contract: which REST
    *  surface exists (create, destroy) and which writes send `If-Match`. */
   operations: readonly ContractOperation[];
@@ -122,7 +122,6 @@ export function aggregateHasProvenanced(agg: EnrichedAggregateIR): boolean {
 
 export function buildApiModule(
   agg: EnrichedAggregateIR,
-  declaredRepo: RepositoryIR | undefined,
   ctx: BoundedContextIR,
   options: ApiModuleOptions,
 ): string {
@@ -130,10 +129,7 @@ export function buildApiModule(
   const sendsIfMatch = (opName: string): boolean =>
     contractOps.some((o) => o.kind === "operation" && o.opName === opName && o.ifMatch === true);
   // The client sees only the finds it can reach over HTTP.
-  const repo = declaredRepo && {
-    ...declaredRepo,
-    finds: clientFinds(agg.name, declaredRepo.finds, options.pagedFindRoutes),
-  };
+  const repo = { finds: options.finds };
   const queryPackage = options.queryPackage ?? "@tanstack/react-query";
   // The `Provenanced<T>` carrier's `lineage` member references
   // `provLineageSchema`, so the import rides on the aggregate declaring a
@@ -287,7 +283,7 @@ export function buildApiModule(
           // (schemathesis F4).
           `  page: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE}).default(${PAGED_DEFAULT_PAGE}),`,
           `  pageSize: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE_SIZE}).default(${PAGED_DEFAULT_PAGE_SIZE}),`,
-          `  sort: z.string().default(${JSON.stringify(pagedSortDefault(find))}),`,
+          `  sort: z.string().default(${JSON.stringify(find.sortDefault ?? "id")}),`,
           `  dir: z.string().default("asc"),`,
         );
       }
@@ -342,7 +338,7 @@ export function buildApiModule(
   // reads the aggregate's own table at `/<name-snake>`, and this one reads
   // `audit_records` at `/{id}/history`.  That is exactly why the client has to
   // ask for it by name — iterating `finds` cannot see it.
-  if (repo?.historyFind) lines.push(...emitAuditEntrySchemas());
+  if (options.history) lines.push(...emitAuditEntrySchemas());
 
   // Single-success union finds emit no discriminated-union DTO: the client
   // parses the success variant's `<Agg>Response` at 200, with the error/absent
@@ -570,8 +566,8 @@ export function buildApiModule(
   if (repo) {
     for (const find of repo.finds) {
       if (find.name === "all") continue;
-      const findRoute = servedFindRoute(agg.name, find, options.pagedFindRoutes);
-      if (!findRoute) continue;
+      const findPath = find.path;
+      if (findPath === undefined) continue;
       const findSnake = snake(find.name);
       const paged = pagedReturn(find.returnType);
       const isList = find.returnType.kind === "array";
@@ -617,7 +613,7 @@ export function buildApiModule(
         lines.push(
           `      const qs = new URLSearchParams(Object.entries(queryArgs.value).map(([k, v]) => [k, String(v)])).toString();`,
         );
-        lines.push(`      const r = await api.get(\`${findRoute.path}\${qs ? "?" + qs : ""}\`);`);
+        lines.push(`      const r = await api.get(\`${findPath}\${qs ? "?" + qs : ""}\`);`);
         lines.push(`      return ${responseSchema}.parse(r);`);
         lines.push(`    },`);
         lines.push(`  });`);
@@ -637,7 +633,7 @@ export function buildApiModule(
         // Record<string,string> rejects under strict tsc.
         `      const qs = new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)])).toString();`,
       );
-      lines.push(`      const r = await api.get(\`${findRoute.path}\${qs ? "?" + qs : ""}\`);`);
+      lines.push(`      const r = await api.get(\`${findPath}\${qs ? "?" + qs : ""}\`);`);
       lines.push(`      return ${responseSchema}.parse(r);`);
       lines.push(`    },`);
       lines.push(`  });`);
@@ -651,7 +647,7 @@ export function buildApiModule(
   // `?<param>=…` query string against `/<tag>/<find>`, and history is a
   // path-nested read of a DIFFERENT table.  `enabled: !!id` matches `use<Agg>
   // ById` — a detail page mounts before the route param resolves.
-  if (repo?.historyFind) {
+  if (options.history) {
     lines.push(`export function ${historyHookName(agg.name)}(id: string | undefined) {`);
     lines.push(`  return useQuery({`);
     lines.push(`    queryKey: [...${detailKey}, "history"],`);

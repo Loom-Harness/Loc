@@ -17,7 +17,6 @@ import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channel
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
-import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
@@ -28,7 +27,7 @@ import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_SESSION_TS, AUTH_USE_SESSION_VUE, authGateVue } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
-import { requireFrontendContract } from "../_frontend/contract.js";
+import { clientFinds, requireFrontendContract, servesHistory } from "../_frontend/contract.js";
 import { e2eHarnessFiles, e2eSignsIn } from "../_frontend/e2e-harness.js";
 import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
 import {
@@ -265,13 +264,14 @@ export function generateVueForContexts(
 
   // Per-aggregate api modules — 1:1 with the aggregate inventory,
   // emitted from the shared `_frontend` builder with vue-query naming.
+  const serves = (target ?? deployable).serves;
   for (const { agg, ctx } of aggregates) {
-    const repo = ctx.repositories.find((r) => r.aggregateName === agg.name);
     out.set(
       `src/api/${agg.name[0]!.toLowerCase()}${agg.name.slice(1)}.ts`,
-      buildApiModule(agg, repo, ctx, {
+      buildApiModule(agg, ctx, {
         queryPackage: "@tanstack/vue-query",
-        pagedFindRoutes: pagedFindRoutes(sys, target ?? deployable),
+        finds: clientFinds(contract, agg.name, serves),
+        history: servesHistory(contract, agg.name),
         operations: contract.wire.operations,
       }),
     );
