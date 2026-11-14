@@ -33,7 +33,6 @@
 // carried on the creating event; tracked as a cross-backend follow-up.
 // ---------------------------------------------------------------------------
 
-import { wireFieldsForPart } from "../../../ir/enrich/wire-projection.js";
 import type { EntityPartIR, ExprIR, StmtIR } from "../../../ir/types/loom-ir.js";
 import { escapeElixirIdent, snake } from "../../../util/naming.js";
 import type { NewExpr } from "../../_expr/target.js";
@@ -142,13 +141,17 @@ function renderFoldNewMap(e: NewExpr, ctx: RenderCtx, opts: FoldOpts): string {
   }
   const provided = new Map(e.fields.map((f) => [f.name, f.value]));
   const entries: string[] = ["id: Ecto.UUID.generate()"];
-  for (const wf of wireFieldsForPart(part)) {
-    if (wf.source === "id" || wf.source === "derived") continue;
-    const key = snake(wf.name);
-    const val = provided.get(wf.name);
+  // Every stored member of the part: its fields, then its containments.
+  const members = [
+    ...part.fields.map((f) => ({ name: f.name, collection: false })),
+    ...part.contains.map((c) => ({ name: c.name, collection: c.collection })),
+  ];
+  for (const m of members) {
+    const key = snake(m.name);
+    const val = provided.get(m.name);
     if (val !== undefined) {
       entries.push(`${key}: ${renderFoldValue(val, ctx, opts)}`);
-    } else if (wf.source === "containment" && wf.type.kind === "array") {
+    } else if (m.collection) {
       // A part's own collection containment defaults to an empty list so its
       // `serialize_<part>/1` `Enum.map(record.<field> || [], …)` is safe.
       entries.push(`${key}: []`);

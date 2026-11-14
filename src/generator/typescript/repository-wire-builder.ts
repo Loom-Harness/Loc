@@ -4,22 +4,20 @@
 // mirrors the .NET <Agg>Response record so the parity check sees
 // identical specs across backends.
 
-import {
-  forApiRead,
-  type WireMaskPlan,
-  wireFieldsFor,
-  wireMaskPlan,
-} from "../../ir/enrich/wire-projection.js";
+import { carriesFieldMask } from "../../ir/enrich/mask-taint.js";
+import type { WireMaskPlan } from "../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   EntityPartIR,
+  PayloadIR,
   TypeIR,
   WireField,
 } from "../../ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { responseMaskPlan, responseWireFor } from "../../ir/util/response-wire.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { numericEncode } from "../_numeric/target.js";
@@ -39,16 +37,16 @@ export function toWireMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedConte
 
 /** The read-masked wire fields of an aggregate root (`field: T mask unless
  *  <expr>`, authorization.md §5) — the API-read wire fields whose `maskUnless`
- *  predicate is set.  A contained part's are reached through `wireMaskPlan`. */
-export function maskedWireFields(agg: AggregateIR): WireField[] {
-  return forApiRead(wireFieldsFor(agg)).filter((wf) => wf.maskUnless !== undefined);
+ *  predicate is set.  A contained part's are reached through `responseMaskPlan`. */
+export function maskedWireFields(agg: AggregateIR, payloads: readonly PayloadIR[]): WireField[] {
+  return responseWireFor(payloads, agg).filter((wf) => wf.maskUnless !== undefined);
 }
 
 /** True iff `agg` carries a `mask unless` member on its read wire — on the root
  *  or on a contained part — the gate for emitting `toWireMasked` and routing
  *  responses through it. */
 export function aggHasFieldMask(agg: AggregateIR): boolean {
-  return wireMaskPlan(agg, agg.parts) !== undefined;
+  return carriesFieldMask(agg);
 }
 
 /** `toWireMasked(root, currentUser)` — the response serializer for an aggregate
@@ -58,8 +56,8 @@ export function aggHasFieldMask(agg: AggregateIR): boolean {
  *  always redacts — fail-closed).  Internal (non-response) `toWire` uses are
  *  left unmasked; only response boundaries route through this.  Emitted only
  *  when `aggHasFieldMask(agg)` — a mask-free aggregate stays byte-identical. */
-export function toWireMaskedMethod(agg: AggregateIR): string {
-  const plan = wireMaskPlan(agg, agg.parts);
+export function toWireMaskedMethod(agg: AggregateIR, payloads: readonly PayloadIR[]): string {
+  const plan = responseMaskPlan(payloads, agg, agg.parts);
   const body: string[] = [
     `  toWireMasked(root: ${agg.name}, currentUser: User | null): unknown {`,
     `    const wire = this.toWire(root) as Record<string, unknown>;`,
@@ -107,15 +105,11 @@ function wireProjectionEntity(
   varExpr: string,
   ctx: BoundedContextIR,
 ): string {
-  // Single canonical walk — `wireFieldsFor` recomputes the wire shape from the
-  // enriched node's fields (the scaffold-time helper in wire-projection.ts).
-  // This serializer feeds repo.toWire(); its output's keys must line up with
-  // the route's response Zod schema and the .NET DTO.  A runtime serializer
-  // projects DOMAIN getters by name, so it stays keyed to the domain-derived
-  // wire shape (not a hand-diverged contract record, whose fields need not have
-  // getters).  `forApiRead` strips `internal` and `secret` fields so the wire
-  // output matches the response schema's field set.
-  const fields = forApiRead(wireFieldsFor(ent));
+  // The rows of the declared response record — the read contract the route's
+  // response schema and every other backend's DTO render too.  Each row names
+  // a readable member of `ent` (`loom.payload-response-field`), so projecting
+  // its domain getter by name is always defined.
+  const fields = responseWireFor(ctx.payloads, ent);
   const parts: string[] = [];
   for (const wf of fields) {
     if (wf.source === "id") {

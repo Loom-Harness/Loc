@@ -1,10 +1,8 @@
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import {
   createInputFields,
-  forApiRead,
   isRequiredCreateInput,
   wireCreateDefault,
-  wireFieldsFor,
 } from "../../../ir/enrich/wire-projection.js";
 import { routedPolymorphicRead } from "../../../ir/plan/index.js";
 import { PAGED_MAX_PAGE, PAGED_MAX_PAGE_SIZE, pagedReturn } from "../../../ir/stdlib/generics.js";
@@ -44,7 +42,6 @@ import {
 } from "../../../ir/util/api-surface.js";
 import { AUDIT_ENTRY_TYPE, auditEntryWireShape } from "../../../ir/util/audit-history.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
-import { declaredResponseFor } from "../../../ir/util/declared-response.js";
 import { entryResult } from "../../../ir/util/entry-result.js";
 import { foreignValueTypeSeeds, foreignValueTypes } from "../../../ir/util/foreign-event-types.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
@@ -62,6 +59,7 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../../ir/util/openapi-ids.js";
+import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { routedErrorStatuses, routedParamSource } from "../../../ir/util/routed-handler.js";
 import {
   commandCreateEntryResult,
@@ -326,13 +324,13 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
 
   // Entity parts (deduplication by name)
   const emittedParts = new Set<string>();
-  for (const { agg } of allAggregates) {
+  for (const { ctx, agg } of allAggregates) {
     for (const part of agg.parts) {
       if (emittedParts.has(part.name)) continue;
       emittedParts.add(part.name);
       files.set(
         `${schemaDir}/${snake(part.name)}_response.ex`,
-        renderPartResponseSchema(part, webModule),
+        renderPartResponseSchema(part, webModule, ctx.payloads),
       );
     }
   }
@@ -1523,13 +1521,14 @@ function renderPayloadResponseSchema(pl: PayloadIR, webModule: string): string {
   return renderSchemaModule(moduleName, `${pl.name}Response`, fields, `${webModule}.Api.Schemas`);
 }
 
-function renderPartResponseSchema(part: EnrichedEntityPartIR, webModule: string): string {
+function renderPartResponseSchema(
+  part: EnrichedEntityPartIR,
+  webModule: string,
+  payloads: readonly PayloadIR[],
+): string {
   const moduleName = `${webModule}.Api.Schemas.${part.name}Response`;
-  // `forApiRead` drops `internal` and `secret` fields from the OpenAPI
-  // response schema so it matches what the Phoenix LiveView controller
-  // actually serves — same contract the .NET / Hono / React backends
-  // follow.
-  const wireFields = forApiRead(wireFieldsFor(part));
+  // The declared response record's rows — what the controller serves.
+  const wireFields = responseWireFor(payloads, part);
   return renderSchemaModule(
     moduleName,
     `${part.name}Response`,
@@ -1541,63 +1540,13 @@ function renderPartResponseSchema(part: EnrichedEntityPartIR, webModule: string)
 function renderAggregateResponseSchema(
   agg: EnrichedAggregateIR,
   webModule: string,
-  payloads: readonly PayloadIR[] = [],
+  payloads: readonly PayloadIR[],
 ): string {
   const moduleName = `${webModule}.Api.Schemas.${agg.name}Response`;
-  // When a `response <Agg>Response` record is declared, READ its
-  // fields (in declared order) instead of re-deriving from `wireShape`.  The
-  // record omits `id` (grammar-reserved) — re-prepend it exactly as
-  // `forApiRead` surfaces it — and a containment field carries its already-wire
-  // `<Part>Response` name, so its type is peeled back to the part name before
-  // `openApiType` re-appends `Response` (never `<Part>ResponseResponse`).
-  // Identical to the wireShape path for a scaffolded record.
-  const declared = declaredResponseFor(payloads, agg);
-  const props = declared
-    ? declaredResponseProps(agg, declared)
-    : wireFieldsToProps(forApiRead(wireFieldsFor(agg)));
+  // The declared response record's rows — the read contract the controller's
+  // serializer renders too.
+  const props = wireFieldsToProps(responseWireFor(payloads, agg));
   return renderSchemaModule(moduleName, `${agg.name}Response`, props, `${webModule}.Api.Schemas`);
-}
-
-/** A containment field's declared type is `<Part>Response` (an entity whose
- *  name is a declared `response`); `openApiType` appends `Response` to an entity
- *  ref, so peel the name back to the part so the shared renderer re-appends it —
- *  yielding `<Part>Response`, not `<Part>ResponseResponse`.  Scalars / VOs /
- *  enums pass through unchanged (their declared type IS the domain type). */
-function normalizeDeclaredType(t: TypeIR): TypeIR {
-  if (t.kind === "array") return { ...t, element: normalizeDeclaredType(t.element) };
-  if (t.kind === "optional") return { ...t, inner: normalizeDeclaredType(t.inner) };
-  if (t.kind === "entity" && t.declKind === "response") {
-    return { ...t, name: t.name.replace(/Response$/, ""), declKind: "part" };
-  }
-  return t;
-}
-
-/** Build the `<Agg>Response` schema props from a DECLARED `response` record:
- *  the re-prepended id row + each declared field (containment types peeled). */
-function declaredResponseProps(
-  agg: EnrichedAggregateIR,
-  payload: PayloadIR,
-): Array<{ name: string; type: TypeIR; optional: boolean }> {
-  const props: Array<{ name: string; type: TypeIR; optional: boolean }> = [];
-  const idField = forApiRead(wireFieldsFor(agg)).find((w) => w.source === "id");
-  if (idField) props.push({ name: idField.name, type: idField.type, optional: idField.optional });
-  // A declared record names DOMAIN types, so a field the aggregate declares
-  // `provenanced` is wrapped in the wire carrier here — the same wrap
-  // `wireTypeForField` applies on the wireShape path, so both paths publish the
-  // identical schema.
-  const provenanced = new Set(agg.fields.filter((f) => f.provenanced).map((f) => f.name));
-  for (const f of payload.fields) {
-    const declaredType = normalizeDeclaredType(f.type);
-    props.push({
-      name: f.name,
-      type: provenanced.has(f.name)
-        ? { kind: "genericInstance", ctor: "provenanced", arg: declaredType }
-        : declaredType,
-      // A masked field is redacted to null, so it is never `required`.
-      optional: f.optional || f.maskUnless !== undefined,
-    });
-  }
-  return props;
 }
 
 /** Create-response schema — `{ id }` only, matching Hono/.NET's
