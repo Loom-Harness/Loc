@@ -29,6 +29,7 @@ import { isAggregate, isEntityPart } from "../../../language/generated/ast.js";
 import {
   apiReadFields,
   apiReadFieldsOf,
+  cloneExpr,
   cloneTypeRef,
   command,
   containmentOf,
@@ -130,11 +131,17 @@ function partResponses(agg: Aggregate): ContractRecord[] {
   return out;
 }
 
-/** Clone a list of source `Property` members into fresh name+type request
- * fields (a fresh `field(...)` — the source node would be reparented by the
- * splice; a hand-rolled type would not re-link, so `cloneTypeRef` rebuilds it). */
+/** Clone a list of source `Property` members (or create params) into fresh
+ * request fields carrying the name, type and `= default` (a fresh `field(...)`
+ * — the source node would be reparented by the splice; a hand-rolled type would
+ * not re-link, so `cloneTypeRef` / `cloneExpr` rebuild them).  The default is
+ * part of the request contract: a client form seeds from it. */
 function fieldsFromProps(props: readonly (Property | Parameter)[]): Property[] {
-  return props.filter((p) => p.type != null).map((p) => field(p.name, cloneTypeRef(p.type)));
+  return props
+    .filter((p) => p.type != null)
+    .map((p) =>
+      field(p.name, cloneTypeRef(p.type), p.default ? { default: cloneExpr(p.default) } : {}),
+    );
 }
 
 /** Clone a list of `Parameter`s (operation / find params) into request fields. */

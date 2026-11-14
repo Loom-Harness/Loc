@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { createInputFields, emitsRestCreate } from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
-import type { PayloadIR, TypeIR } from "../../src/ir/types/loom-ir.js";
+import type { ExprIR, PayloadIR, TypeIR } from "../../src/ir/types/loom-ir.js";
 import { declaredResponseFor } from "../../src/ir/util/declared-response.js";
 import { upperFirst } from "../../src/util/naming.js";
 import { expectReach } from "../_helpers/census-reach.js";
@@ -27,28 +27,39 @@ interface Input {
   name: string;
   optional: boolean;
   type: TypeIR;
+  default?: ExprIR;
 }
 
 /** One request input, with optionality read off either spelling (`optional`
- *  flag or an `optional` type wrapper) so the two sources compare on meaning. */
-function input(name: string, type: TypeIR, optional: boolean): string {
-  const inner = type.kind === "optional" ? type.inner : type;
-  return JSON.stringify({ name, optional: optional || type.kind === "optional", type: inner });
+ *  flag or an `optional` type wrapper) so the two sources compare on meaning.
+ *  A default compares by value, without the source span it was read from. */
+function input(f: Input): string {
+  const inner = f.type.kind === "optional" ? f.type.inner : f.type;
+  return JSON.stringify(
+    {
+      name: f.name,
+      optional: f.optional || f.type.kind === "optional",
+      type: inner,
+      default: f.default,
+    },
+    (key, value) => (SPAN_KEYS.has(key) ? undefined : value),
+  );
 }
 
+const SPAN_KEYS = new Set(["span", "origin"]);
+
 function recordInputs(rec: PayloadIR): string[] {
-  return rec.fields.map((f) => input(f.name, f.type, f.optional));
+  return rec.fields.map((f) => input({ ...f, optional: f.optional }));
 }
 
 function dtoInputs(inputs: readonly Input[]): string[] {
-  return inputs.map((f) => input(f.name, f.type, f.optional));
+  return inputs.map(input);
 }
 
 describe("command records agree with the request DTOs (corpus census)", () => {
   it("every served create and operation has a command record equal to its DTO inputs", async () => {
     const drift: string[] = [];
-    let creates = 0;
-    let operations = 0;
+    let compared = 0;
     for (const file of trackedDddFiles().filter(
       (f) => f.startsWith("test/fixtures/corpus/") && f.endsWith(".ddd"),
     )) {
@@ -62,10 +73,10 @@ describe("command records agree with the request DTOs (corpus census)", () => {
               ctx.payloads.find((p) => p.kind === "command" && p.name === name);
             const compare = (name: string, dto: readonly Input[]) => {
               const rec = record(name);
-              if (!rec) {
-                drift.push(`${file}: ${name} — no command record`);
-                return;
-              }
+              // A served request with no record at all is the wire-spec request
+              // census's to report; this one compares the records that exist.
+              if (!rec) return;
+              compared++;
               const want = dtoInputs(dto);
               const have = recordInputs(rec);
               if (JSON.stringify(want) !== JSON.stringify(have)) {
@@ -80,23 +91,32 @@ describe("command records agree with the request DTOs (corpus census)", () => {
               if (emitsRestCreate(agg)) {
                 const es = agg.persistedAs === "eventLog" ? agg.creates[0] : undefined;
                 const dto: Input[] = es
-                  ? es.params.map((p) => ({ name: p.name, type: p.type, optional: false }))
+                  ? es.params.map((p) => ({
+                      name: p.name,
+                      type: p.type,
+                      optional: false,
+                      default: p.default,
+                    }))
                   : createInputFields(agg).map((f) => ({
                       name: f.name,
                       type: f.type,
                       optional: !!f.optional,
+                      default: f.default,
                     }));
                 const verb = es?.name ? upperFirst(es.name) : "Create";
                 compare(`${verb}${agg.name}Command`, dto);
-                creates++;
               }
               for (const op of agg.operations) {
                 if (op.visibility !== "public") continue;
                 compare(
                   `${upperFirst(op.name)}${agg.name}Command`,
-                  op.params.map((p) => ({ name: p.name, type: p.type, optional: false })),
+                  op.params.map((p) => ({
+                    name: p.name,
+                    type: p.type,
+                    optional: false,
+                    default: p.default,
+                  })),
                 );
-                operations++;
               }
             }
           }
@@ -104,8 +124,7 @@ describe("command records agree with the request DTOs (corpus census)", () => {
       }
     }
     // The denominator: a census over an empty population proves nothing.
-    expectReach("served creates", creates, 250);
-    expectReach("served operations", operations, 550);
+    expectReach("compared requests", compared, 800);
     expect(drift).toEqual([]);
   }, 180_000);
 });
