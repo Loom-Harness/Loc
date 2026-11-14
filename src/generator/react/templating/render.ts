@@ -19,7 +19,6 @@
 // ---------------------------------------------------------------------------
 
 import type {
-  AggregateIR,
   BoundedContextIR,
   PageIR,
   ThemeIR,
