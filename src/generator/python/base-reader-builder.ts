@@ -1,16 +1,32 @@
 import { type PolymorphicRead, polymorphicReadFor } from "../../ir/enrich/read-scope.js";
 import { type WireRejectionClass, wireStatus } from "../../ir/enrich/wire-policy.js";
-import { routedPolymorphicRead } from "../../ir/plan/index.js";
-import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
+import {
+  polymorphicReadGates,
+  polymorphicReadMasked,
+  routedPolymorphicRead,
+} from "../../ir/plan/index.js";
+import {
+  type EnrichedAggregateIR,
+  type EnrichedBoundedContextIR,
+  exprUsesCurrentUser,
+} from "../../ir/types/loom-ir.js";
 import { isTpcBase, isTphBase, tpcConcretesOf, tphConcretesOf } from "../../ir/util/inheritance.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { rowClassName } from "./py-columns.js";
-import { pyIdType } from "./py-symbols.js";
+import { PY, pyIdType } from "./py-symbols.js";
+import { renderPyNegatedGuard } from "./render-expr.js";
 import { aggRef, R, schemaRow } from "./repository-builder.js";
-import { PY_HTTP as H, ID_PARAM, PY_PAGED_CONTROLS, PY_SESSION_DEP } from "./routes-builder.js";
+import {
+  PY_HTTP as H,
+  ID_PARAM,
+  PY_PAGED_CONTROLS,
+  PY_REQUEST_PARAM,
+  PY_SESSION_DEP,
+  PY_USER_BIND,
+} from "./routes-builder.js";
 import { pyNotFoundRaise, pyProblemResponseEntry } from "./wire-policy-py.js";
 
 /** `from app.db.repositories.<snake(agg)>_repository import <Agg>Repository`. */
@@ -86,10 +102,11 @@ export function buildPyBaseReaderFile(
 ): string {
   const read = polymorphicReadFor(base, ctx.aggregates);
   const paged = !!routedPolymorphicRead(base, ctx);
+  const masked = new Set(polymorphicReadMasked(base, ctx));
   const body =
     read && isTphBase(base, ctx.aggregates)
-      ? tphReader(base, read, paged)
-      : tpcReader(base, concretes, read, paged);
+      ? tphReader(base, read, paged, masked)
+      : tpcReader(base, concretes, read, paged, masked);
   return lines(
     `"""Read-only polymorphic ${base.name} reader.  Auto-generated."""`,
     "",
@@ -122,21 +139,33 @@ function pagedResultLines(): string[] {
 }
 
 /** `to_wire(root)` — the row's tagged wire body: `{"type": "<Concrete>", …the
- *  concrete's own wire fields}`, the tagged-union shape (docs/payloads.md). */
-function toWireLines(base: EnrichedAggregateIR, read: PolymorphicRead | undefined): string[] {
+ *  concrete's own wire fields}`, the tagged-union shape (docs/payloads.md).  A
+ *  concrete in `masked` serializes through its own `to_wire_masked` (which reads
+ *  the ambient principal), so the base read redacts exactly what that
+ *  concrete's own read does. */
+function toWireLines(
+  base: EnrichedAggregateIR,
+  read: PolymorphicRead | undefined,
+  masked: ReadonlySet<string>,
+): string[] {
   if (!read) return [];
   return [
     "",
     `    def to_wire(self, root: ${aggRef(base)}) -> dict[str, object]:`,
     ...read.variants.flatMap((v) => [
       `        if isinstance(root, ${pyRef(`app.domain.${snake(v.aggregate)}`, v.aggregate)}):`,
-      `            return {"type": ${JSON.stringify(v.tag)}, **${repoCall(v.aggregate)}.to_wire(root)}`,
+      `            return {"type": ${JSON.stringify(v.tag)}, **${repoCall(v.aggregate)}.${masked.has(v.aggregate) ? "to_wire_masked" : "to_wire"}(root)}`,
     ]),
     `        raise ValueError(f"unknown ${base.name} subtype: {type(root).__name__}")`,
   ];
 }
 
-function tphReader(base: EnrichedAggregateIR, read: PolymorphicRead, paged: boolean): string {
+function tphReader(
+  base: EnrichedAggregateIR,
+  read: PolymorphicRead,
+  paged: boolean,
+  masked: ReadonlySet<string>,
+): string {
   const row = schemaRow(rowClassName(base.name));
   const order = read.order.map((t) => `${row}.${snake(t.field)}.${t.direction}()`).join(", ");
   return lines(
@@ -166,7 +195,7 @@ function tphReader(base: EnrichedAggregateIR, read: PolymorphicRead, paged: bool
           ...pagedResultLines(),
         ]
       : []),
-    ...toWireLines(base, read),
+    ...toWireLines(base, read, masked),
     "",
     // Each row is already its concrete's mapped subclass; its concrete
     // repository hydrates it (contained parts, join tables and all).
@@ -184,6 +213,7 @@ function tpcReader(
   concretes: EnrichedAggregateIR[],
   read: PolymorphicRead | undefined,
   paged: boolean,
+  masked: ReadonlySet<string>,
 ): string {
   return lines(
     ...readerHead(base),
@@ -213,7 +243,7 @@ function tpcReader(
           ...pagedResultLines(),
         ]
       : []),
-    ...toWireLines(base, read),
+    ...toWireLines(base, read, masked),
   );
 }
 
@@ -246,13 +276,35 @@ export function buildPyBaseRoutesFile(
       : `${B}Response = ${union}`;
   const problem = (cls: WireRejectionClass): string =>
     pyProblemResponseEntry(wireStatus(cls), H.ProblemDetails);
+  // Every concrete's list-read gate, checked before the load: a caller who
+  // fails any of them gets that concrete's own pre-load 403.
+  const gates = polymorphicReadGates(base, ctx);
+  const forbidden =
+    gates.length > 0
+      ? [
+          pyProblemResponseEntry(
+            wireStatus("forbidden", ctx.structuralErrorStatuses),
+            H.ProblemDetails,
+          ),
+        ]
+      : [];
+  const gateUsesUser = gates.some((g) => exprUsesCurrentUser(g.find.requires));
+  const gateLines = (): (string | null)[] => [
+    gateUsesUser ? PY_USER_BIND : null,
+    ...gates.flatMap((g) => [
+      `    if ${renderPyNegatedGuard(g.find.requires)}:`,
+      `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: find ${g.find.name}`)})`,
+    ]),
+  ];
+  const requestParam = gateUsesUser ? `${PY_REQUEST_PARAM}, ` : "";
   const byId =
     read.layout === "sharedTable"
       ? [
           "",
           "",
-          `@router.get("/{id}", response_model=${B}Response, operation_id="get${B}ById", responses={${problem("not-found")}, ${problem("field-invalid")}})`,
-          `async def get_${snake(B)}_by_id(${ID_PARAM}, session: SessionDep) -> dict[str, object]:`,
+          `@router.get("/{id}", response_model=${B}Response, operation_id="get${B}ById", responses={${[...forbidden, problem("not-found"), problem("field-invalid")].join(", ")}})`,
+          `async def get_${snake(B)}_by_id(${ID_PARAM}, ${requestParam}session: SessionDep) -> dict[str, object]:`,
+          ...gateLines(),
           "    repo = _repo(session)",
           "    found = await repo.find_by_id(id)",
           "    if found is None:",
@@ -287,8 +339,9 @@ export function buildPyBaseRoutesFile(
     `    return ${repoRef(B)}(session, ${H.NoopDomainEventDispatcher}())`,
     "",
     "",
-    `@router.get("", response_model=${B}Paged, operation_id="all${B}", responses={${problem("field-invalid")}})`,
-    `async def all_${route}(session: SessionDep, ${PY_PAGED_CONTROLS.join(", ")}) -> dict[str, object]:`,
+    `@router.get("", response_model=${B}Paged, operation_id="all${B}", responses={${[...forbidden, problem("field-invalid")].join(", ")}})`,
+    `async def all_${route}(${requestParam}session: SessionDep, ${PY_PAGED_CONTROLS.join(", ")}) -> dict[str, object]:`,
+    ...gateLines(),
     "    repo = _repo(session)",
     "    result = await repo.find_page(page, pageSize)",
     "    return {",

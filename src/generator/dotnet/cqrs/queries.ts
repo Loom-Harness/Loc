@@ -482,6 +482,8 @@ function renderResponseReturnType(t: TypeIR, agg: AggregateIR): string {
  *  enrichment stamps on an undeclared read under denyByDefault, M-T3.19) is
  *  spelled as a non-constant expression: `if (!(false)) throw …` makes every
  *  following statement unreachable, and CS0162 fails `/warnaserror`. */
-function renderCsGate(gate: ExprIR): string {
+/** A find's `requires` gate as a C# condition; the always-deny gate renders
+ *  as a constant false the compiler does not flag as unreachable code. */
+export function renderCsGate(gate: ExprIR): string {
   return isAlwaysDenyGate(gate) ? "System.Array.Empty<object>().Length != 0" : renderCsExpr(gate);
 }
