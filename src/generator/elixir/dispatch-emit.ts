@@ -40,6 +40,7 @@ import type { ElixirChannelsCfg } from "./channels-emit.js";
 import { reactorTarget, renderReactorBody } from "./reactor-target.js";
 import { type RenderCtx, renderExpr } from "./render-expr.js";
 import { type StateDefaultDecls, stateDefault, stateDefaultDecls } from "./state-default.js";
+import type { ByIdCacheReads } from "./vanilla/by-id-cache-emit.js";
 import { exEctoIdJsonType, exEctoIdType } from "./vanilla/codec-spelling-ex.js";
 import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { bodyUsesParam, renderFunctionBodyLines } from "./vanilla/function-emit.js";
@@ -252,6 +253,8 @@ export function emitDispatch(
   extraChannels: ChannelIR[] = [],
   /** See `emitWorkflowStateSchemas`' `durable`. */
   durable = false,
+  /** The context's cached by-id reads: a reactor's write evicts them. */
+  cached: ByIdCacheReads = new Map(),
 ): void {
   const ctxSnake = snake(ctx.name);
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
@@ -292,7 +295,7 @@ export function emitDispatch(
           reactorRenderCtx(appModule, contextModule, ctx, sub, sys),
           channels,
         )
-      : renderHandler(appModule, contextModule, ctx, sub, sys, channels, durable);
+      : renderHandler(appModule, contextModule, ctx, sub, sys, channels, durable, cached);
     const path = `lib/${appName}/${ctxSnake}/workflows/${snake(sub.workflow.name)}/${verb}_${snake(sub.event)}.ex`;
     out.set(path, content);
     const construct = `${ctx.name}.${sub.workflow.name}`;
@@ -521,6 +524,7 @@ function renderHandler(
   sys?: SystemIR,
   channels?: ElixirChannelsCfg,
   durable = false,
+  cached: ByIdCacheReads = new Map(),
 ): HandlerResult {
   const wf = sub.workflow;
   const persisted = !!wf.correlationField;
@@ -538,7 +542,7 @@ function renderHandler(
   const plan = elixirSavePlan(sub.statements, sub.saves, ctx);
   const { lines: body, regions } = renderReactorBody(
     sub.statements,
-    reactorTarget(ctx, renderCtx, contextModule, channels, plan),
+    reactorTarget(ctx, renderCtx, contextModule, channels, plan, cached),
     { saves: sub.saves, plan, contextModule },
   );
 

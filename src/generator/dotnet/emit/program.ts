@@ -1,4 +1,5 @@
 import { wireStatus } from "../../../ir/enrich/wire-policy.js";
+import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import type { BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
 import { contextStaticSubpathRoutes } from "../../../ir/util/api-surface.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
@@ -36,6 +37,7 @@ import { CS } from "../cs-symbols.js";
 import type { SchemaIdOverride } from "../schema-ids.js";
 import { csFixedDetail, csSentence } from "../wire-policy-cs.js";
 import { emitsBaseReader } from "./base-reader.js";
+import { cachedRepositoryTypes, renderCacheRepositoryRegistration } from "./by-id-cache.js";
 import { DAPPER_PROJECT_DEPS, renderDapperConnectionSetup } from "./dapper.js";
 
 // Program.cs is top-level statements, not a class — so the renderer's
@@ -212,6 +214,9 @@ export function renderProgram(
      *  Program.cs registers the in-process Mediator-notification dispatcher
      *  (instead of the no-op) and `IDomainEvent` is a Mediator notification. */
     hasSubscriptions?: boolean;
+    /** The cached by-id reads of the deployable: each one's repository is
+     *  registered behind its eviction decorator. */
+    byIdCaches?: readonly CachedByIdRead[];
     /** Transactional outbox (dispatch-delivery-semantics.md): registers the
      *  outbox-wrapping dispatcher + the relay BackgroundService.  Implies
      *  hasSubscriptions. */
@@ -645,10 +650,14 @@ ${
     // An abstract base registers its polymorphic reader exactly when one is
     // emitted (`emitsBaseReader`): every TPC base and every TPH root.
     .filter((a) => !a.isAbstract || emitsBaseReader(a, ctx.aggregates))
-    .map(
-      (a) =>
-        `builder.Services.AddScoped<${ns}.Domain.${plural(a.name)}.I${a.name}Repository, ${ns}.Infrastructure.Repositories.${a.name}Repository>();`,
-    )
+    .map((a) => {
+      const cached = options?.byIdCaches?.find((r) => r.aggregate === a.name);
+      if (cached) {
+        const { iface, impl } = cachedRepositoryTypes(cached, ns);
+        return renderCacheRepositoryRegistration(cached, ns, iface, impl);
+      }
+      return `builder.Services.AddScoped<${ns}.Domain.${plural(a.name)}.I${a.name}Repository, ${ns}.Infrastructure.Repositories.${a.name}Repository>();`;
+    })
     .join("\n");
 
   // Reading-tier domain services (domain-services.md rev. 4): a

@@ -305,6 +305,14 @@ export const LogEvents = {
     fields: ["aggregate", "op", "error"],
   },
   internalError: { event: "internal_error", level: "error", fields: ["error", "status"] },
+  /** The by-id read cache's store refused a call (`kind: cache`).  A read
+   *  falls back to the database; a failed eviction leaves an entry that
+   *  expires at its ttl. */
+  cacheUnavailable: {
+    event: "cache_unavailable",
+    level: "warn",
+    fields: ["aggregate", "op", "error"],
+  },
 
   // ─── domain — debug (mechanism, live prod diagnosis) ─────────────────
   aggregateLoaded: {

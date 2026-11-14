@@ -151,6 +151,14 @@ describe("intrinsic matchers — the documented special cases", () => {
     });
   });
 
+  it("`toBeCached` is a zero-arg, negatable value matcher (`.not.` asserts a miss)", () => {
+    expect(intrinsicMatcherSig("toBeCached")).toMatchObject({
+      arity: 0,
+      on: "value",
+      negatable: true,
+    });
+  });
+
   it("`toContain` is a unary value matcher (one matcher, two lowerings)", () => {
     // The subject's TYPE picks the lowering — membership for a collection,
     // substring for a string — so the SIGNATURE is unary either way; the
@@ -167,7 +175,7 @@ describe("intrinsic matchers — the documented special cases", () => {
     // zero-arg matcher fails here and gets a deliberate line above rather than
     // quietly joining an `if (name === …) continue` skip list.
     const zeroArg = NAMES.filter((n) => intrinsicMatcherSig(n)!.arity === 0).sort();
-    expect(zeroArg).toEqual(["toBeAbsent", "toBeNull", "toBeVisible", "toThrow"]);
+    expect(zeroArg).toEqual(["toBeAbsent", "toBeCached", "toBeNull", "toBeVisible", "toThrow"]);
     for (const name of NAMES) {
       expect([0, 1], `${name}: matchers are zero-arg or unary`).toContain(
         intrinsicMatcherSig(name)!.arity,

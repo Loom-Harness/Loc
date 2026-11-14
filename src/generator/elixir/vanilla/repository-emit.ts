@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import { declaredCreateParamNames } from "../../../ir/enrich/wire-projection.js";
+import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import { clientSortTieBreak, singleReadOrder } from "../../../ir/plan/index.js";
 import {
   PAGED_DEFAULT_PAGE,
@@ -35,6 +36,7 @@ import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { renderPolymorphicReader } from "./base-reader.js";
+import { type ByIdCacheReads, renderEvictPipe } from "./by-id-cache-emit.js";
 import {
   aggregateUsesPrincipalContextFilter,
   findUsesPrincipal,
@@ -74,6 +76,7 @@ export function emitVanillaRepositories(
   sys?: SystemIR,
   principalIdKey = "id",
   sourcemap?: SourceMapRecorder,
+  cached: ByIdCacheReads = new Map(),
 ): void {
   const ctxModule = upperFirst(ctx.name);
   const pool = ctx.aggregates;
@@ -92,8 +95,25 @@ export function emitVanillaRepositories(
     const content = isAbstractBase(agg)
       ? renderPolymorphicReader(appModule, ctxModule, agg, ctx, sys)
       : isVanillaDocAgg(agg, ctx, sys)
-        ? renderDocRepository(appModule, ctxModule, agg, customFindsOf(repo), principalIdKey)
-        : renderRepository(appModule, ctxModule, agg, repo, principalIdKey, ctx, pool, sys);
+        ? renderDocRepository(
+            appModule,
+            ctxModule,
+            agg,
+            customFindsOf(repo),
+            principalIdKey,
+            cached.get(agg.name),
+          )
+        : renderRepository(
+            appModule,
+            ctxModule,
+            agg,
+            repo,
+            principalIdKey,
+            ctx,
+            pool,
+            sys,
+            cached.get(agg.name),
+          );
     const path = `lib/${appSnake}/${ctxSnake}/${aggSnake}_repository.ex`;
     out.set(path, content);
     sourcemap?.file(path, content, repo?.origin ?? agg.origin, `${ctx.name}.${agg.name}`);
@@ -127,8 +147,12 @@ function renderRepository(
   ctx?: BoundedContextIR,
   pool: readonly AggregateIR[] = ctx?.aggregates ?? [agg],
   sys?: SystemIR,
+  cache?: CachedByIdRead,
 ): string {
   const aggModule = `${appModule}.${ctxModule}.${upperFirst(agg.name)}`;
+  // Every write ends in the aggregate's cache eviction when its by-id read is
+  // cached (the plan's `evictOn`: `save` = insert / update / persist_change).
+  const evict = renderEvictPipe(appModule, cache);
   const repoMod = `${aggModule}Repository`;
   const contextModule = `${appModule}.${ctxModule}`;
   // TPH (`sharedTable`) concrete: every row lives in the shared base table
@@ -249,7 +273,7 @@ function renderRepository(
   // by `put_assoc`/`cast_assoc`, so it only materialises the untouched ones.
   const admitPipe = refAdmissionPipe(agg, ctx);
   const insertPipeline = `${aggModule}Changeset.base_changeset(attrs)${kindStamp}${insertStamps}${insertPutAssoc}${admitPipe}
-    |> Repo.insert()`;
+    |> Repo.insert()${evict}`;
   // F-018 — a claim-valued stamp into a NOT NULL column must refuse a principal
   // whose claim is absent, rather than cast nil and let Postgres raise.  Elixir
   // has no exception idiom here: the repository already speaks in tuples, so the
@@ -475,10 +499,10 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
         {:error, reason} ->
           Repo.rollback(reason)
       end
-    end)${updateRescue}`
+    end)${evict}${updateRescue}`
     : `${versionOverride}    record${updatePreload}
     |> ${aggModule}Changeset.${updateChangesetFn}(attrs)${updateStamps}${updatePutAssoc}${admitPipe}
-    |> Repo.update(${updateForceArg})${updateRescue}`;
+    |> Repo.update(${updateForceArg})${evict}${updateRescue}`;
 
   // The CRUD `delete/1` repository fn is emitted only when the aggregate exposes
   // a REST delete surface (a reachable `destroy`).  Without it the function was
@@ -491,7 +515,7 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
     ? `
   @spec delete(${aggModule}.t()) :: {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t()}
   def delete(%${aggModule}{} = record) do
-    Repo.delete(record)
+    Repo.delete(record)${evict}
   end
 
 `
@@ -545,8 +569,8 @@ ${updateProvHelper}${deleteBlock}  @doc "Persist a pre-built changeset (the name
   def persist_change(%Ecto.Changeset{data: %${aggModule}{}} = changeset) do
 ${
   admitPipe
-    ? `    changeset${admitPipe}${refConstraintPipe(agg, ctx)}\n    |> Repo.update(${updateForceArg})`
-    : `    Repo.update(changeset${updateForce})`
+    ? `    changeset${admitPipe}${refConstraintPipe(agg, ctx)}\n    |> Repo.update(${updateForceArg})${evict}`
+    : `    Repo.update(changeset${updateForce})${evict}`
 }${versioned ? persistChangeRescue : ""}
   end${refAdmissionHelpers(appModule, ctxModule, agg, ctx)}${findBlock}${refHelpers || "\n"}end
 `;

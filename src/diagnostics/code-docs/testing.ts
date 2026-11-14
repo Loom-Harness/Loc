@@ -5,6 +5,7 @@
 // wrong family.
 
 export const anchors: Readonly<Record<string, string>> = {
+  "loom.cached-subject-invalid": "18-testing.md#cache-status--tobecached",
   // --- src/language/validators/match.ts (M-T9.56 drain) --------------------
   "loom.matcher-arity": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
   "loom.expect-requires-matcher": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",

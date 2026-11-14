@@ -1,0 +1,15 @@
+{
+  "title": "the by-id read cache (`kind: cache`): hits, eviction on every write path, and scope isolation across tenants, roles, masks and policy rungs",
+  "doc": "resources",
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "The registry (`Org`) serves its two reads and no writes; its self-scope hides every row from the harness principal.  `api.relabel.run(...)` drives a command workflow — a write path the cache must evict on (a not-lifted workflow route).",
+    "uncalled": {
+      "getOrgById": "tenantRegistryRow",
+      "allOrg": "tenantRegistryRow"
+    },
+    "unattributed": [
+      "api.relabel.run (no such aggregate)"
+    ]
+  }
+}

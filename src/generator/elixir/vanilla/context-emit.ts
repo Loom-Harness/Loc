@@ -53,6 +53,7 @@ import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { exFieldCode, exFieldMessage, exLit, exValuePrefix } from "../wire-policy-ex.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
+import { type ByIdCacheReads, renderEvictPipe } from "./by-id-cache-emit.js";
 import {
   aggregateUsesPrincipalContextFilter,
   findUsesPrincipal,
@@ -281,6 +282,7 @@ export function emitVanillaContextModule(
    *  through the `<App>.Channels` tee (see channels-emit.ts). */
   channels?: ElixirChannelsCfg,
   extraChannels: ChannelIR[] = [],
+  cached: ByIdCacheReads = new Map(),
 ): void {
   const ctxSnake = snake(ctx.name);
   const ctxModule = upperFirst(ctx.name);
@@ -304,6 +306,7 @@ export function emitVanillaContextModule(
     opFragments,
     channels,
     extraChannels,
+    cached,
   );
   out.set(path, content);
   if (sourcemap && opFragments) {
@@ -554,6 +557,7 @@ function renderContextModule(
   opFragments?: OpFragment[],
   channels?: ElixirChannelsCfg,
   extraChannels: ChannelIR[] = [],
+  cached: ByIdCacheReads = new Map(),
 ): string {
   const facadeMod = `${appModule}.${ctxModule}`;
   const inMemory = contextInMemoryOps(ctx);
@@ -843,10 +847,10 @@ ${auditedWrite("    ")}
         : `id, ${principalParam(lifecycleGatesUseCurrentUser(canonicalDestroy(agg)))}`;
     const destroyBangBody =
       destroyClauses.length === 0
-        ? `      {:ok, record} -> ${appModule}.Repo.delete!(record)`
+        ? `      {:ok, record} -> ${appModule}.Repo.delete!(record)${renderEvictPipe(appModule, cached.get(agg.name), "        ")}`
         : `      {:ok, record} ->
         with ${destroyClauses.join(",\n             ")} do
-          ${appModule}.Repo.delete!(record)
+          ${appModule}.Repo.delete!(record)${renderEvictPipe(appModule, cached.get(agg.name), "          ")}
         else
           {:error, {:forbidden, detail}} -> raise detail
         end

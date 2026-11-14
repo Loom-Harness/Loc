@@ -26,6 +26,7 @@ import {
   type Lines,
   type StyleAdapter,
 } from "../../../../generator/_adapters/index.js";
+import { cachedByIdRead } from "../../../../ir/plan/cache.js";
 import type {
   AggregateIR,
   EnrichedAggregateIR,
@@ -114,6 +115,7 @@ export const layeredStyleAdapter: StyleAdapter = {
       // (`db.transactional` + `em.insert(<Row>, …)`).  drizzle keeps the false
       // default, so its routes stay byte-identical.
       ctx.deployable.persistence === "mikroorm",
+      cachedByIdRead(ctx.sys, owningCtx, agg.name, ctx.deployable),
     );
     const category: HonoArtifactCategory = "http-routes";
     return [
