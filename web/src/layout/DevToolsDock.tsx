@@ -1,5 +1,7 @@
-import { Box, Group, Tabs, Tooltip, UnstyledButton } from "@mantine/core";
+import { Suspense } from "react";
+import { Box, Group, Loader, Tabs, Tooltip, UnstyledButton } from "@mantine/core";
 import { AuthConfigPanel } from "./AuthConfigPanel";
+import { LazyInfraPanel } from "./lazy-panels";
 import { BackendBody, BackendHeader } from "./BackendPanel";
 import { TestsBody } from "./TestsPanel";
 import { HistoryBody } from "./HistoryPanel";
@@ -43,6 +45,7 @@ const DOCK_TABS: readonly DockTab[] = [
   "migrations",
   "history",
   "auth",
+  "infra",
 ] as const;
 
 function isDockTab(v: string | null): v is DockTab {
@@ -62,6 +65,7 @@ function DevToolsDockView({ ctx, tab, setTab }: Props): JSX.Element {
     { id: "migrations", label: PANE.migrations, mark: migrationsMark(ctx) },
     { id: "history", label: PANE.history, mark: null },
     { id: "auth", label: PANE.auth, mark: authMark(ctx) },
+    { id: "infra", label: PANE.infra, mark: null },
   ];
 
   return (
@@ -131,6 +135,11 @@ function DevToolsDockView({ ctx, tab, setTab }: Props): JSX.Element {
         </Tabs.Panel>
         <Tabs.Panel value="auth">
           <AuthConfigPanel ctx={ctx} />
+        </Tabs.Panel>
+        <Tabs.Panel value="infra">
+          <Suspense fallback={<Loader size="xs" m="md" />}>
+            <LazyInfraPanel ctx={ctx} />
+          </Suspense>
         </Tabs.Panel>
       </Box>
     </Tabs>

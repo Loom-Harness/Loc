@@ -200,15 +200,27 @@ export function evaluate(runs, selfNames) {
   return { total: others.length, pending, failed };
 }
 
+/** The `pr-gate` summary on a conflicted PR head. */
+export const CONFLICT_SUMMARY =
+  "PR conflicts with main; workflows won't run until it's resolved — merge main into the branch and push";
+
 /**
  * One snapshot -> one verdict.  `pending` maps to a BLOCKING-but-not-failed
  * check (`in_progress`), so the PR shows "waiting", not a spurious red,
  * between completion events.
  *
+ * A PR that conflicts with its base gets no `pull_request` workflow at all —
+ * GitHub cannot build the merge ref — so nothing ever reports on its head and
+ * "waiting" would be a lie with no end.  When the caller knows the PR is
+ * conflicted (`mergeable_state: "dirty"`) and no other check has reported,
+ * the verdict fails and says why.
+ *
  * @param {{total: number, pending: string[], failed: string[]}} snapshot
+ * @param {{conflicted?: boolean}} [pr] - what the caller knows about the PR
  * @returns {{state: "success" | "failure" | "pending", summary: string}}
  */
-export function verdict({ total, pending, failed }) {
+export function verdict({ total, pending, failed }, pr = {}) {
+  if (total === 0 && pr.conflicted) return { state: "failure", summary: CONFLICT_SUMMARY };
   if (failed.length > 0) {
     return { state: "failure", summary: `check(s) failed: ${failed.join(", ")}` };
   }
@@ -621,6 +633,18 @@ async function fetchOpenPrHeads(repo, token) {
   return prs.map((p) => ({ number: p.number, sha: p.head.sha }));
 }
 
+/** Whether an open PR conflicts with its base.  The list endpoint omits
+ *  `mergeable_state`, so this reads the single PR; GitHub computes it lazily
+ *  and answers `unknown` until it has, which counts as not conflicted. */
+async function prConflicted(repo, number, token) {
+  const res = await apiFetch(`https://api.github.com/repos/${repo}/pulls/${number}`, {
+    headers: API_HEADERS(token),
+  });
+  if (!res.ok) return false;
+  const pr = await res.json();
+  return pr.mergeable_state === "dirty";
+}
+
 /** The SECOND line of defence, behind the tail watch.  It re-derives the
  *  verdict for every OPEN PR and posts only where it differs from what is
  *  already published.
@@ -662,7 +686,11 @@ async function sweep(repo, token) {
   console.log(`pr-gate sweep: ${prs.length} open PR(s)`);
   for (const pr of prs) {
     const runs = await fetchCheckRuns(repo, pr.sha, token);
-    const v = verdict(evaluate(runs, SELF_NAMES));
+    const snapshot = evaluate(runs, SELF_NAMES);
+    // Only a head nothing has reported on can be a conflict park; reading the
+    // PR for every other head would spend a call per open PR for nothing.
+    const conflicted = snapshot.total === 0 && (await prConflicted(repo, pr.number, token));
+    const v = verdict(snapshot, { conflicted });
     const current = currentGateState(runs);
     if (sweepShouldPost(current, v)) {
       await publishCheck(repo, pr.sha, token, v, existingGateRunId(runs));

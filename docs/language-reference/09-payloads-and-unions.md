@@ -176,7 +176,7 @@ So whatever the host-language representation — a Zod discriminated union, a `J
 
 ## Union finds are removed
 
-A repository `find` once returned the absence shape `Order or NotFound` / `Order option`, answered untagged at a status code.  `find` declarations are removed ([D-FINDDECL-REMOVED](../decisions.md)) and the 2026-10-25 ruling dropped the shape: a miss is `T?` (`findById`, `findBy`, `find(<Criterion>)`), and a must-exist read (`getById`, `getBy`) answers the standard ProblemDetails 404.  The tagged union wire is for operation returns.
+A repository `find` once returned the absence shape `Order or NotFound` / `Order option`, answered untagged at a status code.  `find` declarations are removed ([D-FINDDECL-REMOVED](../decisions/D-FINDDECL-REMOVED.md)) and the 2026-10-25 ruling dropped the shape: a miss is `T?` (`findById`, `findBy`, `find(<Criterion>)`), and a must-exist read (`getById`, `getBy`) answers the standard ProblemDetails 404.  The tagged union wire is for operation returns.
 
 ### Reading a union in a body — `match` first
 

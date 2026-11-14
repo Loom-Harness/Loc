@@ -1,4 +1,5 @@
 import { projectionSourceTableName } from "../../ir/enrich/storage-names.js";
+import { type ProjectionQueryParam, projectionQueryParams } from "../../ir/plan/index.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -136,7 +137,7 @@ export function emitQueryProjections(
     sourcemap?.file(rowPath, rowContent, proj.origin, construct);
 
     const queryPath = `Application/Projections/${upperFirst(proj.name)}QpQuery.cs`;
-    const queryContent = renderQuery(proj, ns);
+    const queryContent = renderQuery(proj, ctx, ns);
     out.set(queryPath, queryContent);
     sourcemap?.file(queryPath, queryContent, proj.origin, construct);
 
@@ -192,7 +193,7 @@ public sealed record ${upperFirst(proj.name)}Row(${fields});
 `;
 }
 
-function renderQuery(proj: ProjectionIR, ns: string): string {
+function renderQuery(proj: ProjectionIR, ctx: BoundedContextIR, ns: string): string {
   // A whole-table aggregation yields ONE row, so the query returns the row
   // itself — not a list of one.  A GROUPED aggregation (`group by`, M-T4.2)
   // yields one row PER GROUP — `wholeTableAggregates` refuses it, so it takes
@@ -204,7 +205,7 @@ function renderQuery(proj: ProjectionIR, ns: string): string {
   // the handler can pass them to the synthesised repository read.  They ride the
   // DOMAIN types (`ThingId`, not `Guid`) — the controller does the wire
   // coercion, exactly as a paged-run queryHandler's action does.
-  const recordParams = proj.params
+  const recordParams = projectionQueryParams(proj, ctx)
     .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
     .join(", ");
   return `// Auto-generated.
@@ -417,8 +418,11 @@ ${ctor}
 
     public async ValueTask<IReadOnlyList<${rowName}>> Handle(${queryName} query, CancellationToken cancellationToken)
     {
-${gate}        var domain = await _repo.${upperFirst(proj.name)}(${proj.params
-    .map((p) => `query.${escapeCsharpIdent(p.name)}`)
+${paramLocals(proj, ctx)}${gate}        var domain = await _repo.${upperFirst(proj.name)}(${projectionQueryParams(
+    proj,
+    ctx,
+  )
+    .map((p) => escapeCsharpIdent(p.name))
     .concat("cancellationToken")
     .join(", ")});
 ${auxLines.join("\n")}${auxLines.length > 0 ? "\n" : ""}        return domain.Select(d => ${projection}).ToList();
@@ -466,16 +470,43 @@ function dapperFilterSeam(
   /** Source-aggregate capability filters spliced into the same SELECT (the
    *  aggregation arms) — their principal claims bind through the same object. */
   capabilityFilters: readonly ExprIR[] = [],
+  /** The projection's declared parameters — `whereToSql` renders each as the
+   *  named parameter `@<name>`, bound here from the handler's local. */
+  params: readonly ProjectionQueryParam[] = [],
 ): { needsPrincipal: boolean; paramArg: string } {
   const preds = [...(filter ? [filter] : []), ...capabilityFilters];
   if (!usingDapper || preds.length === 0) return { needsPrincipal: false, paramArg: "" };
   const refs = collectFilterPrincipalRefs(preds);
-  if (refs.length === 0) return { needsPrincipal: false, paramArg: "" };
-  usings.add(`${ns}.Auth`); // ICurrentUserAccessor
+  if (refs.length > 0) usings.add(`${ns}.Auth`); // ICurrentUserAccessor
+  const fields = [...params.map(dapperParamField), ...principalFields(refs, "currentUser")];
   return {
-    needsPrincipal: true,
-    paramArg: `, new { ${principalFields(refs, "currentUser").join(", ")} }`,
+    needsPrincipal: refs.length > 0,
+    paramArg: fields.length > 0 ? `, new { ${fields.join(", ")} }` : "",
   };
+}
+
+/** One declared parameter in a Dapper parameter object, bound the way a
+ *  repository read binds its own: an id by its wrapped `.Value` (Dapper has no
+ *  handler for the id struct), an enum by its name (the column is `text`, and
+ *  Dapper would send the ordinal), anything else as is. */
+function dapperParamField(p: ProjectionQueryParam): string {
+  const n = escapeCsharpIdent(p.name);
+  const opt = p.type.kind === "optional";
+  const inner = opt ? (p.type as { inner: TypeIR }).inner : p.type;
+  if (inner.kind === "id") return `${n} = ${n}${opt ? "?" : ""}.Value`;
+  if (inner.kind === "enum") return `${n} = ${n}${opt ? "?" : ""}.ToString()`;
+  return n;
+}
+
+/** The handler's DECLARED parameters, bound as locals off the query record —
+ *  the projection's only filter input (D-PROJECTION-PARAMS).  The rendered
+ *  `where` / gate (and Dapper's parameter object) read a parameter as the bare
+ *  name it declares.  The record carries the domain types; the controller's
+ *  typed action parameters did the wire check. */
+function paramLocals(proj: ProjectionIR, ctx: BoundedContextIR): string {
+  return projectionQueryParams(proj, ctx)
+    .map((p) => `        var ${escapeCsharpIdent(p.name)} = query.${escapeCsharpIdent(p.name)};\n`)
+    .join("");
 }
 
 /** The source aggregate's capability filters (`tenantOwned`, `softDeletable`,
@@ -823,7 +854,14 @@ function renderAggregateHandler(
     usings.add(`${ns}.Domain.Common`); // ForbiddenException
     if (gateUsesUser) usings.add(`${ns}.Auth`); // ICurrentUserAccessor
   }
-  const seam = dapperFilterSeam(usingDapper, filter, ns, usings, caps);
+  const seam = dapperFilterSeam(
+    usingDapper,
+    filter,
+    ns,
+    usings,
+    caps,
+    projectionQueryParams(proj, ctx),
+  );
 
   const dbType = usingDapper ? CS.NpgsqlDataSource : "AppDbContext";
   const fields: string[] = [`    private readonly ${dbType} _db;`];
@@ -923,7 +961,7 @@ ${ctor}
 
 ${rowDecl}    public async ValueTask<${rowName}> Handle(${queryName} query, CancellationToken cancellationToken)
     {
-${gate}${body}    }
+${paramLocals(proj, ctx)}${gate}${body}    }
 }
 `;
 }
@@ -1016,7 +1054,14 @@ function renderGroupedHandler(
     usings.add(`${ns}.Domain.Common`); // ForbiddenException
     if (gateUsesUser) usings.add(`${ns}.Auth`); // ICurrentUserAccessor
   }
-  const seam = dapperFilterSeam(usingDapper, filter, ns, usings, caps);
+  const seam = dapperFilterSeam(
+    usingDapper,
+    filter,
+    ns,
+    usings,
+    caps,
+    projectionQueryParams(proj, ctx),
+  );
 
   const dbType = usingDapper ? CS.NpgsqlDataSource : "AppDbContext";
   const fields: string[] = [`    private readonly ${dbType} _db;`];
@@ -1157,7 +1202,7 @@ ${ctor}
 
 ${groupRowDecl}    public async ValueTask<IReadOnlyList<${rowName}>> Handle(${queryName} query, CancellationToken cancellationToken)
     {
-${gate}${groupBody}    }
+${paramLocals(proj, ctx)}${gate}${groupBody}    }
 }
 `;
 }
@@ -1286,7 +1331,14 @@ function renderWorkflowHandler(
     usings.add(`${ns}.Domain.Common`); // ForbiddenException
     if (gateUsesUser) usings.add(`${ns}.Auth`); // ICurrentUserAccessor
   }
-  const seam = dapperFilterSeam(usingDapper, filter, ns, usings);
+  const seam = dapperFilterSeam(
+    usingDapper,
+    filter,
+    ns,
+    usings,
+    [],
+    projectionQueryParams(proj, ctx),
+  );
 
   // Project each state row through the `select` expressions, keyed by wire field.
   // A source-alias read (`f.orderId`) lowers to a member off the current row, so
@@ -1365,7 +1417,7 @@ ${ctor}
 
 ${rowDecl}    public async ValueTask<IReadOnlyList<${rowName}>> Handle(${queryName} query, CancellationToken cancellationToken)
     {
-${gate}${body}    }
+${paramLocals(proj, ctx)}${gate}${body}    }
 }
 `;
 }
@@ -1419,7 +1471,14 @@ function renderProjectionSourceHandler(
     usings.add(`${ns}.Domain.Common`); // ForbiddenException
     if (gateUsesUser) usings.add(`${ns}.Auth`); // ICurrentUserAccessor
   }
-  const seam = dapperFilterSeam(usingDapper, filter, ns, usings);
+  const seam = dapperFilterSeam(
+    usingDapper,
+    filter,
+    ns,
+    usings,
+    [],
+    projectionQueryParams(proj, ctx),
+  );
 
   // Project each source row through the `select` expressions, keyed by wire field.
   // A source-row read (`t.total`) lowers to a member off the current row, so
@@ -1498,7 +1557,7 @@ ${ctor}
 
 ${rowDecl}    public async ValueTask<IReadOnlyList<${rowName}>> Handle(${queryName} query, CancellationToken cancellationToken)
     {
-${gate}${body}    }
+${paramLocals(proj, ctx)}${gate}${body}    }
 }
 `;
 }
@@ -1580,11 +1639,14 @@ function renderController(ctx: BoundedContextIR, ns: string, routePrefix?: strin
         wholeTableAggregates(proj)
           ? `${upperFirst(proj.name)}Row`
           : `IReadOnlyList<${upperFirst(proj.name)}Row>`
-      }>> ${upperFirst(proj.name)}(${proj.params
+      }>> ${upperFirst(proj.name)}(${projectionQueryParams(proj, ctx)
         .map((p) => queryActionParam(p).actionParam)
         .join(", ")})\n` +
       `    {\n` +
-      `        var result = await _mediator.Send(new ${upperFirst(proj.name)}QpQuery(${proj.params
+      `        var result = await _mediator.Send(new ${upperFirst(proj.name)}QpQuery(${projectionQueryParams(
+        proj,
+        ctx,
+      )
         .map((p) => queryActionParam(p).commandArg)
         .join(", ")}));\n` +
       `        return Ok(result);\n` +
@@ -1594,7 +1656,13 @@ function renderController(ctx: BoundedContextIR, ns: string, routePrefix?: strin
 using System.Threading.Tasks;
 using Mediator;
 using Microsoft.AspNetCore.Mvc;
-using ${ns}.Application.Projections;
+using ${ns}.Application.Projections;${
+    // A declared `X id` / enum parameter crosses into the query record as its
+    // domain type (`new RunId(r)`), named in these namespaces.
+    projections.some((p) => projectionQueryParams(p, ctx).length > 0)
+      ? `\nusing ${ns}.Domain.Ids;\nusing ${ns}.Domain.Enums;`
+      : ""
+  }
 
 namespace ${ns}.Api;
 

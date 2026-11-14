@@ -28,6 +28,7 @@ const reactPlatform: PlatformSurface = {
     sys,
     deployable,
     topLevelComponents,
+    frontendContract,
     sourcemap,
     translations,
   }): Map<string, string> {
@@ -39,6 +40,7 @@ const reactPlatform: PlatformSurface = {
       sys,
       deployable,
       topLevelComponents,
+      frontendContract,
       sourcemap,
       translations,
     });

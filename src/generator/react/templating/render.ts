@@ -18,13 +18,7 @@
 //                          walker's `CreateForm(of: <Agg>)` emission.
 // ---------------------------------------------------------------------------
 
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  PageIR,
-  ThemeIR,
-  WorkflowIR,
-} from "../../../ir/types/loom-ir.js";
+import type { BoundedContextIR, PageIR, ThemeIR, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import { ROUTER_PACKAGE } from "../../_packs/stack-runtime.js";
 import { prepareAppShellVM } from "./preparers/app-shell.js";
@@ -50,7 +44,7 @@ export function renderTheme(t: ThemeIR | undefined, pack: LoadedPack): string {
 
 /** Render `src/App.tsx` — routing + provider chain + sidebar. */
 export function renderAppShell(
-  aggs: AggregateIR[],
+  aggs: readonly import("./preparers/app-shell.js").AppShellAggregate[],
   workflows: WorkflowIR[],
   systemName: string,
   sidebarOverride: import("./view-models.js").NavSectionVM[] | undefined,

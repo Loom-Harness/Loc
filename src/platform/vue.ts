@@ -44,6 +44,7 @@ const vuePlatform: PlatformSurface = {
     sys,
     deployable,
     topLevelComponents,
+    frontendContract,
     sourcemap,
     translations,
   }): Map<string, string> {
@@ -56,6 +57,7 @@ const vuePlatform: PlatformSurface = {
       sys,
       deployable,
       topLevelComponents,
+      frontendContract,
       sourcemap,
       translations,
     });

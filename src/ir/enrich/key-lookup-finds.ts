@@ -1,3 +1,4 @@
+import { PLAIN_FIND_FLAGS } from "../types/loom-ir.js";
 // Phase ⑥ — the repository methods behind natural-key reads (D-REPO-KEY-LOOKUP).
 //
 // `Products.findBy(sku: s)` / `Products.getBy(sku: s)` lowers to a read that
@@ -76,6 +77,7 @@ function keyFind(read: KeyLookupRead, agg: AggregateIR): FindIR | undefined {
   }
   if (!filter) return undefined;
   return {
+    ...PLAIN_FIND_FLAGS,
     name: read.method,
     params,
     returnType: read.op === "load-by-key" ? entity : { kind: "optional", inner: entity },

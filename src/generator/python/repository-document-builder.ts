@@ -8,7 +8,11 @@ import type {
   RepositoryIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
-import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
+import {
+  exprUsesCurrentUser,
+  findUsesCurrentUser,
+  PLAIN_FIND_FLAGS,
+} from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
@@ -329,6 +333,7 @@ export function buildPyDocumentRepositoryFile(
  *  relational `viewFindMethod`) and carries its `where` + `ignoring` clause. */
 function projectionViewFind(agg: EnrichedAggregateIR, view: AggregateReadShape): FindIR {
   return {
+    ...PLAIN_FIND_FLAGS,
     name: view.name,
     // The projection's own parameters — its inlined `where` names them.
     params: view.params ?? [],

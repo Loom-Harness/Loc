@@ -494,7 +494,8 @@ export const messages = {
   }) =>
     `e2e: 'api.${p.slug}.${p.verb}(…)' passes ${p.got} argument(s), but projection ` +
     `'${p.projection}''s '${p.verb}' read takes ${p.expected}: 'byKey(key)' reads one row by its ` +
-    `key and 'list()' reads every row, with nothing else on the request. Pass exactly ` +
+    `key and 'list(…)' passes the projection's declared parameters, in declared order, as the ` +
+    `query string. Pass exactly ` +
     `${p.expected}.`,
   "loom.e2e-body-type-mismatch": (p: {
     slug: unknown;

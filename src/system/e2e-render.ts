@@ -1206,7 +1206,18 @@ function renderProjectionRead(proj: ProjectionIR, call: ApiCallShape, ctx: Rende
   const slug = snake(proj.name);
   const prefix = ctx.apiBasePath;
   if (call.method === "list") {
-    return `await __get(\`\${base}${prefix}/projections/${slug}\`)`;
+    const url = `\`\${base}${prefix}/projections/${slug}\``;
+    if (proj.params.length === 0) return `await __get(${url})`;
+    // A parameterised projection reads its DECLARED parameters off the query
+    // string, positionally in declared order — the same binding a routed
+    // query handler's non-path args take (`__qs`).  An `X id` param takes a
+    // create result the way `getById(id)` does.
+    const fields = proj.params.map((p, i) => {
+      const arg = call.args[i] as ExprIR;
+      const expr = p.type.kind === "id" ? renderIdArg(arg, ctx) : renderE2EExpr(arg, ctx);
+      return `${p.name}: ${expr}`;
+    });
+    return `await __route("GET", __qs(${url}, { ${fields.join(", ")} }))`;
   }
   // byKey(key) — the correlation column the fold routed to.
   if (call.args.length < 1) {

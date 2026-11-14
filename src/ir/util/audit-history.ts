@@ -40,6 +40,7 @@ import {
 import { partContentMask } from "../enrich/mask-taint.js";
 import { forHistoryDiff, wireFieldsFor } from "../enrich/wire-projection.js";
 import type { AggregateIR, FindIR, TypeIR, WireField } from "../types/loom-ir.js";
+import { PLAIN_FIND_FLAGS } from "../types/loom-ir.js";
 import { aggHasAuditedTarget } from "./audit-capability.js";
 
 /** Name of the derived per-entity history read — re-exported from `util/` so
@@ -153,6 +154,7 @@ export function aggServesHistory(agg: AggregateIR): boolean {
  *  table — the generic find-route and repository builders skip it. */
 export function buildHistoryFind(agg: AggregateIR, requires?: FindIR["requires"]): FindIR {
   return {
+    ...PLAIN_FIND_FLAGS,
     name: AUDIT_HISTORY_FIND,
     params: [{ name: "id", type: { kind: "id", targetName: agg.name } }],
     returnType: { kind: "array", element: { kind: "primitive", name: "json" } },

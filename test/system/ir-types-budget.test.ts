@@ -27,7 +27,7 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   // One block per module, a blank line apart, so parallel slices that lower
   // different rows merge without touching each other's lines.
 
-  "aggregate.ts": 12,
+  "aggregate.ts": 11,
 
   // Kept: the read clauses a find may lack (`requires`, `filter`,
   // `criterionRef`, `defaultSort`) and its four synthesis flags, the history
@@ -36,7 +36,7 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   // service op's return, a retrieval's criterion, the shared `Bypassing`
   // stance, `readsDefaultDenied`, and the enrichment-derived maps and sibling
   // pools (absent on a loose, single-context lowering).
-  "context.ts": 25,
+  "context.ts": 17,
 
   // Kept: a binding's per-kind knobs (absent = not declared, which the
   // capability check tells apart from a declared knob), a frontend's target /
@@ -46,9 +46,9 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
 
   // `exists` carries `forWrite` (only on `for write`) and `read` (only in an
   // in-app gate position; a query-position quantifier has no read).
-  "expr.ts": 36,
+  "expr.ts": 32,
 
-  "members.ts": 15,
+  "members.ts": 12,
 
   // `UnresolvedTypeSite`/`LoweringViolation` carry `origin` through `Sourced`.
   // Kept: the table move's two contexts (qualified form only), an enum rename's
@@ -57,11 +57,11 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   // and the enriched overlay's sibling value objects.
   "model.ts": 7,
 
-  "projection.ts": 14,
+  "projection.ts": 10,
 
   "queries.ts": 0,
 
-  "stmt.ts": 16,
+  "stmt.ts": 9,
 
   // Kept: the declared-or-absent system blocks (`user`, `auth`, `tenancy`,
   // `theme`), each theme token (absent = the design pack's default), the OIDC
@@ -74,11 +74,11 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
 
   "types.ts": 2,
 
-  "ui.ts": 20,
+  "ui.ts": 19,
 
-  "workflow.ts": 14,
+  "workflow.ts": 9,
 
-  "workflow-stmt.ts": 26,
+  "workflow-stmt.ts": 13,
 };
 
 /** `name?:` property signatures anywhere in one module's text. */

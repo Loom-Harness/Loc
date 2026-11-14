@@ -1,24 +1,6 @@
 {
   "floors": {
     "docs": 2800,
-    "expressions": 250000
-  },
-  "classes": {
-    "agree": 206076,
-    "declaration-name": 53689,
-    "ir-differs": 8227,
-    "nobody-knows": 482,
-    "not-lowered": 4304,
-    "unreached": 0
-  },
-  "unknownCauses": {
-    "not-a-value": 53689,
-    "no-rule": 186,
-    "unresolved-member": 93,
-    "unresolved-name": 649,
-    "contextual-lambda": 12,
-    "unresolved-type": 89,
-    "ill-typed-operands": 2,
-    "parse-broken": 1
+    "expressions": 160000
   }
 }
