@@ -52,6 +52,7 @@ import { contextHasAuditedTarget } from "../ir/util/audit-capability.js";
 import { durableEventTypes } from "../ir/util/channels.js";
 import { directParentOf } from "../ir/util/containment-parent.js";
 import {
+  isDiscriminatedTphBase,
   isTpcBase,
   isTpcConcrete,
   isTphBase,
@@ -1901,6 +1902,16 @@ export function applyDestructivePolicy(
     table: string,
     col: string,
   ): ColumnShape | undefined => prevTable(schema, table)?.columns.find((c) => c.name === col);
+  // The `kind` discriminator arriving on a TPH base's table is the first
+  // shared-table subtype appearing.  Until then the base was childless, and a
+  // childless base's table has no write path (the base is abstract and nothing
+  // shares the table), so the table is empty and the NOT NULL add applies as
+  // is.  It is not lent a default: a stray row would fail the add loudly rather
+  // than be stamped with a subtype it never was.
+  const addsFirstDiscriminator = (s: MigrationStep): boolean =>
+    s.op === "addColumn" &&
+    s.column.name === "kind" &&
+    prevTable(s.schema, s.table)?.inheritance?.strategy === "sharedTable";
 
   // Index the declared backfills FIRST — the rename heuristic below has to
   // consult them (F-018), not just the weaving pass further down.  Keyed by
@@ -2258,7 +2269,7 @@ export function applyDestructivePolicy(
       // columns hold exactly such rows (#2549) — so that one-time catch-up is
       // a deliberate, reviewed `--allow-destructive` step, not a silent one.
       (s.op === "alterColumnType" && !decimalBoundWidens(s.from, s.to)) ||
-      isBlockingNotNullAdd(s) ||
+      (isBlockingNotNullAdd(s) && !addsFirstDiscriminator(s)) ||
       (s.op === "alterColumnNullable" && !s.nullable && !safeFlips.has(s)),
   );
   if (destructive.length > 0 && !opts.allowDestructive) {
@@ -2309,7 +2320,7 @@ export function applyDestructivePolicy(
         s,
       ];
     }
-    if (!isBlockingNotNullAdd(s) || s.op !== "addColumn") return [s];
+    if (!isBlockingNotNullAdd(s) || s.op !== "addColumn" || addsFirstDiscriminator(s)) return [s];
     const nullableCol: ColumnShape = { ...s.column, nullable: true };
     const add: MigrationStep = s.fk
       ? { op: "addColumn", table: s.table, schema: s.schema, column: nullableCol, fk: s.fk }
@@ -4041,9 +4052,10 @@ function tphTableForAggregate(
     type: { kind: "primitive", name: "string" },
     optional: false,
   } as FieldIR;
+  // A childless base's table carries no `kind` column — see `isDiscriminatedTphBase`.
   const columns: ColumnShape[] = [
     { name: "id", type: idColumnType(), nullable: false },
-    mapField(kindField).column,
+    ...(isDiscriminatedTphBase(base, pool) ? [mapField(kindField).column] : []),
   ];
   const foreignKeys: FKShape[] = [];
   const indexes: IndexShape[] = uniqueIndexesFor(base, tableName);

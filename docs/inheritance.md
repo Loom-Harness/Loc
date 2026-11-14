@@ -62,6 +62,37 @@ DTO for `Customer` carries the same `name` / `email` / `creditLimit` shape.
 
 The default is `sharedTable`, so a hierarchy with no `inheritanceUsing: …` is TPH.
 
+A `sharedTable` base with **no** shared-table subtype — declared before any
+subtype, or whose only concretes are forced to `ownTable` by
+`loom.es-tph-forced-own-table` — owns an ordinary table with no `kind` column,
+and no backend maps a discriminator on it:
+
+```ddd
+abstract aggregate Asset inheritanceUsing: sharedTable { label: string }   // no subtypes
+```
+
+```sql
+CREATE TABLE "c"."assets" ("id" UUID NOT NULL, "label" TEXT NOT NULL, "row_version" INTEGER NOT NULL DEFAULT 1, PRIMARY KEY ("id"));
+```
+
+The first subtype that shares the table brings the discriminator, and the
+migration chain adds it; dropping the last one drops it again:
+
+```ddd
+aggregate Lathe extends Asset with crudish { spindles: int }
+```
+
+```sql
+ALTER TABLE "c"."assets" ADD COLUMN "kind" TEXT NOT NULL;
+ALTER TABLE "c"."assets" ADD COLUMN "spindles" INTEGER NULL;
+```
+
+The `kind` add needs no `--allow-destructive`: until the first subtype arrives
+nothing can write the base's table, so it is empty. The add carries no default,
+so a row written out of band fails it rather than being stamped with a subtype it
+never was. Dropping the last subtype drops `kind` and the subtype's columns, which
+is destructive (its rows lose their type), so it needs `--allow-destructive`.
+
 ### Polymorphic reads (`find all <Base>`)
 
 Both strategies provide a polymorphic read home that returns the union of all
@@ -84,6 +115,15 @@ wire fields }`. Under TPH `GET /api/<bases>/{id}` answers one tagged row, or 404
 when a restriction hides it. The route is served only where every concrete's own
 list read is open — a concrete whose `all` carries a `requires` gate (including
 the `denyByDefault` one) or whose wire masks a field keeps the reader unrouted.
+That decision is `routedPolymorphicRead` (`src/ir/plan/repo-polymorphic.ts`), and
+the operations a routed base serves are `polymorphicReadOperations` there: the
+e2e DSL's `api.<base>.all()` and `api.<base>.getById(id)` (TPH only) resolve
+against them, and an unrouted base refuses both (`loom.e2e-unrouted-verb`).
+
+A concrete's own list read, `GET /api/<concretes>`, pages like any relational
+aggregate under TPH (one `kind`-scoped query over the shared table). Under TPC it
+answers the whole scoped read as a bare array, because the TPC base reader merges
+those reads in the global order before it pages.
 
 | Backend (`platform:`) | polymorphic base reader |
 |---|---|

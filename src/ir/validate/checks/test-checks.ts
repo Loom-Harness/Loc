@@ -823,6 +823,9 @@ function checkMagicCall(
     return;
   }
   if (method === "create" || method === "getById") return;
+  // An abstract base's list read is its polymorphic read.  The verb name
+  // resolves; whether this base routes it is `e2e-route-checks.ts`'s question.
+  if (agg.isAbstract && method === "all") return;
   // The CANONICAL destroy (`DELETE /api/<aggs>/{id}`).  It lives on
   // `canonicalDestroy(agg)`, NOT in `agg.operations` (lowering keeps the
   // lifecycle actions in their own arrays), so without this arm the verb the

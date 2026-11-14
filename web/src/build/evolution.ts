@@ -70,6 +70,7 @@ import type { MigrationUnitPlan, UnrecordedChanges } from "../runtime/protocol.j
 import type {
   BuildDiagnostic,
   ChainStatusView,
+  DeclaredResource,
   EvolutionParams,
   EvolutionResult,
   EvolutionTree,
@@ -369,7 +370,7 @@ export async function migrationPlan(params: MigrationPlanParams): Promise<Migrat
   const loaded = await loadEvolutionTree(params.current, { validate: true });
   if ("error" in loaded) return { ok: false, diagnostics: loaded.error };
   if (loaded.loom.systems.length === 0) {
-    return { ok: true, plan: { kind: "unversioned" }, storages: [], restSpecs: [], diagnostics: loaded.diagnostics };
+    return { ok: true, plan: { kind: "unversioned" }, storages: [], restSpecs: [], resources: [], diagnostics: loaded.diagnostics };
   }
   let chain: MigrationChain;
   try {
@@ -410,8 +411,18 @@ export async function migrationPlan(params: MigrationPlanParams): Promise<Migrat
     plan: { kind: "chain", units: unitPlans(all), unrecorded },
     storages,
     restSpecs: rest.flatMap((r) => r.specs),
+    resources: loaded.loom.systems.flatMap((sys) => sys.storages.map(declaredResource)),
     diagnostics: [...loaded.diagnostics, ...rest.flatMap((r) => r.diagnostics)],
   };
+}
+
+/** A `storage` as the Infrastructure panel lists it: name, type, flat config. */
+function declaredResource(st: {
+  name: string;
+  type: string;
+  config?: readonly { key: string; value: { value: string } }[];
+}): DeclaredResource {
+  return { name: st.name, type: st.type, config: Object.fromEntries((st.config ?? []).map((c) => [c.key, c.value.value])) };
 }
 
 /** The chain's generations rendered to the migration files the generated

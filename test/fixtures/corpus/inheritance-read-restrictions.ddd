@@ -151,12 +151,17 @@ system InheritanceReadRestrictions {
     let truck = api.trucks.create({ plate: "T-1", payloadKg: 900 })
 
     // The subtype-only-column filter hides the zero-seat Car on every Car read…
-    expect(api.cars.all().length).toBe(1)
+    expect(api.cars.all().total).toBe(1)
     expect(api.cars.getById(empty)).toThrow(404)
     expect(api.fleet.getCarByPlate("C-0")).toThrow(404)
     // …and must not reach Truck, whose rows carry NULL in `seats`.
-    expect(api.trucks.all().length).toBe(1)
+    expect(api.trucks.all().total).toBe(1)
     expect(api.trucks.getById(truck).payloadKg).toBe(900)
+    // The base read applies every subtype's restrictions: the zero-seat Car is
+    // hidden from it, through both its list and its by-id read.
+    expect(api.vehicles.all().total).toBe(2)
+    expect(api.vehicles.getById(empty)).toThrow(404)
+    expect(api.vehicles.getById(truck).plate).toBe("T-1")
 
 
     // The canonical update on a TPH subtype writes its OWN columns, of its own
@@ -170,7 +175,8 @@ system InheritanceReadRestrictions {
     api.cars.softDelete(car)
     expect(api.cars.getById(car)).toThrow(404)
     expect(api.fleet.getCarByPlate("C-1")).toThrow(404)
-    expect(api.cars.all().length).toBe(0)
+    expect(api.cars.all().total).toBe(0)
+    expect(api.vehicles.all().total).toBe(1)
 
     // `ignoring softDeletable` drops exactly that conjunct: the deleted Car
     // returns, the zero-seat one (a different filter) stays hidden.
@@ -186,10 +192,10 @@ system InheritanceReadRestrictions {
 
     // The sibling never saw a filter that reads a column only Car has — and a
     // hard delete out of the shared table removes exactly its own row.
-    expect(api.trucks.all().length).toBe(1)
+    expect(api.trucks.all().total).toBe(1)
     api.trucks.destroy(truck)
     expect(api.trucks.getById(truck)).toThrow(404)
-    expect(api.trucks.all().length).toBe(0)
+    expect(api.trucks.all().total).toBe(0)
   }
 
   test e2e "TPC: a subtype's capability narrows only its own table" against d {
@@ -206,6 +212,9 @@ system InheritanceReadRestrictions {
     expect(api.drivers.restore(d1)).toThrow(404)
 
     expect(api.dispatchers.all().length).toBe(1)
+    // The TPC base read merges each concrete's own scoped read: the deleted
+    // driver is absent.
+    expect(api.crews.all().total).toBe(1)
     api.dispatchers.update(disp, { desk: 4 })
     expect(api.dispatchers.getById(disp).desk).toBe(4)
     api.dispatchers.destroy(disp)

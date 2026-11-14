@@ -64,47 +64,111 @@
       "method": "GET",
       "path": "/api/auto_claims",
       "status": 200,
-      "body": [
-        {
-          "id": "<volatile:key>",
-          "reference": "A-1",
-          "rowVersion": 1,
-          "status": "Intake",
-          "vehicleVin": "VIN1"
-        },
-        {
-          "id": "<volatile:key>",
-          "reference": "A-2",
-          "rowVersion": 1,
-          "status": "Intake",
-          "vehicleVin": "VIN2"
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "reference": "A-1",
+            "rowVersion": 1,
+            "status": "Intake",
+            "vehicleVin": "VIN1"
+          },
+          {
+            "id": "<volatile:key>",
+            "reference": "A-2",
+            "rowVersion": 1,
+            "status": "Intake",
+            "vehicleVin": "VIN2"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
     },
     {
       "seq": 7,
       "method": "GET",
       "path": "/api/property_claims",
       "status": 200,
-      "body": [
-        {
-          "addressLine": "1 Main St",
-          "id": "<volatile:key>",
-          "reference": "P-1",
-          "rowVersion": 1,
-          "status": "Intake"
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "addressLine": "1 Main St",
+            "id": "<volatile:key>",
+            "reference": "P-1",
+            "rowVersion": 1,
+            "status": "Intake"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 8,
+      "method": "GET",
+      "path": "/api/claims",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "reference": "A-1",
+            "rowVersion": 1,
+            "status": "Intake",
+            "type": "AutoClaim",
+            "vehicleVin": "VIN1"
+          },
+          {
+            "id": "<volatile:key>",
+            "reference": "A-2",
+            "rowVersion": 1,
+            "status": "Intake",
+            "type": "AutoClaim",
+            "vehicleVin": "VIN2"
+          },
+          {
+            "addressLine": "1 Main St",
+            "id": "<volatile:key>",
+            "reference": "P-1",
+            "rowVersion": 1,
+            "status": "Intake",
+            "type": "PropertyClaim"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/claims/{id}",
+      "status": 200,
+      "body": {
+        "addressLine": "1 Main St",
+        "id": "<volatile:key>",
+        "reference": "P-1",
+        "rowVersion": 1,
+        "status": "Intake",
+        "type": "PropertyClaim"
+      }
+    },
+    {
+      "seq": 10,
       "method": "POST",
       "path": "/api/auto_claims/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 9,
+      "seq": 11,
       "method": "GET",
       "path": "/api/auto_claims/{id}",
       "status": 200,
@@ -117,14 +181,14 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 12,
       "method": "POST",
       "path": "/api/property_claims/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 11,
+      "seq": 13,
       "method": "GET",
       "path": "/api/property_claims/{id}",
       "status": 200,
@@ -137,25 +201,9 @@
       }
     },
     {
-      "seq": 12,
-      "method": "DELETE",
-      "path": "/api/property_claims/{id}",
-      "status": 204,
-      "body": ""
-    },
-    {
-      "seq": 13,
-      "method": "GET",
-      "path": "/api/projections/auto_claim_volume",
-      "status": 200,
-      "body": {
-        "claims": 2
-      }
-    },
-    {
       "seq": 14,
       "method": "DELETE",
-      "path": "/api/auto_claims/{id}",
+      "path": "/api/property_claims/{id}",
       "status": 204,
       "body": ""
     },
@@ -165,11 +213,27 @@
       "path": "/api/projections/auto_claim_volume",
       "status": 200,
       "body": {
-        "claims": 1
+        "claims": 2
       }
     },
     {
       "seq": 16,
+      "method": "DELETE",
+      "path": "/api/auto_claims/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/projections/auto_claim_volume",
+      "status": 200,
+      "body": {
+        "claims": 1
+      }
+    },
+    {
+      "seq": 18,
       "method": "GET",
       "path": "/api/projections/bill_totals",
       "status": 200,
@@ -179,25 +243,25 @@
       }
     },
     {
-      "seq": 17,
-      "method": "POST",
-      "path": "/api/bills",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
-    },
-    {
-      "seq": 18,
-      "method": "POST",
-      "path": "/api/bills",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
-    },
-    {
       "seq": 19,
+      "method": "POST",
+      "path": "/api/bills",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "POST",
+      "path": "/api/bills",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 21,
       "method": "GET",
       "path": "/api/projections/bill_totals",
       "status": 200,
@@ -207,14 +271,14 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 22,
       "method": "POST",
       "path": "/api/bills/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 21,
+      "seq": 23,
       "method": "GET",
       "path": "/api/bills/{id}",
       "status": 200,
@@ -228,7 +292,7 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 24,
       "method": "GET",
       "path": "/api/projections/bill_totals",
       "status": 200,
@@ -238,7 +302,7 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 25,
       "method": "GET",
       "path": "/api/bills",
       "status": 200,
@@ -268,14 +332,14 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 26,
       "method": "DELETE",
       "path": "/api/bills/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 25,
+      "seq": 27,
       "method": "GET",
       "path": "/api/projections/bill_totals",
       "status": 200,
@@ -285,7 +349,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 28,
       "method": "PATCH",
       "path": "/api/auto_claims",
       "status": 405,
@@ -299,7 +363,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 29,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -313,7 +377,7 @@
       }
     },
     {
-      "seq": 28,
+      "seq": 30,
       "method": "POST",
       "path": "/api/auto_claims",
       "status": 400,
@@ -327,7 +391,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 31,
       "method": "POST",
       "path": "/api/auto_claims/{id}/update",
       "status": 404,
