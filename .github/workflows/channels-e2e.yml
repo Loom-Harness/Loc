@@ -92,7 +92,7 @@ jobs:
       matrix:
         include:
           - backend: node
-            scripts: test:channels test:channels-rabbit test:channels-kafka
+            scripts: test:channels test:channels-rabbit test:channels-kafka test:saga-redelivery-node
           # The SECOND node persistence adapter: the same choreography with
           # `persistence: mikroorm` forced onto both deployables, so the broker
           # DRIVER + producer tee + consumer loop are proven at runtime on that
@@ -100,11 +100,11 @@ jobs:
           # (queue/work is the only shipped durable broker combo); it has no
           # kafka suite.
           - backend: node-mikroorm
-            scripts: test:channels-mikroorm test:channels-rabbit-mikroorm
+            scripts: test:channels-mikroorm test:channels-rabbit-mikroorm test:saga-redelivery-node-mikroorm
           - backend: python
-            scripts: test:channels-python test:channels-rabbit-python test:channels-kafka-python
+            scripts: test:channels-python test:channels-rabbit-python test:channels-kafka-python test:saga-redelivery-python
           - backend: dotnet
-            scripts: test:channels-dotnet test:channels-rabbit-dotnet test:channels-kafka-dotnet
+            scripts: test:channels-dotnet test:channels-rabbit-dotnet test:channels-kafka-dotnet test:saga-redelivery-dotnet test:saga-redelivery-dotnet-dapper
           - backend: java
             scripts: test:channels-java test:channels-rabbit-java test:channels-kafka-java test:saga-redelivery-java
           - backend: elixir

@@ -1,3 +1,4 @@
+import { FOLD_INBOX_TABLE } from "../../ir/plan/index.js";
 import type {
   ColumnShape,
   IndexShape,
@@ -176,6 +177,9 @@ function timestampsMacro(table: TableShape): string | null {
   // And for the `every:` timer claim row: its one time column is the explicit
   // `fired_at`, and the claim is a raw upsert that never fills Ecto timestamps.
   if (table.name === TIMER_CLAIM_TABLE) return null;
+  // And for the fold inbox: its one time column is the explicit `received_at`,
+  // and the fold's claim is a raw insert that never fills Ecto timestamps.
+  if (table.name === FOLD_INBOX_TABLE) return null;
   // A declared `inserted_at` / `insertedAt` field owns the other bundled
   // column the same way (`ownsEctoTimestampColumn` in `vanilla/schema-emit.ts`
   // drops the schema's `timestamps()` in lockstep) — a second `inserted_at`

@@ -1,5 +1,6 @@
 import {
   channelPlan,
+  foldsDedupe,
   hasDurableEvents,
   polymorphicReadGates,
   polymorphicReadMasked,
@@ -1130,6 +1131,9 @@ export function generateTypeScriptForContexts(
         // The `every:` claim table — the MigrationsIR table the drizzle path
         // gets from its migrations; mikro's `schema.update()` needs an entity.
         timerClaim: ownsIntervalTimers(system),
+        // The fold inbox — the MigrationsIR table the drizzle path gets from
+        // its migrations, on the condition the folds claim it.
+        foldInbox: foldsDedupe(merged, hasDurableEvents(merged)),
       }),
     );
     out.set("mikro-orm.config.ts", renderMikroConfig());
