@@ -413,33 +413,6 @@ export const BEHAVIOURAL_XFAIL = {
       tests: { "the mailer reaches its provider": "workflows/issue → 500" },
       reason: "an `ses`-only system's SES send raises UndefinedFunctionError :mimemail.encode/2",
     },
-    // An expected-failure entry point (`T or E`) is refused on Phoenix, so
-    // generation stops at phase ⑦ (unsupported register).
-    "workflow-expected-failure": {
-      issue: "#4571",
-      expect: "error",
-      match: "loom\\.elixir-entry-result-unsupported",
-      reason:
-        "a workflow `create` / handler answering `T or E`: the Phoenix routes have no tagged result and no rollback seam that undoes the whole command on the error",
-    },
-    // The scaffolded handler answers its operation's `T or E`, an
-    // expected-failure entry point Phoenix refuses (unsupported register).
-    "scaffold-handlers-or-e": {
-      issue: "#4571",
-      expect: "error",
-      match: "loom\\.elixir-entry-result-unsupported",
-      reason:
-        "a scaffolded commandHandler answering its operation's `T or E`: the Phoenix routes have no tagged result and no rollback seam",
-    },
-    // A mutating call bound with `let` is refused on Phoenix, so generation
-    // stops at phase ⑦ (unsupported register).
-    "match-op-result": {
-      issue: "#4541",
-      expect: "error",
-      match: "loom\\.elixir-bound-mutating-call-unsupported",
-      reason:
-        "`let r = a.withdraw(x)` in a workflow body: the Phoenix with-chain sites match an op call's `{:ok, _}` away and never bind its result",
-    },
     // A value object nested inside another is cast as `:map`, so the nested
     // VO's invariant would never run; the capability table refuses the shape
     // on elixir until it does.
@@ -463,30 +436,12 @@ export const BEHAVIOURAL_XFAIL = {
       expect: "wire",
       reason: "the workflow 409 `detail` names no aggregate or id (M-T6.94's removal half is fixed)",
     },
-    // Every test passes; the recording diverges from the golden in five
-    // values — the 409 `detail` names no aggregate/id (#3838), and each op call
-    // inside the workflow is persisted, so a document's `version` reads one
-    // higher (#4089).
+    // Every test passes; the recording diverges from the golden in the two
+    // stale-save 409s, whose `detail` names no aggregate or id.
     "workflow-two-handles-document-eventlog": {
-      issue: "#3838, #4089",
+      issue: "#3838",
       expect: "wire",
-      reason:
-        "the workflow 409 `detail` names no aggregate or id, and per-call persistence bumps the document `version` twice",
-    },
-    // Every test passes; the tally's `rowVersion` reads one higher per bump
-    // than the golden, because each op call inside the workflow is persisted
-    // (RS-20 counts one per command).
-    "workflow-loop-carried": {
-      issue: "#4089",
-      expect: "wire",
-      reason: "per-call persistence bumps `rowVersion` once per loop iteration instead of once per workflow run",
-    },
-    // Every test passes; the rated Survey's `rowVersion` reads 2, not 1: the
-    // reactor's create and its `rate` op each persist.
-    "reactor-failure-order": {
-      issue: "#4089",
-      expect: "wire",
-      reason: "per-call persistence bumps the Survey's `rowVersion` for the reactor's create and again for its op",
+      reason: "the workflow 409 `detail` names no aggregate or id",
     },
   },
 };

@@ -39,7 +39,12 @@
 // raw SQLAlchemy row.  Id / scalar / void returns are unchanged.
 // ---------------------------------------------------------------------------
 
-import { handlerNeedsCurrentUser, reposNeeded, serviceReadPorts } from "../../ir/plan/index.js";
+import {
+  handlerNeedsCurrentUser,
+  liveLetNames,
+  reposNeeded,
+  serviceReadPorts,
+} from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -104,11 +109,7 @@ import {
   repoClassRef,
 } from "./routes-builder.js";
 import { pySaveRenderer } from "./stamp-call.js";
-import {
-  collectLiveLetNames,
-  pyReadPortResolver,
-  pyWorkflowStmtTarget,
-} from "./workflows-builder.js";
+import { pyReadPortResolver, pyWorkflowStmtTarget } from "./workflows-builder.js";
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
 
@@ -463,7 +464,7 @@ function renderHandlerModule(
 
   // A dead `let` would trip ruff F841 — keep the used set current by folding the
   // returnValue's let refs into it (the shared collector only scans statements).
-  const usedLets = collectLiveLetNames(h.statements, h.savesAtExit);
+  const usedLets = liveLetNames(h.statements, h.savesAtExit);
   walkExpr(h.returnValue, (n) => {
     if (n.kind === "ref" && (n.refKind === "let" || n.refKind === "match-binding")) {
       usedLets.add(n.name);

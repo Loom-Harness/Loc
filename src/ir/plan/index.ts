@@ -111,6 +111,13 @@ export {
 } from "./workflow-needs.js";
 export { commandCreateReturnsSelf, isWorkflowSelfType } from "./workflow-result.js";
 export {
+  liveLetNames,
+  nestedSaveScopes,
+  nestedSaves,
+  type SaveEntry,
+  type SaveScope,
+} from "./workflow-saves.js";
+export {
   eventSourcedWorkflows,
   hasStateRow,
   observableWorkflows,

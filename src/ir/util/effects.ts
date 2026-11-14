@@ -181,6 +181,17 @@ function collectStmtEffects(st: WorkflowStmtIR, scope: readonly EffectScopeIR[],
       pushSaves(st.savesInElse, elseScope, cx);
       return;
     }
+    case "if": {
+      // The condition's effects were collected with the statement's own
+      // expressions above; each branch is its own scope and saves at its end.
+      const thenScope = [...scope, { kind: "branch", arm: "then" } as const];
+      for (const s of st.thenBody) collectStmtEffects(s, thenScope, cx);
+      pushSaves(st.savesInThen, thenScope, cx);
+      const elseScope = [...scope, { kind: "branch", arm: "else" } as const];
+      for (const s of st.elseBody ?? []) collectStmtEffects(s, elseScope, cx);
+      pushSaves(st.savesInElse, elseScope, cx);
+      return;
+    }
     case "variant-match": {
       // The subject is a value the body already holds; it reads nothing itself
       // (its expression effects were collected with the statement's own

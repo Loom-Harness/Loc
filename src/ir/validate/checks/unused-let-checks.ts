@@ -118,6 +118,7 @@ function unreadWorkflowLets(
           saved(s.savesPerIteration);
           break;
         case "if-let":
+        case "if":
           saved(s.savesInThen);
           saved(s.savesInElse);
           break;

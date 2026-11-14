@@ -250,8 +250,12 @@ describe("workflow unrecognised statement nested in a loop", () => {
     return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
   };
 
-  it("flags a statement `if` inside a `for` body", async () => {
-    expect(await codes(nested("if i.n > 0 { i.bump() }"))).toContain(
+  it("flags a cross-aggregate write inside a `for` body", async () => {
+    expect(await codes(nested("i.n := 1"))).toContain("loom.workflow-unrecognised-statement");
+  });
+
+  it("accepts a statement `if` inside a `for` body", async () => {
+    expect(await codes(nested("if i.n > 0 { i.bump() }"))).not.toContain(
       "loom.workflow-unrecognised-statement",
     );
   });

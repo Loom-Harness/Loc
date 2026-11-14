@@ -69,6 +69,7 @@ export function namesBound(bodies: readonly (readonly WorkflowStmtIR[])[]): stri
             break;
           case "repo-delete":
           case "op-call":
+          case "if":
           case "precondition":
           case "requires":
           case "emit":

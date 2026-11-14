@@ -364,7 +364,8 @@ describe("statement match — elixir", () => {
     expectBlock(src, [
       "if o != nil do",
       "x = o",
-      "with {:ok, _} <- Context.touch_order(x, %{}) do",
+      "with {:ok, x} <- Context.__apply_touch_order(x, %{}),",
+      "{:ok, _} <- Context.__save_order(x) do",
       "{:ok, nil}",
       "else",
       "err -> err",
@@ -380,7 +381,8 @@ describe("statement match — elixir", () => {
     expectBlock(src, [
       "if o != nil do",
       "x = o",
-      "with {:ok, _} <- D.Sales.touch_order(x, %{}) do",
+      "with {:ok, x} <- D.Sales.__apply_touch_order(x, %{}),",
+      "{:ok, _} <- D.Sales.__save_order(x) do",
     ]);
   });
 });

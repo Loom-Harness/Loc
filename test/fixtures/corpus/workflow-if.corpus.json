@@ -1,0 +1,16 @@
+{
+  "title": "a plain `if` / `else if` / `else` in workflow creates, an `on` reactor, an event-triggered starter and a `commandHandler`",
+  "doc": "workflow",
+  "backends": "ALL",
+  "note": "Each branch saves every row it changes at its own end, including a row loaded before the `if`, so a row the taken branch leaves alone keeps its version.  On elixir the `if` threads a handle its branch changed back out — `Bump`'s second `if` reads the row the first one bumped, the witness that it does.",
+  "apiCaller": {
+    "unattributed": [
+      "api.bump.run (no such aggregate)",
+      "api.bumpAll.run (no such aggregate)",
+      "api.bumpOther.run (no such aggregate)",
+      "api.follow.instance (no such aggregate)",
+      "api.follow.instances (no such aggregate)",
+      "api.grade.run (no such aggregate)"
+    ]
+  }
+}

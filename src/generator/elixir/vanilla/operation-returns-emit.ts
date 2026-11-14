@@ -266,21 +266,7 @@ export function persistPutBodies(
   valueRowFields: ReadonlySet<string> = new Set(),
 ): string[] {
   const containNames = new Set(agg.contains.map((c) => snake(c.name)));
-  const assignedFields: string[] = [];
-  // The op's OWN writes, plus the writes of every private operation its body
-  // calls (transitively).  A bare `recompute()` really runs
-  // (`renderReturningStmt`'s `call` arm → `record = __op_recompute(record)`), so
-  // the columns IT assigns have to reach this persist tail — walking only
-  // `op.statements` here would compute the mutation and then silently drop it
-  // at persist.
-  for (const s of [...opBodyStmtsDeep(op.statements), ...calleeStatements(op, agg)]) {
-    // `assign` (`field := v`), collection `add`/`remove` (`items += Item{…}`),
-    // and scalar compound `add`/`remove` (`total += n`) all re-bind a real
-    // schema column on `record`.
-    if (s.kind !== "assign" && s.kind !== "add" && s.kind !== "remove") continue;
-    const f = snake(s.target.segments[0] ?? "");
-    if (f.length > 0 && !assignedFields.includes(f)) assignedFields.push(f);
-  }
+  const assignedFields = opWrittenFields(op, agg);
   const provNames = new Set(provenancedFieldsOf(agg).map((f) => snake(f.name)));
   // Second-precision `:utc_datetime` columns — see the truncation note below.
   const datetimeColumns = new Set(
@@ -355,6 +341,25 @@ export function persistPutBodies(
     }),
     ...provColumns.map((c) => `Ecto.Changeset.force_change(:${c}, record.${c})`),
   ];
+}
+
+/** The (snake-cased) fields an operation body writes, deduped, in first-write
+ *  order: the op's OWN writes plus those of every private operation its body
+ *  calls (transitively).  A bare `recompute()` really runs
+ *  (`renderReturningStmt`'s `call` arm → `record = __op_recompute(record)`), so
+ *  the columns IT assigns have to reach the persist tail — walking only
+ *  `op.statements` would compute the mutation and then silently drop it at
+ *  persist.  `assign` (`field := v`), collection `add`/`remove`
+ *  (`items += Item{…}`) and scalar compound `add`/`remove` (`total += n`) all
+ *  re-bind a real schema column on `record`. */
+export function opWrittenFields(op: OperationIR, agg: AggregateIR): string[] {
+  const out: string[] = [];
+  for (const s of [...opBodyStmtsDeep(op.statements), ...calleeStatements(op, agg)]) {
+    if (s.kind !== "assign" && s.kind !== "add" && s.kind !== "remove") continue;
+    const f = snake(s.target.segments[0] ?? "");
+    if (f.length > 0 && !out.includes(f)) out.push(f);
+  }
+  return out;
 }
 
 /** Does this op (or a private op it calls) rewrite a RELATION-backed field — a
@@ -1529,14 +1534,14 @@ export function renderReturningStmt(
         : `    record = %{record | ${field}: record.${field} + ${value}}`;
     }
     case "remove": {
-      // `items -= x` drops the first matching element; scalar `n -= x` subtracts.
+      // `items -= x` drops every matching element; scalar `n -= x` subtracts.
       const field = snake(s.target.segments[0] ?? "");
       const value = renderExpr(s.value, rc);
       if (s.collection && rc.agg && isRefCollFieldName(rc.agg, field)) {
-        return `    ${field} = List.delete(__ref_id_list(record.${field}), ${value})`;
+        return `    ${field} = Enum.reject(__ref_id_list(record.${field}), fn loom_e -> loom_e == ${value} end)`;
       }
       return s.collection
-        ? `    record = %{record | ${field}: List.delete(record.${field} || [], ${value})}`
+        ? `    record = %{record | ${field}: Enum.reject(record.${field} || [], fn loom_e -> loom_e == ${value} end)}`
         : `    record = %{record | ${field}: record.${field} - ${value}}`;
     }
     case "emit": {

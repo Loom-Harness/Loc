@@ -22,7 +22,6 @@ import { PG_FOREIGN_KEY_VIOLATION } from "../../../generator/_persistence/pg-sql
 import { statementSubRegions } from "../../../generator/_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../../generator/_workflow/create-state.js";
 import {
-  nestedSaves,
   type PresenceSide,
   presenceSides,
   renderWorkflowStmtChunks,
@@ -58,6 +57,7 @@ import {
   wireCode,
   wireFixedDetail,
   wireStatus,
+  wireStatusResolver,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
 import {
@@ -68,6 +68,7 @@ import {
   hasDurableEvents,
   hasStateRow,
   lookupOp,
+  nestedSaves,
   reposNeeded,
   requiredStateFields,
   resourceCalls,
@@ -108,6 +109,7 @@ import {
   entryErrorTags,
 } from "../../../ir/util/entry-result.js";
 import { operationBodyUsesCurrentUser, operationGates } from "../../../ir/util/op-gates.js";
+import { errorStatuses } from "../../../ir/util/openapi-errors.js";
 import {
   camelId,
   opOperation,
@@ -1014,57 +1016,18 @@ function emitWorkflowRoute(
   } else {
     out.push(`      204: { description: "No content" },`);
   }
-  // workflow → 400 (domain) + 422 (validation, ProblemDetails with §3.2
-  // `errors[]` extension emitted by the shared defaultHook), per the
-  // openapi-errors matrix.  See
-  // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
-  out.push(
-    `      ${wireStatus("malformed-body")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("malformed-body")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-  );
-  // The DOMAIN not-found rung, declared only when the body can raise it — a
-  // `repo-let` (or a `reading` service's named read) throws on an absent row
-  // and the router's `AggregateNotFoundError` arm below answers this status.
-  // Conditional because a workflow that touches no repository genuinely cannot
-  // send it; `workflowCanAnswerNotFound` is the shared predicate the other four
-  // backends thread into `errorStatuses("workflow", …, { readsAggregate })`.
-  if (workflowCanAnswerNotFound(wf, ctx)) {
-    const wfRouteNotFoundStatus = wireStatus("not-found", ctx.structuralErrorStatuses);
+  // The declared non-2xx set is the shared `errorStatuses("workflow")` table
+  // all five backends read — the not-found rung only when the body reads an
+  // aggregate, 403 only when the workflow is guarded, each rung resolved
+  // through the context's `httpStatus` map.  Only the line idiom is Hono's.
+  for (const s of errorStatuses(
+    "workflow",
+    workflowIsGuarded(wf),
+    wireStatusResolver(ctx.structuralErrorStatuses),
+    { readsAggregate: workflowCanAnswerNotFound(wf, ctx) },
+  )) {
     out.push(
-      `      ${wfRouteNotFoundStatus}: { description: ${JSON.stringify(
-        wireTitle("not-found", ctx.structuralErrorStatuses),
-      )}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-    );
-  }
-  // 415 — the media-type refusal the handler's `requireJsonContentType` throws.
-  // Hand-rolled here (this route predates `errorStatuses("workflow")`, which
-  // the other four backends render) so the declared workflow set stays equal
-  // across all five.  `test/conformance/not-found-declaration-parity.test.ts` now PINS that
-  // equality against the shared table for a corpus of workflow shapes, so the
-  // "keep the two in step" above is a gate rather than a request.
-  out.push(
-    `      ${wireStatus("unsupported-media-type")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("unsupported-media-type")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-  );
-  out.push(
-    `      ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-  );
-  // M-T5.20 — the domain floor's DECLARED status is the resolved value the
-  // router's onError arm answers with (default 422 ⇒ collapses into the line
-  // above, byte-identical).
-  const wfRouteDomainStatus = wireStatus("domain-floor", ctx.structuralErrorStatuses);
-  if (
-    wfRouteDomainStatus !== wireStatus("malformed-body") &&
-    wfRouteDomainStatus !== wireStatus("field-invalid")
-  ) {
-    out.push(
-      `      ${wfRouteDomainStatus}: { description: ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-    );
-  }
-  // A `requires` guard denies with 403 (ForbiddenError → onError) — declare
-  // it so the published contract documents the authorization outcome.
-  if (workflowIsGuarded(wf)) {
-    const wfRouteForbiddenStatus = wireStatus("forbidden", ctx.structuralErrorStatuses);
-    out.push(
-      `      ${wfRouteForbiddenStatus}: { description: ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+      `      ${s}: { description: ${JSON.stringify(reasonPhrase(s))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     );
   }
   out.push(`    },`);
@@ -3033,6 +2996,22 @@ export function honoWorkflowStmtTarget(
       } else {
         out.push(`${indent}}`);
       }
+      return out;
+    },
+    if: (st, indent, thenLines, elseLines) => {
+      // `if c { … } else { … }` → a JS `if`; each branch's dirty bindings save
+      // at that branch's end.
+      const inner = `${indent}  `;
+      const elseSaves = blockSaves(inner, st.savesInElse);
+      const out = [
+        `${indent}if (${renderArg(st.cond)}) {`,
+        ...thenLines,
+        ...blockSaves(inner, st.savesInThen),
+      ];
+      if (elseLines.length > 0 || elseSaves.length > 0) {
+        out.push(`${indent}} else {`, ...elseLines, ...elseSaves);
+      }
+      out.push(`${indent}}`);
       return out;
     },
     variantMatch: (st, indent, armLines, elseLines) => {

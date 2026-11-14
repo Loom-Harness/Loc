@@ -70,7 +70,9 @@
 // cannot see it, only a booted request can.
 // ---------------------------------------------------------------------------
 
+import type { SaveEntry } from "../../../ir/plan/index.js";
 import {
+  isWorkflowSelfType,
   lookupOp,
   namesUsed,
   refsRead,
@@ -80,9 +82,11 @@ import {
   workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
 import { valueObjectParams } from "../../../ir/plan/value-object-params.js";
+import { isScalarVariant } from "../../../ir/stdlib/unions.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
+  type EnrichedBoundedContextIR,
   type ExprIR,
   type IsolationLevel,
   type OperationIR,
@@ -98,7 +102,10 @@ import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { classifyDomainServiceTier } from "../../../ir/util/domain-service-tier.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
-import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
+import {
+  commandCreateEntryResult,
+  commandCreateResult,
+} from "../../../ir/util/workflow-command-route.js";
 import {
   bodyWriteScopeGuards,
   writeScopeContext,
@@ -122,6 +129,7 @@ import {
   type WorkflowPipelineTarget,
 } from "../../_workflow/stmt-target.js";
 import type { ApiRoute } from "../api-emit.js";
+import { contextHasDispatcher } from "../dispatch-emit.js";
 import { inlineMutatingServiceCall } from "../domain-service-emit.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
@@ -145,8 +153,15 @@ import {
   respondErrorTail,
   workflowDenialTerm,
 } from "./denial.js";
+import {
+  entrySerializers,
+  opResultNames,
+  renderEntryOutcome,
+  renderEntryResponders,
+} from "./entry-result-emit.js";
 import { renderFunctionBodyLines } from "./function-emit.js";
 import { armsCoverUnion, elixirUnionScrutinee, elixirVariantPattern } from "./match-stmt-emit.js";
+import { renderProblemVariantHelper } from "./operation-returns-emit.js";
 import {
   renderRequiredParamsPlug,
   renderStrictParamsPlug,
@@ -154,6 +169,13 @@ import {
 } from "./problem-details-emit.js";
 import { skipFiltersOption } from "./read-scope-emit.js";
 import { retrievalReadsActor } from "./retrieval-emit.js";
+import {
+  applyFnName,
+  type ElixirSavePlan,
+  elixirSavePlan,
+  NO_SAVE_PLAN,
+  saveFnName,
+} from "./save-plan.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
 import { valueObjectCastCall } from "./value-object-type-emit.js";
 
@@ -377,6 +399,9 @@ export interface LowerBodyOptions {
    *  `commandHandler` / `queryHandler` path and a `create(…): T` workflow set
    *  this. */
   ownResult?: boolean;
+  /** The body's exit saves (`savesAtExit`): the handles it changed in memory
+   *  are written once, after its last statement (`save-plan.ts`). */
+  saves?: readonly SaveEntry[];
 }
 
 export function lowerStatements(
@@ -386,15 +411,19 @@ export function lowerStatements(
   ctx?: BoundedContextIR,
   opts: LowerBodyOptions = {},
 ): BodyLine[] {
-  const { trailing = [], ownResult = false } = opts;
+  const { trailing = [], ownResult = false, saves = [] } = opts;
+  const plan = elixirSavePlan(stmts, saves, ctx);
   const chunks = lowerWorkflowPipeline(
     stmts,
-    elixirWorkflowTarget(contextModule, renderCtx, ctx),
+    elixirWorkflowTarget(contextModule, renderCtx, ctx, plan),
     ownResult ? { trailing } : { trailing, resultSlot: lastBindingSlot(stmts) },
   );
-  return chunks.flatMap((steps, i) =>
-    steps.map((step) => ({ ...chainLine(step), origin: stmts[i]!.origin })),
-  );
+  return [
+    ...chunks.flatMap((steps, i) =>
+      steps.map((step) => ({ ...chainLine(step), origin: stmts[i]!.origin })),
+    ),
+    ...saveSteps(saves, plan, contextModule, trailing).map(chainLine),
+  ];
 }
 
 /** A pipeline step as a top-level body line. */
@@ -494,17 +523,50 @@ function guardClause(
   };
 }
 
-/** The Elixir spelling of every workflow statement kind. */
+/** The `__save_<agg>` links that close a body: one per save entry `plan`
+ *  writes, in the IR's order.  A save another expression reads after the body
+ *  rebinds the handle to the saved row. */
+export function saveSteps(
+  saves: readonly SaveEntry[],
+  plan: ElixirSavePlan,
+  contextModule: string,
+  trailing: readonly ExprIR[] = [],
+): PipelineStep[] {
+  return saves
+    .filter((s) => plan.saves.has(s))
+    .map((s) => {
+      const handle = escapeElixirIdent(snake(s.name));
+      const bind = bindUsedLater(s.name, [], trailing) ? handle : "_";
+      const inserted = plan.inserted.has(s) ? ", true" : "";
+      return {
+        kind: "clause",
+        text: `{:ok, ${bind}} <- ${contextModule}.${saveFnName(s.aggName)}(${handle}${inserted})`,
+      };
+    });
+}
+
+/** The Elixir spelling of every workflow statement kind.  `plan` names the
+ *  op-calls that run in memory and the saves that write them
+ *  (`save-plan.ts`); every other op-call persists on its own. */
 export function elixirWorkflowTarget(
   contextModule: string,
   renderCtx: RenderCtx,
   ctx?: BoundedContextIR,
+  plan: ElixirSavePlan = NO_SAVE_PLAN,
 ): WorkflowPipelineTarget {
   const expr = (e: ExprIR): string => renderExpr(e, renderCtx);
+  const withSaves = (body: PipelineBody, saves: readonly SaveEntry[]): PipelineStep[] => [
+    ...body.steps,
+    ...saveSteps(saves, plan, contextModule),
+  ];
   const fieldsOf = (fields: readonly { name: string; value: ExprIR }[]): string =>
     fields.map((f) => `${snake(f.name)}: ${expr(f.value)}`).join(", ");
   const broadcast = (eventName: string, fields: string): string =>
     `${contextModule.split(".")[0]!}.PostCommit.broadcast(%${contextModule}.Events.${upperFirst(eventName)}{${fields}})`;
+  // The names bound to an aggregate op's result tuple.  A context op answers a
+  // union success variant on the tagged wire (`%{type: "int", value: v}` for a
+  // scalar), so a `match` over one unwraps a scalar arm's value.
+  const opResults = new Set<string>();
   return {
     precondition: (st) => [guardClause(st, renderCtx)],
     requires: (st) => [guardClause(st, renderCtx)],
@@ -528,22 +590,46 @@ export function elixirWorkflowTarget(
       ];
     },
 
-    // `order.confirm(args)` → `{:ok, _} <- Context.confirm_order(order, %{…})`.
-    // The call PERSISTS (each context op is its own save on Elixir), so a void
-    // op's handle is rebound to the saved record it returns when a later read
-    // needs it: that record carries the version the write moved it to, and a
-    // second op on the stale handle would be a self-inflicted conflict.  A
-    // handle a loop body carries is read again by the next iteration, so it is
-    // rebound too, and the loop threads it out (`forEach`).  A returning op's
-    // `{:ok, value}` is its result, so its handle stays.
+    // `order.confirm(args)` → `{:ok, order} <- Context.__apply_confirm_order(order,
+    // %{…})` when the call runs in memory (`plan`): the handle is rebound to
+    // the changed struct, which the save at the end of its scope writes.
+    //
+    // Otherwise `{:ok, _} <- Context.confirm_order(order, %{…})`, which
+    // PERSISTS, so a void op's handle is rebound to the saved record it
+    // returns when a later read needs it: that record carries the version the
+    // write moved it to, and a second op on the stale handle would be a
+    // self-inflicted conflict.  A handle a loop body carries is read again by
+    // the next iteration, so it is rebound too, and the loop threads it out
+    // (`forEach`).  A returning op's `{:ok, value}` is its result, so its
+    // handle stays.
     opCall: (st, scope) => {
-      const call = opCallSource(st, renderCtx, contextModule, ctx);
+      const inMemory = plan.applyCalls.has(st);
+      const call = opCallSource(st, renderCtx, contextModule, ctx, inMemory);
       const op = ctx ? lookupOp(ctx, st.aggName, st.op) : undefined;
       const rebind =
-        op !== undefined &&
-        !op.returnType &&
-        (scope.carried.has(st.target) || bindUsedLater(st.target, scope.rest, scope.trailing));
+        inMemory ||
+        (op !== undefined &&
+          !op.returnType &&
+          (scope.carried.has(st.target) || bindUsedLater(st.target, scope.rest, scope.trailing)));
       const handle = escapeElixirIdent(snake(st.target));
+      // `let r = a.op(…)`: bind the call's result.  One that carries an error
+      // variant binds the whole `{:ok, value}` / `{:error, "Tag", fields}`
+      // tuple, which the `match` over `r` dispatches on; the op persists only
+      // on `{:ok, _}`, so an error arm leaves no trace of the call.  Any other
+      // result binds its value.
+      if (st.result) {
+        const used = bindUsedLater(st.result.name, scope.rest, scope.trailing);
+        const name = used ? escapeElixirIdent(snake(st.result.name)) : `_${snake(st.result.name)}`;
+        const pattern = st.result.errorVariants.length > 0 ? name : `{:ok, ${name}}`;
+        if (st.result.errorVariants.length > 0) opResults.add(st.result.name);
+        return [
+          {
+            kind: "clause",
+            text: `${pattern} <- ${call}`,
+            ...(used ? { bindName: name } : {}),
+          },
+        ];
+      }
       return [
         {
           kind: "clause",
@@ -636,9 +722,23 @@ export function elixirWorkflowTarget(
       ];
     },
 
-    // `emit E { … }` broadcasts on success only; inside a transaction
-    // `<App>.PostCommit` holds it until the commit and drops it on a rollback.
-    emit: (st) => [{ kind: "effect", text: broadcast(st.eventName, fieldsOf(st.fields)) }],
+    // `emit E { … }` reaches the context's in-process reactors through
+    // `Dispatcher.AfterCommit` and broadcasts, both on success only; inside a
+    // transaction `<App>.PostCommit` holds them until the commit and drops
+    // them on a rollback.
+    emit: (st) => {
+      const struct = `%${contextModule}.Events.${upperFirst(st.eventName)}{${fieldsOf(st.fields)}}`;
+      const dispatch =
+        ctx && contextHasDispatcher(ctx as EnrichedBoundedContextIR)
+          ? [
+              {
+                kind: "effect" as const,
+                text: `${contextModule}.Dispatcher.AfterCommit.dispatch(${struct})`,
+              },
+            ]
+          : [];
+      return [...dispatch, { kind: "effect", text: broadcast(st.eventName, fieldsOf(st.fields)) }];
+    },
 
     // A bare resource op runs on success only and discards its result.
     resourceCall: (st) => [{ kind: "effect", text: `_ = ${expr(st.call)}` }],
@@ -698,10 +798,12 @@ export function elixirWorkflowTarget(
     // `for x in xs { … }` → `Enum.reduce_while`: each iteration continues on
     // success and halts with the first failure, which threads up the chain.
     // A handle bound outside the loop that the body rebinds (an op on it
-    // persists and returns the saved record) rides the accumulator, so the
-    // next iteration — and the statements after the loop — see the record as
-    // the last iteration saved it, not as it was loaded.
-    forEach: (st, outer, body) => {
+    // changes it in memory, or persists and returns the saved record) rides
+    // the accumulator, so the next iteration — and the statements after the
+    // loop — see the record as the last iteration left it, not as it was
+    // loaded.  Each iteration ends with the saves the IR stages for it.
+    forEach: (st, outer, iteration) => {
+      const body = { ...iteration, steps: withSaves(iteration, st.savesPerIteration) };
       const loopVar = bindUsedLater(st.var, body.stmts)
         ? escapeElixirIdent(snake(st.var))
         : `_${snake(st.var)}`;
@@ -721,10 +823,14 @@ export function elixirWorkflowTarget(
         (err) => `{:halt, ${err}}`,
       );
       // After the loop a threaded handle stays bound when something reads it
-      // again — a later statement, or the next iteration of an enclosing loop
-      // — and is discarded otherwise.
+      // again — a later statement, the next iteration of an enclosing loop,
+      // or the save that writes what the loop changed in memory — and is
+      // discarded otherwise.
       const kept = threaded.filter(
-        (t) => outer.carried.has(t.name) || bindUsedLater(t.name, outer.rest, outer.trailing),
+        (t) =>
+          outer.carried.has(t.name) ||
+          plan.savedNames.has(t.name) ||
+          bindUsedLater(t.name, outer.rest, outer.trailing),
       );
       const outAcc = `{${threaded
         .map((t) => (kept.includes(t) ? t.ident : `_${snake(t.name)}`))
@@ -744,7 +850,9 @@ export function elixirWorkflowTarget(
 
     // `if let o = <optional read> { … } else { … }` → bind the row or `nil`,
     // then branch.  Each branch answers `{:ok, _}` or its first failure.
-    ifLet: (st, _scope, thenBody, elseBody) => {
+    ifLet: (st, _scope, thenIn, elseIn) => {
+      const thenBody = { ...thenIn, steps: withSaves(thenIn, st.savesInThen) };
+      const elseBody = { ...elseIn, steps: withSaves(elseIn, st.savesInElse) };
       const args = st.retrievalArgs.map(expr);
       const v = escapeElixirIdent(snake(st.var));
       const lookupLines =
@@ -788,6 +896,53 @@ export function elixirWorkflowTarget(
       return [{ kind: "clause", text, ...(guard ? { bindName: v } : {}) }];
     },
 
+    // `if c { … } else { … }` → a parenthesised `if` whose branches answer
+    // `{:ok, _}` or their first failure, which short-circuits the chain.  A
+    // handle bound before the `if` that a branch rebinds (an op on it persists
+    // and returns the saved record) is answered by both branches, so the
+    // statements after the `if` see the record as the taken branch left it.
+    if: (st, outer, thenIn, elseIn) => {
+      // Each branch ends with the saves it stages (`savesInThen` /
+      // `savesInElse`), so a handle the save plan runs in memory is written
+      // inside the branch that changed it.
+      const thenBody = { ...thenIn, steps: withSaves(thenIn, st.savesInThen) };
+      const elseBody = { ...elseIn, steps: withSaves(elseIn, st.savesInElse) };
+      const rebound = new Set(
+        [...thenBody.steps, ...elseBody.steps].flatMap((s) => [
+          ...((s.kind === "clause" || s.kind === "let") && s.bindName ? [s.bindName] : []),
+          ...(s.kind === "clause" ? (s.rebinds ?? []) : []),
+        ]),
+      );
+      const threaded = [...new Set([...thenBody.carried, ...elseBody.carried])]
+        .map((name) => ({ name, ident: escapeElixirIdent(snake(name)) }))
+        .filter((t) => rebound.has(t.ident));
+      const acc = `{${threaded.map((t) => t.ident).join(", ")}}`;
+      const ok = threaded.length > 0 ? `{:ok, ${acc}}` : "{:ok, nil}";
+      const kept = threaded.filter(
+        (t) => outer.carried.has(t.name) || bindUsedLater(t.name, outer.rest, outer.trailing),
+      );
+      const outAcc =
+        threaded.length > 0
+          ? `{${threaded.map((t) => (kept.includes(t) ? t.ident : `_${snake(t.name)}`)).join(", ")}}`
+          : "_";
+      const text = [
+        `{:ok, ${outAcc}} <- (`,
+        `           if ${expr(st.cond)} do`,
+        ...assembleChain(thenBody.steps, ok).map((l) => `             ${l}`),
+        `           else`,
+        ...assembleChain(elseBody.steps, ok).map((l) => `             ${l}`),
+        `           end`,
+        `         )`,
+      ].join("\n");
+      return [
+        {
+          kind: "clause",
+          text,
+          ...(kept.length > 0 ? { rebinds: kept.map((t) => t.ident) } : {}),
+        },
+      ];
+    },
+
     // `match <subject> { … }` → a parenthesised `case` (union subject) or
     // presence `if` (`T?` subject) whose arms answer like `if let` branches.
     variantMatch: (st, _scope, arms, elseBody) => [
@@ -795,7 +950,13 @@ export function elixirWorkflowTarget(
         kind: "clause",
         text: [
           `{:ok, _} <- (`,
-          ...renderMatchBlock(st, expr(st.subject), arms, elseBody).map((l) => `           ${l}`),
+          ...renderMatchBlock(
+            st,
+            expr(st.subject),
+            arms.map((a, i) => ({ ...a, steps: withSaves(a, st.arms[i]!.savesInArm) })),
+            { ...elseBody, steps: withSaves(elseBody, st.savesInElse) },
+            st.subject.kind === "ref" && opResults.has(st.subject.name),
+          ).map((l) => `           ${l}`),
           `         )`,
         ].join("\n"),
       },
@@ -814,6 +975,9 @@ function renderMatchBlock(
   subject: string,
   arms: readonly PipelineBody[],
   elseBody: PipelineBody,
+  /** The subject is an aggregate op's result: its success variants arrive
+   *  tagged, so a scalar arm binds the tagged map's `value`. */
+  taggedSuccess = false,
 ): string[] {
   const branch = (body: PipelineBody): string[] => assembleChain(body.steps, "{:ok, nil}");
   if (st.subjectShape === "absence") {
@@ -843,7 +1007,8 @@ function renderMatchBlock(
     const body = arms[i]!;
     const binder =
       a.binding && bindUsedLater(a.binding, body.stmts) ? escapeElixirIdent(snake(a.binding)) : "_";
-    return clause(elixirVariantPattern(a, binder), body);
+    const unwrap = taggedSuccess && !a.isError && binder !== "_" && isScalarVariant(a.varType);
+    return clause(elixirVariantPattern(a, unwrap ? `%{value: ${binder}}` : binder), body);
   });
   if (st.elseBody || !armsCoverUnion(st.subjectType, st.arms)) {
     lines.push(...clause("_", elseBody));
@@ -864,14 +1029,16 @@ function opCallSource(
   renderCtx: RenderCtx,
   contextModule: string,
   ctx?: BoundedContextIR,
+  inMemory = false,
 ): string {
   const argTexts = st.args.map((arg) => renderExpr(arg, renderCtx));
   const op = ctx ? lookupOp(ctx, st.aggName, st.op) : undefined;
   const argFields = opCallParamFields(argTexts, op, `${st.aggName}.${st.op}`);
   const actor = ctx && opCallThreadsUser(st, ctx) ? ", current_user" : "";
+  const fn = inMemory ? applyFnName(st.op, st.aggName) : `${snake(st.op)}_${snake(st.aggName)}`;
   return withWriteScopeGuards(
     st,
-    `${contextModule}.${snake(st.op)}_${snake(st.aggName)}(${escapeElixirIdent(snake(st.target))}, %{${argFields}}${actor})`,
+    `${contextModule}.${fn}(${escapeElixirIdent(snake(st.target))}, %{${argFields}}${actor})`,
     renderCtx,
     contextModule,
     ctx,
@@ -1084,6 +1251,9 @@ function assembleBody(
    *  set it IS the success result (`{:ok, <expr>}`, which the controller
    *  answers as a 200 body) in every arm, instead of the last-bind default. */
   declaredResult?: string,
+  /** The whole success-path result tuple, verbatim — an entry outcome
+   *  (`renderEntryOutcome`), which may answer an `error` variant. */
+  outcome?: string,
 ): string {
   const withClauses = lines.filter((l) => l.kind === "with-clause");
   const emitLines = lines.filter((l) => l.kind === "emit");
@@ -1091,11 +1261,13 @@ function assembleBody(
   const lastBind = [...withClauses].reverse().find((l) => l.bindName)?.bindName;
 
   const resultExpr =
-    declaredResult !== undefined
-      ? `{:ok, ${declaredResult}}`
-      : lastBind
-        ? `{:ok, ${lastBind}}`
-        : "{:ok, params}";
+    outcome !== undefined
+      ? outcome
+      : declaredResult !== undefined
+        ? `{:ok, ${declaredResult}}`
+        : lastBind
+          ? `{:ok, ${lastBind}}`
+          : "{:ok, params}";
   // The `do`-branch body: emits first (only run on with-chain success),
   // then `workflow_completed` (the success tail), then the success result.
   // Indented to match the `with ... do ... end` shape — 6 spaces under
@@ -1114,7 +1286,9 @@ function assembleBody(
     return [
       ...at(4, persistLines),
       `    ${completedCall}`,
-      declaredResult !== undefined ? `    ${resultExpr}` : "    {:ok, params}",
+      declaredResult !== undefined || outcome !== undefined
+        ? `    ${resultExpr}`
+        : "    {:ok, params}",
     ].join("\n");
   }
 
@@ -1125,7 +1299,9 @@ function assembleBody(
       ...emitLines.map((l) => `    ${l.text}`),
       ...at(4, persistLines),
       `    ${completedCall}`,
-      declaredResult !== undefined ? `    ${resultExpr}` : "    {:ok, :emitted}",
+      declaredResult !== undefined || outcome !== undefined
+        ? `    ${resultExpr}`
+        : "    {:ok, :emitted}",
     ].join("\n");
   }
 
@@ -1309,7 +1485,9 @@ function renderWorkflowModule(
     contextModuleFq,
     renderCtx,
     ctx,
-    result ? { trailing: [result.value], ownResult: true } : {},
+    result
+      ? { trailing: [result.value], ownResult: true, saves: wf.savesAtExit }
+      : { saves: wf.savesAtExit },
   );
   // Load-or-allocate + persist, mirroring `renderPersistedBody`'s create arm.
   // `loom_state` keeps the row AS LOADED so the trailing changeset carries the
@@ -1357,11 +1535,27 @@ function renderWorkflowModule(
           : "Repo.insert_or_update!(Ecto.Changeset.change(loom_state))",
       ]
     : [];
+  // An expected-failure result (`T or E`) or the workflow answering itself
+  // closes the chain with its outcome tuple (`entry-result-emit.ts`): an
+  // `error` variant rolls the transaction back.
+  const entry = commandCreateEntryResult(wf);
+  const outcomeOpts = {
+    render: (e: ExprIR) => renderExpr(e, renderCtx),
+    contextModule: contextModuleFq,
+    taggedSubjects: opResultNames(wf.statements ?? []),
+    selfValue: bindsState ? "state" : "loom_state",
+  };
+  const outcome = entry
+    ? renderEntryOutcome(entry, outcomeOpts)
+    : result && isWorkflowSelfType(wf, result.type)
+      ? `{:ok, {:instance, ${JSON.stringify(wf.name)}, ${outcomeOpts.selfValue}}}`
+      : undefined;
   const body = assembleBody(
     lines,
     completedCall,
     persistLines,
-    result ? renderExpr(result.value, renderCtx) : undefined,
+    result && !outcome ? renderExpr(result.value, renderCtx) : undefined,
+    outcome,
   );
   // A workflow that names `currentUser` in a guard/body — or calls a
   // `currentUser`-gated op, or creates a principal-stamped aggregate — threads
@@ -1738,7 +1932,13 @@ function renderWorkflowsController(appModule: string, groups: WorkflowController
         const needsUser = workflowThreadsActor(wf, g.ctx);
         // `create(…): T` answers 200 with the value (`respond_result`); a
         // result-less workflow keeps the shared 204 `respond`.
-        const responder = commandCreateResult(wf) ? "respond_result" : "respond";
+        const r = commandCreateResult(wf);
+        const responder =
+          commandCreateEntryResult(wf) || (r && isWorkflowSelfType(wf, r.type))
+            ? "respond_entry"
+            : r
+              ? "respond_result"
+              : "respond";
         if (needsUser) {
           return `  def ${wfSnake}(conn, params) do
     current_user = Map.get(conn.assigns, :current_user)
@@ -1772,6 +1972,41 @@ function renderWorkflowsController(appModule: string, groups: WorkflowController
   def respond_result(conn, other), do: respond(conn, other)
 `
     : "";
+
+  // Entry results (`T or E`, `return this`): the outcome tuple's responders,
+  // the serializers they call and the problem body of an `error` variant.
+  const entries = groups.flatMap((g) =>
+    g.workflows.flatMap((wf) => {
+      const r = commandCreateResult(wf);
+      const entry = commandCreateEntryResult(wf);
+      if (entry) return [{ r: entry, ctx: g.ctx, wf }];
+      if (r && isWorkflowSelfType(wf, r.type)) {
+        const arm = { kind: "workflow" as const, tag: wf.name, name: wf.name };
+        return [{ r: { arms: [arm], leaves: [] }, ctx: g.ctx, wf, plain: true }];
+      }
+      return [];
+    }),
+  );
+  const entryResponder =
+    entries.length === 0
+      ? ""
+      : `
+  # An expected-failure entry point (\`create(…): T or E\`) answers 200 with
+  # the tagged success value, an \`error\` variant at its mapped status (the
+  # transaction already rolled back), and anything else through \`respond\`.
+${entries
+  .filter((e) => "plain" in e)
+  .map(
+    (e) =>
+      `  def respond_entry(conn, {:ok, {:instance, ${JSON.stringify(e.wf.name)}, v}}), do: json(conn, serialize_${snake(e.wf.name)}(v))\n\n`,
+  )
+  .join("")}${renderEntryResponders(
+  "respond_entry",
+  "respond",
+  entries.filter((e) => !("plain" in e)),
+)}
+${[...entrySerializers(entries).values()].join("\n\n")}
+${entries.some((e) => e.r.arms.some((a) => a.kind === "error")) ? `\n${renderProblemVariantHelper()}\n` : ""}`;
 
   return `# Auto-generated.
 defmodule ${webModule}.WorkflowsController do
@@ -1815,7 +2050,7 @@ ${respondErrorTail(
   true,
   groups.some((g) => g.workflows.some(workflowLoadsById)),
   groups.some((g) => aggregatesNeedConcurrency(g.ctx.aggregates)),
-)}${resultResponder}
+)}${resultResponder}${entryResponder}
 end
 `;
 }
