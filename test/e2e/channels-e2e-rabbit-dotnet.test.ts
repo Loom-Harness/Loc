@@ -9,7 +9,10 @@
 //      producer's outbox, published by the relay (design §5), and consumed
 //      by exactly one replica of the competing-consumer fleet;
 //   2. DLQ parking — a poisoned (malformed) message published straight to
-//      the channel exchange parks in `loom.dlq.<address>`.
+//      the channel exchange parks in `loom.dlq.<address>`;
+//   3. redelivery dedupe — one envelope id delivered twice, sequentially or
+//      to both replicas at once, runs the `Fulfil` starter once
+//      (`support/redelivery-witness.ts`).
 //
 // Opt-in: LOOM_CHANNELS_E2E_RABBIT_DOTNET=1 (npm run
 // test:channels-rabbit-dotnet).  Needs docker + the .NET SDK on PATH.
@@ -22,6 +25,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { redeliveryWitness } from "./support/redelivery-witness.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT_DOTNET === "1";
 
@@ -282,6 +286,12 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — dotnet leg (M-T4.4 slice
     const salesLog = readFileSync(join(dir, `sales_api-${SALES_PORT}.log`), "utf8");
     expect(countEvents(salesLog, "channel_published")).toBe(ORDERS);
   }, 120_000);
+
+  redeliveryWitness({
+    container: () => (dlqProbe ? "loom-channels-rbdn-mq" : undefined),
+    address: ADDRESS,
+    consumer: () => `http://localhost:${REPLICA_PORTS[0]}`,
+  });
 
   it("parks a poisoned message in the DLQ instead of losing it", async () => {
     if (!dlqProbe) return; // AMQP override: no container to drive rabbitmqadmin in

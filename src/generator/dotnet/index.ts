@@ -5,7 +5,13 @@ import { eventLogCarriesTenant, eventsKeepOriginFrame } from "../../ir/enrich/st
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
 import { type CachedByIdRead, cachePlanFor } from "../../ir/plan/cache.js";
-import { channelPlan, foldsDedupe, hasDurableEvents } from "../../ir/plan/index.js";
+import {
+  channelPlan,
+  foldsDedupe,
+  hasDurableEvents,
+  inboxDedupes,
+  workflowsDedupe,
+} from "../../ir/plan/index.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   BoundedContextIR,
@@ -141,6 +147,12 @@ import {
 } from "./emit/audit-history.js";
 import { BY_ID_CACHE_PATH, renderByIdCacheModule } from "./emit/by-id-cache.js";
 import { renderDotnetChannels } from "./emit/channels.js";
+import {
+  renderConsumerInboxPort,
+  renderDapperConsumerInbox,
+  renderEfConsumerInbox,
+  renderInboxPurgeService,
+} from "./emit/consumer-inbox.js";
 import {
   renderDapperDocumentRepository,
   renderDapperEventSourcedRepository,
@@ -562,7 +574,12 @@ function emitProjectFromContexts(
     name: ns,
     events: [...mergedBase.events, ...foreignConsumedEvents],
     eventSubscriptions: mergedSubscriptions,
-  };
+  }; // Some consumer here claims in the consumer inbox
+  // (`src/ir/plan/consumer-inbox.ts`): a fold, or a workflow handler
+  // (`consumerInbox`, which needs the `IConsumerInbox` port).
+  const consumerDedupes = inboxDedupes(merged, chPlan.receivesDurable);
+  const consumerInbox = workflowsDedupe(merged, chPlan.receivesDurable);
+
   // Foreign vocabulary emission (M-T4.4): the consumed foreign events' record
   // classes + the id brands they (and correlating workflow state) reference.
   for (const ev of foreignConsumedEvents) {
@@ -628,6 +645,7 @@ function emitProjectFromContexts(
               : "NoopDomainEventDispatcher",
         {
           hasOutbox: hasOutboxTier,
+          parksEventId: hasOutboxTier || consumerDedupes,
           durableBroker: durableBrokerEvents.size > 0,
           valueObjects: [...valueObjectPool(mergedBase), ...foreignValues.valueObjects],
           carriesOrigin: deployableCarriesAuth,
@@ -639,11 +657,11 @@ function emitProjectFromContexts(
   // channel-routed reactor / event-create, derived over the merged context so
   // a reactor in one hosted context can route off another's channel.
   if (hasSubscriptions) {
-    emitDispatchHandlers(merged, ns, out, system.sys, ownerOf, sourcemap);
+    emitDispatchHandlers(merged, ns, out, system.sys, ownerOf, sourcemap, chPlan.receivesDurable);
     // Projection fold handlers (one INotificationHandler<TEvent> per fold),
     // derived over the merged context so a fold can route off another hosted
     // context's channel — mirrors the reactor derivation above.
-    emitProjectionDispatch(merged, ns, out, foldsDedupe(merged, hasDurableEvents(merged)));
+    emitProjectionDispatch(merged, ns, out, foldsDedupe(merged, chPlan.receivesDurable));
   }
   // Transactional outbox (dispatch-delivery-semantics.md): durable channels
   // (`retention: log | work`) record their events in __loom_outbox and a relay
@@ -656,6 +674,24 @@ function emitProjectFromContexts(
   const durableTypes = [...new Set(contexts.flatMap((c) => [...durableEventTypes(c)]))].sort();
   const outboxUsesDapper = system.deployable.persistence === "dapper";
   const hasOutbox = hasOutboxTier;
+  // The ambient delivery id: the relay and the broker consumer set it, and
+  // every consumer that claims in the inbox reads it.
+  if (hasOutbox || consumerDedupes) {
+    out.set("Domain/Common/OutboxDelivery.cs", renderOutboxDelivery(ns));
+  }
+  if (consumerInbox) {
+    out.set("Domain/Common/IConsumerInbox.cs", renderConsumerInboxPort(ns));
+    out.set(
+      "Infrastructure/Persistence/ConsumerInbox.cs",
+      outboxUsesDapper ? renderDapperConsumerInbox(ns) : renderEfConsumerInbox(ns),
+    );
+  }
+  if (consumerDedupes && !hasOutbox) {
+    out.set(
+      "Infrastructure/Events/InboxPurgeService.cs",
+      renderInboxPurgeService(ns, outboxUsesDapper),
+    );
+  }
   if (hasOutbox) {
     // The workflow-less durable-broker producer wraps the Noop (no in-process
     // dispatcher exists); the relay publishes broker-bound rows on drain
@@ -667,9 +703,8 @@ function emitProjectFromContexts(
       durableBroker: durableBrokerEvents.size > 0,
       hasSubscriptions,
       carriesOrigin: deployableCarriesAuth,
-      pruneInbox: foldsDedupe(merged, true),
+      pruneInbox: inboxDedupes(merged, true),
     };
-    out.set("Domain/Common/OutboxDelivery.cs", renderOutboxDelivery(ns));
     if (outboxUsesDapper) {
       out.set(
         "Infrastructure/Events/OutboxDomainEventDispatcher.cs",
@@ -779,7 +814,7 @@ function emitProjectFromContexts(
     // (`emitDapperMigrations`) — every table the repositories and the workflow /
     // saga / outbox / projection / audit / provenance surfaces read is in that
     // chain, so this adapter keeps no DDL of its own.
-    const dapperWfDurable = hasDurableEvents(merged);
+    const dapperWfDurable = chPlan.receivesDurable;
     out.set("Infrastructure/Persistence/DbSchema.cs", renderDapperMigrationRunner(ns));
     // The connection lease every Dapper repository opens + the ambient
     // unit-of-work transaction it enlists in, so a `transactional` workflow's
@@ -881,7 +916,7 @@ function emitProjectFromContexts(
       merged.workflows,
       ns,
       out,
-      hasDurableEvents(merged),
+      chPlan.receivesDurable,
       resolveWorkflowSchema,
     );
     // Projection read-model row POCOs + EF configs (one per projection); the
@@ -1155,6 +1190,8 @@ function emitProjectFromContexts(
     usingDapper,
     hasSubscriptions,
     hasOutbox,
+    consumerInbox,
+    inboxPurge: consumerDedupes && !hasOutbox,
     hasRealtime,
     realtimeRoomScoped,
     realtimeTenantClaim,
@@ -1829,6 +1866,10 @@ function emitProject(
     dapperPortRegistrations?: string[];
     /** Dapper connection `search_path` (`dapperSearchPath`). */
     dapperSearchPath?: string[];
+    /** See the Program.cs option of the same name. */
+    consumerInbox?: boolean;
+    /** See the Program.cs option of the same name. */
+    inboxPurge?: boolean;
   },
 ): void {
   // Scrutor scan (+ package ref) is needed when the project emits any
@@ -1903,6 +1944,8 @@ function emitProject(
       hangfireRecurringRegistrations: hangfireRecurringRegistrations(timers, ns),
       dapperPortRegistrations: options?.dapperPortRegistrations,
       dapperSearchPath: options?.dapperSearchPath,
+      consumerInbox: !!options?.consumerInbox,
+      inboxPurge: !!options?.inboxPurge,
     }),
   );
   // Ardalis.Specification ships only when a retrieval exists (EF Core path;

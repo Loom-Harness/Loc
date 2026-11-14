@@ -5,7 +5,6 @@ import {
   dereferencedLoads,
   esStarterSharesEvent,
   eventLogTable,
-  hasDurableEvents,
   isWorkflowSelfType,
   observableWorkflows,
   reposNeeded,
@@ -14,6 +13,8 @@ import {
   servicesCalled,
   subscriptionHandler,
   workflowCapturesDurableEmits,
+  workflowClaims,
+  workflowInboxKey,
   workflowIsolation,
   workflowRunsInTransaction,
 } from "../../ir/plan/index.js";
@@ -448,6 +449,9 @@ export function emitDispatchHandlers(
    *  so it gets a whole-file region (like `emitWorkflows`) PLUS statement
    *  sub-regions layered on top. */
   sourcemap?: SourceMapRecorder,
+  /** The deployable delivers durably (`ChannelPlan.receivesDurable`): a
+   *  state-based workflow's handlers claim in the consumer inbox. */
+  durable = false,
 ): void {
   // Event-sourced saga double-append (S5b): when an event-sourced workflow has
   // BOTH an `on` reactor and an event-`create` starter for the SAME event, the
@@ -528,6 +532,7 @@ export function emitDispatchHandlers(
       construct,
       ownerOf,
       opFragments,
+      durable,
     );
     out.set(path, content);
     sourcemap?.file(path, finalizeCsUnit(content), wf.origin, construct);
@@ -592,8 +597,14 @@ function renderEventReactorHandler(
    *  `opFragments`, no re-indent here — the body renders flush, unlike the
    *  transactional command-handler tab-in). */
   opFragments?: OpFragment[],
+  /** The deployable delivers durably — see `emitDispatchHandlers`. */
+  durable = false,
 ): string {
   const usage = analyseStmts(statements, saves);
+  // A durably delivered event runs the body through the consumer inbox: one
+  // transaction with the `(workflow:<name>, event_id)` claim
+  // (`src/ir/plan/consumer-inbox.ts`).
+  const claims = workflowClaims(wf, durable);
   const usings = new Set<string>();
   const persisted = !!wf.correlationField;
   // An `eventSourced` workflow folds its `<wf>_events` stream into `state`
@@ -686,6 +697,11 @@ function renderEventReactorHandler(
     }
   }
 
+  if (claims) {
+    fields.push(`    private readonly global::${ns}.Domain.Common.IConsumerInbox _inbox;`);
+    ctorParamPairs.push(`global::${ns}.Domain.Common.IConsumerInbox inbox`);
+    ctorAssigns.push("_inbox = inbox");
+  }
   // Statement rendering.  The bound event param resolves to `notification`;
   // `this.<stateField>` resolves to the loaded `state` row (persisted only).
   const stmtLines: string[] = [];
@@ -770,17 +786,6 @@ function renderEventReactorHandler(
         stmtLines.push("            return;");
         stmtLines.push("        }");
       }
-      if (hasDurableEvents(ctx)) {
-        // Idempotent-consumer marker (dispatch-delivery-semantics.md §3):
-        // the relay rides the outbox row id on OutboxDelivery.CurrentEventId;
-        // a repeat of the recorded id is a no-op (at-least-once →
-        // effectively-once).  Inline (ephemeral) dispatch carries null.
-        stmtLines.push("        var __eventId = OutboxDelivery.CurrentEventId;");
-        stmtLines.push("        if (__eventId is not null && state.LastEventId == __eventId)");
-        stmtLines.push("        {");
-        stmtLines.push("            return; // already processed — at-least-once redelivery");
-        stmtLines.push("        }");
-      }
     }
   }
   // Reactor / event-create bodies always dereference their loads → guard all.
@@ -838,12 +843,27 @@ function renderEventReactorHandler(
     }
   } else if (persisted) {
     // Persist the saga row (a new allocation, or a `this.<stateField>` mutation).
-    if (hasDurableEvents(ctx)) {
-      stmtLines.push("        if (__eventId is not null) state.LastEventId = __eventId;");
-    }
+    // The row records the last event applied to it; the inbox claim, not
+    // this column, is what dedupes.
+    if (claims) stmtLines.push("        if (__eventId is not null) state.LastEventId = __eventId;");
     stmtLines.push("        await _sagaState.SaveChangesAsync(cancellationToken);");
   }
 
+  if (claims) {
+    // The emit buffer stays outside the claimed body: its events dispatch
+    // after the transaction commits.
+    const bufferDecl = "        var _workflowEvents = new List<IDomainEvent>();";
+    const inner = stmtLines.filter((l) => l !== bufferDecl);
+    stmtLines.length = 0;
+    if (usage.hasEmit) stmtLines.push(bufferDecl);
+    stmtLines.push(
+      `        var __eventId = global::${ns}.Domain.Common.OutboxDelivery.CurrentEventId;`,
+      `        await _inbox.ApplyOnceAsync(${JSON.stringify(workflowInboxKey(wf.name))}, __eventId, async () =>`,
+      "        {",
+      ...inner.map((l) => (l === "" ? l : `    ${l}`)),
+      "        }, cancellationToken);",
+    );
+  }
   let body = stmtLines.join("\n") + "\n";
   if (usage.hasEmit) {
     body +=
