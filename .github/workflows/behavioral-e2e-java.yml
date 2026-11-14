@@ -99,34 +99,15 @@ jobs:
     # Budget per docs/ci-gating.md § "Sizing a job's `timeout-minutes`":
     # 50 % margin over the measured p95, rounded up to 5 min, floor 10.
     #
-    # This leg was the reason that rule exists.  At 20m it killed 13 of the
-    # ~74 runs that reached a verdict in the last 100 (~18 %), most recently on
-    # 2026-09-10 — and because a killed run is not a successful one, its own
-    # p95 (19m46s over n=40) is a LOWER BOUND: the cap deleted the tail it was
-    # being measured against.  30m is sized to stop the censoring, not to be a
-    # final answer; re-measure once the sample is uncensored and tighten.
+    # This leg is SLOW, not tight-budgeted: it builds and boots a Spring Boot
+    # app per corpus case, sequentially, so it carries the tier's widest budget.
+    # Splitting it would cost a second slot out of the ~20-slot pool and need a
+    # shard manifest, since `run-java.mjs` takes an explicit case list and a new
+    # corpus case would otherwise run in neither half.
     #
-    # The deeper problem is that this leg is SLOW, not tight-budgeted: 17m56s
-    # median in the test step against 6m–10m for every other backend leg,
-    # because `run-java.mjs` pays a `gradle --no-daemon bootJar` — a cold JVM
-    # and a full Spring compile — per corpus case, sequentially.  Its own
-    # run-to-run spread is 13m02s–18m49s, a 5m47s swing that alone was 35x the
-    # 10s of headroom the 20m cap left.  Splitting the leg instead would cost a
-    # second slot out of a saturated ~20-slot pool AND need a shard manifest,
-    # since `run-java.mjs` takes an explicit case list and a new corpus case
-    # would otherwise run in neither half.
-    #
-    # THAT ROOT CAUSE IS NOW FIXED — `run-java.mjs` builds on a warm Gradle
-    # daemon (mean 11.7s -> 2.84s per project build, measured back to back; see
-    # the COST MODEL note at the top of this file), projecting the job at ~7.5m.
-    # The budget deliberately stays at 30 anyway: the rule sizes from a RECORDED
-    # p95 over >=10 runs, and the post-fix sample does not exist yet.  Re-run
-    # `node test/behavioral/ci-budget-report.mjs` once it does and tighten then —
-    # this should come down two or three steps.
-    #
-    # Measured 2026-11-02, n=20 successful runs: p95 27m00s, max 27m16s.
+    # Measured 2026-11-14, n=20 successful runs: p95 36m21s, max 40m04s.
     # Re-derive with `node test/behavioral/ci-budget-report.mjs`.
-    timeout-minutes: 45
+    timeout-minutes: 55
 
     services:
       postgres:
@@ -143,7 +124,49 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      # The broker sidecar of the hermetic fake-service kit
+      # (test/support/fakes/broker-sidecar.mjs): a case whose model declares a
+      # `rabbitmq` storage gets its generated definitions imported here and
+      # its publishes tapped.  Pinned to the same digest as BROKER_IMAGES.
+      rabbitmq:
+        image: mirror.gcr.io/library/rabbitmq:4.1-management-alpine@sha256:42c6214e0e2093caa2484718faacb733631cc9ddc869b3298397613237dbea4a
+        env:
+          RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit loopback_users []"
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 10s
+          --health-retries 20
+
+      # The object-store sidecar of the same kit
+      # (test/support/fakes/s3-sidecar.mjs): an S3-compatible server a case's
+      # `s3` storage is pointed at.  Pinned to the same digest as S3_IMAGE.
+      s3:
+        image: mirror.gcr.io/adobe/s3mock:4.7.0@sha256:468ba0b0e87f20ad54fbb6085e98c143f5bd1e384a844fa12a58535b4e39d4aa
+        ports:
+          - 9090:9090
+
+
+      # The mail sidecar of the same kit (test/support/fakes/mailpit-sidecar.mjs):
+      # a case whose model declares an `smtp` storage sends to it, and its inbox
+      # is read back into the golden's `effects`.  Pinned to MAILPIT_IMAGE.
+      mailpit:
+        image: mirror.gcr.io/axllent/mailpit:v1.27.10@sha256:b1f1be18af530d939a11ee8820b379e0c88eeec204d904bfad68862adced3a5a
+        env:
+          MP_SMTP_AUTH_ACCEPT_ANY: "1"
+          MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+        ports:
+          - 1025:1025
+          - 8025:8025
     env:
+      LOOM_MAILPIT_SMTP: localhost:1025
+      LOOM_MAILPIT_API: http://localhost:8025
+      LOOM_FAKE_AMQP_URL: amqp://guest:guest@localhost:5672
+      LOOM_FAKE_AMQP_MGMT_URL: http://localhost:15672
+      LOOM_FAKE_S3_URL: http://localhost:9090
       # Spring Boot's native datasource env vars. Point at the postgres sidecar
       # above (POSTGRES_DB: app).
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/app

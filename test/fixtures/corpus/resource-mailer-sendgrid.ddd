@@ -1,0 +1,53 @@
+// The SendGrid mailer observed at runtime.  Every leg boots this against an
+// in-process SendGrid fake (test/support/fakes/sendgrid.mjs) over the
+// emulation core, reached through the endpoint override the client reads
+// (`<RESOURCE>_URL_ENDPOINT`, resources.md § Endpoint overrides).  What the
+// client sent lands in the golden's `effects.mail`, so a client that drops
+// the send, mis-addresses it or mangles the envelope fails the leg it runs on.
+// Two call sites: a workflow body and a commandHandler body.
+system ResourceMailerSendgrid {
+  subdomain D {
+    context Billing {
+      aggregate Invoice with crudish { email: string }
+      repository Invoices for Invoice { }
+      // workflow leg
+      workflow issue {
+        create(email: string) {
+          sendgridMail.send(email, "Invoice issued", "Your invoice for " + email + " is ready.")
+        }
+      }
+      // command leg
+      commandHandler Remind(email: string): int {
+        sendgridMail.send(email, "Reminder", "Your invoice for " + email + " is due.")
+        return 1
+      }
+    }
+  }
+  api A from D {
+    route POST "/invoices/remind/{email}" -> Billing.Remind
+  }
+  storage pg { type: postgres }
+  storage box { type: sendgrid, config: { from: "billing@rm.test" } }
+  resource billingState { for: Billing, kind: state, use: pg }
+  resource sendgridMail { for: Billing, kind: mailer, use: box }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Billing]
+    dataSources: [billingState, sendgridMail]
+    serves: A
+    port: 4000
+  }
+
+  test e2e "the mailer reaches its provider from a workflow and a handler" against d {
+    api.issue.run({ email: "ada@rm.test" })
+    expect(api.billing.remind("bo@rm.test")).toBe(1)
+    // The aggregate only routes the context's mailer; its CRUD round trip keeps
+    // every derived route called.
+    let i = api.invoices.create({ email: "cy@rm.test" })
+    api.invoices.update(i, { email: "dy@rm.test" })
+    expect(api.invoices.getById(i).email).toBe("dy@rm.test")
+    expect(api.invoices.all().items.length).toBe(1)
+    api.invoices.destroy(i)
+    expect(api.invoices.getById(i)).toThrow(404)
+  }
+}

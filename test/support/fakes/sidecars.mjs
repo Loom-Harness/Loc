@@ -1,0 +1,209 @@
+// The fake services one behavioural case needs, derived from its model.
+//
+// A case declares nothing: the `.ddd` is the declaration.  The case's model is
+// lowered with the compiled toolchain, and every `resource` a deployable hosts
+// whose `storage` type has a registered fake gets one — one fake per storage,
+// handing the env of every resource routed to it.  The runner merges that env
+// over the backend's boot env, runs the case, reads `effects()` once the fakes
+// have quiesced, and stops them.
+//
+// A storage type with no registered fake is left alone (the backend falls back
+// to its baked-in default address), which is exactly what happened before the
+// kit existed.
+
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { quiesce } from "./quiesce.mjs";
+
+const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+
+/**
+ * Storage type → fake module loader.  A `null` entry is a type the kit knows
+ * about but has no fake for yet; it is skipped like an unknown one.
+ *
+ * Every module exports `start({ storage, resources, channelSources, genDir }) → { kind, env, observe(),
+ * reset(), stop() }`; `kind` names the `effects` section its observations land
+ * in, and `observe()` / `reset()` may be async.  A sidecar fronts a real,
+ * digest-pinned service (`smtp` → Mailpit, `s3` → s3mock, `rabbitmq` / `redis` /
+ * `kafka` → the broker sidecar); an in-process fake serves an emulation-core
+ * model for a service that cannot run (`restApi`, and the SaaS mailers `ses`
+ * and `sendgrid`), or stands in for a local resource (`localDisk` → a temporary
+ * directory).  The broker sidecar also reads the case's generated tree
+ * (`genDir`) for its definitions, channel URLs and SASL users.
+ */
+export const STORAGE_FAKES = {
+  smtp: () => import("./mailpit-sidecar.mjs"),
+  restApi: () => import("./http.mjs"),
+  ses: () => import("./ses.mjs"),
+  sendgrid: () => import("./sendgrid.mjs"),
+  s3: () => import("./s3-sidecar.mjs"),
+  rabbitmq: () => import("./broker-sidecar.mjs"),
+  redis: () => import("./broker-sidecar.mjs"),
+  kafka: () => import("./broker-sidecar.mjs"),
+  localDisk: () => import("./local-disk.mjs"),
+};
+
+/**
+ * Fakes keyed off a whole-system fact rather than a storage — `oidc` stands in
+ * for the issuer of a system that declares an `auth { … }` block.  Each entry is
+ * `{ wants(system) → boolean, mayWant(source) → boolean, load() }` — `mayWant`
+ * is the textual prefilter `mayNeedSidecars` reads; `null` until its fake lands.
+ */
+export const SYSTEM_FAKES = {
+  oidc: null,
+};
+
+let projectModule = null;
+async function loadModel(srcPath) {
+  projectModule ??= await import(pathToFileURL(join(REPO, "out/cli/project.js")).href);
+  const r = await projectModule.parseProject(srcPath);
+  if (r.errorCount > 0) throw new Error(`sidecars: ${srcPath} does not parse:\n${r.diagnostics.join("\n")}`);
+  return r.loom;
+}
+
+/**
+ * The fakes a model needs: one `{ type, storage, resources }` per storage that
+ * a deployable's resources route to and that has a registered fake, plus one
+ * `{ type, system }` per wanted system fake.  Pure over the lowered model.
+ */
+export function plannedFakes(loom, storageFakes = STORAGE_FAKES, systemFakes = SYSTEM_FAKES) {
+  const out = [];
+  for (const sys of loom.systems ?? []) {
+    const hosted = new Set(sys.deployables.flatMap((d) => d.dataSourceNames ?? []));
+    // A broker reached only through a channel binding (`channelSource`) is a
+    // storage the deployable never lists as a data source; it needs its
+    // sidecar all the same, with the binding's env.
+    const bound = new Set(sys.deployables.flatMap((d) => d.channelSourceNames ?? []));
+    for (const storage of sys.storages) {
+      if (!storageFakes[storage.type]) continue;
+      const resources = sys.dataSources.filter((ds) => ds.storageName === storage.name && hosted.has(ds.name));
+      const channelSources = (sys.channelSources ?? []).filter(
+        (cs) => cs.storageName === storage.name && bound.has(cs.name),
+      );
+      if (resources.length || channelSources.length) {
+        out.push({ type: storage.type, storage, resources, channelSources });
+      }
+    }
+    for (const [type, f] of Object.entries(systemFakes)) {
+      if (f?.wants(sys)) out.push({ type, system: sys });
+    }
+  }
+  return out;
+}
+
+/** The storage types whose sidecar is a message broker. */
+const BROKER_TYPES = new Set(["rabbitmq", "redis", "kafka"]);
+
+/** A corpus fixture's `fakes` block (its `<id>.corpus.json`), or none. */
+function caseFakes(caseName) {
+  if (!caseName) return {};
+  const p = join(REPO, "test", "fixtures", "corpus", `${caseName}.corpus.json`);
+  if (!existsSync(p)) return {};
+  return JSON.parse(readFileSync(p, "utf8")).fakes ?? {};
+}
+
+/** Merge `NO_PROXY` so a loopback fake is never routed through the ambient
+ *  HTTP(S)_PROXY (httpx and .NET's HttpClient both honour it). */
+function withNoProxy(env, base) {
+  const extra = ["127.0.0.1", "localhost"];
+  const cur = (base.NO_PROXY ?? base.no_proxy ?? "").split(",").filter(Boolean);
+  const merged = [...new Set([...cur, ...extra])].join(",");
+  return { ...env, NO_PROXY: merged, no_proxy: merged };
+}
+
+const NONE = Object.freeze({
+  env: {},
+  kinds: [],
+  backendStarting() {},
+  effects: async () => ({}),
+  async reset() {},
+  stop: async () => {},
+});
+
+/** Whether a case's source can need a fake at all — a textual prefilter, so a
+ *  case with no fakeable `storage` never pays for lowering its model. */
+export function mayNeedSidecars(source) {
+  const types = Object.keys(STORAGE_FAKES).filter((t) => STORAGE_FAKES[t]);
+  if (new RegExp(`\\btype:\\s*(${types.join("|")})\\b`).test(source)) return true;
+  return Object.values(SYSTEM_FAKES).some((f) => f?.mayWant?.(source));
+}
+
+/**
+ * Start every fake the case's model needs.
+ *
+ * @param {string} srcPath  the case's `.ddd` on disk (platform-swapped)
+ * @param {string} [source] its text — when given, a case with nothing to fake
+ *   returns at once without lowering the model
+ * @param {{ genDir?: string, caseName?: string }} [opts] `genDir` — the case's
+ *   generated tree, handed to every fake's `start` (a broker sidecar imports
+ *   its `broker-init` definitions from it); `caseName` — the corpus fixture
+ *   id, whose `<id>.corpus.json` `fakes` block can ask for a broker that is
+ *   down while the backend boots (`{ "broker": "after-boot" }`)
+ * @returns {Promise<{ env: Record<string,string>, effects(): Promise<Record<string, unknown[]>>, reset(): void, stop(): Promise<void>, kinds: string[] }>}
+ */
+export async function startSidecars(srcPath, source, opts = {}) {
+  if (source !== undefined && !mayNeedSidecars(source)) return NONE;
+  const brokerGate = caseFakes(opts.caseName).broker;
+  const plan = plannedFakes(await loadModel(srcPath)).map((p) => ({
+    ...p,
+    genDir: opts.genDir,
+    ...(brokerGate && BROKER_TYPES.has(p.type) ? { gate: brokerGate } : {}),
+  }));
+  if (!plan.length) return NONE;
+  const running = [];
+  try {
+    for (const p of plan) {
+      const loader = p.storage ? STORAGE_FAKES[p.type] : SYSTEM_FAKES[p.type].load;
+      const mod = await loader();
+      running.push({ plan: p, fake: await mod.start(p) });
+    }
+  } catch (err) {
+    await Promise.all(running.map((r) => r.fake.stop()));
+    throw err;
+  }
+  let env = {};
+  for (const r of running) env = { ...env, ...r.fake.env };
+  if (running.length) env = withNoProxy(env, process.env);
+
+  // `observe()` may be async (a sidecar reads its service's API), so every
+  // fake is awaited.
+  const snapshot = async () => {
+    const byKind = {};
+    const perKind = {};
+    for (const r of running) perKind[r.fake.kind] = (perKind[r.fake.kind] ?? 0) + 1;
+    for (const r of running) {
+      const k = r.fake.kind;
+      // Two storages of one kind are told apart by name; one needs no label.
+      const tag = perKind[k] > 1 ? { storage: r.plan.storage?.name ?? r.plan.type } : {};
+      const seen = await r.fake.observe();
+      (byKind[k] ??= []).push(...seen.map((e) => ({ ...tag, ...e })));
+    }
+    return Object.fromEntries(
+      Object.keys(byKind)
+        .sort()
+        .map((k) => [k, byKind[k]]),
+    );
+  };
+
+  return {
+    env,
+    kinds: [...new Set(running.map((r) => r.fake.kind))].sort(),
+    /** The runner is about to boot the backend (a gated broker counts its
+     *  boot from here).  Call it immediately before the server starts. */
+    backendStarting() {
+      for (const r of running) r.fake.backendStarting?.();
+    },
+    /** The case's effects, read once two consecutive snapshots agree. */
+    async effects(opts) {
+      if (!running.length) return {};
+      return (await quiesce(snapshot, opts)).value;
+    },
+    async reset() {
+      for (const r of running) await r.fake.reset();
+    },
+    async stop() {
+      await Promise.all(running.map((r) => r.fake.stop()));
+    },
+  };
+}

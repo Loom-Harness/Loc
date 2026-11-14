@@ -76,6 +76,11 @@ jobs:
 
       - name: Test (shard ${{ matrix.shard }}/4)
         run: npm test -- --project unit --project mocked --shard=${{ matrix.shard }}/4 --reporter=default
+        env:
+          # The coverage census's online leg (test/support/fakes/coverage.test.ts)
+          # asks GitHub whether the issues its pending rows lean on are still open.
+          LOOM_CENSUS_ONLINE: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # The whole-corpus censuses (`corpus` project): each iterates every tracked
   # `.ddd`, 30–95 s per file.  One job, alongside the shards.

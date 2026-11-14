@@ -1,0 +1,11 @@
+{
+  "title": "broker-bound channel on redis — the `broadcast/ephemeral` producer, its publishes tapped on a real valkey",
+  "doc": "channels",
+  "backends": "ALL",
+  "apiCaller": {
+    "uncalled": {
+      "allOrder": "autoFindAll",
+      "getOrderById": "getById"
+    }
+  }
+}

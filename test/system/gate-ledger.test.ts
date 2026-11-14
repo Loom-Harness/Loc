@@ -97,21 +97,14 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
   // tests — a narrower claim than the one this entry used to make.
   outbox:
     "relay delivery is asynchronous; needs a booted leg that drains the outbox — the node leg never starts the relay, the other four run it on its own poll interval, and the `test e2e` vocabulary has no `eventually` form (#3790)",
-  "channels-broker":
-    "needs a broker container (the channels-e2e legs boot one; the corpus case does not) — and not only for delivery: the four real-process legs cannot BOOT without the broker URL (e.g. python's `init_channel_transports()` raises at startup) — #4212",
-  "channels-broker-workflow":
-    "same broker-container reason as `channels-broker`, and the defect it was minted for is a " +
-    "HARD compile error in the emitted project (TS2304 for `createOutboxDispatcher` plus three " +
-    "TS2305 for the missing exports), so the compile tier IS its oracle — a booted leg would " +
-    "re-run `channels-broker`'s delivery with a workflow in the tree and assert nothing new",
   "channels-broker-mixed-durable":
-    "same broker-container reason as `channels-broker`, and the claim (the unbound durable " +
-    "event is redelivered in-process at-least-once) is asynchronous, which a `test e2e` block " +
-    "cannot wait on — #5613.  The compile tier proves both relays and their per-type queries build",
+    "the claim (the unbound durable event is redelivered in-process at-least-once) is " +
+    "asynchronous, which a `test e2e` block cannot wait on — #5839.  The compile tier proves " +
+    "both relays and their per-type queries build",
   "channels-broker-projection":
-    "same broker-container reason as `channels-broker`: the behavioural claim (place on " +
-    "salesApi, then an OrderBook row on shipApi) needs a broker between two booted services " +
-    "— #5613.  Until then the compile tier proves every backend emits and wires the consumer",
+    "the behavioural claim (place on salesApi, then an OrderBook row on shipApi) needs two " +
+    "booted services sharing one broker; a behavioural case boots one deployable — #5839.  " +
+    "Until then the compile tier proves every backend emits and wires the consumer",
   "projection-split-deployables":
     "the defect is a hard compile error in the emitted project (`TS2306: File " +
     "'domain/value-objects.ts' is not a module`), so the compile tier is the oracle.  A " +
@@ -119,11 +112,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "assert — a projection count — `projection-agg-filters` already boots on one",
   "tenancy-hierarchy":
     "flat visibility inside a registry tree is a runtime row-visibility question; `test:tenancy-hierarchy-*` boots it outside the corpus tier.  The corpus cell needs a principal whose claim is a registry ROW id (a registry read narrows to `this.id == currentUser.<claim>`), which the behavioural harness does not mint — #3422",
-  "handler-resource-ops":
-    "outbound I/O inside a handler body; needs the resource's container — #4212",
   "optional-let":
     "the emitted null-handling form of a `let`-bound optional read is a compile-tier fact (an unwrapped java `Optional`, a .NET `GetByIdAsync`, an elixir nil match); the booted block over the absent-row and present-row branches is #4335",
-  resources: "objectStore / queue / api / mailer clients need their containers — #4212",
   "resource-endpoints":
     "every external-service client against its provider; the SES / SendGrid fakes that answer on the endpoint override are #5616 — #4212",
   "api-call-auth":

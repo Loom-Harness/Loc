@@ -117,14 +117,15 @@ describe("kafka log transport — dotnet leg (M-T4.4 slice 8b)", () => {
     const mod = find(files, "ship_api", "ChannelTransport.cs");
     expect(mod).toContain(".SetPartitionsAssignedHandler((_, _parts) => assigned.TrySetResult())");
     // The await is what makes it a gate — the handler alone changes nothing.
-    expect(mod).toContain("await Task.WhenAny(assigned.Task,");
+    expect(mod).toContain("await assigned.Task.WaitAsync(");
     // ...and it is bounded, so a broker that never assigns cannot wedge boot.
-    expect(mod).toContain("Task.Delay(TimeSpan.FromSeconds(30))");
+    expect(mod).toContain("WaitAsync(TimeSpan.FromSeconds(30))");
+    expect(mod).toContain("catch (TimeoutException)");
     expect(mod).toContain('"channel_subscribe_slow"');
     // The gate must sit in SubscribeAsync, ahead of the method's close —
     // i.e. after the loop is registered, before the caller is released.
     const subscribeAt = mod.indexOf("public async Task SubscribeAsync(");
-    const gateAt = mod.indexOf("await Task.WhenAny(assigned.Task,");
+    const gateAt = mod.indexOf("await assigned.Task.WaitAsync(");
     const parkAt = mod.indexOf("private async Task ParkAsync(");
     expect(gateAt).toBeGreaterThan(subscribeAt);
     expect(gateAt).toBeLessThan(parkAt);

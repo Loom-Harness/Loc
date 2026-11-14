@@ -439,6 +439,14 @@ state check, or does not prove PKCE possession, fails that step by name.
 `test/harness/fake-oidc.test.ts` proves the driver against hand-written
 handshakes with each of those defects seeded.
 
+The UI tier signs in the same way a user does. A `corpus.json` case with
+`oidcLogin` (`oidc-login-ui.ddd`, one case per SPA frontend) boots the
+backend's OIDC verifier and handshake against the emulated provider with no
+auto-login (`startLoginIssuer`, user `demo`), and runs the frontend's emitted
+Playwright suite unchanged: its global setup fills the provider's login page,
+and every spec — the round-trip and each smoke case — runs on the saved
+session.
+
 A spec may declare **several** gated surfaces and a **multi-step** seed.
 Both exist for the read side: one system carries three distinct gated read
 surfaces (the gated list read, a folded projection, a query-time
@@ -523,6 +531,87 @@ The module is dependency-free on purpose (no `pg`/`esbuild` like `cases.mjs`) so
 the main vitest suite can import it: `test/harness/behavioral-proc.test.ts`
 gates this behaviour on every PR against a server that deliberately ignores
 SIGTERM. Left to these legs, a race is only tested when it is lost.
+
+### Broker sidecar (`test/support/fakes/broker-sidecar.mjs`)
+
+The real-process legs speak AMQP and RESP to a real broker, not to an emulation.
+`broker-sidecar.mjs` starts one digest-pinned container per broker type
+(`BROKER_IMAGES`: `rabbitmq:4.1-management-alpine`, `valkey/valkey:8-alpine`,
+`apache/kafka:4.1.0`) with `docker run`. In CI the rabbitmq one comes from the
+workflow's `services: rabbitmq` entry, named by `LOOM_FAKE_AMQP_URL` and
+`LOOM_FAKE_AMQP_MGMT_URL`.
+
+Kafka always runs as its own container, one per case, because a case's SASL
+users are fixed when the broker starts. The kit starts it from the case's
+compose `environment:` (`containerEnv`), with three changes:
+- the listener the backend dials is re-advertised on a loopback host port;
+- the controller quorum points at `localhost`;
+- the harness's own tools use the plaintext inter-broker listener inside the
+  container.
+
+`observe()` takes each user topic's record count from `kafka-get-offsets.sh`,
+then reads exactly that many records with the image's console consumer.
+
+- **Topology and grants.** `start({ storage, definitions })` imports the case's
+  generated `broker-init/<storage>-definitions.json` through the management
+  API. The backend therefore connects as its own per-deployable user, under its
+  own permission regexes. An open admin account would hide a grant defect.
+- **Env.** Each `channelSource` gets `LOOM_CHANNEL_<X>_URL` and each `queue`
+  resource gets `<RES>_URL`. The names come from `src/util/channels.ts` and
+  `src/util/resource-env.ts`. The values are the compose URLs, re-hosted onto
+  the sidecar's loopback port, so the credentials and vhost are unchanged.
+- **Observation.** Tracing is on for every vhost, and a tap queue bound to
+  `amq.rabbitmq.trace` with `publish.#` copies each publish. A message published
+  to an exchange that no consumer has bound is still seen. On valkey, a
+  `PSUBSCRIBE *` connection is the tap. On kafka, the topics are read back,
+  and the topic name stands in for the exchange. `await observe()` drains the tap into
+  sorted `{ exchange, routingKey, type, count }` rows, where `type` is the
+  CloudEvent `type` (`null` for a plain queue message).
+- **Between cases.** `load(definitions)` and `reset()` delete every vhost and
+  every non-admin user, then re-arm the broker. Nothing leaks from one case to
+  the next.
+- **The boot gate.** A fixture whose corpus.json carries
+  `"fakes": { "broker": "after-boot" }` (`channels-broker-late`) gets its broker
+  behind `tcpGate`, a loopback proxy that refuses every connection until 3 s
+  after the first one it refused. Its backstop is 60 s after
+  `fakes.backendStarting()`, which every runner calls immediately before it
+  boots the backend. A kafka broker advertises the gate, so post-bootstrap
+  connections are gated as well. A gated case whose gate refused nothing
+  fails, because it proved nothing about boot.
+
+The broker's own tests run under `npm run test:fakes-docker`, which needs
+docker. The pure helpers run in the fast suite.
+
+### Object-store sidecar (`test/support/fakes/s3-sidecar.mjs`)
+
+A case whose model declares an `s3` storage runs against a real S3-compatible
+server: `adobe/s3mock`, pinned by digest as `S3_IMAGE`. The kit starts it with
+`docker run`. In CI it uses the workflow's `services: s3` entry, named by
+`LOOM_FAKE_S3_URL`.
+
+- **Why s3mock.** It speaks path-style S3 and accepts any credentials. It
+  passes a streamed (`aws-chunked`) upload, ListObjectsV2 and a presigned GET
+  from the generated node client's SDK, and it is ready in about 6 s.
+- **Env.** Each object-store resource gets the generated contract from
+  `src/util/resource-env.ts`: `<RES>_URL_ENDPOINT`, `<RES>_URL_BUCKET`, and the
+  `AWS_*` trio from `S3_DEV_SIDECAR`.
+- **Observation.** `await observe()` reads the objects back over the S3 API:
+  ListObjectsV2 per bucket, then HEAD per object. It returns them sorted, as
+  `{ bucket, key, size, contentType }`.
+- **Between cases.** `reset()` deletes every object and bucket, then re-creates
+  the case's buckets.
+
+### Local-disk object store (`test/support/fakes/local-disk.mjs`)
+
+A `localDisk` storage needs no container. Each object-store resource gets an
+empty temporary directory, named by `<RES>_DIR` (`resourceHostEnvVar`).
+
+- **Observation.** `await observe()` walks each directory and returns the
+  stored objects sorted, as `{ resource, key, size }`. Every backend stores an
+  object under its key with each character outside `[A-Za-z0-9._-]` replaced
+  by `_`. The metadata file each keeps beside it (`<key>.meta.json` or
+  `<key>.meta`) has a backend-specific name and format and is left out.
+- **Between cases.** `reset()` empties every directory.
 
 ## UI tier (`run-ui.mjs`)
 
@@ -660,6 +749,31 @@ declare the four host types (read off the enriched IR), the flutter leg
 still derives both halves from the contract, and the feliz fixture still
 reads every field back. Without it, deleting a field from a fixture would
 leave two nightly legs green and pointless.
+
+## External services
+
+A generated backend that sends mail or calls a remote api would reach for a
+mail server or the remote host at boot or on the first call.  Every leg instead
+starts the services the case's model needs (`test/support/fakes/`) and merges
+their env over the backend's boot env — `MAIL_URL`, `CRM_URL`, … — named by
+`src/util/resource-env.ts`, the same names the emitted clients read.  The node
+leg hands the env to its case worker; the real-process legs to the server they
+spawn.  A case declares nothing: `sidecars.mjs` lowers the model and starts one
+service per hosted storage of a type the kit serves, and a case with none pays
+only a textual prefilter.
+
+A service that can run is real and pinned by digest: Mailpit for `smtp`
+(`docker run` locally, the workflow's `services: mailpit` in CI, named by
+`LOOM_MAILPIT_SMTP` / `LOOM_MAILPIT_API`), beside the broker and object-store
+sidecars.  One that cannot — a third-party `restApi`, the SaaS mailers `ses`
+and `sendgrid` — is an in-process fake over the emulation core's model
+(`src/emulation/`), the same model the browser playground runs, reached
+through the endpoint override the client reads.  What they observed lands in the recording's `effects`
+section (see [`wire-golden/README.md`](wire-golden/README.md#the-effects-section)).
+`corpus/resource-mail-api` reaches all three resource call sites — a workflow
+body, a commandHandler body and an event-triggered starter — and
+`corpus/resource-mailer-ses` / `resource-mailer-sendgrid` send through each SaaS
+mailer from a workflow and a commandHandler.
 
 ## The wire differential — every leg gates the same canonical bytes
 

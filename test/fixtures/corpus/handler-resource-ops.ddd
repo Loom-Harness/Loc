@@ -85,4 +85,12 @@ system HandlerResourceOps {
     serves: A
     port: 4000
   }
+  test e2e "handler and dispatcher resource ops reach the object store, queue and mailer" against d {
+    let o = api.orders.create({ name: "ada@hro.test" })
+    expect(api.sales.archiveOrder("ada@hro.test")).toBe(1)
+    expect(api.sales.peekArchive("ada@hro.test")).toBe(1)
+    // retire starts the ArchiveTrail instance the touch reactor then runs on.
+    api.orders.retire(o)
+    api.orders.touch(o)
+  }
 }

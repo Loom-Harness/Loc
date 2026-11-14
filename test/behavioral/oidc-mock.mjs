@@ -49,3 +49,17 @@ export async function startMockIssuer() {
     unauthorizedToken: await fake.mint("visitor"),
   };
 }
+
+/** The UI tier's login principal: the generated dev realm's `demo` user, which
+ *  the emitted Playwright global setup signs in as by default. */
+export const DEMO_PERSONA = {
+  username: "demo",
+  password: "demo",
+  claims: { sub: "00000000-0000-0000-0000-0000000000d1", realm_access: { roles: "user" } },
+};
+
+/** Start the issuer a signed-in UI suite logs in through: no auto-login, so the
+ *  suite's own global setup has to fill the login page. */
+export async function startLoginIssuer() {
+  return start({ personas: [DEMO_PERSONA], autoLogin: null });
+}

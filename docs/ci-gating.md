@@ -1147,7 +1147,27 @@ fits any sane budget. **A leg that is slow is a different problem from a leg
 that is tight-budgeted, and it wants a different fix** — the budget stops the
 bleeding, cutting the runtime is the repair.
 
-### The 2026-11-02 re-measure (current for every leg)
+### The 2026-11-14 re-measure (current for every leg)
+
+Every leg's p95 had outgrown the sample its budget came from, and
+`behavioral-python` was killed at its 15m cap on the run that first booted the
+real sidecars (brokers, object store, mail) per case. Job-execution seconds
+from the Actions API, n=20 successful runs per leg:
+
+| leg | job median | job p95 | job max | was | now |
+|---|---:|---:|---:|---:|---:|
+| `behavioral-e2e` (node) | 14m09s | 15m49s | 17m41s | 20m | **25m** |
+| `behavioral-e2e-python` | 10m46s | 13m25s | 13m28s | 15m | **25m** |
+| `behavioral-e2e-java` | 32m45s | 36m21s | 40m04s | 45m | **55m** |
+| `behavioral-e2e-dotnet` | 22m05s | 25m33s | 27m17s | 35m | **40m** |
+| `behavioral-e2e-dapper` | 17m41s | 22m14s | 22m29s | 30m | **35m** |
+| `behavioral-e2e-mikroorm` | 23m33s | 28m49s | 29m03s | 35m | **45m** |
+| `behavioral-e2e-elixir` | 23m02s | 28m02s | 28m38s | 30m | **45m** |
+
+The python run that hit the cap was at least 15m long, and 15m × 1.5 rounds to
+the same 25m.
+
+### The 2026-11-02 re-measure (superseded)
 
 Every leg had outgrown its budget: `behavioral-python` and `behavioral-dapper`
 were being killed at their caps right after the suite passed (5 and 4 of the

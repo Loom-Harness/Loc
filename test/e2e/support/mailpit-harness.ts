@@ -8,8 +8,7 @@
 // inbox — and carries the single backend-agnostic assertion (drive the
 // workflow, then poll the inbox for the delivered envelope).  Only how the
 // server gets booted differs per backend (the sibling test files); the
-// delivery proof is identical.  Mailpit is the mocked-SMTP server the plan's
-// e2e TODO asked for (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/email-resource-kind.md §6).
+// delivery proof is identical.
 //
 // Both sidecars honour a CI-service override so `services:` containers can be
 // used instead of a docker-in-the-runner sidecar:
@@ -20,6 +19,7 @@
 import { execSync } from "node:child_process";
 import * as net from "node:net";
 import { expect } from "vitest";
+import { start as startMailSidecar } from "../../support/fakes/mailpit-sidecar.mjs";
 
 /**
  * True when docker is usable — re-exported so the sibling suites that import
@@ -110,11 +110,11 @@ export async function startPostgres(label: string): Promise<PgParts> {
   };
 }
 
-// Mailpit is started with SMTP AUTH REQUIRED (MP_SMTP_AUTH) — not accept-any —
-// so a backend that ignores the credentials in MAIL_URL fails to deliver and
-// its e2e cell goes red.  That is the point: this proves each backend actually
-// authenticates.  ALLOW_INSECURE lets the auth happen over the plain (no-TLS)
-// dev connection.
+// The inbox is the kit's digest-pinned Mailpit (test/support/fakes/
+// mailpit-sidecar.mjs), started with SMTP AUTH REQUIRED — not accept-any — so a
+// backend that ignores the credentials in MAIL_URL fails to deliver and its
+// e2e cell goes red.  That is the point: this proves each backend actually
+// authenticates.
 export const MAILPIT_USER = "loom";
 export const MAILPIT_PASS = "s3cr3t";
 
@@ -128,8 +128,9 @@ export interface Mailpit {
   stop: () => void;
 }
 
-/** Spin (or reuse) a Mailpit sidecar (auth-required SMTP endpoint + REST inbox). */
-export async function startMailpit(label: string): Promise<Mailpit> {
+/** Start an auth-required Mailpit (or reuse the CI service named by
+ *  LOOM_MAILPIT_SMTP / LOOM_MAILPIT_API). */
+export async function startMailpit(_label: string): Promise<Mailpit> {
   const smtpOverride = process.env.LOOM_MAILPIT_SMTP;
   const apiOverride = process.env.LOOM_MAILPIT_API;
   if (smtpOverride && apiOverride) {
@@ -140,37 +141,12 @@ export async function startMailpit(label: string): Promise<Mailpit> {
       stop: () => {},
     };
   }
-  const name = `loom-mailpit-${label}-${process.pid}`;
-  const smtpPort = await freePort();
-  const apiPort = await freePort();
-  execSync(
-    `docker run -d --rm --name ${name} ` +
-      `-e MP_SMTP_AUTH=${MAILPIT_USER}:${MAILPIT_PASS} -e MP_SMTP_AUTH_ALLOW_INSECURE=1 ` +
-      `-p ${smtpPort}:1025 -p ${apiPort}:8025 axllent/mailpit:latest`,
-    { stdio: "pipe", timeout: 60_000 },
-  );
-  const api = `http://127.0.0.1:${apiPort}`;
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    try {
-      const r = await fetch(`${api}/api/v1/messages`);
-      if (r.ok) break;
-    } catch {
-      /* not up yet */
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
+  const mail = await startMailSidecar({ auth: { user: MAILPIT_USER, pass: MAILPIT_PASS } });
   return {
-    smtp: `127.0.0.1:${smtpPort}`,
-    authUrl: `smtp://${MAILPIT_USER}:${MAILPIT_PASS}@127.0.0.1:${smtpPort}`,
-    api,
-    stop: () => {
-      try {
-        execSync(`docker rm -f ${name}`, { stdio: "pipe", timeout: 15_000 });
-      } catch {
-        /* best-effort */
-      }
-    },
+    smtp: mail.smtp,
+    authUrl: mail.url,
+    api: mail.api,
+    stop: () => void mail.stop(),
   };
 }
 

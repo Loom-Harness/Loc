@@ -306,6 +306,14 @@ const REGISTERED: Ratchet[] = [
     kind: "nested-record",
     max: 0,
   },
+  // The harness's waits for open product defects (each masks one).  Pinned so
+  // a new wait is a reviewed act; the coverage census expires each one.
+  {
+    file: "test/behavioral/registers.mjs",
+    name: "HARNESS_WAITS",
+    kind: "record",
+    max: 1,
+  },
   // The Elixir corpus compile tier's skip map — the fifth leg of the per-backend
   // set registered above (java / python / dotnet / tsc), left out only because
   // it lives in its own workflow (`corpus-elixir-build.yml`, split off for the
@@ -392,10 +400,12 @@ const REGISTERED: Ratchet[] = [
     // peer, SMTP, SES, SendGrid); the fakes answering on its host overrides are #5616.
     // 23 → 24: `channels-broker-projection`, a broker + second-deployable row:
     // a fold on one service over an event published from another needs a
-    // broker between two booted services (#5613).
+    // broker between two booted services (#5839).
     // 24 → 25: `channels-broker-mixed-durable`, a broker row whose claim is an
-    // asynchronous local redelivery (#5613).
-    max: 25,
+    // asynchronous local redelivery (#5839).
+    // 25 → 21: the s3/rabbitmq/localDisk sidecars re-arm `resources`,
+    // `handler-resource-ops`, `channels-broker` and `channels-broker-workflow`.
+    max: 21,
   },
 ];
 

@@ -1,0 +1,169 @@
+{
+  "case": "resource-mailer-sendgrid",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/workflows/issue",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/invoices/remind/bo%40rm.test",
+      "status": 200,
+      "body": 1
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/invoices",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/invoices/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/invoices/{id}",
+      "status": 200,
+      "body": {
+        "email": "dy@rm.test",
+        "id": "<volatile:key>",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/invoices",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "email": "dy@rm.test",
+            "id": "<volatile:key>",
+            "rowVersion": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "DELETE",
+      "path": "/api/invoices/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/invoices/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Invoice {id} not found",
+        "instance": "/api/invoices/{id}",
+        "params": {
+          "type": "Billing.Invoice"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "PATCH",
+      "path": "/api/invoices",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/invoices",
+        "instance": "/api/invoices",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/invoices",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/invoices",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/invoices/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Invoice {id} not found",
+        "instance": "/api/invoices/{id}/update",
+        "params": {
+          "type": "Billing.Invoice"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ],
+  "effects": {
+    "mail": [
+      {
+        "from": "billing@rm.test",
+        "to": [
+          "ada@rm.test"
+        ],
+        "subject": "Invoice issued",
+        "text": "Your invoice for ada@rm.test is ready."
+      },
+      {
+        "from": "billing@rm.test",
+        "to": [
+          "bo@rm.test"
+        ],
+        "subject": "Reminder",
+        "text": "Your invoice for bo@rm.test is due."
+      }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "title": "sendgrid mailer observed at runtime through the in-process provider fake",
+  "doc": "resources",
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "Starting the `issue` workflow is the not-lifted workflow-route class.",
+    "unattributed": ["api.issue.run (no such aggregate)"]
+  }
+}

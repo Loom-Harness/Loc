@@ -29,9 +29,10 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, parseJUnitXml, resetDatabase, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
+import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, parseJUnitXml, resetDatabase, awaitOutboxDrained, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { writeCaseSource } from "./case-source.mjs";
 import { stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
+import { startSidecars } from "../support/fakes/index.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
@@ -204,10 +205,14 @@ async function runCase(c) {
   const workDir = join(WORK, c.name);
   mkdirSync(workDir, { recursive: true });
   let server;
+  // The fake services the case's model needs (test/support/fakes/), up
+  // before the boot so their env reaches it.
+  let fakes = null;
   try {
     const srcPath = join(workDir, "system.ddd");
     writeCaseSource(srcPath, c.source, c.locales);
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", srcPath, "-o", genDir], { stdio: "pipe" });
+    fakes = await startSidecars(srcPath, c.source, { genDir, caseName: c.name });
     const deplDir = findJavaDeployable(genDir);
     const e2eDir = join(genDir, "e2e");
     const e2eFile = existsSync(e2eDir) ? (walk(e2eDir, (p) => p.endsWith(".e2e.test.ts"))[0] ?? null) : null;
@@ -302,6 +307,8 @@ async function runCase(c) {
       // the wrong app against a freshly-dropped schema is exactly the 500 this
       // guards (see proc.mjs).
       await waitForPortFree(PORT);
+      // A gated broker counts the backend's boot from here.
+      fakes.backendStarting();
       server = spawn(javaBin, ["-jar", join("build", "libs", jar)], {
         cwd: deplDir,
         stdio: "pipe",
@@ -312,7 +319,7 @@ async function runCase(c) {
           SPRING_DATASOURCE_URL: DATASOURCE_URL,
           SPRING_DATASOURCE_USERNAME: DATASOURCE_USERNAME,
           SPRING_DATASOURCE_PASSWORD: DATASOURCE_PASSWORD,
-          ...oidcEnv,
+          ...oidcEnv, ...fakes.env,
         },
       });
       let serverLog = "";
@@ -342,11 +349,15 @@ async function runCase(c) {
     const api = await run();
     // The OIDC authorization-code handshake against the fake issuer (off the recorder).
     const codeFlow = isOidc && oidc ? await probeCodeFlow({ request: httpRequest(BASE), oidc }) : [];
-    return { results: [...unitResults, ...api.results, ...(api.authz ?? []), ...codeFlow], wire: api.wire };
+    // A durable event reaches the broker on the relay's own poll: read the
+    // broker effects once the outbox holds nothing still owed delivery.
+    if (!EXTERNAL_BASE && fakes.kinds.includes("broker")) await awaitOutboxDrained(DATASOURCE_URL.replace(/^jdbc:postgresql:\/\//, `postgresql://${DATASOURCE_USERNAME}:${DATASOURCE_PASSWORD}@`));
+    return { results: [...unitResults, ...api.results, ...(api.authz ?? []), ...codeFlow], wire: api.wire, effects: await fakes.effects() };
   } finally {
     // AWAIT the exit — firing SIGTERM and moving on leaves the port occupied
     // into the next case, which then talks to the wrong app (see proc.mjs).
     await stopServer(server);
+    await fakes?.stop();
     rmSync(genDir, { recursive: true, force: true });
   }
 }

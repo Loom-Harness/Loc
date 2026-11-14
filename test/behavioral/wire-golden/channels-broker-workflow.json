@@ -1,0 +1,30 @@
+{
+  "case": "channels-broker-workflow",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/workflows/draft_order",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/workflows/draft_order",
+      "status": 204,
+      "body": ""
+    }
+  ],
+  "effects": {
+    "broker": [
+      {
+        "exchange": "loom.Orders.Lifecycle",
+        "routingKey": "",
+        "type": "Orders.OrderPlaced",
+        "count": 2
+      }
+    ]
+  }
+}

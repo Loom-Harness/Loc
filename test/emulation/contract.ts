@@ -21,6 +21,7 @@ import type {
   OidcProvider,
   S3,
   SchemaSampler,
+  Sendgrid,
   Ses,
 } from "../../src/emulation/index.js";
 import {
@@ -35,6 +36,7 @@ export interface EmulationHost {
   mailbox(opts?: { store?: BlobStore | null }): Mailbox;
   s3(opts?: { store?: BlobStore | null; buckets?: readonly string[] }): S3;
   ses(opts: { mailbox: Mailbox }): Ses;
+  sendgrid(opts: { mailbox: Mailbox }): Sendgrid;
   disk(opts?: { store?: BlobStore | null }): Disk;
   httpMock(opts?: { sample?: () => Promise<SchemaSampler>; now?: () => Date }): HttpMock;
   oidc(): OidcProvider;
@@ -228,8 +230,91 @@ export function emulationContract(hostName: string, host: EmulationHost): void {
           { via: "ses", from: "from@x", to: ["to@x"], subject: "Hi", text: "Body" },
         ]);
         expect(
-          ses.http(req("POST", "https://email.x/", form({ Action: "SendRawEmail" }))).status,
+          ses.http(req("POST", "https://email.x/", form({ Action: "GetSendQuota" }))).status,
         ).toBe(400);
+      });
+
+      it("captures SendRawEmail — a base64 MIME message — with its MIME decoded", () => {
+        const mailbox = host.mailbox();
+        const ses = host.ses({ mailbox });
+        const mime = [
+          "From: Billing <billing@x>",
+          "To: ada@x",
+          "Subject: =?UTF-8?B?SMOpbGxv?=",
+          'Content-Type: multipart/alternative; boundary="b"',
+          "",
+          "--b",
+          "Content-Type: text/plain; charset=utf-8",
+          "Content-Transfer-Encoding: quoted-printable",
+          "",
+          "caf=C3=A9 =",
+          "ok",
+          "--b",
+          "Content-Type: text/html",
+          "",
+          "<p>caf&eacute; ok</p>",
+          "--b--",
+          "",
+        ].join("\r\n");
+        const res = ses.http(
+          req(
+            "POST",
+            "https://email.eu-west-1.amazonaws.com/",
+            form({
+              Action: "SendRawEmail",
+              "RawMessage.Data": btoa(String.fromCharCode(...enc.encode(mime))),
+            }),
+          ),
+        );
+        expect(res.status).toBe(200);
+        expect(dec.decode(res.body)).toContain("<SendRawEmailResult><MessageId>mail-1</MessageId>");
+        expect(mailbox.list()).toMatchObject([
+          {
+            via: "ses",
+            from: "billing@x",
+            to: ["ada@x"],
+            subject: "Héllo",
+            text: "café ok",
+            html: "<p>caf&eacute; ok</p>",
+          },
+        ]);
+      });
+    });
+
+    describe("sendgrid", () => {
+      it("captures a v3 mail send, one message per personalization, and answers 202", () => {
+        const mailbox = host.mailbox();
+        const sg = host.sendgrid({ mailbox });
+        const body = JSON.stringify({
+          personalizations: [
+            { to: [{ email: "a@x" }] },
+            { to: [{ email: "b@x" }], cc: [{ email: "c@x" }], subject: "Own" },
+          ],
+          from: { email: "support@x" },
+          subject: "Hi",
+          content: [{ type: "text/plain", value: "Hello." }],
+        });
+        const res = sg.http(
+          req("POST", "http://sg.test/v3/mail/send", body, { authorization: "Bearer SG.x" }),
+        );
+        expect([res.status, res.body.length]).toEqual([202, 0]);
+        expect(
+          mailbox
+            .list()
+            .map(({ via, from, to, subject, text }) => ({ via, from, to, subject, text })),
+        ).toEqual([
+          { via: "sendgrid", from: "support@x", to: ["a@x"], subject: "Hi", text: "Hello." },
+          {
+            via: "sendgrid",
+            from: "support@x",
+            to: ["b@x", "c@x"],
+            subject: "Own",
+            text: "Hello.",
+          },
+        ]);
+        expect(sg.http(req("POST", "http://sg.test/v3/mail/send", "{oops")).status).toBe(400);
+        expect(sg.http(req("POST", "http://sg.test/v3/other", "{}")).status).toBe(404);
+        expect(mailbox.list()).toHaveLength(2);
       });
     });
 
