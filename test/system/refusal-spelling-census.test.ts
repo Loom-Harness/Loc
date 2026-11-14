@@ -90,14 +90,6 @@ const WAIVERS: Readonly<Record<string, string>> = {
   // Prose inside an emitted Python docstring, which the comment filter cannot
   // tell from code.
   "src/generator/python/index.ts:problem.domain-floor": "docstring prose",
-  // The reference-admission guard's thrown text: lane R owns these files and
-  // moves them onto `wireFixedDetail("dangling-reference")`.
-  "src/generator/typescript/ref-admission.ts:The request references a record that does not exist.":
-    "reference admission, owned by lane R",
-  "src/generator/dotnet/emit/ref-admission.ts:The request references a record that does not exist.":
-    "reference admission, owned by lane R",
-  "src/generator/java/emit/ref-admission.ts:The request references a record that does not exist.":
-    "reference admission, owned by lane R",
 };
 
 function hits(): Map<string, string> {
