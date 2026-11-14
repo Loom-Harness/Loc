@@ -8,7 +8,8 @@
 // the `storage restApi` binding carries.
 //
 // Both halves stay derived, so neither can drift from the callee:
-//   - paths from `deriveContextOperations` (what the callee actually mounts),
+//   - paths from `contextOperations` (what the callee actually mounts, its
+//     abstract bases' polymorphic reads included),
 //   - the response record from `forApiRead(wireFieldsForAggregate(...))` (the
 //     field list the callee serializes).
 //
@@ -28,6 +29,7 @@
 
 import { apiCallPrincipal } from "../../../ir/enrich/hosting-facts.js";
 import { forApiRead, wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
+import { contextOperations } from "../../../ir/plan/index.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import {
   type ApiResourceBinding,
@@ -37,11 +39,11 @@ import {
   type ApiOperationIR,
   absenceUnionSuccess,
   collectionSuccess,
-  deriveContextOperations,
 } from "../../../ir/util/api-surface.js";
 import { escapeCsharpIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { resourceEnvUrlVar } from "../../../util/resource-env.js";
+import { type PolymorphicRow, polymorphicRowOf } from "../../_api/polymorphic-row.js";
 // `API_CLIENT_CLASS` lives in `render-expr.ts`, not here: this module already
 // imports `renderCsType` from there, and owning the name here too would make
 // the pair mutually importing.  One direction, one home for the name.
@@ -107,9 +109,40 @@ function pathExpr(op: ApiOperationIR): string {
 /** A `record` mirroring the aggregate's read wire shape — the same walk the
  *  callee serializes from. */
 function responseRecord(agg: AggregateIR, recordName: string): string[] {
-  const fields = forApiRead(wireFieldsForAggregate(agg));
-  if (fields.length === 0) return [`    public sealed record ${recordName}();`];
-  const members = fields.map((wf) => {
+  const members = recordMembers(agg, "        ");
+  if (members.length === 0) return [`    public sealed record ${recordName}();`];
+  return [`    public sealed record ${recordName}(`, `${members.join(",\n")});`];
+}
+
+/** The tagged row of a polymorphic base read: an abstract record carrying
+ *  System.Text.Json's polymorphism metadata, with one nested record per
+ *  concrete holding that concrete's read wire fields.  The `type` tag is the
+ *  type discriminator, so it is no member of any arm. */
+function taggedRowRecord(poly: PolymorphicRow, recordName: string): string[] {
+  const out = [
+    `    [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]`,
+    ...poly.variants.map(
+      (v) =>
+        `    [JsonDerivedType(typeof(${recordName}.${v.aggregate.name}), ${JSON.stringify(v.tag)})]`,
+    ),
+    `    public abstract record ${recordName}`,
+    "    {",
+  ];
+  for (const v of poly.variants) {
+    const members = recordMembers(v.aggregate, "            ");
+    out.push(
+      members.length === 0
+        ? `        public sealed record ${v.aggregate.name}() : ${recordName};`
+        : `        public sealed record ${v.aggregate.name}(\n${members.join(",\n")}) : ${recordName};`,
+    );
+  }
+  out.push("    }");
+  return out;
+}
+
+/** One positional member per read wire field of `agg`. */
+function recordMembers(agg: AggregateIR, indent: string): string[] {
+  return forApiRead(wireFieldsForAggregate(agg)).map((wf) => {
     const t = wf.source === "id" ? "string" : renderCsType(wf.type);
     // Mirror the CALLEE's optionality rather than making everything nullable.
     // Blanket-nullable compiles here but moves the problem one frame out: the
@@ -124,9 +157,8 @@ function responseRecord(agg: AggregateIR, recordName: string): string[] {
     // deserialized ROOT is real, per-field presence is not.
     const optional = wf.optional || t.endsWith("?");
     const rendered = optional && !t.endsWith("?") ? `${t}?` : t;
-    return `        ${rendered} ${upperFirst(wf.name)}`;
+    return `${indent}${rendered} ${upperFirst(wf.name)}`;
   });
-  return [`    public sealed record ${recordName}(`, `${members.join(",\n")});`];
 }
 
 /** Emit `Resources/ApiClients.cs`, or nothing when this deployable binds no
@@ -146,6 +178,7 @@ export function emitDotnetApiClients(
   const records: string[] = [];
   const methods: string[] = [];
   const emittedRecords = new Set<string>();
+  let tagged = false;
 
   for (const b of bindings) {
     const envVar = resourceEnvUrlVar(b.resource.name);
@@ -158,7 +191,11 @@ export function emitDotnetApiClients(
     );
 
     for (const ctx of servedContextsFor(b, sys)) {
-      for (const op of deriveContextOperations(ctx)) {
+      for (const op of contextOperations(ctx)) {
+        // A polymorphic base read answers tagged rows, never the abstract
+        // base's own field list.
+        const poly = polymorphicRowOf(op, ctx);
+        if (poly) tagged = true;
         // An ABSENCE union deserializes the same record as a plain entity
         // response — the callee answers the success body directly at 200 and
         // rides absence on 404, no `type` discriminator (payloads.md §Union
@@ -175,7 +212,10 @@ export function emitDotnetApiClients(
         const recordName = agg ? `${agg.name}Response` : undefined;
         if (agg && recordName && !emittedRecords.has(recordName)) {
           emittedRecords.add(recordName);
-          records.push(...responseRecord(agg, recordName), "");
+          records.push(
+            ...(poly ? taggedRowRecord(poly, recordName) : responseRecord(agg, recordName)),
+            "",
+          );
         }
         // The paged envelope mirrors the callee's `<Agg>Paged` field for field.
         // Members are non-nullable value types with defaults: the callee always
@@ -284,6 +324,7 @@ export function emitDotnetApiClients(
     "using System.Net.Http;",
     "using System.Text;",
     "using System.Text.Json;",
+    ...(tagged ? ["using System.Text.Json.Serialization;"] : []),
     "using System.Threading.Tasks;",
     "",
     `namespace ${ns}.Resources;`,
@@ -318,6 +359,9 @@ export function emitDotnetApiClients(
     "    {",
     "        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,",
     "        PropertyNameCaseInsensitive = true,",
+    // A tagged row's `type` discriminator need not be its first member: the
+    // callees do not all serialize it first.
+    ...(tagged ? ["        AllowOutOfOrderMetadataProperties = true,"] : []),
     "    };",
     "",
     ...records.map((l) => (l ? l : "")),

@@ -221,44 +221,96 @@
       "method": "GET",
       "path": "/api/shippers",
       "status": 200,
-      "body": [
-        {
-          "id": "<volatile:key>",
-          "label": "S-1",
-          "rowVersion": 2,
-          "ship": {
-            "geo": {
-              "lat": 2.5,
-              "lng": 4.75
-            },
-            "line1": "5 Pier Ave"
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "label": "S-1",
+            "rowVersion": 2,
+            "ship": {
+              "geo": {
+                "lat": 2.5,
+                "lng": 4.75
+              },
+              "line1": "5 Pier Ave"
+            }
           }
-        }
-      ]
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 15,
+      "method": "GET",
+      "path": "/api/parties/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "S-1",
+        "rowVersion": 2,
+        "ship": {
+          "geo": {
+            "lat": 2.5,
+            "lng": 4.75
+          },
+          "line1": "5 Pier Ave"
+        },
+        "type": "Shipper"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/parties",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "label": "S-1",
+            "rowVersion": 2,
+            "ship": {
+              "geo": {
+                "lat": 2.5,
+                "lng": 4.75
+              },
+              "line1": "5 Pier Ave"
+            },
+            "type": "Shipper"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 17,
       "method": "DELETE",
       "path": "/api/persons/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 16,
+      "seq": 18,
       "method": "DELETE",
       "path": "/api/receipts/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 17,
+      "seq": 19,
       "method": "DELETE",
       "path": "/api/shippers/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 18,
+      "seq": 20,
       "method": "GET",
       "path": "/api/persons/{id}",
       "status": 404,
@@ -275,7 +327,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 21,
       "method": "GET",
       "path": "/api/receipts/{id}",
       "status": 404,
@@ -292,7 +344,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 22,
       "method": "GET",
       "path": "/api/shippers/{id}",
       "status": 404,
@@ -309,7 +361,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 23,
       "method": "PATCH",
       "path": "/api/persons",
       "status": 405,
@@ -323,7 +375,7 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 24,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -337,7 +389,7 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 25,
       "method": "POST",
       "path": "/api/persons",
       "status": 400,
@@ -351,7 +403,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 26,
       "method": "POST",
       "path": "/api/shippers/{id}/update",
       "status": 404,

@@ -7,8 +7,9 @@
 //
 // Two properties make this worth generating rather than hand-writing:
 //
-//   1. The operation set comes from `deriveContextOperations` — the same
-//      derivation the callee's own route builder answers to.  A path can't
+//   1. The operation set comes from `contextOperations` — the same
+//      derivation the callee's route builders answer to, its abstract bases'
+//      polymorphic reads included.  A path can't
 //      drift from what the callee actually mounts, which is the failure the
 //      untyped path allowed (a hand-written "/orders/{id}" compiled clean and
 //      404'd at runtime).
@@ -22,11 +23,13 @@
 // why both sides read one helper.
 // ---------------------------------------------------------------------------
 
+import { polymorphicRowOf } from "../../../../generator/_api/polymorphic-row.js";
 import { zodForResponse } from "../../../../generator/_frontend/zod-schemas.js";
 import { ref } from "../../../../generator/_imports/symbol.js";
 import { tsNamed } from "../../../../generator/_imports/ts.js";
 import { apiCallPrincipal } from "../../../../ir/enrich/hosting-facts.js";
 import { forApiRead, wireFieldsForAggregate } from "../../../../ir/enrich/wire-projection.js";
+import { contextOperations } from "../../../../ir/plan/index.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../../../ir/types/loom-ir.js";
 import {
   type ApiResourceBinding,
@@ -36,7 +39,6 @@ import {
   type ApiOperationIR,
   absenceUnionSuccess,
   collectionSuccess,
-  deriveContextOperations,
 } from "../../../../ir/util/api-surface.js";
 import { escapeTsIdent } from "../../../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../../../util/principal.js";
@@ -114,6 +116,19 @@ function responseSchema(agg: AggregateIR, schemaName: string): string[] {
   return lines;
 }
 
+/** The tagged row of a polymorphic base read: a union discriminated on
+ *  `type` over each concrete's row schema, exactly the callee's own
+ *  `<Base>Response`. */
+function taggedRowSchema(
+  variants: readonly { aggregate: AggregateIR; tag: string }[],
+  schemaName: string,
+): string[] {
+  const members = variants.map(
+    (v) => `${v.aggregate.name}Response.extend({ type: z.literal(${JSON.stringify(v.tag)}) })`,
+  );
+  return [`export const ${schemaName} = z.discriminatedUnion("type", [${members.join(", ")}]);`];
+}
+
 /** Emit the typed client module for every api-bound resource this deployable
  *  wires.  Empty when it wires none — the gate that keeps existing projects
  *  byte-identical. */
@@ -155,14 +170,16 @@ export function emitApiClientModule(
 
   for (const b of bindings) {
     const envVar = resourceEnvUrlVar(b.resource.name);
-    const ops = servedContextsFor(b, sys).flatMap((ctx) => deriveContextOperations(ctx));
+    const ops = servedContextsFor(b, sys).flatMap((ctx) =>
+      contextOperations(ctx).map((op) => ({ op, poly: polymorphicRowOf(op, ctx) })),
+    );
     out.push(`// ---- ${b.resource.name} → api '${b.apiName}' (served by '${b.server.name}')`);
     out.push(
       `export const ${b.resource.name}BaseUrl = process.env.${envVar} ?? "http://localhost:3000";`,
     );
     out.push(``);
 
-    for (const op of ops) {
+    for (const { op, poly } of ops) {
       // A union find answers the success body directly at 200 and rides the
       // absent variant on its own status — no `type` discriminator on the wire
       // (payloads.md §Union finds).  So it parses the SAME schema as a plain
@@ -179,9 +196,22 @@ export function emitApiClientModule(
         op.responseType?.kind === "entity" ? op.responseType.name : (absentAgg ?? coll?.agg);
       const agg = respAgg ? aggregateNamed(sys, respAgg) : undefined;
       const schemaName = agg ? `${agg.name}Response` : undefined;
+      // A polymorphic base read answers tagged rows — the discriminated union
+      // of each concrete's own row schema with its `type` tag — never the
+      // abstract base's own field list.
+      if (poly) {
+        for (const v of poly.variants) {
+          const variantName = `${v.aggregate.name}Response`;
+          if (emittedSchemas.has(variantName)) continue;
+          emittedSchemas.add(variantName);
+          out.push(...responseSchema(v.aggregate, variantName), ``);
+        }
+      }
       if (agg && schemaName && !emittedSchemas.has(schemaName)) {
         emittedSchemas.add(schemaName);
-        out.push(...responseSchema(agg, schemaName));
+        out.push(
+          ...(poly ? taggedRowSchema(poly.variants, schemaName) : responseSchema(agg, schemaName)),
+        );
         out.push(``);
       }
       // The paged envelope is emitted once per aggregate, beside its row

@@ -101,8 +101,11 @@ system ProjectionTphSource {
 
     // The repository reads over the same shared table agree with the
     // projection: each concrete lists and reads back only its own rows.
-    expect(api.autoClaims.all().count()).toBe(2)
-    expect(api.propertyClaims.all().count()).toBe(1)
+    expect(api.autoClaims.all().total).toBe(2)
+    expect(api.propertyClaims.all().total).toBe(1)
+    // The base reads span both kinds of the one table.
+    expect(api.claims.all().total).toBe(3)
+    expect(api.claims.getById(p1).reference).toBe("P-1")
     api.autoClaims.update(a1, { vehicleVin: "VIN9" })
     expect(api.autoClaims.getById(a1).vehicleVin).toBe("VIN9")
     api.propertyClaims.update(p1, { addressLine: "2 Main St" })

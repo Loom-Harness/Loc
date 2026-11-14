@@ -1,0 +1,25 @@
+// Childless-TPH evolution gate — BASE model (v1, and v3 again).  See
+// `runChildlessTphEvolutionGate` in support/migration-evolution-harness.ts.
+//
+// `Asset` is a `sharedTable` base with no subtype, so it owns an ordinary
+// table with no `kind` discriminator.  v2 (childless-tph-evolved.ddd) adds the
+// first subtype, which brings the column; v3 drops that subtype again.
+system ChildlessTph {
+  subdomain Shop {
+    context Shop {
+      abstract aggregate Asset inheritanceUsing: sharedTable { label: string }
+      aggregate Note with crudish { text: string }
+      repository Notes for Note { }
+    }
+  }
+  api ShopApi from Shop
+  storage primary { type: postgres }
+  resource shopState { for: Shop, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Shop]
+    dataSources: [shopState]
+    serves: ShopApi
+    port: 4000
+  }
+}
