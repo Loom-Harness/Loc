@@ -1324,6 +1324,7 @@ function emitProjectFromContexts(
         configPkg: pkgFor("config"),
         entityPkg: pkgFor("infra-persistence"),
         repoPkg: pkgFor("spring-data-repository"),
+        pruneInbox,
       })) {
         // The broker relay (OutboxRelayService) is replaced by LocalOutboxRelay.
         if (f.name === "OutboxRelayService.java") continue;
