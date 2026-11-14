@@ -18,12 +18,7 @@
 //                          walker's `CreateForm(of: <Agg>)` emission.
 // ---------------------------------------------------------------------------
 
-import type {
-  BoundedContextIR,
-  PageIR,
-  ThemeIR,
-  WorkflowIR,
-} from "../../../ir/types/loom-ir.js";
+import type { BoundedContextIR, PageIR, ThemeIR, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import { ROUTER_PACKAGE } from "../../_packs/stack-runtime.js";
 import { prepareAppShellVM } from "./preparers/app-shell.js";
