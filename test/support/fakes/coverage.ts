@@ -54,8 +54,8 @@ export interface CoverageRow {
  *  which is the point — its witness is due.  Checked against GitHub by the
  *  census's online leg (`LOOM_CENSUS_ONLINE=1`). */
 export const OPEN_TRACKING_ISSUES: ReadonlySet<string> = new Set([
-  "#4440",
   "#5617",
+  "#5672",
   "#5712",
   "#5846",
 ]);
@@ -93,14 +93,19 @@ export const COVERAGE: readonly CoverageRow[] = [
   { sourceType: "inMemory", kind: "state", fake: "n/a", pending: pending("#5617") },
   { sourceType: "inMemory", kind: "snapshot", fake: "n/a", pending: pending("#5617") },
   { sourceType: "inMemory", kind: "eventLog", fake: "n/a", pending: pending("#5617") },
-  { sourceType: "inMemory", kind: "cache", fake: "n/a", pending: pending("#4440") },
+  {
+    sourceType: "inMemory",
+    kind: "cache",
+    fake: "n/a",
+    witness: { fixture: "cache-by-id", effects: "wire" },
+  },
   // ── brokers, caches, logs: real, pinned sidecars ──────────────────────
   {
     sourceType: "redis",
     kind: "cache",
     fake: "real-sidecar",
     module: "broker-sidecar.mjs",
-    pending: pending("#4440"),
+    pending: pending("#5672"),
   },
   {
     sourceType: "redis",
