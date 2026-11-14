@@ -144,6 +144,23 @@ const USE_SITE_EMITTERS: Readonly<Record<string, readonly CasingWaiver[]>> = {
   "src/generator/elixir/vanilla/entry-result-emit.ts": [],
 };
 
+/** A use-site emitter not yet migrated: parked work with an expiry, not a
+ *  rationale.  It fails once `reviewUntil` passes, and once the file no
+ *  longer formats a name itself (then it belongs in USE_SITE_EMITTERS). */
+interface DeferredUseSite {
+  readonly deferred: string;
+  readonly reviewUntil: string;
+  readonly blockedBy: string;
+}
+
+const DEFERRED_USE_SITE_EMITTERS: Readonly<Record<string, DeferredUseSite>> = {
+  "src/generator/elixir/dispatch-emit.ts": {
+    deferred: "the Elixir event-dispatch emitter; another lane is rewriting it",
+    reviewUntil: "2026-11-28",
+    blockedBy: "#5706",
+  },
+};
+
 /** The raw escaping funnels the plan wraps. */
 const RAW_FUNNEL =
   /\b(escapeTsIdent|escapeTargetMember|escapeTargetFieldMember|escapeTargetIdent|escapeCsharpIdent|escapeJavaIdent|jid|escapePythonIdent|escapePythonBuiltin|pythonIdent|pythonModuleFn|escapeElixirIdent|elixirLocal)\(/g;
@@ -215,6 +232,25 @@ describe("symbol-plan census: the use-site emitters spell names through the plan
     );
     expectReach("use-site emitter files", present.length, 29);
   });
+
+  for (const [rel, d] of Object.entries(DEFERRED_USE_SITE_EMITTERS)) {
+    it(`${rel} is deferred (blocked by ${d.blockedBy} until ${d.reviewUntil})`, () => {
+      const file = path.join(ROOT, rel);
+      expect(fs.existsSync(file), `${rel} is deferred but missing`).toBe(true);
+      const today = new Date().toISOString().slice(0, 10);
+      expect(d.reviewUntil >= today, `${rel}: the deferral expired on ${d.reviewUntil}`).toBe(true);
+      const horizon = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10);
+      expect(d.reviewUntil <= horizon, `${rel}: reviewUntil is parked more than 60 days out`).toBe(
+        true,
+      );
+      const src = fs.readFileSync(file, "utf8");
+      expect(
+        rawFunnelCalls(src).length + casingCalls(src).length,
+        `${rel} no longer formats a name itself — move it to USE_SITE_EMITTERS`,
+      ).toBeGreaterThan(0);
+      expect(rel in USE_SITE_EMITTERS, `${rel} is both deferred and scanned`).toBe(false);
+    });
+  }
 
   it("the detector reads a casing call with its argument and ignores a plan read", () => {
     expect(casingCalls("x(`${upperFirst(wf.name)}State`, snake(f(a)));\n// snake(z)\n")).toEqual([
