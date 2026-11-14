@@ -1,3 +1,4 @@
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
 import { buildFrontendHost, type FrontendHost } from "../../ir/contract/host.js";
 import {
   type AggregateIR,
@@ -131,6 +132,9 @@ export interface GenerateReactOptions {
    *  generated i18n shim, under the SAME `i18nEnabled` gate as `en.json`.
    *  Absent / empty is the normal case → byte-identical output. */
   translations?: TranslationCatalogs;
+  /** The system's Frontend Contract (`src/ir/contract/`), when the caller has
+   *  one. */
+  frontendContract?: FrontendContract;
 }
 
 export function generateReactForContexts(
@@ -514,10 +518,17 @@ export function generateReactForContexts(
     { nameLabelKeys: true },
   );
 
+  // The aggregates whose api serves a create, read off the contract's
+  // operations.
+  const creatable = new Set(
+    contractOf(options, host)
+      .wire.operations.filter((o) => o.kind === "create")
+      .map((o) => o.aggregate),
+  );
   out.set(
     "src/App.tsx",
     renderAppShell(
-      scaffoldedAggregates.map((a) => a.agg),
+      scaffoldedAggregates.map((a) => ({ name: a.agg.name, creatable: creatable.has(a.agg.name) })),
       scaffoldedWorkflows.map((w) => w.wf),
       host.system,
       sidebarOverride,
@@ -734,3 +745,15 @@ function staticTitleOf(page: PageIR | undefined): string | undefined {
 
 // smokeSpec moved to src/generator/_frontend/smoke-spec.ts (shared
 // with the Svelte + Vue frontends — it drives routes, not framework code).
+
+/** The Frontend Contract this generation reads.  Every caller — the system
+ *  orchestrator through `emitProject`, and a backend embedding the bundle —
+ *  passes it; a generation without one is a wiring defect. */
+function contractOf(options: GenerateReactOptions, host: FrontendHost): FrontendContract {
+  if (!options.frontendContract) {
+    throw new Error(
+      `React deployable '${host.deployable}' was generated without the system's Frontend Contract; the caller must pass \`frontendContract\`.`,
+    );
+  }
+  return options.frontendContract;
+}

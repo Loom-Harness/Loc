@@ -644,7 +644,12 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // angular.json + `<base href="/app/">` in index.html) so its asset URLs
     // and client-side deep links resolve under the `/app` Plug.Static mount,
     // exactly as Svelte consumes it via `kit.paths.base`.
-    const embedOpts = { apiBaseUrl: "/api", pathPrefix: "assets/", basePath: "/app" };
+    const embedOpts = {
+      apiBaseUrl: "/api",
+      pathPrefix: "assets/",
+      basePath: "/app",
+      frontendContract: args.frontendContract,
+    };
     const uiFw = deployable.uiFramework;
     const spaFiles =
       uiFw === "svelte"
