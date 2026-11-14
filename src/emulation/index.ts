@@ -18,14 +18,26 @@ export {
   KAFKA_RETAINED_PER_PARTITION,
 } from "./broker-model.js";
 export * from "./broker-protocol.js";
+export {
+  CACHE_EMULATION_NOTES,
+  CACHE_MAX_KEYS,
+  type CacheKeyInfo,
+  CacheModel,
+  type CacheOptions,
+  type CacheServerInfo,
+  createCache,
+  runCommand,
+} from "./cache.js";
 export { createDisk, type Disk, type DiskEntry, normDiskPath } from "./disk.js";
 export type { HttpRequestData, HttpResponseData } from "./http.js";
 export {
   createHttpMock,
   type HttpMock,
-  type HttpMockLogEntry,
+  type HttpMockRequest,
+  type MockOverride,
   type OpenApiDoc,
   type SchemaSampler,
+  type ServedRequest,
 } from "./http-mock.js";
 export { createMailbox, type Mailbox, type MailInput, type MailMessage } from "./mailbox.js";
 export {

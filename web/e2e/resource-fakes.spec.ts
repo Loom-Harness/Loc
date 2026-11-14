@@ -80,7 +80,9 @@ test("resource fakes: object round trip, mail, disk file, REST mock", async ({ p
   });
 
   await test.step("restApi: the external call was answered by the mock", async () => {
-    expect(await infra(page, "httpMock", "log")).toEqual([{ method: "GET", url: "https://fx.example.test/rate/usd" }]);
+    expect(await infra(page, "httpMock", "log")).toEqual([
+      expect.objectContaining({ method: "GET", url: "https://fx.example.test/rate/usd", status: 200 }),
+    ]);
     // The storage's `spec:` is registered with the mock: a request answers with
     // sample data for the declared schema, not the `{ mock: true }` echo.
     const sampled = (await infra(page, "httpMock", "request", {

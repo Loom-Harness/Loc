@@ -1123,9 +1123,9 @@ is checked against.
 refusal, because the playground gates its database instead: Boot applies the
 recorded entries its in-browser database has not applied (the same SQL the
 generated Hono backend's `db/migrations/` carries) and leaves the database as
-it is while the model has unrecorded changes. A workspace with no chain gets
-no implicit initial migration — its database is created once the initial
-migration is recorded. Its Migrations tab shows the status and records new
+it is while the model has unrecorded changes. A workspace with no chain has
+its initial migration recorded by its first Boot, which then creates the
+database from it; every later change waits for an explicit record. Its Migrations tab shows the status and records new
 entries (`migrate add`); see [playground.md](playground.md).
 
 **Agents get the same two verbs as tools.** `loom_migration_status` and
