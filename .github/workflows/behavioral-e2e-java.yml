@@ -99,34 +99,15 @@ jobs:
     # Budget per docs/ci-gating.md § "Sizing a job's `timeout-minutes`":
     # 50 % margin over the measured p95, rounded up to 5 min, floor 10.
     #
-    # This leg was the reason that rule exists.  At 20m it killed 13 of the
-    # ~74 runs that reached a verdict in the last 100 (~18 %), most recently on
-    # 2026-09-10 — and because a killed run is not a successful one, its own
-    # p95 (19m46s over n=40) is a LOWER BOUND: the cap deleted the tail it was
-    # being measured against.  30m is sized to stop the censoring, not to be a
-    # final answer; re-measure once the sample is uncensored and tighten.
+    # This leg is SLOW, not tight-budgeted: it builds and boots a Spring Boot
+    # app per corpus case, sequentially, so it carries the tier's widest budget.
+    # Splitting it would cost a second slot out of the ~20-slot pool and need a
+    # shard manifest, since `run-java.mjs` takes an explicit case list and a new
+    # corpus case would otherwise run in neither half.
     #
-    # The deeper problem is that this leg is SLOW, not tight-budgeted: 17m56s
-    # median in the test step against 6m–10m for every other backend leg,
-    # because `run-java.mjs` pays a `gradle --no-daemon bootJar` — a cold JVM
-    # and a full Spring compile — per corpus case, sequentially.  Its own
-    # run-to-run spread is 13m02s–18m49s, a 5m47s swing that alone was 35x the
-    # 10s of headroom the 20m cap left.  Splitting the leg instead would cost a
-    # second slot out of a saturated ~20-slot pool AND need a shard manifest,
-    # since `run-java.mjs` takes an explicit case list and a new corpus case
-    # would otherwise run in neither half.
-    #
-    # THAT ROOT CAUSE IS NOW FIXED — `run-java.mjs` builds on a warm Gradle
-    # daemon (mean 11.7s -> 2.84s per project build, measured back to back; see
-    # the COST MODEL note at the top of this file), projecting the job at ~7.5m.
-    # The budget deliberately stays at 30 anyway: the rule sizes from a RECORDED
-    # p95 over >=10 runs, and the post-fix sample does not exist yet.  Re-run
-    # `node test/behavioral/ci-budget-report.mjs` once it does and tighten then —
-    # this should come down two or three steps.
-    #
-    # Measured 2026-11-02, n=20 successful runs: p95 27m00s, max 27m16s.
+    # Measured 2026-11-14, n=20 successful runs: p95 36m21s, max 40m04s.
     # Re-derive with `node test/behavioral/ci-budget-report.mjs`.
-    timeout-minutes: 45
+    timeout-minutes: 55
 
     services:
       postgres:

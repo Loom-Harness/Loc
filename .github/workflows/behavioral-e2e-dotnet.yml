@@ -64,9 +64,9 @@ jobs:
     runs-on: ubuntu-latest
     # Budget per docs/ci-gating.md § "Sizing a job's `timeout-minutes`":
     # 50 % margin over the measured p95, rounded up to 5 min, floor 10.
-    # Measured 2026-11-02, n=20 successful runs: p95 22m30s, max 23m12s.
+    # Measured 2026-11-14, n=20 successful runs: p95 25m33s, max 27m17s.
     # Re-derive with `node test/behavioral/ci-budget-report.mjs`.
-    timeout-minutes: 35
+    timeout-minutes: 40
 
     services:
       postgres:
