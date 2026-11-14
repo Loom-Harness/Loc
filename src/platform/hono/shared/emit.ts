@@ -1201,7 +1201,12 @@ export function generateTypeScriptForContexts(
   if (merged.projections.some(isMaterializedProjection)) {
     out.set(
       "http/projections.ts",
-      buildProjectionsFile(merged, usingMikro, chPlan.receivesDurable),
+      buildProjectionsFile(
+        merged,
+        usingMikro,
+        chPlan.receivesDurable,
+        foldsDedupe(merged, chPlan.receivesDurable) && !chPlan.hasOutbox,
+      ),
     );
   }
   // Query-time projections (read-path-architecture.md rev.13) — the always-

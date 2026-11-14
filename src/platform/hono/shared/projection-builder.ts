@@ -116,6 +116,9 @@ export function buildProjectionsFile(
    *  (`channelPlan(...).receivesDurable`).  Absent → this context hosts a
    *  durable channel. */
   receivesDurable: boolean = hasDurableEvents(ctx),
+  /** No outbox relay runs on the deployable to purge the fold inbox: emit
+   *  `startFoldInboxPurge` for boot to start. */
+  standaloneInboxPurge = false,
 ): string {
   // FOLDED (materialized) projections only — the event-folded read model with a
   // physical row table + by-key routes.  Query-time projections
@@ -156,7 +159,7 @@ export function buildProjectionsFile(
     for (const h of hs) body.push(...emitFoldHandler(p, h, usingMikro, ctx, dedupe), "");
   }
   body.push(...emitProjectionTee(folded, foldHandlers, usingMikro), "");
-  if (dedupe) body.push(...emitFoldInboxPurge(usingMikro), "");
+  if (dedupe && standaloneInboxPurge) body.push(...emitFoldInboxPurge(usingMikro), "");
   body.push(...emitProjectionRoutes(folded, usingMikro, ctx));
   const bodyText = body.join("\n");
 
