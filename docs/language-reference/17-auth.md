@@ -810,7 +810,7 @@ Two honest gaps: a **workflow body** may not call a `currentUser`-bound find (`l
 
 ## Reactors — the system principal (`currentUser.isSystem`)
 
-An event reactor — a workflow's event-triggered `create(e) by …` starter or an `on(e)` subscription — has no request of its own, so it has no request principal. It runs as the **system principal** (decision [D-REACTOR-SYSTEM-PRINCIPAL](../decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)):
+An event reactor — a workflow's event-triggered `create(e) by …` starter or an `on(e)` subscription — has no request of its own, so it has no request principal. It runs as the **system principal** (decision [D-REACTOR-SYSTEM-PRINCIPAL](../decisions/D-REACTOR-SYSTEM-PRINCIPAL.md)):
 
 | slot | value |
 |---|---|

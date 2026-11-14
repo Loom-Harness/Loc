@@ -27,14 +27,14 @@ guards.
 > name in one context (`loom.criterion-retrieval-name-clash`, an error), so
 > `all(<Name>)` always means exactly one of them.  Ordering is the `sort:`
 > argument — `Repo.all(<Criterion>, sort: [placedAt desc], page?)` — or a
-> named `retrieval`'s `sort:` ([D-REPO-VERBS](decisions.md); the anonymous
+> named `retrieval`'s `sort:` ([D-REPO-VERBS](decisions/D-REPO-VERBS.md); the anonymous
 > `retrieval { … }` literal is gone).  A repository declares **no reads of its
-> own** — `find` declarations are removed ([D-FINDDECL-REMOVED](decisions.md);
+> own** — `find` declarations are removed ([D-FINDDECL-REMOVED](decisions/D-FINDDECL-REMOVED.md);
 > a leftover `find` is a parse error).  A list read is a criterion (or a
 > named `retrieval`) passed to `all`, exposed with `scaffoldPaged(of: …)` +
 > `scaffoldPagedApi(of: …)` when a client must call it; a single-row read over
 > a declared `unique (…)` key is `Repo.getBy(<col>: v)` / `Repo.findBy(…)`
-> ([D-REPO-KEY-LOOKUP](decisions.md)), and over any other predicate a
+> ([D-REPO-KEY-LOOKUP](decisions/D-REPO-KEY-LOOKUP.md)), and over any other predicate a
 > criterion read with `Repo.find(<Criterion>)` (exposed with `scaffoldGet`).  The
 call sites at `find(C)`.  The
 > single-result `Repo.find(<Criterion>)` is **shipped on every backend** as the

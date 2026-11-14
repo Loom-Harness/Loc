@@ -274,7 +274,7 @@ upper-first: `StringOrNotFoundSuccess`.)
 
 A repository `find` once returned the absence shape `Order or NotFound` /
 `Order option`, answered untagged at a status code.  `find` declarations are
-removed ([D-FINDDECL-REMOVED](decisions.md)) and the 2026-10-25 ruling dropped
+removed ([D-FINDDECL-REMOVED](decisions/D-FINDDECL-REMOVED.md)) and the 2026-10-25 ruling dropped
 the shape: a miss is `T?` (`findById` / `findBy` / `find(<Criterion>)`), and a
 must-exist read (`getById` / `getBy`) answers the standard ProblemDetails
 `404`.  The tagged `oneOf` is the union wire, for operation returns.

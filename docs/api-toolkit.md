@@ -1,6 +1,6 @@
 # API toolkit
 
-`src/api/` is the **transport-neutral toolkit** — one in-memory implementation of every structured operation over a `.ddd` source (`validate`, `generate`, `outline`, `applyPatches`, plus the navigational/refactor family). Every surface — the CLI (`src/cli/`), the MCP server (`packages/ddd-mcp` via `src/tools/`), the LSP adapters (Monaco/VS Code), and the in-browser playground (`web/`) — is a thin adapter over it, so the operation set never drifts per surface. The wire shapes it returns are pinned once in `src/diagnostics/contract.ts` ([D-API-TOOLKIT](decisions.md)).
+`src/api/` is the **transport-neutral toolkit** — one in-memory implementation of every structured operation over a `.ddd` source (`validate`, `generate`, `outline`, `applyPatches`, plus the navigational/refactor family). Every surface — the CLI (`src/cli/`), the MCP server (`packages/ddd-mcp` via `src/tools/`), the LSP adapters (Monaco/VS Code), and the in-browser playground (`web/`) — is a thin adapter over it, so the operation set never drifts per surface. The wire shapes it returns are pinned once in `src/diagnostics/contract.ts` ([D-API-TOOLKIT](decisions/D-API-TOOLKIT.md)).
 
 It is **browser-safe by construction**: every entry point parses in-memory on Langium's `EmptyFileSystem` (no `langium/node`, no `fs`, no Node-only imports), so `web/` imports `../src/api` straight into the browser worker.
 

@@ -837,7 +837,7 @@ elsewhere a bare event/payload name stays unresolved.  See the
 ### There is no `handle`
 
 A workflow has no `handle name(params) { … }` member
-([D-HANDLE-REMOVAL](decisions.md#d-handle-removal--workflow-handle-is-removed-commandhandler-is-the-named-command-entry)).
+([D-HANDLE-REMOVAL](decisions/D-HANDLE-REMOVAL.md)).
 It had no correlation surface — nothing said *which* saga instance a call
 continued — and no backend ever emitted a route for it.  A named command entry
 is a context-level `commandHandler`, which every backend routes:
@@ -866,7 +866,7 @@ state transition, and the operation gets a route on every backend), or as a
 second workflow started by the event the first one emits.
 
 > **Principal.** A reactor / event starter has no request, so it runs as the
-> **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)): `currentUser.isSystem` is true, every claim is
+> **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions/D-REACTOR-SYSTEM-PRINCIPAL.md)): `currentUser.isSystem` is true, every claim is
 > empty, and the tenant is the triggering event's.  Gates on the operations it
 > calls are evaluated against it — `requires currentUser.isSystem || …` admits
 > it; a gate that reads `currentUser` without that disjunct is warned
