@@ -23,6 +23,10 @@
 //     error slot, not the record, on direct navigation.
 //   - the workflow form runs `Escalate` as the session principal, so its
 //     `requires` admits the adjuster and refuses the viewer.
+//   - an `Action { ledger.bump }` button on a `deny write` aggregate loads the
+//     row through the write scope, as the REST op route does, so the click
+//     writes nothing.  Loading it through the read getter instead bumps the
+//     tally to 1.
 
 import type { Browser, Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
@@ -190,4 +194,25 @@ test("a workflow form runs the workflow as the session principal", async ({ brow
   await viewer.getByTestId("workflow-escalate-input-title").fill("Not allowed");
   await viewer.getByTestId("workflow-escalate-submit").click();
   await expect(viewer.getByText(/Forbidden/).first()).toBeVisible();
+});
+
+test("an Action button on a write-denied aggregate changes nothing", async ({ browser }) => {
+  const page = await as(browser, "adjuster");
+  await page.goto("/ledgers/new");
+  await connected(page);
+  await page.getByTestId("ledgers-new-input-tally").fill("0");
+  await page.getByTestId("ledgers-new-submit").click();
+  await page.waitForURL(/\/ledgers\/[0-9a-f-]{36}$/);
+  const id = page.url().split("/").pop()!;
+
+  // `deny write on Ledger` leaves the row readable …
+  await page.goto(`/ledger-bumps/${id}`);
+  await connected(page);
+  await expect(page.getByTestId("ledger-tally")).toHaveText("0");
+  // … and the Action's handler must load it through the write scope, as the
+  // REST `bump` route does: the click is refused and the tally never moves.
+  await page.getByRole("button", { name: "Bump" }).click();
+  await page.goto(`/ledger-bumps/${id}`);
+  await connected(page);
+  await expect(page.getByTestId("ledger-tally")).toHaveText("0");
 });

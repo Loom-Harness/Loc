@@ -20,6 +20,11 @@ system G {
       aggregate Ticket with crudish {
         open: bool
         limit: int
+        function isOpenNow(): bool = open
+        operation archive() {
+          requires isOpenNow()
+          open := false
+        }
         operation reopen(by: int) when !open {
           requires currentUser.role == "agent"
           requires by <= limit
@@ -79,5 +84,14 @@ describe("gate-ladder plan", () => {
     const sh = enrichedAggregates(await buildLoomModel(SRC)).find((a) => a.name === "Shipment")!;
     const ladder = destroyLadder(sh.destroys?.[0], { readsIfMatch: true });
     expect(ladder.map((c) => c.step)).toEqual(["requires", "load", "row-requires", "version"]);
+  });
+
+  it("puts a gate that calls the aggregate's own function after the load", async () => {
+    const t = enrichedAggregates(await buildLoomModel(SRC)).find((a) => a.name === "Ticket")!;
+    const op = t.operations.find((o) => o.name === "archive")!;
+    expect(operationLadder(op, { readsIfMatch: false }).map((c) => c.step)).toEqual([
+      "load",
+      "row-requires",
+    ]);
   });
 });
