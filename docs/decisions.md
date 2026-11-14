@@ -6526,9 +6526,7 @@ if (workflowResult.type === "PaymentDeclined") return httpCtx.json({ ...workflow
 (.NET rolls back the `IUnitOfWork` transaction and leaves the event deferral
 unflushed; Java marks the `@Transactional` rollback-only, so no AFTER_COMMIT
 listener sees its events; Python's 4xx answer rolls back the request
-session; Elixir runs the body in `Repo.transaction` under `PostCommit.transaction`
-and rolls back on the `{:error, {:variant, …}}` outcome, which drops the
-deferred events.)
+session.  Elixir refuses it, `loom.elixir-entry-result-unsupported`.)
 
 ## D-ABSENCE-MODEL — "may be missing" has one type, `T?`; presence is the generated update's rule, not a type
 
