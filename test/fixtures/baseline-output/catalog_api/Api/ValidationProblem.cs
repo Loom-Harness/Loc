@@ -69,6 +69,27 @@ public static class ValidationProblem
             string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase)
             && (p.ParameterType == typeof(Guid) || p.ParameterType == typeof(Guid?)));
 
+    private static string? QueryMismatchMessage(ActionContext context, string key, string binderMessage)
+    {
+        if (!binderMessage.StartsWith("The value '", StringComparison.Ordinal)) return null;
+        var type = context.ActionDescriptor.Parameters
+            .FirstOrDefault(p => string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase))
+            ?.ParameterType;
+        if (type is null) return null;
+        return type switch
+        {
+            _ when type == typeof(int) || type == typeof(int?) => "Expected an integer.",
+            _ when type == typeof(long) || type == typeof(long?) => "Expected an integer.",
+            _ when type == typeof(decimal) || type == typeof(decimal?) => "Expected a number.",
+            _ when type == typeof(double) || type == typeof(double?) => "Expected a number.",
+            _ when type == typeof(bool) || type == typeof(bool?) => "Expected true or false.",
+            _ when type == typeof(DateTime) || type == typeof(DateTime?) => "Expected an ISO 8601 date-time.",
+            _ when type == typeof(DateTimeOffset) || type == typeof(DateTimeOffset?) => "Expected an ISO 8601 date-time.",
+            _ when type == typeof(DateOnly) || type == typeof(DateOnly?) => "Expected an ISO 8601 date.",
+            _ => null,
+        };
+    }
+
     private static bool IsInt32Parameter(ActionContext context, string key) =>
         context.ActionDescriptor.Parameters.Any(p =>
             string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase)
@@ -326,6 +347,20 @@ public static class ValidationProblem
                             ["message"] = "Integer out of range",
                             ["code"] = "field.integer-range",
                             ["params"] = new Dictionary<string, object> { ["min"] = -2147483648, ["max"] = 2147483647 },
+                        };
+                    }
+                    // A query / route value that does not parse as its declared
+                    // type reads its kind's ruled sentence; the binder only says
+                    // "is not valid".
+                    var mismatch = required || malformedId ? null
+                        : QueryMismatchMessage(context, entry.Key, error.ErrorMessage);
+                    if (mismatch is not null)
+                    {
+                        return new Dictionary<string, object>
+                        {
+                            ["pointer"] = PointerOf(entry.Key),
+                            ["message"] = mismatch,
+                            ["code"] = "field.type-mismatch",
                         };
                     }
                     return new Dictionary<string, object>
