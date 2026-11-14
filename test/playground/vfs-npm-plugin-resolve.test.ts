@@ -117,3 +117,50 @@ describe("vfs npm plugin — node-builtin stubs", () => {
     expect(loadBuiltin({ path: "tls" }).contents).toBe("module.exports = {};");
   });
 });
+
+describe("vfs npm plugin — package-internal and stylesheet resolution", () => {
+  it("resolves a #name specifier through the importer's package.json imports", () => {
+    const files = new Map([
+      [
+        "/node_modules/svelte/package.json",
+        JSON.stringify({
+          name: "svelte",
+          imports: { "#client/constants": "./src/internal/client/constants.js" },
+        }),
+      ],
+      ["/node_modules/svelte/src/internal/client/constants.js", "export const X = 1;"],
+      ["/node_modules/svelte/src/internal/client/runtime.js", ""],
+    ]);
+    const r = resolverFor(files)({
+      path: "#client/constants",
+      importer: "/node_modules/svelte/src/internal/client/runtime.js",
+    });
+    expect(r).toEqual({
+      path: "/node_modules/svelte/src/internal/client/constants.js",
+      namespace: "vfs",
+    });
+  });
+
+  it("matches a stylesheet's bare specifier against the style export condition", () => {
+    const files = new Map([
+      [
+        "/node_modules/@angular/material/package.json",
+        JSON.stringify({
+          name: "@angular/material",
+          exports: {
+            "./prebuilt-themes/azure-blue.css": { style: "./prebuilt-themes/azure-blue.css" },
+          },
+        }),
+      ],
+      ["/node_modules/@angular/material/prebuilt-themes/azure-blue.css", ""],
+    ]);
+    const r = resolverFor(files)({
+      path: "@angular/material/prebuilt-themes/azure-blue.css",
+      importer: "/app/src/x.ts",
+    });
+    expect(r).toEqual({
+      path: "/node_modules/@angular/material/prebuilt-themes/azure-blue.css",
+      namespace: "vfs",
+    });
+  });
+});

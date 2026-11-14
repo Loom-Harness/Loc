@@ -28,7 +28,7 @@ import {
 } from "../../../src/generator/_frontend/form-spec.js";
 import { JSX_FORM_FIELD_ARMS } from "../../../src/generator/_walker/form-fields-vm.js";
 import { ANGULAR_FORM_FIELD_ARMS } from "../../../src/generator/angular/form-fields.js";
-import { FELIZ_FORM_FIELD_ARMS } from "../../../src/generator/feliz/wire.js";
+import { FELIZ_FORM_FIELD_ARMS } from "../../../src/generator/feliz/form-fields.js";
 import { FLUTTER_FORM_FIELD_ARMS } from "../../../src/generator/flutter/forms-emit.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
@@ -46,10 +46,7 @@ const ARMS: Record<Frontend, Record<string, unknown>> = {
 };
 
 /** Known stubs, each a tracked gap.  Keyed `<frontend>:<kind>`. */
-const STUBS: Record<string, string> = {
-  // A row with an `X id` cell drops the whole array: no per-row options load.
-  "flutter:objectArray": "#5561",
-};
+const STUBS: Record<string, string> = {};
 
 const FIXTURE = readFileSync("test/behavioral/form-spec-ui.ddd", "utf8");
 

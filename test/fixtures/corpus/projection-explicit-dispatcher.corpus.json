@@ -1,0 +1,15 @@
+{
+  "title": "folded projection on a deployable whose boot builds an explicit dispatcher (outbox relay + reactor)",
+  "doc": "channels",
+  "backends": "ALL",
+  "note": "boot passes createApp an explicit dispatcher whenever it runs the outbox relay, timers or a broker; that chain must contain the projection folds, or a fold over an event dispatched on the request path never runs.  The `test e2e` block reads the folded row back after the command.",
+  "apiCaller": {
+    "uncalled": {
+      "getReceiptById": "noCreateRoute",
+      "allReceipt": "noCreateRoute"
+    },
+    "unattributed": [
+      "api.orderBoard.byKey (no such aggregate)"
+    ]
+  }
+}

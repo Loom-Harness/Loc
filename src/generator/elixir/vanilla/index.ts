@@ -1,6 +1,8 @@
 import { aggregateRouteTypes } from "../../../ir/enrich/wire-policy.js";
+import { channelPlan } from "../../../ir/plan/index.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
 import { frontendAxesOf } from "../../../util/frontend-axes.js";
+import { bootRequiredAuthEnv } from "../../_auth/boot-required.js";
 // ---------------------------------------------------------------------------
 // Elixir orchestrator — the elixir emit subtree.
 //
@@ -14,12 +16,9 @@ import { frontendAxesOf } from "../../../util/frontend-axes.js";
 
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
+import { sourceLocaleOf, workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
 import {
-  type ChannelIR,
-  sourceLocaleOf,
-  workflowEmitsCommandRoute,
-} from "../../../ir/types/loom-ir.js";
-import {
+  aggregatesCanTripDanglingReference,
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
@@ -34,7 +33,6 @@ import {
 } from "../../../ir/util/resolve-datasource.js";
 import { emissionSink, rewrite } from "../../../util/emission-sink.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { brokerChannelBindings } from "../../_channels/bindings.js";
 import { embedSpaInto } from "../../_frontend/embedded-spa.js";
 import { prepareThemeVM } from "../../_frontend/theme-preparer.js";
 import { hasDomainFloorMessages } from "../../_i18n/domain-floor.js";
@@ -246,6 +244,9 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
         : undefined,
       aggregateRouteTypes(contexts),
       constraintTypeEntries(contexts),
+      contexts.some((c) => aggregatesCanTripDanglingReference(c.aggregates))
+        ? exStatus("dangling-reference", structuralStatuses)
+        : undefined,
     );
   out.set(`lib/${appName}_web/problem_details.ex`, renderProblemDetails(false));
 
@@ -285,7 +286,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // per-context dispatcher derivation as a stub with its REAL semantics
   // knobs (the Hono/Python/.NET/Java pattern); every broker-carried event
   // routes through the `<App>.Channels` tee at the emit seams.
-  const channelBindings = sys ? brokerChannelBindings(deployable, sys) : [];
+  const chPlan = channelPlan(contexts, sys ? { deployable, sys } : undefined);
+  const channelBindings = chPlan.bindings;
   const hasChannels = channelBindings.length > 0;
   // Durable-producer split (design §5): HOSTED durable events carried by a
   // wired `queue`/`work` (or future `log`) channel ride the outbox relay,
@@ -300,23 +302,18 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       .flatMap((b) => b.events)
       .filter((ev) => hostedDurable.has(ev)),
   );
-  // Standalone (no-broker) outbox tier (dispatch-delivery-semantics.md §1-2):
-  // a durable channel with NO `channelSource` still gets crash-safe in-process
-  // delivery (record → LocalOutboxRelay redelivers), parity with the other
-  // backends.  Only when the deployable wires no broker at all — so exactly one
-  // relay drains __loom_outbox.  Routes the emit seams through `<App>.Channels`.
-  const standaloneOutbox = !hasChannels && hostedDurable.size > 0;
-  const hostedChannelNames = new Set(
-    contexts.flatMap((c) => c.channels ?? []).map((ch) => ch.name),
+  // Local outbox tier (channels.md "Event routing"): the plan's outbox events
+  // no wired binding carries are recorded and redelivered in-process by the
+  // LocalOutboxRelay — on a broker-wired deployable too, where the tier is
+  // `<App>.LocalOutbox` (the broker tee's local fallthrough) and the two relays
+  // split __loom_outbox by event type, so each row has one relay.
+  const brokerCarried = new Set(channelBindings.flatMap((b) => b.events));
+  const localDurable: ReadonlySet<string> = new Set(
+    [...chPlan.outboxEvents].filter((ev) => !brokerCarried.has(ev)),
   );
-  const wiredForeignChannels: ChannelIR[] = channelBindings
-    .filter((b) => !hostedChannelNames.has(b.channelName))
-    .map((b) => ({
-      name: b.channelName,
-      carries: b.events,
-      delivery: b.delivery,
-      retention: b.retention,
-    }));
+  const standaloneOutbox = !hasChannels && localDurable.size > 0;
+  const localOutboxBesideBroker = hasChannels && localDurable.size > 0;
+  const wiredForeignChannels = chPlan.foreignChannels;
   // Every broker-carried event's OWNING context module — dispatcher/handler
   // pattern-matches qualify structs with the owner (same value as the local
   // context for a co-hosted owner, so the map is safe to consult uniformly).
@@ -347,10 +344,10 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     ? {
         appModule,
         brokerEvents: new Set(channelBindings.flatMap((b) => b.events)),
-        // The broker tee's `@durable_routing` set — the events whose dispatch
-        // is an outbox INSERT (design §5), so the emit site must open a
-        // transaction around persist + emit.
-        durableEvents: durableBrokerEvents,
+        // The events whose dispatch is an outbox INSERT — the broker tee's
+        // `@durable_routing` set plus the local outbox's — so the emit site
+        // must open a transaction around persist + emit.
+        durableEvents: new Set([...durableBrokerEvents, ...localDurable]),
         foreignEventModules: eventOwnerModule,
       }
     : standaloneOutbox
@@ -361,7 +358,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
         {
           appModule,
           brokerEvents: new Set(),
-          durableEvents: hostedDurable,
+          durableEvents: localDurable,
           foreignEventModules: new Map(
             contexts.flatMap((c) =>
               c.events.map((ev) => [ev.name, `${appModule}.${upperFirst(c.name)}`] as const),
@@ -812,17 +809,19 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       {
         durableBroker: durableBrokerEvents.size > 0,
         carriesOrigin: deployable.auth?.required === true && !!sys.user,
+        localOutbox: localOutboxBesideBroker,
       },
     );
     for (const [path, content] of emission.files) out.set(path, content);
     channelChildren = emission.children;
-  } else if (standaloneOutbox) {
+  }
+  if (standaloneOutbox || localOutboxBesideBroker) {
     // Standalone (no-broker) outbox: the `<App>.Channels` tee records durable
     // events; `LocalOutboxRelay` drains → decodes → broadcasts to the hosted
     // context dispatchers post-commit.
     const durableEventIrs = contexts.flatMap((c) =>
       c.events
-        .filter((e) => hostedDurable.has(e.name))
+        .filter((e) => localDurable.has(e.name))
         .map((e) => ({ ev: e, ctxModule: `${appModule}.${upperFirst(c.name)}` })),
     );
     const hostedDispatchers = contexts
@@ -834,9 +833,10 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       durableEventIrs,
       hostedDispatchers,
       deployable.auth?.required === true && !!sys.user,
+      localOutboxBesideBroker ? { emitsSchema: durableBrokerEvents.size === 0 } : undefined,
     );
     for (const [path, content] of emission.files) out.set(path, content);
-    channelChildren = emission.children;
+    channelChildren = [...channelChildren, ...emission.children];
   }
 
   // A `cron:` timer rides `crontab` (next-boundary computation) + `oban` (the
@@ -938,6 +938,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     sourceLocaleOf(sys),
     sys.subdomains.flatMap((sub) => sub.contexts),
     args.translations,
+    authEnabled ? bootRequiredAuthEnv(sys.auth) : [],
   );
 
   // Deployment + boot machinery — the Elixir release, Dockerfile, and Ecto

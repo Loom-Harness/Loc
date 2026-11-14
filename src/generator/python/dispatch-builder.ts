@@ -3,7 +3,11 @@ import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.
 import {
   esStarterSharesEvent,
   eventSourcedWorkflows,
+  type FoldRowSeed,
+  type FoldStep,
   foldedEventNames,
+  foldRowSeeds,
+  foldSteps,
   reposNeeded,
   requiredStateFields,
   stateZero,
@@ -18,7 +22,6 @@ import type {
   FieldIR,
   ProjectionIR,
   ProjectionOnIR,
-  StmtIR,
   SystemIR,
   TypeIR,
   WorkflowIR,
@@ -83,7 +86,6 @@ import { collectLiveLetNames, pyWorkflowStmtTarget } from "./workflows-builder.j
 // ---------------------------------------------------------------------------
 
 const SELECT = pyRef("sqlalchemy", "select");
-const UPDATE = pyRef("sqlalchemy", "update");
 const ASYNCIO = ref(pyModule("asyncio"));
 const CONTEXT_VAR = pyRef("contextvars", "ContextVar");
 const AWAITABLE = pyRef("collections.abc", "Awaitable");
@@ -100,8 +102,9 @@ const BROKER_UNAVAILABLE = pyRef("app.channels", "BrokerUnavailable");
  *  halts there without spending the row's attempt (the shared relay policy),
  *  and the relay loop backs off. */
 const PY_RELAY_HALT_ON_BROKER_DOWN: readonly string[] = [
-  `        except ${BROKER_UNAVAILABLE}:`,
-  "            raise",
+  `            except ${BROKER_UNAVAILABLE} as exc:`,
+  "                halted = exc",
+  "                break",
 ];
 const REALTIME = pyRef("app.realtime", "RealtimeDispatcher");
 const NOOP = pyRef("app.domain.events", "NoopDomainEventDispatcher");
@@ -180,13 +183,17 @@ export function buildPyDispatchFile(
    *  principal of that origin (`app.auth.user.event_origin_frame`).  Auth-less
    *  output is unchanged. */
   carriesOrigin = false,
+  /** The deployable's outbox tier (`channelPlan(...).hasOutbox`): capture,
+   *  relay and the redelivery dedupe exist only with it.  Absent (a
+   *  single-context emit) → every hosted durable event has the tier. */
+  outboxTier = true,
 ): string | null {
   const subs = dispatchSubscriptionsOf(ctx);
   // Durable tier: events on a `retention: log | work` channel route
   // through `__loom_outbox` + the relay; saga rows gain `last_event_id`.
   const durableSet = durableEventTypes(ctx);
   const durableEvents = ctx.events.filter((e) => durableSet.has(e.name));
-  const hasOutbox = durableEvents.length > 0;
+  const hasOutbox = outboxTier && durableEvents.length > 0;
   const durableBroker = durableBrokerEvents.size > 0;
   if (subs.length === 0) {
     if (!hasChannels) return hasRealtime ? buildRealtimeOnlyDispatch() : null;
@@ -539,7 +546,7 @@ function projectionStateHelper(proj: ProjectionIR): string {
 
 /** One pure projection fold handler: load-or-allocate the row for the event's
  *  key (every handler allocates — a projection has no route-or-drop split),
- *  apply the fold assignments against `state`, flush.  Pure — no repos, no
+ *  apply the fold plan's steps against `state`, flush.  Pure — no repos, no
  *  emit, no child-context frame (enforced by `loom.projection-fold-impure`). */
 function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR): string {
   const row = schemaRow(`${proj.name}Row`);
@@ -553,7 +560,13 @@ function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR)
   // stamps it on allocation.  An event with no tenant has no tenant's row.
   const tenancy = foldTenancyFor(proj);
   const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
-  const seed = cols ? `${corr}=__key, ${snake(cols.tenant.field)}=__tenant` : `${corr}=__key`;
+  // A fresh row: the key, the tenant, and each column's starting value
+  // (`foldRowSeeds`); every other column starts null.
+  const seed = [
+    `${corr}=__key`,
+    ...(cols ? [`${snake(cols.tenant.field)}=__tenant`] : []),
+    ...foldRowSeeds(proj).map((sd) => `${snake(sd.field.name)}=${pyRowSeed(sd)}`),
+  ].join(", ");
   const out: string[] = [
     `async def ${fn}(`,
     `    session: AsyncSession, _events: "InProcessDispatcher", ${param}: ${on.event}`,
@@ -572,77 +585,64 @@ function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR)
     `        state = ${row}(${seed})`,
     "        session.add(state)",
   ];
-  for (const stmt of on.statements) out.push(renderProjectionFoldStmt(stmt, proj, on));
+  for (const step of foldSteps(proj, on)) out.push(renderProjectionFoldStep(step));
   out.push("    await session.flush()");
   return lines(...out);
 }
 
-/** Render ONE fold-body statement against the read-model `state` row.
- *
- *  This used to be `if (kind === "assign" || "add" || "remove")` delegating to
- *  the ES-applier renderer, which was wrong twice (F2-XB-4).  A `let` was
- *  silently DROPPED while its uses survived — `state.at = stamped` with no
- *  `stamped = …` line, an `F821`/NameError in the generated app.  And `add` /
- *  `remove` went through the applier's list-only spelling (`state.f.append(v)`),
- *  which an ES applier can do because its state object is constructed with every
- *  list initialised — but a projection ROW is nullable in every non-key column
- *  (the allocate seeds the correlation key only), so `state.tags.append(v)` is
- *  an `AttributeError` on the first event for a key, and a SCALAR `n += v`
- *  (`collection: false`) called `.append` on an `int`.
- *
- *  The four pure fold kinds are now rendered here with the read-model's own
- *  nullability, mirroring hono's `renderFoldStatement`
- *  (`src/platform/hono/shared/projection-builder.ts`); every other kind is an
- *  internal invariant violation, because `checkProjections`
- *  (`src/ir/validate/checks/projection-checks.ts`) rejects it as impure. */
-function renderProjectionFoldStmt(stmt: StmtIR, proj: ProjectionIR, on: ProjectionOnIR): string {
+/** A fresh row's starting value for one column, spelled as a saga state's
+ *  zero of the same type. */
+function pyRowSeed(sd: FoldRowSeed): string {
+  if (sd.kind === "default") return renderPyExpr(sd.expr, { thisName: "state" });
+  switch (sd.zero) {
+    case "int":
+      return pyStateZero({ kind: "int" });
+    case "decimal":
+      return pyStateZero({ kind: "decimal" });
+    case "money":
+      return pyStateZero({ kind: "money" });
+    case "bool":
+      return pyStateZero({ kind: "bool" });
+    case "string":
+      return pyStateZero({ kind: "text", name: "string" });
+    case "list":
+      return pyStateZero({ kind: "array" });
+    default: {
+      const _exhaustive: never = sd.zero;
+      return _exhaustive;
+    }
+  }
+}
+
+/** Render one fold-plan step against the read-model `state` row.  Every
+ *  non-key column of a projection row is nullable (the allocate seeds the key
+ *  only), so an append or a running total coalesces first. */
+function renderProjectionFoldStep(step: FoldStep): string {
   const rctx = { thisName: "state" } as const;
-  const target = (segments: readonly string[]): string =>
-    `state.${segments.map((x) => snake(x)).join(".")}`;
-  switch (stmt.kind) {
-    case "assign":
-      return `    ${target(stmt.target.segments)} = ${renderPyExpr(stmt.value, rctx)}`;
+  const expr = (e: ExprIR): string => renderPyExpr(e, rctx);
+  const path = (field: string): string => `state.${snake(field)}`;
+  switch (step.kind) {
+    case "set":
+      return `    ${path(step.field)} = ${expr(step.value)}`;
     case "let":
       // `let`-names may collide with a Python keyword; escape consistently with
       // the matching `refKind: "let"` use sites in `render-expr.ts`.
-      return `    ${escapePythonIdent(snake(stmt.name))} = ${renderPyExpr(stmt.expr, rctx)}`;
-    case "add": {
-      const path = target(stmt.target.segments);
-      const value = renderPyExpr(stmt.value, rctx);
-      return stmt.collection
-        ? `    ${path} = [*(${path} or []), ${value}]`
-        : `    ${path} = ${accumulatePy(path, "+", value)}`;
-    }
-    case "remove": {
-      const path = target(stmt.target.segments);
-      const value = renderPyExpr(stmt.value, rctx);
-      return stmt.collection
-        ? `    ${path} = [__e for __e in (${path} or []) if __e != (${value})]`
-        : `    ${path} = ${accumulatePy(path, "-", value)}`;
-    }
-    case "emit":
-    case "call":
-    case "precondition":
-    case "requires":
-    case "expression":
-    case "return":
-    case "variant-match":
-    case "if":
-      throw new Error(
-        `python projection fold: unsupported fold statement '${stmt.kind}' in ` +
-          `projection '${proj.name}' on(${on.param}: ${on.event}) — a fold applies pure ` +
-          `assignments / collection mutations / let bindings only; ` +
-          `'loom.projection-fold-impure' should have rejected this.`,
-      );
+      return `    ${escapePythonIdent(snake(step.name))} = ${expr(step.expr)}`;
+    case "accumulate":
+      return `    ${path(step.field)} = ${accumulatePy(path(step.field), step.op, expr(step.value))}`;
+    case "append":
+      return `    ${path(step.field)} = [*(${path(step.field)} or []), ${expr(step.value)}]`;
+    case "remove-all":
+      return `    ${path(step.field)} = [__e for __e in (${path(step.field)} or []) if __e != (${expr(step.value)})]`;
     default: {
-      const _exhaustive: never = stmt;
+      const _exhaustive: never = step;
       return _exhaustive;
     }
   }
 }
 
 /** `state.<field> <op>= <value>` over a NULLABLE read-model column.  Every
- *  non-key projection column is nullable (see `renderProjectionFoldStmt`), so
+ *  non-key projection column is nullable (see `renderProjectionFoldStep`), so
  *  the running total coalesces first — otherwise the first event for a key
  *  folds `None + n`.  `or 0` is representation-neutral in Python: `0 + Decimal`
  *  is a `Decimal`, so money / decimal columns accumulate exactly. */
@@ -981,17 +981,10 @@ function esHandlerFn(
  *  and log `event_dead_lettered` once, with the row id an operator replays
  *  it by. */
 const OUTBOX_FAIL_BLOCK: readonly string[] = [
-  "            next_attempts = attempts + 1",
-  "            dead = next_attempts >= max_attempts",
-  `            async with AsyncSession(${ENGINE}) as fail_session:`,
-  "                await fail_session.execute(",
-  `                    ${UPDATE}(${OUTBOX_ROW})`,
-  `                    .where(${OUTBOX_ROW}.id == event_id)`,
-  `                    .values(attempts=next_attempts, dead_at=${PY.datetime}.now(${PY.UTC}) if dead else None)`,
-  "                )",
-  "                await fail_session.commit()",
-  "            if dead:",
-  `                ${PY.log}("warn", "event_dead_lettered", id=event_id, type=event_type, attempts=next_attempts, error=str(exc))`,
+  "                row.attempts = row.attempts + 1",
+  "                if row.attempts >= max_attempts:",
+  `                    row.dead_at = ${PY.datetime}.now(${PY.UTC})`,
+  `                    ${PY.log}("warn", "event_dead_lettered", id=event_id, type=event_type, attempts=row.attempts, error=str(exc))`,
 ];
 
 /** The retention purge, shared by both relay shapes: the window read from the
@@ -1105,70 +1098,60 @@ function outboxBlock(
     "",
     "",
     "async def _drain_outbox(max_attempts: int, batch_size: int) -> None:",
-    `    async with AsyncSession(${ENGINE}) as session:`,
+    "    # The pass claims its batch: one session locks the rows it takes and",
+    "    # skips the ones another relay holds, so competing replicas never",
+    "    # deliver the same row.  Reactors run on their own sessions.",
+    "    halted: Exception | None = None",
+    `    async with AsyncSession(${ENGINE}) as claim:`,
     "        rows = (",
-    "            await session.execute(",
+    "            await claim.execute(",
     `                ${SELECT}(${OUTBOX_ROW})`,
     `                .where(${OUTBOX_ROW}.dispatched_at.is_(None))`,
     `                .where(${OUTBOX_ROW}.dead_at.is_(None))`,
     `                .order_by(${OUTBOX_ROW}.occurred_at.asc())`,
     "                .limit(batch_size)",
+    "                .with_for_update(skip_locked=True)",
     "            )",
     "        ).scalars().all()",
-    "        pending = [",
-    `            (str(r.id), r.type, ${PY.cast}(dict[str, object], r.payload), r.attempts) for r in rows`,
-    "        ]",
-    "    for event_id, event_type, payload, attempts in pending:",
-    "        token = _current_event_id.set(event_id)",
-    "        try:",
+    "        for row in rows:",
+    `            event_id, event_type = str(row.id), row.type`,
+    `            payload = ${PY.cast}(dict[str, object], row.payload)`,
+    "            token = _current_event_id.set(event_id)",
+    "            try:",
     ...(opts.durableBroker
       ? [
-          "            event = _event_from_payload(event_type, payload)",
-          "            # Design §5: a broker-bound durable row publishes on drain (the",
-          "            # envelope carries the row id — the consumer-side idempotency",
-          "            # key); the rest redeliver through the local dispatcher.",
-          ...inOriginFrame(origin, "            ", [
-            `            published = await ${PUBLISH_RELAY}(event, event_id)`,
+          "                event = _event_from_payload(event_type, payload)",
+          "                # Design §5: a broker-bound durable row publishes on drain (the",
+          "                # envelope carries the row id — the consumer-side idempotency",
+          "                # key); the rest redeliver through the local dispatcher.",
+          ...inOriginFrame(origin, "                ", [
+            `                published = await ${PUBLISH_RELAY}(event, event_id)`,
           ]),
-          "            if published:",
-          `                async with AsyncSession(${ENGINE}) as session:`,
-          "                    await session.execute(",
-          `                        ${UPDATE}(${OUTBOX_ROW})`,
-          `                        .where(${OUTBOX_ROW}.id == event_id)`,
-          `                        .values(dispatched_at=${PY.datetime}.now(${PY.UTC}))`,
-          "                    )",
-          "                    await session.commit()",
-          "            else:",
-          `                async with AsyncSession(${ENGINE}) as session:`,
-          ...inOriginFrame(origin, "                    ", [
-            `                    await ${relayDispatcher}.dispatch(event)`,
+          "                if not published:",
+          `                    async with AsyncSession(${ENGINE}) as session:`,
+          ...inOriginFrame(origin, "                        ", [
+            `                        await ${relayDispatcher}.dispatch(event)`,
           ]),
-          "                    await session.execute(",
-          `                        ${UPDATE}(${OUTBOX_ROW})`,
-          `                        .where(${OUTBOX_ROW}.id == event_id)`,
-          `                        .values(dispatched_at=${PY.datetime}.now(${PY.UTC}))`,
-          "                    )",
-          "                    await session.commit()",
+          "                        await session.commit()",
         ]
       : [
-          `            async with AsyncSession(${ENGINE}) as session:`,
-          ...inOriginFrame(origin, "                ", [
-            `                await ${relayDispatcher}.dispatch(`,
-            "                    _event_from_payload(event_type, payload)",
-            "                )",
+          `                async with AsyncSession(${ENGINE}) as session:`,
+          ...inOriginFrame(origin, "                    ", [
+            `                    await ${relayDispatcher}.dispatch(`,
+            "                        _event_from_payload(event_type, payload)",
+            "                    )",
           ]),
-          "                await session.execute(",
-          `                    ${UPDATE}(${OUTBOX_ROW})`,
-          `                    .where(${OUTBOX_ROW}.id == event_id)`,
-          `                    .values(dispatched_at=${PY.datetime}.now(${PY.UTC}))`,
-          "                )",
-          "                await session.commit()",
+          "                    await session.commit()",
         ]),
+    `                row.dispatched_at = ${PY.datetime}.now(${PY.UTC})`,
     ...(opts.durableBroker ? PY_RELAY_HALT_ON_BROKER_DOWN : []),
-    "        except Exception as exc:  # noqa: BLE001 — relay isolates one row's failure",
+    "            except Exception as exc:  # noqa: BLE001 — relay isolates one row's failure",
     ...OUTBOX_FAIL_BLOCK,
-    "        finally:",
-    "            _current_event_id.reset(token)",
+    "            finally:",
+    "                _current_event_id.reset(token)",
+    "        await claim.commit()",
+    "    if halted is not None:",
+    "        raise halted",
     "",
     "",
     ...OUTBOX_PURGE_FNS,
@@ -1257,40 +1240,41 @@ function pureProducerOutboxBlock(
     "",
     "",
     "async def _drain_outbox(max_attempts: int, batch_size: int) -> None:",
-    `    async with AsyncSession(${ENGINE}) as session:`,
+    "    # The pass claims its batch: one session locks the rows it takes and",
+    "    # skips the ones another relay holds, so competing replicas never",
+    "    # deliver the same row.  Reactors run on their own sessions.",
+    "    halted: Exception | None = None",
+    `    async with AsyncSession(${ENGINE}) as claim:`,
     "        rows = (",
-    "            await session.execute(",
+    "            await claim.execute(",
     `                ${SELECT}(${OUTBOX_ROW})`,
     `                .where(${OUTBOX_ROW}.dispatched_at.is_(None))`,
     `                .where(${OUTBOX_ROW}.dead_at.is_(None))`,
     `                .order_by(${OUTBOX_ROW}.occurred_at.asc())`,
     "                .limit(batch_size)",
+    "                .with_for_update(skip_locked=True)",
     "            )",
     "        ).scalars().all()",
-    "        pending = [",
-    `            (str(r.id), r.type, ${PY.cast}(dict[str, object], r.payload), r.attempts) for r in rows`,
-    "        ]",
-    "    for event_id, event_type, payload, attempts in pending:",
-    "        try:",
-    "            # Design §5: broker-bound durable rows publish on drain (the",
-    "            # envelope carries the row id — the consumer-side idempotency",
-    "            # key).  A non-broker durable row has no subscriber in this",
-    "            # shape; either way the row completes.",
-    ...inOriginFrame(carriesOrigin, "            ", [
-      `            await ${PUBLISH_RELAY}(`,
-      "                _event_from_payload(event_type, payload), event_id",
-      "            )",
+    "        for row in rows:",
+    `            event_id, event_type = str(row.id), row.type`,
+    `            payload = ${PY.cast}(dict[str, object], row.payload)`,
+    "            try:",
+    "                # Design §5: broker-bound durable rows publish on drain (the",
+    "                # envelope carries the row id — the consumer-side idempotency",
+    "                # key).  A non-broker durable row has no subscriber in this",
+    "                # shape; either way the row completes.",
+    ...inOriginFrame(carriesOrigin, "                ", [
+      `                await ${PUBLISH_RELAY}(`,
+      "                    _event_from_payload(event_type, payload), event_id",
+      "                )",
     ]),
-    `            async with AsyncSession(${ENGINE}) as session:`,
-    "                await session.execute(",
-    `                    ${UPDATE}(${OUTBOX_ROW})`,
-    `                    .where(${OUTBOX_ROW}.id == event_id)`,
-    `                    .values(dispatched_at=${PY.datetime}.now(${PY.UTC}))`,
-    "                )",
-    "                await session.commit()",
+    `                row.dispatched_at = ${PY.datetime}.now(${PY.UTC})`,
     ...PY_RELAY_HALT_ON_BROKER_DOWN,
-    "        except Exception as exc:  # noqa: BLE001 — relay isolates one row's failure",
+    "            except Exception as exc:  # noqa: BLE001 — relay isolates one row's failure",
     ...OUTBOX_FAIL_BLOCK,
+    "        await claim.commit()",
+    "    if halted is not None:",
+    "        raise halted",
     "",
     "",
     ...OUTBOX_PURGE_FNS,

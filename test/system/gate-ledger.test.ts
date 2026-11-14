@@ -104,6 +104,14 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "HARD compile error in the emitted project (TS2304 for `createOutboxDispatcher` plus three " +
     "TS2305 for the missing exports), so the compile tier IS its oracle — a booted leg would " +
     "re-run `channels-broker`'s delivery with a workflow in the tree and assert nothing new",
+  "channels-broker-mixed-durable":
+    "same broker-container reason as `channels-broker`, and the claim (the unbound durable " +
+    "event is redelivered in-process at-least-once) is asynchronous, which a `test e2e` block " +
+    "cannot wait on — #5613.  The compile tier proves both relays and their per-type queries build",
+  "channels-broker-projection":
+    "same broker-container reason as `channels-broker`: the behavioural claim (place on " +
+    "salesApi, then an OrderBook row on shipApi) needs a broker between two booted services " +
+    "— #5613.  Until then the compile tier proves every backend emits and wires the consumer",
   "projection-split-deployables":
     "the defect is a hard compile error in the emitted project (`TS2306: File " +
     "'domain/value-objects.ts' is not a module`), so the compile tier is the oracle.  A " +
@@ -116,6 +124,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
   "optional-let":
     "the emitted null-handling form of a `let`-bound optional read is a compile-tier fact (an unwrapped java `Optional`, a .NET `GetByIdAsync`, an elixir nil match); the booted block over the absent-row and present-row branches is #4335",
   resources: "objectStore / queue / api / mailer clients need their containers — #4212",
+  "resource-endpoints":
+    "every external-service client against its provider; the SES / SendGrid fakes that answer on the endpoint override are #5616 — #4212",
   "api-call-auth":
     "in-system api call to an `auth: required` callee; needs both deployables booted.  BY DESIGN for the corpus tier, which boots one deployable per case: the `api-call-e2e` leg boots both, with auth required on each, and asserts the callee stamps the forwarded principal",
   "api-call":

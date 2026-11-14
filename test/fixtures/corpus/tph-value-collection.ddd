@@ -1,0 +1,56 @@
+// A TPH concrete with a value-object array field (`lines: Line[]`).  The
+// concrete owns no table — its row lives in the base's shared `parties` table —
+// but its elements still need their id-less child table, `customer_lines`,
+// FK'd to that shared table: the concrete's id IS the base row's id.  Every
+// backend's repository reads and writes that table, so the migration has to
+// create it.
+system TphLines {
+  subdomain Registry {
+    context Parties {
+      valueobject Line { sku: string  qty: int }
+      abstract aggregate Party inheritanceUsing: sharedTable { name: string }
+      aggregate Customer extends Party with crudish { lines: Line[] }
+      aggregate Sponsor extends Party { rating: int }
+      repository Customers for Customer { }
+      repository Sponsors for Sponsor { }
+    }
+  }
+  api PartiesApi from Registry
+  storage pg { type: postgres }
+  resource partiesState { for: Parties, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Parties]
+    dataSources: [partiesState]
+    serves: PartiesApi
+    port: 4000
+  }
+
+  test e2e "a TPH concrete's value collection round-trips through its child table" against d {
+    let c = api.customers.create({ name: "Acme", lines: [{ sku: "A-1", qty: 2 }, { sku: "B-2", qty: 1 }] })
+    let read = api.customers.getById(c)
+    expect(read.name).toBe("Acme")
+    expect(read.lines.length).toBe(2)
+    expect(read.lines.first().sku).toBe("A-1")
+    expect(read.lines.first().qty).toBe(2)
+
+    api.customers.update(c, { lines: [{ sku: "C-3", qty: 5 }] })
+    let updated = api.customers.getById(c)
+    expect(updated.lines.length).toBe(1)
+    expect(updated.lines.first().sku).toBe("C-3")
+    expect(updated.name).toBe("Acme")
+
+    let customers = api.customers.all()
+    expect(customers.total).toBe(1)
+    expect(customers.items.first().lines.length).toBe(1)
+    let sponsors = api.sponsors.all()
+    expect(sponsors.total).toBe(0)
+    // The base's polymorphic reads answer the Customer row, child table and all.
+    expect(api.parties.all().total).toBe(1)
+    expect(api.parties.getById(c).name).toBe("Acme")
+    expect(api.sponsors.getById("11111111-1111-4111-8111-111111111111")).toThrow(404)
+
+    api.customers.destroy(c)
+    expect(api.customers.getById(c)).toThrow(404)
+  }
+}

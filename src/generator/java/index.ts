@@ -4,6 +4,7 @@ import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import {
+  channelPlan,
   eventSourcedWorkflows,
   observableWorkflows,
   routedPolymorphicRead,
@@ -11,7 +12,6 @@ import {
 } from "../../ir/plan/index.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
-  ChannelIR,
   DeployableIR,
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -27,6 +27,7 @@ import {
   exprUsesCurrentUser,
   isMaterializedProjection,
   isQueryTimeProjection,
+  PLAIN_FIND_FLAGS,
   workflowEmitsCommandRoute,
 } from "../../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../../ir/types/migrations-ir.js";
@@ -55,7 +56,13 @@ import {
   hostedContextIdTypeSources,
   userClaimIdTypeSources,
 } from "../../ir/util/foreign-ids.js";
-import { isTpcBase, isTphBase, isTphConcrete, tableOwnerName } from "../../ir/util/inheritance.js";
+import {
+  isDiscriminatedTphBase,
+  isTpcBase,
+  isTphBase,
+  isTphConcrete,
+  tableOwnerName,
+} from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import { orgContextPlan } from "../../ir/util/org-context.js";
 import {
@@ -74,7 +81,7 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
-import { brokerChannelBindings } from "../_channels/bindings.js";
+import { bootRequiredAuthEnv } from "../_auth/boot-required.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { spellMarkers } from "../_imports/symbol.js";
@@ -373,6 +380,7 @@ function emitProjectFromContexts(
   // Nimbus dep land only when an `auth { oidc }` block targets this
   // (auth: required) deployable.
   const oidc = authRequired && !!system?.sys.auth;
+  const javaBootRequired = oidc ? bootRequiredAuthEnv(system?.sys.auth) : [];
   // Resource client classes (objectStore / queue / api) + their Gradle
   // deps — empty when the deployable wires no consumable
   // resources, leaving build.gradle.kts byte-identical.
@@ -404,7 +412,8 @@ function emitProjectFromContexts(
   // broker-carried event type is broker-routed: its dispatcher handlers drop
   // the local @EventListener (design §4 delivery uniformity) and are invoked
   // by the ChannelConsumerService on delivery instead.
-  const channelBindings = system ? brokerChannelBindings(system.deployable, system.sys) : [];
+  const chPlan = channelPlan(contexts, system);
+  const channelBindings = chPlan.bindings;
   const hasChannels = channelBindings.length > 0;
   // Durable broker-bound events (M-T4.4): HOSTED durable events
   // carried by a wired `queue`/`work` (or future `log`) channel — their
@@ -427,23 +436,18 @@ function emitProjectFromContexts(
       .flatMap((b) => b.events)
       .filter((ev) => hostedDurable.has(ev)),
   );
-  const hostedChannelNames = new Set(contexts.flatMap((c) => c.channels).map((ch) => ch.name));
-  const wiredForeignChannels: ChannelIR[] = channelBindings
-    .filter((b) => !hostedChannelNames.has(b.channelName))
-    .map((b) => ({
-      name: b.channelName,
-      carries: b.events,
-      delivery: b.delivery,
-      retention: b.retention,
-    }));
+  const wiredForeignChannels = chPlan.foreignChannels;
   const brokerEvents = new Set(channelBindings.flatMap((b) => b.events));
-  // Standalone (no-broker) outbox tier (dispatch-delivery-semantics.md §1-2):
-  // hosted durable events on a channel with NO `channelSource` still get
-  // crash-safe in-process delivery (the tee records → LocalOutboxRelay
-  // redelivers), parity with node/dotnet/python.  Only when this deployable
-  // wires no broker at all — the broker path owns the `channels:`-wired case, so
-  // exactly one relay drains __loom_outbox (no double-processing race).
-  const standaloneOutbox = !hasChannels && hostedDurable.size > 0;
+  // Local outbox tier (channels.md "Event routing"): the outbox events no wired
+  // binding carries are recorded by the LoomEventOutbox tee and redelivered
+  // in-process by the LocalOutboxRelay — on a broker-wired deployable too.
+  // When the broker relay also drains broker-routed rows from the same table,
+  // the two relays partition it by event type, so each row has one relay.
+  const localDurable: ReadonlySet<string> = new Set(
+    [...chPlan.outboxEvents].filter((ev) => !brokerEvents.has(ev)),
+  );
+  const standaloneOutbox = localDurable.size > 0;
+  const partitionedOutbox = standaloneOutbox && durableBrokerEvents.size > 0;
   // Dispatcher handler methods for broker-routed events, collected across the
   // per-context loop below — the ChannelConsumerService's dispatch table.
   const consumerHandlers: ChannelConsumerHandler[] = [];
@@ -1080,7 +1084,7 @@ function emitProjectFromContexts(
         extraChannels: hasChannels ? wiredForeignChannels : undefined,
         brokerEvents: hasChannels ? brokerEvents : undefined,
         deployableDurable: hostedDurable.size > 0,
-        localDurableEvents: standaloneOutbox ? hostedDurable : undefined,
+        localDurableEvents: standaloneOutbox ? localDurable : undefined,
         resources: { classes: resourceEmission.classes, pkg: pkgFor("resource-client") },
       },
       dispatcherOpFragments,
@@ -1108,7 +1112,7 @@ function emitProjectFromContexts(
       if (standaloneOutbox) {
         localOutboxHandlers.push(
           ...dispatcher.handlers
-            .filter((h) => hostedDurable.has(h.event))
+            .filter((h) => localDurable.has(h.event))
             .map((h) => ({
               dispatcherClass: `${ctx.name}Dispatcher`,
               dispatcherPkg: pkgFor("workflow-service"),
@@ -1307,23 +1311,27 @@ function emitProjectFromContexts(
   // emitted above (hostedDurable > 0).  Broker-wired projects take the broker
   // path below instead; channel-less projects emit none of this.
   if (standaloneOutbox) {
-    for (const f of renderJavaOutboxFiles({
-      configPkg: pkgFor("config"),
-      entityPkg: pkgFor("infra-persistence"),
-      repoPkg: pkgFor("spring-data-repository"),
-    })) {
-      // The broker relay (OutboxRelayService) is replaced by LocalOutboxRelay;
-      // reuse only the shared __loom_outbox entity + repository.
-      if (f.name === "OutboxRelayService.java") continue;
-      place(f.name, f.category, f.content);
+    // The shared __loom_outbox entity + repository, unless the broker path
+    // below emits them (partitioned, with the per-type claim queries).
+    if (!partitionedOutbox) {
+      for (const f of renderJavaOutboxFiles({
+        configPkg: pkgFor("config"),
+        entityPkg: pkgFor("infra-persistence"),
+        repoPkg: pkgFor("spring-data-repository"),
+      })) {
+        // The broker relay (OutboxRelayService) is replaced by LocalOutboxRelay.
+        if (f.name === "OutboxRelayService.java") continue;
+        place(f.name, f.category, f.content);
+      }
     }
     for (const f of renderJavaStandaloneOutboxFiles(basePkg, {
-      durableEvents: [...hostedDurable],
+      durableEvents: [...localDurable],
       handlers: localOutboxHandlers,
       configPkg: pkgFor("config"),
       entityPkg: pkgFor("infra-persistence"),
       repoPkg: pkgFor("spring-data-repository"),
       carriesOrigin: authRequired,
+      partitioned: partitionedOutbox,
     })) {
       place(f.name, f.category, f.content);
     }
@@ -1439,6 +1447,7 @@ function emitProjectFromContexts(
         repoPkg: pkgFor("spring-data-repository"),
         carriesOrigin: authRequired,
         basePkg,
+        partitioned: partitionedOutbox,
       })) {
         place(f.name, f.category, f.content);
       }
@@ -1583,7 +1592,10 @@ function emitProjectFromContexts(
   // logback.xml behind the observability catalog (CatalogLog logs through
   // SLF4J; logstash-logback-encoder renders the JSON envelope).
   out.set("src/main/resources/logback.xml", renderLogbackConfig());
-  out.set(mainSourcePath(basePkg, "Application.java"), renderApplication(basePkg));
+  out.set(
+    mainSourcePath(basePkg, "Application.java"),
+    renderApplication(basePkg, javaBootRequired),
+  );
   out.set(
     mainSourcePath(`${basePkg}.api`, "HealthController.java"),
     renderHealthController(basePkg),
@@ -1758,6 +1770,7 @@ function emitAggregate(
       "entity",
       renderJavaAbstractBaseEntity(agg, basePkg, pkgFor("entity", agg.name), {
         tph,
+        discriminated: isDiscriminatedTphBase(agg, ctx.aggregates),
         persistence: {
           tableName: aggregateTableName(agg, ctx.aggregates),
           schema,
@@ -1929,7 +1942,9 @@ function emitAggregate(
   };
   // Views + query-time projections sourced from this aggregate both ride
   // synthesized parameterless finds (the mergeViewsAsFinds analog).
-  const viewFinds: RepositoryIR["finds"] = queryProjectionFindsFor(agg.name, ctx, contexts);
+  const viewFinds: RepositoryIR["finds"] = queryProjectionFindsFor(agg.name, ctx, contexts).map(
+    (f) => ({ ...PLAIN_FIND_FLAGS, ...f }),
+  );
   const repoWithViews: RepositoryIR =
     viewFinds.length > 0
       ? repo
@@ -2038,6 +2053,7 @@ function emitAggregate(
     // declared paged find and no `<Agg>Paged` to return.
     isPagedAutoAll(repo) || declaredFinds(repo).some(isPagedFind),
     reqNameFor,
+    ctx,
   )) {
     place(dto.name, dto.category, dto.content, agg.name, agg.origin, construct);
   }

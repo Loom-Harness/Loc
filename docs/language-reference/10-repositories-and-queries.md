@@ -939,6 +939,64 @@ from(record in D.Catalog.Order, where: not record.is_deleted,
 
 **No paging, no `order by`.** A projection read returns the whole row list — there is no `paged` carrier or sort clause on a projection (the grammar reserves `order by` for a later slice; no `loom.projection-paged-*` code exists). Grouped reads are ordered by their grouping columns; for a paged list, use a paged `queryHandler` ([above](#repoall--the-paged-queryhandler)).
 
+### Parameters — the only filter input
+
+A query-time projection's declared parameters are its read route's only filter input (D-PROJECTION-PARAMS). The route binds exactly those names off the query string, under their declared spelling, on every arm — grouped, singleton, repository, workflow- and projection-sourced. Each value is checked like an operation input before the gate or the query runs: a malformed `X id` answers the 422 `field-invalid` envelope with `field.malformed-id` at `/<name>`, an integer outside `int` with `field.integer-range` and its bounds, a missing required parameter with `field.missing`. A parameter declared `T?` is optional. The plan is `projectionQueryParams` (`src/ir/plan/projection-params.ts`); a `test e2e` reads a parameterised projection with `api.<proj>.list(a, b, …)`, positionally in declared order.
+
+```ddd
+projection TopRanked(maxRank: int) {
+  providers: int
+  from MatchResult as m
+  where m.rank <= maxRank
+  select providers = count()
+}
+```
+
+::: tabs backend
+== node
+```ts
+// http/query-projections.ts — GET /projections/top_ranked?maxRank=…
+const TopRankedQuery = z.object({
+  maxRank: z.coerce.number().int().min(-2147483648, "Integer out of range").max(2147483647, "Integer out of range").openapi({ format: "int32" }),
+}).openapi("TopRankedQuery");
+// …
+      const { maxRank } = httpCtx.req.valid("query");
+      const [row] = await db.select({ providers: count() }).from(schema.matchResults).where(lte(schema.matchResults.rank, maxRank));
+```
+== python
+```python
+# app/http/query_projections_routes.py
+async def top_ranked_projection(max_rank: Annotated[Int32Param, Query(alias="maxRank")], session: SessionDep) -> dict[str, object]:
+    row = (await session.execute(select(func.count()).select_from(MatchResultRow).where((MatchResultRow.rank <= max_rank)))).one()
+```
+== dotnet
+```csharp
+// Api/RunsQueryProjectionsController.cs + Application/Projections/TopRankedQpHandler.cs
+public async Task<ActionResult<TopRankedRow>> TopRanked([FromQuery] int maxRank) { … }
+// …
+        var maxRank = query.maxRank;
+        var agg = await _db.MatchResults.AsNoTracking().Where(o => o.Rank <= maxRank)
+```
+== java
+```java
+// application/views/RunsQueryProjections.java
+public TopRankedRow topRanked(int maxRank) {
+    Object r = entityManager.createQuery("select count(e) from MatchResult e where e.rank <= :maxRank").setParameter("maxRank", maxRank).getSingleResult();
+```
+== elixir
+```elixir
+# lib/d_web/controllers/query_projections_controller.ex
+case __check_find_params(params, [{"maxRank", {:integer, -2147483648, 2147483647}, true}]) do
+  {:error, param_errors} ->
+    DWeb.ProblemDetails.validation_errors_response(conn, param_errors)
+
+  :ok ->
+    data = D.Runs.QueryProjections.TopRanked.run(__find_int(params["maxRank"]), current_user)
+    json(conn, data)
+end
+```
+::: end
+
 ### Sources — aggregate, workflow, projection
 
 `from` may name an **aggregate** (read through its repository — the default and only source that supports `join`, `ignoring`, the shorthand, and the direct-table arms), a **workflow** (read through its persisted instance rows — it must be state-backed and observable, i.e. have a single id-shaped correlation field: `loom.projection-workflow-source-not-observable`, `-eventsourced-invalid`; no `join`: `-join-invalid`), or another **materialized projection** (a folded one with a table — a query-time source has nothing to read `from`: `loom.projection-source-not-materialized`; never itself: `-source-self`; no `join`: `-source-join-invalid`).
@@ -985,7 +1043,7 @@ One more condition bites the surviving document `count()`: a capability-filtered
 
 ### Folded — `keyed by` + `on(e: Event)`
 
-A projection with no query clauses and one or more `on(e: <Event>) { … }` handlers is a **materialized read model**: a table with one row per `keyed by` key, updated by a pure fold on each event. `keyed by` must name a declared id-shaped field (`loom.projection-key-unknown` / `-key-not-id`); the routing key is `e.<key>` unless `by <expr>` says otherwise (an event without the key field and no `by` is `loom.projection-event-unkeyed`). The grammar makes `keyed by` optional — but a *fold* without it has no key to route by and is refused by that same `loom.projection-event-unkeyed`; the keyless ("singleton") projection is the query-time whole-table aggregation above, not a fold. Each event type folds in exactly one handler (`loom.projection-duplicate-on`), and the body is a **pure fold** — `:=` assignments and `let` only; an `emit`, a call, a guard or a `return` is `loom.projection-fold-impure` (use a workflow `on(e)` reactor instead). An `on(e: E)` handler IS the subscription (**D-PROJECTION-IMPLICIT-SUB**): a fold whose event no `channel` carries still dispatches in-process on all five backends, so no carrying channel is required. The warning that once demanded one, `loom.projection-event-uncarried`, was retired with the decision; folding an event that carries a `mask unless` field would launder the masked value into an unredacted row, so it is refused too (`loom.field-mask-projection-source` — see [chapter 17](17-auth.md)). Under `tenancy by` a fold over `tenantOwned` producers' events is tenant-scoped: each row is stamped with the event's tenant (read from the event metadata), keyed by `(tenant_id, <key>)`, and every read applies the tenant floor; a fold over only `crossTenant` producers is exempt, and one mixing the two is refused (`loom.tenancy-folded-projection-mixed`) — see [`../tenancy.md`](../tenancy.md#folded-projections--rows-carry-the-events-tenant).
+A projection with no query clauses and one or more `on(e: <Event>) { … }` handlers is a **materialized read model**: a table with one row per `keyed by` key, updated by a pure fold on each event. `keyed by` must name a declared id-shaped field (`loom.projection-key-unknown` / `-key-not-id`); the routing key is `e.<key>` unless `by <expr>` says otherwise (an event without the key field and no `by` is `loom.projection-event-unkeyed`). The grammar makes `keyed by` optional — but a *fold* without it has no key to route by and is refused by that same `loom.projection-event-unkeyed`; the keyless ("singleton") projection is the query-time whole-table aggregation above, not a fold. Each event type folds in exactly one handler (`loom.projection-duplicate-on`), and the body is a **pure fold** — `:=` assignments, `+=` / `-=` and `let` only; an `emit`, a call, a guard or a `return` is `loom.projection-fold-impure` (use a workflow `on(e)` reactor instead). The statements apply in order, each reading the row as the ones before it left it; a collection `+=` appends one element and a collection `-=` removes every equal element. The key field is never assigned (`loom.projection-key-assign`): the row is created with the key the fold routes by (**D-PROJECTION-FOLD**). A fresh row starts each column at its declared default, else a required column at its type's neutral zero (`0`, `false`, `""`, the empty list), else (an optional column) null; a required column whose type has no zero (a datetime, an enum, an id, a value object) must declare a default (`loom.projection-field-no-start`) (**D-PROJECTION-ROW-SEED**); a `+=` / `-=` on an optional field with no default has nothing to start from and is refused (`loom.projection-accumulate-optional`). A fold runs after the command that raised its event commits, isolated per handler: a failing fold is logged `reactor_failed` and never fails the command (**D-PROJECTION-FOLD-AFTER-COMMIT**). An `on(e: E)` handler IS the subscription (**D-PROJECTION-IMPLICIT-SUB**): a fold whose event no `channel` carries still dispatches in-process on all five backends, so no carrying channel is required. The warning that once demanded one, `loom.projection-event-uncarried`, was retired with the decision; folding an event that carries a `mask unless` field would launder the masked value into an unredacted row, so it is refused too (`loom.field-mask-projection-source` — see [chapter 17](17-auth.md)). Under `tenancy by` a fold over `tenantOwned` producers' events is tenant-scoped: each row is stamped with the event's tenant (read from the event metadata), keyed by `(tenant_id, <key>)`, and every read applies the tenant floor; a fold over only `crossTenant` producers is exempt, and one mixing the two is refused (`loom.tenancy-folded-projection-mixed`) — see [`../tenancy.md`](../tenancy.md#folded-projections--rows-carry-the-events-tenant).
 
 ```ddd
 event OrderConfirmed { orderRef: Order id, at: datetime }
@@ -993,8 +1051,8 @@ channel Lifecycle { carries: OrderConfirmed  delivery: broadcast  retention: eph
 
 projection OrderBoard keyed by orderRef {
   orderRef: Order id
-  confirmedAt: datetime
-  on(e: OrderConfirmed) { orderRef := e.orderRef  confirmedAt := e.at }
+  confirmedAt: datetime?
+  on(e: OrderConfirmed) { confirmedAt := e.at }
 }
 ```
 
@@ -1005,7 +1063,6 @@ projection OrderBoard keyed by orderRef {
 export async function foldOrderConfirmedIntoOrderBoard(db, e: Events.OrderConfirmed): Promise<void> {
   const __key = e.orderRef;
   const state = (await loadOrderBoard(db, __key)) ?? { orderRef: __key };
-  state.orderRef = e.orderRef;
   state.confirmedAt = e.at;
   await saveOrderBoard(db, state);   // insert … onConflictDoUpdate({ target: schema.orderBoards.orderRef, set: state })
 }

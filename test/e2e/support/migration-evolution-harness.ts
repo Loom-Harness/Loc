@@ -50,9 +50,15 @@ export function readFixture(
     | "evolved"
     | "vo-collection-base"
     | "vo-collection-evolved"
+    | "childless-tph-base"
+    | "childless-tph-evolved"
     | "field-default-base"
     | "field-default-evolved"
     | "guid-backfill-evolved"
+    | "single-child-base"
+    | "single-child-evolved"
+    | "reshape-fk-base"
+    | "reshape-fk-evolved"
     | "journal-order-base"
     | "journal-order-evolved"
     | "unique-evo-base"
@@ -403,7 +409,9 @@ interface V2Product {
   name: string;
   unitPrice: string | number;
   sku: string;
+  label: string;
   description: string | null;
+  shelf?: unknown;
   status: string;
   stage: string;
 }
@@ -424,7 +432,11 @@ export async function assertForwardMigrated(base: string, id: string): Promise<v
     2,
   );
   expect(p.sku, "NOT-NULL add back-filled").toBe("SEED");
+  // An expression backfill: filled from the row's own `name` outside the DDL
+  // transaction, then made NOT NULL.
+  expect(p.label, "NOT-NULL add back-filled from an expression").toBe(SEED.name);
   expect(p.description, "nullable add is NULL").toBeNull();
+  expect(p.shelf ?? null, "optional value-object add is absent").toBeNull();
   // The enum narrowing (`status: string` → `status: Status`) did not touch the
   // stored value: the CHECK the migration adds is `NOT VALID`, so the seeded
   // row rides through untouched.
@@ -836,6 +848,114 @@ export async function runValueCollectionEvolutionGate(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Childless-TPH evolution gate.
+//
+// A `sharedTable` base with no shared-table subtype owns an ordinary table
+// with no `kind` discriminator.  Adding the first subtype migrates it to the
+// discriminated layout, and dropping the last subtype migrates it back.  One
+// tree, one database, three generations (fixtures: childless-tph-{base,
+// evolved}.ddd):
+//
+//   v1 — childless: the Initial creates `assets` with no `kind`.
+//   v2 — `Lathe` arrives: `kind TEXT NOT NULL` + `spindles` are added with NO
+//        flag (the childless table has no write path, so it is empty), and the
+//        migrated schema equals a fresh create of v2.  A Lathe row inserts.
+//   v3 — `Lathe` is gone again: refused without `--allow-destructive` (its
+//        rows lose their subtype), applied with it, and the migrated schema
+//        equals a fresh create of v1.
+//
+// Deliberately does NOT boot the backend — the claim is about the emitted DDL
+// chain, so psql alone is a complete proof.
+// ---------------------------------------------------------------------------
+export async function runChildlessTphEvolutionGate(): Promise<void> {
+  const v1 = readFixture("childless-tph-base");
+  const v2 = readFixture("childless-tph-evolved");
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-childless-tph-"));
+  const freshTrees: string[] = [];
+  let server: PgServer | undefined;
+  const sqlFiles = (dir: string): string[] =>
+    fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith(".sql"))
+      .sort();
+  const migDirOf = (t: string): string => path.join(t, "d", "db", "migrations");
+  // Fingerprint of a fresh create of `source`, loaded into its own database.
+  const freshFingerprint = (pg: PgServer, source: string, db: string): string => {
+    const fresh = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-childless-tph-fresh-"));
+    freshTrees.push(fresh);
+    generate(source, "node", fresh);
+    resetDatabase(pg, db);
+    for (const f of sqlFiles(migDirOf(fresh))) {
+      psql(pg, db, fs.readFileSync(path.join(migDirOf(fresh), f), "utf8"));
+    }
+    return fingerprintSchema(pg, db);
+  };
+  const assetColumns = (pg: PgServer): string =>
+    psql(
+      pg,
+      "childlesstph",
+      `SELECT string_agg(column_name, ',' ORDER BY column_name) FROM information_schema.columns ` +
+        `WHERE table_schema = 'shop' AND table_name = 'assets'`,
+    );
+  try {
+    const pg = await startPgServer();
+    server = pg;
+    resetDatabase(pg, "childlesstph");
+    const migDir = migDirOf(tree);
+    const applyNew = (applied: Set<string>): string[] => {
+      const fresh = sqlFiles(migDir).filter((f) => !applied.has(f));
+      for (const f of fresh) {
+        psql(pg, "childlesstph", fs.readFileSync(path.join(migDir, f), "utf8"));
+        applied.add(f);
+      }
+      return fresh;
+    };
+    const applied = new Set<string>();
+
+    // v1 — the childless base's table carries no discriminator.
+    generate(v1, "node", tree);
+    applyNew(applied);
+    expect(assetColumns(pg)).toBe("id,label,row_version");
+
+    // v2 — the first subtype: recorded with no flag, adds `kind` + `spindles`.
+    generate(v2, "node", tree);
+    const v2Deltas = applyNew(applied);
+    expect(v2Deltas).toHaveLength(1);
+    expect(assetColumns(pg)).toBe("id,kind,label,row_version,spindles");
+    psql(
+      pg,
+      "childlesstph",
+      `INSERT INTO "shop"."assets" ("id", "kind", "label", "spindles") ` +
+        `VALUES ('11111111-1111-1111-1111-111111111111', 'Lathe', 'L-1', 4)`,
+    );
+    assertSchemaEquivalent(
+      fingerprintSchema(pg, "childlesstph"),
+      freshFingerprint(pg, v2, "childlesstph_fresh2"),
+    );
+
+    // v3 — the last subtype goes: its rows lose their subtype, so the drop is
+    // destructive and needs the flag.
+    expect(() => generate(v1, "node", tree)).toThrow(/destructive/);
+    generate(v1, "node", tree, { allowDestructive: true });
+    expect(applyNew(applied)).toHaveLength(1);
+    expect(assetColumns(pg)).toBe("id,label,row_version");
+    assertSchemaEquivalent(
+      fingerprintSchema(pg, "childlesstph"),
+      freshFingerprint(pg, v1, "childlesstph_fresh1"),
+    );
+  } finally {
+    server?.stop();
+    for (const dir of [tree, ...freshTrees]) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Field-default evolution gate (M-T2.16 / #2864 G1, decision D-3).
 //
 // `status: string = "pending"` never reached the DDL, so the obvious way to add
@@ -918,6 +1038,183 @@ export async function runGuidBackfillEvolutionGate(): Promise<void> {
           `WHERE table_schema = 'ord' AND table_name = 'orders' AND column_name = 'ref'`,
       ),
     ).toBe("uuid null=NO");
+  } finally {
+    server?.stop();
+    try {
+      fs.rmSync(tree, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Single-child uniqueness gate.
+//
+// A single containment (`contains shipment: Shipment`) holds at most one child
+// per parent, so its parent FK index is UNIQUE.  Two claims, settled on a real
+// Postgres: a schema that grew from a COLLECTION containment (plain index) to
+// a single one applies the rebuilt index to a populated table, and the
+// database then refuses a second child row for the same parent.
+// ---------------------------------------------------------------------------
+export async function runSingleChildUniqueGate(): Promise<void> {
+  const v1 = readFixture("single-child-base");
+  const v2 = readFixture("single-child-evolved");
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-single-child-"));
+  let server: PgServer | undefined;
+  // A generation's non-transactional unit holds `CREATE INDEX CONCURRENTLY`,
+  // which Postgres refuses inside the implicit transaction of a
+  // multi-statement query: it is applied one statement at a time, as the
+  // generated runner does.
+  const applyFile = (pg: PgServer, db: string, sql: string): void => {
+    if (!sql.startsWith("-- loom:no-transaction")) {
+      psql(pg, db, sql);
+      return;
+    }
+    for (const stmt of sql.split("--> statement-breakpoint")) {
+      const body = stmt.replace("-- loom:no-transaction", "").trim();
+      if (body) psql(pg, db, body);
+    }
+  };
+  try {
+    generate(v1, "node", tree);
+    const migDir = path.join(tree, "d", "db", "migrations");
+    const before = new Set(fs.readdirSync(migDir).filter((f) => f.endsWith(".sql")));
+    const pg = await startPgServer();
+    server = pg;
+    resetDatabase(pg, "singlechild");
+    for (const f of [...before].sort()) {
+      applyFile(pg, "singlechild", fs.readFileSync(path.join(migDir, f), "utf8"));
+    }
+    const order = "11111111-1111-4111-8111-111111111111";
+    psql(
+      pg,
+      "singlechild",
+      `INSERT INTO "ord"."orders" ("id", "code", "row_version") VALUES ('${order}', 'O-1', 1); ` +
+        `INSERT INTO "ord"."shipments" ("id", "order_id", "carrier") ` +
+        `VALUES ('22222222-2222-4222-8222-222222222222', '${order}', 'UPS')`,
+    );
+
+    generate(v2, "node", tree);
+    const deltas = fs
+      .readdirSync(migDir)
+      .filter((f) => f.endsWith(".sql") && !before.has(f))
+      .sort();
+    if (deltas.length === 0) throw new Error("expected a delta migration rebuilding the index");
+    for (const f of deltas) {
+      applyFile(pg, "singlechild", fs.readFileSync(path.join(migDir, f), "utf8"));
+    }
+    expect(
+      psql(
+        pg,
+        "singlechild",
+        `SELECT indexdef FROM pg_indexes WHERE schemaname = 'ord' AND indexname = 'shipments_order_id_idx'`,
+      ),
+    ).toMatch(/^CREATE UNIQUE INDEX/);
+    let refused = "";
+    try {
+      psql(
+        pg,
+        "singlechild",
+        `INSERT INTO "ord"."shipments" ("id", "order_id", "carrier") ` +
+          `VALUES ('33333333-3333-4333-8333-333333333333', '${order}', 'DHL')`,
+      );
+    } catch (e) {
+      refused = e instanceof Error ? e.message : String(e);
+    }
+    expect(refused, "a second child row for one parent").toMatch(/duplicate key value/);
+  } finally {
+    server?.stop();
+    try {
+      fs.rmSync(tree, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reshape FK gate.
+//
+// A reshape renames the old table to `<t>__pre_reshape`, and Postgres carries
+// every FK into it across the rename — so a SURVIVING table that references
+// the reshaped one would keep pointing at the backup, and every new row
+// referencing a new-shape id would fail its FK.  The claim: after a
+// relational → document flip of `Cart`, an `Order` written against a cart in
+// the NEW `carts` table is accepted, while a stored order (whose cart sits in
+// the backup until the data move) survives.
+// ---------------------------------------------------------------------------
+export async function runReshapeFkGate(): Promise<void> {
+  const v1 = readFixture("reshape-fk-base");
+  const v2 = readFixture("reshape-fk-evolved");
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-reshape-fk-"));
+  let server: PgServer | undefined;
+  const applyFile = (pg: PgServer, db: string, sql: string): void => {
+    if (!sql.startsWith("-- loom:no-transaction")) {
+      psql(pg, db, sql);
+      return;
+    }
+    for (const stmt of sql.split("--> statement-breakpoint")) {
+      const body = stmt.replace("-- loom:no-transaction", "").trim();
+      if (body) psql(pg, db, body);
+    }
+  };
+  try {
+    generate(v1, "node", tree);
+    const migDir = path.join(tree, "d", "db", "migrations");
+    const before = new Set(fs.readdirSync(migDir).filter((f) => f.endsWith(".sql")));
+    const pg = await startPgServer();
+    server = pg;
+    resetDatabase(pg, "reshapefk");
+    for (const f of [...before].sort()) {
+      applyFile(pg, "reshapefk", fs.readFileSync(path.join(migDir, f), "utf8"));
+    }
+    const oldCart = "11111111-1111-4111-8111-111111111111";
+    psql(
+      pg,
+      "reshapefk",
+      `INSERT INTO "ord"."carts" ("id", "label", "row_version") VALUES ('${oldCart}', 'old', 1); ` +
+        `INSERT INTO "ord"."orders" ("id", "code", "cart", "row_version") ` +
+        `VALUES ('22222222-2222-4222-8222-222222222222', 'O-1', '${oldCart}', 1)`,
+    );
+
+    // The reshape, then the backup's cleanup drop — the generation a reshape
+    // always leaves pending, which `generate` waits for — both recorded, as an
+    // operator does once the data move is done.
+    const dddPath = path.join(tree, "app.ddd");
+    fs.writeFileSync(dddPath, v2.replaceAll("__PLATFORM__", platformClause("node")));
+    for (const name of ["reshape", "drop-backup"]) {
+      execSync(`node ${cli} migrate add ${name} ${dddPath} --allow-destructive`, {
+        stdio: "pipe",
+        cwd: repoRoot,
+      });
+    }
+    execSync(`node ${cli} generate system ${dddPath} -o ${tree}`, { stdio: "pipe", cwd: repoRoot });
+    const deltas = fs
+      .readdirSync(migDir)
+      .filter((f) => f.endsWith(".sql") && !before.has(f))
+      .sort();
+    if (deltas.length === 0) throw new Error("expected a delta migration reshaping carts");
+    for (const f of deltas) {
+      applyFile(pg, "reshapefk", fs.readFileSync(path.join(migDir, f), "utf8"));
+    }
+    // A cart in the NEW document table, and an order that references it.
+    const newCart = "33333333-3333-4333-8333-333333333333";
+    psql(
+      pg,
+      "reshapefk",
+      `INSERT INTO "ord"."carts" ("id", "data", "row_version") VALUES ('${newCart}', '{"label":"new"}', 1); ` +
+        `INSERT INTO "ord"."orders" ("id", "code", "cart", "row_version") ` +
+        `VALUES ('44444444-4444-4444-8444-444444444444', 'O-2', '${newCart}', 1)`,
+    );
+    expect(psql(pg, "reshapefk", `SELECT count(*) FROM "ord"."orders"`)).toBe("2");
+    expect(
+      psql(
+        pg,
+        "reshapefk",
+        `SELECT confrelid::regclass::text FROM pg_constraint WHERE conname = 'orders_cart_fkey'`,
+      ),
+    ).toBe("ord.carts");
   } finally {
     server?.stop();
     try {

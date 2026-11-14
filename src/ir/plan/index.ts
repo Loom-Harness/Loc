@@ -22,9 +22,50 @@
 //
 // `test/platform/pipeline-layering.test.ts` enforces the import rules.
 
+export {
+  type BrokerBinding,
+  type BrokerTransport,
+  brokerChannelBindings,
+  channelTransportStorageNames,
+  kafkaStartsAtEarliest,
+  uniqueBindings,
+} from "./channel-bindings.js";
+export {
+  type ChannelPlan,
+  type ChannelPlanSystem,
+  channelPlan,
+  deliversLocally,
+  type EventRoute,
+  eventRoute,
+} from "./channel-plan.js";
 export { hasDurableEvents } from "./context-events.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
+export {
+  canOpLadder,
+  GATE_ORDER,
+  type GateCheck,
+  type GateStep,
+  gateRank,
+  gateReadsParam,
+  gateReadsRow,
+  operationLadder,
+} from "./gate-ladder.js";
 export { lookupOp } from "./operation-lookup.js";
+export {
+  assignsFoldKey,
+  type FoldRowSeed,
+  type FoldRowZero,
+  type FoldStep,
+  foldRowSeeds,
+  foldRowUnseeded,
+  foldSteps,
+} from "./projection-fold.js";
+export {
+  type ProjectionQueryParam,
+  projectionQueryParams,
+  type QueryParamCheck,
+  queryParamCheck,
+} from "./projection-params.js";
 export {
   admittedReferences,
   type ContainStep,
@@ -34,7 +75,11 @@ export {
   scopedReferences,
 } from "./ref-scope.js";
 export { domainFindShape } from "./repo-find-shape.js";
-export { routedPolymorphicRead } from "./repo-polymorphic.js";
+export {
+  contextOperations,
+  polymorphicReadOperations,
+  routedPolymorphicRead,
+} from "./repo-polymorphic.js";
 export { clientSortTieBreak, singleReadOrder } from "./repo-read.js";
 export { type RepoNeed, reposNeeded } from "./repos-needed.js";
 export {
@@ -46,6 +91,7 @@ export {
   withReadPortRepos,
 } from "./service-read-ports.js";
 export { requiredStateFields, type StateZero, stateZero } from "./state-zero.js";
+export { valueObjectBorne, valueObjectParams } from "./value-object-params.js";
 export {
   type RemoteApiOpRef,
   type ResourceCalls,

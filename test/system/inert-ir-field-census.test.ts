@@ -54,6 +54,8 @@ const ROOT_FLOOR: Record<string, number> = {
 
 /** IR fields no target reads, by design.  Each says why that is benign. */
 const NO_READER_ALLOWED: Readonly<Record<string, string>> = {
+  awaited:
+    "consumed in the IR by `checkMissingEffectMarker` (src/ir/validate/checks/ui-action-body-checks.ts): an awaited call is the handled form of a mutating command; the walkers read the awaited operation off the `variant-match` subject",
   sensitivity:
     "consumed in the IR by `fieldRedactedInInspect` (src/ir/enrich/mask-taint.ts): `synthesizeInspect` redacts the leaf for every target, and Phoenix's Inspect-impl gate calls the same predicate",
   foldTenantClaim:
@@ -88,7 +90,6 @@ const NO_READER_DEBT: Readonly<Record<string, string>> = {
   loadPlan: "#4636",
   needs: "#4636",
   overlap: "#4636",
-  policyDenies: "#4636",
   priority: "#4636",
   readonly: "#4636",
   resourceInterfaces: "#4636",

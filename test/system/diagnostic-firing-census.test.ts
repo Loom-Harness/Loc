@@ -554,6 +554,24 @@ ${opts.e2e ?? ""}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // Under `denyByDefault` every concrete's list read is gated, so the base's
+  // polymorphic read has no route: a base read would answer their rows ungated.
+  "loom.polymorphic-read-unrouted": `
+system S {
+  user { id: guid  role: string }
+  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain M { context C {
+    abstract aggregate Vehicle inheritanceUsing: sharedTable { name: string }
+    aggregate Car extends Vehicle with crudish { doors: int }
+    aggregate Truck extends Vehicle with crudish { payloadKg: int }
+    repository Cars for Car
+    repository Trucks for Truck
+  } }
+  api A from M
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 auth: required }
+}`,
   // A backfill expression outside the SQL-renderable subset: a call.
   "loom.migration-expr-invalid": `
 system S {
@@ -888,6 +906,19 @@ system S {
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
 }`,
+  // A payload field has no serializer of its own: masks come from the aggregate.
+  "loom.field-mask-on-payload": `
+system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    response PView { name: string mask unless currentUser.role == "hr" }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
+}`,
   // A value object has no read boundary of its own, so its field cannot be masked.
   "loom.field-mask-on-value-object": `
 system S {
@@ -1063,6 +1094,45 @@ system OptRefColl {
     aggregate Order with crudish {
       code: string
       tags: Tag id[]?
+    }
+  } }
+}`,
+  // A running total over an optional field with nothing to start from.
+  "loom.projection-accumulate-optional": `
+system AccumOptional {
+  subdomain S { context C {
+    aggregate Order with crudish { code: string }
+    event OrderPlaced { order: Order id, n: int }
+    projection Board keyed by order {
+      order: Order id
+      seen: int?
+      on(e: OrderPlaced) { seen += e.n }
+    }
+  } }
+}`,
+  // A required fold column whose type has no zero and that declares no default.
+  "loom.projection-field-no-start": `
+system NoStart {
+  subdomain S { context C {
+    aggregate Order with crudish { code: string }
+    event OrderPlaced { order: Order id, at: datetime }
+    projection Board keyed by order {
+      order: Order id
+      placedAt: datetime
+      on(e: OrderPlaced) { placedAt := e.at }
+    }
+  } }
+}`,
+  // A fold assigning its own key: the row is created with the routing key.
+  "loom.projection-key-assign": `
+system KeyAssign {
+  subdomain S { context C {
+    aggregate Order with crudish { code: string }
+    event OrderPlaced { order: Order id }
+    projection Board keyed by order {
+      order: Order id
+      placed: bool
+      on(e: OrderPlaced) { order := e.order  placed := true }
     }
   } }
 }`,
@@ -4569,7 +4639,7 @@ system S {
     projection Totals keyed by acct {
       acct: Acct id
       paid: int
-      on(e: Paid) { acct := e.acct  paid := e.amount }
+      on(e: Paid) { paid := e.amount }
     }
   } }
   api Api from D
@@ -4596,7 +4666,7 @@ system S {
     projection Totals keyed by acct {
       acct: Acct id
       paid: int
-      on(e: Paid) { acct := e.acct  paid := e.amount }
+      on(e: Paid) { paid := e.amount }
     }
     projection Big {
       n: int

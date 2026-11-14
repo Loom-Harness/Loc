@@ -61,6 +61,7 @@ const TS_SYM = {
   assertUserVerifierRegistered: tsNamed("~/auth/verifier", "assertUserVerifierRegistered"),
   authRoutes: tsNamed("~/auth/handshake", "authRoutes"),
   randomUUID: tsNamed("node:crypto", "randomUUID"),
+  requestLog: tsNamed("~/obs/als", "requestLog"),
   sql: tsNamed("drizzle-orm", "sql"),
   schema: tsNamespace("~/db/schema", "schema"),
   NodePgDatabase: tsNamed("drizzle-orm/node-postgres", "NodePgDatabase"),

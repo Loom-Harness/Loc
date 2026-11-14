@@ -1,10 +1,9 @@
-import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
 import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant, eventsKeepOriginFrame } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
-import { hasDurableEvents } from "../../ir/plan/index.js";
+import { channelPlan, hasDurableEvents } from "../../ir/plan/index.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   BoundedContextIR,
@@ -16,9 +15,14 @@ import type {
   RepositoryIR,
   SystemIR,
   TimerSourceIR,
+  TypeIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
-import { isMaterializedProjection, isQueryTimeProjection } from "../../ir/types/loom-ir.js";
+import {
+  isMaterializedProjection,
+  isQueryTimeProjection,
+  PLAIN_FIND_FLAGS,
+} from "../../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../../ir/types/migrations-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import {
@@ -63,6 +67,7 @@ import {
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
+import { type BootRequiredSetting, bootRequiredAuthEnv } from "../_auth/boot-required.js";
 import { registryTableSql } from "../_persistence/registry-walk.js";
 
 /** True when some aggregate declares an `extern` operation or the context
@@ -83,7 +88,6 @@ import { apiRoutePrefix } from "../../util/api-base.js";
 import { rewrite } from "../../util/emission-sink.js";
 import { plural, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
-import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { finalizeCsUnit } from "../_imports/dotnet.js";
@@ -119,7 +123,7 @@ import {
 import { domainUnionFiles } from "./cqrs/dtos.js";
 import { canEmitToExpressionFor, emitCriteria } from "./criteria-emit.js";
 import { DotnetOutputMap } from "./cs-output.js";
-import { projectEntityArgs } from "./dto-mapping.js";
+import { projectEntityArgs, projectToResponse } from "./dto-mapping.js";
 import {
   renderAuditRecord,
   renderAuditRecordConfiguration,
@@ -360,32 +364,17 @@ function emitProjectFromContexts(
   // enricher-stored `eventSubscriptions`; OR them in so a projection-only context
   // still gets the Mediator dispatcher + IDomainEvent notification plumbing (the
   // fold handlers, discovered by assembly scan, otherwise never run).
-  // Broker bindings (channels.md; M-T4.4 slices 6a + 7b): the broker-bound
-  // channelSources this deployable wires via `channels:`.  A wired-but-foreign
-  // channel joins the carrier set as a stub with its REAL semantics knobs, so
-  // the subscription derivation routes a hosted reactor off a channel declared
-  // in a non-hosted context (mirrors the Hono/Python orchestrators).  The
-  // stubs feed ONLY the subscription derivation — the outbox/idempotency
-  // machinery keys off HOSTED durable channels, matching what the
-  // module-level migrations back; a foreign `queue`/`work` consumer relies on
-  // broker ack semantics + idempotent reactors (the slice-3 stance).
-  const channelBindings = brokerChannelBindings(system.deployable, system.sys);
-  const hostedChannelNames = new Set(contexts.flatMap((c) => c.channels).map((ch) => ch.name));
-  const wiredForeignChannels = channelBindings
-    .filter((b) => !hostedChannelNames.has(b.channelName))
-    .map((b) => ({
-      name: b.channelName,
-      carries: b.events,
-      delivery: b.delivery,
-      retention: b.retention,
-    }));
-  const mergedSubscriptions = deriveEventSubscriptions(
-    [...contexts.flatMap((c) => c.channels), ...wiredForeignChannels],
-    contexts.flatMap((c) => c.workflows),
-    contexts.flatMap((c) => c.projections ?? []),
-  );
+  // The deployable's channel plan (channels.md "Event routing"): its broker
+  // bindings, and the subscriptions routed off its hosted channels plus the
+  // wired channels it does not host.  The outbox and dedupe machinery still
+  // key off the HOSTED durable channels.
+  const chPlan = channelPlan(contexts, system);
+  const channelBindings = chPlan.bindings;
+  const mergedSubscriptions = chPlan.subscriptions;
   const hasChannels = channelBindings.length > 0;
-  const hasChannelConsumers = hasChannels && mergedSubscriptions.some((sub) => !sub.projection);
+  // A broker consumer runs when a hosted reactor, event-triggered create or
+  // projection fold consumes an event a wired binding carries.
+  const hasChannelConsumers = chPlan.consumesFromBroker;
   const hasSubscriptions =
     contexts.some((c) => c.eventSubscriptions.length > 0 || (c.projections?.length ?? 0) > 0) ||
     hasChannelConsumers;
@@ -399,11 +388,10 @@ function emitProjectFromContexts(
       .flatMap((b) => b.events)
       .filter((ev) => hostedDurable.has(ev)),
   );
-  // The outbox tier now also boots for the workflow-less durable-broker
-  // PRODUCER (the Hono forceOutbox twin): no subscription, but the relay
-  // must still drain the outbox to publish.
-  const hasOutboxTier =
-    (hasSubscriptions || durableBrokerEvents.size > 0) && hostedDurable.size > 0;
+  // The outbox tier (channels.md "Event routing"): a hosted durable event is
+  // consumed here or carried by a wired binding.  A producer with no local
+  // consumer still relays, to publish.
+  const hasOutboxTier = chPlan.hasOutbox;
   // Persistence-neutral `ConcurrencyConflictException` — only the Dapper
   // adapter needs it (its version-CAS `SaveAsync` throws it; the EF path keys
   // its 409 arm on `DbUpdateConcurrencyException` instead), so gate the emit on
@@ -1173,6 +1161,7 @@ function emitProjectFromContexts(
     resourceNugetDeps: resourceEmission.nugetDeps,
     fileUpload,
     oidc: !!(authRequired && system.sys.auth),
+    bootRequiredAuth: authRequired && system?.sys.auth ? bootRequiredAuthEnv(system.sys.auth) : [],
     forwardCallerCredential:
       authRequired && !!system && forwardsCallerCredential(system.deployable, system.sys),
   });
@@ -1413,7 +1402,12 @@ function emitAggregate(
   // so the entity emitter can type the method + thread the variant order.
   const operationReturnUnions = new Map<
     string,
-    { name: string; members: ReturnType<typeof unionMembers>; selfArgs?: string }
+    {
+      name: string;
+      members: ReturnType<typeof unionMembers>;
+      selfArgs?: string;
+      encode: (domainExpr: string, t: TypeIR) => string;
+    }
   >();
   for (const op of agg.operations) {
     if (op.returnType?.kind !== "union") continue;
@@ -1424,6 +1418,18 @@ function emitAggregate(
     operationReturnUnions.set(op.name, {
       name: unionInstanceName(op.returnType.variants),
       members,
+      // The aggregate's union records are typed at their RESPONSE wire shape
+      // (`cqrs/dtos.ts`), so every field is encoded with the DTO mapper's
+      // codec as the variant is built — money/decimal, datetime, a value
+      // object's `<VO>Response`, a part's projection — not only the numerics.
+      encode: (domainExpr, t) =>
+        projectToResponse(
+          domainExpr,
+          t,
+          ctx,
+          undefined,
+          `${ns}.Application.${plural(agg.name)}.Responses`,
+        ),
       ...(selfArm
         ? { selfArgs: projectEntityArgs("this", agg, ctx, { unionVariant: true, unmasked: true }) }
         : {}),
@@ -1786,6 +1792,8 @@ function emitProject(
     /** OIDC turnkey auth (D-AUTH-OIDC): the system declares `auth { oidc }`,
      *  so emit the generated verifier registration + its NuGet refs. */
     oidc?: boolean;
+    /** The env(…)-bound auth settings the service refuses to boot without. */
+    bootRequiredAuth?: readonly BootRequiredSetting[];
     /** Typed calls to an `auth: required` callee forward the caller's credential. */
     forwardCallerCredential?: boolean;
     /** TimerSource scheduling (scheduling.md, M-T4.1): the owned timers this
@@ -1863,6 +1871,7 @@ function emitProject(
       hasHistory: !!options?.hasHistory,
       fileUpload: options?.fileUpload,
       oidc: !!options?.oidc,
+      bootRequiredAuth: options?.bootRequiredAuth ?? [],
       forwardCallerCredential: !!options?.forwardCallerCredential,
       hasProvenance: !!options?.hasProvenance,
       timerServices: timerServiceFqns(timers, ns),
@@ -2107,6 +2116,7 @@ function mergeViewsAsFinds(
   };
   const synthesised = [
     ...matchingQp.map((p) => ({
+      ...PLAIN_FIND_FLAGS,
       name: p.name,
       // The projection's OWN parameters — its inlined `where` references them,
       // so a parameterless read emitted a LINQ predicate over a free variable.

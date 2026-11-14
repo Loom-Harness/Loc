@@ -1,5 +1,6 @@
 import type { EventIR, FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import {
+  OUTBOX_PENDING_PREDICATE,
   OUTBOX_PURGE_BATCH,
   OUTBOX_PURGE_INTERVAL_SECONDS,
   OUTBOX_RETENTION_DEFAULT_DAYS,
@@ -8,7 +9,11 @@ import {
 import { lines } from "../../../util/code-builder.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { lowerFirst } from "../../../util/naming.js";
-import { type BrokerBinding, kafkaStartsAtEarliest } from "../../_channels/bindings.js";
+import {
+  type BrokerBinding,
+  kafkaStartsAtEarliest,
+  uniqueBindings,
+} from "../../_channels/bindings.js";
 import {
   CHANNEL_CONSUMER,
   CHANNEL_RECONNECT,
@@ -82,15 +87,6 @@ export interface ChannelConsumerHandler {
   dispatcherPkg: string;
   method: string;
   event: string;
-}
-
-function uniqueBindings(bindings: BrokerBinding[]): BrokerBinding[] {
-  const seen = new Set<string>();
-  return bindings.filter((b) => {
-    if (seen.has(b.csName)) return false;
-    seen.add(b.csName);
-    return true;
-  });
 }
 
 /** The per-binding driver pick in `ChannelTransports` — a ctor reference
@@ -1744,6 +1740,11 @@ export function renderJavaOutboxFiles(pkgs: {
    *  the system principal of its recorded EVENT ORIGIN (ruling D1). */
   carriesOrigin?: boolean;
   basePkg?: string;
+  /** The outbox also holds rows the LocalOutboxRelay redelivers in-process
+   *  (durable events no wired binding carries): each relay takes only its own
+   *  rows, so the broker relay claims the broker-routed types and the local
+   *  relay the rest. */
+  partitioned?: boolean;
 }): {
   name: string;
   category: "infra-persistence" | "spring-data-repository" | "config";
@@ -1858,6 +1859,22 @@ export function renderJavaOutboxFiles(pkgs: {
         `    /** The pending rows: neither dispatched nor dead-lettered. */`,
         `    List<LoomOutboxMessage> findTop${OUTBOX_RELAY.batchSize}ByDispatchedAtIsNullAndDeadAtIsNullOrderByOccurredAtAsc();`,
         ``,
+        `    /** The pending rows a relay pass claims: locked for the pass's`,
+        `     *  transaction, skipping rows another relay holds. */`,
+        `    @Query(value = "SELECT * FROM __loom_outbox WHERE ${OUTBOX_PENDING_PREDICATE} ORDER BY occurred_at LIMIT ${OUTBOX_RELAY.batchSize} ${OUTBOX_RELAY.claimLock}", nativeQuery = true)`,
+        `    List<LoomOutboxMessage> claimPending();`,
+        ``,
+        ...(pkgs.partitioned
+          ? [
+              `    /** {@link #claimPending()} restricted to the given event types. */`,
+              `    @Query(value = "SELECT * FROM __loom_outbox WHERE ${OUTBOX_PENDING_PREDICATE} AND type IN (:types) ORDER BY occurred_at LIMIT ${OUTBOX_RELAY.batchSize} ${OUTBOX_RELAY.claimLock}", nativeQuery = true)`,
+              `    List<LoomOutboxMessage> claimPendingOfTypes(@Param("types") java.util.Collection<String> types);`,
+              ``,
+              `    /** The pending rows of the given event types. */`,
+              `    List<LoomOutboxMessage> findTop${OUTBOX_RELAY.batchSize}ByDispatchedAtIsNullAndDeadAtIsNullAndTypeInOrderByOccurredAtAsc(java.util.Collection<String> types);`,
+              ``,
+            ]
+          : []),
         `    /** Retention: delete a bounded batch of rows dispatched before the`,
         `     *  cutoff.  Dead rows are never dispatched, so they are never purged. */`,
         `    @Modifying`,
@@ -1880,6 +1897,7 @@ export function renderJavaOutboxFiles(pkgs: {
         ``,
         `import org.springframework.context.SmartLifecycle;`,
         `import org.springframework.stereotype.Component;`,
+        `import org.springframework.transaction.support.TransactionTemplate;`,
         ``,
         pkgs.carriesOrigin ? `import ${pkgs.basePkg}.auth.CurrentUserAccessor;` : null,
         pkgs.carriesOrigin ? `import ${pkgs.basePkg}.auth.EventOrigin;` : null,
@@ -1899,12 +1917,15 @@ export function renderJavaOutboxFiles(pkgs: {
         ``,
         `    private final LoomOutboxRepository outbox;`,
         `    private final ChannelTransports transports;`,
+        `    private final TransactionTemplate claim;`,
         `    private final ExecutorService executor = Executors.newSingleThreadExecutor();`,
         `    private volatile boolean running;`,
         ``,
-        `    public OutboxRelayService(LoomOutboxRepository outbox, ChannelTransports transports) {`,
+        `    public OutboxRelayService(LoomOutboxRepository outbox, ChannelTransports transports,`,
+        `            TransactionTemplate claim) {`,
         `        this.outbox = outbox;`,
         `        this.transports = transports;`,
+        `        this.claim = claim;`,
         `    }`,
         ``,
         `    @Override`,
@@ -1914,8 +1935,20 @@ export function renderJavaOutboxFiles(pkgs: {
         `    }`,
         ``,
         ...javaOutboxPurgeMethods(),
+        `    /** One pass: claims its batch inside one transaction (the rows it`,
+        `     *  takes are locked, rows another relay holds are skipped), so`,
+        `     *  competing replicas never publish the same row. */`,
         `    private void drain() {`,
-        `        var rows = outbox.findTop${OUTBOX_RELAY.batchSize}ByDispatchedAtIsNullAndDeadAtIsNullOrderByOccurredAtAsc();`,
+        `        var halted = claim.execute(status -> claimAndPublish());`,
+        `        if (halted != null) {`,
+        `            throw halted;`,
+        `        }`,
+        `    }`,
+        ``,
+        `    private RuntimeException claimAndPublish() {`,
+        pkgs.partitioned
+          ? `        var rows = outbox.claimPendingOfTypes(ChannelBindings.DURABLE_ROUTING.keySet());`
+          : `        var rows = outbox.claimPending();`,
         `        for (var row : rows) {`,
         `            try {`,
         `                // Design §5: broker-bound durable rows publish on drain (the`,
@@ -1935,7 +1968,8 @@ export function renderJavaOutboxFiles(pkgs: {
         `                row.setDispatchedAt(Instant.now());`,
         `                outbox.save(row);`,
         `            } catch (ChannelRelayPublisher.BrokerUnavailableException e) {`,
-        `                throw e;`,
+        `                // Commit the rows already published; the pass halts here.`,
+        `                return e;`,
         `            } catch (RuntimeException e) {`,
         `                row.setAttempts(row.getAttempts() + 1);`,
         `                var dead = row.getAttempts() >= MAX_ATTEMPTS;`,
@@ -1951,6 +1985,7 @@ export function renderJavaOutboxFiles(pkgs: {
         `                }`,
         `            }`,
         `        }`,
+        `        return null;`,
         `    }`,
         ``,
         `    @Override`,
@@ -1989,8 +2024,9 @@ export function renderJavaOutboxFiles(pkgs: {
  *     no-ops on redelivery).  A reactor's own durable emit re-enters the bus →
  *     the tee → the next drain, so choreography chains ride the outbox.
  *
- *  Emitted only when hosted durable events ride NO broker (the broker path owns
- *  the `channels:`-wired case). */
+ *  Emitted whenever a hosted durable event rides no broker.  On a deployable
+ *  that also relays broker-routed durable events, the two relays partition the
+ *  table by event type (`partitioned`), so each row has exactly one relay. */
 export function renderJavaStandaloneOutboxFiles(
   basePkg: string,
   opts: {
@@ -2002,6 +2038,9 @@ export function renderJavaStandaloneOutboxFiles(
     /** The deployable carries auth: rows record the EVENT ORIGIN and the
      *  relay delivers each as its system principal (ruling D1). */
     carriesOrigin?: boolean;
+    /** A broker relay drains the broker-routed rows of the same table: the
+     *  local relay takes only the `DURABLE` types this tee records. */
+    partitioned?: boolean;
   },
 ): { name: string; category: "config"; content: string }[] {
   const carriesOrigin = opts.carriesOrigin ?? false;
@@ -2052,7 +2091,7 @@ export function renderJavaStandaloneOutboxFiles(
         ` *  redelivers it post-commit.  Ephemeral events keep Spring's local fan-out. */`,
         `@Component`,
         `public class LoomEventOutbox {`,
-        `    private static final Set<String> DURABLE = Set.of(${durable
+        `    ${opts.partitioned ? "static" : "private static"} final Set<String> DURABLE = Set.of(${durable
           .map((t) => JSON.stringify(t))
           .join(", ")});`,
         ``,
@@ -2145,7 +2184,9 @@ export function renderJavaStandaloneOutboxFiles(
         ``,
         ...javaOutboxPurgeMethods(),
         `    private void drain() {`,
-        `        var rows = outbox.findTop${OUTBOX_RELAY.batchSize}ByDispatchedAtIsNullAndDeadAtIsNullOrderByOccurredAtAsc();`,
+        opts.partitioned
+          ? `        var rows = outbox.findTop${OUTBOX_RELAY.batchSize}ByDispatchedAtIsNullAndDeadAtIsNullAndTypeInOrderByOccurredAtAsc(LoomEventOutbox.DURABLE);`
+          : `        var rows = outbox.findTop${OUTBOX_RELAY.batchSize}ByDispatchedAtIsNullAndDeadAtIsNullOrderByOccurredAtAsc();`,
         `        for (var row : rows) {`,
         `            try {`,
         `                OutboxDelivery.setCurrentEventId(row.getId().toString());`,

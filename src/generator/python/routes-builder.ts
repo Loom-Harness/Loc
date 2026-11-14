@@ -13,6 +13,7 @@ import {
   forApiRead,
   wireFieldsFor,
 } from "../../ir/enrich/wire-projection.js";
+import { destroyLadder, gateReadsParam, gateReadsRow } from "../../ir/plan/gate-ladder.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -58,6 +59,7 @@ import {
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
+  type RequiresStmtIR,
 } from "../../ir/util/op-gates.js";
 import { errorStatuses, type OpErrorKind } from "../../ir/util/openapi-errors.js";
 import {
@@ -85,8 +87,8 @@ import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/server-default.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
-import { findUnionSpec, unionMoneyArms } from "../_payload/union-wire.js";
-import { pyCalendarDateWire } from "./codec-spelling.js";
+import { findUnionSpec, type UnionMoneyKey, unionMoneyArms } from "../_payload/union-wire.js";
+import { pyCalendarDateWire, pyInstantWire } from "./codec-spelling.js";
 import { pyCommandBodyParam } from "./command-body.js";
 import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
 import { paramPyType, requestPyType, responsePyType, wireModelRef } from "./emit/http-models.js";
@@ -308,7 +310,7 @@ export function buildPyRoutesFile(
     ...opEntries.map((e) => ["", "", operationRoute(agg, e.operation!, ctx, e)]),
     // Can-query companions register after the operation routes (static
     // `can_<op>` paths, no collision with `/{id}`).
-    ...probeEntries.map((e) => ["", "", canOpRoute(agg, e.operation!, e)]),
+    ...probeEntries.map((e) => ["", "", canOpRoute(agg, e.operation!, e, getByIdOp?.find)]),
   );
 
   const body = `${models}\n\n\n${routes}`;
@@ -460,7 +462,8 @@ function responseModel(
             : f.type,
           ctx,
         );
-        const optional = f.optional || f.type.kind === "optional";
+        // A masked field can be redacted to null, so the model admits None.
+        const optional = f.optional || f.type.kind === "optional" || f.maskUnless !== undefined;
         const suffix =
           optional && !t.endsWith("| None") ? " | None = None" : optional ? " = None" : "";
         return withFieldConstraint(f.name, `${t}${suffix}`, undefined);
@@ -1005,10 +1008,12 @@ function destroyRoute(
         "    )",
       ]
     : [];
-  // The canonical destroy's `requires` gate runs AFTER the load (it may read
-  // the row) and BEFORE the audit row is staged, so a denied delete records
-  // nothing.  A principal-only gate reads no field, so it needs no receiver —
-  // the load still runs as the 404 probe but is not bound (ruff F841).
+  // The canonical destroy's `requires` gates run in ladder order
+  // (`destroyLadder`): one that reads no row before the load, one that reads
+  // the row after it, and all of them BEFORE the audit row is staged, so a
+  // denied delete records nothing.  A principal-only gate reads no field, so it
+  // needs no receiver — the load still runs as the 404 probe but is not bound
+  // (ruff F841).
   const destroyGateReadsRow = lifecycleGatesReadRow(canonicalDestroy(agg));
   const destroyGateUsesUser = lifecycleGatesUseCurrentUser(canonicalDestroy(agg));
   // A `versioned` row's DELETE reads `If-Match` like a named operation
@@ -1020,11 +1025,20 @@ function destroyRoute(
     `@router.delete("${relativeOpPath(apiOp)}", status_code=204, operation_id="${camelId(opDestroy(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
     `async def destroy_${snake(agg.name)}(${ID_PARAM}, ${PY_REQUEST_PARAM}, session: SessionDep) -> ${H.Response}:`,
     "    repo = _repo(session)",
-    bindLoaded
-      ? `    __loaded = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`
-      : `    await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
     destroyGateUsesUser ? PY_USER_BIND : null,
-    ...lifecycleGate(canonicalDestroy(agg), destroyGateReadsRow ? "__loaded" : undefined),
+    ...destroyLadder(canonicalDestroy(agg), { readsIfMatch: false }).flatMap((step) =>
+      step.step === "requires"
+        ? lifecycleGateStmt(step.gate)
+        : step.step === "row-requires"
+          ? lifecycleGateStmt(step.gate, "__loaded")
+          : step.step === "load"
+            ? [
+                bindLoaded
+                  ? `    __loaded = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`
+                  : `    await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
+              ]
+            : [],
+    ),
     ...(destroyIfMatch
       ? [
           // `chr(34)` is a literal double-quote (see `versionedSave`).
@@ -1060,30 +1074,38 @@ function destroyRoute(
  *  Emitted post-load (so a row-aware term reads the loaded `found`) and BEFORE
  *  the `when` state gate: 403 precedes 409, so an unauthorized caller never
  *  learns the row's state. */
-function requiresGate(op: OperationIR, ctx: BoundedContextIR): string[] {
-  return operationGates(op).flatMap((g) => {
-    // `renderPyNegatedGuard` (not a bare `not (...)`) so a membership gate keeps
-    // the idiomatic `x not in y` the statement renderer produced before the
-    // hoist — the check moved, its spelling shouldn't.
-    const guard = renderPyNegatedGuard(g.expr, {
-      thisName: "found",
-      // Operation params are NOT locals here — the handler holds them at the
-      // wire-read expression the call is about to pass.
-      paramExpr: (name) => {
-        const p = op.params.find((q) => q.name === name);
-        return p ? pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx) : undefined;
-      },
+function requiresGate(
+  op: OperationIR,
+  ctx: BoundedContextIR,
+  which: "row-free" | "row-reading" = "row-reading",
+): string[] {
+  // The gate ladder (`ir/plan/gate-ladder.ts`): a gate that reads no row runs
+  // before the load, one that reads the row after it.
+  return operationGates(op)
+    .filter((g) => gateReadsRow(g) === (which === "row-reading"))
+    .flatMap((g) => {
+      // `renderPyNegatedGuard` (not a bare `not (...)`) so a membership gate keeps
+      // the idiomatic `x not in y` the statement renderer produced before the
+      // hoist — the check moved, its spelling shouldn't.
+      const guard = renderPyNegatedGuard(g.expr, {
+        thisName: "found",
+        // Operation params are NOT locals here — the handler holds them at the
+        // wire-read expression the call is about to pass.
+        paramExpr: (name) => {
+          const p = op.params.find((q) => q.name === name);
+          return p ? pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx) : undefined;
+        },
+      });
+      // A merge-patch update's mask write gate runs only when the body carries
+      // the masked key (an absent key keeps the stored value).
+      const present = maskWritePresenceParam(op, g);
+      return [
+        present
+          ? `    if ${JSON.stringify(pythonWireIdent(present))} in body.model_fields_set and ${guard}:`
+          : `    if ${guard}:`,
+        `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)})`,
+      ];
     });
-    // A merge-patch update's mask write gate runs only when the body carries
-    // the masked key (an absent key keeps the stored value).
-    const present = maskWritePresenceParam(op, g);
-    return [
-      present
-        ? `    if ${JSON.stringify(pythonWireIdent(present))} in body.model_fields_set and ${guard}:`
-        : `    if ${guard}:`,
-      `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)})`,
-    ];
-  });
 }
 
 /** The canonical `create` / `destroy` authorization gate, in the ROUTE.
@@ -1094,8 +1116,8 @@ function requiresGate(op: OperationIR, ctx: BoundedContextIR): string[] {
  *
  *    create  — none.  It runs BEFORE the factory, so it reads the principal
  *              only (`loom.lifecycle-guard-unreadable` enforces that).
- *    destroy — `__loaded`, the row the route already loaded for its 404 probe,
- *              so an unreachable id answers 404 before 403. */
+ *    destroy — `__loaded` for a gate that reads the row, after the load; a
+ *              gate that reads no row runs before it (`destroyLadder`). */
 function lifecycleGate(
   action: OperationIR | null | undefined,
   thisName?: string,
@@ -1103,10 +1125,19 @@ function lifecycleGate(
 ): string[] {
   // A create gate's parameters are the create-input fields the body carries
   // (`loom.lifecycle-guard-unreadable` admits no other).
-  return lifecycleGates(action).flatMap((g) => [
+  return lifecycleGates(action).flatMap((g) => lifecycleGateStmt(g, thisName, paramExpr));
+}
+
+/** One lifecycle gate's refusal. */
+function lifecycleGateStmt(
+  g: RequiresStmtIR,
+  thisName?: string,
+  paramExpr?: (name: string) => string | undefined,
+): string[] {
+  return [
     `    if ${renderPyNegatedGuard(g.expr, { thisName: thisName ?? "self", ...(paramExpr ? { paramExpr } : {}) })}:`,
     `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)})`,
-  ]);
+  ];
 }
 
 function whenGate(agg: EnrichedAggregateIR, op: OperationIR): string[] {
@@ -1118,17 +1149,51 @@ function whenGate(agg: EnrichedAggregateIR, op: OperationIR): string[] {
 }
 
 /** The auto-exposed, side-effect-free `GET /{id}/can_<op>` companion of a
- *  `when`-gated operation — loads the aggregate, evaluates the predicate,
- *  returns `{ allowed }` so a UI can enable/disable the action without
- *  invoking it (the canCommand pattern). */
-function canOpRoute(agg: EnrichedAggregateIR, op: OperationIR, apiOp: ApiOperationIR): string {
+ *  `when`-gated operation — returns `{ allowed }` so a UI can enable/disable
+ *  the action without invoking it (the canCommand pattern).
+ *
+ *  It runs the operation's gate ladder (`ir/plan/gate-ladder.ts`) without a
+ *  body: the by-id read's gate refuses (403) and a row outside the read scope
+ *  is 404, exactly as `GET /{id}` answers, so the probe tells a caller nothing
+ *  the read would not; the operation's own `requires` and `when` fold into
+ *  `allowed`. */
+function canOpRoute(
+  agg: EnrichedAggregateIR,
+  op: OperationIR,
+  apiOp: ApiOperationIR,
+  readFind: FindIR | undefined,
+): string {
   const pred = renderPyExpr(op.when as ExprIR, { thisName: "found" });
+  const readGate = readFind?.requires;
+  const gates = operationGates(op);
+  // A gate that reads an operation parameter cannot be decided without a
+  // body: the probe answers `False` for it, after the load so a missing row is
+  // still 404 (the gate ladder, `ir/plan/gate-ladder.ts`).
+  const undecidable = gates.some(gateReadsParam);
+  const decided = gates.filter((g) => !gateReadsParam(g));
+  const gateLines = (rowReading: boolean): string[] =>
+    decided
+      .filter((g) => gateReadsRow(g) === rowReading)
+      .flatMap((g) => [
+        `    if ${renderPyNegatedGuard(g.expr, { thisName: "found" })}:`,
+        '        return {"allowed": False}',
+      ]);
+  const bindsFound = !undecidable || decided.some(gateReadsRow);
+  const needsUser =
+    (readGate !== undefined && exprUsesCurrentUser(readGate)) || operationGatesUseCurrentUser(op);
   return lines(
     `@router.get("${relativeOpPath(apiOp)}", response_model=CanResponse, operation_id="${camelId(opOperation(agg.name, `can_${op.name}`))}"${derivedResponsesKwarg(apiOp)})`,
-    `async def can_${snake(op.name)}_${snake(agg.name)}(${ID_PARAM}, session: SessionDep) -> dict[str, object]:`,
+    `async def can_${snake(op.name)}_${snake(agg.name)}(${ID_PARAM}, ${needsUser ? "request: Request, " : ""}session: SessionDep) -> dict[str, object]:`,
+    needsUser ? PY_USER_BIND : null,
+    readGate ? `    if ${renderPyNegatedGuard(readGate)}:` : null,
+    readGate
+      ? `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: find ${readFind!.name}`)})`
+      : null,
+    ...gateLines(false),
     "    repo = _repo(session)",
-    `    found = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
-    `    return {"allowed": ${pred}}`,
+    `    ${bindsFound ? "found = " : ""}await repo.get_by_id(${pyIdType(agg.name)}(id))`,
+    ...gateLines(true),
+    `    return {"allowed": ${undecidable ? "False" : pred}}`,
   );
 }
 
@@ -1177,17 +1242,9 @@ function versionedSave(
  *  string (RS-12) — the tagged dict holds the `Decimal`. */
 function unionMoneyReturn(variants: TypeIR[], ctx: EnrichedBoundedContextIR): string[] {
   return unionMoneyArms(variants, ctx).flatMap((arm) => {
-    const enc = arm.keys.map(({ key, optional }) => {
-      const access = `result[${JSON.stringify(key)}]`;
-      // The tagged result is a `dict[str, object]`; the cast names the
-      // `Decimal` the variant field holds so `mypy --strict` accepts the encode.
-      const wire = numericEncode(
-        PY_NUMERIC,
-        "money",
-        "dto-map",
-        `${PY.cast}(${PY.Decimal}, ${access})`,
-      );
-      return `${JSON.stringify(key)}: ${optional ? `None if ${access} is None else ${wire}` : wire}`;
+    const enc = arm.keys.map((k) => {
+      const access = `result[${JSON.stringify(k.key)}]`;
+      return `${JSON.stringify(k.key)}: ${pyMoneyValue(k, access, true)}`;
     });
     return [
       `    if result["type"] == ${JSON.stringify(arm.tag)}:`,
@@ -1279,6 +1336,7 @@ function operationRoute(
       `@router.post("${relativeOpPath(apiOp)}", response_model=None, operation_id="${camelId(opOperation(agg.name, op.name))}"${derivedResponsesKwarg(apiOp, { variants: op.returnType.variants, ctx })})`,
       `async def ${snake(op.name)}_${snake(agg.name)}(${ID_PARAM}, ${pyCommandBodyParam(`${upperFirst(op.name)}${agg.name}Request`, op.params)}, ${PY_REQUEST_PARAM}, session: SessionDep) -> dict[str, object] | ${H.JSONResponse}:`,
       usesUser || gateUsesUser || stampUpdateUsesUser ? PY_USER_BIND : null,
+      ...requiresGate(op, ctx, "row-free"),
       "    repo = _repo(session)",
       `    found = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
       `    ${PY.log}("info", "operation_invoked", aggregate=${JSON.stringify(agg.name)}, op=${JSON.stringify(op.name)}, id=id)`,
@@ -1348,6 +1406,7 @@ function operationRoute(
       `@router.post("${relativeOpPath(apiOp)}", response_model=${wireType}, operation_id="${camelId(opOperation(agg.name, op.name))}"${derivedResponsesKwarg(apiOp)})`,
       `async def ${snake(op.name)}_${snake(agg.name)}(${opSig}) -> ${annotation}:`,
       usesUser || gateUsesUser || stampUpdateUsesUser ? PY_USER_BIND : null,
+      ...requiresGate(op, ctx, "row-free"),
       "    repo = _repo(session)",
       `    found = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
       `    ${PY.log}("info", "operation_invoked", aggregate=${JSON.stringify(agg.name)}, op=${JSON.stringify(op.name)}, id=id)`,
@@ -1372,6 +1431,7 @@ function operationRoute(
     `@router.post("${relativeOpPath(apiOp)}", status_code=204, operation_id="${camelId(opOperation(agg.name, op.name))}"${derivedResponsesKwarg(apiOp)})`,
     `async def ${snake(op.name)}_${snake(agg.name)}(${opSig}) -> ${H.Response}:`,
     usesUser || gateUsesUser || stampUpdateUsesUser ? PY_USER_BIND : null,
+    ...requiresGate(op, ctx, "row-free"),
     "    repo = _repo(session)",
     `    found = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
     `    ${PY.log}("info", "operation_invoked", aggregate=${JSON.stringify(agg.name)}, op=${JSON.stringify(op.name)}, id=id)`,
@@ -1540,4 +1600,26 @@ function _findRoute(
     `        raise ${H.AggregateNotFoundError}("not_found")`,
     `    return ${wireResp(agg, "found")}`,
   );
+}
+
+/** The re-encoded value at `access` for one money position.  The tagged
+ *  result is a `dict[str, object]`, so a top-level read is cast to the type it
+ *  holds for `mypy --strict`; a value object is rebuilt as its wire dict, every
+ *  declared field present and each money position encoded in turn. */
+function pyMoneyValue(k: UnionMoneyKey, access: string, fromDict: boolean): string {
+  let wire: string;
+  if (k.kind === "money") {
+    const typed = fromDict ? `${PY.cast}(${PY.Decimal}, ${access})` : access;
+    wire = numericEncode(PY_NUMERIC, "money", "dto-map", typed);
+  } else if (k.kind === "instant") {
+    wire = pyInstantWire(fromDict ? `${PY.cast}(${PY.datetime}, ${access})` : access);
+  } else {
+    const vo = fromDict ? `${PY.cast}(${pyVoOrEnum(k.voName)}, ${access})` : access;
+    const entries = k.fields.map((f) => {
+      const read = `${vo}.${pythonIdent(f.name)}`;
+      return `${JSON.stringify(f.name)}: ${f.money ? pyMoneyValue(f.money, read, false) : read}`;
+    });
+    wire = `{${entries.join(", ")}}`;
+  }
+  return k.optional ? `None if ${access} is None else ${wire}` : wire;
 }

@@ -1,4 +1,4 @@
-import type { ExprIR } from "./expr.js";
+import type { ExprIR, VariantArmBinding, VariantSubject } from "./expr.js";
 import type { MessageIR } from "./members.js";
 import type { Sourced, TypeIR } from "./types.js";
 
@@ -7,7 +7,7 @@ import type { Sourced, TypeIR } from "./types.js";
 // ---------------------------------------------------------------------------
 
 export type StmtIR = (
-  | { kind: "precondition"; expr: ExprIR; source: string; message?: MessageIR }
+  | ({ kind: "precondition"; expr: ExprIR; source: string } & Messaged)
   | {
       kind: "requires";
       expr: ExprIR;
@@ -21,14 +21,13 @@ export type StmtIR = (
       maskWriteOf?: string;
     }
   | { kind: "let"; name: string; expr: ExprIR; type: TypeIR }
-  | {
+  | ({
       kind: "assign";
       target: PathIR;
       value: ExprIR;
       targetType: TypeIR;
-      prov?: ProvSite;
-    }
-  | {
+    } & ProvSited)
+  | ({
       kind: "add";
       target: PathIR;
       value: ExprIR;
@@ -38,9 +37,8 @@ export type StmtIR = (
        *  collection `add`; page handlers overload it for counters, so the
        *  walker reads this to choose `[...xs, v]` vs `x + v`. */
       collection: boolean;
-      prov?: ProvSite;
-    }
-  | {
+    } & ProvSited)
+  | ({
       kind: "remove";
       target: PathIR;
       value: ExprIR;
@@ -48,8 +46,7 @@ export type StmtIR = (
       /** True when the target is a collection (remove element); false for
        *  a scalar compound `-=` (arithmetic). */
       collection: boolean;
-      prov?: ProvSite;
-    }
+    } & ProvSited)
   | {
       kind: "emit";
       eventName: string;
@@ -90,25 +87,15 @@ export type StmtIR = (
    * presence check (`subjectShape: "absence"`): its arm bindings are aliased
    * to the subject at lowering, so the backends render an if/else.
    */
-  | {
+  | ({
       kind: "variant-match";
       subject: ExprIR;
-      /** Resolved TypeIR of the subject — an `or`-union (the variant set), or
-       *  `T?`. */
-      subjectType?: TypeIR;
-      /** `"absence"` when the subject is `T?`: a presence check, not a
-       *  discriminator probe (mirrors the `match` ExprIR's field). */
-      subjectShape?: "absence";
-      arms: {
+      arms: ({
         varType: TypeIR;
-        binding?: string;
         body: StmtIR[];
-        /** True when this variant is an `error` payload (see the match ExprIR's
-         *  `variantArms[].isError`). */
-        isError?: boolean;
-      }[];
-      elseBody?: StmtIR[];
-    }
+      } & VariantArmBinding)[];
+    } & VariantSubject &
+      ElseBranch<StmtIR>)
   /**
    * `if <cond> { … } else { … }` — the plain boolean conditional.  One of the
    * two NESTING statements a backend body can contain (with `variant-match`),
@@ -120,12 +107,11 @@ export type StmtIR = (
    * `if` — there is no separate else-if node, so every consumer sees one
    * shape.  `elseBody` is absent (not empty) when the source had no `else`.
    */
-  | {
+  | ({
       kind: "if";
       cond: ExprIR;
       thenBody: StmtIR[];
-      elseBody?: StmtIR[];
-    }
+    } & ElseBranch<StmtIR>)
   /**
    * `return <expr>` — an operation's designed-in outcome
    * (exception-less.md).  `value` produces the operation's declared
@@ -157,6 +143,28 @@ export type StmtIR = (
     }
 ) &
   Sourced;
+
+/** A conditional statement's `else` block, shared by every branching
+ *  statement of both statement languages.  Absent (not empty) when the
+ *  source wrote no `else`; an `else if` chain lowers to a one-statement
+ *  `elseBody` holding the next `if`. */
+export interface ElseBranch<S> {
+  elseBody?: S[];
+}
+
+/** A failing check's declared message, shared by both statement languages'
+ *  `precondition`.  Present for a NAMED rule: it carries the rule's key and
+ *  text to the 4xx body; absent for an anonymous check. */
+export interface Messaged {
+  message?: MessageIR;
+}
+
+/** The provenance rule snapshot of an assignment to a `provenanced` field
+ *  (`assign` / `add` / `remove`); absent when the target is not
+ *  provenanced. */
+export interface ProvSited {
+  prov?: ProvSite;
+}
 
 /** The union variant a `return` produces: its wire discriminator and how the
  *  value carries on the wire (see the `return` statement). */

@@ -5,6 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import type {
+  EnrichedLoomModel,
   LoomModel,
   RequirementIR,
   RequirementVerdict,
@@ -39,9 +40,9 @@ export function renderVerificationJson(v: VerificationIR): string {
   return JSON.stringify(v, null, 2) + "\n";
 }
 
-export function renderVerificationMd(loom: LoomModel, v: VerificationIR): string {
+export function renderVerificationMd(loom: EnrichedLoomModel, v: VerificationIR): string {
   const reqs = byId(loom);
-  const children = loom.traceability?.childrenOf ?? {};
+  const children = loom.traceability.childrenOf;
   const roots = loom.requirements.filter((r) => !r.parentId);
   const s = v.summary;
 
@@ -108,8 +109,8 @@ export function renderVerificationMd(loom: LoomModel, v: VerificationIR): string
 
 /** Verdict-colored requirements graph (Mermaid).  A self-contained
  *  requirements-only view: nodes colored by verdict, parent→child edges. */
-export function renderVerdictGraph(loom: LoomModel, v: VerificationIR): string {
-  const children = loom.traceability?.childrenOf ?? {};
+export function renderVerdictGraph(loom: EnrichedLoomModel, v: VerificationIR): string {
+  const children = loom.traceability.childrenOf;
   const idOf = new Map<string, string>();
   loom.requirements.forEach((r, i) => {
     idOf.set(r.id, `r${i}`);

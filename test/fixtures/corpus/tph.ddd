@@ -75,15 +75,14 @@ system TPH {
     // purpose — a subtype's `all` is a bare unbounded array with no `sort`
     // param, so a 2-row read would have no deterministic order to record.
     let trucks = api.trucks.all()
-    expect(trucks.length).toBe(1)
+    expect(trucks.total).toBe(1)
     let cars = api.cars.all()
-    expect(cars.length).toBe(1)
+    expect(cars.total).toBe(1)
 
-    // There is deliberately no `api.vehicles.getById(...)` — `Vehicle` is the
-    // ABSTRACT base, which `docs/inheritance.md` says owns no routes, and no
-    // backend mounts one.  `deriveContextOperations` derived it anyway until
-    // this drain's first caller answered 404 on a row that exists; see the
-    // note in `inheritance.ddd` and the fix in `api-surface.ts`.
+    // The abstract base's polymorphic reads see both kinds: one list, and a
+    // by-id read answering each row as its own subtype.
+    expect(api.vehicles.all().total).toBe(2)
+    expect(api.vehicles.getById(t).name).toBe("Hauler")
     //
     // DELETE of one row out of the shared table must remove EXACTLY that row.
     // A second car is minted so the car delete has a row of its own; the
@@ -92,7 +91,7 @@ system TPH {
     api.cars.destroy(spare)
     expect(api.cars.getById(spare)).toThrow(404)
     let carsAfter = api.cars.all()
-    expect(carsAfter.length).toBe(1)
+    expect(carsAfter.total).toBe(1)
 
     // …and deleting the OTHER discriminator's row must not touch this one — the
     // classic TPH delete failure is a DELETE that carries the id but not the
@@ -100,8 +99,8 @@ system TPH {
     api.trucks.destroy(t)
     expect(api.trucks.getById(t)).toThrow(404)
     let trucksAfter = api.trucks.all()
-    expect(trucksAfter.length).toBe(0)
+    expect(trucksAfter.total).toBe(0)
     let carsStill = api.cars.all()
-    expect(carsStill.length).toBe(1)
+    expect(carsStill.total).toBe(1)
   }
 }

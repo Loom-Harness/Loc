@@ -270,6 +270,7 @@ export function renderJavaController(
   // predicate, returns `{ allowed }` so a UI can enable/disable the action
   // without invoking it.  The service owns the load + predicate; the
   // controller wraps the boolean in the shared `CanResponse` record.
+  const readGateFind = routed(derivedOps.find((o) => o.kind === "getById"))?.find;
   const canRouteLines = (op: (typeof agg.operations)[number]): string[] => {
     const probe = routed(probeByOp.get(op));
     if (!probe) return [];
@@ -277,6 +278,9 @@ export function renderJavaController(
       `    @GetMapping("${relativeOpPath(probe)}")`,
       ...doc(probe, { status: 200 }),
       `    public CanResponse can${upperFirst(op.name)}${agg.name}(@PathVariable ${idJava} id) {`,
+      // The by-id read's own gate refuses first (403), exactly as `GET /{id}`
+      // does; the service then runs the operation's gate ladder (ir/plan/gate-ladder.ts).
+      ...(readGateFind?.requires ? findGateLines(readGateFind) : []),
       `        return new CanResponse(service.can${upperFirst(op.name)}(new ${idClass}(id)));`,
       `    }`,
       ``,
@@ -1268,6 +1272,18 @@ export function renderApiExceptionAdvice(
     `            : required != null ? "Expected " + required.getSimpleName() + "."`,
     `            : "Invalid value.";`,
     `        var code = isId ? ${javaLit(fieldCode("malformed-id"))} : ${javaLit(fieldCode("type-mismatch"))};`,
+    `        // An int value that IS an integer but does not fit int32 is the shared`,
+    `        // integer-range refusal, with its bounds.`,
+    `        var raw = e.getValue() == null ? null : e.getValue().toString();`,
+    `        if ((int.class.equals(required) || Integer.class.equals(required)) && raw != null) {`,
+    `            try {`,
+    `                new java.math.BigInteger(raw);`,
+    `                problem.setProperty("errors", java.util.List.of(entry(pointerOf(e.getName()), ${javaLit(fieldFixedMessage("integer-range"))}, ${javaLit(fieldCode("integer-range"))}, java.util.Map.of("min", ${INTEGER_RANGE_PARAMS.min}, "max", ${INTEGER_RANGE_PARAMS.max}))));`,
+    `                return respond(problem, ${fieldInvalid});`,
+    `            } catch (NumberFormatException notAnInteger) {`,
+    `                // not an integer at all: the type mismatch below`,
+    `            }`,
+    `        }`,
     `        problem.setProperty("errors", java.util.List.of(entry(pointerOf(e.getName()), message, code, null)));`,
     `        return respond(problem, ${fieldInvalid});`,
     `    }`,

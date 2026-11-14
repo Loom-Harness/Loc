@@ -136,7 +136,7 @@ describe("group-by shape gates", () => {
     expect(
       await codes(
         context(`projection Nope keyed by orderId { orderId: Order id  n: int
-          on(e: OrderPlaced) { orderId := e.orderId  n := 1 }
+          on(e: OrderPlaced) { n := 1 }
           group by o.status }`),
       ),
     ).toContain("loom.projection-groupby-source-invalid");

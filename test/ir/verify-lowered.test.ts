@@ -33,7 +33,7 @@ describe("loom.ir-ill-formed — the post-lowering backstop", () => {
       { validate: true },
     );
     expect(errors).toEqual([]);
-    expect(lowerModel(ast).loweringViolations).toBeUndefined();
+    expect(lowerModel(ast).loweringViolations).toEqual([]);
   });
 
   it("an ill-formed lowering is refused at its .ddd span, with the violation named", async () => {

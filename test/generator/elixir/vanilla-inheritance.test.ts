@@ -104,11 +104,9 @@ describe("vanilla aggregate inheritance — TPH (sharedTable)", () => {
     expect(file(files, "/parties/customer.ex")).toContain(
       'def base_query, do: Ecto.Query.from(record in __MODULE__, where: record.kind == "Customer")',
     );
-    // list + find_by_id scope to this subtype's rows on the shared table.
-    // An inheritance subtype keeps the bare `list` (M-T2.6 excludes polymorphic
-    // hierarchies from the paged findAll — the `find all <Base>` reader
-    // concatenates each subtype's list, which a per-subtype page can't compose).
-    expect(repo).toMatch(/def list do[\s\S]*Api\.Parties\.Customer\.base_query\(\)/);
+    // list + find_by_id scope to this subtype's rows on the shared table.  A
+    // TPH subtype's `list` is the paged findAll, like any relational aggregate.
+    expect(repo).toMatch(/def list\(page[\s\S]*Api\.Parties\.Customer\.base_query\(\)/);
     expect(repo).toMatch(/def find_by_id\(id\)[\s\S]*Api\.Parties\.Customer\.base_query\(\)/);
     // insert stamps the discriminator so the shared-table row is routable back.
     expect(repo).toContain('Ecto.Changeset.put_change(:kind, "Customer")');

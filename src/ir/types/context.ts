@@ -1,6 +1,6 @@
 import type { AggregateIR, TestIR } from "./aggregate.js";
 import type { ExprIR } from "./expr.js";
-import type { DerivedIR, FieldIR, FunctionIR, InvariantIR, ParamIR } from "./members.js";
+import type { DerivedIR, FieldIR, FunctionIR, InvariantIR, ParamIR, Returns } from "./members.js";
 import type { ProjectionIR } from "./projection.js";
 import type { StmtIR } from "./stmt.js";
 import type { GenericCtorName, PayloadKind, Sourced, TypeIR } from "./types.js";
@@ -14,14 +14,14 @@ export interface EnumIR extends Sourced {
    *  where it was DECLARED is an input fact this flag keeps: its model-text
    *  keys file under `_system` (`src/util/model-text-key.ts`), not under
    *  whichever context happens to render it. */
-  systemLevel?: true;
+  systemLevel: boolean;
 }
 
 export interface ValueObjectIR extends Sourced {
   name: string;
   fields: FieldIR[];
   /** Declared outside every bounded context — see {@link EnumIR.systemLevel}. */
-  systemLevel?: true;
+  systemLevel: boolean;
   derived: DerivedIR[];
   invariants: InvariantIR[];
   functions: FunctionIR[];
@@ -95,41 +95,26 @@ export type Bypassing = {
   bypassCaps?: string[];
 };
 
-export interface FindIR extends Bypassing {
+export interface FindIR extends Bypassing, ReadGated, Filtered, CriterionReified {
   name: string;
   params: ParamIR[];
   returnType: TypeIR;
-  /** Authorization gate (D-AUTH-OIDC / default-deny) — the aggregate's
-   *  `policy { read X requires <expr> }` gate, put on the find by enrichment
-   *  (`applyPolicyReadGates`); a find declares no gate of its own.  A boolean
-   *  evaluated against `currentUser` *before* the query runs; failure → 403.  Distinct from `filter`: the
-   *  filter scopes which rows come back (queryable, pushed to SQL), the gate
-   *  decides whether the caller may hit the endpoint at all.  Lowered in the
-   *  bare context scope (currentUser only, no aggregate row / params), so it
-   *  can reference `currentUser` + constants but not the source row's fields.
-   *  `requires true` is the explicit intentionally-public escape (the
-   *  read-side twin of the operation gate). */
-  requires?: ExprIR;
-  /** Optional `where ...` filter expression in IR form. */
-  filter?: ExprIR;
-  /** Set when the `where` filter is *exactly* one named `criterion`
-   *  reference — its name + lowered args, for backends that consume the
-   *  reified `Criterion`.  `filter` still carries the inlined predicate, so
-   *  composed/anonymous filters and non-reifying backends are unaffected. */
-  criterionRef?: { name: string; args: ExprIR[] };
+  // `requires` is the aggregate's `policy { read X requires <expr> }` gate,
+  // put on the find by enrichment (`applyPolicyReadGates`); a find declares
+  // no gate of its own.
   /** A single-row find that answers the FIRST row its filter matches, in id
    *  order, where more than one row may match — the widened
    *  `Repo.find(<Criterion>) ignoring …` read (`synthesizeBypassReadFinds`),
    *  which keeps `find(C)`'s first-match meaning.  Absent, a single-row find
    *  reads a key, and a backend may treat a second match as an error. */
-  takeFirst?: boolean;
+  takeFirst: boolean;
   /** Compiler-synthesized find — NOT author-declared and NOT auto-exposed as
    *  its own HTTP route.  Set by enrich when a paged `queryHandler` over
    *  `Repo.all(<Criterion>)` (paged-run) needs the #1904 paged FIND repo-method
    *  emitted for it to call; the exposure is the queryHandler's own route, so
    *  the aggregate router skips this find (route + query schema + paged DTO).
    *  The repository builder still emits the method. */
-  synthesized?: boolean;
+  synthesized: boolean;
   /** The order a PAGED find's page is taken in when the caller's `sort` key
    *  names no whitelisted column — its route's `sort` then defaults to `""`
    *  (`pagedSortDefault`).  Absent: the `id` order every paged read falls back
@@ -148,14 +133,14 @@ export interface FindIR extends Bypassing {
    *  entity read.  The flag exists because the SOURCE diverges: the generic
    *  find-route + repository builders skip it and each backend's audit emitter
    *  serves it instead. */
-  auditHistory?: boolean;
+  auditHistory: boolean;
   /** `requires` is the DENY gate enrichment synthesised (a `false` literal),
    *  not one the author wrote (M-T3.19).  Set on the list read (`all`) — and
    *  on the by-id read `byIdRouteFind` synthesises — of a repository marked
    *  `readsDefaultDenied`, when the author declared no gate for it: under
    *  `denyByDefault` that read fails closed (403 before the load) on every
    *  backend, and the validator still reports it as ungated. */
-  defaultDenied?: boolean;
+  defaultDenied: boolean;
 }
 
 /** A natural-key read's key (`Repo.getBy(sku: s)` / `Repo.findBy(…)`,
@@ -260,11 +245,9 @@ export interface DomainServiceIR {
  *  param/return/body shape of an aggregate `OperationIR`, but is always
  *  non-mutating (no `this`) — there is no `mutating` field to stamp; the
  *  no-infra contract is derived by the validator from the body. */
-export interface DomainServiceOperationIR {
+export interface DomainServiceOperationIR extends Returns {
   name: string;
   params: ParamIR[];
-  /** Declared `or`-union (or plain) return type; absent ⇒ no `: T` clause. */
-  returnType?: TypeIR;
   body: StmtIR[];
 }
 
@@ -302,7 +285,7 @@ export type LoadPlanIR = { kind: "whole" } | { kind: "explicit"; paths: LoadSegm
  *  Its `ignoring` stance is set only on the retrievals enrichment derives
  *  for a widened `Repo.all(…) ignoring …` read (`widenedRetrievalName`);
  *  a declared retrieval never carries one. */
-export interface RetrievalIR extends Sourced, Bypassing {
+export interface RetrievalIR extends Sourced, Bypassing, CriterionReified {
   name: string;
   params: ParamIR[];
   /** The `of <T>` candidate type (entity aggregate). */
@@ -311,13 +294,6 @@ export interface RetrievalIR extends Sourced, Bypassing {
    *  (parameters as `param` refs, candidate fields as `this-prop`).
    *  Composes criteria + bare predicates like a `find … where`. */
   where: ExprIR;
-  /** Set when the `where` is *exactly* one named `criterion` reference
-   *  (`where: NamedLike(needle)`) — the criterion name + its lowered
-   *  argument expressions, for backends that consume the reified
-   *  `Criterion`/Specification (the `.where` body is still the inlined
-   *  predicate, so non-reifying backends are unaffected).  Omitted when
-   *  the `where` is composed or an anonymous expression. */
-  criterionRef?: { name: string; args: ExprIR[] };
   /** Ordering terms, in declaration order.  Empty when no `sort:`. */
   sort: SortTermIR[];
   /** Fetch shape; `{ kind: "whole" }` when no `loads:` clause. */
@@ -420,49 +396,47 @@ export interface BoundedContextIR extends Sourced {
   /** `policy { allow <level> on X [when …] }` read rules declared in this
    *  context (tenancy.md, D-SHARING).  Consumed by enrichment
    *  (`applyPolicyScopes`), which composes them into the aggregate's tenancy
-   *  read term.  Undefined / empty when the context declares none. */
-  policyReadLevels?: PolicyReadLevelIR[];
+   *  read term.  Empty when the context declares none. */
+  policyReadLevels: PolicyReadLevelIR[];
   /** `policy { allow write <level> on X [when …] }` write rules declared in
    *  this context — composed by enrichment into the aggregate's
-   *  `writeScopeFilter`.  Undefined / empty when the context declares none. */
-  policyWriteLevels?: PolicyWriteLevelIR[];
+   *  `writeScopeFilter`.  Empty when the context declares none. */
+  policyWriteLevels: PolicyWriteLevelIR[];
   /** `policy { allow [write] on X as x where … }` row rules declared in this
    *  context (D-SHARING).  Consumed by enrichment (`applyPolicyScopes`), which
-   *  ORs each onto the aggregate's level default.  Undefined / empty when the
+   *  ORs each onto the aggregate's level default.  Empty when the
    *  context declares none. */
-  policyRowRules?: PolicyRowRuleIR[];
+  policyRowRules: PolicyRowRuleIR[];
   /** Per-aggregate DENY carve-outs declared by `policy { deny [write] on X }`
    *  blocks in this context.  Each entry names an aggregate
    *  and the access it denies (`read` = total carve-out, the aggregate becomes
    *  invisible; `write` = read-only carve-out).  Consumed by `enrichLoomModel`
    *  (`applyPolicyDenies`), which appends an always-false predicate to the aggregate's read
    *  `contextFilters` (deny read) or overwrites its `writeScopeFilter` (deny
-   *  write) with `buildDenyFilter`.  Undefined / empty when the context declares
+   *  write) with `buildDenyFilter`.  Empty when the context declares
    *  no `deny` rule. */
-  policyDenies?: PolicyDenyIR[];
+  policyDenies: PolicyDenyIR[];
   /** Per-aggregate READ gates declared by `policy { read X requires <expr> }`
    *  in this context — who may read the aggregate at all.  Consumed by
    *  enrichment (`applyPolicyReadGates`), which puts the gate on every
    *  author-declared find of X and on the compiler-injected list read `all`;
    *  the by-id route and the audit history read take it from `all`
-   *  (`read-gates.ts`, `ensureHistoryFind`).  Undefined / empty when the
+   *  (`read-gates.ts`, `ensureHistoryFind`).  Empty when the
    *  context declares no read gate. */
-  policyReadGates?: PolicyReadGateIR[];
+  policyReadGates: PolicyReadGateIR[];
   /** `policy { allow share on X [when …] }` rules declared in this context —
    *  who may create or revoke a share of the `shareable` aggregate X
    *  (D-SHARING).  Consumed by the share-aggregate's lifecycle gate
-   *  (`shareGateOf`).  Undefined / empty when the context declares none. */
-  policyShareGates?: PolicyShareGateIR[];
+   *  (`shareGateOf`).  Empty when the context declares none. */
+  policyShareGates: PolicyShareGateIR[];
 }
 
 /** One `allow share on <Aggregate> [when <expr>]` rule lowered from a
  *  `policy {}` block.  `when` is lowered in the bare context scope, like a
  *  level rule's: caller-only (`loom.policy-when-not-caller-only`). */
-export interface PolicyShareGateIR {
+export interface PolicyShareGateIR extends CallerConditioned {
   /** The `shareable` aggregate (by name, in this context). */
   aggregate: string;
-  /** The caller condition.  Absent = every caller. */
-  when?: ExprIR;
   /** Source span text for diagnostics (`allow share on Category when …`). */
   source: string;
 }
@@ -492,30 +466,24 @@ export type PolicyLevel = "local" | "own";
  *  D-SHARING).  Without any level rule the default is `local`; a level rule
  *  REPLACES that default for the callers its `when` admits (every caller when
  *  it has none), and the callers no `when` admits keep `local`. */
-export interface PolicyReadLevelIR {
+export interface PolicyReadLevelIR extends CallerConditioned {
   /** The tenant-owned aggregate this level applies to (by name, in this
    *  context).  Resolution + tenant-owned-ness is validated in phase ⑦. */
   aggregate: string;
   /** The read level. */
   level: PolicyLevel;
-  /** The caller condition, lowered in the bare context scope (no row): only
-   *  `currentUser` claims and constants, checked in phase ⑦
-   *  (`loom.policy-when-not-caller-only`).  Absent = every caller. */
-  when?: ExprIR;
   /** Source span text for diagnostics (`allow own on Note when …`). */
   source: string;
 }
 
 /** One `allow write <level> on <Aggregate> [when <expr>]` rule lowered from a
  *  `policy {}` block — the write twin of {@link PolicyReadLevelIR}. */
-export interface PolicyWriteLevelIR {
+export interface PolicyWriteLevelIR extends CallerConditioned {
   /** The tenant-owned aggregate this write level applies to (by name, in this
    *  context).  Resolution + tenant-owned-ness is validated in phase ⑦. */
   aggregate: string;
   /** The write level. */
   level: PolicyLevel;
-  /** The caller condition (see {@link PolicyReadLevelIR.when}). */
-  when?: ExprIR;
   /** Source span text for diagnostics (`allow write local on Invoice`). */
   source: string;
 }
@@ -586,3 +554,45 @@ export interface SeedRowIR {
   /** Field initialisers, fully-resolved to `ExprIR`. */
   fields: { name: string; value: ExprIR }[];
 }
+
+/** A read's authorization gate (D-AUTH-OIDC / default-deny) — a `requires
+ *  <expr>` evaluated against `currentUser` *before* the read runs; failure →
+ *  403.  Distinct from `filter`: the filter scopes which rows come back
+ *  (queryable, pushed to SQL), the gate decides whether the caller may hit the
+ *  read at all.  Lowered in the bare context scope (currentUser only, no row /
+ *  params), so it may reference `currentUser` + constants but not the source
+ *  row's fields.  `requires true` is the explicit intentionally-public escape.
+ *  Shared by finds, query-time projections and pages; absent = ungated (which
+ *  `denyByDefault` reports where it applies). */
+export interface ReadGated {
+  requires?: ExprIR;
+}
+
+/** A read's `where …` predicate in IR form, queryable (pushed to SQL).
+ *  Absent when the read declares none. */
+export interface Filtered {
+  filter?: ExprIR;
+}
+
+/** Set when a read's `where` is *exactly* one named `criterion` reference — the
+ *  criterion name + its lowered argument expressions, for backends that
+ *  consume the reified `Criterion` / Specification.  The read's predicate
+ *  still carries the inlined form, so composed / anonymous predicates and
+ *  non-reifying backends are unaffected.  Absent otherwise. */
+export interface CriterionReified {
+  criterionRef?: { name: string; args: ExprIR[] };
+}
+
+/** A `policy` rule's `when <expr>` caller condition, lowered in the bare
+ *  context scope (no row): only `currentUser` claims and constants, checked in
+ *  phase ⑦ (`loom.policy-when-not-caller-only`).  Absent = every caller. */
+export interface CallerConditioned {
+  when?: ExprIR;
+}
+
+/** The four synthesis flags of a plain, author-declared find — all off.  A
+ *  construction site spreads this first and sets the flag its read needs. */
+export const PLAIN_FIND_FLAGS: Pick<
+  FindIR,
+  "takeFirst" | "synthesized" | "auditHistory" | "defaultDenied"
+> = { takeFirst: false, synthesized: false, auditHistory: false, defaultDenied: false };

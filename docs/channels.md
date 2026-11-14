@@ -83,7 +83,8 @@ instance + `Shipment` in its own database.
 The channel's `delivery` × `retention` pair must be realisable by the bound
 storage type (`loom.channelsource-incompatible` otherwise; single source of
 truth in `src/util/channels.ts`, shipped combos in
-`src/generator/_channels/bindings.ts`). All cells ship on **all five
+`src/util/channels.ts` `SHIPPED_COMBOS`, binding resolution in
+`src/ir/plan/channel-bindings.ts`). All cells ship on **all five
 backends** (node/Hono, python/FastAPI, dotnet, java/Spring Boot,
 elixir/Phoenix):
 
@@ -111,6 +112,43 @@ no framework buses; re-checked per version bump):
 
 Dependencies are wiring-gated: a project with no wired channel is
 byte-identical to one generated before the feature existed.
+
+## Event routing — the channel plan
+
+For each deployable, `channelPlan` (`src/ir/plan/channel-plan.ts`) decides
+where every event goes, and each backend renders that decision with its own
+broker client and dispatcher. An event a hosted context raises takes one of
+four routes:
+
+| Route | When | Delivery |
+|---|---|---|
+| `inline-local` | no durable channel carries it, no wired binding carries it | in-process, after commit, at most once |
+| `outbox-local` | a hosted `retention: log \| work` channel carries it, no wired binding does, and the deployable has an outbox tier | written to `__loom_outbox` in the raising transaction; the relay redelivers it in-process |
+| `broker-inline` | a wired binding carries it, its channel is `ephemeral` | published by the tee after commit, at most once |
+| `broker-outbox` | a wired binding carries it, its channel is durable | written to `__loom_outbox`; the relay publishes it |
+
+The plan also decides:
+
+- **Local fan-out.** A broker-carried event never runs local subscribers
+  in-process; they receive it from the broker, so each delivery happens once.
+- **Foreign channels.** A wired channel declared in a context the deployable
+  does not host joins its subscription routing with the channel's real
+  `delivery` and `retention`.
+- **Consumer.** A deployable runs a broker consumer when it wires a binding and
+  a hosted reactor, event-triggered `create` or projection fold consumes an
+  event that binding carries.
+- **Outbox tier.** A deployable runs outbox capture and the relay when it
+  hosts a durable channel and either consumes events in-process (a reactor,
+  event-triggered `create` or projection fold in any hosted context) or a wired
+  binding carries one of its durable events. Capture and relay always come
+  together, and the tier captures every hosted durable event. With no
+  in-process consumer the tier is the producer-only shape: every drained row
+  goes to the broker.
+- **Dedupe.** A consumer dedupes redelivery on the envelope `id` for every
+  durable event it consumes, whether its channel is hosted or foreign.
+
+`test/system/channel-plan-census.test.ts` ratchets the emitter code that still
+derives these answers itself; the count only goes down.
 
 ## The wire — CloudEvents 1.0
 
@@ -155,6 +193,11 @@ Every backend's relay behaves the same way on `__loom_outbox`:
   AND dead_at IS NULL ORDER BY occurred_at`, 50 per pass every 500 ms. The
   partial index `__loom_outbox_pending_idx` carries the same predicate, so the
   poll cost tracks the backlog, not the table's history.
+- **Claim.** A pass takes its rows inside one transaction with
+  `FOR UPDATE SKIP LOCKED` and marks them before it commits, so two relays
+  over one outbox (replicas of a deployable, or two deployables sharing a
+  database) never publish the same row. Reactors the relay runs in-process
+  use their own connection, never the claim's.
 - **Broker outage.** A publish the broker cannot take halts the pass without
   spending the row's attempt; the rows already published commit. After a
   failed pass (broker or database unreachable) the next one waits

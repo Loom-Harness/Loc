@@ -185,12 +185,12 @@ export const tsxTarget: WalkerTarget = {
 
   /** A controlled search box driving the client-side filter.  `value`/`onChange`
    *  is React's two-way idiom; inline-styled so it stays pack-agnostic. */
-  renderFilterInput(filter) {
+  renderFilterInput(filter, labels) {
     const n = filter.name;
     const setN = `set${n[0]!.toUpperCase()}${n.slice(1)}`;
     const style = `{ marginBottom: "0.75rem", padding: "0.375rem 0.5rem" }`;
     return (
-      `<input type="search" placeholder="Filter…" aria-label="Filter table" ` +
+      `<input type="search" ${labels.placeholderAttr} ${labels.ariaAttr} ` +
       `value={${n}} onChange={(e) => ${setN}(e.target.value)} ` +
       `style={${style}} data-testid="table-filter" />`
     );

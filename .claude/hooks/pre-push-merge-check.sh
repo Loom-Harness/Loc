@@ -129,6 +129,23 @@ docs_only() {
   ! printf '%s\n' "$files" | grep -qvE "$DOCS_ONLY_PATHS"
 }
 
+# --- the dependency tree to borrow -------------------------------------------
+# Prints the first `node_modules` that can typecheck: one holding TypeScript and
+# Node's type definitions. Candidates: this checkout's, then the main
+# checkout's (the parent of the shared git dir, which an agent worktree under
+# `.claude/worktrees/` resolves its deps from). Returns 1 when none does.
+resolvable_node_modules() {
+  local repo="$1" common main cand
+  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || common=""
+  main="${common:+$(dirname "$common")}"
+  for cand in "$repo/node_modules" ${main:+"$main/node_modules"}; do
+    [ -f "$cand/typescript/package.json" ] && [ -d "$cand/@types/node" ] || continue
+    (cd "$cand" && pwd)
+    return 0
+  done
+  return 1
+}
+
 # --- typecheck the MERGED tree (improvement-waves 4.1) ----------------------
 # Materialises `origin/main + HEAD` into a throwaway worktree and runs the two
 # gates a merge can break with no textual conflict at all:
@@ -160,16 +177,20 @@ typecheck_merged() {
   local repo mods commit dir rc out
   repo="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
   # `npm install` in a throwaway tree would cost minutes and a network; borrow
-  # the checkout's own dependency tree instead. No deps → nothing to check.
-  mods="$repo/node_modules"
-  [ -d "$mods" ] || return 0
+  # an installed dependency tree instead. An agent worktree often holds only a
+  # vite cache stub (`node_modules/.vite`) and resolves its deps from the main
+  # checkout, so borrowing it fails `tsc` with TS2688 on a tree that is fine.
+  # Take the first candidate that really resolves the toolchain — this
+  # checkout's, then the main checkout's — and allow when neither does.
+  mods="$(resolvable_node_modules "$repo")" || { trace "no resolvable node_modules: gates skipped"; return 0; }
+  trace "borrowing node_modules from $mods"
 
   commit="$(git commit-tree "$tree" -p HEAD -m 'merge-preflight (throwaway)' 2>/dev/null)" || return 0
   [ -n "$commit" ] || return 0
   dir="$(mktemp -d 2>/dev/null)" || return 0
   PREFLIGHT_DIR="$dir"   # cleaned by the top-level EXIT trap, deny path included
   git worktree add --detach --quiet "$dir" "$commit" >/dev/null 2>&1 || return 0
-  ln -s "$(cd "$mods" && pwd)" "$dir/node_modules" 2>/dev/null || return 0
+  ln -s "$mods" "$dir/node_modules" 2>/dev/null || return 0
 
   if [ "$mode" = docs ]; then
     census_merged "$dir" docs
@@ -278,6 +299,10 @@ sync_only_gate() {
   # The old head conflicted with main → the sync is required to enter the
   # queue. A merge-tree error (old git) is "don't know" → allow.
   git merge-tree --write-tree origin/main "$old" >/dev/null 2>&1 || return 0
+  # Several merge bases (a criss-cross of earlier syncs): git's merge resolves
+  # them into a virtual base, while GitHub's mergeability check does not, so
+  # a "clean" here can be a conflict there. Don't know → allow.
+  [ "$(git merge-base --all origin/main "$old" 2>/dev/null | wc -l)" -le 1 ] || return 0
   deny "git push blocked: this push only merges origin/main into '${branch}' — it adds no commit of its own.
 The old head merges cleanly into main, and the merge queue re-tests every entry on top of current main, so the sync buys nothing and re-runs ~100 CI checks on a shared ~20-runner pool.
 Don't push it. Leave the branch as it is.

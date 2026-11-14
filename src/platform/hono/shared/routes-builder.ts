@@ -17,9 +17,11 @@ import {
   type OpUnionResponses,
   opUnionResponses,
   type UnionMemberField,
+  type UnionMoneyKey,
   unionMemberObjects,
   unionMembers,
   unionMoneyArms,
+  wireSurfaceTypes,
 } from "../../../generator/_payload/union-wire.js";
 import {
   PG_FOREIGN_KEY_VIOLATION,
@@ -80,6 +82,7 @@ import {
   wireCreateDefault,
   wireFieldsFor,
 } from "../../../ir/enrich/wire-projection.js";
+import { destroyLadder, gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -105,6 +108,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import {
   aggregateUsesMoneyDeep,
+  exprUsesCurrentUser,
   findGateUsesCurrentUser,
   findUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
@@ -141,6 +145,7 @@ import {
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
+  type RequiresStmtIR,
 } from "../../../ir/util/op-gates.js";
 import {
   camelId,
@@ -1365,11 +1370,9 @@ export function buildRoutesFile(
     // (`destroyVersionCheck`): a stale tag is refused before the delete.
     const destroyIfMatch = readsIfMatch(destroyVersionCheck(agg));
     if (destroyGates.length > 0) {
-      // GUARDED destroy — the row loads FIRST (a destroy guard may read `this`,
-      // and the route loads anyway for the 404 probe), then the gate, then the
-      // delete.  The order is the security property: 404 (unreachable) wins
-      // over 403 (unauthorized), and the deny precedes both the delete and —
-      // on an audited destroy — the audit row it would otherwise have staged.
+      // GUARDED destroy — the gates in ladder order around the load, then the
+      // delete.  The deny precedes both the delete and — on an audited
+      // destroy — the audit row it would otherwise have staged.
       // The load is BOUND here even on the audited path, which re-loads inside
       // its transaction: the gate must not run inside the audit tx, or a denial
       // rolls back work it should never have started.
@@ -1377,18 +1380,25 @@ export function buildRoutesFile(
       // BOUND there — it still runs (it is the 404 probe), it just has no
       // receiver to name.
       const readsRow = lifecycleGatesReadRow(canonicalDestroy(agg));
-      lines.push(
-        readsRow || destroyIfMatch
-          ? `      const __loaded = await repo.getById(${T.Ids}.${agg.name}Id(id));`
-          : `      await repo.getById(${T.Ids}.${agg.name}Id(id));`,
-      );
       if (lifecycleGatesUseCurrentUser(canonicalDestroy(agg))) {
         lines.push(currentUserBindLine("      "));
       }
-      lines.push(
-        ...lifecycleGateLines(canonicalDestroy(agg), "      ", readsRow ? "__loaded" : undefined),
-      );
-      if (destroyIfMatch) lines.push(...destroyIfMatchLines(agg, "__loaded", "      "));
+      // The gate ladder (`ir/plan/gate-ladder.ts` → `destroyLadder`): a gate
+      // that reads no row refuses before the load, so a missing id answers
+      // the refused caller's 403; one that reads the row runs after it.
+      for (const step of destroyLadder(canonicalDestroy(agg), { readsIfMatch: destroyIfMatch })) {
+        if (step.step === "requires") lines.push(...lifecycleGateLine(step.gate, "      "));
+        else if (step.step === "load")
+          lines.push(
+            readsRow || destroyIfMatch
+              ? `      const __loaded = await repo.getById(${T.Ids}.${agg.name}Id(id));`
+              : `      await repo.getById(${T.Ids}.${agg.name}Id(id));`,
+          );
+        else if (step.step === "row-requires")
+          lines.push(...lifecycleGateLine(step.gate, "      ", "__loaded"));
+        else if (step.step === "version")
+          lines.push(...destroyIfMatchLines(agg, "__loaded", "      "));
+      }
     } else if (!auditDestroy) {
       // Non-audited: the not-found probe stays OUTSIDE the FK-violation
       // try, byte-identical to the pre-audit baseline.  getById throws
@@ -1495,7 +1505,7 @@ export function buildRoutesFile(
     const probe = derivedProbeByIR.get(op);
     if (probe) {
       if (entry) lines.push("");
-      lines.push(...emitCanOpRoute(agg, op!, probe, emitTrace).map((l) => `  ${l}`));
+      lines.push(...emitCanOpRoute(agg, op!, probe, derivedGetById?.find).map((l) => `  ${l}`));
     }
     lines.push("");
   }
@@ -1820,28 +1830,33 @@ function requiresGateLines(
   pad: string,
   ctx: BoundedContextIR,
   argExpr?: (name: string) => string | undefined,
+  which: "row-free" | "row-reading" = "row-reading",
 ): string[] {
-  return operationGates(op).map((g) => {
-    const pred = renderTsExpr(g.expr, {
-      thisName: "aggregate",
-      // Operation params are NOT locals here — the handler holds them at the
-      // wire-read expression the call is about to pass (`body.<name>`), so an
-      // arg-aware gate (`requires amount <= limit`) must read the same thing.
-      paramExpr:
-        argExpr ??
-        ((name) => {
-          const p = op.params.find((q) => q.name === name);
-          return p ? wireToDomainExpr(`body.${p.name}`, p.type, ctx) : undefined;
-        }),
+  // The gate ladder (`ir/plan/gate-ladder.ts`): a gate that reads no row runs
+  // before the load, one that reads the row after it.
+  return operationGates(op)
+    .filter((g) => gateReadsRow(g) === (which === "row-reading"))
+    .map((g) => {
+      const pred = renderTsExpr(g.expr, {
+        thisName: "aggregate",
+        // Operation params are NOT locals here — the handler holds them at the
+        // wire-read expression the call is about to pass (`body.<name>`), so an
+        // arg-aware gate (`requires amount <= limit`) must read the same thing.
+        paramExpr:
+          argExpr ??
+          ((name) => {
+            const p = op.params.find((q) => q.name === name);
+            return p ? wireToDomainExpr(`body.${p.name}`, p.type, ctx) : undefined;
+          }),
+      });
+      // A merge-patch update's mask write gate runs only when the body carries
+      // the masked key (an absent key keeps the stored value).
+      const present = maskWritePresenceParam(op, g);
+      const cond = present ? `body.${present} !== undefined && !(${pred})` : `!(${pred})`;
+      return `${pad}if (${cond}) throw new ForbiddenError(${JSON.stringify(
+        `Forbidden: ${g.source}`,
+      )});`;
     });
-    // A merge-patch update's mask write gate runs only when the body carries
-    // the masked key (an absent key keeps the stored value).
-    const present = maskWritePresenceParam(op, g);
-    const cond = present ? `body.${present} !== undefined && !(${pred})` : `!(${pred})`;
-    return `${pad}if (${cond}) throw new ForbiddenError(${JSON.stringify(
-      `Forbidden: ${g.source}`,
-    )});`;
-  });
 }
 
 /** The canonical `create` / `destroy` authorization gate, in the ROUTE.
@@ -1854,26 +1869,34 @@ function requiresGateLines(
  *    create  — no receiver.  The gate runs BEFORE the factory (there is no
  *              instance yet), so it reads the principal only, which
  *              `loom.lifecycle-guard-unreadable` enforces.
- *    destroy — `__loaded`.  The gate runs AFTER the by-id load the route
- *              already performs for its 404 probe, so an unreachable id still
- *              answers 404 rather than 403, matching the operation routes. */
+ *    destroy — `__loaded` for a gate that reads the row, which runs after
+ *              the by-id load; a gate that reads no row runs before it
+ *              (`destroyLadder`), matching the operation routes. */
 function lifecycleGateLines(
   action: OperationIR | null | undefined,
   pad: string,
   thisName?: string,
   paramExpr?: (name: string) => string | undefined,
 ): string[] {
-  return lifecycleGates(action).map((g) => {
-    // A create gate's parameters are the create-input fields the body
-    // carries (`loom.lifecycle-guard-unreadable` admits no other).
-    const pred = renderTsExpr(g.expr, {
-      thisName: thisName ?? "this",
-      ...(paramExpr ? { paramExpr } : {}),
-    });
-    return `${pad}if (!(${pred})) throw new ForbiddenError(${JSON.stringify(
-      `Forbidden: ${g.source}`,
-    )});`;
+  return lifecycleGates(action).flatMap((g) => lifecycleGateLine(g, pad, thisName, paramExpr));
+}
+
+/** One lifecycle gate's refusal line. */
+function lifecycleGateLine(
+  g: RequiresStmtIR,
+  pad: string,
+  thisName?: string,
+  paramExpr?: (name: string) => string | undefined,
+): string[] {
+  // A create gate's parameters are the create-input fields the body
+  // carries (`loom.lifecycle-guard-unreadable` admits no other).
+  const pred = renderTsExpr(g.expr, {
+    thisName: thisName ?? "this",
+    ...(paramExpr ? { paramExpr } : {}),
   });
+  return [
+    `${pad}if (!(${pred})) throw new ForbiddenError(${JSON.stringify(`Forbidden: ${g.source}`)});`,
+  ];
 }
 
 /** The `currentUser` binding line the route uses for a lifecycle gate — the
@@ -1897,17 +1920,33 @@ function whenGateLine(agg: AggregateIR, op: OperationIR, pad: string): string[] 
 
 /** The auto-exposed, side-effect-free `GET /{id}/can_<op>` companion of a
  *  `when`-gated operation — returns `{ allowed }` so a UI can enable or
- *  disable the action without invoking it (the canCommand pattern). */
+ *  disable the action without invoking it (the canCommand pattern).
+ *
+ *  It runs the operation's gate ladder (`ir/plan/gate-ladder.ts`) without a
+ *  body: the by-id read's gate refuses (403) and a row outside the read scope
+ *  is 404, exactly as `GET /{id}` answers, so the probe tells a caller nothing
+ *  the read would not; the operation's own `requires` and `when` fold into
+ *  `allowed`. */
 function emitCanOpRoute(
   agg: AggregateIR,
   op: OperationIR,
   entry: ApiOperationIR,
-  emitTrace: boolean,
+  readFind: FindIR | undefined,
 ): string[] {
   if (!op.when) return [];
-  void emitTrace;
   const aggSlug = routeSegmentFor(agg.name);
   const pred = renderTsExpr(op.when, { thisName: "aggregate" });
+  const gates = operationGates(op);
+  const gateTest = (g: (typeof gates)[number]): string =>
+    renderTsExpr(g.expr, { thisName: "aggregate" });
+  // A gate that reads an operation parameter cannot be decided without a
+  // body: it answers `false`, after the load so a missing row is still 404.
+  const undecidable = gates.filter(gateReadsParam);
+  const rowFree = gates.filter((g) => !gateReadsParam(g) && !gateReadsRow(g));
+  const rowReading = gates.filter((g) => !gateReadsParam(g) && gateReadsRow(g));
+  const needsUser =
+    (readFind?.requires !== undefined && findGateUsesCurrentUser(readFind)) ||
+    gates.some((g) => exprUsesCurrentUser(g.expr));
   const out: string[] = [];
   out.push(`app.openapi(`);
   out.push(`  createRoute({`);
@@ -1927,8 +1966,26 @@ function emitCanOpRoute(
   out.push(`  }),`);
   out.push(`  async (c) => {`);
   out.push(`    const { id } = c.req.valid("param");`);
-  out.push(`    const aggregate = await repo.getById(${T.Ids}.${agg.name}Id(id));`);
-  out.push(`    return c.json({ allowed: ${pred} }, 200);`);
+  if (needsUser) out.push(currentUserBindLine("    "));
+  if (readFind?.requires) {
+    out.push(
+      `    if (!(${renderTsExpr(readFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${readFind.name}`)});`,
+    );
+  }
+  for (const g of rowFree) {
+    out.push(`    if (!(${gateTest(g)})) return c.json({ allowed: false }, 200);`);
+  }
+  const load = `await repo.getById(${T.Ids}.${agg.name}Id(id));`;
+  if (undecidable.length > 0 && rowReading.length === 0) {
+    out.push(`    ${load}`);
+    out.push(`    return c.json({ allowed: false }, 200);`);
+  } else {
+    out.push(`    const aggregate = ${load}`);
+    for (const g of rowReading) {
+      out.push(`    if (!(${gateTest(g)})) return c.json({ allowed: false }, 200);`);
+    }
+    out.push(`    return c.json({ allowed: ${undecidable.length > 0 ? "false" : pred} }, 200);`);
+  }
   out.push(`  },`);
   out.push(`);`);
   return out;
@@ -2013,6 +2070,9 @@ function auditProvTxLines(args: {
   // provenance row, tying each to the request (and its causality position)
   // that produced it.  Read from the ambient RequestContext opened by the
   // request-id middleware.
+  // The row-independent gates refuse before the transaction opens (the gate
+  // ladder's step 2); the row-reading ones run after the load inside it.
+  out.push(...requiresGateLines(op, "    ", ctx, undefined, "row-free"));
   out.push(`    const reqCtx = requestContext();`);
   out.push(`    const __deferred = deferredDispatcher(events);`);
   out.push(`    ${args.capture ? "const result = await" : "await"} ${txWrapperCall(usingMikro)}`);
@@ -2236,6 +2296,7 @@ function emitOperationRoute(
   ];
 
   if (!audit && !prov) {
+    out.push(...requiresGateLines(op, "    ", ctx, undefined, "row-free"));
     out.push(`    const aggregate = await repo.getById(${T.Ids}.${agg.name}Id(id));`);
     out.push(...expectedVersionLines(check, "    "));
     out.push(...requiresGateLines(op, "    ", ctx));
@@ -2375,6 +2436,7 @@ function emitReturningOperationRoute(
     );
   } else {
     const check = operationVersionCheck(agg, op);
+    out.push(...requiresGateLines(op, "    ", ctx, undefined, "row-free"));
     out.push(`    const aggregate = await repo.getById(${T.Ids}.${agg.name}Id(id));`);
     out.push(...expectedVersionLines(check, "    "));
     out.push(...requiresGateLines(op, "    ", ctx));
@@ -2419,11 +2481,10 @@ function emitReturningOperationRoute(
   // A `money` field of a payload success variant rides as the fixed-scale
   // string (RS-12) — the tagged dict holds the decimal.js value.
   for (const arm of u ? unionMoneyArms(u.variants, ctx) : []) {
-    const enc = arm.keys.map(({ key, optional }) => {
-      const access = `result.${key}`;
-      const wire = numericEncode(TS_NUMERIC, "money", "dto-map", access);
-      return `${key}: ${optional ? `${access} == null ? null : ${wire}` : wire}`;
-    });
+    // A JS `Date` already serializes to the wire instant; only money is re-encoded.
+    const keys = arm.keys.filter(tsHasMoney);
+    if (keys.length === 0) continue;
+    const enc = keys.map((k) => tsMoneyEntry(k, "result"));
     out.push(`    if (result.type === ${JSON.stringify(arm.tag)}) {`);
     out.push(`      return c.json({ ...result, ${enc.join(", ")} }, 200);`);
     out.push(`    }`);
@@ -2668,7 +2729,11 @@ function emitResponseDtoSchema(
       const t: TypeIR = provenanced.has(f.name)
         ? { kind: "genericInstance", ctor: "provenanced", arg: f.type }
         : f.type;
-      lines.push(`  ${f.name}: ${zodForResponseField(t, f.optional)},`);
+      // A masked field is redacted to `null` for a caller who fails its
+      // predicate (`toWireMasked`), so it admits null exactly as below.
+      const z = zodForResponseField(t, f.optional);
+      const masked = f.maskUnless !== undefined && !z.endsWith(".nullish()") ? ".nullish()" : "";
+      lines.push(`  ${f.name}: ${z}${masked},`);
     }
   } else {
     const fields = forApiRead(wireFieldsFor(ent));
@@ -3088,7 +3153,7 @@ function collectUsedValueObjects(
   ctx: BoundedContextIR,
 ): ValueObjectIR[] {
   const pool = valueObjectPool(ctx);
-  const { valueObjects } = collectReachableTypes(aggSchemaSeeds(agg, repo), pool);
+  const { valueObjects } = collectReachableTypes(aggSchemaSeeds(agg, repo, ctx), pool);
   // Dependency order, not pool order: each VO becomes a `const <Vo>Schema` in
   // one module, and the pool lists context-local VOs before the root-level
   // (shared-kernel) ones folded in at enrichment.  A local VO that wraps a
@@ -3102,7 +3167,7 @@ function collectUsedEnums(
   repo: RepositoryIR | undefined,
   ctx: BoundedContextIR,
 ): EnumIR[] {
-  const { enums } = collectReachableTypes(aggSchemaSeeds(agg, repo), valueObjectPool(ctx));
+  const { enums } = collectReachableTypes(aggSchemaSeeds(agg, repo, ctx), valueObjectPool(ctx));
   // `enumPool`, not `ctx.enums`: an enum declared in a SIBLING context is a
   // legal field type, and this list is what MINTS the route file's
   // `const <E>Schema = z.enum([...])`.  Filtering `ctx.enums` dropped the
@@ -3116,10 +3181,18 @@ function collectUsedEnums(
  *  derived, public-operation + find params, and contained parts.  The
  *  schema collectors take the transitive closure of these through value
  *  objects' own fields (see `collectReachableTypes`). */
-function* aggSchemaSeeds(agg: AggregateIR, repo: RepositoryIR | undefined): Generator<TypeIR> {
+function* aggSchemaSeeds(
+  agg: AggregateIR,
+  repo: RepositoryIR | undefined,
+  ctx: BoundedContextIR,
+): Generator<TypeIR> {
   for (const f of agg.fields) yield f.type;
   for (const d of agg.derived) yield d.type;
-  for (const op of agg.operations) for (const p of op.params) yield p.type;
+  for (const op of agg.operations) {
+    for (const p of op.params) yield p.type;
+    // A value object named only inside an `or`-union return's variant.
+    yield* wireSurfaceTypes(op.returnType, ctx);
+  }
   for (const f of repo?.finds ?? []) for (const p of f.params) yield p.type;
   for (const part of agg.parts) {
     for (const f of part.fields) yield f.type;
@@ -3303,4 +3376,23 @@ export function wireToDomainExpr(expr: string, t: TypeIR, ctx?: BoundedContextIR
       // scalar — the carrier is a serialization shape, not an in-memory one.
       throw new Error(PROVENANCED_REQUEST_ERROR);
   }
+}
+
+/** One `key: <encoded>` entry of a union variant's money re-encode: a money
+ *  leaf through the money codec, a value object rebuilt as its own fields with
+ *  its money positions encoded in turn. */
+function tsMoneyEntry(k: UnionMoneyKey, recv: string): string {
+  const access = `${recv}.${k.key}`;
+  const wire =
+    k.kind === "vo"
+      ? `{ ...${access}, ${k.fields.flatMap((f) => (f.money && tsHasMoney(f.money) ? [tsMoneyEntry(f.money, access)] : [])).join(", ")} }`
+      : numericEncode(TS_NUMERIC, "money", "dto-map", access);
+  return `${k.key}: ${k.optional ? `${access} == null ? null : ${wire}` : wire}`;
+}
+
+/** True when `k` is, or holds, a money position. */
+function tsHasMoney(k: UnionMoneyKey): boolean {
+  if (k.kind === "money") return true;
+  if (k.kind === "instant") return false;
+  return k.fields.some((f) => f.money !== undefined && tsHasMoney(f.money));
 }

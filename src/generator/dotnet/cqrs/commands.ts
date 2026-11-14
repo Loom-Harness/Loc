@@ -3,6 +3,7 @@ import {
   operationVersionCheck,
   readsIfMatch,
 } from "../../../ir/enrich/version-check.js";
+import { gateReadsRow } from "../../../ir/plan/gate-ladder.js";
 import { unionInstanceName } from "../../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -20,6 +21,7 @@ import {
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
+  type RequiresStmtIR,
 } from "../../../ir/util/op-gates.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { ROW_VERSION_PASCAL } from "../../../util/row-version.js";
@@ -43,47 +45,49 @@ import {
 import { renderCreateValidator, renderOperationValidator } from "../validator-emit.js";
 import { csNotFoundException, csSentence } from "../wire-policy-cs.js";
 
-/** The `when` canCommand gate (criterion.md use site 2): evaluate the
- *  predicate against the loaded aggregate before the body runs; false →
- *  DisallowedException, which DomainExceptionFilter maps to a 409
- *  ProblemDetails ("Disallowed").  Empty string when the op has no gate. */
+/** The principal local the hoisted `requires` gates read; bound once, ahead of
+ *  both rungs of the gate ladder. */
+function principalBind(op: AggregateIR["operations"][number]): string {
+  return operationGatesUseCurrentUser(op) ? "        var currentUser = _currentUser.User;\n" : "";
+}
+
 /** The hoisted authorization gate — the leading run of `requires` statements,
- *  evaluated by the command HANDLER rather than the aggregate (op-gates.ts).
- *
- *  Emitted post-load (so a row-aware term reads the loaded `aggregate`) and
- *  BEFORE the `when` state gate: 403 precedes 409, so an unauthorized caller
- *  never learns the row's state.  Operation params are not locals here — they
- *  ride the command record, which is where the call reads them from too. */
-function requiresGate(op: AggregateIR["operations"][number]): string {
-  const gates = operationGates(op);
+ *  evaluated by the command HANDLER rather than the aggregate (op-gates.ts), in
+ *  the gate-ladder order (`ir/plan/gate-ladder.ts`): the gates that read no row
+ *  run before the load (403 for a missing id, a stale `If-Match` and a
+ *  wrong-state row alike), the row-reading ones right after it and before the
+ *  `when` state gate (403 precedes 409).  Operation params are not locals here
+ *  — they ride the command record, which is where the call reads them from. */
+function requiresGate(
+  op: AggregateIR["operations"][number],
+  which: "row-free" | "row-reading",
+): string {
+  // The gate ladder (`ir/plan/gate-ladder.ts`): a gate that reads no row runs
+  // before the load, one that reads the row after it.
+  const gates = operationGates(op).filter((g) => gateReadsRow(g) === (which === "row-reading"));
   if (gates.length === 0) return "";
   // Bind the principal to a local rather than rendering the accessor inline, so
   // the emitted guard text is IDENTICAL to the one the aggregate used to carry
-  // — the hoist changes where the check runs, not what it reads.
-  const bind = operationGatesUseCurrentUser(op)
-    ? "        var currentUser = _currentUser.User;\n"
-    : "";
-  return (
-    bind +
-    gates
-      .map((g) => {
-        const pred = renderCsExpr(g.expr, {
-          thisName: "aggregate",
-          paramExpr: (name) =>
-            op.params.some((q) => q.name === name) ? `command.${upperFirst(name)}` : undefined,
-        });
-        // A merge-patch update's mask write gate runs only when the body
-        // carries the masked key (an absent key keeps the stored value).
-        const present = maskWritePresenceParam(op, g);
-        const cond = present
-          ? `command.PatchedKeys.Contains(${JSON.stringify(present)}) && !(${pred})`
-          : `!(${pred})`;
-        return `        if (${cond}) throw new ForbiddenException(${JSON.stringify(
-          `Forbidden: ${g.source}`,
-        )});\n`;
-      })
-      .join("")
-  );
+  // — the hoist changes where the check runs, not what it reads.  The handler
+  // binds it once (`principalBind`) ahead of both rungs.
+  return gates
+    .map((g) => {
+      const pred = renderCsExpr(g.expr, {
+        thisName: "aggregate",
+        paramExpr: (name) =>
+          op.params.some((q) => q.name === name) ? `command.${upperFirst(name)}` : undefined,
+      });
+      // A merge-patch update's mask write gate runs only when the body
+      // carries the masked key (an absent key keeps the stored value).
+      const present = maskWritePresenceParam(op, g);
+      const cond = present
+        ? `command.PatchedKeys.Contains(${JSON.stringify(present)}) && !(${pred})`
+        : `!(${pred})`;
+      return `        if (${cond}) throw new ForbiddenException(${JSON.stringify(
+        `Forbidden: ${g.source}`,
+      )});\n`;
+    })
+    .join("");
 }
 
 /**
@@ -103,10 +107,20 @@ function lifecycleGate(
    *  `<ns>.Auth`. */
   ns: string,
   thisName?: string,
+  /** The gates to render (default: every lifecycle gate of `action`), and
+   *  whether to bind `currentUser` ahead of them (default: when any gate of
+   *  `action` reads it). */
+  opts: { only?: (g: RequiresStmtIR) => boolean; bindUser?: boolean } = {},
 ): { readonly body: string; readonly deps: DepList; readonly usings: string[] } {
-  const gates = lifecycleGates(action);
-  if (gates.length === 0) return { body: "", deps: [], usings: [] };
+  const gates = lifecycleGates(action).filter(opts.only ?? (() => true));
   const usesUser = lifecycleGatesUseCurrentUser(action);
+  if (gates.length === 0) {
+    return {
+      body: opts.bindUser && usesUser ? "        var currentUser = _currentUser.User;\n" : "",
+      deps: [],
+      usings: [],
+    };
+  }
   // A create gate's parameters are the create-input fields the command
   // carries (`loom.lifecycle-guard-unreadable` admits no other).
   const params = new Set((action?.params ?? []).map((p) => p.name));
@@ -116,7 +130,8 @@ function lifecycleGate(
   // do NOT carry — the operation handler adds it the same way.  Without it the
   // emitted handler is CS0246, which no tsc-level test can see.
   if (usesUser) usings.add(`${ns}.Auth`);
-  const bind = usesUser ? "        var currentUser = _currentUser.User;\n" : "";
+  const bind =
+    (opts.bindUser ?? usesUser) && usesUser ? "        var currentUser = _currentUser.User;\n" : "";
   const body =
     bind +
     gates
@@ -145,6 +160,10 @@ function lifecycleGate(
 
 type DepList = readonly { readonly type: string; readonly field: string }[];
 
+/** The `when` canCommand gate (criterion.md use site 2): evaluate the
+ *  predicate against the loaded aggregate before the body runs; false →
+ *  DisallowedException, which DomainExceptionFilter maps to a 409
+ *  ProblemDetails ("Disallowed").  Empty string when the op has no gate. */
 function whenGate(agg: AggregateIR, op: AggregateIR["operations"][number]): string {
   if (!op.when) return "";
   const pred = renderCsExpr(op.when, { thisName: "aggregate" });
@@ -386,8 +405,18 @@ export function emitDestroyCommandAndHandler(
     : [];
   // `Domain.Common` is already in the base handler usings — don't repeat it
   // here (CS0105 duplicate-using is an error under /warnaserror).
-  // The canonical destroy's gate reads the row the handler just loaded.
+  // The canonical destroy's gates in ladder order (`destroyLadder`): one that
+  // reads no row refuses before the load, so a missing id answers the refused
+  // caller's 403; one that reads the row runs against the loaded aggregate.
   const destroyGate = lifecycleGate(canonicalDestroy(agg), ns, "aggregate");
+  const destroyPre = lifecycleGate(canonicalDestroy(agg), ns, undefined, {
+    only: (g) => !gateReadsRow(g),
+    bindUser: true,
+  });
+  const destroyPost = lifecycleGate(canonicalDestroy(agg), ns, "aggregate", {
+    only: gateReadsRow,
+    bindUser: false,
+  });
   const destroyAuditUsings = auditDestroy
     ? [
         `${ns}.Application.Common`,
@@ -406,13 +435,12 @@ export function emitDestroyCommandAndHandler(
       extraDeps: [...destroyAuditDeps, ...destroyGate.deps],
       extraUsings: [...destroyAuditUsings, ...destroyGate.usings],
       body:
+        destroyPre.body +
         `        var aggregate = await _repo.${writeCmdLoad(agg)}(command.Id, cancellationToken)\n` +
         `            ?? throw ${csNotFoundException(null, `${agg.name} {command.Id}`)};\n` +
-        // AFTER the load (so an unreachable id is a 404, not a 403) and BEFORE
-        // the audit stage AND the delete.  The ordering is the security
-        // property: #2450's gate passed a mutation that moved this line below
-        // `DeleteAsync`, which denies a delete that already happened.
-        destroyGate.body +
+        // Every gate runs BEFORE the audit stage AND the delete: a gate below
+        // `DeleteAsync` would deny a delete that already happened.
+        destroyPost.body +
         destroyIfMatchCheck(agg, usingDapper) +
         destroyAuditStage +
         `        await _repo.DeleteAsync(aggregate, cancellationToken);\n` +
@@ -614,9 +642,11 @@ export function emitOperationCommandAndHandler(
     // A return-typed op threads the union value: capture the method result,
     // save, then return it (the aggregate produces the tagged Domain union).
     const loadLine =
+      principalBind(op) +
+      requiresGate(op, "row-free") +
       `        var aggregate = await _repo.${writeCmdLoad(agg)}(command.Id, cancellationToken)\n` +
       `            ?? throw ${csNotFoundException(null, `${agg.name} {command.Id}`)};\n` +
-      requiresGate(op) +
+      requiresGate(op, "row-reading") +
       whenGate(agg, op);
     // An error variant leaves no trace (D-FAILURE-MODEL): the handler returns
     // it before the audit row is staged and before the save, so the mutated

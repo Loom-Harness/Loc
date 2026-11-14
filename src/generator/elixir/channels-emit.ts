@@ -9,7 +9,11 @@ import {
 } from "../../util/channels.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { snake, upperFirst } from "../../util/naming.js";
-import { type BrokerBinding, kafkaStartsAtEarliest } from "../_channels/bindings.js";
+import {
+  type BrokerBinding,
+  kafkaStartsAtEarliest,
+  uniqueBindings,
+} from "../_channels/bindings.js";
 import { CHANNEL_CONSUMER, CHANNEL_RECONNECT, OUTBOX_RELAY } from "../_channels/delivery-policy.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { numericEncode } from "../_numeric/target.js";
@@ -108,15 +112,6 @@ export function opEmitsDurableEvent(
   return op.statements.some((s) =>
     branchesContain(s, (n) => n.kind === "emit" && durable.has(n.eventName)),
   );
-}
-
-function uniqueBindings(bindings: BrokerBinding[]): BrokerBinding[] {
-  const seen = new Set<string>();
-  return bindings.filter((b) => {
-    if (seen.has(b.csName)) return false;
-    seen.add(b.csName);
-    return true;
-  });
 }
 
 /** Elixir expression serialising one event struct field into its envelope-data
@@ -323,7 +318,12 @@ function elixirOutboxRelayModule(
   /** The delivery publishes through a broker: an unreachable broker halts the
    *  pass and backs off without spending the row's attempt budget. */
   brokerAware = false,
+  /** The relay takes only rows of these event types: set when a broker relay
+   *  and a local relay share __loom_outbox, so each row has one relay. */
+  types?: readonly string[],
 ): string {
+  const typeAttr = types ? `\n  @types ${JSON.stringify([...types].sort())}\n` : "";
+  const typeWhere = types ? " and o.type in ^@types" : "";
   const deadLetteredLog = renderPhoenixLogCall("eventDeadLettered", [
     { name: "id", valueExpr: "row.id" },
     { name: "type", valueExpr: "row.type" },
@@ -336,7 +336,7 @@ function elixirOutboxRelayModule(
   return `defmodule ${appModule}.${name} do
   use GenServer
   import Ecto.Query
-  require Logger
+  require Logger${typeAttr}
 
   @interval_ms ${OUTBOX_RELAY.intervalMs}
   @max_attempts ${OUTBOX_RELAY.maxAttempts}
@@ -382,29 +382,44 @@ function elixirOutboxRelayModule(
   defp backoff_ms(failures), do: min(@interval_ms * Integer.pow(2, min(failures, ${OUTBOX_RELAY.maxBackoffDoublings})), @max_backoff_ms)
 
   defp drain do
-    ${appModule}.Repo.all(
+${
+  brokerAware
+    ? `    # The pass claims its batch: one transaction locks the rows it takes and
+    # skips the ones another relay holds, so competing replicas never publish
+    # the same row.  The delivery only publishes, so nothing joins the
+    # transaction but this relay's own row updates.
+    case ${appModule}.Repo.transaction(fn ->
+           ${appModule}.Repo.all(
+             from(o in ${appModule}.LoomOutbox,
+               where: is_nil(o.dispatched_at) and is_nil(o.dead_at)${typeWhere},
+               order_by: [asc: o.occurred_at],
+               limit: @batch,
+               lock: "FOR UPDATE SKIP LOCKED"
+             )
+           )
+           |> Enum.reduce_while(:ok, fn row, :ok ->
+             case deliver(row) do
+               :ok -> {:cont, :ok}
+               {:halt, error} -> {:halt, {:error, error}}
+             end
+           end)
+         end) do
+      {:ok, result} -> result
+      {:error, error} -> {:error, error}
+    end
+`
+    : `    ${appModule}.Repo.all(
       from(o in ${appModule}.LoomOutbox,
-        where: is_nil(o.dispatched_at) and is_nil(o.dead_at),
+        where: is_nil(o.dispatched_at) and is_nil(o.dead_at)${typeWhere},
         order_by: [asc: o.occurred_at],
         limit: @batch
       )
     )
-    ${
-      // Only a broker-aware deliver can answer `{:halt, _}`; a `{:halt, _}`
-      // clause the standalone relay can never reach is a typing warning, which
-      // --warnings-as-errors turns into a compile failure.
-      brokerAware
-        ? `|> Enum.reduce_while(:ok, fn row, :ok ->
-      case deliver(row) do
-        :ok -> {:cont, :ok}
-        {:halt, error} -> {:halt, {:error, error}}
-      end
-    end)`
-        : `|> Enum.each(&deliver/1)
+    |> Enum.each(&deliver/1)
 
-    :ok`
-    }
-  rescue
+    :ok
+`
+}  rescue
     error -> {:error, error}
   catch
     :exit, reason -> {:error, {:exit, reason}}
@@ -483,7 +498,12 @@ export function emitElixirStandaloneOutbox(
   /** The deployable carries auth: rows record the EVENT ORIGIN and the relay
    *  delivers each as its system principal (ruling D1). */
   carriesOrigin = false,
+  /** On a broker-wired deployable the broker tee owns `<App>.Channels` and the
+   *  `LoomOutbox` schema: this tier is then `<App>.LocalOutbox`, the broker
+   *  tee's local fallthrough, and its relay takes only its own event types. */
+  besideBroker?: { emitsSchema: boolean },
 ): ElixirChannelFiles {
+  const tee = besideBroker ? "LocalOutbox" : "Channels";
   const files = emissionSink("generator/elixir/channels-emit");
   const webModule = `${appModule}Web`;
   const children: string[] = [];
@@ -499,8 +519,8 @@ export function emitElixirStandaloneOutbox(
     return `  def decode(${JSON.stringify(ev.name)}, data) do\n    %${ctxModule}.Events.${upperFirst(ev.name)}{\n${pairs.join(",\n")}\n    }\n  end`;
   });
   files.set(
-    `lib/${appName}/channels.ex`,
-    `# Auto-generated.  Standalone (no-broker) outbox tee
+    besideBroker ? `lib/${appName}/local_outbox.ex` : `lib/${appName}/channels.ex`,
+    `# Auto-generated.  ${besideBroker ? "Local outbox tee (beside the broker tee)" : "Standalone (no-broker) outbox tee"}
 # (dispatch-delivery-semantics.md §1): a durable event is recorded in
 # __loom_outbox instead of fanning out inline; \`${appModule}.LocalOutboxRelay\`
 # redelivers it post-commit.  The insert runs inside the CALLER's Repo
@@ -508,7 +528,7 @@ export function emitElixirStandaloneOutbox(
 # its \`dispatch/2\` in one \`${appModule}.Repo.transaction\`, so the owed-event row
 # commits (or rolls back) with the state change.  Ephemeral events dispatch to
 # the local context dispatcher as before.
-defmodule ${appModule}.Channels do
+defmodule ${appModule}.${tee} do
   @durable MapSet.new(${JSON.stringify(durableNames)})
 
   def dispatch(ev, local_dispatcher) do
@@ -570,10 +590,11 @@ ${decodeClauses.join("\n\n")}
 end
 `,
   );
-  files.set(
-    `lib/${appName}/loom_outbox.ex`,
-    `# Auto-generated.  One owed durable event (dispatch-delivery-semantics.md):
-# written by \`${appModule}.Channels.dispatch/2\` inside the caller's Repo
+  if (!besideBroker || besideBroker.emitsSchema)
+    files.set(
+      `lib/${appName}/loom_outbox.ex`,
+      `# Auto-generated.  One owed durable event (dispatch-delivery-semantics.md):
+# written by \`${appModule}.${tee}.dispatch/2\` inside the caller's Repo
 # transaction (an aggregate-writing emit site opens one around persist+dispatch,
 # so the row commits with the state change), drained by
 # \`${appModule}.LocalOutboxRelay\`.  Maps the shared
@@ -592,7 +613,7 @@ defmodule ${appModule}.LoomOutbox do
   end
 end
 `,
-  );
+    );
   files.set(
     `lib/${appName}/local_outbox_relay.ex`,
     `# Auto-generated.  Standalone transactional-outbox relay
@@ -606,10 +627,12 @@ ${elixirOutboxRelayModule(
   `    Process.put(:loom_event_id, row.id)
 
     try do
-      ${appModule}.Channels.dispatch_from_relay(row.type, row.payload)
+      ${appModule}.${tee}.dispatch_from_relay(row.type, row.payload)
     after
       Process.delete(:loom_event_id)
     end`,
+  false,
+  besideBroker ? durableNames : undefined,
 )}`,
   );
   children.push(`      ${appModule}.LocalOutboxRelay`);
@@ -629,7 +652,14 @@ export function emitElixirChannelFiles(
    *  site opens around persist + dispatch) and the OutboxRelay publishes
    *  on drain with the row id as the envelope id (design §5).  False on
    *  consumers that don't host the durable channel's context. */
-  opts: { durableBroker: boolean; carriesOrigin?: boolean } = { durableBroker: false },
+  opts: {
+    durableBroker: boolean;
+    carriesOrigin?: boolean;
+    /** The deployable also hosts durable events no binding carries: the tee's
+     *  local fallthrough goes through `<App>.LocalOutbox`, which records them,
+     *  and the broker relay takes only the broker-routed rows. */
+    localOutbox?: boolean;
+  } = { durableBroker: false },
 ): ElixirChannelFiles {
   // `carriesOrigin`: the deployable carries auth — envelopes and outbox rows
   // carry the raising process's EVENT ORIGIN and the consumer / relay deliver
@@ -781,7 +811,7 @@ ${
         ${appModule}.PostCommit.run(fn -> publish(transport, conn, address, context, type, ev) end)
 
       :error ->
-        if local_dispatcher, do: local_dispatcher.dispatch(ev), else: :ok
+        ${opts.localOutbox ? `${appModule}.LocalOutbox.dispatch(ev, local_dispatcher)` : "if local_dispatcher, do: local_dispatcher.dispatch(ev), else: :ok"}
     end
   end
 ${
@@ -1191,6 +1221,7 @@ ${elixirOutboxRelayModule(
   "OutboxRelay",
   `    ${appModule}.Channels.publish_from_relay(row.type, row.payload, row.id)`,
   true,
+  opts.localOutbox ? [...durableRouting.keys()] : undefined,
 )}`,
     );
     children.push(`      ${appModule}.OutboxRelay`);

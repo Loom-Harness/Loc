@@ -387,7 +387,15 @@ const REGISTERED: Ratchet[] = [
     // 21 → 22: `domain-symbol-collisions`, a compile-tier row (domain names
     // colliding with a symbol the target binds: TS2304, CS0104, a python
     // decorator rebound); every fix is a host spelling the wire cannot see.
-    max: 22,
+    // 22 → 23: `resource-endpoints`, a resource-container row like
+    // `resources`: every client it wires dials a provider (S3, RabbitMQ, a REST
+    // peer, SMTP, SES, SendGrid); the fakes answering on its host overrides are #5616.
+    // 23 → 24: `channels-broker-projection`, a broker + second-deployable row:
+    // a fold on one service over an event published from another needs a
+    // broker between two booted services (#5613).
+    // 24 → 25: `channels-broker-mixed-durable`, a broker row whose claim is an
+    // asynchronous local redelivery (#5613).
+    max: 25,
   },
 ];
 

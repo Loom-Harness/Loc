@@ -95,6 +95,11 @@ export interface FormFieldSpec {
   children?: FormFieldSpec[];
   /** `scalarArray`: the element's scalar kind. */
   elementKind?: FormScalarKind;
+  /** The declared type has no form input of its own: a `string` field over a
+   *  type that is not a string (an unresolved value object, a record), or a
+   *  `scalarArray` whose element is not a scalar, enum or reference (a `File`, a
+   *  record).  A target that refuses to fake such a field as text reads this. */
+  opaque?: true;
 }
 
 export type FormSpecKind = "update" | "operation";
@@ -136,7 +141,7 @@ export interface FormSpecEnv {
   /** The fields of a resolvable value object. */
   valueObjectFields(
     name: string,
-  ): readonly { name: string; type: TypeIR; optional?: boolean }[] | undefined;
+  ): readonly { name: string; type: TypeIR; optional?: boolean; default?: ExprIR }[] | undefined;
   /** The referenced aggregate declares `derived display`. */
   hasDisplay(aggregate: string): boolean;
   /** The aggregate's list read is a paged envelope. */
@@ -251,6 +256,7 @@ export function formFieldSpec(
     absence,
     prefill,
     ...(f.default ? { default: f.default } : {}),
+    ...(isOpaque(kind, inner) ? { opaque: true as const } : {}),
   };
   switch (kind) {
     case "enum":
@@ -284,7 +290,7 @@ export function formFieldSpec(
         spec.valueObject = voName;
         spec.children = voFields.map((vf) =>
           formFieldSpec(
-            { name: vf.name, type: vf.type, optional: vf.optional },
+            { name: vf.name, type: vf.type, optional: vf.optional, default: vf.default },
             env,
             kind === "objectArray" ? vf.name : `${path}.${vf.name}`,
           ),
@@ -302,6 +308,16 @@ export function formFieldSpec(
       break;
   }
   return spec;
+}
+
+/** The kind fell back to a text input the type does not fit (see
+ *  {@link FormFieldSpec.opaque}).  An unresolved enum stays a plain string. */
+function isOpaque(kind: FormFieldKind, inner: TypeIR): boolean {
+  if (kind === "string") return inner.kind !== "primitive" && inner.kind !== "enum";
+  if (kind !== "scalarArray" || inner.kind !== "array") return false;
+  const el = peel(inner.element).inner;
+  if (el.kind === "primitive") return scalarKindOf(el.name) === "file";
+  return el.kind !== "enum" && el.kind !== "id";
 }
 
 function enumNameOf(t: TypeIR): string | undefined {

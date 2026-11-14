@@ -111,20 +111,38 @@ mobile they render as the plain source editor until explicitly opened
 
 ### Live preview
 
-When the generated tree contains Hono backends and a React frontend, the
+When the generated tree contains Hono backends and React, Vue, SvelteKit or
+Angular frontends, the
 engine bundles each of them (an in-browser npm install + esbuild-wasm
 bundle, `src/engine/`), boots every backend in its own runtime worker, and
-the React app renders in a sandboxed iframe. Iframe `fetch()` calls to `http://localhost:*` are
+the frontend renders in a sandboxed iframe. A Vue frontend's single-file
+components are compiled in the bundler worker by `@vue/compiler-sfc` (pinned
+to the generated `vue` version), as `@vitejs/plugin-vue` would under
+`vite dev` (`src/engine/npm/frontend-frameworks.ts`). A SvelteKit frontend's
+components are compiled by the `svelte` compiler (pinned the same way), and a
+small client router stands in for the kit (`src/engine/npm/sveltekit-shim.ts`):
+the file routes and their layout chains, `$app/state`, `$app/navigation` and
+in-app link clicks — the generated app is an `ssr = false` SPA, so that is all
+the kit does for it. An Angular frontend is compiled just in time by its own
+`@angular/compiler`: the entry loads the `angular.json` polyfills and styles,
+the compiler, then `main.ts`, and `<base href>` is the preview's path. Iframe `fetch()` calls to `http://localhost:*` are
 intercepted by an in-iframe shim and routed via `postMessage` to the
 parent, which dispatches them through the runtime worker of the backend the
 frontend `targets:` — so the
-generated React → Hono → Postgres round-trip runs end-to-end under one
+generated frontend → Hono → Postgres round-trip runs end-to-end under one
 origin. In live mode the preview refreshes in place as you type (debounced
 ~5 s).
 
-The runtime is **Hono + React only**. A system that declares only .NET,
-Phoenix LiveView, Java, or Python deployables — or a Vue, Svelte, Angular,
-Feliz or Flutter frontend — generates fully and is browsable in the Files pane, but the preview names
+Every React, Vue, SvelteKit and Angular frontend of a system is previewable. When there is more than
+one, a **Frontend** picker above the preview switches between them; each
+option names the backend that frontend targets, and the preview sends that
+frontend's API calls (and its login redirect chain) there. The frontends
+are listed by slug, and the backend the first one targets is the HTTP
+console's default target.
+
+The runtime boots **Hono** backends only. A system that declares only .NET,
+Phoenix LiveView, Java, or Python deployables — or a Feliz or Flutter
+frontend, whose Fable and Flutter SDK builds do not run in the browser — generates fully and is browsable in the Files pane, but the preview names
 those as "run outside the playground" rather than booting them. The
 playground surfaces this explicitly instead of failing silently.
 
@@ -163,7 +181,8 @@ The generated code reaches a broker only through its `ChannelTransport`, so the
 preview plugs one facade (`src/runtime/broker-facade.ts`) into `bootApp`'s
 `channelTransport` seam for every binding. The facade holds no state: publish,
 subscribe and each delivery's ack / nack go over the deployable's `InfraPort`
-to one broker model in the infra worker (`src/runtime/infra/broker-model.ts`).
+to one broker model in the infra worker (the shared emulation core's
+`BrokerModel`, `../src/emulation/broker-model.ts`).
 One owner of the state is what makes the per-broker semantics hold across
 deployables:
 
@@ -179,13 +198,32 @@ queues). The browser console reads the whole state as
 `await __loomInspectBroker()`: queues, topics, group offsets, dead-letter
 contents and a journal of who received and acknowledged each envelope.
 
+The Infrastructure panel's **Broker** tab shows the same state live: redis
+channels and their subscribers, rabbitmq queues with their ready / unacked
+counts, kafka topics with each consumer group's committed offset and lag per
+partition, and the messages a queue or topic holds, bodies included. It publishes a
+test message onto any address in the generated envelope shape, re-drives an
+address's dead letters onto it (`redrive`: rabbitmq drains
+`loom.dlq.<address>`; kafka moves `<address>.dlq` back and truncates it), and
+moves a kafka group's offset to replay (`seek`). The emulated badge lists the
+`emulated` notes.
+
 ### Resource fakes
 
 `objectStore`, `mailer` and `api` resources are answered inside the browser.
-All state lives in the infra worker (`src/runtime/infra/`, one module per
-service, registered in `infra/services.ts`); a deployable worker carries only
-facades that forward there over the deployable's `InfraPort` (`src/runtime/resource-fakes.ts`).
-`examples/resource-fakes-system.ddd` wires every kind.
+All state lives in the infra worker; a deployable worker carries only facades
+that forward there over the deployable's `InfraPort` (`src/runtime/resource-fakes.ts`).
+
+The services' semantics are not the playground's own: each one is a model of
+the emulation core (`../src/emulation/` — the mailbox, S3/SES, the disk, the
+restApi mock, the identity provider, the broker), the same models the Node test
+kit serves over loopback ports. `src/runtime/infra/` holds one thin
+`InfraService` wrapper per service (registered in `infra/services.ts`) that owns
+one instance of its model, routes the infra ops to it and hands it the OPFS
+`BlobStore`; it carries no state or wire behaviour of its own
+(`test/emulation/emulation-census.test.ts` holds it to that).
+`examples/resource-fakes-system.ddd` wires every kind.  How the shared core is gated is in
+[`testing.md`](testing.md#test-infrastructure--emulation).
 
 | sourceType | In the bundle | In the infra worker |
 |---|---|---|
@@ -194,6 +232,7 @@ facades that forward there over the deployable's `InfraPort` (`src/runtime/resou
 | `smtp`, `sendgrid` | `nodemailer` / `@sendgrid/mail` → facades | the Mailbox |
 | `ses` | the real `@aws-sdk/client-ses`; its `SendEmail` is answered by the fake | the Mailbox |
 | `restApi` | the generated `fetch` → the `httpMock` service | sample data for the storage's `config: { spec }` OpenAPI document (`openapi-sampler`); an echo when it has none |
+| `redis` (`kind: cache`) | `ioredis` → a facade forwarding each command (`GET`, `SET … PX`, `DEL`, `INCR`, `EXISTS`, `PTTL`, `FLUSHDB`) | one keyspace per server URL with TTLs and least-recently-used eviction (`src/emulation/cache.ts`), in memory only; the Cache tab lists the keys with their remaining TTL and evicts or flushes them |
 
 The AWS SDKs get dummy credentials (`adaptResourceSource` in
 `src/engine/npm/resource-facades.ts`); the fakes ignore signatures. Objects,
@@ -212,10 +251,32 @@ intercepted — an `<img src>` or a download link to a presigned URL still goes 
 the real host (a page cannot be intercepted without a service worker), which the
 Runtime panel's "emulated" tooltip states.
 
+### The Infrastructure panel
+
+The dock's **Infrastructure** tab (on a phone: **More → Infrastructure**) shows
+and manages the emulated services of the booted system, one tab per service
+(`web/src/infra-panel/`, listed in `tabs.ts`). A tab reads and changes state only
+through the infra worker's `{ service, op, params }` protocol (`useInfra` /
+`useInfraAction`), so what it shows is the one copy the deployables use. Each
+tab carries an **emulated** badge whose hover lists how the service differs from
+production, and shows an empty state when the booted system declares no storage
+of its types.
+
+| Tab | Shows | Actions |
+|---|---|---|
+| Mailbox | every mail from `smtp`, `ses` and `sendgrid`: from, to, subject, via | read the text, or the HTML in a sandboxed frame (no scripts, no same-origin); clear |
+| Object store | the `s3` buckets and the `localDisk` tree, browsed by folder | view (text, image or hex), download, upload into the current folder, delete |
+| REST mocks | every request to a `restApi`: method, URL, status, request body, response | override one operation's response (status + JSON body) in place of the spec sample or the echo; clear the log |
+
+An override is keyed by the API's origin and the operation (`GET /rate/{ccy}`
+from the spec, or the literal path without one), answers every call until it is
+cleared, and is dropped on a re-boot.
+
 ### The identity provider
 
 A system with `auth { oidc }` boots its generated OIDC verifier against an
-identity provider in the infra worker (`src/runtime/infra/oidc.ts`). It serves
+identity provider in the infra worker (the emulation core's
+`createOidcProvider`, wrapped by `src/runtime/infra/oidc.ts`). It serves
 discovery, the JWKS and a token endpoint under the issuer each backend's compose
 env names (`OIDC_ISSUER`); a deployable's `fetch` hands any URL under that issuer
 to it (`src/runtime/resource-fakes.ts`). Its realm and personas come from the
@@ -229,6 +290,12 @@ console and the preview send it as `Authorization: Bearer …`. Its *Verifier*
 switch boots the dev stub instead (on the next boot), for the
 `x-loom-dev-claims` workflow. The signing key lives as long as the infra
 worker, so a token survives a re-boot.
+
+The Infrastructure panel's **OIDC** tab lists the realm and its personas, and
+every token set the provider issued: minted (from the tab or the Auth tab) or
+served by the token endpoint for a grant (a preview sign-in, a refresh), each
+with its header and claims decoded. Its Mint button issues a token for a
+persona through the same provider.
 
 The generated frontend's **Sign in** (`auth: ui`) runs the real handshake. Its
 `location.href = …/api/auth/login` is under the runtime base, which no server
@@ -296,9 +363,12 @@ schema edits; a recorded change migrates it in place and keeps the rows.
 
 Boot never writes to the database while the model has **unrecorded** schema
 changes: it stops with *migration required* (`backend-status`), names the
-modules and steps, and leaves the database as it is. That includes a workspace
-with no chain, every built-in example among them — no migration is implied, so
-the database is created only once the initial migration is recorded. A database the chain cannot describe — one at a unit the chain
+modules and steps, and leaves the database as it is. The one exception is a
+workspace with no chain, every built-in example among them: Boot records its
+initial migration (named `initial`, the same entry **Record migration…** would
+write) into the workspace and creates the database from it, so an example runs
+on its first Boot. A session that cannot write the workspace (a view-only link,
+a read-only second tab) cannot record it, and its Boot stays blocked. A database the chain cannot describe — one at a unit the chain
 no longer has, or one an earlier playground built without migration tracking
 (a `ddl_hash` row) — is reported, not dropped. The only actions that drop the
 user schemas are the explicit ones: **Reset database** (Database sub-view —
@@ -315,8 +385,8 @@ tab. On every source change the build worker re-runs the check Boot runs
 (`migrate.plan`), and a badge beside Boot reads one of:
 
 - *migration required · initial schema* — nothing is recorded yet (every
-  built-in example on open). Boot is blocked until the initial migration is
-  recorded.
+  built-in example on open). Boot records the initial migration before it
+  creates the database; in a session that cannot record, Boot is blocked.
 - *migration required · N unrecorded changes* — what `ddd migrate status`
   lists, with a *destructive* flag when one of them needs
   `--allow-destructive`.

@@ -4,12 +4,15 @@ import {
   type BackendDriver,
   handleFor,
   type PgConn,
+  runChildlessTphEvolutionGate,
   runCrossContextMoveGate,
   runFieldDefaultEvolutionGate,
   runGuidBackfillEvolutionGate,
   runJournalOrderingGate,
   runMigrationEvolutionGate,
   runMoneyBoundsCatchUpGate,
+  runReshapeFkGate,
+  runSingleChildUniqueGate,
   runUniqueIndexEvolutionGate,
   runValueCollectionEvolutionGate,
 } from "./support/migration-evolution-harness.js";
@@ -82,6 +85,15 @@ describe.skipIf(!ENABLED)(
 );
 
 describe.skipIf(!ENABLED)(
+  "childless-TPH evolution gate — adding the first `sharedTable` subtype, then dropping the last",
+  () => {
+    it("adds `kind` with no flag, drops it under --allow-destructive, schema ≡ fresh at each step", async () => {
+      await runChildlessTphEvolutionGate();
+    }, 240_000);
+  },
+);
+
+describe.skipIf(!ENABLED)(
   "cross-context move gate — `A.Note -> B.Note` into a new module keeps the rows",
   () => {
     it("moves the tables and the event log with SET SCHEMA, rows intact, schema ≡ fresh", async () => {
@@ -104,6 +116,24 @@ describe.skipIf(!ENABLED)(
   () => {
     it("applies to a populated db with no flag and fills the existing row with the UUID", async () => {
       await runGuidBackfillEvolutionGate();
+    }, 240_000);
+  },
+);
+
+describe.skipIf(!ENABLED)(
+  "single-child uniqueness gate — a collection containment made single gets a UNIQUE parent FK",
+  () => {
+    it("rebuilds the index on a populated table and refuses a second child", async () => {
+      await runSingleChildUniqueGate();
+    }, 240_000);
+  },
+);
+
+describe.skipIf(!ENABLED)(
+  "reshape FK gate — a surviving table's FK follows a reshaped table to its new shape",
+  () => {
+    it("re-points the FK, keeps the stored row, and accepts a row referencing the new table", async () => {
+      await runReshapeFkGate();
     }, 240_000);
   },
 );

@@ -45,6 +45,7 @@ import {
   isRequiredCreateInput,
   wireFieldsForAggregate,
 } from "../../enrich/wire-projection.js";
+import { polymorphicReadOperations } from "../../plan/repo-polymorphic.js";
 import { PAGED_QUERY_PARAMS } from "../../stdlib/generics.js";
 import type {
   AggregateIR,
@@ -228,7 +229,11 @@ function apiVerbVerdict(
     return null;
   }
   const { agg, repo, ctx } = resolved;
-  const ops = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
+  // An abstract base has no route builder of its own: what it serves is its
+  // polymorphic read, when that is routed.
+  const ops = agg.isAbstract
+    ? polymorphicReadOperations(agg, ctx)
+    : deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
   if (apiRouteExists(call.verb, agg, repo, ops)) return null;
   // Same fallback order as the renderer: every aggregate verb wins first, and
   // only then may a routed handler whose context slugs like the aggregate
@@ -690,7 +695,7 @@ function collectContexts(
 // keys as the wire spells them, an enum as its serialized member string
 // (`"Placed"`, not `Placed`; the bare form is already
 // `loom.e2e-unresolved-ref`'s business and is not re-reported here), a
-// `datetime` as an ISO-8601 string, a `money` as a JSON scalar.
+// `datetime` as an ISO-8601 string, a `money` as its string wire form.
 //
 // WHAT IS DELIBERATELY NOT CHECKED, and why — a gate that guesses is worse
 // than no gate, because a false positive turns a valid model red:
@@ -748,17 +753,19 @@ function checkListQuery(
   }
 }
 
-/** `api.<proj>.byKey(k)` / `.list()` — `GET /projections/<proj>[/{key}]`.
+/** `api.<proj>.byKey(k)` / `.list(a, b, …)` — `GET /projections/<proj>[/{key}]`.
  *  `byKey` reads exactly one path key (with none, `renderProjectionRead`
- *  throws at generate time); `list` reads none, so any argument it is given is
- *  dropped by the renderer and the request is not the one the test wrote. */
+ *  throws at generate time); `list` takes the projection's declared
+ *  parameters, positionally in declared order, as the query string — a
+ *  parameterless projection takes none.  Any other count would send a request
+ *  the test did not write. */
 function checkProjectionReadArgs(
   call: MagicCall,
   proj: ProjectionIR,
   source: string,
   diags: LoomDiagnostic[],
 ): void {
-  const expected = call.verb === "byKey" ? 1 : 0;
+  const expected = call.verb === "byKey" ? 1 : proj.params.length;
   if (call.args.length === expected) return;
   diags.push({
     severity: "error",
@@ -788,11 +795,7 @@ function createBodyContract(agg: AggregateIR): { name: string; type: TypeIR; req
       required: isRequiredCreateInput(p),
     }));
   }
-  // `agg.createInput` is populated by enrichment and this check runs on an
-  // `EnrichedLoomModel`; `buildCreateInput` is the total fallback the shared
-  // helper keeps for pre-enrichment callers, so read through it rather than
-  // asserting.
-  return (agg.createInput ?? buildCreateInput(agg)).map((c) => ({
+  return buildCreateInput(agg).map((c) => ({
     name: c.field.name,
     type: c.field.type,
     required: c.requiredInput,
@@ -1092,17 +1095,28 @@ function checkLiteralAgainstType(
     }
     return;
   }
+  const declared = describeType(t);
+  const got = describeLiteral(value.lit, value.value);
   diags.push({
     severity: "error",
     code: "loom.e2e-body-type-mismatch",
     source,
-    message: diagMessage("loom.e2e-body-type-mismatch", {
-      slug: call.slug,
-      verb: call.verb,
-      key,
-      declared: describeType(t),
-      got: describeLiteral(value.lit, value.value),
-    }),
+    message:
+      t.kind === "primitive" && t.name === "money"
+        ? diagMessage("loom.e2e-body-type-mismatch#money", {
+            slug: call.slug,
+            verb: call.verb,
+            key,
+            got,
+            digits: value.value,
+          })
+        : diagMessage("loom.e2e-body-type-mismatch", {
+            slug: call.slug,
+            verb: call.verb,
+            key,
+            declared,
+            got,
+          }),
   });
 }
 
@@ -1110,12 +1124,12 @@ function checkLiteralAgainstType(
  *  when the target is not a scalar (a value object, an entity, a containment,
  *  an array, `json`, a `File`) and a literal there says nothing decidable.
  *
- *  Deliberately GENEROUS on the numeric and stringly-serialized types: `money`
- *  and `decimal` reach the wire as a JSON string on some backends and a JSON
- *  number on others (the reason `e2e-render.ts` funnels every numeric
- *  conversion through `__num`), so both spellings are admissible and only a
- *  categorically wrong literal — a string for an `int`, an int for a `bool` —
- *  is refused. */
+ *  Deliberately GENEROUS on `decimal`, which reaches the wire as a JSON number
+ *  but whose READ values `e2e-render.ts` funnels through `__num`, so both
+ *  spellings are admissible there.  `money` is not: it is the fixed-scale
+ *  string on every backend and its ingress accepts no JSON number, so only its
+ *  string forms are.  Otherwise only a categorically wrong literal — a string
+ *  for an `int`, an int for a `bool` — is refused. */
 function acceptedLiteralKinds(
   t: TypeIR,
   contexts: BoundedContextIR[],
@@ -1136,8 +1150,12 @@ function acceptedLiteralKinds(
     case "long":
       return new Set(["int", "long"]);
     case "decimal":
-    case "money":
       return new Set(["int", "long", "decimal", "money", "string"]);
+    // `money` is a fixed-scale STRING on every backend's wire, and no backend
+    // coerces a JSON number to it — a bare `2.50` is sent as a number and
+    // refused, so the body spells it `"2.50"` or `money("2.50")`.
+    case "money":
+      return new Set(["money", "string"]);
     case "bool":
       return new Set(["bool"]);
     case "datetime":

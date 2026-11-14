@@ -34,6 +34,7 @@ import type {
   WireField,
   WorkflowIR,
 } from "../types/loom-ir.js";
+import { aggregateArg } from "../types/loom-ir.js";
 import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "./walk.js";
 
 // ---------------------------------------------------------------------------
@@ -125,7 +126,6 @@ export const SITES = {
     "AggregateIR.contextFilterRefs",
     "AggregateIR.contextFilters",
     "AggregateIR.contextStamps",
-    "AggregateIR.createInput",
     "AggregateIR.creates",
     "AggregateIR.derived",
     "AggregateIR.destroys",
@@ -309,7 +309,6 @@ export const SITES = {
   aliased: new Set<string>([
     "BoundedContextIR.siblingValueObjects",
     "ExistsReadIR.args",
-    "EnrichedAggregateIR.createInput",
     "EnrichedAggregateIR.parts",
     "EnrichedBoundedContextIR.aggregates",
     "EnrichedBoundedContextIR.siblingValueObjects",
@@ -466,7 +465,6 @@ function visitValueObject(vo: ValueObjectIR, src: string, v: ExprVisitor) {
 function visitAggregate(a: AggregateIR, src: string, v: ExprVisitor) {
   const s = `${src}/${a.name}`;
   visitFields(a.fields, s, v);
-  for (const ci of a.createInput ?? []) visitFields([ci.field], `${s}/createInput`, v);
   visitDerived(a.derived, s, v);
   if (a.displayDerived) visitDerived([a.displayDerived], s, v);
   if (a.inspectDerived) visitDerived([a.inspectDerived], s, v);
@@ -525,7 +523,7 @@ function visitProjectionQuery(q: ProjectionQueryIR, src: string, v: ExprVisitor)
   for (const j of q.joins) expr(j.idRef, `${src}/${j.alias}`, "ProjectionJoinIR.idRef", v);
   for (const sel of q.selects ?? []) {
     expr(sel.expr, `${src}/${sel.field}`, "ProjectionQueryIR.selects", v);
-    expr(sel.aggregate?.arg, `${src}/${sel.field}`, "ProjectionAggregateIR.arg", v);
+    expr(aggregateArg(sel.aggregate), `${src}/${sel.field}`, "ProjectionAggregateIR.arg", v);
   }
 }
 

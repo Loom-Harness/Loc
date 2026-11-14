@@ -485,7 +485,8 @@ export const messages = {
   }) =>
     `e2e: 'api.${p.slug}.${p.verb}(…)' passes ${p.got} argument(s), but projection ` +
     `'${p.projection}''s '${p.verb}' read takes ${p.expected}: 'byKey(key)' reads one row by its ` +
-    `key and 'list()' reads every row, with nothing else on the request. Pass exactly ` +
+    `key and 'list(…)' passes the projection's declared parameters, in declared order, as the ` +
+    `query string. Pass exactly ` +
     `${p.expected}.`,
   "loom.e2e-body-type-mismatch": (p: {
     slug: unknown;
@@ -497,6 +498,16 @@ export const messages = {
     `e2e: 'api.${p.slug}.${p.verb}(…)' sends ${p.got} for '${p.key}', declared '${p.declared}'. ` +
     `An e2e body carries WIRE values, so the literal has to be the JSON form of the declared ` +
     `type — the backend's request schema rejects anything else (422).`,
+  "loom.e2e-body-type-mismatch#money": (p: {
+    slug: unknown;
+    verb: unknown;
+    key: unknown;
+    got: unknown;
+    digits: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…)' sends ${p.got} for '${p.key}', declared 'money'. ` +
+    `A money crosses the wire as its fixed-scale STRING and no backend accepts a JSON number ` +
+    `for it — write "${p.digits}" or money("${p.digits}").`,
   "loom.e2e-body-type-mismatch#enum": (p: {
     slug: unknown;
     verb: unknown;

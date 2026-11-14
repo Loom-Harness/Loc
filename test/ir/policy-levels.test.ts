@@ -85,8 +85,8 @@ describe("policy levels — lowering", () => {
   it("a context with no policy carries no rule lists", async () => {
     const model = await buildLoomModel(shop({ policy: "" }));
     const ctx = model.systems[0]!.subdomains[0]!.contexts[0]!;
-    expect(ctx.policyReadLevels).toBeUndefined();
-    expect(ctx.policyWriteLevels).toBeUndefined();
+    expect(ctx.policyReadLevels).toEqual([]);
+    expect(ctx.policyWriteLevels).toEqual([]);
   });
 
   it("`local` leaves the tenantOwned floor and the write seam untouched", async () => {
@@ -106,8 +106,8 @@ describe("policy levels — lowering", () => {
       { validate: false },
     );
     const ctx = enrichLoomModel(lowerModel(model)).systems[0]!.subdomains[0]!.contexts[0]!;
-    expect(ctx.policyReadLevels).toBeUndefined();
-    expect(ctx.policyWriteLevels).toBeUndefined();
+    expect(ctx.policyReadLevels).toEqual([]);
+    expect(ctx.policyWriteLevels).toEqual([]);
   });
 });
 

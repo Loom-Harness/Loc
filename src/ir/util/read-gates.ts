@@ -1,3 +1,4 @@
+import { PLAIN_FIND_FLAGS } from "../types/loom-ir.js";
 // The aggregate's canonical LIST and BY-ID reads, and the gate on them.
 //
 // Every aggregate serves one list endpoint (`GET /<aggs>`), backed by the
@@ -70,6 +71,7 @@ export function byIdRouteFind(repo: RepositoryIR | undefined): FindIR | undefine
   if (!policyGate && !repo.readsDefaultDenied) return undefined;
   const idType = { kind: "id", targetName: repo.aggregateName } as const;
   return {
+    ...PLAIN_FIND_FLAGS,
     name: "byId",
     params: [{ name: "id", type: idType }],
     returnType: {

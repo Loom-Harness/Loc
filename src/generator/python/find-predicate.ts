@@ -30,6 +30,7 @@ const NOT_ = pyRef("sqlalchemy", "not_");
 const FUNC = pyRef("sqlalchemy", "func");
 const SELECT = pyRef("sqlalchemy", "select");
 const LITERAL = pyRef("sqlalchemy", "literal");
+const TRUE_ = pyRef("sqlalchemy", "true");
 const LITERAL_COLUMN = pyRef("sqlalchemy", "literal_column");
 const REQUIRE_CURRENT_USER = pyRef("app.auth.user", "require_current_user");
 const schemaRow = (name: string): string => pyRef("app.db.schema", name);
@@ -255,6 +256,13 @@ function lowerOver(
   ctx?: EnrichedBoundedContextIR,
 ): PyPredicate | null {
   const ops = new Set<string>();
+  // The match-everything filter (`criterion All of T = true`): SQLAlchemy's
+  // typed `true()` — a bare python `True` is not a `ColumnElement[bool]`, so
+  // `.where(True)` fails `mypy --strict`.
+  const whole = e.kind === "paren" ? e.inner : e;
+  if (whole.kind === "literal" && whole.lit === "bool" && whole.value === "true") {
+    return { expr: `${TRUE_}()`, ops };
+  }
   const saved = existsScope;
   existsScope = ctx ? { ctx, rows: new Map(saved?.rows ?? []) } : undefined;
   let expr: string | null;

@@ -1,3 +1,4 @@
+import { PLAIN_FIND_FLAGS } from "../types/loom-ir.js";
 // Phase ⑥ — the repository methods behind widened single-row reads.
 //
 // `Orders.find(ByRef(r)) ignoring softDeletable` / `Orders.find(id)
@@ -74,6 +75,7 @@ function bypassFind(
       resultType: BOOL,
     };
     return {
+      ...PLAIN_FIND_FLAGS,
       name,
       params: [{ name: "id", type: idType }],
       returnType,
@@ -91,6 +93,7 @@ function bypassFind(
     return undefined;
   }
   return {
+    ...PLAIN_FIND_FLAGS,
     name,
     params: crit.params,
     returnType,

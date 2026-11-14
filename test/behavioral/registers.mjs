@@ -271,17 +271,6 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
-    // A value object whose invariants are all cross-field gets no `new/1`
-    // validator, so the out-of-order stay is stored (201, not 422).
-    "vo-date-invariant": {
-      issue: "#5333",
-      expect: "fail",
-      tests: {
-        "a value-object date ordering invariant judges calendar order":
-          "expected the call to reject, but it resolved",
-      },
-      reason: "elixir validates only a value object's single-field invariants",
-    },
     // An expected-failure entry point (`T or E`) is refused on Phoenix, so
     // generation stops at phase ⑦ (unsupported register).
     "workflow-expected-failure": {
@@ -336,13 +325,6 @@ export const BEHAVIOURAL_XFAIL = {
     // values — the 409 `detail` names no aggregate/id (#3838), and each op call
     // inside the workflow is persisted, so a document's `version` reads one
     // higher (#4089).
-    // Every test passes; the refused deposit's 422 carries no `errors[]`
-    // entry on elixir's event-sourced operation path.
-    "eventsourced-durable-outbox": {
-      issue: "#5469",
-      expect: "wire",
-      reason: "an event-sourced operation's refused precondition answers 422 without `errors[]`",
-    },
     "workflow-two-handles-document-eventlog": {
       issue: "#3838, #4089",
       expect: "wire",
