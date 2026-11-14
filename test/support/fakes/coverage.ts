@@ -55,9 +55,9 @@ export interface CoverageRow {
  *  census's online leg (`LOOM_CENSUS_ONLINE=1`). */
 export const OPEN_TRACKING_ISSUES: ReadonlySet<string> = new Set([
   "#4440",
-  "#5614",
   "#5617",
   "#5712",
+  "#5846",
 ]);
 
 /** A pending row may not be parked further out than this. */
@@ -178,7 +178,7 @@ export const COVERAGE: readonly CoverageRow[] = [
     witness: { fixture: "resource-mailer-sendgrid", effects: "mail" },
   },
   // ── auth ───────────────────────────────────────────────────────────────
-  { sourceType: "oidc", kind: "auth", fake: "in-process-fake", pending: pending("#5614") },
+  { sourceType: "oidc", kind: "auth", fake: "in-process-fake", pending: pending("#5846") },
   // ── parse as storage types, bind to no kind ────────────────────────────
   { sourceType: "elastic", kind: "state", fake: "n/a", unbindable: true },
   { sourceType: "meilisearch", kind: "state", fake: "n/a", unbindable: true },
