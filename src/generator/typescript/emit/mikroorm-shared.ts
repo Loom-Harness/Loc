@@ -22,7 +22,7 @@ import { TT } from "../ts-symbols.js";
 /**
  * The `User` type-only import a `mask unless` aggregate's repository needs.
  *
- * Every MikroORM repository variant emits `toWireMaskedMethod(agg)` when the
+ * Every MikroORM repository variant emits `toWireMaskedMethod(agg, ctx.payloads)` when the
  * aggregate carries a `mask unless` field, and that method's signature is
  * `toWireMasked(root: T, currentUser: User | null)` — so the file names `User`
  * and must import it.  All four variants emitted the method without the import,

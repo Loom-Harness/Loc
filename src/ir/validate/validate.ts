@@ -62,6 +62,7 @@ import { validateMemberRepositoryAccess } from "./checks/repo-access-checks.js";
 import { validateReservedFieldNames } from "./checks/reserved-field-name-checks.js";
 import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
 import { validateResourceOpPlacement } from "./checks/resource-op-positions.js";
+import { validateResponseRecords } from "./checks/response-record-checks.js";
 import { validateSensitiveWireSupport } from "./checks/sensitivity-checks.js";
 import { validateStores } from "./checks/store-checks.js";
 import {
@@ -379,6 +380,7 @@ export function validateLoomModel(
     validateUnknownRepositoryReads(c, diags);
     validatePersistedTableCollisions(c, diags);
     validateEntityPartParams(c, diags);
+    validateResponseRecords(c, diags);
     validateAggregateTestBodies(c, diags);
     validateTestStatementVocabulary(c, diags);
     validateContextIntegrationTests(c, diags);

@@ -2,12 +2,7 @@ import {
   buildCreateInput,
   createInputFields,
   emitsRestCreate,
-  forApiRead,
   isRequiredCreateInput,
-  wireFieldsFor,
-  wireFieldsForAggregate,
-  wireFieldsForPart,
-  wireMaskPlan,
 } from "../../../ir/enrich/wire-projection.js";
 import { observableWorkflows } from "../../../ir/plan/index.js";
 import { provenancedCarrier } from "../../../ir/stdlib/generics.js";
@@ -24,6 +19,7 @@ import type {
 import { declaredResponseFor } from "../../../ir/util/declared-response.js";
 import { type MergePatchField, mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
+import { responseMaskPlan, responseWireFor } from "../../../ir/util/response-wire.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
@@ -179,12 +175,12 @@ export function renderDtoFiles(
     if (ctx) referencedValueObjects([...wireSurfaceTypes(op.returnType, ctx)], voNames);
   }
   referencedValueObjects(
-    wireFieldsForAggregate(agg).map((w) => w.type),
+    responseWireFor(payloads, agg).map((w) => w.type),
     voNames,
   );
   for (const part of agg.parts) {
     referencedValueObjects(
-      wireFieldsForPart(part).map((w) => w.type),
+      responseWireFor(payloads, part).map((w) => w.type),
       voNames,
     );
   }
@@ -348,6 +344,7 @@ export function renderDtoFiles(
         partImport(part.name),
         undefined,
         agg.parts,
+        payloads,
       ),
     );
   }
@@ -363,6 +360,7 @@ export function renderDtoFiles(
       entityImport,
       declaredRootResponse ? { payload: declaredRootResponse, payloads } : undefined,
       agg.parts,
+      payloads,
     ),
   );
 
@@ -599,6 +597,8 @@ function wireRecord(
   /** Every part of the owning aggregate — a containment whose part carries a
    *  mask projects through that part's `fromMasked`. */
   parts: readonly EnrichedEntityPartIR[] = [],
+  /** The context's payloads — the declared records a part's mask plan reads. */
+  payloads: readonly PayloadIR[] = [],
 ): DtoFile {
   const imports = new Set<string>();
   const components: string[] = [];
@@ -608,7 +608,7 @@ function wireRecord(
   if (declared) {
     // The record omits `id` (grammar-reserved) — re-prepend it exactly as the
     // wireShape id row derives, so the leading component/mapper match.
-    const idW = forApiRead(wireFieldsFor(entity)).find((w) => w.source === "id");
+    const idW = responseWireFor(payloads, entity).find((w) => w.source === "id");
     if (idW) {
       const t = wireFieldType(idW);
       components.push(
@@ -639,7 +639,7 @@ function wireRecord(
         projected = payloadFieldToWire(f);
       }
       args.push(projected);
-      const maskedContainment = declaredMaskedPart(f, parts);
+      const maskedContainment = declaredMaskedPart(f, parts, payloads);
       if (f.maskUnless) {
         maskedAny = true;
         const pred = renderJavaExpr(f.maskUnless, {
@@ -660,7 +660,7 @@ function wireRecord(
       }
     }
   } else {
-    const shape = forApiRead(wireFieldsFor(entity));
+    const shape = responseWireFor(payloads, entity);
     for (const w of shape) {
       const masked = w.maskUnless !== undefined;
       // A `mask unless` field can be redacted to null on a RESPONSE (fail-closed),
@@ -696,11 +696,11 @@ function wireRecord(
           currentUserExpr: "__maskUser",
         });
         maskedArgs.push(`(__maskUser != null && (${pred})) ? ${projected} : null`);
-      } else if (w.source === "containment" && maskedPart(w, entity, parts)) {
+      } else if (w.source === "containment" && maskedPart(w, entity, parts, payloads)) {
         // A contained part carrying a mask projects through ITS `fromMasked`,
         // so the root's redacting mapper redacts the part's members too.
         maskedAny = true;
-        const part = maskedPart(w, entity, parts)!;
+        const part = maskedPart(w, entity, parts, payloads)!;
         maskedArgs.push(
           projected.replace(
             new RegExp(`\\b${part}Response(::|\\.)from\\b`, "g"),
@@ -752,9 +752,7 @@ function wireRecord(
       imports,
       entityImport,
       undefined,
-      requiredWireFields(
-        forApiRead("parts" in entity ? wireFieldsForAggregate(entity) : wireFieldsForPart(entity)),
-      ),
+      requiredWireFields(responseWireFor(payloads, entity)),
     ),
   };
 }
@@ -766,11 +764,12 @@ function maskedPart(
   w: WireField,
   entity: EnrichedAggregateIR | EnrichedEntityPartIR,
   parts: readonly EnrichedEntityPartIR[],
+  payloads: readonly PayloadIR[],
 ): string | undefined {
   const el = w.type.kind === "array" ? w.type.element : w.type;
   if (el.kind !== "entity") return undefined;
   const part = parts.find((p) => p.name === el.name && p.name !== entity.name);
-  return part && wireMaskPlan(part, parts) ? part.name : undefined;
+  return part && responseMaskPlan(payloads, part, parts) ? part.name : undefined;
 }
 
 /** The part a DECLARED record's containment field (`reviews: ReviewResponse[]`)
@@ -779,6 +778,7 @@ function maskedPart(
 function declaredMaskedPart(
   f: FieldIR,
   parts: readonly EnrichedEntityPartIR[],
+  payloads: readonly PayloadIR[],
 ): string | undefined {
   const t = f.type.kind === "optional" ? f.type.inner : f.type;
   const el = t.kind === "array" ? t.element : t;
@@ -786,7 +786,7 @@ function declaredMaskedPart(
     return undefined;
   }
   const part = parts.find((p) => `${p.name}Response` === el.name);
-  return part && wireMaskPlan(part, parts) ? part.name : undefined;
+  return part && responseMaskPlan(payloads, part, parts) ? part.name : undefined;
 }
 
 function wireFieldType(w: WireField): TypeIR {

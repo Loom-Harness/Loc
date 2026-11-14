@@ -93,7 +93,7 @@ jobs:
     name: email-e2e (${{ matrix.backend }})
     services:
       postgres:
-        image: postgres:18-alpine
+        image: mirror.gcr.io/library/postgres:18-alpine
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: app

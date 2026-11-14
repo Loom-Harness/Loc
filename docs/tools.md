@@ -1054,6 +1054,10 @@ proxy, so build with `docker run --network host gradle:9-jdk25` and run the jar
 on the host.  The Phoenix release cannot bind its IPv6 listener on this kernel,
 so run the release directly on the host instead of in its container.
 
+CI pulls the same way: every workflow `services:` image is a `mirror.gcr.io`
+reference, and `test/system/workflow-service-images.test.ts` refuses a direct
+Docker Hub one.
+
 **Maven Central `429` inside `gradle:9-jdk25`** (`Could not GET
 'https://repo.maven.apache.org/maven2/…'. Received status code 429`).  The
 429 is intermittent.  Resolve through Google's Maven Central mirror with the
