@@ -133,14 +133,20 @@ describe("elixir/vanilla — abstract base reader applies the concretes' read re
     expect(router).not.toContain('get "/assets/:id"');
   });
 
-  it("does not route the base read past a concrete's list gate", async () => {
+  // Wiring only: the 403 itself is asserted by the `inheritance-read-gates`
+  // corpus fixture's authz ladder on every backend.
+  it("routes the base read behind every concrete's list gate", async () => {
     const gated = TPH.replace(
       "repository Trucks for Truck\n",
       'repository Trucks for Truck\n      policy { read Truck requires currentUser.tenantId == "root" }\n',
     );
     expect(gated).not.toBe(TPH);
-    const router = file(await generateSystemFiles(gated), "/api_web/router.ex");
-    expect(router).not.toContain('get "/vehicles"');
+    const files = await generateSystemFiles(gated);
+    expect(file(files, "/api_web/router.ex")).toContain('get "/vehicles"');
+    const ctl = file(files, "/controllers/vehicle_controller.ex");
+    const index = ctl.slice(ctl.indexOf("def index("), ctl.indexOf("def show("));
+    expect(index).toContain('not (current_user.tenant_id == "root") ->');
+    expect(index.indexOf("Forbidden: find all")).toBeLessThan(index.indexOf("list_vehicles("));
   });
 
   it("a retrieval over a TPH concrete carries the kind conjunct", async () => {

@@ -8,6 +8,8 @@ import {
   channelPlan,
   eventSourcedWorkflows,
   observableWorkflows,
+  polymorphicReadGates,
+  polymorphicReadMasked,
   routedPolymorphicRead,
   stateRowWorkflows,
 } from "../../ir/plan/index.js";
@@ -1801,6 +1803,8 @@ function emitAggregate(
           entityPkg: (name) => pkgFor("entity", name),
           responsePkg: (name) => pkgFor("response-dto", name),
           repositoryPkg: (name) => pkgFor("repository-interface", name),
+          gates: polymorphicReadGates(agg, ctx),
+          masked: new Set(polymorphicReadMasked(agg, ctx)),
         }),
         agg.name,
         agg.origin,

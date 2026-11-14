@@ -182,8 +182,6 @@ export const messages = {
   "loom.abstract-repository": (p: { name: unknown; targetName: unknown }) =>
     `'repository ${p.name} for ${p.targetName}': '${p.targetName}' is an abstract ` +
     `aggregate and has no repository of its own. Repositories belong to concrete subtypes.`,
-  "loom.polymorphic-read-unrouted": (p: { base: unknown; concrete: unknown; mask: boolean }) =>
-    `The polymorphic read of '${p.base}' is not routed: '${p.concrete}' ${p.mask ? "masks a field ('mask unless'), which a base 'GET' would answer unmasked" : "gates its own list read ('requires' or 'enforcement: denyByDefault'), which a base 'GET' would bypass"}. 'api.<base>.all()' and 'getById' are refused in 'test e2e'.`,
   "loom.polymorphic-id-ref-unsupported": (p: { name: unknown }) =>
     `'${p.name} id' references the abstract base '${p.name}', which uses ` +
     `inheritanceUsing: ownTable (TPC) — there is no single table to key against, so the ` +

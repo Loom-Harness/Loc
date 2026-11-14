@@ -1,6 +1,8 @@
 import {
   channelPlan,
   hasDurableEvents,
+  polymorphicReadGates,
+  polymorphicReadMasked,
   routedPolymorphicRead,
   workflowIsolation,
 } from "../../../ir/plan/index.js";
@@ -1470,6 +1472,7 @@ export function generateTypeScriptForContexts(
       const concretes = tphConcretesOf(base, ctx.aggregates) as typeof ctx.aggregates;
       const read = polymorphicReadFor(base, ctx.aggregates);
       if (!read) continue;
+      const masked = new Set(polymorphicReadMasked(base, ctx));
       if (!usingMikro && wantsReadScope(base, ctx)) scopeSpecs.push({ agg: base, ctx });
       const baseConstruct = `${ctx.name}.${base.name}`;
       place(
@@ -1483,8 +1486,8 @@ export function generateTypeScriptForContexts(
         "drizzle-repository",
         base.name,
         usingMikro
-          ? buildMikroBaseReaderFile(base, concretes, ctx, read)
-          : buildBaseReaderFile(base, concretes, ctx, read),
+          ? buildMikroBaseReaderFile(base, concretes, ctx, read, masked)
+          : buildBaseReaderFile(base, concretes, ctx, read, masked),
         base.origin,
         baseConstruct,
       );
@@ -1492,7 +1495,7 @@ export function generateTypeScriptForContexts(
         place(
           "http-routes",
           base.name,
-          buildBaseRoutesFile(base, read),
+          buildBaseRoutesFile(base, read, polymorphicReadGates(base, ctx), masked, ctx),
           base.origin,
           baseConstruct,
         );
@@ -1508,6 +1511,7 @@ export function generateTypeScriptForContexts(
       const concretes = tpcConcretesOf(base, ctx.aggregates) as typeof ctx.aggregates;
       const read = polymorphicReadFor(base, ctx.aggregates);
       if (!read) continue;
+      const masked = new Set(polymorphicReadMasked(base, ctx));
       const baseConstruct = `${ctx.name}.${base.name}`;
       place(
         "domain-aggregate",
@@ -1519,7 +1523,7 @@ export function generateTypeScriptForContexts(
       place(
         "drizzle-repository",
         base.name,
-        buildTpcBaseReaderFile(base, concretes, read, usingMikro ? "mikroorm" : "drizzle"),
+        buildTpcBaseReaderFile(base, concretes, read, masked, usingMikro ? "mikroorm" : "drizzle"),
         base.origin,
         baseConstruct,
       );
@@ -1527,7 +1531,7 @@ export function generateTypeScriptForContexts(
         place(
           "http-routes",
           base.name,
-          buildBaseRoutesFile(base, read),
+          buildBaseRoutesFile(base, read, polymorphicReadGates(base, ctx), masked, ctx),
           base.origin,
           baseConstruct,
         );

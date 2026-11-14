@@ -77,6 +77,9 @@ export {
 export { domainFindShape } from "./repo-find-shape.js";
 export {
   contextOperations,
+  type PolymorphicReadGate,
+  polymorphicReadGates,
+  polymorphicReadMasked,
   polymorphicReadOperations,
   routedPolymorphicRead,
 } from "./repo-polymorphic.js";

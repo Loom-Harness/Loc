@@ -19,10 +19,13 @@ import { expectReach } from "../_helpers/census-reach.js";
 //   first-match  a read of a find's `.takeFirst` flag — the per-adapter
 //               decision whether a single-row read is ordered.
 //               → use `singleReadOrder`.
-//   routed-read  an `.every(…)` callback that compares a name with `"all"`
-//               and reads `.requires` — the hand-rolled "is every concrete's
-//               list read open, so the base read may be routed" test.
-//               → use `routedPolymorphicRead`.
+//   routed-read  a collection callback (`.every` / `.some` / `.map` /
+//               `.flatMap` / `.filter` / `.forEach`) that compares a name with
+//               `"all"` and reads `.requires`, or a `.requires` read straight
+//               off a `.find(…)` that picks the `"all"` find — the hand-rolled
+//               "which concrete list gates does the base read carry" (or "is
+//               the base routed") decision.
+//               → use `polymorphicReadGates` / `routedPolymorphicRead`.
 //   find-shape   an object literal that spreads a value and sets
 //               `returnType: { kind: "optional", … }` — the hand-rolled
 //               union-find → optional-twin rewrite.
@@ -71,10 +74,17 @@ function scanSource(file: string, text: string): Violation[] {
     if (
       ts.isCallExpression(n) &&
       ts.isPropertyAccessExpression(n.expression) &&
-      n.expression.name.text === "every" &&
+      COLLECTION_CALLBACKS.has(n.expression.name.text) &&
       n.arguments.some((a) => isOpenListTest(a))
     ) {
       out.push({ rule: "routed-read", where: at(n), text: n.expression.getText(sf) });
+    }
+    if (
+      ts.isPropertyAccessExpression(n) &&
+      n.name.text === "requires" &&
+      picksAllFind(n.expression)
+    ) {
+      out.push({ rule: "routed-read", where: at(n), text: n.getText(sf) });
     }
     if (
       ts.isBinaryExpression(n) &&
@@ -133,6 +143,32 @@ function isOptionalTwinLiteral(o: ts.ObjectLiteralExpression): boolean {
 
 /** True when `fn` is a callback that compares something with `"all"` and
  *  reads a `.requires` — the open-list-read test behind a routed base read. */
+const COLLECTION_CALLBACKS = new Set(["every", "some", "map", "flatMap", "filter", "forEach"]);
+
+/** True when `e` is (an optional-chained) `<x>.find(<cb>)` whose callback
+ *  compares a name with `"all"` — picking a repository's list find. */
+function picksAllFind(e: ts.Expression): boolean {
+  const call = ts.isNonNullExpression(e) ? e.expression : e;
+  if (!ts.isCallExpression(call) || !ts.isPropertyAccessExpression(call.expression)) return false;
+  if (call.expression.name.text !== "find") return false;
+  return call.arguments.some((a) => {
+    let hit = false;
+    const walk = (n: ts.Node): void => {
+      if (
+        ts.isBinaryExpression(n) &&
+        (n.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+          n.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken) &&
+        [n.left, n.right].some((x) => ts.isStringLiteral(x) && x.text === "all")
+      ) {
+        hit = true;
+      }
+      ts.forEachChild(n, walk);
+    };
+    walk(a);
+    return hit;
+  });
+}
+
 function isOpenListTest(fn: ts.Node): boolean {
   if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) return false;
   let comparesAll = false;
@@ -184,6 +220,22 @@ describe("repo-plan census: repository read facts are not recomputed outside src
     expect(hits.map((h) => h.rule)).toEqual(["routed-read"]);
   });
 
+  it("the detector fires on a hand-spelled base-read gate list", () => {
+    const viaCallback = scanSource(
+      path.join(repoRoot, "src/generator/x.ts"),
+      `const gates = read.variants.flatMap((v) => {
+        const all = repoOf(v).finds.find((f) => f.name === "all");
+        return all?.requires ? [all.requires] : [];
+      });`,
+    );
+    expect(viaCallback.map((h) => h.rule)).toContain("routed-read");
+    const direct = scanSource(
+      path.join(repoRoot, "src/generator/x.ts"),
+      `const gate = repo.finds.find((f) => f.name === "all")?.requires;`,
+    );
+    expect(direct.map((h) => h.rule)).toEqual(["routed-read"]);
+  });
+
   it("the detector fires on a hand-spelled reference-collection test", () => {
     const hits = scanSource(
       path.join(repoRoot, "src/generator/x.ts"),
@@ -210,7 +262,7 @@ describe("repo-plan census: repository read facts are not recomputed outside src
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 
-  it("no backend re-decides whether a polymorphic base read is routed (use routedPolymorphicRead)", () => {
+  it("no backend re-decides whether a polymorphic base read is routed, or which gates it checks (use routedPolymorphicRead / polymorphicReadGates)", () => {
     const hits = violations.filter((v) => v.rule === "routed-read");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });

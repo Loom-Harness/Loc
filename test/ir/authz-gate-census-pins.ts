@@ -277,6 +277,16 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "operation POST /api/accounts/{id}/withdraw": R.importGateOnly,
   },
 
+  // The masked concretes' reads: the visitor reads them as the agent does,
+  // nulls and all.  The gated concretes and every base read are refused by
+  // the ladder; the masked writes are its `→ 403` mask-gate rungs.
+  "corpus/inheritance-read-gates": {
+    "find GET /api/drivers": R.maskIsNotAStatus,
+    "find GET /api/trucks": R.maskIsNotAStatus,
+    "getById GET /api/drivers/{id}": R.maskIsNotAStatus,
+    "getById GET /api/trucks/{id}": R.maskIsNotAStatus,
+  },
+
   "corpus/field-mask": {
     "find GET /api/employees": R.maskIsNotAStatus,
     "getById GET /api/employees/{id}": R.maskIsNotAStatus,
@@ -557,7 +567,8 @@ export const NON_PARSING_SOURCES: readonly string[] = [];
  * when it recurs.
  */
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
-  maskIsNotAStatus: 7,
+  // +4: the masked concretes' reads in `inheritance-read-gates`.
+  maskIsNotAStatus: 11,
   sharedPrincipalId: 6,
   notABehaviouralCase: 11,
   importGateOnly: 1,

@@ -4,7 +4,7 @@ import {
   isRequiredCreateInput,
   wireCreateDefault,
 } from "../../../ir/enrich/wire-projection.js";
-import { routedPolymorphicRead } from "../../../ir/plan/index.js";
+import { polymorphicReadGates, routedPolymorphicRead } from "../../../ir/plan/index.js";
 import { PAGED_MAX_PAGE, PAGED_MAX_PAGE_SIZE, pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -1640,6 +1640,11 @@ function polymorphicOperations(
   schemasModule: string,
 ): ElixirApiOperation[] {
   if (!routedPolymorphicRead(base, ctx)) return [];
+  // The 403 is declared when a concrete's list-read gate rides the route.
+  const forbidden =
+    polymorphicReadGates(base, ctx).length > 0
+      ? [denialStatus("forbidden", denialOverrides(ctx))]
+      : [];
   const out: ElixirApiOperation[] = [
     {
       method: "get",
@@ -1650,7 +1655,7 @@ function polymorphicOperations(
       parameters: pagingQueryParams().slice(0, 2),
       responses: [
         jsonResponse(200, "OK", `${schemasModule}.${base.name}Paged`),
-        ...statusResponses([422], schemasModule),
+        ...statusResponses([...forbidden, 422], schemasModule),
       ],
     },
   ];
@@ -1664,7 +1669,7 @@ function polymorphicOperations(
       parameters: [pathIdParam()],
       responses: [
         jsonResponse(200, "OK", `${schemasModule}.${base.name}Response`),
-        ...statusResponses([404, 422], schemasModule),
+        ...statusResponses([...forbidden, 404, 422], schemasModule),
       ],
     });
   }
