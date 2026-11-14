@@ -20,8 +20,10 @@
 
 import type { NavigationOutcome } from "../preview/auth-navigation.js";
 import type { VirtualFile } from "../build/protocol.js";
+import type { PreviewFramework } from "../build/deployables.js";
 import type { BundleResult } from "../bundle/protocol.js";
-import type { BrokerInspectResult } from "../runtime/infra/broker-protocol.js";
+import type { BrokerInspectResult } from "../../../src/emulation/broker-protocol.js";
+import type { ResourceService } from "../runtime/infra-client.js";
 import type {
   BootPlan,
   BootResult,
@@ -63,8 +65,8 @@ export interface PrepareInput {
    *  to bundle" wording stays in the caller because it needs the
    *  unsupported-deployable list. */
   backendEntries: string[];
-  /** React deployable entry, when the system emits a frontend. */
-  reactEntry?: string;
+  /** The frontend deployables, one bundle each. */
+  frontendEntries?: { slug: string; entry: string; framework: PreviewFramework }[];
   /** Opt-in: bundle the Hono backend with an inline Source Map v3 that
    *  chains back to `.ddd` (via the `.ts.map` sidecars `files` carries
    *  when its generate step ran with `sourcemap: true`), so the
@@ -84,12 +86,21 @@ export interface BackendBundle {
   bundle: BundleResult;
 }
 
+/** One frontend deployable's bundle. */
+export interface FrontendBundle {
+  /** The deployable's slug — its generated folder. */
+  slug: string;
+  entry: string;
+  bundle: BundleResult;
+}
+
 /** What `prepare` yields — one bundle per Node deployable (the default
- *  dispatch target first) plus the frontend's, as the pipeline state stores
- *  them and the preview consumes them. */
+ *  dispatch target first) plus one per frontend, as the pipeline state stores
+ *  them and the preview consumes them.  `frontends` is empty when a backend
+ *  failed: the frontends are bundled only once every backend has. */
 export interface PreparedBuild {
   backends: BackendBundle[];
-  react: BundleResult | null;
+  frontends: FrontendBundle[];
 }
 
 /** Minimal surface the preview's SW bridge needs.  `Preview.tsx`
@@ -176,8 +187,9 @@ export interface RuntimeEngine extends RuntimeDispatcher {
    *  boot; absent on an engine without one. */
   inspectBroker?(): Promise<BrokerInspectResult | null>;
   /** Call an infra-worker service from the main thread (the fake identity
-   *  provider's `mint`).  Absent on an engine without the infra worker. */
-  infraService?<T = unknown>(service: "oidc", op: string, params?: unknown): Promise<T>;
+   *  provider's `mint`, the Infrastructure panel's reads and edits).  Rejects
+   *  before a boot; absent on an engine without the infra worker. */
+  infraService?<T = unknown>(service: ResourceService, op: string, params?: unknown): Promise<T>;
 
   /** Stop one booted deployable while the infrastructure and the other
    *  deployables run on (`docker compose stop <svc>`), and start it again on
@@ -224,7 +236,7 @@ export type RuntimeEngineFactory = (
 ) => RuntimeEngine;
 
 /** Frontend assets the preview renders.  Not part of the engine
- *  interface — `Preview.tsx` pulls these off `PreparedBuild.react`
+ *  interface — `Preview.tsx` pulls these off a `PreparedBuild.frontends` bundle
  *  and feeds them to `makePreviewHtml`. */
 export interface PreviewMaterial {
   js: string;

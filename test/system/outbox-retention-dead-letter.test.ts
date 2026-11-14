@@ -110,7 +110,7 @@ const SHAPES: Record<string, RelayShape> = {
     poll: ".where(LoomOutboxRow.dead_at.is_(None))",
     stalePoll: "LoomOutboxRow.attempts < max_attempts",
     purge: "delete(LoomOutboxRow).where(LoomOutboxRow.id.in_(expired))",
-    dead: "dead_at=datetime.now(UTC) if dead else None",
+    dead: "row.dead_at = datetime.now(UTC)",
     deadLog: '"event_dead_lettered", id=event_id',
   },
   java: {
@@ -129,7 +129,7 @@ const SHAPES: Record<string, RelayShape> = {
     deadLog: 'event: "event_dead_lettered", id: row.id',
   },
   dotnet: {
-    poll: ".Where(m => m.DispatchedAt == null && m.DeadAt == null)",
+    poll: "WHERE dispatched_at IS NULL AND dead_at IS NULL ORDER BY occurred_at LIMIT {0} FOR UPDATE SKIP LOCKED",
     stalePoll: "m.Attempts < MaxAttempts",
     purge: ".Where(m => m.DispatchedAt < cutoff).ExecuteDeleteAsync(cancellationToken)",
     dead: "row.DeadAt = DateTime.UtcNow;",

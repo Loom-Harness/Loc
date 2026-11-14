@@ -372,6 +372,50 @@ ${i18n ? '  import { t } from "$lib/locale.svelte";\n' : ""}
 // Material imports — so the one file works under every Angular design pack.
 // ---------------------------------------------------------------------------
 
+/** `src/api/auth-interceptor.ts` — the `HttpClient` twin of `client.ts`'s
+ *  silent renewal: a 401 on an API call POSTs `/auth/refresh` once (concurrent
+ *  401s share one in-flight refresh), then retries the original request once.
+ *  A still-401 surfaces unchanged so the auth gate falls back to sign-in. */
+export const AUTH_REFRESH_INTERCEPTOR_ANGULAR = `// Auto-generated.
+import { HttpClient, HttpErrorResponse, type HttpInterceptorFn } from "@angular/common/http";
+import { inject } from "@angular/core";
+import { type Observable, catchError, finalize, shareReplay, switchMap, throwError } from "rxjs";
+import { API_BASE_URL } from "./config";
+
+let refreshInFlight: Observable<unknown> | null = null;
+
+export const authRefreshInterceptor: HttpInterceptorFn = (req, next) => {
+  if (!req.url.startsWith(API_BASE_URL)) return next(req);
+  const http = inject(HttpClient);
+  const withSession = req.clone({ withCredentials: true });
+  return next(withSession).pipe(
+    catchError((err: unknown) => {
+      if (
+        !(err instanceof HttpErrorResponse) ||
+        err.status !== 401 ||
+        req.url === \`\${API_BASE_URL}/auth/refresh\` ||
+        req.url === \`\${API_BASE_URL}/auth/me\`
+      ) {
+        return throwError(() => err);
+      }
+      refreshInFlight ??= http
+        .post(\`\${API_BASE_URL}/auth/refresh\`, null, { withCredentials: true })
+        .pipe(
+          finalize(() => {
+            refreshInFlight = null;
+          }),
+          shareReplay(1),
+        );
+      // A failed refresh surfaces the ORIGINAL 401.
+      return refreshInFlight.pipe(
+        catchError(() => throwError(() => err)),
+        switchMap(() => next(withSession)),
+      );
+    }),
+  );
+};
+`;
+
 /** `src/app/auth/session.service.ts` — the root session service: probe +
  *  sign-in/out redirects + the exposed `user` signal a page guard reads. */
 export const AUTH_SESSION_SERVICE_ANGULAR = `// Auto-generated.

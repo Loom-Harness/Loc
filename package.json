@@ -127,6 +127,7 @@
     "test:email-elixir": "LOOM_EMAIL_E2E_ELIXIR=1 vitest run test/e2e/mailer-smtp-elixir-e2e.test.ts",
     "test:phoenix-ui-e2e": "LOOM_PHOENIX_UI_E2E=1 vitest run test/e2e/phoenix-ui-smoke-e2e.test.ts",
     "test:behavioral-heex-ui": "cd test/behavioral && node run-heex-ui.mjs",
+    "test:behavioral-heex-i18n": "cd test/behavioral && node run-heex-ui.mjs i18n",
     "test:auth-e2e": "LOOM_AUTH_E2E=1 vitest run test/e2e/auth-oidc-e2e.test.ts",
     "test:auth-e2e-dotnet": "LOOM_AUTH_E2E_DOTNET=1 vitest run test/e2e/auth-oidc-dotnet-e2e.test.ts",
     "test:auth-e2e-java": "LOOM_AUTH_E2E_JAVA=1 vitest run test/e2e/auth-oidc-java-e2e.test.ts",
@@ -167,12 +168,14 @@
     "@isomorphic-git/lightning-fs": "^4.6.2",
     "@types/node": "~24.13.0",
     "@vitest/coverage-v8": "^4.1.11",
+    "@vue/compiler-sfc": "3.5.44",
     "fake-indexeddb": "^6.2.5",
     "happy-dom": "^20.10.6",
     "isomorphic-git": "^1.38.5",
     "langium-cli": "~4.3.0",
     "marked": "^18.0.5",
     "playwright": "^1.61.1",
+    "svelte": "5.57.2",
     "typescript": "~6.0.0",
     "vitest": "^4.1.11"
   }

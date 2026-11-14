@@ -102,7 +102,7 @@ describe("policy deny — lowering", () => {
 
   it("a context with no deny carries no policyDenies", async () => {
     const model = await buildLoomModel(hierarchy({ policy: "allow local on Invoice" }));
-    expect(model.systems[0]!.subdomains[0]!.contexts[0]!.policyDenies).toBeUndefined();
+    expect(model.systems[0]!.subdomains[0]!.contexts[0]!.policyDenies).toEqual([]);
   });
 });
 

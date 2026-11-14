@@ -10,10 +10,12 @@
 // path byte-identically.
 
 import {
+  OUTBOX_PENDING_PREDICATE,
   OUTBOX_PURGE_INTERVAL_SECONDS,
   OUTBOX_RETENTION_DEFAULT_DAYS,
   OUTBOX_RETENTION_ENV,
 } from "../../../util/channels.js";
+import { OUTBOX_RELAY } from "../../_channels/delivery-policy.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { csJsonSqlType } from "../codec-spelling.js";
 
@@ -117,6 +119,16 @@ ${purge}
  *  backoff instead of escaping the BackgroundService, where the host's default
  *  `StopHost` behaviour would take the whole API process down.  Only
  *  cancellation of the stopping token ends the loop. */
+/** A row whose publish found the broker unreachable is not at fault: the pass
+ *  halts there without spending the row's attempt (the shared relay policy),
+ *  and \`ExecuteAsync\` backs off. */
+export const DOTNET_RELAY_HALT_ON_BROKER_DOWN = `
+            catch (BrokerUnavailableException ex)
+            {
+                halted = ex;
+                break;
+            }`;
+
 export function outboxExecuteLoop(): string {
   const relayFailed = renderDotnetLogCall("outboxRelayError", [
     { name: "error", valueExpr: "ex.Message" },
@@ -141,7 +153,7 @@ export function outboxExecuteLoop(): string {
             {
                 ${relayFailed}
                 failures++;
-                delay = TimeSpan.FromSeconds(Math.Min(30, 1 << Math.Min(failures, 5)));
+                delay = TimeSpan.FromMilliseconds(Math.Min(Interval.TotalMilliseconds * (1 << Math.Min(failures, ${OUTBOX_RELAY.maxBackoffDoublings})), ${OUTBOX_RELAY.maxBackoffMs}));
             }
             try
             {
@@ -314,7 +326,7 @@ export function renderOutboxRelay(
     : `IServiceScopeFactory scopes, ILogger<OutboxRelayService> log`;
   const ctorAssign = opts.durableBroker ? "\n        _transports = transports;" : "";
   const innerResolve = opts.hasSubscriptions
-    ? "\n        var inner = scope.ServiceProvider.GetRequiredService<InProcessDomainEventDispatcher>();\n        // The relay retries / dead-letters on a reactor throw — never isolate here.\n        inner.IsolateReactorFailures = false;"
+    ? "\n        // Reactors run on their own scope's DbContext, never inside the claim.\n        await using var deliveryScope = _scopes.CreateAsyncScope();\n        var inner = deliveryScope.ServiceProvider.GetRequiredService<InProcessDomainEventDispatcher>();\n        // The relay retries / dead-letters on a reactor throw — never isolate here.\n        inner.IsolateReactorFailures = false;"
     : "";
   const localDispatch = `// The row id rides on an AsyncLocal so saga handlers'
                 // idempotent-consumer markers can no-op on redelivery
@@ -367,9 +379,9 @@ namespace ${ns}.Infrastructure.Events;
 /// rows older than the retention window are purged.</summary>
 public sealed class OutboxRelayService : BackgroundService
 {
-    private const int MaxAttempts = 5;
-    private const int BatchSize = 50;
-    private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(500);
+    private const int MaxAttempts = ${OUTBOX_RELAY.maxAttempts};
+    private const int BatchSize = ${OUTBOX_RELAY.batchSize};
+    private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(${OUTBOX_RELAY.intervalMs});
 ${outboxRetentionMembers(`            await using var scope = _scopes.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             await db.LoomOutbox.Where(m => m.DispatchedAt < cutoff).ExecuteDeleteAsync(cancellationToken);`)}
@@ -389,11 +401,14 @@ ${outboxExecuteLoop()}
     {
         await using var scope = _scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();${innerResolve}
+        // The pass claims its batch: one transaction locks the rows it takes
+        // and skips the ones another relay holds, so competing replicas never
+        // publish the same row.
+        await using var claim = await db.Database.BeginTransactionAsync(cancellationToken);
         var rows = await db.LoomOutbox
-            .Where(m => m.DispatchedAt == null && m.DeadAt == null)
-            .OrderBy(m => m.OccurredAt)
-            .Take(BatchSize)
+            .FromSqlRaw("SELECT * FROM __loom_outbox WHERE ${OUTBOX_PENDING_PREDICATE} ORDER BY occurred_at LIMIT {0} ${OUTBOX_RELAY.claimLock}", BatchSize)
             .ToListAsync(cancellationToken);
+        Exception? halted = null;
         foreach (var row in rows)
         {
             try
@@ -405,7 +420,7 @@ ${outboxExecuteLoop()}
             catch (OperationCanceledException)
             {
                 throw;
-            }
+            }${opts.durableBroker ? DOTNET_RELAY_HALT_ON_BROKER_DOWN : ""}
             catch (Exception ex)
             {
                 row.Attempts++;
@@ -417,6 +432,8 @@ ${outboxExecuteLoop()}
             }
             await db.SaveChangesAsync(cancellationToken);
         }
+        await claim.CommitAsync(cancellationToken);
+        if (halted is not null) throw halted;
     }
 
     private static IDomainEvent? Deserialize(string type, string payload) =>

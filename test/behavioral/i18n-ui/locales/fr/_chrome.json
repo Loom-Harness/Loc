@@ -1,0 +1,10 @@
+{
+  "chrome.forbiddenBody": "Vous n'avez pas accès à cette page.",
+  "chrome.forbiddenTitle": "Interdit",
+  "chrome.provenanceHowComputed": "Comment cette valeur a été calculée",
+  "chrome.provenanceRule": "Règle",
+  "chrome.provenanceValue": "Valeur",
+  "chrome.signIn": "Se connecter",
+  "chrome.tableFilterAria": "Filtrer le tableau",
+  "chrome.tableFilterPlaceholder": "Filtrer…"
+}

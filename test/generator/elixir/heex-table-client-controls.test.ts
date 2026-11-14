@@ -224,8 +224,8 @@ describe("HEEx `Table { filter: … }` — M-T1.1, the last frontend", () => {
   it("renders a bound search box above the table", async () => {
     const live = await one(FILTER_SRC, "/listing_live.ex");
     expect(live).toContain(
-      '<.input type="search" name="q" value={@q} placeholder="Filter…" ' +
-        'aria-label="Filter table" phx-change="update_q" data-testid="table-filter" />',
+      '<.input type="search" name="q" value={@q} placeholder={pgettext("chrome.tableFilterPlaceholder", "Filter…")} ' +
+        'aria-label={pgettext("chrome.tableFilterAria", "Filter table")} phx-change="update_q" data-testid="table-filter" />',
     );
     // …with the write-back clause the box needs to be anything but decorative.
     expect(live).toContain('def handle_event("update_q", %{"q" => value}, socket) do');

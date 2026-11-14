@@ -1,3 +1,4 @@
+import { OUTBOX_RELAY } from "../../../generator/_channels/delivery-policy.js";
 import {
   hasDomainFloorAnswer,
   workflowPreconditionThrowArgs,
@@ -723,6 +724,7 @@ export function buildWorkflowsFile(
   const mikroNames = [
     /(?<!\.)\bEntityManager\b/.test(bodyStr) ? "EntityManager" : "",
     /(?<!\.)\bIsolationLevel\./.test(bodyStr) ? "IsolationLevel" : "",
+    /(?<!\.)\bLockMode\./.test(bodyStr) ? "LockMode" : "",
   ].filter((n) => n !== "");
   if (mikroNames.length > 0)
     imports.push(`import { ${mikroNames.join(", ")} } from "@mikro-orm/postgresql";`);
@@ -1814,6 +1816,58 @@ function emitSubscriptionHandlers(
  *  carrying the row id an operator replays it by. */
 const TS_DEAD_LETTERED_LOG = `baseLogger.warn({ event: "event_dead_lettered", id: row.id, type: row.type, attempts, error: err instanceof Error ? err.message : String(err) });`;
 
+/** The relay's knobs, defaulting to the shared relay policy. */
+function relayOptionLines(): string[] {
+  return [
+    `  const intervalMs = opts.intervalMs ?? ${OUTBOX_RELAY.intervalMs};`,
+    `  const maxAttempts = opts.maxAttempts ?? ${OUTBOX_RELAY.maxAttempts};`,
+    `  const batchSize = opts.batchSize ?? ${OUTBOX_RELAY.batchSize};`,
+  ];
+}
+
+/** A row whose publish found the broker unreachable is not at fault: the
+ *  pass halts there without spending the row's attempt (the shared relay
+ *  policy), and the pass's failure backs the relay off. */
+const RELAY_HALT_ON_BROKER_DOWN = [
+  `            if (err instanceof Error && err.name === "BrokerUnavailableError") {`,
+  `              halted = err;`,
+  `              break;`,
+  `            }`,
+].join("\n");
+
+/** The pass's end and the relay's schedule: a failed pass (database or
+ *  broker unreachable) is logged, and the next one waits the policy's capped
+ *  exponential backoff; a clean pass resets it. */
+function relayPassTail(): string[] {
+  return [
+    `      return true;`,
+    `    } catch (err) {`,
+    `      ${OUTBOX_RELAY_ERROR_LOG}`,
+    `      return false;`,
+    `    } finally {`,
+    `      draining = false;`,
+    `    }`,
+    `  };`,
+    `  let failures = 0;`,
+    `  let stopped = false;`,
+    `  let timer: ReturnType<typeof setTimeout>;`,
+    `  const pass = async (): Promise<void> => {`,
+    `    failures = (await drain()) ? 0 : failures + 1;`,
+    `    if (stopped) return;`,
+    `    const delay =`,
+    `      failures === 0`,
+    `        ? intervalMs`,
+    `        : Math.min(intervalMs * 2 ** Math.min(failures, ${OUTBOX_RELAY.maxBackoffDoublings}), ${OUTBOX_RELAY.maxBackoffMs});`,
+    `    timer = setTimeout(() => void pass(), delay);`,
+    `  };`,
+    `  timer = setTimeout(() => void pass(), intervalMs);`,
+    `  return () => {`,
+    `    stopped = true;`,
+    `    clearTimeout(timer);`,
+    `  };`,
+  ];
+}
+
 /** `outboxRetentionDays()` — the retention window read from the environment,
  *  falling back to the default on a missing, non-numeric or non-positive value. */
 function emitOutboxRetention(): string[] {
@@ -1939,14 +1993,12 @@ function emitOutboxMachinery(
   out.push(`  inner: DomainEventDispatcher,`);
   out.push(`  opts: { intervalMs?: number; maxAttempts?: number; batchSize?: number } = {},`);
   out.push(`): () => void {`);
-  out.push(`  const intervalMs = opts.intervalMs ?? 500;`);
-  out.push(`  const maxAttempts = opts.maxAttempts ?? 5;`);
-  out.push(`  const batchSize = opts.batchSize ?? 50;`);
+  out.push(...relayOptionLines());
   out.push(`  const retentionMs = outboxRetentionDays() * 86_400_000;`);
   out.push(`  let lastPurge = Date.now();`);
   out.push(`  let draining = false;`);
-  out.push(`  const drain = async (): Promise<void> => {`);
-  out.push(`    if (draining) return;`);
+  out.push(`  const drain = async (): Promise<boolean> => {`);
+  out.push(`    if (draining) return true;`);
   out.push(`    draining = true;`);
   out.push(`    try {`);
   out.push(
@@ -1954,42 +2006,44 @@ function emitOutboxMachinery(
       "db.delete(schema.loomOutbox).where(lt(schema.loomOutbox.dispatchedAt, cutoff))",
     ),
   );
-  out.push(`      const rows = await db`);
-  out.push(`        .select()`);
-  out.push(`        .from(schema.loomOutbox)`);
+  // The pass claims its batch: one transaction locks the rows it takes and
+  // skips the ones another relay holds, so competing replicas never publish
+  // the same row.
+  out.push(`      let halted: unknown;`);
+  out.push(`      await db.transaction(async (tx) => {`);
+  out.push(`        const rows = await tx`);
+  out.push(`          .select()`);
+  out.push(`          .from(schema.loomOutbox)`);
   out.push(
-    `        .where(and(isNull(schema.loomOutbox.dispatchedAt), isNull(schema.loomOutbox.deadAt)))`,
+    `          .where(and(isNull(schema.loomOutbox.dispatchedAt), isNull(schema.loomOutbox.deadAt)))`,
   );
-  out.push(`        .orderBy(asc(schema.loomOutbox.occurredAt))`);
-  out.push(`        .limit(batchSize);`);
-  out.push(`      for (const row of rows) {`);
-  out.push(`        try {`);
+  out.push(`          .orderBy(asc(schema.loomOutbox.occurredAt))`);
+  out.push(`          .limit(batchSize)`);
+  out.push(`          .for("update", { skipLocked: true });`);
+  out.push(`        for (const row of rows) {`);
+  out.push(`          try {`);
   // The outbox row id rides on the dispatched event so the saga handler's
   // idempotent-consumer marker can no-op on redelivery (dispatch-delivery-
   // semantics.md §3).  Inline (ephemeral) dispatch carries no id.
-  out.push(...redeliver("          "));
+  out.push(...redeliver("            "));
   out.push(
-    `          await db.update(schema.loomOutbox).set({ dispatchedAt: new Date() }).where(eq(schema.loomOutbox.id, row.id));`,
+    `            await tx.update(schema.loomOutbox).set({ dispatchedAt: new Date() }).where(eq(schema.loomOutbox.id, row.id));`,
   );
-  out.push(`        } catch (err) {`);
-  out.push(`          const attempts = row.attempts + 1;`);
-  out.push(`          const dead = attempts >= maxAttempts;`);
+  out.push(`          } catch (err) {`);
+  out.push(RELAY_HALT_ON_BROKER_DOWN);
+  out.push(`            const attempts = row.attempts + 1;`);
+  out.push(`            const dead = attempts >= maxAttempts;`);
   out.push(
-    `          await db.update(schema.loomOutbox).set({ attempts, deadAt: dead ? new Date() : null }).where(eq(schema.loomOutbox.id, row.id));`,
+    `            await tx.update(schema.loomOutbox).set({ attempts, deadAt: dead ? new Date() : null }).where(eq(schema.loomOutbox.id, row.id));`,
   );
-  out.push(`          if (dead) {`);
-  out.push(`            ${TS_DEAD_LETTERED_LOG}`);
+  out.push(`            if (dead) {`);
+  out.push(`              ${TS_DEAD_LETTERED_LOG}`);
+  out.push(`            }`);
   out.push(`          }`);
   out.push(`        }`);
-  out.push(`      }`);
-  out.push(`    } catch (err) {`);
-  out.push(`      ${OUTBOX_RELAY_ERROR_LOG}`);
-  out.push(`    } finally {`);
-  out.push(`      draining = false;`);
-  out.push(`    }`);
-  out.push(`  };`);
-  out.push(`  const timer = setInterval(() => void drain(), intervalMs);`);
-  out.push(`  return () => clearInterval(timer);`);
+  out.push(`      });`);
+  out.push(`      if (halted) throw halted;`);
+  out.push(...relayPassTail());
   out.push(`}`);
   return out;
 }
@@ -2066,47 +2120,45 @@ function emitMikroOutboxMachinery(
     `  inner: DomainEventDispatcher,`,
     `  opts: { intervalMs?: number; maxAttempts?: number; batchSize?: number } = {},`,
     `): () => void {`,
-    `  const intervalMs = opts.intervalMs ?? 500;`,
-    `  const maxAttempts = opts.maxAttempts ?? 5;`,
-    `  const batchSize = opts.batchSize ?? 50;`,
+    ...relayOptionLines(),
     `  const retentionMs = outboxRetentionDays() * 86_400_000;`,
     `  let lastPurge = Date.now();`,
     `  let draining = false;`,
-    `  const drain = async (): Promise<void> => {`,
-    `    if (draining) return;`,
+    `  const drain = async (): Promise<boolean> => {`,
+    `    if (draining) return true;`,
     `    draining = true;`,
     `    try {`,
     `      const em = db.fork();`,
     ...outboxPurgeStep(`em.nativeDelete(${ROW}, { dispatchedAt: { $lt: cutoff } })`),
-    `      const rows = await em.find(`,
-    `        ${ROW},`,
-    `        { dispatchedAt: null, deadAt: null },`,
-    `        { orderBy: { occurredAt: "asc" }, limit: batchSize },`,
-    `      );`,
-    `      for (const row of rows) {`,
-    `        try {`,
+    // The pass claims its batch (FOR UPDATE SKIP LOCKED) inside one
+    // transaction, exactly like the drizzle relay above.
+    `      let halted: unknown;`,
+    `      await em.transactional(async (tx) => {`,
+    `        const rows = await tx.find(`,
+    `          ${ROW},`,
+    `          { dispatchedAt: null, deadAt: null },`,
+    `          { orderBy: { occurredAt: "asc" }, limit: batchSize, lockMode: LockMode.PESSIMISTIC_PARTIAL_WRITE },`,
+    `        );`,
+    `        for (const row of rows) {`,
+    `          try {`,
     // The outbox row id rides on the dispatched event so the saga handler's
     // idempotent-consumer marker can no-op on redelivery — identical to the
     // drizzle relay above.
-    ...redeliver("          "),
-    `          await em.nativeUpdate(${ROW}, { id: row.id }, { dispatchedAt: new Date() });`,
-    `        } catch (err) {`,
-    `          const attempts = row.attempts + 1;`,
-    `          const dead = attempts >= maxAttempts;`,
-    `          await em.nativeUpdate(${ROW}, { id: row.id }, { attempts, deadAt: dead ? new Date() : null });`,
-    `          if (dead) {`,
-    `            ${TS_DEAD_LETTERED_LOG}`,
+    ...redeliver("            "),
+    `            await tx.nativeUpdate(${ROW}, { id: row.id }, { dispatchedAt: new Date() });`,
+    `          } catch (err) {`,
+    RELAY_HALT_ON_BROKER_DOWN,
+    `            const attempts = row.attempts + 1;`,
+    `            const dead = attempts >= maxAttempts;`,
+    `            await tx.nativeUpdate(${ROW}, { id: row.id }, { attempts, deadAt: dead ? new Date() : null });`,
+    `            if (dead) {`,
+    `              ${TS_DEAD_LETTERED_LOG}`,
+    `            }`,
     `          }`,
     `        }`,
-    `      }`,
-    `    } catch (err) {`,
-    `      ${OUTBOX_RELAY_ERROR_LOG}`,
-    `    } finally {`,
-    `      draining = false;`,
-    `    }`,
-    `  };`,
-    `  const timer = setInterval(() => void drain(), intervalMs);`,
-    `  return () => clearInterval(timer);`,
+    `      });`,
+    `      if (halted) throw halted;`,
+    ...relayPassTail(),
     `}`,
   ];
 }
@@ -2608,7 +2660,8 @@ function buildProducerOutboxFile(
     `import type * as Events from "../domain/events";`,
     ...(usingMikro
       ? [
-          `import { EntityManager } from "@mikro-orm/postgresql";`,
+          // The relay claims its batch with LockMode (the shared claim policy).
+          `import { EntityManager, LockMode } from "@mikro-orm/postgresql";`,
           `import { randomUUID } from "node:crypto";`,
           `import { ${MIKRO_OUTBOX_ROW_CLASS} } from "../db/entities";`,
         ]

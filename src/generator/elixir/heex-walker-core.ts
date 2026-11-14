@@ -183,8 +183,10 @@ export interface ActionBinding {
   agg: string;
   /** Operation name, snake_case. */
   op: string;
-  /** Human-readable operation label for the flash message. */
-  opHuman: string;
+  /** The operation's DSL name — the subject of its flash sentence
+   *  (`actionSucceeded.<opName>`); absent for a `DestroyForm`, which flashes
+   *  `deleteSucceeded.<agg>`. */
+  opName?: string;
   /** `phx-click` event name (`<op>_<agg>`); also the code-interface fn. */
   eventName: string;
   /** Optional `then: navigate(<Page>)` target route. */
@@ -202,6 +204,9 @@ export interface FormBinding {
   /** Source name in PascalCase (e.g. "Customer", "PlaceOrder"; for
    *  an operation form, the owning aggregate). */
   name: string;
+  /** kind:"operation" only — the operation's DSL name, the subject of its
+   *  `operationSucceeded` flash sentence. */
+  opName?: string;
   /** kind:"operation" only — snake-cased operation name (the
    *  `<op>` function the form submits to). */
   op?: string;
@@ -1064,7 +1069,15 @@ function renderMemberValue(expr: Extract<ExprIR, { kind: "member" }>, ctx: WalkC
   if (documentFieldOfReceiver(expr, ctx)) {
     return `${renderExpr(expr.receiver, ctx)}.data.${snake(expr.member)}`;
   }
-  return `${renderExpr(expr.receiver, ctx)}.${snake(expr.member)}`;
+  const recv = renderExpr(expr.receiver, ctx);
+  // An OPTIONAL receiver (`@data.reserve.amount` over `reserve: Reserve?`) is
+  // nil when absent, and a dot read on nil raises — the page crashed where the
+  // SPA detail pages render the absent value as empty.  Read through a nil
+  // check instead; nil renders as empty text.
+  if (expr.receiverType?.kind === "optional") {
+    return `(case ${recv} do nil -> nil; present -> present.${snake(expr.member)} end)`;
+  }
+  return `${recv}.${snake(expr.member)}`;
 }
 
 /** True when a member read names a declared FIELD of a loaded `shape: document`

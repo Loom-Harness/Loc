@@ -223,6 +223,14 @@ export const R = {
    *  it exists to gate the IMPORT the guard needs (ledger row F2-CB-C7, Wave C1
    *  packet 1e-i — `domain-service-gate-import-parity.test.ts`), not to refuse
    *  anyone, so there is no refused caller to name. */
+  /** COVERED (by the golden).  `GET /{id}/can_<op>` folds the operation's own
+   *  `requires` into `{ allowed: false }` — a 200 — so there is no refusal
+   *  status to assert.  The ladder's unauthorized arm requests it and the
+   *  recorded wire golden pins the `false` body on every backend. */
+  probeAnswersFalse:
+    "`can_<op>` answers the operation's own `requires` as `{ allowed: false }` (a 200), so no " +
+    "refusal status exists; the ladder's unauthorized arm drives it and the wire golden pins the " +
+    "false body",
   importGateOnly:
     "the `requires` predicate is a principal-free domain-service calculation no input turns " +
     "false — it gates the guard's IMPORT (F2-CB-C7), not a caller; the emitted import is the " +
@@ -253,6 +261,12 @@ export const R = {
  * failure message can be pasted here verbatim.
  */
 export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
+  // `reopen()`'s `can_reopen` probe: the operation's `requires` answers
+  // `{ allowed: false }`, a 200 (the gate order, docs/auth.md).
+  "corpus/auth-simple": {
+    "gateProbe GET /api/tickets/{id}/can_reopen": R.probeAnswersFalse,
+  },
+
   // ── mask unless — no status to refuse ────────────────────────────────────
   // Every read surface that projects `salary` / `nationalId`.  The ladder's
   // control arm drives two of them with the second identity and records the
@@ -453,6 +467,8 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "destroy DELETE /api/dispatchers/{id}": R.sharedTenancyIdentity,
     "destroy DELETE /api/trucks/{id}": R.sharedTenancyIdentity,
     "find GET /api/cars": R.sharedTenancyIdentity,
+    "find GET /api/crews": R.sharedTenancyIdentity,
+    "find GET /api/vehicles": R.sharedTenancyIdentity,
     "explicitHandler GET /api/cars/by_plate_any_tenant": R.sharedTenancyIdentity,
     "explicitHandler GET /api/cars/by_plate_all": R.sharedTenancyIdentity,
     "find GET /api/dispatchers": R.sharedTenancyIdentity,
@@ -545,8 +561,13 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   sharedPrincipalId: 6,
   notABehaviouralCase: 11,
   importGateOnly: 1,
+  probeAnswersFalse: 1,
   principalFreeGate: 20,
   rowDataGate: 4,
-  sharedTenancyIdentity: 111,
+  // Includes the two polymorphic base list reads of
+  // `inheritance-read-restrictions`: their refusals are the ladder's
+  // cross-tenant `rowVisible` rungs, like every other collection read in that
+  // pin block.
+  sharedTenancyIdentity: 113,
   oneSeededId: 6,
 };

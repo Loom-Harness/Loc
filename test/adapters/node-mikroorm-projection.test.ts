@@ -41,9 +41,9 @@ system M {
       channel Lifecycle { carries: OrderPlaced, OrderShipped  delivery: broadcast  retention: ephemeral }
       projection OrderBoard keyed by orderRef {
         orderRef: Order id
-        status: BoardStatus
-        at: datetime
-        on(e: OrderPlaced)  { orderRef := e.orderRef  status := Placed  at := e.at }
+        status: BoardStatus?
+        at: datetime?
+        on(e: OrderPlaced)  { status := Placed  at := e.at }
         on(e: OrderShipped) { status := Shipped  at := e.at }
       }
     }
@@ -80,7 +80,7 @@ describe("MikroORM folded-projection read model", () => {
     // the fold allocates a fresh typed Row on a not-yet-seen key (no cast), then
     // applies the carried assigns.
     expect(proj).toContain(
-      "const state = (await loadOrderBoard(db, __key)) ?? Object.assign(new OrderBoardRow(), { orderRef: __key });",
+      "const state = (await loadOrderBoard(__em, __key)) ?? Object.assign(new OrderBoardRow(), { orderRef: __key });",
     );
     // no type-erasing cast on the allocate.
     expect(proj).not.toContain("as unknown as OrderBoardState");
@@ -92,9 +92,11 @@ describe("MikroORM folded-projection read model", () => {
     const proj = (await emit(sys("mikroorm"))).get("api/http/projections.ts")!;
     expect(proj).toContain("export function projectionsRoutes(db: EntityManager): OpenAPIHono {");
     expect(proj).toContain('path: "/order_board",');
-    expect(proj).toContain("const rows = await db.find(OrderBoardRow, {});");
+    expect(proj).toContain("const rows = await db.fork().find(OrderBoardRow, {});");
     expect(proj).toContain('path: "/order_board/{key}",');
-    expect(proj).toContain("const row = await db.findOne(OrderBoardRow, { orderRef: key });");
+    expect(proj).toContain(
+      "const row = await db.fork().findOne(OrderBoardRow, { orderRef: key });",
+    );
   });
 
   it("mounts /projections + composes the fold tee on the mikro dispatcher", async () => {

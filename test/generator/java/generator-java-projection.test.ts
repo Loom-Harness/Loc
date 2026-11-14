@@ -22,9 +22,9 @@ const SRC = `system Shop { subdomain Sales { context Orders {
   channel Lifecycle { carries: OrderPlaced, OrderShipped  retention: log  key: order }
   projection OrderBook keyed by order {
     order: Order id
-    customer: Customer id
-    status: OrderStatus
-    on(e: OrderPlaced)  { order := e.order  customer := e.customer  status := Placed }
+    customer: Customer id?
+    status: OrderStatus?
+    on(e: OrderPlaced)  { customer := e.customer  status := Placed }
     on(e: OrderShipped) { status := Shipped }
   }
 } } storage pg { type: postgres }
@@ -68,8 +68,8 @@ describe("java projection runtime", () => {
 
   it("boxes a declared-optional column (it can read NULL) and keeps a required one primitive", async () => {
     const src = SRC.replace(
-      "    status: OrderStatus\n    on(e: OrderPlaced)",
-      "    status: OrderStatus\n    qty: int\n    paid: bool?\n    on(e: OrderPlaced)",
+      "    status: OrderStatus?\n    on(e: OrderPlaced)",
+      "    status: OrderStatus?\n    qty: int\n    paid: bool?\n    on(e: OrderPlaced)",
     );
     expect(src).not.toBe(SRC);
     const row = file(

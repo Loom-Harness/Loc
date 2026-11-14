@@ -7,7 +7,7 @@
 // impossible.
 
 import type { Loader, Plugin } from "esbuild-wasm";
-import { resolveBare, type FileSource } from "../node-resolve.js";
+import { resolveBare, resolvePackageImports, type FileSource } from "../node-resolve.js";
 import type { TsconfigAliasEntry } from "../../bundle/plugin.js";
 import { aliasCandidates } from "../../bundle/plugin.js";
 import { adaptResourceSource, fsFacade, PATH_FACADE, RESOURCE_FACADE_PACKAGES } from "./resource-facades.js";
@@ -164,11 +164,6 @@ export const BACKEND_LOWERED_SYNTAX: Record<string, boolean> = {
 };
 
 export const BROWSER_STUBBED_PACKAGES: Record<string, string> = {
-  ioredis: [
-    unavailable("ioredis"),
-    "export class Redis { constructor() { unavailable('new Redis()'); } }",
-    "export default Redis;",
-  ].join("\n"),
   kafkajs: [
     unavailable("kafkajs"),
     "export class Kafka { constructor() { unavailable('new Kafka()'); } }",
@@ -186,7 +181,7 @@ export const BROWSER_STUBBED_PACKAGES: Record<string, string> = {
   ].join("\n"),
 };
 const STUBBED = "vfs-stubbed-package";
-// The resource facades (nodemailer, @sendgrid/mail) are stubbed packages too.
+// The resource facades (nodemailer, @sendgrid/*, ioredis) are stubbed packages too.
 Object.assign(BROWSER_STUBBED_PACKAGES, RESOURCE_FACADE_PACKAGES);
 
 /** A node builtin: `node:*`, an exact name, or a subpath like
@@ -374,7 +369,16 @@ export function makeVfsNpmPlugin(
             if (hit) return { path: hit, namespace: NS };
           }
         }
-        const r = resolveBare(spec, src, nmRoot, PLAYGROUND_CONDITIONS);
+        // Package-internal `#name` imports, through the importer's package.json.
+        if (spec.startsWith("#") && args.importer) {
+          const hit = resolvePackageImports(spec, args.importer, src, PLAYGROUND_CONDITIONS);
+          if (hit) return { path: hit, namespace: NS };
+        }
+        // A stylesheet import also matches a package's `style` export
+        // condition (`@angular/material/prebuilt-themes/*.css`), as esbuild's
+        // own resolver does for CSS.
+        const conditions = spec.endsWith(".css") ? ["style", ...PLAYGROUND_CONDITIONS] : PLAYGROUND_CONDITIONS;
+        const r = resolveBare(spec, src, nmRoot, conditions);
         if (r) return { path: r, namespace: NS };
         // Vendor-externalise: a bare specifier with no app-side
         // resolution is vendor — externalise it (JS) or stub it

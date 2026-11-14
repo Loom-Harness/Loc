@@ -1,6 +1,11 @@
 import type { EventIR, FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { upperFirst } from "../../../util/naming.js";
-import { type BrokerBinding, kafkaStartsAtEarliest } from "../../_channels/bindings.js";
+import {
+  type BrokerBinding,
+  kafkaStartsAtEarliest,
+  uniqueBindings,
+} from "../../_channels/bindings.js";
+import { CHANNEL_CONSUMER } from "../../_channels/delivery-policy.js";
 import {
   decodeField,
   type WireDecodeLeaf,
@@ -42,15 +47,6 @@ import { CS_NUMERIC } from "../numeric-codec.js";
 // `ChannelRelayPublisher`, with the outbox row id as the envelope id — the
 // stable consumer-side idempotency key across broker redeliveries.
 // ---------------------------------------------------------------------------
-
-function uniqueBindings(bindings: BrokerBinding[]): BrokerBinding[] {
-  const seen = new Set<string>();
-  return bindings.filter((b) => {
-    if (seen.has(b.csName)) return false;
-    seen.add(b.csName);
-    return true;
-  });
-}
 
 /** C# expression serialising one event property into its envelope-data value
  *  (DSL-keyed JSON; parity with the Hono/Python codecs). */
@@ -340,7 +336,7 @@ public sealed class RabbitChannelTransport : IChannelTransport, IDisposable
 {
     /// <summary>Bounded per-message retries before a poisoned message parks
     /// in the DLQ (mirrors the outbox relay's MaxAttempts).</summary>
-    private const int MaxAttempts = 5;
+    private const int MaxAttempts = ${CHANNEL_CONSUMER.maxAttempts};
 
     private readonly string _url;
     private readonly ILogger _log;
@@ -501,9 +497,27 @@ public static class ChannelRelayPublisher
         var type = ev.GetType().Name;
         if (!ChannelBindings.DurableRouting.TryGetValue(type, out var address)) return false;
         var envelope = ChannelEnvelopes.For(ev, type, address, eventId);
-        await transports.ForAddress(address).PublishAsync(address, envelope);
+        try
+        {
+            await transports.ForAddress(address).PublishAsync(address, envelope);
+        }
+        catch (Exception ex)
+        {
+            // The relay halts its pass on this and spends no attempt.
+            throw new BrokerUnavailableException(ex);
+        }
         log.LogInformation("{Event} {Address} {Type} {Id}", "channel_published", address, type, eventId);
         return true;
+    }
+}
+
+/// <summary>A relay publish the broker could not take: the outbox relay halts
+/// its pass on it and backs off without spending the row's attempt.</summary>
+public sealed class BrokerUnavailableException : Exception
+{
+    public BrokerUnavailableException(Exception inner)
+        : base("broker unavailable: " + inner.Message, inner)
+    {
     }
 }
 `

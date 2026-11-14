@@ -29,6 +29,7 @@ import type {
   EnrichedSystemIR,
   FieldIR,
   Platform,
+  StorageIR,
   SystemIR,
   TypeIR,
 } from "../ir/types/loom-ir.js";
@@ -50,7 +51,13 @@ import { hasAdapters, resolveLayout, resolveStyle } from "../platform/resolve-ad
 import { AUTH_BASE_PATH } from "../util/api-base.js";
 import { DEV_AUTH_ENV } from "../util/dev-claims.js";
 import { type EmissionSink, emissionSink } from "../util/emission-sink.js";
-import { resourceEnvUrlVar, resourceSidecarUrl } from "../util/resource-env.js";
+import {
+  resourceEnvEndpointVar,
+  resourceEnvUrlVar,
+  resourceSidecarUrl,
+  S3_DEV_SIDECAR,
+  s3SidecarEndpoint,
+} from "../util/resource-env.js";
 import { SECURE_TRANSPORT_ENV } from "../util/security-headers.js";
 import { serviceSlug } from "../util/service-slug.js";
 import { renderAsyncApi } from "./asyncapi.js";
@@ -1314,6 +1321,41 @@ function sidecarResourceBindings(
   return out;
 }
 
+/** The object-store resources `d` wires on an `s3` storage that compose runs
+ *  as its MinIO sidecar (no `endpoint` declared): each joined to its endpoint
+ *  env var, the sidecar URL and the sidecar service. */
+function s3SidecarBindings(
+  d: DeployableIR,
+  sys: SystemIR,
+): { envVar: string; url: string; slug: string }[] {
+  const out: { envVar: string; url: string; slug: string }[] = [];
+  for (const name of d.dataSourceNames) {
+    const resource = sys.dataSources.find((r) => r.name === name);
+    if (resource?.kind !== "objectStore" || !resource.storageName) continue;
+    const storage = sys.storages.find((s) => s.name === resource.storageName);
+    if (storage?.type !== "s3" || s3DeclaredEndpoint(storage)) continue;
+    out.push({
+      envVar: resourceEnvEndpointVar(resource.name),
+      url: s3SidecarEndpoint(storage.name),
+      slug: serviceSlug(storage.name),
+    });
+  }
+  return out;
+}
+
+/** The `endpoint` an `s3` storage declares in its config, if any — then it
+ *  is not the dev sidecar's to serve. */
+function s3DeclaredEndpoint(storage: StorageIR): string | undefined {
+  const entry = storage.config?.find((c) => c.key === "endpoint");
+  return entry?.value.kind === "string" ? entry.value.value : undefined;
+}
+
+/** The bucket an `s3` storage's sidecar creates before it reports healthy. */
+function s3Bucket(storage: StorageIR): string | undefined {
+  const entry = storage.config?.find((c) => c.key === "bucket");
+  return entry?.value.kind === "string" ? entry.value.value : undefined;
+}
+
 /** Dev-compose sidecar services derived from `sys.storages`.  One per
  *  object-store / queue storage, named by its slug; returns the service
  *  blocks (each a string[] of lines) and any named volumes they need. */
@@ -1405,7 +1447,9 @@ function renderStorageSidecars(sys: SystemIR): { services: string[][]; volumes: 
         `    retries: 15`,
       ]);
     } else if (s.type === "s3") {
+      if (s3DeclaredEndpoint(s)) continue;
       const volume = `${slug}-data`;
+      const bucket = s3Bucket(s);
       volumes.push(volume);
       services.push([
         `${slug}:`,
@@ -1416,12 +1460,26 @@ function renderStorageSidecars(sys: SystemIR): { services: string[][]; volumes: 
         // ("postgres … Interrupted"). The entrypoint is `minio`, so the
         // `server …` command below is unchanged.
         `  image: cgr.dev/chainguard/minio:latest`,
-        `  command: server /data --console-address ":9001"`,
+        // MinIO creates no bucket on its own: the server starts in the
+        // background, the image's own \`mc\` creates the storage's bucket,
+        // and the healthcheck answers only once that bucket exists.
+        `  entrypoint: ["sh", "-c"]`,
+        `  command:`,
+        `    - >-`,
+        `      minio server /data --console-address :9001 &`,
+        `      until mc alias set local http://localhost:${S3_DEV_SIDECAR.port} ${S3_DEV_SIDECAR.accessKey} ${S3_DEV_SIDECAR.secretKey} >/dev/null 2>&1; do sleep 1; done;`,
+        ...(bucket ? [`      mc mb --ignore-existing local/${bucket};`] : []),
+        `      wait`,
         `  environment:`,
-        `    MINIO_ROOT_USER: minioadmin`,
-        `    MINIO_ROOT_PASSWORD: minioadmin`,
+        `    MINIO_ROOT_USER: ${S3_DEV_SIDECAR.accessKey}`,
+        `    MINIO_ROOT_PASSWORD: ${S3_DEV_SIDECAR.secretKey}`,
         `  volumes:`,
         `    - ${volume}:/data`,
+        `  healthcheck:`,
+        `    test: ["CMD-SHELL", ${JSON.stringify(bucket ? `mc ls local/${bucket} >/dev/null 2>&1` : "mc ready local >/dev/null 2>&1")}]`,
+        `    interval: 2s`,
+        `    timeout: 5s`,
+        `    retries: 30`,
       ]);
     } else if (s.type === "rabbitmq") {
       services.push([
@@ -1521,6 +1579,14 @@ function renderDbBootstrapService(): string[] {
   ];
 }
 
+type DependsOnCondition = "service_started" | "service_healthy" | "service_completed_successfully";
+
+/** Rank of a `depends_on` condition: waiting for health or completion is
+ *  stricter than waiting for start. */
+function dependsOnStrictness(c: DependsOnCondition): number {
+  return c === "service_started" ? 0 : 1;
+}
+
 function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   const slug = serviceSlug(d.name);
   const platform = platformFor(d.platform);
@@ -1558,6 +1624,8 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   // as their fallback, injected here so the stack never leans on it.
   const sidecarBindings = sidecarResourceBindings(d, sys);
   const sidecarServices = [...new Set(sidecarBindings.map((b) => b.slug))];
+  const s3Bindings = s3SidecarBindings(d, sys);
+  const s3Services = [...new Set(s3Bindings.map((b) => b.slug))];
   const migrator = awaitedMigrator(sys, d);
   const lines: string[] = [];
   lines.push(`${slug}:`);
@@ -1568,49 +1636,43 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   // on its own instead of leaving the stack half-dead.  `unless-stopped`, not
   // `always`, so a deliberate `docker compose stop` stays stopped.
   lines.push(`  restart: unless-stopped`);
-  if (
-    shape.dependsOnDb ||
-    oidc ||
-    brokerServices.length > 0 ||
-    apiServices.length > 0 ||
-    sidecarServices.length > 0
-  ) {
+  // One map keyed by compose service: every dependency source adds through
+  // `addDependency`, so a service reached by two routes (the database's
+  // migrator AND an api it calls, say) still renders ONE `depends_on` key —
+  // duplicate YAML keys are invalid.  When two sources disagree on the
+  // condition the stricter wins: `service_healthy` and
+  // `service_completed_successfully` beat `service_started`.
+  const dependsOn = new Map<string, DependsOnCondition>();
+  const addDependency = (service: string, condition: DependsOnCondition): void => {
+    const prior = dependsOn.get(service);
+    if (!prior || dependsOnStrictness(condition) > dependsOnStrictness(prior)) {
+      dependsOn.set(service, condition);
+    }
+  };
+  if (shape.dependsOnDb) {
+    addDependency("db", "service_healthy");
+    // The service's own database may be new on this volume.
+    if (hasDbBootstrap(sys)) addDependency(DB_BOOTSTRAP_SERVICE, "service_completed_successfully");
+    // A deployable sharing its storage's database with an earlier one runs
+    // no migrations of its own: it starts once the database's migrator is
+    // healthy, which every backend reports only after its boot migration.
+    if (migrator) addDependency(serviceSlug(migrator.name), "service_healthy");
+  }
+  if (oidc) addDependency("keycloak", "service_started");
+  for (const svc of brokerServices) addDependency(svc, "service_healthy");
+  // Wait for the called service's own healthcheck: a caller that boots
+  // first would otherwise fail its first remote call with ECONNREFUSED.
+  for (const svc of apiServices) addDependency(svc, "service_healthy");
+  // Mailpit / the guest rabbitmq sidecar carry no healthcheck; ordering
+  // after start is all compose can offer (the clients connect lazily).
+  for (const svc of sidecarServices) addDependency(svc, "service_started");
+  // The MinIO sidecar reports healthy only once its bucket exists.
+  for (const svc of s3Services) addDependency(svc, "service_healthy");
+  if (dependsOn.size > 0) {
     lines.push(`  depends_on:`);
-    if (shape.dependsOnDb) {
-      lines.push(`    db:`);
-      lines.push(`      condition: service_healthy`);
-      // B-26: the service's own database may be new on this volume.
-      if (hasDbBootstrap(sys)) {
-        lines.push(`    ${DB_BOOTSTRAP_SERVICE}:`);
-        lines.push(`      condition: service_completed_successfully`);
-      }
-      // A deployable sharing its storage's database with an earlier one runs
-      // no migrations of its own: it starts once the database's migrator is
-      // healthy, which every backend reports only after its boot migration.
-      if (migrator) {
-        lines.push(`    ${serviceSlug(migrator.name)}:`);
-        lines.push(`      condition: service_healthy`);
-      }
-    }
-    if (oidc) {
-      lines.push(`    keycloak:`);
-      lines.push(`      condition: service_started`);
-    }
-    for (const svc of brokerServices) {
-      lines.push(`    ${svc}:`);
-      lines.push(`      condition: service_healthy`);
-    }
-    // Wait for the called service's own healthcheck: a caller that boots
-    // first would otherwise fail its first remote call with ECONNREFUSED.
-    for (const svc of apiServices) {
-      lines.push(`    ${svc}:`);
-      lines.push(`      condition: service_healthy`);
-    }
-    // Mailpit / the guest rabbitmq sidecar carry no healthcheck; ordering
-    // after start is all compose can offer (the clients connect lazily).
-    for (const svc of sidecarServices) {
-      lines.push(`    ${svc}:`);
-      lines.push(`      condition: service_started`);
+    for (const [service, condition] of dependsOn) {
+      lines.push(`    ${service}:`);
+      lines.push(`      condition: ${condition}`);
     }
   }
   if (oidc) {
@@ -1649,6 +1711,15 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   }
   for (const b of sidecarBindings) {
     lines.push(`    ${b.envVar}: ${JSON.stringify(b.url)}`);
+  }
+  for (const b of s3Bindings) {
+    lines.push(`    ${b.envVar}: ${JSON.stringify(b.url)}`);
+  }
+  if (s3Bindings.length > 0) {
+    // The sidecar's dev credentials, under the names every S3 SDK reads.
+    lines.push(`    AWS_ACCESS_KEY_ID: ${JSON.stringify(S3_DEV_SIDECAR.accessKey)}`);
+    lines.push(`    AWS_SECRET_ACCESS_KEY: ${JSON.stringify(S3_DEV_SIDECAR.secretKey)}`);
+    lines.push(`    AWS_REGION: ${JSON.stringify(S3_DEV_SIDECAR.region)}`);
   }
   // CORS allowlist for a backend that a separate-origin frontend may call:
   // pin it to the frontend origins the topology declares (the generator knows

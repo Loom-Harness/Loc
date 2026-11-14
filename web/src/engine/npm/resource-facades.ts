@@ -3,11 +3,12 @@
 // `globalThis.__loomInfra` (installed by `runtime/resource-fakes.ts`).
 //
 //   smtp       `nodemailer` → Mailbox        (facade package)
-//   sendgrid   `@sendgrid/mail` → Mailbox    (facade package)
+//   sendgrid   `@sendgrid/mail` + `@sendgrid/client` → Mailbox (facade packages)
 //   ses        real `@aws-sdk/client-ses`, its HTTP answered by the fake SES
 //   s3         real `@aws-sdk/client-s3` + presigner, HTTP answered by the fake S3
 //   localDisk  `node:fs` → the infra worker's disk
 //   restApi    `fetch(new URL(…))` → the httpMock service
+//   cache      `ioredis` → the cache service    (facade package; one keyspace per server URL)
 //
 // The AWS clients are real, so `adaptResourceSource` only supplies the
 // credentials the browser SDK build cannot discover (a deployed backend reads
@@ -18,7 +19,39 @@ const infra = "globalThis.__loomInfra";
 const capture = (via: string, mailVar: string): string =>
   `${infra}.call("mailbox", "capture", { via: ${JSON.stringify(via)}, from: ${mailVar}.from ?? "", to: [].concat(${mailVar}.to ?? []).map(String), subject: ${mailVar}.subject ?? "", text: ${mailVar}.text ?? "", ...(${mailVar}.html ? { html: String(${mailVar}.html) } : {}) })`;
 
+/** The `ioredis` facade: every command goes to the infra worker's cache
+ *  service, keyed by the server URL the client was built with.  Pub/sub and
+ *  streams are not served here — the channel drivers reach the broker through
+ *  the `ChannelTransport` facade instead. */
+const IOREDIS_FACADE = [
+  "const serverOf = (a, b) => {",
+  "  if (typeof a === 'string') return a;",
+  "  const o = (a && typeof a === 'object' ? a : b) || {};",
+  "  return `redis://${o.host || 'localhost'}:${o.port || 6379}/${o.db || 0}`;",
+  "};",
+  "const unsupported = (name) => () => Promise.reject(new Error(`ioredis.${name}: not emulated in the playground (the cache serves GET/SET/DEL/INCR/EXISTS/PTTL/FLUSHDB)`));",
+  "export class Redis {",
+  "  constructor(a, b) { this.server = serverOf(a, b); this.status = 'ready'; this.handlers = {}; }",
+  `  call(name, ...args) { return ${infra}.call('cache', 'command', { server: this.server, name: String(name), args: args.flat().map((x) => typeof x === 'number' ? x : String(x)) }); }`,
+  "  get(k) { return this.call('get', k); }",
+  "  set(k, v, ...opts) { return this.call('set', k, v, ...opts); }",
+  "  del(...k) { return this.call('del', ...k); }",
+  "  incr(k) { return this.call('incr', k); }",
+  "  exists(...k) { return this.call('exists', ...k); }",
+  "  pttl(k) { return this.call('pttl', k); }",
+  "  flushdb() { return this.call('flushdb'); }",
+  "  async connect() {}",
+  "  async quit() { this.status = 'end'; return 'OK'; }",
+  "  disconnect() { this.status = 'end'; }",
+  "  on() { return this; }",
+  "  once() { return this; }",
+  "}",
+  "for (const m of ['subscribe', 'psubscribe', 'publish', 'xadd', 'xread', 'xreadgroup', 'xgroup', 'xack']) Redis.prototype[m] = unsupported(m);",
+  "export default Redis;",
+].join("\n");
+
 export const RESOURCE_FACADE_PACKAGES: Readonly<Record<string, string>> = {
+  ioredis: IOREDIS_FACADE,
   nodemailer: [
     "export function createTransport() {",
     "  return {",
@@ -30,9 +63,23 @@ export const RESOURCE_FACADE_PACKAGES: Readonly<Record<string, string>> = {
     "export default { createTransport };",
   ].join("\n"),
   "@sendgrid/mail": [
+    "export class MailService {",
+    "  setApiKey() {}",
+    "  setClient() {}",
+    `  async send(m) { await ${capture("sendgrid", "m")}; return [{ statusCode: 202, body: "", headers: {} }, {}]; }`,
+    "}",
+    "const mail = new MailService();",
     "export function setApiKey() {}",
-    `export async function send(m) { await ${capture("sendgrid", "m")}; return [{ statusCode: 202, body: "", headers: {} }, {}]; }`,
-    "export default { setApiKey, send };",
+    "export async function send(m) { return mail.send(m); }",
+    "export default mail;",
+  ].join("\n"),
+  // The endpoint override is a no-op here: the facade never leaves the page.
+  "@sendgrid/client": [
+    "export class Client {",
+    "  setApiKey() {}",
+    "  setDefaultRequest() { return this; }",
+    "}",
+    "export default new Client();",
   ].join("\n"),
 };
 

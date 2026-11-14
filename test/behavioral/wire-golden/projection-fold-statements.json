@@ -27,9 +27,10 @@
         "accountRef": "<uuid>",
         "at": "<timestamp>",
         "charged": "2.5000",
-        "entries": 10,
+        "entries": 20,
         "status": "Opened",
         "tags": [
+          "opened",
           "opened"
         ]
       }
@@ -50,7 +51,7 @@
         "accountRef": "<uuid>",
         "at": "<timestamp>",
         "charged": "3.7500",
-        "entries": 6,
+        "entries": 16,
         "status": "Closed",
         "tags": []
       }
@@ -139,7 +140,7 @@
         "accountRef": "<uuid>",
         "at": "<timestamp>",
         "charged": "3.7500",
-        "entries": 6,
+        "entries": 16,
         "status": "Closed",
         "tags": []
       }

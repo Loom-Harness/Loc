@@ -1,11 +1,13 @@
 import { foldTenancyFor, foldTenantColumns } from "../../../ir/enrich/fold-tenancy.js";
 import { projectionTableName } from "../../../ir/enrich/storage-names.js";
+import { type FoldRowSeed, foldRowSeeds } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, FieldIR, ProjectionIR } from "../../../ir/types/loom-ir.js";
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { spellMarkers } from "../../_imports/symbol.js";
 import { jid } from "../java-ident.js";
-import { boxedJavaType, renderJavaType } from "../render-expr.js";
+import { boxedJavaType, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import { hbIdent } from "../sql-ident.js";
 import { type JpaFieldOwner, jpaClassAnnotations, jpaFieldAnnotations } from "./jpa-annotations.js";
 import { setterName } from "./workflow-state.js";
@@ -19,10 +21,9 @@ import { setterName } from "./workflow-state.js";
 //
 // The one shape difference from a saga row: every NON-KEY column is nullable (a
 // fold upserts only the fields an event carries, so a row is partial until every
-// contributing event arrives).  So each non-key field is rendered as if
-// `optional: true`, which also makes `_allocate` an EMPTY seed — the correlation
-// key is the only thing set at allocation (there are no required non-key
-// columns to default).
+// contributing event arrives).  So each non-key field is mapped as if
+// `optional: true`; `_allocate` sets the key and each column's starting value
+// (`foldRowSeeds`).
 //
 // Field mapping is otherwise identical to the aggregate / saga entity emitters
 // (`jpa-annotations.ts`): `X id` → `@Embedded`/`@EmbeddedId`, enums →
@@ -67,7 +68,7 @@ export function projectionCorrIdClass(proj: ProjectionIR): string {
 }
 
 /** The read-model row `@Entity` — correlation field as `@EmbeddedId`, the rest
- *  as nullable mapped columns, with a package-private no-arg ctor, an empty-seed
+ *  as nullable mapped columns, with a package-private no-arg ctor, a seeding
  *  `_allocate`, and record-style accessors + JavaBean setters. */
 export function renderProjectionRowEntity(
   proj: ProjectionIR,
@@ -79,9 +80,8 @@ export function renderProjectionRowEntity(
   schema?: string,
 ): string {
   const corr = proj.correlationField as string;
-  // Non-key columns are nullable (partial upsert), so render every non-key
-  // field as if optional — this drives the nullable column mapping AND leaves
-  // `_allocate` an empty seed (no required non-key defaults).  Only a DECLARED
+  // Non-key columns are nullable (partial upsert), so map every non-key field
+  // as if optional.  Only a DECLARED
   // optional field is boxed: it is the one whose column can actually read NULL.
   // A required field keeps its primitive, so a freshly allocated row starts at
   // 0 / false and a fold's `+=` / `!` never unboxes a null.
@@ -115,13 +115,14 @@ export function renderProjectionRowEntity(
     fieldLines.push(`    ${rowJavaType(f)} ${jid(f.name)};`);
   }
 
-  // Empty-seed allocate factory — every non-key column is nullable, so a fresh
-  // row is just the correlation key (the dispatcher's fold fills the rest as
-  // events arrive).  Sets the package-private field directly (same class).
+  // Allocate factory: the correlation key plus each column's starting value
+  // (`foldRowSeeds`); every other column starts null.  Sets the
+  // package-private fields directly (same class).
   const allocate = [
     `    public static ${cls} _allocate(${idClass} ${jid(corr)}) {`,
     `        var __s = new ${cls}();`,
     `        __s.${jid(corr)} = ${jid(corr)};`,
+    ...javaRowSeedLines(proj),
     `        return __s;`,
     `    }`,
     ``,
@@ -271,6 +272,7 @@ function renderTenantScopedRowEntity(
     `    public static ${cls} _allocate(String ${t}, ${idClass} ${c}) {`,
     `        var __s = new ${cls}();`,
     `        __s.rowKey = new Key(${t}, ${c});`,
+    ...javaRowSeedLines(proj),
     `        return __s;`,
     `    }`,
     ``,
@@ -331,4 +333,34 @@ export function renderProjectionRowRepository(
     `}`,
     ``,
   );
+}
+
+/** The `_allocate` lines that set a fresh row's seeded columns. */
+function javaRowSeedLines(proj: ProjectionIR): string[] {
+  return foldRowSeeds(proj).map((sd) => `        __s.${jid(sd.field.name)} = ${javaRowSeed(sd)};`);
+}
+
+/** A fresh row's starting value for one column, in the column's Java type. */
+function javaRowSeed(sd: FoldRowSeed): string {
+  if (sd.kind === "default") return renderJavaExpr(sd.expr);
+  switch (sd.zero) {
+    case "int":
+      return "0";
+    case "decimal":
+    case "money":
+      // Compared as SPELLED text: the type renderer writes import markers.
+      return spellMarkers(renderJavaType(sd.field.type)) === "BigDecimal"
+        ? "java.math.BigDecimal.ZERO"
+        : "0";
+    case "bool":
+      return "false";
+    case "string":
+      return `""`;
+    case "list":
+      return "new java.util.ArrayList<>()";
+    default: {
+      const _exhaustive: never = sd.zero;
+      return _exhaustive;
+    }
+  }
 }

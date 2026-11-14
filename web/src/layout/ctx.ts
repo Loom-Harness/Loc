@@ -21,6 +21,7 @@ import type { RuntimeDispatcher, RuntimeEngine } from "../engine";
 import type { Diagnostic } from "../lsp/protocol";
 import type {
   ApiSurfaceView,
+  DeclaredResource,
   EvolutionResult,
   RecordMigrationResult,
   GenerateOk,
@@ -31,6 +32,7 @@ import type {
 } from "../build/protocol";
 import type { Band, Correspondence, SourceSpan } from "../build/correspondence";
 import type { OutputDiff } from "../build/output-diff";
+import type { PreviewFrontend } from "../build/deployables";
 import type { SelectTarget } from "../build/select-target";
 import type { BundleFail, BundleOk } from "../bundle/protocol";
 import type { LoomExample } from "../examples";
@@ -137,21 +139,15 @@ export function devClaimsHeader(cfg: AuthStubConfig): string | null {
 }
 
 /** Platforms whose generated output the playground cannot bundle or
- *  boot — i.e. anything other than Hono + React.  Listed in the UI so
- *  the user understands why Preview is grey instead of erroring out.
- *  `svelte` / `vue` / `angular` generate a complete, downloadable
- *  project (the preview engine bundles only the React SPA shape —
- *  SvelteKit's `$app/*` client, Vue's SFC pipeline, and Angular's
- *  AOT/`ng build` aren't reproduced in-browser yet), so they're
- *  surfaced here exactly like the backend platforms. */
+ *  boot — anything other than Hono and the React / Vue / SvelteKit /
+ *  Angular frontends.  Listed in the UI so the user understands why Preview is grey
+ *  instead of erroring out.  The frontends among them generate a complete,
+ *  downloadable project; their toolchains (Fable, the Flutter SDK) do not run in the browser. */
 export type UnsupportedPlatform =
   | "dotnet"
   | "elixir"
   | "java"
   | "python"
-  | "svelte"
-  | "vue"
-  | "angular"
   | "feliz"
   | "flutter";
 export interface UnsupportedDeployable {
@@ -175,7 +171,8 @@ export type MobileTab =
   | "migrations"
   | "history"
   | "agent"
-  | "auth";
+  | "auth"
+  | "infra";
 
 /** Sub-view of the consolidated mobile "Code" tab: the source editor,
  *  the visual page Builder, the structural Model, or the generated-file
@@ -197,7 +194,8 @@ export type DockTab =
   | "tests"
   | "migrations"
   | "history"
-  | "auth";
+  | "auth"
+  | "infra";
 
 /** The desktop centre area's active document (lifted from DesktopShell in
  *  M-T8.18 so the palette and the panes' *Go to line N* can switch it). */
@@ -367,9 +365,15 @@ export interface LayoutCtx {
   buildClient: LoomBuildClient | null;
   engine: RuntimeEngine | null;
   /** Dispatcher handed to the preview — wraps `engine` with the auth-stub
-   *  claims-header injection.  Stable identity (so the preview iframe is
-   *  not re-mounted when the stub changes). */
+   *  claims-header injection, and sends each request to the backend the
+   *  previewed frontend targets.  Stable identity per frontend (so the
+   *  preview iframe is not re-mounted when the stub changes). */
   authedRuntime: RuntimeDispatcher;
+  /** Every frontend the preview can render, sorted by slug. */
+  previewFrontends: ReadonlyArray<PreviewFrontend>;
+  /** The slug of the frontend the preview renders; null when there is none. */
+  previewFrontend: string | null;
+  setPreviewFrontend: (slug: string) => void;
 
   // Editor wiring
   /** Canonical-source sink.  `origin` distinguishes edits typed in Monaco
@@ -525,6 +529,9 @@ export interface LayoutCtx {
   authStub: AuthStubConfig;
   setAuthStub: (v: AuthStubConfig | ((prev: AuthStubConfig) => AuthStubConfig)) => void;
   oidc: OidcState;
+  /** The booted system's declared `storage`s (empty before the first boot) —
+   *  the Infrastructure panel shows each tab's empty state against them. */
+  infraResources: DeclaredResource[];
   /** Mint a token for `persona` (its realm claims, `claims` merged over) and
    *  send it from now on.  Rejects when no system with `auth { oidc }` is
    *  booted. */
@@ -752,12 +759,6 @@ export function unsupportedPlatformLabel(p: UnsupportedPlatform): string {
       return ".NET";
     case "elixir":
       return "Phoenix LiveView";
-    case "svelte":
-      return "SvelteKit";
-    case "vue":
-      return "Vue";
-    case "angular":
-      return "Angular";
     case "java":
       return "Spring Boot";
     case "python":

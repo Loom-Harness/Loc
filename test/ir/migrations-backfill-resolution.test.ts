@@ -63,10 +63,12 @@ describe("backfill on a TPC base fans out to every concrete table", () => {
       sys(tpc("label: string  tag: string", ""), `migration "m" { Asset.tag = label + "-1" }`),
     ]);
     for (const table of ["laptops", "phones"]) {
-      expect(sql).toContain(
+      // The fill and its NOT NULL proof are one lock-safe chunk per table.
+      const chunk = sql.find((s) => s.startsWith(`UPDATE "hr"."${table}"`));
+      expect(chunk).toContain(
         `UPDATE "hr"."${table}" SET "tag" = ("label" || '-1') WHERE "tag" IS NULL;`,
       );
-      expect(sql).toContain(`ALTER TABLE "hr"."${table}" ALTER COLUMN "tag" SET NOT NULL;`);
+      expect(chunk).toContain(`ALTER TABLE "hr"."${table}" ALTER COLUMN "tag" SET NOT NULL;`);
     }
   });
 });
@@ -120,8 +122,15 @@ ${migration}
     ]);
     expect(sql).toEqual([
       `ALTER TABLE "legal"."contracts" ADD COLUMN "title" TEXT NULL;`,
-      `UPDATE "legal"."contracts" SET "title" = (CASE WHEN ("label" IS NULL) THEN 'untitled' ELSE "label" END) WHERE "title" IS NULL;`,
-      `ALTER TABLE "legal"."contracts" ALTER COLUMN "title" SET NOT NULL;`,
+      [
+        `UPDATE "legal"."contracts" SET "title" = (CASE WHEN ("label" IS NULL) THEN 'untitled' ELSE "label" END) WHERE "title" IS NULL;`,
+        `ALTER TABLE "legal"."contracts" DROP CONSTRAINT IF EXISTS "contracts_title_backfill_nn";`,
+        `ALTER TABLE "legal"."contracts" ADD CONSTRAINT "contracts_title_backfill_nn" CHECK ("title" IS NOT NULL) NOT VALID;`,
+        `UPDATE "legal"."contracts" SET "title" = (CASE WHEN ("label" IS NULL) THEN 'untitled' ELSE "label" END) WHERE "title" IS NULL;`,
+        `ALTER TABLE "legal"."contracts" VALIDATE CONSTRAINT "contracts_title_backfill_nn";`,
+        `ALTER TABLE "legal"."contracts" ALTER COLUMN "title" SET NOT NULL;`,
+        `ALTER TABLE "legal"."contracts" DROP CONSTRAINT "contracts_title_backfill_nn";`,
+      ].join("\n"),
     ]);
   });
 

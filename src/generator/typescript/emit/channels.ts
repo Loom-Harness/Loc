@@ -24,7 +24,12 @@
 
 import type { EventIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { type BrokerBinding, kafkaStartsAtEarliest } from "../../_channels/bindings.js";
+import {
+  type BrokerBinding,
+  kafkaStartsAtEarliest,
+  uniqueBindings,
+} from "../../_channels/bindings.js";
+import { CHANNEL_CONSUMER, CHANNEL_RECONNECT } from "../../_channels/delivery-policy.js";
 import { decodeField, type WireValueObjectFields } from "../../_channels/wire-codec.js";
 import { tsImportSlot } from "../../_imports/ts.js";
 import { tsEnvelopeInstant } from "../codec-spelling.js";
@@ -48,17 +53,6 @@ function transportFactoryLine(hasRedis: boolean, hasRabbit: boolean, hasKafka: b
     .map(([transport, fn]) => `b.transport === ${JSON.stringify(transport)} ? ${fn}(url) : `)
     .join("");
   return `      t = ${arms}${last[1]}(url);`;
-}
-
-/** envVar → address per binding, deduped (two bindings on one deployable
- *  may share a channelSource only via duplicate list entries). */
-function uniqueBindings(bindings: BrokerBinding[]): BrokerBinding[] {
-  const seen = new Set<string>();
-  return bindings.filter((b) => {
-    if (seen.has(b.csName)) return false;
-    seen.add(b.csName);
-    return true;
-  });
 }
 
 export function renderChannelsModule(
@@ -340,7 +334,7 @@ export function renderChannelsModule(
             "",
             "/** Bounded per-message retries before a poisoned message parks in the",
             " * DLQ (mirrors the outbox relay's maxAttempts). */",
-            "const CHANNEL_MAX_ATTEMPTS = 5;",
+            `const CHANNEL_MAX_ATTEMPTS = ${CHANNEL_CONSUMER.maxAttempts};`,
             "",
             "/** RabbitMQ driver — amqplib over AMQP 0-9-1 (design §4 topology):",
             " * a durable fanout exchange per channel address; one durable queue",
@@ -469,7 +463,7 @@ export function renderChannelsModule(
             "  const reconnect = async (): Promise<void> => {",
             "    if (reconnecting) return;",
             "    reconnecting = true;",
-            "    let delay = 500;",
+            `    let delay = ${CHANNEL_RECONNECT.baseDelayMs};`,
             "    for (let attempt = 1; !closing; attempt++) {",
             "      try {",
             "        const ch = await channel();",
@@ -479,7 +473,7 @@ export function renderChannelsModule(
             "      } catch {",
             "        forget();",
             "        await new Promise((r) => setTimeout(r, delay));",
-            "        delay = Math.min(delay * 2, 15_000);",
+            `        delay = Math.min(delay * 2, ${CHANNEL_RECONNECT.maxDelayMs});`,
             "      }",
             "    }",
             "    reconnecting = false;",
@@ -795,6 +789,15 @@ export function renderChannelsModule(
       "  return t;",
       "}",
       "",
+      "/** A relay publish the broker could not take: the outbox relay halts its",
+      " * pass on it and backs off without spending the row's attempt. */",
+      "export class BrokerUnavailableError extends Error {",
+      "  constructor(cause: unknown) {",
+      "    super(`broker unavailable: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });",
+      '    this.name = "BrokerUnavailableError";',
+      "  }",
+      "}",
+      "",
       "/** Producer tee — the delivery-uniformity rule (design §4): an event",
       " * carried by a broker-bound channel is PUBLISHED and not fanned out",
       " * locally; co-located consumers receive it through their subscription",
@@ -815,7 +818,12 @@ export function renderChannelsModule(
       "      if (durableAddress) {",
       "        if (!opts.fromRelay) return inner.dispatch(event); // outbox captures; relay publishes",
       "        const envelope = envelopeFor(event, durableAddress);",
-      "        await transportForAddress(transports, durableAddress).publish(durableAddress, envelope);",
+      "        try {",
+      "          await transportForAddress(transports, durableAddress).publish(durableAddress, envelope);",
+      "        } catch (err) {",
+      "          // The relay halts its pass on this and spends no attempt.",
+      "          throw new BrokerUnavailableError(err);",
+      "        }",
       '        baseLogger.info({ event: "channel_published", address: durableAddress, type: event.type, id: envelope.id });',
       "        return;",
       "      }",

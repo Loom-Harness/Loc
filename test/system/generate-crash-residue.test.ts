@@ -71,7 +71,7 @@ system S {
       projection Board keyed by orderId {
         orderId: Order id
         labels: Label[]
-        on(e: Placed) { orderId := e.orderId }
+        on(e: Placed) { }
       }`),
     );
     expect(codes).toContain("loom.collection-field-unpersisted");
@@ -232,7 +232,7 @@ system S {
     projection Board keyed by orderId {
       orderId: Order id
       refs: Order id[]
-      on(e: Placed) { orderId := e.orderId }
+      on(e: Placed) { }
     }
     workflow Tracker {
       orderId: Order id

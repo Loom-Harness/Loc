@@ -22,7 +22,11 @@ import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
-import { AUTH_SESSION_SERVICE_ANGULAR, authGateAngular } from "../_frontend/auth-ui.js";
+import {
+  AUTH_REFRESH_INTERCEPTOR_ANGULAR,
+  AUTH_SESSION_SERVICE_ANGULAR,
+  authGateAngular,
+} from "../_frontend/auth-ui.js";
 import {
   HIGHLIGHT_MODULE_ANGULAR_TS,
   HIGHLIGHT_THEME_ANGULAR_STYLE,
@@ -51,6 +55,7 @@ import {
   deriveSidebarFromUi,
   isDefaultNavPage,
   type NavSectionVM,
+  navPageNameFallbacksFor,
 } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { ANGULAR_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
@@ -307,6 +312,7 @@ export function generateAngularForContexts(
       sentences: HAND_BUILT_FORM_SENTENCES.rows,
       implicitModelText: angularTarget.modelTextImplicitSites === true,
       sessionView: authUi,
+      menuPageNames: navPageNameFallbacksFor(ui, contexts),
     };
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
     // produced (scoped to this ui's keys, `TODO:` values already dropped by
@@ -572,7 +578,7 @@ export function generateAngularForContexts(
   const defaultSections: NavSectionVM[] =
     ui && pages.length > 0 ? [defaultAngularNavSection(sys, pages, pageCtx, authUi)] : [];
   const sidebarOverride = ui
-    ? deriveSidebarFromUi(ui, pageCtx, authUi, defaultSections)
+    ? deriveSidebarFromUi(ui, pageCtx, authUi, defaultSections, { nameLabelKeys: true })
     : undefined;
   const navSections = sidebarOverride
     ? sidebarOverride.map((s) => ({
@@ -724,7 +730,7 @@ export function generateAngularForContexts(
       appClass,
     }),
   );
-  out.set("src/app/app.config.ts", pack.render("app-config", {}));
+  out.set("src/app/app.config.ts", pack.render("app-config", { hasAuthUi: authUi }));
   // Root render-time error handler (M-T1.8) — the Angular twin of React's
   // `src/ErrorBoundary.tsx`.  Angular has no component-level boundary, and its
   // DEFAULT ErrorHandler only logs, so a throwing component left a blank page.
@@ -739,6 +745,7 @@ export function generateAngularForContexts(
   // Gated entirely behind `authUi` — a non-auth app emits neither file and an
   // unchanged app shell.
   if (authUi) {
+    out.set("src/api/auth-interceptor.ts", AUTH_REFRESH_INTERCEPTOR_ANGULAR);
     out.set("src/app/auth/session.service.ts", AUTH_SESSION_SERVICE_ANGULAR);
     out.set("src/app/auth/auth-gate.component.ts", authGateAngular(i18nEnabled));
   }

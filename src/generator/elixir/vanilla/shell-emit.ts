@@ -26,6 +26,7 @@ import {
   TEST_RESET_PATH,
   TEST_RESET_TOKEN_ENV,
 } from "../../../util/test-reset.js";
+import type { BootRequiredSetting } from "../../_auth/boot-required.js";
 import { NPM_FETCH_RETRY_FLAGS } from "../../_docker/node-stage.js";
 import { uiUsesLocaleSwitcher } from "../../_frontend/locale-switcher-use.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
@@ -35,7 +36,7 @@ import type { ApiRoute } from "../api-emit.js";
 import {
   GETTEXT_DEP,
   GETTEXT_DOMAIN,
-  heexIcuEnabled,
+  heexCldrEnabled,
   ICU_DEPS,
   renderCldrBackend,
   renderGettextBackend,
@@ -147,14 +148,16 @@ export function emitVanillaShellFiles(
    *  tag.  Each becomes a `priv/gettext/<locale>/LC_MESSAGES/default.po`, and
    *  its tag joins the negotiation's known-locale table. */
   translations: ReadonlyMap<string, Record<string, string>> = new Map(),
+  /** The env(…)-bound auth settings the release refuses to boot without. */
+  bootRequired: readonly BootRequiredSetting[] = [],
 ): void {
   const hasLiveView = liveRoutes.length > 0 || hasSidebar;
   // Either source of translatable strings turns the runtime on.
   const i18nEnabled = i18nUi !== undefined;
-  // The SECOND-tier i18n gate (D-I18N-HEEX-ICU): an ICU engine ships only for a
-  // ui that actually INTERPOLATES, so a translatable-but-literal-only app pays
-  // for no ICU dep.
-  const icuEnabled = i18nUi !== undefined && heexIcuEnabled(i18nUi);
+  // The SECOND-tier i18n gate (D-I18N-HEEX-ICU, D-HEEX-I18N-FORMAT): the CLDR
+  // runtime ships only for a ui that INTERPOLATES or renders a locale-formatted
+  // date or amount, so a translatable-but-literal-only app pays for no CLDR dep.
+  const icuEnabled = i18nUi !== undefined && heexCldrEnabled(i18nUi);
   // The locale model: the source plus every translated catalog.  The
   // negotiation wiring (plug, `on_mount`, `<html lang dir>`, the shell
   // switcher) ships when there is a second locale to negotiate to, or when a
@@ -200,7 +203,7 @@ export function emitVanillaShellFiles(
       schedulerChildren,
       preEndpointChildren,
       seedModules,
-      authEnabled && !oidc ? devAuthBootLog() : [],
+      authEnabled && !oidc ? devAuthBootLog() : elixirBootRequiredAuth(appName, bootRequired),
     ),
   );
   // `mix run priv/repo/seeds.exs` — the canonical Phoenix manual entry, over
@@ -484,9 +487,11 @@ function renderVanillaMixExs(
    *  adds the `gettext` dep the generated backend + `priv/gettext/**` need.
    *  False ⇒ no `gettext` dep. */
   i18nEnabled = false,
-  /** True when that ui INTERPOLATES (D-I18N-HEEX-ICU) — adds the ICU engine the
-   *  generated `loom_icu/2` formats through.  Strictly narrower than
-   *  `i18nEnabled`: a literal-only app never pays the CLDR compile. */
+  /** True when that ui INTERPOLATES or renders a locale-formatted date or amount
+   *  (D-I18N-HEEX-ICU, D-HEEX-I18N-FORMAT) — adds the CLDR packages the
+   *  generated `loom_icu/2` and `loom_date/1` format through.
+   *  Strictly narrower than `i18nEnabled`: a literal-only app never pays the
+   *  CLDR compile. */
   icuEnabled = false,
 ): string {
   // LiveView dep — only when the deployable mounts a HEEx `ui:`.
@@ -621,8 +626,9 @@ function renderVanillaWebModule(
    *  `html_helpers` so `pgettext/2` resolves unqualified inside every `~H`
    *  template.  False ⇒ no import. */
   i18nEnabled = false,
-  /** True when the ui interpolates — `import`s the generated ICU helper so
-   *  `loom_icu/2` resolves inside every `~H` template (D-I18N-HEEX-ICU). */
+  /** True when the ui needs the CLDR runtime — `import`s the generated helper so
+   *  `loom_icu/2` and `loom_date/1` resolve inside every `~H`
+   *  template (D-I18N-HEEX-ICU, D-HEEX-I18N-FORMAT). */
   icuEnabled = false,
 ): string {
   const webModule = `${appModule}Web`;
@@ -1982,8 +1988,11 @@ end
 function renderVanillaTest(appName: string, appModule: string, oidc: boolean): string {
   // `mix test` has no issuer: the generated tests build their principal from a
   // claims map (`Auth.as_principal/1`), so the JWKS strategy — which fetches the
-  // issuer's keys synchronously at start — stays off under `:test`.
-  const jwks = oidc ? `\nconfig :${appName}, :start_jwks_strategy, false\n` : "";
+  // issuer's keys synchronously at start — stays off under `:test`, and so
+  // does the boot check of the env-bound auth settings.
+  const jwks = oidc
+    ? `\nconfig :${appName}, :start_jwks_strategy, false\nconfig :${appName}, :require_auth_env, false\n`
+    : "";
   return `import Config
 
 config :${appName}, ${appModule}.Repo,
@@ -2007,6 +2016,34 @@ ${jwks}`;
 
 /** The one boot line saying whether the dev-stub login is on — an
  *  `auth: required` system with no `auth { oidc }` block. */
+/** The model binds these auth settings to env(…), so there is no fallback:
+ *  the release refuses to boot without them (a raise in \`start/2\` fails the
+ *  application, and the VM exits non-zero) rather than answer every request
+ *  with a 401. */
+function elixirBootRequiredAuth(
+  appName: string,
+  required: readonly BootRequiredSetting[],
+): string[] {
+  if (required.length === 0) return [];
+  const rows = required
+    .map(
+      (r) => `{${JSON.stringify(r.setting)}, [${r.vars.map((v) => JSON.stringify(v)).join(", ")}]}`,
+    )
+    .join(", ");
+  return [
+    "# The model binds these auth settings to env(…), so there is no fallback:",
+    "# refuse to boot without them rather than answer every request with a 401.",
+    "# (`mix test` turns the check off: its principals come from claims maps.)",
+    `for {setting, vars} <- [${rows}],`,
+    `    Application.get_env(:${appName}, :require_auth_env, true) do`,
+    '  if Enum.all?(vars, &(System.get_env(&1) in [nil, ""])) do',
+    '    Logger.error("config_missing", event: "config_missing", setting: setting, vars: Enum.join(vars, ", "))',
+    '    raise "missing required auth setting #{setting}: set #{Enum.join(vars, " or ")}"',
+    "  end",
+    "end",
+  ];
+}
+
 function devAuthBootLog(): string[] {
   const disabled = renderPhoenixLogCall("authDevStubDisabled", [
     { name: "reason", valueExpr: JSON.stringify(DEV_AUTH_DISABLED_LOG) },

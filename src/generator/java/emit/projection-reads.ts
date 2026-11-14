@@ -1,7 +1,9 @@
 import { foldFloorTerms, foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
+import { foldRowSeeds } from "../../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
   ProjectionIR,
+  TypeIR,
   WireField,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types/loom-ir.js";
@@ -146,8 +148,15 @@ function renderProjectionsController(
     // Hono / Python by construction (non-guid-id-http-params.md).
     const paramJava = corrValueType(proj);
     const shape = proj.wireShape ?? [];
+    // A required column with no starting value (`foldRowSeeds`) reads null
+    // until a fold writes it, so it converts null-safely.
+    const seeded = new Set(foldRowSeeds(proj).map((sd) => sd.field.name));
+    const rowType = (f: WireField): TypeIR =>
+      f.source === "id" || f.type.kind === "optional" || seeded.has(f.name)
+        ? f.type
+        : { kind: "optional", inner: f.type };
     const projRow = (rowVar: string): string =>
-      shape.map((f) => domainToWire(f.type, `${rowVar}.${jid(f.name)}()`)).join(", ");
+      shape.map((f) => domainToWire(rowType(f), `${rowVar}.${jid(f.name)}()`)).join(", ");
     // Every read of a scoped fold applies its read scope (`fold-tenancy.ts`):
     // the row's tenant equals the request principal's claim.
     const tenancy = foldTenancyFor(proj);

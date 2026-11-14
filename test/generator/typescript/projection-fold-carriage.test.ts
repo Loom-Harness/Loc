@@ -38,7 +38,7 @@ function sys(channel: string): string {
       ${channel}
       projection OrderBook keyed by order {
         order: Order id
-        status: OrderStatus
+        status: OrderStatus?
         on(e: OrderPlaced)  { status := Placed }
         on(e: OrderShipped) { status := Shipped }
       }

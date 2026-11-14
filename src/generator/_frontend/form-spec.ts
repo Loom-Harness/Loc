@@ -47,12 +47,14 @@ export type FormAbsence = "required" | "null" | "emptyArray";
 
 /** Where a field's initial value comes from.
  *  - `record` — an update / operation form opened on a loaded record seeds the
- *    field from the record's same-named, same-typed field (`field`).
+ *    field from the record's same-named, same-typed field (`field`).  A
+ *    `provenanced` record field reads as its wire carrier `{ value, lineage }`,
+ *    so `carrier` says the value is the carrier's `value`.
  *  - `default` — the declared `= <expr>` default (`expr`), when the target can
  *    evaluate it client-side; otherwise the target falls back to `zero`.
  *  - `zero` — the kind's empty value (`null` for an optional field). */
 export type FormPrefill =
-  | { from: "record"; field: string }
+  | { from: "record"; field: string; carrier?: true }
   | { from: "default"; expr: ExprIR }
   | { from: "zero" };
 
@@ -93,6 +95,11 @@ export interface FormFieldSpec {
   children?: FormFieldSpec[];
   /** `scalarArray`: the element's scalar kind. */
   elementKind?: FormScalarKind;
+  /** The declared type has no form input of its own: a `string` field over a
+   *  type that is not a string (an unresolved value object, a record), or a
+   *  `scalarArray` whose element is not a scalar, enum or reference (a `File`, a
+   *  record).  A target that refuses to fake such a field as text reads this. */
+  opaque?: true;
 }
 
 export type FormSpecKind = "update" | "operation";
@@ -134,7 +141,7 @@ export interface FormSpecEnv {
   /** The fields of a resolvable value object. */
   valueObjectFields(
     name: string,
-  ): readonly { name: string; type: TypeIR; optional?: boolean }[] | undefined;
+  ): readonly { name: string; type: TypeIR; optional?: boolean; default?: ExprIR }[] | undefined;
   /** The referenced aggregate declares `derived display`. */
   hasDisplay(aggregate: string): boolean;
   /** The aggregate's list read is a paged envelope. */
@@ -249,6 +256,7 @@ export function formFieldSpec(
     absence,
     prefill,
     ...(f.default ? { default: f.default } : {}),
+    ...(isOpaque(kind, inner) ? { opaque: true as const } : {}),
   };
   switch (kind) {
     case "enum":
@@ -282,7 +290,7 @@ export function formFieldSpec(
         spec.valueObject = voName;
         spec.children = voFields.map((vf) =>
           formFieldSpec(
-            { name: vf.name, type: vf.type, optional: vf.optional },
+            { name: vf.name, type: vf.type, optional: vf.optional, default: vf.default },
             env,
             kind === "objectArray" ? vf.name : `${path}.${vf.name}`,
           ),
@@ -300,6 +308,16 @@ export function formFieldSpec(
       break;
   }
   return spec;
+}
+
+/** The kind fell back to a text input the type does not fit (see
+ *  {@link FormFieldSpec.opaque}).  An unresolved enum stays a plain string. */
+function isOpaque(kind: FormFieldKind, inner: TypeIR): boolean {
+  if (kind === "string") return inner.kind !== "primitive" && inner.kind !== "enum";
+  if (kind !== "scalarArray" || inner.kind !== "array") return false;
+  const el = peel(inner.element).inner;
+  if (el.kind === "primitive") return scalarKindOf(el.name) === "file";
+  return el.kind !== "enum" && el.kind !== "id";
 }
 
 function enumNameOf(t: TypeIR): string | undefined {
@@ -345,7 +363,13 @@ function sameValueType(a: TypeIR, b: TypeIR): boolean {
  *  `update` form when every param prefills that way. */
 export function operationFormSpec(agg: AggregateIR, op: OperationIR, env: FormSpecEnv): FormSpec {
   const recordFields = new Map<string, TypeIR>(agg.fields.map((f) => [f.name, f.type]));
-  const fields = operationFormParams(op).map((p) => formFieldSpec(p, env, p.name, recordFields));
+  const carriers = new Set(agg.fields.filter((f) => f.provenanced).map((f) => f.name));
+  const fields = operationFormParams(op).map((p) => {
+    const spec = formFieldSpec(p, env, p.name, recordFields);
+    return spec.prefill.from === "record" && carriers.has(p.name)
+      ? { ...spec, prefill: { ...spec.prefill, carrier: true as const } }
+      : spec;
+  });
   const fromRecord = fields.filter((f) => f.prefill.from === "record").length;
   return {
     kind: fields.length > 0 && fromRecord === fields.length ? "update" : "operation",

@@ -178,7 +178,9 @@ export function renderJavaValueObject(
     const fnParams = fn.params
       .map((p) => `${renderJavaType(p.type)} ${DOMAIN_NAMES.java.binding(p.name)}`)
       .join(", ");
-    const open = `    private ${renderJavaType(fn.returnType)} ${DOMAIN_NAMES.java.method(fn.name)}(${fnParams}) {`;
+    // Public: a value object's function is called from the aggregates and
+    // workflows that hold the value (`total.plus(tip)`), never only from inside.
+    const open = `    public ${renderJavaType(fn.returnType)} ${DOMAIN_NAMES.java.method(fn.name)}(${fnParams}) {`;
     const bodyLine =
       "expr" in fn.body
         ? `        return ${renderJavaExpr(fn.body.expr, methodCtx)};`

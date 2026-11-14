@@ -15,7 +15,7 @@
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
-import { allContexts } from "../../src/ir/types/loom-ir.js";
+import { aggregateArg, allContexts } from "../../src/ir/types/loom-ir.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { TARGET_CAPABILITIES } from "../../src/util/target-capabilities.js";
 import { parseString } from "../_helpers/parse.js";
@@ -74,7 +74,7 @@ describe("lowering normalises a whole-table aggregation", () => {
       "SalesTotals",
     );
     expect(q?.selects?.[0]?.aggregate?.op).toBe("sum");
-    expect(q?.selects?.[0]?.aggregate?.arg?.kind).toBe("member");
+    expect(aggregateArg(q?.selects?.[0]?.aggregate)?.kind).toBe("member");
   });
 
   it("types the result from the OPERATOR, not the unresolved expression", async () => {
@@ -275,7 +275,7 @@ describe("loom.ui-projection-read-unsupported — the FLAVOUR half (every target
         withProjection(
           `event OrderPlaced { order: Order id }
            projection OrderBook keyed by order { order: Order id
-             on(e: OrderPlaced) { order := e.order } }`,
+             on(e: OrderPlaced) { } }`,
           "Sales.OrderBook",
         ),
       ),

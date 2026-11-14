@@ -2,7 +2,15 @@ import type { DataSourceIR, StorageIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { upperFirst } from "../../../util/naming.js";
-import { resourceEnvUrlVar, resourceSidecarUrl } from "../../../util/resource-env.js";
+import {
+  RESOURCE_HOST_ENV,
+  resourceEnvDirVar,
+  resourceEnvEndpointVar,
+  resourceEnvUrlVar,
+  resourceSidecarUrl,
+  SENDGRID_API_BASE,
+  SENDGRID_SEND_PATH,
+} from "../../../util/resource-env.js";
 
 // ---------------------------------------------------------------------------
 // Java ResourceAdapter — client classes for the non-persistence
@@ -79,11 +87,15 @@ const s3JavaAdapter: JavaResourceAdapter = {
   emitClientClass(resources, stores, pkg): string {
     const blocks = resources.flatMap((r) => {
       const bucket = cfg(storeOf(r, stores), "bucket") ?? "";
+      const endpoint = cfg(storeOf(r, stores), "endpoint");
       const n = r.name;
       return [
         `    private static final String ${n}Bucket =`,
         `        System.getenv().getOrDefault("${envVar(n)}_BUCKET", ${JSON.stringify(bucket)});`,
-        `    private static final S3Client ${n}Client = S3Client.create();`,
+        endpoint
+          ? `    private static final String ${n}Endpoint = System.getenv().getOrDefault("${resourceEnvEndpointVar(n)}", ${JSON.stringify(endpoint)});`
+          : `    private static final String ${n}Endpoint = System.getenv("${resourceEnvEndpointVar(n)}");`,
+        `    private static final S3Client ${n}Client = s3Client(${n}Endpoint);`,
         ``,
         // `put(key, json)` (docs/resources.md): the body is a JSON VALUE, not a
         // pre-rendered string -- a record literal at the call site renders as a
@@ -111,7 +123,7 @@ const s3JavaAdapter: JavaResourceAdapter = {
         `    }`,
         ``,
         `    public static String ${n}SignedUrl(String key) {`,
-        `        try (var presigner = S3Presigner.create()) {`,
+        `        try (var presigner = s3Presigner(${n}Endpoint)) {`,
         `            return presigner.presignGetObject(GetObjectPresignRequest.builder()`,
         `                .signatureDuration(Duration.ofHours(1))`,
         `                .getObjectRequest(GetObjectRequest.builder().bucket(${n}Bucket).key(key).build())`,
@@ -148,6 +160,7 @@ const s3JavaAdapter: JavaResourceAdapter = {
     return lines(
       `package ${pkg};`,
       ``,
+      `import java.net.URI;`,
       `import java.time.Duration;`,
       `import java.util.List;`,
       ``,
@@ -155,6 +168,7 @@ const s3JavaAdapter: JavaResourceAdapter = {
       ``,
       `import software.amazon.awssdk.core.sync.RequestBody;`,
       `import software.amazon.awssdk.services.s3.S3Client;`,
+      `import software.amazon.awssdk.services.s3.S3Configuration;`,
       `import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;`,
       `import software.amazon.awssdk.services.s3.model.GetObjectRequest;`,
       `import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;`,
@@ -169,6 +183,25 @@ const s3JavaAdapter: JavaResourceAdapter = {
       `    }`,
       ``,
       ...jsonHelper(),
+      ``,
+      `    /** An S3-compatible endpoint (the dev MinIO sidecar, or the storage's`,
+      `     *  declared one) is addressed path-style; none set means AWS proper. */`,
+      `    private static S3Client s3Client(String endpoint) {`,
+      `        var builder = S3Client.builder();`,
+      `        if (endpoint != null && !endpoint.isEmpty()) {`,
+      `            builder.endpointOverride(URI.create(endpoint)).forcePathStyle(true);`,
+      `        }`,
+      `        return builder.build();`,
+      `    }`,
+      ``,
+      `    private static S3Presigner s3Presigner(String endpoint) {`,
+      `        var builder = S3Presigner.builder();`,
+      `        if (endpoint != null && !endpoint.isEmpty()) {`,
+      `            builder.endpointOverride(URI.create(endpoint))`,
+      `                .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build());`,
+      `        }`,
+      `        return builder.build();`,
+      `    }`,
       ``,
       `    /** Raw object bytes + their stored content-type. */`,
       `    public record ObjectBytes(byte[] bytes, String contentType) {`,
@@ -426,7 +459,7 @@ const sesJavaAdapter: JavaResourceAdapter = {
     const blocks = resources.flatMap((r) => {
       const n = r.name;
       return [
-        `    private static final SesClient ${n}Client = SesClient.create();`,
+        `    private static final SesClient ${n}Client = client(System.getenv("${RESOURCE_HOST_ENV.ses(n)}"));`,
         `    private static final String ${n}From =`,
         `        System.getenv().getOrDefault("${envVar(n).replace(/_URL$/, "")}_FROM", ${JSON.stringify(mailFrom(r, stores))});`,
         ``,
@@ -447,6 +480,8 @@ const sesJavaAdapter: JavaResourceAdapter = {
     return lines(
       `package ${pkg};`,
       ``,
+      `import java.net.URI;`,
+      ``,
       `import software.amazon.awssdk.services.ses.SesClient;`,
       `import software.amazon.awssdk.services.ses.model.Body;`,
       `import software.amazon.awssdk.services.ses.model.Content;`,
@@ -458,6 +493,15 @@ const sesJavaAdapter: JavaResourceAdapter = {
       `    private SesResources() {`,
       `    }`,
       ``,
+      `    /** The SES client for a mailer: its endpoint override when one is set, AWS otherwise. */`,
+      `    private static SesClient client(String endpoint) {`,
+      `        var builder = SesClient.builder();`,
+      `        if (endpoint != null && !endpoint.isEmpty()) {`,
+      `            builder.endpointOverride(URI.create(endpoint));`,
+      `        }`,
+      `        return builder.build();`,
+      `    }`,
+      ``,
       ...blocks,
       `}`,
       ``,
@@ -465,29 +509,21 @@ const sesJavaAdapter: JavaResourceAdapter = {
   },
 };
 
+/** SendGrid over the JDK HTTP client: one POST of the v3 mail body to the
+ *  resource's endpoint override, or SendGrid's API when none is set. */
 const sendgridJavaAdapter: JavaResourceAdapter = {
   name: "sendgrid",
-  gradleDeps: () => ({ "com.sendgrid:sendgrid-java": "4.10.3" }),
+  gradleDeps: () => ({}),
   emitClientClass(resources, stores, pkg): string {
     const blocks = resources.flatMap((r) => {
       const n = r.name;
       return [
-        `    private static final SendGrid ${n}Client =`,
-        `        new SendGrid(System.getenv().getOrDefault("SENDGRID_API_KEY", ""));`,
         `    private static final String ${n}From =`,
         `        System.getenv().getOrDefault("${envVar(n).replace(/_URL$/, "")}_FROM", ${JSON.stringify(mailFrom(r, stores))});`,
+        `    private static final URI ${n}SendUri = sendUri(System.getenv("${RESOURCE_HOST_ENV.sendgrid(n)}"));`,
         ``,
         `    public static void ${n}Send(String to, String subject, String body) {`,
-        `        var mail = new Mail(new Email(${n}From), subject, new Email(to), new Content("text/plain", body));`,
-        `        var req = new Request();`,
-        `        req.setMethod(Method.POST);`,
-        `        req.setEndpoint("mail/send");`,
-        `        try {`,
-        `            req.setBody(mail.build());`,
-        `            ${n}Client.api(req);`,
-        `        } catch (java.io.IOException e) {`,
-        `            throw new RuntimeException("${n} send failed", e);`,
-        `        }`,
+        `        send(${n}SendUri, ${n}From, to, subject, body);`,
         `    }`,
         ``,
       ];
@@ -496,15 +532,50 @@ const sendgridJavaAdapter: JavaResourceAdapter = {
     return lines(
       `package ${pkg};`,
       ``,
-      `import com.sendgrid.Method;`,
-      `import com.sendgrid.Request;`,
-      `import com.sendgrid.SendGrid;`,
-      `import com.sendgrid.helpers.mail.Mail;`,
-      `import com.sendgrid.helpers.mail.objects.Content;`,
-      `import com.sendgrid.helpers.mail.objects.Email;`,
+      `import java.io.IOException;`,
+      `import java.net.URI;`,
+      `import java.net.http.HttpClient;`,
+      `import java.net.http.HttpRequest;`,
+      `import java.net.http.HttpResponse;`,
+      `import java.util.List;`,
+      `import java.util.Map;`,
+      ``,
+      `import tools.jackson.databind.json.JsonMapper;`,
       ``,
       `public final class SendgridResources {`,
+      `    private static final HttpClient CLIENT = HttpClient.newHttpClient();`,
+      `    private static final JsonMapper JSON = JsonMapper.builder().build();`,
+      ``,
       `    private SendgridResources() {`,
+      `    }`,
+      ``,
+      `    private static URI sendUri(String endpoint) {`,
+      `        var base = endpoint == null || endpoint.isEmpty() ? ${JSON.stringify(SENDGRID_API_BASE)} : endpoint;`,
+      `        return URI.create(base.replaceAll("/+$", "") + ${JSON.stringify(SENDGRID_SEND_PATH)});`,
+      `    }`,
+      ``,
+      `    private static void send(URI uri, String from, String to, String subject, String body) {`,
+      `        var mail = Map.of(`,
+      `            "personalizations", List.of(Map.of("to", List.of(Map.of("email", to)))),`,
+      `            "from", Map.of("email", from),`,
+      `            "subject", subject,`,
+      `            "content", List.of(Map.of("type", "text/plain", "value", body)));`,
+      `        var req = HttpRequest.newBuilder(uri)`,
+      `            .header("Authorization", "Bearer " + System.getenv().getOrDefault("SENDGRID_API_KEY", ""))`,
+      `            .header("Content-Type", "application/json")`,
+      `            .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(mail)))`,
+      `            .build();`,
+      `        try {`,
+      `            var res = CLIENT.send(req, HttpResponse.BodyHandlers.discarding());`,
+      `            if (res.statusCode() / 100 != 2) {`,
+      `                throw new IllegalStateException("sendgrid send failed: HTTP " + res.statusCode());`,
+      `            }`,
+      `        } catch (IOException e) {`,
+      `            throw new IllegalStateException("sendgrid send failed", e);`,
+      `        } catch (InterruptedException e) {`,
+      `            Thread.currentThread().interrupt();`,
+      `            throw new IllegalStateException("sendgrid send interrupted", e);`,
+      `        }`,
       `    }`,
       ``,
       ...blocks,
@@ -527,7 +598,7 @@ const localDiskJavaAdapter: JavaResourceAdapter = {
       const n = r.name;
       return [
         `    private static final Path ${n}Dir =`,
-        `        Path.of(System.getenv().getOrDefault("${envVar(n).replace(/_URL$/, "")}_DIR", "data/${n}"));`,
+        `        Path.of(System.getenv().getOrDefault("${resourceEnvDirVar(n)}", "data/${n}"));`,
         ``,
         // Guard against path traversal: minted keys are UUIDs, but a
         // GET /files/{key} param is caller-supplied, so keep it inside the dir.

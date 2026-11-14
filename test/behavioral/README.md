@@ -163,6 +163,17 @@ the runner's RSS.
   committed file is named `.pw.ts` so the repo's vitest run never discovers
   it). Gates in `behavioral-ui-e2e.yml` after the emitted round-trips; run:
   `node paged-ui.mjs`.
+- **i18n-ui** — the translated-locale leg (`i18n-ui.mjs`, fixture
+  `i18n-ui/i18n-ui.ddd` with its `fr` translator tree beside it). The fixture's
+  chrome claims (a page-`requires` Forbidden view, a `money` ICU hole, a titled
+  page's nav link, a menu section, `ProvenanceInfo` labels, an `Action { x.op }`
+  label) are generated for each of react/vue/svelte/angular
+  (`platform: static` is retargeted), built with the frontend's own toolchain and
+  opened in headless Chromium with `locale: "fr-FR"` over the one-origin stack
+  (dev-stub auth, `x-loom-dev-claims` picks the principal); the TRANSLATED text
+  is read off the DOM, with an `en-US` control. Gates in `behavioral-ui-e2e.yml`
+  after `paged-ui`; run: `node i18n-ui.mjs [static|vue|svelte|angular]`.
+  `LOOM_UI_MUTATE=<module.mjs>` is the mutation-proof seam (as in `run-ui.mjs`).
 - **heex-ui** — the **rendered LiveView**, per PR (`run-heex-ui.mjs`, fixture
   `heex-ui.ddd`, extra spec `heex-ui-roundtrip.pw.ts`). Deliberately NOT the
   `run-ui.mjs` topology: that one serves a `vite build` bundle with `/api`
@@ -397,6 +408,36 @@ could not have seen the defect it exists to catch. Adoption on a leg is
 credential plumbing, not a new prober — each runner passes
 `AUTHZ_LADDERS[case]` plus `unauthorizedCredentials(...)` into its entry
 source, and the shared preamble does the rest.
+
+### The OIDC issuer and the authorization-code round trip
+
+An `auth { oidc }` case boots against the emulated OIDC provider
+(`src/emulation/oidc.ts`, the same one the playground runs), served on a
+loopback port by the Node kit's host (`test/support/fakes/oidc.mjs`) and
+configured by `oidc-mock.mjs` with the tier's `agent` / `visitor` principals.
+It serves discovery, JWKS, the authorization endpoint (signs `agent` straight
+back in, or renders a login page), the token endpoint (`authorization_code`
+with PKCE, `refresh_token` with rotation, `password`), userinfo and
+end_session. Its `env` (`OIDC_ISSUER`, `OIDC_CLIENT_ID`) is what the generated
+verifier and handshake read; `observe()` lists the tokens its token endpoint
+issued as `{ grant, principal, sub }`.
+
+After the ladder, every leg drives the backend's own login handshake against
+it (`test/support/oidc-code-flow.mjs`), off the recorder:
+
+```
+GET  /api/auth/login     → 3xx to the issuer, state + PKCE cookies set
+GET  <authorize>         → 302 back to the redirect_uri with ?code&state
+GET  /api/auth/callback  → code exchanged with the PKCE verifier, session set
+GET  /api/auth/me        → the logged-in principal (its `sub`)
+POST /api/auth/refresh   → a rotated session; the spent refresh token is refused
+```
+
+plus a callback whose `state` does not match the state cookie, which must
+set no session. Each step is a `probe` row, so a backend that skips its
+state check, or does not prove PKCE possession, fails that step by name.
+`test/harness/fake-oidc.test.ts` proves the driver against hand-written
+handshakes with each of those defects seeded.
 
 A spec may declare **several** gated surfaces and a **multi-step** seed.
 Both exist for the read side: one system carries three distinct gated read

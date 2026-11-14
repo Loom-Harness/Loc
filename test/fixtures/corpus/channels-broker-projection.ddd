@@ -1,0 +1,65 @@
+// A consumer deployable whose ONLY consumer of a durable broker channel is a
+// folded projection: no reactor, no event-triggered `create`.
+//
+// The channel plan counts a projection fold as consuming the event, so
+// `shipApi` runs a broker consumer and folds `OrderBook` from the envelopes
+// `salesApi`'s relay publishes.  A backend that asks "does a non-projection
+// subscription exist" instead emits no consumer here, and the fold never runs.
+system ChannelsBrokerProjectionSys {
+  subdomain Sales {
+    context Orders {
+      aggregate Order {
+        customerId: string
+        status: string
+        operation place() {
+          precondition status == "Draft"
+          status := "Placed"
+          emit OrderPlaced { order: id, at: now() }
+        }
+      }
+      repository Orders for Order { }
+      event OrderPlaced { order: Order id, at: datetime }
+      channel Lifecycle {
+        carries: OrderPlaced
+        delivery: queue
+        retention: work
+      }
+    }
+  }
+  subdomain Fulfilment {
+    context Shipping {
+      aggregate Shipment {
+        orderRef: Order id
+        status: string
+      }
+      repository Shipments for Shipment { }
+      projection OrderBook keyed by order {
+        order: Order id
+        status: string
+        on(e: OrderPlaced) { status := "Placed" }
+      }
+    }
+  }
+  api OrdersApi from Sales
+  storage sales { type: postgres }
+  storage shipping { type: postgres }
+  storage bus { type: rabbitmq }
+  resource ordersState { for: Orders, kind: state, use: sales }
+  resource shippingState { for: Shipping, kind: state, use: shipping }
+  channelSource lifecycleBus { for: Lifecycle, use: bus }
+  deployable salesApi {
+    platform: __PLATFORM__
+    contexts: [Orders]
+    dataSources: [ordersState]
+    channels: [lifecycleBus]
+    serves: OrdersApi
+    port: 4000
+  }
+  deployable shipApi {
+    platform: __PLATFORM__
+    contexts: [Shipping]
+    dataSources: [shippingState]
+    channels: [lifecycleBus]
+    port: 4001
+  }
+}

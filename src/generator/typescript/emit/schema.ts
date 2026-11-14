@@ -20,6 +20,7 @@ import { isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
 import { fkIndexedFields } from "../../../ir/util/fk-index-fields.js";
 import {
+  isDiscriminatedTphBase,
   isTphBase,
   isTphConcrete,
   ownFieldsOf,
@@ -162,6 +163,17 @@ export function renderSchema(
             { table: partTableName(part), schema, prefix },
           ),
         );
+      }
+      // …and its value-object array fields keep their child tables, FK'd to
+      // the shared base table like the parts (the migration builder's TPH
+      // branch derives the same tables).
+      for (const vc of valueCollectionsFor(agg)) {
+        tables.push(emitValueCollectionTable(vc, owner, ctx, { schema, prefix }));
+      }
+      for (const part of agg.parts) {
+        for (const vc of valueCollectionsFor(part)) {
+          tables.push(emitValueCollectionTable(vc, part.name, ctx, { schema, prefix }));
+        }
       }
       continue;
     }
@@ -704,7 +716,8 @@ function emitTphTable(
   const lines: string[] = [];
   lines.push(`export const ${lowerFirst(plural(base.name))} = ${tableFactory}("${tableName}", {`);
   lines.push(`  id: ${drizzleIdColumn("id")}.primaryKey(),`);
-  lines.push(`  kind: text("kind").notNull(),`);
+  // A childless base's table is concrete-shaped: no `kind` column.
+  if (isDiscriminatedTphBase(base, ctx.aggregates)) lines.push(`  kind: text("kind").notNull(),`);
   for (const f of base.fields) {
     lines.push(...drizzleColumnLines(f, ctx).map((s) => `  ${s}`));
   }

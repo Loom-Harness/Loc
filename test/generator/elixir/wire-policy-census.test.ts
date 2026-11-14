@@ -111,11 +111,6 @@ const WAIVERS: { file: string; line: string; reason: string }[] = [
     reason: "an emitted code comment naming a missing page action",
   },
   {
-    file: "src/generator/elixir/heex-handlers.ts",
-    line: "notFoundMsg = JSON.stringify",
-    reason: "the LiveView flash text for a missing row — the UI surface, not the REST wire",
-  },
-  {
     file: "src/generator/elixir/vanilla/context-emit.ts",
     line: "raises if not found",
     reason: "prose in an emitted @doc, not a response body",

@@ -264,7 +264,9 @@ describe("angular generator — display + layout primitives", () => {
   it("walks each primitive to its pack markup", async () => {
     const page = await displayPage();
     expect(page).toContain('<div class="loom-container">');
-    expect(page).toContain('<div class="loom-toolbar" role="toolbar" aria-label="Actions">');
+    expect(page).toContain(
+      `<div class="loom-toolbar" role="toolbar" [attr.aria-label]='t("chrome.toolbarActions", "Actions")'>`,
+    );
     expect(page).toContain('<div class="loom-group">');
     expect(page).toContain('<div class="loom-paper">');
     // Badge label + Stat label/value walk through the i18n seam (M-T1.11).
@@ -1437,5 +1439,24 @@ describe("angular generator — two CreateForms on one page", () => {
     expect(page).toContain("readonly noteCreate = useCreateNote();");
     expect(page).not.toContain("itemCreate2");
     expect(page).not.toContain("noteCreate2");
+  });
+});
+
+// A money `state` initializer renders `new Decimal(…)` into a class member, so
+// the component must import decimal.js even when its template never names it
+// (string assertion: absence of the import is a compile error only `ng build` sees).
+describe("angular money state default", () => {
+  it("imports Decimal for a money state initializer", async () => {
+    const src = SOURCE.replace(
+      'title: "Home"',
+      'title: "Home"\n        state { amount: money = 12.5 }\n        action bump() { amount := 1.5 }',
+    ).replace(
+      'Text { "This page rendered through the shared walker." }',
+      'Button { "Bump", onClick: bump }',
+    );
+    const all = await generateSystemFiles(src);
+    const page = [...all].find(([p]) => /pages\/home\.component\.ts$/.test(p))?.[1] ?? "";
+    expect(page).toContain("new Decimal(");
+    expect(page).toContain('import Decimal from "decimal.js";');
   });
 });

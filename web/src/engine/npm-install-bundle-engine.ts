@@ -14,7 +14,7 @@ import { LoomRuntimeClient } from "../runtime/client.js";
 import { InfraClient } from "../runtime/infra-client.js";
 import type { ResourceService } from "../runtime/infra-client.js";
 import type { StorageSchemaPlan } from "../runtime/infra-protocol.js";
-import type { BrokerInspectResult } from "../runtime/infra/broker-protocol.js";
+import type { BrokerInspectResult } from "../../../src/emulation/broker-protocol.js";
 import type {
   BootFail,
   BootFailAt,
@@ -39,6 +39,7 @@ import {
 import { engineRegistry } from "./registry.js";
 import type {
   BackendBundle,
+  FrontendBundle,
   EngineCapabilities,
   EngineSnapshot,
   PrepareInput,
@@ -47,6 +48,8 @@ import type {
   RuntimeEngineOptions,
 } from "./runtime-engine.js";
 import { postProcessNpmBundle } from "./npm/postprocess.js";
+import { type CompiledFramework, frontendStdin } from "./npm/frontend-frameworks.js";
+import type { PreviewFramework } from "../build/deployables.js";
 import { VfsBundlerClient } from "./npm/vfs-bundler-client.js";
 
 export interface EsbuildRunInput {
@@ -69,6 +72,9 @@ export interface EsbuildRunInput {
    *  the Hono run (the React bundle never sets this — frontend `.ddd`
    *  debugging is a separate, out-of-scope slice). */
   sourcemap?: boolean;
+  /** A frontend a framework compiler builds (`npm/frontend-frameworks.ts`):
+   *  `stdinContents` is then its synthesised entry. */
+  framework?: CompiledFramework;
 }
 
 export type EsbuildRun = (
@@ -114,6 +120,26 @@ function harvestDeps(
     }
   }
   return {};
+}
+
+/** The framework runtime a compiled frontend's components import, when its
+ *  package.json lists it as a build-time dependency: SvelteKit's components
+ *  import `svelte/internal/client`, which ships in the `svelte` devDependency. */
+function compilerRuntimeDeps(
+  files: Map<string, string | Uint8Array>,
+  entry: string,
+  framework: CompiledFramework,
+): Record<string, string> {
+  if (framework !== "svelte") return {};
+  const raw = files.get(`/${entry.split("/")[0]}/package.json`);
+  if (raw == null) return {};
+  try {
+    const pkg = JSON.parse(typeof raw === "string" ? raw : new TextDecoder().decode(raw));
+    const v = pkg.devDependencies?.svelte ?? pkg.dependencies?.svelte;
+    return typeof v === "string" ? { svelte: v } : {};
+  } catch {
+    return {};
+  }
 }
 
 export class NpmInstallBundleEngine implements RuntimeEngine {
@@ -212,39 +238,59 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       });
     }
 
-    let react: BundleResult | null = null;
-    if (backends.every((b) => b.bundle.ok) && input.reactEntry) {
-      // C2: the worker externalises the prebuilt design-pack vendor
-      // when one is shipped (app-only bundle + iframe importmap), and
-      // otherwise bundles the frontend self-contained (react from the
-      // single deduped node_modules — one instance, no importmap).
-      // Either way the engine forwards the worker's vendorImportmap /
-      // vendorCssUrl (set only on the externalised path) onto the
-      // react BundleResult for the preview.  Installing only what each
-      // bundle imports keeps the Mantine tree out of the backend install
-      // (and vice-versa).
-      const r = await run({
-        generatedFiles,
-        rootDeps: harvestDeps(generatedFiles, input.reactEntry),
-        entry: "/" + input.reactEntry,
-      });
-      react = r.ok
-        ? {
-            ok: true,
-            kind: "react",
-            code: r.code,
-            css: r.css,
-            size: r.code.length,
-            durationMs: 0,
-            fetchedUrls: [],
-            versions: r.versions,
-            vendorImportmap: r.vendorImportmap,
-            vendorCssUrl: r.vendorCssUrl,
-            diagnostics: [],
-          }
-        : { ok: false, diagnostics: [{ severity: "error", message: r.message }] };
+    const frontends: FrontendBundle[] = [];
+    if (backends.every((b) => b.bundle.ok)) {
+      for (const entry of input.frontendEntries ?? []) {
+        frontends.push({
+          slug: entry.slug,
+          entry: entry.entry,
+          bundle: await this.bundleFrontend(run, generatedFiles, entry.entry, entry.framework),
+        });
+      }
     }
-    return { backends, react };
+    return { backends, frontends };
+  }
+
+  private async bundleFrontend(
+    run: EsbuildRun,
+    generatedFiles: Map<string, string | Uint8Array>,
+    entry: string,
+    framework: PreviewFramework,
+  ): Promise<BundleResult> {
+    // C2: the worker externalises the prebuilt design-pack vendor when one is
+    // shipped (app-only bundle + iframe importmap), and otherwise bundles the
+    // frontend self-contained (react from the single deduped node_modules —
+    // one instance, no importmap).  Either way the engine forwards the
+    // worker's vendorImportmap / vendorCssUrl (set only on the externalised
+    // path) onto the BundleResult for the preview.  Installing only what each
+    // bundle imports keeps the Mantine tree out of the backend install (and
+    // vice-versa); the frontends of one system share their install cache.
+    const r = await run(
+      framework === "react"
+        ? { generatedFiles, rootDeps: harvestDeps(generatedFiles, entry), entry: "/" + entry }
+        : {
+            generatedFiles,
+            rootDeps: { ...harvestDeps(generatedFiles, entry), ...compilerRuntimeDeps(generatedFiles, entry, framework) },
+            entry: "/" + entry,
+            stdinContents: frontendStdin("/" + entry, framework),
+            framework,
+          },
+    );
+    return r.ok
+      ? {
+          ok: true,
+          kind: "react",
+          code: r.code,
+          css: r.css,
+          size: r.code.length,
+          durationMs: 0,
+          fetchedUrls: [],
+          versions: r.versions,
+          vendorImportmap: r.vendorImportmap,
+          vendorCssUrl: r.vendorCssUrl,
+          diagnostics: [],
+        }
+      : { ok: false, diagnostics: [{ severity: "error", message: r.message }] };
   }
 
   private async bundleBackend(
@@ -435,7 +481,7 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     return slug === undefined ? null : (this.runtimes.get(slug) ?? null);
   }
 
-  infraService<T = unknown>(service: "oidc", op: string, params: unknown = {}): Promise<T> {
+  infraService<T = unknown>(service: ResourceService, op: string, params: unknown = {}): Promise<T> {
     if (!this.infra) return Promise.reject(new Error("Runtime not booted — boot first."));
     return this.infra.service<T>(service, op, params);
   }

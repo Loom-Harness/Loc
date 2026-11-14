@@ -5,7 +5,7 @@
 // Same contract as the four siblings; Elixir idiom.  One
 // `<resource>_<operation_id>/N` per operation the CALLEE exposes, replacing the
 // untyped `get(path)` / `post(path, body)` verbs the `storage restApi` binding
-// carries.  Paths come from `deriveContextOperations`, the response shape from
+// carries.  Paths come from `contextOperations`, the response shape from
 // `forApiRead(wireFieldsForAggregate(...))` — the same two derivations every
 // other client reads, so none of them can drift from the callee.
 //
@@ -28,16 +28,17 @@
 
 import { apiCallPrincipal } from "../../ir/enrich/hosting-facts.js";
 import { forApiRead, wireFieldsForAggregate } from "../../ir/enrich/wire-projection.js";
+import { contextOperations } from "../../ir/plan/index.js";
 import type { AggregateIR, SystemIR } from "../../ir/types/loom-ir.js";
 import { type ApiResourceBinding, servedContextsFor } from "../../ir/util/api-resource-binding.js";
 import {
   type ApiOperationIR,
   absenceUnionSuccess,
   collectionSuccess,
-  deriveContextOperations,
 } from "../../ir/util/api-surface.js";
 import { escapeElixirIdent, snake } from "../../util/naming.js";
 import { resourceEnvUrlVar } from "../../util/resource-env.js";
+import { type PolymorphicRow, polymorphicRowOf } from "../_api/polymorphic-row.js";
 
 /** The module the render layer calls into. */
 export function apiClientModuleName(appModule: string): string {
@@ -69,6 +70,39 @@ function pathExpr(op: ApiOperationIR): string {
   }
   parts.push(JSON.stringify(rest));
   return parts.filter((s) => s !== '""').join(" <> ") || '""';
+}
+
+/** The atom-keyed projection of the decoded map bound to `src`: exactly the
+ *  callee's wire fields of `agg`.  No trailing comma on the last entry —
+ *  Elixir map literals reject one, and it is a parse error the emitter cannot
+ *  see. */
+function fieldProjection(agg: AggregateIR, src: string, lead: string[] = []): string[] {
+  const entries = [
+    ...lead,
+    ...forApiRead(wireFieldsForAggregate(agg)).map(
+      (wf) => `  ${snake(wf.name)}: Map.get(${src}, ${JSON.stringify(wf.name)})`,
+    ),
+  ];
+  return ["%{", ...entries.map((e, i) => (i === entries.length - 1 ? e : `${e},`)), "}"];
+}
+
+/** The projection of one tagged row of a polymorphic base read: dispatched on
+ *  its `type` tag to that concrete's wire fields, keeping the tag as `:type`
+ *  so a caller reads the subtype off it.  A tag the callee's hierarchy does
+ *  not name is a contract violation, raised at the boundary. */
+function taggedRowProjection(poly: PolymorphicRow, src: string): string[] {
+  return [
+    `case Map.get(${src}, "type") do`,
+    ...poly.variants.flatMap((v) => [
+      `  ${JSON.stringify(v.tag)} ->`,
+      ...fieldProjection(v.aggregate, src, [`  type: ${JSON.stringify(v.tag)}`]).map(
+        (l) => `    ${l}`,
+      ),
+    ]),
+    "  other ->",
+    `    raise ArgumentError, "unexpected ${poly.base.name} row type: #{inspect(other)}"`,
+    "end",
+  ];
 }
 
 /** Emit the client module, or nothing when this deployable binds no in-system
@@ -116,7 +150,10 @@ export function emitElixirApiClients(
     );
 
     for (const ctx of servedContextsFor(b, sys)) {
-      for (const op of deriveContextOperations(ctx)) {
+      for (const op of contextOperations(ctx)) {
+        // A polymorphic base read answers tagged rows, never the abstract
+        // base's own field list.
+        const poly = polymorphicRowOf(op, ctx);
         // An ABSENCE union projects the same fields as a plain entity
         // response; only the absent status differs (nil, not a raise).
         const absentAgg = absenceUnionSuccess(op.responseType);
@@ -203,21 +240,13 @@ export function emitElixirApiClients(
           // Project the STRING-keyed decoded body onto atom keys naming the
           // callee's wire fields — `o.code` in domain code is map-dot, which
           // only resolves atom keys.  Every key here is a compile-time literal.
-          const fields = forApiRead(wireFieldsForAggregate(agg));
+          const project = (src: string): string[] =>
+            poly ? taggedRowProjection(poly, src) : fieldProjection(agg, src);
           // A collection projects EACH row through the same atom-key map, so
           // the row projection is built once and mapped.  `payload` is the
           // decoded body: the envelope for `paged`, the array itself otherwise.
           if (coll) {
-            const rowMap = [
-              "%{",
-              ...fields.map(
-                (wf, i) =>
-                  `  ${snake(wf.name)}: Map.get(row, ${JSON.stringify(wf.name)})${
-                    i === fields.length - 1 ? "" : ","
-                  }`,
-              ),
-              "}",
-            ];
+            const rowMap = project("row");
             tail.push(
               "payload = res.body || %{}",
               "",
@@ -245,16 +274,7 @@ export function emitElixirApiClients(
               // Elixir permits it.
               "payload = res.body || %{}",
               "",
-              "%{",
-              // No trailing comma on the last entry — Elixir map literals reject
-              // one, and it is a parse error the emitter cannot see.
-              ...fields.map(
-                (wf, i) =>
-                  `  ${snake(wf.name)}: Map.get(payload, ${JSON.stringify(wf.name)})${
-                    i === fields.length - 1 ? "" : ","
-                  }`,
-              ),
-              "}",
+              ...project("payload"),
             );
         } else {
           tail.push(":ok");
