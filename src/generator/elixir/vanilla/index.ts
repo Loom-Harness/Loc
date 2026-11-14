@@ -298,12 +298,17 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       .flatMap((b) => b.events)
       .filter((ev) => hostedDurable.has(ev)),
   );
-  // Standalone (no-broker) outbox tier (dispatch-delivery-semantics.md §1-2):
-  // a durable channel with NO `channelSource` still gets crash-safe in-process
-  // delivery (record → LocalOutboxRelay redelivers), parity with the other
-  // backends.  Only when the deployable wires no broker at all — so exactly one
-  // relay drains __loom_outbox.  Routes the emit seams through `<App>.Channels`.
-  const standaloneOutbox = !hasChannels && hostedDurable.size > 0;
+  // Local outbox tier (channels.md "Event routing"): the plan's outbox events
+  // no wired binding carries are recorded and redelivered in-process by the
+  // LocalOutboxRelay — on a broker-wired deployable too, where the tier is
+  // `<App>.LocalOutbox` (the broker tee's local fallthrough) and the two relays
+  // split __loom_outbox by event type, so each row has one relay.
+  const brokerCarried = new Set(channelBindings.flatMap((b) => b.events));
+  const localDurable: ReadonlySet<string> = new Set(
+    [...chPlan.outboxEvents].filter((ev) => !brokerCarried.has(ev)),
+  );
+  const standaloneOutbox = !hasChannels && localDurable.size > 0;
+  const localOutboxBesideBroker = hasChannels && localDurable.size > 0;
   const wiredForeignChannels = chPlan.foreignChannels;
   // Every broker-carried event's OWNING context module — dispatcher/handler
   // pattern-matches qualify structs with the owner (same value as the local
@@ -335,10 +340,10 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     ? {
         appModule,
         brokerEvents: new Set(channelBindings.flatMap((b) => b.events)),
-        // The broker tee's `@durable_routing` set — the events whose dispatch
-        // is an outbox INSERT (design §5), so the emit site must open a
-        // transaction around persist + emit.
-        durableEvents: durableBrokerEvents,
+        // The events whose dispatch is an outbox INSERT — the broker tee's
+        // `@durable_routing` set plus the local outbox's — so the emit site
+        // must open a transaction around persist + emit.
+        durableEvents: new Set([...durableBrokerEvents, ...localDurable]),
         foreignEventModules: eventOwnerModule,
       }
     : standaloneOutbox
@@ -349,7 +354,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
         {
           appModule,
           brokerEvents: new Set(),
-          durableEvents: hostedDurable,
+          durableEvents: localDurable,
           foreignEventModules: new Map(
             contexts.flatMap((c) =>
               c.events.map((ev) => [ev.name, `${appModule}.${upperFirst(c.name)}`] as const),
@@ -800,17 +805,19 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       {
         durableBroker: durableBrokerEvents.size > 0,
         carriesOrigin: deployable.auth?.required === true && !!sys.user,
+        localOutbox: localOutboxBesideBroker,
       },
     );
     for (const [path, content] of emission.files) out.set(path, content);
     channelChildren = emission.children;
-  } else if (standaloneOutbox) {
+  }
+  if (standaloneOutbox || localOutboxBesideBroker) {
     // Standalone (no-broker) outbox: the `<App>.Channels` tee records durable
     // events; `LocalOutboxRelay` drains → decodes → broadcasts to the hosted
     // context dispatchers post-commit.
     const durableEventIrs = contexts.flatMap((c) =>
       c.events
-        .filter((e) => hostedDurable.has(e.name))
+        .filter((e) => localDurable.has(e.name))
         .map((e) => ({ ev: e, ctxModule: `${appModule}.${upperFirst(c.name)}` })),
     );
     const hostedDispatchers = contexts
@@ -822,9 +829,10 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       durableEventIrs,
       hostedDispatchers,
       deployable.auth?.required === true && !!sys.user,
+      localOutboxBesideBroker ? { emitsSchema: durableBrokerEvents.size === 0 } : undefined,
     );
     for (const [path, content] of emission.files) out.set(path, content);
-    channelChildren = emission.children;
+    channelChildren = [...channelChildren, ...emission.children];
   }
 
   // A `cron:` timer rides `crontab` (next-boundary computation) + `oban` (the

@@ -96,3 +96,15 @@ describe("java: a broker-wired deployable keeps the outbox for its unbound durab
     );
   });
 });
+
+describe("elixir: a broker-wired deployable keeps the outbox for its unbound durable channel", () => {
+  it("the broker tee falls through to the local outbox and the relays split the table", async () => {
+    const out = await files("channels-broker-mixed-durable", "vanilla");
+    expect(file(out, "d/lib/d/channels.ex")).toContain(
+      "D.LocalOutbox.dispatch(ev, local_dispatcher)",
+    );
+    expect(file(out, "d/lib/d/local_outbox.ex")).toContain('@durable MapSet.new(["OrderNoted"])');
+    expect(file(out, "d/lib/d/local_outbox_relay.ex")).toContain('@types ["OrderNoted"]');
+    expect(file(out, "d/lib/d/outbox_relay.ex")).toContain('@types ["OrderPlaced"]');
+  });
+});
