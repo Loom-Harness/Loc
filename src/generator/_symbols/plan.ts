@@ -32,6 +32,8 @@ import {
   lowerFirst,
   pythonIdent,
   pythonModuleFn,
+  snake,
+  upperFirst,
 } from "../../util/naming.js";
 import { escapeTargetFieldMember, escapeTargetMember } from "../../util/target-identifiers.js";
 import { DOTNET_IMPLICIT_USING_NAMESPACES, DOTNET_NAMESPACE_TYPES } from "./ambient-dotnet.js";
@@ -43,9 +45,14 @@ export type SymbolTarget = "ts" | "csharp" | "java" | "python" | "elixir";
 // Members and bindings
 // ---------------------------------------------------------------------------
 
-/** How one target spells a `.ddd` name in each identifier position of a
- *  domain class.  Each slot is the target's single escaping funnel for that
- *  position, so a definition and every use that read the same slot agree. */
+/** How one target spells a `.ddd` name in each identifier position.  Each
+ *  slot is the target's single funnel for that position — casing and escaping
+ *  both — so a definition and every use that read the same slot agree.
+ *
+ *  `binding` / `method` / `field` take the name as the target already cases
+ *  it (python and elixir fold their snake casing in; ts / csharp / java
+ *  leave the `.ddd` spelling).  `op` / `prop` / `type` / `stem` take the
+ *  `.ddd` name as declared and own the casing too. */
 export interface DomainNamer {
   /** A parameter, local or other plain binding. */
   readonly binding: (name: string) => string;
@@ -53,22 +60,75 @@ export interface DomainNamer {
   readonly method: (name: string) => string;
   /** The instance member a field is read and written through. */
   readonly field: (name: string) => string;
+  /** An aggregate / part operation or function, as the member the domain
+   *  class DEFINES and every caller outside it (a workflow step, a handler,
+   *  an application service) invokes. */
+  readonly op: (name: string) => string;
+  /** A field as the member a consumer outside the class reads or sets: the
+   *  C# property, the java record component / accessor, the python attribute,
+   *  the elixir struct key, the TS getter. */
+  readonly prop: (name: string) => string;
+  /** A `.ddd` name as the leading segment of a type-level identifier the
+   *  target derives from it (`<Type>State`, `load<Type>`, a module segment). */
+  readonly type: (name: string) => string;
+  /** A `.ddd` name as the leading segment of a value-level identifier the
+   *  target derives from it: a repository or service handle, a function
+   *  (`<stem>Routes`, `run_<stem>`), a module file stem.  Unescaped — the
+   *  site appends or prepends its own affix. */
+  readonly stem: (name: string) => string;
 }
 
 /** The domain namer of every target.  The domain emitters (aggregate, part,
- *  value-object, enum, event and domain-service classes) spell names only
- *  through these slots; `test/system/symbol-plan-census.test.ts` keeps the
- *  raw funnels out of those files. */
+ *  value-object, enum, event and domain-service classes) and the workflow /
+ *  handler emitters spell names only through these slots;
+ *  `test/system/symbol-plan-census.test.ts` keeps the raw funnels and the
+ *  casing helpers out of those files. */
 export const DOMAIN_NAMES: Readonly<Record<SymbolTarget, DomainNamer>> = {
   ts: {
     binding: escapeTsIdent,
     method: (n) => escapeTargetMember("ts", n),
     field: (n) => escapeTargetFieldMember("ts", n),
+    op: (n) => escapeTargetMember("ts", lowerFirst(n)),
+    prop: (n) => escapeTargetFieldMember("ts", n),
+    type: upperFirst,
+    stem: lowerFirst,
   },
-  csharp: { binding: escapeCsharpIdent, method: escapeCsharpIdent, field: escapeCsharpIdent },
-  java: { binding: escapeJavaIdent, method: escapeJavaIdent, field: escapeJavaIdent },
-  python: { binding: pythonIdent, method: pythonIdent, field: pythonIdent },
-  elixir: { binding: elixirLocal, method: elixirLocal, field: elixirLocal },
+  csharp: {
+    binding: escapeCsharpIdent,
+    method: escapeCsharpIdent,
+    field: escapeCsharpIdent,
+    op: upperFirst,
+    prop: upperFirst,
+    type: upperFirst,
+    stem: lowerFirst,
+  },
+  java: {
+    binding: escapeJavaIdent,
+    method: escapeJavaIdent,
+    field: escapeJavaIdent,
+    op: escapeJavaIdent,
+    prop: escapeJavaIdent,
+    type: upperFirst,
+    stem: lowerFirst,
+  },
+  python: {
+    binding: pythonIdent,
+    method: pythonIdent,
+    field: pythonIdent,
+    op: pythonIdent,
+    prop: pythonIdent,
+    type: upperFirst,
+    stem: snake,
+  },
+  elixir: {
+    binding: elixirLocal,
+    method: elixirLocal,
+    field: elixirLocal,
+    op: snake,
+    prop: snake,
+    type: upperFirst,
+    stem: snake,
+  },
 };
 
 /** A python MODULE-LEVEL function for a `.ddd` name — the member spelling,

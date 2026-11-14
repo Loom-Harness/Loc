@@ -7,8 +7,8 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
-import { pythonIdent, snake, upperFirst } from "../../util/naming.js";
 import { pyRef } from "../_imports/python.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import { contextEventRowClassName } from "./py-columns.js";
 import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
@@ -57,7 +57,7 @@ function esEventRow(
 
 /** The fold-target class name (`TallyState`). */
 export function esStateClass(wf: WorkflowIR): string {
-  return `${upperFirst(wf.name)}State`;
+  return `${DOMAIN_NAMES.python.type(wf.name)}State`;
 }
 
 /** Helper fn names the dispatch handler references.  `loadAll` is consumed by
@@ -68,7 +68,7 @@ export function esFns(wf: WorkflowIR): {
   loadAll: string;
   append: string;
 } {
-  const s = snake(wf.name);
+  const s = DOMAIN_NAMES.python.stem(wf.name);
   return {
     fold: `_fold_${s}`,
     load: `_load_${s}_events`,
@@ -125,7 +125,7 @@ function pyStateType(t: TypeIR): string {
  *  an internal invariant violation. */
 export function renderApplierStmt(s: StmtIR, indent: string): string {
   const target = (segments: readonly string[]): string =>
-    `state.${segments.map((x) => snake(x)).join(".")}`;
+    `state.${segments.map((x) => DOMAIN_NAMES.python.prop(x)).join(".")}`;
   const rctx = { thisName: "state" } as const;
   const nested = (stmts: readonly StmtIR[]): string =>
     stmts.length === 0
@@ -140,7 +140,7 @@ export function renderApplierStmt(s: StmtIR, indent: string): string {
       return `${indent}${target(s.target.segments)} = [__e for __e in ${target(s.target.segments)} if __e != (${renderPyExpr(s.value, rctx)})]`;
     case "let":
       // Escaped like every `refKind: "let"` use site (`let from` → `from_`).
-      return `${indent}${pythonIdent(s.name)} = ${renderPyExpr(s.expr, rctx)}`;
+      return `${indent}${DOMAIN_NAMES.python.binding(s.name)} = ${renderPyExpr(s.expr, rctx)}`;
     case "expression":
       return `${indent}${renderPyExpr(s.expr, rctx)}`;
     case "if": {
@@ -187,13 +187,16 @@ export function esWorkflowFoldBlock(
   const required = fields.filter((f) => !(f.optional || f.type.kind === "optional"));
   const optional = fields.filter((f) => f.optional || f.type.kind === "optional");
   const initParams = [
-    ...required.map((f) => `${pythonIdent(f.name)}: ${pyStateType(f.type)}`),
-    ...optional.map((f) => `${pythonIdent(f.name)}: ${pyStateType(f.type)} = None`),
+    ...required.map((f) => `${DOMAIN_NAMES.python.prop(f.name)}: ${pyStateType(f.type)}`),
+    ...optional.map((f) => `${DOMAIN_NAMES.python.prop(f.name)}: ${pyStateType(f.type)} = None`),
   ].join(", ");
   const classBlock = lines(
     `class ${T}:`,
     `    def __init__(self, *, ${initParams}) -> None:`,
-    ...fields.map((f) => `        self.${pythonIdent(f.name)} = ${pythonIdent(f.name)}`),
+    ...fields.map(
+      (f) =>
+        `        self.${DOMAIN_NAMES.python.prop(f.name)} = ${DOMAIN_NAMES.python.prop(f.name)}`,
+    ),
   );
 
   // Per-applier fold functions (param named after the applier binding, so the
@@ -201,31 +204,31 @@ export function esWorkflowFoldBlock(
   const applierFns = (wf.appliers ?? []).flatMap((ap) => {
     const body = ap.statements.map((s) => renderApplierStmt(s, "    "));
     return [
-      `def _apply_${snake(wf.name)}_${snake(ap.event)}(state: ${T}, ${snake(ap.param)}: ${ap.event}) -> None:`,
+      `def _apply_${DOMAIN_NAMES.python.stem(wf.name)}_${DOMAIN_NAMES.python.stem(ap.event)}(state: ${T}, ${DOMAIN_NAMES.python.binding(ap.param)}: ${ap.event}) -> None:`,
       ...(body.length > 0 ? body : ["    pass"]),
       "",
     ];
   });
   const applyDispatch = lines(
-    `def _apply_${snake(wf.name)}(state: ${T}, ev: DomainEvent) -> None:`,
+    `def _apply_${DOMAIN_NAMES.python.stem(wf.name)}(state: ${T}, ev: DomainEvent) -> None:`,
     ...(wf.appliers ?? []).flatMap((ap, i) => [
       `    ${i === 0 ? "if" : "elif"} isinstance(ev, ${ap.event}):`,
-      `        _apply_${snake(wf.name)}_${snake(ap.event)}(state, ev)`,
+      `        _apply_${DOMAIN_NAMES.python.stem(wf.name)}_${DOMAIN_NAMES.python.stem(ap.event)}(state, ev)`,
     ]),
   );
 
   // Fold-from-zero: seed correlation key + typed zeros for required fields.
   const seeds = [
-    `${snake(corr)}=${corrId}(key)`,
+    `${DOMAIN_NAMES.python.prop(corr)}=${corrId}(key)`,
     ...required
       .filter((f) => f.name !== corr)
-      .map((f) => `${pythonIdent(f.name)}=${esZeroFor(f.type, ctx)}`),
+      .map((f) => `${DOMAIN_NAMES.python.prop(f.name)}=${esZeroFor(f.type, ctx)}`),
   ].join(", ");
   const foldFn = lines(
     `def ${fns.fold}(key: str, events: list[DomainEvent]) -> ${T}:`,
     `    state = ${T}(${seeds})`,
     "    for ev in events:",
-    `        _apply_${snake(wf.name)}(state, ev)`,
+    `        _apply_${DOMAIN_NAMES.python.stem(wf.name)}(state, ev)`,
     "    return state",
   );
 
@@ -239,7 +242,7 @@ export function esWorkflowFoldBlock(
     `            .order_by(${row}.version)`,
     "        )",
     "    ).scalars().all()",
-    `    return [_${snake(wf.name)}_row_to_event(r) for r in rows]`,
+    `    return [_${DOMAIN_NAMES.python.stem(wf.name)}_row_to_event(r) for r in rows]`,
   );
 
   // Load-all: read every stream ordered by (stream_id, version), group by
@@ -256,7 +259,7 @@ export function esWorkflowFoldBlock(
     "    ).scalars().all()",
     "    by_stream: dict[str, list[DomainEvent]] = {}",
     "    for r in rows:",
-    `        by_stream.setdefault(r.stream_id, []).append(_${snake(wf.name)}_row_to_event(r))`,
+    `        by_stream.setdefault(r.stream_id, []).append(_${DOMAIN_NAMES.python.stem(wf.name)}_row_to_event(r))`,
     `    return [${fns.fold}(key, evs) for key, evs in by_stream.items()]`,
   );
   const appendFn = lines(
@@ -279,7 +282,7 @@ export function esWorkflowFoldBlock(
     "                stream_id=key,",
     "                version=version,",
     "                type=type(ev).type,",
-    `                data=_${snake(wf.name)}_event_to_data(ev),`,
+    `                data=_${DOMAIN_NAMES.python.stem(wf.name)}_event_to_data(ev),`,
     `                occurred_at=${PY.datetime}.now(${PY.UTC}),`,
     "            )",
     "        )",
@@ -287,19 +290,19 @@ export function esWorkflowFoldBlock(
 
   // Codec — reuses the aggregate event store's per-field converters.
   const rowToEvent = lines(
-    `def _${snake(wf.name)}_row_to_event(row: ${row}) -> DomainEvent:`,
+    `def _${DOMAIN_NAMES.python.stem(wf.name)}_row_to_event(row: ${row}) -> DomainEvent:`,
     `    data = ${PY.cast}(dict[str, object], row.data)`,
     ...foldedEvents.flatMap((ev, i) => [
       `    ${i === 0 ? "if" : "elif"} row.type == "${ev.name}":`,
-      `        return ${ev.name}(${ev.fields.map((f) => `${pythonIdent(f.name)}=${fromData(f.name, f.type, ctx)}`).join(", ")})`,
+      `        return ${ev.name}(${ev.fields.map((f) => `${DOMAIN_NAMES.python.prop(f.name)}=${fromData(f.name, f.type, ctx)}`).join(", ")})`,
     ]),
     `    raise ValueError(f"unknown ${wf.name} event type: {row.type}")`,
   );
   const eventToData = lines(
-    `def _${snake(wf.name)}_event_to_data(ev: DomainEvent) -> dict[str, object]:`,
+    `def _${DOMAIN_NAMES.python.stem(wf.name)}_event_to_data(ev: DomainEvent) -> dict[str, object]:`,
     ...foldedEvents.flatMap((ev, i) => [
       `    ${i === 0 ? "if" : "elif"} isinstance(ev, ${ev.name}):`,
-      `        return {${ev.fields.map((f) => `"${f.name}": ${toData(`ev.${pythonIdent(f.name)}`, f.type, ctx)}`).join(", ")}}`,
+      `        return {${ev.fields.map((f) => `"${f.name}": ${toData(`ev.${DOMAIN_NAMES.python.prop(f.name)}`, f.type, ctx)}`).join(", ")}}`,
     ]),
     `    raise ValueError(f"unknown event: {type(ev).__name__}")`,
   );

@@ -1,8 +1,8 @@
 import { requiredStateFields, stateZero } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, FieldIR, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
-import { jid } from "../java-ident.js";
+import { snake, workflowStateTableName } from "../../../util/naming.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { renderJavaType } from "../render-expr.js";
 import { hbIdent } from "../sql-ident.js";
 import { type JpaFieldOwner, jpaClassAnnotations, jpaFieldAnnotations } from "./jpa-annotations.js";
@@ -26,13 +26,13 @@ import { type JpaFieldOwner, jpaClassAnnotations, jpaFieldAnnotations } from "./
 
 /** The state entity class name (`OrderFulfillmentState`). */
 export function workflowStateClass(wf: WorkflowIR): string {
-  return `${upperFirst(wf.name)}State`;
+  return `${DOMAIN_NAMES.java.type(wf.name)}State`;
 }
 
 /** The JavaBean setter name for a state field (`attempts` → `setAttempts`) —
  *  the write seam a workflow body's own-state `:=` targets. */
 export function setterName(field: string): string {
-  return `set${upperFirst(field)}`;
+  return `set${DOMAIN_NAMES.java.type(field)}`;
 }
 
 /** The saga table name — matches `workflowStateTableShape` in the migrations
@@ -89,11 +89,11 @@ export function renderWorkflowStateEntity(
   const fieldLines: string[] = [
     `    @EmbeddedId`,
     `    @AttributeOverride(name = "value", column = @Column(name = "${hbIdent(snake(corr))}"))`,
-    `    ${corrIdClass(wf)} ${jid(corr)};`,
+    `    ${corrIdClass(wf)} ${DOMAIN_NAMES.java.prop(corr)};`,
   ];
   for (const f of stateOnly) {
     fieldLines.push(...jpaFieldAnnotations(f, owner, { voLookup, stateRow: true }));
-    fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
+    fieldLines.push(`    ${renderJavaType(f.type)} ${DOMAIN_NAMES.java.prop(f.name)};`);
   }
   // Idempotent-consumer marker (dispatch-delivery-semantics.md §3): a durable
   // channel (`retention: log | work`) maps the shared `last_event_id` column the
@@ -110,12 +110,12 @@ export function renderWorkflowStateEntity(
   // required non-correlation state field (optional fields stay null).  Sets the
   // package-private fields directly (same class), so no setters are exposed.
   const allocateSeeds = requiredStateFields(wf).map(
-    (f) => `        __s.${jid(f.name)} = ${javaStateDefault(f, ctx)};`,
+    (f) => `        __s.${DOMAIN_NAMES.java.prop(f.name)} = ${javaStateDefault(f, ctx)};`,
   );
   const allocate = [
-    `    public static ${workflowStateClass(wf)} _allocate(${corrIdClass(wf)} ${jid(corr)}) {`,
+    `    public static ${workflowStateClass(wf)} _allocate(${corrIdClass(wf)} ${DOMAIN_NAMES.java.prop(corr)}) {`,
     `        var __s = new ${workflowStateClass(wf)}();`,
-    `        __s.${jid(corr)} = ${jid(corr)};`,
+    `        __s.${DOMAIN_NAMES.java.prop(corr)} = ${DOMAIN_NAMES.java.prop(corr)};`,
     ...allocateSeeds,
     `        return __s;`,
     `    }`,
@@ -126,8 +126,8 @@ export function renderWorkflowStateEntity(
   // the BEAN setter keeps the unmangled one (`setThrows`), so `workflow.ts`'s
   // write site can name it from the IR without re-deriving the mangle.
   const accessor = (type: string, name: string): string[] => [
-    `    public ${type} ${jid(name)}() {`,
-    `        return ${jid(name)};`,
+    `    public ${type} ${DOMAIN_NAMES.java.prop(name)}() {`,
+    `        return ${DOMAIN_NAMES.java.prop(name)};`,
     `    }`,
     ``,
   ];
@@ -137,8 +137,8 @@ export function renderWorkflowStateEntity(
   // direct write wouldn't compile).  The correlation field stays write-only via
   // `_allocate` (it's the immutable key).  Mirrors dotnet's `{ get; set; }`.
   const setter = (type: string, name: string): string[] => [
-    `    public void ${setterName(name)}(${type} ${jid(name)}) {`,
-    `        this.${jid(name)} = ${jid(name)};`,
+    `    public void ${setterName(name)}(${type} ${DOMAIN_NAMES.java.prop(name)}) {`,
+    `        this.${DOMAIN_NAMES.java.prop(name)} = ${DOMAIN_NAMES.java.prop(name)};`,
     `    }`,
     ``,
   ];
@@ -198,7 +198,7 @@ export function javaStateDefault(f: FieldIR, ctx: EnrichedBoundedContextIR): str
     case "text":
       return '""';
     case "enum":
-      return z.first ? `${z.name}.${jid(z.first)}` : "null";
+      return z.first ? `${z.name}.${DOMAIN_NAMES.java.prop(z.first)}` : "null";
     // `X id` non-correlation state field — uncommon; left null (optional in
     // practice; a required one would need an explicit seed the model doesn't give).
     default:

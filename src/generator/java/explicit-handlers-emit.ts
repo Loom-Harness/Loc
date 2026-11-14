@@ -71,12 +71,12 @@ import { routedErrorStatuses, routedParamSource } from "../../ir/util/routed-han
 import { workflowEmits } from "../../ir/util/walk.js";
 import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { lines } from "../../util/code-builder.js";
-import { lowerFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { javaRef } from "../_imports/java.js";
 import { javaLogEvent } from "../_obs/render-java.js";
 import { opUnionResponses } from "../_payload/union-wire.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { JAVA_FIND_ABSENCE_THROW, javaPagedQueryParams } from "./emit/common.js";
 import {
@@ -102,7 +102,7 @@ import {
   withLetLocals,
   workflowBodyDerefNames,
 } from "./emit/workflow.js";
-import { isMangled, javaLocals, jid, localOf, movedLocalOrUndefined } from "./java-ident.js";
+import { isMangled, javaLocals, localOf, movedLocalOrUndefined } from "./java-ident.js";
 import { type JavaRenderContext, renderJavaExpr, renderJavaType } from "./render-expr.js";
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
@@ -207,7 +207,7 @@ function externHandleSig(
    *  through `jid`, as every name is). */
   locals?: ReadonlyMap<string, string>,
 ): { ret: string; params: string; argNames: string } {
-  const name = (n: string): string => (locals ? localOf(locals, n) : jid(n));
+  const name = (n: string): string => (locals ? localOf(locals, n) : DOMAIN_NAMES.java.binding(n));
   return {
     ret: h.returnType ? renderJavaType(h.returnType) : "void",
     params: h.params.map((p) => `${renderJavaType(p.type)} ${name(p.name)}`).join(", "),
@@ -226,7 +226,7 @@ function renderExternHandlerClass(
 ): string {
   const handlerName = `${h.name}Handler`;
   const portName = `${h.name}Port`;
-  const field = lowerFirst(portName);
+  const field = DOMAIN_NAMES.java.stem(portName);
   // `handle(...)`'s params share the method with the injected port field it
   // delegates through — a param named `chargePort` shadowed it
   // (`chargePort.handle(chargePort)` on an `int`).  Only a colliding param
@@ -460,7 +460,7 @@ function renderHandlerClass(
   const methodNames = new Set([
     ...workflowBodyDerefNames([h.statements], h.savesAtExit, ctx),
     ...repoAggs.flatMap((a) => [repoField(a), a]),
-    ...calledServices.reading.map((s) => lowerFirst(s)),
+    ...calledServices.reading.map((s) => DOMAIN_NAMES.java.stem(s)),
     ...calledServices.reading,
     ...calledServices.pure,
     ...(usesUser ? ["currentUser", "currentUserAccessor"] : []),
@@ -567,19 +567,21 @@ function renderHandlerClass(
 
   const fields = [
     ...repoAggs.map((a) => `    private final ${a}Repository ${repoField(a)};`),
-    ...calledServices.reading.map((s) => `    private final ${s} ${lowerFirst(s)};`),
+    ...calledServices.reading.map((s) => `    private final ${s} ${DOMAIN_NAMES.java.stem(s)};`),
     ...(usesUser ? ["    private final CurrentUserAccessor currentUserAccessor;"] : []),
     ...(hasEmit ? [`    private final ${APP_EVENT_PUBLISHER} ${EVENT_PUBLISHER};`] : []),
   ];
   const ctorParams = [
     ...repoAggs.map((a) => `${a}Repository ${repoField(a)}`),
-    ...calledServices.reading.map((s) => `${s} ${lowerFirst(s)}`),
+    ...calledServices.reading.map((s) => `${s} ${DOMAIN_NAMES.java.stem(s)}`),
     ...(usesUser ? ["CurrentUserAccessor currentUserAccessor"] : []),
     ...(hasEmit ? [`${APP_EVENT_PUBLISHER} ${EVENT_PUBLISHER}`] : []),
   ].join(", ");
   const ctorAssigns = [
     ...repoAggs.map((a) => `        this.${repoField(a)} = ${repoField(a)};`),
-    ...calledServices.reading.map((s) => `        this.${lowerFirst(s)} = ${lowerFirst(s)};`),
+    ...calledServices.reading.map(
+      (s) => `        this.${DOMAIN_NAMES.java.stem(s)} = ${DOMAIN_NAMES.java.stem(s)};`,
+    ),
     ...(usesUser ? ["        this.currentUserAccessor = currentUserAccessor;"] : []),
     ...(hasEmit ? [`        this.${EVENT_PUBLISHER} = ${EVENT_PUBLISHER};`] : []),
   ];
@@ -766,7 +768,7 @@ function wireActionParam(
    *  rename of it.  Whenever it differs from `p.name` (a reserved word, a
    *  collision) the URI-template variable is named explicitly, since Spring
    *  derives it from the parameter name. */
-  local: string = jid(p.name),
+  local: string = DOMAIN_NAMES.java.binding(p.name),
 ): { actionParam: string; callArg: string } {
   const t = p.type;
   const annot = local !== p.name ? `@PathVariable("${p.name}")` : "@PathVariable";
@@ -786,7 +788,7 @@ function wireActionParam(
 function wireQueryParam(
   p: ParamIR,
   /** As `wireActionParam`: a mangled / collision-moved name keeps its query key. */
-  local: string = jid(p.name),
+  local: string = DOMAIN_NAMES.java.binding(p.name),
 ): { actionParam: string; callArg: string } {
   const t = p.type;
   const annot = local !== p.name ? `@RequestParam("${p.name}")` : "@RequestParam";
@@ -848,7 +850,7 @@ function emitPagedRunAction(
   ].join(", ");
   return [
     `    @GetMapping("${routePath}")`,
-    `    public ResponseEntity<?> ${lowerFirst(h.name)}(${actionParams}) {`,
+    `    public ResponseEntity<?> ${DOMAIN_NAMES.java.stem(h.name)}(${actionParams}) {`,
     `        var result = ${field}.handle(${callArgs});`,
     `        return ResponseEntity.ok(new Paged<>(result.items().stream().map(${agg}Response::${runFrom}).toList(),`,
     `            result.page(), result.pageSize(), result.total(), result.totalPages()));`,
@@ -1009,7 +1011,7 @@ export function emitExplicitRouteController(
     const h = cmd ?? qry;
     if (!h) continue;
     const handlerName = `${h.name}Handler`;
-    const field = lowerFirst(handlerName);
+    const field = DOMAIN_NAMES.java.stem(handlerName);
     injected.set(handlerName, field);
 
     // paged-run queryHandler: a GET whose criterion params ride the query
@@ -1084,7 +1086,7 @@ export function emitExplicitRouteController(
         // A reserved-word name mangles (`case_`) and keeps its wire key.
         .map(
           (p) =>
-            `${isMangled(p.name) ? `@${JSON_PROPERTY}("${p.name}") ` : ""}${renderJavaType(p.type)} ${jid(p.name)}`,
+            `${isMangled(p.name) ? `@${JSON_PROPERTY}("${p.name}") ` : ""}${renderJavaType(p.type)} ${DOMAIN_NAMES.java.prop(p.name)}`,
         )
         .join(", ");
       bodyRecords.push(`record ${bodyRecName}(${fields}) {}`);
@@ -1095,7 +1097,7 @@ export function emitExplicitRouteController(
     // coerce from the route token, body params read off `body.<name>()` (record
     // accessor).
     const callArgs = effParams
-      .map((p) => pathArg.get(p.name)?.callArg ?? `body.${jid(p.name)}()`)
+      .map((p) => pathArg.get(p.name)?.callArg ?? `body.${DOMAIN_NAMES.java.prop(p.name)}()`)
       .join(", ");
     // A query always returns; a command returns only with an explicit type.  A
     // scaffolded read declares `<Agg>Response` — normalise to the entity the
@@ -1168,7 +1170,7 @@ export function emitExplicitRouteController(
     actions.push(
       `    @${annot}("${explicitRoutePath(r)}")`,
       ...explicitRouteDoc(r, h, ctx, retType, basePkg, appPkg, responsePkgOf),
-      `    public ResponseEntity<?> ${lowerFirst(h.name)}(${actionParams}) {`,
+      `    public ResponseEntity<?> ${DOMAIN_NAMES.java.stem(h.name)}(${actionParams}) {`,
       ...callLines,
       `    }`,
       ``,

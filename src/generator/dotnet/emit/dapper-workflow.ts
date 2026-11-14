@@ -39,8 +39,9 @@ import {
 } from "../../../ir/types/loom-ir.js";
 import { OUTBOX_PENDING_PREDICATE, OUTBOX_PURGE_BATCH } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { snake } from "../../../util/naming.js";
 import { OUTBOX_RELAY } from "../../_channels/delivery-policy.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { csSqlType } from "../codec-spelling.js";
 import {
   projectionRowClass,
@@ -140,7 +141,7 @@ function projectionColumns(proj: ProjectionIR, accBase = "s"): DapperColumn[] {
   // A tenant-scoped fold (`fold-tenancy.ts`): the event's tenant, part of the
   // key.
   for (const m of foldTenancyFor(proj)?.metadata ?? []) {
-    const prop = upperFirst(m.field);
+    const prop = DOMAIN_NAMES.csharp.prop(m.field);
     cols.push({
       col: m.column,
       sql: csSqlType("string"),

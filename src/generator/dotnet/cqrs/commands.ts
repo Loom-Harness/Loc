@@ -23,10 +23,11 @@ import {
   operationGatesUseCurrentUser,
   type RequiresStmtIR,
 } from "../../../ir/util/op-gates.js";
-import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
+import { plural } from "../../../util/naming.js";
 import { ROW_VERSION_PASCAL } from "../../../util/row-version.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { unionMembers } from "../../_payload/union-wire.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import {
   maskNamer,
   projectEntityArgs,
@@ -75,7 +76,9 @@ function requiresGate(
       const pred = renderCsExpr(g.expr, {
         thisName: "aggregate",
         paramExpr: (name) =>
-          op.params.some((q) => q.name === name) ? `command.${upperFirst(name)}` : undefined,
+          op.params.some((q) => q.name === name)
+            ? `command.${DOMAIN_NAMES.csharp.prop(name)}`
+            : undefined,
       });
       // A merge-patch update's mask write gate runs only when the body
       // carries the masked key (an absent key keeps the stored value).
@@ -139,7 +142,8 @@ function lifecycleGate(
         (g) =>
           `        if (!(${renderCsExpr(g.expr, {
             thisName: thisName ?? "this",
-            paramExpr: (name) => (params.has(name) ? `command.${upperFirst(name)}` : undefined),
+            paramExpr: (name) =>
+              params.has(name) ? `command.${DOMAIN_NAMES.csharp.prop(name)}` : undefined,
           })}))\n` +
           `        {\n` +
           `            throw new ForbiddenException(${JSON.stringify(`Forbidden: ${g.source}`)});\n` +
@@ -222,7 +226,7 @@ export function emitCreateCommandAndHandler(
       aggName: agg.name,
       commandName: `Create${agg.name}Command`,
       commandParams: requiredFields
-        .map((f) => `${renderCsType(f.type)} ${upperFirst(f.name)}`)
+        .map((f) => `${renderCsType(f.type)} ${DOMAIN_NAMES.csharp.prop(f.name)}`)
         .join(", "),
       returnType: idClass,
     }),
@@ -301,7 +305,10 @@ export function emitCreateCommandAndHandler(
         // in.  Naming them decouples the two — and a create factory is exactly
         // the call site where positional args read worst.
         `        var aggregate = ${agg.name}.Create(${requiredFields
-          .map((f) => `${escapeCsharpIdent(f.name)}: command.${upperFirst(f.name)}`)
+          .map(
+            (f) =>
+              `${DOMAIN_NAMES.csharp.binding(f.name)}: command.${DOMAIN_NAMES.csharp.prop(f.name)}`,
+          )
           .join(", ")});\n` +
         createAuditStage +
         `        await _repo.SaveAsync(aggregate, cancellationToken);\n` +
@@ -487,7 +494,7 @@ export function emitOperationCommandAndHandler(
     const patch = mergePatchFields(op);
     const params = [
       `${idClass} Id`,
-      ...op.params.map((p) => `${renderCsType(p.type)} ${upperFirst(p.name)}`),
+      ...op.params.map((p) => `${renderCsType(p.type)} ${DOMAIN_NAMES.csharp.prop(p.name)}`),
       ...(patch ? ["IReadOnlySet<string> PatchedKeys"] : []),
     ].join(", ");
     // Exception-less return-typed op (exception-less.md): the command carries
@@ -513,11 +520,11 @@ export function emitOperationCommandAndHandler(
         ? `${ns}.Application.${plural(agg.name)}.Responses`
         : undefined;
     out.set(
-      `Application/${aggFolder}/Commands/${upperFirst(op.name)}Command.cs`,
+      `Application/${aggFolder}/Commands/${DOMAIN_NAMES.csharp.type(op.name)}Command.cs`,
       renderCommand({
         ns,
         aggName: agg.name,
-        commandName: `${upperFirst(op.name)}Command`,
+        commandName: `${DOMAIN_NAMES.csharp.type(op.name)}Command`,
         commandParams: params,
         returnType: returnUnion ?? scalarWireType,
         extraUsings: returnUnion
@@ -534,7 +541,7 @@ export function emitOperationCommandAndHandler(
     const opValidator = renderOperationValidator(agg, op, ns);
     if (opValidator.content) {
       out.set(
-        `Application/${aggFolder}/Commands/${upperFirst(op.name)}CommandValidator.cs`,
+        `Application/${aggFolder}/Commands/${DOMAIN_NAMES.csharp.type(op.name)}CommandValidator.cs`,
         opValidator.content,
       );
     }
@@ -549,8 +556,8 @@ export function emitOperationCommandAndHandler(
     const gateUsesUser = operationGatesUseCurrentUser(op);
     const baseCallArgs = op.params.map((p) =>
       patch
-        ? `(command.PatchedKeys.Contains(${JSON.stringify(p.name)}) ? command.${upperFirst(p.name)} : aggregate.${upperFirst(p.name)})`
-        : `command.${upperFirst(p.name)}`,
+        ? `(command.PatchedKeys.Contains(${JSON.stringify(p.name)}) ? command.${DOMAIN_NAMES.csharp.prop(p.name)} : aggregate.${DOMAIN_NAMES.csharp.prop(p.name)})`
+        : `command.${DOMAIN_NAMES.csharp.prop(p.name)}`,
     );
     const callArgs = (usesUser ? [...baseCallArgs, "_currentUser.User"] : baseCallArgs).join(", ");
     const userExtraDeps = [
@@ -626,7 +633,7 @@ export function emitOperationCommandAndHandler(
     const auditDeps = audited
       ? [
           { type: "IAuditWriter", field: "_audit" },
-          { type: `ILogger<${upperFirst(op.name)}Handler>`, field: "_log" },
+          { type: `ILogger<${DOMAIN_NAMES.csharp.type(op.name)}Handler>`, field: "_log" },
         ]
       : [];
     // `Domain.Common` is already in the base handler usings — don't repeat it
@@ -702,7 +709,7 @@ export function emitOperationCommandAndHandler(
     const handlerBody = returnUnion
       ? loadLine +
         auditBefore +
-        `        var result = aggregate.${upperFirst(op.name)}(${callArgs});\n` +
+        `        var result = aggregate.${DOMAIN_NAMES.csharp.op(op.name)}(${callArgs});\n` +
         errorGuard +
         auditStage +
         `        await _repo.SaveAsync(aggregate, ${saveArgs});\n` +
@@ -715,13 +722,13 @@ export function emitOperationCommandAndHandler(
           // scalars) so the handler's `<WireType>` result is returned, not Unit.
           loadLine +
           auditBefore +
-          `        var result = aggregate.${upperFirst(op.name)}(${callArgs});\n` +
+          `        var result = aggregate.${DOMAIN_NAMES.csharp.op(op.name)}(${callArgs});\n` +
           auditStage +
           `        await _repo.SaveAsync(aggregate, ${saveArgs});\n` +
           `        return ${projectToResponse("result", op.returnType!, ctx)};\n`
         : loadLine +
           auditBefore +
-          `        aggregate.${upperFirst(op.name)}(${callArgs});\n` +
+          `        aggregate.${DOMAIN_NAMES.csharp.op(op.name)}(${callArgs});\n` +
           auditStage +
           `        await _repo.SaveAsync(aggregate, ${saveArgs});\n` +
           `        return Unit.Value;\n`;
@@ -736,12 +743,12 @@ export function emitOperationCommandAndHandler(
         ? `${ns}.Domain.${plural(agg.name)}.${returnUnion}`
         : (returnUnion ?? scalarWireType);
     out.set(
-      `Application/${aggFolder}/Commands/${upperFirst(op.name)}Handler.cs`,
+      `Application/${aggFolder}/Commands/${DOMAIN_NAMES.csharp.type(op.name)}Handler.cs`,
       renderCommandHandler({
         ns,
         aggName: agg.name,
-        handlerName: `${upperFirst(op.name)}Handler`,
-        commandName: `${upperFirst(op.name)}Command`,
+        handlerName: `${DOMAIN_NAMES.csharp.type(op.name)}Handler`,
+        commandName: `${DOMAIN_NAMES.csharp.type(op.name)}Command`,
         returnType: handlerReturnType,
         extraDeps: [...userExtraDeps, ...auditDeps],
         extraUsings: [

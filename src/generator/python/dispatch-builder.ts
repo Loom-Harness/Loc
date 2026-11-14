@@ -42,12 +42,12 @@ import {
   OUTBOX_RETENTION_ENV,
 } from "../../util/channels.js";
 import { lines } from "../../util/code-builder.js";
-import { escapePythonIdent, pythonIdent, snake } from "../../util/naming.js";
 import { OUTBOX_RELAY } from "../_channels/delivery-policy.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { PY_IMPORTS, pyModule, pyRef } from "../_imports/python.js";
 import { ref } from "../_imports/symbol.js";
 import { numericEncode } from "../_numeric/target.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { pyCalendarDateWire, pyEnvelopeInstant, pyMoneyWire } from "./codec-spelling.js";
@@ -116,7 +116,7 @@ const NOOP = pyRef("app.domain.events", "NoopDomainEventDispatcher");
 const IN_CHILD = pyRef("app.obs.log", "in_child_context");
 const schemaRow = (name: string): string => pyRef("app.db.schema", name);
 const repoClass = (agg: string): string =>
-  pyRef(`app.db.repositories.${snake(agg)}_repository`, `${agg}Repository`);
+  pyRef(`app.db.repositories.${DOMAIN_NAMES.python.stem(agg)}_repository`, `${agg}Repository`);
 
 /** The broker tee (M-T4.4, design §4): publish broker-routed events, pass
  *  everything else to the wrapped dispatcher.  `innerType` is the annotation
@@ -305,7 +305,7 @@ export function buildPyDispatchFile(
       }
       const on = proj.handlers.find((h) => h.event === sub.event && h.param === sub.param);
       if (!on) continue;
-      const fn = `_proj_${snake(proj.name)}_${snake(sub.event)}`;
+      const fn = `_proj_${DOMAIN_NAMES.python.stem(proj.name)}_${DOMAIN_NAMES.python.stem(sub.event)}`;
       handlers.push(projectionHandlerFn(fn, proj, on, foldsDedupe(ctx, hasOutbox)), "");
       const list = handlerByEvent.get(sub.event) ?? [];
       list.push(fn);
@@ -325,7 +325,7 @@ export function buildPyDispatchFile(
     }
     const resolved = resolveHandlerBody(wf, sub);
     if (!resolved) continue;
-    const fn = `_${snake(sub.workflow)}_${sub.trigger}_${snake(sub.event)}`;
+    const fn = `_${DOMAIN_NAMES.python.stem(sub.workflow)}_${sub.trigger}_${DOMAIN_NAMES.python.stem(sub.event)}`;
     const construct = `${ctx.name}.${wf.name}`;
     handlers.push(
       handlerFn(
@@ -476,7 +476,7 @@ export function buildPyDispatchFile(
         ]),
       ].sort(),
     ].join(", ")}`,
-    ...factoryAggs.map((n) => `from app.domain.${snake(n)} import ${n}`),
+    ...factoryAggs.map((n) => `from app.domain.${DOMAIN_NAMES.python.stem(n)} import ${n}`),
     ...resourceImports,
     // Domain-service calls render as bare functions (`quote(...)`) — import
     // them by name from app.domain.services.* (domain-services.md).  A saga
@@ -522,9 +522,9 @@ function factoryAggsIn(statements: WorkflowStmtIR[]): string[] {
 
 function stateHelpers(wf: WorkflowIR): string {
   const row = schemaRow(`${wf.name}Row`);
-  const corr = snake(wf.correlationField as string);
+  const corr = DOMAIN_NAMES.python.prop(wf.correlationField as string);
   return lines(
-    `async def _load_${snake(wf.name)}(session: AsyncSession, key: str) -> ${row} | None:`,
+    `async def _load_${DOMAIN_NAMES.python.stem(wf.name)}(session: AsyncSession, key: str) -> ${row} | None:`,
     `    return (`,
     `        await session.execute(${SELECT}(${row}).where(${row}.${corr} == key).limit(1))`,
     "    ).scalars().first()",
@@ -535,15 +535,17 @@ function stateHelpers(wf: WorkflowIR): string {
  *  by its correlation key. */
 function projectionStateHelper(proj: ProjectionIR): string {
   const row = schemaRow(`${proj.name}Row`);
-  const corr = snake(proj.correlationField as string);
+  const corr = DOMAIN_NAMES.python.prop(proj.correlationField as string);
   // A tenant-scoped fold row is keyed by `(tenant, key)` (`fold-tenancy.ts`).
   const tenancy = foldTenancyFor(proj);
-  const tenantCol = tenancy ? snake(foldTenantColumns(tenancy).tenant.field) : undefined;
+  const tenantCol = tenancy
+    ? DOMAIN_NAMES.python.prop(foldTenantColumns(tenancy).tenant.field)
+    : undefined;
   const where = tenantCol
     ? `${row}.${corr} == key, ${row}.${tenantCol} == tenant`
     : `${row}.${corr} == key`;
   return lines(
-    `async def _load_${snake(proj.name)}(session: AsyncSession, key: str${tenantCol ? ", tenant: str" : ""}) -> ${row} | None:`,
+    `async def _load_${DOMAIN_NAMES.python.stem(proj.name)}(session: AsyncSession, key: str${tenantCol ? ", tenant: str" : ""}) -> ${row} | None:`,
     `    return (`,
     `        await session.execute(${SELECT}(${row}).where(${where}).limit(1))`,
     "    ).scalars().first()",
@@ -563,8 +565,8 @@ function projectionHandlerFn(
   dedupe = false,
 ): string {
   const row = schemaRow(`${proj.name}Row`);
-  const corr = snake(proj.correlationField as string);
-  const param = snake(on.param);
+  const corr = DOMAIN_NAMES.python.prop(proj.correlationField as string);
+  const param = DOMAIN_NAMES.python.binding(on.param);
   const keyExpr = on.correlation
     ? renderPyExpr(on.correlation, { thisName: "state" })
     : `${param}.${corr}`;
@@ -577,8 +579,10 @@ function projectionHandlerFn(
   // (`foldRowSeeds`); every other column starts null.
   const seed = [
     `${corr}=__key`,
-    ...(cols ? [`${snake(cols.tenant.field)}=__tenant`] : []),
-    ...foldRowSeeds(proj).map((sd) => `${snake(sd.field.name)}=${pyRowSeed(sd)}`),
+    ...(cols ? [`${DOMAIN_NAMES.python.prop(cols.tenant.field)}=__tenant`] : []),
+    ...foldRowSeeds(proj).map(
+      (sd) => `${DOMAIN_NAMES.python.prop(sd.field.name)}=${pyRowSeed(sd)}`,
+    ),
   ].join(", ");
   const out: string[] = [
     `async def ${fn}(`,
@@ -602,7 +606,7 @@ function projectionHandlerFn(
         ]
       : []),
     `    __key = str(${keyExpr})`,
-    `    state = await _load_${snake(proj.name)}(session, __key${cols ? ", __tenant" : ""})`,
+    `    state = await _load_${DOMAIN_NAMES.python.stem(proj.name)}(session, __key${cols ? ", __tenant" : ""})`,
     "    if state is None:",
     `        state = ${row}(${seed})`,
     "        session.add(state)",
@@ -642,14 +646,14 @@ function pyRowSeed(sd: FoldRowSeed): string {
 function renderProjectionFoldStep(step: FoldStep): string {
   const rctx = { thisName: "state" } as const;
   const expr = (e: ExprIR): string => renderPyExpr(e, rctx);
-  const path = (field: string): string => `state.${snake(field)}`;
+  const path = (field: string): string => `state.${DOMAIN_NAMES.python.prop(field)}`;
   switch (step.kind) {
     case "set":
       return `    ${path(step.field)} = ${expr(step.value)}`;
     case "let":
       // `let`-names may collide with a Python keyword; escape consistently with
       // the matching `refKind: "let"` use sites in `render-expr.ts`.
-      return `    ${escapePythonIdent(snake(step.name))} = ${expr(step.expr)}`;
+      return `    ${DOMAIN_NAMES.python.binding(step.name)} = ${expr(step.expr)}`;
     case "accumulate":
       return `    ${path(step.field)} = ${accumulatePy(path(step.field), step.op, expr(step.value))}`;
     case "append":
@@ -678,7 +682,7 @@ function accumulatePy(path: string, op: "+" | "-", value: string): string {
  *  `__key` local — one allocation shape for both entry points. */
 export function allocateKwargs(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
   const corr = wf.correlationField as string;
-  const parts = [`${snake(corr)}=__key`];
+  const parts = [`${DOMAIN_NAMES.python.prop(corr)}=__key`];
   for (const f of requiredStateFields(wf)) {
     if (f.type.kind === "valueobject") {
       const leaves = voLeafZeros(f.type.name, f.name, ctx);
@@ -687,7 +691,7 @@ export function allocateKwargs(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): s
         continue;
       }
     }
-    parts.push(`${pythonIdent(f.name)}=${zeroFor(f, ctx)}`);
+    parts.push(`${DOMAIN_NAMES.python.prop(f.name)}=${zeroFor(f, ctx)}`);
   }
   return parts.join(", ");
 }
@@ -719,7 +723,7 @@ function voLeafZeros(
       vf.type.kind === "primitive" && vf.type.name === "decimal"
         ? `${PY.Decimal}("0")`
         : zeroFor(vf, ctx);
-    return [`${snake(path)}=${zero}`];
+    return [`${DOMAIN_NAMES.python.prop(path)}=${zero}`];
   });
 }
 
@@ -784,7 +788,7 @@ function handlerFn(
       opFragments,
     );
   }
-  const param = snake(sub.param);
+  const param = DOMAIN_NAMES.python.binding(sub.param);
   // A reactor is a per-dispatch boundary: run it in a child execution-context
   // frame (fresh scope_id, parent_id ← the dispatching request's scope) so its
   // audit / provenance rows record their call-structure position.
@@ -800,17 +804,19 @@ function handlerFn(
   const rctx = persisted ? { thisName: "state" } : { thisName: "self" };
   if (persisted) {
     const corr = wf.correlationField as string;
-    const keyExpr = correlation ? renderPyExpr(correlation, rctx) : `${param}.${snake(corr)}`;
+    const keyExpr = correlation
+      ? renderPyExpr(correlation, rctx)
+      : `${param}.${DOMAIN_NAMES.python.prop(corr)}`;
     out.push(`    __key = str(${keyExpr})`);
     if (sub.trigger === "create") {
       // Load-or-allocate: a starter creates the instance if its key is new.
-      out.push(`    state = await _load_${snake(wf.name)}(session, __key)`);
+      out.push(`    state = await _load_${DOMAIN_NAMES.python.stem(wf.name)}(session, __key)`);
       out.push("    if state is None:");
       out.push(`        state = ${schemaRow(`${wf.name}Row`)}(${allocateKwargs(wf, ctx)})`);
       out.push("        session.add(state)");
     } else {
       // Route-to-existing, else drop + log.
-      out.push(`    state = await _load_${snake(wf.name)}(session, __key)`);
+      out.push(`    state = await _load_${DOMAIN_NAMES.python.stem(wf.name)}(session, __key)`);
       out.push("    if state is None:");
       out.push(
         `        ${PY.log}("warn", "event_unrouted", workflow=${JSON.stringify(wf.name)}, event_type=${JSON.stringify(sub.event)}, key=__key)`,
@@ -829,7 +835,9 @@ function handlerFn(
     }
   }
   for (const r of reposIn(statements, saves)) {
-    out.push(`    ${pythonIdent(r.repoName)} = ${repoClass(r.aggName)}(session, events)`);
+    out.push(
+      `    ${DOMAIN_NAMES.python.binding(r.repoName)} = ${repoClass(r.aggName)}(session, events)`,
+    );
   }
   const hasEmit = workflowEmits(statements).length > 0;
   if (hasEmit) out.push("    workflow_events: list[DomainEvent] = []");
@@ -894,11 +902,13 @@ function esHandlerFn(
   /** Source-map — see `buildPyDispatchFile`'s `opFragments`. */
   opFragments?: OpFragment[],
 ): string {
-  const param = snake(sub.param);
+  const param = DOMAIN_NAMES.python.binding(sub.param);
   const corr = wf.correlationField as string;
   const fns = esFns(wf);
   const rctx = { thisName: "state" } as const;
-  const keyExpr = correlation ? renderPyExpr(correlation, rctx) : `${param}.${snake(corr)}`;
+  const keyExpr = correlation
+    ? renderPyExpr(correlation, rctx)
+    : `${param}.${DOMAIN_NAMES.python.prop(corr)}`;
   // Render the body up front (chunked, one lines-array per top-level
   // statement) so we know whether it reads the folded snapshot (a starter
   // that only emits constants never touches `state`) — folding is a pure
@@ -949,7 +959,9 @@ function esHandlerFn(
   }
   if (usesState) out.push(`    state = ${fns.fold}(__key, __events)`);
   for (const r of reposIn(statements, saves)) {
-    out.push(`    ${pythonIdent(r.repoName)} = ${repoClass(r.aggName)}(session, events)`);
+    out.push(
+      `    ${DOMAIN_NAMES.python.binding(r.repoName)} = ${repoClass(r.aggName)}(session, events)`,
+    );
   }
   const hasEmit = workflowEmits(statements).length > 0;
   if (hasEmit) out.push("    workflow_events: list[DomainEvent] = []");
@@ -1078,11 +1090,11 @@ function outboxBlock(
     : "InProcessDispatcher(session)";
   const toArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} isinstance(event, ${ev.name}):`,
-    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${pythonIdent(f.name)}`, f.type)}`).join(", ")}}`,
+    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${DOMAIN_NAMES.python.prop(f.name)}`, f.type)}`).join(", ")}}`,
   ]);
   const fromArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} event_type == "${ev.name}":`,
-    `        return ${ev.name}(${ev.fields.map((f) => `${pythonIdent(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
+    `        return ${ev.name}(${ev.fields.map((f) => `${DOMAIN_NAMES.python.prop(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
   ]);
   return lines(
     `_DURABLE_EVENT_TYPES: frozenset[str] = frozenset({${durableEvents.map((e) => `"${e.name}"`).join(", ")}})`,
@@ -1231,11 +1243,11 @@ function pureProducerOutboxBlock(
 ): string {
   const toArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} isinstance(event, ${ev.name}):`,
-    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${pythonIdent(f.name)}`, f.type)}`).join(", ")}}`,
+    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${DOMAIN_NAMES.python.prop(f.name)}`, f.type)}`).join(", ")}}`,
   ]);
   const fromArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} event_type == "${ev.name}":`,
-    `        return ${ev.name}(${ev.fields.map((f) => `${pythonIdent(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
+    `        return ${ev.name}(${ev.fields.map((f) => `${DOMAIN_NAMES.python.prop(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
   ]);
   return lines(
     `_DURABLE_EVENT_TYPES: frozenset[str] = frozenset({${durableEvents.map((e) => `"${e.name}"`).join(", ")}})`,
@@ -1402,7 +1414,7 @@ function toPayloadValue(expr: string, t: TypeIR, vos: PyVoFields): string {
     // self-referential VO stops at its first level.
     const rest = new Map(vos);
     rest.delete(t.name);
-    return `{${fields.map((f) => `"${f.name}": ${toPayload(`${expr}.${snake(f.name)}`, f.type, rest)}`).join(", ")}}`;
+    return `{${fields.map((f) => `"${f.name}": ${toPayload(`${expr}.${DOMAIN_NAMES.python.prop(f.name)}`, f.type, rest)}`).join(", ")}}`;
   }
   return expr;
 }
@@ -1452,7 +1464,7 @@ const PY_WIRE_DECODE: WireDecodeTarget = {
   valueObject: {
     view: (e) => `${PY.cast}("dict[str, object]", ${e})`,
     build: (name, fields) =>
-      `${pyVoOrEnum(name)}(${fields.map((f) => `${snake(f.name)}=${f.decoded}`).join(", ")})`,
+      `${pyVoOrEnum(name)}(${fields.map((f) => `${DOMAIN_NAMES.python.prop(f.name)}=${f.decoded}`).join(", ")})`,
   },
 };
 

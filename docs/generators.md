@@ -1387,7 +1387,26 @@ So a definition and each of its uses get one spelling:
 - python also escapes the decorators a generated class body applies (`property`,
   `classmethod`, `staticmethod`).
 
-`test/system/symbol-plan-census.test.ts` keeps the raw funnels out of those files.
+The workflow and command / query handler emitters name those constructs from
+outside the class, and read the same plan. `DOMAIN_NAMES.<target>` has four slots
+that own the casing as well as the escaping, each equal to the spelling the domain
+class defines:
+
+| slot | what it spells | node | .NET | java | python | elixir |
+|---|---|---|---|---|---|---|
+| `op` | an operation, as the member callers invoke | `lowerFirst` + member escape | `upperFirst` | `jid` | `snake` + keyword escape | `snake` |
+| `prop` | a field, as the member a consumer reads or sets | member escape | `upperFirst` | `jid` | `snake` + keyword escape | `snake` |
+| `type` | the leading segment of a type-level name (`<Wf>State`, a module) | `upperFirst` | `upperFirst` | `upperFirst` | `upperFirst` | `upperFirst` |
+| `stem` | the leading segment of a value-level name (`run_<wf>`, a handle, a file stem) | `lowerFirst` | `lowerFirst` | `lowerFirst` | `snake` | `snake` |
+
+So a workflow step calling an operation named `then` on node calls the escaped member
+the aggregate defines, not a second spelling.
+
+`test/system/symbol-plan-census.test.ts` keeps the raw funnels out of the domain
+emitters, and both the raw funnels and the casing helpers out of the workflow and
+handler emitters. A casing call there that formats a name which is not a code
+symbol — a route segment, a table column, a stored JSON key, message text — is
+waived by its exact call text and count, so a new call or a stale waiver fails.
 
 **Type names a target imports implicitly.** On .NET, a domain type whose simple
 name an imported framework namespace also exports (`TaskStatus` from

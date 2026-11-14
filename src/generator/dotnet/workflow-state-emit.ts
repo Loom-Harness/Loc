@@ -1,7 +1,8 @@
 import { requiredStateFields, stateRowWorkflows, stateZero } from "../../ir/plan/index.js";
 import type { TypeIR, WorkflowIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
-import { plural, snake, upperFirst, workflowStateTableName } from "../../util/naming.js";
+import { plural, snake, workflowStateTableName } from "../../util/naming.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { renderCsType } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -29,12 +30,12 @@ export function workflowStateTable(wf: WorkflowIR): string {
 
 /** The DbSet property name (`OrderFulfillments`) the handlers load/save through. */
 export function workflowStateDbSet(wf: WorkflowIR): string {
-  return plural(upperFirst(wf.name));
+  return plural(DOMAIN_NAMES.csharp.type(wf.name));
 }
 
 /** The state POCO class name (`OrderFulfillmentState`). */
 export function workflowStateClass(wf: WorkflowIR): string {
-  return `${upperFirst(wf.name)}State`;
+  return `${DOMAIN_NAMES.csharp.type(wf.name)}State`;
 }
 
 /** Emit the state POCO + its EF configuration for every correlation-bearing
@@ -72,7 +73,7 @@ export function renderWorkflowStateEntity(wf: WorkflowIR, ns: string, durable = 
     // Non-optional reference types need `= default!` to satisfy nullable
     // reference types; value types (int / record-struct ids) accept it too.
     const def = f.optional ? "" : " = default!;";
-    return `    public ${renderCsType(f.type)} ${upperFirst(f.name)} { get; set; }${def}`;
+    return `    public ${renderCsType(f.type)} ${DOMAIN_NAMES.csharp.prop(f.name)} { get; set; }${def}`;
   });
   if (durable) {
     // Idempotent-consumer marker (dispatch-delivery-semantics.md §3): the
@@ -123,15 +124,15 @@ function renderWorkflowStateConfiguration(
     const col = `.HasColumnName("${snake(f.name)}")`;
     if (f.type.kind === "id") {
       return [
-        `        builder.Property(x => x.${upperFirst(f.name)}).HasConversion(v => v.Value, v => new ${f.type.targetName}Id(v))${col};`,
+        `        builder.Property(x => x.${DOMAIN_NAMES.csharp.prop(f.name)}).HasConversion(v => v.Value, v => new ${f.type.targetName}Id(v))${col};`,
       ];
     }
     if (f.type.kind === "enum") {
       return [
-        `        builder.Property(x => x.${upperFirst(f.name)}).HasConversion<string>()${col};`,
+        `        builder.Property(x => x.${DOMAIN_NAMES.csharp.prop(f.name)}).HasConversion<string>()${col};`,
       ];
     }
-    return [`        builder.Property(x => x.${upperFirst(f.name)})${col};`];
+    return [`        builder.Property(x => x.${DOMAIN_NAMES.csharp.prop(f.name)})${col};`];
   });
   return (
     lines(
@@ -150,7 +151,7 @@ function renderWorkflowStateConfiguration(
       `    public void Configure(EntityTypeBuilder<${cls}> builder)`,
       "    {",
       `        builder.ToTable(${toTableArgs});`,
-      `        builder.HasKey(x => x.${upperFirst(corr)});`,
+      `        builder.HasKey(x => x.${DOMAIN_NAMES.csharp.prop(corr)});`,
       ...fieldConfigs,
       // The marker column name matches the shared migration DDL
       // (`last_event_id`, dispatch-delivery-semantics.md §3).
@@ -196,9 +197,9 @@ export function csStateDefault(t: TypeIR): string {
  *  state field. */
 export function workflowAllocateInitializer(wf: WorkflowIR, keyExpr: string): string {
   const corr = wf.correlationField as string;
-  const parts = [`${upperFirst(corr)} = ${keyExpr}`];
+  const parts = [`${DOMAIN_NAMES.csharp.prop(corr)} = ${keyExpr}`];
   for (const f of requiredStateFields(wf)) {
-    parts.push(`${upperFirst(f.name)} = ${csStateDefault(f.type)}`);
+    parts.push(`${DOMAIN_NAMES.csharp.prop(f.name)} = ${csStateDefault(f.type)}`);
   }
   return `new ${workflowStateClass(wf)} { ${parts.join(", ")} }`;
 }

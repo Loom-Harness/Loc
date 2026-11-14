@@ -26,8 +26,8 @@ import {
   entryErrorTags,
 } from "../../ir/util/entry-result.js";
 import { lines } from "../../util/code-builder.js";
-import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
 import { RFC7807_MEMBERS, type UnionMember, unionMembers } from "../_payload/union-wire.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { dtoParam, projectEntityArgs, projectToResponse, wireType } from "./dto-mapping.js";
 import { renderUnionRecordFamily, splitUnionSuccessTags } from "./union-records.js";
 import { csErrorVariantExt } from "./wire-policy-cs.js";
@@ -59,7 +59,7 @@ export function renderEntryUnionFile(
             ctx,
             "response",
           ),
-          upperFirst(f.name),
+          DOMAIN_NAMES.csharp.prop(f.name),
         ),
       )
       .join(", ");
@@ -121,13 +121,13 @@ function leafCtor(
     }
     case "workflow": {
       const fields = member?.shape === "record" ? member.fields : [];
-      return `new ${rec}(${fields.map((f) => projectToResponse(`${selfVar}.${upperFirst(f.name)}`, f.type, ctx)).join(", ")})`;
+      return `new ${rec}(${fields.map((f) => projectToResponse(`${selfVar}.${DOMAIN_NAMES.csharp.prop(f.name)}`, f.type, ctx)).join(", ")})`;
     }
     case "payload":
     case "error": {
       const fields = member?.shape === "record" ? member.fields : [];
       if (bound) {
-        return `new ${rec}(${fields.map((f) => `${rendered}.${upperFirst(f.name)}`).join(", ")})`;
+        return `new ${rec}(${fields.map((f) => `${rendered}.${DOMAIN_NAMES.csharp.prop(f.name)}`).join(", ")})`;
       }
       const obj = leaf.value.kind === "object" ? leaf.value.fields : [];
       return `new ${rec}(${fields
@@ -195,10 +195,12 @@ export function entryResultCsLines(
       ? `case ${carrier}:`
       : isScalarVariant(arm.varType)
         ? `case ${carrier} __${arm.binding}Carrier:`
-        : `case ${carrier} ${escapeCsharpIdent(arm.binding)}:`;
+        : `case ${carrier} ${DOMAIN_NAMES.csharp.binding(arm.binding)}:`;
     out.push(`${indent}    ${label}`, `${indent}    {`);
     if (arm.binding && isScalarVariant(arm.varType)) {
-      out.push(`${inner}var ${escapeCsharpIdent(arm.binding)} = __${arm.binding}Carrier.Value;`);
+      out.push(
+        `${inner}var ${DOMAIN_NAMES.csharp.binding(arm.binding)} = __${arm.binding}Carrier.Value;`,
+      );
     }
     out.push(assign(leaf, inner), `${inner}break;`, `${indent}    }`);
   }
@@ -244,13 +246,16 @@ export function entryControllerAnswer(
       `${indent}        var problem = new Microsoft.AspNetCore.Mvc.ProblemDetails { Status = ${r.status}, Title = ${JSON.stringify(d.title)}, Type = ${JSON.stringify(d.type)}, Detail = ${JSON.stringify(d.detail)}, Instance = HttpContext.Request.Path };`,
       ...fields.map(
         (f) =>
-          `${indent}        problem.Extensions[${JSON.stringify(f.name)}] = __e.${upperFirst(f.name)};`,
+          `${indent}        problem.Extensions[${JSON.stringify(f.name)}] = __e.${DOMAIN_NAMES.csharp.prop(f.name)};`,
       ),
       ...csErrorVariantExt(
         ctx,
         tag,
         "problem",
-        allFields.map((f) => ({ json: f.name, accessor: `__e.${upperFirst(f.name)}` })),
+        allFields.map((f) => ({
+          json: f.name,
+          accessor: `__e.${DOMAIN_NAMES.csharp.prop(f.name)}`,
+        })),
         `${indent}        `,
       ),
       `${indent}        return new ObjectResult(problem) { StatusCode = ${r.status}, ContentTypes = { "application/problem+json" } };`,

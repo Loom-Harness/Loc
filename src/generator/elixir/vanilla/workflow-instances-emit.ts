@@ -31,7 +31,8 @@
 import { observableWorkflows } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { upperFirst } from "../../../util/naming.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import type { ApiRoute } from "../api-emit.js";
 import { stateModule } from "../dispatch-emit.js";
 import { renderExpr } from "../render-expr.js";
@@ -39,6 +40,8 @@ import { denialOverrides, denialResponse } from "./denial.js";
 import { effectiveGate } from "./gate.js";
 import { renderPathIdCastPlug } from "./problem-details-emit.js";
 import { renderWorkflowInstanceSerialize } from "./wire-serialize.js";
+
+const N = DOMAIN_NAMES.elixir;
 
 /** Emit the saga-state schema(s) + the `WorkflowInstancesController` for one
  *  context, returning the instance read routes (`GET /workflows/<snake>/
@@ -60,7 +63,7 @@ export function emitVanillaWorkflowInstances(
   const observable = observableWorkflows(ctx.workflows);
   if (observable.length === 0) return [];
 
-  const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
+  const contextModule = `${appModule}.${N.type(ctx.name)}`;
   const webModule = `${appModule}Web`;
   const actions = observable
     .map((wf) => renderInstanceActions(contextModule, appModule, wf, ctx))
@@ -71,7 +74,7 @@ export function emitVanillaWorkflowInstances(
   const serializers = new Map<string, string>();
   for (const wf of observable) {
     const s = renderWorkflowInstanceSerialize(wf, ctx);
-    serializers.set(`serialize_${snake(wf.name)}`, s.serialize);
+    serializers.set(`serialize_${N.stem(wf.name)}`, s.serialize);
     for (const h of s.helpers) {
       const name = /defp (\w+)\(/.exec(h)?.[1] ?? h;
       if (!serializers.has(name)) serializers.set(name, h);
@@ -103,7 +106,7 @@ end
 
   const routes: ApiRoute[] = [];
   for (const wf of observable) {
-    const slug = snake(wf.name);
+    const slug = N.stem(wf.name);
     routes.push({
       method: "get",
       path: `/workflows/${slug}/instances`,
@@ -135,7 +138,7 @@ function renderInstanceActions(
   wf: WorkflowIR,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  const slug = snake(wf.name);
+  const slug = N.stem(wf.name);
   // The row projects through `serialize_<wf>/1` (`renderWorkflowInstanceSerialize`)
   // — the per-type wire coercions, not a raw `row.<field>` dump.
   const ser = `serialize_${slug}`;
@@ -170,7 +173,7 @@ ${body.replace(/^ {4}/gm, "      ")}
 ${body}
   end`;
   if (wf.eventSourced) {
-    const streamMod = `${contextModule}.Workflows.${upperFirst(wf.name)}Stream`;
+    const streamMod = `${contextModule}.Workflows.${N.type(wf.name)}Stream`;
     return `${wrap(
       `  @doc "GET /api/workflows/${slug}/instances"
   def ${slug}_instances(conn, _params) do`,

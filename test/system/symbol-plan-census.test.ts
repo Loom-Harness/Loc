@@ -22,8 +22,17 @@ import { expectReach } from "../_helpers/census-reach.js";
 // clean.
 //
 // Scope: the domain class emitters (aggregate / part / value object / enum /
-// event / domain service) of the five backends.  Domain-layer names resolve
-// through the plan; the other emitters still name symbols locally.
+// event / domain service) of the five backends, and the USE-SITE emitters
+// that name those constructs from outside: the workflow and command / query
+// handler emitters.  The other emitters still name symbols locally.
+//
+// The use-site emitters are held to a stricter rule than the domain classes:
+// the casing helpers (`snake(`, `lowerFirst(`, `upperFirst(`, …) are refused
+// too, because a use site that cases an operation, field or type name itself
+// is a second copy of the spelling the plan's `op` / `prop` / `type` / `stem`
+// slots own.  A name that is NOT a code symbol — a route segment, a file
+// path, a table or column, an OpenAPI operation id — is waived by its exact
+// call text and count; a new call, or a stale waiver, fails.
 // ---------------------------------------------------------------------------
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -47,9 +56,117 @@ const DOMAIN_EMITTERS: readonly string[] = [
   "src/generator/elixir/vanilla/domain-core-emit.ts",
 ];
 
+/** A casing call a use-site emitter keeps: the name it formats is not a code
+ *  symbol, so the plan does not own its spelling. */
+interface CasingWaiver {
+  /** The call exactly as written, e.g. `snake(wf.name)`. */
+  readonly call: string;
+  /** How many times the file makes it. */
+  readonly count: number;
+  /** What the name is, and why the plan does not own it. */
+  readonly standing: string;
+}
+
+/** The workflow and command / query handler emitters, per backend, with the
+ *  casing calls each one keeps. */
+const USE_SITE_EMITTERS: Readonly<Record<string, readonly CasingWaiver[]>> = {
+  "src/platform/hono/shared/workflow-builder.ts": [
+    { call: "snake(wf.name)", count: 2, standing: "route segment of the workflow's endpoints" },
+  ],
+  "src/platform/hono/shared/workflow-eventsourced-builder.ts": [],
+  "src/platform/hono/shared/explicit-handlers-builder.ts": [
+    { call: "snake(name)", count: 1, standing: "file stem of the extern handler module" },
+    { call: "lowerFirst(h.name)", count: 2, standing: "OpenAPI operationId, a wire identifier" },
+  ],
+  "src/generator/python/workflows-builder.ts": [
+    { call: "snake(wf.name)", count: 2, standing: "route segment of the workflow's endpoints" },
+  ],
+  "src/generator/python/workflow-eventsourced-emit.ts": [],
+  "src/generator/python/explicit-handlers-emit.ts": [
+    { call: "snake(name)", count: 2, standing: "route path parameter, a wire name" },
+    { call: "snake(p.name)", count: 1, standing: "request-model attribute, a wire name" },
+  ],
+  "src/generator/python/dispatch-builder.ts": [],
+  "src/generator/python/entry-result-emit.ts": [],
+  "src/generator/dotnet/workflow-emit.ts": [
+    { call: "snake(wf.name)", count: 2, standing: "route segment of the workflow's endpoints" },
+    {
+      call: "snake(wf.correlationField as string)",
+      count: 1,
+      standing: "primary-key column of the workflow state table",
+    },
+  ],
+  "src/generator/dotnet/workflow-eventsourced-emit.ts": [],
+  "src/generator/dotnet/workflow-state-emit.ts": [
+    { call: "snake(f.name)", count: 1, standing: "column of the workflow state table" },
+  ],
+  "src/generator/dotnet/explicit-handlers-emit.ts": [],
+  "src/generator/dotnet/entry-result-emit.ts": [],
+  "src/generator/dotnet/cqrs/commands.ts": [],
+  "src/generator/dotnet/cqrs/queries.ts": [],
+  "src/generator/dotnet/emit/dapper-workflow.ts": [
+    {
+      call: "snake(proj.correlationField as string)",
+      count: 1,
+      standing: "key column of the projection table",
+    },
+    {
+      call: "snake(wf.correlationField as string)",
+      count: 1,
+      standing: "key column of the workflow state table",
+    },
+  ],
+  "src/generator/java/emit/workflow.ts": [
+    { call: "snake(wf.name)", count: 1, standing: "route segment of the workflow's endpoint" },
+  ],
+  "src/generator/java/emit/workflow-eventsourced.ts": [],
+  "src/generator/java/emit/workflow-instances.ts": [
+    { call: "snake(wf.name)", count: 1, standing: "route segment of the instance endpoints" },
+  ],
+  "src/generator/java/emit/workflow-state.ts": [
+    { call: "snake(corr)", count: 1, standing: "correlation column of the workflow state table" },
+  ],
+  "src/generator/java/emit/service.ts": [],
+  "src/generator/java/emit/dispatch.ts": [],
+  "src/generator/java/emit/entry-result.ts": [],
+  "src/generator/java/explicit-handlers-emit.ts": [],
+  "src/generator/elixir/vanilla/workflow-execution-emit.ts": [
+    { call: "snake(wf.name)", count: 1, standing: "route segment of the workflow's endpoint" },
+    { call: "upperFirst(st.aggName)", count: 1, standing: "not-found message text" },
+  ],
+  "src/generator/elixir/vanilla/workflow-eventsourced-emit.ts": [
+    { call: "snake(f.name)", count: 2, standing: "key of the event's jsonb data, a stored name" },
+  ],
+  "src/generator/elixir/vanilla/workflow-instances-emit.ts": [
+    { call: "upperFirst(wf.name)", count: 2, standing: "not-found message text" },
+  ],
+  "src/generator/elixir/vanilla/explicit-handlers-emit.ts": [],
+  "src/generator/elixir/vanilla/entry-result-emit.ts": [],
+};
+
+/** A use-site emitter not yet migrated: parked work with an expiry, not a
+ *  rationale.  It fails once `reviewUntil` passes, and once the file no
+ *  longer formats a name itself (then it belongs in USE_SITE_EMITTERS). */
+interface DeferredUseSite {
+  readonly deferred: string;
+  readonly reviewUntil: string;
+  readonly blockedBy: string;
+}
+
+const DEFERRED_USE_SITE_EMITTERS: Readonly<Record<string, DeferredUseSite>> = {
+  "src/generator/elixir/dispatch-emit.ts": {
+    deferred: "the Elixir event-dispatch emitter; another lane is rewriting it",
+    reviewUntil: "2026-11-28",
+    blockedBy: "#5706",
+  },
+};
+
 /** The raw escaping funnels the plan wraps. */
 const RAW_FUNNEL =
   /\b(escapeTsIdent|escapeTargetMember|escapeTargetFieldMember|escapeTargetIdent|escapeCsharpIdent|escapeJavaIdent|jid|escapePythonIdent|escapePythonBuiltin|pythonIdent|pythonModuleFn|escapeElixirIdent|elixirLocal)\(/g;
+
+/** The casing helpers a use-site emitter may not apply to a domain name. */
+const CASING = /(?<![\w.])(snake|pascal|camel|lowerFirst|upperFirst)\(/g;
 
 /** The plan's reader surface. */
 const PLAN_READ = /\b(DOMAIN_NAMES|tsServiceOpFn|tsServiceSiblingScope|pythonModuleFnName)\b/;
@@ -68,6 +185,81 @@ function rawFunnelCalls(src: string): string[] {
     });
   return out;
 }
+
+/** The casing calls in `src` with their argument text, as `fn(arg)`. */
+function casingCalls(src: string): string[] {
+  const code = stripComments(src);
+  const out: string[] = [];
+  for (const m of code.matchAll(CASING)) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    for (; i < code.length && depth > 0; i++) {
+      if (code[i] === "(") depth++;
+      else if (code[i] === ")") depth--;
+    }
+    out.push(code.slice(m.index, i).replace(/\s+/g, " "));
+  }
+  return out;
+}
+
+function tally(calls: readonly string[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const c of [...calls].sort()) out[c] = (out[c] ?? 0) + 1;
+  return out;
+}
+
+describe("symbol-plan census: the use-site emitters spell names through the plan", () => {
+  for (const [rel, waivers] of Object.entries(USE_SITE_EMITTERS)) {
+    it(rel, () => {
+      const file = path.join(ROOT, rel);
+      expect(fs.existsSync(file), `${rel} is listed but missing — update USE_SITE_EMITTERS`).toBe(
+        true,
+      );
+      const src = fs.readFileSync(file, "utf8");
+      expect(rawFunnelCalls(src), `${rel} escapes a domain name itself`).toEqual([]);
+      expect(
+        tally(casingCalls(src)),
+        `${rel} cases a name itself — read DOMAIN_NAMES.<target>.{op,prop,type,stem}, or waive ` +
+          `the call in USE_SITE_EMITTERS when the name is not a code symbol`,
+      ).toEqual(Object.fromEntries(waivers.map((w) => [w.call, w.count])));
+      expect(PLAN_READ.test(stripComments(src)), `${rel} never reads the symbol plan`).toBe(true);
+    });
+  }
+
+  it("scans every listed use-site emitter", () => {
+    const present = Object.keys(USE_SITE_EMITTERS).filter((rel) =>
+      fs.existsSync(path.join(ROOT, rel)),
+    );
+    expectReach("use-site emitter files", present.length, 29);
+  });
+
+  for (const [rel, d] of Object.entries(DEFERRED_USE_SITE_EMITTERS)) {
+    it(`${rel} is deferred (blocked by ${d.blockedBy} until ${d.reviewUntil})`, () => {
+      const file = path.join(ROOT, rel);
+      expect(fs.existsSync(file), `${rel} is deferred but missing`).toBe(true);
+      const today = new Date().toISOString().slice(0, 10);
+      expect(d.reviewUntil >= today, `${rel}: the deferral expired on ${d.reviewUntil}`).toBe(true);
+      const horizon = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10);
+      expect(d.reviewUntil <= horizon, `${rel}: reviewUntil is parked more than 60 days out`).toBe(
+        true,
+      );
+      const src = fs.readFileSync(file, "utf8");
+      expect(
+        rawFunnelCalls(src).length + casingCalls(src).length,
+        `${rel} no longer formats a name itself — move it to USE_SITE_EMITTERS`,
+      ).toBeGreaterThan(0);
+      expect(rel in USE_SITE_EMITTERS, `${rel} is both deferred and scanned`).toBe(false);
+    });
+  }
+
+  it("the detector reads a casing call with its argument and ignores a plan read", () => {
+    expect(casingCalls("x(`${upperFirst(wf.name)}State`, snake(f(a)));\n// snake(z)\n")).toEqual([
+      "upperFirst(wf.name)",
+      "snake(f(a))",
+    ]);
+    expect(casingCalls("DOMAIN_NAMES.ts.stem(r.repoName)")).toEqual([]);
+  });
+});
 
 describe("symbol-plan census: the domain emitters spell names through the plan", () => {
   for (const rel of DOMAIN_EMITTERS) {

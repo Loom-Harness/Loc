@@ -6,7 +6,7 @@ import {
 } from "../../ir/plan/index.js";
 import type { WorkflowIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
-import { upperFirst } from "../../util/naming.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { csMemberScope, csParamIdent, csSystemRoot } from "./bcl-collision.js";
 import { eventDbSetName, eventRecordClass } from "./emit/event-store.js";
 import { renderCsType } from "./render-expr.js";
@@ -103,7 +103,7 @@ function renderWorkflowFoldClass(wf: WorkflowIR, ns: string, ownerOf: OwnerOf): 
   // State properties — same shape as the EF saga POCO, but plain (no mapping).
   const props = (wf.stateFields ?? []).map((f) => {
     const def = f.optional ? "" : " = default!;";
-    return `    public ${renderCsType(f.type)} ${upperFirst(f.name)} { get; set; }${def}`;
+    return `    public ${renderCsType(f.type)} ${DOMAIN_NAMES.csharp.prop(f.name)} { get; set; }${def}`;
   });
 
   // `_Apply<Event>` appliers — rendered through the shared statement pipeline
@@ -132,9 +132,9 @@ function renderWorkflowFoldClass(wf: WorkflowIR, ns: string, ownerOf: OwnerOf): 
 
   // Seed a from-zero fold: correlation key + a typed default per required
   // (non-optional, non-correlation) state field.
-  const seeds = [`${upperFirst(corr)} = __key`];
+  const seeds = [`${DOMAIN_NAMES.csharp.prop(corr)} = __key`];
   for (const f of requiredStateFields(wf)) {
-    seeds.push(`${upperFirst(f.name)} = ${csStateDefault(f.type)}`);
+    seeds.push(`${DOMAIN_NAMES.csharp.prop(f.name)} = ${csStateDefault(f.type)}`);
   }
 
   return (

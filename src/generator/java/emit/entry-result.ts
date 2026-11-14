@@ -21,7 +21,7 @@ import {
   entryErrorTags,
 } from "../../../ir/util/entry-result.js";
 import { RFC7807_MEMBERS, unionMembers } from "../../_payload/union-wire.js";
-import { jid } from "../java-ident.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { javaErrorVariantExt } from "../wire-policy-java.js";
 import { type JavaReturnUnionSpec, renderJavaUnionWireFiles, type UnionFile } from "./unions.js";
 import { domainToWire } from "./wire.js";
@@ -72,14 +72,14 @@ function leafCtor(
       return `new ${rec}(${domainToWire(leaf.arm.type, rendered)})`;
     case "aggregate": {
       const src = bound && repoOf ? `${repoOf(leaf.arm.name)}.getById(${rendered}.id())` : rendered;
-      return `new ${rec}(${fields.map((f) => domainToWire(eff(f.type, f.optional), `${src}.${jid(f.name)}()`)).join(", ")})`;
+      return `new ${rec}(${fields.map((f) => domainToWire(eff(f.type, f.optional), `${src}.${DOMAIN_NAMES.java.prop(f.name)}()`)).join(", ")})`;
     }
     case "workflow":
-      return `new ${rec}(${fields.map((f) => domainToWire(eff(f.type, f.optional), `${selfVar}.${jid(f.name)}()`)).join(", ")})`;
+      return `new ${rec}(${fields.map((f) => domainToWire(eff(f.type, f.optional), `${selfVar}.${DOMAIN_NAMES.java.prop(f.name)}()`)).join(", ")})`;
     case "payload":
     case "error": {
       if (bound) {
-        return `new ${rec}(${fields.map((f) => domainToWire(eff(f.type, f.optional), `${rendered}.${jid(f.name)}()`)).join(", ")})`;
+        return `new ${rec}(${fields.map((f) => domainToWire(eff(f.type, f.optional), `${rendered}.${DOMAIN_NAMES.java.prop(f.name)}()`)).join(", ")})`;
       }
       const obj = leaf.value.kind === "object" ? leaf.value.fields : [];
       return `new ${rec}(${fields
@@ -143,7 +143,7 @@ export function entryResultJavaLines(
       arm.binding && !scalar
         ? bound(arm.binding)
         : arm.binding
-          ? `${jid(arm.binding)}Carrier`
+          ? `${DOMAIN_NAMES.java.binding(arm.binding)}Carrier`
           : `unusedResultArm${i}`;
     out.push(
       `${indent}    case ${carrierOf(unionName, variantTag(arm.varType))} ${binder} -> {`,
@@ -189,9 +189,15 @@ export function entryControllerJava(
       `${indent}    problem.setType(${refs.uri}.create(${JSON.stringify(d.type)}));`,
       `${indent}    problem.setDetail(${JSON.stringify(d.detail)});`,
       ...fields.map(
-        (f) => `${indent}    problem.setProperty(${JSON.stringify(f.name)}, __e.${jid(f.name)}());`,
+        (f) =>
+          `${indent}    problem.setProperty(${JSON.stringify(f.name)}, __e.${DOMAIN_NAMES.java.prop(f.name)}());`,
       ),
-      ...javaErrorVariantExt(ctx, tag, `${indent}    `, (name) => `__e.${jid(name)}()`),
+      ...javaErrorVariantExt(
+        ctx,
+        tag,
+        `${indent}    `,
+        (name) => `__e.${DOMAIN_NAMES.java.prop(name)}()`,
+      ),
       `${indent}    return ${refs.responseEntity}.status(${r.status}).contentType(${refs.mediaType}.APPLICATION_PROBLEM_JSON).body(problem);`,
       `${indent}}`,
     );

@@ -111,9 +111,10 @@ import {
   writeScopeContext,
   writeScopeGuards,
 } from "../../../ir/util/write-scope-guards.js";
-import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { snake, upperFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { lineCount, type SourceMapRecorder } from "../../_trace/sourcemap.js";
 import {
   commandCreateCorrelationParam,
@@ -178,6 +179,8 @@ import {
 } from "./save-plan.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
 import { valueObjectCastCall } from "./value-object-type-emit.js";
+
+const N = DOMAIN_NAMES.elixir;
 
 /** Does this read pass the request actor?  Only where the body binds
  *  `current_user` (`repoRunActor`) and the read consumes it: a criterion
@@ -287,8 +290,8 @@ export function emitVanillaWorkflowExecution(
 ): VanillaWorkflowExecResult {
   if (ctx.workflows.length === 0) return { routes: [], commandWorkflows: [] };
 
-  const ctxModule = upperFirst(ctx.name);
-  const ctxSnake = snake(ctx.name);
+  const ctxModule = N.type(ctx.name);
+  const ctxSnake = N.stem(ctx.name);
   const appSnake = appModule.replace(/([A-Z])/g, (_, c, i) => (i ? "_" : "") + c.toLowerCase());
   const routes: ApiRoute[] = [];
 
@@ -302,7 +305,7 @@ export function emitVanillaWorkflowExecution(
   // over every hosted context's `commandWorkflows`, so a multi-context deployable
   // gets one controller with all actions rather than per-context overwrites.
   for (const wf of commandWorkflows) {
-    const wfSnake = snake(wf.name);
+    const wfSnake = N.stem(wf.name);
     const path = `lib/${appSnake}/${ctxSnake}/workflows/${wfSnake}.ex`;
     const { content, statementRegions } = renderWorkflowModule(
       appModule,
@@ -331,7 +334,7 @@ export function emitVanillaWorkflowExecution(
       method: "post",
       path: `/workflows/${snake(wf.name)}`,
       controller: "WorkflowsController",
-      action: `:${snake(wf.name)}`,
+      action: `:${N.stem(wf.name)}`,
     });
   }
 
@@ -535,7 +538,7 @@ export function saveSteps(
   return saves
     .filter((s) => plan.saves.has(s))
     .map((s) => {
-      const handle = escapeElixirIdent(snake(s.name));
+      const handle = N.binding(s.name);
       const bind = bindUsedLater(s.name, [], trailing) ? handle : "_";
       const inserted = plan.inserted.has(s) ? ", true" : "";
       return {
@@ -560,9 +563,9 @@ export function elixirWorkflowTarget(
     ...saveSteps(saves, plan, contextModule),
   ];
   const fieldsOf = (fields: readonly { name: string; value: ExprIR }[]): string =>
-    fields.map((f) => `${snake(f.name)}: ${expr(f.value)}`).join(", ");
+    fields.map((f) => `${N.prop(f.name)}: ${expr(f.value)}`).join(", ");
   const broadcast = (eventName: string, fields: string): string =>
-    `${contextModule.split(".")[0]!}.PostCommit.broadcast(%${contextModule}.Events.${upperFirst(eventName)}{${fields}})`;
+    `${contextModule.split(".")[0]!}.PostCommit.broadcast(%${contextModule}.Events.${N.type(eventName)}{${fields}})`;
   // The names bound to an aggregate op's result tuple.  A context op answers a
   // union success variant on the tagged wire (`%{type: "int", value: v}` for a
   // scalar), so a `match` over one unwraps a scalar arm's value.
@@ -611,7 +614,7 @@ export function elixirWorkflowTarget(
         (op !== undefined &&
           !op.returnType &&
           (scope.carried.has(st.target) || bindUsedLater(st.target, scope.rest, scope.trailing)));
-      const handle = escapeElixirIdent(snake(st.target));
+      const handle = N.binding(st.target);
       // `let r = a.op(…)`: bind the call's result.  One that carries an error
       // variant binds the whole `{:ok, value}` / `{:error, "Tag", fields}`
       // tuple, which the `match` over `r` dispatches on; the op persists only
@@ -619,7 +622,7 @@ export function elixirWorkflowTarget(
       // result binds its value.
       if (st.result) {
         const used = bindUsedLater(st.result.name, scope.rest, scope.trailing);
-        const name = used ? escapeElixirIdent(snake(st.result.name)) : `_${snake(st.result.name)}`;
+        const name = used ? N.binding(st.result.name) : `_${N.stem(st.result.name)}`;
         const pattern = st.result.errorVariants.length > 0 ? name : `{:ok, ${name}}`;
         if (st.result.errorVariants.length > 0) opResults.add(st.result.name);
         return [
@@ -646,8 +649,8 @@ export function elixirWorkflowTarget(
       {
         kind: "let",
         pattern: bindUsedLater(st.name, scope.rest, scope.trailing)
-          ? escapeElixirIdent(snake(st.name))
-          : `_${snake(st.name)}`,
+          ? N.binding(st.name)
+          : `_${N.stem(st.name)}`,
         expr: expr(st.expr),
       },
     ],
@@ -658,7 +661,7 @@ export function elixirWorkflowTarget(
       {
         kind: "let",
         pattern: "state",
-        expr: `%{state | ${snake(st.target.segments[0]!)}: ${expr(st.value)}}`,
+        expr: `%{state | ${N.prop(st.target.segments[0]!)}: ${expr(st.value)}}`,
         bindName: "state",
       },
     ],
@@ -698,7 +701,7 @@ export function elixirWorkflowTarget(
       }
       const argList = st.args.map(expr).join(", ");
       const action =
-        st.op === "load" ? `get_${snake(st.aggName)}` : elixirFindFacadeFn(st.method, st.aggName);
+        st.op === "load" ? `get_${N.stem(st.aggName)}` : elixirFindFacadeFn(st.method, st.aggName);
       // A `load` miss is the not-found-on-load 404 whose detail names the row;
       // a natural-key `getBy` miss is the find-absence 404.  The context facade
       // answers a bare `{:error, :not_found}`, so a workflow `run/1` body
@@ -727,7 +730,7 @@ export function elixirWorkflowTarget(
     // transaction `<App>.PostCommit` holds them until the commit and drops
     // them on a rollback.
     emit: (st) => {
-      const struct = `%${contextModule}.Events.${upperFirst(st.eventName)}{${fieldsOf(st.fields)}}`;
+      const struct = `%${contextModule}.Events.${N.type(st.eventName)}{${fieldsOf(st.fields)}}`;
       const dispatch =
         ctx && contextHasDispatcher(ctx as EnrichedBoundedContextIR)
           ? [
@@ -774,7 +777,7 @@ export function elixirWorkflowTarget(
       const skip = skipFiltersOption(st);
       if (skip) optEntries.push(skip);
       if (optEntries.length > 0) args.push(optEntries.join(", "));
-      const call = `${contextModule}.run_${snake(st.retrievalName)}_${snake(st.aggName)}(${args.join(", ")})`;
+      const call = `${contextModule}.run_${N.stem(st.retrievalName)}_${N.stem(st.aggName)}(${args.join(", ")})`;
       const { pattern, bindName } = tupleBind(st.name, scope);
       return [
         { kind: "clause", text: `{:ok, ${pattern}} <- ${call}`, ...(bindName ? { bindName } : {}) },
@@ -804,9 +807,7 @@ export function elixirWorkflowTarget(
     // loaded.  Each iteration ends with the saves the IR stages for it.
     forEach: (st, outer, iteration) => {
       const body = { ...iteration, steps: withSaves(iteration, st.savesPerIteration) };
-      const loopVar = bindUsedLater(st.var, body.stmts)
-        ? escapeElixirIdent(snake(st.var))
-        : `_${snake(st.var)}`;
+      const loopVar = bindUsedLater(st.var, body.stmts) ? N.binding(st.var) : `_${N.stem(st.var)}`;
       const rebound = new Set(
         body.steps.flatMap((s) => [
           ...((s.kind === "clause" || s.kind === "let") && s.bindName ? [s.bindName] : []),
@@ -814,7 +815,7 @@ export function elixirWorkflowTarget(
         ]),
       );
       const threaded = [...body.carried]
-        .map((name) => ({ name, ident: escapeElixirIdent(snake(name)) }))
+        .map((name) => ({ name, ident: N.binding(name) }))
         .filter((t) => rebound.has(t.ident));
       const acc = `{${threaded.map((t) => t.ident).join(", ")}}`;
       const lines = assembleChain(
@@ -833,7 +834,7 @@ export function elixirWorkflowTarget(
           bindUsedLater(t.name, outer.rest, outer.trailing),
       );
       const outAcc = `{${threaded
-        .map((t) => (kept.includes(t) ? t.ident : `_${snake(t.name)}`))
+        .map((t) => (kept.includes(t) ? t.ident : `_${N.stem(t.name)}`))
         .join(", ")}}`;
       const head =
         threaded.length > 0
@@ -854,7 +855,7 @@ export function elixirWorkflowTarget(
       const thenBody = { ...thenIn, steps: withSaves(thenIn, st.savesInThen) };
       const elseBody = { ...elseIn, steps: withSaves(elseIn, st.savesInElse) };
       const args = st.retrievalArgs.map(expr);
-      const v = escapeElixirIdent(snake(st.var));
+      const v = N.binding(st.var);
       const lookupLines =
         st.op === "bound"
           ? [`           ${v} = ${args.join(", ")}`]
@@ -914,7 +915,7 @@ export function elixirWorkflowTarget(
         ]),
       );
       const threaded = [...new Set([...thenBody.carried, ...elseBody.carried])]
-        .map((name) => ({ name, ident: escapeElixirIdent(snake(name)) }))
+        .map((name) => ({ name, ident: N.binding(name) }))
         .filter((t) => rebound.has(t.ident));
       const acc = `{${threaded.map((t) => t.ident).join(", ")}}`;
       const ok = threaded.length > 0 ? `{:ok, ${acc}}` : "{:ok, nil}";
@@ -923,7 +924,7 @@ export function elixirWorkflowTarget(
       );
       const outAcc =
         threaded.length > 0
-          ? `{${threaded.map((t) => (kept.includes(t) ? t.ident : `_${snake(t.name)}`)).join(", ")}}`
+          ? `{${threaded.map((t) => (kept.includes(t) ? t.ident : `_${N.stem(t.name)}`)).join(", ")}}`
           : "_";
       const text = [
         `{:ok, ${outAcc}} <- (`,
@@ -989,7 +990,7 @@ function renderMatchBlock(
     const binding = st.arms[presentIdx]?.binding;
     const bindLine =
       binding && bindUsedLater(binding, presentBody.stmts)
-        ? [`${escapeElixirIdent(snake(binding))} = ${subject}`]
+        ? [`${N.binding(binding)} = ${subject}`]
         : [];
     return [
       `if ${subject} != nil do`,
@@ -1005,8 +1006,7 @@ function renderMatchBlock(
   ];
   const lines = st.arms.flatMap((a, i) => {
     const body = arms[i]!;
-    const binder =
-      a.binding && bindUsedLater(a.binding, body.stmts) ? escapeElixirIdent(snake(a.binding)) : "_";
+    const binder = a.binding && bindUsedLater(a.binding, body.stmts) ? N.binding(a.binding) : "_";
     const unwrap = taggedSuccess && !a.isError && binder !== "_" && isScalarVariant(a.varType);
     return clause(elixirVariantPattern(a, unwrap ? `%{value: ${binder}}` : binder), body);
   });
@@ -1035,10 +1035,10 @@ function opCallSource(
   const op = ctx ? lookupOp(ctx, st.aggName, st.op) : undefined;
   const argFields = opCallParamFields(argTexts, op, `${st.aggName}.${st.op}`);
   const actor = ctx && opCallThreadsUser(st, ctx) ? ", current_user" : "";
-  const fn = inMemory ? applyFnName(st.op, st.aggName) : `${snake(st.op)}_${snake(st.aggName)}`;
+  const fn = inMemory ? applyFnName(st.op, st.aggName) : `${N.stem(st.op)}_${N.stem(st.aggName)}`;
   return withWriteScopeGuards(
     st,
-    `${contextModule}.${fn}(${escapeElixirIdent(snake(st.target))}, %{${argFields}}${actor})`,
+    `${contextModule}.${fn}(${N.binding(st.target)}, %{${argFields}}${actor})`,
     renderCtx,
     contextModule,
     ctx,
@@ -1062,7 +1062,7 @@ function writeScopeGuardClauses(
   return writeScopeGuards(st, cx).map((g) => {
     const agg = aggOf(ctx, g.aggName);
     const actor = agg && aggregateUsesPrincipalContextFilter(agg) ? ", current_user" : "";
-    return `{:ok, _} <- ${contextModule}.get_${snake(g.aggName)}_for_write(${escapeElixirIdent(snake(g.name))}.id${actor})`;
+    return `{:ok, _} <- ${contextModule}.get_${N.stem(g.aggName)}_for_write(${N.binding(g.name)}.id${actor})`;
   });
 }
 
@@ -1203,7 +1203,7 @@ export function tupleBind(
   name: string,
   scope: PipelineScope,
 ): { pattern: string; bindName: string | undefined } {
-  const bare = escapeElixirIdent(snake(name));
+  const bare = N.binding(name);
   if (!scope.discardableBind || bindUsedLater(name, scope.rest, scope.trailing)) {
     return { pattern: bare, bindName: bare };
   }
@@ -1379,7 +1379,7 @@ function renderWorkflowModule(
    *  upstream (zero cost otherwise). */
   wantRegions = false,
 ): WorkflowModuleResult {
-  const wfPascal = upperFirst(wf.name);
+  const wfPascal = N.type(wf.name);
   const moduleName = `${appModule}.${ctxModule}.Workflows.${wfPascal}`;
   const contextModuleFq = `${appModule}.${ctxModule}`;
   const repoMod = `${appModule}.Repo`;
@@ -1437,9 +1437,9 @@ function renderWorkflowModule(
   // pure block form (domain-services.md rev. 4) render via `renderFunctionBodyLines`.
   const helperDefs = (wf.functions ?? [])
     .map((fn) => {
-      const params = fn.params.map((p) => elixirLocal(p.name)).join(", ");
+      const params = fn.params.map((p) => N.binding(p.name)).join(", ");
       const bodyLines = renderFunctionBodyLines(fn.body, renderCtx).join("\n");
-      return `\n  defp ${snake(fn.name)}(${params}) do\n${bodyLines}\n  end`;
+      return `\n  defp ${N.stem(fn.name)}(${params}) do\n${bodyLines}\n  end`;
     })
     .join("");
   const startedCall = renderPhoenixLogCall("workflowStarted", [
@@ -1498,10 +1498,10 @@ function renderWorkflowModule(
   const stateMod = `${contextModuleFq}.Workflows.${wfPascal}State`;
   const allocFields = corrParam
     ? [
-        `${snake(wf.correlationField as string)}: key`,
+        `${N.prop(wf.correlationField as string)}: key`,
         ...requiredStateFields(wf).map(
           (f) =>
-            `${snake(f.name)}: ${stateDefault(f.type, ctx ? stateDefaultDecls(ctx) : undefined)}`,
+            `${N.prop(f.name)}: ${stateDefault(f.type, ctx ? stateDefaultDecls(ctx) : undefined)}`,
         ),
       ]
     : [];
@@ -1522,7 +1522,7 @@ function renderWorkflowModule(
     : "";
   const mutableStateFields = (wf.stateFields ?? [])
     .filter((f) => f.name !== wf.correlationField)
-    .map((f) => `:${snake(f.name)}`);
+    .map((f) => `:${N.prop(f.name)}`);
   // On success the instance row is inserted (a fresh key) or updated with the
   // body's own-state writes.  An unchanged loaded row is an empty changeset,
   // which Ecto skips without touching `updated_at`.
@@ -1610,9 +1610,9 @@ function renderWorkflowModule(
         ? ctx?.payloads.find((pl) => pl.name === inner.name && !pl.variants)
         : undefined;
     if (!payload) return [];
-    const v = escapeElixirIdent(snake(n));
+    const v = N.binding(n);
     const entries = payload.fields.map(
-      (f) => `${snake(f.name)}: Map.get(${v}, ${JSON.stringify(f.name)})`,
+      (f) => `${N.prop(f.name)}: Map.get(${v}, ${JSON.stringify(f.name)})`,
     );
     return [`    ${v} = if is_map(${v}), do: %{${entries.join(", ")}}, else: ${v}\n`];
   });
@@ -1632,7 +1632,7 @@ function renderWorkflowModule(
     const t = (wf.params ?? []).find((p) => p.name === n)?.type;
     const inner = t?.kind === "optional" ? t.inner : t;
     if (!voPools || inner?.kind !== "valueobject") return [];
-    const v = escapeElixirIdent(snake(n));
+    const v = N.binding(n);
     const cast = valueObjectCastCall(inner.name, v, voPools.vos, voPools.enums);
     if (!cast) return [];
     return [
@@ -1665,7 +1665,7 @@ function renderWorkflowModule(
         const ft = f.type.kind === "optional" ? f.type.inner : f.type;
         return ft.kind === "primitive" && ft.name === "money";
       })
-      .map((f) => `{:${snake(n)}, :${snake(f.name)}, ${snake(n)}.${snake(f.name)}}`);
+      .map((f) => `{:${N.stem(n)}, :${N.prop(f.name)}, ${N.binding(n)}.${N.prop(f.name)}}`);
   });
   // A VALUE-OBJECT param runs its value object's validating constructor
   // (`<Ctx>.<Vo>.new/1`, `valueobject-emit.ts`) on the cast value before the
@@ -1681,9 +1681,7 @@ function renderWorkflowModule(
     const vo = !each && ctx ? ctx.valueObjects.find((v) => v.name === voName) : undefined;
     if (!vo || !voHasConstraints(vo)) return [];
     const n = param.name;
-    return [
-      `{:${snake(n)}, ${escapeElixirIdent(snake(n))}, &${contextModuleFq}.${upperFirst(vo.name)}.new/1}`,
-    ];
+    return [`{:${N.stem(n)}, ${N.binding(n)}, &${contextModuleFq}.${N.type(vo.name)}.new/1}`];
   });
   const guardCalls = [
     ...(moneyChecks.length > 0 ? [`__loom_payload_money([${moneyChecks.join(", ")}])`] : []),
@@ -1748,7 +1746,7 @@ function renderWorkflowModule(
       : "";
   const paramDestructure =
     params.length > 0
-      ? `    %{${params.map((n) => `${JSON.stringify(n)} => ${escapeElixirIdent(snake(n))}`).join(", ")}} = params\n${payloadRebinds.join("")}${voRebinds.join("")}`
+      ? `    %{${params.map((n) => `${JSON.stringify(n)} => ${N.binding(n)}`).join(", ")}} = params\n${payloadRebinds.join("")}${voRebinds.join("")}`
       : "";
   // That destructure is a BARE MATCH: a request missing one of these keys
   // raises `MatchError` rather than returning, so it never reaches the
@@ -1922,10 +1920,10 @@ function renderWorkflowsController(appModule: string, groups: WorkflowController
   // against its OWN context.
   const actions = groups
     .flatMap((g) => {
-      const ctxModule = upperFirst(g.ctx.name);
+      const ctxModule = N.type(g.ctx.name);
       return g.workflows.map((wf) => {
-        const wfSnake = snake(wf.name);
-        const wfMod = `${appModule}.${ctxModule}.Workflows.${upperFirst(wf.name)}`;
+        const wfSnake = N.stem(wf.name);
+        const wfMod = `${appModule}.${ctxModule}.Workflows.${N.type(wf.name)}`;
         // When the workflow threads `current_user` (it names `currentUser` or
         // calls a `currentUser`-gated op), bind it off `conn.assigns` and pass it
         // through — mirrors the per-op controller action (api-emit.ts).
@@ -1952,7 +1950,7 @@ function renderWorkflowsController(appModule: string, groups: WorkflowController
     })
     .join("\n\n");
 
-  const ctxList = groups.map((g) => upperFirst(g.ctx.name)).join(", ");
+  const ctxList = groups.map((g) => N.type(g.ctx.name)).join(", ");
   // `create(…): T` — the value crosses the wire UNWRAPPED (an id is its uuid
   // string), the same JSON token the other four backends answer.  Every other
   // result falls through to the shared `respond` (its error arms).  Emitted
@@ -1998,7 +1996,7 @@ ${entries
   .filter((e) => "plain" in e)
   .map(
     (e) =>
-      `  def respond_entry(conn, {:ok, {:instance, ${JSON.stringify(e.wf.name)}, v}}), do: json(conn, serialize_${snake(e.wf.name)}(v))\n\n`,
+      `  def respond_entry(conn, {:ok, {:instance, ${JSON.stringify(e.wf.name)}, v}}), do: json(conn, serialize_${N.stem(e.wf.name)}(v))\n\n`,
   )
   .join("")}${renderEntryResponders(
   "respond_entry",
@@ -2017,7 +2015,7 @@ defmodule ${webModule}.WorkflowsController do
   HTTP entry points for command-triggered workflows
   (${ctxList}).
   """
-${renderRequiredParamsPlug(new Map(groups.flatMap((g) => g.workflows.map((wf) => [snake(wf.name), requiredWireParams(wf.params)] as const))))}${renderStrictParamsPlug(new Map(groups.flatMap((g) => g.workflows.map((wf) => [snake(wf.name), strictIngressFields(wf.params)] as const))))}
+${renderRequiredParamsPlug(new Map(groups.flatMap((g) => g.workflows.map((wf) => [N.stem(wf.name), requiredWireParams(wf.params)] as const))))}${renderStrictParamsPlug(new Map(groups.flatMap((g) => g.workflows.map((wf) => [N.stem(wf.name), strictIngressFields(wf.params)] as const))))}
 ${actions}
 
   # Shared result handler.  Each workflow's run/1 result flows through

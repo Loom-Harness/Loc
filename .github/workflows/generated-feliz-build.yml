@@ -58,6 +58,7 @@ on:
       - 'src/generator/_packs/**'
       - 'src/generator/_payload/**'
       - 'src/generator/_persistence/**'
+      - 'src/generator/_symbols/**'
       - 'src/generator/_test/**'
       - 'src/generator/_trace/**'
       - 'src/generator/_workflow/**'

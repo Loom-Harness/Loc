@@ -12,9 +12,10 @@ import {
 } from "../../../ir/util/openapi-ids.js";
 import { workflowCorrWireField } from "../../../ir/util/workflow-instances.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst, snake, upperFirst } from "../../../util/naming.js";
+import { snake } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
-import { jid, jsonProp } from "../java-ident.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { jsonProp } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { renderJavaExpr } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
@@ -64,7 +65,7 @@ export interface WorkflowInstancesCtx {
 
 /** The saga-state repository field name (`orderFulfillmentStateRepository`). */
 function stateRepoField(wf: WorkflowIR): string {
-  return `${lowerFirst(wf.name)}StateRepository`;
+  return `${DOMAIN_NAMES.java.stem(wf.name)}StateRepository`;
 }
 
 /** The correlation field's wire row (`source: "id"`) — its id targetName +
@@ -81,7 +82,7 @@ export function renderJavaWorkflowInstanceReads(
   const out = new Map<string, { category: "workflow-service" | "api-common"; content: string }>();
 
   for (const wf of observable) {
-    out.set(`${upperFirst(wf.name)}InstanceResponse.java`, {
+    out.set(`${DOMAIN_NAMES.java.type(wf.name)}InstanceResponse.java`, {
       category: "workflow-service",
       content: renderInstanceResponseDto(wf, wctx),
     });
@@ -100,7 +101,7 @@ function renderInstanceResponseDto(wf: WorkflowIR, wctx: WorkflowInstancesCtx): 
   const wireImports = new Set<string>();
   const components = shape.map((f) => {
     guardInstanceField(wf, f);
-    return `${jsonProp(f.name, wireImports)}${wireJavaType(f.type, "Response")} ${jid(f.name)}`;
+    return `${jsonProp(f.name, wireImports)}${wireJavaType(f.type, "Response")} ${DOMAIN_NAMES.java.prop(f.name)}`;
   });
   return lines(
     `package ${wctx.pkg};`,
@@ -112,7 +113,7 @@ function renderInstanceResponseDto(wf: WorkflowIR, wctx: WorkflowInstancesCtx): 
     `import ${wctx.basePkg}.domain.valueobjects.*;`,
     ``,
     javaRecordSchemaAnnotation({ required: requiredWireFields(shape) }),
-    `public record ${upperFirst(wf.name)}InstanceResponse(${components.join(", ")}) {`,
+    `public record ${DOMAIN_NAMES.java.type(wf.name)}InstanceResponse(${components.join(", ")}) {`,
     `}`,
     ``,
   );
@@ -160,7 +161,7 @@ function renderInstancesController(
 
   const routes: string[] = [];
   for (const wf of workflows) {
-    const T = `${upperFirst(wf.name)}InstanceResponse`;
+    const T = `${DOMAIN_NAMES.java.type(wf.name)}InstanceResponse`;
     const slug = snake(wf.name);
     const corr = corrWireField(wf);
     const idJava = javaIdValueType();
@@ -173,7 +174,9 @@ function renderInstancesController(
     const idExpr = "id";
     const shape = wf.instanceWireShape ?? [];
     const proj = (rowVar: string): string =>
-      shape.map((f) => domainToWire(f.type, `${rowVar}.${jid(f.name)}()`)).join(", ");
+      shape
+        .map((f) => domainToWire(f.type, `${rowVar}.${DOMAIN_NAMES.java.prop(f.name)}()`))
+        .join(", ");
     // The read body diverges on `wf.eventSourced`: a state-based saga reads its
     // `<Wf>State` Spring Data repository, while an event-sourced workflow folds
     // the per-correlation `<wf>_events` stream — LIST loads every event row
@@ -219,7 +222,7 @@ function renderInstancesController(
         // every other 404 the app produces (`ApiExceptionAdvice.onNotFound`).
         // The sentence is the node/python spelling (`<Wf> <id> not found`) —
         // the RS-27 extension already documented in the Hono emitter.
-        `        if (__rows.isEmpty()) throw ${javaNotFoundThrow(upperFirst(wf.name), "id")};`,
+        `        if (__rows.isEmpty()) throw ${javaNotFoundThrow(DOMAIN_NAMES.java.type(wf.name), "id")};`,
         `        var __loaded = new ${ARRAY_LIST}<DomainEvent>();`,
         `        for (var __r : __rows) __loaded.add(${cls}._rowToEvent((String) __r.get("type"), String.valueOf(__r.get("data"))));`,
         `        var x = ${cls}._fromEvents(new ${corrId}(${idExpr}), __loaded);`,
@@ -245,7 +248,7 @@ function renderInstancesController(
         ...gateLines(wf),
         `        return ${repo}.findById(new ${idClass}(${idExpr}))`,
         `            .map(x -> ResponseEntity.ok(new ${T}(${proj("x")})))`,
-        `            .orElseThrow(() -> ${javaNotFoundThrow(upperFirst(wf.name), "id")});`,
+        `            .orElseThrow(() -> ${javaNotFoundThrow(DOMAIN_NAMES.java.type(wf.name), "id")});`,
         `    }`,
         ``,
       );

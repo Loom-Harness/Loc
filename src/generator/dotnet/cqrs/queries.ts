@@ -18,7 +18,7 @@ import {
 import { maskedHistoryFields } from "../../../ir/util/audit-history.js";
 import { operationGates } from "../../../ir/util/op-gates.js";
 import { byIdRouteFind, isAlwaysDenyGate } from "../../../ir/util/read-gates.js";
-import { upperFirst } from "../../../util/naming.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { projectEntityExpr, projectionNamesDomainCommon } from "../dto-mapping.js";
 import {
   HISTORY_RETURN_TYPE,
@@ -78,7 +78,7 @@ export function emitCanOpQueriesAndHandlers(
   );
   const byIdFind = byIdRouteFind(ctx.repositories.find((r) => r.aggregateName === agg.name));
   for (const op of gated) {
-    const opName = upperFirst(op.name);
+    const opName = DOMAIN_NAMES.csharp.type(op.name);
     const pred = renderCsExpr(op.when!, { thisName: "aggregate" });
     const gates = operationGates(op);
     // A probe carries no body: a gate that reads an operation parameter cannot
@@ -340,13 +340,13 @@ export function emitFindQueriesAndHandlers(
       collectCsExprUsings(find.requires, gateUsings, ns);
     }
     out.set(
-      `Application/${aggFolder}/Queries/${upperFirst(find.name)}Query.cs`,
+      `Application/${aggFolder}/Queries/${DOMAIN_NAMES.csharp.type(find.name)}Query.cs`,
       renderQuery({
         ns,
         aggName: agg.name,
-        queryName: `${upperFirst(find.name)}Query`,
+        queryName: `${DOMAIN_NAMES.csharp.type(find.name)}Query`,
         queryParams: [
-          ...find.params.map((p) => `${renderCsType(p.type)} ${upperFirst(p.name)}`),
+          ...find.params.map((p) => `${renderCsType(p.type)} ${DOMAIN_NAMES.csharp.prop(p.name)}`),
           // A paged find's query carries the pagination + sort controls (P3b /
           // M-T2.6): `Sort` names a whitelisted column, `Dir` the direction.
           ...(pagedReturn(find.returnType)
@@ -358,12 +358,12 @@ export function emitFindQueriesAndHandlers(
       }),
     );
     out.set(
-      `Application/${aggFolder}/Queries/${upperFirst(find.name)}Handler.cs`,
+      `Application/${aggFolder}/Queries/${DOMAIN_NAMES.csharp.type(find.name)}Handler.cs`,
       renderQueryHandler({
         ns,
         aggName: agg.name,
-        handlerName: `${upperFirst(find.name)}Handler`,
-        queryName: `${upperFirst(find.name)}Query`,
+        handlerName: `${DOMAIN_NAMES.csharp.type(find.name)}Handler`,
+        queryName: `${DOMAIN_NAMES.csharp.type(find.name)}Query`,
         returnType: queryReturn,
         body: buildFindHandlerBody(find, agg, ctx, usesUser, gateUsesUser),
         extraDeps: needsUser ? [{ type: "ICurrentUserAccessor", field: "_currentUser" }] : [],
@@ -399,7 +399,7 @@ function buildFindHandlerBody(
       `Forbidden: find ${find.name}`,
     )});\n`;
   }
-  const baseArgs = find.params.map((p) => `query.${upperFirst(p.name)}`);
+  const baseArgs = find.params.map((p) => `query.${DOMAIN_NAMES.csharp.prop(p.name)}`);
   const allArgs = usesUser ? [...baseArgs, "_currentUser.User"] : baseArgs;
   // The repository signature ends with `CancellationToken cancellationToken`; drop the
   // separator when there are no domain params, so the auto-included

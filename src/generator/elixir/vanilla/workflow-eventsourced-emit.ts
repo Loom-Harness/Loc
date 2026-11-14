@@ -35,8 +35,9 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../../ir/types/origin.js";
 import { workflowBodyReadsOwnState } from "../../../ir/util/workflow-own-state.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { snake } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import type { WorkflowPipelineTarget } from "../../_workflow/stmt-target.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
@@ -46,16 +47,18 @@ import { stateDefault } from "../state-default.js";
 import { exLogInstantType } from "./codec-spelling-ex.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
 
+const N = DOMAIN_NAMES.elixir;
+
 const wfModule = (contextModule: string, wf: WorkflowIR): string =>
-  `${contextModule}.Workflows.${upperFirst(wf.name)}`;
+  `${contextModule}.Workflows.${N.type(wf.name)}`;
 
 // --- `<Wf>State` plain struct (the folded snapshot) -------------------------
 
 function renderStateStruct(contextModule: string, wf: WorkflowIR): string {
-  const fields = (wf.stateFields ?? []).map((f) => `:${snake(f.name)}`);
+  const fields = (wf.stateFields ?? []).map((f) => `:${N.prop(f.name)}`);
   return `# Auto-generated.
-defmodule ${contextModule}.Workflows.${upperFirst(wf.name)}State do
-  @moduledoc "Folded saga state of the ${upperFirst(wf.name)} event-sourced workflow (no state table)."
+defmodule ${contextModule}.Workflows.${N.type(wf.name)}State do
+  @moduledoc "Folded saga state of the ${N.type(wf.name)} event-sourced workflow (no state table)."
   defstruct [${fields.join(", ")}]
   @type t :: %__MODULE__{}
 end
@@ -101,22 +104,22 @@ end
 // --- `<Wf>Fold` — apply_event/2 + from_events/2 -----------------------------
 
 function renderFoldModule(contextModule: string, wf: WorkflowIR): string {
-  const stateMod = `${contextModule}.Workflows.${upperFirst(wf.name)}State`;
+  const stateMod = `${contextModule}.Workflows.${N.type(wf.name)}State`;
   const eventsModule = `${contextModule}.Events`;
   const corr = wf.correlationField as string;
   const renderCtx: RenderCtx = { thisName: "state", contextModule };
 
   const seeds = [
-    `${snake(corr)}: key`,
-    ...requiredStateFields(wf).map((f) => `${snake(f.name)}: ${stateDefault(f.type)}`),
+    `${N.prop(corr)}: key`,
+    ...requiredStateFields(wf).map((f) => `${N.prop(f.name)}: ${stateDefault(f.type)}`),
   ];
 
   const clauses = (wf.appliers ?? []).map((ap) => {
     const bind = foldStmtsUseParam(ap.statements, ap.param, renderCtx)
-      ? escapeElixirIdent(snake(ap.param))
-      : `_${snake(ap.param)}`;
+      ? N.binding(ap.param)
+      : `_${N.stem(ap.param)}`;
     const body = ap.statements.map((s) => renderFoldStatement(s, renderCtx)).join("\n");
-    return `  def apply_event(state, %${eventsModule}.${upperFirst(ap.event)}{} = ${bind}) do
+    return `  def apply_event(state, %${eventsModule}.${N.type(ap.event)}{} = ${bind}) do
 ${body}
     state
   end`;
@@ -149,41 +152,41 @@ function renderStreamModule(
 ): string {
   const eventsModule = `${contextModule}.Events`;
   const logMod = `${wfModule(contextModule, wf)}EventLog`;
-  const logShort = `${upperFirst(wf.name)}EventLog`;
+  const logShort = `${N.type(wf.name)}EventLog`;
 
   const typeClauses = events
     .map(
       (e) =>
-        `  defp event_type(%${eventsModule}.${upperFirst(e.name)}{}), do: ${JSON.stringify(e.name)}`,
+        `  defp event_type(%${eventsModule}.${N.type(e.name)}{}), do: ${JSON.stringify(e.name)}`,
     )
     .join("\n");
   const toDataClauses = events
     .map((e) => {
       const pairs = e.fields
-        .map((f) => `${JSON.stringify(snake(f.name))} => e.${snake(f.name)}`)
+        .map((f) => `${JSON.stringify(snake(f.name))} => e.${N.prop(f.name)}`)
         .join(", ");
-      return `  defp event_to_data(%${eventsModule}.${upperFirst(e.name)}{} = e), do: %{${pairs}}`;
+      return `  defp event_to_data(%${eventsModule}.${N.type(e.name)}{} = e), do: %{${pairs}}`;
     })
     .join("\n");
   const fromRowClauses = events
     .map((e) => {
       const fields = e.fields
-        .map((f) => `${snake(f.name)}: d[${JSON.stringify(snake(f.name))}]`)
+        .map((f) => `${N.prop(f.name)}: d[${JSON.stringify(snake(f.name))}]`)
         .join(", ");
-      return `  defp row_to_event(%{type: ${JSON.stringify(e.name)}, data: d}), do: %${eventsModule}.${upperFirst(e.name)}{${fields}}`;
+      return `  defp row_to_event(%{type: ${JSON.stringify(e.name)}, data: d}), do: %${eventsModule}.${N.type(e.name)}{${fields}}`;
     })
     .join("\n");
 
   const foldMod = `${wfModule(contextModule, wf)}Fold`;
-  const foldShort = `${upperFirst(wf.name)}Fold`;
-  const stateMod = `${contextModule}.Workflows.${upperFirst(wf.name)}State`;
+  const foldShort = `${N.type(wf.name)}Fold`;
+  const stateMod = `${contextModule}.Workflows.${N.type(wf.name)}State`;
   // This workflow's stream is the subset of the shared `<ctx>_events` log
   // tagged with its own name — sibling streams (aggregates, other workflows)
   // in the same context must never fold in.
   const streamType = JSON.stringify(workflowStreamType(wf));
   return `# Auto-generated.
 defmodule ${wfModule(contextModule, wf)}Stream do
-  @moduledoc "Event stream IO for the ${upperFirst(wf.name)} event-sourced workflow."
+  @moduledoc "Event stream IO for the ${N.type(wf.name)} event-sourced workflow."
   import Ecto.Query
   alias ${appModule}.Repo
   alias ${logMod}
@@ -286,12 +289,12 @@ export function emitVanillaEsWorkflowFiles(
    *  per-statement rendering here to anchor against). */
   sourcemap?: SourceMapRecorder,
 ): void {
-  const ctxSnake = snake(ctx.name);
-  const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
+  const ctxSnake = N.stem(ctx.name);
+  const contextModule = `${appModule}.${N.type(ctx.name)}`;
   const eventsByName = new Map(ctx.events.map((e) => [e.name, e]));
   for (const wf of eventSourcedWorkflows(ctx.workflows)) {
     const base = `lib/${appName}/${ctxSnake}/workflows`;
-    const wfSnake = snake(wf.name);
+    const wfSnake = N.stem(wf.name);
     const eventNames = foldedEventNames(wf);
     const events = eventNames.map((n) => eventsByName.get(n)).filter((e): e is EventIR => !!e);
     const construct = `${ctx.name}.${wf.name}`;
@@ -350,11 +353,13 @@ export function renderEsWorkflowHandler(
   const appModule = contextModule.replace(/\.[^.]+$/, "");
   const corr = wf.correlationField as string;
   const verb = sub.trigger === "on" ? "On" : "Start";
-  const handlerMod = `${contextModule}.Workflows.${upperFirst(wf.name)}.${verb}${upperFirst(sub.event)}`;
+  const handlerMod = `${contextModule}.Workflows.${N.type(wf.name)}.${verb}${N.type(sub.event)}`;
   const foldMod = `${wfModule(contextModule, wf)}Fold`;
   const streamMod = `${wfModule(contextModule, wf)}Stream`;
 
-  const keyExpr = sub.correlation ? renderExpr(sub.correlation, renderCtx) : `event.${snake(corr)}`;
+  const keyExpr = sub.correlation
+    ? renderExpr(sub.correlation, renderCtx)
+    : `event.${N.prop(corr)}`;
   const usesState = workflowBodyReadsOwnState(sub.statements);
   const stateBind = usesState ? "state" : "_state";
 
@@ -370,14 +375,14 @@ export function renderEsWorkflowHandler(
     ...reactorTarget(ctx, renderCtx, contextModule, channels),
     emit: (st) => {
       const fields = st.fields
-        .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
+        .map((f) => `${N.prop(f.name)}: ${renderExpr(f.value, renderCtx)}`)
         .join(", ");
       const name = `emitted_${++emitted}`;
       return [
         {
           kind: "let",
           pattern: name,
-          expr: `%${contextModule}.Events.${upperFirst(st.eventName)}{${fields}}`,
+          expr: `%${contextModule}.Events.${N.type(st.eventName)}{${fields}}`,
         },
         { kind: "clause", text: `:ok <- ${streamMod}.append(sid, [${name}])` },
         { kind: "effect", text: republish(name) },
@@ -443,9 +448,9 @@ ${body(4)}`;
   const requireLogger = sub.trigger === "on" || guardStreamExists ? "  require Logger\n\n" : "";
   const content = `# Auto-generated.
 defmodule ${handlerMod} do
-  @moduledoc "${sub.trigger === "on" ? "Reactor" : "Starter"} for ${upperFirst(sub.event)} → ${upperFirst(wf.name)} (event-sourced)."
+  @moduledoc "${sub.trigger === "on" ? "Reactor" : "Starter"} for ${N.type(sub.event)} → ${N.type(wf.name)} (event-sourced)."
 
-${requireLogger}  def handle(%${contextModule}.Events.${upperFirst(sub.event)}{} = event) do
+${requireLogger}  def handle(%${contextModule}.Events.${N.type(sub.event)}{} = event) do
     # A reactor is a per-dispatch boundary: child execution frame (parent_id <-
     # the dispatching request's scope).  The reaction is ATOMIC (workflow.md
     # § Reactor failures): a throw part-way rolls back every append and write
