@@ -132,6 +132,22 @@ export function isTphBase(agg: AggregateIR, pool: AggPool): boolean {
   );
 }
 
+/** True when `agg` is a TPH base whose shared table carries the `kind`
+ *  discriminator — a TPH base with at least one shared-table concrete.
+ *
+ *  A `sharedTable` base with NO shared-table concrete still owns its table
+ *  (`isTphBase`), but the table is an ordinary concrete-shaped one with no
+ *  `kind` column and no ORM discriminator mapping: there is no subtype for the
+ *  column to tell apart.  Such a base is reachable — `loom.es-tph-forced-own-table`
+ *  forces a `document` / `embedded` / `eventLog` concrete to `ownTable`, and a
+ *  base may be declared before any subtype.  Every site that adds the column or
+ *  maps the discriminator reads this predicate, so the schema, each ORM and
+ *  `MigrationsIR` agree, and adding the first subtype (or dropping the last)
+ *  migrates between the two layouts. */
+export function isDiscriminatedTphBase(agg: AggregateIR, pool: AggPool): boolean {
+  return isTphBase(agg, pool) && tphConcretesOf(agg, pool).length > 0;
+}
+
 /** True when `agg` is a concrete subtype that shares its TPH base's table
  *  (so it emits no table of its own; its repo/routes target the base table
  *  filtered by `kind`). */

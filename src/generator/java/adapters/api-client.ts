@@ -8,7 +8,8 @@
 // verbs the `storage restApi` binding carries.
 //
 // Both halves stay derived, so neither can drift from the callee:
-//   - paths from `deriveContextOperations` (what the callee actually mounts),
+//   - paths from `contextOperations` (what the callee actually mounts, its
+//     abstract bases' polymorphic reads included),
 //   - the response record from `forApiRead(wireFieldsForAggregate(...))` (the
 //     field list the callee serializes).
 //
@@ -28,6 +29,7 @@
 
 import { apiCallPrincipal } from "../../../ir/enrich/hosting-facts.js";
 import { forApiRead, wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
+import { contextOperations } from "../../../ir/plan/index.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import {
   type ApiResourceBinding,
@@ -37,10 +39,11 @@ import {
   type ApiOperationIR,
   absenceUnionSuccess,
   collectionSuccess,
-  deriveContextOperations,
 } from "../../../ir/util/api-surface.js";
 import { escapeJavaIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
+import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { resourceEnvUrlVar } from "../../../util/resource-env.js";
+import { type PolymorphicRow, polymorphicRowOf } from "../../_api/polymorphic-row.js";
 // `API_CLIENT_CLASS` lives in `render-expr.ts` for the same reason as on .NET:
 // this module already imports the type printer from there, and owning the name
 // here too would make the pair mutually importing.
@@ -104,12 +107,40 @@ function pathExpr(op: ApiOperationIR): string {
 
 /** A `record` mirroring the aggregate's read wire shape. */
 function responseRecord(agg: AggregateIR, recordName: string): string[] {
-  const fields = forApiRead(wireFieldsForAggregate(agg));
-  const members = fields.map((wf) => {
-    const t = wf.source === "id" ? "String" : boxedJavaType(wf.type);
-    return `${t} ${arg(wf.name)}`;
-  });
-  return [`    public record ${recordName}(${members.join(", ")}) { }`, ""];
+  return [`    public record ${recordName}(${recordComponents(agg)}) { }`, ""];
+}
+
+/** The record components of `agg`'s read wire shape. */
+function recordComponents(agg: AggregateIR): string {
+  return forApiRead(wireFieldsForAggregate(agg))
+    .map((wf) => `${wf.source === "id" ? "String" : boxedJavaType(wf.type)} ${arg(wf.name)}`)
+    .join(", ");
+}
+
+/** The tagged row of a polymorphic base read: a sealed interface carrying
+ *  Jackson's type metadata, with one nested record per concrete holding that
+ *  concrete's read wire fields.  The `type` tag is the type id Jackson
+ *  consumes, so it is no component of any arm.  The annotations stay in
+ *  `com.fasterxml.jackson.annotation`, the package Jackson 3 kept. */
+function taggedRowInterface(poly: PolymorphicRow, recordName: string): string[] {
+  const ann = "com.fasterxml.jackson.annotation";
+  const arms = poly.variants.map((v) => `${recordName}.${v.aggregate.name}`);
+  return [
+    `    @${ann}.JsonTypeInfo(use = ${ann}.JsonTypeInfo.Id.NAME, include = ${ann}.JsonTypeInfo.As.PROPERTY, property = "type")`,
+    `    @${ann}.JsonSubTypes({`,
+    ...poly.variants.map(
+      (v, i) =>
+        `        @${ann}.JsonSubTypes.Type(value = ${arms[i]}.class, name = ${JSON.stringify(v.tag)})${i === poly.variants.length - 1 ? "" : ","}`,
+    ),
+    "    })",
+    `    public sealed interface ${recordName} permits ${arms.join(", ")} {`,
+    ...poly.variants.map(
+      (v) =>
+        `        record ${v.aggregate.name}(${recordComponents(v.aggregate)}) implements ${recordName} { }`,
+    ),
+    "    }",
+    "",
+  ];
 }
 
 /** Emit the typed client class, or nothing when this deployable binds no
@@ -140,7 +171,10 @@ export function emitJavaApiClients(
     );
 
     for (const ctx of servedContextsFor(b, sys)) {
-      for (const op of deriveContextOperations(ctx)) {
+      for (const op of contextOperations(ctx)) {
+        // A polymorphic base read answers tagged rows, never the abstract
+        // base's own field list.
+        const poly = polymorphicRowOf(op, ctx);
         // An ABSENCE union reads the same record as a plain entity response;
         // only the absent status differs (null, not a throw).  See
         // payloads.md §Union finds — there is no `type` discriminator.
@@ -156,7 +190,9 @@ export function emitJavaApiClients(
         const recordName = agg ? `${agg.name}Response` : undefined;
         if (agg && recordName && !emittedRecords.has(recordName)) {
           emittedRecords.add(recordName);
-          records.push(...responseRecord(agg, recordName));
+          records.push(
+            ...(poly ? taggedRowInterface(poly, recordName) : responseRecord(agg, recordName)),
+          );
         }
         // The paged envelope mirrors the callee's `<Agg>Paged` field for field.
         // Components stay BOXED for the same reason the row record's are: a
@@ -360,7 +396,8 @@ export function emitJavaApiClients(
 /** The caller's credential, copied per call from the inbound request: the
  *  bearer token the auth filter accepted (an `Authorization` header, or the
  *  HttpOnly `session` cookie the OIDC handshake sets) and, under the dev-stub
- *  verifier, the `x-loom-dev-claims` override. */
+ *  verifier, the `x-loom-dev-claims` override, plus the requested operating-org
+ *  switch the callee re-gates. */
 function callerCredentialForwarding(): string[] {
   return [
     "    private static HttpRequest.Builder withCallerCredential(HttpRequest.Builder req) {",
@@ -383,6 +420,10 @@ function callerCredentialForwarding(): string[] {
     '        var devClaims = inbound.getHeader("x-loom-dev-claims");',
     "        if (devClaims != null && !devClaims.isEmpty()) {",
     '            req.header("x-loom-dev-claims", devClaims);',
+    "        }",
+    `        var orgContext = inbound.getHeader("${ORG_CONTEXT_HEADER}");`,
+    "        if (orgContext != null && !orgContext.isEmpty()) {",
+    `            req.header("${ORG_CONTEXT_HEADER}", orgContext);`,
     "        }",
     "        return req;",
     "    }",

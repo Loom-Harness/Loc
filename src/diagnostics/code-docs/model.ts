@@ -44,6 +44,8 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.abstract-aggregate-behavior":
     "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
   "loom.abstract-repository": "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
+  "loom.polymorphic-read-unrouted":
+    "08-inheritance-and-polymorphism.md#find-all-base--the-polymorphic-reader",
   "loom.polymorphic-id-ref-unsupported":
     "08-inheritance-and-polymorphism.md#base-id-references--tph-only",
   "loom.extends-non-abstract": "08-inheritance-and-polymorphism.md#extends--a-concrete-subtype",

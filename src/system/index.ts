@@ -1608,6 +1608,14 @@ function renderDbBootstrapService(): string[] {
   ];
 }
 
+type DependsOnCondition = "service_started" | "service_healthy" | "service_completed_successfully";
+
+/** Rank of a `depends_on` condition: waiting for health or completion is
+ *  stricter than waiting for start. */
+function dependsOnStrictness(c: DependsOnCondition): number {
+  return c === "service_started" ? 0 : 1;
+}
+
 function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   const slug = serviceSlug(d.name);
   const platform = platformFor(d.platform);
@@ -1657,55 +1665,43 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   // on its own instead of leaving the stack half-dead.  `unless-stopped`, not
   // `always`, so a deliberate `docker compose stop` stays stopped.
   lines.push(`  restart: unless-stopped`);
-  if (
-    shape.dependsOnDb ||
-    oidc ||
-    brokerServices.length > 0 ||
-    apiServices.length > 0 ||
-    sidecarServices.length > 0 ||
-    s3Services.length > 0
-  ) {
+  // One map keyed by compose service: every dependency source adds through
+  // `addDependency`, so a service reached by two routes (the database's
+  // migrator AND an api it calls, say) still renders ONE `depends_on` key —
+  // duplicate YAML keys are invalid.  When two sources disagree on the
+  // condition the stricter wins: `service_healthy` and
+  // `service_completed_successfully` beat `service_started`.
+  const dependsOn = new Map<string, DependsOnCondition>();
+  const addDependency = (service: string, condition: DependsOnCondition): void => {
+    const prior = dependsOn.get(service);
+    if (!prior || dependsOnStrictness(condition) > dependsOnStrictness(prior)) {
+      dependsOn.set(service, condition);
+    }
+  };
+  if (shape.dependsOnDb) {
+    addDependency("db", "service_healthy");
+    // The service's own database may be new on this volume.
+    if (hasDbBootstrap(sys)) addDependency(DB_BOOTSTRAP_SERVICE, "service_completed_successfully");
+    // A deployable sharing its storage's database with an earlier one runs
+    // no migrations of its own: it starts once the database's migrator is
+    // healthy, which every backend reports only after its boot migration.
+    if (migrator) addDependency(serviceSlug(migrator.name), "service_healthy");
+  }
+  if (oidc) addDependency("keycloak", "service_started");
+  for (const svc of brokerServices) addDependency(svc, "service_healthy");
+  // Wait for the called service's own healthcheck: a caller that boots
+  // first would otherwise fail its first remote call with ECONNREFUSED.
+  for (const svc of apiServices) addDependency(svc, "service_healthy");
+  // Mailpit / the guest rabbitmq sidecar carry no healthcheck; ordering
+  // after start is all compose can offer (the clients connect lazily).
+  for (const svc of sidecarServices) addDependency(svc, "service_started");
+  // The MinIO sidecar reports healthy only once its bucket exists.
+  for (const svc of s3Services) addDependency(svc, "service_healthy");
+  if (dependsOn.size > 0) {
     lines.push(`  depends_on:`);
-    if (shape.dependsOnDb) {
-      lines.push(`    db:`);
-      lines.push(`      condition: service_healthy`);
-      // B-26: the service's own database may be new on this volume.
-      if (hasDbBootstrap(sys)) {
-        lines.push(`    ${DB_BOOTSTRAP_SERVICE}:`);
-        lines.push(`      condition: service_completed_successfully`);
-      }
-      // A deployable sharing its storage's database with an earlier one runs
-      // no migrations of its own: it starts once the database's migrator is
-      // healthy, which every backend reports only after its boot migration.
-      if (migrator) {
-        lines.push(`    ${serviceSlug(migrator.name)}:`);
-        lines.push(`      condition: service_healthy`);
-      }
-    }
-    if (oidc) {
-      lines.push(`    keycloak:`);
-      lines.push(`      condition: service_started`);
-    }
-    for (const svc of brokerServices) {
-      lines.push(`    ${svc}:`);
-      lines.push(`      condition: service_healthy`);
-    }
-    // Wait for the called service's own healthcheck: a caller that boots
-    // first would otherwise fail its first remote call with ECONNREFUSED.
-    for (const svc of apiServices) {
-      lines.push(`    ${svc}:`);
-      lines.push(`      condition: service_healthy`);
-    }
-    // Mailpit / the guest rabbitmq sidecar carry no healthcheck; ordering
-    // after start is all compose can offer (the clients connect lazily).
-    for (const svc of sidecarServices) {
-      lines.push(`    ${svc}:`);
-      lines.push(`      condition: service_started`);
-    }
-    // The MinIO sidecar reports healthy only once its bucket exists.
-    for (const svc of s3Services) {
-      lines.push(`    ${svc}:`);
-      lines.push(`      condition: service_healthy`);
+    for (const [service, condition] of dependsOn) {
+      lines.push(`    ${service}:`);
+      lines.push(`      condition: ${condition}`);
     }
   }
   if (oidc) {

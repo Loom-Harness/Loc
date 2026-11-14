@@ -1,5 +1,6 @@
 import { isDescendingSort } from "../generator/typescript/render-expr.js";
 import { CACHE_STATUS_HEADER } from "../ir/plan/cache.js";
+import { polymorphicReadOperations } from "../ir/plan/repo-polymorphic.js";
 import type {
   AggregateIR,
   ApiIR,
@@ -952,7 +953,9 @@ function renderApiCall(call: ApiCallShape, ctx: RenderCtx): string {
   const op = agg.operations.find((o) => o.visibility === "public" && o.name === call.method);
   if (op) return renderOperationCall(op, slug, args, ctx);
 
-  const find = findRepoQuery(call.method, agg, ctx);
+  const find = agg.isAbstract
+    ? polymorphicReadFind(call.method, agg, ctx)
+    : findRepoQuery(call.method, agg, ctx);
   if (find) return renderFindCall(find, slug, args, ctx);
 
   // The slug resolved to an aggregate but the verb is none of its own — it may
@@ -1232,6 +1235,15 @@ function findAggregateBySlug(slug: string, contexts: BoundedContextIR[]): Aggreg
     }
   }
   return undefined;
+}
+
+/** An abstract base's list read: the routed polymorphic read's `all`. */
+function polymorphicReadFind(name: string, base: AggregateIR, ctx: RenderCtx): FindIR | undefined {
+  const owner = ctx.contexts.find((c) => c.aggregates.includes(base));
+  if (!owner) return undefined;
+  return polymorphicReadOperations(base, owner).find(
+    (o) => o.kind === "find" && o.find?.name === name,
+  )?.find;
 }
 
 function findRepoQuery(name: string, agg: AggregateIR, ctx: RenderCtx): FindIR | undefined {

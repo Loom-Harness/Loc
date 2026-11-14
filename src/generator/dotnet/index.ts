@@ -370,7 +370,9 @@ function emitProjectFromContexts(
   const channelBindings = chPlan.bindings;
   const mergedSubscriptions = chPlan.subscriptions;
   const hasChannels = channelBindings.length > 0;
-  const hasChannelConsumers = hasChannels && mergedSubscriptions.some((sub) => !sub.projection);
+  // A broker consumer runs when a hosted reactor, event-triggered create or
+  // projection fold consumes an event a wired binding carries.
+  const hasChannelConsumers = chPlan.consumesFromBroker;
   const hasSubscriptions =
     contexts.some((c) => c.eventSubscriptions.length > 0 || (c.projections?.length ?? 0) > 0) ||
     hasChannelConsumers;
@@ -384,11 +386,10 @@ function emitProjectFromContexts(
       .flatMap((b) => b.events)
       .filter((ev) => hostedDurable.has(ev)),
   );
-  // The outbox tier now also boots for the workflow-less durable-broker
-  // PRODUCER (the Hono forceOutbox twin): no subscription, but the relay
-  // must still drain the outbox to publish.
-  const hasOutboxTier =
-    (hasSubscriptions || durableBrokerEvents.size > 0) && hostedDurable.size > 0;
+  // The outbox tier (channels.md "Event routing"): a hosted durable event is
+  // consumed here or carried by a wired binding.  A producer with no local
+  // consumer still relays, to publish.
+  const hasOutboxTier = chPlan.hasOutbox;
   // Persistence-neutral `ConcurrencyConflictException` — only the Dapper
   // adapter needs it (its version-CAS `SaveAsync` throws it; the EF path keys
   // its 409 arm on `DbUpdateConcurrencyException` instead), so gate the emit on

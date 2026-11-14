@@ -45,6 +45,7 @@ import {
   isRequiredCreateInput,
   wireFieldsForAggregate,
 } from "../../enrich/wire-projection.js";
+import { polymorphicReadOperations } from "../../plan/repo-polymorphic.js";
 import { PAGED_QUERY_PARAMS } from "../../stdlib/generics.js";
 import type {
   AggregateIR,
@@ -228,7 +229,11 @@ function apiVerbVerdict(
     return null;
   }
   const { agg, repo, ctx } = resolved;
-  const ops = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
+  // An abstract base has no route builder of its own: what it serves is its
+  // polymorphic read, when that is routed.
+  const ops = agg.isAbstract
+    ? polymorphicReadOperations(agg, ctx)
+    : deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
   if (apiRouteExists(call.verb, agg, repo, ops)) return null;
   // Same fallback order as the renderer: every aggregate verb wins first, and
   // only then may a routed handler whose context slugs like the aggregate

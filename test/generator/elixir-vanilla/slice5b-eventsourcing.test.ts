@@ -165,7 +165,7 @@ describe("vanilla — Slice P4.2 event-sourcing emit", () => {
     expect(ctx).toContain("id = UUIDv7.generate()");
     expect(ctx).toContain("Api.Accounts.AccountRepository.append(id, 0, events)");
     expect(ctx).toContain("def deposit_account(%Api.Accounts.Account{} = state, attrs) do");
-    expect(ctx).toContain("ensure(amount > 0, {:precondition_failed, ");
+    expect(ctx).toContain("ensure(amount > 0, {:validation_failed, ");
     expect(ctx).toContain("defp ensure(true, _reason), do: :ok");
     // delegate reads
     expect(ctx).toContain("defdelegate get_account(id)");
