@@ -98,9 +98,7 @@ export function forHistoryDiff<T extends WithAccess>(items: readonly T[]): T[] {
  * param like any other; that a default could let the client omit it is the
  * separate required-ness axis, see `CreateInputFieldIR.requiredInput`). */
 export function createInputFields(agg: AggregateIR): FieldIR[] {
-  // Read the reified contract when present (post-enrichment); fall back to
-  // deriving it for any pre-enrichment caller so the function stays total.
-  return (agg.createInput ?? buildCreateInput(agg)).map((c) => c.field);
+  return buildCreateInput(agg).map((c) => c.field);
 }
 
 /** The names a state-based aggregate's declared canonical `create(…)` lists,
@@ -135,10 +133,10 @@ export function declaredCreateParamNames(agg: AggregateIR): ReadonlySet<string> 
 
 /** Build an aggregate's reified create-input contract: the client-
  *  suppliable field set (`forCreateInput`) paired with each field's
- *  required-ness.  Called once by `enrichLoomModel`; the result is stored
- *  on `agg.createInput` and consumed by every create surface so the
- *  field set and the required-set are defined here, once, rather than
- *  re-derived per backend.  See {@link CreateInputFieldIR}. */
+ *  required-ness.  Derived on demand from the aggregate's fields and its
+ *  create params, and consumed by every create surface so the field set and
+ *  the required-set are defined here, once, rather than re-derived per
+ *  backend.  See {@link CreateInputFieldIR}. */
 export function buildCreateInput(agg: AggregateIR): CreateInputFieldIR[] {
   const declared = declaredCreateParamNames(agg);
   const suppliable = forCreateInput(agg.fields);
@@ -241,7 +239,7 @@ function hasImplicitDefault(t: TypeIR): boolean {
  * bool special-case.  A name absent from this set is required input. */
 export function omittableCreateInputs(agg: AggregateIR): ReadonlySet<string> {
   return new Set(
-    (agg.createInput ?? buildCreateInput(agg))
+    buildCreateInput(agg)
       .filter((c) => !c.requiredInput)
       .map((c) => c.field.name),
   );

@@ -154,7 +154,10 @@ system VoCrossContext {
 
     expect(api.persons.all().items.length).toBe(1)
     expect(api.receipts.all().items.length).toBe(1)
-    expect(api.shippers.all().length).toBe(1)
+    expect(api.shippers.all().total).toBe(1)
+    // The abstract base's reads answer the same row.
+    expect(api.parties.getById(s).label).toBe("S-1")
+    expect(api.parties.all().total).toBe(1)
     api.persons.destroy(p)
     api.receipts.destroy(r)
     api.shippers.destroy(s)

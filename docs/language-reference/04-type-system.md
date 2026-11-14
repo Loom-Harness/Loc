@@ -824,7 +824,7 @@ end
 
 ### `envelope` (removed)
 
-`T envelope` meant exactly `T` — it serialised as the bare `T` and carried no wrapper ([D-ENVELOPE-RATIFY](../decisions.md)) — so the keyword is refused. It still parses, so the error can name the replacement, and the quick fix drops it:
+`T envelope` meant exactly `T` — it serialised as the bare `T` and carried no wrapper ([D-ENVELOPE-RATIFY](../decisions/D-ENVELOPE-RATIFY.md)) — so the keyword is refused. It still parses, so the error can name the replacement, and the quick fix drops it:
 
 ```ddd
 queryHandler One(id: Order id): Order envelope { let o = Orders.get(id)  return o }   // error

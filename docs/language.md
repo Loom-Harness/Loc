@@ -537,7 +537,7 @@ the same thing in an operation, a workflow or handler body and a test. A `seed`
 row stays a record literal, `Order { … }`: it is data, not a factory call.
 
 The record form `Order.create({ customerId: "c1", total: m })` is retired
-(`loom.create-record-form`, [D-CREATE-CALL-STYLE](decisions.md)): it put the
+(`loom.create-record-form`, [D-CREATE-CALL-STYLE](decisions/D-CREATE-CALL-STYLE.md)): it put the
 create-command wire record into the domain language. `node
 scripts/codemod-create-record-to-call.mjs <path>` rewrites it into the named
 form. Writing `Order { … }` in an expression position is an error too; the
@@ -1835,7 +1835,7 @@ surface.  Member-access chains describe the call shape:
 | `api.<aggregate>.create({ … })` | `POST /<plural>` with the body. |
 | `api.<aggregate>.getById(idExpr)` | `GET /<plural>/{id}`. |
 | `api.<aggregate>.destroy(idExpr)` | `DELETE /<plural>/{id}` — the canonical destroy, asserted to answer `204` with an empty body. Available only on an aggregate that declares one (an unnamed `destroy { }`, e.g. via `crudish`). |
-| `api.<aggregate>.all(args?)` | `GET /<plural>` — the auto-`findAll` at the **bare collection root**, not `/<plural>/all`. Args ride as the query string (`page`, `pageSize`, `sort`, `dir`). |
+| `api.<aggregate>.all(args?)` | `GET /<plural>` — the auto-`findAll` at the **bare collection root**, not `/<plural>/all`. Args ride as the query string (`page`, `pageSize`, `sort`, `dir`). It answers the paged envelope (`items`, `page`, `pageSize`, `total`, `totalPages`) on every relational aggregate, a TPH subtype included. Four shapes answer a bare array, with the paging args ignored: an event-sourced aggregate (`persistedAs: eventLog`), a `shape: document` or `shape: embedded` aggregate, and a TPC (`ownTable`) subtype, whose whole read the polymorphic base reader merges before paging. On an abstract base it is that base's polymorphic read ([`inheritance.md`](inheritance.md#polymorphic-reads-find-all-base)), served where the base read is routed; `api.<base>.getById(id)` is its TPH by-id read. |
 | `api.<aggregate>.<operation>(idExpr, body?)` | `POST /<plural>/{id}/<op_snake>` with the body (or `{}` if absent). |
 | `api.<aggregate>.<find>(args)` | `GET /<plural>/<find_snake>?…` with args as query string. |
 | `api.<projection>.byKey(keyExpr)` | `GET /projections/<proj_snake>/{key}` — one folded read-model row by its correlation key. |
@@ -2036,7 +2036,7 @@ criterion OrdersActiveForCustomer(forCustomer: Customer id) of Order = this.cust
 ```
 
 A repository declares no reads of its own (`find` declarations were removed —
-[D-FINDDECL-REMOVED](decisions.md); a leftover `find` is a parse error).  Every
+[D-FINDDECL-REMOVED](decisions/D-FINDDECL-REMOVED.md); a leftover `find` is a parse error).  Every
 read is a contract verb, generated on every backend: `getById` / `findById`,
 `getBy(<col>: v)` / `findBy(…)` over a declared `unique (…)` key,
 `find(<Criterion>)` (the first match, `T?`), `findAll(<Criterion>)` /

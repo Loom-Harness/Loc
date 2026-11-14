@@ -46,6 +46,7 @@ const ADAPTERS: Record<string, string[]> = {
   "web/src/runtime/infra/aws-fake.ts": ["aws"],
   "web/src/runtime/infra/oidc.ts": ["oidc"],
   "web/src/runtime/infra/broker.service.ts": ["broker-model"],
+  "web/src/runtime/infra/cache.ts": ["cache"],
   "web/src/runtime/infra/persist.ts": ["blob-store"],
 };
 

@@ -120,6 +120,7 @@ import {
   validatePagedQueryHandlerShape,
   validatePageGateExprs,
   validatePermissions,
+  validatePolymorphicReadRouting,
   validateProvenancedStorage,
   validateReactIdReferences,
   validateRelayTargetNotSubscribed,
@@ -433,6 +434,7 @@ export function validateLoomModel(
     validateReservedStructuralErrorNames(c, diags);
     validatePersistedCollectionPositions(c, diags, partStored.get(c.name), systemOfContext.get(c));
     validateInheritanceStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
+    validatePolymorphicReadRouting(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateEventSourcedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateProvenancedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateFieldMask(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());

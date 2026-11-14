@@ -195,6 +195,34 @@ describe("the identity provider's endpoints and tokens", () => {
     expect(bad).toMatchObject({ status: 401, json: { error: "invalid_grant" } });
   });
 
+  it("logs every token set it issued — minted or served by a grant — for the infra panel", async () => {
+    const minted = await call<TokenSet>("mint", { persona: "demo-admin" });
+    const served = await http(
+      "POST",
+      `${ISSUER}/protocol/openid-connect/token`,
+      "grant_type=password&username=demo&password=demo",
+    );
+    await http(
+      "POST",
+      `${ISSUER}/protocol/openid-connect/token`,
+      "grant_type=password&username=nobody&password=x",
+    );
+    const { tokens: log, emulated } = await call<{
+      tokens: { source: string; persona: string; access_token: string; expiresAt: number }[];
+      emulated: string[];
+    }>("tokens");
+    expect(emulated.length).toBeGreaterThan(0);
+    expect(log.map((t) => [t.source, t.persona])).toEqual([
+      ["mint", "demo-admin"],
+      ["password", "demo"],
+    ]);
+    expect(log[0]?.access_token).toBe(minted.access_token);
+    expect(log[1]?.access_token).toBe(served.json.access_token);
+    expect(log[0]?.expiresAt).toBeGreaterThan(Date.now() / 1000);
+    await oidcService.reset();
+    expect(await call("tokens")).toMatchObject({ tokens: [] });
+  });
+
   it("rotates refresh tokens: each one redeems once", async () => {
     const token = `${ISSUER}/protocol/openid-connect/token`;
     const first = await call<TokenSet>("mint", {

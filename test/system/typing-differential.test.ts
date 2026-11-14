@@ -20,7 +20,7 @@
 //   - `unreached`        the pass's walk never typed the node: always a pass bug.
 //
 // The fleet is every tracked `.ddd` (corpus, e2e fixtures, examples,
-// web/src/examples, journey, the eval-models fixtures, docs models) plus every whole `.ddd`
+// web/src/examples, journey, docs models) plus every whole `.ddd`
 // document written inline in a test file. Multi-file projects are parsed one
 // file at a time (as #3125's census does), so cross-file names are unresolved
 // for both alike.
@@ -33,6 +33,7 @@
 // writes every class count, the per-`$type` breakdown, the pass's `unknown`
 // causes and samples per (class, $type, ir, new) cell.
 
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { type AstNode, AstUtils } from "langium";
 import { describe, expect, it } from "vitest";
@@ -58,12 +59,34 @@ const BASELINE = JSON.parse(
   fs.readFileSync(new URL("./typing-differential.baseline.json", import.meta.url), "utf8"),
 ) as {
   floors: { docs: number; expressions: number };
-  classes: Record<string, number>;
-  unknownCauses: Record<string, number>;
 };
 
 /** Classes pinned as a ceiling (see the gate below). */
 const CEILING = ["nobody-knows", "ir-differs"] as const;
+
+/** The pass's `unknown` cause that is not a hole: the head name of
+ *  `Orders.getById(…)` has no type by design. */
+const NOT_A_HOLE = "not-a-value";
+
+/**
+ * Per-document allowance for the failure classes and the pass's unknown
+ * causes, keyed `"<doc> :: <class>"` (`<class>` is a CEILING class or
+ * `unknown{<cause>}`), one entry per line, sorted.  A document may not exceed
+ * its entry, a document with no entry is allowed 0, and an entry above the
+ * document's count fails, so the allowance only falls.  It is per document,
+ * not one fleet-wide figure, because a fleet-wide figure grows with every
+ * `.ddd` any change adds: two changes that each fit the band passed alone and
+ * failed together in the merge queue.  Rewrite it from the tree with
+ * `LOOM_TYPING_DIFF_REBASELINE=1 npx vitest run <this file>`.
+ */
+const ALLOWANCE_FILE = new URL("./typing-differential.allowance.json", import.meta.url);
+const ALLOWANCE = JSON.parse(fs.readFileSync(ALLOWANCE_FILE, "utf8")) as Record<string, number>;
+
+/** A stable key for an inline document: its test file plus a hash of its
+ *  text, so an edit elsewhere in the file does not move it. */
+function inlineDocKey(file: string, text: string): string {
+  return `${file}#${createHash("sha1").update(text).digest("hex").slice(0, 10)}`;
+}
 
 /** The IR layer's answer, in the shared key space. */
 function irKey(t: TypeIR | undefined): string {
@@ -110,6 +133,8 @@ interface Tally {
   byClass: Record<string, number>;
   byClassType: Record<string, number>;
   newUnknownByCause: Record<string, number>;
+  /** `"<doc> :: <class>"` → count, for the per-document allowance. */
+  perDoc: Record<string, number>;
   /** `container-type name` → count, for the pass's unresolved names. */
   unresolvedNames: Record<string, number>;
   samples: Record<string, string[]>;
@@ -142,13 +167,18 @@ async function differential(): Promise<Tally> {
     byClass: {},
     byClassType: {},
     newUnknownByCause: {},
+    perDoc: {},
     unresolvedNames: {},
     samples: {},
     untypedDocs: [],
   };
-  const sources: { name: string; text: string }[] = [
-    ...trackedDddFiles().map((f) => ({ name: f, text: dddSourceOf(f) })),
-    ...inlineDddDocuments().map((d) => ({ name: `${d.file}:${d.line}`, text: d.text })),
+  const sources: { name: string; key: string; text: string }[] = [
+    ...trackedDddFiles().map((f) => ({ name: f, key: f, text: dddSourceOf(f) })),
+    ...inlineDddDocuments().map((d) => ({
+      name: `${d.file}:${d.line}`,
+      key: inlineDocKey(d.file, d.text),
+      text: d.text,
+    })),
   ];
   for (const src of sources) {
     let model: Model;
@@ -188,6 +218,7 @@ async function differential(): Promise<Tally> {
       const neu = nt ? tyKey(nt) : "(unreached)";
       if (nt?.kind === "unknown") {
         bump(tally.newUnknownByCause, nt.cause);
+        if (nt.cause !== NOT_A_HOLE) bump(tally.perDoc, `${src.key} :: unknown{${nt.cause}}`);
         if (nt.cause === "unresolved-name" && isNameRef(node)) {
           let c: AstNode | undefined = node.$container;
           while (
@@ -219,6 +250,8 @@ async function differential(): Promise<Tally> {
       else if (nt.kind === "unknown" && irk === "p:string") klass = "nobody-knows";
       else klass = "ir-differs";
       bump(tally.byClass, klass);
+      if ((CEILING as readonly string[]).includes(klass))
+        bump(tally.perDoc, `${src.key} :: ${klass}`);
       bump(tally.byClassType, `${klass} ${node.$type}`);
       if (klass !== "agree" && klass !== "not-lowered" && klass !== "declaration-name") {
         const cell = `${klass} | ${node.$type} | ir=${shape(irk ?? "-")} new=${shape(neu)}`;
@@ -284,36 +317,45 @@ describe("typing differential: the pass against lowering (and the unknown ratche
     expect(tally.byClass.unreached ?? 0).toBe(0);
   });
 
-  // The failure classes may not GROW. A band absorbs fixtures other PRs add
-  // (every `.ddd` added anywhere adds expressions to every class); a real
-  // regression in either typing moves a class by far more.
-  it("the failure classes do not grow", () => {
-    for (const k of CEILING) {
-      const pinned = BASELINE.classes[k] ?? 0;
-      const allowed = Math.ceil(pinned * 1.02) + 25;
-      expect(
-        tally.byClass[k] ?? 0,
-        `${k}: pinned ${pinned}, allowed up to ${allowed}`,
-      ).toBeLessThanOrEqual(allowed);
+  // The failure classes and the pass's unknowns may not GROW, document by
+  // document (see ALLOWANCE).  Growth names the document and the class;
+  // a drain names the entry to lower.
+  it("each document's failure classes and unknowns only fall", () => {
+    if (process.env.LOOM_TYPING_DIFF_REBASELINE) {
+      const keys = Object.keys(tally.perDoc).sort();
+      fs.writeFileSync(
+        ALLOWANCE_FILE,
+        `{\n${keys.map((k) => `  ${JSON.stringify(k)}: ${tally.perDoc[k]}`).join(",\n")}\n}\n`,
+      );
+      return;
     }
-  });
-
-  // M-T5.47 slice 4: lowering copies the pass's types, so every `unknown` the
-  // pass leaves is a node that reaches the IR as the `string` placeholder (or a
-  // validator that fails open on it).  Each carries its cause; per cause the
-  // count may only SHRINK (same band as above, for fixtures other PRs add).
-  // `not-a-value` is not a hole — it is the head name of `Orders.getById(…)`.
-  it("the pass's unknowns do not grow, cause by cause", () => {
-    for (const [cause, pinned] of Object.entries(BASELINE.unknownCauses)) {
-      const allowed = Math.ceil(pinned * 1.02) + 25;
-      expect(
-        tally.newUnknownByCause[cause] ?? 0,
-        `unknown{${cause}}: pinned ${pinned}, allowed up to ${allowed}`,
-      ).toBeLessThanOrEqual(allowed);
+    const keys = new Set([...Object.keys(tally.perDoc), ...Object.keys(ALLOWANCE)]);
+    const over: string[] = [];
+    const stale: string[] = [];
+    for (const k of [...keys].sort()) {
+      const n = tally.perDoc[k] ?? 0;
+      const allowed = ALLOWANCE[k] ?? 0;
+      if (n > allowed) over.push(`${k}: ${n} > allowed ${allowed}`);
+      else if (n < allowed)
+        stale.push(
+          n === 0
+            ? `delete ${JSON.stringify(k)}`
+            : `${JSON.stringify(k)}: ${n},   // was ${allowed}`,
+        );
     }
-    const unpinned = Object.keys(tally.newUnknownByCause).filter(
-      (c) => !(c in BASELINE.unknownCauses),
-    );
-    expect(unpinned, "a new unknown cause appeared — pin it (or fix it)").toEqual([]);
+    expect(
+      over,
+      "typing failure class / unknown cause GREW in these documents (an unlisted document is " +
+        "allowed 0).  Fix the typing, or — for a deliberate IR representation choice — add the " +
+        "entry to test/system/typing-differential.allowance.json and say why in the PR body.  " +
+        "Samples: LOOM_TYPING_DIFF_REPORT=/tmp/r.json.\n" +
+        over.join("\n"),
+    ).toEqual([]);
+    expect(
+      stale,
+      "typing-differential allowance entries above the document's count — lower them " +
+        "(LOOM_TYPING_DIFF_REBASELINE=1 rewrites the file):\n" +
+        stale.join("\n"),
+    ).toEqual([]);
   });
 });

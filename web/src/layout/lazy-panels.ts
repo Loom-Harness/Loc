@@ -54,3 +54,7 @@ export const LazyJsonBodyEditor = lazy(() =>
 export const LazyTargetsDrawer = lazy(() =>
   import("./TargetsDrawer").then((m) => ({ default: m.TargetsDrawer })),
 );
+
+/** The Infrastructure panel (mailbox, object store, REST mocks, broker, …):
+ *  nothing in it is needed until it is opened. */
+export const LazyInfraPanel = lazy(() => import("../infra-panel/InfraPanel").then((m) => ({ default: m.InfraPanel })));

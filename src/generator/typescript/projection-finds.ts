@@ -1,3 +1,4 @@
+import { PLAIN_FIND_FLAGS } from "../../ir/types/loom-ir.js";
 // ---------------------------------------------------------------------------
 // Query-time `projection`s sourced from an aggregate synthesise a repository
 // read — `repo.<projName>(<params>)` returns the filtered aggregate rows the
@@ -38,6 +39,7 @@ export function synthProjectionFinds(aggName: string, ctx: EnrichedBoundedContex
   return (ctx.projections ?? [])
     .filter((p) => isQueryTimeProjection(p) && p.query?.source === aggName)
     .map((p) => ({
+      ...PLAIN_FIND_FLAGS,
       name: lowerFirst(p.name),
       params: p.params ?? [],
       returnType: {

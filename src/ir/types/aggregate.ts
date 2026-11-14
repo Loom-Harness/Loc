@@ -2,9 +2,7 @@ import type { ThrowKindName } from "../../util/intrinsic-matchers.js";
 import type { ExprIR } from "./expr.js";
 import type {
   ApplyIR,
-  AssociationIR,
   ContainmentIR,
-  CreateInputFieldIR,
   DerivedIR,
   EntityPartIR,
   FieldIR,
@@ -13,7 +11,6 @@ import type {
   OperationIR,
   UniqueKeyIR,
 } from "./members.js";
-import type { OriginRef } from "./origin.js";
 import type { StmtIR } from "./stmt.js";
 import type { Sourced } from "./types.js";
 
@@ -45,15 +42,6 @@ export interface AggregateIR extends Sourced {
   destroys: OperationIR[];
   parts: EntityPartIR[];
   tests: TestIR[];
-  /** Reified create-input contract — the client-suppliable field set with
-   * per-field required-ness.  Populated by `enrichLoomModel`
-   * (`buildCreateInput`); the single source backends consume instead of
-   * re-deriving the create payload.  See {@link CreateInputFieldIR}. */
-  createInput?: CreateInputFieldIR[];
-  /** Many-to-many associations derived from `Target id[]` fields.
-   * Populated by `enrichLoomModel`; one entry per reference-collection
-   * field.  Empty array when the aggregate has none. */
-  associations?: AssociationIR[];
   /** Filter predicates contributed by `filter <expr>` declarations
    * (hand-written or macro-emitted) on the aggregate, plus any
    * propagated from the enclosing context.  Each entry is a lowered
@@ -262,7 +250,7 @@ export type TestStmtIR =
    *  until the next such line.  Context integration and api e2e tests only
    *  (`loom.test-principal-placement` / `loom.e2e-principal-ui`). */
   | { kind: "principal"; principal: TestPrincipalIR }
-  | {
+  | ({
       kind: "expect-throws";
       expr: ExprIR;
       source: string;
@@ -276,8 +264,7 @@ export type TestStmtIR =
        *  Mutually exclusive with `status` by grammar: the `ThrowKind` slot and
        *  the `CallArg` list are alternatives on the same suffix. */
       throwKind?: ThrowKindName;
-      /** The `expect(...)` statement's own span, present with `throwKind` —
-       *  an IR-phase diagnostic about the rung points at the assertion that
-       *  wrote it rather than at the enclosing test or declaration. */
-      origin?: OriginRef;
-    };
+      // `origin` (from `Sourced`) is the `expect(...)` statement's own span,
+      // present with `throwKind`: an IR-phase diagnostic about the rung
+      // points at the assertion that wrote it.
+    } & Sourced);

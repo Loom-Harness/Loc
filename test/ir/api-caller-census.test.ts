@@ -52,8 +52,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { contextOperations } from "../../src/ir/plan/repo-polymorphic.js";
 import type { LoomModel } from "../../src/ir/types/loom-ir.js";
-import { aggregateSegment, deriveContextOperations } from "../../src/ir/util/api-surface.js";
+import { aggregateSegment } from "../../src/ir/util/api-surface.js";
 import {
   camelId,
   opCreate,
@@ -266,7 +267,7 @@ function censusOf(model: LoomModel): Census {
     for (const sd of sys.subdomains) {
       for (const ctx of sd.contexts) {
         if (!served.has(ctx.name)) continue;
-        for (const op of deriveContextOperations(ctx)) {
+        for (const op of contextOperations(ctx)) {
           derived.push({
             id: op.id,
             kind: op.kind,

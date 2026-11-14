@@ -16,6 +16,24 @@ export const s3Service: InfraService<ResourceOp> = {
   handle: ({ op, params: p }) => {
     if (op === "http") return s3.http(p as HttpRequestData);
     if (op === "list") return s3.list();
+    // The Infrastructure panel's object browser: direct object access.
+    if (op === "buckets") return s3.buckets();
+    const { bucket, key } = p as { bucket: string; key: string };
+    if (typeof bucket !== "string" || bucket === "" || typeof key !== "string" || key === "") {
+      throw new Error(`s3.${op}: needs a bucket and a key.`);
+    }
+    switch (op) {
+      case "get":
+        return s3.get(bucket, key);
+      case "put": {
+        const { body, contentType } = p as { body: Uint8Array; contentType?: string };
+        s3.put(bucket, key, body, contentType || undefined);
+        return { ok: true };
+      }
+      case "delete":
+        s3.delete(bucket, key);
+        return { ok: true };
+    }
     throw new Error(`s3: unknown op "${op}"`);
   },
   persist: (next) => s3.persist(next),

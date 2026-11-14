@@ -57,6 +57,7 @@ traceability coverage, or migration baselines.
 | File | Producer | What it is |
 |---|---|---|
 | `wire-spec.json` | `src/system/wire-spec.ts` (phase ⑨) | JSON-Schema-shaped derivation from every aggregate / part / value object's `wireShape`.  Language-agnostic; the canonical source of truth for what the JSON over the wire looks like.  Diffable — wire-contract drift between regens shows up as a clean JSON diff.  Carries the CONSTRAINTS the drift check needs, not just carrier types: an `enum` field publishes its declared members (`{"type":"string","enum":["New","Qualified"]}`, in declaration order, resolved in the referring context), so removing an enum value — a breaking change — moves the file instead of leaving it byte-identical. |
+| `frontend-contract.json` | `src/ir/contract/frontend-contract.ts` (`ddd emit-frontend-contract -o <out>` only, not `generate system`) | The Frontend Contract: one system's resolved UI (pages, components, stores, layouts, their expression trees) plus the exposed wire surface (operations, declared response / command / query records, the events a UI subscribes to, the value objects and enums they name).  Built by allowlist, so it carries nothing beyond what a frontend target needs; a masked field ships as `maskable: true`, never its predicate.  See D-FRONTEND-CONTRACT in `docs/decisions.md`. |
 
 ## i18n catalog
 

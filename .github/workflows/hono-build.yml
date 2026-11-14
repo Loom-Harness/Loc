@@ -35,6 +35,7 @@ on:
       - 'src/system/**'
       - 'src/util/**'
       - 'src/generator/typescript/**'
+      - 'src/generator/_api/**'
       - 'src/generator/_expr/**'
       - 'src/generator/_imports/**'
       - 'src/generator/_symbols/**'

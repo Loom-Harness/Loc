@@ -7,7 +7,8 @@
 // verbs the `storage restApi` binding carries.
 //
 // Both halves are derived, so neither can drift from the callee:
-//   - paths from `deriveContextOperations` (what the callee actually mounts),
+//   - paths from `contextOperations` (what the callee actually mounts, its
+//     abstract bases' polymorphic reads included),
 //   - the response model from `forApiRead(wireFieldsForAggregate(...))` (the
 //     field list the callee serializes).
 //
@@ -19,17 +20,19 @@
 
 import { apiCallPrincipal } from "../../ir/enrich/hosting-facts.js";
 import { forApiRead, wireFieldsForAggregate } from "../../ir/enrich/wire-projection.js";
+import { contextOperations } from "../../ir/plan/index.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { type ApiResourceBinding, servedContextsFor } from "../../ir/util/api-resource-binding.js";
 import {
   type ApiOperationIR,
   absenceUnionSuccess,
   collectionSuccess,
-  deriveContextOperations,
 } from "../../ir/util/api-surface.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
+import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { resourceEnvUrlVar } from "../../util/resource-env.js";
+import { type PolymorphicRow, polymorphicRowOf } from "../_api/polymorphic-row.js";
 import { renderPyType } from "./render-expr.js";
 
 /** The aggregate an operation answers with — looked up ACROSS the system, since
@@ -104,6 +107,42 @@ function responseModel(agg: AggregateIR, modelName: string): string[] {
   return out;
 }
 
+/** The tagged row of a polymorphic base read, mirroring the callee's own
+ *  `<Base>Response`: one `<Base><Concrete>Item` per concrete — its row model
+ *  plus the `type` literal — and the alias a union discriminated on `type`
+ *  (pydantic refuses a discriminator on a single-member union, so a lone
+ *  concrete is the alias itself).  The by-id read validates through
+ *  `rowAdapter`, since an `Annotated` union is no model of its own. */
+function taggedRowModels(poly: PolymorphicRow, modelName: string): string[] {
+  const item = (agg: AggregateIR): string => `${poly.base.name}${agg.name}Item`;
+  const out: string[] = [];
+  for (const v of poly.variants) {
+    out.push(
+      `class ${item(v.aggregate)}(${v.aggregate.name}Response):`,
+      `    type: Literal[${JSON.stringify(v.tag)}]`,
+      "",
+      "",
+    );
+  }
+  const union = poly.variants.map((v) => item(v.aggregate)).join(" | ");
+  out.push(
+    poly.variants.length > 1
+      ? `${modelName} = Annotated[${union}, Field(discriminator="type")]`
+      : `${modelName} = ${union}`,
+  );
+  return out;
+}
+
+/** The module-level `TypeAdapter` a lone tagged row validates through. */
+function rowAdapter(modelName: string): string {
+  return `_${snake(modelName)}_adapter`;
+}
+
+/** The declaration of `rowAdapter(modelName)`. */
+function rowAdapterDecl(modelName: string): string {
+  return `${rowAdapter(modelName)}: TypeAdapter[${modelName}] = TypeAdapter(${modelName})`;
+}
+
 /** Emit `app/resources/api_clients.py`, or nothing when this deployable binds
  *  no in-system api (the gate that keeps existing projects byte-identical). */
 export function emitPythonApiClients(
@@ -148,7 +187,10 @@ export function emitPythonApiClients(
     );
 
     for (const ctx of servedContextsFor(b, sys)) {
-      for (const op of deriveContextOperations(ctx)) {
+      for (const op of contextOperations(ctx)) {
+        // A polymorphic base read answers tagged rows, never the abstract
+        // base's own field list.
+        const poly = polymorphicRowOf(op, ctx);
         // An ABSENCE union parses the same model as a plain entity response —
         // the callee answers the success body directly at 200 and rides
         // absence on 404, with no `type` discriminator (payloads.md §Union
@@ -163,9 +205,21 @@ export function emitPythonApiClients(
           op.responseType?.kind === "entity" ? op.responseType.name : (absentAgg ?? coll?.agg);
         const agg = respAgg ? aggregateNamed(sys, respAgg) : undefined;
         const modelName = agg ? `${agg.name}Response` : undefined;
+        if (poly) {
+          for (const v of poly.variants) {
+            const variantName = `${v.aggregate.name}Response`;
+            if (emittedModels.has(variantName)) continue;
+            emittedModels.add(variantName);
+            body.push(...responseModel(v.aggregate, variantName), "", "");
+          }
+        }
         if (agg && modelName && !emittedModels.has(modelName)) {
           emittedModels.add(modelName);
-          body.push(...responseModel(agg, modelName), "", "");
+          body.push(
+            ...(poly ? taggedRowModels(poly, modelName) : responseModel(agg, modelName)),
+            "",
+            "",
+          );
         }
         // The paged envelope mirrors the callee's `<Agg>Paged` field for field.
         // The SHIPPED create route answers `201 {id}` — not the whole entity
@@ -209,6 +263,11 @@ export function emitPythonApiClients(
                   : modelName
               : "None";
 
+        const adapter = modelName && poly && !coll ? rowAdapter(modelName) : undefined;
+        if (modelName && adapter && !emittedModels.has(adapter)) {
+          emittedModels.add(adapter);
+          body.push(rowAdapterDecl(modelName), "", "");
+        }
         body.push(
           `async def ${base}_${snake(op.id)}(${params.join(", ")}) -> ${ret}:`,
           `    async with httpx.AsyncClient(base_url=_${base}_base_url) as client:`,
@@ -251,6 +310,8 @@ export function emitPythonApiClients(
           // individually — mypy --strict needs the comprehension typed, which
           // the declared `list[...]` return already provides.
           body.push(`        return [${modelName}.model_validate(row) for row in res.json()]`);
+        } else if (adapter) {
+          body.push(`        return ${adapter}.validate_python(res.json())`);
         } else if (modelName) {
           // Validate at the boundary — the pydantic twin of zod's `.parse`.
           body.push(`        return ${modelName}.model_validate(res.json())`);
@@ -263,6 +324,8 @@ export function emitPythonApiClients(
   }
 
   const needsDecimal = body.some((l) => l.includes("Decimal"));
+  const tagged = body.some((l) => l.includes("TypeAdapter("));
+  const needsAnnotated = body.some((l) => l.includes("= Annotated["));
   // A callee's `File` field is annotated `FileRef` in the response model above
   // (`renderPyType`'s `File` arm), so the caller must import the shared
   // TypedDict — the same predicate-over-what-was-actually-written rule the
@@ -276,10 +339,11 @@ export function emitPythonApiClients(
     ...(forwarding ? ["from contextvars import ContextVar"] : []),
     ...(needsDecimal ? ["from decimal import Decimal"] : []),
     ...(forwarding ? ["from http.cookies import SimpleCookie"] : []),
+    ...(tagged ? [`from typing import ${needsAnnotated ? "Annotated, Literal" : "Literal"}`] : []),
     "from urllib.parse import quote",
     "",
     "import httpx",
-    "from pydantic import BaseModel, Field",
+    `from pydantic import BaseModel, Field${tagged ? ", TypeAdapter" : ""}`,
     ...(forwarding ? ["from starlette.types import ASGIApp, Receive, Scope, Send"] : []),
     ...(needsFileRef ? ["", "from app.domain.file_ref import FileRef"] : []),
     "",
@@ -291,7 +355,8 @@ export function emitPythonApiClients(
 /** The per-request capture of the caller's credential: the bearer token the
  *  auth middleware accepted (an `Authorization` header, or the HttpOnly
  *  `session` cookie the OIDC handshake sets) and, under the dev-stub verifier,
- *  the `x-loom-dev-claims` override.  A pure ASGI middleware, so the value is
+ *  the `x-loom-dev-claims` override, plus the requested operating-org switch
+ *  the callee re-gates.  A pure ASGI middleware, so the value is
  *  set in the request's own context and every handler task inherits it. */
 function callerCredentialCapture(): string[] {
   return [
@@ -329,6 +394,9 @@ function callerCredentialCapture(): string[] {
     `        dev_claims = inbound.get("x-loom-dev-claims")`,
     `        if dev_claims:`,
     `            captured["x-loom-dev-claims"] = dev_claims`,
+    `        org_context = inbound.get("${ORG_CONTEXT_HEADER}")`,
+    `        if org_context:`,
+    `            captured["${ORG_CONTEXT_HEADER}"] = org_context`,
     `        token = _caller_credential.set(captured)`,
     `        try:`,
     `            await self.app(scope, receive, send)`,
