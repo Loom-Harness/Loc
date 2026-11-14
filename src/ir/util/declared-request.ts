@@ -5,8 +5,8 @@
 // event-sourced aggregate's is its first `create` action, `<Verb><Agg>Command`.
 // A context that declares no such record leaves the request undeclared.
 
-import type { AggregateIR, PayloadIR } from "../types/loom-ir.js";
 import { upperFirst } from "../../util/naming.js";
+import type { AggregateIR, PayloadIR } from "../types/loom-ir.js";
 
 export function declaredCreateCommandFor(
   payloads: readonly PayloadIR[],

@@ -47,6 +47,7 @@ import {
   type ApiOperationParamIR,
   deriveContextOperations,
 } from "../util/api-surface.js";
+import { declaredCreateCommandFor } from "../util/declared-request.js";
 import {
   type ContractResponse,
   type ContractResponseField,
@@ -54,7 +55,6 @@ import {
 } from "../util/declared-response.js";
 import { exposedContexts } from "../util/exposed-contexts.js";
 import { maskedPatchParams } from "../util/op-gates.js";
-import { declaredCreateCommandFor } from "../util/declared-request.js";
 import { pagedFindRoutes } from "../util/paged-find-routes.js";
 import { aggregateIsVersioned } from "../util/versioned-capability.js";
 import { classifyForWire } from "../validate/invariant-classify.js";
