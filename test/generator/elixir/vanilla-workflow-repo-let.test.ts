@@ -82,7 +82,7 @@ describe("vanilla — workflow body lowering (repo-let / getById)", () => {
     const wf = await workflowFor(GET_BY_ID, "complete_existing");
     // get_task binds `t`; the op-call targets it.
     expect(wf).toMatch(
-      /\{:ok, t\} <- \(case Context\.get_task\(task_id\) do[\s\S]*?end\),\s*\n\s*\{:ok, _\} <- Context\.mark_done_task\(t, %\{\}\)/,
+      /\{:ok, t\} <- \(case Context\.get_task\(task_id\) do[\s\S]*?end\),\s*\n\s*\{:ok, t\} <- Context\.__apply_mark_done_task\(t, %\{\}\)/,
     );
   });
 
@@ -157,7 +157,7 @@ describe("vanilla — workflow body lowering (criterion read routes through cont
     // aggregate's context fn — not `mark_found_unknown` (the optional read
     // `Item?` must unwrap to `Item` for receiver resolution) — and its result
     // must gate the chain: a failed op is the workflow's failure.
-    expect(wf).toContain("{:ok, _} <- Context.mark_found_item(i, %{})");
+    expect(wf).toContain("{:ok, i} <- Context.__apply_mark_found_item(i, %{})");
     expect(wf).not.toContain("_unknown(");
   });
 });

@@ -1,5 +1,6 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
+import type { SaveEntry } from "../../ir/plan/index.js";
 import {
   type FoldRowSeed,
   type FoldStep,
@@ -42,6 +43,7 @@ import { type StateDefaultDecls, stateDefault, stateDefaultDecls } from "./state
 import { exEctoIdJsonType, exEctoIdType } from "./vanilla/codec-spelling-ex.js";
 import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { bodyUsesParam, renderFunctionBodyLines } from "./vanilla/function-emit.js";
+import { elixirSavePlan } from "./vanilla/save-plan.js";
 import { mapTypeToEcto } from "./vanilla/schema-emit.js";
 import { renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
 
@@ -98,6 +100,8 @@ interface Subscription {
   workflow: WorkflowIR;
   correlation?: ExprIR;
   statements: WorkflowStmtIR[];
+  /** The body's exit saves (`savesAtExit`). */
+  saves: readonly SaveEntry[];
 }
 
 /** A projection fold subscription (projection.md) — a pure read-model upsert,
@@ -136,6 +140,7 @@ function resolveSubscriptions(
       workflow: wf,
       correlation: handler.correlation,
       statements: handler.statements,
+      saves: handler.saves,
     });
   }
   return subs;
@@ -528,10 +533,13 @@ function renderHandler(
   const bindsPrincipal = renderCtx.reactorPrincipal === true;
 
   // Body statements → one 0-indented block: the `with`-chain in source order,
-  // the re-entrant dispatches in its do-branch, the first failure thrown.
+  // closed by the saves of the handles it changed in memory, the re-entrant
+  // dispatches in its do-branch, the first failure thrown.
+  const plan = elixirSavePlan(sub.statements, sub.saves, ctx);
   const { lines: body, regions } = renderReactorBody(
     sub.statements,
-    reactorTarget(ctx, renderCtx, contextModule, channels),
+    reactorTarget(ctx, renderCtx, contextModule, channels, plan),
+    { saves: sub.saves, plan, contextModule },
   );
 
   // Idempotent-consumer marker (dispatch-delivery-semantics.md §3): under a

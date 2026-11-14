@@ -500,12 +500,12 @@ describe("py renderPyStatements", () => {
     ).toBe(`${I}self._lines.append(line)`);
   });
 
-  it("renders remove via a guarded list.remove", () => {
+  it("renders remove as an in-place filter that drops every match", () => {
     const out = renderPyStatements([
       { kind: "remove", target: { segments: ["lines"] }, value: refParam("line") } as StmtIR,
     ]);
     expect(out).toBe(
-      `${I}__rm = line\n${I}if __rm in self._lines:\n${I}    self._lines.remove(__rm)`,
+      `${I}__rm = line\n${I}self._lines[:] = [__e for __e in self._lines if __e != __rm]`,
     );
   });
 

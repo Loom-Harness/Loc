@@ -13,7 +13,6 @@
 
 import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
 import { errorVariantCode } from "../../../ir/enrich/wire-policy.js";
-import { forApiRead, wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import { gateReadsRow } from "../../../ir/plan/gate-ladder.js";
 import { variantTag } from "../../../ir/stdlib/unions.js";
 import type {
@@ -24,6 +23,7 @@ import type {
   EnrichedBoundedContextIR,
   ExprIR,
   OperationIR,
+  PayloadIR,
   ProvSite,
   StmtIR,
   TypeIR,
@@ -31,6 +31,7 @@ import type {
 import { branchesContain } from "../../../ir/util/if-normal-form.js";
 import { operationGates } from "../../../ir/util/op-gates.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
+import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { eventsCarryRowTenant } from "../../../ir/util/tenant-stance.js";
 import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { walkExprDeep, walkStmtsDeep } from "../../../ir/util/walk.js";
@@ -117,12 +118,14 @@ export interface OpFragment {
 }
 
 /** The wire field list a returning op's success branch serialises `record`
- *  into — the same ordered `wireShape` the find/CRUD controllers expose, so the
- *  success body matches what `GET /<plural>/:id` returns for the same aggregate.
- *  `forApiRead` drops `internal` / `secret` fields, exactly as the REST
- *  serializer does (RS-25) — an op success body is the same read boundary. */
-function wireFieldsOf(agg: AggregateIR): { field: string; wire: string }[] {
-  return forApiRead(wireFieldsForAggregate(agg)).map((f) => ({
+ *  into — the declared response record's rows the find/CRUD controllers
+ *  expose, so the success body matches what `GET /<plural>/:id` returns for
+ *  the same aggregate (an op success body is the same read boundary, RS-25). */
+function wireFieldsOf(
+  agg: AggregateIR,
+  payloads: readonly PayloadIR[],
+): { field: string; wire: string }[] {
+  return responseWireFor(payloads, agg).map((f) => ({
     field: snake(f.name),
     wire: f.name,
   }));
@@ -263,21 +266,7 @@ export function persistPutBodies(
   valueRowFields: ReadonlySet<string> = new Set(),
 ): string[] {
   const containNames = new Set(agg.contains.map((c) => snake(c.name)));
-  const assignedFields: string[] = [];
-  // The op's OWN writes, plus the writes of every private operation its body
-  // calls (transitively).  A bare `recompute()` really runs
-  // (`renderReturningStmt`'s `call` arm → `record = __op_recompute(record)`), so
-  // the columns IT assigns have to reach this persist tail — walking only
-  // `op.statements` here would compute the mutation and then silently drop it
-  // at persist.
-  for (const s of [...opBodyStmtsDeep(op.statements), ...calleeStatements(op, agg)]) {
-    // `assign` (`field := v`), collection `add`/`remove` (`items += Item{…}`),
-    // and scalar compound `add`/`remove` (`total += n`) all re-bind a real
-    // schema column on `record`.
-    if (s.kind !== "assign" && s.kind !== "add" && s.kind !== "remove") continue;
-    const f = snake(s.target.segments[0] ?? "");
-    if (f.length > 0 && !assignedFields.includes(f)) assignedFields.push(f);
-  }
+  const assignedFields = opWrittenFields(op, agg);
   const provNames = new Set(provenancedFieldsOf(agg).map((f) => snake(f.name)));
   // Second-precision `:utc_datetime` columns — see the truncation note below.
   const datetimeColumns = new Set(
@@ -352,6 +341,25 @@ export function persistPutBodies(
     }),
     ...provColumns.map((c) => `Ecto.Changeset.force_change(:${c}, record.${c})`),
   ];
+}
+
+/** The (snake-cased) fields an operation body writes, deduped, in first-write
+ *  order: the op's OWN writes plus those of every private operation its body
+ *  calls (transitively).  A bare `recompute()` really runs
+ *  (`renderReturningStmt`'s `call` arm → `record = __op_recompute(record)`), so
+ *  the columns IT assigns have to reach the persist tail — walking only
+ *  `op.statements` would compute the mutation and then silently drop it at
+ *  persist.  `assign` (`field := v`), collection `add`/`remove`
+ *  (`items += Item{…}`) and scalar compound `add`/`remove` (`total += n`) all
+ *  re-bind a real schema column on `record`. */
+export function opWrittenFields(op: OperationIR, agg: AggregateIR): string[] {
+  const out: string[] = [];
+  for (const s of [...opBodyStmtsDeep(op.statements), ...calleeStatements(op, agg)]) {
+    if (s.kind !== "assign" && s.kind !== "add" && s.kind !== "remove") continue;
+    const f = snake(s.target.segments[0] ?? "");
+    if (f.length > 0 && !out.includes(f)) out.push(f);
+  }
+  return out;
 }
 
 /** Does this op (or a private op it calls) rewrite a RELATION-backed field — a
@@ -970,7 +978,7 @@ export function renderReturningOpFunction(
     const wireKey = (f: string, wire: string): string =>
       f === ROW_VERSION_COLUMN ? ROW_VERSION_FIELD : wire;
     const wireMap = (recordVar: string, projectRefColls: boolean): string =>
-      `%{${aggTag}${wireFieldsOf(agg)
+      `%{${aggTag}${wireFieldsOf(agg, ctx.payloads)
         .map(({ field: f, wire }) =>
           projectRefColls && isRefCollFieldName(agg, f)
             ? `${wireKey(f, wire)}: __ref_id_list(${recordVar}.${f})`
@@ -1526,14 +1534,14 @@ export function renderReturningStmt(
         : `    record = %{record | ${field}: record.${field} + ${value}}`;
     }
     case "remove": {
-      // `items -= x` drops the first matching element; scalar `n -= x` subtracts.
+      // `items -= x` drops every matching element; scalar `n -= x` subtracts.
       const field = snake(s.target.segments[0] ?? "");
       const value = renderExpr(s.value, rc);
       if (s.collection && rc.agg && isRefCollFieldName(rc.agg, field)) {
-        return `    ${field} = List.delete(__ref_id_list(record.${field}), ${value})`;
+        return `    ${field} = Enum.reject(__ref_id_list(record.${field}), fn loom_e -> loom_e == ${value} end)`;
       }
       return s.collection
-        ? `    record = %{record | ${field}: List.delete(record.${field} || [], ${value})}`
+        ? `    record = %{record | ${field}: Enum.reject(record.${field} || [], fn loom_e -> loom_e == ${value} end)}`
         : `    record = %{record | ${field}: record.${field} - ${value}}`;
     }
     case "emit": {

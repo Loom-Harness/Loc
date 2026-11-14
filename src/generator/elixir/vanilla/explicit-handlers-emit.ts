@@ -19,15 +19,11 @@
 //     with a `def <snake(handler)>(conn, params)` per route calling
 //     `<HandlerMod>.run(params)` through a shared `respond/2`.
 //
-// savesAtExit — the workflow model's "load → mutate → save at exit" — has no
-// Phoenix analog: a named operation's context fn (`<op>_<agg>`) ALREADY persists
-// its mutation via `persist_change` / `Repo.update` (see context-emit.ts
-// `renderNamedOpFunction`).  So an `op-call` in a handler body persists on its
-// own; we emit NO redundant `update_<agg>` clause (unlike the .NET path, whose
-// op-calls are pure in-memory mutations that need an explicit `SaveAsync`).  A
-// handler's `return <expr>` reads the pre-op struct — sound for the common
-// id-projection case (`return o.id`); a return of a MUTATED field is a v1
-// limitation, matching the workflow op-call's `{:ok, _} <-` discard.
+// savesAtExit — the workflow model's "load → mutate → save at exit" — is the
+// workflow engine's: an `op-call` that can run in memory calls the context's
+// `__apply_<op>_<agg>` and rebinds the handle, and the handle is written once
+// by `__save_<agg>` at its save point (`save-plan.ts`); any other `op-call`
+// persists through its own context fn (`<op>_<agg>`).
 // ---------------------------------------------------------------------------
 
 import { handlerNeedsCurrentUser, refsRead } from "../../../ir/plan/index.js";
@@ -42,6 +38,7 @@ import type {
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
+import { type EntryResult, entryResult } from "../../../ir/util/entry-result.js";
 import { requestRecordFor, routedAbsenceAnswers404 } from "../../../ir/util/handler-contracts.js";
 import {
   pagedRunFindName,
@@ -73,6 +70,13 @@ import {
   denialResponse,
   respondErrorTail,
 } from "./denial.js";
+import {
+  entrySerializers,
+  opResultNames,
+  renderEntryOutcome,
+  renderEntryResponders,
+} from "./entry-result-emit.js";
+import { renderProblemVariantHelper } from "./operation-returns-emit.js";
 import {
   PAGE_CALL_ARGS,
   PAGE_PARAM_HELPER,
@@ -222,19 +226,24 @@ function assembleHandlerBody(
   /** A `T?` entity return: a nil result answers the find-absence 404 term the
    *  controller's `{:not_found, detail}` arm renders, never `{:ok, nil}`. */
   absentIs404 = false,
+  /** An expected-failure result's outcome tuple (`renderEntryOutcome`),
+   *  closing the do-branch verbatim in place of `{:ok, <result>}`. */
+  outcome?: string,
 ): string {
   const withClauses = lines.filter((l) => l.kind === "with-clause");
   const emitLines = lines.filter((l) => l.kind === "emit");
   const doLines = [
     ...emitLines.map((l) => l.text),
-    ...(absentIs404
-      ? [
-          `case ${resultExpr} do`,
-          `  nil -> {:error, {:not_found, ${JSON.stringify(FIND_ABSENT_DETAIL)}}}`,
-          `  loom_found -> {:ok, loom_found}`,
-          `end`,
-        ]
-      : [`{:ok, ${resultExpr}}`]),
+    ...(outcome !== undefined
+      ? [outcome]
+      : absentIs404
+        ? [
+            `case ${resultExpr} do`,
+            `  nil -> {:error, {:not_found, ${JSON.stringify(FIND_ABSENT_DETAIL)}}}`,
+            `  loom_found -> {:ok, loom_found}`,
+            `end`,
+          ]
+        : [`{:ok, ${resultExpr}}`]),
   ];
   if (withClauses.length === 0) {
     return doLines.map((l) => `    ${l}`).join("\n");
@@ -378,24 +387,49 @@ function renderHandlerModule(
     // `assembleHandlerBody` closes with `{:ok, <return expr>}`, never with the
     // last bound name — so no statement's bind is the result slot here.
     ownResult: true,
+    saves: h.savesAtExit,
   });
+  // An expected-failure result (`T or E`) closes the chain with its outcome
+  // tuple (`entry-result-emit.ts`); an `error` variant rolls the transaction
+  // below back, and `PostCommit` drops the events the body announced.
+  const entry = entryResult(h);
+  const outcome = entry
+    ? renderEntryOutcome(entry, {
+        render: (e) => renderExpr(e, renderCtx),
+        contextModule: contextModuleFq,
+        taggedSubjects: opResultNames(h.statements),
+      })
+    : undefined;
   const resultExpr = h.returnValue ? renderExpr(h.returnValue, renderCtx) : ":ok";
-  const assembled = assembleHandlerBody(lines, resultExpr, routedAbsenceAnswers404(h, ctx));
-  // A body that re-checks a held row's write scope runs in one transaction,
-  // so a row outside the scope fails the whole command and rolls back the
-  // rows it already changed.
-  const body = handlerRechecksWriteScope(h, ctx)
+  const assembled = assembleHandlerBody(
+    lines,
+    resultExpr,
+    routedAbsenceAnswers404(h, ctx),
+    outcome,
+  );
+  // A body that re-checks a held row's write scope, or answers an expected
+  // failure, runs in one transaction, so a row outside the scope or an
+  // `error` answer fails the whole command and rolls back the rows it
+  // already changed.
+  const transaction = [
+    `    ${appModule}.Repo.transaction(fn ->`,
+    `      case (`,
+    ...assembled.split("\n").map((l) => (l === "" ? l : `    ${l}`)),
+    `      ) do`,
+    `        {:ok, result} -> result`,
+    `        {:error, reason} -> ${appModule}.Repo.rollback(reason)`,
+    `      end`,
+    `    end)`,
+  ];
+  const body = entry
     ? [
-        `    ${appModule}.Repo.transaction(fn ->`,
-        `      case (`,
-        ...assembled.split("\n").map((l) => (l === "" ? l : `    ${l}`)),
-        `      ) do`,
-        `        {:ok, result} -> result`,
-        `        {:error, reason} -> ${appModule}.Repo.rollback(reason)`,
-        `      end`,
+        `    ${appModule}.PostCommit.transaction(fn ->`,
+        ...transaction.map((l) => (l === "" ? l : `  ${l}`)),
         `    end)`,
       ].join("\n")
-    : assembled;
+    : handlerRechecksWriteScope(h, ctx)
+      ? transaction.join("\n")
+      : assembled;
   // Emit the `Context` alias iff the body actually references the context
   // module — a `with`-clause alone is NOT proof (a handler whose `with`
   // clauses only call `D.Resources.*` references no context module, so the
@@ -661,6 +695,8 @@ export function emitExplicitRoutesController(
   // detail — see `tagGetByIdMiss`), and when one returns nothing (204).
   let loadsById = false;
   let hasVoid = false;
+  // Routed handlers answering an expected failure (`T or E`).
+  const entries: { r: EntryResult; ctx: EnrichedBoundedContextIR }[] = [];
   for (const r of routes) {
     const resolved = resolveRoute(r, byName);
     if (!resolved) continue;
@@ -773,7 +809,9 @@ ${pagingElseArm("ProblemDetails", "    ")}
     const runArgs = handlerTakesActor(handler, ctx)
       ? "params, Map.get(conn.assigns, :current_user)"
       : "params";
-    const call = `${normalizeRouteParams(queryParams)}    respond(conn, ${handlerMod}.run(${runArgs}))`;
+    const entry = handler.extern ? undefined : entryResult(handler);
+    if (entry) entries.push({ r: entry, ctx });
+    const call = `${normalizeRouteParams(queryParams)}    ${entry ? "respond_entry" : "respond"}(conn, ${handlerMod}.run(${runArgs}))`;
     actions.push(`  def ${action}(conn, params) do
 ${checkRouteParams(queryParams, ctx, call)}
   end`);
@@ -850,7 +888,18 @@ ${respondErrorTail(
   contexts.some((c) => aggregatesNeedConcurrency(c.aggregates)),
 )}
 
-${serializeBlock.clauses}${
+${
+  entries.length > 0
+    ? `  # An expected-failure handler (\`T or E\`) answers 200 with the tagged
+  # success value and an \`error\` variant at its mapped status (its
+  # transaction already rolled back).
+${renderEntryResponders("respond_entry", "respond", entries)}
+
+${[...entrySerializers(entries).values()].join("\n\n")}
+${entries.some((e) => e.r.arms.some((a) => a.kind === "error")) ? `\n${renderProblemVariantHelper()}\n` : ""}
+`
+    : ""
+}${serializeBlock.clauses}${
   hasPaged
     ? `
 ${PAGE_PARAM_HELPER}`

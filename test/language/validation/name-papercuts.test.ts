@@ -77,7 +77,7 @@ describe("`transactional-no-effect` and a refused statement", () => {
     const c = await codes(
       model(`let xs = Claims.all(InCity(c))
       for x in xs {
-        if x.n > 3 { x.bump() }
+        x.n := 5
       }`),
     );
     expect(c).toContain("loom.workflow-unrecognised-statement");

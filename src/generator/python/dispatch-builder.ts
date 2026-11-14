@@ -11,6 +11,7 @@ import {
   foldRowSeeds,
   foldSteps,
   foldsDedupe,
+  liveLetNames,
   reposNeeded,
   requiredStateFields,
   stateZero,
@@ -59,7 +60,7 @@ import { resourceImportLines } from "./resource-clients.js";
 import { pySaveRenderer } from "./stamp-call.js";
 import { pyStateZero } from "./state-zero.js";
 import { esFns, esWorkflowFoldBlock } from "./workflow-eventsourced-emit.js";
-import { collectLiveLetNames, pyWorkflowStmtTarget } from "./workflows-builder.js";
+import { pyWorkflowStmtTarget } from "./workflows-builder.js";
 
 // ---------------------------------------------------------------------------
 // In-process event dispatch — `app/dispatch.py` (channels.md, the
@@ -842,7 +843,7 @@ function handlerFn(
   const saveLines = pySaveRenderer(statements, aggregates);
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, ctx, collectLiveLetNames(statements, saves), saveLines),
+    pyWorkflowStmtTarget(rctx, ctx, liveLetNames(statements, saves), saveLines),
     "    ",
   );
   out.push(...stmtChunks.flat());
@@ -906,7 +907,7 @@ function esHandlerFn(
   const saveLines = pySaveRenderer(statements, aggregates);
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, ctx, collectLiveLetNames(statements, saves), saveLines),
+    pyWorkflowStmtTarget(rctx, ctx, liveLetNames(statements, saves), saveLines),
     "    ",
   );
   const bodyLines = stmtChunks.flat();

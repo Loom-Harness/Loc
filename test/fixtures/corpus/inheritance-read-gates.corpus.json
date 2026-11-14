@@ -1,0 +1,6 @@
+{
+  "title": "inheritance (TPH + TPC) × a concrete's `policy { read … }` gate × a concrete's `mask unless` field × the polymorphic base reads",
+  "doc": "inheritance",
+  "backends": "ALL",
+  "note": "The base read checks every concrete's list-read gate before it loads (403 for a caller who fails any) and masks each row through its concrete's own serializer.  The 403 half is the authz ladder (`AUTHZ_LADDERS`, test/behavioral/cases.mjs)."
+}

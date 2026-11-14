@@ -4,7 +4,7 @@ Context-level orchestration: a `workflow` loads or creates several aggregates, c
 
 > **Grammar:** `Workflow`, `WorkflowCreateDecl`, `OnDecl`, `Apply`, `FunctionDecl`, `IsolationLevel`, `TimerSource` · **Validators:** `loom.workflow-*`, `loom.transactional-no-effect`, `loom.isolation-requires-transactional`, `loom.resource-op-in-transaction`, `loom.resource-op-outside-workflow`, `loom.workflow-correlation-required`, `loom.correlation-*`, `loom.workflow-gate-not-current-user`, `loom.timer-*` (`src/ir/validate/checks/workflow-checks.ts` + `timer-checks.ts`, `src/language/validators/timer.ts`) · **Docs:** [`../workflow.md`](../workflow.md), [`../resources.md`](../resources.md)
 
-A workflow shares its context's namespace (a workflow named like an aggregate / event / repository is a `loom.workflow-name-collision`).  Its state table shares the context's schema too: the table name is derived from the declared name (`workflow slaSweep` → `sla_sweeps`), so a workflow whose derived table matches any other persisted table of the context — `aggregate SlaSweep`, an entity part, a materialized projection, a join or value-collection table — is refused as `loom.persisted-table-collision` (the migration would otherwise create the table twice). Bodies reuse the operation [statement vocabulary](06-behavior-and-statements.md) but the validator narrows it to the orchestration subset: factory-`let`, repo-`let`, op-call, `precondition` / `requires`, `emit`, plus the workflow-only `for` / `if let`. Mutation forms (`:=` / `+=` / `-=`) are rejected in a workflow body (they belong in an aggregate op) — except inside an `eventSourced` workflow's `apply` fold.
+A workflow shares its context's namespace (a workflow named like an aggregate / event / repository is a `loom.workflow-name-collision`).  Its state table shares the context's schema too: the table name is derived from the declared name (`workflow slaSweep` → `sla_sweeps`), so a workflow whose derived table matches any other persisted table of the context — `aggregate SlaSweep`, an entity part, a materialized projection, a join or value-collection table — is refused as `loom.persisted-table-collision` (the migration would otherwise create the table twice). Bodies reuse the operation [statement vocabulary](06-behavior-and-statements.md) but the validator narrows it to the orchestration subset: factory-`let`, repo-`let`, op-call, `precondition` / `requires`, `emit`, plus `if` / `else` and the workflow-only `for` / `if let`. Mutation forms (`:=` / `+=` / `-=`) are rejected in a workflow body (they belong in an aggregate op) — except inside an `eventSourced` workflow's `apply` fold.
 
 > **Output sourcing.** Every tab below is excerpted from one generated tree: `generate system` over a `Sales` context with one deployable per backend (`node` / `dotnet` / `python` / `java` / `elixir`). Tabs are elided, never invented — where a block shows fewer than five backends the others emit the same shape and are left out for length, and a genuine gap is called out in prose.
 
@@ -298,7 +298,7 @@ def respond_result(conn, other), do: respond(conn, other)
 ```
 ::: end
 
-Elixir's operations return the updated struct rather than mutating in place, so on this path an operation whose receiver the result reads rebinds it (`{:ok, source} <- Context.withdraw_account(source, …)`) — `return source.balance` answers the post-operation value, as on the other four backends. The generated workflow form pages on all six frontends accept a 2xx with or without a body, so a result changes nothing on the UI side.
+Elixir's operations return the updated struct rather than mutating in place, so on this path an operation rebinds its receiver (`{:ok, source} <- Context.__apply_withdraw_account(source, …)`) and the save that closes the body rebinds it to the saved row (`{:ok, source} <- Context.__save_account(source)`) — `return source.balance` answers the post-operation value, as on the other four backends. The generated workflow form pages on all six frontends accept a 2xx with or without a body, so a result changes nothing on the UI side.
 
 ### Expected failures
 
@@ -329,7 +329,7 @@ The answer is the operation's `or E` translation: a success variant answers **20
 
 **An error answer rolls the whole command back** (D-FAILURE-MODEL).  The entry point runs in ONE transaction whether or not it is `transactional` (no `loom.transactional-with-continuations` follows from it): the aggregates it saved, the saga row, outbox / audit / provenance rows and the error arm's own writes (the `Note` above) are discarded, and no event is dispatched — neither the workflow's `emit`s nor the aggregates' events.  A success commits, then dispatches.
 
-The body answers once, after the `match`: lowering keeps each arm's statements in the statement `match` and answers a value `match` over the same subject, so an arm's `return` may read the arm's binding and the lets declared before the `match`, not a `let` declared inside the arm (`loom.workflow-return-not-last#arm-local-let`; `loom.handler-return-not-last#arm-local-let` on a handler).  A union with no `error` variant stays a transport shape out of place (`loom.union-position`), and an `on(…)` reactor, an event-triggered or named create, and an `eventSourced` workflow keep refusing a result.  Elixir refuses an expected-failure entry point (`loom.elixir-entry-result-unsupported`, tracked by #4571).
+The body answers once, after the `match`: lowering keeps each arm's statements in the statement `match` and answers a value `match` over the same subject, so an arm's `return` may read the arm's binding and the lets declared before the `match`, not a `let` declared inside the arm (`loom.workflow-return-not-last#arm-local-let`; `loom.handler-return-not-last#arm-local-let` on a handler).  A union with no `error` variant stays a transport shape out of place (`loom.union-position`), and an `on(…)` reactor, an event-triggered or named create, and an `eventSourced` workflow keep refusing a result.
 
 ::: tabs backend
 == node
@@ -435,9 +435,22 @@ if (result instanceof ReceiptOrPaymentDeclinedResponse_PaymentDeclined __e) {
 return ResponseEntity.ok(result);
 ```
 == elixir
-```text
-loom.elixir-entry-result-unsupported — workflow 'Pay' declares an expected-failure result ('T or E'), and the
-Phoenix/Elixir deployable 'd' hosts its context. …
+```elixir
+# Workflows.Pay — inside PostCommit.transaction(fn -> Repo.transaction(…) end)
+with {:ok, a} <- …,
+     r <- Context.withdraw_account(a, %{"amt" => amt}),
+     {:ok, _} <- (case Function.identity(r) do … end) do
+  (case Function.identity(r) do
+     {:ok, %{value: left}} -> {:ok, {"Receipt", %{left: left}}}
+     {:error, "Insufficient", e} -> {:error, {:variant, "PaymentDeclined", %{available: amt - e.needed}}}
+   end)
+end
+# commit_result({:error, reason}) rolls the transaction back.
+
+# WorkflowsController
+def respond_entry(conn, {:ok, {"Receipt", v}}), do: json(conn, Map.put(v, :type, "Receipt"))
+def respond_entry(conn, {:error, {:variant, "PaymentDeclined", data}}),
+  do: problem_variant(conn, 409, "/errors/payment-declined", "PaymentDeclined", "Ledger.PaymentDeclined.message", data)
 ```
 ::: end
 
@@ -456,6 +469,7 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 | `let xs = Repo.all(<Retrieval>(args), page?)` / `Repo.all(<Criterion>, page?)` | Bind an aggregate **array** — consumable only by a `for` loop. |
 | `for x in xs { … }` | Iterate an aggregate array; per-iteration op-calls save inside the loop. |
 | `if let x = Repo.find(<Criterion>) { … } else { … }` / `if let x = Repo.find(id) { … }` / `if let x = y { … }` | Single-result lookup — a criterion, `findById`, `findBy`, or an optional binding already in scope; `x` bound (non-null) only in the then-branch. |
+| `if cond { … } else if cond { … } else { … }` | Branch on a boolean. Each branch is its own scope (a `let` in it does not leak out) and may hold any statement of this table, nested `for` / `if let` / `match` / `if` included. Each branch saves, at its own end, every binding it dirties — the ones it declares and the ones declared before the `if` — so a row the taken branch leaves alone is not written. A `return` in a branch is `loom.workflow-return-not-last` / `loom.handler-return-not-last`. |
 | `name.op(args)` | Invoke a public operation on a let-bound aggregate (its own preconditions / invariants run inside the call). `private` ops are rejected (`loom.workflow-private-operation`). |
 | `let r = name.op(args)` / `let r = Svc.op(args)` | The same call, its result bound to `r`. Saved exactly like the statement — except a result with an `error` variant, which must be matched (see [below](#matching-a-mutating-calls-result)). |
 | `precondition Expr` / `requires Expr` | Guard → 400 (`DomainError`) / 403 (`ForbiddenError`). |
@@ -483,6 +497,60 @@ const text = o !== null ? o.status : "missing";
 const n = Note.create({ text: text });
 await notes.save(n);
 ```
+
+A plain `if` branches on a boolean; each branch saves what it dirtied at its own end:
+
+```ddd
+workflow Bump {
+  create(x: Prov id) {
+    let p = Provs.get(x)
+    if p.rank > 0 { p.bump() }
+    if p.bumps >= 2 { let n = Note.create(text: "bumped twice") }
+  }
+}
+```
+```ts
+// http/workflows.ts (node)
+const p = await provs.getById(x);
+if (p.rank > 0) {
+  p.bump();
+  await provs.save(p);
+}
+if (p.bumps >= 2) {
+  const n = Note.create({ text: "bumped twice" });
+  await notes.save(n);
+}
+```
+```elixir
+# lib/d/ranks/workflows/bump.ex — a branch answers the handle it rebound
+with {:ok, p} <- Context.get_prov(x),
+     {:ok, {p}} <- (
+       if p.rank > 0 do
+         with {:ok, p} <- Context.bump_prov(p, %{}) do
+           {:ok, {p}}
+         else
+           err -> err
+         end
+       else
+         {:ok, {p}}
+       end
+     ),
+     {:ok, _} <- (
+       if p.bumps >= 2 do
+         with {:ok, _n} <- Context.create_note(%{text: "bumped twice"}) do
+           {:ok, nil}
+         else
+           err -> err
+         end
+       else
+         {:ok, nil}
+       end
+     ) do
+  {:ok, p}
+end
+```
+
+.NET, Java and Python render the same `if` / `else` with each branch's saves at its end (`await _provs.SaveAsync(p, cancellationToken);`, `provsRepository.save(p);`, `await provs.save(p)`).  The corpus case `workflow-if` drives `else if`, an `if` in a `for`, a `commandHandler`, an event-triggered starter and an `on` reactor over the wire on every backend.
 
 A loaded aggregate is saved **only if** an operation was invoked on it inside the body; fresh `Agg.create` results always save. See [`../workflow.md`](../workflow.md) §"Save + event drain semantics".
 
@@ -580,7 +648,7 @@ switch (r) {
 
 .NET renders `_accounts.Discard(a);` in the error arm for the same reason (EF Core writes a tracked entity at the next `SaveChanges`); python writes only on a save, as node does. The `Discard` / `discard` repository method exists only for an aggregate some body drops.
 
-`loom.workflow-mutation-result-unmatched` refuses the three shapes that cannot place the save: a result no `match` reads (returning it from a workflow is not supported yet); an `else` arm that covers both a success and an error variant (give one of them arms of its own); and any other change to the same aggregate in that body — another call on it, or creating it there — since that change would be saved outside the match. An elixir deployable refuses the bound form (`loom.elixir-bound-mutating-call-unsupported`).
+`loom.workflow-mutation-result-unmatched` refuses the three shapes that cannot place the save: a result no `match` reads (returning it from a workflow is not supported yet); an `else` arm that covers both a success and an error variant (give one of them arms of its own); and any other change to the same aggregate in that body — another call on it, or creating it there — since that change would be saved outside the match. An elixir deployable refuses the bound form only for a `mutating` domain service (`loom.elixir-bound-mutating-call-unsupported`), which it inlines clause by clause.
 
 ## `function` — the private pure helper
 

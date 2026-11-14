@@ -1,0 +1,718 @@
+{
+  "case": "workflow-if",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/provs",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/provs",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/provs",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/workflows/bump",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/provs/{id}",
+      "status": 200,
+      "body": {
+        "bumps": 1,
+        "id": "<volatile:key>",
+        "rank": 7,
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/workflows/bump",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/provs/{id}",
+      "status": 200,
+      "body": {
+        "bumps": 0,
+        "id": "<volatile:key>",
+        "rank": 0,
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/workflows/bump",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/provs/{id}",
+      "status": 200,
+      "body": {
+        "bumps": 2,
+        "id": "<volatile:key>",
+        "rank": 7,
+        "rowVersion": 3
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "bumped twice"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/workflows/grade",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/workflows/grade",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/workflows/grade",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "bumped twice"
+          },
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "high"
+          },
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "mid"
+          },
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "low"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 4,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/workflows/bump_other",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/provs/{id}",
+      "status": 200,
+      "body": {
+        "bumps": 1,
+        "id": "<volatile:key>",
+        "rank": 0,
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/workflows/bump_other",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/provs/{id}",
+      "status": 200,
+      "body": {
+        "bumps": 0,
+        "id": "<volatile:key>",
+        "rank": 1,
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 19,
+      "method": "POST",
+      "path": "/api/workflows/bump_all",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 20,
+      "method": "GET",
+      "path": "/api/provs/{id}",
+      "status": 200,
+      "body": {
+        "bumps": 3,
+        "id": "<volatile:key>",
+        "rank": 7,
+        "rowVersion": 4
+      }
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/provs/{id}",
+      "status": 200,
+      "body": {
+        "bumps": 0,
+        "id": "<volatile:key>",
+        "rank": 1,
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 22,
+      "method": "GET",
+      "path": "/api/provs/{id}",
+      "status": 200,
+      "body": {
+        "bumps": 1,
+        "id": "<volatile:key>",
+        "rank": 0,
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 23,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "bumped twice"
+          },
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "high"
+          },
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "mid"
+          },
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "low"
+          },
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "skipped"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 5,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 24,
+      "method": "POST",
+      "path": "/api/provs/{id}/promote",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 25,
+      "method": "GET",
+      "path": "/api/provs/{id}",
+      "status": 200,
+      "body": {
+        "bumps": 1,
+        "id": "<volatile:key>",
+        "rank": 1,
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/provs/{id}/promote",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/api/provs/{id}",
+      "status": 200,
+      "body": {
+        "bumps": 3,
+        "id": "<volatile:key>",
+        "rank": 7,
+        "rowVersion": 4
+      }
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/provs/{id}/follow",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 29,
+      "method": "GET",
+      "path": "/api/workflows/follow/instances/{id}",
+      "status": 200,
+      "body": {
+        "pings": 1,
+        "prov": "<uuid>"
+      }
+    },
+    {
+      "seq": 30,
+      "method": "POST",
+      "path": "/api/provs/{id}/ping",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 31,
+      "method": "GET",
+      "path": "/api/workflows/follow/instances/{id}",
+      "status": 200,
+      "body": {
+        "pings": 2,
+        "prov": "<uuid>"
+      }
+    },
+    {
+      "seq": 32,
+      "method": "POST",
+      "path": "/api/provs/{id}/follow",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 33,
+      "method": "POST",
+      "path": "/api/provs/{id}/ping",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 34,
+      "method": "GET",
+      "path": "/api/workflows/follow/instances/{id}",
+      "status": 200,
+      "body": {
+        "pings": 1,
+        "prov": "<uuid>"
+      }
+    },
+    {
+      "seq": 35,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "bumped twice"
+          },
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "high"
+          },
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "mid"
+          },
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "low"
+          },
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "skipped"
+          },
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "followed"
+          },
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "text": "low ping"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 7,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 36,
+      "method": "GET",
+      "path": "/api/workflows/follow/instances",
+      "status": 200,
+      "body": [
+        {
+          "pings": 2,
+          "prov": "<uuid>"
+        },
+        {
+          "pings": 1,
+          "prov": "<uuid>"
+        }
+      ]
+    },
+    {
+      "seq": 37,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 38,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "text": "manual"
+      }
+    },
+    {
+      "seq": 39,
+      "method": "POST",
+      "path": "/api/notes/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 40,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "text": "edited"
+      }
+    },
+    {
+      "seq": 41,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 42,
+      "method": "POST",
+      "path": "/api/provs/{id}/bump",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 43,
+      "method": "GET",
+      "path": "/api/provs/{id}",
+      "status": 200,
+      "body": {
+        "bumps": 2,
+        "id": "<volatile:key>",
+        "rank": 0,
+        "rowVersion": 5
+      }
+    },
+    {
+      "seq": 44,
+      "method": "POST",
+      "path": "/api/provs/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 45,
+      "method": "GET",
+      "path": "/api/provs/{id}",
+      "status": 200,
+      "body": {
+        "bumps": 9,
+        "id": "<volatile:key>",
+        "rank": 0,
+        "rowVersion": 6
+      }
+    },
+    {
+      "seq": 46,
+      "method": "GET",
+      "path": "/api/provs",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "bumps": 3,
+            "id": "<volatile:key>",
+            "rank": 7,
+            "rowVersion": 6
+          },
+          {
+            "bumps": 1,
+            "id": "<volatile:key>",
+            "rank": 1,
+            "rowVersion": 2
+          },
+          {
+            "bumps": 9,
+            "id": "<volatile:key>",
+            "rank": 0,
+            "rowVersion": 6
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 47,
+      "method": "DELETE",
+      "path": "/api/provs/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 48,
+      "method": "GET",
+      "path": "/api/provs/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Prov {id} not found",
+        "instance": "/api/provs/{id}",
+        "params": {
+          "type": "Ranks.Prov"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 49,
+      "method": "PATCH",
+      "path": "/api/provs",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/provs",
+        "instance": "/api/provs",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 50,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 51,
+      "method": "POST",
+      "path": "/api/provs",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/provs",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 52,
+      "method": "GET",
+      "path": "/api/workflows/follow/instances/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Follow {id} not found",
+        "instance": "/api/workflows/follow/instances/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 53,
+      "method": "POST",
+      "path": "/api/provs/{id}/follow",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Prov {id} not found",
+        "instance": "/api/provs/{id}/follow",
+        "params": {
+          "type": "Ranks.Prov"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 54,
+      "method": "POST",
+      "path": "/api/provs/{id}/follow",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Prov {id} not found",
+        "instance": "/api/provs/{id}/follow",
+        "params": {
+          "type": "Ranks.Prov"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 55,
+      "method": "POST",
+      "path": "/api/provs/{id}/follow",
+      "status": 415,
+      "body": {
+        "code": "problem.unsupported-media-type",
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/provs/{id}/follow",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 56,
+      "method": "POST",
+      "path": "/api/notes/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}/update",
+        "params": {
+          "type": "Ranks.Note"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

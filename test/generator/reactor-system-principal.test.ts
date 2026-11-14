@@ -139,7 +139,7 @@ system S {
   it("elixir: binds `system_principal/0` and threads it to the gated context fn", async () => {
     const s = await file("elixir", "close_order/start_shipped.ex");
     expect(s).toContain("current_user = ApiWeb.Auth.system_principal()");
-    expect(s).toContain("Api.Ord.finish_order(o, %{}, current_user)");
+    expect(s).toContain("Api.Ord.__apply_finish_order(o, %{}, current_user)");
     const auth = await file("elixir", "api_web/auth.ex");
     expect(auth).toContain(
       "  def system_principal, do: system_principal_for(current_event_origin())",

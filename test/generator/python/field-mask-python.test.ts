@@ -35,6 +35,9 @@ const SRC = `system S {
       }
     }
   }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: python  contexts: [C]  dataSources: [st]  port: 8080  auth: required }
 }`;
 
 async function ctxAndAgg(): Promise<{ ctx: EnrichedBoundedContextIR; agg: EnrichedAggregateIR }> {
@@ -49,14 +52,17 @@ async function ctxAndAgg(): Promise<{ ctx: EnrichedBoundedContextIR; agg: Enrich
 
 describe("mask unless — Python read redaction", () => {
   it("aggHasFieldMask / maskedWireFields detect the masked field", async () => {
-    const { agg } = await ctxAndAgg();
+    const { ctx, agg } = await ctxAndAgg();
     expect(aggHasFieldMask(agg)).toBe(true);
-    expect(maskedWireFields(agg).map((f) => f.name)).toEqual(["salary", "homeAddress"]);
+    expect(maskedWireFields(agg, ctx.payloads).map((f) => f.name)).toEqual([
+      "salary",
+      "homeAddress",
+    ]);
   });
 
   it("emits a fail-closed to_wire_masked that redacts the field unless the predicate holds", async () => {
-    const { agg } = await ctxAndAgg();
-    const method = spellMarkers(toWireMaskedMethod(agg));
+    const { ctx, agg } = await ctxAndAgg();
+    const method = spellMarkers(toWireMaskedMethod(agg, ctx.payloads));
     expect(method).toContain("def to_wire_masked(self, root: P) -> dict[str, object]:");
     expect(method).toContain("_mask_user = current_user()");
     // fail-closed: unauthenticated OR failed predicate → redact to None.

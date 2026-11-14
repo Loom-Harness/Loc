@@ -1,13 +1,7 @@
 {
   "title": "a workflow `create` / handler answering `T or E`, rolled back whole on the error",
   "doc": "workflow",
-  "backends": [
-    "node",
-    "dotnet",
-    "java",
-    "python"
-  ],
-  "note": "elixir refuses the let-bound mutating call every entry point here matches (`loom.elixir-bound-mutating-call-unsupported`).",
+  "backends": "ALL",
   "apiCaller": {
     "unattributed": [
       "api.hold.instance (no such aggregate)",

@@ -113,7 +113,7 @@ describe("vanilla — in-process event dispatch", () => {
     expect(onH!).toContain("Api.Fulfillment.get_shipment(event.shipment)");
     // Vanilla context facade ops are arity-2 (`(record, params)`); the
     // op has no params so the trailing map is empty.
-    expect(onH!).toContain("Api.Fulfillment.mark_tracked_shipment(ship, %{})");
+    expect(onH!).toContain("Api.Fulfillment.__apply_mark_tracked_shipment(ship, %{})");
   });
 
   it("emits a per-context dispatcher routing each event struct to its handler(s)", async () => {

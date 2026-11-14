@@ -29,6 +29,7 @@
 
 import type { PolymorphicRead } from "../../ir/enrich/read-scope.js";
 import { reasonPhrase, wireStatus } from "../../ir/enrich/wire-policy.js";
+import type { PolymorphicReadGate } from "../../ir/plan/index.js";
 import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
 import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import { isValueCollectionType } from "../../ir/util/value-collections.js";
@@ -38,6 +39,7 @@ import { lowerFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { rowClassOf } from "./emit/mikroorm-entities.js";
+import { renderTsExpr } from "./render-expr.js";
 import { hydrateRootExpr } from "./repository-find-hydrate.js";
 import {
   drizzleOrderBy,
@@ -126,6 +128,7 @@ export function buildBaseReaderFile(
   concretes: EnrichedAggregateIR[],
   ctx: EnrichedBoundedContextIR,
   read: PolymorphicRead,
+  masked: ReadonlySet<string>,
 ): string {
   const table = repoTableName(base, ctx);
   // The root's restrictions and each subtype's own, kind-guarded: the generated
@@ -188,7 +191,7 @@ export function buildBaseReaderFile(
     `    return { items: await this.hydrate(rows), page, pageSize, total, totalPages };`,
     `  }`,
     "",
-    ...toWireLines(base, read),
+    ...toWireLines(base, read, masked),
     "",
     `  private async hydrate(rows: (typeof schema.${table}.$inferSelect)[]): Promise<${base.name}[]> {`,
     ...childLoaded.flatMap((c) => [
@@ -223,6 +226,7 @@ export function buildBaseReaderFile(
       { from: "../schema", namespace: "schema" },
       { from: "../read-scopes", values: [drizzleScopeFnName(base)] },
       { from: "../../domain/events", types: ["DomainEventDispatcher"] },
+      { from: "../../auth/user-types", types: ["User"] },
       { from: "../../domain/ids", namespace: "Ids" },
       ...concretes.map((c) => ({ from: `../../domain/${lowerFirst(c.name)}`, values: [c.name] })),
       {
@@ -243,14 +247,25 @@ export function buildBaseReaderFile(
 }
 
 /** `toWire(root)` — the row's tagged wire body: `{ type: "<Concrete>", …the
- *  concrete's own wire fields }`, the tagged-union shape (docs/payloads.md). */
-function toWireLines(base: EnrichedAggregateIR, read: PolymorphicRead): string[] {
+ *  concrete's own wire fields }`, the tagged-union shape (docs/payloads.md).
+ *  A concrete in `masked` serializes through its own `toWireMasked` under the
+ *  caller's principal, so the base read redacts exactly what that concrete's
+ *  own read does. */
+function toWireLines(
+  base: EnrichedAggregateIR,
+  read: PolymorphicRead,
+  masked: ReadonlySet<string>,
+): string[] {
+  const param = masked.size > 0 ? ", currentUser: User | null = null" : "";
   return [
-    `  toWire(root: ${base.name}): unknown {`,
-    ...read.variants.map(
-      (v) =>
-        `    if (root instanceof ${v.aggregate}) return { type: ${JSON.stringify(v.tag)}, ...(this.${repoField(v.aggregate)}.toWire(root) as object) };`,
-    ),
+    `  toWire(root: ${base.name}${param}): unknown {`,
+    ...read.variants.map((v) => {
+      const repo = `this.${repoField(v.aggregate)}`;
+      const wire = masked.has(v.aggregate)
+        ? `${repo}.toWireMasked(root, currentUser)`
+        : `${repo}.toWire(root)`;
+      return `    if (root instanceof ${v.aggregate}) return { type: ${JSON.stringify(v.tag)}, ...(${wire} as object) };`;
+    }),
     `    throw new Error("unknown ${base.name} subtype");`,
     `  }`,
   ];
@@ -267,6 +282,7 @@ export function buildTpcBaseReaderFile(
   base: EnrichedAggregateIR,
   concretes: EnrichedAggregateIR[],
   read: PolymorphicRead,
+  masked: ReadonlySet<string>,
   persistence: "drizzle" | "mikroorm" = "drizzle",
 ): string {
   const mikro = persistence === "mikroorm";
@@ -306,7 +322,7 @@ export function buildTpcBaseReaderFile(
     `    return { items: merged.slice(offset, offset + pageSize), page, pageSize, total, totalPages };`,
     `  }`,
     "",
-    ...toWireLines(base, read),
+    ...toWireLines(base, read, masked),
     `}`,
   );
   return lines(
@@ -317,6 +333,7 @@ export function buildTpcBaseReaderFile(
         : { from: "drizzle-orm/node-postgres", types: ["NodePgDatabase"] },
       ...(mikro ? [] : [{ from: "../schema", namespace: "schema" }]),
       { from: "../../domain/events", types: ["DomainEventDispatcher"] },
+      { from: "../../auth/user-types", types: ["User"] },
       { from: "../../domain/ids", namespace: "Ids" },
       ...concretes.map((c) => ({ from: `../../domain/${lowerFirst(c.name)}`, values: [c.name] })),
       ...concretes.map((c) => ({
@@ -342,6 +359,7 @@ export function buildMikroBaseReaderFile(
   concretes: EnrichedAggregateIR[],
   ctx: EnrichedBoundedContextIR,
   read: PolymorphicRead,
+  masked: ReadonlySet<string>,
 ): string {
   const rootRow = rowClassOf(base.name);
   const orderBy = `{ ${read.order.map((t) => `${t.field}: ${JSON.stringify(t.direction)}`).join(", ")} }`;
@@ -400,7 +418,7 @@ export function buildMikroBaseReaderFile(
     `    return { items: await this.hydrate(rows), page, pageSize, total, totalPages };`,
     `  }`,
     "",
-    ...toWireLines(base, read),
+    ...toWireLines(base, read, masked),
     "",
     `  private async hydrate(rows: ${rootRow}[]): Promise<${base.name}[]> {`,
     ...childLoaded.flatMap((c) => [
@@ -432,6 +450,7 @@ export function buildMikroBaseReaderFile(
         types: concretes.map((c) => rowClassOf(c.name)),
       },
       { from: "../../domain/events", types: ["DomainEventDispatcher"] },
+      { from: "../../auth/user-types", types: ["User"] },
       { from: "../../domain/ids", namespace: "Ids" },
       ...concretes.map((c) => ({ from: `../../domain/${lowerFirst(c.name)}`, values: [c.name] })),
       {
@@ -455,8 +474,25 @@ export function buildMikroBaseReaderFile(
  *  polymorphic read.  Each item is the tagged union of the concretes' own
  *  response DTOs (`{ type: "Car", …CarResponse }`), so a client reads a row's
  *  subtype off `type` exactly as it reads any tagged union. */
-export function buildBaseRoutesFile(base: EnrichedAggregateIR, read: PolymorphicRead): string {
+export function buildBaseRoutesFile(
+  base: EnrichedAggregateIR,
+  read: PolymorphicRead,
+  gates: readonly PolymorphicReadGate[],
+  masked: ReadonlySet<string>,
+  ctx: EnrichedBoundedContextIR,
+): string {
   const B = base.name;
+  // Every concrete's list-read gate, checked before the load: a caller who
+  // fails any of them gets that concrete's own pre-load 403.
+  const handlerHead = baseReadHandlerHead(gates, masked, "      ");
+  const forbidden = wireStatus("forbidden", ctx.structuralErrorStatuses);
+  const forbiddenResponse =
+    gates.length > 0
+      ? [
+          `        ${forbidden}: { description: ${JSON.stringify(reasonPhrase(forbidden))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+        ]
+      : [];
+  const wireArgs = masked.size > 0 ? ", currentUser" : "";
   const members = read.variants.map(
     (v) => `${v.aggregate}Response.extend({ type: z.literal(${JSON.stringify(v.tag)}) })`,
   );
@@ -480,17 +516,21 @@ export function buildBaseRoutesFile(base: EnrichedAggregateIR, read: Polymorphic
     `      request: { query: ${B}PageQuery },`,
     `      responses: {`,
     `        200: { description: "OK", content: { "application/json": { schema: ${B}Paged } } },`,
+    ...forbiddenResponse,
     `        ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     `      },`,
     `    }),`,
     `    async (c) => {`,
+    ...handlerHead,
     `      const params = c.req.valid("query");`,
     `      const result = await repo.findPage(params.page, params.pageSize);`,
-    `      return c.json({ ...result, items: result.items.map((r) => repo.toWire(r)) } as z.infer<typeof ${B}Paged>, 200);`,
+    `      return c.json({ ...result, items: result.items.map((r) => repo.toWire(r${wireArgs})) } as z.infer<typeof ${B}Paged>, 200);`,
     `    },`,
     `  );`,
     "",
-    ...(read.layout === "sharedTable" ? byIdRouteLines(B) : []),
+    ...(read.layout === "sharedTable"
+      ? byIdRouteLines(B, handlerHead, forbiddenResponse, wireArgs)
+      : []),
     `  return app;`,
     `}`,
   );
@@ -501,7 +541,7 @@ export function buildBaseRoutesFile(base: EnrichedAggregateIR, read: Polymorphic
       { from: "./problem-details", values: ["ProblemDetails", "UuidString", "newApp"] },
       { from: `../db/repositories/${lowerFirst(B)}-repository`, types: [`${B}Repository`] },
       { from: "../domain/ids", namespace: "Ids" },
-      { from: "../domain/errors", values: ["AggregateNotFoundError"] },
+      { from: "../domain/errors", values: ["AggregateNotFoundError", "ForbiddenError"] },
       ...read.variants.map((v) => ({
         from: `./${lowerFirst(v.aggregate)}.routes`,
         values: [`${v.aggregate}Response`],
@@ -522,10 +562,33 @@ export function baseRoutesImports(base: EnrichedAggregateIR): string[] {
   ];
 }
 
+/** The base-read handler's opening lines: bind the principal when a gate or a
+ *  mask reads it, then every concrete's list-read gate, each with the
+ *  `Forbidden: find <name>` label that concrete's own route answers. */
+function baseReadHandlerHead(
+  gates: readonly PolymorphicReadGate[],
+  masked: ReadonlySet<string>,
+  pad: string,
+): string[] {
+  if (gates.length === 0 && masked.size === 0) return [];
+  return [
+    `${pad}const currentUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User | undefined }).get("currentUser") ?? null;`,
+    ...gates.map(
+      (g) =>
+        `${pad}if (!currentUser || !(${renderTsExpr(g.find.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${g.find.name}`)});`,
+    ),
+  ];
+}
+
 /** `GET /api/<bases>/{id}` — TPH only: the shared table carries one identity,
  *  so a base id names exactly one row.  (TPC ids are per concrete.)  The same
  *  restrictions as the list read apply; a row they hide is a 404. */
-function byIdRouteLines(B: string): string[] {
+function byIdRouteLines(
+  B: string,
+  handlerHead: readonly string[],
+  forbiddenResponse: readonly string[],
+  wireArgs: string,
+): string[] {
   return [
     `  app.openapi(`,
     `    createRoute({`,
@@ -536,15 +599,17 @@ function byIdRouteLines(B: string): string[] {
     `      request: { params: z.object({ id: UuidString }) },`,
     `      responses: {`,
     `        200: { description: "OK", content: { "application/json": { schema: ${B}Response } } },`,
+    ...forbiddenResponse,
     `        ${wireStatus("not-found")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("not-found")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     `        ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     `      },`,
     `    }),`,
     `    async (c) => {`,
+    ...handlerHead,
     `      const { id } = c.req.valid("param");`,
     `      const found = await repo.findById(${T.Ids}.${B}Id(id));`,
     `      if (!found) ${tsNotFoundThrow(B, "id")}`,
-    `      return c.json(repo.toWire(found) as z.infer<typeof ${B}Response>, 200);`,
+    `      return c.json(repo.toWire(found${wireArgs}) as z.infer<typeof ${B}Response>, 200);`,
     `    },`,
     `  );`,
     "",

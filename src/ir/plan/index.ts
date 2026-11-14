@@ -81,6 +81,9 @@ export {
 export { domainFindShape } from "./repo-find-shape.js";
 export {
   contextOperations,
+  type PolymorphicReadGate,
+  polymorphicReadGates,
+  polymorphicReadMasked,
   polymorphicReadOperations,
   routedPolymorphicRead,
 } from "./repo-polymorphic.js";
@@ -111,6 +114,13 @@ export {
   workflowNeedsCurrentUser,
 } from "./workflow-needs.js";
 export { commandCreateReturnsSelf, isWorkflowSelfType } from "./workflow-result.js";
+export {
+  liveLetNames,
+  nestedSaveScopes,
+  nestedSaves,
+  type SaveEntry,
+  type SaveScope,
+} from "./workflow-saves.js";
 export {
   eventSourcedWorkflows,
   hasStateRow,

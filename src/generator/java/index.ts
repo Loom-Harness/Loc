@@ -9,6 +9,8 @@ import {
   eventSourcedWorkflows,
   foldsDedupe,
   observableWorkflows,
+  polymorphicReadGates,
+  polymorphicReadMasked,
   routedPolymorphicRead,
   stateRowWorkflows,
 } from "../../ir/plan/index.js";
@@ -1694,6 +1696,7 @@ function emitProjectFromContexts(
           ? generateVueForContexts(contexts, system.sys, system.deployable, {
               apiBaseUrl: "/api",
               pathPrefix: "ClientApp/",
+              frontendContract: system.frontendContract,
             })
           : uiFw === "angular"
             ? generateAngularForContexts(contexts, system.sys, system.deployable, {
@@ -1806,6 +1809,8 @@ function emitAggregate(
           entityPkg: (name) => pkgFor("entity", name),
           responsePkg: (name) => pkgFor("response-dto", name),
           repositoryPkg: (name) => pkgFor("repository-interface", name),
+          gates: polymorphicReadGates(agg, ctx),
+          masked: new Set(polymorphicReadMasked(agg, ctx)),
         }),
         agg.name,
         agg.origin,
@@ -1979,6 +1984,7 @@ function emitAggregate(
     discards: discardedAggregates(ctx).has(agg.name),
     schema,
     pool: ctx.aggregates,
+    payloads: ctx.payloads,
   };
   const repoOrigin = repo?.origin ?? agg.origin;
   place(

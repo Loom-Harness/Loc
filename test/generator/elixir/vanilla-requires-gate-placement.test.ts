@@ -82,7 +82,7 @@ describe("vanilla phoenix — `requires` gate placement", () => {
     // ...but it does NOT re-emit the operation's gate, because it calls the
     // context function that already carries it — one gate location, every
     // caller covered.
-    expect(wf).toMatch(/Context\.close_ticket\(t, .*current_user\)/);
+    expect(wf).toMatch(/Context\.__apply_close_ticket\(t, .*current_user\)/);
     expect(wf).not.toContain('current_user.role == "agent"');
   });
 });

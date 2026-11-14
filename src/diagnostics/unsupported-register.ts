@@ -97,32 +97,13 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "gap",
     site: "src/ir/validate/checks/call-result-checks.ts#validateElixirBoundMutatingCalls",
     what:
-      "A mutating call bound with `let` in a workflow / handler body an elixir deployable " +
-      "emits — `let r = a.withdraw(x)` (with or without an `error` variant in the result) and " +
-      "`let r = Transfer.run(…)` over a `mutating` domain service.  The other four backends " +
-      "render it as the call statement plus a binding, and save the mutated aggregate at exit " +
-      "or, for an error-carrying result, in the non-error arms of the `match` over it.  On " +
-      "Phoenix every op call is a with-clause that persists inside the context function and " +
-      "matches its `{:ok, _}` away at five render sites (workflow body, branch, single-op " +
-      "case, reactor dispatch, explicit handler); a `mutating` service is inlined clause by " +
-      "clause and computes no value at all",
+      "A `mutating` domain-service call bound with `let` in a workflow / handler body an " +
+      "elixir deployable emits — `let r = Transfer.run(…)`.  The other four backends render it " +
+      "as the call plus a binding and save the mutated arguments at exit or in the non-error " +
+      "arms of the `match` over it; Phoenix inlines a mutating service clause by clause, which " +
+      "computes no value to bind.  A bound aggregate op call is rendered",
     mission: "#4541",
     verified: false,
-  },
-  {
-    code: "loom.elixir-entry-result-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/call-result-checks.ts#validateElixirEntryResults",
-    what:
-      "A routed workflow `create`, `commandHandler` or `queryHandler` an elixir deployable " +
-      "emits whose result is an expected failure (`T or E`), and a `create` answering its own " +
-      "workflow (`return this`).  The other four backends run the entry point in one " +
-      "transaction, roll it back whole on an error answer (saves, saga row, the error arm's " +
-      "writes, no events) and answer the error at its mapped status; the Phoenix with-chain " +
-      "routes have no tagged result to branch on and no `Repo.rollback` seam around the saga " +
-      "row and the body, and the bound mutating call most such bodies match is refused " +
-      "already (`loom.elixir-bound-mutating-call-unsupported`)",
-    mission: "#4571",
   },
   {
     code: "loom.ui-multi-backend-unsupported",

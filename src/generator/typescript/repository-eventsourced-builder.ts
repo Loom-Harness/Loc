@@ -300,7 +300,7 @@ export function buildEventSourcedRepositoryFile(
     // `repo.toWireMasked(row, __maskUser)` for every masked aggregate,
     // event-sourced ones included: the mask applies to the FOLDED state's wire
     // projection, not to the stream (pairwise F2).
-    ...(aggHasFieldMask(agg) ? [toWireMaskedMethod(agg), ""] : []),
+    ...(aggHasFieldMask(agg) ? [toWireMaskedMethod(agg, ctx.payloads), ""] : []),
     `}`,
     "",
     // Stream (de)serialisers — module-level switch over the event types

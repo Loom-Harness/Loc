@@ -20,6 +20,22 @@ error    NotFound     { resource: string }
 
 `event` is the sixth member of the family — it keeps its own declaration surface but unifies into the same payload view at the IR layer. Payload names share one namespace per context with value objects and events (`loom.payload-name-conflict`); a repeated field name is `loom.payload-duplicate-field`.
 
+A `response <Agg>Response` (or `<Part>Response`) record is that aggregate's (or part's) **read contract**: every backend's response DTO and response serializer renders its fields, in record order, after a leading `id`. `with scaffoldHandlers` and `api X from <Subdomain>` splice one per aggregate and part; one written by hand may leave fields out, but each field it names must be a readable member of the aggregate (a field that is not `internal`/`secret`, a containment typed `<Part>Response`, or a `derived`) with that member's type and optionality (`loom.payload-response-field`). A masked member keeps its aggregate's `mask unless` on the record; a payload field cannot declare one itself (`loom.field-mask-on-payload`).
+
+```ddd
+aggregate Employee { name: string  salary: decimal mask unless currentUser.permissions.contains(permissions.unmask)  notes: string internal }
+response EmployeeResponse { name: string  salary: decimal }   // salary is nullable and redacted, as on the aggregate
+```
+
+```ts
+// node — the generated response schema
+export const EmployeeResponse = z.object({
+  id: z.string(),
+  name: z.string(),
+  salary: z.number().nullish(),
+}).openapi("EmployeeResponse");
+```
+
 ### Where a record resolves as a type
 
 A payload or event is admitted as a **type** only at a *transport boundary*: a workflow `create` parameter or result, a `commandHandler` / `queryHandler` parameter or return, or a variant of an inline `or` union. Anywhere else — an aggregate field, a payload field, an `operation` parameter or return, a carrier argument (`Address paged`) — it is refused with `loom.transport-type-position`, which names the record and the position:

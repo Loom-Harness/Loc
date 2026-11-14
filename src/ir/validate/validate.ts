@@ -11,10 +11,7 @@ import {
   validateApplierBodies,
   validatePartConstructionOwner,
 } from "./checks/body-stmt-vocabulary.js";
-import {
-  validateElixirBoundMutatingCalls,
-  validateElixirEntryResults,
-} from "./checks/call-result-checks.js";
+import { validateElixirBoundMutatingCalls } from "./checks/call-result-checks.js";
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
 import { validateCreateCallSites } from "./checks/create-call-checks.js";
@@ -62,6 +59,7 @@ import { validateMemberRepositoryAccess } from "./checks/repo-access-checks.js";
 import { validateReservedFieldNames } from "./checks/reserved-field-name-checks.js";
 import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
 import { validateResourceOpPlacement } from "./checks/resource-op-positions.js";
+import { validateResponseRecords } from "./checks/response-record-checks.js";
 import { validateSensitiveWireSupport } from "./checks/sensitivity-checks.js";
 import { validateStores } from "./checks/store-checks.js";
 import {
@@ -120,7 +118,6 @@ import {
   validatePagedQueryHandlerShape,
   validatePageGateExprs,
   validatePermissions,
-  validatePolymorphicReadRouting,
   validateProvenancedStorage,
   validateReactIdReferences,
   validateRelayTargetNotSubscribed,
@@ -379,6 +376,7 @@ export function validateLoomModel(
     validateUnknownRepositoryReads(c, diags);
     validatePersistedTableCollisions(c, diags);
     validateEntityPartParams(c, diags);
+    validateResponseRecords(c, diags);
     validateAggregateTestBodies(c, diags);
     validateTestStatementVocabulary(c, diags);
     validateContextIntegrationTests(c, diags);
@@ -434,7 +432,6 @@ export function validateLoomModel(
     validateReservedStructuralErrorNames(c, diags);
     validatePersistedCollectionPositions(c, diags, partStored.get(c.name), systemOfContext.get(c));
     validateInheritanceStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
-    validatePolymorphicReadRouting(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateEventSourcedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateProvenancedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateFieldMask(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
@@ -491,7 +488,6 @@ export function validateLoomModel(
   validateIfStatementPlacement(loom, diags);
   validateElixirMatchStatements(loom, diags);
   validateElixirBoundMutatingCalls(loom, diags);
-  validateElixirEntryResults(loom, diags);
   // Last: it speaks only when no check above refused the model.
   validateUnresolvedTypes(loom, diags);
   validateLoweringViolations(loom, diags);
