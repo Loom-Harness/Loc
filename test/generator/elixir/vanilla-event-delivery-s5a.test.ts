@@ -250,6 +250,14 @@ system Durable {
         delivery: broadcast
         retention: log
       }
+      // A consumer, so the deployable has an outbox tier: a durable event
+      // nothing consumes is dispatched inline.
+      projection OrderBoard keyed by order {
+        order: Order id
+        status: string
+        on(e: OrderPlaced) { status := "placed" }
+        on(e: OrderSettled) { status := "settled" }
+      }
     }
   }
   api SalesApi from Sales

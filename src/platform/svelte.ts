@@ -40,6 +40,7 @@ const sveltePlatform: PlatformSurface = {
     sys,
     deployable,
     topLevelComponents,
+    frontendContract,
     sourcemap,
     translations,
   }): Map<string, string> {
@@ -51,6 +52,7 @@ const sveltePlatform: PlatformSurface = {
       sys,
       deployable,
       topLevelComponents,
+      frontendContract,
       sourcemap,
       translations,
     });

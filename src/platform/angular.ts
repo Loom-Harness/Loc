@@ -43,6 +43,7 @@ const angularPlatform: PlatformSurface = {
     sys,
     deployable,
     topLevelComponents,
+    frontendContract,
     sourcemap,
     translations,
   }): Map<string, string> {
@@ -54,6 +55,7 @@ const angularPlatform: PlatformSurface = {
       sys,
       deployable,
       topLevelComponents,
+      frontendContract,
       sourcemap,
       translations,
     });

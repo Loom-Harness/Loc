@@ -19,6 +19,7 @@ import {
 } from "../generator/_obs/tracing.js";
 import { SourceMapRecorder } from "../generator/_trace/sourcemap.js";
 import { E2E_FIXTURES_TS } from "../generator/react/emit-templates.js";
+import { buildFrontendContract, type FrontendContract } from "../ir/contract/frontend-contract.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel } from "../ir/lower/lower.js";
 import type {
@@ -346,6 +347,7 @@ function emitSystem(
   for (const m of sys.subdomains) modulesByName.set(m.name, m);
 
   const migrations = systemMigrations(sys, loom, options);
+  const frontendContract = sys.uis.length > 0 ? buildFrontendContract(loom, sys) : undefined;
 
   for (const d of sys.deployables) {
     const contexts = collectContextsFor(d, modulesByName);
@@ -354,6 +356,7 @@ function emitSystem(
       emitTrace: options.emitTrace,
       migrations: ownedMigrations,
       topLevelComponents: loom.components,
+      frontendContract,
       sourcemap: options.sourcemap,
       sourceTexts: options.sourceTexts,
       translations: options.translations,
@@ -627,6 +630,7 @@ function emitDeployable(
     emitTrace?: boolean;
     migrations?: MigrationsIR[];
     topLevelComponents?: import("../ir/types/loom-ir.js").ComponentIR[];
+    frontendContract?: FrontendContract;
     sourcemap?: SourceMapRecorder;
     sourceTexts?: ReadonlyMap<string, string>;
     translations?: ReadonlyMap<string, Record<string, string>>;
@@ -666,6 +670,7 @@ function emitDeployable(
     migrations: options.migrations,
     emitTrace,
     topLevelComponents: options.topLevelComponents,
+    frontendContract: options.frontendContract,
     styleAdapter: resolvedStyle,
     layoutAdapter: resolvedLayout,
     // Scoped so paths the platform records land pre-prefixed with `sub`,

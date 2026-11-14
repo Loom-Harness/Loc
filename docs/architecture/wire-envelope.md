@@ -1,6 +1,6 @@
 # Wire envelope — the four response shapes
 
-> **Pins [D-ENVELOPE](../decisions.md#d-envelope--the-wire-envelope-rule).**
+> **Pins [D-ENVELOPE](../decisions/D-ENVELOPE.md).**
 > Status: bare-value, `Paged<T>` and ProblemDetails are emitted by every
 > backend as described below; event-frame is the pinned shape for event
 > streams.

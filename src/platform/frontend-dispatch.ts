@@ -21,6 +21,7 @@ import { generateAngularForContexts } from "../generator/angular/index.js";
 import { generateReactForContexts } from "../generator/react/index.js";
 import { generateSvelteForContexts } from "../generator/svelte/index.js";
 import { generateVueForContexts } from "../generator/vue/index.js";
+import type { FrontendContract } from "../ir/contract/frontend-contract.js";
 import type {
   ComponentIR,
   DeployableIR,
@@ -34,6 +35,8 @@ export interface FrontendEmitArgs {
   sys: SystemIR;
   deployable: DeployableIR;
   topLevelComponents?: ComponentIR[];
+  /** The system's Frontend Contract — see `PlatformSurface.emitProject`. */
+  frontendContract?: FrontendContract;
   /** Generate-time source-map recorder (M8 — see `PlatformSurface.emitProject`'s
    *  doc comment).  Forwarded verbatim into the generator's own options; no
    *  scoping happens here (the system orchestrator already scoped it per
@@ -55,6 +58,7 @@ const forward =
       deployable: DeployableIR,
       options: {
         topLevelComponents?: ComponentIR[];
+        frontendContract?: FrontendContract;
         sourcemap?: SourceMapRecorder;
         translations?: TranslationCatalogs;
       },
@@ -63,6 +67,7 @@ const forward =
   (a) =>
     gen(a.contexts, a.sys, a.deployable, {
       topLevelComponents: a.topLevelComponents,
+      frontendContract: a.frontendContract,
       sourcemap: a.sourcemap,
       translations: a.translations,
     });

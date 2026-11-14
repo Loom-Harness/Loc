@@ -1,0 +1,60 @@
+// A broker-wired deployable that hosts two durable channels: one bound to the
+// broker, one with no channelSource.
+//
+// `OrderPlaced` rides the broker (the outbox relay publishes it).  `OrderNoted`
+// rides no broker: it is captured in the same outbox and redelivered
+// in-process to the `noteIt` reactor, at-least-once.  The deployable wiring a
+// broker must not demote the unbound durable channel to an inline,
+// at-most-once dispatch.
+system ChannelsBrokerMixedDurableSys {
+  subdomain Sales {
+    context Orders {
+      aggregate Order {
+        customerId: string
+        status: string
+        operation place() {
+          precondition status == "Draft"
+          status := "Placed"
+          emit OrderPlaced { order: id, at: now() }
+          emit OrderNoted { order: id }
+        }
+      }
+      repository Orders for Order { }
+      aggregate Note {
+        orderRef: string
+      }
+      repository Notes for Note { }
+      event OrderPlaced { order: Order id, at: datetime }
+      event OrderNoted { order: Order id }
+      channel Lifecycle {
+        carries: OrderPlaced
+        delivery: queue
+        retention: work
+      }
+      channel Audit {
+        carries: OrderNoted
+        delivery: queue
+        retention: work
+      }
+      workflow noteIt {
+        orderId: Order id
+        create(e: OrderNoted) by e.order {
+          let n = Note.create(orderRef: "noted")
+        }
+      }
+    }
+  }
+  api OrdersApi from Sales
+  storage pg { type: postgres }
+  storage bus { type: rabbitmq }
+  resource ordersState { for: Orders, kind: state, use: pg }
+  channelSource lifecycleBus { for: Lifecycle, use: bus }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Orders]
+    dataSources: [ordersState]
+    channels: [lifecycleBus]
+    serves: OrdersApi
+    port: 4000
+  }
+}
