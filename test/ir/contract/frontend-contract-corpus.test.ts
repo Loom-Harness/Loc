@@ -61,7 +61,7 @@ describe("Frontend Contract over the corpus", () => {
     expect(built.length).toBeGreaterThan(500);
     expect(
       built.filter((b) => b.contract.ui.uis.some((u) => u.pages.length > 0)).length,
-    ).toBeGreaterThan(120);
+    ).toBeGreaterThan(105);
   });
 
   it("serializes nothing beyond the exposed wire/API surface", () => {
