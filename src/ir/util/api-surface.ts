@@ -1,3 +1,4 @@
+import { PLAIN_FIND_FLAGS } from "../types/loom-ir.js";
 // The api's operation set, as IR data — the single source of truth for what
 // an `api` actually exposes over HTTP.
 //
@@ -668,6 +669,7 @@ export function derivePolymorphicReadOperations(
   const path = aggregateBase(base.name);
   const resolve = (name: string): number => resolveErrorStatus(name, denialOverridesFor(statuses));
   const all: FindIR = {
+    ...PLAIN_FIND_FLAGS,
     name: "all",
     params: [],
     returnType: { kind: "genericInstance", ctor: "paged", arg: entityType(base.name) },
