@@ -54,10 +54,10 @@ import {
   walkWorkflowStmtsDeep,
 } from "../../../ir/util/walk.js";
 import { bodyWriteScopeGuards, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import { claimsDerivedSlot } from "../../_api/explicit-route-mount.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import type { ApiRoute } from "../api-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { type StrictIngressField, strictIngressFields } from "../wire-policy-ex.js";
@@ -103,6 +103,8 @@ import {
   lowerStatements,
   tagsNotFoundMiss,
 } from "./workflow-execution-emit.js";
+
+const N = DOMAIN_NAMES.elixir;
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
 
@@ -201,7 +203,7 @@ function handlerDestructure(
   const push = (name: string): void => {
     if (seen.has(name)) return;
     seen.add(name);
-    entries.push({ key: name, var: escapeElixirIdent(snake(name)) });
+    entries.push({ key: name, var: N.binding(name) });
   };
   for (const p of h.params) {
     const rec = requestRecordFor(p.type, ctx);
@@ -268,8 +270,8 @@ function renderExternDispatchModule(
   appModule: string,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  const contextModuleFq = `${appModule}.${upperFirst(ctx.name)}`;
-  const moduleName = `${contextModuleFq}.Handlers.${upperFirst(h.name)}`;
+  const contextModuleFq = `${appModule}.${N.type(ctx.name)}`;
+  const moduleName = `${contextModuleFq}.Handlers.${N.type(h.name)}`;
   const implModule = `${moduleName}Impl`;
   return `# Auto-generated.
 defmodule ${moduleName} do
@@ -300,11 +302,11 @@ function renderExternImplModule(
   appModule: string,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  const contextModuleFq = `${appModule}.${upperFirst(ctx.name)}`;
-  const moduleName = `${contextModuleFq}.Handlers.${upperFirst(h.name)}Impl`;
+  const contextModuleFq = `${appModule}.${N.type(ctx.name)}`;
+  const moduleName = `${contextModuleFq}.Handlers.${N.type(h.name)}Impl`;
   const appSnake = appAtom(appModule);
-  const ctxSnake = snake(ctx.name);
-  const fileRel = `lib/${appSnake}/${ctxSnake}/handlers/${snake(h.name)}_impl.ex`;
+  const ctxSnake = N.stem(ctx.name);
+  const fileRel = `lib/${appSnake}/${ctxSnake}/handlers/${N.stem(h.name)}_impl.ex`;
   return `# ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first
 # \`generate\` and NEVER overwrites it again, so your implementation survives every
 # regenerate.  Replace the \`raise\` with the extern handler's real logic (the one
@@ -336,9 +338,9 @@ function renderHandlerModule(
 ): string {
   // Extern handler: bodyless — the dispatch delegates to the scaffold-once impl.
   if (h.extern) return renderExternDispatchModule(h, kindLabel, appModule, ctx);
-  const ctxModule = upperFirst(ctx.name);
+  const ctxModule = N.type(ctx.name);
   const contextModuleFq = `${appModule}.${ctxModule}`;
-  const moduleName = `${contextModuleFq}.Handlers.${upperFirst(h.name)}`;
+  const moduleName = `${contextModuleFq}.Handlers.${N.type(h.name)}`;
 
   // M-T5.10: flatten `command`/`query` record params into their referenced
   // fields (destructured off the string-keyed `run/1` map) and rewrite the
@@ -510,17 +512,17 @@ export function emitExplicitHandlers(
   out: Map<string, string>,
   resourceModules: Map<string, string> = new Map(),
 ): void {
-  const ctxSnake = snake(ctx.name);
+  const ctxSnake = N.stem(ctx.name);
   const appSnake = appModule.replace(/([A-Z])/g, (_, c, i) => (i ? "_" : "") + c.toLowerCase());
   const emit = (h: Handler, kind: "Command handler" | "Query handler"): void => {
     out.set(
-      `lib/${appSnake}/${ctxSnake}/handlers/${snake(h.name)}.ex`,
+      `lib/${appSnake}/${ctxSnake}/handlers/${N.stem(h.name)}.ex`,
       renderHandlerModule(h, kind, appModule, ctx, resourceModules),
     );
     // Extern: the scaffold-once user impl the dispatch above delegates to.
     if (h.extern) {
       out.set(
-        `lib/${appSnake}/${ctxSnake}/handlers/${snake(h.name)}_impl.ex`,
+        `lib/${appSnake}/${ctxSnake}/handlers/${N.stem(h.name)}_impl.ex`,
         renderExternImplModule(
           h,
           kind === "Command handler" ? "commandHandler" : "queryHandler",
@@ -664,7 +666,7 @@ export function emitExplicitRoutesController(
   if (routes.length === 0) return [];
   const byName = new Map<string, EnrichedBoundedContextIR>(contexts.map((c) => [c.name, c]));
   const webModule = `${appModule}Web`;
-  const controller = `${upperFirst(apiName)}RoutesController`;
+  const controller = `${N.type(apiName)}RoutesController`;
   // Every explicit route is a DOMAIN route, spliced into `scope "/api"`.  An
   // ordinary one goes `first`, ahead of the derived aggregate routes it may
   // out-specify.  One that takes over a derived slot (the derived surface
@@ -701,7 +703,7 @@ export function emitExplicitRoutesController(
     const resolved = resolveRoute(r, byName);
     if (!resolved) continue;
     const { ctx, handler } = resolved;
-    const action = snake(handler.name);
+    const action = N.stem(handler.name);
     const queryParams = routeQueryParams(r, handler, ctx);
     checkedParams.push(...queryParams.map((param) => ({ param, ctx })));
     // paged-run queryHandler: call the aggregate context's synthesized paged FIND
@@ -710,7 +712,7 @@ export function emitExplicitRoutesController(
     if (!handler.extern && handler.returnType && pagedReturn(handler.returnType)) {
       hasPaged = true;
       const run = pagedRunStmt(handler, ctx);
-      const ctxFn = `${appModule}.${upperFirst(ctx.name)}.${snake(pagedRunFindName(run))}_${snake(run.aggName)}`;
+      const ctxFn = `${appModule}.${N.type(ctx.name)}.${N.stem(pagedRunFindName(run))}_${N.stem(run.aggName)}`;
       // Each criterion param is read coerced to its declared type (checked
       // first, below) — the paged FIND over a document carrier filters in
       // memory, where `6 >= "6"` is silently false.
@@ -754,7 +756,7 @@ ${pagingElseArm("ProblemDetails", "    ")}
       } else {
         const gateCtx: RenderCtx = {
           thisName: "record",
-          contextModule: `${appModule}.${upperFirst(ctx.name)}`,
+          contextModule: `${appModule}.${N.type(ctx.name)}`,
           paramRenames: Object.fromEntries(handler.params.map((p) => [p.name, findParamRead(p)])),
         };
         const arms = gates.map(
@@ -793,7 +795,7 @@ ${pagingElseArm("ProblemDetails", "    ")}
       if (handlerLoadsById(handler) || routedAbsenceAnswers404(handler, ctx)) loadsById = true;
       if (!handler.returnType) hasVoid = true;
     }
-    const handlerMod = `${appModule}.${upperFirst(ctx.name)}.Handlers.${upperFirst(handler.name)}`;
+    const handlerMod = `${appModule}.${N.type(ctx.name)}.Handlers.${N.type(handler.name)}`;
     if (["POST", "PUT", "PATCH"].includes(r.method.toUpperCase())) {
       const routeTokens = new Set([...r.path.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!));
       const slots = handler.params.flatMap((p) => requestRecordFor(p.type, ctx)?.fields ?? [p]);
@@ -838,7 +840,7 @@ ${checkRouteParams(queryParams, ctx, call)}
   );
 
   out.set(
-    `lib/${appName}_web/controllers/${snake(apiName)}_routes_controller.ex`,
+    `lib/${appName}_web/controllers/${N.stem(apiName)}_routes_controller.ex`,
     `# Auto-generated.
 defmodule ${webModule}.${controller} do
   use ${webModule}, :controller

@@ -30,10 +30,13 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import type { EntryResult, EntryResultLeaf } from "../../../ir/util/entry-result.js";
 import { walkExprDeep, walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
-import { elixirString, escapeElixirIdent, snake } from "../../../util/naming.js";
+import { elixirString } from "../../../util/naming.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { exErrorVariant } from "../wire-policy-ex.js";
 import { elixirUnionScrutinee, elixirVariantPattern } from "./match-stmt-emit.js";
 import { renderWireSerialize, renderWorkflowInstanceSerialize } from "./wire-serialize.js";
+
+const N = DOMAIN_NAMES.elixir;
 
 type MatchExpr = Extract<ExprIR, { kind: "match" }>;
 type SubjectArm = MatchExpr["variantArms"][number];
@@ -83,7 +86,7 @@ function leafOutcome(leaf: EntryResultLeaf, o: EntryOutcomeOpts): string {
     case "aggregate":
       // Read back after the body's saves: an op persisted the row and moved
       // its version, which the bound handle does not carry.
-      return `(case ${o.contextModule}.get_${snake(leaf.arm.name)}(${o.render(leaf.value)}.id) do {:ok, row} -> {:ok, {${tag}, row}}; err -> err end)`;
+      return `(case ${o.contextModule}.get_${N.stem(leaf.arm.name)}(${o.render(leaf.value)}.id) do {:ok, row} -> {:ok, {${tag}, row}}; err -> err end)`;
     case "workflow":
       return `{:ok, {${tag}, ${o.selfValue ?? "state"}}}`;
   }
@@ -96,7 +99,7 @@ export function renderEntryOutcome(r: EntryResult, o: EntryOutcomeOpts): string 
   const m = r.match;
   const subject = o.render(m.subject!);
   const binderFor = (leaf: EntryResultLeaf, arm: SubjectArm | undefined): string =>
-    arm?.binding && reads(leaf.value, arm.binding) ? escapeElixirIdent(snake(arm.binding)) : "_";
+    arm?.binding && reads(leaf.value, arm.binding) ? N.binding(arm.binding) : "_";
   if (m.subjectShape === "absence" || m.subjectType?.kind === "optional") {
     const isAbsent = (a: SubjectArm) => a.varType.kind === "none" || !!a.isError;
     const present = r.leaves.find((l) => l.subjectArm && !isAbsent(l.subjectArm));
@@ -136,10 +139,10 @@ export function entrySerializers(
       if (arm.kind === "aggregate") {
         const agg = ctx.aggregates.find((a) => a.name === arm.name);
         if (!agg) continue;
-        const suffix = `entry_${snake(arm.name)}`;
+        const suffix = `entry_${N.stem(arm.name)}`;
         add(renderWireSerialize(agg, ctx, { nameSuffix: suffix }), `serialize_${suffix}`);
       } else if (arm.kind === "workflow" && wf) {
-        add(renderWorkflowInstanceSerialize(wf, ctx), `serialize_${snake(wf.name)}`);
+        add(renderWorkflowInstanceSerialize(wf, ctx), `serialize_${N.stem(wf.name)}`);
       }
     }
   }
@@ -175,13 +178,13 @@ export function renderEntryResponders(
           break;
         case "aggregate":
           clauses.push(
-            `  def ${fn}(conn, {:ok, {${tag}, v}}), do: json(conn, Map.put(serialize_entry_${snake(arm.name)}(v), "type", ${tag}))`,
+            `  def ${fn}(conn, {:ok, {${tag}, v}}), do: json(conn, Map.put(serialize_entry_${N.stem(arm.name)}(v), "type", ${tag}))`,
           );
           break;
         case "workflow":
           if (wf) {
             clauses.push(
-              `  def ${fn}(conn, {:ok, {${tag}, v}}), do: json(conn, Map.put(serialize_${snake(wf.name)}(v), "type", ${tag}))`,
+              `  def ${fn}(conn, {:ok, {${tag}, v}}), do: json(conn, Map.put(serialize_${N.stem(wf.name)}(v), "type", ${tag}))`,
             );
           }
           break;

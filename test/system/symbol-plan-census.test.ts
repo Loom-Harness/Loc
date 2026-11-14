@@ -88,6 +88,60 @@ const USE_SITE_EMITTERS: Readonly<Record<string, readonly CasingWaiver[]>> = {
   ],
   "src/generator/python/dispatch-builder.ts": [],
   "src/generator/python/entry-result-emit.ts": [],
+  "src/generator/dotnet/workflow-emit.ts": [
+    { call: "snake(wf.name)", count: 2, standing: "route segment of the workflow's endpoints" },
+    {
+      call: "snake(wf.correlationField as string)",
+      count: 1,
+      standing: "primary-key column of the workflow state table",
+    },
+  ],
+  "src/generator/dotnet/workflow-eventsourced-emit.ts": [],
+  "src/generator/dotnet/workflow-state-emit.ts": [
+    { call: "snake(f.name)", count: 1, standing: "column of the workflow state table" },
+  ],
+  "src/generator/dotnet/explicit-handlers-emit.ts": [],
+  "src/generator/dotnet/entry-result-emit.ts": [],
+  "src/generator/dotnet/cqrs/commands.ts": [],
+  "src/generator/dotnet/cqrs/queries.ts": [],
+  "src/generator/dotnet/emit/dapper-workflow.ts": [
+    {
+      call: "snake(proj.correlationField as string)",
+      count: 1,
+      standing: "key column of the projection table",
+    },
+    {
+      call: "snake(wf.correlationField as string)",
+      count: 1,
+      standing: "key column of the workflow state table",
+    },
+  ],
+  "src/generator/java/emit/workflow.ts": [
+    { call: "snake(wf.name)", count: 1, standing: "route segment of the workflow's endpoint" },
+  ],
+  "src/generator/java/emit/workflow-eventsourced.ts": [],
+  "src/generator/java/emit/workflow-instances.ts": [
+    { call: "snake(wf.name)", count: 1, standing: "route segment of the instance endpoints" },
+  ],
+  "src/generator/java/emit/workflow-state.ts": [
+    { call: "snake(corr)", count: 1, standing: "correlation column of the workflow state table" },
+  ],
+  "src/generator/java/emit/service.ts": [],
+  "src/generator/java/emit/dispatch.ts": [],
+  "src/generator/java/emit/entry-result.ts": [],
+  "src/generator/java/explicit-handlers-emit.ts": [],
+  "src/generator/elixir/vanilla/workflow-execution-emit.ts": [
+    { call: "snake(wf.name)", count: 1, standing: "route segment of the workflow's endpoint" },
+    { call: "upperFirst(st.aggName)", count: 1, standing: "not-found message text" },
+  ],
+  "src/generator/elixir/vanilla/workflow-eventsourced-emit.ts": [
+    { call: "snake(f.name)", count: 2, standing: "key of the event's jsonb data, a stored name" },
+  ],
+  "src/generator/elixir/vanilla/workflow-instances-emit.ts": [
+    { call: "upperFirst(wf.name)", count: 2, standing: "not-found message text" },
+  ],
+  "src/generator/elixir/vanilla/explicit-handlers-emit.ts": [],
+  "src/generator/elixir/vanilla/entry-result-emit.ts": [],
 };
 
 /** The raw escaping funnels the plan wraps. */
@@ -159,7 +213,7 @@ describe("symbol-plan census: the use-site emitters spell names through the plan
     const present = Object.keys(USE_SITE_EMITTERS).filter((rel) =>
       fs.existsSync(path.join(ROOT, rel)),
     );
-    expectReach("use-site emitter files", present.length, 8);
+    expectReach("use-site emitter files", present.length, 29);
   });
 
   it("the detector reads a casing call with its argument and ignores a plan read", () => {
