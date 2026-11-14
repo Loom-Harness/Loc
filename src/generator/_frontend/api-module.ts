@@ -240,25 +240,34 @@ export function buildApiModule(
   }
   lines.push("");
 
-  for (const op of agg.operations.filter((o) => o.visibility === "public")) {
+  for (const op of contractOps.filter((o) => o.kind === "operation")) {
     // Field-level invariants (SYS-1): the update/mutating-op client schema gets
     // the SAME wire constraints as create, mirroring the server DTO, so the
-    // client form validates an update as strictly as a create.  `available =
-    // op.params` drops any invariant over a field this op doesn't take.
-    const opInvariants = [...agg.invariants, ...preconditionsAsInvariants(op)];
+    // client form validates an update as strictly as a create.  The contract
+    // carries the rules that read only this operation's body.
+    const opName = upperFirst(op.opName ?? "");
+    const body = op.params.filter((p) => p.location === "body");
+    const optional = new Set(op.optionalParams ?? []);
     lines.push(
       ...emitObjectWithRefines(
-        `${upperFirst(op.name)}${agg.name}Request`,
-        opRequestFields(op),
-        opInvariants,
-        new Set(op.params.map((p) => p.name)),
+        `${opName}${agg.name}Request`,
+        body.map((p) => ({
+          name: p.name,
+          base: optional.has(p.name)
+            ? `${zodForRequest(p.type)}.optional()`
+            : zodForRequest(p.type),
+        })),
+        // The refine renderer reads `expr` / `guard` / `message`; the rule's
+        // `.ddd` text is not part of the contract.
+        (op.invariants ?? []).map((inv) => ({ ...inv, source: "" })),
+        new Set(body.map((p) => p.name)),
       ),
     );
     lines.push(
-      `export type ${upperFirst(op.name)}${agg.name}Request = z.infer<typeof ${upperFirst(op.name)}${agg.name}Request>;`,
+      `export type ${opName}${agg.name}Request = z.infer<typeof ${opName}${agg.name}Request>;`,
     );
-    if (op.params.some((p) => typeReachesMoney(p.type, ctx))) {
-      lines.push(...dualTypeAliases(`${upperFirst(op.name)}${agg.name}`));
+    if (body.some((p) => typeReachesMoney(p.type, ctx))) {
+      lines.push(...dualTypeAliases(`${opName}${agg.name}`));
     }
   }
   lines.push("");
@@ -767,21 +776,6 @@ function emitObjectWithRefines(
     out.push(`  ${f.name}: ${schema},`);
   }
   out.push(`})${refines.join("")};`);
-  return out;
-}
-
-/** Operation preconditions are the wire-translatable rules for an
- *  `<Op>Request`.  Lift each `precondition <expr>` statement to an
- *  `InvariantIR` so the same classification + refine pipeline
- *  handles it.  Other statement kinds (assigns / emits / etc.) don't
- *  contribute to wire validation. */
-function preconditionsAsInvariants(op: OperationIR): InvariantIR[] {
-  const out: InvariantIR[] = [];
-  for (const s of op.statements) {
-    if (s.kind === "precondition") {
-      out.push({ expr: s.expr, source: s.source, message: s.message });
-    }
-  }
   return out;
 }
 
