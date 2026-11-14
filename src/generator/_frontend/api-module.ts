@@ -1,5 +1,5 @@
 import type { ContractOperation } from "../../ir/contract/frontend-contract.js";
-import { createInputFields, forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -13,7 +13,6 @@ import {
   aggregateUsesMoneyDeep,
   type BoundedContextIR,
   type EnrichedAggregateIR,
-  type EnrichedEntityPartIR,
   type EnumIR,
   type InvariantIR,
   type OperationIR,
@@ -27,6 +26,7 @@ import {
 } from "../../ir/types/wire-types.js";
 import { AUDIT_HISTORY_FIND } from "../../ir/util/audit-history.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
+import type { ContractResponse, ContractResponseField } from "../../ir/util/declared-response.js";
 import { maskedPatchParams } from "../../ir/util/op-gates.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
@@ -77,6 +77,8 @@ export interface ApiModuleOptions {
   finds: readonly ClientFind[];
   /** The aggregate serves its entity-history trail. */
   history: boolean;
+  /** The contract's response records, one per aggregate and part. */
+  responses: readonly ContractResponse[];
   /** The aggregate's operations from the Frontend Contract: which REST
    *  surface exists (create, destroy) and which writes send `If-Match`. */
   operations: readonly ContractOperation[];
@@ -308,9 +310,9 @@ export function buildApiModule(
   // before the root references them — and a nested part before the sibling
   // that references it (`z.array(LabelResponse)`), hence children-first.
   for (const part of partsChildrenFirst(agg.parts)) {
-    lines.push(...emitResponseSchema(part, ctx, /*isAgg*/ false));
+    lines.push(...emitResponseSchema(part.name, options.responses));
   }
-  lines.push(...emitResponseSchema(agg, ctx, /*isAgg*/ true));
+  lines.push(...emitResponseSchema(agg.name, options.responses));
   lines.push(`export const ${agg.name}ListResponse = z.array(${agg.name}Response);`);
   lines.push(`export type ${agg.name}ListResponse = z.infer<typeof ${agg.name}ListResponse>;`);
   // Paged response DTOs (P3b) — one per distinct `<carrier> paged` find return.
@@ -783,37 +785,51 @@ function preconditionsAsInvariants(op: OperationIR): InvariantIR[] {
   return out;
 }
 
-function emitResponseSchema(
-  ent: EnrichedAggregateIR | EnrichedEntityPartIR,
-  ctx: BoundedContextIR,
-  isAgg: boolean,
-): string[] {
+function emitResponseSchema(entity: string, responses: readonly ContractResponse[]): string[] {
+  const response = responses.find((r) => r.entity === entity);
+  if (!response) {
+    throw new Error(`the Frontend Contract carries no response record for '${entity}'`);
+  }
   const lines: string[] = [];
-  const name = `${ent.name}Response`;
+  const name = `${entity}Response`;
   lines.push(`export const ${name} = z.object({`);
-  // Single canonical walk — `wireFieldsFor` recomputes the wire shape from the
-  // enriched node's fields (the scaffold-time helper in wire-projection.ts).
-  // Backends + frontend all read the same field list, so Zod schemas line up
-  // field-for-field with what the wire actually carries.  `forApiRead` strips
-  // `internal` and `secret` fields so the response schema matches what the
-  // .NET and Hono backends actually serve.
-  const fields = forApiRead(wireFieldsFor(ent));
-  void ctx;
-  void isAgg;
-  for (const wf of fields) {
-    if (wf.source === "id") {
-      lines.push(`  ${wf.name}: z.string(),`);
+  // The declared response record, as the contract carries it: the fields the
+  // wire serves, in order.  A provenanced field rides inside its
+  // `Provenanced<T>` carrier, whose lineage `zodForResponse`'s `provenanced`
+  // arm renders from the one shape definition.
+  for (const f of response.fields) {
+    if (f.name === "id" && f.type.kind === "id") {
+      lines.push(`  ${f.name}: z.string(),`);
     } else {
-      lines.push(`  ${wf.name}: ${zodForResponse(wf.type, wf.optional)},`);
+      lines.push(`  ${f.name}: ${zodForResponse(responseWireType(f), f.optional)},`);
     }
   }
-  // The lineage is NOT appended here as a trailing
-  // `<field>_provenance` sibling — it rides INSIDE the provenanced field's own
-  // entry as the `Provenanced<T>` carrier, emitted by `zodForResponse`'s
-  // `provenanced` arm from the one shape definition.
   lines.push(`});`);
   lines.push(`export type ${name} = z.infer<typeof ${name}>;`);
   return lines;
+}
+
+/** A response record field's wire type: the carrier around a provenanced
+ *  field, and a contained part named by its entity rather than its
+ *  `<Part>Response` record (the schema emitter appends the suffix). */
+function responseWireType(f: ContractResponseField): TypeIR {
+  const t = recordRefsToEntities(f.type);
+  return f.provenanced ? { kind: "genericInstance", ctor: "provenanced", arg: t } : t;
+}
+
+function recordRefsToEntities(t: TypeIR): TypeIR {
+  switch (t.kind) {
+    case "entity":
+      return t.declKind === "response" && t.name.endsWith("Response")
+        ? { kind: "entity", name: t.name.slice(0, -"Response".length), declKind: "part" }
+        : t;
+    case "array":
+      return { kind: "array", element: recordRefsToEntities(t.element) };
+    case "optional":
+      return { kind: "optional", inner: recordRefsToEntities(t.inner) };
+    default:
+      return t;
+  }
 }
 
 // ---------------------------------------------------------------------------

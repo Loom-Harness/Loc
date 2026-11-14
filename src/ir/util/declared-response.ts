@@ -56,6 +56,9 @@ export interface ContractResponseField {
   /** The field is redacted to `null` for a caller who fails its `mask unless`
    *  predicate.  The flag ships; the predicate never does. */
   maskable?: true;
+  /** The field rides the wire inside the `Provenanced<T>` carrier, with its
+   *  lineage beside the value. */
+  provenanced?: true;
 }
 
 /** The declared response records of `agg` and of every part it contains, read
@@ -84,6 +87,7 @@ function contractResponse(rec: PayloadIR, entity: string): ContractResponse {
     type: f.type,
     optional: f.optional,
     ...(f.maskUnless !== undefined ? { maskable: true as const } : {}),
+    ...(f.provenanced ? { provenanced: true as const } : {}),
   }));
   if (!fields.some((f) => f.name === "id")) {
     fields.unshift({ name: "id", type: { kind: "id", targetName: entity }, optional: false });

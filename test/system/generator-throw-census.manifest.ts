@@ -1243,6 +1243,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     guardedBy: ["loom.react-deployable-missing-ui", "loom.static-deployable-missing-ui"],
     note: "A react deployable without ui:/hosts: is rejected (verified: parse reports the error).",
   },
+  "src/generator/_frontend/api-module.ts#emitResponseSchema": {
+    invariant:
+      "The api module renders a response schema for the aggregates and parts of a served context, and the Frontend Contract carries a response record for every one of them: a served context declares the <Entity>Response records (scaffoldHandlers, the implicit api form, or by hand), and contractResponsesFor reads them for every aggregate and part.",
+  },
   "src/generator/_frontend/contract.ts#requireFrontendContract": {
     invariant:
       "Every caller passes the system's Frontend Contract: the orchestrator builds it for any system with a ui and threads it through emitProject (src/system/index.ts emitSystem), the frontend surfaces forward it (src/platform/frontend-dispatch.ts), and each backend embedding a bundle forwards it from its emitProject args.",
