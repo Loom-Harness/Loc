@@ -64,11 +64,12 @@ const javaPlatform: PlatformSurface = {
     styleAdapter,
     layoutAdapter,
     sourcemap,
+    frontendContract,
   }): Map<string, string> {
     return generateJavaForContexts(
       contexts,
       deployable.name,
-      { deployable, sys, migrations, styleAdapter, layoutAdapter },
+      { deployable, sys, migrations, styleAdapter, layoutAdapter, frontendContract },
       { emitTrace, sourcemap },
     );
   },

@@ -809,7 +809,7 @@ Gates (`src/language/validators/timer.ts` for the cadence, `src/ir/validate/chec
 | `loom.timer-source-unbound` | no workflow reacts to the event (**warning**) — the timer fires into the void. |
 | `loom.reserved-not-emitted` | `in: "<tz>"` and `overlap: allow` parse and reach the IR, but **no emitter reads either** — cron is evaluated in the container's clock, and every backend still guards against an overlapping run. |
 
-Every timer fires once per period across the replicas of its owning deployable and across deployables that share its storage ([D-TIMER-SINGLE-FIRE](../decisions.md)).
+Every timer fires once per period across the replicas of its owning deployable and across deployables that share its storage ([D-TIMER-SINGLE-FIRE](../decisions/D-TIMER-SINGLE-FIRE.md)).
 
 A `cron:` timer runs on its backend's durable job runner. Single-fire across replicas, automatic retry and missed-boundary catch-up come from the runner, not from Loom.
 

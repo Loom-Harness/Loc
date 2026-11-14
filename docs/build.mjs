@@ -22,7 +22,7 @@ const SOURCE_BASE = 'https://github.com/Loom-Harness/Loc';
 
 // Subdirs whose .md content is also rendered.  Nested paths are
 // supported (depth derived from the path).
-export const RENDERED_SUBDIRS = ['language-reference', 'architecture'];
+export const RENDERED_SUBDIRS = ['language-reference', 'architecture', 'decisions'];
 
 // Nav surfaces the top-level reading order — keep in sync with
 // docs/README.md's "Start here" table and docs/index.html's footer.

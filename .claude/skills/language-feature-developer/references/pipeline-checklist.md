@@ -81,6 +81,13 @@ tells you when it applies.
     then wire the call into the `lower.ts` orchestrator. Leaves never import
     `lower.ts` (the graph is acyclic).
 - `src/ir/stdlib/<feature>.ts` — shared IR-construction helpers (optional).
+- **Frontend Contract** — a new field or kind on an IR type the contract copies
+  (`TypeIR`, `ExprIR`, `StmtIR`, the UI types, `PayloadIR`/`FieldIR`, `EventIR`,
+  `ApiIR`/`RouteIR`, `ApiOperationIR`) fails `tsc` in `src/ir/contract/` until
+  it is classified there: `keep` (plain data the client needs), a nested spec,
+  `drop` (bookkeeping, IR back-links) or `deny` (a domain fact that must never
+  reach a client). A field that ships also goes into the `SHIPPED` pin in
+  `test/ir/contract/frontend-contract-census.test.ts`.
 
 ### ⑥ Enrich — only if it feeds wireShape / auto-findAll / associations / migrationsOwner
 - `src/ir/enrich/enrichments.ts` — extend the single pure derivation pass. The

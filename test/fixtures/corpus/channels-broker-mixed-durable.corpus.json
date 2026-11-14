@@ -1,0 +1,9 @@
+{
+  "title": "broker-wired deployable hosting a broker-bound durable channel and an unbound durable channel with a local reactor",
+  "doc": "channels",
+  "backends": "ALL",
+  "note": "the unbound durable event must ride the outbox and be redelivered in-process, not run inline because the deployable wires a broker.  On java and elixir the broker relay and the local relay share __loom_outbox and partition it by event type; the compile tier checks that both relays and their per-type queries build.",
+  "apiCaller": {
+    "e2eLess": "BROKER SIDECAR: the four real-process behavioural legs cannot boot a broker-wired deployable without a broker URL (#5613), and the redelivery is asynchronous, which the `test e2e` vocabulary cannot wait on.  The compile tier and test/generator/channel-consumer-wiring.test.ts carry the wiring."
+  }
+}
