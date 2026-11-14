@@ -146,7 +146,7 @@ describe("enrichment", () => {
       bypassCaps: ["softDeletable"],
       synthesized: true,
     });
-    expect(byId).not.toHaveProperty("takeFirst");
+    expect(byId?.takeFirst).toBe(false);
     // The plain read still materialises the shared retrieval.
     expect(c.retrievals.map((r) => r.name)).toContain("findAllByInRegion");
   });

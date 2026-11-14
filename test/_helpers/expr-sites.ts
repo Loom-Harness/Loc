@@ -50,15 +50,20 @@ interface Decl {
   /** Every named type this declaration references anywhere (including inside
    *  its property types) — the edges reachability follows. */
   readonly refs: Set<string>;
+  /** The interfaces this one `extends`. */
+  readonly bases: readonly string[];
 }
 
 /** Every named type reference inside a type node, at any depth. */
-function referencedNames(node: ts.TypeNode): Set<string> {
+function referencedNames(node: ts.Node): Set<string> {
   const out = new Set<string>();
   const visit = (n: ts.Node): void => {
     if (ts.isTypeReferenceNode(n)) {
       const name = n.typeName;
       out.add(ts.isIdentifier(name) ? name.text : name.right.text);
+    } else if (ts.isExpressionWithTypeArguments(n) && ts.isIdentifier(n.expression)) {
+      // An `extends` clause names its base this way, not as a type reference.
+      out.add(n.expression.text);
     }
     ts.forEachChild(n, visit);
   };
@@ -73,7 +78,12 @@ function readDecls(): Map<string, Decl> {
   );
   const decls = new Map<string, Decl>();
 
-  const addMembers = (name: string, members: readonly ts.TypeElement[], extra: ts.Node[]): void => {
+  const addMembers = (
+    name: string,
+    members: readonly ts.TypeElement[],
+    extra: ts.Node[],
+    bases: readonly string[] = [],
+  ): void => {
     const props = new Map<string, ts.TypeNode>();
     const refs = new Set<string>();
     for (const m of members) {
@@ -84,7 +94,7 @@ function readDecls(): Map<string, Decl> {
       for (const r of referencedNames(m.type)) refs.add(r);
     }
     for (const n of extra) {
-      if (ts.isTypeNode(n)) for (const r of referencedNames(n)) refs.add(r);
+      for (const r of referencedNames(n)) refs.add(r);
     }
     // A name can be declared twice (interface merging); union the shapes rather
     // than letting the second declaration silently replace the first.
@@ -94,7 +104,7 @@ function readDecls(): Map<string, Decl> {
       for (const r of refs) prev.refs.add(r);
       return;
     }
-    decls.set(name, { props, refs });
+    decls.set(name, { props, refs, bases });
   };
 
   for (const st of statements) {
@@ -102,7 +112,10 @@ function readDecls(): Map<string, Decl> {
       // `extends` clauses are edges too — a base's expression sites belong to
       // the derived type.
       const heritage = (st.heritageClauses ?? []).flatMap((h) => [...h.types]);
-      addMembers(st.name.text, st.members, heritage);
+      const bases = heritage.flatMap((h) =>
+        ts.isIdentifier(h.expression) ? [h.expression.text] : [],
+      );
+      addMembers(st.name.text, st.members, heritage, bases);
     } else if (ts.isTypeAliasDeclaration(st)) {
       const t = st.type;
       if (ts.isTypeLiteralNode(t)) {
@@ -145,7 +158,7 @@ function readDecls(): Map<string, Decl> {
       if (prev) {
         for (const [k, v] of props) prev.props.set(k, v);
         for (const r of refs) prev.refs.add(r);
-      } else decls.set(st.name.text, { props, refs });
+      } else decls.set(st.name.text, { props, refs, bases: [] });
     }
   }
   return decls;
@@ -181,14 +194,30 @@ function reachingDecls(decls: Map<string, Decl>): Set<string> {
   return reaching;
 }
 
+/** A declaration's properties, its own plus every one it inherits through
+ *  `extends` — a field declared once on a shared base (`ReadGated.requires`)
+ *  is a site of each declaration that extends it. */
+function propsWithBases(name: string, decls: Map<string, Decl>): Map<string, ts.TypeNode> {
+  const d = decls.get(name);
+  if (!d) return new Map();
+  const out = new Map<string, ts.TypeNode>();
+  for (const b of d.bases) for (const [k, v] of propsWithBases(b, decls)) out.set(k, v);
+  for (const [k, v] of d.props) out.set(k, v);
+  return out;
+}
+
 /** The census: every (owner, field) whose declared type reaches an expression.
- *  Sorted, so the report and any pinned baseline are stable. */
+ *  A base other declarations `extend` owns no sites of its own: its fields
+ *  are counted on each extending declaration instead, where a walk reaches
+ *  them.  Sorted, so the report and any pinned baseline are stable. */
 export function exprSites(): ExprSite[] {
   const decls = readDecls();
   const reaching = reachingDecls(decls);
+  const extended = new Set([...decls.values()].flatMap((d) => d.bases));
   const sites: ExprSite[] = [];
-  for (const [owner, d] of decls) {
-    for (const [field, type] of d.props) {
+  for (const owner of decls.keys()) {
+    if (extended.has(owner)) continue;
+    for (const [field, type] of propsWithBases(owner, decls)) {
       const names = referencedNames(type);
       const carries = [...names].some((n) => reaching.has(n));
       if (carries) sites.push({ owner, field, type: type.getText().replace(/\s+/g, " ") });
