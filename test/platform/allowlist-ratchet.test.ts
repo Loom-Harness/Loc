@@ -400,9 +400,9 @@ const REGISTERED: Ratchet[] = [
     // peer, SMTP, SES, SendGrid); the fakes answering on its host overrides are #5616.
     // 23 → 24: `channels-broker-projection`, a broker + second-deployable row:
     // a fold on one service over an event published from another needs a
-    // broker between two booted services (#5613).
+    // broker between two booted services (#5839).
     // 24 → 25: `channels-broker-mixed-durable`, a broker row whose claim is an
-    // asynchronous local redelivery (#5613).
+    // asynchronous local redelivery (#5839).
     // 25 → 21: the s3/rabbitmq/localDisk sidecars re-arm `resources`,
     // `handler-resource-ops`, `channels-broker` and `channels-broker-workflow`.
     max: 21,
