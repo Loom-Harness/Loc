@@ -757,12 +757,15 @@ only a textual prefilter.
 A service that can run is real and pinned by digest: Mailpit for `smtp`
 (`docker run` locally, the workflow's `services: mailpit` in CI, named by
 `LOOM_MAILPIT_SMTP` / `LOOM_MAILPIT_API`), beside the broker and object-store
-sidecars.  One that cannot — a third-party `restApi` — is an in-process fake
-over the emulation core's model (`src/emulation/`), the same model the browser
-playground runs.  What they observed lands in the recording's `effects`
+sidecars.  One that cannot — a third-party `restApi`, the SaaS mailers `ses`
+and `sendgrid` — is an in-process fake over the emulation core's model
+(`src/emulation/`), the same model the browser playground runs, reached
+through the endpoint override the client reads.  What they observed lands in the recording's `effects`
 section (see [`wire-golden/README.md`](wire-golden/README.md#the-effects-section)).
 `corpus/resource-mail-api` reaches all three resource call sites — a workflow
-body, a commandHandler body and an event-triggered starter.
+body, a commandHandler body and an event-triggered starter — and
+`corpus/resource-mailer-ses` / `resource-mailer-sendgrid` send through each SaaS
+mailer from a workflow and a commandHandler.
 
 ## The wire differential — every leg gates the same canonical bytes
 

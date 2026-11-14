@@ -15,11 +15,8 @@
 // per bucket, then HEAD per object for its content type — and returns them
 // sorted, `{ bucket, key, size, contentType }`: nothing that varies by run.
 
-import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import { docker, runContainer, until } from "./broker-sidecar.mjs";
-
-const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "out");
+import { resourceEnvUrlVar, resourceHostEnvVar, S3_DEV_SIDECAR } from "./resource-env.mjs";
 
 /** Pinned by digest so a re-tag upstream cannot change a leg; pulled through
  *  `mirror.gcr.io`, never Docker Hub. */
@@ -27,22 +24,16 @@ export const S3_IMAGE =
   "mirror.gcr.io/adobe/s3mock:4.7.0@sha256:468ba0b0e87f20ad54fbb6085e98c143f5bd1e384a844fa12a58535b4e39d4aa";
 const PORT = 9090;
 
-async function envFor(resources, endpoint) {
+function envFor(resources, endpoint) {
   if (resources.length === 0) return {};
-  const re = await import(pathToFileURL(join(OUT, "util", "resource-env.js")).href);
-  if (typeof re.resourceHostEnvVar !== "function" || re.S3_DEV_SIDECAR === undefined) {
-    throw new Error(
-      "s3 sidecar: out/util/resource-env.js lacks resourceHostEnvVar / S3_DEV_SIDECAR — rebuild on a tree with the resource host env contract",
-    );
-  }
   const env = {
-    AWS_ACCESS_KEY_ID: re.S3_DEV_SIDECAR.accessKey,
-    AWS_SECRET_ACCESS_KEY: re.S3_DEV_SIDECAR.secretKey,
-    AWS_REGION: re.S3_DEV_SIDECAR.region,
+    AWS_ACCESS_KEY_ID: S3_DEV_SIDECAR.accessKey,
+    AWS_SECRET_ACCESS_KEY: S3_DEV_SIDECAR.secretKey,
+    AWS_REGION: S3_DEV_SIDECAR.region,
   };
   for (const r of resources) {
-    env[re.resourceHostEnvVar("s3", r.name)] = endpoint;
-    env[`${re.resourceEnvUrlVar(r.name)}_BUCKET`] = r.bucket;
+    env[resourceHostEnvVar("s3", r.name)] = endpoint;
+    env[`${resourceEnvUrlVar(r.name)}_BUCKET`] = r.bucket;
   }
   return env;
 }
@@ -114,7 +105,7 @@ export async function start(opts = {}) {
 
   return {
     kind: "objects",
-    env: await envFor(resources, endpoint),
+    env: envFor(resources, endpoint),
     endpoint,
     async observe() {
       const out = [];

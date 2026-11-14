@@ -17,7 +17,7 @@
 // in it varies by run or by the backend's mail library.
 
 import { docker, runContainer, until } from "./broker-sidecar.mjs";
-import { resourceEnvUrlVar } from "./resource-env.mjs";
+import { resourceHostEnvVar } from "./resource-env.mjs";
 
 /** Pinned by digest so a re-tag upstream cannot change a leg, and pulled from
  *  the mirror, which serves the same digest without Docker Hub's limits. */
@@ -64,7 +64,7 @@ export async function start(opts = {}) {
   const cred = opts.auth ? `${encodeURIComponent(opts.auth.user)}:${encodeURIComponent(opts.auth.pass)}@` : "";
   const url = `smtp://${cred}${smtp}`;
   const env = {};
-  for (const r of opts.resources ?? []) env[resourceEnvUrlVar(r.name)] = url;
+  for (const r of opts.resources ?? []) env[resourceHostEnvVar("smtp", r.name)] = url;
 
   return {
     kind: "mail",

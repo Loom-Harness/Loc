@@ -25,14 +25,18 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
  * Every module exports `start({ storage, resources, channelSources, genDir }) → { kind, env, observe(),
  * reset(), stop() }`; `kind` names the `effects` section its observations land
  * in, and `observe()` / `reset()` may be async.  A sidecar fronts a real,
- * digest-pinned service (`smtp` → Mailpit); an in-process fake serves an
- * emulation-core model for a service that cannot run (`restApi`).  `s3`,
- * `rabbitmq` and `redis` take their start options from the case's generated
- * tree, and are wired by the object-store / broker sidecars.
+ * digest-pinned service (`smtp` → Mailpit, `s3` → s3mock, `rabbitmq` / `redis` /
+ * `kafka` → the broker sidecar); an in-process fake serves an emulation-core
+ * model for a service that cannot run (`restApi`, and the SaaS mailers `ses`
+ * and `sendgrid`), or stands in for a local resource (`localDisk` → a temporary
+ * directory).  The broker sidecar also reads the case's generated tree
+ * (`genDir`) for its definitions, channel URLs and SASL users.
  */
 export const STORAGE_FAKES = {
   smtp: () => import("./mailpit-sidecar.mjs"),
   restApi: () => import("./http.mjs"),
+  ses: () => import("./ses.mjs"),
+  sendgrid: () => import("./sendgrid.mjs"),
   s3: () => import("./s3-sidecar.mjs"),
   rabbitmq: () => import("./broker-sidecar.mjs"),
   redis: () => import("./broker-sidecar.mjs"),

@@ -14,10 +14,8 @@
 
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, sep } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-
-const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "out");
+import { join, relative, sep } from "node:path";
+import { resourceHostEnvVar } from "./resource-env.mjs";
 
 /** A backend's per-object metadata file, not an object. */
 const METADATA = /\.meta(\.json)?$/;
@@ -46,10 +44,6 @@ function filesUnder(root) {
  * @param {{ storage?: { name: string }, resources?: Array<{ name: string }> }} [opts]
  */
 export async function start(opts = {}) {
-  const re = await import(pathToFileURL(join(OUT, "util", "resource-env.js")).href);
-  if (typeof re.resourceHostEnvVar !== "function") {
-    throw new Error("localDisk fake: out/util/resource-env.js lacks resourceHostEnvVar — rebuild");
-  }
   const root = mkdtempSync(join(tmpdir(), "loom-localdisk-"));
   const resources = (opts.resources ?? []).map((r) => ({ name: r.name, dir: join(root, r.name) }));
   const env = {};
@@ -57,7 +51,7 @@ export async function start(opts = {}) {
     for (const r of resources) mkdirSync(r.dir, { recursive: true });
   };
   make();
-  for (const r of resources) env[re.resourceHostEnvVar("localDisk", r.name)] = r.dir;
+  for (const r of resources) env[resourceHostEnvVar("localDisk", r.name)] = r.dir;
 
   return {
     kind: "files",

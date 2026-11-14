@@ -57,7 +57,6 @@ export const OPEN_TRACKING_ISSUES: ReadonlySet<string> = new Set([
   "#4440",
   "#5614",
   "#5617",
-  "#5619",
   "#5712",
 ]);
 
@@ -164,8 +163,20 @@ export const COVERAGE: readonly CoverageRow[] = [
     module: "mailpit-sidecar.mjs",
     witness: { fixture: "resource-mail-api", effects: "mail" },
   },
-  { sourceType: "ses", kind: "mailer", fake: "in-process-fake", pending: pending("#5619") },
-  { sourceType: "sendgrid", kind: "mailer", fake: "in-process-fake", pending: pending("#5619") },
+  {
+    sourceType: "ses",
+    kind: "mailer",
+    fake: "in-process-fake",
+    module: "ses.mjs",
+    witness: { fixture: "resource-mailer-ses", effects: "mail" },
+  },
+  {
+    sourceType: "sendgrid",
+    kind: "mailer",
+    fake: "in-process-fake",
+    module: "sendgrid.mjs",
+    witness: { fixture: "resource-mailer-sendgrid", effects: "mail" },
+  },
   // ── auth ───────────────────────────────────────────────────────────────
   { sourceType: "oidc", kind: "auth", fake: "in-process-fake", pending: pending("#5614") },
   // ── parse as storage types, bind to no kind ────────────────────────────

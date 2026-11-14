@@ -13,4 +13,4 @@ try {
   mod = await import("../../../out/emulation/index.js");
 }
 
-export const { createMailbox, createHttpMock, createS3, createSes, createOidcProvider, createBroker, memoryBlobStore } = mod;
+export const { createMailbox, createHttpMock, createS3, createSes, createSendgrid, createOidcProvider, createBroker, memoryBlobStore } = mod;

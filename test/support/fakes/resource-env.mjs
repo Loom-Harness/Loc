@@ -1,4 +1,5 @@
-// The resource env-var names, read from the ONE place that derives them —
+// The resource env-var names (the host override each client reads:
+// `resourceHostEnvVar`), read from the ONE place that derives them —
 // `src/util/resource-env.ts`, the seam the emitted resource clients and the
 // compose writer share.  The kit never spells an env name of its own.
 //
@@ -13,4 +14,4 @@ try {
   mod = await import("../../../out/util/resource-env.js");
 }
 
-export const { resourceEnvBase, resourceEnvUrlVar } = mod;
+export const { resourceEnvBase, resourceEnvUrlVar, resourceHostEnvVar, S3_DEV_SIDECAR } = mod;

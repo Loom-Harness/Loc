@@ -248,6 +248,8 @@
   "test/fixtures/corpus/ref-collection-service.ddd :: ir-differs": 11,
   "test/fixtures/corpus/reserved-words.ddd :: ir-differs": 16,
   "test/fixtures/corpus/resource-mail-api.ddd :: ir-differs": 4,
+  "test/fixtures/corpus/resource-mailer-sendgrid.ddd :: ir-differs": 4,
+  "test/fixtures/corpus/resource-mailer-ses.ddd :: ir-differs": 4,
   "test/fixtures/corpus/rule-params-scalar.ddd :: ir-differs": 8,
   "test/fixtures/corpus/saga-durable-cross-context.ddd :: ir-differs": 4,
   "test/fixtures/corpus/saga.ddd :: ir-differs": 18,
