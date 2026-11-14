@@ -11,7 +11,6 @@ import type {
   OperationIR,
   UniqueKeyIR,
 } from "./members.js";
-import type { OriginRef } from "./origin.js";
 import type { StmtIR } from "./stmt.js";
 import type { Sourced } from "./types.js";
 
