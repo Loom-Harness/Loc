@@ -1844,7 +1844,6 @@ export function renderJavaOutboxFiles(pkgs: {
         `package ${pkgs.repoPkg};`,
         ``,
         `import java.time.Instant;`,
-        pkgs.partitioned ? `import java.util.Collection;` : null,
         `import java.util.List;`,
         `import java.util.UUID;`,
         ``,
@@ -1869,10 +1868,10 @@ export function renderJavaOutboxFiles(pkgs: {
           ? [
               `    /** {@link #claimPending()} restricted to the given event types. */`,
               `    @Query(value = "SELECT * FROM __loom_outbox WHERE ${OUTBOX_PENDING_PREDICATE} AND type IN (:types) ORDER BY occurred_at LIMIT ${OUTBOX_RELAY.batchSize} ${OUTBOX_RELAY.claimLock}", nativeQuery = true)`,
-              `    List<LoomOutboxMessage> claimPendingOfTypes(@Param("types") Collection<String> types);`,
+              `    List<LoomOutboxMessage> claimPendingOfTypes(@Param("types") java.util.Collection<String> types);`,
               ``,
               `    /** The pending rows of the given event types. */`,
-              `    List<LoomOutboxMessage> findTop${OUTBOX_RELAY.batchSize}ByDispatchedAtIsNullAndDeadAtIsNullAndTypeInOrderByOccurredAtAsc(Collection<String> types);`,
+              `    List<LoomOutboxMessage> findTop${OUTBOX_RELAY.batchSize}ByDispatchedAtIsNullAndDeadAtIsNullAndTypeInOrderByOccurredAtAsc(java.util.Collection<String> types);`,
               ``,
             ]
           : []),
