@@ -147,8 +147,13 @@ const PLAYWRIGHT_CONFIG_SIGN_IN_TS = PLAYWRIGHT_CONFIG_TS.replace(
 
 /** `e2e/global-setup.ts` of a signed-in suite.  Credentials come only from
  *  E2E_OIDC_USERNAME / E2E_OIDC_PASSWORD — the same variables the api suite's
- *  password grant reads — defaulting to the generated dev realm's `demo` user. */
+ *  password grant reads — defaulting to the generated dev realm's `demo` user.
+ *  `E2E_SIGN_IN=off` skips the login and saves an empty session, for a run that
+ *  supplies the session itself (a spec that mocks `/auth/me`, with no backend
+ *  or IdP behind the app). */
 const E2E_GLOBAL_SETUP_TS = `// Auto-generated.
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { type FullConfig, chromium } from "@playwright/test";
 
 const ME = /\\/auth\\/me(?:\\?.*)?$/;
@@ -159,6 +164,11 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
   if (!baseURL || typeof storageState !== "string") {
     throw new Error("playwright.config needs use.baseURL and use.storageState");
   }
+  if (process.env.E2E_SIGN_IN === "off") {
+    await mkdir(dirname(storageState), { recursive: true });
+    await writeFile(storageState, JSON.stringify({ cookies: [], origins: [] }));
+    return;
+  }
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage({ baseURL });
@@ -167,7 +177,18 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
     const probe = page.waitForResponse((r) => ME.test(new URL(r.url()).pathname));
     await page.goto("/");
     const meUrl = (await probe).url();
-    await page.goto(meUrl.replace(ME, "/auth/login"));
+    const loginUrl = meUrl.replace(ME, "/auth/login");
+    await page.goto(loginUrl);
+    await page
+      .locator("#username")
+      .waitFor({ timeout: 30_000 })
+      .catch(() => {
+        throw new Error(
+          \`No IdP login form (#username) after \${loginUrl}; the page is \${page.url()}. \` +
+            "Is the backend's OIDC handshake reachable there? A run that mocks the session " +
+            "itself sets E2E_SIGN_IN=off.",
+        );
+      });
     await page.locator("#username").fill(process.env.E2E_OIDC_USERNAME ?? "demo");
     await page.locator("#password").fill(process.env.E2E_OIDC_PASSWORD ?? "demo");
     await page.locator("#kc-login").click();

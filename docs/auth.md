@@ -2093,7 +2093,9 @@ test e2e "a signed-in user creates a customer" against web {
 
 The user is `E2E_OIDC_USERNAME` / `E2E_OIDC_PASSWORD` — the same variables the
 api suite's password grant reads — defaulting to the dev realm's `demo` /
-`demo`. `E2E_STORAGE_STATE` points the suite at a session saved elsewhere. A
+`demo`. `E2E_STORAGE_STATE` points the suite at a session saved elsewhere, and
+`E2E_SIGN_IN=off` skips the login (an empty session) for a run that supplies
+the session itself, such as a spec that mocks `/auth/me` with no backend. A
 frontend without `auth: ui`, or a system without `auth { oidc }`, emits the
 suite unchanged.
 
