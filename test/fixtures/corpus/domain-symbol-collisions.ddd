@@ -17,6 +17,9 @@
 //     analyzers refuse a public member spelled as one (CA1716).
 //   - operation `raise` called from a workflow — the python method is escaped
 //     at its definition, so every call site must spell the same escaped name.
+//   - operation `then` called from a workflow — TS escapes the method to
+//     `then_` (a member named `then` makes every instance a thenable), so the
+//     workflow must call the escaped name too.
 //
 // The plan escapes or aliases only names that collide, so every other
 // declaration emits exactly what it emits without this fixture.
@@ -44,6 +47,7 @@ system SymbolCollisions {
         operation rate(x: int) { tally := Calc.twice(x) }
         operation byRef(x: int) { tally := x }
         operation shared(x: int) { tally := x }
+        operation then(x: int) { tally := x }
       }
       repository ServiceProviders for ServiceProvider { }
 
@@ -55,6 +59,12 @@ system SymbolCollisions {
       workflow RaiseIfPresent {
         create(provider: ServiceProvider id, amount: int) {
           if let p = ServiceProviders.find(provider) { p.raise(amount) }
+        }
+      }
+
+      workflow ThenIfPresent {
+        create(provider: ServiceProvider id, amount: int) {
+          if let p = ServiceProviders.find(provider) { p.then(amount) }
         }
       }
     }
