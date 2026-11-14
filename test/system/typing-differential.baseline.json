@@ -1,12 +1,12 @@
 {
   "floors": {
     "docs": 2800,
-    "expressions": 250000
+    "expressions": 160000
   },
   "classes": {
     "agree": 206076,
     "declaration-name": 53689,
-    "ir-differs": 8029,
+    "ir-differs": 8227,
     "nobody-knows": 482,
     "not-lowered": 4304,
     "unreached": 0

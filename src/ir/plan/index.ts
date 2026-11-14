@@ -65,6 +65,12 @@ export {
   foldsDedupe,
 } from "./projection-fold.js";
 export {
+  type ProjectionQueryParam,
+  projectionQueryParams,
+  type QueryParamCheck,
+  queryParamCheck,
+} from "./projection-params.js";
+export {
   admittedReferences,
   type ContainStep,
   type RefScope,
@@ -73,7 +79,11 @@ export {
   scopedReferences,
 } from "./ref-scope.js";
 export { domainFindShape } from "./repo-find-shape.js";
-export { routedPolymorphicRead } from "./repo-polymorphic.js";
+export {
+  contextOperations,
+  polymorphicReadOperations,
+  routedPolymorphicRead,
+} from "./repo-polymorphic.js";
 export { clientSortTieBreak, singleReadOrder } from "./repo-read.js";
 export { type RepoNeed, reposNeeded } from "./repos-needed.js";
 export {

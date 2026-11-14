@@ -80,41 +80,102 @@
     {
       "seq": 7,
       "method": "GET",
-      "path": "/api/customers",
+      "path": "/api/parties/{id}",
       "status": 200,
-      "body": [
-        {
-          "creditLimit": 300,
-          "email": "a@x.com",
-          "id": "<volatile:key>",
-          "name": "Acme",
-          "rowVersion": 3
-        }
-      ]
+      "body": {
+        "creditLimit": 300,
+        "email": "a@x.com",
+        "id": "<volatile:key>",
+        "name": "Acme",
+        "rowVersion": 3,
+        "type": "Customer"
+      }
     },
     {
       "seq": 8,
       "method": "GET",
-      "path": "/api/vendors",
+      "path": "/api/parties",
       "status": 200,
-      "body": []
+      "body": {
+        "items": [
+          {
+            "creditLimit": 300,
+            "email": "a@x.com",
+            "id": "<volatile:key>",
+            "name": "Acme",
+            "rowVersion": 3,
+            "type": "Customer"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 9,
+      "method": "GET",
+      "path": "/api/assets",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/customers",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "creditLimit": 300,
+            "email": "a@x.com",
+            "id": "<volatile:key>",
+            "name": "Acme",
+            "rowVersion": 3
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/vendors",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 12,
       "method": "GET",
       "path": "/api/machines",
       "status": 200,
       "body": []
     },
     {
-      "seq": 10,
+      "seq": 13,
       "method": "GET",
       "path": "/api/vehicles",
       "status": 200,
       "body": []
     },
     {
-      "seq": 11,
+      "seq": 14,
       "method": "GET",
       "path": "/api/vendors/{id}",
       "status": 404,
@@ -131,7 +192,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 15,
       "method": "GET",
       "path": "/api/machines/{id}",
       "status": 404,
@@ -148,7 +209,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 16,
       "method": "GET",
       "path": "/api/vehicles/{id}",
       "status": 404,
@@ -165,14 +226,14 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 17,
       "method": "DELETE",
       "path": "/api/customers/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 15,
+      "seq": 18,
       "method": "GET",
       "path": "/api/customers/{id}",
       "status": 404,
@@ -189,7 +250,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 19,
       "method": "GET",
       "path": "/api/customers/by_email?email=a@x.com",
       "status": 404,
@@ -206,14 +267,20 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 20,
       "method": "GET",
       "path": "/api/customers",
       "status": 200,
-      "body": []
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
     },
     {
-      "seq": 18,
+      "seq": 21,
       "method": "PATCH",
       "path": "/api/customers",
       "status": 405,
@@ -227,7 +294,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 22,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -241,7 +308,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 23,
       "method": "POST",
       "path": "/api/customers",
       "status": 400,
@@ -255,7 +322,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 24,
       "method": "POST",
       "path": "/api/customers/{id}/update",
       "status": 404,

@@ -81,20 +81,16 @@ system Parties {
     let found = api.parties.getCustomerByEmail("a@x.com")
     expect(found.creditLimit).toBe(300)
 
-    // NOTE — there is deliberately no `api.parties.getById(...)` here, and the
-    // reason is a bug this drain found.  `deriveContextOperations` used to
-    // derive `GET /api/parties/{id}` (and `/api/assets/{id}`) for the ABSTRACT
-    // bases, so the census listed them as routes needing a caller; writing the
-    // first one showed it answering 404 for a row that exists, because
-    // `docs/inheritance.md` says an abstract base "owns no table, repository,
-    // controller, or routes" and all five backends implement exactly that.
-    // The derivation was the lone outlier and is fixed (`api-surface.ts`); the
-    // phantom `<base>.getById` those five typed api-clients were emitting goes
-    // with it.
-    //
-    // The per-concrete LIST routes.  All four are BARE ARRAYS (an inheritance
-    // subtype's `all` stays unbounded so the polymorphic base reader can
-    // concatenate them), and three of the four have no create route at all —
+    // The polymorphic base reads: the TPH base answers the Customer as a
+    // tagged row through its by-id read and its list; the TPC base, whose
+    // concretes have no rows, answers an empty page.
+    expect(api.parties.getById(c).name).toBe("Acme")
+    expect(api.parties.all().total).toBe(1)
+    expect(api.assets.all().total).toBe(0)
+
+    // The per-concrete LIST routes.  The two TPH subtypes answer a page; the
+    // two TPC subtypes answer a bare array (the TPC base reader merges their
+    // whole reads before paging).  Three of the four have no create route —
     // `Vendor`/`Machine`/`Vehicle` are not `crudish`.  Reading them empty is
     // still the assertion that matters here: the TPH sibling (`Vendor`, sharing
     // Customer's table) must NOT return Customer's row, and the two TPC
@@ -102,9 +98,9 @@ system Parties {
     // discriminator a backend forgot to filter on shows up as `vendors`
     // answering 1.
     let customers = api.customers.all()
-    expect(customers.length).toBe(1)
+    expect(customers.total).toBe(1)
     let vendors = api.vendors.all()
-    expect(vendors.length).toBe(0)
+    expect(vendors.total).toBe(0)
     let machines = api.machines.all()
     expect(machines.length).toBe(0)
     let vehicles = api.vehicles.all()
@@ -128,6 +124,6 @@ system Parties {
     expect(api.customers.getById(c)).toThrow(404)
     expect(api.parties.getCustomerByEmail("a@x.com")).toThrow(404)
     let afterDelete = api.customers.all()
-    expect(afterDelete.length).toBe(0)
+    expect(afterDelete.total).toBe(0)
   }
 }

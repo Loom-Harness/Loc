@@ -787,11 +787,11 @@ function renderProjectionFoldHandler(
   proj: ProjectionIR,
   on: ProjectionOnIR,
   /** Folds claim each durably delivered event in the fold inbox (`foldsDedupe`). */
-  dedupe = false,
-  /** The module the event struct lives under: its owning context's, which
-   *  differs from this context's when the fold consumes another context's
-   *  event. */
-  eventModule = contextModule,
+  dedupe: boolean,
+  /** The module the event struct lives under: its OWNING context's, which
+   *  differs from `contextModule` for an event consumed off a wired channel
+   *  declared in a context this deployable does not host. */
+  eventModule: string,
 ): string {
   const corr = proj.correlationField as string;
   const rowMod = projectionRowModule(contextModule, proj);

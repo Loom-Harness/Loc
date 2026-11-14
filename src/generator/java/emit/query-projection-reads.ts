@@ -1,4 +1,5 @@
 import { forApiRead, wireFieldsFor } from "../../../ir/enrich/wire-projection.js";
+import { type ProjectionQueryParam, projectionQueryParams } from "../../../ir/plan/index.js";
 import type {
   AggregateIR,
   EnrichedAggregateIR,
@@ -21,6 +22,7 @@ import {
 } from "../../../ir/util/projection-aggregate.js";
 import { aggregateArgColumn, sqlColumnName } from "../../../ir/util/projection-column.js";
 import { projectionSourceContext } from "../../../ir/util/projection-source.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
@@ -43,7 +45,7 @@ import {
 } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { JAVA_NUMERIC, javaMoneyProjectionKeyEncode } from "../numeric-codec.js";
-import { javaValueTypeForId, renderJavaExpr, renderJavaType } from "../render-expr.js";
+import { renderJavaExpr, renderJavaType } from "../render-expr.js";
 import {
   JPQL_INTRINSIC_SQL,
   type JpqlCtx,
@@ -165,7 +167,7 @@ export function queryProjectionFindsFor(
       // The projection's own parameters — its inlined `where` names them, so a
       // parameterless read emitted `@Query("… = :o")` with no `@Param`, which
       // compiles and then fails at Spring context startup.
-      params: p.params ?? [],
+      params: projectionQueryParams(p, ctx).map(({ name, type }) => ({ name, type })),
       returnType: {
         kind: "array" as const,
         element: { kind: "entity" as const, name: aggName, declKind: "aggregate" as const },
@@ -302,15 +304,32 @@ function aggregationScope(
 /** The `entityManager.createQuery(<jpql>)` chain for an aggregation, with each
  *  principal claim bound off the static ambient accessor.  Rendered as one
  *  expression so the caller keeps its single-statement read. */
-function aggregationQueryExpr(jpql: string, scope: AggregationScope, native = false): string {
-  const binds = scope.binds
-    .map(
+function aggregationQueryExpr(
+  jpql: string,
+  scope: AggregationScope,
+  native: boolean,
+  /** The projection's own declared-parameter bindings (`.setParameter(…)`). */
+  paramBinds: readonly string[],
+): string {
+  const binds = [
+    ...paramBinds,
+    ...scope.binds.map(
       (a) =>
         `.setParameter(${JSON.stringify(principalParamName(a))}, ${principalBindExpr(a, "__cu")})`,
-    )
-    .join("");
+    ),
+  ].join("");
   const factory = native ? "createNativeQuery" : "createQuery";
   return `entityManager.${factory}(${JSON.stringify(jpql)})${binds}`;
+}
+
+/** The declared parameters a projection `where` reads (`refKind: "param"`). */
+function paramsReadBy(filter: ExprIR | undefined): Set<string> {
+  const names = new Set<string>();
+  if (!filter) return names;
+  walkExprDeep(filter, (e) => {
+    if (e.kind === "ref" && e.refKind === "param") names.add(e.name);
+  });
+  return names;
 }
 
 /** Method-body prelude for an aggregation: the ambient principal read every
@@ -409,12 +428,16 @@ export function renderJavaQueryProjections(
     // layers: the controller binds them from the query string
     // (`@RequestParam`), the service method forwards them, and the JPA
     // interface binds them into the JPQL (`@Param`, from the synthesised find).
-    // `javaValueTypeForId` mirrors api.ts's find-param rule: an `X id` binds as
-    // its underlying value type, because Spring cannot bind a wrapper record.
-    const paramDecl = (p: (typeof proj.params)[number], local: string): string =>
-      p.type.kind === "id"
-        ? `${javaValueTypeForId()} ${local}`
-        : `${renderJavaType(p.type)} ${local}`;
+    // An `X id` binds as its raw uuid (api.ts's find-param rule), because Spring
+    // cannot bind a wrapper record.
+    const params = projectionQueryParams(proj, home);
+    const paramDecl = (p: ProjectionQueryParam, local: string): string =>
+      p.type.kind === "id" ? `${J.UUID} ${local}` : `${renderJavaType(p.type)} ${local}`;
+    // A parameter as the domain value a query compares against: an `X id`
+    // arrives as its raw uuid and is wrapped in its id record, the type the
+    // entity's embedded id column (and the synthesised JPA find) carries.
+    const domainArg = (p: ProjectionQueryParam, local: string): string =>
+      p.type.kind === "id" ? `new ${p.type.targetName}Id(${local})` : local;
     // Each layer's params are locals of a method that spells names of its own
     // — the service read: the injected repository fields it dereferences and
     // its `a` / `x` / `r` lambda params and `rows` / join-map locals; the
@@ -424,24 +447,34 @@ export function renderJavaQueryProjections(
     // colliding name moves; the query key stays the `.ddd` spelling
     // (`requestParam`), and the JPQL `@Param` binding is positional.
     const svcLocals = javaLocals(
-      proj.params.map((p) => p.name),
+      params.map((p) => p.name),
       queryProjectionReadNames(proj, home),
     );
     const gateUsesUser = !!proj.query!.requires && exprUsesCurrentUser(proj.query!.requires);
     const routeLocals = javaLocals(
-      proj.params.map((p) => p.name),
+      params.map((p) => p.name),
       new Set([
         "queryProjections",
         ...(gateUsesUser ? ["currentUser", "currentUserAccessor"] : []),
       ]),
     );
-    const projParamDecls = proj.params.map((p) => paramDecl(p, localOf(svcLocals, p.name)));
-    const projRequestParams = proj.params.map((p) => {
+    const projParamDecls = params.map((p) => paramDecl(p, localOf(svcLocals, p.name)));
+    const projRequestParams = params.map((p) => {
       const local = localOf(routeLocals, p.name);
       return `${requestParam(p.name, local)} ${paramDecl(p, local)}`;
     });
-    const projArgNames = proj.params.map((p) => localOf(svcLocals, p.name));
-    const routeArgNames = proj.params.map((p) => localOf(routeLocals, p.name));
+    const projArgNames = params.map((p) => domainArg(p, localOf(svcLocals, p.name)));
+    const routeArgNames = params.map((p) => localOf(routeLocals, p.name));
+    // The JPQL named parameters an aggregation's `where` names (`:r`), each
+    // bound from the service method's own parameter.  Only the referenced
+    // ones: Hibernate refuses a `setParameter` for a name the query lacks.
+    const filterParams = paramsReadBy(proj.query!.filter);
+    const paramBinds = params
+      .filter((p) => filterParams.has(p.name))
+      .map(
+        (p) =>
+          `.setParameter(${JSON.stringify(jid(p.name))}, ${domainArg(p, localOf(svcLocals, p.name))})`,
+      );
     // In-memory filters (workflow- / projection-sourced) read the params too.
     const svcParamExpr = (n: string): string | undefined => movedLocalOrUndefined(svcLocals, n);
     const rowName = `${upperFirst(proj.name)}Row`;
@@ -574,7 +607,7 @@ export function renderJavaQueryProjections(
         ...aggregationPrelude(scope, qpctx.basePkg),
         ...wrapAggregationBypass(scope.disableCaps, [
           `        @SuppressWarnings("unchecked")`,
-          `        List<${groupedCols === 1 ? "Object" : "Object[]"}> rows = ${aggregationQueryExpr(jpql, scope, docTable !== undefined)}.getResultList();`,
+          `        List<${groupedCols === 1 ? "Object" : "Object[]"}> rows = ${aggregationQueryExpr(jpql, scope, docTable !== undefined, paramBinds)}.getResultList();`,
           `        return rows.stream()`,
           `            .map(r -> new ${rowName}(${args.join(", ")}))`,
           `            .toList();`,
@@ -619,12 +652,12 @@ export function renderJavaQueryProjections(
       const single = aggregates.length === 1;
       const args = aggregates.map((a, i) => jpqlCoerce(a, single ? "r" : `r[${i}]`));
       methods.push(
-        `    public ${rowName} ${findName}() {`,
+        `    public ${rowName} ${findName}(${projParamDecls.join(", ")}) {`,
         ...aggregationPrelude(scope, qpctx.basePkg),
         ...wrapAggregationBypass(scope.disableCaps, [
           single
-            ? `        Object r = ${aggregationQueryExpr(jpql, scope, docTable !== undefined)}.getSingleResult();`
-            : `        Object[] r = (Object[]) ${aggregationQueryExpr(jpql, scope, docTable !== undefined)}.getSingleResult();`,
+            ? `        Object r = ${aggregationQueryExpr(jpql, scope, docTable !== undefined, paramBinds)}.getSingleResult();`
+            : `        Object[] r = (Object[]) ${aggregationQueryExpr(jpql, scope, docTable !== undefined, paramBinds)}.getSingleResult();`,
           `        return new ${rowName}(${args.join(", ")});`,
         ]),
         `    }`,

@@ -113,7 +113,8 @@ describe("mikroorm repositories — reads state only their own where", () => {
     const f = await emitted("inheritance-read-restrictions");
     const cars = file(f, "db/repositories/car-repository.ts");
     expect(cars).toContain("em.findOne(CarRow, { id: id as string })");
-    expect(cars).toContain("em.find(CarRow, {})");
+    expect(cars).toContain("em.count(CarRow, {})");
+    expect(cars).toContain("em.find(CarRow, {}, { limit: pageSize");
     expect(cars).not.toMatch(/\{ kind:/);
   });
 

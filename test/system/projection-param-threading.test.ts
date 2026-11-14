@@ -78,8 +78,8 @@ describe("parameterised query-time projection — the parameter is threaded", ()
     const route = srcOf(files, (p) => p.endsWith("query-projections.ts"));
     expect(route).toContain("const MyThingsQuery = z.object({");
     expect(route).toContain("request: { query: MyThingsQuery },");
-    expect(route).toContain('const params = httpCtx.req.valid("query");');
-    expect(route).toContain("repo.myThings(params.o)");
+    expect(route).toContain('const { o } = httpCtx.req.valid("query");');
+    expect(route).toContain("repo.myThings(o)");
   });
 
   it("dotnet: the query record, handler and controller each carry it", async () => {
@@ -87,7 +87,8 @@ describe("parameterised query-time projection — the parameter is threaded", ()
     const src = allSrc(files);
     expect(src).toMatch(/Task<List<Thing>> MyThings\(string o,/);
     expect(src).toContain("record MyThingsQpQuery(string o)");
-    expect(src).toContain("_repo.MyThings(query.o, cancellationToken)");
+    expect(src).toContain("var o = query.o;");
+    expect(src).toContain("_repo.MyThings(o, cancellationToken)");
     expect(src).toContain("MyThings([FromQuery] string o)");
     expect(src).toContain("new MyThingsQpQuery(o)");
   });
