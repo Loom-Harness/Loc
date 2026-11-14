@@ -34,6 +34,7 @@
   "test/behavioral/heex-ui.ddd :: ir-differs": 17,
   "test/behavioral/i18n-ui/i18n-ui.ddd :: ir-differs": 10,
   "test/behavioral/money-compare-ui.ddd :: ir-differs": 14,
+  "test/behavioral/oidc-login-ui.ddd :: ir-differs": 2,
   "test/behavioral/paged-ui.ddd :: ir-differs": 6,
   "test/behavioral/systems/ledger.ddd :: ir-differs": 3,
   "test/behavioral/systems/payments.ddd :: ir-differs": 25,

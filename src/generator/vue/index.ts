@@ -29,6 +29,7 @@ import { AUTH_SESSION_TS, AUTH_USE_SESSION_VUE, authGateVue } from "../_frontend
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import { requireFrontendContract } from "../_frontend/contract.js";
+import { e2eHarnessFiles, e2eSignsIn } from "../_frontend/e2e-harness.js";
 import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
 import {
   buildExternFunctionShim,
@@ -64,7 +65,6 @@ import {
   vueChromeAttr as shellChromeAttr,
   vueChromeText as shellChromeText,
 } from "../_frontend/shell-chrome.js";
-import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
 import { prepareThemeVM } from "../_frontend/theme-preparer.js";
 import { uiUsesToastEffect } from "../_frontend/toast-effect.js";
@@ -88,10 +88,8 @@ import { walkBody } from "../_walker/walker-core.js";
 // drives any framework's markup), and the theme/money constants.
 // Candidates for a later `_frontend/` move.
 import {
-  E2E_FIXTURES_TS,
   E2E_PACKAGE_JSON,
   E2E_TSCONFIG_JSON,
-  PLAYWRIGHT_CONFIG_TS,
   REACT_LIB_SCHEMAS_MONEY_TS,
 } from "../react/emit-templates.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
@@ -553,9 +551,9 @@ export function generateVueForContexts(
     topLevelComponents: options.topLevelComponents ?? [],
   });
   for (const [path, content] of pageObjects) out.set(path, content);
-  out.set("e2e/smoke.spec.ts", smokeSpec(ui, pageCtx));
-  out.set("e2e/fixtures.ts", E2E_FIXTURES_TS);
-  out.set("e2e/playwright.config.ts", PLAYWRIGHT_CONFIG_TS);
+  for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, sys))) {
+    out.set(path, content);
+  }
   out.set("e2e/package.json", E2E_PACKAGE_JSON);
   out.set("e2e/tsconfig.json", E2E_TSCONFIG_JSON);
 

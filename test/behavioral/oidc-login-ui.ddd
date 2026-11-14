@@ -1,0 +1,51 @@
+// A frontend behind the OIDC login, driven by its own generated Playwright suite.
+//
+// `auth: ui` on the frontend plus an `auth { oidc }` system: every route renders
+// the Sign in screen until a session exists.  The emitted suite signs in once in
+// its global setup (the IdP's login form, user `demo`) and every test reuses that
+// session — the UI round-trip below and the smoke spec, which asserts the app's
+// session probe answered a principal on every route.  run-ui.mjs boots it against
+// the emulated OIDC provider (`oidcLogin` in corpus.json); `__FRONTEND__` is
+// swapped per case.
+system OidcLoginUi {
+  user { id: string  role: string }
+  auth {
+    enforcement: opt
+    oidc { issuer: env("OIDC_ISSUER")  clientId: env("OIDC_CLIENT_ID") }
+    sessions: cookie
+    claims: { role: "realm_access.roles" }
+  }
+  subdomain Sales {
+    context Customers {
+      aggregate Customer with crudish {
+        name: string
+        derived display: string = name
+      }
+      repository Customers for Customer { }
+    }
+  }
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  resource customerState { for: Customers, kind: state, use: primary }
+  ui Shop with scaffold(subdomains: [Sales]) { }
+  deployable api {
+    platform: node
+    contexts: [Customers]
+    dataSources: [customerState]
+    serves: SalesApi
+    port: 3000
+    auth: required
+  }
+  deployable web {
+    platform: __FRONTEND__
+    targets: api
+    ui: Shop
+    port: 3001
+    auth: ui
+  }
+  test e2e "a signed-in user creates a customer" against web {
+    let c = ui.customers.create({ name: "Eve" })
+    let r = ui.customers.getById(c)
+    expect(r.name).toHaveText("Eve")
+  }
+}

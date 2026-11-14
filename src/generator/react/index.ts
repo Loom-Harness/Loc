@@ -25,6 +25,7 @@ import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_SESSION_TS, authGateTsx } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
 import { requireFrontendContract } from "../_frontend/contract.js";
+import { e2eHarnessFiles, e2eSignsIn } from "../_frontend/e2e-harness.js";
 import {
   renderI18nModule,
   renderLocaleCatalog,
@@ -39,7 +40,6 @@ import { buildPageModuleIndex } from "../_frontend/page-identity.js";
 import { buildProjectionsApiModule, readableProjections } from "../_frontend/projections-module.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import { jsxChromeText as shellChromeText } from "../_frontend/shell-chrome.js";
-import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
 import {
   allWorkflows,
@@ -52,10 +52,8 @@ import { emitShellFiles, emitShellGlobs } from "../_packs/shell-emits.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { collectUiMessages, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import {
-  E2E_FIXTURES_TS,
   E2E_PACKAGE_JSON,
   E2E_TSCONFIG_JSON,
-  PLAYWRIGHT_CONFIG_TS,
   REACT_LIB_SCHEMAS_MONEY_TS,
   REACT_LIB_STRICT_FIELD_MAP_TS,
   REACT_LIB_ZOD_RESOLVER_TS,
@@ -330,9 +328,9 @@ export function generateReactForContexts(
     out.set("src/api/projections.ts", buildProjectionsApiModule(contexts));
   }
 
-  out.set("e2e/smoke.spec.ts", smokeSpec(ui, pageCtx));
-  out.set("e2e/fixtures.ts", E2E_FIXTURES_TS);
-  out.set("e2e/playwright.config.ts", PLAYWRIGHT_CONFIG_TS);
+  for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, sys))) {
+    out.set(path, content);
+  }
   out.set("e2e/package.json", E2E_PACKAGE_JSON);
   out.set("e2e/tsconfig.json", E2E_TSCONFIG_JSON);
 

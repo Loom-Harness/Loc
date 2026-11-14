@@ -216,16 +216,21 @@ export function preserveArtifacts(genDir, workDir) {
 }
 
 /** The bundled boot: createApp on PGlite, served (static dist + /api) over one HTTP origin. */
-function serverEntrySource({ deplDir, devStub = false }) {
+function serverEntrySource({ deplDir, devStub = false, oidc = false }) {
   const J = JSON.stringify;
   // `devStub`: register the backend's OWN dev-stub verifier (`auth/dev-stub.ts`,
   // the module its `index.ts` calls) before `createApp` — an `auth: required`
   // backend booted through `createApp` alone has no verifier and answers every
   // request 401.  run.mjs does the same for its API tier; run-ui-auth.mjs is the
   // UI-tier caller.  Off by default, so the auth-less cases are byte-identical.
+  // `oidc`: register the backend's OWN OIDC verifier (`auth/oidc.ts`) instead,
+  // against the issuer the caller put in OIDC_ISSUER before building — its
+  // module-level config is read when the bundle is imported.
   const auth = devStub
     ? `import { registerDevStubVerifier } from ${J(join(deplDir, "auth", "dev-stub.ts"))};\nregisterDevStubVerifier(true);\n`
-    : "";
+    : oidc
+      ? `import { registerOidcVerifier } from ${J(join(deplDir, "auth", "oidc.ts"))};\nregisterOidcVerifier();\n`
+      : "";
   return `
 ${auth}${MIGRATOR_IMPORT}
 import { createApp } from ${J(join(deplDir, "http/index.ts"))};
@@ -250,7 +255,7 @@ process.env.LOOM_DEV_AUTH = "1";
 // MaterialIcons face).
 const MIME = { ".html":"text/html", ".js":"text/javascript", ".mjs":"text/javascript", ".css":"text/css", ".json":"application/json", ".svg":"image/svg+xml", ".png":"image/png", ".jpg":"image/jpeg", ".jpeg":"image/jpeg", ".gif":"image/gif", ".ico":"image/x-icon", ".woff2":"font/woff2", ".woff":"font/woff", ".ttf":"font/ttf", ".otf":"font/otf", ".wasm":"application/wasm", ".map":"application/json", ".txt":"text/plain", ".webmanifest":"application/manifest+json" };
 
-export async function startServer({ distDir }) {
+export async function startServer({ distDir, port = 0 }) {
   const pglite = new PGlite();
   const db = drizzle(pglite, { schema });
   ${applyMigrationsStmt(deplDir)}
@@ -266,7 +271,10 @@ export async function startServer({ distDir }) {
         }
         const fres = await app.fetch(new Request("http://localhost" + req.url, { method: req.method, headers: req.headers, body, duplex: "half" }));
         const buf = Buffer.from(await fres.arrayBuffer());
-        const h = {}; fres.headers.forEach((v, k) => { h[k] = v; });
+        // Set-Cookie is the one header that may repeat (the login handshake
+        // sets its state and PKCE cookies together): keep every one of them.
+        const h = {}; fres.headers.forEach((v, k) => { if (k !== "set-cookie") h[k] = v; });
+        const cookies = fres.headers.getSetCookie(); if (cookies.length) h["set-cookie"] = cookies;
         res.writeHead(fres.status, h); res.end(buf); return;
       }
       // everything else → the built SPA, with index.html fallback for routes.
@@ -277,7 +285,7 @@ export async function startServer({ distDir }) {
       res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream", "content-length": String(buf.length) }); res.end(buf);
     } catch (e) { res.writeHead(500); res.end(String(e?.message ?? e)); }
   });
-  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  await new Promise((r) => server.listen(port, "127.0.0.1", r));
   return {
     port: server.address().port,
     close: () => new Promise((r) => server.close(() => { try { pglite.close?.(); } catch {} r(); })),
@@ -287,10 +295,10 @@ export async function startServer({ distDir }) {
 }
 
 /** Bundle + import the boot module; returns { startServer }. */
-export async function buildServerModule(deplDir, workDir, { devStub = false } = {}) {
+export async function buildServerModule(deplDir, workDir, { devStub = false, oidc = false } = {}) {
   const entry = join(workDir, "server-entry.mts");
   const bundle = join(workDir, "server-bundle.mjs");
-  writeFileSync(entry, serverEntrySource({ deplDir, devStub }));
+  writeFileSync(entry, serverEntrySource({ deplDir, devStub, oidc }));
   const { build } = await import("esbuild");
   await build({
     entryPoints: [entry],

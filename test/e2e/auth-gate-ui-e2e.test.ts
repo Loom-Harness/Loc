@@ -150,6 +150,9 @@ function runGateSpec(project: string, baseUrl: string): void {
   run("npx playwright test auth-gate.spec.ts", e2e, {
     E2E_BASE_URL: baseUrl,
     AUTH_GATE_JOB_BODY: jobBodyFor(project),
+    // The spec mocks `/auth/me` per role and no backend or IdP runs, so the
+    // emitted suite's IdP sign-in (global setup) has nothing to sign in to.
+    E2E_SIGN_IN: "off",
   });
 }
 
