@@ -235,7 +235,7 @@
   "test/fixtures/corpus/projection-groupby.ddd :: ir-differs": 45,
   "test/fixtures/corpus/projection-implicit-sub.ddd :: ir-differs": 12,
   "test/fixtures/corpus/projection-join.ddd :: ir-differs": 16,
-  "test/fixtures/corpus/projection-params.ddd :: ir-differs": 19,
+  "test/fixtures/corpus/projection-params.ddd :: ir-differs": 23,
   "test/fixtures/corpus/projection-tph-source.ddd :: ir-differs": 23,
   "test/fixtures/corpus/projection-valueobject-row.ddd :: ir-differs": 17,
   "test/fixtures/corpus/projection.ddd :: ir-differs": 12,

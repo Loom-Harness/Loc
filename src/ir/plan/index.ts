@@ -63,7 +63,9 @@ export {
 export {
   type ProjectionQueryParam,
   projectionQueryParams,
+  QUERY_PARAM_MISMATCH_MESSAGES,
   type QueryParamCheck,
+  type QueryParamMismatchKind,
   queryParamCheck,
 } from "./projection-params.js";
 export {
