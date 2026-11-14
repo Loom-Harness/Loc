@@ -29,8 +29,6 @@ test("partial boot: the Node backend runs, the ASP.NET one is listed with why, a
   page,
 }) => {
   test.setTimeout(900_000);
-  const logs: string[] = [];
-  page.on("console", (m) => logs.push(m.text()));
   await page.goto("/");
   await startFromExample(page, /Mixed backends/);
   if (!(await browserCanReachNetwork(page))) test.skip(true, "browser cannot reach the npm registry");
@@ -56,16 +54,18 @@ test("partial boot: the Node backend runs, the ASP.NET one is listed with why, a
 
   await test.step("a call into it fails with that reason, promptly", async () => {
     const started = Date.now();
-    const res = await dispatch(page, "shipping_svc", "POST", "/api/workflows/placeOrder", { code: "ORD-1" });
+    const res = await dispatch(page, "shipping_svc", "POST", "/api/workflows/place_order", { code: "ORD-1" });
     expect(Date.now() - started).toBeLessThan(20_000);
     expect(res.response?.status ?? 0).toBeGreaterThanOrEqual(500);
-    // The generated backend logs the failed outbound call; the reason names
-    // the deployable and why it is not running.
-    await expect
-      .poll(() => logs.some((l) => /orders_svc.*not running in the playground.*runs outside the playground/.test(l)), {
-        timeout: 15_000,
-      })
-      .toBe(true);
+    // The generated backend logs the failed workflow with the outbound call's
+    // error; the reason names the deployable and why it is not running.
+    await page.getByTestId("devtools-tab-output").click();
+    await page.getByTestId("output-stream-select").click();
+    await page.getByRole("option", { name: "Runtime logs" }).click();
+    await expect(page.getByTestId("output-backend-log")).toContainText(
+      /orders_svc.{0,40}is not running in the playground: .{0,40}runs outside the playground/,
+      { timeout: 15_000 },
+    );
     // Nothing was stored: the workflow failed before its write.
     const shipments = await dispatch(page, "shipping_svc", "GET", "/api/shipments");
     expect(JSON.parse(shipments.response?.body ?? "{}").total).toBe(0);
