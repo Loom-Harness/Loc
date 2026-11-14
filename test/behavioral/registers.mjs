@@ -459,13 +459,6 @@ export const BEHAVIOURAL_XFAIL = {
     // values — the 409 `detail` names no aggregate/id (#3838), and each op call
     // inside the workflow is persisted, so a document's `version` reads one
     // higher (#4089).
-    // Every test passes; the refused deposit's 422 carries no `errors[]`
-    // entry on elixir's event-sourced operation path.
-    "eventsourced-durable-outbox": {
-      issue: "#5469",
-      expect: "wire",
-      reason: "an event-sourced operation's refused precondition answers 422 without `errors[]`",
-    },
     "workflow-two-handles-document-eventlog": {
       issue: "#3838, #4089",
       expect: "wire",

@@ -97,6 +97,14 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
   // tests — a narrower claim than the one this entry used to make.
   outbox:
     "relay delivery is asynchronous; needs a booted leg that drains the outbox — the node leg never starts the relay, the other four run it on its own poll interval, and the `test e2e` vocabulary has no `eventually` form (#3790)",
+  "channels-broker-mixed-durable":
+    "same broker-container reason as `channels-broker`, and the claim (the unbound durable " +
+    "event is redelivered in-process at-least-once) is asynchronous, which a `test e2e` block " +
+    "cannot wait on — #5613.  The compile tier proves both relays and their per-type queries build",
+  "channels-broker-projection":
+    "same broker-container reason as `channels-broker`: the behavioural claim (place on " +
+    "salesApi, then an OrderBook row on shipApi) needs a broker between two booted services " +
+    "— #5613.  Until then the compile tier proves every backend emits and wires the consumer",
   "projection-split-deployables":
     "the defect is a hard compile error in the emitted project (`TS2306: File " +
     "'domain/value-objects.ts' is not a module`), so the compile tier is the oracle.  A " +

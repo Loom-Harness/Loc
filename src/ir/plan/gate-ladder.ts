@@ -23,7 +23,7 @@
 // backend renders the checks this plan lists (3–7) in the listed order.
 
 import type { OperationIR } from "../types/loom-ir.js";
-import { operationGates, type RequiresStmtIR } from "../util/op-gates.js";
+import { lifecycleGates, operationGates, type RequiresStmtIR } from "../util/op-gates.js";
 import { walkExprDeep } from "../util/walk.js";
 
 /** One rung of the ladder. */
@@ -80,6 +80,22 @@ export function operationLadder(op: OperationIR, opts: { readsIfMatch: boolean }
  *  (403) exactly as the operation does; only `when` folds into `allowed`. */
 export function canOpLadder(op: OperationIR): GateCheck[] {
   return operationLadder(op, { readsIfMatch: false });
+}
+
+/** The ordered checks a canonical `DELETE /{id}` renders: the destroy's
+ *  row-independent `requires` gates, the load, the row-reading gates, then the
+ *  version check (when the route reads `If-Match`).  A destroy has no `when`. */
+export function destroyLadder(
+  destroy: OperationIR | null | undefined,
+  opts: { readsIfMatch: boolean },
+): GateCheck[] {
+  const gates = lifecycleGates(destroy);
+  return [
+    ...gates.filter((g) => !gateReadsRow(g)).map((gate) => ({ step: "requires" as const, gate })),
+    { step: "load" },
+    ...gates.filter(gateReadsRow).map((gate) => ({ step: "row-requires" as const, gate })),
+    ...(opts.readsIfMatch ? [{ step: "version" as const }] : []),
+  ];
 }
 
 /** True when a `requires` gate reads the addressed row — a field, a value

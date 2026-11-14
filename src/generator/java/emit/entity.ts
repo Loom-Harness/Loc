@@ -1352,6 +1352,10 @@ export function renderJavaAbstractBaseEntity(
   pkg: string,
   options: {
     tph?: boolean;
+    /** The TPH base has a shared-table concrete (`isDiscriminatedTphBase`), so
+     *  it maps SINGLE_TABLE inheritance over the `kind` column.  A childless
+     *  base maps a plain entity on a table with no `kind` column. */
+    discriminated?: boolean;
     persistence?: {
       /** The hierarchy's shared table (`aggregateTableName`). */
       tableName: string;
@@ -1465,8 +1469,12 @@ export function renderJavaAbstractBaseEntity(
       ? [
           `@${JPA("Entity")}`,
           `@${JPA("Table")}(name = "${hbIdent(persistence.tableName)}"${persistence.schema ? `, schema = "${persistence.schema}"` : ""})`,
-          `@${JPA("Inheritance")}(strategy = ${JPA("InheritanceType")}.SINGLE_TABLE)`,
-          `@${JPA("DiscriminatorColumn")}(name = "kind")`,
+          ...(options.discriminated
+            ? [
+                `@${JPA("Inheritance")}(strategy = ${JPA("InheritanceType")}.SINGLE_TABLE)`,
+                `@${JPA("DiscriminatorColumn")}(name = "kind")`,
+              ]
+            : []),
           ...hostedRestrictions,
         ]
       : []),

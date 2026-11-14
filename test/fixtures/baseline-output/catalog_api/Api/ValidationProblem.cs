@@ -69,6 +69,11 @@ public static class ValidationProblem
             string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase)
             && (p.ParameterType == typeof(Guid) || p.ParameterType == typeof(Guid?)));
 
+    private static bool IsInt32Parameter(ActionContext context, string key) =>
+        context.ActionDescriptor.Parameters.Any(p =>
+            string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase)
+            && (p.ParameterType == typeof(int) || p.ParameterType == typeof(int?)));
+
     /// <summary>[Required]'s own sentence — "The X field is required." —
     /// recognised so it carries the shared wording instead.</summary>
     private static bool IsRequiredMessage(string message) =>
@@ -309,6 +314,20 @@ public static class ValidationProblem
                     var required = IsRequiredMessage(error.ErrorMessage);
                     var malformedId = !required && IsGuidParameter(context, entry.Key)
                         && error.ErrorMessage.StartsWith("The value '", StringComparison.Ordinal);
+                    // An int query / route value that IS an integer but does
+                    // not fit int32 is the shared integer-range refusal, with
+                    // its bounds — the Int32 binder only says "is not valid".
+                    if (!required && IsInt32Parameter(context, entry.Key)
+                        && long.TryParse(entry.Value?.AttemptedValue, System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out _))
+                    {
+                        return new Dictionary<string, object>
+                        {
+                            ["pointer"] = PointerOf(entry.Key),
+                            ["message"] = "Integer out of range",
+                            ["code"] = "field.integer-range",
+                            ["params"] = new Dictionary<string, object> { ["min"] = -2147483648, ["max"] = 2147483647 },
+                        };
+                    }
                     return new Dictionary<string, object>
                     {
                         ["pointer"] = PointerOf(entry.Key),

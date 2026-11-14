@@ -14,7 +14,7 @@ below).  It is not silent: every read that drops a tenancy filter raises
 
 Design record: [`proposals/multi-tenancy-design-note.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/multi-tenancy-design-note.md)
 (R1–R5); data visibility is flat by
-[D-TENANCY-FLAT](decisions.md#d-tenancy-flat--data-visibility-is-flat-the-org-tree-manages-sub-tenants-the-operating-org-and-its-ancestors-are-resolved-per-request).
+[D-TENANCY-FLAT](decisions/D-TENANCY-FLAT.md).
 
 ## Surface
 
@@ -537,7 +537,7 @@ The fact is `foldTenancyVerdict` / `foldTenancyFor`
 
 ## Reactors and timers — the system principal's tenant
 
-An event reactor runs as the **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)), and filters and
+An event reactor runs as the **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions/D-REACTOR-SYSTEM-PRINCIPAL.md)), and filters and
 stamps inside it use the **triggering event's tenant**: the system principal
 takes the operating org of the request that raised the event (its home org, or
 the org an admitted `x-org-context` switch named), so a reactor reads and

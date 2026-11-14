@@ -1,3 +1,5 @@
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
+import { buildFrontendHost, type FrontendHost } from "../../ir/contract/host.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -7,18 +9,16 @@ import {
   type EnrichedBoundedContextIR,
   type PageIR,
   type SystemIR,
-  sourceLocaleOf,
   type UiIR,
   uiUsesMoney,
 } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
-import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
+import { realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
 import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
-import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, snake } from "../../util/naming.js";
@@ -132,6 +132,9 @@ export interface GenerateReactOptions {
    *  generated i18n shim, under the SAME `i18nEnabled` gate as `en.json`.
    *  Absent / empty is the normal case → byte-identical output. */
   translations?: TranslationCatalogs;
+  /** The system's Frontend Contract (`src/ir/contract/`), when the caller has
+   *  one. */
+  frontendContract?: FrontendContract;
 }
 
 export function generateReactForContexts(
@@ -142,6 +145,7 @@ export function generateReactForContexts(
 ): Map<string, string> {
   const out = emissionSink("generator/react/index");
 
+  const host = buildFrontendHost(sys, deployable);
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   // Standalone react fetches the API same-origin via the relative
   // `/api` base; `vite dev` proxies it to the target backend (below),
@@ -150,11 +154,11 @@ export function generateReactForContexts(
   const apiBaseUrl = options.apiBaseUrl ?? API_BASE_PATH;
   // `vite dev` same-origin proxy target: the standalone backend's dev
   // URL, so a relative `/api/*` fetch reaches it without CORS.
-  const apiProxyTarget = `http://localhost:${target?.port ?? 8080}`;
+  const apiProxyTarget = `http://localhost:${host.target?.port ?? 8080}`;
   // A native `vite` run serves on this deployable's declared port.  Only a
   // standalone frontend (one that `targets:` a backend) has a port of its
   // own; a bundle embedded in a backend keeps the template default.
-  const devPort = target ? deployable.port : undefined;
+  const devPort = host.target ? host.port : undefined;
   // Sub-path the bundle is served under (Phoenix `/app`).  `viteBase`
   // is the trailing-slashed form vite wants (`/app/`); `basename` is
   // the slashless router basename.  Unset for root-served hosts.
@@ -180,8 +184,8 @@ export function generateReactForContexts(
   // pass (e.g. "mantine@v9"); the `??` default is defensive against
   // programmatic IR construction that bypasses lowering and matches
   // the current toolchain's default Mantine version.
-  const design = deployable.design ?? "mantine@v9";
-  const pack = loadPack(resolvePackDir(design, deployable.designBaseDir));
+  const design = host.design ?? "mantine@v9";
+  const pack = loadPack(resolvePackDir(design, host.designBaseDir));
 
   // Page metamodel routing.  Every React deployable declares a
   // `ui:` binding (validator rule `loom.react-deployable-missing-ui`
@@ -189,15 +193,15 @@ export function generateReactForContexts(
   // IR bypasses the validator and produces a react deployable with
   // no `uiName`, that's a bug — fail loudly here rather than emit
   // a half-formed project.
-  if (!deployable.uiName) {
+  if (!host.uiName) {
     throw new Error(
-      `React deployable '${deployable.name}' has no 'ui:' binding. The validator should have caught this; an upstream pipeline (programmatic IR construction?) skipped the AST validator.`,
+      `React deployable '${host.deployable}' has no 'ui:' binding. The validator should have caught this; an upstream pipeline (programmatic IR construction?) skipped the AST validator.`,
     );
   }
-  const ui = sys.uis.find((u) => u.name === deployable.uiName);
+  const ui = sys.uis.find((u) => u.name === host.uiName);
   if (!ui) {
     throw new Error(
-      `React deployable '${deployable.name}' references ui '${deployable.uiName}' but no such ui is declared in the system.`,
+      `React deployable '${host.deployable}' references ui '${host.uiName}' but no such ui is declared in the system.`,
     );
   }
 
@@ -230,7 +234,7 @@ export function generateReactForContexts(
   // Frontend auth guard (D-AUTH-OIDC, `auth: ui`): this react deployable opts in
   // AND its target backend enforces auth (so `useSession()` / the verified claims
   // are available client-side).  Gates `page { requires … }` rendering below.
-  const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
+  const authUi = host.authUi;
   // i18n (M-T1.11 React runtime): when this UI has extractable user-visible
   // strings, page/component bodies emit `{t("<key>", "<default>")}` for literal
   // text slots (keyed to the catalog) and the app ships an `src/i18n.ts` shim +
@@ -276,23 +280,23 @@ export function generateReactForContexts(
     // here, so what the translator wrote is what the app can resolve — with no
     // translator tree the list is empty and the shim is byte-identical.
     out.set(
-      `src/locales/${sourceLocaleOf(sys)}.json`,
+      `src/locales/${host.sourceLocale}.json`,
       renderLocaleCatalog(ui, packChrome, formScope),
     );
     const translated = renderTranslatedCatalogs(
       ui,
       options.translations,
       packChrome,
-      sourceLocaleOf(sys),
+      host.sourceLocale,
       formScope,
     );
     for (const [locale, content] of translated) {
       out.set(`src/locales/${locale}.json`, content);
     }
-    out.set("src/i18n.ts", renderI18nModule([...translated.keys()], sourceLocaleOf(sys)));
+    out.set("src/i18n.ts", renderI18nModule([...translated.keys()], host.sourceLocale));
     // The React binding of that store (`useLocale`, `LocaleSwitcher`).
     out.set("src/lib/locale-switcher.tsx", renderLocaleSwitcherModule());
-    localeSwitchable = [...translated.keys()].some((l) => l !== sourceLocaleOf(sys));
+    localeSwitchable = [...translated.keys()].some((l) => l !== host.sourceLocale);
   }
   const pages = emitPagesForUi(ui, emitCtx);
   for (const [path, content] of pages) out.set(path, content);
@@ -348,7 +352,7 @@ export function generateReactForContexts(
   // the only backend serving GET /realtime/events so far), emit the
   // EventSource subscription helper.  Pack-agnostic shared shell file —
   // user code (and the future `on <channel>.<Event>` handlers) consume it.
-  const realtimeTypes = backendServesRealtime(target?.platform)
+  const realtimeTypes = host.realtime.served
     ? [...new Set(contexts.flatMap((c) => [...realtimeEventTypes(c)]))].sort()
     : [];
   if (realtimeTypes.length > 0) {
@@ -358,11 +362,7 @@ export function generateReactForContexts(
       // SAME `auth: ui` / `auth: required` gate the api client's
       // `credentials: "include"` rides, so the SSE stream authenticates exactly
       // like an ordinary API call instead of 401-ing on an authenticated deployable.
-      renderRealtimeClient(
-        realtimeTypes,
-        "API_BASE_URL",
-        realtimeStreamCredential(deployable, target, sys.user),
-      ),
+      renderRealtimeClient(realtimeTypes, "API_BASE_URL", host.realtime.credential),
     );
   }
   // Live-event handlers (`on <channel>.<Event>(e) { toast(…) }`) —
@@ -422,7 +422,7 @@ export function generateReactForContexts(
   // `theme { ... }` blocks override the baseline through the
   // pack's "theme" template; the generated file always exists and
   // main.tsx always wires `<MantineProvider theme={theme}>`.
-  out.set("src/theme.ts", renderTheme(sys.theme, pack));
+  out.set("src/theme.ts", renderTheme(host.theme, pack));
   // Vite ambient types — declares `*.css` (and other asset) modules so the
   // pack's side-effect style imports (`import "@mantine/core/styles.css"`)
   // type-check.  Required since TypeScript 6 (TS2882: side-effect imports of
@@ -518,12 +518,19 @@ export function generateReactForContexts(
     { nameLabelKeys: true },
   );
 
+  // The aggregates whose api serves a create, read off the contract's
+  // operations.
+  const creatable = new Set(
+    contractOf(options, host)
+      .wire.operations.filter((o) => o.kind === "create")
+      .map((o) => o.aggregate),
+  );
   out.set(
     "src/App.tsx",
     renderAppShell(
-      scaffoldedAggregates.map((a) => a.agg),
+      scaffoldedAggregates.map((a) => ({ name: a.agg.name, creatable: creatable.has(a.agg.name) })),
       scaffoldedWorkflows.map((w) => w.wf),
-      sys.name,
+      host.system,
       sidebarOverride,
       extraRoutes,
       pack,
@@ -607,7 +614,7 @@ export function generateReactForContexts(
     "index.html",
     renderShellFile(
       "index-html",
-      { ...prepareIndexHtmlVM(sys, deployable, ui, i18nEnabled), usesCodeBlock },
+      { ...prepareIndexHtmlVM(host, ui, i18nEnabled), usesCodeBlock },
       pack,
     ),
   );
@@ -687,19 +694,14 @@ interface IndexHtmlVM {
   favicon?: string;
 }
 
-function prepareIndexHtmlVM(
-  sys: SystemIR,
-  deployable: DeployableIR,
-  ui: UiIR,
-  i18nEnabled: boolean,
-): IndexHtmlVM {
+function prepareIndexHtmlVM(host: FrontendHost, ui: UiIR, i18nEnabled: boolean): IndexHtmlVM {
   const page = pickMetadataPage(ui.pages);
   // Fallback order: the landing page's own static `title:`, then the SYSTEM
   // name, then the deployable's.  The deployable name is an infrastructure
   // identifier (`webApp`) — it named the browser tab of every scaffolded app,
   // which is the one string a user sees before any of their own (finding E7).
   const staticTitle = staticTitleOf(page);
-  const title = staticTitle ?? humanize(sys.name) ?? deployable.name;
+  const title = staticTitle ?? humanize(host.system) ?? host.deployable;
   const metadata = page?.metadata;
   return {
     title,
@@ -708,14 +710,14 @@ function prepareIndexHtmlVM(
     ...(i18nEnabled && page && staticTitle !== undefined
       ? { titleKey: messageKey(pageKeyPrefix(ui, page), "title", staticTitle) }
       : {}),
-    lang: sourceLocaleOf(sys),
+    lang: host.sourceLocale,
     // `dir` only under i18n: the runtime keeps it in step on a switch, and an
     // app with no locale model keeps its markup byte-identical.
-    ...(i18nEnabled ? { dir: localeDir(sourceLocaleOf(sys)) } : {}),
+    ...(i18nEnabled ? { dir: localeDir(host.sourceLocale) } : {}),
     description: metadata?.description,
     ogImage: metadata?.ogImage,
     canonical: metadata?.canonical,
-    favicon: deployable.favicon,
+    favicon: host.favicon,
   };
 }
 
@@ -743,3 +745,15 @@ function staticTitleOf(page: PageIR | undefined): string | undefined {
 
 // smokeSpec moved to src/generator/_frontend/smoke-spec.ts (shared
 // with the Svelte + Vue frontends — it drives routes, not framework code).
+
+/** The Frontend Contract this generation reads.  Every caller — the system
+ *  orchestrator through `emitProject`, and a backend embedding the bundle —
+ *  passes it; a generation without one is a wiring defect. */
+function contractOf(options: GenerateReactOptions, host: FrontendHost): FrontendContract {
+  if (!options.frontendContract) {
+    throw new Error(
+      `React deployable '${host.deployable}' was generated without the system's Frontend Contract; the caller must pass \`frontendContract\`.`,
+    );
+  }
+  return options.frontendContract;
+}

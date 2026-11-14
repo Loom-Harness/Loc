@@ -221,8 +221,10 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
       // Promotion to error is a tracked follow-up (~2026-11-01).
       //
       // Read off `deriveContextOperations` — the same derivation every backend
-      // route builder renders — so the check covers exactly the routes that
-      // exist (abstract bases serve neither).
+      // route builder renders — so the check covers exactly the per-aggregate
+      // routes.  An abstract base's polymorphic reads need no warning: under
+      // denyByDefault every concrete's list read carries a gate, and a gated
+      // concrete keeps its base's read unrouted (`polymorphicReadClosure`).
       for (const op of deriveContextOperations(c)) {
         const aggregateOrigin = (name: string) =>
           c.aggregates.find((a) => a.name === name)?.origin ?? c.origin;

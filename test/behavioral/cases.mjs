@@ -342,6 +342,19 @@ export const AUTHZ_LADDERS = {
         arms: { anonymous: null, unauthorized: 403, authorized: 404 },
       },
       {
+        label: "gate order — destroy on a missing id answers the caller's 403, not 404",
+        method: "DELETE",
+        path: "/api/notes/00000000-0000-4000-8000-0000000000ab",
+        arms: { anonymous: null, unauthorized: 403, authorized: 404 },
+      },
+      {
+        label: "gate order — the generic update on a missing id answers the caller's 403, not 404",
+        method: "POST",
+        path: "/api/notes/00000000-0000-4000-8000-0000000000ac/update",
+        body: { text: "rewritten" },
+        arms: { anonymous: null, unauthorized: 403, authorized: 404 },
+      },
+      {
         label: "gate order — a stale If-Match answers the caller's 403, not 409",
         seed: { path: "/api/memos", body: { body: "ladder stale" } },
         method: "POST",
@@ -953,8 +966,8 @@ export const AUTHZ_LADDERS = {
   },
 
   /** The tenant floor on BOTH inheritance layouts (#3954): every read path of a
-   *  TPH subtype (the restricted `Car`, the plain sibling `Truck`) and of a TPC
-   *  subtype (`Driver`), re-read as tenant `globex` after `acme` seeds.  A
+   *  TPH subtype (the restricted `Car`, the plain sibling `Truck`), of a TPC
+   *  subtype (`Driver`) and of each abstract base's polymorphic read, re-read as tenant `globex` after `acme` seeds.  A
    *  collection read answers 200 either way, so its arm asserts the seeded row
    *  is ABSENT from the body; `byPlateAnyTenant` is the one surface that
    *  `ignoring tenantOwned`, so there the foreign tenant must SEE it — the
@@ -989,6 +1002,19 @@ export const AUTHZ_LADDERS = {
         rowVisible: { otherTenant: true, authorized: true },
       },
       {
+        label: "TPH base — a foreign tenant's polymorphic by-id read",
+        method: "GET",
+        path: "/api/vehicles/{id}",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      {
+        label: "TPH base — a foreign tenant's polymorphic collection read",
+        method: "GET",
+        path: "/api/vehicles",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
+        rowVisible: { otherTenant: false, authorized: true },
+      },
+      {
         label: "TPH sibling — a foreign tenant's collection read",
         seed: { path: "/api/trucks", body: { plate: "LADDER-T", payloadKg: 1 } },
         method: "GET",
@@ -1016,6 +1042,14 @@ export const AUTHZ_LADDERS = {
         seed: { path: "/api/drivers", body: { name: "LADDER-D2", licence: "L-8" } },
         method: "GET",
         path: "/api/drivers",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
+        rowVisible: { otherTenant: false, authorized: true },
+      },
+      {
+        label: "TPC base — a foreign tenant's polymorphic collection read",
+        seed: { path: "/api/drivers", body: { name: "LADDER-D3", licence: "L-7" } },
+        method: "GET",
+        path: "/api/crews",
         arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
         rowVisible: { otherTenant: false, authorized: true },
       },

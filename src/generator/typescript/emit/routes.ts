@@ -171,10 +171,11 @@ export function renderHttpIndex(
      *  `<resource>$getBytes`).  Absent → no `/files` routes emitted
      *  (byte-identical output). */
     fileUpload?: { resource: string; sourceType: string };
-    /** M-T4.4: durable events ride a broker-bound `queue`/`work`
-     *  channel — the outbox must capture them even when this deployable hosts
-     *  no reactor (a pure producer), so the relay can publish on drain. */
-    forceOutbox?: boolean;
+    /** The deployable's outbox tier (`channelPlan(...).hasOutbox`): durable
+     *  events are captured in `__loom_outbox` exactly when the relay runs.
+     *  Absent (a single-context emit) → captured when a hosted workflow
+     *  subscribes and the context carries a durable channel. */
+    outbox?: boolean;
     /** A typed in-system call to an `auth: required` callee forwards the
      *  caller's credential, so the request's credential is captured right
      *  after the auth middleware.  Absent → byte-identical output. */
@@ -270,7 +271,7 @@ export function renderHttpIndex(
   // same two exports over the `LoomOutboxRow` EntitySchema, so a durable channel
   // is at-least-once on both adapters (it silently degraded to the at-most-once
   // in-process path here before).
-  const wireOutbox = (wireDispatcher || !!options?.forceOutbox) && hasDurableEvents(ctx);
+  const wireOutbox = options?.outbox ?? (wireDispatcher && hasDurableEvents(ctx));
   // Realtime SSE wire (channels.md Part I): any `delivery: broadcast`
   // channel makes its carried events UI-observable — createApp wraps its
   // default dispatcher with the realtime tee and mounts GET /realtime/events.

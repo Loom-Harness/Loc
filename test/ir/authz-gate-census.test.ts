@@ -89,6 +89,7 @@ import { describe, expect, it } from "vitest";
 import { serverSourcedDefaultFields } from "../../src/generator/_frontend/server-default.js";
 import { handlerReadAggregates } from "../../src/ir/enrich/policy-read-gates.js";
 import { createInputFields, emitsRestCreate } from "../../src/ir/enrich/wire-projection.js";
+import { contextOperations } from "../../src/ir/plan/repo-polymorphic.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -100,7 +101,7 @@ import {
   type SystemIR,
   type WorkflowIR,
 } from "../../src/ir/types/loom-ir.js";
-import { aggregateSegment, deriveContextOperations } from "../../src/ir/util/api-surface.js";
+import { aggregateSegment } from "../../src/ir/util/api-surface.js";
 import { canonicalCreate, canonicalDestroy } from "../../src/ir/util/canonical-lifecycle.js";
 import { lifecycleGates, operationGates } from "../../src/ir/util/op-gates.js";
 import { platformFor } from "../../src/platform/registry.js";
@@ -358,7 +359,7 @@ function surfacesOf(model: LoomModel): Surfaces {
       const aggs = new Map(ctx.aggregates.map((a) => [a.name, a]));
 
       // ── LIFTED: `deriveContextOperations` ────────────────────────────────
-      for (const op of deriveContextOperations(ctx)) {
+      for (const op of contextOperations(ctx)) {
         const agg = aggs.get(op.aggregate);
         const gates: GateKind[] = [...aggregateSeamGates(agg, op.kind)];
         const hasRequires =
