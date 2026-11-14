@@ -1,3 +1,4 @@
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
 import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
 import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant, eventsKeepOriginFrame } from "../../ir/enrich/stream-tenancy.js";
@@ -18,7 +19,11 @@ import type {
   TypeIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
-import { isMaterializedProjection, isQueryTimeProjection } from "../../ir/types/loom-ir.js";
+import {
+  isMaterializedProjection,
+  isQueryTimeProjection,
+  PLAIN_FIND_FLAGS,
+} from "../../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../../ir/types/migrations-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import {
@@ -288,6 +293,7 @@ export function generateDotnetForContexts(
   system: {
     deployable: DeployableIR;
     sys: SystemIR;
+    frontendContract?: FrontendContract;
     migrations?: MigrationsIR[];
     styleAdapter?: StyleAdapter;
     layoutAdapter?: LayoutAdapter;
@@ -330,6 +336,7 @@ function emitProjectFromContexts(
   system: {
     deployable: DeployableIR;
     sys: SystemIR;
+    frontendContract?: FrontendContract;
     migrations?: MigrationsIR[];
     styleAdapter?: StyleAdapter;
     layoutAdapter?: LayoutAdapter;
@@ -368,7 +375,9 @@ function emitProjectFromContexts(
   const channelBindings = chPlan.bindings;
   const mergedSubscriptions = chPlan.subscriptions;
   const hasChannels = channelBindings.length > 0;
-  const hasChannelConsumers = hasChannels && mergedSubscriptions.some((sub) => !sub.projection);
+  // A broker consumer runs when a hosted reactor, event-triggered create or
+  // projection fold consumes an event a wired binding carries.
+  const hasChannelConsumers = chPlan.consumesFromBroker;
   const hasSubscriptions =
     contexts.some((c) => c.eventSubscriptions.length > 0 || (c.projections?.length ?? 0) > 0) ||
     hasChannelConsumers;
@@ -382,11 +391,10 @@ function emitProjectFromContexts(
       .flatMap((b) => b.events)
       .filter((ev) => hostedDurable.has(ev)),
   );
-  // The outbox tier now also boots for the workflow-less durable-broker
-  // PRODUCER (the Hono forceOutbox twin): no subscription, but the relay
-  // must still drain the outbox to publish.
-  const hasOutboxTier =
-    (hasSubscriptions || durableBrokerEvents.size > 0) && hostedDurable.size > 0;
+  // The outbox tier (channels.md "Event routing"): a hosted durable event is
+  // consumed here or carried by a wired binding.  A producer with no local
+  // consumer still relays, to publish.
+  const hasOutboxTier = chPlan.hasOutbox;
   // Persistence-neutral `ConcurrencyConflictException` — only the Dapper
   // adapter needs it (its version-CAS `SaveAsync` throws it; the EF path keys
   // its 409 arm on `DbUpdateConcurrencyException` instead), so gate the emit on
@@ -1175,7 +1183,11 @@ function emitProjectFromContexts(
     // same wwwroot serving; only the SPA build output dir differs —
     // `build` for svelte, `dist/browser` for angular — see
     // renderDockerfile).
-    const embedOpts = { apiBaseUrl: "/api", pathPrefix: "ClientApp/" };
+    const embedOpts = {
+      apiBaseUrl: "/api",
+      pathPrefix: "ClientApp/",
+      frontendContract: system.frontendContract,
+    };
     const uiFw = system.deployable.uiFramework;
     const spaFiles =
       uiFw === "svelte"
@@ -2111,6 +2123,7 @@ function mergeViewsAsFinds(
   };
   const synthesised = [
     ...matchingQp.map((p) => ({
+      ...PLAIN_FIND_FLAGS,
       name: p.name,
       // The projection's OWN parameters — its inlined `where` references them,
       // so a parameterless read emitted a LINQ predicate over a free variable.

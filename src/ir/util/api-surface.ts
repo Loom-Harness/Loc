@@ -1,3 +1,4 @@
+import { PLAIN_FIND_FLAGS } from "../types/loom-ir.js";
 // The api's operation set, as IR data — the single source of truth for what
 // an `api` actually exposes over HTTP.
 //
@@ -135,6 +136,10 @@ export interface ApiOperationIR {
    *  still served, by the explicit handler, so a client keeps calling it — but
    *  a route or OpenAPI emitter renders `servedOperations(ops)` and skips it. */
   readonly claimedByExplicitRoute?: true;
+  /** Set on the reads of an abstract base (`derivePolymorphicReadOperations`):
+   *  the base-reader builders mount them, not the per-aggregate route
+   *  builders. */
+  readonly polymorphicBase?: true;
 }
 
 /** The per-context `httpStatus` override maps the derivation resolves error
@@ -647,6 +652,72 @@ export function deriveAggregateOperations(
   }
 
   return out;
+}
+
+/** The read operations a ROUTED polymorphic base serves — `GET /api/<bases>`
+ *  (the paged envelope, each item tagged with its concrete's `type`) and,
+ *  under TPH only, `GET /api/<bases>/{id}`.  A TPC hierarchy has no shared id
+ *  space, so it has no by-id route.  Whether the base is routed at all is the
+ *  caller's question (`routedPolymorphicRead` in `ir/plan/`); this only shapes
+ *  the operations for a base that is.  The base-reader builders render these
+ *  routes, so the per-aggregate route builders never see them. */
+export function derivePolymorphicReadOperations(
+  base: AggregateIR,
+  layout: "sharedTable" | "ownTable",
+  statuses: ApiStatusContext,
+): ApiOperationIR[] {
+  const path = aggregateBase(base.name);
+  const resolve = (name: string): number => resolveErrorStatus(name, denialOverridesFor(statuses));
+  const all: FindIR = {
+    ...PLAIN_FIND_FLAGS,
+    name: "all",
+    params: [],
+    returnType: { kind: "genericInstance", ctor: "paged", arg: entityType(base.name) },
+  };
+  const op = (
+    kind: "getById" | "find",
+    idTokens: OpIdTokens,
+    opPath: string,
+    params: readonly ApiOperationParamIR[],
+    responseType: TypeIR,
+    errorStatusesOut: readonly number[],
+    find?: FindIR,
+  ): ApiOperationIR => ({
+    idTokens,
+    id: camelId(idTokens),
+    method: "get",
+    path: opPath,
+    aggregate: base.name,
+    kind,
+    params,
+    responseType,
+    errorStatuses: errorStatusesOut,
+    ...(find ? { find } : {}),
+    polymorphicBase: true,
+  });
+  return [
+    ...(layout === "sharedTable"
+      ? [
+          op(
+            "getById",
+            opGetById(base.name),
+            `${path}/{id}`,
+            [idParam()],
+            entityType(base.name),
+            errorStatuses("getById", false, resolve),
+          ),
+        ]
+      : []),
+    op(
+      "find",
+      opFind(base.name, "all"),
+      path,
+      [],
+      all.returnType as TypeIR,
+      findErrorStatuses(all, false, base.name, statuses),
+      all,
+    ),
+  ];
 }
 
 /** Every lifted operation across a context, aggregate by aggregate.  Threads

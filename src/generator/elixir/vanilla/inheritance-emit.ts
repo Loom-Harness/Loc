@@ -27,6 +27,7 @@ import { discriminatorValue, ownFieldsOf, tphConcretesOf } from "../../../ir/uti
 export {
   baseOf,
   discriminatorValue,
+  isDiscriminatedTphBase,
   isTpcBase,
   isTpcConcrete,
   isTphBase,

@@ -59,7 +59,7 @@ import type {
   WorkflowIR,
   WorkflowStmtIR,
 } from "../types/loom-ir.js";
-import { isShorthandProjection } from "../types/loom-ir.js";
+import { isShorthandProjection, PLAIN_FIND_FLAGS } from "../types/loom-ir.js";
 import { explicitRouteSlot } from "../util/api-surface.js";
 import { aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
 import { isTpcConcrete, isTphConcrete } from "../util/inheritance.js";
@@ -1168,6 +1168,7 @@ function synthesizePagedQueryHandlerFinds(
       const crit = crits.find((c) => c.name === run.synthCriterion!.name);
       if (!crit) continue;
       repo.finds.push({
+        ...PLAIN_FIND_FLAGS,
         name: run.retrievalName,
         params: crit.params,
         returnType: h.returnType,
@@ -1192,6 +1193,7 @@ function synthesizePagedQueryHandlerFinds(
     const r = (retrievals ?? []).find((x) => x.name === baseName);
     if (!r) continue;
     repo.finds.push({
+      ...PLAIN_FIND_FLAGS,
       name: pagedRunFindName(run),
       params: r.params,
       returnType: h.returnType,
@@ -2051,18 +2053,21 @@ function ensureFindAll(
       //   - `shape: embedded` — parts fold into JSONB; backends' support for
       //     paging its queryable root diverges, so keep it uniform (bare) across
       //     every backend rather than paged on some and not others.
-      //   - inheritance subtypes (`extends` a base) — the polymorphic
-      //     `find all <Base>` reader concatenates each subtype's `all()`; a
-      //     union of subtype tables can't be page-sliced correctly before the
-      //     merge, so the subtypes stay bare so the base reader composes.
+      //   - a TPC (`ownTable`) subtype — the polymorphic base reader merges
+      //     each subtype's whole `all()` in one global order and pages the
+      //     merge, so a subtype read already cut to a page would drop rows.
+      //     A TPH (`sharedTable`) subtype is one `kind`-scoped query over the
+      //     shared table, and pages like any relational aggregate; the TPH
+      //     base reader reads the shared table itself.
       // Keeping these an unbounded `T[]` keeps the IR honest against what the
       // emitters actually produce (a paged flag no controller honoured would be
       // a lie — e.g. an unused `page_param/3` that fails `--warnings-as-errors`).
       const paged =
         agg.persistedAs !== "eventLog" &&
         (agg.savingShape ?? "relational") === "relational" &&
-        !agg.extendsAggregate;
+        !isTpcConcrete(agg, aggregates);
       const all: FindIR = {
+        ...PLAIN_FIND_FLAGS,
         name: "all",
         params: [],
         returnType: paged

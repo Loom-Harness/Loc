@@ -13,6 +13,15 @@ export type ThrowClassification =
   | { deferred: string; mission: string; reviewUntil: string };
 
 export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
+  // src/generator/_api/polymorphic-row.ts
+  "src/generator/_api/polymorphic-row.ts#polymorphicRowOf": {
+    invariant:
+      "Only `contextOperations(ctx)` marks an operation `polymorphicBase`, and it derives one only for a base `routedPolymorphicRead` routes in that same ctx; no .ddd input reaches the throw.",
+  },
+  "src/generator/_api/polymorphic-row.ts#polymorphicRowOf$2": {
+    invariant:
+      "`routedPolymorphicRead(base, ctx)` draws its variants from `ctx.aggregates`, so every variant names an aggregate of that ctx; no .ddd input reaches the throw.",
+  },
   "src/generator/_frontend/form-row-binding.ts#settled": {
     invariant:
       "a shipped pack's field template binds its path or test id through a site the row binder does not rewrite; every shipped pack's dynamic rows render in the form-spec census and the walker suites, so only a new pack template shape reaches it",
@@ -1239,6 +1248,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/react/index.ts#generateReactForContexts": {
     guardedBy: ["loom.react-deployable-missing-ui", "loom.static-deployable-missing-ui"],
     note: "A react deployable without ui:/hosts: is rejected (verified: parse reports the error).",
+  },
+  "src/generator/react/index.ts#contractOf": {
+    invariant:
+      "Every caller passes the system's Frontend Contract: the orchestrator builds it for any system with a ui and threads it through emitProject (src/system/index.ts emitSystem), the frontend surfaces forward it (src/platform/frontend-dispatch.ts), and each backend embedding a bundle forwards it from its emitProject args.",
   },
   "src/generator/react/index.ts#generateReactForContexts$2": {
     invariant:

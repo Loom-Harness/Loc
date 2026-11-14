@@ -1,5 +1,5 @@
 import type { ExprIR } from "./expr.js";
-import type { ApplyIR, FieldIR, FunctionIR, ParamIR, WireField } from "./members.js";
+import type { ApplyIR, FieldIR, FunctionIR, ParamIR, Returns, WireField } from "./members.js";
 import type { Sourced, TypeIR } from "./types.js";
 import type { WorkflowStmtIR } from "./workflow-stmt.js";
 
@@ -17,7 +17,7 @@ export type IsolationLevel =
  *  events.  Default save semantics: each aggregate's save commits
  *  independently.  `transactional: true` wraps everything in one DB
  *  transaction. */
-export interface WorkflowIR extends Sourced {
+export interface WorkflowIR extends Sourced, Correlating {
   name: string;
   /** @deprecated Facade over the primary (unnamed, command-triggered) create —
    *  see `creates`.  Kept so the backend emitters (Hono / .NET / Phoenix /
@@ -54,11 +54,6 @@ export interface WorkflowIR extends Sourced {
    *  dispatcher (node / dotnet / elixir / python) and read back through the
    *  instance endpoints derived from `instanceWireShape`. */
   stateFields: FieldIR[];
-  /** The single id-shaped state field the runtime routes inbound events to
-   *  (workflow-and-applier.md §"Identity and correlation").  Set only when
-   *  exactly one id-shaped state field exists; absence / ambiguity are
-   *  diagnosed by the IR validator. */
-  correlationField?: string;
   /** `eventSourced` workflow (workflow-and-applier.md A2-S5b): command /
    *  reactor handlers may only `emit`, and state transitions live in
    *  `apply(...)` folds — exactly the event-sourced discipline aggregates
@@ -124,10 +119,9 @@ export interface WorkflowIR extends Sourced {
  *  (a `commandHandler` may omit it, `: void`-equivalent).  Body statements are
  *  `WorkflowStmtIR` (load → mutate → save → return), same as a workflow
  *  `create`.  Every backend's explicit-handlers emitter reads these. */
-export interface CommandHandlerIR {
+export interface CommandHandlerIR extends Answering {
   name: string;
   params: ParamIR[];
-  returnType?: TypeIR;
   /** Stamped SOURCE FACT — the user wrote `extern commandHandler … ;`.  An
    *  extern handler is BODYLESS: its implementation is a scaffold-once,
    *  user-owned impl file the generated dispatch calls (the "case-2" home).
@@ -138,12 +132,6 @@ export interface CommandHandlerIR {
   extern: boolean;
   statements: WorkflowStmtIR[];
   savesAtExit: { name: string; aggName: string; repoName: string }[];
-  /** The lowered `return <expr>` value, when the body ends in a return.  Held
-   *  separately from `statements` (which are `WorkflowStmtIR`, and the shared
-   *  workflow statement renderer has no `return` arm — workflow handles never
-   *  return a value).  A backend renders the body statements, then
-   *  `return <returnValue>`.  Absent for a `: void`-equivalent handler. */
-  returnValue?: ExprIR;
   /** For a result that declares an expected failure (`T or E`): the declared
    *  variant each answered value produces, by tag — one entry when
    *  `returnValue` is a tail `return`, else one per arm of the value `match`
@@ -160,7 +148,7 @@ export interface CommandHandlerIR {
  *  (unfoldable-api-derivation.md, Layer 3).  Like `CommandHandlerIR` but the
  *  `returnType` is REQUIRED (a query always produces a response) and the body
  *  must not mutate/save (validator `loom.query-handler-saves`). */
-export interface QueryHandlerIR {
+export interface QueryHandlerIR extends Answering {
   name: string;
   params: ParamIR[];
   returnType: TypeIR;
@@ -171,10 +159,6 @@ export interface QueryHandlerIR {
   extern: boolean;
   statements: WorkflowStmtIR[];
   savesAtExit: { name: string; aggName: string; repoName: string }[];
-  /** The lowered `return <expr>` value (see `CommandHandlerIR.returnValue`).  A
-   *  query always produces a response, so this is effectively always present —
-   *  optional only so a malformed (return-less) body lowers without a cast. */
-  returnValue?: ExprIR;
   /** For a result that declares an expected failure (`T or E`): the declared
    *  variant each answered value produces, by tag — one entry when
    *  `returnValue` is a tail `return`, else one per arm of the value `match`
@@ -191,31 +175,17 @@ export interface QueryHandlerIR {
  *  (workflow-and-applier.md A2-S5f).  `triggerKind` is discriminated at lowering
  *  from the param shape: a sole param whose type is an event reference →
  *  `"event"` (allocate-if-correlation-misses); otherwise `"command"`. */
-export interface CreateIR {
+export interface CreateIR extends Answering, Correlated {
   /** Declared name, or null for the canonical unnamed create (the legacy
    *  paren-body migrates to one of these). */
   name: string | null;
   triggerKind: "event" | "command";
   params: ParamIR[];
-  /** The `by <expr>` routing expression (event-triggered starters), lowered in
-   *  the create's scope.  Undefined for command-triggered creates. */
-  correlation?: ExprIR;
   statements: WorkflowStmtIR[];
   savesAtExit: { name: string; aggName: string; repoName: string }[];
   /** Event-triggered only: the bound event-param name and its event type. */
   eventBinding?: string;
   eventRef?: string;
-  /** The declared `: T` result of a command-triggered starter (`create(…): T
-   *  { … return <expr> }`) — the commandHandler twin.  When set, the command
-   *  route answers 200 with `returnValue` as its JSON body instead of 204.
-   *  Read through `commandCreateResult` (src/ir/util/workflow-command-route.ts),
-   *  which also decides that this create is the one the route serves. */
-  returnType?: TypeIR;
-  /** The lowered terminal `return <expr>`, held apart from `statements` (the
-   *  shared workflow statement vocabulary has no `return` arm — see
-   *  `CommandHandlerIR.returnValue`).  Lowered whenever the body ends in a
-   *  return, annotated or not, so the validator can refuse the unannotated one. */
-  returnValue?: ExprIR;
   /** For a result that declares an expected failure (`T or E`): the declared
    *  variant each answered value produces, by tag — one entry when
    *  `returnValue` is a tail `return`, else one per arm of the value `match`
@@ -233,18 +203,13 @@ export interface CreateIR {
  *  instance binds as a `refKind: "param"` local in the body.  Distinct from an
  *  applier in that the body is a workflow continuation (it may load/save
  *  aggregates and emit), so its statements are `WorkflowStmtIR`. */
-export interface OnIR {
+export interface OnIR extends Correlated {
   /** The event type this reactor subscribes to, by name (resolved to a
    *  context `EventDecl`). */
   event: string;
   /** The parameter name the inbound event instance binds to in the body
    *  (e.g. `paid` in `on(paid: PaymentReceived)`). */
   param: string;
-  /** The `by <expr>` routing expression (workflow-and-applier.md A2-S3),
-   *  lowered in the event-binding scope — e.g. `paid.orderId`.  Undefined when
-   *  the source omits `by`; the runtime then routes by name-match against the
-   *  workflow's correlation field (resolved at validation time). */
-  correlation?: ExprIR;
   /** The reactor body — workflow statements (emit / let / op-call / …). */
   statements: WorkflowStmtIR[];
   /** Which let-bound aggregates need a save call at reactor exit, in
@@ -252,4 +217,35 @@ export interface OnIR {
    *  `CreateIR`.  A reactor is a workflow continuation, so a created /
    *  loaded-and-mutated aggregate is persisted on the way out. */
   savesAtExit: { name: string; aggName: string; repoName: string }[];
+}
+
+/** An entry point's declared result and the value it answers — shared by
+ *  `commandHandler`, `queryHandler` and a workflow `create`.  `returnValue` is
+ *  the lowered terminal `return <expr>`, held apart from the body statements
+ *  (the shared workflow statement vocabulary has no `return` arm); a backend
+ *  renders the statements, then answers `returnValue`.  It is lowered whenever
+ *  the body ends in a return, annotated or not, so the validator can refuse an
+ *  unannotated one.  `returnType` is the declared `: T`: absent on a
+ *  `: void`-equivalent command handler or create (the route answers 204), and
+ *  required on a `queryHandler`, which narrows it. */
+export interface Answering extends Returns {
+  returnValue?: ExprIR;
+}
+
+/** The `by <expr>` routing expression of an event-triggered `create` or an
+ *  `on` reactor, lowered in the event-binding scope (`paid.orderId`).  Absent
+ *  on a command-triggered create, and on a reactor that omits `by` — the
+ *  runtime then routes by name-match against the workflow's correlation field
+ *  (resolved at validation time). */
+export interface Correlated {
+  correlation?: ExprIR;
+}
+
+/** The single id-shaped state field the runtime routes inbound events to.  On
+ *  a workflow it is inferred — set only when exactly one id-shaped state field
+ *  exists (absence / ambiguity are diagnosed by the IR validator); on a
+ *  projection it is the explicit `keyed by` field, and its absence is the
+ *  singleton discriminant (`isSingletonProjection`). */
+export interface Correlating {
+  correlationField?: string;
 }

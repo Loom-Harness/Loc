@@ -198,7 +198,7 @@ list now.
 A repository declares no reads of its own, so there is no per-read `requires`:
 who may read an aggregate is an access fact, not a property of one query, so it
 lives beside the `allow` / `deny` rules and covers every read at once
-([D-READ-GATE-IN-POLICY](decisions.md)):
+([D-READ-GATE-IN-POLICY](decisions/D-READ-GATE-IN-POLICY.md)):
 
 ```ddd
 repository Orders for Order
@@ -210,7 +210,7 @@ belong on different aggregates (or behind an exposure gate:
 `scaffoldPaged(requires:)`, a route / handler `requires`).
 
 A natural-key read (`Orders.getBy(code: c)` / `Orders.findBy(…)`,
-[D-REPO-KEY-LOOKUP](decisions.md)) has no route of its own, so the policy read
+[D-REPO-KEY-LOOKUP](decisions/D-REPO-KEY-LOOKUP.md)) has no route of its own, so the policy read
 gate never sits on it: it runs inside a body, and that body's exposure gate (a
 routed handler's `requires`, a workflow `create`'s `requires`) decides who
 reaches it.  A single-row `find` that only existed to be called from a body
@@ -306,7 +306,7 @@ The stamp, the tenant floor and the gate live in [tenancy.md](tenancy.md).
 An event reactor (a workflow's event-triggered `create(e) by …` starter or
 `on(e)` subscription — including one a `timerSource` tick or a broker
 consumer drives) has no request principal. It runs as the **system
-principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)): `currentUser.isSystem` is `true` (it is `false` on every
+principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions/D-REACTOR-SYSTEM-PRINCIPAL.md)): `currentUser.isSystem` is `true` (it is `false` on every
 request principal), every declared claim is EMPTY, the tenancy claim is the
 triggering event's, and a runtime-only `causedBy` records the
 originating user's id for audit and logs. Gates are evaluated against it
@@ -949,7 +949,7 @@ A grant opens the row, not its fields: `mask unless` still redacts by the
 grantee's own principal. The full surface, the routes and the diagnostics are
 in the language reference
 ([§17](language-reference/17-auth.md#sharing--shareable)); the design record is
-[D-SHARING](decisions.md#d-sharing--visibility-composes-from-the-tenancy-default-row-rules-and-shares-add-to-it-relations-are-predicates).
+[D-SHARING](decisions/D-SHARING.md).
 
 
 A reference written to a `tenantOwned` row is admitted under the target's read
@@ -2018,7 +2018,9 @@ credential**. When the callee declares `auth: required`, the request that made
 the call forwards its bearer token, so the callee authenticates the same
 principal. The token comes from the `Authorization` header, or else the HttpOnly
 `session` cookie. Under the dev stub, the `x-loom-dev-claims` override is
-forwarded too. A callee without `auth: required` gets no credential.
+forwarded too. An `x-org-context` org switch on the request is forwarded beside
+the credential, so the callee answers in the same operating org. A callee
+without `auth: required` gets no credential.
 
 ```ddd
 resource orgs { for: Sales, kind: api, use: NetApi }
@@ -2036,6 +2038,8 @@ export const forwardCallerCredential = createMiddleware(async (c, next) => {
   else if (session) headers.authorization = `Bearer ${session}`;
   const devClaims = c.req.header("x-loom-dev-claims");
   if (devClaims) headers["x-loom-dev-claims"] = devClaims;
+  const orgContext = c.req.header("x-org-context");
+  if (orgContext) headers["x-org-context"] = orgContext;
   await callerCredential.run(headers, next);
 });
 // …

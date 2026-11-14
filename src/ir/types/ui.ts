@@ -1,3 +1,4 @@
+import type { ReadGated } from "./context.js";
 import type { ExprIR } from "./expr.js";
 import type { ActionIR, DerivedIR, ParamIR, StoreIR } from "./members.js";
 import type { Sourced, TypeIR } from "./types.js";
@@ -188,7 +189,8 @@ export interface LayoutIR {
 }
 
 /** A page declaration: route + parameters + reactive state + body. */
-export interface PageIR extends Sourced {
+/** A page's `requires` is its auth gate, same syntax as on operations. */
+export interface PageIR extends Sourced, ReadGated {
   name: string;
   params: ParamIR[];
   /** Path-with-`:params` from `route: "..."`.  Always set for pages
@@ -197,8 +199,6 @@ export interface PageIR extends Sourced {
   route?: string;
   /** Optional title expression.  May interpolate state / data refs. */
   title?: ExprIR;
-  /** Auth gate, same syntax as on operations. */
-  requires?: ExprIR;
   /** Reactive local fields.  Multiple `state { }` blocks merge here
    *  (matches the `permissions` block multiplicity rule). */
   state: StateFieldIR[];

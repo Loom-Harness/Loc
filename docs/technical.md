@@ -529,6 +529,16 @@ expression | if | return | variant-match
 `targetType` / `elementType` so backends can pick the right
 mutator without re-walking the env.
 
+### The Frontend Contract allowlist
+
+`src/ir/contract/` copies the UI and the exposed wire surface out of the enriched
+IR through one spec per reachable IR type (`TypeIR`, `ExprIR`, `StmtIR`, the UI
+types, `PayloadIR`/`FieldIR`, `EventIR`, `ApiIR`/`RouteIR`, `ApiOperationIR`).
+The spec types are mapped over the IR types, so a field or kind added to one of
+them fails `tsc` in `src/ir/contract/` until it is classified — `keep`, a nested
+spec, `drop` or `deny` — and a field that ships joins the pin in
+`test/ir/contract/frontend-contract-census.test.ts`.
+
 ### Post-lowering well-formedness verifier
 
 `lowerProject` ends by running `verifyLoweredModel`

@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 import {
   API_MAX_ATTEMPTS,
   apiFetch,
+  CONFLICT_SUMMARY,
   currentGateState,
   evaluate,
   evaluateOnce,
@@ -358,6 +359,31 @@ describe("verdict — snapshot to published state", () => {
 
   it("zero other checks reporting blocks (fail-closed), it does not pass", () => {
     expect(verdict(evalRuns([])).state).toBe("pending");
+  });
+
+  it("a conflicted PR with nothing reporting fails and says why, instead of waiting forever", () => {
+    // GitHub runs no pull_request workflow on a PR whose merge ref cannot be
+    // built, so "waiting" on such a head never ends.
+    expect(verdict(evalRuns([]), { conflicted: true })).toEqual({
+      state: "failure",
+      summary: CONFLICT_SUMMARY,
+    });
+    expect(CONFLICT_SUMMARY).toContain(
+      "PR conflicts with main; workflows won't run until it's resolved",
+    );
+    // Not conflicted (or not known to be): the ordinary wait.
+    expect(verdict(evalRuns([]), { conflicted: false }).state).toBe("pending");
+    // Checks that did report decide the verdict as usual.
+    expect(verdict(evalRuns([green("a")]), { conflicted: true }).state).toBe("success");
+  });
+
+  it("the sweep asks GitHub whether a silent open PR conflicts (wiring no unit test boots)", () => {
+    const src = readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), "../../scripts/pr-gate.mjs"),
+      "utf8",
+    );
+    expect(src).toMatch(/mergeable_state === "dirty"/);
+    expect(src).toMatch(/verdict\(snapshot, \{ conflicted \}\)/);
   });
 
   it("all triggered checks green → success", () => {
@@ -823,9 +849,10 @@ describe("apiFetch — github.com's transient 5xx is not a verdict", () => {
     const src = readFileSync(path.join(repoRoot, "scripts/pr-gate.mjs"), "utf8");
     const bare = src.match(/await fetch\(/g) ?? [];
     expect(bare, "a call site still calls fetch directly instead of apiFetch").toEqual([]);
-    // Three GitHub endpoints: list check runs, list open PRs, publish the
-    // check.  (Counted excluding `apiFetch`'s own definition.)
-    expect((src.match(/(?<!function )\bapiFetch\(/g) ?? []).length).toBe(3);
+    // Four GitHub endpoints: list check runs, list open PRs, read one PR's
+    // mergeable state, publish the check.  (Counted excluding `apiFetch`'s
+    // own definition.)
+    expect((src.match(/(?<!function )\bapiFetch\(/g) ?? []).length).toBe(4);
   });
 });
 

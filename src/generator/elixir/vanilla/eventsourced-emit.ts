@@ -77,10 +77,12 @@ import {
   contextCallRef,
   denialOverrides,
   denialResponse,
-  denialTerm,
   deniesAtWire,
   disallowedTerm,
   exRuleParams,
+  opGuardEnsureClauses,
+  opHasWireDenial,
+  wireValidationResponse,
 } from "./denial.js";
 import { renderPageParamHelper } from "./find-controller.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
@@ -926,9 +928,19 @@ ${esCuBind}    attrs = Map.drop(params, ["id"])
 
 `
     : "";
+  // A precondition over an operation's own params answers the wire-validation
+  // 422, its `errors[]` naming the param; only emitted when some operation
+  // carries one, so it never shadows the catch-all as dead code.
+  const wireDenialClause = publicOps.some(opHasWireDenial)
+    ? `  defp command_error(conn, {:validation_failed, errors}) do
+    ${wireValidationResponse()}
+  end
+
+`
+    : "";
   const commandError = hasCommands
     ? `
-${disallowedClause}  defp command_error(conn, {:forbidden, detail}) do
+${disallowedClause}${wireDenialClause}  defp command_error(conn, {:forbidden, detail}) do
     ${denialResponse("forbidden", "detail", esOverrides)}
   end
 
@@ -1090,8 +1102,17 @@ function renderCommandRunner(c: CommandCtx): string {
   // the relational operation path and the ES invariants carry, and what the
   // other four backends send.
   const params = new Set(c.op.params.map((p) => p.name));
-  const guardClause = (s: Extract<StmtIR, { kind: "precondition" | "requires" }>): string =>
-    `:ok <- ensure(${renderExpr(s.expr, exprCtx)}, ${denialTerm(s, deniesAtWire(s, params) ? undefined : params, (e) => renderExpr(e, exprCtx))})`;
+  //
+  // An operation's guard renders exactly as the relational operation's does,
+  // so a precondition over its own params answers the wire-validation 422 with
+  // its `errors[]` entry.  A create's controller has no wire-validation arm, so
+  // its wire-rung guard keeps the domain floor.
+  const guardClauses = (s: Extract<StmtIR, { kind: "precondition" | "requires" }>): string[] =>
+    opGuardEnsureClauses(
+      s,
+      c.kind === "operation" || !deniesAtWire(s, params) ? params : undefined,
+      (e) => renderExpr(e, exprCtx),
+    );
   const letLine = (s: Extract<StmtIR, { kind: "let" }>): string =>
     `    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, exprCtx)}`;
   const sortPath = (stmts: readonly StmtIR[]) => {
@@ -1102,7 +1123,7 @@ function renderCommandRunner(c: CommandCtx): string {
       switch (s.kind) {
         case "precondition":
         case "requires":
-          guards.push(guardClause(s));
+          guards.push(...guardClauses(s));
           break;
         case "let":
           lets.push(letLine(s));
@@ -1190,7 +1211,7 @@ function renderCommandRunner(c: CommandCtx): string {
     const tree = renderOpTree(c.op.statements, {
       renderStmt: () => "",
       renderCond: (e) => renderExpr(e, exprCtx),
-      guardClauses: (guards) => guards.map(guardClause),
+      guardClauses: (guards) => guards.flatMap(guardClauses),
       leadLines: ownLets,
       renderLeaf: (path) =>
         withBlock(appendClauses(sortPath(path).eventStructs), [`      {:ok, ${newState}}`]),

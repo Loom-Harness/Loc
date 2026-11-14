@@ -293,7 +293,17 @@ export interface MigrationPlanOk {
   storages: StoragePlan[];
   /** The OpenAPI documents the `restApi` mocks answer from (`config: { spec }`). */
   restSpecs: { origin: string; spec: object }[];
+  /** Every `storage` the system declares — what the Infrastructure panel
+   *  shows a tab's empty state against. */
+  resources: DeclaredResource[];
   diagnostics: BuildDiagnostic[];
+}
+
+/** One declared `storage { type, config }`, its config flattened to strings. */
+export interface DeclaredResource {
+  name: string;
+  type: string;
+  config: Record<string, string>;
 }
 
 /** One playground database: a `storage` (or, for a Node deployable bound to
