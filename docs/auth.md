@@ -472,7 +472,7 @@ Every backend refuses a request on an aggregate row in one order
 | 2 | request shape (framework binding) | 422 |
 | 3 | `requires` that reads no row (the principal, the parameters) | 403 |
 | 4 | load through the read scope (`policy { read }`, tenancy, shares) | 404 |
-| 5 | `requires` that reads the row; the write scope | 403 / 404 |
+| 5 | `requires` that reads the row (a field, a derived, a call to the aggregate's own function); the write scope | 403 / 404 |
 | 6 | version (`If-Match`) | 409 |
 | 7 | `when` | 409 |
 | 8 | preconditions, invariants | 409 / 422 |
@@ -499,7 +499,14 @@ their `requires` that read no row refuse before the load.
 `GET /{id}/can_<op>`, the probe of a `when`-gated operation, runs the same
 ladder without a body.  The by-id read's gate refuses it (403) and a row the
 caller cannot read is 404, exactly as `GET /{id}` answers.  The operation's
-own `requires` and `when` answer `{ "allowed": false }`.
+own `requires` and `when` answer `{ "allowed": false }`.  A `requires` that
+reads an operation parameter cannot be decided without the body, so the probe
+answers `{ "allowed": false }` for it, after the load (a missing row is still
+404).
+
+The order is one plan, `src/ir/plan/gate-ladder.ts`, that every backend
+renders; `test/system/gate-ladder-census.test.ts` refuses a backend that
+classifies a gate itself.
 
 #### Guarded state transitions — close the generic-update side door
 

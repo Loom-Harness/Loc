@@ -3,7 +3,7 @@ import {
   operationVersionCheck,
   readsIfMatch,
 } from "../../../ir/enrich/version-check.js";
-import { gateReadsRow } from "../../../ir/plan/gate-ladder.js";
+import { destroyLadder, ladderGates, operationLadder } from "../../../ir/plan/gate-ladder.js";
 import { unionInstanceName } from "../../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -65,7 +65,10 @@ function requiresGate(
 ): string {
   // The gate ladder (`ir/plan/gate-ladder.ts`): a gate that reads no row runs
   // before the load, one that reads the row after it.
-  const gates = operationGates(op).filter((g) => gateReadsRow(g) === (which === "row-reading"));
+  const gates = ladderGates(
+    operationLadder(op, { readsIfMatch: false }),
+    which === "row-reading" ? "row-requires" : "requires",
+  );
   if (gates.length === 0) return "";
   // Bind the principal to a local rather than rendering the accessor inline, so
   // the emitted guard text is IDENTICAL to the one the aggregate used to carry
@@ -113,9 +116,9 @@ function lifecycleGate(
   /** The gates to render (default: every lifecycle gate of `action`), and
    *  whether to bind `currentUser` ahead of them (default: when any gate of
    *  `action` reads it). */
-  opts: { only?: (g: RequiresStmtIR) => boolean; bindUser?: boolean } = {},
+  opts: { gates?: readonly RequiresStmtIR[]; bindUser?: boolean } = {},
 ): { readonly body: string; readonly deps: DepList; readonly usings: string[] } {
-  const gates = lifecycleGates(action).filter(opts.only ?? (() => true));
+  const gates = opts.gates ?? lifecycleGates(action);
   const usesUser = lifecycleGatesUseCurrentUser(action);
   if (gates.length === 0) {
     return {
@@ -416,12 +419,13 @@ export function emitDestroyCommandAndHandler(
   // reads no row refuses before the load, so a missing id answers the refused
   // caller's 403; one that reads the row runs against the loaded aggregate.
   const destroyGate = lifecycleGate(canonicalDestroy(agg), ns, "aggregate");
+  const destroySteps = destroyLadder(canonicalDestroy(agg), { readsIfMatch: false });
   const destroyPre = lifecycleGate(canonicalDestroy(agg), ns, undefined, {
-    only: (g) => !gateReadsRow(g),
+    gates: ladderGates(destroySteps, "requires"),
     bindUser: true,
   });
   const destroyPost = lifecycleGate(canonicalDestroy(agg), ns, "aggregate", {
-    only: gateReadsRow,
+    gates: ladderGates(destroySteps, "row-requires"),
     bindUser: false,
   });
   const destroyAuditUsings = auditDestroy

@@ -87,6 +87,8 @@ import { collidingFacadeFunctions, renderAggregateFunctions } from "./function-e
 import {
   destroyRowFreeGates,
   opRowFreeGates,
+  probeIsUndecided,
+  probeRowFreeGates,
   probeRowGates,
   renderGateCondition,
   updateSeamGates,
@@ -937,7 +939,7 @@ ${body}
   @doc "Whether the \`${op.name}\` state gate currently admits this ${aggPascal}."
   def can_${snake(op.name)}_${aggSnake}(%${facadeMod}.${aggPascal}{} = record) do
     ${renderExpr(op.when as ExprIR, rc)}
-  end${renderProbeWithRowGates(facadeMod, agg, op, rc)}`;
+  end${renderProbeWithRowGates(facadeMod, agg, op, rc)}${renderProbeGateFn(agg, op, rc)}`;
             })
             .join("")
         : "";
@@ -2300,14 +2302,10 @@ function renderProbeWithRowGates(
   op: OperationIR,
   rc: RenderCtx,
 ): string {
-  const gates = probeRowGates(op);
+  // A probe with an undecidable gate answers `false` in the controller and
+  // calls no verdict function; a decidable one's row gates read no parameter.
+  const gates = probeIsUndecided(op) ? [] : probeRowGates(op);
   if (gates.length === 0 || !op.when) return "";
-  const absent = paramsRead(
-    gates.map((g) => g.expr),
-    op,
-  )
-    .map((p) => `    ${elixirLocal(p.name)} = nil\n`)
-    .join("");
   const tests = gates.map((g) => {
     const pred = renderGateCondition(g.expr, (x) => renderExpr(x, rc));
     return stmtUsesCurrentUser(g) ? `(not is_nil(current_user) and (${pred}))` : `(${pred})`;
@@ -2316,7 +2314,25 @@ function renderProbeWithRowGates(
   return `\n
   @doc "Whether the caller may run \`${op.name}\` on this ${upperFirst(agg.name)} now: its row-reading \`requires\` gates and its state gate."
   def can_${snake(op.name)}_${snake(agg.name)}(%${facadeMod}.${upperFirst(agg.name)}{} = record, ${user}) do
-${absent}    ${tests.join(" and ")} and (${renderExpr(op.when as ExprIR, rc)})
+    ${tests.join(" and ")} and (${renderExpr(op.when as ExprIR, rc)})
+  end`;
+}
+
+/** `can_<op>_<agg>_gate/1` — the probe's pre-load gates, when they are not the
+ *  operation's own (`<op>_<agg>_gate/2` also runs a row-free gate that reads a
+ *  parameter, which the probe cannot decide and drops; `canOpLadder`).  Empty
+ *  when the operation's gate function serves the probe. */
+function renderProbeGateFn(agg: AggregateIR, op: OperationIR, rc: RenderCtx): string {
+  const gates = probeRowFreeGates(op);
+  if (gates.length === 0 || gates.length === opRowFreeGates(op).length) return "";
+  const clauses = gates.flatMap((g) => gateClauses(g, rc, new Set<string>()));
+  const user = gates.some(stmtUsesCurrentUser) ? "current_user" : "_current_user";
+  return `\n
+  @doc "The \`can_${op.name}\` probe's \`requires\` gates that read no row and no parameter — evaluated before the ${upperFirst(agg.name)} is loaded."
+  def can_${snake(op.name)}_${snake(agg.name)}_gate(${user} \\\\ nil) do
+    with ${clauses.join(",\n         ")} do
+      :ok
+    end
   end`;
 }
 

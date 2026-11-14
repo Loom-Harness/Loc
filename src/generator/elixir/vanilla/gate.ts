@@ -1,4 +1,11 @@
-import { destroyLadder, gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
+import {
+  canOpLadder,
+  destroyLadder,
+  ladderGates,
+  mergePatchUpdateLadder,
+  operationLadder,
+  probeUndecided,
+} from "../../../ir/plan/gate-ladder.js";
 import type { AggregateIR, ExprIR, OperationIR } from "../../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { mergePatchFields } from "../../../ir/util/merge-patch.js";
@@ -64,23 +71,19 @@ export function updateSeamGates(op: OperationIR | undefined): RequiresStmtIR[] {
 }
 
 /** The merge-patch `update` seam's gates the controller runs BEFORE it loads
- *  the row (`update_<agg>_gate/2`, the gate ladder): the `requires` gates that
- *  read neither the row nor a parameter.  A parameter gate reads the MERGED
- *  value — the stored one when the body omits the key — and a mask write gate
- *  runs only when the body carries its key, so both stay in the seam, after
- *  the load. */
+ *  the row (`update_<agg>_gate/2`, `mergePatchUpdateLadder`): the `requires`
+ *  gates that read neither the row nor a parameter. */
 export function updateSeamRowFreeGates(op: OperationIR | undefined): RequiresStmtIR[] {
-  return updateSeamGates(op).filter(
-    (g) => g.maskWriteOf === undefined && !gateReadsRow(g) && !gateReadsParam(g),
-  );
+  return ladderGates(mergePatchUpdateLadder(updateSeamGates(op)), "requires");
 }
 
 /** The canonical `destroy`'s gates the controller runs BEFORE it loads the row
  *  (`delete_<agg>_gate/1`, `destroyLadder`): the ones that read no row. */
 export function destroyRowFreeGates(agg: AggregateIR): RequiresStmtIR[] {
-  return destroyLadder(canonicalDestroy(agg), { readsIfMatch: false }).flatMap((step) =>
-    step.step === "requires" && !isAlwaysPublicGate(step.gate.expr) ? [step.gate] : [],
-  );
+  return ladderGates(
+    destroyLadder(canonicalDestroy(agg), { readsIfMatch: false }),
+    "requires",
+  ).filter((g) => !isAlwaysPublicGate(g.expr));
 }
 
 /** The leading `requires` gates of `op` that read no row.  The controller runs
@@ -88,11 +91,23 @@ export function destroyRowFreeGates(agg: AggregateIR): RequiresStmtIR[] {
  *  gets 403 whether or not the row exists (the gate ladder,
  *  `ir/plan/gate-ladder.ts`). */
 export function opRowFreeGates(op: OperationIR): RequiresStmtIR[] {
-  return operationGates(op).filter((g) => !gateReadsRow(g));
+  return ladderGates(operationLadder(op, { readsIfMatch: false }), "requires");
 }
 
-/** The leading `requires` gates of `op` that read the loaded row and can deny:
- *  the `can_<op>` probe folds them into `allowed` (`can_<op>_<agg>/2`). */
+/** The `can_<op>` probe's gates before the load (`canOpLadder`): the
+ *  decidable ones that read no row.  They answer `allowed: false`. */
+export function probeRowFreeGates(op: OperationIR): RequiresStmtIR[] {
+  return ladderGates(canOpLadder(op), "requires");
+}
+
+/** The `can_<op>` probe's decidable row-reading gates that can deny: they fold
+ *  into `allowed` (`can_<op>_<agg>/2`). */
 export function probeRowGates(op: OperationIR): RequiresStmtIR[] {
-  return operationGates(op).filter((g) => gateReadsRow(g) && !isAlwaysPublicGate(g.expr));
+  return ladderGates(canOpLadder(op), "row-requires").filter((g) => !isAlwaysPublicGate(g.expr));
+}
+
+/** True when the `can_<op>` probe answers `allowed: false` after the load
+ *  whatever the row holds: one of its gates reads an operation parameter. */
+export function probeIsUndecided(op: OperationIR): boolean {
+  return probeUndecided(canOpLadder(op));
 }

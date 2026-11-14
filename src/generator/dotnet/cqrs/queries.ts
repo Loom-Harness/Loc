@@ -1,4 +1,4 @@
-import { gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
+import { canOpLadder, ladderGates, probeUndecided } from "../../../ir/plan/gate-ladder.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -85,12 +85,13 @@ export function emitCanOpQueriesAndHandlers(
     // be decided, so it answers `allowed: false`.
     const denies = (g: (typeof gates)[number]): string =>
       `        if (!(${renderCsExpr(g.expr, { thisName: "aggregate" })})) return new CanResponse(false);\n`;
-    // A gate that reads an operation parameter cannot be decided without a
-    // body: the probe answers `false` for it, after the load so a missing row
-    // is still 404 (the gate ladder, `ir/plan/gate-ladder.ts`).
-    const undecidable = gates.some(gateReadsParam);
-    const rowFree = gates.filter((g) => !gateReadsParam(g) && !gateReadsRow(g));
-    const rowReading = gates.filter((g) => !gateReadsParam(g) && gateReadsRow(g));
+    // The probe's ladder (`canOpLadder`): a gate that reads an operation
+    // parameter cannot be decided without a body, so the probe answers `false`
+    // for it, after the load so a missing row is still 404.
+    const ladder = canOpLadder(op);
+    const undecidable = probeUndecided(ladder);
+    const rowFree = ladderGates(ladder, "requires");
+    const rowReading = ladderGates(ladder, "row-requires");
     const readGate = byIdFind?.requires;
     const readGateUsesUser = readGate && byIdFind ? findGateUsesCurrentUser(byIdFind) : false;
     const needsUser = readGateUsesUser || gates.some((g) => exprUsesCurrentUser(g.expr));

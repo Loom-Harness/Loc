@@ -382,6 +382,16 @@ export const AUTHZ_LADDERS = {
         path: "/api/tickets/{id}/can_reopen",
         arms: { anonymous: null, unauthorized: 200, authorized: 200 },
       },
+      // A gate that reads an operation parameter cannot be decided without a
+      // body: the probe answers \`{ allowed: false }\` for both identities on
+      // an open ticket whose state gate admits (the golden pins the body).
+      {
+        label: "can_<op> — an undecidable parameter gate answers allowed: false",
+        seed: { path: "/api/tickets", body: { subject: "ladder undecided", open: true } },
+        method: "GET",
+        path: "/api/tickets/{id}/can_retitle",
+        arms: { anonymous: null, unauthorized: 200, authorized: 200 },
+      },
     ],
     arms: { anonymous: null, unauthorized: 403, authorized: 204 },
     anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",

@@ -87,6 +87,8 @@ import {
   destroyRowFreeGates,
   effectiveGate,
   opRowFreeGates,
+  probeIsUndecided,
+  probeRowFreeGates,
   probeRowGates,
   renderGateCondition,
   updateSeamGates,
@@ -805,8 +807,12 @@ ${guardRescue(appModule, denialOverrides(ctx))}
       // row-independent `requires` gates answer `allowed: false` before the
       // load, the load is the read scope's (404), and the row-reading `requires`
       // gates fold into `allowed` with the state gate.
-      const rowFree = opRowFreeGates(op);
-      const rowGates = probeRowGates(op);
+      // A gate that reads an operation parameter cannot be decided without a
+      // body (`canOpLadder`): the probe answers `allowed: false` after the
+      // load, so a missing row is still 404.
+      const rowFree = probeRowFreeGates(op);
+      const undecided = probeIsUndecided(op);
+      const rowGates = undecided ? [] : probeRowGates(op);
       const needsUser =
         (showGate !== undefined && exprUsesCurrentUser(showGate)) ||
         rowFree.some(stmtUsesCurrentUser) ||
@@ -814,14 +820,23 @@ ${guardRescue(appModule, denialOverrides(ctx))}
       const canCuBind =
         needsUser && !principal ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
       const gateUser = rowFree.some(stmtUsesCurrentUser) ? ", current_user" : "";
-      const verdict =
-        rowGates.length > 0
+      // The op's own pre-load gate function serves the probe when the two
+      // rungs hold the same gates; a parameter gate the probe drops gets the
+      // probe its own (`can_<op>_<agg>_gate`).
+      const gateFn =
+        rowFree.length === opRowFreeGates(op).length
+          ? `${opSnake}_${aggSnake}_gate(%{}${gateUser})`
+          : `can_${opSnake}_${aggSnake}_gate(${gateUser.replace(/^, /, "")})`;
+      const verdict = undecided
+        ? "false"
+        : rowGates.length > 0
           ? `${ctxModule}.can_${opSnake}_${aggSnake}(record, ${rowGates.some(stmtUsesCurrentUser) ? "current_user" : "nil"})`
           : `${ctxModule}.can_${opSnake}_${aggSnake}(record)`;
+      const recordVar = undecided ? "_record" : "record";
       const body =
         rowFree.length > 0
-          ? `    with :ok <- ${ctxModule}.${opSnake}_${aggSnake}_gate(%{}${gateUser}),
-         {:ok, record} <- ${ctxModule}.get_${aggSnake}(id${getActor}) do
+          ? `    with :ok <- ${ctxModule}.${gateFn},
+         {:ok, ${recordVar}} <- ${ctxModule}.get_${aggSnake}(id${getActor}) do
       json(conn, %{"allowed" => ${verdict}})
     else
       {:error, :not_found} ->
@@ -831,7 +846,7 @@ ${guardRescue(appModule, denialOverrides(ctx))}
         json(conn, %{"allowed" => false})
     end`
           : `    case ${ctxModule}.get_${aggSnake}(id${getActor}) do
-      {:ok, record} ->
+      {:ok, ${recordVar}} ->
         json(conn, %{"allowed" => ${verdict}})
 
       {:error, :not_found} ->

@@ -10,7 +10,13 @@ import {
 } from "../../ir/enrich/wire-policy.js";
 import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../ir/plan/cache.js";
-import { destroyLadder, gateReadsParam, gateReadsRow } from "../../ir/plan/gate-ladder.js";
+import {
+  canOpLadder,
+  destroyLadder,
+  ladderGates,
+  operationLadder,
+  probeUndecided,
+} from "../../ir/plan/gate-ladder.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -52,7 +58,6 @@ import {
   lifecycleGatesUseCurrentUser,
   maskWritePresenceParam,
   operationBodyUsesCurrentUser,
-  operationGates,
   operationGatesUseCurrentUser,
   type RequiresStmtIR,
 } from "../../ir/util/op-gates.js";
@@ -1051,31 +1056,32 @@ function requiresGate(
 ): string[] {
   // The gate ladder (`ir/plan/gate-ladder.ts`): a gate that reads no row runs
   // before the load, one that reads the row after it.
-  return operationGates(op)
-    .filter((g) => gateReadsRow(g) === (which === "row-reading"))
-    .flatMap((g) => {
-      // `renderPyNegatedGuard` (not a bare `not (...)`) so a membership gate keeps
-      // the idiomatic `x not in y` the statement renderer produced before the
-      // hoist — the check moved, its spelling shouldn't.
-      const guard = renderPyNegatedGuard(g.expr, {
-        thisName: "found",
-        // Operation params are NOT locals here — the handler holds them at the
-        // wire-read expression the call is about to pass.
-        paramExpr: (name) => {
-          const p = op.params.find((q) => q.name === name);
-          return p ? pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx) : undefined;
-        },
-      });
-      // A merge-patch update's mask write gate runs only when the body carries
-      // the masked key (an absent key keeps the stored value).
-      const present = maskWritePresenceParam(op, g);
-      return [
-        present
-          ? `    if ${JSON.stringify(pythonWireIdent(present))} in body.model_fields_set and ${guard}:`
-          : `    if ${guard}:`,
-        `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)})`,
-      ];
+  return ladderGates(
+    operationLadder(op, { readsIfMatch: false }),
+    which === "row-reading" ? "row-requires" : "requires",
+  ).flatMap((g) => {
+    // `renderPyNegatedGuard` (not a bare `not (...)`) so a membership gate keeps
+    // the idiomatic `x not in y` the statement renderer produced before the
+    // hoist — the check moved, its spelling shouldn't.
+    const guard = renderPyNegatedGuard(g.expr, {
+      thisName: "found",
+      // Operation params are NOT locals here — the handler holds them at the
+      // wire-read expression the call is about to pass.
+      paramExpr: (name) => {
+        const p = op.params.find((q) => q.name === name);
+        return p ? pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx) : undefined;
+      },
     });
+    // A merge-patch update's mask write gate runs only when the body carries
+    // the masked key (an absent key keeps the stored value).
+    const present = maskWritePresenceParam(op, g);
+    return [
+      present
+        ? `    if ${JSON.stringify(pythonWireIdent(present))} in body.model_fields_set and ${guard}:`
+        : `    if ${guard}:`,
+      `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)})`,
+    ];
+  });
 }
 
 /** The canonical `create` / `destroy` authorization gate, in the ROUTE.
@@ -1135,20 +1141,17 @@ function canOpRoute(
 ): string {
   const pred = renderPyExpr(op.when as ExprIR, { thisName: "found" });
   const readGate = readFind?.requires;
-  const gates = operationGates(op);
-  // A gate that reads an operation parameter cannot be decided without a
-  // body: the probe answers `False` for it, after the load so a missing row is
-  // still 404 (the gate ladder, `ir/plan/gate-ladder.ts`).
-  const undecidable = gates.some(gateReadsParam);
-  const decided = gates.filter((g) => !gateReadsParam(g));
+  // The probe's ladder (`canOpLadder`): a gate that reads an operation
+  // parameter cannot be decided without a body, so the probe answers `False`
+  // for it, after the load so a missing row is still 404.
+  const ladder = canOpLadder(op);
+  const undecidable = probeUndecided(ladder);
   const gateLines = (rowReading: boolean): string[] =>
-    decided
-      .filter((g) => gateReadsRow(g) === rowReading)
-      .flatMap((g) => [
-        `    if ${renderPyNegatedGuard(g.expr, { thisName: "found" })}:`,
-        '        return {"allowed": False}',
-      ]);
-  const bindsFound = !undecidable || decided.some(gateReadsRow);
+    ladderGates(ladder, rowReading ? "row-requires" : "requires").flatMap((g) => [
+      `    if ${renderPyNegatedGuard(g.expr, { thisName: "found" })}:`,
+      '        return {"allowed": False}',
+    ]);
+  const bindsFound = !undecidable || ladderGates(ladder, "row-requires").length > 0;
   const needsUser =
     (readGate !== undefined && exprUsesCurrentUser(readGate)) || operationGatesUseCurrentUser(op);
   return lines(

@@ -71,13 +71,12 @@ describe("gate-ladder plan", () => {
       "version",
       "when",
     ]);
-    // The probe carries no If-Match.
-    expect(canOpLadder(op).map((c) => c.step)).toEqual([
-      "requires",
-      "load",
-      "row-requires",
-      "when",
-    ]);
+    // The probe carries no If-Match, and no body: `requires by <= limit` reads
+    // a parameter, so it leaves its rung and the probe answers `allowed:
+    // false` at `undecided`, after the load; `when` is never reached.
+    expect(canOpLadder(op).map((c) => c.step)).toEqual(["requires", "load", "undecided"]);
+    const decidable = t.operations.find((o) => o.name === "archive")!;
+    expect(canOpLadder(decidable).map((c) => c.step)).toEqual(["load", "row-requires"]);
   });
 
   it("puts a destroy's principal-only gate before the load and its row gate after it", async () => {
