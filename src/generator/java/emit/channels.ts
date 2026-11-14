@@ -349,17 +349,19 @@ export function renderJavaChannelFiles(
       `        String loomChannel,`,
       ...(hasKafka
         ? [
-            `        /** The channel's key: field value — kafka's partition key`,
-            `         *  (loomkey ?? id, design §4); null off the kafka path. */`,
+            // Line comments, not javadoc: a doc comment on a record
+            // component is dangling to javac (-Werror fails the build).
+            `        // The channel's key: field value — kafka's partition key`,
+            `        // (loomkey ?? id); null off the kafka path.`,
             `        String loomKey,`,
           ]
         : []),
       ...(carriesOrigin
         ? [
-            `        /** The raising principal's tenant (ruling D1) — the consuming`,
-            `         *  reactor runs as the system principal OF this tenant. */`,
+            `        // The raising principal's tenant — the consuming reactor`,
+            `        // runs as the system principal OF this tenant.`,
             `        String tenantId,`,
-            `        /** The originating user id — audit and logs only. */`,
+            `        // The originating user id — audit and logs only.`,
             `        String loomCausedBy,`,
           ]
         : []),
