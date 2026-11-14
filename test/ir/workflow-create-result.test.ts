@@ -144,10 +144,13 @@ describe("workflow create(…): T — every backend answers 200 with the value",
     },
     vanilla: (t) => {
       expect(t).toContain("{:ok, account.id}");
-      // the op target the result reads is rebound to the updated struct…
-      expect(t).toContain("{:ok, source} <- Context.withdraw_account(source,");
-      // …and one it does not read keeps the discard.
-      expect(t).toContain("{:ok, _} <- Context.deposit_account(target,");
+      // each op target runs in memory and is rebound to the changed struct…
+      expect(t).toContain("{:ok, source} <- Context.__apply_withdraw_account(source,");
+      expect(t).toContain("{:ok, target} <- Context.__apply_deposit_account(target,");
+      // …the save of the one the result reads rebinds it to the saved row, and
+      // the save of one it does not read keeps the discard.
+      expect(t).toContain("{:ok, source} <- Context.__save_account(source)");
+      expect(t).toContain("{:ok, _} <- Context.__save_account(target)");
       expect(t).toContain("respond_result(conn, D.Banking.Workflows.OpenAccount.run(params))");
       expect(t).toContain("def respond_result(conn, other), do: respond(conn, other)");
       expect(t).toContain("respond(conn, D.Banking.Workflows.TopUp.run(params))");

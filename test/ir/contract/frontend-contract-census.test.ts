@@ -27,7 +27,11 @@ const SHIPPED: Record<string, string[] | null> = {
   ApiIR: ["errorStatuses", "name", "routes", "sourceModule", "urlStyle"],
   ApiOperationParamIR: ["location", "name", "type"],
   ComponentIR: ["actions", "body", "derived", "extern", "externPath", "name", "params", "state"],
+  ContractAggregate: ["context", "history", "name"],
   ContractField: ["name", "optional", "type"],
+  ContractFind: ["aggregate", "name", "params", "returnType", "routes", "sortDefault"],
+  ContractFindRoute: ["api", "path"],
+  ContractParam: ["name", "type"],
   ContractOperation: [
     "aggregate",
     "claimedByExplicitRoute",

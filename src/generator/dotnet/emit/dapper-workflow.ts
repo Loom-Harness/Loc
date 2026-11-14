@@ -24,7 +24,12 @@
 // ---------------------------------------------------------------------------
 
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
-import { eventLogTable, stateRowWorkflows } from "../../../ir/plan/index.js";
+import {
+  eventLogTable,
+  foldInboxClaimSql,
+  foldInboxPurgeSql,
+  stateRowWorkflows,
+} from "../../../ir/plan/index.js";
 import {
   isMaterializedProjection,
   isSingletonProjection,
@@ -48,7 +53,12 @@ import {
   workflowStateTable,
 } from "../workflow-state-emit.js";
 import { type DapperColumn, fieldColumn, sqlIdent } from "./dapper.js";
-import { dapperAmbientTxClassFq, dapperOpenConn } from "./dapper-session.js";
+import {
+  DAPPER_BEGIN_TX,
+  DAPPER_COMMIT_TX,
+  dapperAmbientTxClassFq,
+  dapperOpenConn,
+} from "./dapper-session.js";
 import { eventRecordClass, renderEventRecordPoco } from "./event-store.js";
 import {
   DOTNET_RELAY_HALT_ON_BROKER_DOWN,
@@ -233,8 +243,40 @@ function renderRowStore(
     "        _pending.Clear();",
     "    }",
     "",
+    ...(iface === "IReadModelStore" ? foldOnce(upsert, bind, ns) : []),
     ...rowClassAndMap(pocoClass, cols),
     "}",
+  ];
+}
+
+/** `IReadModelStore.FoldOnceAsync`: the fold only buffers into `_pending`, so
+ *  it runs first; the inbox claim and the row upserts then share one
+ *  transaction, and an event already claimed drops the buffer unwritten. */
+function foldOnce(upsert: string, bind: string, ns: string): string[] {
+  const claim = foldInboxClaimSql("@projection", "@eventId", false);
+  return [
+    "    public async Task FoldOnceAsync(string projection, string? eventId, Func<Task> fold, CancellationToken cancellationToken = default)",
+    "    {",
+    "        await fold();",
+    "        if (eventId is null)",
+    "        {",
+    "            await SaveChangesAsync(cancellationToken);",
+    "            return;",
+    "        }",
+    `        ${dapperOpenConn(ns)}`,
+    `        ${DAPPER_BEGIN_TX}`,
+    `        var claimed = await conn.ExecuteAsync(new CommandDefinition("${claim}", new { projection, eventId }, __tx, cancellationToken: cancellationToken));`,
+    "        if (claimed == 0)",
+    "        {",
+    "            _pending.Clear();",
+    "            return;",
+    "        }",
+    "        foreach (var s in _pending)",
+    `            await conn.ExecuteAsync(new CommandDefinition("${upsert}", new { ${bind} }, __tx, cancellationToken: cancellationToken));`,
+    "        _pending.Clear();",
+    `        ${DAPPER_COMMIT_TX}`,
+    "    }",
+    "",
   ];
 }
 
@@ -572,7 +614,13 @@ public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
 export function renderDapperOutboxRelay(
   ns: string,
   durableTypes: readonly string[],
-  opts: { durableBroker: boolean; hasSubscriptions: boolean; carriesOrigin?: boolean } = {
+  opts: {
+    durableBroker: boolean;
+    hasSubscriptions: boolean;
+    carriesOrigin?: boolean;
+    /** See `renderOutboxRelay`. */
+    pruneInbox?: boolean;
+  } = {
     durableBroker: false,
     hasSubscriptions: true,
   },
@@ -652,7 +700,11 @@ public sealed class OutboxRelayService : BackgroundService
 ${outboxRetentionMembers(`            await using var conn = await _db.OpenConnectionAsync(cancellationToken);
             await conn.ExecuteAsync(new CommandDefinition(
                 "DELETE FROM __loom_outbox WHERE id IN (SELECT id FROM __loom_outbox WHERE dispatched_at < @cutoff LIMIT ${OUTBOX_PURGE_BATCH})",
-                new { cutoff }, cancellationToken: cancellationToken));`)}
+                new { cutoff }, cancellationToken: cancellationToken));${
+                  opts.pruneInbox
+                    ? `\n            await conn.ExecuteAsync(new CommandDefinition("${foldInboxPurgeSql("@cutoff")}", new { cutoff }, cancellationToken: cancellationToken));`
+                    : ""
+                }`)}
 
     private readonly IServiceScopeFactory _scopes;
     private readonly NpgsqlDataSource _db;${transportsField}

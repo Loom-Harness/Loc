@@ -73,6 +73,7 @@ import {
   isVanillaDocAgg,
   renderDocNamedOpFunction,
   renderDocReturningOpFunction,
+  renderDocSaveFunction,
 } from "./document-emit.js";
 import {
   customFindsOfAgg,
@@ -118,6 +119,7 @@ import { renderRefLabelFacade } from "./ref-label.js";
 import { customFindsOf } from "./repository-emit.js";
 import { emitsRestDelete } from "./rest-surface.js";
 import { emitsRetrievalModule } from "./retrieval-emit.js";
+import { applyFnName, contextInMemoryOps, saveFnName } from "./save-plan.js";
 import { usesRelationalContainments } from "./schema-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
 import { valueCollectionsWithVo, valueRowFieldsOf } from "./value-collection-schema-emit.js";
@@ -558,6 +560,7 @@ function renderContextModule(
   cached: ByIdCacheReads = new Map(),
 ): string {
   const facadeMod = `${appModule}.${ctxModule}`;
+  const inMemory = contextInMemoryOps(ctx);
   // Same-`name/arity` aggregate `function`s across the aggregates whose façade
   // block renders them (the event-sourced and abstract-base blocks below return
   // early) — emitted as one grouped definition, see `collidingFacadeFunctions`.
@@ -726,6 +729,38 @@ ${auditedWrite("    ")}
                 extraChannels,
               ),
       );
+    // The in-memory halves a workflow, handler or reactor body calls: each op's
+    // `__apply_<op>_<agg>` and the aggregate's one `__save_<agg>` write
+    // (`save-plan.ts`).  Only what some body of this context calls.
+    const applied = (agg.operations ?? []).filter(
+      (op) => !CRUD_RESERVED_NAMES.has(op.name) && inMemory.ops.get(agg.name)?.has(op.name),
+    );
+    opBlocks.push(
+      ...applied.map((op) =>
+        isDoc
+          ? renderDocNamedOpFunction(facadeMod, op, agg, ctx, undefined, "apply")
+          : renderNamedOpFunction(
+              facadeMod,
+              ctx,
+              agg,
+              aggPascal,
+              aggSnake,
+              op,
+              relationalContainments,
+              undefined,
+              channels,
+              extraChannels,
+              "apply",
+            ),
+      ),
+    );
+    if (inMemory.saved.has(agg.name)) {
+      opBlocks.push(
+        isDoc
+          ? renderDocSaveFunction(facadeMod, agg)
+          : renderSaveFunction(facadeMod, ctx, agg, applied, relationalContainments),
+      );
+    }
     // `defp __op_<name>/n` for every PRIVATE operation those bodies call
     // (M-T6.55 F24) — a pure struct transform, so the caller's own persist tail
     // is the single write.  Empty (byte-identical) when nothing calls one.
@@ -1712,6 +1747,63 @@ ${paramBinds}    with ${withClauses.join(",\n         ")} do
   end`;
 }
 
+/** `__save_<agg>(record, inserted \\ false)` — the one write of a row a
+ *  workflow body changed in memory through `ops`' apply steps
+ *  (`save-plan.ts`).  It persists every column those ops assign, as each op's
+ *  own tail does, then re-asserts the invariants; the lock filters on the
+ *  version the handle was loaded with and bumps it once.  A row the body
+ *  inserted keeps its version: the insert was its save. */
+function renderSaveFunction(
+  facadeMod: string,
+  ctx: BoundedContextIR,
+  agg: AggregateIR,
+  ops: readonly OperationIR[],
+  relationalContainments: ReadonlySet<string>,
+): string {
+  const aggPascal = upperFirst(agg.name);
+  const aggModule = `${facadeMod}.${aggPascal}`;
+  const changesetMod = `${aggModule}Changeset`;
+  const fn = saveFnName(agg.name);
+  const puts = [
+    ...new Set(
+      ops.flatMap((op) =>
+        persistPutBodies(
+          op,
+          agg,
+          facadeMod.split(".")[0]!,
+          facadeMod.split(".").slice(1).join("."),
+          relationalContainments,
+          ctx.aggregates,
+          valueRowFieldsOf(agg, ctx),
+        ),
+      ),
+    ),
+  ];
+  const bodyVoFields = new Set(
+    aggregateBodyValueObjectFields(agg, ctx.valueObjects).map((f) => f.field),
+  );
+  const bodyVo = ops.some((op) => [...opAssignedFields(op)].some((f) => bodyVoFields.has(f)));
+  const versioned = savesLockVersion(agg);
+  const pipes = [
+    "Ecto.Changeset.change(%{})",
+    ...puts,
+    ...(bodyVo ? [`${changesetMod}.validate_body_value_objects()`] : []),
+    ...(versioned
+      ? [
+          `Ecto.Changeset.optimistic_lock(:${ROW_VERSION_COLUMN}, fn v -> if inserted, do: v, else: v + 1 end)`,
+        ]
+      : []),
+  ];
+  return `  @doc "The one write of the \`${aggPascal}\` a workflow body changed in memory — one version bump."
+  @spec ${fn}(${aggModule}.t(), boolean()) ::
+          {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | :conflict}
+  def ${fn}(%${aggModule}{} = record, ${versioned ? "inserted" : "_inserted"} \\\\ false) do
+    record
+${pipes.map((p) => `    |> ${p}`).join("\n")}${opPersistInvariantPipes(agg, ctx, changesetMod, 4)}
+    |> ${aggModule}Repository.persist_change()
+  end`;
+}
+
 function renderNamedOpFunction(
   facadeMod: string,
   ctx: BoundedContextIR,
@@ -1728,6 +1820,11 @@ function renderNamedOpFunction(
   /** Broker channels (M-T4.4) — see renderEmitDispatchLines. */
   channels?: ElixirChannelsCfg,
   extraChannels: ChannelIR[] = [],
+  /** `apply` renders `__apply_<op>_<agg>`: the same guards and body, answering
+   *  `{:ok, record}` instead of persisting (`save-plan.ts`).  Only an op
+   *  `opAppliesInMemory` admits takes it, so no event, audit, provenance or
+   *  relation tail is dropped. */
+  mode: "persist" | "apply" = "persist",
 ): string {
   // An `extern` op has NO mutating body (only preconditions) — it delegates the
   // business decision to the user-owned `<Agg>ExternImpl` hook, then persists the
@@ -2085,7 +2182,7 @@ ${dispatchBlock}
     |> Ecto.Changeset.change(%{})${putBlock}${bodyVoPipe}${opLockPipe}${invPipe}
     |> ${repoMod}.persist_change()`;
     }
-    return { bodyLines, persist };
+    return { bodyLines, persist: mode === "apply" ? "    {:ok, record}" : persist };
   };
   const linear = isOpTree(op.statements) ? undefined : leafParts(op);
   const innerLines = linear
@@ -2123,10 +2220,15 @@ ${dispatchBlock}
         ).join("\n")}`
       : preludeBlock;
 
-  return `  @doc "Named operation \`${op.name}\` on \`${aggPascal}\` — runs the body, persists the assigned fields."
-  @spec ${opSnake}_${aggSnake}(${aggModule}.t(), map()) ::
+  const fnName = mode === "apply" ? applyFnName(op.name, agg.name) : `${opSnake}_${aggSnake}`;
+  const doc =
+    mode === "apply"
+      ? `Operation \`${op.name}\` on \`${aggPascal}\` over the struct, unsaved — a workflow body saves it once through \`${saveFnName(agg.name)}\`.`
+      : `Named operation \`${op.name}\` on \`${aggPascal}\` — runs the body, persists the assigned fields.`;
+  return `  @doc "${doc}"
+  @spec ${fnName}(${aggModule}.t(), map()) ::
           {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | term()}
-  def ${opSnake}_${aggSnake}(%${aggModule}{} = record, params${opUsesCurrentUser(op) ? ", current_user \\\\ nil" : ""}) when is_map(params) do
+  def ${fnName}(%${aggModule}{} = record, params${opUsesCurrentUser(op) ? ", current_user \\\\ nil" : ""}) when is_map(params) do
 ${bodyContent}
   end`;
 }

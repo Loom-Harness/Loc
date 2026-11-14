@@ -1674,7 +1674,18 @@ function lowerBuilderCall(expr: BuilderCall, env: Env): ExprIR {
     // downstream, and a backend whose decimal is a real type rather than a
     // widening (Java's `BigDecimal`) cannot compile `new Money(0, …)` at all.
     const slotTypes = new Map(props.map((p) => [p.name, lowerType(p.type, env)]));
-    return lowerBuilderCallAsCall(expr, env, name, "value-object-ctor", fieldNames, slotTypes);
+    const call = lowerBuilderCallAsCall(
+      expr,
+      env,
+      name,
+      "value-object-ctor",
+      fieldNames,
+      slotTypes,
+    );
+    const optional = new Set(
+      props.filter((p) => slotTypes.get(p.name)?.kind === "optional").map((p) => p.name),
+    );
+    return completeValueObjectArgs(call, fieldNames, optional);
   }
   const ent = findEntityByName(env, name);
   if (ent && isEntityPart(ent)) {
@@ -1786,6 +1797,33 @@ function rowBindingEnv(
   const element = collectionElementType(passType(source.value, env));
   if (!element) return env;
   return { ...env, rowElem: element };
+}
+
+/** A value-object construction as one argument per declared field, in
+ *  declaration order: every positional backend (TS / .NET / Java constructors)
+ *  takes the full parameter list, so a literal that names its fields out of
+ *  order or omits an optional one (`Audit { made: s }`) must not reach them
+ *  as spelled.  An omitted optional field is an explicit `null`.  Left as
+ *  spelled when the names cannot be mapped (a mixed positional/named
+ *  construction that repeats a slot, or a name that is not a field) or a
+ *  required field is missing — the validator reports those. */
+function completeValueObjectArgs(
+  call: ExprIR,
+  fieldNames: string[],
+  optional: ReadonlySet<string>,
+): ExprIR {
+  if (call.kind !== "call" || !call.argNames) return call;
+  const names = call.argNames;
+  if (names.some((n) => n === undefined || !fieldNames.includes(n))) return call;
+  if (new Set(names).size !== names.length) return call;
+  if (fieldNames.some((f) => !names.includes(f) && !optional.has(f))) return call;
+  const byName = new Map(names.map((n, i) => [n as string, call.args[i]!]));
+  const nullLit: ExprIR = { kind: "literal", lit: "null", value: "null" };
+  return {
+    ...call,
+    args: fieldNames.map((f) => byName.get(f) ?? nullLit),
+    argNames: [...fieldNames],
+  };
 }
 
 function lowerBuilderCallAsCall(

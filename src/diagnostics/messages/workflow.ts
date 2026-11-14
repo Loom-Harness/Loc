@@ -561,6 +561,12 @@ export const messages = {
     op: unknown;
   }) =>
     `workflow '${p.name}': in 'if let ${p.var}', '${p.target}.${p.op}(...)' references unknown binding '${p.target}'.`,
+  "loom.workflow-foreach-unknown-binding#workflow-in-if-references": (p: {
+    name: unknown;
+    target: unknown;
+    op: unknown;
+  }) =>
+    `workflow '${p.name}': in an 'if' branch, '${p.target}.${p.op}(...)' references unknown binding '${p.target}'.`,
   "loom.workflow-foreach-unknown-binding#workflow-in-match-references": (p: {
     name: unknown;
     var: unknown;

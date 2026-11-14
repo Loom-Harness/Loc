@@ -14,7 +14,13 @@ import {
   wireTitle,
 } from "../../ir/enrich/wire-policy.js";
 import { cachePlanFor } from "../../ir/plan/cache.js";
-import { channelPlan, observableWorkflows, routedPolymorphicRead } from "../../ir/plan/index.js";
+import {
+  channelPlan,
+  observableWorkflows,
+  QUERY_PARAM_MISMATCH_MESSAGES,
+  type QueryParamMismatchKind,
+  routedPolymorphicRead,
+} from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   DeployableIR,
@@ -2406,7 +2412,25 @@ def _wire_message(e: dict[str, object]) -> str:
         and ctx.get("pattern") == _UUID_PATTERN
     ):
         return ${JSON.stringify(fieldFixedMessage("malformed-id"))}
+    mismatch = _query_mismatch(e)
+    if mismatch is not None:
+        return mismatch
     return str(e.get("msg", ""))
+
+
+# A query / path value that does not parse as its declared type answers its
+# kind's ruled sentence on every backend, keyed here by pydantic's error type.
+_QUERY_MISMATCH: dict[str, str] = {
+${pyQueryMismatchRows()}
+}
+
+
+def _query_mismatch(e: dict[str, object]) -> str | None:
+    """The ruled type-mismatch sentence of a query/path value, else None."""
+    loc = e.get("loc")
+    if not isinstance(loc, (tuple, list)) or not loc or loc[0] not in ("query", "path"):
+        return None
+    return _QUERY_MISMATCH.get(str(e.get("type", "")))
 
 
 # pydantic error types that mean the JSON value has the wrong type or shape.
@@ -2435,7 +2459,7 @@ def _wire_code(e: dict[str, object]) -> str:
         and ctx.get("pattern") == _UUID_PATTERN
     ):
         return ${JSON.stringify(fieldCode("malformed-id"))}
-    if kind.endswith(_TYPE_MISMATCH_SUFFIXES) or kind in _TYPE_MISMATCH_TYPES:
+    if _query_mismatch(e) is not None or kind.endswith(_TYPE_MISMATCH_SUFFIXES) or kind in _TYPE_MISMATCH_TYPES:
         return ${JSON.stringify(fieldCode("type-mismatch"))}
     return ${JSON.stringify(fieldCode("rule"))}
 
@@ -2632,3 +2656,29 @@ class PagedResult[T]:
     total: int
     total_pages: int
 `;
+
+/** The `_QUERY_MISMATCH` rows: each pydantic error type a query / path value
+ *  that does not parse raises, mapped to its kind's ruled sentence
+ *  (`QUERY_PARAM_MISMATCH_MESSAGES`). */
+function pyQueryMismatchRows(): string {
+  const kinds: readonly [QueryParamMismatchKind, readonly string[]][] = [
+    ["integer", ["int_parsing", "int_from_float", "int_type"]],
+    [
+      "decimal",
+      ["decimal_parsing", "decimal_type", "float_parsing", "float_type", "finite_number"],
+    ],
+    ["bool", ["bool_parsing", "bool_type"]],
+    ["datetime", ["datetime_parsing", "datetime_from_date_parsing", "datetime_type"]],
+    [
+      "date",
+      ["date_parsing", "date_from_datetime_parsing", "date_from_datetime_inexact", "date_type"],
+    ],
+  ];
+  return kinds
+    .flatMap(([kind, types]) =>
+      types.map(
+        (t) => `    ${JSON.stringify(t)}: ${JSON.stringify(QUERY_PARAM_MISMATCH_MESSAGES[kind])},`,
+      ),
+    )
+    .join("\n");
+}

@@ -9,6 +9,7 @@
 // `event_dead_lettered`.  Ephemeral channels keep the inline at-most-once
 // path byte-identically.
 
+import { foldInboxPurgeSql } from "../../../ir/plan/index.js";
 import {
   OUTBOX_PENDING_PREDICATE,
   OUTBOX_PURGE_INTERVAL_SECONDS,
@@ -308,7 +309,14 @@ public static class OutboxDelivery
 export function renderOutboxRelay(
   ns: string,
   durableTypes: readonly string[],
-  opts: { durableBroker: boolean; hasSubscriptions: boolean; carriesOrigin?: boolean } = {
+  opts: {
+    durableBroker: boolean;
+    hasSubscriptions: boolean;
+    carriesOrigin?: boolean;
+    /** The folds claim events in the fold inbox (`foldsDedupe`): the purge
+     *  prunes it on the outbox's window. */
+    pruneInbox?: boolean;
+  } = {
     durableBroker: false,
     hasSubscriptions: true,
   },
@@ -384,7 +392,11 @@ public sealed class OutboxRelayService : BackgroundService
     private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(${OUTBOX_RELAY.intervalMs});
 ${outboxRetentionMembers(`            await using var scope = _scopes.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            await db.LoomOutbox.Where(m => m.DispatchedAt < cutoff).ExecuteDeleteAsync(cancellationToken);`)}
+            await db.LoomOutbox.Where(m => m.DispatchedAt < cutoff).ExecuteDeleteAsync(cancellationToken);${
+              opts.pruneInbox
+                ? `\n            await db.Database.ExecuteSqlInterpolatedAsync($"${foldInboxPurgeSql("{cutoff}")}", cancellationToken);`
+                : ""
+            }`)}
 
     private readonly IServiceScopeFactory _scopes;${transportsField}
     private readonly ILogger<OutboxRelayService> _log;

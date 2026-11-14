@@ -18,6 +18,10 @@ import {
 } from "../../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
+import {
+  QUERY_PARAM_MISMATCH_MESSAGES,
+  type QueryParamMismatchKind,
+} from "../../../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -1293,6 +1297,8 @@ export function renderApiExceptionAdvice(
     // it.  A request-part parse failure is the wire-validation tier on every
     // backend; keep it there on Java too, with the same `errors[]` pointer
     // shape the body tier emits (`/id`, not the whole document).
+    ...javaQueryMismatchMessageFn(),
+    ``,
     `    @ExceptionHandler(MethodArgumentTypeMismatchException.class)`,
     `    public ResponseEntity<ProblemDetail> onParamTypeMismatch(MethodArgumentTypeMismatchException e, WebRequest request) {`,
     `        CatalogLog.event("domain_error", "warn", "message", ${title("field-invalid")}, "status", ${fieldInvalid});`,
@@ -1300,11 +1306,9 @@ export function renderApiExceptionAdvice(
     `        var problem = ${fieldInvalidProblem};`,
     `        var required = e.getRequiredType();`,
     `        // A path/query id that is not a uuid reads the fact's malformed-id message;`,
-    `        // any other type mismatch is the framework's own text.`,
+    `        // any other value that does not parse reads its kind's ruled sentence.`,
     `        var isId = java.util.UUID.class.equals(required);`,
-    `        var message = isId ? ${javaLit(fieldFixedMessage("malformed-id"))}`,
-    `            : required != null ? "Expected " + required.getSimpleName() + "."`,
-    `            : "Invalid value.";`,
+    `        var message = isId ? ${javaLit(fieldFixedMessage("malformed-id"))} : queryMismatchMessage(required);`,
     `        var code = isId ? ${javaLit(fieldCode("malformed-id"))} : ${javaLit(fieldCode("type-mismatch"))};`,
     `        // An int value that IS an integer but does not fit int32 is the shared`,
     `        // integer-range refusal, with its bounds.`,
@@ -1644,4 +1648,33 @@ export function renderApiExceptionAdvice(
     `}`,
     ``,
   );
+}
+
+/** The `queryMismatchMessage(Class)` helper: the ruled `type-mismatch`
+ *  sentence of a query/path value that does not convert, picked by the Java
+ *  type the parameter binds (`QUERY_PARAM_MISMATCH_MESSAGES`). */
+function javaQueryMismatchMessageFn(): string[] {
+  const kinds: readonly [QueryParamMismatchKind, readonly string[]][] = [
+    ["integer", ["int.class", "Integer.class", "long.class", "Long.class"]],
+    ["decimal", ["java.math.BigDecimal.class", "double.class", "Double.class"]],
+    ["bool", ["boolean.class", "Boolean.class"]],
+    [
+      "datetime",
+      [
+        "java.time.OffsetDateTime.class",
+        "java.time.Instant.class",
+        "java.time.LocalDateTime.class",
+      ],
+    ],
+    ["date", ["java.time.LocalDate.class"]],
+  ];
+  return [
+    `    private static String queryMismatchMessage(Class<?> required) {`,
+    ...kinds.map(
+      ([kind, classes]) =>
+        `        if (${classes.map((c) => `${c}.equals(required)`).join(" || ")}) return ${javaLit(QUERY_PARAM_MISMATCH_MESSAGES[kind])};`,
+    ),
+    `        return "Invalid value.";`,
+    `    }`,
+  ];
 }

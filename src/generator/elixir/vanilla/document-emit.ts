@@ -95,6 +95,7 @@ import {
 } from "./codec-spelling-ex.js";
 import { isVoValuedType, NORMALIZE_KEYS_DEFP, NORMALIZE_VO_KEYS_DEFP } from "./key-normalize.js";
 import { managedTimestampNames } from "./managed-timestamps.js";
+import { applyFnName, saveFnName } from "./op-in-memory.js";
 import { paramGuardClause } from "./op-param-guards.js";
 import { isOpTree, type OpTreeRender, renderOpTree } from "./op-tree.js";
 import {
@@ -1041,6 +1042,9 @@ export function renderDocNamedOpFunction(
   agg: AggregateIR,
   ctx: BoundedContextIR,
   opFragments?: OpFragment[],
+  /** `apply` renders `__apply_<op>_<agg>`: the same guards and body, answering
+   *  the row with its new document instead of persisting (`save-plan.ts`). */
+  mode: "persist" | "apply" = "persist",
 ): string {
   const opSnake = snake(op.name);
   const aggPascal = upperFirst(agg.name);
@@ -1079,41 +1083,44 @@ export function renderDocNamedOpFunction(
     savesLockVersion(agg)
       ? `${indent}|> Ecto.Changeset.change(%{})\n${indent}|> Ecto.Changeset.optimistic_lock(:${ROW_VERSION_COLUMN})`
       : `${indent}|> Ecto.Changeset.change(%{${ROW_VERSION_COLUMN}: row.${ROW_VERSION_COLUMN} + 1})`;
-  const persistTail = hasAudit
-    ? [
-        "",
-        "    changeset =",
-        "      row",
-        opVersionPipe("      "),
-        "      |> Ecto.Changeset.put_embed(:data, Map.from_struct(record))",
-        "",
-        `    ${appModule}.Repo.transaction(fn ->`,
-        `      case ${repoMod}.persist_change(changeset) do`,
-        "        {:ok, saved} ->",
-        auditRecordCall({
-          appModule,
-          operationId: `${op.name}${aggPascal}`,
-          action: op.name,
-          targetType: aggPascal,
-          targetId: "saved.id",
-          before: "audit_before",
-          after: wireSnapshot("saved", true, appModule),
-          indent: "          ",
-        }),
-        "          saved",
-        "",
-        "        {:error, reason} ->",
-        `          ${appModule}.Repo.rollback(reason)`,
-        "      end",
-        "    end)",
-      ]
-    : [
-        "",
-        "    row",
-        opVersionPipe("    "),
-        "    |> Ecto.Changeset.put_embed(:data, Map.from_struct(record))",
-        `    |> ${repoMod}.persist_change()`,
-      ];
+  const persistTail =
+    mode === "apply"
+      ? ["", "    {:ok, %{row | data: record}}"]
+      : hasAudit
+        ? [
+            "",
+            "    changeset =",
+            "      row",
+            opVersionPipe("      "),
+            "      |> Ecto.Changeset.put_embed(:data, Map.from_struct(record))",
+            "",
+            `    ${appModule}.Repo.transaction(fn ->`,
+            `      case ${repoMod}.persist_change(changeset) do`,
+            "        {:ok, saved} ->",
+            auditRecordCall({
+              appModule,
+              operationId: `${op.name}${aggPascal}`,
+              action: op.name,
+              targetType: aggPascal,
+              targetId: "saved.id",
+              before: "audit_before",
+              after: wireSnapshot("saved", true, appModule),
+              indent: "          ",
+            }),
+            "          saved",
+            "",
+            "        {:error, reason} ->",
+            `          ${appModule}.Repo.rollback(reason)`,
+            "      end",
+            "    end)",
+          ]
+        : [
+            "",
+            "    row",
+            opVersionPipe("    "),
+            "    |> Ecto.Changeset.put_embed(:data, Map.from_struct(record))",
+            `    |> ${repoMod}.persist_change()`,
+          ];
   // A guarded op hoists its `requires`/`precondition` into a leading
   // `with ensure(...)` chain (403/422 denials) — `record = row.data` + param
   // binds (+ the `audit_before` capture) stay before the `with` (the guards read
@@ -1154,11 +1161,47 @@ export function renderDocNamedOpFunction(
   // Audited persist wraps in `Repo.transaction`, whose failure is `{:error, term()}`;
   // the plain pipe fails with an `Ecto.Changeset.t()`.
   const errSpec = hasAudit ? "{:error, term()}" : "{:error, Ecto.Changeset.t()}";
-  return `  @doc "Named operation \`${op.name}\` on \`${aggPascal}\` (document shape) — runs the body against the embedded struct, then re-embeds + bumps version${hasAudit ? " + records an audit row in the persist transaction" : ""}."
-  @spec ${opSnake}_${aggSnake}(${aggModule}.t(), map()) ::
+  const fnName = mode === "apply" ? applyFnName(op.name, agg.name) : `${opSnake}_${aggSnake}`;
+  const doc =
+    mode === "apply"
+      ? `Operation \`${op.name}\` on \`${aggPascal}\` (document shape) over the embedded struct, unsaved — a workflow body saves it once through \`${saveFnName(agg.name)}\`.`
+      : `Named operation \`${op.name}\` on \`${aggPascal}\` (document shape) — runs the body against the embedded struct, then re-embeds + bumps version${hasAudit ? " + records an audit row in the persist transaction" : ""}.`;
+  return `  @doc "${doc}"
+  @spec ${fnName}(${aggModule}.t(), map()) ::
           {:ok, ${aggModule}.t()} | ${errSpec}${denialSpec}
-  def ${opSnake}_${aggSnake}(%${aggModule}{} = row, params${actorParam}) when is_map(params) do
+  def ${fnName}(%${aggModule}{} = row, params${actorParam}) when is_map(params) do
 ${bodyContent}
+  end`;
+}
+
+/** `__save_<agg>(row, inserted \\ false)` for a document aggregate — the one
+ *  write of a row a workflow body changed in memory (`save-plan.ts`).  The
+ *  embed diffs against the STORED document, re-read here, because the handle
+ *  already carries the new one; the lock filters on the version the handle
+ *  was loaded with, so a write that raced it answers `{:error, :conflict}`.  A
+ *  row the body inserted keeps its version: the insert was its save. */
+export function renderDocSaveFunction(facadeMod: string, agg: AggregateIR): string {
+  const aggModule = `${facadeMod}.${upperFirst(agg.name)}`;
+  const appModule = facadeMod.split(".")[0]!;
+  const fn = saveFnName(agg.name);
+  const v = ROW_VERSION_COLUMN;
+  const version = savesLockVersion(agg)
+    ? `        |> Ecto.Changeset.change(%{})\n        |> Ecto.Changeset.optimistic_lock(:${v}, fn v -> if inserted, do: v, else: v + 1 end)`
+    : `        |> Ecto.Changeset.change(%{${v}: if(inserted, do: row.${v}, else: row.${v} + 1)})`;
+  return `  @doc "The one write of the \`${upperFirst(agg.name)}\` a workflow body changed in memory — one version bump."
+  @spec ${fn}(${aggModule}.t(), boolean()) ::
+          {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | :conflict}
+  def ${fn}(%${aggModule}{} = row, inserted \\\\ false) do
+    case ${appModule}.Repo.get(${aggModule}, row.id) do
+      nil ->
+        {:error, :conflict}
+
+      stored ->
+        %{stored | ${v}: row.${v}}
+${version}
+        |> Ecto.Changeset.put_embed(:data, Map.from_struct(row.data))
+        |> ${aggModule}Repository.persist_change()
+    end
   end`;
 }
 

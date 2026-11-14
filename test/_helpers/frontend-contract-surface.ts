@@ -58,6 +58,8 @@ const ENVELOPE_KEYS = [
   "wire",
   "apis",
   "operations",
+  "aggregates",
+  "finds",
   "responses",
   "records",
   "events",

@@ -1,3 +1,4 @@
+import { foldInboxPurgeSql } from "../../ir/plan/index.js";
 import type { EventIR, StmtIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { branchesContain } from "../../ir/util/if-normal-form.js";
 import {
@@ -321,6 +322,9 @@ function elixirOutboxRelayModule(
   /** The relay takes only rows of these event types: set when a broker relay
    *  and a local relay share __loom_outbox, so each row has one relay. */
   types?: readonly string[],
+  /** The folds claim events in the fold inbox (`foldsDedupe`): the purge
+   *  prunes it on the outbox's window. */
+  pruneInbox = false,
 ): string {
   const typeAttr = types ? `\n  @types ${JSON.stringify([...types].sort())}\n` : "";
   const typeWhere = types ? " and o.type in ^@types" : "";
@@ -438,7 +442,12 @@ ${
         limit: @purge_batch
       )
 
-    ${appModule}.Repo.delete_all(from(o in ${appModule}.LoomOutbox, where: o.id in subquery(expired)))
+    ${appModule}.Repo.delete_all(from(o in ${appModule}.LoomOutbox, where: o.id in subquery(expired)))${
+      pruneInbox
+        ? `
+    ${appModule}.Repo.query!(${JSON.stringify(foldInboxPurgeSql("$1"))}, [cutoff])`
+        : ""
+    }
   rescue
     error ->
       ${purgeErrorLog}
@@ -502,6 +511,8 @@ export function emitElixirStandaloneOutbox(
    *  `LoomOutbox` schema: this tier is then `<App>.LocalOutbox`, the broker
    *  tee's local fallthrough, and its relay takes only its own event types. */
   besideBroker?: { emitsSchema: boolean },
+  /** See `elixirOutboxRelayModule`. */
+  pruneInbox = false,
 ): ElixirChannelFiles {
   const tee = besideBroker ? "LocalOutbox" : "Channels";
   const files = emissionSink("generator/elixir/channels-emit");
@@ -633,6 +644,7 @@ ${elixirOutboxRelayModule(
     end`,
   false,
   besideBroker ? durableNames : undefined,
+  pruneInbox,
 )}`,
   );
   children.push(`      ${appModule}.LocalOutboxRelay`);
@@ -659,6 +671,8 @@ export function emitElixirChannelFiles(
      *  local fallthrough goes through `<App>.LocalOutbox`, which records them,
      *  and the broker relay takes only the broker-routed rows. */
     localOutbox?: boolean;
+    /** The folds claim events in the fold inbox (`foldsDedupe`). */
+    pruneInbox?: boolean;
   } = { durableBroker: false },
 ): ElixirChannelFiles {
   // `carriesOrigin`: the deployable carries auth — envelopes and outbox rows
@@ -1222,6 +1236,7 @@ ${elixirOutboxRelayModule(
   `    ${appModule}.Channels.publish_from_relay(row.type, row.payload, row.id)`,
   true,
   opts.localOutbox ? [...durableRouting.keys()] : undefined,
+  opts.pruneInbox ?? false,
 )}`,
     );
     children.push(`      ${appModule}.OutboxRelay`);

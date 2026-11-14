@@ -3828,36 +3828,26 @@ system P {
   deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
 }`,
 
-  // A workflow `create` answering `T or E` in a context an elixir deployable
-  // hosts.
-  "loom.elixir-entry-result-unsupported": `
-system P {
-  subdomain D { context C {
-    error Declined { reason: string }
-    workflow W {
-      create(n: int): int or Declined {
-        return Declined { reason: "no" }
-      }
-    }
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
-}`,
-
-  // A `let`-bound mutating call in a workflow an elixir deployable emits.
+  // A `let`-bound mutating domain-service call in a workflow an elixir
+  // deployable emits.
   "loom.elixir-bound-mutating-call-unsupported": `
 system P {
   subdomain D { context C {
     aggregate Order with crudish {
       code: string
-      operation touch(): int { code := "t"  return 1 }
+      operation touch() { code := "t" }
     }
     repository Orders for Order
+    domainService Touch {
+      operation run(o: Order): int {
+        o.touch()
+        return 1
+      }
+    }
     workflow W {
       create(oid: Order id) {
         let o = Orders.get(oid)
-        let n = o.touch()
+        let n = Touch.run(o)
       }
     }
   } }

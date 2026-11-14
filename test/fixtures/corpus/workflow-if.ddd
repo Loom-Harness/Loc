@@ -1,0 +1,199 @@
+// A plain `if <cond> { … } else { … }` in workflow and handler bodies
+// (13-workflows.md, "Body vocabulary").  Each case is witnessed by the rows it
+// leaves behind, read back through the generated routes.
+//
+//   Bump      — a branch taken or not by the loaded row's `rank`; the `if`
+//               after it reads the row the first branch mutated, so a backend
+//               that rebinds rather than mutates must hand the branch's
+//               record back out.
+//   Grade     — an `else if` chain whose every branch creates a `Note`, saved
+//               at the end of its own branch.
+//   BumpOther — an op on a row loaded INSIDE the branch, saved there.
+//   BumpAll   — an `if` nested in a `for` over a criterion run: the loop row
+//               saves only in the branch that bumps it.
+//   Promote   — a `commandHandler` body.
+//   Follow    — an event-triggered starter and its `on` reactor, each with an
+//               `if`; the reactor's branch writes the saga's own state.
+system WorkflowIf {
+  subdomain D {
+    context Ranks {
+      event Followed { prov: Prov id, rank: int }
+      event Pinged { prov: Prov id, rank: int }
+
+      aggregate Prov with crudish {
+        rank: int
+        bumps: int
+        operation bump() { bumps := bumps + 1 }
+        operation follow() { emit Followed { prov: id, rank: rank } }
+        operation ping() { emit Pinged { prov: id, rank: rank } }
+      }
+      repository Provs for Prov { }
+
+      aggregate Note with crudish { text: string }
+      repository Notes for Note { }
+
+      criterion Ranked(min: int) of Prov = rank >= min
+
+      channel RankEvents {
+        carries: Followed, Pinged
+        delivery: broadcast
+        retention: ephemeral
+      }
+
+      workflow Bump {
+        create(x: Prov id) {
+          let p = Provs.get(x)
+          if p.rank > 0 { p.bump() }
+          if p.bumps >= 2 { let n = Note.create(text: "bumped twice") }
+        }
+      }
+
+      workflow Grade {
+        create(x: Prov id) {
+          let p = Provs.get(x)
+          if p.rank > 5 {
+            let n = Note.create(text: "high")
+          } else if p.rank > 0 {
+            let n = Note.create(text: "mid")
+          } else {
+            let n = Note.create(text: "low")
+          }
+        }
+      }
+
+      workflow BumpOther {
+        create(x: Prov id, y: Prov id) {
+          let p = Provs.get(x)
+          if p.rank > 0 {
+            let q = Provs.get(y)
+            q.bump()
+          }
+        }
+      }
+
+      workflow BumpAll {
+        create(min: int) {
+          let ps = Provs.all(Ranked(min), page: { offset: 0, limit: 10 })
+          for p in ps {
+            if p.rank > 2 {
+              p.bump()
+            } else {
+              let n = Note.create(text: "skipped")
+            }
+          }
+        }
+      }
+
+      commandHandler Promote(x: Prov id) {
+        let p = Provs.get(x)
+        if p.rank < 3 { p.bump() }
+      }
+
+      workflow Follow {
+        prov: Prov id
+        pings: int
+        create(e: Followed) by e.prov {
+          pings := 1
+          if e.rank > 0 { let n = Note.create(text: "followed") }
+        }
+        on(e: Pinged) by e.prov {
+          if e.rank > 0 {
+            pings := pings + 1
+          } else {
+            let n = Note.create(text: "low ping")
+          }
+        }
+      }
+    }
+  }
+
+  api RankApi from D {
+    route POST "/provs/{x}/promote" -> Ranks.Promote
+  }
+  storage pg { type: postgres }
+  resource ranksState { for: Ranks, kind: state, use: pg, index: [Prov.rank] }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ranks]
+    dataSources: [ranksState]
+    serves: RankApi
+    port: 4000
+  }
+
+  test e2e "a workflow if runs the branch its condition picks" against d {
+    let hi = api.provs.create({ rank: 7, bumps: 0 })
+    let mid = api.provs.create({ rank: 1, bumps: 0 })
+    let lo = api.provs.create({ rank: 0, bumps: 0 })
+
+    // Taken: the op in the branch persists.  Not taken: the row is unchanged.
+    api.bump.run({ x: hi.id })
+    expect(api.provs.getById(hi).bumps).toBe(1)
+    api.bump.run({ x: lo.id })
+    expect(api.provs.getById(lo).bumps).toBe(0)
+    expect(api.notes.all().total).toBe(0)
+
+    // The second `if` reads the row the first one bumped: two bumps make a note.
+    api.bump.run({ x: hi.id })
+    expect(api.provs.getById(hi).bumps).toBe(2)
+    let twice = api.notes.all()
+    expect(twice.total).toBe(1)
+    expect(twice.items.first().text).toBe("bumped twice")
+
+    // `else if` / `else`: each branch saves its own note.
+    api.grade.run({ x: hi.id })
+    api.grade.run({ x: mid.id })
+    api.grade.run({ x: lo.id })
+    let graded = api.notes.all()
+    expect(graded.total).toBe(4)
+    expect(graded.items.where(n => n.text == "high").count).toBe(1)
+    expect(graded.items.where(n => n.text == "mid").count).toBe(1)
+    expect(graded.items.where(n => n.text == "low").count).toBe(1)
+
+    // A row loaded in the branch saves there; a branch not taken loads nothing.
+    api.bumpOther.run({ x: mid.id, y: lo.id })
+    expect(api.provs.getById(lo).bumps).toBe(1)
+    api.bumpOther.run({ x: lo.id, y: mid.id })
+    expect(api.provs.getById(mid).bumps).toBe(0)
+
+    // An `if` inside a `for`: rank > 2 bumps, the rest record a note.
+    api.bumpAll.run({ min: 1 })
+    expect(api.provs.getById(hi).bumps).toBe(3)
+    expect(api.provs.getById(mid).bumps).toBe(0)
+    expect(api.provs.getById(lo).bumps).toBe(1)
+    expect(api.notes.all().items.where(n => n.text == "skipped").count).toBe(1)
+
+    // A commandHandler body.
+    api.ranks.promote(mid)
+    expect(api.provs.getById(mid).bumps).toBe(1)
+    api.ranks.promote(hi)
+    expect(api.provs.getById(hi).bumps).toBe(3)
+
+    // The starter's `if` creates a note; the reactor's taken branch writes the
+    // saga's own state, and its `else` creates a note.
+    api.provs.follow(hi)
+    expect(api.follow.instance(hi).pings).toBe(1)
+    api.provs.ping(hi)
+    expect(api.follow.instance(hi).pings).toBe(2)
+    api.provs.follow(lo)
+    api.provs.ping(lo)
+    expect(api.follow.instance(lo).pings).toBe(1)
+    let pinged = api.notes.all()
+    expect(pinged.items.where(n => n.text == "followed").count).toBe(1)
+    expect(pinged.items.where(n => n.text == "low ping").count).toBe(1)
+    expect(api.follow.instances().count()).toBe(2)
+
+    // The remaining generated routes.
+    let note = api.notes.create({ text: "manual" })
+    expect(api.notes.getById(note).text).toBe("manual")
+    api.notes.update(note, { text: "edited" })
+    expect(api.notes.getById(note).text).toBe("edited")
+    api.notes.destroy(note)
+    api.provs.bump(lo)
+    expect(api.provs.getById(lo).bumps).toBe(2)
+    api.provs.update(lo, { rank: 0, bumps: 9 })
+    expect(api.provs.getById(lo).bumps).toBe(9)
+    expect(api.provs.all().total).toBe(3)
+    api.provs.destroy(lo)
+    expect(api.provs.getById(lo)).toThrow(404)
+  }
+}

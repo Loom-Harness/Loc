@@ -149,7 +149,8 @@ function csStmtTarget(ctx: CsRenderContext, traceCtx: TraceCtx): StmtTarget {
     },
 
     remove: (s, ix) => {
-      const base = `${INDENT}${renderPrivatePath(s.target, ctx)}.Remove(${renderCsExpr(s.value, ctx)});`;
+      // `xs -= v` removes every element equal to `v`.
+      const base = `${INDENT}{ var __rm = ${renderCsExpr(s.value, ctx)}; ${renderPrivatePath(s.target, ctx)}.RemoveAll(__e => Equals(__e, __rm)); }`;
       return withProvCapture(base, s.prov, s.target, s.value, ix.prov, ctx);
     },
 

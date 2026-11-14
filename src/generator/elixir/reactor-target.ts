@@ -5,6 +5,7 @@ import { type ByIdCacheReads, renderEvictPipe } from "./vanilla/by-id-cache-emit
 // Shared by the saga-row handler (`dispatch-emit.ts`) and the event-sourced
 // handler (`vanilla/workflow-eventsourced-emit.ts`).
 
+import type { SaveEntry } from "../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, ExprIR, WorkflowStmtIR } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import { workflowBodyUsesOwnState } from "../../ir/util/workflow-own-state.js";
@@ -19,10 +20,12 @@ import { internalCreateFn, internalDeleteFn } from "./lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "./render-expr.js";
 import { denialTerm } from "./vanilla/denial.js";
 import { emitsRestDelete } from "./vanilla/rest-surface.js";
+import { type ElixirSavePlan, NO_SAVE_PLAN } from "./vanilla/save-plan.js";
 import {
   assembleChain,
   assembledStepText,
   elixirWorkflowTarget,
+  saveSteps,
   tupleBind,
 } from "./vanilla/workflow-execution-emit.js";
 
@@ -43,9 +46,15 @@ export interface RenderBodyResult {
 export function renderReactorBody(
   statements: readonly WorkflowStmtIR[],
   target: WorkflowPipelineTarget,
+  /** The body's exit saves and the plan that decides which it writes
+   *  (`save-plan.ts`); a body with none omits it. */
+  exit?: { saves: readonly SaveEntry[]; plan: ElixirSavePlan; contextModule: string },
 ): RenderBodyResult {
   const chunks = lowerWorkflowPipeline(statements, target);
-  const all = chunks.flat();
+  const all = [
+    ...chunks.flat(),
+    ...(exit ? saveSteps(exit.saves, exit.plan, exit.contextModule) : []),
+  ];
   const regions = chunks.flatMap((steps, i) =>
     steps.map((step) => ({
       text: assembledStepText(all, step),
@@ -69,9 +78,10 @@ export function reactorTarget(
   renderCtx: RenderCtx,
   contextModule: string,
   channels?: ElixirChannelsCfg,
+  plan: ElixirSavePlan = NO_SAVE_PLAN,
   cached: ByIdCacheReads = new Map(),
 ): WorkflowPipelineTarget {
-  const base = elixirWorkflowTarget(contextModule, renderCtx, ctx);
+  const base = elixirWorkflowTarget(contextModule, renderCtx, ctx, plan);
   const expr = (e: ExprIR): string => renderExpr(e, renderCtx);
   const fieldsOf = (fields: readonly { name: string; value: ExprIR }[]): string =>
     fields.map((f) => `${snake(f.name)}: ${expr(f.value)}`).join(", ");

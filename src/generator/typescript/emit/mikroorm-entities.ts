@@ -18,6 +18,7 @@ import {
 import {
   eventLogTable,
   eventSourcedWorkflows,
+  FOLD_INBOX_TABLE,
   hasDurableEvents,
   hasStateRow,
 } from "../../../ir/plan/index.js";
@@ -672,6 +673,19 @@ function outboxRowEntity(): { block: string; schemaName: string } {
   ]);
 }
 
+/** Fold inbox Row (`__loom_fold_inbox`): one row per `(projection, event_id)`
+ *  a fold applied.  MikroORM owns its schema through `schema.update()`, so the
+ *  table must be an entity or it is never created.  The folds only write it
+ *  with the raw claim insert. */
+
+function foldInboxRowEntity(): { block: string; schemaName: string } {
+  return renderRecordRowEntity("LoomFoldInboxRow", FOLD_INBOX_TABLE, [
+    TEXT("projection", { primary: true }),
+    TEXT("eventId", { primary: true }),
+    TIMESTAMPTZ("receivedAt"),
+  ]);
+}
+
 /** Audit history Row (`audit_records`) — the MikroORM edition of the drizzle
  *  `auditRecords` table.  Property names + underscore-mapped columns match, so
  *  the shared routes-builder's `em.insert(AuditRecordRow, { auditId, … })`
@@ -905,6 +919,9 @@ export function renderMikroEntities(
     /** The deployable owns an `every:` timer — map the `__loom_timer` claim
      *  table. */
     timerClaim?: boolean;
+    /** A fold dedupes durably delivered events (`foldsDedupe`) — map the
+     *  `__loom_fold_inbox` table. */
+    foldInbox?: boolean;
     /** Maps an event-sourced aggregate / workflow to the context that declares
      *  it. A multi-context deployable passes one merged context here, and each
      *  `<Ctx>EventRow` must still be named after its stream's owner — the name
@@ -1200,6 +1217,11 @@ export function renderMikroEntities(
   }
   if (opts.timerClaim) {
     const { block, schemaName } = timerClaimRowEntity();
+    schemaNames.push(schemaName);
+    blocks.push(block);
+  }
+  if (opts.foldInbox) {
+    const { block, schemaName } = foldInboxRowEntity();
     schemaNames.push(schemaName);
     blocks.push(block);
   }

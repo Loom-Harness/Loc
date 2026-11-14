@@ -12,10 +12,7 @@ import {
   validatePartConstructionOwner,
 } from "./checks/body-stmt-vocabulary.js";
 import { validateCacheReads } from "./checks/cache-checks.js";
-import {
-  validateElixirBoundMutatingCalls,
-  validateElixirEntryResults,
-} from "./checks/call-result-checks.js";
+import { validateElixirBoundMutatingCalls } from "./checks/call-result-checks.js";
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
 import { validateCreateCallSites } from "./checks/create-call-checks.js";
@@ -493,7 +490,6 @@ export function validateLoomModel(
   validateIfStatementPlacement(loom, diags);
   validateElixirMatchStatements(loom, diags);
   validateElixirBoundMutatingCalls(loom, diags);
-  validateElixirEntryResults(loom, diags);
   // Last: it speaks only when no check above refused the model.
   validateUnresolvedTypes(loom, diags);
   validateLoweringViolations(loom, diags);

@@ -16,6 +16,7 @@ import { buildApiModule } from "../../../src/generator/_frontend/api-module.js";
 import { contractOperations } from "../../../src/ir/contract/frontend-contract.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
+import { pagedReturn, pagedSortDefault } from "../../../src/ir/stdlib/generics.js";
 import { enrichedContexts } from "../../_helpers/ir.js";
 import { parseString } from "../../_helpers/parse.js";
 
@@ -43,7 +44,21 @@ async function apiModule(): Promise<string> {
   const ctx = enrichedContexts(enriched).find((c) => c.name === "Sales")!;
   const agg = ctx.aggregates.find((a) => a.name === "Customer")!;
   const repo = ctx.repositories.find((r) => r.aggregateName === "Customer");
-  return buildApiModule(agg, repo, ctx, { operations: contractOperations(ctx) });
+  // A system-less model has no Frontend Contract, so the client finds are
+  // the repository's auto-\`all\` (no synthesized find is routed).
+  const finds = (repo?.finds ?? [])
+    .filter((f) => f.name === "all")
+    .map((f) => ({
+      name: f.name,
+      params: f.params,
+      returnType: f.returnType,
+      ...(pagedReturn(f.returnType) ? { sortDefault: pagedSortDefault(f) } : {}),
+    }));
+  return buildApiModule(agg, ctx, {
+    operations: contractOperations(ctx),
+    finds,
+    history: false,
+  });
 }
 
 describe("react api-builder — transitive enum/VO schema collection", () => {

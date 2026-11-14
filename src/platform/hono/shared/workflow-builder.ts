@@ -22,7 +22,6 @@ import { PG_FOREIGN_KEY_VIOLATION } from "../../../generator/_persistence/pg-sql
 import { statementSubRegions } from "../../../generator/_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../../generator/_workflow/create-state.js";
 import {
-  nestedSaves,
   type PresenceSide,
   presenceSides,
   renderWorkflowStmtChunks,
@@ -58,6 +57,7 @@ import {
   wireCode,
   wireFixedDetail,
   wireStatus,
+  wireStatusResolver,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
 import {
@@ -65,9 +65,12 @@ import {
   commandCreateReturnsSelf,
   esStarterSharesEvent,
   eventSourcedWorkflows,
+  foldInboxPurgeSql,
+  foldsDedupe,
   hasDurableEvents,
   hasStateRow,
   lookupOp,
+  nestedSaves,
   reposNeeded,
   requiredStateFields,
   resourceCalls,
@@ -108,6 +111,7 @@ import {
   entryErrorTags,
 } from "../../../ir/util/entry-result.js";
 import { operationBodyUsesCurrentUser, operationGates } from "../../../ir/util/op-gates.js";
+import { errorStatuses } from "../../../ir/util/openapi-errors.js";
 import {
   camelId,
   opOperation,
@@ -626,7 +630,14 @@ export function buildWorkflowsFile(
     body.push("");
     body.push(...emitDispatcherFactory(new Map(), usingMikro));
     body.push("");
-    body.push(...emitOutboxMachinery(durableEventTypes(ctx), usingMikro, carriesOrigin));
+    body.push(
+      ...emitOutboxMachinery(
+        durableEventTypes(ctx),
+        usingMikro,
+        carriesOrigin,
+        foldsDedupe(ctx, true),
+      ),
+    );
   }
   // Now derive imports from what the body actually references.
   const rawBodyStr = body.join("\n");
@@ -759,6 +770,8 @@ export function buildWorkflowsFile(
   const drizzleOps = ["and", "asc", "eq", "isNull", "lt"].filter((op) =>
     new RegExp(`(?<!\\.)\\b${op}\\(`).test(bodyStr),
   );
+  // The fold-inbox purge is a raw `sql` template.
+  if (/(?<!\.)\bsql`/.test(bodyStr)) drizzleOps.push("sql");
   if (drizzleOps.length > 0)
     imports.push(`import { ${drizzleOps.join(", ")} } from "drizzle-orm";`);
   // The outbox relay logs event_dead_lettered on the module-scope logger.
@@ -1014,57 +1027,18 @@ function emitWorkflowRoute(
   } else {
     out.push(`      204: { description: "No content" },`);
   }
-  // workflow → 400 (domain) + 422 (validation, ProblemDetails with §3.2
-  // `errors[]` extension emitted by the shared defaultHook), per the
-  // openapi-errors matrix.  See
-  // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
-  out.push(
-    `      ${wireStatus("malformed-body")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("malformed-body")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-  );
-  // The DOMAIN not-found rung, declared only when the body can raise it — a
-  // `repo-let` (or a `reading` service's named read) throws on an absent row
-  // and the router's `AggregateNotFoundError` arm below answers this status.
-  // Conditional because a workflow that touches no repository genuinely cannot
-  // send it; `workflowCanAnswerNotFound` is the shared predicate the other four
-  // backends thread into `errorStatuses("workflow", …, { readsAggregate })`.
-  if (workflowCanAnswerNotFound(wf, ctx)) {
-    const wfRouteNotFoundStatus = wireStatus("not-found", ctx.structuralErrorStatuses);
+  // The declared non-2xx set is the shared `errorStatuses("workflow")` table
+  // all five backends read — the not-found rung only when the body reads an
+  // aggregate, 403 only when the workflow is guarded, each rung resolved
+  // through the context's `httpStatus` map.  Only the line idiom is Hono's.
+  for (const s of errorStatuses(
+    "workflow",
+    workflowIsGuarded(wf),
+    wireStatusResolver(ctx.structuralErrorStatuses),
+    { readsAggregate: workflowCanAnswerNotFound(wf, ctx) },
+  )) {
     out.push(
-      `      ${wfRouteNotFoundStatus}: { description: ${JSON.stringify(
-        wireTitle("not-found", ctx.structuralErrorStatuses),
-      )}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-    );
-  }
-  // 415 — the media-type refusal the handler's `requireJsonContentType` throws.
-  // Hand-rolled here (this route predates `errorStatuses("workflow")`, which
-  // the other four backends render) so the declared workflow set stays equal
-  // across all five.  `test/conformance/not-found-declaration-parity.test.ts` now PINS that
-  // equality against the shared table for a corpus of workflow shapes, so the
-  // "keep the two in step" above is a gate rather than a request.
-  out.push(
-    `      ${wireStatus("unsupported-media-type")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("unsupported-media-type")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-  );
-  out.push(
-    `      ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-  );
-  // M-T5.20 — the domain floor's DECLARED status is the resolved value the
-  // router's onError arm answers with (default 422 ⇒ collapses into the line
-  // above, byte-identical).
-  const wfRouteDomainStatus = wireStatus("domain-floor", ctx.structuralErrorStatuses);
-  if (
-    wfRouteDomainStatus !== wireStatus("malformed-body") &&
-    wfRouteDomainStatus !== wireStatus("field-invalid")
-  ) {
-    out.push(
-      `      ${wfRouteDomainStatus}: { description: ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-    );
-  }
-  // A `requires` guard denies with 403 (ForbiddenError → onError) — declare
-  // it so the published contract documents the authorization outcome.
-  if (workflowIsGuarded(wf)) {
-    const wfRouteForbiddenStatus = wireStatus("forbidden", ctx.structuralErrorStatuses);
-    out.push(
-      `      ${wfRouteForbiddenStatus}: { description: ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+      `      ${s}: { description: ${JSON.stringify(reasonPhrase(s))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     );
   }
   out.push(`    },`);
@@ -1807,7 +1781,7 @@ function emitSubscriptionHandlers(
   const durable = durableEventTypes(ctx);
   if (durable.size > 0) {
     out.push("");
-    out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin));
+    out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin, foldsDedupe(ctx, true)));
   }
   return out;
 }
@@ -1889,13 +1863,14 @@ const OUTBOX_RELAY_ERROR_LOG =
  *  the dispatched rows older than the retention window (`del` is the store's
  *  delete over `cutoff`).  A failed purge is logged and retried next interval
  *  — it never blocks delivery. */
-function outboxPurgeStep(del: string): string[] {
+function outboxPurgeStep(del: string, inboxDel?: string): string[] {
   return [
     `      if (Date.now() - lastPurge >= ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000}) {`,
     `        lastPurge = Date.now();`,
     `        const cutoff = new Date(lastPurge - retentionMs);`,
     `        try {`,
     `          await ${del};`,
+    ...(inboxDel ? [`          await ${inboxDel};`] : []),
     `        } catch (err) {`,
     `          ${OUTBOX_RELAY_ERROR_LOG}`,
     `        }`,
@@ -1920,6 +1895,9 @@ function emitOutboxMachinery(
   durable: ReadonlySet<string>,
   usingMikro = false,
   carriesOrigin = false,
+  /** The deployable's folds claim events in the fold inbox (`foldsDedupe`):
+   *  the purge prunes it on the outbox's window. */
+  pruneInbox = false,
 ): string[] {
   // The outbox row payload: the event, plus its origin under the reserved
   // key when the deployable carries auth (ruling D1).
@@ -1950,7 +1928,7 @@ function emitOutboxMachinery(
   out.push(...emitOutboxRetention());
   out.push(``);
   if (usingMikro) {
-    out.push(...emitMikroOutboxMachinery(captured, redeliver));
+    out.push(...emitMikroOutboxMachinery(captured, redeliver, pruneInbox));
     return out;
   }
   out.push(`export function createOutboxDispatcher(`);
@@ -2004,6 +1982,7 @@ function emitOutboxMachinery(
   out.push(
     ...outboxPurgeStep(
       "db.delete(schema.loomOutbox).where(lt(schema.loomOutbox.dispatchedAt, cutoff))",
+      pruneInbox ? `db.execute(sql\`${foldInboxPurgeSql("${cutoff}")}\`)` : undefined,
     ),
   );
   // The pass claims its batch: one transaction locks the rows it takes and
@@ -2064,6 +2043,7 @@ function emitOutboxMachinery(
 function emitMikroOutboxMachinery(
   captured: string,
   redeliver: (indent: string) => string[],
+  pruneInbox = false,
 ): string[] {
   const ROW = MIKRO_OUTBOX_ROW_CLASS;
   return [
@@ -2129,7 +2109,12 @@ function emitMikroOutboxMachinery(
     `    draining = true;`,
     `    try {`,
     `      const em = db.fork();`,
-    ...outboxPurgeStep(`em.nativeDelete(${ROW}, { dispatchedAt: { $lt: cutoff } })`),
+    ...outboxPurgeStep(
+      `em.nativeDelete(${ROW}, { dispatchedAt: { $lt: cutoff } })`,
+      pruneInbox
+        ? `em.getConnection().execute(${JSON.stringify(foldInboxPurgeSql("?"))}, [cutoff])`
+        : undefined,
+    ),
     // The pass claims its batch (FOR UPDATE SKIP LOCKED) inside one
     // transaction, exactly like the drizzle relay above.
     `      let halted: unknown;`,
@@ -2667,7 +2652,7 @@ function buildProducerOutboxFile(
         ]
       : [
           `import type { NodePgDatabase } from "drizzle-orm/node-postgres";`,
-          `import { and, asc, eq, isNull, lt } from "drizzle-orm";`,
+          `import { and, asc, eq, isNull, lt${foldsDedupe(ctx, true) ? ", sql" : ""} } from "drizzle-orm";`,
           `import * as schema from "../db/schema";`,
         ]),
     ...(carriesOrigin
@@ -2680,7 +2665,7 @@ function buildProducerOutboxFile(
   ];
   out.push(...emitDispatcherFactory(new Map(), usingMikro));
   out.push("");
-  out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin));
+  out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin, foldsDedupe(ctx, true)));
   return `${out.join("\n")}\n`;
 }
 
@@ -3033,6 +3018,22 @@ export function honoWorkflowStmtTarget(
       } else {
         out.push(`${indent}}`);
       }
+      return out;
+    },
+    if: (st, indent, thenLines, elseLines) => {
+      // `if c { … } else { … }` → a JS `if`; each branch's dirty bindings save
+      // at that branch's end.
+      const inner = `${indent}  `;
+      const elseSaves = blockSaves(inner, st.savesInElse);
+      const out = [
+        `${indent}if (${renderArg(st.cond)}) {`,
+        ...thenLines,
+        ...blockSaves(inner, st.savesInThen),
+      ];
+      if (elseLines.length > 0 || elseSaves.length > 0) {
+        out.push(`${indent}} else {`, ...elseLines, ...elseSaves);
+      }
+      out.push(`${indent}}`);
       return out;
     },
     variantMatch: (st, indent, armLines, elseLines) => {

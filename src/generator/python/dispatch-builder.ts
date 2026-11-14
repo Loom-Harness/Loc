@@ -6,8 +6,12 @@ import {
   type FoldRowSeed,
   type FoldStep,
   foldedEventNames,
+  foldInboxClaimSql,
+  foldInboxPurgeSql,
   foldRowSeeds,
   foldSteps,
+  foldsDedupe,
+  liveLetNames,
   reposNeeded,
   requiredStateFields,
   stateZero,
@@ -56,7 +60,7 @@ import { resourceImportLines } from "./resource-clients.js";
 import { pySaveRenderer } from "./stamp-call.js";
 import { pyStateZero } from "./state-zero.js";
 import { esFns, esWorkflowFoldBlock } from "./workflow-eventsourced-emit.js";
-import { collectLiveLetNames, pyWorkflowStmtTarget } from "./workflows-builder.js";
+import { pyWorkflowStmtTarget } from "./workflows-builder.js";
 
 // ---------------------------------------------------------------------------
 // In-process event dispatch — `app/dispatch.py` (channels.md, the
@@ -93,6 +97,7 @@ const CALLABLE = pyRef("collections.abc", "Callable");
 const ENGINE = pyRef("app.db.engine", "engine");
 const OUTBOX_ROW = pyRef("app.db.schema", "LoomOutboxRow");
 const DELETE = pyRef("sqlalchemy", "delete");
+const SA_TEXT = pyRef("sqlalchemy", "text");
 const OS = ref(pyModule("os"));
 const PUBLISH = pyRef("app.channels", "publish_event");
 const PUBLISH_RELAY = pyRef("app.channels", "publish_event_from_relay");
@@ -301,7 +306,7 @@ export function buildPyDispatchFile(
       const on = proj.handlers.find((h) => h.event === sub.event && h.param === sub.param);
       if (!on) continue;
       const fn = `_proj_${snake(proj.name)}_${snake(sub.event)}`;
-      handlers.push(projectionHandlerFn(fn, proj, on), "");
+      handlers.push(projectionHandlerFn(fn, proj, on, foldsDedupe(ctx, hasOutbox)), "");
       const list = handlerByEvent.get(sub.event) ?? [];
       list.push(fn);
       handlerByEvent.set(sub.event, list);
@@ -419,6 +424,7 @@ export function buildPyDispatchFile(
             pureProducer: false,
             hasRealtime,
             carriesOrigin,
+            pruneInbox: foldsDedupe(ctx, hasOutbox),
           }),
         ]
       : []),
@@ -548,7 +554,14 @@ function projectionStateHelper(proj: ProjectionIR): string {
  *  key (every handler allocates — a projection has no route-or-drop split),
  *  apply the fold plan's steps against `state`, flush.  Pure — no repos, no
  *  emit, no child-context frame (enforced by `loom.projection-fold-impure`). */
-function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR): string {
+function projectionHandlerFn(
+  fn: string,
+  proj: ProjectionIR,
+  on: ProjectionOnIR,
+  /** Folds claim each durably delivered event in the fold inbox
+   *  (`foldsDedupe`); the claim commits with the caller's session. */
+  dedupe = false,
+): string {
   const row = schemaRow(`${proj.name}Row`);
   const corr = snake(proj.correlationField as string);
   const param = snake(on.param);
@@ -577,6 +590,15 @@ function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR)
           `    __tenant = __origin.get("tenant")`,
           "    if __tenant is None:",
           "        return",
+        ]
+      : []),
+    ...(dedupe
+      ? [
+          "    __eid = _current_event_id.get()",
+          "    if __eid is not None:",
+          `        __claimed = await session.execute(${SA_TEXT}(${JSON.stringify(foldInboxClaimSql(":projection", ":event_id", true))}), {"projection": ${JSON.stringify(proj.name)}, "event_id": __eid})`,
+          "        if __claimed.first() is None:",
+          "            return",
         ]
       : []),
     `    __key = str(${keyExpr})`,
@@ -821,7 +843,7 @@ function handlerFn(
   const saveLines = pySaveRenderer(statements, aggregates);
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, ctx, collectLiveLetNames(statements, saves), saveLines),
+    pyWorkflowStmtTarget(rctx, ctx, liveLetNames(statements, saves), saveLines),
     "    ",
   );
   out.push(...stmtChunks.flat());
@@ -885,7 +907,7 @@ function esHandlerFn(
   const saveLines = pySaveRenderer(statements, aggregates);
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, ctx, collectLiveLetNames(statements, saves), saveLines),
+    pyWorkflowStmtTarget(rctx, ctx, liveLetNames(statements, saves), saveLines),
     "    ",
   );
   const bodyLines = stmtChunks.flat();
@@ -991,24 +1013,32 @@ const OUTBOX_FAIL_BLOCK: readonly string[] = [
  *  environment (a missing, non-numeric or non-positive value falls back to
  *  the default) and one bounded-batch DELETE of the dispatched rows older
  *  than it.  Dead rows are never dispatched, so they are never purged. */
-const OUTBOX_PURGE_FNS: readonly string[] = [
-  "def _outbox_retention_days() -> int:",
-  "    try:",
-  `        days = int(${OS}.environ.get("${OUTBOX_RETENTION_ENV}", ""))`,
-  "    except ValueError:",
-  `        return ${OUTBOX_RETENTION_DEFAULT_DAYS}`,
-  `    return days if days > 0 else ${OUTBOX_RETENTION_DEFAULT_DAYS}`,
-  "",
-  "",
-  "async def _purge_outbox() -> None:",
-  `    cutoff = ${PY.datetime}.now(${PY.UTC}) - ${PY.timedelta}(days=_outbox_retention_days())`,
-  `    expired = ${SELECT}(${OUTBOX_ROW}.id).where(${OUTBOX_ROW}.dispatched_at < cutoff).limit(${OUTBOX_PURGE_BATCH})`,
-  `    async with AsyncSession(${ENGINE}) as session:`,
-  `        await session.execute(${DELETE}(${OUTBOX_ROW}).where(${OUTBOX_ROW}.id.in_(expired)))`,
-  "        await session.commit()",
-  "",
-  "",
-];
+function outboxPurgeFns(pruneInbox = false): readonly string[] {
+  return [
+    "def _outbox_retention_days() -> int:",
+    "    try:",
+    `        days = int(${OS}.environ.get("${OUTBOX_RETENTION_ENV}", ""))`,
+    "    except ValueError:",
+    `        return ${OUTBOX_RETENTION_DEFAULT_DAYS}`,
+    `    return days if days > 0 else ${OUTBOX_RETENTION_DEFAULT_DAYS}`,
+    "",
+    "",
+    "async def _purge_outbox() -> None:",
+    `    cutoff = ${PY.datetime}.now(${PY.UTC}) - ${PY.timedelta}(days=_outbox_retention_days())`,
+    `    expired = ${SELECT}(${OUTBOX_ROW}.id).where(${OUTBOX_ROW}.dispatched_at < cutoff).limit(${OUTBOX_PURGE_BATCH})`,
+    `    async with AsyncSession(${ENGINE}) as session:`,
+    `        await session.execute(${DELETE}(${OUTBOX_ROW}).where(${OUTBOX_ROW}.id.in_(expired)))`,
+    // The fold inbox shares the window: a claim outlives every redelivery.
+    ...(pruneInbox
+      ? [
+          `        await session.execute(${SA_TEXT}(${JSON.stringify(foldInboxPurgeSql(":cutoff"))}), {"cutoff": cutoff})`,
+        ]
+      : []),
+    "        await session.commit()",
+    "",
+    "",
+  ];
+}
 
 /** The outbox row's payload expression: the event's wire payload, plus its
  *  EVENT ORIGIN under the reserved key when the deployable carries auth. */
@@ -1035,6 +1065,9 @@ function outboxBlock(
     pureProducer: boolean;
     hasRealtime?: boolean;
     carriesOrigin?: boolean;
+    /** The folds claim events in the fold inbox (`foldsDedupe`): the purge
+     *  prunes it on the outbox's window. */
+    pruneInbox?: boolean;
   },
 ): string {
   const origin = opts.carriesOrigin ?? false;
@@ -1154,7 +1187,7 @@ function outboxBlock(
     "        raise halted",
     "",
     "",
-    ...OUTBOX_PURGE_FNS,
+    ...outboxPurgeFns(opts.pruneInbox),
     "async def _run_outbox_relay(",
     `    interval: float = ${OUTBOX_RELAY.intervalMs / 1000}, max_attempts: int = ${OUTBOX_RELAY.maxAttempts}, batch_size: int = ${OUTBOX_RELAY.batchSize}`,
     ") -> None:",
@@ -1277,7 +1310,7 @@ function pureProducerOutboxBlock(
     "        raise halted",
     "",
     "",
-    ...OUTBOX_PURGE_FNS,
+    ...outboxPurgeFns(),
     "async def _run_outbox_relay(",
     `    interval: float = ${OUTBOX_RELAY.intervalMs / 1000}, max_attempts: int = ${OUTBOX_RELAY.maxAttempts}, batch_size: int = ${OUTBOX_RELAY.batchSize}`,
     ") -> None:",

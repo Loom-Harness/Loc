@@ -17,6 +17,7 @@
 //     starts null until a fold writes it.
 
 import type {
+  BoundedContextIR,
   ExprIR,
   FieldIR,
   ProjectionIR,
@@ -24,6 +25,7 @@ import type {
   StmtIR,
   TypeIR,
 } from "../types/loom-ir.js";
+import { isMaterializedProjection } from "../types/loom-ir.js";
 
 /** One step of a fold, against the row (`this`). */
 export type FoldStep =
@@ -163,4 +165,38 @@ function neutralZero(t: TypeIR): FoldRowZero | undefined {
     default:
       return undefined;
   }
+}
+
+/** The fold inbox table: one row per `(projection, event_id)` a fold applied.
+ *  A fold delivered with an event id inserts its row in the transaction that
+ *  saves the projection row, and skips the event when the row already exists,
+ *  so a redelivered event changes the read model once. */
+export const FOLD_INBOX_TABLE = "__loom_fold_inbox";
+
+/** The fold's inbox claim: inserts `(projection, event_id)` and affects no row
+ *  when the event was already claimed.  `projection` / `eventId` are the
+ *  backend's parameter placeholders.  `received_at` is written explicitly so
+ *  the claim needs no column default (MikroORM owns its schema and declares
+ *  none).  `returning` adds `returning event_id` for drivers that report the
+ *  claim through a result set rather than an affected-row count. */
+export function foldInboxClaimSql(projection: string, eventId: string, returning: boolean): string {
+  return `insert into ${FOLD_INBOX_TABLE} (projection, event_id, received_at) values (${projection}, ${eventId}, now()) on conflict do nothing${returning ? " returning event_id" : ""}`;
+}
+
+/** True when `ctx`'s folds dedupe through the inbox: some materialized
+ *  projection folds there, and the deployable delivers events durably
+ *  (`durable` — the same answer the saga `last_event_id` column hangs on), so
+ *  an event can arrive twice with the same id. */
+export function foldsDedupe(ctx: BoundedContextIR, durable: boolean): boolean {
+  return (
+    durable && ctx.projections.some((p) => isMaterializedProjection(p) && p.handlers.length > 0)
+  );
+}
+
+/** The relay's retention purge of the fold inbox: deletes claims received
+ *  before `cutoff` (the backend's placeholder or literal).  It runs beside the
+ *  outbox purge on the same window, so a claim outlives every redelivery of
+ *  its event. */
+export function foldInboxPurgeSql(cutoff: string): string {
+  return `delete from ${FOLD_INBOX_TABLE} where received_at < ${cutoff}`;
 }

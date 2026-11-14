@@ -225,10 +225,10 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
 
     remove: (s) => {
       const path = renderPath(s.target);
+      // `xs -= v` removes every element equal to `v`, in place.
       return [
         `${i}__rm = ${renderPyExpr(s.value)}`,
-        `${i}if __rm in ${path}:`,
-        `${sub}${path}.remove(__rm)`,
+        `${i}${path}[:] = [__e for __e in ${path} if __e != __rm]`,
       ].join("\n");
     },
 

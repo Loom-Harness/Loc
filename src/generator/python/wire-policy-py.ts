@@ -9,7 +9,6 @@ import {
   reasonPhrase,
   type WireRejectionClass,
   wireSentence,
-  wireStatus,
 } from "../../ir/enrich/wire-policy.js";
 import type { BoundedContextIR, ExprIR } from "../../ir/types/loom-ir.js";
 import { ruleParamRefs } from "../../ir/util/rule-params.js";
@@ -67,25 +66,6 @@ export function pyErrorVariantReturn(opts: {
     `${i}    media_type=${JSON.stringify(r.contentType)},`,
     `${i})`,
   ];
-}
-
-const RESOLVED_CLASS: Readonly<Record<string, WireRejectionClass>> = {
-  ReferencedInUse: "referenced-in-use",
-  DomainError: "domain-floor",
-  Forbidden: "forbidden",
-  NotFound: "not-found",
-};
-
-/** The status resolver `errorStatuses` takes: a stdlib rung name resolved
- *  through the fact's rejection class and the context's `httpStatus` map. */
-export function wireStatusResolver(
-  overrides?: Readonly<Record<string, number>>,
-): (name: string) => number {
-  return (name) => {
-    const cls = RESOLVED_CLASS[name];
-    if (cls === undefined) throw new Error(`wirePolicy: no rejection class for rung '${name}'`);
-    return wireStatus(cls, overrides);
-  };
 }
 
 /** `raise <Exc>(f"<Agg> {<idExpr>} was modified by another request")` — the
