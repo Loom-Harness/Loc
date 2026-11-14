@@ -116,9 +116,6 @@ export function buildProjectionsFile(
    *  (`channelPlan(...).receivesDurable`).  Absent → this context hosts a
    *  durable channel. */
   receivesDurable: boolean = hasDurableEvents(ctx),
-  /** No outbox relay runs on the deployable to purge the fold inbox: emit
-   *  `startFoldInboxPurge` for boot to start. */
-  standaloneInboxPurge = false,
 ): string {
   // FOLDED (materialized) projections only — the event-folded read model with a
   // physical row table + by-key routes.  Query-time projections
@@ -159,7 +156,6 @@ export function buildProjectionsFile(
     for (const h of hs) body.push(...emitFoldHandler(p, h, usingMikro, ctx, dedupe), "");
   }
   body.push(...emitProjectionTee(folded, foldHandlers, usingMikro), "");
-  if (dedupe && standaloneInboxPurge) body.push(...emitFoldInboxPurge(usingMikro), "");
   body.push(...emitProjectionRoutes(folded, usingMikro, ctx));
   const bodyText = body.join("\n");
 
@@ -857,26 +853,38 @@ function emitProjectionRoutes(
   return out;
 }
 
-/** The fold inbox's retention purge for a deployable that runs no outbox relay
- *  (the relay purges the inbox beside the outbox otherwise): a consumer that
- *  only receives durable events off a broker still claims every delivery, so
- *  its claims need the same retention window. */
-function emitFoldInboxPurge(usingMikro: boolean): string[] {
+/** `http/inbox-purge.ts`: the consumer inbox's retention purge for a
+ *  deployable that runs no outbox relay (the relay purges the inbox beside
+ *  the outbox otherwise).  A consumer that only receives durable events off a
+ *  broker still claims every delivery, so its claims need the same retention
+ *  window. */
+export function buildInboxPurgeFile(usingMikro: boolean): string {
   const del = usingMikro
     ? `db.fork().getConnection().execute(${JSON.stringify(foldInboxPurgeSql("?"))}, [cutoff])`
     : `db.execute(${TS.sql}\`${foldInboxPurgeSql("${cutoff}")}\`)`;
-  return [
-    `export function startFoldInboxPurge(db: ${projDbType(usingMikro)}): () => void {`,
-    `  const days = Number(process.env.${OUTBOX_RETENTION_ENV});`,
-    `  const retentionMs = (Number.isFinite(days) && days > 0 ? days : ${OUTBOX_RETENTION_DEFAULT_DAYS}) * 86_400_000;`,
-    `  const timer = setInterval(() => {`,
-    `    const cutoff = new Date(Date.now() - retentionMs);`,
-    `    ${del}.catch((err: unknown) => {`,
-    `      ${TS.baseLogger}.warn({ event: "outbox_relay_error", error: err instanceof Error ? err.message : String(err) });`,
-    `    });`,
-    `  }, ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000});`,
-    `  timer.unref();`,
-    `  return () => clearInterval(timer);`,
-    `}`,
-  ];
+  const imports = usingMikro
+    ? ['import type { EntityManager } from "@mikro-orm/postgresql";']
+    : [
+        'import type { NodePgDatabase } from "drizzle-orm/node-postgres";',
+        'import type * as schema from "../db/schema";',
+      ];
+  return (
+    [
+      "// Auto-generated.",
+      ...imports,
+      "",
+      `export function startInboxPurge(db: ${projDbType(usingMikro)}): () => void {`,
+      `  const days = Number(process.env.${OUTBOX_RETENTION_ENV});`,
+      `  const retentionMs = (Number.isFinite(days) && days > 0 ? days : ${OUTBOX_RETENTION_DEFAULT_DAYS}) * 86_400_000;`,
+      `  const timer = setInterval(() => {`,
+      `    const cutoff = new Date(Date.now() - retentionMs);`,
+      `    ${del}.catch((err: unknown) => {`,
+      `      ${TS.baseLogger}.warn({ event: "outbox_relay_error", error: err instanceof Error ? err.message : String(err) });`,
+      `    });`,
+      `  }, ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000});`,
+      `  timer.unref();`,
+      `  return () => clearInterval(timer);`,
+      `}`,
+    ].join("\n") + "\n"
+  );
 }

@@ -39,6 +39,15 @@ export {
   type EventRoute,
   eventRoute,
 } from "./channel-plan.js";
+export {
+  foldInboxKey,
+  INBOX_TABLE,
+  inboxClaimSql,
+  inboxDedupes,
+  workflowClaims,
+  workflowInboxKey,
+  workflowsDedupe,
+} from "./consumer-inbox.js";
 export { hasDurableEvents } from "./context-events.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
 export {

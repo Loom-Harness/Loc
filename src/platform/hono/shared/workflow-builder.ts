@@ -70,6 +70,8 @@ import {
   foldsDedupe,
   hasDurableEvents,
   hasStateRow,
+  inboxClaimSql,
+  inboxDedupes,
   lookupOp,
   nestedSaves,
   reposNeeded,
@@ -81,6 +83,8 @@ import {
   subscriptionHandler,
   withReadPortRepos,
   workflowCapturesDurableEmits,
+  workflowClaims,
+  workflowInboxKey,
   workflowNeedsCurrentUser,
   workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
@@ -635,7 +639,7 @@ export function buildWorkflowsFile(
         durableEventTypes(ctx),
         usingMikro,
         carriesOrigin,
-        foldsDedupe(ctx, true),
+        inboxDedupes(ctx, true),
       ),
     );
   }
@@ -1792,7 +1796,7 @@ function emitSubscriptionHandlers(
   const durable = durableEventTypes(ctx);
   if (durable.size > 0) {
     out.push("");
-    out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin, foldsDedupe(ctx, true)));
+    out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin, inboxDedupes(ctx, true)));
   }
   return out;
 }
@@ -2352,6 +2356,51 @@ function defaultLiteralFor(t: TypeIR, ctx: BoundedContextIR): string {
   }
 }
 
+/** The exported handler of a workflow that claims in the consumer inbox:
+ *  under an event id it opens one transaction, claims
+ *  `(workflow:<name>, event_id)` and runs `<fn>Apply` on the transaction, so
+ *  the claim commits or rolls back with the body's effects.  A claim that
+ *  inserts no row is a delivery already applied, here or on another
+ *  replica. */
+function emitInboxClaimWrapper(
+  fn: string,
+  workflow: string,
+  eventName: string,
+  paramName: string,
+  usingMikro: boolean,
+): string[] {
+  const key = JSON.stringify(workflowInboxKey(workflow));
+  const out = [
+    `export async function ${fn}(`,
+    `  db: ${wfDbType(usingMikro)},`,
+    `  events: DomainEventDispatcher,`,
+    `  ${paramName}: Events.${eventName},`,
+    `): Promise<void> {`,
+    `  const __eventId = (${paramName} as { __loomEventId?: string }).__loomEventId;`,
+    `  if (__eventId === undefined) return ${fn}Apply(db, events, ${paramName}, undefined);`,
+  ];
+  if (usingMikro) {
+    out.push(
+      `  await db.transactional(async (__tx) => {`,
+      `    const __claimed = await __tx.execute(${JSON.stringify(inboxClaimSql("?", "?", true))}, [${key}, __eventId]);`,
+      `    if (__claimed.length === 0) return;`,
+      `    await ${fn}Apply(__tx, events, ${paramName}, __eventId);`,
+      `  });`,
+    );
+  } else {
+    out.push(
+      `  await db.transaction(async (__tx) => {`,
+      `    const __db = __tx as unknown as NodePgDatabase<typeof schema>;`,
+      `    const __claimed = await __db.execute(${T.sql}\`${inboxClaimSql(`\${${key}}`, "${__eventId}", true)}\`);`,
+      `    if (__claimed.rows.length === 0) return;`,
+      `    await ${fn}Apply(__db, events, ${paramName}, __eventId);`,
+      `  });`,
+    );
+  }
+  out.push(`}`, ``);
+  return out;
+}
+
 /** One reactor / event-create handler.  The inbound event instance binds as
  *  the body's event param directly (it is already domain-typed in-process —
  *  no wire→domain conversion, unlike the HTTP command path); repos are built
@@ -2389,10 +2438,17 @@ function emitHandlerFn(
   usingMikro = false,
 ): string[] {
   const out: string[] = [];
-  out.push(`export async function ${fn}(`);
+  // A durably delivered event is claimed in the consumer inbox in the same
+  // transaction as the body's effects (`src/ir/plan/consumer-inbox.ts`): the
+  // exported handler opens the transaction and claims, `<fn>Apply` runs the
+  // body.  A frame with no event id applies directly.
+  const claims = workflowClaims(wf, durable);
+  if (claims) out.push(...emitInboxClaimWrapper(fn, wf.name, eventName, paramName, usingMikro));
+  out.push(claims ? `async function ${fn}Apply(` : `export async function ${fn}(`);
   out.push(`  db: ${wfDbType(usingMikro)},`);
   out.push(`  events: DomainEventDispatcher,`);
   out.push(`  ${paramName}: Events.${eventName},`);
+  if (claims) out.push(`  __eventId: string | undefined,`);
   out.push(`): Promise<void> {`);
   out.push(...bindSystemPrincipal(statements, ctx));
   const persisted = !!wf.correlationField;
@@ -2426,14 +2482,6 @@ function emitHandlerFn(
         `    ${renderHonoStoreLogCall("eventUnrouted", `workflow: "${wf.name}", event_type: "${eventName}", key: __key`)}`,
       );
       out.push(`    return;`);
-      out.push(`  }`);
-    }
-    if (durable) {
-      // The relay threads the outbox row id onto the dispatched event
-      // (`__loomEventId`); inline (ephemeral) dispatch carries none.
-      out.push(`  const __eventId = (${paramName} as { __loomEventId?: string }).__loomEventId;`);
-      out.push(`  if (__eventId !== undefined && state.lastEventId === __eventId) {`);
-      out.push(`    return; // already processed — at-least-once redelivery (idempotent consumer)`);
       out.push(`  }`);
     }
     thisName = "state";
@@ -2494,7 +2542,9 @@ function emitHandlerFn(
   out.push(...audits.tail);
   out.push(...renderProvFlush(provSaves, bi, "db"));
   if (wrapsFrame) out.push(`  });`);
-  if (persisted && durable) {
+  if (persisted && claims) {
+    // The row records the last event applied to it; the inbox claim, not
+    // this column, is what dedupes.
     out.push(`  if (__eventId !== undefined) state.lastEventId = __eventId;`);
   }
   if (persisted) out.push(`  await save${DOMAIN_NAMES.ts.type(wf.name)}(db, state);`);
@@ -2675,7 +2725,7 @@ function buildProducerOutboxFile(
         ]
       : [
           `import type { NodePgDatabase } from "drizzle-orm/node-postgres";`,
-          `import { and, asc, eq, isNull, lt${foldsDedupe(ctx, true) ? ", sql" : ""} } from "drizzle-orm";`,
+          `import { and, asc, eq, isNull, lt${inboxDedupes(ctx, true) ? ", sql" : ""} } from "drizzle-orm";`,
           `import * as schema from "../db/schema";`,
         ]),
     ...(carriesOrigin
@@ -2688,7 +2738,7 @@ function buildProducerOutboxFile(
   ];
   out.push(...emitDispatcherFactory(new Map(), usingMikro));
   out.push("");
-  out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin, foldsDedupe(ctx, true)));
+  out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin, inboxDedupes(ctx, true)));
   return `${out.join("\n")}\n`;
 }
 

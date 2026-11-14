@@ -14,9 +14,9 @@ import { eventLogCarriesTenant, STREAM_TENANT_METADATA } from "../ir/enrich/stre
 import {
   eventLogTable,
   FOLD_INBOX_TABLE,
-  foldsDedupe,
   hasDurableEvents,
   hasStateRow,
+  inboxDedupes,
 } from "../ir/plan/index.js";
 import type {
   AggregateIR,
@@ -394,10 +394,10 @@ export function schemaFromModule(
   if (module.contexts.some((c) => hasDurableEvents(c))) {
     tables.push(outboxTableShape(module.name));
   }
-  // Fold inbox (D-PROJECTION-FOLD-INBOX): one shared table when a durably
-  // delivered event can reach a projection fold.  Machinery, like the outbox,
-  // so it takes no context schema.
-  if (module.contexts.some((c) => foldsDedupe(c, durableEvents.size > 0 || hasDurableEvents(c)))) {
+  // Consumer inbox (D-PROJECTION-FOLD-INBOX): one shared table when a durably
+  // delivered event can reach a projection fold or a state-based workflow
+  // handler.  Machinery, like the outbox, so it takes no context schema.
+  if (module.contexts.some((c) => inboxDedupes(c, durableEvents.size > 0 || hasDurableEvents(c)))) {
     tables.push(foldInboxTableShape(module.name));
   }
   // Command audit (audit-and-logging.md): one shared append-only table when any

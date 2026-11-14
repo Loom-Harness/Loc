@@ -10,8 +10,9 @@
 //      the channel exchange parks in `loom.dlq.<address>` instead of being
 //      lost or wedging the queue;
 //   3. redelivery dedupe — the consumer hosts no durable channel of its own,
-//      but it consumes one, so a broker redelivery of one envelope id (the
-//      producer's outbox row id) runs the `Fulfil` starter once: one Shipment.
+//      but it consumes one, so a redelivery of one envelope id (the
+//      producer's outbox row id), sequential or to two replicas at once, runs
+//      the `Fulfil` starter once (`support/redelivery-witness.ts`).
 //
 // Opt-in: LOOM_CHANNELS_E2E_RABBIT=1 (npm run test:channels-rabbit).
 // Needs docker + npm network access.  LOOM_CHANNELS_PG_URL /
@@ -20,12 +21,12 @@
 // and skips under an AMQP override).
 
 import { type ChildProcess, execSync, spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { installGeneratedProject } from "./support/npm-install.js";
+import { redeliveryWitness } from "./support/redelivery-witness.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT === "1";
 
@@ -350,47 +351,11 @@ describe.skipIf(!ENABLED)(`rabbitmq queue semantics (channels-e2e, M-T4.4 slice 
     expect(consumedAfter).toBe(ORDERS);
   }, 150_000);
 
-  it("applies a redelivered envelope of a foreign durable channel once", async () => {
-    if (!dlqProbe) return; // AMQP override: no container to drive rabbitmqadmin in
-    const count = async (): Promise<number> => {
-      const res = await fetch(`http://localhost:${REPLICA_PORTS[0]}/api/shipments?pageSize=1`);
-      return ((await res.json()) as { total: number }).total;
-    };
-    const before = await count();
-    const envelope = JSON.stringify({
-      specversion: "1.0",
-      id: randomUUID(),
-      type: "Orders.OrderPlaced",
-      source: "/loom/Orders",
-      time: new Date().toISOString(),
-      datacontenttype: "application/json",
-      loomchannel: ADDRESS,
-      data: { order: randomUUID(), at: new Date().toISOString() },
-    });
-    // The same envelope id twice: the broker's redelivery of one outbox row.
-    for (let i = 0; i < 2; i++) {
-      sh(
-        `docker exec ${MQ_NAME} rabbitmqadmin publish message --exchange ${ADDRESS} --payload '${envelope}'`,
-      );
-    }
-    await waitFor(
-      async () => (await count()) >= before + 1,
-      20_000,
-      "the redelivered event consumed",
-    );
-    // Both deliveries have been handled once a replica logged the second.
-    await waitFor(
-      async () =>
-        REPLICA_PORTS.map(
-          (p) =>
-            readFileSync(join(dir, `ship_api-${p}.log`), "utf8").split(JSON.parse(envelope).id)
-              .length - 1,
-        ).reduce((a, b) => a + b, 0) >= 2,
-      20_000,
-      "both deliveries logged",
-    );
-    expect(await count()).toBe(before + 1);
-  }, 60_000);
+  redeliveryWitness({
+    container: () => (dlqProbe ? MQ_NAME : undefined),
+    address: ADDRESS,
+    consumer: () => `http://localhost:${REPLICA_PORTS[0]}`,
+  });
 
   it("parks a poisoned message in the DLQ instead of losing it", async () => {
     if (!dlqProbe) return; // AMQP override: no container to drive rabbitmqadmin in

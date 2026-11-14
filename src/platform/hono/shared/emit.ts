@@ -5,8 +5,8 @@ import {
 import { cachePlanFor } from "../../../ir/plan/cache.js";
 import {
   channelPlan,
-  foldsDedupe,
   hasDurableEvents,
+  inboxDedupes,
   polymorphicReadGates,
   polymorphicReadMasked,
   QUERY_PARAM_MISMATCH_MESSAGES,
@@ -202,7 +202,7 @@ import { resourceAdapterFor } from "./adapters/resource-clients.js";
 import { emitAuthFiles } from "./auth-emit.js";
 import { buildExplicitRoutesFile, emitExternHandlerImpls } from "./explicit-handlers-builder.js";
 import { emitObservabilityFiles } from "./observability-builder.js";
-import { buildProjectionsFile } from "./projection-builder.js";
+import { buildInboxPurgeFile, buildProjectionsFile } from "./projection-builder.js";
 import { buildQueryProjectionsFile } from "./projection-query-routes-builder.js";
 import { buildRealtimeFile } from "./realtime-builder.js";
 import { anyTimerUsesCron, renderTimerScheduler } from "./scheduler-builder.js";
@@ -1002,7 +1002,9 @@ export function generateTypeScriptForContexts(
     // within a single deployable (in-process dispatch slice), extended by the
     // wired broker channels for the cross-deployable case (M-T4.4).
     eventSubscriptions: mergedSubscriptions,
-  };
+  }; // Some consumer here claims in the inbox and no outbox relay runs to purge
+  // it: the deployable runs the inbox purge on its own.
+  const standaloneInboxPurge = inboxDedupes(merged, chPlan.receivesDurable) && !chPlan.hasOutbox;
 
   // Foreign id brands (M-T4.4): id targets referenced by broker-consumed
   // foreign events (and the correlating workflow state fields) whose owning
@@ -1138,7 +1140,7 @@ export function generateTypeScriptForContexts(
         timerClaim: ownsIntervalTimers(system),
         // The fold inbox — the MigrationsIR table the drizzle path gets from
         // its migrations, on the condition the folds claim it.
-        foldInbox: foldsDedupe(merged, chPlan.receivesDurable),
+        foldInbox: inboxDedupes(merged, chPlan.receivesDurable),
         receivesDurable: chPlan.receivesDurable,
       }),
     );
@@ -1206,14 +1208,11 @@ export function generateTypeScriptForContexts(
   if (merged.projections.some(isMaterializedProjection)) {
     out.set(
       "http/projections.ts",
-      buildProjectionsFile(
-        merged,
-        usingMikro,
-        chPlan.receivesDurable,
-        foldsDedupe(merged, chPlan.receivesDurable) && !chPlan.hasOutbox,
-      ),
+      buildProjectionsFile(merged, usingMikro, chPlan.receivesDurable),
     );
   }
+  // The consumer inbox's retention purge, where no relay runs to do it.
+  if (standaloneInboxPurge) out.set("http/inbox-purge.ts", buildInboxPurgeFile(usingMikro));
   // Query-time projections (read-path-architecture.md rev.13) — the always-
   // current read model of the query-time projection read.  Emitted to a distinct
   // file (`http/query-projections.ts`, mounted under `/projections`) since the
@@ -1803,7 +1802,7 @@ export function generateTypeScriptForContexts(
     outboxRelay: chPlan.hasOutbox,
     // The fold inbox's retention purge, where no relay runs to do it: a
     // consumer that only receives durable events off a broker.
-    foldInboxPurge: foldsDedupe(merged, chPlan.receivesDurable) && !chPlan.hasOutbox,
+    foldInboxPurge: standaloneInboxPurge,
     // Realtime tee: the relay's inner dispatcher rides through it so
     // relayed (durable) events reach the SSE wire too.  Persistence-neutral.
     hasRealtime: contexts.some((c) => realtimeEventTypes(c).size > 0),
@@ -2539,7 +2538,7 @@ const stopTimers = await ${T.startTimerScheduler}(db, ${
   // the publisher) — or the transports alone for a producer-only deployable.
   const stopLines = [
     outboxRelay ? "stopOutboxRelay();" : null,
-    foldInboxPurge ? "stopFoldInboxPurge();" : null,
+    foldInboxPurge ? "stopInboxPurge();" : null,
     hasTimers ? "await stopTimers();" : null,
     hasChannelConsumers
       ? "await stopChannelConsumers();"
@@ -2552,7 +2551,7 @@ const stopTimers = await ${T.startTimerScheduler}(db, ${
       ? "  async stop() {},\n"
       : `  async stop() {\n${stopLines.map((l) => `    ${l}\n`).join("")}  },\n`;
   const preamble = `${seedCall}${authStubCall}${orgRegistryRegistration}`.replace(/^\n/, "");
-  const purge = foldInboxPurge ? `const stopFoldInboxPurge = ${T.startFoldInboxPurge}(db);\n` : "";
+  const purge = foldInboxPurge ? `const stopInboxPurge = ${T.startInboxPurge}(db);\n` : "";
   const body = `${preamble}${preamble ? "\n" : ""}${wiring}${purge}return {\n  app,\n${stopBody}};\n`;
   // A deployable that wires nothing option-driven (no auth, no channels, no
   // timers) never reads `opts`.
