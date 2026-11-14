@@ -684,7 +684,14 @@ public sealed class KafkaChannelTransport : IChannelTransport, IDisposable
         // breaks the same-replica ordering guarantee the key exists to give.
         // Bounded: a broker that never assigns must not wedge boot forever;
         // the loop keeps retrying and the failure is visible in the log.
-        if (await Task.WhenAny(assigned.Task, Task.Delay(TimeSpan.FromSeconds(30))) != assigned.Task)
+        // WaitAsync, not WhenAny + Task.Delay: the delay's timer would keep
+        // running after the assignment lands (CA2027, an error under
+        // /warnaserror).
+        try
+        {
+            await assigned.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        }
+        catch (TimeoutException)
         {
             _log.LogWarning("{Event} {Address} {Error}", "channel_subscribe_slow", address, "no partition assignment within 30s");
         }
