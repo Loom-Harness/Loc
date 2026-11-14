@@ -1,4 +1,5 @@
 import { isDescendingSort } from "../generator/typescript/render-expr.js";
+import { CACHE_STATUS_HEADER } from "../ir/plan/cache.js";
 import { polymorphicReadOperations } from "../ir/plan/repo-polymorphic.js";
 import type {
   AggregateIR,
@@ -498,6 +499,8 @@ function collectUsedLetNames(statements: readonly TestStmtIR[]): Set<string> {
 
 function renderE2EStmt(s: TestStmtIR, ctx: RenderCtx): string {
   if (s.kind === "expect") {
+    const cached = renderCachedExpect(s.expr, ctx);
+    if (cached) return cached;
     return renderExpectStmt(s.expr, (e) => renderE2EExpr(e, ctx));
   }
   if (s.kind === "expect-throws") {
@@ -541,6 +544,28 @@ function renderE2EStmt(s: TestStmtIR, ctx: RenderCtx): string {
     `e2e: unsupported statement '${s.kind}' in an api test body — ` +
       `only expect, expect-throws, let, expression, and call are supported.`,
   );
+}
+
+/** `expect(api.<aggs>.getById(id)).toBeCached()` — re-issue the by-id read
+ *  and assert its cache status (`hit`; `.not.` — `miss`).  The subject shape is
+ *  `loom.cached-subject-invalid`'s guarantee. */
+function renderCachedExpect(expr: ExprIR, ctx: RenderCtx): string | null {
+  if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher || expr.member !== "toBeCached") {
+    return null;
+  }
+  let receiver = expr.receiver;
+  let negate = false;
+  if (receiver.kind === "member" && receiver.member === "not") {
+    negate = true;
+    receiver = receiver.receiver;
+  }
+  const subject = receiver.kind === "paren" ? receiver.inner : receiver;
+  const read = renderE2EExpr(subject, ctx);
+  const head = "await __get(";
+  if (!read.startsWith(head)) {
+    throw new Error(`e2e: toBeCached() needs a by-id api read; got ${read}`);
+  }
+  return `expect(await __cacheStatus(${read.slice(head.length)}).toBe(${JSON.stringify(negate ? "miss" : "hit")});`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1279,6 +1304,17 @@ const E2E_WIRE_HELPERS: ReadonlyArray<{ name: string; src: string }> = [
   } catch {
     throw new Error(\`POST \${url} → \${r.status}: expected JSON, got \${JSON.stringify(text.slice(0, 200))}\`);
   }
+}`,
+  },
+  {
+    // `expect(api.<aggs>.getById(id)).toBeCached()` — the by-id read's cache
+    // status header (`hit` / `miss`).
+    name: "__cacheStatus",
+    src: `async function __cacheStatus(url: string): Promise<string | null> {
+  const r = await fetch(url, { headers: __authHeaders() });
+  const text = await r.text();
+  if (!r.ok) throw new Error(\`GET \${url} → \${r.status} \${r.statusText}\${text ? ": " + text : ""}\`);
+  return r.headers.get(${JSON.stringify(CACHE_STATUS_HEADER)});
 }`,
   },
   {

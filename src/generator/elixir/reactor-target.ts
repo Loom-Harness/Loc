@@ -1,3 +1,4 @@
+import { type ByIdCacheReads, renderEvictPipe } from "./vanilla/by-id-cache-emit.js";
 // The reactor / event-triggered starter body on the shared workflow
 // `pipeline` spine (`_workflow/stmt-target.ts`): the reactor flavour of the
 // Elixir workflow target, and the assembly of a lowered body into one block.
@@ -78,6 +79,7 @@ export function reactorTarget(
   contextModule: string,
   channels?: ElixirChannelsCfg,
   plan: ElixirSavePlan = NO_SAVE_PLAN,
+  cached: ByIdCacheReads = new Map(),
 ): WorkflowPipelineTarget {
   const base = elixirWorkflowTarget(contextModule, renderCtx, ctx, plan);
   const expr = (e: ExprIR): string => renderExpr(e, renderCtx);
@@ -156,7 +158,7 @@ export function reactorTarget(
       const call =
         agg && emitsRestDelete(agg)
           ? `${contextModule}.${internalDeleteFn(st.aggName, agg)}(${entity})`
-          : `${appModule}.Repo.delete(${entity})`;
+          : `${appModule}.Repo.delete(${entity})${renderEvictPipe(appModule, cached.get(st.aggName), "          ")}`;
       return [{ kind: "clause", text: `{:ok, _} <- ${call}` }];
     },
   };

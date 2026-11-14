@@ -1,0 +1,642 @@
+{
+  "case": "cache-by-id",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": 40,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Lamp",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": 40,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Lamp",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": 40,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Lamp",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/items/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": 45,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Desk lamp",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": 45,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Desk lamp",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": 45,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Desk lamp",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/items/{id}/rename",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": 45,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Floor lamp",
+        "rowVersion": 3
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": 45,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Floor lamp",
+        "rowVersion": 3
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/workflows/relabel",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": 45,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Reading lamp",
+        "rowVersion": 4
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": 45,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Reading lamp",
+        "rowVersion": 4
+      }
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/items",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "cost": 45,
+            "deletedAt": null,
+            "id": "<volatile:key>",
+            "name": "Reading lamp",
+            "rowVersion": 4
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/items/{id}/soft_delete",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Item {id} not found",
+        "instance": "/api/items/{id}",
+        "params": {
+          "type": "Catalog.Item"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/items",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/items/{id}/restore",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Item {id} not found",
+        "instance": "/api/items/{id}/restore",
+        "params": {
+          "type": "Catalog.Item"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": 300,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Desk",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": 300,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Desk",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 22,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": null,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Desk",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 23,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": null,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Desk",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 24,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": null,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Desk",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 25,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Item {id} not found",
+        "instance": "/api/items/{id}",
+        "params": {
+          "type": "Catalog.Item"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/items/{id}/rename",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": null,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Standing desk",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 28,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "cost": null,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Standing desk",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 29,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 30,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "body": "memo",
+        "createdAt": "<timestamp>",
+        "createdBy": "dave",
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "updatedAt": "<timestamp>",
+        "updatedBy": "dave"
+      }
+    },
+    {
+      "seq": 31,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "body": "memo",
+        "createdAt": "<timestamp>",
+        "createdBy": "dave",
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "updatedAt": "<timestamp>",
+        "updatedBy": "dave"
+      }
+    },
+    {
+      "seq": 32,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}",
+        "params": {
+          "type": "Catalog.Note"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 33,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "body": "memo",
+        "createdAt": "<timestamp>",
+        "createdBy": "dave",
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "updatedAt": "<timestamp>",
+        "updatedBy": "dave"
+      }
+    },
+    {
+      "seq": 34,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "body": "memo",
+            "createdAt": "<timestamp>",
+            "createdBy": "dave",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "updatedAt": "<timestamp>",
+            "updatedBy": "dave"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 35,
+      "method": "POST",
+      "path": "/api/notes/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 36,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "body": "memo v2",
+        "createdAt": "<timestamp>",
+        "createdBy": "dave",
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "updatedAt": "<timestamp>",
+        "updatedBy": "dave"
+      }
+    },
+    {
+      "seq": 37,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "body": "memo v2",
+        "createdAt": "<timestamp>",
+        "createdBy": "dave",
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "updatedAt": "<timestamp>",
+        "updatedBy": "dave"
+      }
+    },
+    {
+      "seq": 38,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 39,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}",
+        "params": {
+          "type": "Catalog.Note"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 40,
+      "method": "PATCH",
+      "path": "/api/items",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/items",
+        "instance": "/api/items",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 41,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 42,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/items",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 43,
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "role": "admin",
+        "tenantId": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 44,
+      "method": "POST",
+      "path": "/api/items/{id}/soft_delete",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Item {id} not found",
+        "instance": "/api/items/{id}/soft_delete",
+        "params": {
+          "type": "Catalog.Item"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 45,
+      "method": "POST",
+      "path": "/api/items/{id}/soft_delete",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Item {id} not found",
+        "instance": "/api/items/{id}/soft_delete",
+        "params": {
+          "type": "Catalog.Item"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 46,
+      "method": "POST",
+      "path": "/api/items/{id}/soft_delete",
+      "status": 415,
+      "body": {
+        "code": "problem.unsupported-media-type",
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/items/{id}/soft_delete",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 47,
+      "method": "POST",
+      "path": "/api/items/{id}/rename",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.missing",
+            "message": "to is required",
+            "pointer": "/to"
+          }
+        ],
+        "instance": "/api/items/{id}/rename",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

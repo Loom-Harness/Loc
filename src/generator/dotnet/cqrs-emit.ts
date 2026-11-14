@@ -1,4 +1,5 @@
 import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
+import type { CachedByIdRead } from "../../ir/plan/cache.js";
 import type {
   AggregateIR,
   EnrichedAggregateIR,
@@ -46,7 +47,13 @@ export function emitCqrs(
   ctx: EnrichedBoundedContextIR,
   ns: string,
   out: Map<string, string>,
-  options?: { routePrefix?: string; emitTrace?: boolean; usingDapper?: boolean },
+  options?: {
+    routePrefix?: string;
+    emitTrace?: boolean;
+    usingDapper?: boolean;
+    /** The aggregate's cached by-id read (`src/ir/plan/cache.ts`). */
+    cache?: CachedByIdRead;
+  },
 ): void {
   const aggFolder = plural(agg.name);
   // Strongly-typed id class for this aggregate's key — a TPH (`sharedTable`)
@@ -123,7 +130,7 @@ export function emitCqrs(
   // Entity history (docs/audit.md) — the enrichment-derived `historyFind` sits
   // BESIDE `finds`, so it needs its own emission call; the generic find loop
   // above never sees it.
-  emitHistoryQueryAndHandler(agg, repo, ns, aggFolder, out, idClass);
+  emitHistoryQueryAndHandler(agg, ctx.payloads, repo, ns, aggFolder, out, idClass);
   emitController(
     agg,
     repo,
@@ -136,5 +143,6 @@ export function emitCqrs(
     options?.usingDapper,
     aggHasCreate,
     idClass,
+    options?.cache,
   );
 }

@@ -13,6 +13,7 @@ import {
   wireStatus,
   wireTitle,
 } from "../../ir/enrich/wire-policy.js";
+import { cachePlanFor } from "../../ir/plan/cache.js";
 import {
   channelPlan,
   observableWorkflows,
@@ -109,6 +110,12 @@ import {
   buildPyBaseUnionFile,
   concretesOf,
 } from "./base-reader-builder.js";
+import {
+  byIdCacheUsesRedis,
+  PY_BY_ID_CACHE_PATH,
+  PY_INSTALL_BY_ID_CACHE_EVICTION,
+  renderPyByIdCacheModule,
+} from "./by-id-cache-builder.js";
 import { buildPyChannelsFile } from "./channels-builder.js";
 import { pyIsoHelperBody, pyMoneyQuantum } from "./codec-spelling.js";
 import { buildPyDispatchFile, dispatchSubscriptionsOf } from "./dispatch-builder.js";
@@ -210,6 +217,13 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // Hono orchestrator).
   const chPlan = channelPlan(args.contexts, { deployable: args.deployable, sys: args.sys });
   const channelBindings = chPlan.bindings;
+  // The by-id read cache (`src/ir/plan/cache.ts`): the cached reads of the
+  // hosted contexts, rendered into `app/by_id_cache.py` and the by-id routes.
+  const cachedReads = args.contexts.flatMap(
+    (ctx) => cachePlanFor(args.sys, ctx, args.deployable).cached,
+  );
+  const byIdCacheModule = renderPyByIdCacheModule(args.sys, args.deployable, cachedReads);
+  if (byIdCacheModule) out.set(PY_BY_ID_CACHE_PATH, byIdCacheModule);
   // Wired-but-foreign channels join the carrier set as minimal ChannelIR
   // stubs, so the dispatch derivation routes a hosted reactor off a channel
   // declared in a non-hosted context.  The stub knobs stay PINNED to
@@ -383,7 +397,9 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // stays byte-identical.
   const fileDeps = hasFileRoutes ? ["python-multipart==0.0.32"] : [];
   const channelDeps = [
-    ...(channelBindings.some((b) => b.transport === "redis") ? ["redis==6.4.0"] : []),
+    ...(channelBindings.some((b) => b.transport === "redis") || byIdCacheUsesRedis(cachedReads)
+      ? ["redis==6.4.0"]
+      : []),
     ...(channelBindings.some((b) => b.transport === "rabbitmq") ? ["aio-pika==9.6.2"] : []),
     ...(channelBindings.some((b) => b.transport === "kafka") ? ["aiokafka==0.12.0"] : []),
   ];
@@ -562,6 +578,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       contextStaticSubpathRoutes(args.contexts),
       forwardsCallerCredential(args.deployable, args.sys),
       migratesAtBoot(args.sys, args.deployable),
+      byIdCacheModule !== null,
     ),
   );
   if (hasEmbeddedSpa) {
@@ -932,10 +949,14 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       // the first create request at runtime, since the reference only evaluates
       // inside the handler.  Hosted siblings join the pool; `refersTo` still
       // gates each one, so an aggregate that references none is byte-identical.
-      const routesContent = buildPyRoutesFile(agg, repo, ctx, hasDispatch, [
-        ...foreignIdNames,
-        ...merged.aggregates.map((a) => a.name),
-      ]);
+      const routesContent = buildPyRoutesFile(
+        agg,
+        repo,
+        ctx,
+        hasDispatch,
+        [...foreignIdNames, ...merged.aggregates.map((a) => a.name)],
+        cachedReads.find((c) => c.context === ctx.name && c.aggregate === agg.name),
+      );
       out.set(routesPath, routesContent);
       sourcemap?.file(routesPath, out.get(routesPath)!, agg.origin, construct);
       const tests = renderPyTestsFile(agg, ctx);
@@ -1356,6 +1377,8 @@ function renderMain(
   // False on a deployable whose storage's database another deployable
   // migrates: it carries the migrations but leaves the boot run to that one.
   runsMigrations = true,
+  // A cache resource caches a by-id read: the lifespan installs its eviction.
+  installsByIdCache = false,
 ): string {
   // Every router mounts under the shared API base path (`/api/*`) so the
   // SPA's root path namespace stays free for client-side routing.
@@ -1513,6 +1536,7 @@ function renderMain(
     authRequired ? `    ${M.assert_user_verifier_registered}()` : null,
     runsMigrations ? `    await ${M.run_migrations}()` : null,
     hasSeeds ? `    await ${M.run_seeds}()` : null,
+    installsByIdCache ? `    ${PY_INSTALL_BY_ID_CACHE_EVICTION}()` : null,
     // Broker transport (channels.md; M-T4.4): one shared redis connection set
     // per LOOM_CHANNEL_*_URL.  The publish tee inside make_dispatcher routes
     // broker-bound events to the broker; the consumer loop feeds received

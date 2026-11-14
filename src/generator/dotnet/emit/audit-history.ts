@@ -51,7 +51,7 @@
 // by whom.  Fail-closed on a null principal, exactly like `maskWrap`.
 // ---------------------------------------------------------------------------
 
-import type { EnrichedAggregateIR, WireField } from "../../../ir/types/loom-ir.js";
+import type { EnrichedAggregateIR, PayloadIR, WireField } from "../../../ir/types/loom-ir.js";
 import { maskedHistoryFields, unmaskedHistoryFields } from "../../../ir/util/audit-history.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
@@ -306,9 +306,13 @@ export function renderDapperAuditHistoryReader(ns: string): string {
  *  Unmasked diff fields run through one loop over `(wire name, snapshot key)`
  *  pairs; each masked field gets its own predicate-guarded block, so a caller
  *  who fails the predicate sees NO entry for it at all. */
-export function renderHistoryEntryMapperLines(agg: EnrichedAggregateIR, pad: string): string[] {
-  const unmasked = unmaskedHistoryFields(agg);
-  const masked = maskedHistoryFields(agg);
+export function renderHistoryEntryMapperLines(
+  payloads: readonly PayloadIR[],
+  agg: EnrichedAggregateIR,
+  pad: string,
+): string[] {
+  const unmasked = unmaskedHistoryFields(payloads, agg);
+  const masked = maskedHistoryFields(payloads, agg);
   const out: string[] = [
     // No parse step: `row.Before` / `row.After` are already `JsonNode?` (the
     // jsonb object binding every backend shares — docs/audit.md §2).

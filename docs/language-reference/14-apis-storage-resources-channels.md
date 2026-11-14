@@ -277,7 +277,9 @@ Each optional knob is gated to the kinds / storage types where it's meaningful (
 | `index` | manual performance indexes, `[Entity.col, Entity.(a, b)]` | `kind: state` only (`loom.resource-index-non-state`); unknown entity / column is `loom.resource-index-unknown-entity` / `-unknown-column` |
 | `config` | vendor parameters, validated against the sourceType's config schema | per sourceType (`loom.config-key-unknown`, …) |
 
-> **Not realized on any backend.** `kind: cache`, `kind: snapshot` and `kind: replica`, and the `ttl` / `keyPrefix` / `every` / `retain` / `readonly` knobs, parse and type-check but no emitter reads them. They are refused as `loom.target-unsupported#resource-kind-unrealized` / `#resource-knob-unrealized` rather than accepted as a no-op; a real read-through cache is tracked in #4440.
+> **Not realized on any backend.** `kind: snapshot` and `kind: replica`, and the `every` / `retain` / `readonly` knobs, parse and type-check but no emitter reads them. They are refused as `loom.target-unsupported#resource-kind-unrealized` / `#resource-knob-unrealized` rather than accepted as a no-op.
+>
+> `kind: cache` (with `ttl` / `keyPrefix`) is the by-id read cache — [resources.md → The by-id read cache](../resources.md#the-by-id-read-cache--kind-cache).
 
 ### Manual indexes
 

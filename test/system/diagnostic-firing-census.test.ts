@@ -4407,6 +4407,46 @@ system S {
   "loom.absent-receiver-invalid": throwKindProbe({
     e2eTest: `    expect(wo).toBeAbsent()`,
   }),
+  // `toBeCached()` needs a by-id api read of an aggregate the target caches;
+  // this deployable wires no cache resource.
+  "loom.cached-subject-invalid": `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { label: string }
+    repository Things for Thing
+  } }
+  api A from D
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], serves: A, port: 3000 }
+  test e2e "read" against api {
+    let t = api.things.create({ label: "x" })
+    expect(api.things.getById(t)).toBeCached()
+  }
+}
+`,
+  // An \`exists\` row rule makes the read depend on another row, so the cache
+  // resource leaves the aggregate's by-id read to the database.
+  "loom.cache-read-uncached": `
+system S {
+  user { id: string  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain D { context C {
+    aggregate Org with crudish { name: string }
+    aggregate Share with tenantOwned, crudish { grantee: string }
+    aggregate Doc with tenantOwned, crudish { title: string }
+    policy {
+      allow on Doc as d where exists Share as s where s.grantee == currentUser.tenantId
+    }
+  } }
+  api A from D
+  storage primary { type: postgres }
+  storage hot { type: inMemory }
+  resource cState { for: C, kind: state, use: primary }
+  resource cCache { for: C, kind: cache, use: hot }
+  deployable api { platform: node, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3000, auth: required }
+}
+`,
   // Third tier, third reason (cf. `loom.e2e-ui-throw-invalid` just above): a ui
   // body asserts against RENDERED TEXT, which is always a string \u2014 so neither
   // absence spelling is observable there.  Needs a full react-targeting system,

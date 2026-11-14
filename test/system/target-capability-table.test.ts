@@ -473,20 +473,19 @@ system W {
       "storage pg { type: postgres }",
       "resource st { for: Main, kind: state, use: pg }\n  resource rd { for: Main, kind: replica, use: pg }",
     ),
+  // The deployable wires the cache, so its by-id read is cached.
   "resource:cache@resource": (platform) =>
     resourceWitness(
       platform,
       "storage pg { type: postgres }\n  storage rd { type: redis }",
-      "resource st { for: Main, kind: state, use: pg }\n  resource ca { for: Main, kind: cache, use: rd }",
-    ),
+      "resource st { for: Main, kind: state, use: pg }\n  resource ca { for: Main, kind: cache, use: rd, ttl: 30 }",
+    ).replace("dataSources: [st]", "dataSources: [st, ca]"),
   "resource:snapshot@resource": (platform) =>
     resourceWitness(
       platform,
       "storage pg { type: postgres }",
       "resource st { for: Main, kind: state, use: pg }\n  resource sn { for: Main, kind: snapshot, use: pg }",
     ),
-  "knob:ttl@resource": (platform) => knobWitness(platform, "cache", "ttl: 60"),
-  "knob:keyPrefix@resource": (platform) => knobWitness(platform, "cache", 'keyPrefix: "x:"'),
   "knob:every@resource": (platform) => knobWitness(platform, "eventLog", "every: 100"),
   "knob:retain@resource": (platform) => knobWitness(platform, "eventLog", "retain: 5"),
   "knob:readonly@resource": (platform) => knobWitness(platform, "state", "readonly: true"),
@@ -900,6 +899,21 @@ async function validateSource(src: string, lenient = false) {
 const OWNED_CODES = (): string[] =>
   cells().flatMap((c) => (c.verdict.verdict === "owned" ? [c.verdict.code] : []));
 
+/** The generated file that proves a `supported` resource-kind row is realized
+ *  rather than silently degraded to the Postgres default, per platform. */
+const REALIZATION_WITNESSES: Partial<
+  Record<BackendConstruct, Partial<Record<string, (paths: readonly string[]) => boolean>>>
+> = {
+  // The by-id read cache module (`src/ir/plan/cache.ts` rendered).
+  "resource:cache@resource": {
+    node: (paths) => paths.some((p) => p.endsWith("cache/by-id-cache.ts")),
+    java: (paths) => paths.some((p) => p.endsWith("config/ByIdCaches.java")),
+    dotnet: (paths) => paths.some((p) => p.endsWith("Infrastructure/Caching/ByIdCache.cs")),
+    python: (paths) => paths.some((p) => p.endsWith("app/by_id_cache.py")),
+    elixir: (paths) => paths.some((p) => p.endsWith("by_id_cache.ex")),
+  },
+};
+
 describe("capability table — every cell is implemented (with a witness) or refused (with a code)", () => {
   it("covers every UI framework and every backend", () => {
     // A vacuous pass would be a table nobody iterates.
@@ -927,12 +941,20 @@ describe("capability table — every cell is implemented (with a witness) or ref
   // with no give-up either way.  So a resource-kind / storage-type row may not
   // be `supported` until a witness proves the generated output differs from the
   // Postgres default (the migrations, the ORM mapping, the compose service).
-  it("a resource-kind or storage-type row is never `supported` without a realization witness", () => {
+  it("a resource-kind or storage-type row is never `supported` without a realization witness", async () => {
     const unproven: string[] = [];
     for (const [platform, table] of Object.entries(TARGET_CAPABILITIES)) {
       for (const c of BACKEND_CONSTRUCTS) {
         if (!/^(resource|storage|knob):/.test(c)) continue;
-        if (table.backend?.[c].verdict === "supported") unproven.push(`${platform}|${c}`);
+        if (table.backend?.[c].verdict !== "supported") continue;
+        const realized = REALIZATION_WITNESSES[c]?.[platform];
+        const witness = BACKEND_WITNESSES[c];
+        if (!realized || !witness) {
+          unproven.push(`${platform}|${c}`);
+          continue;
+        }
+        const files = await generateSystemFiles(witness(platform));
+        if (!realized([...files.keys()])) unproven.push(`${platform}|${c} (witness not realized)`);
       }
     }
     expect(unproven).toEqual([]);

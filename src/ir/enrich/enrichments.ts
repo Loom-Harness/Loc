@@ -62,8 +62,10 @@ import type {
 import { isShorthandProjection, PLAIN_FIND_FLAGS } from "../types/loom-ir.js";
 import { explicitRouteSlot } from "../util/api-surface.js";
 import { aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
+import { declaredResponseFor } from "../util/declared-response.js";
 import { isTpcConcrete, isTphConcrete } from "../util/inheritance.js";
 import { pagedRunFindName, pagedRunStmt } from "../util/paged-run.js";
+import { responseWireFor } from "../util/response-wire.js";
 import {
   buildDenyFilter,
   buildRegistrySelfScopeFilter,
@@ -95,7 +97,6 @@ import {
 import { applyHandlerReadGates, applyPolicyReadGates } from "./policy-read-gates.js";
 import { applyPolicyScopes } from "./policy-scopes.js";
 import { applyShareGates } from "./share-gates.js";
-import { wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
 // Loom IR enrichments — pure derivations layered on top of the IR
@@ -796,6 +797,7 @@ export function enrichContext(
           ensureHistoryFind(
             aggregates,
             applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
+            ctx.payloads,
           ),
           ctx.queryHandlers,
           ctx.criteria,
@@ -810,16 +812,6 @@ export function enrichContext(
     ),
     aggregates,
   );
-  // P2 (payload-transport-layer.md): give every concrete aggregate's wire
-  // shape a named, referenceable `<Agg>Wire` payload.  Purely additive IR
-  // surface — backends keep consuming `wireShape` directly, so emission is
-  // unchanged.  Abstract bases (aggregate-inheritance.md, #749) emit no
-  // table/DTO and are dropped from codegen, so they get no `<Base>Wire`;
-  // the `isAbstract` guard is forward-compatible (the field is absent on
-  // this branch and becomes a real flag once the inheritance track lands).
-  const wirePayloads = aggregates
-    .filter((a) => !(a as { isAbstract?: boolean }).isAbstract)
-    .map(synthesizeWirePayload);
   // Idempotent: drop any synthesized payloads from a prior enrichment pass
   // before re-appending, so `enrich(enrich(m))` deep-equals `enrich(m)`.
   // Author-declared payloads (no `synthesized` flag) are preserved.  The
@@ -836,12 +828,10 @@ export function enrichContext(
   const basePayloads = [
     ...(ctx.payloads ?? []).filter((p) => !p.synthesized),
     ...rootPayloads.filter((p) => !ownPayloadNames.has(p.name)),
-    ...wirePayloads,
   ];
   // P3b (payload-transport-layer.md): monomorphize every distinct generic
   // carrier instantiation (`string paged`, `Customer envelope`) reachable from
-  // a type position into a concrete, named `PayloadIR` — sibling to the
-  // `<Agg>Wire` synthesis above.  Backends map a `genericInstance` reference to
+  // a type position into a concrete, named `PayloadIR`.  Backends map a `genericInstance` reference to
   // this payload's name and emit its DTO.  Deduped per context by name.
   const mono = monomorphizeGenericInstances(aggregates, valueObjects, repositories, basePayloads);
   const withGenerics = [...basePayloads, ...mono];
@@ -869,7 +859,7 @@ export function enrichContext(
     ctx.queryHandlers,
     ctx.commandHandlers,
   );
-  const projections = ctx.projections.map((p) => enrichProjection(p, aggregates));
+  const projections = ctx.projections.map((p) => enrichProjection(p, aggregates, ctx.payloads));
   // A handler read that filters on a masked field inherits the mask as a
   // leading read gate, like the `policy { read … }` gate beside it.
   const maskScope = {
@@ -1258,13 +1248,22 @@ function enrichWorkflowInstanceShape(wf: WorkflowIR): WorkflowIR {
  *
  *  SHORTHAND (`view X = A where P` replacement): a query-time projection with a
  *  `from <Aggregate>` source and no declared fields / no `select` exposes the
- *  SOURCE aggregate's own wire shape — so its `wireShape` is copied from the
- *  source aggregate (the `<Proj>Row` then equals `<Agg>Response`, and each
+ *  SOURCE aggregate's own read rows — so its `wireShape` is the source's
+ *  declared response record (the `<Proj>Row` then equals `<Agg>Response`, and each
  *  backend returns the filtered source rows via the aggregate's `toWire`). */
-function enrichProjection(proj: ProjectionIR, aggregates: EnrichedAggregateIR[]): ProjectionIR {
+function enrichProjection(
+  proj: ProjectionIR,
+  aggregates: EnrichedAggregateIR[],
+  payloads: readonly PayloadIR[],
+): ProjectionIR {
   if (isShorthandProjection(proj)) {
     const src = aggregates.find((a) => a.name === proj.query?.source);
-    if (src) return { ...proj, wireShape: wireFieldsForAggregate(src) };
+    // The source's declared response record is the shape its rows serve; a
+    // context no deployable hosts has none and serves no projection.
+    if (src) {
+      const wireShape = declaredResponseFor(payloads, src) ? responseWireFor(payloads, src) : [];
+      return { ...proj, wireShape };
+    }
     // A non-aggregate shorthand source (workflow / projection) is validator-
     // gated (`loom.projection-shorthand-nonaggregate`); fall through to the
     // empty-shape default, which never reaches emission.
@@ -1619,22 +1618,6 @@ function monomorphizeGenericInstances(
     });
   }
   return out;
-}
-
-/** Derive the named `<Agg>Wire` payload (P2) from an enriched aggregate's
- *  already-computed `wireShape`.  The wire shape is the single source of
- *  truth for the cross-backend DTO; this just names it as a `PayloadIR`
- *  so later phases (and authors, eventually) can reference it.  A
- *  `WireField` maps to a `FieldIR` one-to-one on `{name, type, optional,
- *  access}` — `source` is wire-shape bookkeeping the payload doesn't need. */
-function synthesizeWirePayload(agg: EnrichedAggregateIR): PayloadIR {
-  const fields: FieldIR[] = wireFieldsForAggregate(agg).map((w) => ({
-    name: w.name,
-    type: w.type,
-    optional: w.optional,
-    access: w.access,
-  }));
-  return { name: `${agg.name}Wire`, kind: "payload", fields, synthesized: true };
 }
 
 /** Derive an action's HTTP path segment from the surfacing api's
@@ -2110,13 +2093,14 @@ function ensureFindAll(
 function ensureHistoryFind(
   aggregates: EnrichedAggregateIR[],
   existing: RepositoryIR[],
+  payloads: readonly PayloadIR[],
 ): RepositoryIR[] {
   const out = existing.map((r) => ({ ...r, finds: [...r.finds] }));
   for (const agg of aggregates) {
     // Abstract bases own no repository and emit no table (see `ensureFindAll`);
     // they also carry no audited command of their own to trail.
     if (agg.isAbstract) continue;
-    if (!aggServesHistory(agg)) continue;
+    if (!aggServesHistory(payloads, agg)) continue;
     const repo = out.find((r) => r.aggregateName === agg.name);
     // `ensureFindAll` runs first and creates a repository for every concrete
     // aggregate, so this is defensive rather than reachable.

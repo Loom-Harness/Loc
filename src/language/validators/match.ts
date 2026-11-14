@@ -170,6 +170,18 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
       }
       continue;
     }
+    // `toBeCached()` reads a route's cache status — an HTTP response header —
+    // so it exists only in an e2e api test.
+    if (matcher.member === "toBeCached") {
+      if (!isTestE2E(stmt.$container)) {
+        accept("error", diagMessage("loom.matcher-e2e-only#cached"), {
+          node: matcher,
+          property: "member",
+          code: "loom.matcher-e2e-only",
+        });
+      }
+      continue;
+    }
     // `toBeAbsent()` — E2E ONLY, the same tier split `toBeSameInstant` above
     // takes and for the same underlying reason: it is a claim about a
     // SERIALIZED PAYLOAD.  "The key is not in the body" needs a body; a unit

@@ -538,6 +538,7 @@ A bare `expect <bool>` is rejected: every `expect` **must** end in an intrinsic 
 | `toBeAbsent()` | 0 | value | the KEY is not in the payload; **`test e2e` only** (below) |
 | `toContain(x)` | 1 | value | collection membership or substring, by the subject's type (below) |
 | `toThrow()` / `toThrow(<status>)` / `toThrow(<kind>)` | 0–1 | value | the throw assertion (below) |
+| `toBeCached()` | 0 | value | a by-id read was answered from the cache; **`test e2e` only** (below) |
 
 Each `on: "locator"` matcher is **web-first**: against a UI it asserts on the live, auto-retrying Playwright locator rather than a snapshotted value — `expect(read.status).toHaveText("Confirmed")` lowers to `await expect(read.field("status")).toHaveText("Confirmed")`, and `expect(read.lines).toHaveCount(1)` to `await expect(read.linesRows()).toHaveCount(1)`. A `not.` prefix negates any `negatable` matcher (every matcher except `toThrow`). Arity is enforced by `checkMatcherArity`; `toThrow` is exempt (variable arity) and validated separately.
 
@@ -596,6 +597,29 @@ the absence claim to a block targeting a backend deployable.
 `toContain` is deliberately NOT swept up by that refusal: a substring of the
 text the page rendered is a real, useful claim, so it stays legal in all three
 tiers.
+
+### Cache status — `toBeCached()`
+
+`expect(api.<aggregates>.getById(<id>)).toBeCached()` issues the by-id read
+and asserts it was answered from the [by-id read cache](../resources.md#the-by-id-read-cache--kind-cache)
+(the route's `x-loom-cache: hit`); `.not.toBeCached()` asserts a `miss` — read
+from the database and stored.  The subject must be a by-id api read of an
+aggregate the target deployable caches; anything else is
+`loom.cached-subject-invalid`, because the claim could never hold.
+
+```ddd
+let lamp = api.items.create({ name: "Lamp", cost: 40 })
+expect(api.items.getById(lamp)).not.toBeCached()   // first read stores
+expect(api.items.getById(lamp)).toBeCached()       // second is a hit
+api.items.update(lamp, { name: "Desk lamp", cost: 45 })
+expect(api.items.getById(lamp)).not.toBeCached()   // the write evicted it
+```
+
+```ts
+// generated e2e
+expect(await __cacheStatus(`${base}/api/items/${lamp.id}`)).toBe("miss");
+expect(await __cacheStatus(`${base}/api/items/${lamp.id}`)).toBe("hit");
+```
 
 ### `toContain()` — membership or substring
 

@@ -294,8 +294,9 @@ Phoenix) and `sendgrid` (`@sendgrid/mail` on hono, the `SendGrid` package on
 .NET, Swoosh's `Sendgrid` on Phoenix, a plain HTTP post of the v3 mail body on
 Python and Java) sourceType variants; `smtp` is the one with a dev sidecar.
 
-Dev `docker-compose` gains a sidecar per object-store / queue / smtp-mailer
-storage (MinIO for `s3`, `rabbitmq`, **Mailpit** for `smtp`); deployables with
+Dev `docker-compose` gains a sidecar per object-store / queue / smtp-mailer /
+cache storage (MinIO for `s3`, `rabbitmq`, **Mailpit** for `smtp`, valkey for a
+`redis` cache); deployables with
 no such resources are byte-identical. A sidecar runs under the storage's name, and
 every deployable that wires a `mailer` (smtp) or `queue` (rabbitmq) resource gets
 that address injected as `<RESOURCE>_URL` (plus a `depends_on` on the sidecar):
@@ -374,6 +375,82 @@ Credentials stay on each provider's standard variables (`AWS_ACCESS_KEY_ID` /
 connection URL's userinfo. `test/system/resource-endpoint-env-census.test.ts`
 fails on a client sourceType with no row, on a backend client that does not
 read its row, and on a provider host spelled in an emitter.
+
+## The by-id read cache — `kind: cache`
+
+A `kind: cache` resource caches the single-row read of each aggregate of its
+context — the `GET /{id}` read — in the bound storage, and evicts it on every
+write.  Lists, `findAll`, criterion and paged reads always go to the database.
+
+```ddd
+storage hotCache { type: redis }   // or `type: inMemory` (one process)
+resource catalogCache { for: Catalog, kind: cache, use: hotCache, keyPrefix: "shop", ttl: 120 }
+deployable api { platform: node, contexts: [Catalog], dataSources: [catalogState, catalogCache], … }
+```
+
+One plan (`src/ir/plan/cache.ts`) decides everything a backend renders, so no
+backend composes a key or an eviction set of its own
+(`test/system/cache-plan-census.test.ts`):
+
+- **Entry key** — `<keyPrefix>:<aggregate>:<hash>:<id>`.  `keyPrefix` defaults
+  to `<system>:<context>`; the hash covers the aggregate's wire shape and its
+  read stance (which restrictions apply — the tenancy floor, `softDeletable`,
+  a `deny` — and which fields are masked), so an entry written under one model
+  is never read under another.
+- **Scope in the key.** The entry maps a *scope fingerprint* to the wire answer
+  that scope was served.  The fingerprint is every principal member the read
+  can depend on: the operating tenant the tenancy floor reads, each
+  `currentUser.<claim>` the policy rungs (`when`, `own`) and `mask unless`
+  predicates read.  Two callers with equal fingerprints get the same answer by
+  construction; one caller's answer is never served to another scope.
+- **Eviction** — every write of an aggregate reaches its repository's `save`
+  (create, update, operation, workflow / handler / reactor write, soft delete)
+  or `delete`; both evict the id's whole entry, every scope at once.
+- **ttl** — `ttl:` seconds, default 60.
+
+An aggregate whose answer depends on **other rows** — an `exists` row rule, a
+policy function over a referenced row, a field followed through an `X id` — is
+read from the database, and so are event-sourced aggregates and inheritance
+hierarchies; `loom.cache-read-uncached` (a warning) names each one and why.
+
+The route sets `x-loom-cache: hit | miss`, which the e2e matcher
+`toBeCached()` reads (`language-reference/18-testing.md`).  A store that is
+down never fails a request: the read goes to the database, and a failed
+eviction is logged (`cache_unavailable`) and expires at its ttl.
+
+| backend | store client (`redis` / `inMemory`) | eviction |
+|---|---|---|
+| node | `ioredis` / a `Map` with expiry (`cache/by-id-cache.ts`) | `save` / `delete` of every repository class, wrapped once at `createApp` |
+| .NET | `StackExchange.Redis` / a `ConcurrentDictionary` with expiry (`Infrastructure/Caching/ByIdCache.cs`) | a `DispatchProxy` decorator over `I<Agg>Repository`, registered in DI |
+| Java | Lettuce / a `ConcurrentHashMap` with expiry (`config/ByIdCaches.java`) | the repository's `save` / `delete`, after commit when a transaction is active |
+| Python | `redis.asyncio` / a dict with expiry (`app/by_id_cache.py`) | the repository's `save` / `delete`, wrapped at app startup |
+| Phoenix | `Redix` / an ETS table with expiry (`lib/<app>/by_id_cache.ex`) | the repository's insert / update / delete, after commit through `PostCommit` |
+
+A backend that sends an `ETag` on `GET /{id}` (node) stores it beside the
+body; the others send none and store the body alone.  A deployable that does not list the cache resource reads the database.
+
+The node read, for `Item with tenantOwned` and a `cost` masked unless
+`currentUser.role == "manager"`:
+
+```ts
+// http/item.routes.ts — GET /{id}
+const __scope = JSON.stringify([requireCurrentUser().operatingOrg, requireCurrentUser().role]);
+const __hit = await itemCache.read(id, __scope);
+if (__hit) {
+  if (__hit.etag !== null) c.header("etag", __hit.etag);
+  c.header("x-loom-cache", "hit");
+  return c.json(JSON.parse(__hit.body) as z.infer<typeof ItemResponse>, 200);
+}
+const found = await repo.findById(Ids.ItemId(id));
+// … 404, masks, etag …
+await itemCache.write(id, __scope, { body: JSON.stringify(out), etag: versionETag(found.rowVersion) });
+c.header("x-loom-cache", "miss");
+```
+
+A `redis` storage a wired cache uses gets a `valkey/valkey:8-alpine` sidecar
+in the dev compose, and the deployable gets `<RESOURCE>_URL`
+(`redis://<storage>:6379`).  A redis storage that also carries a channel
+transport shares its password-locked valkey, and the URL carries the password.
 
 ## Calling another Loom service — `use: <Api>`
 

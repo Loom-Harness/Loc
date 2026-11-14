@@ -36,6 +36,10 @@ import {
   historySelectStatement,
   renderHistoryEntryMapper,
 } from "../../../generator/typescript/emit/audit-history.js";
+import {
+  renderCacheHit,
+  renderCacheStore,
+} from "../../../generator/typescript/emit/by-id-cache.js";
 import { domainServiceNamesInExprs } from "../../../generator/typescript/emit/domain-service.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
@@ -80,6 +84,7 @@ import {
   emitsRestCreate,
   wireCreateDefault,
 } from "../../../ir/enrich/wire-projection.js";
+import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import { destroyLadder, gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
 import {
   QUERY_PARAM_MISMATCH_MESSAGES,
@@ -104,6 +109,7 @@ import type {
   FindIR,
   InvariantIR,
   OperationIR,
+  PayloadIR,
   RepositoryIR,
   TypeIR,
   ValueObjectIR,
@@ -266,6 +272,7 @@ export function txWrapperCall(usingMikro: boolean): string {
  *  alone leaks masked fields to legitimate readers, and the mask alone leaves
  *  the endpoint open. */
 function emitHistoryRoute(
+  payloads: readonly PayloadIR[],
   agg: EnrichedAggregateIR,
   find: FindIR,
   usingMikro: boolean,
@@ -336,14 +343,14 @@ function emitHistoryRoute(
   // masked field's change entry is dropped.  Bound only when there is a mask;
   // otherwise the mapper takes no principal (and the project need not carry an
   // `auth/user-types` module at all).
-  if (historyNeedsPrincipal(agg)) {
+  if (historyNeedsPrincipal(payloads, agg)) {
     out.push(
       `    const __histUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User | undefined }).get("currentUser") ?? null;`,
     );
   }
   out.push(...historySelectStatement(agg, usingMikro).map((l) => `    ${l}`));
   out.push(
-    `    return c.json(__rows.map((r) => ${historyMapperName(agg)}(${historyMapperArgs(agg)})), 200);`,
+    `    return c.json(__rows.map((r) => ${historyMapperName(agg)}(${historyMapperArgs(payloads, agg)})), 200);`,
   );
   out.push(`  },`);
   out.push(`);`);
@@ -500,6 +507,9 @@ export function buildRoutesFile(
   // instead of drizzle's `db.transaction` + `tx.insert(schema.<table>)`.  The
   // drizzle default keeps `usingMikro = false`, so its output is byte-identical.
   usingMikro = false,
+  // The aggregate's cached by-id read (`src/ir/plan/cache.ts`), when a
+  // `kind: cache` resource on this deployable caches it.
+  cache?: CachedByIdRead,
 ): string {
   // An audited public command action instruments its route handler with an
   // `audit_records` insert; the schema table is only emitted when some
@@ -1041,7 +1051,7 @@ export function buildRoutesFile(
   // route handler stays a few lines.  It is where `mask unless` composes into
   // the trail (see `renderHistoryEntryMapper`).
   if (historyFind) {
-    lines.push(renderHistoryEntryMapper(agg));
+    lines.push(renderHistoryEntryMapper(ctx.payloads, agg));
     lines.push("");
   }
 
@@ -1255,9 +1265,13 @@ export function buildRoutesFile(
   // one-segment find can; registered here anyway to keep the reads together.
   if (historyFind) {
     lines.push(
-      ...emitHistoryRoute(agg, historyFind, usingMikro, ctx.structuralErrorStatuses).map(
-        (l) => `  ${l}`,
-      ),
+      ...emitHistoryRoute(
+        ctx.payloads,
+        agg,
+        historyFind,
+        usingMikro,
+        ctx.structuralErrorStatuses,
+      ).map((l) => `  ${l}`),
     );
     lines.push("");
   }
@@ -1295,6 +1309,9 @@ export function buildRoutesFile(
         `      if (!(${renderTsExpr(byIdFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind.name}`)});`,
       );
     }
+    if (cache) {
+      lines.push(...renderCacheHit(cache, "id", `z.infer<typeof ${agg.name}Response>`, "      "));
+    }
     lines.push(`      const found = await repo.findById(${T.Ids}.${agg.name}Id(id));`);
     // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
     // every backend, and this route was the one place Hono answered a machine
@@ -1321,10 +1338,28 @@ export function buildRoutesFile(
     // conformance spec-diff, so declaring it on node alone would read as a
     // contract divergence.  Declaring it belongs with emitting it on the other
     // four backends, in one change.
-    if (readsIfMatch(operationVersionCheck(agg))) {
+    const sendsETag = readsIfMatch(operationVersionCheck(agg));
+    if (sendsETag) {
       lines.push(`      c.header("etag", versionETag(found.${ROW_VERSION_FIELD}));`);
     }
-    if (emitTrace) {
+    if (cache) {
+      lines.push(`      const out = ${wireResp(agg, "repo", "found")};`);
+      if (emitTrace) {
+        lines.push(
+          `      ${renderHonoLogCall("wireOut", "keys: Object.keys(out as Record<string, unknown>)")}`,
+        );
+      }
+      lines.push(
+        ...renderCacheStore(
+          cache,
+          "id",
+          "out",
+          sendsETag ? `versionETag(found.${ROW_VERSION_FIELD})` : "null",
+          "      ",
+        ),
+      );
+      lines.push(`      return c.json(out as z.infer<typeof ${agg.name}Response>, 200);`);
+    } else if (emitTrace) {
       // toWire isn't trivial — bind once so it's not run twice between
       // Object.keys and c.json.
       lines.push(`      const out = ${wireResp(agg, "repo", "found")};`);

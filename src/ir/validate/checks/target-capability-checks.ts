@@ -34,6 +34,7 @@ import {
 } from "../../../util/target-capabilities.js";
 import { maskLaunderingEvents } from "../../enrich/mask-taint.js";
 import { isTenantScopedStream } from "../../enrich/stream-tenancy.js";
+import { cacheStoragesOf } from "../../plan/cache.js";
 import { admittedReferences } from "../../plan/ref-scope.js";
 import {
   type BoundedContextIR,
@@ -191,7 +192,7 @@ const kindUses =
     );
 
 const knobUses =
-  (knob: "ttl" | "keyPrefix" | "every" | "retain" | "readonly"): BackendDetector =>
+  (knob: "every" | "retain" | "readonly"): BackendDetector =>
   (ctx, sys) =>
     resourceUses(ctx, sys, (ds) =>
       ds[knob] !== undefined ? `sets \`${knob}:\`, kind: ${ds.kind}` : undefined,
@@ -292,10 +293,17 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
     resourceUses(ctx, sys, (ds) =>
       ds.kind === "replica" ? `kind: replica, storage '${ds.storageName}'` : undefined,
     ),
-  "resource:cache@resource": kindUses("cache"),
+  // A cache resource changes only the deployables that wire it: one a backend
+  // cannot realize is refused there, and a sibling backend that does not list
+  // it reads the database as before.
+  "resource:cache@resource": (ctx, sys, d) =>
+    resourceUses(ctx, sys, (ds) =>
+      d.dataSourceNames.includes(ds.name) &&
+      cacheStoragesOf(sys, { dataSourceNames: [ds.name] }).length > 0
+        ? `kind: cache, storage '${ds.storageName}'`
+        : undefined,
+    ),
   "resource:snapshot@resource": kindUses("snapshot"),
-  "knob:ttl@resource": knobUses("ttl"),
-  "knob:keyPrefix@resource": knobUses("keyPrefix"),
   "knob:every@resource": knobUses("every"),
   "knob:retain@resource": knobUses("retain"),
   "knob:readonly@resource": knobUses("readonly"),

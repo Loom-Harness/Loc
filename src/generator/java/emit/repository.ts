@@ -1,6 +1,7 @@
 import { readSortFor } from "../../../ir/enrich/read-scope.js";
 import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
+import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import { clientSortTieBreak, domainFindShape, singleReadOrder } from "../../../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
@@ -31,6 +32,7 @@ import { J } from "../java-symbols.js";
 import { boxedJavaType, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import { renderJpqlWhere } from "../render-jpql.js";
 import { sqlRestrictionIdent } from "../sql-ident.js";
+import { renderJavaCacheEvict } from "./by-id-cache.js";
 import { JAVA_FIND_ABSENCE_THROW, javaNotFoundThrow } from "./common.js";
 import { ADMIT_METHOD, hasAdmittedReferences, refAdmissionMethod } from "./ref-admission.js";
 
@@ -77,6 +79,9 @@ function pagedRef(basePkg: string): string {
 
 export interface JavaRepoCtx {
   basePkg: string;
+  /** The aggregate's cached by-id read (`src/ir/plan/cache.ts`): its `save` /
+   *  `delete` evict the written id's entry. */
+  cache?: CachedByIdRead;
   /** Package of the domain interface (layout-resolved). */
   domainPkg: string;
   /** Package of the Spring Data interface + impl (layout-resolved). */
@@ -883,6 +888,7 @@ export function renderJavaRepositoryImpl(
     `import org.springframework.stereotype.Repository;`,
     ``,
     `import ${ctx.basePkg}.config.CatalogLog;`,
+    ctx.cache ? `import ${ctx.basePkg}.config.ByIdCaches;` : null,
     `import ${ctx.basePkg}.domain.common.AggregateNotFoundException;`,
     `import ${ctx.basePkg}.domain.ids.*;`,
     `import ${ctx.basePkg}.domain.enums.*;`,
@@ -959,6 +965,7 @@ export function renderJavaRepositoryImpl(
     // Hono/.NET emission's (aggregate, id) prefix (children omitted — not
     // cheaply available here).
     `        CatalogLog.event(${javaLogEvent("repositorySave")}, "aggregate", "${agg.name}", "id", String.valueOf(saved.id().value()));`,
+    ctx.cache ? renderJavaCacheEvict(ctx.cache, "save", "saved.id().value()") : null,
     `        return saved;`,
     `    }`,
     ``,
@@ -1036,6 +1043,7 @@ export function renderJavaRepositoryImpl(
     `    @Override`,
     `    public void delete(${agg.name} aggregate) {`,
     `        jpa.delete(aggregate);`,
+    ctx.cache ? renderJavaCacheEvict(ctx.cache, "delete", "aggregate.id().value()") : null,
     `    }`,
     // A managed entity is flushed at commit whether or not it was saved, so a
     // dropped change must leave the persistence context.
