@@ -1,3 +1,4 @@
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
 import type { DeployableIR, EnrichedBoundedContextIR, SystemIR } from "../../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../../ir/types/migrations-ir.js";
 import type { StyleAdapter } from "../_adapters/index.js";
@@ -34,6 +35,8 @@ export interface GenerateElixirArgs {
   contexts: EnrichedBoundedContextIR[];
   deployable: DeployableIR;
   sys: SystemIR;
+  /** Forwarded to an embedded frontend bundle. */
+  frontendContract?: FrontendContract;
   /** The migrations this deployable carries — every module of its database
    *  (`carriedModules`).  Empty or absent → the emitter is a no-op. */
   migrations?: MigrationsIR[];

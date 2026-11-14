@@ -50,7 +50,7 @@ export function renderTheme(t: ThemeIR | undefined, pack: LoadedPack): string {
 
 /** Render `src/App.tsx` — routing + provider chain + sidebar. */
 export function renderAppShell(
-  aggs: AggregateIR[],
+  aggs: readonly import("./preparers/app-shell.js").AppShellAggregate[],
   workflows: WorkflowIR[],
   systemName: string,
   sidebarOverride: import("./view-models.js").NavSectionVM[] | undefined,

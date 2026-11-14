@@ -1,3 +1,4 @@
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
 import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
 import {
   aggregateRouteTypes,
@@ -180,6 +181,8 @@ export interface GeneratePythonArgs {
   contexts: EnrichedBoundedContextIR[];
   deployable: DeployableIR;
   sys: SystemIR;
+  /** Forwarded to an embedded frontend bundle. */
+  frontendContract?: FrontendContract;
   /** Per-deployable slice of `buildMigrations(sys, snapshots)`.
    *  Consumed by the Alembic emitter (S9); ignored until then. */
   migrations?: MigrationsIR[];
@@ -567,7 +570,11 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     // (react / svelte / vue / angular / feliz) embeds under ClientApp/ hitting
     // `/api` on its own origin; only the SPA build output dir differs (see
     // spaOutDir above, consumed by the multi-stage Dockerfile's COPY).
-    const embedOpts = { apiBaseUrl: "/api", pathPrefix: "ClientApp/" } as const;
+    const embedOpts = {
+      apiBaseUrl: "/api",
+      pathPrefix: "ClientApp/",
+      frontendContract: args.frontendContract,
+    } as const;
     const spaFiles =
       uiFw === "svelte"
         ? generateSvelteForContexts(args.contexts, args.sys, args.deployable, embedOpts)
