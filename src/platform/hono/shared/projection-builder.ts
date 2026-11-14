@@ -27,8 +27,12 @@ import {
 import {
   type FoldRowSeed,
   type FoldStep,
+  foldInboxClaimSql,
+  foldInboxPurgeSql,
   foldRowSeeds,
   foldSteps,
+  foldsDedupe,
+  hasDurableEvents,
 } from "../../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
@@ -44,6 +48,11 @@ import {
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
+import {
+  OUTBOX_PURGE_INTERVAL_SECONDS,
+  OUTBOX_RETENTION_DEFAULT_DAYS,
+  OUTBOX_RETENTION_ENV,
+} from "../../../util/channels.js";
 import { escapeTsIdent, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { emitWireSchema, zodFor, zodForResponse } from "./routes-builder.js";
 
@@ -100,7 +109,17 @@ const projDbType = (usingMikro: boolean): string =>
  *  MikroORM EntityManager over the generated `<Proj>Row` entities (db/entities.ts)
  *  instead of Drizzle — load/save via `em.findOne`/`em.upsert`, routes via
  *  `em.find`/`em.findOne` (mirrors the workflow builder's `usingMikro` branch). */
-export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro = false): string {
+export function buildProjectionsFile(
+  ctx: EnrichedBoundedContextIR,
+  usingMikro = false,
+  /** The deployable's consumers run the redelivery dedupe
+   *  (`channelPlan(...).receivesDurable`).  Absent → this context hosts a
+   *  durable channel. */
+  receivesDurable: boolean = hasDurableEvents(ctx),
+  /** No outbox relay runs on the deployable to purge the fold inbox: emit
+   *  `startFoldInboxPurge` for boot to start. */
+  standaloneInboxPurge = false,
+): string {
   // FOLDED (materialized) projections only — the event-folded read model with a
   // physical row table + by-key routes.  Query-time projections
   // (read-path-architecture.md rev.13) have no folds / table and are emitted by
@@ -124,6 +143,9 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
   // differently depending on which context variant the caller had merged.
   const foldHandlers = (p: ProjectionIR): ProjectionOnIR[] => p.handlers;
 
+  // A durably delivered event can arrive twice with one id: each fold then
+  // claims `(projection, event_id)` in the inbox before it applies.
+  const dedupe = foldsDedupe(ctx, receivesDurable);
   const body: string[] = [];
   for (const p of folded) body.push(...emitResponseSchemas(p), "");
   for (const p of folded) {
@@ -134,9 +156,10 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
     const hs = foldHandlers(p);
     if (hs.length === 0) continue;
     body.push(...emitStateHelpers(p, usingMikro), "");
-    for (const h of hs) body.push(...emitFoldHandler(p, h, usingMikro, ctx), "");
+    for (const h of hs) body.push(...emitFoldHandler(p, h, usingMikro, ctx, dedupe), "");
   }
   body.push(...emitProjectionTee(folded, foldHandlers, usingMikro), "");
+  if (dedupe && standaloneInboxPurge) body.push(...emitFoldInboxPurge(usingMikro), "");
   body.push(...emitProjectionRoutes(folded, usingMikro, ctx));
   const bodyText = body.join("\n");
 
@@ -164,9 +187,16 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
       (e) =>
         `const ${e.name}Schema = z.enum([${e.values.map((v) => `"${v}"`).join(", ")}]).openapi("${e.name}");`,
     );
-  const enumValueImports = enumPool(ctx)
-    .filter((e) => new RegExp(`\\b${e.name}\\.`).test(bodyText))
-    .map((e) => e.name);
+  // Enum values read in the body, and value-object classes a fold seed
+  // constructs (`new Stamp(...)`), both live in the domain value-objects module.
+  const enumValueImports = [
+    ...enumPool(ctx)
+      .filter((e) => new RegExp(`\\b${e.name}\\.`).test(bodyText))
+      .map((e) => e.name),
+    ...valueObjectPool(ctx)
+      .filter((vo) => new RegExp(`\\bnew ${vo.name}\\(`).test(bodyText))
+      .map((vo) => vo.name),
+  ];
   const enumValueImportLine =
     enumValueImports.length > 0
       ? `import { ${enumValueImports.join(", ")} } from "../domain/value-objects";`
@@ -328,6 +358,7 @@ function emitFoldHandler(
   h: ProjectionOnIR,
   usingMikro = false,
   ctxDecls?: EnrichedBoundedContextIR,
+  dedupe = false,
 ): string[] {
   const T = upperFirst(p.name);
   const corr = p.correlationField;
@@ -349,10 +380,24 @@ function emitFoldHandler(
   // outside any principal) has no tenant's row to fold into.
   const tenancy = foldTenancyFor(p);
   const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
+  // A value-object default is bound once and spread over its leaf columns,
+  // exactly as a fold write of the same field stores it.
+  const seeds = foldRowSeeds(p).map((sd) => {
+    if (sd.kind === "default" && ctxDecls && isFlattenedValueObject(sd.field.type, ctxDecls)) {
+      const tmp = `__seed_${sd.field.name}`;
+      return {
+        pre: [`  const ${tmp} = ${renderTsExpr(sd.expr, { thisName: "state" })};`],
+        entries: voLeafValues(sd.field.name, sd.field.type, ctxDecls, tmp).map(
+          (l) => `${l.prop}: ${l.value}`,
+        ),
+      };
+    }
+    return { pre: [] as string[], entries: [`${sd.field.name}: ${tsRowSeed(sd)}`] };
+  });
   const seed = [
     `${corr}: __key`,
     ...(cols ? [`${cols.tenant.field}: __tenant`] : []),
-    ...foldRowSeeds(p).map((sd) => `${sd.field.name}: ${tsRowSeed(sd)}`),
+    ...seeds.flatMap((sd) => sd.entries),
   ].join(", ");
   const allocate = usingMikro
     ? `Object.assign(new ${mikroProjectionRowClass(p)}(), { ${seed} })`
@@ -370,14 +415,48 @@ function emitFoldHandler(
         ]
       : []),
     `  const __key = ${keyExpr};`,
+    ...seeds.flatMap((sd) => sd.pre),
     // MikroORM: the fold loads and upserts through its own fork, so a write
     // the database refuses is dropped with the fork instead of staying in a
     // shared identity map where a later read would serve it.
     ...(usingMikro ? [`  const __em = db.fork();`] : []),
-    `  const state = (await load${T}(${usingMikro ? "__em" : "db"}, __key${cols ? ", __tenant" : ""})) ?? ${allocate};`,
   ];
-  for (const step of foldSteps(p, h)) out.push(renderFoldStep(step, ctxDecls));
-  out.push(`  await save${T}(${usingMikro ? "__em" : "db"}, state);`);
+  const apply = (handle: string, indent: string): string[] => [
+    `${indent}const state = (await load${T}(${handle}, __key${cols ? ", __tenant" : ""})) ?? ${allocate};`,
+    ...foldSteps(p, h).map((step) => `${indent}${renderFoldStep(step, ctxDecls).trimStart()}`),
+    `${indent}await save${T}(${handle}, state);`,
+  ];
+  if (!dedupe) {
+    out.push(...apply(usingMikro ? "__em" : "db", "  "), `}`);
+    return out;
+  }
+  // The inbox claim and the row save commit together: a redelivered event
+  // finds its claim and changes nothing; a failed save releases it.
+  out.push(
+    `  const __eventId = (${escapeTsIdent(h.param)} as { __loomEventId?: string }).__loomEventId;`,
+  );
+  if (usingMikro) {
+    out.push(
+      `  await __em.transactional(async (__tx) => {`,
+      `    if (__eventId !== undefined) {`,
+      `      const __claimed = await __tx.execute(${JSON.stringify(foldInboxClaimSql("?", "?", true))}, [${JSON.stringify(p.name)}, __eventId]);`,
+      `      if (__claimed.length === 0) return;`,
+      `    }`,
+      ...apply("__tx", "    "),
+      `  });`,
+    );
+  } else {
+    out.push(
+      `  await db.transaction(async (__tx) => {`,
+      `    const __db = __tx as unknown as NodePgDatabase<typeof schema>;`,
+      `    if (__eventId !== undefined) {`,
+      `      const __claimed = await __db.execute(${TS.sql}\`${foldInboxClaimSql(`\${${JSON.stringify(p.name)}}`, "${__eventId}", true)}\`);`,
+      `      if (__claimed.rows.length === 0) return;`,
+      `    }`,
+      ...apply("__db", "    "),
+      `  });`,
+    );
+  }
   out.push(`}`);
   return out;
 }
@@ -424,24 +503,12 @@ function renderFoldStep(
       // the leaves the same derivation the read route nests back.  The domain
       // value is bound once rather than re-rendered per leaf.
       if (voFields && step.type && isFlattenedValueObject(step.type, voFields)) {
-        const leaves = voLeaves(field, step.type, voFields);
         const tmp = `__${field}`;
         return [
           `  const ${tmp} = ${rendered};`,
-          ...leaves.map((l) => {
-            // A leaf under an OPTIONAL ancestor hops with `?.` the whole way (an
-            // absent ancestor makes every descendant absent, not just the first);
-            // a leaf that is merely optional itself sits on a present object and
-            // reads with a plain `.`.
-            const read = `${tmp}${l.path.map((seg) => (l.viaOptional ? `?.${seg}` : `.${seg}`)).join("")}`;
-            const stored = toColumn(l.type, read);
-            // The null guard is only needed when the column conversion would run
-            // on an absent value — `toColumn`'s money arm is `(v).toString()`,
-            // which throws.  A leaf stored as-is needs no guard.
-            const value =
-              l.nullable && stored !== read ? `${read} == null ? null : ${stored}` : stored;
-            return `  state.${l.prop} = ${value};`;
-          }),
+          ...voLeafValues(field, step.type, voFields, tmp).map(
+            (l) => `  state.${l.prop} = ${l.value};`,
+          ),
         ].join("\n");
       }
       return `  state.${field} = ${toColumn(step.type, rendered)};`;
@@ -461,6 +528,30 @@ function renderFoldStep(
       return _exhaustive;
     }
   }
+}
+
+/** The leaf columns of a flattened value-object `field` read off the bound
+ *  domain value `tmp`, each in its column representation — what a fold write
+ *  and a fresh row's seed both store, so the two can never flatten apart. */
+function voLeafValues(
+  field: string,
+  type: TypeIR,
+  voFields: EnrichedBoundedContextIR,
+  tmp: string,
+): { prop: string; value: string }[] {
+  return voLeaves(field, type, voFields).map((l) => {
+    // A leaf under an OPTIONAL ancestor hops with `?.` the whole way (an
+    // absent ancestor makes every descendant absent, not just the first);
+    // a leaf that is merely optional itself sits on a present object and
+    // reads with a plain `.`.
+    const read = `${tmp}${l.path.map((seg) => (l.viaOptional ? `?.${seg}` : `.${seg}`)).join("")}`;
+    const stored = toColumn(l.type, read);
+    // The null guard is only needed when the column conversion would run on
+    // an absent value — `toColumn`'s money arm is `(v).toString()`, which
+    // throws.  A leaf stored as-is needs no guard.
+    const value = l.nullable && stored !== read ? `${read} == null ? null : ${stored}` : stored;
+    return { prop: l.prop, value };
+  });
 }
 
 /** The read-model COLUMN representation of a folded domain value.
@@ -764,4 +855,28 @@ function emitProjectionRoutes(
   out.push(`  return app;`);
   out.push(`}`);
   return out;
+}
+
+/** The fold inbox's retention purge for a deployable that runs no outbox relay
+ *  (the relay purges the inbox beside the outbox otherwise): a consumer that
+ *  only receives durable events off a broker still claims every delivery, so
+ *  its claims need the same retention window. */
+function emitFoldInboxPurge(usingMikro: boolean): string[] {
+  const del = usingMikro
+    ? `db.fork().getConnection().execute(${JSON.stringify(foldInboxPurgeSql("?"))}, [cutoff])`
+    : `db.execute(${TS.sql}\`${foldInboxPurgeSql("${cutoff}")}\`)`;
+  return [
+    `export function startFoldInboxPurge(db: ${projDbType(usingMikro)}): () => void {`,
+    `  const days = Number(process.env.${OUTBOX_RETENTION_ENV});`,
+    `  const retentionMs = (Number.isFinite(days) && days > 0 ? days : ${OUTBOX_RETENTION_DEFAULT_DAYS}) * 86_400_000;`,
+    `  const timer = setInterval(() => {`,
+    `    const cutoff = new Date(Date.now() - retentionMs);`,
+    `    ${del}.catch((err: unknown) => {`,
+    `      ${TS.baseLogger}.warn({ event: "outbox_relay_error", error: err instanceof Error ? err.message : String(err) });`,
+    `    });`,
+    `  }, ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000});`,
+    `  timer.unref();`,
+    `  return () => clearInterval(timer);`,
+    `}`,
+  ];
 }

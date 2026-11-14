@@ -10,7 +10,7 @@
 // Both halves stay derived, so neither can drift from the callee:
 //   - paths from `contextOperations` (what the callee actually mounts, its
 //     abstract bases' polymorphic reads included),
-//   - the response record from `forApiRead(wireFieldsForAggregate(...))` (the
+//   - the response record from the callee's declared response record (the
 //     field list the callee serializes).
 //
 // The boundary check is `JsonSerializer.Deserialize` + an explicit null guard,
@@ -28,7 +28,6 @@
 // ---------------------------------------------------------------------------
 
 import { apiCallPrincipal } from "../../../ir/enrich/hosting-facts.js";
-import { forApiRead, wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import { contextOperations } from "../../../ir/plan/index.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import {
@@ -40,6 +39,7 @@ import {
   absenceUnionSuccess,
   collectionSuccess,
 } from "../../../ir/util/api-surface.js";
+import { responseWireIn } from "../../../ir/util/response-wire.js";
 import { escapeCsharpIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { resourceEnvUrlVar } from "../../../util/resource-env.js";
@@ -108,8 +108,8 @@ function pathExpr(op: ApiOperationIR): string {
 
 /** A `record` mirroring the aggregate's read wire shape — the same walk the
  *  callee serializes from. */
-function responseRecord(agg: AggregateIR, recordName: string): string[] {
-  const members = recordMembers(agg, "        ");
+function responseRecord(sys: SystemIR, agg: AggregateIR, recordName: string): string[] {
+  const members = recordMembers(sys, agg, "        ");
   if (members.length === 0) return [`    public sealed record ${recordName}();`];
   return [`    public sealed record ${recordName}(`, `${members.join(",\n")});`];
 }
@@ -118,7 +118,7 @@ function responseRecord(agg: AggregateIR, recordName: string): string[] {
  *  System.Text.Json's polymorphism metadata, with one nested record per
  *  concrete holding that concrete's read wire fields.  The `type` tag is the
  *  type discriminator, so it is no member of any arm. */
-function taggedRowRecord(poly: PolymorphicRow, recordName: string): string[] {
+function taggedRowRecord(sys: SystemIR, poly: PolymorphicRow, recordName: string): string[] {
   const out = [
     `    [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]`,
     ...poly.variants.map(
@@ -129,7 +129,7 @@ function taggedRowRecord(poly: PolymorphicRow, recordName: string): string[] {
     "    {",
   ];
   for (const v of poly.variants) {
-    const members = recordMembers(v.aggregate, "            ");
+    const members = recordMembers(sys, v.aggregate, "            ");
     out.push(
       members.length === 0
         ? `        public sealed record ${v.aggregate.name}() : ${recordName};`
@@ -141,8 +141,8 @@ function taggedRowRecord(poly: PolymorphicRow, recordName: string): string[] {
 }
 
 /** One positional member per read wire field of `agg`. */
-function recordMembers(agg: AggregateIR, indent: string): string[] {
-  return forApiRead(wireFieldsForAggregate(agg)).map((wf) => {
+function recordMembers(sys: SystemIR, agg: AggregateIR, indent: string): string[] {
+  return responseWireIn(sys, agg).map((wf) => {
     const t = wf.source === "id" ? "string" : renderCsType(wf.type);
     // Mirror the CALLEE's optionality rather than making everything nullable.
     // Blanket-nullable compiles here but moves the problem one frame out: the
@@ -213,7 +213,9 @@ export function emitDotnetApiClients(
         if (agg && recordName && !emittedRecords.has(recordName)) {
           emittedRecords.add(recordName);
           records.push(
-            ...(poly ? taggedRowRecord(poly, recordName) : responseRecord(agg, recordName)),
+            ...(poly
+              ? taggedRowRecord(sys, poly, recordName)
+              : responseRecord(sys, agg, recordName)),
             "",
           );
         }

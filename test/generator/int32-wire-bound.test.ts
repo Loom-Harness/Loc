@@ -87,7 +87,7 @@ describe("node — a declared int carries its int4 bound onto the wire", () => {
     // column as the body field.
     const routes = await file("node", "http/a-routes.ts");
     expect(routes).toContain(
-      `qty: z.coerce.number().int().min(${INT32_MIN}, ${RANGE}).max(${INT32_MAX}, ${RANGE}).openapi({ format: "int32" })`,
+      `qty: z.coerce.number({ error: "Expected an integer." }).int({ error: "Expected an integer." }).min(${INT32_MIN}, ${RANGE}).max(${INT32_MAX}, ${RANGE}).openapi({ format: "int32" })`,
     );
   });
 

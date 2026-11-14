@@ -482,6 +482,8 @@ system DevPlatform {
     api AccountsApi with scaffoldGetApi(of: ByHandle) from Accounts
 
     storage primarySql { type: postgres }
+    // The by-id read cache's store: valkey in the dev compose.
+    storage hotCache { type: redis }
     // A vendor config map (ConfigEntry) with the keys its sourceType declares.
     // The storage binds a kind, so declaring it without a use is valid.
     storage artifactStore {
@@ -776,6 +778,9 @@ system DevPlatform {
     resource catalogState  { for: Catalog, kind: state, use: primarySql, index: [Project.visibility, Project.(active, sequence)] }
     resource buildsState   { for: Builds,  kind: state, use: primarySql }
     resource peopleState   { for: People,  kind: state, use: primarySql }
+    // A by-id read cache over the Catalog context (resources.md → "The by-id
+    // read cache"), wired on every backend deployable.
+    resource catalogCache  { for: Catalog, kind: cache, use: hotCache, keyPrefix: "showcase", ttl: 120 }
 
     // ----- TimerSource: time as an event source (scheduling.md, M-T4.1) -----
     // Fires CatalogSweepTick on a nightly cadence.  On the node backend this
@@ -789,7 +794,7 @@ system DevPlatform {
     deployable dotnetApi {
         platform: dotnet
         contexts: [Catalog, Builds, People]
-        dataSources: [catalogState, buildsState, peopleState]
+        dataSources: [catalogState, buildsState, peopleState, catalogCache]
         serves: ProjectsApi, DeliveryApi, AccountsApi
         port: 8080
         auth: required
@@ -798,7 +803,7 @@ system DevPlatform {
     deployable honoApi {
         platform: node
         contexts: [Catalog, Builds, People]
-        dataSources: [catalogState, buildsState, peopleState]
+        dataSources: [catalogState, buildsState, peopleState, catalogCache]
         serves: ProjectsApi, DeliveryApi, AccountsApi
         port: 3000
         auth: required
@@ -807,7 +812,7 @@ system DevPlatform {
     deployable pythonApi {
         platform: python
         contexts: [Catalog, Builds, People]
-        dataSources: [catalogState, buildsState, peopleState]
+        dataSources: [catalogState, buildsState, peopleState, catalogCache]
         serves: ProjectsApi, DeliveryApi, AccountsApi
         port: 8000
         auth: required
@@ -816,7 +821,7 @@ system DevPlatform {
     deployable javaApi {
         platform: java
         contexts: [Catalog, Builds, People]
-        dataSources: [catalogState, buildsState, peopleState]
+        dataSources: [catalogState, buildsState, peopleState, catalogCache]
         serves: ProjectsApi, DeliveryApi, AccountsApi
         port: 8081
         auth: required
@@ -825,7 +830,7 @@ system DevPlatform {
     deployable phoenixApi {
         platform: elixir
         contexts: [Catalog, Builds, People]
-        dataSources: [catalogState, buildsState, peopleState]
+        dataSources: [catalogState, buildsState, peopleState, catalogCache]
         serves: ProjectsApi, DeliveryApi, AccountsApi
         port: 4000
         auth: required

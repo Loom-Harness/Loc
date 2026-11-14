@@ -17,6 +17,11 @@ import {
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
+import type { CachedByIdRead } from "../../../ir/plan/cache.js";
+import {
+  QUERY_PARAM_MISMATCH_MESSAGES,
+  type QueryParamMismatchKind,
+} from "../../../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -58,6 +63,11 @@ import {
   javaSentence,
 } from "../wire-policy-java.js";
 import { javaAuditApiPkg, javaHistoryFind, renderJavaHistoryRoute } from "./audit-history.js";
+import {
+  cacheScopeReadsPrincipal,
+  renderJavaCacheHit,
+  renderJavaCacheStore,
+} from "./by-id-cache.js";
 import { JAVA_PAGED_QUERY_PARAMS } from "./common.js";
 import { EMPTY_COMMAND_BODY_PARAM } from "./empty-body-filter.js";
 import {
@@ -117,6 +127,9 @@ export interface ControllerCtx {
     aggregate: string;
     operation: string;
   }) => string;
+  /** The aggregate's cached by-id read (`src/ir/plan/cache.ts`), when a
+   *  `kind: cache` resource on this deployable caches it. */
+  cache?: CachedByIdRead;
 }
 
 /** Names a declared-find ROUTE method spells itself: the injected `service`
@@ -462,6 +475,10 @@ export function renderJavaController(
     : [];
   const pagedAutoAll = isPagedAutoAll(repo);
   const getByIdEntry = routed(derivedOps.find((o) => o.kind === "getById"));
+  // The by-id read goes through the cache only when its route is this
+  // controller's (an explicit route claims the slot otherwise).
+  const cache = getByIdEntry ? ctx.cache : undefined;
+  const needsAccessor = anyFindGateUsesUser || (!!cache && cacheScopeReadsPrincipal(cache));
   const allEntry = derivedOps.find((o) => isAllFind(o));
   const allClaimed = allEntry?.claimedByExplicitRoute === true;
   const allDoc = allEntry ? doc(allEntry, { status: 200 }) : [];
@@ -482,7 +499,25 @@ export function renderJavaController(
           // envelope with the `"<Agg> <id> not found"` detail.  Answering
           // `ResponseEntity.notFound().build()` here would send Spring's own bare 404
           // with an EMPTY BODY instead.
-          `        return ResponseEntity.ok(service.get${agg.name}ById(new ${idClass}(id)));`,
+          ...(cache
+            ? [
+                ...renderJavaCacheHit(
+                  cache,
+                  "id",
+                  "objectMapper",
+                  "currentUserAccessor",
+                  `${agg.name}Response`,
+                ),
+                ...renderJavaCacheStore(
+                  cache,
+                  "id",
+                  `service.get${agg.name}ById(new ${idClass}(id))`,
+                  "objectMapper",
+                ),
+              ]
+            : [
+                `        return ResponseEntity.ok(service.get${agg.name}ById(new ${idClass}(id)));`,
+              ]),
           `    }`,
           ``,
         ]
@@ -541,7 +576,8 @@ export function renderJavaController(
     // does not import from its own package.
     versioned && ctx.pkg !== `${ctx.basePkg}.api` ? `import ${ctx.basePkg}.api.IfMatch;` : null,
     anyFindGate ? `import ${ctx.basePkg}.domain.common.ForbiddenException;` : null,
-    anyFindGateUsesUser ? `import ${ctx.basePkg}.auth.CurrentUserAccessor;` : null,
+    needsAccessor ? `import ${ctx.basePkg}.auth.CurrentUserAccessor;` : null,
+    cache ? `import ${ctx.basePkg}.config.ByIdCaches;` : null,
     // Entity history — the shared `AuditEntry` wire record.  Under byLayer the
     // controller already lives in `<base>.api`, so the import is emitted only
     // when the layout routes it elsewhere (byFeature).
@@ -558,12 +594,14 @@ export function renderJavaController(
     `public class ${plural(agg.name)}Controller {`,
     `    private final ${agg.name}Service service;`,
     `    private final HttpMetrics httpMetrics;`,
-    anyFindGateUsesUser ? `    private final CurrentUserAccessor currentUserAccessor;` : null,
+    needsAccessor ? `    private final CurrentUserAccessor currentUserAccessor;` : null,
+    cache ? `    private final tools.jackson.databind.ObjectMapper objectMapper;` : null,
     ``,
-    `    public ${plural(agg.name)}Controller(${agg.name}Service service, HttpMetrics httpMetrics${anyFindGateUsesUser ? ", CurrentUserAccessor currentUserAccessor" : ""}) {`,
+    `    public ${plural(agg.name)}Controller(${agg.name}Service service, HttpMetrics httpMetrics${needsAccessor ? ", CurrentUserAccessor currentUserAccessor" : ""}${cache ? ", tools.jackson.databind.ObjectMapper objectMapper" : ""}) {`,
     `        this.service = service;`,
     `        this.httpMetrics = httpMetrics;`,
-    anyFindGateUsesUser ? `        this.currentUserAccessor = currentUserAccessor;` : null,
+    needsAccessor ? `        this.currentUserAccessor = currentUserAccessor;` : null,
+    cache ? `        this.objectMapper = objectMapper;` : null,
     `    }`,
     ``,
     ...initBinderLines(agg, ctx.boundedContext ? valueObjectPool(ctx.boundedContext) : []),
@@ -1259,6 +1297,8 @@ export function renderApiExceptionAdvice(
     // it.  A request-part parse failure is the wire-validation tier on every
     // backend; keep it there on Java too, with the same `errors[]` pointer
     // shape the body tier emits (`/id`, not the whole document).
+    ...javaQueryMismatchMessageFn(),
+    ``,
     `    @ExceptionHandler(MethodArgumentTypeMismatchException.class)`,
     `    public ResponseEntity<ProblemDetail> onParamTypeMismatch(MethodArgumentTypeMismatchException e, WebRequest request) {`,
     `        CatalogLog.event("domain_error", "warn", "message", ${title("field-invalid")}, "status", ${fieldInvalid});`,
@@ -1266,11 +1306,9 @@ export function renderApiExceptionAdvice(
     `        var problem = ${fieldInvalidProblem};`,
     `        var required = e.getRequiredType();`,
     `        // A path/query id that is not a uuid reads the fact's malformed-id message;`,
-    `        // any other type mismatch is the framework's own text.`,
+    `        // any other value that does not parse reads its kind's ruled sentence.`,
     `        var isId = java.util.UUID.class.equals(required);`,
-    `        var message = isId ? ${javaLit(fieldFixedMessage("malformed-id"))}`,
-    `            : required != null ? "Expected " + required.getSimpleName() + "."`,
-    `            : "Invalid value.";`,
+    `        var message = isId ? ${javaLit(fieldFixedMessage("malformed-id"))} : queryMismatchMessage(required);`,
     `        var code = isId ? ${javaLit(fieldCode("malformed-id"))} : ${javaLit(fieldCode("type-mismatch"))};`,
     `        // An int value that IS an integer but does not fit int32 is the shared`,
     `        // integer-range refusal, with its bounds.`,
@@ -1610,4 +1648,33 @@ export function renderApiExceptionAdvice(
     `}`,
     ``,
   );
+}
+
+/** The `queryMismatchMessage(Class)` helper: the ruled `type-mismatch`
+ *  sentence of a query/path value that does not convert, picked by the Java
+ *  type the parameter binds (`QUERY_PARAM_MISMATCH_MESSAGES`). */
+function javaQueryMismatchMessageFn(): string[] {
+  const kinds: readonly [QueryParamMismatchKind, readonly string[]][] = [
+    ["integer", ["int.class", "Integer.class", "long.class", "Long.class"]],
+    ["decimal", ["java.math.BigDecimal.class", "double.class", "Double.class"]],
+    ["bool", ["boolean.class", "Boolean.class"]],
+    [
+      "datetime",
+      [
+        "java.time.OffsetDateTime.class",
+        "java.time.Instant.class",
+        "java.time.LocalDateTime.class",
+      ],
+    ],
+    ["date", ["java.time.LocalDate.class"]],
+  ];
+  return [
+    `    private static String queryMismatchMessage(Class<?> required) {`,
+    ...kinds.map(
+      ([kind, classes]) =>
+        `        if (${classes.map((c) => `${c}.equals(required)`).join(" || ")}) return ${javaLit(QUERY_PARAM_MISMATCH_MESSAGES[kind])};`,
+    ),
+    `        return "Invalid value.";`,
+    `    }`,
+  ];
 }

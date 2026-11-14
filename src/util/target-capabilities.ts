@@ -135,14 +135,11 @@ export type BackendConstruct =
   | "capability:shareable@aggregate"
   /** `resource r { kind: replica, … }` — a read-replica binding. */
   | "resource:replica@resource"
-  /** `resource r { kind: cache, … }` — a read-through cache binding. */
+  /** `resource r { kind: cache, … }` — the by-id read cache, with its `ttl`
+   *  and `keyPrefix` knobs (they are valid on no other kind). */
   | "resource:cache@resource"
   /** `resource r { kind: snapshot, … }` — an event-sourced snapshot store. */
   | "resource:snapshot@resource"
-  /** `resource r { …, ttl: … }` — a cache expiry. */
-  | "knob:ttl@resource"
-  /** `resource r { …, keyPrefix: … }` — a cache key namespace. */
-  | "knob:keyPrefix@resource"
   /** `resource r { …, every: … }` — a snapshot cadence. */
   | "knob:every@resource"
   /** `resource r { …, retain: … }` — a snapshot retention count. */
@@ -262,8 +259,6 @@ export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "resource:replica@resource",
   "resource:cache@resource",
   "resource:snapshot@resource",
-  "knob:ttl@resource",
-  "knob:keyPrefix@resource",
   "knob:every@resource",
   "knob:retain@resource",
   "knob:readonly@resource",
@@ -540,8 +535,6 @@ const UNREALIZED_RESOURCES: Pick<
   | "resource:replica@resource"
   | "resource:cache@resource"
   | "resource:snapshot@resource"
-  | "knob:ttl@resource"
-  | "knob:keyPrefix@resource"
   | "knob:every@resource"
   | "knob:retain@resource"
   | "knob:readonly@resource"
@@ -556,10 +549,9 @@ const UNREALIZED_RESOURCES: Pick<
   | "storage:nats@declaration"
 > = {
   "resource:replica@resource": refused("resource-kind-unrealized"),
-  "resource:cache@resource": refused("resource-kind-unrealized"),
+  // The by-id read cache: `src/ir/plan/cache.ts` rendered on every backend.
+  "resource:cache@resource": SUPPORTED,
   "resource:snapshot@resource": refused("resource-kind-unrealized"),
-  "knob:ttl@resource": refused("resource-knob-unrealized"),
-  "knob:keyPrefix@resource": refused("resource-knob-unrealized"),
   "knob:every@resource": refused("resource-knob-unrealized"),
   "knob:retain@resource": refused("resource-knob-unrealized"),
   "knob:readonly@resource": refused("resource-knob-unrealized"),

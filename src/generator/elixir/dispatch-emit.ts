@@ -4,8 +4,10 @@ import type { SaveEntry } from "../../ir/plan/index.js";
 import {
   type FoldRowSeed,
   type FoldStep,
+  foldInboxClaimSql,
   foldRowSeeds,
   foldSteps,
+  foldsDedupe,
   hasStateRow,
   requiredStateFields,
   subscriptionHandler,
@@ -38,6 +40,7 @@ import type { ElixirChannelsCfg } from "./channels-emit.js";
 import { reactorTarget, renderReactorBody } from "./reactor-target.js";
 import { type RenderCtx, renderExpr } from "./render-expr.js";
 import { type StateDefaultDecls, stateDefault, stateDefaultDecls } from "./state-default.js";
+import type { ByIdCacheReads } from "./vanilla/by-id-cache-emit.js";
 import { exEctoIdJsonType, exEctoIdType } from "./vanilla/codec-spelling-ex.js";
 import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { bodyUsesParam, renderFunctionBodyLines } from "./vanilla/function-emit.js";
@@ -250,6 +253,8 @@ export function emitDispatch(
   extraChannels: ChannelIR[] = [],
   /** See `emitWorkflowStateSchemas`' `durable`. */
   durable = false,
+  /** The context's cached by-id reads: a reactor's write evicts them. */
+  cached: ByIdCacheReads = new Map(),
 ): void {
   const ctxSnake = snake(ctx.name);
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
@@ -290,7 +295,7 @@ export function emitDispatch(
           reactorRenderCtx(appModule, contextModule, ctx, sub, sys),
           channels,
         )
-      : renderHandler(appModule, contextModule, ctx, sub, sys, channels, durable);
+      : renderHandler(appModule, contextModule, ctx, sub, sys, channels, durable, cached);
     const path = `lib/${appName}/${ctxSnake}/workflows/${snake(sub.workflow.name)}/${verb}_${snake(sub.event)}.ex`;
     out.set(path, content);
     const construct = `${ctx.name}.${sub.workflow.name}`;
@@ -315,6 +320,7 @@ export function emitDispatch(
       contextModule,
       ps.projection,
       ps.on,
+      foldsDedupe(ctx, durable),
       channels?.foreignEventModules.get(ps.event) ?? contextModule,
     );
     const path = `lib/${appName}/${ctxSnake}/projections/${snake(ps.projection.name)}/on_${snake(ps.event)}.ex`;
@@ -518,6 +524,7 @@ function renderHandler(
   sys?: SystemIR,
   channels?: ElixirChannelsCfg,
   durable = false,
+  cached: ByIdCacheReads = new Map(),
 ): HandlerResult {
   const wf = sub.workflow;
   const persisted = !!wf.correlationField;
@@ -535,7 +542,7 @@ function renderHandler(
   const plan = elixirSavePlan(sub.statements, sub.saves, ctx);
   const { lines: body, regions } = renderReactorBody(
     sub.statements,
-    reactorTarget(ctx, renderCtx, contextModule, channels, plan),
+    reactorTarget(ctx, renderCtx, contextModule, channels, plan, cached),
     { saves: sub.saves, plan, contextModule },
   );
 
@@ -791,6 +798,8 @@ function renderProjectionFoldHandler(
   contextModule: string,
   proj: ProjectionIR,
   on: ProjectionOnIR,
+  /** Folds claim each durably delivered event in the fold inbox (`foldsDedupe`). */
+  dedupe: boolean,
   /** The module the event struct lives under: its OWNING context's, which
    *  differs from `contextModule` for an event consumed off a wired channel
    *  declared in a context this deployable does not host. */
@@ -865,6 +874,34 @@ function renderProjectionFoldHandler(
     `    :ok`,
   ];
   const event = `%${eventModule}.Events.${upperFirst(on.event)}{} = event`;
+  const args = cols ? "event, tenant" : "event";
+  // A durably delivered event folds once: the claim on `(projection, event_id)`
+  // in the fold inbox commits with the row write, in one transaction.  An
+  // event dispatched inline has no id and is never redelivered.
+  const claimSql = foldInboxClaimSql("$1", "$2", true);
+  const once = dedupe
+    ? `  defp fold(${args}) do
+    case Process.get(:loom_event_id) do
+      nil ->
+        apply_fold(${args})
+
+      event_id ->
+        {:ok, :ok} =
+          ${appModule}.Repo.transaction(fn ->
+            case ${appModule}.Repo.query!(${JSON.stringify(claimSql)}, [${JSON.stringify(proj.name)}, to_string(event_id)]) do
+              %{num_rows: 0} -> :ok
+              _ -> apply_fold(${args})
+            end
+          end)
+
+        :ok
+    end
+  end
+
+  defp apply_fold(${args}) do
+${body.join("\n")}
+  end`
+    : undefined;
   const handle = cols
     ? `  def handle(${event}) do
     origin = ${appModule}Web.Auth.current_event_origin() || %{}
@@ -875,10 +912,17 @@ function renderProjectionFoldHandler(
     end
   end
 
-  defp fold(event, tenant) do
+${
+  once ??
+  `  defp fold(event, tenant) do
 ${body.join("\n")}
   end`
-    : `  def handle(${event}) do
+}`
+    : once
+      ? `  def handle(${event}), do: fold(event)
+
+${once}`
+      : `  def handle(${event}) do
 ${body.join("\n")}
   end`;
   return `# Auto-generated.

@@ -46,6 +46,28 @@ export type QueryParamCheck =
   | { kind: "date" }
   | { kind: "enum"; values: readonly string[] };
 
+/** The check kinds whose query-string text can fail to PARSE as the declared
+ *  type: each answers `field.type-mismatch` with one fixed sentence.  The other
+ *  kinds either cannot mismatch (`present`, `string`) or carry a ruled reason
+ *  of their own (`uuid` → `malformed-id`; an integer that parses but leaves its
+ *  range → `integer-range`). */
+export type QueryParamMismatchKind = Extract<
+  QueryParamCheck["kind"],
+  "integer" | "decimal" | "bool" | "datetime" | "date"
+>;
+
+/** The `errors[].message` of a query/path value whose text does not parse as
+ *  its declared type — one sentence per check kind, on every backend, so a
+ *  wire golden pins it.  The `code` is `fieldCode("type-mismatch")`; a client
+ *  localizes by that code, never by this English. */
+export const QUERY_PARAM_MISMATCH_MESSAGES: Readonly<Record<QueryParamMismatchKind, string>> = {
+  integer: "Expected an integer.",
+  decimal: "Expected a number.",
+  bool: "Expected true or false.",
+  datetime: "Expected an ISO 8601 date-time.",
+  date: "Expected an ISO 8601 date.",
+};
+
 /** One declared parameter of a query-time projection read. */
 export interface ProjectionQueryParam {
   /** The wire (query-string) key — the declared name. */

@@ -4,6 +4,7 @@ import {
   errorVariantCode,
   errorVariantResponse,
 } from "../../../ir/enrich/wire-policy.js";
+import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import { unionInstanceName } from "../../../ir/stdlib/unions.js";
 import type {
@@ -221,6 +222,8 @@ export function emitController(
   /** Strongly-typed id class for the route id param (default `<Agg>Id`); a TPH
    *  concrete passes its base's `<Base>Id` (the shared inherited key). */
   idClass: string = `${agg.name}Id`,
+  /** The aggregate's cached by-id read, when a cache resource caches it. */
+  cache?: CachedByIdRead,
 ): void {
   // Namespaces the wire→command conversions below reach into (e.g.
   // System.Globalization for a datetime/money parse); collected over the
@@ -260,6 +263,7 @@ export function emitController(
     `Api/${upperFirst(plural(agg.name))}Controller.cs`,
     renderController(agg, repo, ns, {
       typeKey: aggregateTypeKey(ctx.name, agg.name),
+      cache,
       idClass,
       idClrType: csIdValueClrType(),
       createAction: createActionOverride ?? derivedOps.some((o) => o.kind === "create"),

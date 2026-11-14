@@ -39,12 +39,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { nearestName } from "../../../util/edit-distance.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
-import {
-  buildCreateInput,
-  forApiRead,
-  isRequiredCreateInput,
-  wireFieldsForAggregate,
-} from "../../enrich/wire-projection.js";
+import { buildCreateInput, isRequiredCreateInput } from "../../enrich/wire-projection.js";
 import { polymorphicReadOperations } from "../../plan/repo-polymorphic.js";
 import { PAGED_QUERY_PARAMS } from "../../stdlib/generics.js";
 import type {
@@ -68,8 +63,10 @@ import {
   deriveAggregateOperations,
 } from "../../util/api-surface.js";
 import { canonicalDestroy } from "../../util/canonical-lifecycle.js";
+import { declaredResponseFor } from "../../util/declared-response.js";
 import { e2eIfMatchApplies, readE2eCallOptions } from "../../util/e2e-call-options.js";
 import { findWorkflowBySlug } from "../../util/e2e-workflow-accessor.js";
+import { responseWireFor } from "../../util/response-wire.js";
 import {
   apisServedBy,
   type RoutedHandlerTarget,
@@ -678,7 +675,7 @@ function collectContexts(
 // can still carry a body the route will refuse, and the compiler derives
 // everything needed to say so: `createInput` (the reified create contract,
 // enrichment phase ⑥), the operation's declared parameter list, and
-// `wireFieldsForAggregate` (the response projection every backend serves).
+// the declared response record (the read contract every backend serves).
 //
 // The cost of not checking is not merely the round trip to find out.  A
 // NEGATIVE test passes for the WRONG REASON:
@@ -1386,10 +1383,11 @@ function checkResponseFields(
       });
       return;
     }
-    // An `extends` subtype is judged like any other aggregate: enrichment has
-    // already merged every ancestor's fields into its `fields`, so its wire
-    // shape here is the one its getById serves (`.loom/wire-spec.json` agrees).
-    const readable = forApiRead(wireFieldsForAggregate(resolved.agg)).map((w) => w.name);
+    // The aggregate's declared response record is what its getById serves
+    // (an `extends` subtype's record carries every inherited field).  A
+    // context no deployable hosts has no record and no route to read.
+    if (!declaredResponseFor(resolved.ctx.payloads, resolved.agg)) return;
+    const readable = responseWireFor(resolved.ctx.payloads, resolved.agg).map((w) => w.name);
     if (readable.includes(r.field)) return;
     // One read, one diagnostic, however many times the body repeats it.
     if (seen.has(r.read)) return;

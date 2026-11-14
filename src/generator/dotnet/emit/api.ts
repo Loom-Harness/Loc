@@ -7,6 +7,11 @@ import {
   wireStatusResolver,
 } from "../../../ir/enrich/wire-policy.js";
 import { emitsRestCreate } from "../../../ir/enrich/wire-projection.js";
+import type { CachedByIdRead } from "../../../ir/plan/cache.js";
+import {
+  QUERY_PARAM_MISMATCH_MESSAGES,
+  type QueryParamMismatchKind,
+} from "../../../ir/plan/index.js";
 import type { AggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import { type ApiOperationIR, relativeOpPath } from "../../../ir/util/api-surface.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
@@ -53,6 +58,7 @@ import {
   csTypeMismatchMessage,
   csTypeParamsArg,
 } from "../wire-policy-cs.js";
+import { cacheControllerMembers, renderCacheHit, renderCacheStore } from "./by-id-cache.js";
 import { dotnetFindAbsenceThrow } from "./common.js";
 
 /** The C# dictionary type a problem body's `params` / errors[] entries use. */
@@ -251,6 +257,9 @@ export interface ControllerShape {
    *  (`Disallowed` / `ConcurrencyConflict`). Undefined ⇒ 409 everywhere
    *  (byte-identical default). */
   structuralStatuses?: Record<string, number>;
+  /** The aggregate's cached by-id read (`src/ir/plan/cache.ts`), when a
+   *  `kind: cache` resource on this deployable caches it. */
+  cache?: CachedByIdRead;
 }
 
 /** The `return …` line(s) for a union-find's absent variant.  `none` rides the
@@ -420,6 +429,7 @@ export function renderController(
   // aggregate emits none, so `using …Commands;` would reference a namespace
   // that does not exist (CS0234 under `/warnaserror`).  (Queries/Requests/
   // Responses always have at least the auto findAll + Response DTO.)
+  const cacheMembers = shape.cache ? cacheControllerMembers(shape.cache, ns) : undefined;
   const hasCommands = emitsRestCreate(agg) || !!canonicalDestroy(agg) || agg.operations.length > 0;
   return (
     lines(
@@ -446,6 +456,7 @@ export function renderController(
       `using ${ns}.Domain.ValueObjects;`,
       `using ${ns}.Domain.Enums;`,
       `using ${ns}.Observability;`,
+      ...(cacheMembers?.usings ?? []),
       "",
       `namespace ${ns}.Api;`,
       "",
@@ -458,7 +469,10 @@ export function renderController(
       // per-class injection idiom DomainExceptionFilter uses, so the
       // pattern stays consistent across the generated codebase.
       `    private readonly ILogger<${className}> _log;`,
-      `    public ${className}(IMediator mediator, ILogger<${className}> log) { _mediator = mediator; _log = log; }`,
+      ...(cacheMembers?.fields ?? []),
+      cacheMembers
+        ? `    public ${className}(IMediator mediator, ILogger<${className}> log, ${cacheMembers.ctorParams.join(", ")}) { _mediator = mediator; _log = log; ${cacheMembers.ctorBody.join(" ")} }`
+        : `    public ${className}(IMediator mediator, ILogger<${className}> log) { _mediator = mediator; _log = log; }`,
       "",
       // Create — POST / (gated on a canonical create; non-constructible
       // aggregates emit no create action/command/DTO/response).
@@ -510,6 +524,7 @@ export function renderController(
             ...derivedProblemDecls(shape.getByIdApiOp),
             `    public async Task<ActionResult<${agg.name}Response>> ${actionName(opGetById(agg.name))}([FromRoute] ${shape.idClrType} id)`,
             "    {",
+            ...(shape.cache ? renderCacheHit(shape.cache, "id.ToString()") : []),
             `        var response = await _mediator.Send(new Get${agg.name}ByIdQuery(new ${idClass}(id)));`,
             // RS-27 — `NotFound()` produced ASP.NET's OWN bare 404, bypassing
             // `DomainExceptionFilter`'s `AggregateNotFoundException` arm that every
@@ -522,6 +537,7 @@ export function renderController(
             // `ToString()` is overridden to the raw value, so both spellings of this
             // message interpolate identically.
             `        if (response is null) throw ${csNotFoundException(ns, `${agg.name} {id}`)};`,
+            ...(shape.cache ? renderCacheStore("id.ToString()", "response") : []),
             "        return Ok(response);",
             "    }",
             "",
@@ -1571,6 +1587,8 @@ public static class ValidationProblem
             string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase)
             && (p.ParameterType == typeof(Guid) || p.ParameterType == typeof(Guid?)));
 
+    ${csQueryMismatchMessageFn()}
+
     private static bool IsInt32Parameter(ActionContext context, string key) =>
         context.ActionDescriptor.Parameters.Any(p =>
             string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase)
@@ -1786,6 +1804,20 @@ public static class ValidationProblem
                             ["params"] = new Dictionary<string, object> { ["min"] = ${INTEGER_RANGE_PARAMS.min}, ["max"] = ${INTEGER_RANGE_PARAMS.max} },
                         };
                     }
+                    // A query / route value that does not parse as its declared
+                    // type reads its kind's ruled sentence; the binder only says
+                    // "is not valid".
+                    var mismatch = required || malformedId ? null
+                        : QueryMismatchMessage(context, entry.Key, error.ErrorMessage);
+                    if (mismatch is not null)
+                    {
+                        return new Dictionary<string, object>
+                        {
+                            ["pointer"] = PointerOf(entry.Key),
+                            ["message"] = mismatch,
+                            ["code"] = ${csLit(fieldCode("type-mismatch"))},
+                        };
+                    }
                     return new Dictionary<string, object>
                     {
                         ["pointer"] = PointerOf(entry.Key),
@@ -1971,4 +2003,37 @@ ${merges.map((m) => `        (${JSON.stringify(m.name)}, new[] { ${m.sources.map
     }
 }
 `;
+}
+
+/** `QueryMismatchMessage(context, key, binderMessage)`: the ruled
+ *  `type-mismatch` sentence (`QUERY_PARAM_MISMATCH_MESSAGES`) of a query / route value
+ *  the binder could not convert, picked by the CLR type the action parameter
+ *  binds; null for any other model-state error. */
+function csQueryMismatchMessageFn(): string {
+  const kinds: readonly [QueryParamMismatchKind, readonly string[]][] = [
+    ["integer", ["int", "long"]],
+    ["decimal", ["decimal", "double"]],
+    ["bool", ["bool"]],
+    ["datetime", ["DateTime", "DateTimeOffset"]],
+    ["date", ["DateOnly"]],
+  ];
+  const arms = kinds.flatMap(([kind, types]) =>
+    types.map(
+      (t) =>
+        `            _ when type == typeof(${t}) || type == typeof(${t}?) => ${csLit(QUERY_PARAM_MISMATCH_MESSAGES[kind])},`,
+    ),
+  );
+  return `private static string? QueryMismatchMessage(ActionContext context, string key, string binderMessage)
+    {
+        if (!binderMessage.StartsWith("The value '", StringComparison.Ordinal)) return null;
+        var type = context.ActionDescriptor.Parameters
+            .FirstOrDefault(p => string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase))
+            ?.ParameterType;
+        if (type is null) return null;
+        return type switch
+        {
+${arms.join("\n")}
+            _ => null,
+        };
+    }`;
 }

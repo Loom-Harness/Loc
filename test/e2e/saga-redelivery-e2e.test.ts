@@ -1,13 +1,18 @@
 // Idempotent-consumer dedup, end to end: a durable envelope redelivered to a
-// hosted saga consumer is a no-op.  The consumer's workflow lives in a
-// different context than the durable channel, so its saga row only dedups if
-// the marker is decided deployable-wide.  A redelivery is forced by clearing
-// the outbox row's `dispatched_at`, which makes the local relay deliver the
-// SAME row id again; without the `last_event_id` check the reactor runs twice
-// and a second Note appears.
+// hosted consumer is a no-op.  The consumers live in a different context than
+// the durable channel, so they only dedup if the decision is deployable-wide.
+// A redelivery is forced by clearing the outbox row's `dispatched_at`, which
+// makes the local relay deliver the SAME row id again.
 //
-// Opt-in: LOOM_SAGA_REDELIVERY_E2E=1 (npm run test:saga-redelivery-java / -elixir).  Needs
-// docker, and gradle + JDK 25 (java leg) / mix (elixir leg) on PATH.
+//   - saga reactor (java, elixir): without the `last_event_id` check the
+//     reactor runs twice and a second Note appears;
+//   - projection fold (every backend, D-PROJECTION-FOLD-INBOX): without the
+//     fold-inbox claim the `seen += 1` fold counts the event twice.
+//
+// Opt-in: LOOM_SAGA_REDELIVERY_E2E=1 (npm run test:saga-redelivery-<backend>).
+// Needs docker, plus the leg's toolchain on PATH: gradle + JDK 25 (java), mix
+// (elixir), npm (node, node-mikroorm), uv (python), the .NET SDK (dotnet,
+// dotnet-dapper).
 
 import { type ChildProcess, execSync, spawn } from "node:child_process";
 import { appendFileSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -15,6 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mixDepsGet } from "./support/mix-retry.js";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 const ENABLED = process.env.LOOM_SAGA_REDELIVERY_E2E === "1";
 
@@ -56,7 +62,8 @@ ${crossContext ? "  resource adminState { for: AdminFeed, kind: state, use: pg }
 }
 `;
 
-/** The reactor's effect — one Note per run — is countable from outside. */
+/** The reactor's effect — one Note per run — and the fold's — one count per
+ *  application — are both countable from outside. */
 function feedContext(indent: string): string {
   return [
     "aggregate Note with crudish { text: string }",
@@ -67,6 +74,13 @@ function feedContext(indent: string): string {
     "  create(e: ProductLogged) by e.product {",
     "    seen := 1",
     '    let n = Note.create(text: "fed")',
+    "  }",
+    "}",
+    "projection Tally keyed by product {",
+    "  product: Product id",
+    "  seen: int",
+    "  on(e: ProductLogged) {",
+    "    seen += 1",
     "  }",
     "}",
   ]
@@ -92,28 +106,53 @@ async function waitFor(probe: () => Promise<boolean>, ms: number, label: string)
 }
 
 interface Leg {
-  platform: "java" | "elixir";
+  /** The leg's name: the `-t` filter of its `test:saga-redelivery-*` script. */
+  backend: string;
+  /** The deployable's `platform:` clause. */
+  platform: string;
+  /** The toolchain that builds and boots it. */
+  boot: "java" | "elixir" | "node" | "python" | "dotnet";
+  /** The saga reactor's dedup is asserted (the backends whose saga rows map
+   *  `last_event_id` on this fixture). */
+  saga: boolean;
   crossContext: boolean;
   pgPort: number;
   appPort: number;
 }
-const LEGS: Leg[] = [
-  { platform: "java", crossContext: true, pgPort: 55461, appPort: 4261 },
-  { platform: "elixir", crossContext: true, pgPort: 55462, appPort: 4262 },
-];
+const LEGS: Leg[] = (
+  [
+    { backend: "java", platform: "java", boot: "java", saga: true },
+    { backend: "elixir", platform: "elixir", boot: "elixir", saga: true },
+    { backend: "node", platform: "node", boot: "node", saga: true },
+    {
+      backend: "node-mikroorm",
+      platform: "node { persistence: mikroorm }",
+      boot: "node",
+      saga: true,
+    },
+    { backend: "python", platform: "python", boot: "python", saga: true },
+    { backend: "dotnet", platform: "dotnet", boot: "dotnet", saga: true },
+    {
+      backend: "dotnet-dapper",
+      platform: "dotnet { persistence: dapper }",
+      boot: "dotnet",
+      saga: true,
+    },
+  ] satisfies Omit<Leg, "crossContext" | "pgPort" | "appPort">[]
+).map((l, i) => ({ ...l, crossContext: true, pgPort: 55461 + i, appPort: 4261 + i }));
 
 describe.skipIf(!ENABLED).each(LEGS)(
-  "saga redelivery is a no-op ($platform)",
-  ({ platform, crossContext, pgPort, appPort }) => {
+  "durable redelivery is a no-op ($backend)",
+  ({ backend, platform, boot, saga, crossContext, pgPort, appPort }) => {
     let dir: string;
     let app: ChildProcess | undefined;
-    const pg = `loom-saga-redelivery-${platform}-pg`;
+    const pg = `loom-saga-redelivery-${backend}-pg`;
     const base = `http://localhost:${appPort}`;
     const psql = (sql: string): string =>
       sh(`docker exec ${pg} psql -U postgres -d d -At -c "${sql}"`);
 
     beforeAll(async () => {
-      dir = mkdtempSync(join(tmpdir(), `loom-saga-redelivery-${platform}-`));
+      dir = mkdtempSync(join(tmpdir(), `loom-saga-redelivery-${backend}-`));
       writeFileSync(join(dir, "sys.ddd"), fixture(platform, crossContext));
       sh(`node ${join(process.cwd(), "bin/cli.js")} generate system sys.ddd -o out`, dir);
       sh(
@@ -131,7 +170,7 @@ describe.skipIf(!ENABLED).each(LEGS)(
       let cmd: string;
       let args: string[];
       let env: Record<string, string>;
-      if (platform === "java") {
+      if (boot === "java") {
         sh("gradle --no-daemon -q bootJar", out);
         const jar = readdirSync(join(out, "build", "libs")).find(
           (f) => f.endsWith(".jar") && !f.endsWith("-plain.jar"),
@@ -145,7 +184,7 @@ describe.skipIf(!ENABLED).each(LEGS)(
           SPRING_DATASOURCE_PASSWORD: "postgres",
           SERVER_PORT: String(appPort),
         };
-      } else {
+      } else if (boot === "elixir") {
         env = {
           DATABASE_URL: `postgres://postgres:postgres@localhost:${pgPort}/d`,
           MIX_ENV: "dev",
@@ -155,6 +194,30 @@ describe.skipIf(!ENABLED).each(LEGS)(
         sh("mix ecto.migrate", out, env);
         cmd = "mix";
         args = ["phx.server"];
+      } else if (boot === "node") {
+        installGeneratedProject(out, { flags: [], timeout: 420_000 });
+        env = {
+          DATABASE_URL: `postgres://postgres:postgres@localhost:${pgPort}/d`,
+          PORT: String(appPort),
+        };
+        cmd = join(out, "node_modules/.bin/tsx");
+        args = ["index.ts"];
+      } else if (boot === "python") {
+        sh("uv sync --quiet", out);
+        env = {
+          DATABASE_URL: `postgresql+asyncpg://postgres:postgres@localhost:${pgPort}/d`,
+          PORT: String(appPort),
+        };
+        cmd = "uv";
+        args = ["run", "uvicorn", "app.main:app", "--port", String(appPort)];
+      } else {
+        sh("dotnet restore", out);
+        env = {
+          ConnectionStrings__Default: `Host=localhost;Port=${pgPort};Database=d;Username=postgres;Password=postgres`,
+          ASPNETCORE_URLS: `http://0.0.0.0:${appPort}`,
+        };
+        cmd = "dotnet";
+        args = ["run", "--no-restore", "--no-launch-profile"];
       }
       app = spawn(cmd, args, {
         cwd: out,
@@ -167,8 +230,8 @@ describe.skipIf(!ENABLED).each(LEGS)(
       app.stderr?.on("data", sink);
       await waitFor(
         async () => (await fetch(`${base}/ready`)).ok,
-        platform === "java" ? 180_000 : 120_000,
-        `${platform} /ready`,
+        boot === "java" || boot === "dotnet" ? 180_000 : 120_000,
+        `${backend} /ready`,
       );
     }, 900_000);
 
@@ -206,14 +269,21 @@ describe.skipIf(!ENABLED).each(LEGS)(
       return res.ok ? ((await res.json()) as { items: unknown[] }).items.length : -1;
     };
 
-    it("runs the reactor once for a redelivered envelope", async () => {
+    const tally = async (product: string): Promise<number | undefined> => {
+      const res = await fetch(`${base}/api/projections/tally/${product}`);
+      return res.ok ? ((await res.json()) as { seen: number }).seen : undefined;
+    };
+
+    it("applies a redelivered envelope once", async () => {
       const created = await post("/api/products", { sku: "s1" });
       expect(created.status).toBe(201);
       const { id } = (await created.json()) as { id: string };
       expect((await post(`/api/products/${id}/record`, {})).ok).toBe(true);
 
       await waitFor(
-        async () => (await instances()).some((i) => i.productId === id) && (await notes()) === 1,
+        async () =>
+          (await tally(id)) === 1 &&
+          (!saga || ((await instances()).some((i) => i.productId === id) && (await notes()) === 1)),
         30_000,
         "first delivery",
       );
@@ -232,9 +302,10 @@ describe.skipIf(!ENABLED).each(LEGS)(
         30_000,
         "redelivery drained",
       );
-      // Let the redelivered reactor settle before asserting the effect stayed single.
+      // Let the redelivered handlers settle before asserting the effects stayed single.
       await new Promise((r) => setTimeout(r, 2_000));
-      expect(await notes()).toBe(1);
+      expect(await tally(id)).toBe(1);
+      if (saga) expect(await notes()).toBe(1);
     }, 180_000);
   },
 );

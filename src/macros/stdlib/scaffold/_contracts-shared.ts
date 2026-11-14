@@ -29,10 +29,10 @@ import { isAggregate, isEntityPart } from "../../../language/generated/ast.js";
 import {
   apiReadFields,
   apiReadFieldsOf,
+  cloneExpr,
   cloneTypeRef,
   command,
   containmentOf,
-  createInputProperties,
   entityPartNames,
   field,
   idRef,
@@ -40,6 +40,7 @@ import {
   response,
 } from "../../api/index.js";
 import {
+  createRequestMembers,
   type HandlerTarget,
   handlerTargets,
   idParamName,
@@ -87,7 +88,7 @@ function contractForTarget(t: HandlerTarget): ContractRecord {
   const base = targetHandlerName(t);
   switch (t.kind) {
     case "create":
-      return command(`${base}Command`, fieldsFromProps(createInputProperties(t.agg)));
+      return command(`${base}Command`, fieldsFromProps(createRequestMembers(t.agg, t.create)));
     case "operation":
       return command(`${base}Command`, fieldsFromParams(t.op.params));
     case "destroy":
@@ -130,11 +131,17 @@ function partResponses(agg: Aggregate): ContractRecord[] {
   return out;
 }
 
-/** Clone a list of source `Property` members into fresh name+type request
- * fields (a fresh `field(...)` — the source node would be reparented by the
- * splice; a hand-rolled type would not re-link, so `cloneTypeRef` rebuilds it). */
-function fieldsFromProps(props: readonly Property[]): Property[] {
-  return props.filter((p) => p.type != null).map((p) => field(p.name, cloneTypeRef(p.type)));
+/** Clone a list of source `Property` members (or create params) into fresh
+ * request fields carrying the name, type and `= default` (a fresh `field(...)`
+ * — the source node would be reparented by the splice; a hand-rolled type would
+ * not re-link, so `cloneTypeRef` / `cloneExpr` rebuild them).  The default is
+ * part of the request contract: a client form seeds from it. */
+function fieldsFromProps(props: readonly (Property | Parameter)[]): Property[] {
+  return props
+    .filter((p) => p.type != null)
+    .map((p) =>
+      field(p.name, cloneTypeRef(p.type), p.default ? { default: cloneExpr(p.default) } : {}),
+    );
 }
 
 /** Clone a list of `Parameter`s (operation / find params) into request fields. */

@@ -13,7 +13,14 @@ import {
   wireStatus,
   wireTitle,
 } from "../../ir/enrich/wire-policy.js";
-import { channelPlan, observableWorkflows, routedPolymorphicRead } from "../../ir/plan/index.js";
+import { cachePlanFor } from "../../ir/plan/cache.js";
+import {
+  channelPlan,
+  observableWorkflows,
+  QUERY_PARAM_MISMATCH_MESSAGES,
+  type QueryParamMismatchKind,
+  routedPolymorphicRead,
+} from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   DeployableIR,
@@ -103,6 +110,12 @@ import {
   buildPyBaseUnionFile,
   concretesOf,
 } from "./base-reader-builder.js";
+import {
+  byIdCacheUsesRedis,
+  PY_BY_ID_CACHE_PATH,
+  PY_INSTALL_BY_ID_CACHE_EVICTION,
+  renderPyByIdCacheModule,
+} from "./by-id-cache-builder.js";
 import { buildPyChannelsFile } from "./channels-builder.js";
 import { pyIsoHelperBody, pyMoneyQuantum } from "./codec-spelling.js";
 import { buildPyDispatchFile, dispatchSubscriptionsOf } from "./dispatch-builder.js";
@@ -204,6 +217,13 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // Hono orchestrator).
   const chPlan = channelPlan(args.contexts, { deployable: args.deployable, sys: args.sys });
   const channelBindings = chPlan.bindings;
+  // The by-id read cache (`src/ir/plan/cache.ts`): the cached reads of the
+  // hosted contexts, rendered into `app/by_id_cache.py` and the by-id routes.
+  const cachedReads = args.contexts.flatMap(
+    (ctx) => cachePlanFor(args.sys, ctx, args.deployable).cached,
+  );
+  const byIdCacheModule = renderPyByIdCacheModule(args.sys, args.deployable, cachedReads);
+  if (byIdCacheModule) out.set(PY_BY_ID_CACHE_PATH, byIdCacheModule);
   // Wired-but-foreign channels join the carrier set as minimal ChannelIR
   // stubs, so the dispatch derivation routes a hosted reactor off a channel
   // declared in a non-hosted context.  The stub knobs stay PINNED to
@@ -377,7 +397,9 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // stays byte-identical.
   const fileDeps = hasFileRoutes ? ["python-multipart==0.0.32"] : [];
   const channelDeps = [
-    ...(channelBindings.some((b) => b.transport === "redis") ? ["redis==6.4.0"] : []),
+    ...(channelBindings.some((b) => b.transport === "redis") || byIdCacheUsesRedis(cachedReads)
+      ? ["redis==6.4.0"]
+      : []),
     ...(channelBindings.some((b) => b.transport === "rabbitmq") ? ["aio-pika==9.6.2"] : []),
     ...(channelBindings.some((b) => b.transport === "kafka") ? ["aiokafka==0.12.0"] : []),
   ];
@@ -556,6 +578,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       contextStaticSubpathRoutes(args.contexts),
       forwardsCallerCredential(args.deployable, args.sys),
       migratesAtBoot(args.sys, args.deployable),
+      byIdCacheModule !== null,
     ),
   );
   if (hasEmbeddedSpa) {
@@ -926,10 +949,14 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       // the first create request at runtime, since the reference only evaluates
       // inside the handler.  Hosted siblings join the pool; `refersTo` still
       // gates each one, so an aggregate that references none is byte-identical.
-      const routesContent = buildPyRoutesFile(agg, repo, ctx, hasDispatch, [
-        ...foreignIdNames,
-        ...merged.aggregates.map((a) => a.name),
-      ]);
+      const routesContent = buildPyRoutesFile(
+        agg,
+        repo,
+        ctx,
+        hasDispatch,
+        [...foreignIdNames, ...merged.aggregates.map((a) => a.name)],
+        cachedReads.find((c) => c.context === ctx.name && c.aggregate === agg.name),
+      );
       out.set(routesPath, routesContent);
       sourcemap?.file(routesPath, out.get(routesPath)!, agg.origin, construct);
       const tests = renderPyTestsFile(agg, ctx);
@@ -1350,6 +1377,8 @@ function renderMain(
   // False on a deployable whose storage's database another deployable
   // migrates: it carries the migrations but leaves the boot run to that one.
   runsMigrations = true,
+  // A cache resource caches a by-id read: the lifespan installs its eviction.
+  installsByIdCache = false,
 ): string {
   // Every router mounts under the shared API base path (`/api/*`) so the
   // SPA's root path namespace stays free for client-side routing.
@@ -1507,6 +1536,7 @@ function renderMain(
     authRequired ? `    ${M.assert_user_verifier_registered}()` : null,
     runsMigrations ? `    await ${M.run_migrations}()` : null,
     hasSeeds ? `    await ${M.run_seeds}()` : null,
+    installsByIdCache ? `    ${PY_INSTALL_BY_ID_CACHE_EVICTION}()` : null,
     // Broker transport (channels.md; M-T4.4): one shared redis connection set
     // per LOOM_CHANNEL_*_URL.  The publish tee inside make_dispatcher routes
     // broker-bound events to the broker; the consumer loop feeds received
@@ -2382,7 +2412,25 @@ def _wire_message(e: dict[str, object]) -> str:
         and ctx.get("pattern") == _UUID_PATTERN
     ):
         return ${JSON.stringify(fieldFixedMessage("malformed-id"))}
+    mismatch = _query_mismatch(e)
+    if mismatch is not None:
+        return mismatch
     return str(e.get("msg", ""))
+
+
+# A query / path value that does not parse as its declared type answers its
+# kind's ruled sentence on every backend, keyed here by pydantic's error type.
+_QUERY_MISMATCH: dict[str, str] = {
+${pyQueryMismatchRows()}
+}
+
+
+def _query_mismatch(e: dict[str, object]) -> str | None:
+    """The ruled type-mismatch sentence of a query/path value, else None."""
+    loc = e.get("loc")
+    if not isinstance(loc, (tuple, list)) or not loc or loc[0] not in ("query", "path"):
+        return None
+    return _QUERY_MISMATCH.get(str(e.get("type", "")))
 
 
 # pydantic error types that mean the JSON value has the wrong type or shape.
@@ -2411,7 +2459,7 @@ def _wire_code(e: dict[str, object]) -> str:
         and ctx.get("pattern") == _UUID_PATTERN
     ):
         return ${JSON.stringify(fieldCode("malformed-id"))}
-    if kind.endswith(_TYPE_MISMATCH_SUFFIXES) or kind in _TYPE_MISMATCH_TYPES:
+    if _query_mismatch(e) is not None or kind.endswith(_TYPE_MISMATCH_SUFFIXES) or kind in _TYPE_MISMATCH_TYPES:
         return ${JSON.stringify(fieldCode("type-mismatch"))}
     return ${JSON.stringify(fieldCode("rule"))}
 
@@ -2608,3 +2656,29 @@ class PagedResult[T]:
     total: int
     total_pages: int
 `;
+
+/** The `_QUERY_MISMATCH` rows: each pydantic error type a query / path value
+ *  that does not parse raises, mapped to its kind's ruled sentence
+ *  (`QUERY_PARAM_MISMATCH_MESSAGES`). */
+function pyQueryMismatchRows(): string {
+  const kinds: readonly [QueryParamMismatchKind, readonly string[]][] = [
+    ["integer", ["int_parsing", "int_from_float", "int_type"]],
+    [
+      "decimal",
+      ["decimal_parsing", "decimal_type", "float_parsing", "float_type", "finite_number"],
+    ],
+    ["bool", ["bool_parsing", "bool_type"]],
+    ["datetime", ["datetime_parsing", "datetime_from_date_parsing", "datetime_type"]],
+    [
+      "date",
+      ["date_parsing", "date_from_datetime_parsing", "date_from_datetime_inexact", "date_type"],
+    ],
+  ];
+  return kinds
+    .flatMap(([kind, types]) =>
+      types.map(
+        (t) => `    ${JSON.stringify(t)}: ${JSON.stringify(QUERY_PARAM_MISMATCH_MESSAGES[kind])},`,
+      ),
+    )
+    .join("\n");
+}

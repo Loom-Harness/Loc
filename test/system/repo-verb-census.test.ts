@@ -59,7 +59,7 @@ const E2E_API_VERB =
   "e2e test-client verb: names the generated HTTP by-id route, not a repository call";
 
 const WAIVERS: Record<string, Waiver> = {
-  "src/ir/validate/checks/test-checks.ts": { count: 2, reason: E2E_API_VERB },
+  "src/ir/validate/checks/test-checks.ts": { count: 3, reason: E2E_API_VERB },
   "src/ir/validate/checks/e2e-route-checks.ts": { count: 3, reason: E2E_API_VERB },
   "src/system/e2e-render.ts": { count: 1, reason: E2E_API_VERB },
   "src/system/ui-e2e-render.ts": { count: 2, reason: E2E_API_VERB },

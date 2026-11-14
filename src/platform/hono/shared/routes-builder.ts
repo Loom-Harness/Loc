@@ -36,6 +36,10 @@ import {
   historySelectStatement,
   renderHistoryEntryMapper,
 } from "../../../generator/typescript/emit/audit-history.js";
+import {
+  renderCacheHit,
+  renderCacheStore,
+} from "../../../generator/typescript/emit/by-id-cache.js";
 import { domainServiceNamesInExprs } from "../../../generator/typescript/emit/domain-service.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
@@ -80,7 +84,12 @@ import {
   emitsRestCreate,
   wireCreateDefault,
 } from "../../../ir/enrich/wire-projection.js";
+import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import { destroyLadder, gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
+import {
+  QUERY_PARAM_MISMATCH_MESSAGES,
+  type QueryParamMismatchKind,
+} from "../../../ir/plan/index.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -100,6 +109,7 @@ import type {
   FindIR,
   InvariantIR,
   OperationIR,
+  PayloadIR,
   RepositoryIR,
   TypeIR,
   ValueObjectIR,
@@ -262,6 +272,7 @@ export function txWrapperCall(usingMikro: boolean): string {
  *  alone leaks masked fields to legitimate readers, and the mask alone leaves
  *  the endpoint open. */
 function emitHistoryRoute(
+  payloads: readonly PayloadIR[],
   agg: EnrichedAggregateIR,
   find: FindIR,
   usingMikro: boolean,
@@ -332,14 +343,14 @@ function emitHistoryRoute(
   // masked field's change entry is dropped.  Bound only when there is a mask;
   // otherwise the mapper takes no principal (and the project need not carry an
   // `auth/user-types` module at all).
-  if (historyNeedsPrincipal(agg)) {
+  if (historyNeedsPrincipal(payloads, agg)) {
     out.push(
       `    const __histUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User | undefined }).get("currentUser") ?? null;`,
     );
   }
   out.push(...historySelectStatement(agg, usingMikro).map((l) => `    ${l}`));
   out.push(
-    `    return c.json(__rows.map((r) => ${historyMapperName(agg)}(${historyMapperArgs(agg)})), 200);`,
+    `    return c.json(__rows.map((r) => ${historyMapperName(agg)}(${historyMapperArgs(payloads, agg)})), 200);`,
   );
   out.push(`  },`);
   out.push(`);`);
@@ -496,6 +507,9 @@ export function buildRoutesFile(
   // instead of drizzle's `db.transaction` + `tx.insert(schema.<table>)`.  The
   // drizzle default keeps `usingMikro = false`, so its output is byte-identical.
   usingMikro = false,
+  // The aggregate's cached by-id read (`src/ir/plan/cache.ts`), when a
+  // `kind: cache` resource on this deployable caches it.
+  cache?: CachedByIdRead,
 ): string {
   // An audited public command action instruments its route handler with an
   // `audit_records` insert; the schema table is only emitted when some
@@ -1037,7 +1051,7 @@ export function buildRoutesFile(
   // route handler stays a few lines.  It is where `mask unless` composes into
   // the trail (see `renderHistoryEntryMapper`).
   if (historyFind) {
-    lines.push(renderHistoryEntryMapper(agg));
+    lines.push(renderHistoryEntryMapper(ctx.payloads, agg));
     lines.push("");
   }
 
@@ -1251,9 +1265,13 @@ export function buildRoutesFile(
   // one-segment find can; registered here anyway to keep the reads together.
   if (historyFind) {
     lines.push(
-      ...emitHistoryRoute(agg, historyFind, usingMikro, ctx.structuralErrorStatuses).map(
-        (l) => `  ${l}`,
-      ),
+      ...emitHistoryRoute(
+        ctx.payloads,
+        agg,
+        historyFind,
+        usingMikro,
+        ctx.structuralErrorStatuses,
+      ).map((l) => `  ${l}`),
     );
     lines.push("");
   }
@@ -1291,6 +1309,9 @@ export function buildRoutesFile(
         `      if (!(${renderTsExpr(byIdFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind.name}`)});`,
       );
     }
+    if (cache) {
+      lines.push(...renderCacheHit(cache, "id", `z.infer<typeof ${agg.name}Response>`, "      "));
+    }
     lines.push(`      const found = await repo.findById(${T.Ids}.${agg.name}Id(id));`);
     // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
     // every backend, and this route was the one place Hono answered a machine
@@ -1317,10 +1338,28 @@ export function buildRoutesFile(
     // conformance spec-diff, so declaring it on node alone would read as a
     // contract divergence.  Declaring it belongs with emitting it on the other
     // four backends, in one change.
-    if (readsIfMatch(operationVersionCheck(agg))) {
+    const sendsETag = readsIfMatch(operationVersionCheck(agg));
+    if (sendsETag) {
       lines.push(`      c.header("etag", versionETag(found.${ROW_VERSION_FIELD}));`);
     }
-    if (emitTrace) {
+    if (cache) {
+      lines.push(`      const out = ${wireResp(agg, "repo", "found")};`);
+      if (emitTrace) {
+        lines.push(
+          `      ${renderHonoLogCall("wireOut", "keys: Object.keys(out as Record<string, unknown>)")}`,
+        );
+      }
+      lines.push(
+        ...renderCacheStore(
+          cache,
+          "id",
+          "out",
+          sendsETag ? `versionETag(found.${ROW_VERSION_FIELD})` : "null",
+          "      ",
+        ),
+      );
+      lines.push(`      return c.json(out as z.infer<typeof ${agg.name}Response>, 200);`);
+    } else if (emitTrace) {
       // toWire isn't trivial — bind once so it's not run twice between
       // Object.keys and c.json.
       lines.push(`      const out = ${wireResp(agg, "repo", "found")};`);
@@ -2791,8 +2830,7 @@ const BODY_DATE = "z.string().date()";
  *  `preprocess`'s own signature under `--strict` on both (and the coercion's spurious
  *  `nullable: true` goes away with it, exactly as it did for `BODY_DATETIME`).
  *  An unrecognised spelling falls through to `z.boolean()`, i.e. a typed 422. */
-export const QUERY_BOOL =
-  'z.preprocess((v) => (v === "true" || v === "1" ? true : v === "false" || v === "0" ? false : v), z.boolean())';
+export const QUERY_BOOL = `z.preprocess((v) => (v === "true" || v === "1" ? true : v === "false" || v === "0" ? false : v), z.boolean({ error: ${JSON.stringify(QUERY_PARAM_MISMATCH_MESSAGES.bool)} }))`;
 
 /** A declared `int` is an `int4` COLUMN, so its wire form carries that bound and
  *  publishes `format: int32` — what .NET and java have always emitted.
@@ -2868,17 +2906,27 @@ const LONG_SAFE = `.refine((n: number) => n >= ${LONG_BOUND.min} && n <= ${LONG_
 const INT32_FORMAT = '.openapi({ format: "int32" })';
 const INT32 = `${INT32_RANGE}${INT32_FORMAT}`;
 
+/** zod's `{ error }` for a query/path value that does not parse as `kind` —
+ *  the ruled `type-mismatch` sentence (`QUERY_PARAM_MISMATCH_MESSAGES`), which
+ *  `defaultHook` answers as `field.type-mismatch`. */
+const queryMismatch = (kind: QueryParamMismatchKind): string =>
+  `{ error: ${JSON.stringify(QUERY_PARAM_MISMATCH_MESSAGES[kind])} }`;
+
+/** A query-string / path-segment `date`: `BODY_DATE`'s parse, refused with the
+ *  query mismatch sentence. */
+const QUERY_DATE = `z.string().date(${queryMismatch("date")})`;
+
 const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
-  int: `z.coerce.number().int()${INT32}`,
-  long: `z.coerce.number().int()${LONG_SAFE}`,
-  decimal: "z.coerce.number()",
+  int: `z.coerce.number(${queryMismatch("integer")}).int(${queryMismatch("integer")})${INT32}`,
+  long: `z.coerce.number(${queryMismatch("integer")}).int(${queryMismatch("integer")})${LONG_SAFE}`,
+  decimal: `z.coerce.number(${queryMismatch("decimal")})`,
   money: "moneySchema",
   // A query string is the same Postgres `text` a body string is, so it gets
   // the same NUL guard — without it a `%00` reached the driver as a 500.
   string: `z.string()${NO_NUL}`,
   bool: QUERY_BOOL,
-  datetime: "z.coerce.date()",
-  date: BODY_DATE,
+  datetime: `z.coerce.date(${queryMismatch("datetime")})`,
+  date: QUERY_DATE,
   guid: "z.string()",
   json: "z.unknown()",
   File: FILE_REF_ZOD,

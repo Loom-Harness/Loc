@@ -65,6 +65,8 @@ import {
   commandCreateReturnsSelf,
   esStarterSharesEvent,
   eventSourcedWorkflows,
+  foldInboxPurgeSql,
+  foldsDedupe,
   hasDurableEvents,
   hasStateRow,
   lookupOp,
@@ -227,6 +229,10 @@ export function buildWorkflowsFile(
    *  resolves it because a merged multi-context deployable's `ctx` is not the
    *  workflow's owning context.  Absent → the workflow's own level only. */
   resolveIsolation: (wf: WorkflowIR) => IsolationLevel | undefined = (wf) => wf.isolation,
+  /** The deployable's consumers run the redelivery dedupe
+   *  (`channelPlan(...).receivesDurable`): it hosts a durable channel or
+   *  consumes a durable foreign one.  Absent → this context hosts one. */
+  receivesDurable: boolean = hasDurableEvents(ctx),
 ): string {
   if (ctx.workflows.length === 0) return buildProducerOutboxFile(ctx, usingMikro, carriesOrigin);
   // Build the body first; imports are derived from what the body actually
@@ -431,6 +437,7 @@ export function buildWorkflowsFile(
         opFragments,
         usingMikro,
         resolveIsolation,
+        receivesDurable,
       ).map((l) => `  ${l}`),
     );
     body.push("");
@@ -606,6 +613,7 @@ export function buildWorkflowsFile(
         resolveStreamContext,
         usingMikro,
         carriesOrigin,
+        receivesDurable,
       ),
     );
   } else if (hasDurableEvents(ctx)) {
@@ -628,7 +636,14 @@ export function buildWorkflowsFile(
     body.push("");
     body.push(...emitDispatcherFactory(new Map(), usingMikro));
     body.push("");
-    body.push(...emitOutboxMachinery(durableEventTypes(ctx), usingMikro, carriesOrigin));
+    body.push(
+      ...emitOutboxMachinery(
+        durableEventTypes(ctx),
+        usingMikro,
+        carriesOrigin,
+        foldsDedupe(ctx, true),
+      ),
+    );
   }
   // Now derive imports from what the body actually references.
   const rawBodyStr = body.join("\n");
@@ -761,6 +776,8 @@ export function buildWorkflowsFile(
   const drizzleOps = ["and", "asc", "eq", "isNull", "lt"].filter((op) =>
     new RegExp(`(?<!\\.)\\b${op}\\(`).test(bodyStr),
   );
+  // The fold-inbox purge is a raw `sql` template.
+  if (/(?<!\.)\bsql`/.test(bodyStr)) drizzleOps.push("sql");
   if (drizzleOps.length > 0)
     imports.push(`import { ${drizzleOps.join(", ")} } from "drizzle-orm";`);
   // The outbox relay logs event_dead_lettered on the module-scope logger.
@@ -972,6 +989,7 @@ function emitWorkflowRoute(
    *  Drizzle builds stay byte-identical. */
   usingMikro = false,
   resolveIsolation: (wf: WorkflowIR) => IsolationLevel | undefined = (wf) => wf.isolation,
+  receivesDurable: boolean = hasDurableEvents(ctx),
 ): string[] {
   const out: string[] = [];
   out.push(`app.openapi(`);
@@ -1208,7 +1226,7 @@ function emitWorkflowRoute(
             ctx,
             {
               keyExpr: corrParam.name,
-              mikroDurable: usingMikro && hasDurableEvents(ctx),
+              mikroDurable: usingMikro && receivesDurable,
             },
           )};`,
         ]
@@ -1694,6 +1712,7 @@ function emitSubscriptionHandlers(
   /** Durable events carry their event origin through the outbox (ruling D1)
    *  — see `buildWorkflowsFile`. */
   carriesOrigin = false,
+  receivesDurable: boolean = hasDurableEvents(ctx),
 ): string[] {
   const subs = ctx.eventSubscriptions;
   const out: string[] = [];
@@ -1756,7 +1775,7 @@ function emitSubscriptionHandlers(
             statements,
             saves,
             ctx,
-            hasDurableEvents(ctx),
+            receivesDurable,
             opFragments,
             usingMikro,
           )),
@@ -1770,7 +1789,7 @@ function emitSubscriptionHandlers(
   const durable = durableEventTypes(ctx);
   if (durable.size > 0) {
     out.push("");
-    out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin));
+    out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin, foldsDedupe(ctx, true)));
   }
   return out;
 }
@@ -1852,13 +1871,14 @@ const OUTBOX_RELAY_ERROR_LOG =
  *  the dispatched rows older than the retention window (`del` is the store's
  *  delete over `cutoff`).  A failed purge is logged and retried next interval
  *  — it never blocks delivery. */
-function outboxPurgeStep(del: string): string[] {
+function outboxPurgeStep(del: string, inboxDel?: string): string[] {
   return [
     `      if (Date.now() - lastPurge >= ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000}) {`,
     `        lastPurge = Date.now();`,
     `        const cutoff = new Date(lastPurge - retentionMs);`,
     `        try {`,
     `          await ${del};`,
+    ...(inboxDel ? [`          await ${inboxDel};`] : []),
     `        } catch (err) {`,
     `          ${OUTBOX_RELAY_ERROR_LOG}`,
     `        }`,
@@ -1883,6 +1903,9 @@ function emitOutboxMachinery(
   durable: ReadonlySet<string>,
   usingMikro = false,
   carriesOrigin = false,
+  /** The deployable's folds claim events in the fold inbox (`foldsDedupe`):
+   *  the purge prunes it on the outbox's window. */
+  pruneInbox = false,
 ): string[] {
   // The outbox row payload: the event, plus its origin under the reserved
   // key when the deployable carries auth (ruling D1).
@@ -1913,7 +1936,7 @@ function emitOutboxMachinery(
   out.push(...emitOutboxRetention());
   out.push(``);
   if (usingMikro) {
-    out.push(...emitMikroOutboxMachinery(captured, redeliver));
+    out.push(...emitMikroOutboxMachinery(captured, redeliver, pruneInbox));
     return out;
   }
   out.push(`export function createOutboxDispatcher(`);
@@ -1967,6 +1990,7 @@ function emitOutboxMachinery(
   out.push(
     ...outboxPurgeStep(
       "db.delete(schema.loomOutbox).where(lt(schema.loomOutbox.dispatchedAt, cutoff))",
+      pruneInbox ? `db.execute(sql\`${foldInboxPurgeSql("${cutoff}")}\`)` : undefined,
     ),
   );
   // The pass claims its batch: one transaction locks the rows it takes and
@@ -2027,6 +2051,7 @@ function emitOutboxMachinery(
 function emitMikroOutboxMachinery(
   captured: string,
   redeliver: (indent: string) => string[],
+  pruneInbox = false,
 ): string[] {
   const ROW = MIKRO_OUTBOX_ROW_CLASS;
   return [
@@ -2092,7 +2117,12 @@ function emitMikroOutboxMachinery(
     `    draining = true;`,
     `    try {`,
     `      const em = db.fork();`,
-    ...outboxPurgeStep(`em.nativeDelete(${ROW}, { dispatchedAt: { $lt: cutoff } })`),
+    ...outboxPurgeStep(
+      `em.nativeDelete(${ROW}, { dispatchedAt: { $lt: cutoff } })`,
+      pruneInbox
+        ? `em.getConnection().execute(${JSON.stringify(foldInboxPurgeSql("?"))}, [cutoff])`
+        : undefined,
+    ),
     // The pass claims its batch (FOR UPDATE SKIP LOCKED) inside one
     // transaction, exactly like the drizzle relay above.
     `      let halted: unknown;`,
@@ -2630,7 +2660,7 @@ function buildProducerOutboxFile(
         ]
       : [
           `import type { NodePgDatabase } from "drizzle-orm/node-postgres";`,
-          `import { and, asc, eq, isNull, lt } from "drizzle-orm";`,
+          `import { and, asc, eq, isNull, lt${foldsDedupe(ctx, true) ? ", sql" : ""} } from "drizzle-orm";`,
           `import * as schema from "../db/schema";`,
         ]),
     ...(carriesOrigin
@@ -2643,7 +2673,7 @@ function buildProducerOutboxFile(
   ];
   out.push(...emitDispatcherFactory(new Map(), usingMikro));
   out.push("");
-  out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin));
+  out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin, foldsDedupe(ctx, true)));
   return `${out.join("\n")}\n`;
 }
 

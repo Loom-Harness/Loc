@@ -4,9 +4,11 @@ import { isTenantScopedStream } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import { type CachedByIdRead, cachePlanFor } from "../../ir/plan/cache.js";
 import {
   channelPlan,
   eventSourcedWorkflows,
+  foldsDedupe,
   observableWorkflows,
   polymorphicReadGates,
   polymorphicReadMasked,
@@ -136,6 +138,7 @@ import {
 } from "./emit/audit-history.js";
 import { renderAuthFiles } from "./emit/auth.js";
 import { renderJavaBaseReadController } from "./emit/base-read.js";
+import { BY_ID_CACHES_CLASS, cachesOnRedis, renderJavaByIdCaches } from "./emit/by-id-cache.js";
 import {
   AMQP_CLIENT_VERSION,
   type ChannelConsumerHandler,
@@ -428,6 +431,8 @@ function emitProjectFromContexts(
   // `queue`/`work` consumer relies on broker ack semantics + idempotent
   // reactors (the slice-3 stance).
   const hostedDurable = new Set(contexts.flatMap((c) => [...durableEventTypes(c)]));
+  // The relay purge prunes the fold inbox when a hosted fold claims events.
+  const pruneInbox = contexts.some((c) => foldsDedupe(c, true));
   // Idempotent-consumer marker carrier (dispatch-delivery-semantics.md §3): the
   // saga dispatcher's handler preamble references OutboxDelivery whenever a
   // hosted context carries a durable channel, so it must exist whether or not a
@@ -600,6 +605,14 @@ function emitProjectFromContexts(
   // Observability catalog — always-on, like dotnet's request log +
   // Hono's pino lines (the obs e2e suites assert this envelope).
   place("CatalogLog.java", "config", renderCatalogLogger(basePkg));
+  // The by-id read cache (`src/ir/plan/cache.ts`): one class per deployable.
+  const cachedReads = system
+    ? contexts.flatMap((c) => cachePlanFor(system.sys, c, system.deployable).cached)
+    : [];
+  const byIdCaches = system
+    ? renderJavaByIdCaches(system.sys, system.deployable, cachedReads, basePkg)
+    : null;
+  if (byIdCaches) place(`${BY_ID_CACHES_CLASS}.java`, "config", byIdCaches);
   place("LifecycleCatalog.java", "config", renderLifecycleCatalog(basePkg));
   place("RequestCatalogFilter.java", "config", renderRequestCatalogFilter(basePkg));
   // RS-39 — an empty request body reads as `{}`.
@@ -813,6 +826,7 @@ function emitProjectFromContexts(
         sourcemap,
         reqNameFor,
         contexts,
+        cachedReads.find((r) => r.context === ctx.name && r.aggregate === agg.name),
       );
     }
     // Value-object / domain-service unit tests (test-placement.md) —
@@ -1323,6 +1337,7 @@ function emitProjectFromContexts(
         configPkg: pkgFor("config"),
         entityPkg: pkgFor("infra-persistence"),
         repoPkg: pkgFor("spring-data-repository"),
+        pruneInbox,
       })) {
         // The broker relay (OutboxRelayService) is replaced by LocalOutboxRelay.
         if (f.name === "OutboxRelayService.java") continue;
@@ -1337,6 +1352,7 @@ function emitProjectFromContexts(
       repoPkg: pkgFor("spring-data-repository"),
       carriesOrigin: authRequired,
       partitioned: partitionedOutbox,
+      pruneInbox,
     })) {
       place(f.name, f.category, f.content);
     }
@@ -1453,6 +1469,7 @@ function emitProjectFromContexts(
         carriesOrigin: authRequired,
         basePkg,
         partitioned: partitionedOutbox,
+        pruneInbox,
       })) {
         place(f.name, f.category, f.content);
       }
@@ -1572,7 +1589,7 @@ function emitProjectFromContexts(
         // Broker channel drivers (M-T4.4 slices 6b + 7c) — per-transport
         // wiring-gated so a channel-less (or single-transport)
         // build.gradle.kts stays byte-identical.
-        ...(channelBindings.some((b) => b.transport === "redis")
+        ...(channelBindings.some((b) => b.transport === "redis") || cachesOnRedis(cachedReads)
           ? { "io.lettuce:lettuce-core": LETTUCE_CORE_VERSION }
           : {}),
         ...(channelBindings.some((b) => b.transport === "rabbitmq")
@@ -1738,6 +1755,9 @@ function emitAggregate(
   /** The deployable's hosted contexts — query-time projections declared in
    *  any of them may read this aggregate. */
   contexts: readonly EnrichedBoundedContextIR[] = [ctx],
+  /** The aggregate's cached by-id read (`src/ir/plan/cache.ts`), when a
+   *  `kind: cache` resource on this deployable caches it. */
+  cache?: CachedByIdRead,
 ): void {
   const eventFields = new Map(ctx.events.map((e) => [e.name, e.fields.map((f) => f.name)]));
   // The JPA mapping mirrors `schemaFromModule`: binding-resolved schema +
@@ -1978,6 +1998,7 @@ function emitAggregate(
     discards: discardedAggregates(ctx).has(agg.name),
     schema,
     pool: ctx.aggregates,
+    ...(cache ? { cache } : {}),
     payloads: ctx.payloads,
   };
   const repoOrigin = repo?.origin ?? agg.origin;
@@ -2156,6 +2177,7 @@ function emitAggregate(
       routePrefix,
       responseDtoPkg: pkgFor("response-dto", agg.name),
       ...(reqNameFor ? { requestComponentName: reqNameFor } : {}),
+      ...(cache ? { cache } : {}),
     }),
     agg.name,
     agg.origin,

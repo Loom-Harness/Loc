@@ -13,6 +13,7 @@ import {
   channelTransportStorageNames,
 } from "../generator/_channels/bindings.js";
 import { OTEL_ENDPOINT_ENV, OTEL_SERVICE_NAME_ENV } from "../generator/_obs/tracing.js";
+import { cacheStoragesOf } from "../ir/plan/cache.js";
 import { apiResourceBindings } from "../ir/util/api-resource-binding.js";
 import {
   resourceEnvBase,
@@ -53,7 +54,8 @@ function oidcEnv({ deployable, sys }: EnvContractArgs): EnvRequirement[] {
 
 /** `<RESOURCE>_URL` for every resource the deployable dials over the network:
  *  a `use: <Api>` binding (the fallback is the caller's own `localhost`) and a
- *  mailer / queue on a dev sidecar (the fallback names the compose host). */
+ *  mailer / queue / redis cache on a dev sidecar (the fallback names the
+ *  compose host). */
 function resourceEnv({ deployable, sys }: EnvContractArgs): EnvRequirement[] {
   const out: EnvRequirement[] = apiResourceBindings(deployable, sys).map((b) => ({
     name: resourceEnvUrlVar(b.resource.name),
@@ -62,9 +64,13 @@ function resourceEnv({ deployable, sys }: EnvContractArgs): EnvRequirement[] {
   const transports = channelTransportStorageNames(sys);
   for (const name of deployable.dataSourceNames) {
     const r = sys.dataSources.find((x) => x.name === name);
-    if (!r?.storageName || (r.kind !== "mailer" && r.kind !== "queue")) continue;
+    if (!r?.storageName) continue;
+    const isCache = cacheStoragesOf(sys, { dataSourceNames: [r.name] }).some(
+      (c) => c.storageType === "redis",
+    );
+    if (r.kind !== "mailer" && r.kind !== "queue" && !isCache) continue;
     const storage = sys.storages.find((s) => s.name === r.storageName);
-    if (!storage || transports.has(storage.name)) continue;
+    if (!storage || (transports.has(storage.name) && !isCache)) continue;
     if (resourceSidecarUrl(storage.type, storage.name) === undefined) continue;
     out.push({ name: resourceEnvUrlVar(r.name), need: "deploy" });
   }

@@ -9,6 +9,7 @@ import {
   wireStatusResolver,
 } from "../../ir/enrich/wire-policy.js";
 import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
+import type { CachedByIdRead } from "../../ir/plan/cache.js";
 import { destroyLadder, gateReadsParam, gateReadsRow } from "../../ir/plan/gate-ladder.js";
 import {
   PAGED_DEFAULT_PAGE,
@@ -83,6 +84,7 @@ import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/serve
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
 import { findUnionSpec, type UnionMoneyKey, unionMoneyArms } from "../_payload/union-wire.js";
+import { renderPyCacheHit, renderPyCacheStore } from "./by-id-cache-builder.js";
 import { pyCalendarDateWire, pyInstantWire } from "./codec-spelling.js";
 import { pyCommandBodyParam } from "./command-body.js";
 import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
@@ -193,6 +195,9 @@ export function buildPyRoutesFile(
    *  since the id imports derive from the `ref()` markers the id spellings
    *  write (M-T9.84) — kept so the orchestrator's call shape is unchanged. */
   _extraIdNames: readonly string[] = [],
+  /** The aggregate's cached by-id read (`src/ir/plan/cache.ts`), when a cache
+   *  resource on this deployable caches it. */
+  cache?: CachedByIdRead,
 ): string {
   const slug = routeSegmentFor(agg.name);
   // THE UNIFICATION SEAM (api-surface.ts): route-set membership, decorator
@@ -287,13 +292,20 @@ export function buildPyRoutesFile(
       : `    return ${repoClassRef(agg.name)}(session, ${H.NoopDomainEventDispatcher}())`,
     createOp ? ["", "", createRoute(agg, ctx, createOp)] : null,
     allOp ? ["", "", allRoute(agg, repo, allOp)] : null,
-    getByIdOp ? ["", "", byIdRoute(agg, getByIdOp)] : null,
+    getByIdOp ? ["", "", byIdRoute(agg, getByIdOp, cache)] : null,
     // Entity history (docs/audit.md) — two path segments, so no collision with
     // the `/{id}` pattern above.  Driven by the enrichment-derived `historyFind`
     // so the read surface cannot disagree with the gate / `ignoring` stance
     // enrichment resolved.
     historyFind
-      ? ["", "", renderPyHistoryMapper(agg), "", "", historyRoute(agg, historyFind, ctx)]
+      ? [
+          "",
+          "",
+          renderPyHistoryMapper(ctx.payloads, agg),
+          "",
+          "",
+          historyRoute(agg, historyFind, ctx),
+        ]
       : null,
     destroyOp
       ? [
@@ -861,7 +873,11 @@ function allRoute(
   );
 }
 
-function byIdRoute(agg: EnrichedAggregateIR, apiOp: ApiOperationIR): string {
+function byIdRoute(
+  agg: EnrichedAggregateIR,
+  apiOp: ApiOperationIR,
+  cache: CachedByIdRead | undefined,
+): string {
   // The aggregate's read gate (`policy { read T requires <expr> }`) gates this
   // read, BEFORE the load (403 for an existing and a missing id alike).  The
   // same gate sits on the list read `all`, so its `User` / `ForbiddenError`
@@ -871,14 +887,23 @@ function byIdRoute(agg: EnrichedAggregateIR, apiOp: ApiOperationIR): string {
   const gateUsesUser = !!gate && exprUsesCurrentUser(gate);
   return lines(
     `@router.get("${relativeOpPath(apiOp)}", response_model=${agg.name}Response, operation_id="${camelId(opGetById(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
-    `async def get_${snake(agg.name)}_by_id(${ID_PARAM}, ${gateUsesUser ? "request: Request, " : ""}session: SessionDep) -> dict[str, object]:`,
+    `async def get_${snake(agg.name)}_by_id(${ID_PARAM}, ${gateUsesUser ? "request: Request, " : ""}session: SessionDep) -> ${cache ? H.Response : "dict[str, object]"}:`,
     gateUsesUser ? "    current_user: User = request.state.current_user" : null,
     gate ? `    if ${renderPyNegatedGuard(gate)}:` : null,
     gate
       ? `        raise ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind!.name}`)})`
       : null,
+    // The cache key is the canonical (lower-case) id the repository's writes evict by.
+    cache ? renderPyCacheHit(cache, "id.lower()") : null,
     "    repo = _repo(session)",
-    `    return ${wireResp(agg, `await repo.get_by_id(${pyIdType(agg.name)}(id))`)}`,
+    cache
+      ? renderPyCacheStore(
+          cache,
+          "id.lower()",
+          wireResp(agg, `await repo.get_by_id(${pyIdType(agg.name)}(id))`),
+          `${agg.name}Response`,
+        )
+      : `    return ${wireResp(agg, `await repo.get_by_id(${pyIdType(agg.name)}(id))`)}`,
   );
 }
 

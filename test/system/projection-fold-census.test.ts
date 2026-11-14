@@ -13,6 +13,11 @@ import { expectReach } from "../_helpers/census-reach.js";
 // again, and the five copies drifted apart before (one moved the row on a key
 // assignment, three removed only the first match, one read stale values).
 //
+// The fold inbox (D-PROJECTION-FOLD-INBOX) is spelled once too: every claim
+// and every prune goes through `foldInboxClaimSql` / `foldInboxPurgeSql`, so
+// a string or template literal naming the inbox table in an emitter is a
+// hand-written copy of the statement.
+//
 // THE DETECTOR.  Every `<recv>.statements` property access in
 // `src/generator/**` and `src/platform/**` whose receiver's STATIC TYPE is a
 // `ProjectionOnIR`, verified with the real TypeScript checker.  There is no
@@ -29,7 +34,13 @@ interface Scan {
   sites: string[];
   /** Files that call `foldSteps(`. */
   consumers: Set<string>;
+  /** Literals in the scanned roots that name the fold inbox table. */
+  inboxLiterals: string[];
+  /** Files calling each inbox helper. */
+  inboxCallers: Map<string, Set<string>>;
 }
+
+const INBOX_HELPERS = ["foldInboxClaimSql", "foldInboxPurgeSql"];
 
 let cached: Scan | null = null;
 
@@ -39,7 +50,13 @@ function scan(): Scan {
   const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, repoRoot);
   const program = ts.createProgram({ rootNames: parsed.fileNames, options: parsed.options });
   const checker = program.getTypeChecker();
-  const out: Scan = { statementsReads: 0, sites: [], consumers: new Set() };
+  const out: Scan = {
+    statementsReads: 0,
+    sites: [],
+    consumers: new Set(),
+    inboxLiterals: [],
+    inboxCallers: new Map(INBOX_HELPERS.map((h) => [h, new Set<string>()])),
+  };
   for (const sf of program.getSourceFiles()) {
     if (sf.isDeclarationFile) continue;
     const rel = path.relative(repoRoot, sf.fileName).replaceAll(path.sep, "/");
@@ -63,6 +80,23 @@ function scan(): Scan {
         node.expression.text === "foldSteps"
       ) {
         out.consumers.add(rel);
+      }
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        INBOX_HELPERS.includes(node.expression.text)
+      ) {
+        out.inboxCallers.get(node.expression.text)?.add(rel);
+      }
+      if (
+        (ts.isStringLiteralLike(node) ||
+          ts.isTemplateHead(node) ||
+          ts.isTemplateMiddle(node) ||
+          ts.isTemplateTail(node)) &&
+        node.text.includes("__loom_fold_inbox")
+      ) {
+        const line = sf.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+        out.inboxLiterals.push(`${rel}:${line}`);
       }
       ts.forEachChild(node, visit);
     };
@@ -88,6 +122,35 @@ describe("projection fold-plan census — no backend walks a fold handler's raw 
       sites,
       `${sites.join("\n")}\n— render the fold through \`foldSteps(projection, handler)\` ` +
         "(src/ir/plan/projection-fold.ts) instead of re-deciding its semantics here.",
+    ).toEqual([]);
+  });
+});
+
+describe("fold inbox census — the claim and the prune are spelled once", () => {
+  it("every backend claims through the shared statement", () => {
+    // node (drizzle + mikroorm), .NET EF, .NET Dapper, java, python, elixir.
+    expectReach(
+      "files calling foldInboxClaimSql",
+      scan().inboxCallers.get("foldInboxClaimSql")?.size ?? 0,
+      6,
+    );
+  });
+
+  it("every relay prunes through the shared statement", () => {
+    // node, .NET EF, .NET Dapper, java, python, elixir.
+    expectReach(
+      "files calling foldInboxPurgeSql",
+      scan().inboxCallers.get("foldInboxPurgeSql")?.size ?? 0,
+      6,
+    );
+  });
+
+  it("no emitter spells the inbox table itself", () => {
+    const { inboxLiterals } = scan();
+    expect(
+      inboxLiterals,
+      `${inboxLiterals.join("\n")}\n— build the statement with \`foldInboxClaimSql\` / ` +
+        "`foldInboxPurgeSql` (src/ir/plan/projection-fold.ts).",
     ).toEqual([]);
   });
 });

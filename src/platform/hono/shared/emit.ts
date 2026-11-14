@@ -1,8 +1,15 @@
 import {
+  BY_ID_CACHE_PATH,
+  renderByIdCacheModule,
+} from "../../../generator/typescript/emit/by-id-cache.js";
+import { cachePlanFor } from "../../../ir/plan/cache.js";
+import {
   channelPlan,
+  foldsDedupe,
   hasDurableEvents,
   polymorphicReadGates,
   polymorphicReadMasked,
+  QUERY_PARAM_MISMATCH_MESSAGES,
   routedPolymorphicRead,
   workflowIsolation,
 } from "../../../ir/plan/index.js";
@@ -584,6 +591,10 @@ interface ZodIssueLike {
 /** The zod issue codes that mean the JSON value has the wrong type or shape. */
 const TYPE_MISMATCH_ISSUES: ReadonlySet<string> = new Set(["invalid_type", "invalid_value", "invalid_union", "unrecognized_keys"]);
 
+/** The ruled sentences a query/path value that does not parse as its declared
+ *  type answers with — set on the query schemas, read back here as the code. */
+const QUERY_MISMATCH_MESSAGES: ReadonlySet<string> = new Set(${JSON.stringify(Object.values(QUERY_PARAM_MISMATCH_MESSAGES))});
+
 /** The value at \`path\` in the request input, or undefined. */
 function valueAt(input: unknown, path: ReadonlyArray<PropertyKey>): unknown {
   let node: unknown = input;
@@ -601,6 +612,7 @@ function issueCode(issue: ZodIssueLike): string {
   if (issue.params?.loomCode) return issue.params.loomCode;
   if (issue.message === ${JSON.stringify(fieldFixedMessage("malformed-id"))}) return ${JSON.stringify(fieldCode("malformed-id"))};
   if (issue.message === ${JSON.stringify(fieldFixedMessage("integer-range"))}) return ${JSON.stringify(fieldCode("integer-range"))};
+  if (QUERY_MISMATCH_MESSAGES.has(issue.message)) return ${JSON.stringify(fieldCode("type-mismatch"))};
   if (TYPE_MISMATCH_ISSUES.has(issue.code ?? "")) return ${JSON.stringify(fieldCode("type-mismatch"))};
   return ${JSON.stringify(fieldCode("rule"))};
 }
@@ -1124,6 +1136,10 @@ export function generateTypeScriptForContexts(
         // The `every:` claim table — the MigrationsIR table the drizzle path
         // gets from its migrations; mikro's `schema.update()` needs an entity.
         timerClaim: ownsIntervalTimers(system),
+        // The fold inbox — the MigrationsIR table the drizzle path gets from
+        // its migrations, on the condition the folds claim it.
+        foldInbox: foldsDedupe(merged, chPlan.receivesDurable),
+        receivesDurable: chPlan.receivesDurable,
       }),
     );
     out.set("mikro-orm.config.ts", renderMikroConfig());
@@ -1137,6 +1153,7 @@ export function generateTypeScriptForContexts(
         resolveWorkflowSchema,
         resolveProjectionSchema,
         resolveStreamContext,
+        receivesDurable: chPlan.receivesDurable,
       }),
     );
   }
@@ -1172,6 +1189,7 @@ export function generateTypeScriptForContexts(
       usingMikro,
       authRequired,
       resolveWorkflowIsolationLevel,
+      chPlan.receivesDurable,
     );
     out.set("http/workflows.ts", workflowsContent);
     if (sourcemap && workflowOpFragments) {
@@ -1186,7 +1204,15 @@ export function generateTypeScriptForContexts(
     }
   }
   if (merged.projections.some(isMaterializedProjection)) {
-    out.set("http/projections.ts", buildProjectionsFile(merged, usingMikro));
+    out.set(
+      "http/projections.ts",
+      buildProjectionsFile(
+        merged,
+        usingMikro,
+        chPlan.receivesDurable,
+        foldsDedupe(merged, chPlan.receivesDurable) && !chPlan.hasOutbox,
+      ),
+    );
   }
   // Query-time projections (read-path-architecture.md rev.13) — the always-
   // current read model of the query-time projection read.  Emitted to a distinct
@@ -1240,9 +1266,19 @@ export function generateTypeScriptForContexts(
     const st = objStore ? storeType.get(objStore.storageName) : undefined;
     if (objStore && st) fileUpload = { resource: objStore.name, sourceType: st };
   }
+  // The by-id read cache (`src/ir/plan/cache.ts`): one module per deployable,
+  // imported by `http/index.ts` so its eviction wraps every repository.
+  const cachedReads = system
+    ? contexts.flatMap((ctx) => cachePlanFor(system.sys, ctx, system.deployable).cached)
+    : [];
+  const byIdCacheModule = system
+    ? renderByIdCacheModule(system.sys, system.deployable, cachedReads)
+    : null;
+  if (byIdCacheModule) out.set(BY_ID_CACHE_PATH, byIdCacheModule);
   out.set(
     "http/index.ts",
     renderHttpIndex(merged, {
+      byIdCache: byIdCacheModule !== null,
       authRequired,
       persistence: usingMikro ? "mikroorm" : "drizzle",
       explicitRouters,
@@ -1713,7 +1749,9 @@ export function generateTypeScriptForContexts(
       withMoney: projectImportsDecimalJs,
       withOidc: !!oidcAuth,
       withCronTimers: hasTimers && anyTimerUsesCron(ownedTimers),
-      withRedisChannels: hasChannels && channelBindings.some((b) => b.transport === "redis"),
+      withRedisChannels:
+        (hasChannels && channelBindings.some((b) => b.transport === "redis")) ||
+        cachedReads.some((r) => r.storageType === "redis"),
       withRabbitChannels: hasChannels && channelBindings.some((b) => b.transport === "rabbitmq"),
       withKafkaChannels: hasChannels && channelBindings.some((b) => b.transport === "kafka"),
       resourceDeps,
@@ -1763,6 +1801,9 @@ export function generateTypeScriptForContexts(
     // reactor or fold consumes (in any hosted context), or a wired binding
     // carries (the relay publishes it).  Persistence-neutral.
     outboxRelay: chPlan.hasOutbox,
+    // The fold inbox's retention purge, where no relay runs to do it: a
+    // consumer that only receives durable events off a broker.
+    foldInboxPurge: foldsDedupe(merged, chPlan.receivesDurable) && !chPlan.hasOutbox,
     // Realtime tee: the relay's inner dispatcher rides through it so
     // relayed (durable) events reach the SSE wire too.  Persistence-neutral.
     hasRealtime: contexts.some((c) => realtimeEventTypes(c).size > 0),
@@ -2241,6 +2282,7 @@ interface ProjectEntryConfig {
   readonly runSeedsAtBoot: boolean;
   readonly usingMikro: boolean;
   readonly outboxRelay: boolean;
+  readonly foldInboxPurge: boolean;
   readonly hasRealtime: boolean;
   readonly oidc: boolean;
   readonly hasTimers: boolean;
@@ -2302,6 +2344,7 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
     userShape,
     runSeedsAtBoot,
     outboxRelay,
+    foldInboxPurge,
     hasRealtime,
     oidc,
     hasTimers,
@@ -2496,6 +2539,7 @@ const stopTimers = await ${T.startTimerScheduler}(db, ${
   // the publisher) — or the transports alone for a producer-only deployable.
   const stopLines = [
     outboxRelay ? "stopOutboxRelay();" : null,
+    foldInboxPurge ? "stopFoldInboxPurge();" : null,
     hasTimers ? "await stopTimers();" : null,
     hasChannelConsumers
       ? "await stopChannelConsumers();"
@@ -2508,7 +2552,8 @@ const stopTimers = await ${T.startTimerScheduler}(db, ${
       ? "  async stop() {},\n"
       : `  async stop() {\n${stopLines.map((l) => `    ${l}\n`).join("")}  },\n`;
   const preamble = `${seedCall}${authStubCall}${orgRegistryRegistration}`.replace(/^\n/, "");
-  const body = `${preamble}${preamble ? "\n" : ""}${wiring}return {\n  app,\n${stopBody}};\n`;
+  const purge = foldInboxPurge ? `const stopFoldInboxPurge = ${T.startFoldInboxPurge}(db);\n` : "";
+  const body = `${preamble}${preamble ? "\n" : ""}${wiring}${purge}return {\n  app,\n${stopBody}};\n`;
   // A deployable that wires nothing option-driven (no auth, no channels, no
   // timers) never reads `opts`.
   const optsParam = /\bopts\./.test(body) ? "opts" : "_opts";

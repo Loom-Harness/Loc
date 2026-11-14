@@ -16,6 +16,8 @@ import { bootRequiredAuthEnv } from "../../_auth/boot-required.js";
 
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
+import { cachePlanFor } from "../../../ir/plan/cache.js";
+import { foldsDedupe } from "../../../ir/plan/index.js";
 import { sourceLocaleOf, workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
 import {
   aggregatesCanTripDanglingReference,
@@ -72,6 +74,11 @@ import { emitAggregateTests, emitTestHelper } from "../tests-emit.js";
 import { exStatus } from "../wire-policy-ex.js";
 import { emitVanillaApiControllers } from "./api-emit.js";
 import { emitVanillaAudit } from "./audit-emit.js";
+import {
+  BY_ID_CACHE_REDIX_VERSION,
+  byIdCacheReadsOf,
+  renderByIdCache,
+} from "./by-id-cache-emit.js";
 import { constraintTypeEntries, emitVanillaChangesets } from "./changeset-emit.js";
 import { opAssertedInvariants } from "./changeset-invariant-emit.js";
 import { aggregateBodyValueObjectFields } from "./changeset-validators.js";
@@ -404,7 +411,12 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // boot and from `priv/repo/seeds.exs`.
   const seedModules: string[] = [];
   let hasDomainTests = false;
+  // The by-id read cache (`src/ir/plan/cache.ts`): one module per deployable.
+  const cachedReads = contexts.flatMap((c) => cachePlanFor(sys, c, deployable).cached);
+  const byIdCache = renderByIdCache(appName, appModule, sys, deployable, cachedReads);
+  if (byIdCache) out.set(byIdCache.path, byIdCache.content);
   for (const ctx of contexts) {
+    const cached = byIdCacheReadsOf(cachedReads, ctx.name);
     emitVanillaSchemas(appModule, ctx, out, sys, sourcemap);
     // Value-object collection (`charges: Money[]`) child schemas — one Ecto
     // schema per VO-array field, owning the id-less `<owner>_<field>` child
@@ -414,7 +426,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // invariants — enforced at construction (F5) + called by the test suite.
     emitVanillaValueObjects(appModule, ctx, out);
     emitVanillaChangesets(appModule, ctx, out, sys);
-    emitVanillaRepositories(appModule, ctx, out, sys, principalIdKey, sourcemap);
+    emitVanillaRepositories(appModule, ctx, out, sys, principalIdKey, sourcemap, cached);
     // Event-sourced aggregates (persistedAs: eventLog) — struct + event-log
     // Ecto schema + fold + event-store repository (D-VANILLA-ES-HOME).  The
     // state emitters above skip them; the context module + controllers branch.
@@ -439,6 +451,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       sourcemap,
       channelsCfg,
       wiredForeignChannels,
+      cached,
     );
     // Extern seam — a generated behaviour + scaffold-once user-owned impl module
     // per aggregate with an `extern` op (proposal §3a).  The context above
@@ -453,7 +466,15 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // structs against these (PubSub broadcast), and a future channel-on-
     // vanilla slice reuses the same module path.
     emitVanillaEventModules(appModule, ctx, out);
-    const { routes } = emitVanillaApiControllers(appName, appModule, ctx, out, sys, sourcemap);
+    const { routes } = emitVanillaApiControllers(
+      appName,
+      appModule,
+      ctx,
+      out,
+      sys,
+      sourcemap,
+      cached,
+    );
     apiRoutes.push(...routes);
     // Retrievals — per-context Ecto query modules at
     // `lib/<app>/<ctx>/retrievals/<name>.ex` plus a matching
@@ -528,6 +549,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       channelsCfg,
       wiredForeignChannels,
       hostedDurable.size > 0,
+      cached,
     );
     // First-boot seed data (database-seeding.md, M-T6.37) — one
     // `<Ctx>.Seeds` module per context that declares a `seed` block, run at
@@ -815,6 +837,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
         durableBroker: durableBrokerEvents.size > 0,
         carriesOrigin: deployable.auth?.required === true && !!sys.user,
         localOutbox: localOutboxBesideBroker,
+        pruneInbox: contexts.some((c) => foldsDedupe(c, true)),
       },
     );
     for (const [path, content] of emission.files) out.set(path, content);
@@ -839,6 +862,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       hostedDispatchers,
       deployable.auth?.required === true && !!sys.user,
       localOutboxBesideBroker ? { emitsSchema: durableBrokerEvents.size === 0 } : undefined,
+      contexts.some((c) => foldsDedupe(c, true)),
     );
     for (const [path, content] of emission.files) out.set(path, content);
     channelChildren = [...channelChildren, ...emission.children];
@@ -860,6 +884,9 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // project wiring both never carries two conflicting requirements.
   if (channelBindings.some((b) => b.transport === "redis")) {
     (hexDeps as Record<string, string>).redix = '"1.10.0"';
+  }
+  if (byIdCache?.usesRedis) {
+    (hexDeps as Record<string, string>).redix = BY_ID_CACHE_REDIX_VERSION;
   }
   if (channelBindings.some((b) => b.transport === "rabbitmq")) {
     (hexDeps as Record<string, string>).amqp = '"4.3.0"';
@@ -927,7 +954,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // is dropped by the broker and never redelivered, so no consumer-side
     // timeout can recover it — measured at ~667ms on the Java backend, which
     // had the identical defect (#2350).
-    [...authChildren, ...channelChildren],
+    [...authChildren, ...channelChildren, ...(byIdCache?.children ?? [])],
     // i18n (M-T1.11): the mounted ui, but only when it has extractable
     // user-visible strings — that is the single gate for the Gettext backend,
     // the `priv/gettext` catalog, the hex dep and the `html_helpers` import.
