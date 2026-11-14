@@ -125,7 +125,7 @@ export function responseMaskPlan(
 /** The aggregate named `name` in `sys`, with the payloads of the context that
  *  declares it — what a consumer holding only the system needs to read the
  *  aggregate's response rows. */
-export function aggregateHome(
+function aggregateHome(
   sys: SystemIR,
   name: string,
 ): { agg: AggregateIR; payloads: readonly PayloadIR[] } | undefined {

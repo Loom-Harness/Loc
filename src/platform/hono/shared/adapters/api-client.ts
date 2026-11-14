@@ -116,8 +116,6 @@ function responseSchema(sys: SystemIR, agg: AggregateIR, schemaName: string): st
  *  `type` over each concrete's row schema, exactly the callee's own
  *  `<Base>Response`. */
 function taggedRowSchema(
-  sys: SystemIR,
-
   variants: readonly { aggregate: AggregateIR; tag: string }[],
   schemaName: string,
 ): string[] {
@@ -209,7 +207,7 @@ export function emitApiClientModule(
         emittedSchemas.add(schemaName);
         out.push(
           ...(poly
-            ? taggedRowSchema(sys, poly.variants, schemaName)
+            ? taggedRowSchema(poly.variants, schemaName)
             : responseSchema(sys, agg, schemaName)),
         );
         out.push(``);

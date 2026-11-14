@@ -113,7 +113,7 @@ function responseModel(sys: SystemIR, agg: AggregateIR, modelName: string): stri
  *  (pydantic refuses a discriminator on a single-member union, so a lone
  *  concrete is the alias itself).  The by-id read validates through
  *  `rowAdapter`, since an `Annotated` union is no model of its own. */
-function taggedRowModels(sys: SystemIR, poly: PolymorphicRow, modelName: string): string[] {
+function taggedRowModels(poly: PolymorphicRow, modelName: string): string[] {
   const item = (agg: AggregateIR): string => `${poly.base.name}${agg.name}Item`;
   const out: string[] = [];
   for (const v of poly.variants) {
@@ -216,7 +216,7 @@ export function emitPythonApiClients(
         if (agg && modelName && !emittedModels.has(modelName)) {
           emittedModels.add(modelName);
           body.push(
-            ...(poly ? taggedRowModels(sys, poly, modelName) : responseModel(sys, agg, modelName)),
+            ...(poly ? taggedRowModels(poly, modelName) : responseModel(sys, agg, modelName)),
             "",
             "",
           );
