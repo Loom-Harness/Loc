@@ -376,12 +376,15 @@ export function renderJavaService(
   // this is guard (2) reachability + guard (3) the per-caller mask.
   const historyFind = javaHistoryFind(repo);
   const historyLines = historyFind ? renderJavaHistoryServiceMethod(agg, idClass) : [];
-  const historyMapperLines = historyFind ? renderJavaHistoryMapper(agg) : [];
+  const historyMapperLines = historyFind
+    ? renderJavaHistoryMapper(ctx.boundedContext.payloads, agg)
+    : [];
   // A masked aggregate's mapper reads the ambient principal off the STATIC
   // accessor (fail-closed) — the same binding `<Agg>Response.fromMasked` uses,
   // so it needs the `User` / `CurrentUserAccessor` imports even when nothing
   // else on this service threads a principal.
-  const historyMasks = !!historyFind && maskedHistoryFields(agg).length > 0;
+  const historyMasks =
+    !!historyFind && maskedHistoryFields(ctx.boundedContext.payloads, agg).length > 0;
   // …and the mask predicates' OWN expression imports, on the same rule as the
   // `when` / `requires` gates above: `renderJavaHistoryMapper` renders those
   // predicates INTO THIS FILE (the mapper is a private static on the service),

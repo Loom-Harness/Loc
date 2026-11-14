@@ -123,7 +123,7 @@ export function emitCqrs(
   // Entity history (docs/audit.md) — the enrichment-derived `historyFind` sits
   // BESIDE `finds`, so it needs its own emission call; the generic find loop
   // above never sees it.
-  emitHistoryQueryAndHandler(agg, repo, ns, aggFolder, out, idClass);
+  emitHistoryQueryAndHandler(agg, ctx.payloads, repo, ns, aggFolder, out, idClass);
   emitController(
     agg,
     repo,
