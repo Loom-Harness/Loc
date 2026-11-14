@@ -13,7 +13,8 @@ import { describe, expect, it } from "vitest";
 //
 // Three rules:
 //   1. `src/emulation/` is pure: it runs in a browser worker and in Node alike,
-//      so it imports no `node:` module and reads no host global.
+//      so it imports only its own modules — no `node:` module, no package, no
+//      `web/` or other `src/` code — and reads no host global.
 //   2. every host adapter imports the core model it wraps;
 //   3. no host file carries a model's state or wire semantics: no module-level
 //      mutable state beyond the one core instance, and none of the protocol
@@ -74,7 +75,7 @@ const SEMANTIC_MARKERS = [
 const rel = (p: string): string => path.relative(REPO, p);
 
 describe("emulation census", () => {
-  it("src/emulation is pure — no node: import and no host global", () => {
+  it("src/emulation is pure — imports only itself, reads no host global", () => {
     const sources = files(CORE, /\.ts$/);
     expect(sources.length).toBeGreaterThan(5);
     const bad: string[] = [];
@@ -82,6 +83,12 @@ describe("emulation census", () => {
       const c = code(read(f));
       if (/from\s+["']node:|import\(\s*["']node:|\brequire\(/.test(c))
         bad.push(`${rel(f)}: imports a Node module`);
+      for (const m of c.matchAll(/(?:\bfrom\s+|\bimport\s*\(?\s*)["']([^"']+)["']/g)) {
+        const spec = m[1] as string;
+        if (spec.startsWith("../")) bad.push(`${rel(f)}: imports outside src/emulation (${spec})`);
+        else if (!spec.startsWith("./") && !spec.startsWith("node:"))
+          bad.push(`${rel(f)}: imports a package (${spec})`);
+      }
       for (const g of [
         "process",
         "window",

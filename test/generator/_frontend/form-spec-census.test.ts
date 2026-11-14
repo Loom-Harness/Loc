@@ -28,7 +28,7 @@ import {
 } from "../../../src/generator/_frontend/form-spec.js";
 import { JSX_FORM_FIELD_ARMS } from "../../../src/generator/_walker/form-fields-vm.js";
 import { ANGULAR_FORM_FIELD_ARMS } from "../../../src/generator/angular/form-fields.js";
-import { FELIZ_FORM_FIELD_ARMS } from "../../../src/generator/feliz/wire.js";
+import { FELIZ_FORM_FIELD_ARMS } from "../../../src/generator/feliz/form-fields.js";
 import { FLUTTER_FORM_FIELD_ARMS } from "../../../src/generator/flutter/forms-emit.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 import { buildLoomModel } from "../../_helpers/ir.js";

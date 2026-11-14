@@ -252,11 +252,10 @@ export interface OperationIR extends Sourced {
    *  body produces the value via a `return` statement and the route translates
    *  an `error`-variant result to a ProblemDetails status. */
   returnType?: TypeIR;
-  /** Lifecycle kind discriminator.  Absent ⇒ `"mutate"` (the legacy
-   * `operation` keyword and every pre-lifecycle IR literal).
-   * `agg.operations` only ever holds `"mutate"` actions; `"create"` /
+  /** Lifecycle kind discriminator.  `"mutate"` for the `operation`
+   * keyword.  `agg.operations` only ever holds `"mutate"` actions; `"create"` /
    * `"destroy"` actions live in `agg.creates` / `agg.destroys`. */
-  kind?: OperationKind;
+  kind: OperationKind;
   /** True for an unnamed canonical `create(...)` / `destroy { }`.  The
    * synthesised `name` is then the keyword itself (`"create"` /
    * `"destroy"`).  Drives the bare-collection-URL route slug derived in

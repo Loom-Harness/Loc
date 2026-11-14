@@ -37,7 +37,7 @@
     {
       "seq": 3,
       "method": "POST",
-      "path": "/api/orders/{id}/update",
+      "path": "/api/orders/{id}/ship",
       "status": 204,
       "body": ""
     },
@@ -47,18 +47,41 @@
       "path": "/api/orders/{id}",
       "status": 200,
       "body": {
-        "code": "SC2",
+        "code": "SC1",
         "id": "<volatile:key>",
         "rowVersion": 3,
         "shipment": {
-          "carrier": "UPS",
+          "carrier": "DHL",
           "id": "<volatile:key>",
-          "trackingCode": "1Z999"
+          "trackingCode": "JD014"
         }
       }
     },
     {
       "seq": 5,
+      "method": "POST",
+      "path": "/api/orders/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "code": "SC2",
+        "id": "<volatile:key>",
+        "rowVersion": 4,
+        "shipment": {
+          "carrier": "DHL",
+          "id": "<volatile:key>",
+          "trackingCode": "JD014"
+        }
+      }
+    },
+    {
+      "seq": 7,
       "method": "GET",
       "path": "/api/orders",
       "status": 200,
@@ -67,11 +90,11 @@
           {
             "code": "SC2",
             "id": "<volatile:key>",
-            "rowVersion": 3,
+            "rowVersion": 4,
             "shipment": {
-              "carrier": "UPS",
+              "carrier": "DHL",
               "id": "<volatile:key>",
-              "trackingCode": "1Z999"
+              "trackingCode": "JD014"
             }
           }
         ],
@@ -82,14 +105,14 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 8,
       "method": "DELETE",
       "path": "/api/orders/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 7,
+      "seq": 9,
       "method": "GET",
       "path": "/api/orders",
       "status": 200,
@@ -102,7 +125,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 10,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -116,7 +139,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 11,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -130,7 +153,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 12,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,
@@ -144,7 +167,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 13,
       "method": "POST",
       "path": "/api/orders/{id}/update",
       "status": 404,

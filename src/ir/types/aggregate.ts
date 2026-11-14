@@ -2,9 +2,7 @@ import type { ThrowKindName } from "../../util/intrinsic-matchers.js";
 import type { ExprIR } from "./expr.js";
 import type {
   ApplyIR,
-  AssociationIR,
   ContainmentIR,
-  CreateInputFieldIR,
   DerivedIR,
   EntityPartIR,
   FieldIR,
@@ -45,15 +43,6 @@ export interface AggregateIR extends Sourced {
   destroys: OperationIR[];
   parts: EntityPartIR[];
   tests: TestIR[];
-  /** Reified create-input contract — the client-suppliable field set with
-   * per-field required-ness.  Populated by `enrichLoomModel`
-   * (`buildCreateInput`); the single source backends consume instead of
-   * re-deriving the create payload.  See {@link CreateInputFieldIR}. */
-  createInput?: CreateInputFieldIR[];
-  /** Many-to-many associations derived from `Target id[]` fields.
-   * Populated by `enrichLoomModel`; one entry per reference-collection
-   * field.  Empty array when the aggregate has none. */
-  associations?: AssociationIR[];
   /** Filter predicates contributed by `filter <expr>` declarations
    * (hand-written or macro-emitted) on the aggregate, plus any
    * propagated from the enclosing context.  Each entry is a lowered
@@ -221,19 +210,23 @@ export interface ContextStampAssignmentIR {
   value: ExprIR;
 }
 
-export interface TestIR extends Sourced {
-  name: string;
-  statements: TestStmtIR[];
-  /** Traceability back-link: the `verifies <TC-id>` clause
-   *  naming the TestCase this executable test realises.  Undefined when
-   *  the test declares no link.  Enrichment uses it to mark a TestCase
-   *  as backed by an executable test. */
+/** The clauses every test block may carry, declared once.  Both are
+ *  author-optional: a test with no `verifies` backs no TestCase, and a test
+ *  with no `as { … }` runs as the dev-stub principal unchanged. */
+export interface TestClauses {
+  /** Traceability back-link: the `verifies <TC-id>` clause naming the
+   *  TestCase this executable test realises.  Enrichment uses it to mark a
+   *  TestCase as backed by an executable test. */
   verifiesTestCase?: string;
   /** The `as { … }` principal the test runs as — the claims it overrides on
-   *  the dev-stub principal.  Undefined when the test declares no clause (it
-   *  then runs as the dev-stub principal unchanged).  Only a context
-   *  integration test carries one (`loom.test-principal-placement`). */
+   *  the dev-stub principal.  The e2e suite sends it as the dev-stub claims
+   *  override for every request of the block. */
   principal?: TestPrincipalIR;
+}
+
+export interface TestIR extends Sourced, TestClauses {
+  name: string;
+  statements: TestStmtIR[];
 }
 
 /** A test's declared principal: an ordered claim map keyed by `user { … }`

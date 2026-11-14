@@ -1601,8 +1601,11 @@ function renderAppFs(
   // page's read set (deduped against any explicit QueryView `.all` of it) so the
   // whole Remote/Api/Model/init/update wiring is emitted for free.
   const fkTargets = new Set<string>();
-  for (const form of formRecords)
+  for (const form of formRecords) {
     for (const fld of form.fields) if (fld.idTarget) fkTargets.add(fld.idTarget);
+    for (const fa of form.fieldArrays)
+      for (const rf of fa.rowFields) if (rf.idTarget) fkTargets.add(rf.idTarget);
+  }
   const hasIdSelect = fkTargets.size > 0;
   const reads: FelizRead[] = readsForUi(ui, contexts);
   const readFields = new Set(reads.map((r) => r.field));

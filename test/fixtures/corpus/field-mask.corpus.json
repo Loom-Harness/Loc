@@ -2,5 +2,11 @@
   "title": "field read-redaction — `mask unless` crossed with `audited` (two masked fields + a masked contained part, projected twice in one scope)",
   "doc": "auth",
   "backends": "ALL",
-  "note": "the CROSSING is the point: an audited op renders the masked projection twice into one method body, which is where a fixed principal-variable name collides (.NET CS0128)"
+  "note": "the CROSSING is the point: an audited op renders the masked projection twice into one method body, which is where a fixed principal-variable name collides (.NET CS0128)",
+  "apiCaller": {
+    "//": "The same entity-history read class: `field-mask` reads its audited aggregate's trail as the unprivileged principal (the masked-field DROP and the RS-45 `actor`).",
+    "unattributed": [
+      "api.employees.history (no derived operation)"
+    ]
+  }
 }

@@ -7,5 +7,8 @@
     "billing",
     "reports"
   ],
-  "note": "the projection routes file imported `valueObjectPool(ctx)` (own UNION sibling-context) while `domain/value-objects.ts` emits only the hosted contexts' — so on a split system it named a type the module never exports (TS2306 'not a module').  Every projection fixture before this was single-deployable, which is why the pool and the emitted file agreed by accident."
+  "note": "the projection routes file imported `valueObjectPool(ctx)` (own UNION sibling-context) while `domain/value-objects.ts` emits only the hosted contexts' — so on a split system it named a type the module never exports (TS2306 'not a module').  Every projection fixture before this was single-deployable, which is why the pool and the emitted file agreed by accident.",
+  "apiCaller": {
+    "e2eLess": "COMPILE-TIER WITNESS (same evaluation) — a query-time projection on a deployable that does not host every context.  The projection routes file imported the own-UNION-sibling value-object pool while `domain/value-objects.ts` emits only the hosted contexts', so it named a type the module never exports (`TS2306: … is not a module`).  Needs a SECOND deployable to mean anything at runtime, and what a block would assert — a projection count — `projection-agg-filters` already boots on one.  M-T9.13.  RE-CHECKED in wave C3 packet 3a and still true, and now for a harder reason than \"not worth it\": the fixture declares TWO `platform: __PLATFORM__` deployables, and every behavioural runner requires exactly one backend per case so dispatch is unambiguous (`run.mjs`'s `findNodeDeployable` throws on two).  Neither deployable `serves:` an api either, so there is no route a block could call.  A reasoned permanent entry: the defect's oracle IS the compile tier."
+  }
 }

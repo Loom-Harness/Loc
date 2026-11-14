@@ -45,9 +45,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromiumLaunchOptions, playwrightFallbackArgs } from "./browser-fallback.mjs";
 import { copyLocales, localesBeside } from "./case-source.mjs";
 import {
+  driveAddRider,
   driveAddVehicle,
   driveUpdate,
+  judgeDetailCollections,
   judgeFormSpec,
+  judgeRiderAdded,
   judgeVehicleAdded,
   judgeNoEarlyErrors,
   judgePartTable,
@@ -264,7 +267,7 @@ async function moneyCompareProbe(origin) {
  * record back (`form-spec-ui.mjs`): the other fields must survive and the
  * cleared one must be `null`.
  */
-async function formSpecProbe(origin, opensWorkflowResult) {
+async function formSpecProbe(origin) {
   const name =
     "form-spec probe: update prefill, absence as null, collections, every-row pickers, the optional group and part-table columns";
   execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], {
@@ -298,10 +301,24 @@ async function formSpecProbe(origin, opensWorkflowResult) {
       why.push(...judgeVehicleAdded(after));
     }
     if (why.length === 0) why.push(...(await judgeNoEarlyErrors(page, origin)));
-    // Feliz and Flutter workflow calls do not hand back the created id yet.
-    if (why.length === 0 && opensWorkflowResult) {
-      why.push(...(await judgeWorkflowOpensResult(page, origin)));
+    if (why.length === 0) why.push(...(await judgeWorkflowOpensResult(page, origin)));
+    if (why.length === 0) {
+      const withVehicle = after;
+      const widgetWhy = await driveAddRider(page, origin, before.id).catch(async (e) => {
+        const ids = await page
+          .locator('[data-testid*="riders"]')
+          .evaluateAll((els) => els.map((el) => el.getAttribute("data-testid")))
+          .catch(() => []);
+        throw new Error(`${e.message.split("\n")[0]}; rider ids on the page: ${JSON.stringify(ids.slice(0, 12))}`);
+      });
+      for (let i = 0; i < 30; i++) {
+        after = await readPolicy(origin, before.id);
+        if ((after.riders ?? []).length > 1) break;
+        await page.waitForTimeout(500);
+      }
+      why.push(...widgetWhy, ...judgeRiderAdded(withVehicle, after));
     }
+    if (why.length === 0) why.push(...(await judgeDetailCollections(page, origin, before.id)));
     if (why.length === 0) {
       await seedCoverage(origin, before.id);
       why.push(...(await judgePartTable(page, origin, before.id)));
@@ -403,7 +420,7 @@ async function runCase(c) {
       const results = [];
       if (c.textProbe === "form-spec") {
         results.push(
-          await formSpecProbe(`http://127.0.0.1:${server.port}`, c.frontend !== "feliz").catch((err) => ({
+          await formSpecProbe(`http://127.0.0.1:${server.port}`).catch((err) => ({
             tier: "ui-probe",
             name: "form-spec probe",
             status: "fail",

@@ -94,7 +94,7 @@ describe("MikroORM transactional outbox", () => {
 
   it("captures durable events on the EntityManager, not drizzle", async () => {
     const wf = (await emit(sys("mikroorm"))).get("api/http/workflows.ts")!;
-    expect(wf).toContain('import { EntityManager } from "@mikro-orm/postgresql";');
+    expect(wf).toContain('import { EntityManager, LockMode } from "@mikro-orm/postgresql";');
     expect(wf).toContain('import { randomUUID } from "node:crypto";');
     expect(wf).toMatch(/import \{[^}]*LoomOutboxRow[^}]*\} from "\.\.\/db\/entities";/);
     expect(wf).not.toContain('from "drizzle-orm"');
@@ -117,14 +117,16 @@ describe("MikroORM transactional outbox", () => {
     // A FRESH fork per drain — the relay outlives every request.
     expect(wf).toContain("const em = db.fork();");
     expect(wf).toContain("{ dispatchedAt: null, deadAt: null },");
-    expect(wf).toContain('{ orderBy: { occurredAt: "asc" }, limit: batchSize },');
+    expect(wf).toContain(
+      '{ orderBy: { occurredAt: "asc" }, limit: batchSize, lockMode: LockMode.PESSIMISTIC_PARTIAL_WRITE },',
+    );
     expect(wf).toContain("__loomEventId: row.id");
     expect(wf).toContain(
-      "await em.nativeUpdate(LoomOutboxRow, { id: row.id }, { dispatchedAt: new Date() });",
+      "await tx.nativeUpdate(LoomOutboxRow, { id: row.id }, { dispatchedAt: new Date() });",
     );
     // Failure path: bump the attempt counter, dead-letter once at the ceiling.
     expect(wf).toContain(
-      "await em.nativeUpdate(LoomOutboxRow, { id: row.id }, { attempts, deadAt: dead ? new Date() : null });",
+      "await tx.nativeUpdate(LoomOutboxRow, { id: row.id }, { attempts, deadAt: dead ? new Date() : null });",
     );
     expect(wf).toContain('event: "event_dead_lettered"');
     // A poll failure is logged and retried next tick, never an unhandled

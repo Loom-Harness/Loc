@@ -7,7 +7,9 @@
 //                  (`chrome.forbiddenTitle` / `chrome.forbiddenBody`);
 //   - /price       a `money` hole `{amount, number, ::currency/EUR}`;
 //   - the nav      a titled page (`title:`) and an untitled page (`name` key);
-//   - /invoices/:id  a `ProvenanceInfo` disclosure and an `Action { x.op }`.
+//   - /invoices/:id  a `ProvenanceInfo` disclosure and an `Action { x.op }`;
+//   - /invoices    a `Table { filter: … }` search box (placeholder + accessible
+//                  name: `chrome.tableFilterPlaceholder` / `chrome.tableFilterAria`).
 // The backend registers its dev-stub verifier, so `x-loom-dev-claims` picks the
 // principal; no IdP, nothing mocked.
 system Ledgerfront {
@@ -60,6 +62,14 @@ system Ledgerfront {
           ProvenanceInfo(of: i, field: "total"),
           Action { i.reprice }
         }
+      }
+    }
+    page Invoices {
+      route: "/invoices"
+      state { q: string = "" }
+      body: QueryView {
+        of: B.Invoice.all,
+        data: rows => Table(Column("Label", o => o.label), rows: rows, filter: q)
       }
     }
     menu {

@@ -462,7 +462,7 @@ async function runCase(c) {
       // Run the emitted ExUnit domain suite (pure domain — no DB tables — but
       // `mix test` boots the app in :test env, so the `api_test` DB must exist
       // for the Repo pool to connect).  ExUnit has no JUnit dep, so gate on the
-      // "N tests, M failures" summary line.
+      // "N tests, M failures[, K skipped]" summary line.
       const testDir = join(deplDir, "test");
       const hasUnit = existsSync(testDir) && walk(testDir, (p) => p.endsWith("_test.exs")).length > 0;
       const tUnit = Date.now();
@@ -483,7 +483,13 @@ async function runCase(c) {
         if (m) {
           const total = Number(m[1]);
           const failures = Number(m[2]);
-          unitResults.push({ tier: "unit", name: `mix test (${total} tests)`, status: failures === 0 ? "pass" : "fail", error: failures === 0 ? undefined : `${failures} failure(s)` });
+          // A test the emitter could not render is a `@tag :skip`, which ExUnit
+          // counts as green — so a skip is a failure here, or the tier would
+          // pass a test that never ran.
+          const skipped = Number(/(\d+) skipped/.exec(out)?.[1] ?? 0);
+          const bad = failures > 0 || skipped > 0;
+          const why = [failures > 0 ? `${failures} failure(s)` : "", skipped > 0 ? `${skipped} skipped (an unrenderable test shape — see its "# Reason" line)` : ""].filter(Boolean).join(", ");
+          unitResults.push({ tier: "unit", name: `mix test (${total} tests)`, status: bad ? "fail" : "pass", error: bad ? why : undefined });
         } else {
           unitResults.push({ tier: "unit", name: "mix test", status: "fail", error: "no ExUnit summary (compile error?)" });
         }

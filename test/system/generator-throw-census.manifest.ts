@@ -13,6 +13,10 @@ export type ThrowClassification =
   | { deferred: string; mission: string; reviewUntil: string };
 
 export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
+  "src/generator/_frontend/form-row-binding.ts#settled": {
+    invariant:
+      "a shipped pack's field template binds its path or test id through a site the row binder does not rewrite; every shipped pack's dynamic rows render in the form-spec census and the walker suites, so only a new pack template shape reaches it",
+  },
   // src/generator/java/wire-policy-java.ts
   "src/generator/java/wire-policy-java.ts#javaIngressCoercions": {
     invariant:
@@ -548,12 +552,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "A unit-test statement outside let/expression/call/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
   },
 
-  // src/generator/dotnet/projection-emit.ts
-  "src/generator/dotnet/projection-emit.ts#renderProjectionFoldStmt": {
-    guardedBy: ["loom.projection-fold-impure"],
-    note: "foldImpurity rejects every fold statement kind except assign/add/remove/let, which is exactly the set listed in the throw's case arms.",
-  },
-
   // src/generator/dotnet/query-projection-emit.ts
   "src/generator/dotnet/query-projection-emit.ts#dapperAggregationWhere": {
     invariant:
@@ -645,12 +643,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/adapters/by-feature-layout.ts#pathForCategory$6": {
     invariant:
       "The elixir byFeature layout adapter's pathFor is never invoked: the platform's emitProject drops the layout axis ('the layout axis has no Phoenix consumer') and no elixir emitter calls layout.pathFor, so no artifact ever reaches pathForCategory. (src/platform/elixir.ts:63-74 (emitProject never forwards layoutAdapter to generateElixirProject); no src/generator/elixir code calls pathFor)",
-  },
-
-  // src/generator/elixir/dispatch-emit.ts
-  "src/generator/elixir/dispatch-emit.ts#renderProjectionFoldStmt": {
-    guardedBy: ["loom.projection-fold-impure"],
-    note: "foldImpurity is a fail-closed allowlist of assign/add/remove/let applied to every projection on() statement, so every kind in this throw arm is an error at validation.",
   },
 
   // src/generator/elixir/domain-service-emit.ts
@@ -978,7 +970,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   // src/generator/feliz/wire.ts
-  "src/generator/feliz/wire.ts#assertNotDurationWireField": {
+  "src/generator/feliz/wire-codec.ts#assertNotDurationWireField": {
     invariant:
       "PrimitiveType has no 'duration' spelling and wire/param/state types are all declared TypeRefs, so no wire field can be duration-typed. (src/language/ddd.langium:2162)",
   },
@@ -1056,12 +1048,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/java/emit/channels.ts#transportPickLine": {
     invariant:
       "renderJavaChannelFiles is only called when channelBindings.length > 0, and every BrokerBinding.transport is one of redis|rabbitmq|kafka, so at least one driver is always wired. (src/generator/java/index.ts:389,1319; src/generator/_channels/bindings.ts:22)",
-  },
-
-  // src/generator/java/emit/dispatch.ts
-  "src/generator/java/emit/dispatch.ts#renderProjectionFoldStmt": {
-    guardedBy: ["loom.projection-fold-impure"],
-    note: "foldImpurity fails closed: every statement kind except assign/add/remove/let in a projection on() handler is an error, which is exactly the set this arm throws on.",
   },
 
   // src/generator/java/emit/integration-tests.ts
@@ -1189,12 +1175,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/python/channels-builder.ts#transportPickLines": {
     invariant:
       "buildPyChannelsFile is only called when channelBindings is non-empty, and every binding's transport is redis|rabbitmq|kafka. (src/generator/python/index.ts:211,622; src/generator/_channels/bindings.ts:22)",
-  },
-
-  // src/generator/python/dispatch-builder.ts
-  "src/generator/python/dispatch-builder.ts#renderProjectionFoldStmt": {
-    guardedBy: ["loom.projection-fold-impure"],
-    note: "foldImpurity rejects every non-assign/add/remove/let statement in a projection fold, exactly the kinds this arm throws on.",
   },
 
   // src/generator/python/emit/integration-tests.ts
@@ -1583,12 +1563,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/platform/hono/shared/adapters/by-layer-layout.ts#pathForCategory$5": {
     invariant:
       "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'http-routes'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
-  },
-
-  // src/platform/hono/shared/projection-builder.ts
-  "src/platform/hono/shared/projection-builder.ts#renderFoldStatement": {
-    guardedBy: ["loom.projection-fold-impure"],
-    note: "foldImpurity is a fail-closed allowlist (assign/add/remove/let) applied to every projection on() statement, so every kind in the throwing arm is rejected as an error.",
   },
 
   // src/platform/hono/shared/projection-query-routes-builder.ts

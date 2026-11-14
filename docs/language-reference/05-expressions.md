@@ -12,6 +12,7 @@ Standard C-family precedence, encoded as a rule cascade — lowest binds last. `
 
 ```
 Lambda / MatchExpr / TernaryExpr  x => …   match { … }   ?:   (lowest)
+CoalesceExpr  ??                        (right-associative)
 OrExpr        ||
 AndExpr       &&
 EqualityExpr  ==  !=
@@ -21,6 +22,8 @@ MultiplicativeExpr *  /  %
 UnaryExpr     !  -                      (prefix)
 PostfixExpr   .member  .member(...)  (...)   (highest)
 ```
+
+`??` is its own band between the ternary and `||` (see [Null coalescing — `??`](#null-coalescing--)); `a ?? b ?? c` is `a ?? (b ?? c)`.
 
 Binary chains are flat in the AST (`head` + parallel `ops[]` / `rest[]`), not recursive — `a + b - c` is one `BinaryChain` node that lowering folds left-associatively into nested `binary` IR nodes. Parenthesise with `( … )` to override; the paren survives lowering as a `paren` node and re-emits verbatim.
 
@@ -320,6 +323,44 @@ def stage(self) -> str:
     record.status == :Placed -> "placed"
     true -> "done"
   end,
+```
+::: end
+
+## Null coalescing — `??`
+
+`a ?? b` is `a` unless it is null, else `b`. It is pure sugar: lowering rewrites it to `a == null ? b : a`, so it works wherever the ternary does, evaluates `a` once and `b` only when `a` is null, and narrows exactly as a null-test ternary does. It binds looser than `||` and tighter than `? :`, and is right-associative.
+
+```ddd
+aggregate Task {
+  note: string
+  lastNote: string?
+  derived label: string = lastNote ?? note
+}
+```
+
+::: tabs backend
+== node
+```ts
+get label(): string { return (this._lastNote ?? this._note); }
+```
+== dotnet
+```csharp
+public string Label => (this.LastNote ?? this.Note);
+```
+== java
+```java
+public String label() {
+    return java.util.Optional.ofNullable(this.lastNote).orElseGet(() -> this.note);
+}
+```
+== python
+```python
+def label(self) -> str:
+    return [__c if __c is not None else self._note for __c in (self._last_note,)][0]
+```
+== elixir
+```elixir
+"label" => (case record.last_note do nil -> record.note; loom_c -> loom_c end)
 ```
 ::: end
 

@@ -23,7 +23,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { workflowStateTableName } from "../../../util/naming.js";
 import { tableNameFor } from "../../../util/storage-names.js";
 import { eventLogTable } from "../../plan/index.js";
-import type { BoundedContextIR } from "../../types/loom-ir.js";
+import type { EnrichedBoundedContextIR } from "../../types/loom-ir.js";
 import { isMaterializedProjection } from "../../types/loom-ir.js";
 import type { OriginRef } from "../../types/origin.js";
 import { isTphBase, isTphConcrete } from "../../util/inheritance.js";
@@ -53,7 +53,7 @@ export interface PersistedTable {
  *  tables (document / embedded fold them into the root row); the aggregate's
  *  own `savingShape` is honoured here, so a binding-only override can at most
  *  make this list a superset of the DDL. */
-export function persistedTablesOf(ctx: BoundedContextIR): PersistedTable[] {
+export function persistedTablesOf(ctx: EnrichedBoundedContextIR): PersistedTable[] {
   const out: PersistedTable[] = [];
   const pool = ctx.aggregates;
   let hasEventStream = false;
@@ -94,7 +94,7 @@ export function persistedTablesOf(ctx: BoundedContextIR): PersistedTable[] {
         origin: agg.origin,
       });
     }
-    for (const assoc of agg.associations ?? []) {
+    for (const assoc of agg.associations) {
       out.push({
         table: assoc.joinTable,
         owner: `the join table of '${agg.name}.${assoc.fieldName}'`,
@@ -151,7 +151,7 @@ export function persistedTablesOf(ctx: BoundedContextIR): PersistedTable[] {
 }
 
 export function validatePersistedTableCollisions(
-  ctx: BoundedContextIR,
+  ctx: EnrichedBoundedContextIR,
   diags: LoomDiagnostic[],
 ): void {
   const byTable = new Map<string, PersistedTable>();

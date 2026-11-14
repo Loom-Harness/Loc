@@ -105,9 +105,9 @@ system R {
       event OrderPlaced { orderRef: Order id, at: datetime }
       projection OrderBoard keyed by orderRef {
         orderRef: Order id
-        at: datetime
+        at: datetime?
         seenAt: datetime?
-        on(e: OrderPlaced) { orderRef := e.orderRef  at := e.at  seenAt := e.at }
+        on(e: OrderPlaced) { at := e.at  seenAt := e.at }
       }
       projection BoardEcho {
         orderRef: Order id
@@ -224,7 +224,7 @@ system N {
       projection Labels keyed by orderRef {
         orderRef: Order id
         label: string
-        on(e: OrderPlaced) { orderRef := e.orderRef  label := e.label }
+        on(e: OrderPlaced) { label := e.label }
       }
     }
   }

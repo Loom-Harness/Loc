@@ -112,7 +112,7 @@ describe("constant backfill → ADD COLUMN … DEFAULT, then DROP DEFAULT", () =
     });
   });
 
-  it("an expression backfill keeps the add-nullable → UPDATE → SET NOT NULL sequence", async () => {
+  it("an expression backfill adds the column nullable, then fills and proves it outside the transaction", async () => {
     const steps = await lastSteps([
       shop("node", false),
       shop("node", true, "Order.priority = qty + 1"),
@@ -120,10 +120,14 @@ describe("constant backfill → ADD COLUMN … DEFAULT, then DROP DEFAULT", () =
     expect(steps.filter((s) => s.op !== "addIndex").map((s) => s.op)).toEqual([
       "addColumn",
       "backfillColumn",
-      "alterColumnNullable",
     ]);
     expect(steps[0]).toMatchObject({ column: { name: "priority", nullable: true } });
-    expect(steps[1]).toMatchObject({ valueSql: `("qty" + 1)`, onlyNull: true });
+    expect(steps[1]).toMatchObject({
+      valueSql: `("qty" + 1)`,
+      onlyNull: true,
+      outsideTransaction: true,
+      setNotNull: true,
+    });
   });
 
   it("renders the pair on every backend — Ecto included", async () => {

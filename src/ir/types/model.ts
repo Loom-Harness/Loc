@@ -2,8 +2,7 @@ import type { AggregateIR } from "./aggregate.js";
 import type { BoundedContextIR, EnumIR, PayloadIR, ValueObjectIR } from "./context.js";
 import type { LoomInterface, NeedIR, SubdomainIR } from "./deployment.js";
 import type { ExprIR } from "./expr.js";
-import type { AssociationIR, CreateInputFieldIR, EntityPartIR } from "./members.js";
-import type { OriginRef } from "./origin.js";
+import type { AssociationIR, EntityPartIR } from "./members.js";
 import type { SystemIR } from "./system.js";
 import type { RequirementIR, SolutionIR, TestCaseIR, TraceabilityIR } from "./traceability.js";
 import type { Sourced } from "./types.js";
@@ -53,10 +52,6 @@ export interface LoomModel {
   requirements: RequirementIR[];
   solutions: SolutionIR[];
   testCases: TestCaseIR[];
-  /** Derived traceability index, populated by `enrichLoomModel`.  Left
-   *  undefined by lowering so an unenriched model is a type error to
-   *  consume from a report generator. */
-  traceability?: TraceabilityIR;
   /** Schema-evolution rename intents (M-T2.1) — lowered from top-level
    *  `migration "<name>" { Agg.old -> new }` blocks.  Consumed only by
    *  the phase-⑨ migration builder (`src/system/migrations-builder.ts`) to
@@ -96,15 +91,15 @@ export interface LoomModel {
   /** Every expression lowering read whose type the typing pass could not
    *  resolve.  Lowering gives each a placeholder type and records it here;
    *  `validateLoomModel` turns the record into `loom.unresolved-type` errors,
-   *  so a model carrying one never reaches codegen.  Absent when there is
-   *  none — the case for every model that validates. */
-  unresolvedTypes?: UnresolvedTypeSite[];
+   *  so a model carrying one never reaches codegen.  Empty for every
+   *  model that validates. */
+  unresolvedTypes: UnresolvedTypeSite[];
   /** Every place the lowered IR disagrees with itself — a `ref` naming no
    *  declaration of its `refKind`, a write to a non-stored member, … — found by
    *  `verifyLoweredModel` right after lowering.  `validateLoomModel` turns each
    *  into a `loom.ir-ill-formed` internal error, so an ill-formed IR never
-   *  reaches codegen.  Absent when there is none. */
-  loweringViolations?: LoweringViolation[];
+   *  reaches codegen.  Empty for every well-formed lowering. */
+  loweringViolations: LoweringViolation[];
 }
 
 /** The rule a lowering violation breaks (see `src/ir/verify/verify-lowered.ts`). */
@@ -123,24 +118,21 @@ export type LoweringViolationKind =
   | "unlowered-statement";
 
 /** One place the lowered IR is not well-formed. */
-export interface LoweringViolation {
+export interface LoweringViolation extends Sourced {
   kind: LoweringViolationKind;
   /** The body holding the defect — `Context.Owner.member`. */
   where: string;
   /** What is wrong, naming the offending name. */
   detail: string;
-  /** The nearest `.ddd` origin the IR carries. */
-  origin?: OriginRef;
 }
 
 /** One expression lowering read with no resolved type. */
-export interface UnresolvedTypeSite {
+export interface UnresolvedTypeSite extends Sourced {
   /** The expression as written. */
   text: string;
   /** Why the typing pass has no type for it (its `UnknownCause`, or
    *  `unreached` when the pass never visited the node). */
   cause: string;
-  origin?: OriginRef;
 }
 
 /** One `rename Agg.old -> new` step lowered from a `migration` block.  Field
@@ -280,11 +272,9 @@ export type EnrichedLoomModel = Omit<LoomModel, "systems" | "contexts" | "rootVa
 };
 
 export type EnrichedAggregateIR = AggregateIR & {
-  /** Always populated by `enrichLoomModel` (empty when none derived). */
+  /** Many-to-many associations derived from `Target id[]` fields, one per
+   * reference-collection field (`buildAssociations`).  Empty when none. */
   associations: AssociationIR[];
-  /** Always populated by `enrichLoomModel` (empty when the aggregate has
-   * no client-suppliable create fields). */
-  createInput: CreateInputFieldIR[];
   parts: EnrichedEntityPartIR[];
 };
 
@@ -324,9 +314,6 @@ export interface EventSubscriptionIR {
   /** The event-instance binding name in the handler body (`paid` in
    *  `on(paid: E)` / `create(paid: E) by …`). */
   param: string;
-  /** For `trigger: "create"`, the create's declared name (null for the
-   *  canonical unnamed create).  Undefined for `on` reactors. */
-  createName?: string | null;
   /** Set when the consumer is a projection fold (projection.md) rather than a
    *  workflow saga — carries the projection name (also mirrored into
    *  `workflow`).  The dispatcher branches on this to emit an upsert fold

@@ -690,7 +690,7 @@ function collectContexts(
 // keys as the wire spells them, an enum as its serialized member string
 // (`"Placed"`, not `Placed`; the bare form is already
 // `loom.e2e-unresolved-ref`'s business and is not re-reported here), a
-// `datetime` as an ISO-8601 string, a `money` as a JSON scalar.
+// `datetime` as an ISO-8601 string, a `money` as its string wire form.
 //
 // WHAT IS DELIBERATELY NOT CHECKED, and why — a gate that guesses is worse
 // than no gate, because a false positive turns a valid model red:
@@ -788,11 +788,7 @@ function createBodyContract(agg: AggregateIR): { name: string; type: TypeIR; req
       required: isRequiredCreateInput(p),
     }));
   }
-  // `agg.createInput` is populated by enrichment and this check runs on an
-  // `EnrichedLoomModel`; `buildCreateInput` is the total fallback the shared
-  // helper keeps for pre-enrichment callers, so read through it rather than
-  // asserting.
-  return (agg.createInput ?? buildCreateInput(agg)).map((c) => ({
+  return buildCreateInput(agg).map((c) => ({
     name: c.field.name,
     type: c.field.type,
     required: c.requiredInput,
@@ -1092,17 +1088,28 @@ function checkLiteralAgainstType(
     }
     return;
   }
+  const declared = describeType(t);
+  const got = describeLiteral(value.lit, value.value);
   diags.push({
     severity: "error",
     code: "loom.e2e-body-type-mismatch",
     source,
-    message: diagMessage("loom.e2e-body-type-mismatch", {
-      slug: call.slug,
-      verb: call.verb,
-      key,
-      declared: describeType(t),
-      got: describeLiteral(value.lit, value.value),
-    }),
+    message:
+      t.kind === "primitive" && t.name === "money"
+        ? diagMessage("loom.e2e-body-type-mismatch#money", {
+            slug: call.slug,
+            verb: call.verb,
+            key,
+            got,
+            digits: value.value,
+          })
+        : diagMessage("loom.e2e-body-type-mismatch", {
+            slug: call.slug,
+            verb: call.verb,
+            key,
+            declared,
+            got,
+          }),
   });
 }
 
@@ -1110,12 +1117,12 @@ function checkLiteralAgainstType(
  *  when the target is not a scalar (a value object, an entity, a containment,
  *  an array, `json`, a `File`) and a literal there says nothing decidable.
  *
- *  Deliberately GENEROUS on the numeric and stringly-serialized types: `money`
- *  and `decimal` reach the wire as a JSON string on some backends and a JSON
- *  number on others (the reason `e2e-render.ts` funnels every numeric
- *  conversion through `__num`), so both spellings are admissible and only a
- *  categorically wrong literal — a string for an `int`, an int for a `bool` —
- *  is refused. */
+ *  Deliberately GENEROUS on `decimal`, which reaches the wire as a JSON number
+ *  but whose READ values `e2e-render.ts` funnels through `__num`, so both
+ *  spellings are admissible there.  `money` is not: it is the fixed-scale
+ *  string on every backend and its ingress accepts no JSON number, so only its
+ *  string forms are.  Otherwise only a categorically wrong literal — a string
+ *  for an `int`, an int for a `bool` — is refused. */
 function acceptedLiteralKinds(
   t: TypeIR,
   contexts: BoundedContextIR[],
@@ -1136,8 +1143,12 @@ function acceptedLiteralKinds(
     case "long":
       return new Set(["int", "long"]);
     case "decimal":
-    case "money":
       return new Set(["int", "long", "decimal", "money", "string"]);
+    // `money` is a fixed-scale STRING on every backend's wire, and no backend
+    // coerces a JSON number to it — a bare `2.50` is sent as a number and
+    // refused, so the body spells it `"2.50"` or `money("2.50")`.
+    case "money":
+      return new Set(["money", "string"]);
     case "bool":
       return new Set(["bool"]);
     case "datetime":

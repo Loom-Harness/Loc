@@ -14,6 +14,7 @@
 import * as esbuild from "esbuild-wasm";
 import wasmURL from "esbuild-wasm/esbuild.wasm?url";
 import { BACKEND_LOWERED_SYNTAX, makeVfsNpmPlugin } from "./esbuild-vfs-plugin.js";
+import { type CompiledFramework, frameworkDefines, frameworkPlugin, frameworkTsconfig } from "./frontend-frameworks.js";
 import { harvestTsconfigPaths } from "../../bundle/plugin.js";
 import { install } from "./install.js";
 import { getInstallCache, getNpmMirror } from "./install-sources.js";
@@ -42,6 +43,10 @@ export interface VfsBundleRequest {
    *  `sourcemap: true` — see `EsbuildRunInput.sourcemap`), chaining the
    *  bundle's own map straight back to `.ddd`. */
   sourcemap?: boolean;
+  /** A frontend whose components a framework compiler turns into modules
+   *  (`frontend-frameworks.ts`); bundled from `stdinContents` (the mount
+   *  point, then its entry).  Absent for React and the Hono backends. */
+  framework?: CompiledFramework;
 }
 
 export interface VfsBundleResponse {
@@ -238,7 +243,7 @@ async function getSlot(
 }
 
 self.onmessage = async (ev: MessageEvent<VfsBundleRequest>): Promise<void> => {
-  const { id, stdinContents, entry, generatedFiles, rootDeps, externalReactRuntime, sourcemap } =
+  const { id, stdinContents, entry, generatedFiles, rootDeps, externalReactRuntime, sourcemap, framework } =
     ev.data;
   if (ev.data.deployBase) deployBase = ev.data.deployBase;
   // "inline" so the map travels inside the bundle's own text (no second
@@ -248,7 +253,7 @@ self.onmessage = async (ev: MessageEvent<VfsBundleRequest>): Promise<void> => {
   const sourcemapOption: esbuild.BuildOptions["sourcemap"] = sourcemap ? "inline" : false;
   try {
     await ensureInit();
-    const isReact = !stdinContents && !!entry;
+    const isReact = !stdinContents && !!entry && !framework;
     // C2: react bundle with a prebuilt design-pack vendor → externalise
     // the whole vendor and skip install entirely (the iframe importmap
     // supplies react/@mantine/… at load).  The app-only bundle is the
@@ -341,7 +346,7 @@ self.onmessage = async (ev: MessageEvent<VfsBundleRequest>): Promise<void> => {
     // tree (off the main thread; node_modules stays here), then bundle.
     // Distinct slot keys (hono vs react-self) so the backend and the
     // fallback frontend each keep their own persistent context.
-    const slotKey = stdinContents ? "hono" : "react-self";
+    const slotKey = framework ? `frontend-${framework}` : stdinContents ? "hono" : "react-self";
     const signature = JSON.stringify([
       entry ?? null,
       !!externalReactRuntime,
@@ -365,7 +370,24 @@ self.onmessage = async (ev: MessageEvent<VfsBundleRequest>): Promise<void> => {
       slotKey,
       signature,
       (files) => ({
-        options: stdinContents
+        options: framework
+          ? {
+              ...BUILD_COMMON,
+              define: { ...BUILD_COMMON.define, ...frameworkDefines(framework) },
+              tsconfigRaw: frameworkTsconfig(framework),
+              sourcemap: sourcemapOption,
+              plugins: [
+                frameworkPlugin(framework, files),
+                makeVfsNpmPlugin(files, "/node_modules", false, aliases),
+              ],
+              stdin: {
+                contents: stdinContents ?? "",
+                resolveDir: "/",
+                sourcefile: "__frontend__.ts",
+                loader: "ts" as const,
+              },
+            }
+          : stdinContents
           ? {
               ...BUILD_COMMON,
               supported: BACKEND_LOWERED_SYNTAX,
@@ -406,7 +428,7 @@ self.onmessage = async (ev: MessageEvent<VfsBundleRequest>): Promise<void> => {
     // whether the npm-default perf work targets install latency (C1)
     // or esbuild-wasm bundling (C2).  `kind` distinguishes the small
     // Hono backend bundle from the heavy React/Mantine frontend one.
-    const kind = stdinContents ? "hono" : "react";
+    const kind = framework ?? (stdinContents ? "hono" : "react");
     // eslint-disable-next-line no-console
     console.info(
       `[npm-engine] ${kind}: install=${installMs}ms bundle=${bundleMs}ms ` +

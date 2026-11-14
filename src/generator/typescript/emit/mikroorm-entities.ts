@@ -291,7 +291,12 @@ function tphConcreteColumns(
   const seen = new Set(taken);
   for (const f of ownFieldsOf(concrete, base)) {
     if (isRefCollectionType(f.type)) continue;
-    for (const c of fieldColumns(f, ctx)) {
+    // A value-object collection rides inline as one jsonb column, as on a
+    // plain aggregate (`valueCollectionColumn`).
+    const fieldCols = isValueCollectionType(f.type)
+      ? [valueCollectionColumn(f, ctx)]
+      : fieldColumns(f, ctx);
+    for (const c of fieldCols) {
       if (seen.has(c.prop)) continue;
       seen.add(c.prop);
       cols.push({ ...c, nullable: true });

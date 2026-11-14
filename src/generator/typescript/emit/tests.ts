@@ -19,7 +19,10 @@ import {
   coerceMatcherExpected,
   coerceTestArgs,
   coerceTestValue,
+  decideLiteralCoercion,
+  matcherSubjectType,
   type TestValueTarget,
+  withServiceMoneyArgs,
 } from "../../_test/arg-coercion.js";
 import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
 import { renderTsExpr } from "../render-expr.js";
@@ -33,6 +36,7 @@ const TS_TEST_LITERAL: TestValueTarget = {
   datetime: (rendered) => `new Date(${rendered})`,
   // A `date` is its ISO text on this backend — the literal already is one.
   date: (rendered) => rendered,
+  money: (digits) => renderTsExpr({ kind: "literal", lit: "money", value: digits }),
   valueObject: (name, args) => `new ${name}(${args.join(", ")})`,
   omitted: "null",
 };
@@ -248,6 +252,8 @@ function isNullableMemberRead(e: ExprIR, ctx: BoundedContextIR): boolean {
 }
 
 function renderTestExpr(e: ExprIR, ctx: BoundedContextIR): string {
+  const service = withServiceMoneyArgs(e, ctx);
+  if (service !== e) return renderTestExpr(service, ctx);
   // A member read whose RECEIVER is a nullable field (single containment or
   // optional field, both `T | null` on the domain object) needs a non-null
   // assertion under strict `tsc`: `o.shipment.carrier` → `o.shipment!.carrier`.
@@ -371,7 +377,10 @@ export function renderExplicitMatcher(expr: ExprIR, ctx: BoundedContextIR): stri
   // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`):
   // `toEqual`, not `toBe` — two `Date` objects are never `Object.is`-identical,
   // and `toEqual` compares their time value.
-  const dt = coerceMatcherExpected(expr, args, TS_TEST_LITERAL);
+  // A `money` subject goes through `renderTypedValueMatcher` below, which
+  // compares canonical decimal strings — `toEqual` on two decimal.js objects
+  // compares their internals.
+  const dt = isMoneyMatcher(expr) ? undefined : coerceMatcherExpected(expr, args, TS_TEST_LITERAL);
   if (dt !== undefined) return `  expect(${actual}).${negate ? "not." : ""}toEqual(${dt});`;
   const tail = negate ? `not.${expr.member}` : expr.member;
   // The asserted subject's resolved type, `.not.` peeled (the negated form's
@@ -391,6 +400,12 @@ export function renderExplicitMatcher(expr: ExprIR, ctx: BoundedContextIR): stri
   );
   if (typed !== null) return typed;
   return `  expect(${actual}).${tail}(${args});`;
+}
+
+/** A `toBe` whose expected literal sits in a `money` position. */
+function isMoneyMatcher(expr: ExprIR & { kind: "method-call" }): boolean {
+  const arg = expr.args[0];
+  return arg !== undefined && decideLiteralCoercion(matcherSubjectType(expr), arg).kind === "money";
 }
 
 const ORDERING_MATCHERS = new Set([

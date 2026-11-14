@@ -70,7 +70,7 @@ describe("loom.persisted-table-collision", () => {
     const msgs = await collisions(`
       aggregate Tick with crudish { n: int }
       event Tock { tick: Tick id  n: int }
-      projection Tick keyed by tick { tick: Tick id  n: int  on(e: Tock) by e.tick { tick := e.tick  n := e.n } }
+      projection Tick keyed by tick { tick: Tick id  n: int  on(e: Tock) by e.tick { n := e.n } }
       repository TickRepo for Tick { }`);
     expect(msgs).toHaveLength(1);
     expect(msgs[0]).toContain(
@@ -142,7 +142,7 @@ system K {
     projection OrderTotals keyed by orderId {
       orderId: Order id
       total: int
-      on(e: Placed) by e.order { orderId := e.order  total := e.total }
+      on(e: Placed) by e.order { total := e.total }
     }
   } }
   storage pg { type: postgres }
