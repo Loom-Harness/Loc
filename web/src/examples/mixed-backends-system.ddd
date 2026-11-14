@@ -1,0 +1,52 @@
+// A system the browser can run only part of.  `shippingSvc` is a Node
+// backend, so the playground bundles and boots it; `ordersSvc` is ASP.NET,
+// which runs outside the playground (in the Docker stack).  Boot starts what
+// it can: the Runtime panel lists `orders_svc` as not runnable with the
+// reason, and `shippingSvc`'s call into it through the typed `orders` client
+// fails with that reason instead of leaving for the network.
+//
+// Try it: GET /api/shipments on `shippingSvc` answers; POST the `placeOrder`
+// workflow and its call to `ordersSvc` fails, naming why.
+
+system MixedBackends {
+  subdomain D {
+    context Orders {
+      aggregate Order with crudish {
+        code: string
+        status: string
+      }
+      repository Orders for Order
+    }
+    context Shipping {
+      aggregate Shipment with crudish {
+        orderCode: string
+        status: string
+      }
+      repository Shipments for Shipment { }
+      workflow placeOrder {
+        create(code: string) {
+          let created = orders.createOrder({ code: code, status: "Draft" })
+          let s = Shipment.create(orderCode: created.code, status: "Placed")
+        }
+      }
+    }
+  }
+  api OrdersApi from D
+  storage pg { type: postgres }
+  resource ordersState   { for: Orders,   kind: state, use: pg }
+  resource shippingState { for: Shipping, kind: state, use: pg }
+  resource orders        { for: Shipping, kind: api,   use: OrdersApi }
+  deployable ordersSvc {
+    platform: dotnet
+    contexts: [Orders]
+    dataSources: [ordersState]
+    serves: OrdersApi
+    port: 4000
+  }
+  deployable shippingSvc {
+    platform: node
+    contexts: [Shipping]
+    dataSources: [shippingState, orders]
+    port: 4001
+  }
+}

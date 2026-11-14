@@ -82,7 +82,7 @@ import { type Band, correspondenceAt, sourceBands, sourceSpanFor } from "./build
 import { diffGenerated, type OutputDiff } from "./build/output-diff";
 import { analyzeDeployables, composeServiceEnv } from "./build/deployables";
 import { projectEntryPath } from "./util/project-entry";
-import { type BootableBackend, bootableBackends, bootPlan } from "./build/boot-plan";
+import { type BootableBackend, bootableBackends, bootPlan, type UnavailableDeployable, unavailableDeployables } from "./build/boot-plan";
 import { resolveTestId } from "./build/select-target";
 import type { BundleOk } from "./bundle/protocol";
 import {
@@ -182,6 +182,7 @@ import {
   type OidcState,
   EXPLORER_MODES,
   formatUnsupportedDeployables,
+  unsupportedPlatformLabel,
   type DockTab,
   type LayoutCtx,
   type MobileCodeView,
@@ -573,6 +574,8 @@ export default function App(): JSX.Element {
   // The booted system's declared `storage`s — what the Infrastructure panel
   // lists its tabs against.  Set on each successful boot.
   const [infraResources, setInfraResources] = useState<DeclaredResource[]>([]);
+  /** The system's deployables the last boot left out, with why. */
+  const [unavailable, setUnavailable] = useState<UnavailableDeployable[]>([]);
   const oidcRef = useRef(oidc);
   oidcRef.current = oidc;
   // The preview app's cookies for its backend — the session the generated
@@ -1813,6 +1816,15 @@ export default function App(): JSX.Element {
       // asks for the dev stub.
       const idp = oidcSetup(lastGeneratedFilesRef.current, backends.map((b) => b.slug), envOf);
       const realVerifier = idp !== null && authStubRef.current.verifier !== "stub";
+      // A system boots partly: the deployables the browser cannot run, and the
+      // backends that did not bundle, are left out — and a call to one fails
+      // with the reason rather than going to the network.
+      const analysis = analyzeDeployables(lastGeneratedFilesRef.current);
+      const away = unavailableDeployables(
+        analysis.backends.flatMap((entry) => entry.match(/^([^/]+)\/http\/index\.ts$/)?.[1] ?? []),
+        backends.map((b) => b.slug),
+        analysis.unsupported.map((d) => ({ slug: d.slug, label: unsupportedPlatformLabel(d.platform) })),
+      );
       const plan = bootPlan(backends, planned.plan, planned.storages, (storageKey) => {
         if (!isDesktop || memoryStorageRequested()) return { dataDir: ":memory:", island: null };
         const island =
@@ -1820,11 +1832,12 @@ export default function App(): JSX.Element {
             ? fnv1a32(`${workspace.activeId}\u0000${current.entryPath}\u0000${storageKey}`)
             : islandKey;
         return { dataDir: `opfs-ahp://loom-${island}`, island };
-      }, envOf, planned.restSpecs, realVerifier ? idp : null);
+      }, envOf, planned.restSpecs, realVerifier ? idp : null, away);
       const res = await engine.boot(plan.plan, { fresh: opts?.fresh });
       if (res.ok) {
         previewCookiesRef.current.clear();
         setInfraResources(planned.resources);
+        setUnavailable(away);
         // A token minted against the same realm still verifies (the signing
         // key outlives a boot); one for another realm, or a stub boot, drops it.
         setOidc((prev) => ({
@@ -3277,6 +3290,7 @@ export default function App(): JSX.Element {
       authStub,
       oidc,
       infraResources,
+      unavailableDeployables: unavailable,
       editorSourceTick,
       editorHandleRef,
       diagnostics,
@@ -3392,6 +3406,7 @@ export default function App(): JSX.Element {
       authStub,
       oidc,
       infraResources,
+      unavailable,
       editorSourceTick,
       diagnostics,
       errorCount,

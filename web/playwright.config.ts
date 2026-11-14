@@ -45,6 +45,7 @@ const HEAVY_PREVIEW_SPECS = [
   "**/multi-frontend-preview.spec.ts",
   "**/channels-broker.spec.ts",
   "**/cross-deployable-runtime.spec.ts",
+  "**/partial-boot.spec.ts",
   "**/resource-fakes.spec.ts",
   "**/infra-panel-resources.spec.ts",
   "**/first-boot-initial-migration.spec.ts",
