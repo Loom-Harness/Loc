@@ -136,8 +136,11 @@ export interface S3 {
   list(): S3ObjectEntry[];
   /** Every bucket that exists — pre-created, created, or written to — sorted. */
   buckets(): string[];
-  /** One object's bytes and type, or null when it does not exist. */
-  get(bucket: string, key: string): { body: Uint8Array; contentType: string } | null;
+  /** One object, or null when it does not exist.  `lastModified` is ISO 8601. */
+  get(
+    bucket: string,
+    key: string,
+  ): { body: Uint8Array; contentType: string; etag: string; lastModified: string } | null;
   /** Store an object, as a PutObject would. */
   put(bucket: string, key: string, body: Uint8Array, contentType?: string): void;
   /** Remove an object, as a DeleteObject would; a missing key is not an error. */
@@ -209,7 +212,14 @@ export function createS3(
     buckets: () => [...buckets.keys()].sort(byName),
     get(bucket, key) {
       const o = buckets.get(bucket)?.get(key);
-      return o ? { body: o.body, contentType: o.contentType } : null;
+      return o
+        ? {
+            body: o.body,
+            contentType: o.contentType,
+            etag: o.etag,
+            lastModified: o.lastModified.toISOString(),
+          }
+        : null;
     },
     put(bucket, key, body, contentType = "application/octet-stream") {
       putObject(bucket, key, body, contentType);

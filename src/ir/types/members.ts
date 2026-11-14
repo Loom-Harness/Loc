@@ -1,20 +1,42 @@
 import type { ExprIR } from "./expr.js";
-import type { StmtIR } from "./stmt.js";
+import type { Messaged, StmtIR } from "./stmt.js";
 import type { SensitivityTags, Sourced, TypeIR } from "./types.js";
 import type { StateFieldIR } from "./ui.js";
 
-export interface ParamIR {
+/** A param's default seeds the scaffolded operation / workflow form's input
+ *  (a default the target UI can't evaluate falls back to the type-zero seed);
+ *  it is lowered only where the site had an env to resolve it (operation /
+ *  create / destroy / workflow-start / function params) and may reference
+ *  `this` (the target instance) for an operation param. */
+export interface ParamIR extends Defaulted {
   name: string;
   type: TypeIR;
-  /** Lowered default-value expression from `param: T = <expr>` — the
-   *  parameter analogue of {@link FieldIR.default}.  Present only where the
-   *  lowering site had an env to resolve the expression (operation / create /
-   *  destroy / workflow-start / function params); the expression is
-   *  fully-resolved like any other `ExprIR` and may reference `this` (the
-   *  target instance) for an operation param.  Consumed by the scaffolded
-   *  operation / workflow form to seed its inputs; a default the target UI
-   *  can't evaluate falls back to the type-zero seed. */
+}
+
+/** A lowered default-value expression (`name: T = <expr>`), fully resolved
+ *  like any other `ExprIR`.  Absent where the source declared none (and on
+ *  events / views, which never lower one). */
+export interface Defaulted {
   default?: ExprIR;
+}
+
+/** A `mask unless <expr>` read-mask predicate (authorization.md §5) — a
+ *  `currentUser`-only bool (+ constants, never the row, like a `requires`
+ *  gate).  The field's wire value is REDACTED (null) UNLESS it holds; every
+ *  wire consumer that redacts reads it, and it drives the wire-spec
+ *  `fieldCapabilities` entry.  Absent = the field is always visible. */
+export interface Masked {
+  maskUnless?: ExprIR;
+}
+
+/** A declared `: T` return type (exception-less.md) — an `or`-union or a
+ *  plain type.  When present the body produces the value via a `return` and
+ *  the route translates an `error`-variant result to a ProblemDetails
+ *  status.  Absent ⇒ no `: T` clause (a mutation operation, a `: void`-
+ *  equivalent handler or create).  Shared by operations, domain-service
+ *  operations and the workflow entry points. */
+export interface Returns {
+  returnType?: TypeIR;
 }
 
 /** Resolved access role for a stored field.  Controls the field's
@@ -32,7 +54,9 @@ export interface ParamIR {
  *               in any read */
 export type FieldAccess = "editable" | "immutable" | "managed" | "token" | "internal" | "secret";
 
-export interface FieldIR extends Sourced {
+/** A field's `default` is consumed when synthesising a create for an
+ *  aggregate with no explicit one. */
+export interface FieldIR extends Sourced, Defaulted, Masked {
   name: string;
   type: TypeIR;
   optional: boolean;
@@ -60,19 +84,6 @@ export interface FieldIR extends Sourced {
    * to phrase conflict messages and by the wire-spec diff to explain
    * the field's role.  Same nullability as `access`. */
   accessSource?: "declared" | "default" | "stamp";
-  /** Lowered default-value expression from `field: T = <expr>`.  Present
-   *  only on aggregate / entity-part / value-object fields that declared a
-   *  default (events / views never lower one).  Fully-resolved like any
-   *  other `ExprIR`; consumed when synthesising a create for an aggregate
-   *  with no explicit one. */
-  default?: ExprIR;
-  /** Lowered `mask unless <expr>` read-mask predicate (authorization.md §5) —
-   *  a `currentUser`-only bool.  The field's wire value is REDACTED (null)
-   *  UNLESS the predicate holds.  Present only where the source declared the
-   *  clause; drives the DTO read redaction + the wire-spec `fieldCapabilities`
-   *  entry.  The gate expression, like a `requires` gate, references only
-   *  `currentUser` (+ constants) — never the row. */
-  maskUnless?: ExprIR;
 }
 
 /** One entry in an aggregate's reified **create-input contract** — the
@@ -195,14 +206,13 @@ export interface MessageIR {
   text: string;
 }
 
-export interface InvariantIR {
+/** A NAMED invariant's `message` forces the rule onto the wire/refine carrier
+ *  (never the native-chain optimisation) so its key and text reach the
+ *  frontend inline error, the wire 422 `errors[]`, and the domain floor. */
+export interface InvariantIR extends Messaged {
   expr: ExprIR;
   guard?: ExprIR;
   source: string;
-  /** Present for a NAMED rule.  It forces the rule onto the wire/refine
-   *  carrier (never the native-chain optimisation) so its key and text reach the
-   *  frontend inline error, the wire 422 `errors[]`, and the domain floor. */
-  message?: MessageIR;
   /** When `"server-only"`, the invariant skips wire-boundary
    *  validators (frontend Zod, Hono routes, FluentValidation) even
    *  when its expression would translate cleanly.  Domain-layer
@@ -245,13 +255,8 @@ export interface FunctionIR {
  * carries the lifecycle asymmetry; bodies are identical across kinds. */
 export type OperationKind = "create" | "mutate" | "destroy";
 
-export interface OperationIR extends Sourced {
+export interface OperationIR extends Sourced, Returns {
   name: string;
-  /** Declared `or`-union return type (exception-less.md, spike).  Absent on a
-   *  legacy mutation operation (no `: T` clause).  When present, the operation
-   *  body produces the value via a `return` statement and the route translates
-   *  an `error`-variant result to a ProblemDetails status. */
-  returnType?: TypeIR;
   /** Lifecycle kind discriminator.  `"mutate"` for the `operation`
    * keyword.  `agg.operations` only ever holds `"mutate"` actions; `"create"` /
    * `"destroy"` actions live in `agg.creates` / `agg.destroys`. */
@@ -341,7 +346,8 @@ export interface EntityPartIR {
  * wire shape.  See `src/ir/enrich/enrichments.ts`. */
 export type WireFieldSource = "id" | "property" | "containment" | "derived";
 
-export interface WireField {
+/** A `property` wire field carries its originating `FieldIR.maskUnless`. */
+export interface WireField extends Masked {
   /** JSON key on the wire.  Stays as the user wrote it in the
    * `.ddd` source — backends that prefer PascalCase / camelCase
    * decide their own casing rule. */
@@ -360,10 +366,4 @@ export interface WireField {
    * and `"derived"` it is `"editable"` until a real case demands
    * otherwise. */
   access: FieldAccess;
-  /** Read-mask predicate (`field: T mask unless <expr>`, authorization.md §5)
-   * carried through from the originating `FieldIR.maskUnless` for `source:
-   * "property"` fields.  A `currentUser`-only boolean: when it evaluates false
-   * for the caller, the field is REDACTED (null) on the wire.  Absent = the
-   * field is always visible.  Every wire consumer that redacts reads this. */
-  maskUnless?: ExprIR;
 }

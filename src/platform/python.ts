@@ -59,11 +59,13 @@ const pythonPlatform: PlatformSurface = {
     migrations,
     emitTrace,
     sourcemap,
+    frontendContract,
   }): Map<string, string> {
     return generatePythonForContexts({
       contexts,
       deployable,
       sys,
+      frontendContract,
       migrations,
       emitTrace,
       sourcemap,

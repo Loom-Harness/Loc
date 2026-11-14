@@ -185,7 +185,7 @@ where durability matters:
   outage over four 5-minute boundaries fires one catch-up, not four).
 - **`every:` (sub-minute) timers → in-process**: a `setInterval` poll at half
   the period with a `running` no-overlap guard. Each poll claims the current
-  period in the `__loom_timer` row (`timerClaimSql`, [D-TIMER-SINGLE-FIRE](decisions.md)),
+  period in the `__loom_timer` row (`timerClaimSql`, [D-TIMER-SINGLE-FIRE](decisions/D-TIMER-SINGLE-FIRE.md)),
   and only the poll that advances the row dispatches, so the tick fires once
   per period across replicas. Durability is meaningless for a high-frequency
   poll (resume-at-next-period is correct) and pg-boss cron is minute-granularity.
@@ -835,7 +835,7 @@ markup walker (`src/generator/_walker/`) through `vueTarget` and the
 SAME `_frontend/` api/workflows module builders (only the
 TanStack Query import specifier differs).  Design packs: `vuetify`
 (default) and `shadcnVue` (reka-ui + Tailwind 4, source-copy).  See
-[D-VUE-FRONTEND](decisions.md) and `[docs/old/plans/vue-frontend-plan.md](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/vue-frontend-plan.md)`.
+[D-VUE-FRONTEND](decisions/D-VUE-FRONTEND.md) and `[docs/old/plans/vue-frontend-plan.md](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/vue-frontend-plan.md)`.
 
 ### File map (deltas vs the React project)
 
@@ -1283,7 +1283,7 @@ are **implemented**.
 ### Names that are Python keywords
 
 The python twin of [Java's reserved words](#names-that-are-java-reserved-words)
-(eval item 6, ruling [D-TARGET-RESERVED-NAMES](decisions.md#d-target-reserved-names--a-member-named-like-a-target-keyword-or-a-generated-helper-is-escaped-per-backend)).
+(eval item 6, ruling [D-TARGET-RESERVED-NAMES](decisions/D-TARGET-RESERVED-NAMES.md)).
 Python has no verbatim identifier, and every `.ddd` member lands in an
 identifier position — a keyword argument, an attribute, a `def` name — so one
 funnel in `src/util/naming.ts` spells them all: `pythonIdent(name)` (the
@@ -1576,7 +1576,7 @@ Out of scope for v1 (intentional):
   why.  A **server-side** typeahead is out of scope: the picker loads every
   row of the target.
 - **Ordering on `X id[]` collections**: `Target id[]` is a set
-  ([D-REFCOLL-SET](decisions.md)).  On all five backends the join table
+  ([D-REFCOLL-SET](decisions/D-REFCOLL-SET.md)).  On all five backends the join table
   is only the composite `(owner, target)` key — no `ordinal` column —
   and every backend reads the rows back sorted by the target FK id
   (Drizzle/EF/Dapper/SQLAlchemy `ORDER BY` it, JPA's argument-less

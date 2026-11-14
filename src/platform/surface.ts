@@ -5,6 +5,7 @@ import type {
   StyleAdapter,
 } from "../generator/_adapters/index.js";
 import type { SourceMapRecorder } from "../generator/_trace/sourcemap.js";
+import type { FrontendContract } from "../ir/contract/frontend-contract.js";
 import type {
   ComponentIR,
   DeployableIR,
@@ -226,6 +227,12 @@ export interface PlatformSurface extends PlatformDescriptor {
      *  `src/components/<Name>.tsx` per ui that references the
      *  component); other platforms ignore the arg. */
     topLevelComponents?: ComponentIR[];
+    /** The system's Frontend Contract (`src/ir/contract/`): the resolved UI
+     *  and exposed wire surface a frontend target emits from.  Built once per
+     *  system by the orchestrator when the system declares a `ui`; a frontend
+     *  target, or a backend embedding a frontend bundle, forwards it to the
+     *  frontend generator.  Backends otherwise ignore it. */
+    frontendContract?: FrontendContract;
     /** The deployable's resolved STYLE / LAYOUT adapters
      *  (D-REALIZATION-AXES `application:` / `directoryLayout:`).  The
      *  system orchestrator resolves these from the deployable's axis

@@ -52,7 +52,7 @@ async getByNumber(number: string): Promise<Invoice> {
 
 ## The repository verbs
 
-The verbs are `get`, `find`, `getBy`, `findBy`, `all` and `remove` ([D-REPO-VERBS](../decisions.md)). `get` answers the row or a 404; `find` answers the row or nothing; `all` answers a list. Two of them are decided by their argument:
+The verbs are `get`, `find`, `getBy`, `findBy`, `all` and `remove` ([D-REPO-VERBS](../decisions/D-REPO-VERBS.md)). `get` answers the row or a 404; `find` answers the row or nothing; `all` answers a list. Two of them are decided by their argument:
 
 - **`find` is overloaded on its argument.** A reference to a declared `criterion` (`Active`, `ByRef(r)`) is the criterion read — the first match. Any other argument is an id, and the call is the by-id read. A `retrieval` is a list, so `find(<Retrieval>)` is refused (`loom.repo-find-retrieval`) — run it with `all`.
 - **`get` takes an id only.** `get(<Criterion>)` is refused (`loom.repo-get-criterion`), and the message points at `find`.
@@ -104,7 +104,7 @@ The read lowers to a synthetic retrieval named after its shape (`findAllByActive
 
 ### `find` declarations are removed
 
-Before the repository contract, a repository body declared its own reads — `find byCode(c: string): Order? where this.code == c`, `find all(): Order[]`. That declaration is gone ([D-FINDDECL-REMOVED](../decisions.md)); a `find` left in a repository body is a parse error at the `find`:
+Before the repository contract, a repository body declared its own reads — `find byCode(c: string): Order? where this.code == c`, `find all(): Order[]`. That declaration is gone ([D-FINDDECL-REMOVED](../decisions/D-FINDDECL-REMOVED.md)); a `find` left in a repository body is a parse error at the `find`:
 
 ```ddd
 repository Orders for Order {
@@ -136,7 +136,7 @@ Each old shape has one replacement:
 
 ## Natural-key reads — `getBy` / `findBy`
 
-When the aggregate declares the key `unique (…)`, the repository answers it through two contract verbs ([D-REPO-KEY-LOOKUP](../decisions.md)):
+When the aggregate declares the key `unique (…)`, the repository answers it through two contract verbs ([D-REPO-KEY-LOOKUP](../decisions/D-REPO-KEY-LOOKUP.md)):
 
 ```ddd
 aggregate Product with crudish, softDeletable {
@@ -938,6 +938,64 @@ from(record in D.Catalog.Order, where: not record.is_deleted,
 ::: end
 
 **No paging, no `order by`.** A projection read returns the whole row list — there is no `paged` carrier or sort clause on a projection (the grammar reserves `order by` for a later slice; no `loom.projection-paged-*` code exists). Grouped reads are ordered by their grouping columns; for a paged list, use a paged `queryHandler` ([above](#repoall--the-paged-queryhandler)).
+
+### Parameters — the only filter input
+
+A query-time projection's declared parameters are its read route's only filter input (D-PROJECTION-PARAMS). The route binds exactly those names off the query string, under their declared spelling, on every arm — grouped, singleton, repository, workflow- and projection-sourced. Each value is checked like an operation input before the gate or the query runs: a malformed `X id` answers the 422 `field-invalid` envelope with `field.malformed-id` at `/<name>`, an integer outside `int` with `field.integer-range` and its bounds, a missing required parameter with `field.missing`. A parameter declared `T?` is optional. The plan is `projectionQueryParams` (`src/ir/plan/projection-params.ts`); a `test e2e` reads a parameterised projection with `api.<proj>.list(a, b, …)`, positionally in declared order.
+
+```ddd
+projection TopRanked(maxRank: int) {
+  providers: int
+  from MatchResult as m
+  where m.rank <= maxRank
+  select providers = count()
+}
+```
+
+::: tabs backend
+== node
+```ts
+// http/query-projections.ts — GET /projections/top_ranked?maxRank=…
+const TopRankedQuery = z.object({
+  maxRank: z.coerce.number().int().min(-2147483648, "Integer out of range").max(2147483647, "Integer out of range").openapi({ format: "int32" }),
+}).openapi("TopRankedQuery");
+// …
+      const { maxRank } = httpCtx.req.valid("query");
+      const [row] = await db.select({ providers: count() }).from(schema.matchResults).where(lte(schema.matchResults.rank, maxRank));
+```
+== python
+```python
+# app/http/query_projections_routes.py
+async def top_ranked_projection(max_rank: Annotated[Int32Param, Query(alias="maxRank")], session: SessionDep) -> dict[str, object]:
+    row = (await session.execute(select(func.count()).select_from(MatchResultRow).where((MatchResultRow.rank <= max_rank)))).one()
+```
+== dotnet
+```csharp
+// Api/RunsQueryProjectionsController.cs + Application/Projections/TopRankedQpHandler.cs
+public async Task<ActionResult<TopRankedRow>> TopRanked([FromQuery] int maxRank) { … }
+// …
+        var maxRank = query.maxRank;
+        var agg = await _db.MatchResults.AsNoTracking().Where(o => o.Rank <= maxRank)
+```
+== java
+```java
+// application/views/RunsQueryProjections.java
+public TopRankedRow topRanked(int maxRank) {
+    Object r = entityManager.createQuery("select count(e) from MatchResult e where e.rank <= :maxRank").setParameter("maxRank", maxRank).getSingleResult();
+```
+== elixir
+```elixir
+# lib/d_web/controllers/query_projections_controller.ex
+case __check_find_params(params, [{"maxRank", {:integer, -2147483648, 2147483647}, true}]) do
+  {:error, param_errors} ->
+    DWeb.ProblemDetails.validation_errors_response(conn, param_errors)
+
+  :ok ->
+    data = D.Runs.QueryProjections.TopRanked.run(__find_int(params["maxRank"]), current_user)
+    json(conn, data)
+end
+```
+::: end
 
 ### Sources — aggregate, workflow, projection
 

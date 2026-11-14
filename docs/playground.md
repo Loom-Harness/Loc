@@ -198,6 +198,16 @@ queues). The browser console reads the whole state as
 `await __loomInspectBroker()`: queues, topics, group offsets, dead-letter
 contents and a journal of who received and acknowledged each envelope.
 
+The Infrastructure panel's **Broker** tab shows the same state live: redis
+channels and their subscribers, rabbitmq queues with their ready / unacked
+counts, kafka topics with each consumer group's committed offset and lag per
+partition, and the messages a queue or topic holds, bodies included. It publishes a
+test message onto any address in the generated envelope shape, re-drives an
+address's dead letters onto it (`redrive`: rabbitmq drains
+`loom.dlq.<address>`; kafka moves `<address>.dlq` back and truncates it), and
+moves a kafka group's offset to replay (`seek`). The emulated badge lists the
+`emulated` notes.
+
 ### Resource fakes
 
 `objectStore`, `mailer` and `api` resources are answered inside the browser.
@@ -222,6 +232,7 @@ one instance of its model, routes the infra ops to it and hands it the OPFS
 | `smtp`, `sendgrid` | `nodemailer` / `@sendgrid/mail` → facades | the Mailbox |
 | `ses` | the real `@aws-sdk/client-ses`; its `SendEmail` (or a `SendRawEmail` MIME message) is answered by the fake | the Mailbox |
 | `restApi` | the generated `fetch` → the `httpMock` service | sample data for the storage's `config: { spec }` OpenAPI document (`openapi-sampler`); an echo when it has none |
+| `redis` (`kind: cache`) | `ioredis` → a facade forwarding each command (`GET`, `SET … PX`, `DEL`, `INCR`, `EXISTS`, `PTTL`, `FLUSHDB`) | one keyspace per server URL with TTLs and least-recently-used eviction (`src/emulation/cache.ts`), in memory only; the Cache tab lists the keys with their remaining TTL and evicts or flushes them |
 
 The AWS SDKs get dummy credentials (`adaptResourceSource` in
 `src/engine/npm/resource-facades.ts`); the fakes ignore signatures. Objects,
@@ -239,6 +250,27 @@ answered by the same object store: the iframe's fetch shim
 intercepted — an `<img src>` or a download link to a presigned URL still goes to
 the real host (a page cannot be intercepted without a service worker), which the
 Runtime panel's "emulated" tooltip states.
+
+### The Infrastructure panel
+
+The dock's **Infrastructure** tab (on a phone: **More → Infrastructure**) shows
+and manages the emulated services of the booted system, one tab per service
+(`web/src/infra-panel/`, listed in `tabs.ts`). A tab reads and changes state only
+through the infra worker's `{ service, op, params }` protocol (`useInfra` /
+`useInfraAction`), so what it shows is the one copy the deployables use. Each
+tab carries an **emulated** badge whose hover lists how the service differs from
+production, and shows an empty state when the booted system declares no storage
+of its types.
+
+| Tab | Shows | Actions |
+|---|---|---|
+| Mailbox | every mail from `smtp`, `ses` and `sendgrid`: from, to, subject, via | read the text, or the HTML in a sandboxed frame (no scripts, no same-origin); clear |
+| Object store | the `s3` buckets and the `localDisk` tree, browsed by folder | view (text, image or hex), download, upload into the current folder, delete |
+| REST mocks | every request to a `restApi`: method, URL, status, request body, response | override one operation's response (status + JSON body) in place of the spec sample or the echo; clear the log |
+
+An override is keyed by the API's origin and the operation (`GET /rate/{ccy}`
+from the spec, or the literal path without one), answers every call until it is
+cleared, and is dropped on a re-boot.
 
 ### The identity provider
 
@@ -258,6 +290,12 @@ console and the preview send it as `Authorization: Bearer …`. Its *Verifier*
 switch boots the dev stub instead (on the next boot), for the
 `x-loom-dev-claims` workflow. The signing key lives as long as the infra
 worker, so a token survives a re-boot.
+
+The Infrastructure panel's **OIDC** tab lists the realm and its personas, and
+every token set the provider issued: minted (from the tab or the Auth tab) or
+served by the token endpoint for a grant (a preview sign-in, a refresh), each
+with its header and claims decoded. Its Mint button issues a token for a
+persona through the same provider.
 
 The generated frontend's **Sign in** (`auth: ui`) runs the real handshake. Its
 `location.href = …/api/auth/login` is under the runtime base, which no server
@@ -325,9 +363,12 @@ schema edits; a recorded change migrates it in place and keeps the rows.
 
 Boot never writes to the database while the model has **unrecorded** schema
 changes: it stops with *migration required* (`backend-status`), names the
-modules and steps, and leaves the database as it is. That includes a workspace
-with no chain, every built-in example among them — no migration is implied, so
-the database is created only once the initial migration is recorded. A database the chain cannot describe — one at a unit the chain
+modules and steps, and leaves the database as it is. The one exception is a
+workspace with no chain, every built-in example among them: Boot records its
+initial migration (named `initial`, the same entry **Record migration…** would
+write) into the workspace and creates the database from it, so an example runs
+on its first Boot. A session that cannot write the workspace (a view-only link,
+a read-only second tab) cannot record it, and its Boot stays blocked. A database the chain cannot describe — one at a unit the chain
 no longer has, or one an earlier playground built without migration tracking
 (a `ddl_hash` row) — is reported, not dropped. The only actions that drop the
 user schemas are the explicit ones: **Reset database** (Database sub-view —
@@ -344,8 +385,8 @@ tab. On every source change the build worker re-runs the check Boot runs
 (`migrate.plan`), and a badge beside Boot reads one of:
 
 - *migration required · initial schema* — nothing is recorded yet (every
-  built-in example on open). Boot is blocked until the initial migration is
-  recorded.
+  built-in example on open). Boot records the initial migration before it
+  creates the database; in a session that cannot record, Boot is blocked.
 - *migration required · N unrecorded changes* — what `ddd migrate status`
   lists, with a *destructive* flag when one of them needs
   `--allow-destructive`.

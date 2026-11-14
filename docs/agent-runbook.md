@@ -7,7 +7,7 @@ You were given an issue (`#N`), or asked to find one. Everything else is discove
 - The issue: goal, acceptance, `area:` labels, links — and its **comments**, which carry scope changes, blockers and earlier attempts. The issue is the work's only status record: there is no second copy to update in a doc.
 - A legacy `M-Tx.y` mission is picked up through an issue too. **Search first** — issues open *and* closed whose title or body names the id — and use the one you find; file a new one (title `M-Tx.y: …`) only when none exists. Owner decisions still pending are collected in #3316. Design records the issue links into the legacy record (removed from the tree; [browse it in history](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs)) still apply.
 - Repo ground rules: `CLAUDE.md` and `experience_gathered.md`.
-- Pinned decisions: `docs/decisions.md` — a `D-*` tag wins; re-open it explicitly rather than diverging.
+- Pinned decisions: `docs/decisions/<D-TAG>.md`, one file per tag — a `D-*` tag wins; re-open it explicitly rather than diverging.
 
 ## 1. Verify the issue still stands — before any code
 Issues rot like mission statuses did: fixed by a neighbouring PR, half-done by a session that stopped, or duplicated by an issue filed an hour later. Every check below is cheap next to building something twice.
@@ -41,7 +41,7 @@ Re-read the issue; if another claim landed first, back off — the earliest clai
 **Letting go.** If you stop before the acceptance is met — blocked, out of time, re-scoped — release the claim: comment what is done and what remains (with branch and evidence), edit the body so the next session inherits reality, unassign yourself and remove `in-progress`. An abandoned claim with no comment costs the next session a day.
 
 ## 3. Design before code (when the issue says so)
-Grammar-touching or `design` work: read the linked design records, follow the matching skill (`language-feature-developer`, `dependency-upgrade`, `generated-stack-verifier`, `parity-auditor`), and put the resolved open questions in the issue (decisions that will hold go in `docs/decisions.md` with the code PR).
+Grammar-touching or `design` work: read the linked design records, follow the matching skill (`language-feature-developer`, `dependency-upgrade`, `generated-stack-verifier`, `parity-auditor`), and put the resolved open questions in the issue (a decision that will hold goes in a new `docs/decisions/<D-TAG>.md` with the code PR).
 
 ## 4. Implement to the repo's bar
 - Every target, or an honest `loom.*` gate on the rest — never a silent gap, crash or emitted TODO. A new `*-unsupported` gap cites its owning issue as `mission: "#NNNN"` in `src/diagnostics/unsupported-register.ts`.
@@ -61,7 +61,7 @@ Too big for one session? Split the issue into sub-issues, finish one, leave the 
 ## 6. Close the loop
 - Open the PR ready-for-review when it is built and green locally, body `Fixes #N` plus what changed and the gates you ran. Use `Fixes` only when the PR meets the whole acceptance; for part of it use `Refs #N` and say on the issue what remains, so the merge does not close unfinished work.
 - If the work turned out bigger, smaller or different than the issue says, edit the issue (body and *Acceptance*) so the next reader inherits reality — the issue, not a doc, is the record.
-- Docs that describe behavior (reference docs, `decisions.md`, `experience_gathered.md`) change in the same PR as the code. Status, progress notes and handoffs go in issue comments — never a PR of their own.
+- Docs that describe behavior (reference docs, `docs/decisions/`, `experience_gathered.md`) change in the same PR as the code. Status, progress notes and handoffs go in issue comments — never a PR of their own.
 - **Merge it yourself — never leave the merge to the owner.** Once the PR is ready for review, enable auto-merge on it, so it enters the merge queue the moment it is green. A stacked PR gets auto-merge too and lands after its base (retarget it to `main` once the base merges). Then drive it: a red check, a conflict or a queue ejection on it is your work until it has merged. A train worker's draft member is the exception: the coordinator queues the train.
 - **Done** = acceptance met, PR green or queued, discoveries filed. The final report lists the PR and every issue you filed. Then stop — don't take the next issue unless you were asked to.
 
@@ -91,6 +91,8 @@ A fleet does not send one PR per worker through the merge queue. Each queue entr
 - **Rebuild before a mutation run.** `bin/cli.js` runs the compiled `out/`, so a mutation made in `src/` reaches no CLI-driven leg until `npx tsc -b` has run. The CLI refuses to start while a `src/` file is newer than the last build.
 - A member PR whose base is another member (a stacked PR) is **not** auto-closed when the train lands; close it by hand.
 - One push per fix. A conflict with `main` is the only reason to sync an open train.
+- **A queue timeout drops auto-merge.** When the merge queue removes a train for exceeding its checks timeout (a `removed_from_merge_queue` event, not a failed check), auto-merge is switched off. Re-enable it by hand once the cause is clear, or the train sits ready and never re-enters the queue.
+- **A conflicted PR runs no workflows.** GitHub starts no `pull_request` workflow on a PR that conflicts with its base, so nothing reports on its head; the scheduled `pr-gate` sweep marks it failed with "PR conflicts with main". Merge `main` and push.
 
 ## The kickoff prompt
 

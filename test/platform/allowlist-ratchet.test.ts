@@ -390,7 +390,12 @@ const REGISTERED: Ratchet[] = [
     // 22 → 23: `resource-endpoints`, a resource-container row like
     // `resources`: every client it wires dials a provider (S3, RabbitMQ, a REST
     // peer, SMTP, SES, SendGrid); the fakes answering on its host overrides are #5616.
-    max: 23,
+    // 23 → 24: `channels-broker-projection`, a broker + second-deployable row:
+    // a fold on one service over an event published from another needs a
+    // broker between two booted services (#5613).
+    // 24 → 25: `channels-broker-mixed-durable`, a broker row whose claim is an
+    // asynchronous local redelivery (#5613).
+    max: 25,
   },
 ];
 

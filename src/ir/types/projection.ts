@@ -1,8 +1,9 @@
-import type { Bypassing } from "./context.js";
+import type { Bypassing, CriterionReified, Filtered, ReadGated } from "./context.js";
 import type { ExprIR } from "./expr.js";
 import type { FieldIR, ParamIR, WireField } from "./members.js";
 import type { StmtIR } from "./stmt.js";
 import type { Sourced, TypeIR } from "./types.js";
+import type { Correlating } from "./workflow.js";
 
 /** A `projection <Name> keyed by <field> { … }` read model (projection.md) —
  *  the passive read-half of an event-sourced workflow.  Declared state fields
@@ -12,7 +13,7 @@ import type { Sourced, TypeIR } from "./types.js";
  *  only reflects an event stream into a queryable table.  Reuses the
  *  event-triggered saga machinery (load-or-allocate on every handler,
  *  `wireShape` read surface, state-table migration). */
-export interface ProjectionIR extends Sourced {
+export interface ProjectionIR extends Sourced, Correlating {
   name: string;
   /** Query parameters — a query-time projection may be parameterised
    *  (`projection OrdersInRegion(region: string) …`), exactly like a
@@ -21,12 +22,6 @@ export interface ProjectionIR extends Sourced {
   /** The read-model schema — the fold-target columns and the wire shape.
    *  Lowered with the same `lowerField` as aggregate / workflow state. */
   stateFields: FieldIR[];
-  /** The explicit id-shaped state field inbound events route to (`keyed by`).
-   *  Required for the KEYED flavor — no inference (unlike
-   *  `WorkflowIR.correlationField`).  **Absent** for a SINGLETON projection
-   *  (no `keyed by`); its absence is the singleton discriminant — see
-   *  `isSingletonProjection`. */
-  correlationField?: string;
   /** One pure fold per subscribed foreign event.  Non-empty ⇒ the read model
    *  is MATERIALIZED (needs a table); empty ⇒ query-time (computed per read).
    *  See `isMaterializedProjection`. */
@@ -56,7 +51,7 @@ export interface ProjectionIR extends Sourced {
  *  (read-path-architecture.md rev.13).  Every expression inside is Loom's one
  *  candidate-rooted language (the same `criterion` / `find … where` dialect);
  *  the LINQ shape is purely structural. */
-export interface ProjectionQueryIR extends Bypassing {
+export interface ProjectionQueryIR extends Bypassing, ReadGated, Filtered, CriterionReified {
   /** `from <Source> [as <alias>]` — the query source aggregate / workflow, by
    *  name.  Undefined for the folded+`join` hybrid (no `from`; `join`s resolve
    *  stored id columns instead). */
@@ -64,10 +59,10 @@ export interface ProjectionQueryIR extends Bypassing {
   /** Whether `source` names an AGGREGATE (read through its repository), a
    *  WORKFLOW (read through its persisted instance / saga-state rows,
    *  `instanceWireShape`), or another materialized PROJECTION (read through its
-   *  persisted `<Proj>Row` read-model table).  Absent ⇒ aggregate (the default /
-   *  folded-hybrid case).  A workflow / projection source is `select`-projection
+   *  persisted `<Proj>Row` read-model table).  `aggregate` is also the
+   *  folded-hybrid case, which has no `source`.  A workflow / projection source is `select`-projection
    *  only (no `join`s). */
-  sourceKind?: "aggregate" | "workflow" | "projection";
+  sourceKind: "aggregate" | "workflow" | "projection";
   /** The bounded context `source` is declared in, as name resolution linked
    *  it.  A projection may read a source declared in ANOTHER context of its
    *  subdomain (`context Reports { projection V { from Order … } }` over
@@ -81,13 +76,9 @@ export interface ProjectionQueryIR extends Bypassing {
    *  / bare stays the default; the alias resolves identically (like
    *  `criterion … of T as o`). */
   sourceAlias?: string;
-  /** `where <criterion-expr>` — a single-aggregate queryable predicate over
-   *  the source, in the criterion position (composes named criteria). */
-  filter?: ExprIR;
-  /** Named criterion this `where` reifies to when it is exactly one criterion
-   *  reference (mirrors `RetrievalIR.criterionRef`) — the criterion name plus
-   *  its lowered argument expressions. */
-  criterionRef?: { name: string; args: ExprIR[] };
+  // `filter`: `where <criterion-expr>` — a single-aggregate queryable
+  // predicate over the source, in the criterion position (composes named
+  // criteria).
   /** `join <Aggregate> as <c> on <idRef>` clauses — by-id follows.  Each is
    *  one batched load through the aggregate's own repository (boundary-safe).
    *  Also surfaced pre-planned as `auxiliaries` (path + mapVar) below, reusing
@@ -126,15 +117,6 @@ export interface ProjectionQueryIR extends Bypassing {
    *  built for by-id follows, populated by reading the
    *  DECLARED `join`s. */
   auxiliaries: { path: string[]; aggName: string; mapVar: string }[];
-  /** Authorization gate (D-AUTH-OIDC / default-deny) — an optional
-   *  `requires <expr>` clause evaluated against `currentUser` *before* the query
-   *  runs; failure → 403.  Distinct from `filter`: the filter scopes which rows
-   *  return (queryable, pushed to SQL), the gate decides whether the caller may
-   *  hit the endpoint at all.  Lowered in the bare context scope (currentUser
-   *  only, no source row), so it may reference `currentUser` + constants but not
-   *  aggregate fields — the projection twin of `FindIR.requires`.  Emitted as a
-   *  403-before-query check in each backend's query-projection route. */
-  requires?: ExprIR;
 }
 
 /** One `join <Aggregate> as <alias> on <idRef>` follow. */
@@ -146,13 +128,17 @@ export interface ProjectionQueryIR extends Bypassing {
  *  receiver and the operator pushes down to SQL. */
 export type ProjectionAggregateOp = "count" | "sum" | "avg" | "min" | "max";
 
-/** A normalized whole-table aggregation in a projection `select` position. */
-export interface ProjectionAggregateIR {
-  op: ProjectionAggregateOp;
-  /** The aggregated column expression, source-row-rooted (`this.total` for
-   *  `sum(o.total)`).  Absent for `count`, which counts rows, not a column —
-   *  the `COUNT(*)` / `count()` shape. */
-  arg?: ExprIR;
+/** A normalized whole-table aggregation in a projection `select` position.
+ *  `count` counts rows (the `COUNT(*)` / `count()` shape), so it carries no
+ *  column; every other operator aggregates `arg`, a source-row-rooted column
+ *  expression (`this.total` for `sum(o.total)`). */
+export type ProjectionAggregateIR =
+  | { op: "count" }
+  | { op: Exclude<ProjectionAggregateOp, "count">; arg: ExprIR };
+
+/** The aggregated column of `agg`, or `undefined` for `count`. */
+export function aggregateArg(agg: ProjectionAggregateIR | undefined): ExprIR | undefined {
+  return agg && agg.op !== "count" ? agg.arg : undefined;
 }
 
 export interface ProjectionJoinIR {

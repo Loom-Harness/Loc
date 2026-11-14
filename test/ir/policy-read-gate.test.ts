@@ -60,7 +60,7 @@ describe("policy read gate — lowering and enrichment", () => {
     expect(JSON.stringify(repo.historyFind?.requires)).toBe(gate);
     const byId = byIdRouteFind(repo);
     expect(JSON.stringify(byId?.requires)).toBe(gate);
-    expect(byId?.defaultDenied).toBeUndefined();
+    expect(byId?.defaultDenied).toBe(false);
     // …and the derived route list hands that find to every backend.
     const op = deriveContextOperations(ctx).find((o) => o.kind === "getById");
     expect(JSON.stringify(op?.find?.requires)).toBe(gate);

@@ -109,7 +109,7 @@ system TphCrossings {
     // that forgot the discriminator answers 2 here while every other assertion
     // in this block still passes.
     let allParcels = api.parcels.all()
-    expect(allParcels.length).toBe(1)
+    expect(allParcels.total).toBe(1)
 
     // The soft delete leaves the row in place — still `kind='Parcel'`, still
     // carrying its courier — so only the filter can hide it.  A read that
@@ -123,7 +123,7 @@ system TphCrossings {
     // …and through the auto-findAll too: the filter has to AND into BOTH
     // derivations, not just the declared one.
     let allAfter = api.parcels.all()
-    expect(allAfter.length).toBe(0)
+    expect(allAfter.total).toBe(0)
 
     // `restore()` is dead on arrival, on every backend, for a reason that has
     // nothing to do with inheritance: it addresses a row the capability's own
@@ -138,8 +138,13 @@ system TphCrossings {
     // …and the sibling discriminator was never in scope of a filter that reads
     // a column only Parcel has.  A filter hoisted to the whole shared table
     // (rather than guarded by `kind`) empties this read too.
+    // The base reads apply the Parcel-only filter to Parcel rows alone: the
+    // soft-deleted Parcel is gone from both, the Crate is still there.
+    expect(api.shipments.all().total).toBe(1)
+    expect(api.shipments.getById(p)).toThrow(404)
+    expect(api.shipments.getById(c).reference).toBe("REF-2")
     let crates = api.crates.all()
-    expect(crates.length).toBe(1)
+    expect(crates.total).toBe(1)
     let readCrate = api.crates.getById(c)
     expect(readCrate.reference).toBe("REF-2")
     expect(readCrate.weightKg).toBe(40)
@@ -161,6 +166,6 @@ system TphCrossings {
     api.crates.destroy(c)
     expect(api.crates.getById(c)).toThrow(404)
     let cratesAfter = api.crates.all()
-    expect(cratesAfter.length).toBe(0)
+    expect(cratesAfter.total).toBe(0)
   }
 }

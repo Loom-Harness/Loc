@@ -1,6 +1,6 @@
 # RequestContext — the single ambient context shape
 
-> **Pins [D-CTX-SHAPE](../decisions.md#d-ctx-shape--the-ambient-requestcontext-field-set).**
+> **Pins [D-CTX-SHAPE](../decisions/D-CTX-SHAPE.md).**
 > Status: design pinned; the carrier is now **emitted on all five backends** —
 > .NET, Hono, Phoenix, Java/Spring, and Python/FastAPI (the request-stable tier
 > + the root frame's `scopeId`, plus the principal's `actor_id`). Per-dispatch

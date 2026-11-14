@@ -215,7 +215,7 @@ The two differences that follow from the table shape:
 
 ### `sharedTable` beats the `shape:` modifier
 
-A concrete carries its own storage modifiers (`shape:`, `persistedAs:`), and under `sharedTable` they collide with the strategy: the concrete owns no table of its own, so there is nowhere to put a document column. The rule is **TPH wins** ([D-TPH-BEATS-SHAPE](../decisions.md)), and the language refuses every non-relational shape under a TPH base:
+A concrete carries its own storage modifiers (`shape:`, `persistedAs:`), and under `sharedTable` they collide with the strategy: the concrete owns no table of its own, so there is nowhere to put a document column. The rule is **TPH wins** ([D-TPH-BEATS-SHAPE](../decisions/D-TPH-BEATS-SHAPE.md)), and the language refuses every non-relational shape under a TPH base:
 
 | concrete declares | under a `sharedTable` base |
 |---|---|
@@ -303,6 +303,8 @@ end
 ::: end
 
 ## `find all <Base>` — the polymorphic reader
+
+The reader is routed as `GET /api/<bases>` (plus `GET /api/<bases>/{id}` under TPH) when every concrete's own list read is open. A concrete whose `all` is gated by `requires` (including the `enforcement: denyByDefault` gate) or that masks a field keeps the base unrouted, and the model says so with the warning `loom.polymorphic-read-unrouted` ([`inheritance.md`](../inheritance.md#polymorphic-reads-find-all-base) has the per-backend readers).
 
 `find all <Base>` is a **name for the emitted reader, not surface syntax** — there is no `find all` production in the grammar, and a `repository … for <Base>` is rejected outright (`loom.abstract-repository`). The abstract base therefore owns no repository, but a polymorphic read home returning the **union of every concrete subtype** is emitted per backend as infrastructure — read-only; writes go through the per-concrete repos. Where a backend emits one, it **delegates to each concrete repository and concatenates** (so every aggregate loads its full tree and through its own capability filters); the exceptions are the backends whose ORM makes the shared TPH table natively polymorphic. Not every backend emits a reader — **Java emits none** (the base is a JPA `SINGLE_TABLE` entity or a `@MappedSuperclass`, nothing more), and **.NET emits none under TPH** (EF's `DbSet<Party>` is already polymorphic through `HasDiscriminator`).
 
