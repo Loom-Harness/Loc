@@ -1,9 +1,5 @@
-import {
-  createInputFields,
-  emitsRestCreate,
-  forApiRead,
-  wireFieldsFor,
-} from "../../ir/enrich/wire-projection.js";
+import type { ContractOperation } from "../../ir/contract/frontend-contract.js";
+import { createInputFields, forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -32,7 +28,6 @@ import {
   wireTypeInfo,
 } from "../../ir/types/wire-types.js";
 import { AUDIT_HISTORY_FIND } from "../../ir/util/audit-history.js";
-import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
 import { maskedPatchParams } from "../../ir/util/op-gates.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
@@ -48,7 +43,6 @@ import {
   refineClauseFor,
   takeSingleFieldChain,
 } from "../zod-refine.js";
-import { sendsIfMatchPrecondition } from "./occ.js";
 import { serverSourcedDefaultFields } from "./server-default.js";
 import {
   AUDIT_ENTRY_LIST_TYPE,
@@ -83,6 +77,9 @@ export interface ApiModuleOptions {
    *  (`pagedFindRoutes`).  A synthesized find gets a hook only when it is
    *  routed here, and the hook calls that route; absent ⇒ no such hook. */
   pagedFindRoutes?: PagedFindRoutes;
+  /** The aggregate's operations from the Frontend Contract: which REST
+   *  surface exists (create, destroy) and which writes send `If-Match`. */
+  operations: readonly ContractOperation[];
 }
 
 /** The finds a frontend emits a hook for: the auto-`all`, and each
@@ -127,8 +124,11 @@ export function buildApiModule(
   agg: EnrichedAggregateIR,
   declaredRepo: RepositoryIR | undefined,
   ctx: BoundedContextIR,
-  options: ApiModuleOptions = {},
+  options: ApiModuleOptions,
 ): string {
+  const contractOps = options.operations.filter((o) => o.aggregate === agg.name);
+  const sendsIfMatch = (opName: string): boolean =>
+    contractOps.some((o) => o.kind === "operation" && o.opName === opName && o.ifMatch === true);
   // The client sees only the finds it can reach over HTTP.
   const repo = declaredRepo && {
     ...declaredRepo,
@@ -173,9 +173,7 @@ export function buildApiModule(
   }
   // `ifMatch` only where an operation actually sends the precondition, so an
   // aggregate with no guarded write emits the import line it always did.
-  const anyOcc = agg.operations.some(
-    (o) => o.visibility === "public" && sendsIfMatchPrecondition(agg, o),
-  );
+  const anyOcc = contractOps.some((o) => o.kind === "operation" && o.ifMatch === true);
   lines.push(`import { api,${anyOcc ? " ifMatch," : ""} seg } from "./client";`);
   if (aggregateUsesMoneyDeep(agg, valueObjectPool(ctx))) {
     // Shared `moneySchema` — single home for the precise-decimal
@@ -203,12 +201,12 @@ export function buildApiModule(
   // (`managed`, `token`, `internal`) from the client-supplied payload,
   // keeping `immutable` (settable on create) and `secret` (client
   // provides password hashes / API keys).  Aligns with the Hono and
-  // .NET CreateRequest shapes.  Gated on `emitsRestCreate` (symmetric with
-  // the `useDelete` / `canonicalDestroy` gate below): an aggregate with no
-  // REST create surface emits neither the `Create<Agg>Request` schema nor
-  // the `useCreate<Agg>` hook, so we never ship a create hook POSTing to a
-  // route that doesn't exist.
-  const restCreate = emitsRestCreate(agg);
+  // .NET CreateRequest shapes.  Gated on the contract's create operation
+  // (symmetric with the `useDelete` gate below): an aggregate with no REST
+  // create surface emits neither the `Create<Agg>Request` schema nor the
+  // `useCreate<Agg>` hook, so we never ship a create hook POSTing to a route
+  // that doesn't exist.
+  const restCreate = contractOps.some((o) => o.kind === "create");
   const requiredFields = createInputFields(agg);
   if (restCreate) {
     lines.push(
@@ -488,7 +486,7 @@ export function buildApiModule(
   // `destroy` (declared or via `crudish`), so plain aggregates' API modules
   // are unchanged.  Pairs with the `api.delete` helper, which the shell
   // emits under the same condition.
-  if (canonicalDestroy(agg)) {
+  if (contractOps.some((o) => o.kind === "destroy")) {
     lines.push(`export function useDelete${agg.name}() {`);
     lines.push(`  const qc = useQueryClient();`);
     lines.push(`  return useMutation({`);
@@ -520,9 +518,7 @@ export function buildApiModule(
     // the key this hook already invalidates on success.  A cold cache (the form
     // was reached without reading the record) yields `undefined` → no header →
     // the previous behaviour, rather than a guess.
-    const occArg = sendsIfMatchPrecondition(agg, op)
-      ? `, ifMatch(loaded?.${ROW_VERSION_FIELD})`
-      : "";
+    const occArg = sendsIfMatch(op.name) ? `, ifMatch(loaded?.${ROW_VERSION_FIELD})` : "";
     if (occArg) {
       lines.push(`      const loaded = qc.getQueryData<${agg.name}Response>(["${tag}", ${ID}]);`);
     }

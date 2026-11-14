@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { buildApiModule } from "../../../src/generator/_frontend/api-module.js";
+import { contractOperations } from "../../../src/ir/contract/frontend-contract.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { enrichedContexts } from "../../_helpers/ir.js";
@@ -25,7 +26,7 @@ async function apiModule(): Promise<string> {
   const ctx = enrichedContexts(enriched).find((c) => c.name === "Inventory")!;
   const agg = ctx.aggregates.find((a) => a.name === "Warehouse")!;
   const repo = ctx.repositories.find((r) => r.aggregateName === "Warehouse");
-  return buildApiModule(agg, repo, ctx);
+  return buildApiModule(agg, repo, ctx, { operations: contractOperations(ctx) });
 }
 
 describe("react api-builder — the paged list read (P3b)", () => {

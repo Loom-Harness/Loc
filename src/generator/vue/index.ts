@@ -1,3 +1,4 @@
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -12,7 +13,6 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { contextUsesMoney, sourceLocaleOf, uiUsesMoney } from "../../ir/types/loom-ir.js";
-import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
@@ -28,6 +28,7 @@ import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_SESSION_TS, AUTH_USE_SESSION_VUE, authGateVue } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
+import { requireFrontendContract } from "../_frontend/contract.js";
 import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
 import {
   buildExternFunctionShim,
@@ -136,6 +137,8 @@ import { vueTarget } from "./walker/vue-target.js";
  *  `apiBaseUrl: "/api"` for same-origin fetches; `pathPrefix`
  *  relocates the project under the host's SPA dir. */
 export interface GenerateVueOptions {
+  /** The system's Frontend Contract (`src/ir/contract/`). */
+  frontendContract?: FrontendContract;
   apiBaseUrl?: string;
   pathPrefix?: string;
   /** Sub-path the built bundle is served under (Phoenix `/app`) — sets
@@ -168,6 +171,7 @@ export function generateVueForContexts(
   options: GenerateVueOptions = {},
 ): Map<string, string> {
   const out = emissionSink("generator/vue/index");
+  const contract = requireFrontendContract(options.frontendContract, deployable.name);
 
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   // The frontend session guard (`auth: ui`): also decides which chrome the
@@ -270,6 +274,7 @@ export function generateVueForContexts(
       buildApiModule(agg, repo, ctx, {
         queryPackage: "@tanstack/vue-query",
         pagedFindRoutes: pagedFindRoutes(sys, target ?? deployable),
+        operations: contract.wire.operations,
       }),
     );
   }
@@ -576,7 +581,9 @@ export function generateVueForContexts(
   }
 
   // Shared shell files (api/ + vue/ + docker/ shared-source layers).
-  const hasDelete = aggregates.some((a) => !!canonicalDestroy(a.agg));
+  const hasDelete = aggregates.some(({ agg }) =>
+    contract.wire.operations.some((o) => o.aggregate === agg.name && o.kind === "destroy"),
+  );
   // `authUi` computed above (before page emission, which consumes it for the
   // `page { requires … }` gate).  Drives the session client + provide/inject
   // route guard emits below (the Vue-shaped half of the React auth wiring).
