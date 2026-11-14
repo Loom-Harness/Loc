@@ -1,0 +1,26 @@
+// Childless-TPH evolution gate — EVOLVED model (v2).  See
+// `runChildlessTphEvolutionGate` in support/migration-evolution-harness.ts.
+//
+// `Lathe` is the first subtype sharing `Asset`'s table, so the table gains the
+// `kind` discriminator and Lathe's own (nullable) `spindles` column.
+system ChildlessTph {
+  subdomain Shop {
+    context Shop {
+      abstract aggregate Asset inheritanceUsing: sharedTable { label: string }
+      aggregate Lathe extends Asset with crudish { spindles: int }
+      repository Lathes for Lathe { }
+      aggregate Note with crudish { text: string }
+      repository Notes for Note { }
+    }
+  }
+  api ShopApi from Shop
+  storage primary { type: postgres }
+  resource shopState { for: Shop, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Shop]
+    dataSources: [shopState]
+    serves: ShopApi
+    port: 4000
+  }
+}

@@ -70,6 +70,7 @@ on:
       # The login/callback surface the handshake entry exercises.  Its
       # sibling `_auth/**` (the dev-realm claim shapes the seeded token
       # carries) is in the alphabetised shared-seam run below.
+      - 'src/generator/_api/**'
       - 'src/generator/_frontend/auth-ui.ts'
       # Shared emission seams the platform tree above delegates into: `_stmt` is
       # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`

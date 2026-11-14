@@ -433,7 +433,7 @@ export function wireValidationTerm(s: GuardStmt, renderRef?: (e: ExprIR) => stri
  *  `&&` conjuncts `singleFieldShape` folded, in the same order (min side
  *  first).  `null` when the guard is not such a limit, so the caller keeps its
  *  one `ensure`. */
-export function wireLimitSides(
+function wireLimitSides(
   s: GuardStmt,
   available: ReadonlySet<string> | undefined,
 ): { expr: ExprIR; term: string }[] | null {
@@ -456,6 +456,22 @@ export function wireLimitSides(
     expr: sides[i] as ExprIR,
     term: limitTerm(pointer, text, check),
   }));
+}
+
+/** The `ensure` with-clauses one operation guard renders to: one per side of
+ *  a declared field limit (`wireLimitSides`), each under its own
+ *  `field.<limit>` code, else the guard's single clause denying with
+ *  `denialTerm`.  Every operation runner — relational, document and
+ *  event-sourced — renders its guards through this, so a guard answers the
+ *  same refusal whichever way its aggregate persists. */
+export function opGuardEnsureClauses(
+  s: GuardStmt,
+  wireAvailable: ReadonlySet<string> | undefined,
+  render: (e: ExprIR) => string,
+): string[] {
+  const sides = wireLimitSides(s, wireAvailable);
+  if (sides) return sides.map((side) => `:ok <- ensure(${render(side.expr)}, ${side.term})`);
+  return [`:ok <- ensure(${render(s.expr)}, ${denialTerm(s, wireAvailable, render)})`];
 }
 
 function limitTerm(pointer: string, text: string, check: FieldLimitCheck): string {

@@ -89,6 +89,7 @@ const fakes: ResourceFakes = {
     const res = await call<{ status: number; body: unknown }>("httpMock", "request", {
       method: init?.method ?? "GET",
       url: String(input),
+      ...(typeof init?.body === "string" ? { body: init.body } : {}),
     });
     return new Response(res.body === null ? null : JSON.stringify(res.body), {
       status: res.status,

@@ -141,6 +141,10 @@ system TenantOwned {
     api.payments.relink(pay, { to: inv.id })
     expect(api.payments.getById(pay).amount).toBe(4)
     expect(api.payments.all().total).toBe(1)
+    // A well-formed id naming no invoice is refused on every write path with
+    // the dangling-reference class body, not a field-invalid envelope.
+    expect(api.payments.create({ invoice: "00000000-0000-4000-8000-000000000001", amount: 1 })).toThrow(422)
+    expect(api.payments.relink(pay, { to: "00000000-0000-4000-8000-000000000001" })).toThrow(422)
     api.payments.destroy(pay)
 
     // DELETE on both stances.  The tenant-owned delete must load through the

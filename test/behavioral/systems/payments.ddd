@@ -102,11 +102,11 @@ system Payments {
     // in reverse: an id-only delete on a shared table is one predicate away
     // from being a delete of the wrong subtype's row.
     let cards = api.creditCards.all()
-    expect(cards.length).toBe(1)
+    expect(cards.total).toBe(1)
     api.creditCards.destroy(c)
     expect(api.creditCards.getById(c)).toThrow(404)
     let noCards = api.creditCards.all()
-    expect(noCards.length).toBe(0)
+    expect(noCards.total).toBe(0)
     let noneByNet = api.wallet.listCreditCardsByNetwork("Mastercard")
     expect(noneByNet.length).toBe(0)
   }
@@ -135,11 +135,14 @@ system Payments {
     // The credit-card block ran first and deleted its own row, so a list here
     // answering anything but 1 means the discriminator leaked in one direction
     // or the other.
+    // The abstract base reads the same row, tagged as its subtype.
+    expect(api.paymentMethods.getById(b).holderName).toBe("Grace Hopper")
+    expect(api.paymentMethods.all().total).toBe(1)
     let accounts = api.bankAccounts.all()
-    expect(accounts.length).toBe(1)
+    expect(accounts.total).toBe(1)
     api.bankAccounts.destroy(b)
     expect(api.bankAccounts.getById(b)).toThrow(404)
     let noAccounts = api.bankAccounts.all()
-    expect(noAccounts.length).toBe(0)
+    expect(noAccounts.total).toBe(0)
   }
 }

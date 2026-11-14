@@ -1,4 +1,0 @@
-{
-  "Customer.rule.emailContain": "Email must contain @",
-  "Ticket.rule.commentCannotEmpty": "Comment cannot be empty"
-}

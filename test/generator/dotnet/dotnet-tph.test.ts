@@ -125,13 +125,13 @@ describe(".NET TPH emission", () => {
   // legitimate: `loom.es-tph-forced-own-table` forces a `shape: embedded` /
   // `shape: document` / `persistedAs: eventLog` concrete to
   // `inheritanceUsing: ownTable`, so a hierarchy whose only concrete takes that
-  // path leaves the base owning the shared table with nothing sharing it.  The
-  // `;` used to hang off the last `.HasValue<…>` line ALONE, so the map emitted
-  // nothing and the `HasDiscriminator` opener was left unterminated —
-  // `CS1002: ; expected`, and the whole project failed to build.  Found by the
-  // pairwise compile oracle (`versioned-embedded-none-tph-paged-default`), which
-  // was red on `main` for a week.
-  it("a TPH base with no shared-table concrete still terminates the discriminator statement", async () => {
+  // path leaves the base owning a table nothing shares.  That table has no
+  // `kind` column, so the configuration maps no discriminator — and every
+  // statement it does emit is terminated (an unterminated `HasDiscriminator`
+  // opener is `CS1002`, and the project does not build).  Absence/wiring
+  // string assertion: the childless base serves no read a booted tier could
+  // observe.
+  it("a TPH base with no shared-table concrete maps no discriminator and leaves no statement open", async () => {
     const services = createDddServices(NodeFileSystem);
     const helper = parseHelper(services.Ddd);
     const doc = await helper(
@@ -169,9 +169,8 @@ describe(".NET TPH emission", () => {
       },
     );
     const cfg = [...out].find(([p]) => p.endsWith("PartyConfiguration.cs"))?.[1] ?? "";
-    // The discriminator COLUMN still maps (the migration stamps `kind NOT NULL`
-    // on the base table) — it is the statement that has to close.
-    expect(cfg).toContain('builder.HasDiscriminator<string>("kind");');
+    expect(cfg).toContain('builder.ToTable("parties"');
+    expect(cfg).not.toContain("HasDiscriminator");
     expect(cfg).not.toContain(".HasValue<");
     // Nothing in the configuration body may be left dangling: every statement
     // line ends in `;`, `{` or `}`.  Asserting the shape rather than the one

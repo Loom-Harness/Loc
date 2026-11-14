@@ -60,6 +60,10 @@ function emulationNotes(retained: number): BrokerInspectResult["emulated"] {
 const FIXED_NOTES: BrokerInspectResult["emulated"] = [
   {
     transport: "kafka",
+    note: "an offset reset (seek) is refused only while a moved partition has a delivery in flight; the real broker refuses it while the group has any active member",
+  },
+  {
+    transport: "kafka",
     note: "partition by a stable string hash of the key, not kafkajs's murmur2 partitioner",
   },
   { transport: "kafka", note: "a topic is created on its first publish or subscribe" },

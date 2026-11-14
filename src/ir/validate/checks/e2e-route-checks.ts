@@ -45,6 +45,7 @@ import {
   isRequiredCreateInput,
   wireFieldsForAggregate,
 } from "../../enrich/wire-projection.js";
+import { polymorphicReadOperations } from "../../plan/repo-polymorphic.js";
 import { PAGED_QUERY_PARAMS } from "../../stdlib/generics.js";
 import type {
   AggregateIR,
@@ -228,7 +229,11 @@ function apiVerbVerdict(
     return null;
   }
   const { agg, repo, ctx } = resolved;
-  const ops = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
+  // An abstract base has no route builder of its own: what it serves is its
+  // polymorphic read, when that is routed.
+  const ops = agg.isAbstract
+    ? polymorphicReadOperations(agg, ctx)
+    : deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
   if (apiRouteExists(call.verb, agg, repo, ops)) return null;
   // Same fallback order as the renderer: every aggregate verb wins first, and
   // only then may a routed handler whose context slugs like the aggregate
@@ -748,17 +753,19 @@ function checkListQuery(
   }
 }
 
-/** `api.<proj>.byKey(k)` / `.list()` — `GET /projections/<proj>[/{key}]`.
+/** `api.<proj>.byKey(k)` / `.list(a, b, …)` — `GET /projections/<proj>[/{key}]`.
  *  `byKey` reads exactly one path key (with none, `renderProjectionRead`
- *  throws at generate time); `list` reads none, so any argument it is given is
- *  dropped by the renderer and the request is not the one the test wrote. */
+ *  throws at generate time); `list` takes the projection's declared
+ *  parameters, positionally in declared order, as the query string — a
+ *  parameterless projection takes none.  Any other count would send a request
+ *  the test did not write. */
 function checkProjectionReadArgs(
   call: MagicCall,
   proj: ProjectionIR,
   source: string,
   diags: LoomDiagnostic[],
 ): void {
-  const expected = call.verb === "byKey" ? 1 : 0;
+  const expected = call.verb === "byKey" ? 1 : proj.params.length;
   if (call.args.length === expected) return;
   diags.push({
     severity: "error",

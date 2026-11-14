@@ -110,10 +110,15 @@ system InheritanceBaseReads {
     let truck = api.trucks.create({ plate: "T-1", payloadKg: 900 })
     api.trucks.archive(truck)
     expect(api.trucks.getById(truck)).toThrow(404)
-    expect(api.trucks.all().length).toBe(0)
+    expect(api.trucks.all().total).toBe(0)
     // The sibling's row was never archived.
-    expect(api.cars.all().length).toBe(1)
+    expect(api.cars.all().total).toBe(1)
     expect(api.cars.getById(car).seats).toBe(4)
+    // The base reads apply the base capability too: the archived Truck is
+    // gone from them, the Car is not.
+    expect(api.vehicles.all().total).toBe(1)
+    expect(api.vehicles.getById(truck)).toThrow(404)
+    expect(api.vehicles.getById(car).plate).toBe("C-1")
   }
 
   test e2e "TPC: a base capability narrows every subtype" against d {
@@ -124,19 +129,26 @@ system InheritanceBaseReads {
     expect(api.drivers.getById(d1)).toThrow(404)
     expect(api.drivers.all().length).toBe(0)
     expect(api.dispatchers.getById(disp).desk).toBe(3)
+    // The TPC base's list read merges every concrete's own scoped read, so the
+    // archived driver is gone from it too.
+    expect(api.crews.all().total).toBe(1)
+    expect(api.crews.all().items.length).toBe(1)
   }
 
   test e2e "TPH: the polymorphic base reads apply every subtype's restrictions" against d {
     let crane = api.cranes.create({ tag: "CR-1", reachM: 40 })
     let lift = api.forklifts.create({ tag: "FL-1", liftKg: 2000 })
-    expect(api.cranes.all().length).toBe(1)
-    expect(api.forklifts.all().length).toBe(1)
+    expect(api.cranes.all().total).toBe(1)
+    expect(api.forklifts.all().total).toBe(1)
     expect(api.equipment.getById(crane).tag).toBe("CR-1")
     expect(api.equipment.getById(lift).tag).toBe("FL-1")
     expect(api.equipmentCount.list().n).toBe(2)
+    expect(api.equipment.all().total).toBe(2)
     api.forklifts.archive(lift)
     expect(api.equipment.getById(lift)).toThrow(404)
     expect(api.equipmentCount.list().n).toBe(1)
+    expect(api.equipment.all().total).toBe(1)
+    expect(api.equipment.all().items.length).toBe(1)
   }
 
   // Every subtype's own routes, none of them reading a row the base

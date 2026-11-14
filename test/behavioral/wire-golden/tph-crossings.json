@@ -79,15 +79,21 @@
       "method": "GET",
       "path": "/api/parcels",
       "status": 200,
-      "body": [
-        {
-          "courier": "UPS",
-          "deletedAt": null,
-          "id": "<volatile:key>",
-          "reference": "REF-1",
-          "rowVersion": 2
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "courier": "UPS",
+            "deletedAt": null,
+            "id": "<volatile:key>",
+            "reference": "REF-1",
+            "rowVersion": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 7,
@@ -131,7 +137,13 @@
       "method": "GET",
       "path": "/api/parcels",
       "status": 200,
-      "body": []
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
     },
     {
       "seq": 11,
@@ -153,19 +165,73 @@
     {
       "seq": 12,
       "method": "GET",
-      "path": "/api/crates",
+      "path": "/api/shipments",
       "status": 200,
-      "body": [
-        {
-          "id": "<volatile:key>",
-          "reference": "REF-2",
-          "rowVersion": 1,
-          "weightKg": 40
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "reference": "REF-2",
+            "rowVersion": 1,
+            "type": "Crate",
+            "weightKg": 40
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 13,
+      "method": "GET",
+      "path": "/api/shipments/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Shipment {id} not found",
+        "instance": "/api/shipments/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/shipments/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "reference": "REF-2",
+        "rowVersion": 1,
+        "type": "Crate",
+        "weightKg": 40
+      }
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/crates",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "reference": "REF-2",
+            "rowVersion": 1,
+            "weightKg": 40
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 16,
       "method": "GET",
       "path": "/api/crates/{id}",
       "status": 200,
@@ -177,14 +243,14 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 17,
       "method": "POST",
       "path": "/api/crates/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 15,
+      "seq": 18,
       "method": "GET",
       "path": "/api/crates/{id}",
       "status": 200,
@@ -196,14 +262,14 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 19,
       "method": "DELETE",
       "path": "/api/crates/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 17,
+      "seq": 20,
       "method": "GET",
       "path": "/api/crates/{id}",
       "status": 404,
@@ -220,14 +286,20 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 21,
       "method": "GET",
       "path": "/api/crates",
       "status": 200,
-      "body": []
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
     },
     {
-      "seq": 19,
+      "seq": 22,
       "method": "PATCH",
       "path": "/api/parcels",
       "status": 405,
@@ -241,7 +313,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 23,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -255,7 +327,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 24,
       "method": "POST",
       "path": "/api/parcels",
       "status": 400,
@@ -269,7 +341,7 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 25,
       "method": "POST",
       "path": "/api/parcels/{id}/soft_delete",
       "status": 404,
@@ -286,7 +358,7 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 26,
       "method": "POST",
       "path": "/api/parcels/{id}/soft_delete",
       "status": 404,
@@ -303,7 +375,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 27,
       "method": "POST",
       "path": "/api/parcels/{id}/soft_delete",
       "status": 415,
@@ -317,7 +389,7 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 28,
       "method": "POST",
       "path": "/api/parcels/{id}/update",
       "status": 404,
