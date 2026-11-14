@@ -10,7 +10,6 @@
 // branding, breakpoint behaviour) lives in the template.
 // ---------------------------------------------------------------------------
 
-import { emitsRestCreate } from "../../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, PageIR, WorkflowIR } from "../../../../ir/types/loom-ir.js";
 import { humanize, plural, snake } from "../../../../util/naming.js";
 import { routeSegmentFor } from "../../../../util/storage-names.js";
@@ -50,8 +49,15 @@ export interface ExtraPageRoute {
  *  scaffolded List page clones the `find all … requires` gate guarding the very
  *  read it makes, so a default entry inherits the gate of the page it links to
  *  and the two sidebar paths cannot disagree about link visibility. */
+/** An aggregate the app shell routes: its name, and whether its api serves a
+ *  create (the `New` page exists only then). */
+export interface AppShellAggregate {
+  name: string;
+  creatable: boolean;
+}
+
 export function defaultNavSections(
-  aggregates: AggregateIR[],
+  aggregates: readonly Pick<AggregateIR, "name">[],
   workflows: WorkflowIR[],
   uiPages: readonly PageIR[] = [],
   authUi = false,
@@ -108,7 +114,7 @@ export function defaultNavSections(
 }
 
 export function prepareAppShellVM(
-  aggregates: AggregateIR[],
+  aggregates: readonly AppShellAggregate[],
   workflows: WorkflowIR[],
   systemName: string,
   /** When the deployable's `ui:` block declares an explicit
@@ -242,12 +248,12 @@ export function prepareAppShellVM(
   for (const agg of aggregates) {
     const slug = routeSegmentFor(agg.name);
     const cap = upperFirst(agg.name);
-    // The `New` page (scaffold create form) is dropped for a read-only
-    // aggregate with no REST create surface — `dropNonConstructibleNewPages`
-    // removes it from `ui.pages` on exactly `!emitsRestCreate`, so no
-    // `pages/<slug>/new` file is emitted.  Gate its import + route on the same
-    // fact, else App.tsx imports a module that doesn't exist (tsc TS2307).
-    const hasNew = emitsRestCreate(agg);
+    // The `New` page (scaffold create form) exists only for an aggregate whose
+    // api serves a create — `dropNonConstructibleNewPages` removes it from
+    // `ui.pages` on exactly that fact, so no `pages/<slug>/new` file is
+    // emitted.  Gate its import + route on the same fact, else App.tsx imports
+    // a module that doesn't exist (tsc TS2307).
+    const hasNew = agg.creatable;
     lazyPage(`${cap}List`, moduleFor(`agg:${agg.name}:list`, `./pages/${slug}/list`));
     if (hasNew) lazyPage(`${cap}New`, moduleFor(`agg:${agg.name}:new`, `./pages/${slug}/new`));
     lazyPage(`${cap}Detail`, moduleFor(`agg:${agg.name}:detail`, `./pages/${slug}/detail`));

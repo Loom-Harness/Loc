@@ -1,3 +1,4 @@
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
 import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
 import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant, eventsKeepOriginFrame } from "../../ir/enrich/stream-tenancy.js";
@@ -292,6 +293,7 @@ export function generateDotnetForContexts(
   system: {
     deployable: DeployableIR;
     sys: SystemIR;
+    frontendContract?: FrontendContract;
     migrations?: MigrationsIR[];
     styleAdapter?: StyleAdapter;
     layoutAdapter?: LayoutAdapter;
@@ -334,6 +336,7 @@ function emitProjectFromContexts(
   system: {
     deployable: DeployableIR;
     sys: SystemIR;
+    frontendContract?: FrontendContract;
     migrations?: MigrationsIR[];
     styleAdapter?: StyleAdapter;
     layoutAdapter?: LayoutAdapter;
@@ -1180,7 +1183,11 @@ function emitProjectFromContexts(
     // same wwwroot serving; only the SPA build output dir differs —
     // `build` for svelte, `dist/browser` for angular — see
     // renderDockerfile).
-    const embedOpts = { apiBaseUrl: "/api", pathPrefix: "ClientApp/" };
+    const embedOpts = {
+      apiBaseUrl: "/api",
+      pathPrefix: "ClientApp/",
+      frontendContract: system.frontendContract,
+    };
     const uiFw = system.deployable.uiFramework;
     const spaFiles =
       uiFw === "svelte"

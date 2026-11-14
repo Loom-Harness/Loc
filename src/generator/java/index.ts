@@ -1,3 +1,4 @@
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
 import { aggregateTableName, partTableName } from "../../ir/enrich/storage-names.js";
 import { isTenantScopedStream } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
@@ -302,6 +303,8 @@ import { javaRequestComponentOwners } from "./request-component-owners.js";
 interface SystemArgs {
   deployable: DeployableIR;
   sys: SystemIR;
+  /** Forwarded to an embedded frontend bundle. */
+  frontendContract?: FrontendContract;
   migrations?: MigrationsIR[];
   styleAdapter?: StyleAdapter;
   layoutAdapter?: LayoutAdapter;
@@ -1699,6 +1702,7 @@ function emitProjectFromContexts(
               : generateReactForContexts(contexts, system.sys, system.deployable, {
                   apiBaseUrl: "/api",
                   pathPrefix: "ClientApp/",
+                  frontendContract: system.frontendContract,
                 });
     // Drop the SPA pack's host-owned root files (Dockerfile / .dockerignore /
     // certs / e2e) and emit ClientApp/.gitignore — shared with the dotnet /

@@ -68,6 +68,7 @@ const dotnetPlatform: PlatformSurface = {
     emitTrace,
     sourcemap,
     sourceTexts,
+    frontendContract,
   }): Map<string, string> {
     const namespace = dotnetNamespace(deployable.name, contexts);
     // The orchestrator (`generator/dotnet/index.ts`) dispatches
@@ -92,6 +93,7 @@ const dotnetPlatform: PlatformSurface = {
         migrations,
         styleAdapter,
         layoutAdapter,
+        frontendContract,
       },
       { emitTrace, sourcemap, sourceTexts },
     );
