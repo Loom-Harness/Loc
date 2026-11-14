@@ -393,7 +393,9 @@ const REGISTERED: Ratchet[] = [
     // 23 → 24: `channels-broker-projection`, a broker + second-deployable row:
     // a fold on one service over an event published from another needs a
     // broker between two booted services (#5613).
-    max: 24,
+    // 24 → 25: `channels-broker-mixed-durable`, a broker row whose claim is an
+    // asynchronous local redelivery (#5613).
+    max: 25,
   },
 ];
 
