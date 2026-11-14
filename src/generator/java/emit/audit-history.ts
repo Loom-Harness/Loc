@@ -35,6 +35,7 @@ import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   FindIR,
+  PayloadIR,
   RepositoryIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
@@ -175,9 +176,12 @@ export function renderJavaAuditHistorySupport(basePkg: string): string {
  *  spelling every other `datetime` wire field takes on this backend
  *  (`Instant.toString()`), and the same instant node's `.toISOString()`
  *  produces, whatever the JVM's default offset. */
-export function renderJavaHistoryMapper(agg: EnrichedAggregateIR): string[] {
-  const unmasked = unmaskedHistoryFields(agg);
-  const masked = maskedHistoryFields(agg);
+export function renderJavaHistoryMapper(
+  payloads: readonly PayloadIR[],
+  agg: EnrichedAggregateIR,
+): string[] {
+  const unmasked = unmaskedHistoryFields(payloads, agg);
+  const masked = maskedHistoryFields(payloads, agg);
   const out: string[] = [
     `    /** One \`audit_records\` row → one history entry.  The diff is derived`,
     `     *  HERE, at read time, from the row's two snapshots — never stored. */`,

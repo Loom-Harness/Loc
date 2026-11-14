@@ -1,5 +1,5 @@
 import type { ContractOperation } from "../../ir/contract/frontend-contract.js";
-import { createInputFields, forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -17,6 +17,7 @@ import {
   type EnumIR,
   type InvariantIR,
   type OperationIR,
+  type PayloadIR,
   type TypeIR,
 } from "../../ir/types/loom-ir.js";
 import {
@@ -31,6 +32,7 @@ import type { ContractResponse, ContractResponseField } from "../../ir/util/decl
 import { maskedPatchParams } from "../../ir/util/op-gates.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
+import { responseWireFor } from "../../ir/util/response-wire.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
@@ -320,9 +322,9 @@ export function buildApiModule(
   // before the root references them — and a nested part before the sibling
   // that references it (`z.array(LabelResponse)`), hence children-first.
   for (const part of partsChildrenFirst(agg.parts)) {
-    lines.push(...emitResponseSchema(part, options.responses));
+    lines.push(...emitResponseSchema(part, options.responses, ctx.payloads));
   }
-  lines.push(...emitResponseSchema(agg, options.responses));
+  lines.push(...emitResponseSchema(agg, options.responses, ctx.payloads));
   lines.push(`export const ${agg.name}ListResponse = z.array(${agg.name}Response);`);
   lines.push(`export type ${agg.name}ListResponse = z.infer<typeof ${agg.name}ListResponse>;`);
   // Paged response DTOs (P3b) — one per distinct `<carrier> paged` find return.
@@ -783,6 +785,7 @@ function emitObjectWithRefines(
 function emitResponseSchema(
   ent: EnrichedAggregateIR | EnrichedEntityPartIR,
   responses: readonly ContractResponse[],
+  payloads: readonly PayloadIR[],
 ): string[] {
   const lines: string[] = [];
   const name = `${ent.name}Response`;
@@ -801,10 +804,9 @@ function emitResponseSchema(
       }
     }
   } else {
-    // A served aggregate whose context declares no response record: the
-    // contract has nothing to carry for it, so the client renders the read wire
-    // every backend serializes for it.
-    for (const wf of forApiRead(wireFieldsFor(ent))) {
+    // An entity the contract carries no record for (a context no api
+    // exposes) reads its context's declared record directly.
+    for (const wf of responseWireFor(payloads, ent)) {
       lines.push(
         wf.source === "id"
           ? `  ${wf.name}: z.string(),`

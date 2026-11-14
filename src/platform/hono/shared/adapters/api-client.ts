@@ -13,8 +13,8 @@
 //      drift from what the callee actually mounts, which is the failure the
 //      untyped path allowed (a hand-written "/orders/{id}" compiled clean and
 //      404'd at runtime).
-//   2. The response schema comes from `emitResponseSchema`, which walks
-//      `forApiRead(wireFieldsFor(agg))` — literally the field list the callee
+//   2. The response schema walks the callee's declared response record
+//      (`responseWireIn`) — literally the field list the callee
 //      serializes.  So the caller parses exactly what the callee sends, and a
 //      wire-shape change breaks the caller at build time.
 //
@@ -28,7 +28,6 @@ import { zodForResponse } from "../../../../generator/_frontend/zod-schemas.js";
 import { ref } from "../../../../generator/_imports/symbol.js";
 import { tsNamed } from "../../../../generator/_imports/ts.js";
 import { apiCallPrincipal } from "../../../../ir/enrich/hosting-facts.js";
-import { forApiRead, wireFieldsForAggregate } from "../../../../ir/enrich/wire-projection.js";
 import { contextOperations } from "../../../../ir/plan/index.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../../../ir/types/loom-ir.js";
 import {
@@ -40,6 +39,7 @@ import {
   absenceUnionSuccess,
   collectionSuccess,
 } from "../../../../ir/util/api-surface.js";
+import { responseWireIn } from "../../../../ir/util/response-wire.js";
 import { escapeTsIdent } from "../../../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../../../util/principal.js";
 import { resourceEnvUrlVar } from "../../../../util/resource-env.js";
@@ -94,18 +94,14 @@ function pathExpr(op: ApiOperationIR): string {
 
 /** Zod schema for an aggregate's read wire shape.
  *
- *  Deliberately built from `forApiRead(wireFieldsForAggregate(agg))` — the same
- *  walk the CALLEE's own response emitter uses — rather than from
- *  `_frontend/emitResponseSchema`, whose parameter is branded
- *  `EnrichedAggregateIR`.  The brand is stricter than the real dependency
- *  (`wireFieldsForAggregate` takes a plain `AggregateIR` and recomputes from
- *  `agg.fields`), and the Hono emitter only receives `SystemIR`.  Casting to
- *  the brand to satisfy a requirement the code does not actually have is how
- *  the `as Storage` bug in `checkDataSource` happened; this stays honest
- *  instead, at the cost of a dozen lines. */
-function responseSchema(agg: AggregateIR, schemaName: string): string[] {
+ *  Built from `responseWireIn(sys, agg)` — the rows the CALLEE's own response
+ *  emitter renders — rather than from `_frontend/emitResponseSchema`, whose
+ *  parameter is branded `EnrichedAggregateIR`: the Hono emitter only receives
+ *  `SystemIR`, and the rows need no more than a plain `AggregateIR` and its
+ *  context's payloads. */
+function responseSchema(sys: SystemIR, agg: AggregateIR, schemaName: string): string[] {
   const lines: string[] = [`export const ${schemaName} = z.object({`];
-  for (const wf of forApiRead(wireFieldsForAggregate(agg))) {
+  for (const wf of responseWireIn(sys, agg)) {
     lines.push(
       wf.source === "id"
         ? `  ${wf.name}: z.string(),`
@@ -204,13 +200,15 @@ export function emitApiClientModule(
           const variantName = `${v.aggregate.name}Response`;
           if (emittedSchemas.has(variantName)) continue;
           emittedSchemas.add(variantName);
-          out.push(...responseSchema(v.aggregate, variantName), ``);
+          out.push(...responseSchema(sys, v.aggregate, variantName), ``);
         }
       }
       if (agg && schemaName && !emittedSchemas.has(schemaName)) {
         emittedSchemas.add(schemaName);
         out.push(
-          ...(poly ? taggedRowSchema(poly.variants, schemaName) : responseSchema(agg, schemaName)),
+          ...(poly
+            ? taggedRowSchema(poly.variants, schemaName)
+            : responseSchema(sys, agg, schemaName)),
         );
         out.push(``);
       }

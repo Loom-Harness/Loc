@@ -1,11 +1,10 @@
-// Payload foundation (payload-transport-layer.md, P1 + P2).
+// Payload foundation (payload-transport-layer.md, P1).
 // Covers the grammar (`payload` + the command/query/response/error sugar
 // keywords), IR threading onto `BoundedContextIR.payloads` (including the
-// `event` projection with `kind: "event"`), the P2 synthesized `<Agg>Wire`
-// payloads, and the P1 validator rules (name conflict, duplicate field).
+// `event` projection with `kind: "event"`), and the P1 validator rules (name
+// conflict, duplicate field).
 
 import { describe, expect, it } from "vitest";
-import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
 import type { LspDiagnostic as Diagnostic } from "../../_helpers/diagnostics.js";
 import { parseString, parseValid } from "../../_helpers/parse.js";
@@ -56,29 +55,6 @@ system Sys {
     expect(byName.get("NotFound")).toBe("error");
     // `events` stays populated independently (emission path untouched).
     expect(ctx.events.map((e) => e.name)).toEqual(["OrderPlaced"]);
-  });
-});
-
-describe("payload — <Agg>Wire synthesis (P2)", () => {
-  const SRC = `
-system Sys {
-  subdomain Sales {
-    context Catalog {
-      aggregate Product { name: string price: int }
-    }
-  }
-}
-`;
-
-  it("synthesizes a named <Agg>Wire payload from the aggregate wire shape", async () => {
-    const enriched = enrichLoomModel(lowerModel(await parseValid(SRC)));
-    const ctx = enriched.systems[0]!.subdomains[0]!.contexts.find((c) => c.name === "Catalog")!;
-    const wire = ctx.payloads.find((p) => p.name === "ProductWire")!;
-    expect(wire).toBeDefined();
-    expect(wire.synthesized).toBe(true);
-    expect(wire.kind).toBe("payload");
-    // id first, then declared fields, then the default-on version token (M-T3.4).
-    expect(wire.fields.map((f) => f.name)).toEqual(["id", "name", "price", "rowVersion"]);
   });
 });
 

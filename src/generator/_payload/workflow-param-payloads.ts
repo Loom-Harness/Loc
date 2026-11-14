@@ -49,9 +49,8 @@ function recordPayload(ctx: BoundedContextIR, name: string): PayloadIR | undefin
  * already gate on): an event-triggered-only workflow's facade param is an
  * event type, which has its own emission and no request DTO to reference it.
  *
- * The `<Agg>Wire` payloads enrichment synthesizes are excluded — those are the
- * per-aggregate wire projections, already emitted by every backend's aggregate
- * DTO pass.
+ * The payloads enrichment synthesizes (generic carriers, anonymous unions) are
+ * excluded — each backend's carrier and union DTO passes emit those.
  */
 export function workflowParamPayloads(ctx: BoundedContextIR): PayloadIR[] {
   const named = new Set<string>();

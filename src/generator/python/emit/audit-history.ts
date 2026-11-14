@@ -22,7 +22,7 @@
 // by whom.  Fail-closed on a null principal, exactly like `to_wire_masked`.
 // ---------------------------------------------------------------------------
 
-import type { EnrichedAggregateIR } from "../../../ir/types/loom-ir.js";
+import type { EnrichedAggregateIR, PayloadIR } from "../../../ir/types/loom-ir.js";
 import { maskedHistoryFields, unmaskedHistoryFields } from "../../../ir/util/audit-history.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
@@ -112,9 +112,12 @@ export function renderPyAuditHistoryModule(): string {
 
 /** The per-aggregate mapper.  Unmasked diff fields run through one loop; each
  *  masked field gets its own predicate-guarded block. */
-export function renderPyHistoryMapper(agg: EnrichedAggregateIR): string {
-  const unmasked = unmaskedHistoryFields(agg);
-  const masked = maskedHistoryFields(agg);
+export function renderPyHistoryMapper(
+  payloads: readonly PayloadIR[],
+  agg: EnrichedAggregateIR,
+): string {
+  const unmasked = unmaskedHistoryFields(payloads, agg);
+  const masked = maskedHistoryFields(payloads, agg);
   const body: (string | null)[] = [
     `def ${pyHistoryMapperName(agg)}(row: ${AUDIT_RECORD_ROW}) -> dict[str, object]:`,
     `    changes: list[dict[str, object]] = []`,
