@@ -239,6 +239,7 @@ const responseRule = record<ContractResponse>("ContractResponse", {
       type: typeRule,
       optional: keep,
       maskable: keep,
+      provenanced: keep,
     }),
   ),
 });

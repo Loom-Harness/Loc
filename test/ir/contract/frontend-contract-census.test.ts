@@ -139,7 +139,7 @@ const SHIPPED: Record<string, string[] | null> = {
   RefetchTargetIR: ["aggregate", "queryTag"],
   ResourceOp: ["boundApi", "capability", "interface", "resourceKind", "resourceName", "verb"],
   ContractResponse: ["entity", "fields", "name"],
-  ContractResponseField: ["maskable", "name", "optional", "type"],
+  ContractResponseField: ["maskable", "name", "optional", "provenanced", "type"],
   ReturnVariantIR: ["variantShape", "variantTag"],
   RouteIR: ["method", "path", "target"],
   RouteTarget: ["context", "handler"],
