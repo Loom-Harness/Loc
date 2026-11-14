@@ -753,17 +753,19 @@ function checkListQuery(
   }
 }
 
-/** `api.<proj>.byKey(k)` / `.list()` — `GET /projections/<proj>[/{key}]`.
+/** `api.<proj>.byKey(k)` / `.list(a, b, …)` — `GET /projections/<proj>[/{key}]`.
  *  `byKey` reads exactly one path key (with none, `renderProjectionRead`
- *  throws at generate time); `list` reads none, so any argument it is given is
- *  dropped by the renderer and the request is not the one the test wrote. */
+ *  throws at generate time); `list` takes the projection's declared
+ *  parameters, positionally in declared order, as the query string — a
+ *  parameterless projection takes none.  Any other count would send a request
+ *  the test did not write. */
 function checkProjectionReadArgs(
   call: MagicCall,
   proj: ProjectionIR,
   source: string,
   diags: LoomDiagnostic[],
 ): void {
-  const expected = call.verb === "byKey" ? 1 : 0;
+  const expected = call.verb === "byKey" ? 1 : proj.params.length;
   if (call.args.length === expected) return;
   diags.push({
     severity: "error",
