@@ -9,9 +9,11 @@
 //
 //   - a `CacheStore` per cache resource — StackExchange.Redis for a `redis`
 //     storage (the `<RESOURCE>_URL` connection, valkey in the dev compose), a
-//     `ConcurrentDictionary` with expiry for `inMemory`;
+//     `ConcurrentDictionary` with expiry bounded by the plan's entry limit for
+//     `inMemory`;
 //   - one `ByIdCache` per cached aggregate: one entry per id holding each
-//     caller scope's answer;
+//     caller scope's answer, in the plan's `CACHE_ENTRY` envelope so another
+//     backend on the same redis reads it; an unreadable entry is a miss;
 //   - `CacheEvictingRepository<T>`, a `DispatchProxy` over the aggregate's
 //     repository interface.  Every write of an aggregate reaches the
 //     repository's `SaveAsync` / `DeleteAsync` whichever persistence adapter
@@ -25,11 +27,14 @@
 // its ttl.
 
 import {
+  CACHE_ENTRY,
+  CACHE_ETAG_HEADER,
   CACHE_STATUS_HEADER,
   type CachedByIdRead,
   type CacheEvictingWrite,
   type CacheScopeInput,
   cacheStoragesOf,
+  IN_MEMORY_CACHE_MAX_ENTRIES,
 } from "../../../ir/plan/cache.js";
 import type { DeployableIR, SystemIR } from "../../../ir/types/loom-ir.js";
 import { plural, upperFirst } from "../../../util/naming.js";
@@ -84,7 +89,8 @@ export function renderCacheHit(read: CachedByIdRead, idExpr: string): string[] {
     "        if (__hit is not null)",
     "        {",
     `            Response.Headers["${CACHE_STATUS_HEADER}"] = "hit";`,
-    '            return Content(__hit, "application/json");',
+    `            if (__hit.Etag is not null) Response.Headers["${CACHE_ETAG_HEADER}"] = __hit.Etag;`,
+    '            return Content(__hit.Body, "application/json");',
     "        }",
   ];
 }
@@ -93,7 +99,7 @@ export function renderCacheHit(read: CachedByIdRead, idExpr: string): string[] {
  *  returned. */
 export function renderCacheStore(idExpr: string, responseExpr: string): string[] {
   return [
-    `        await _cache.WriteAsync(${idExpr}, __scope, ${responseExpr});`,
+    `        await _cache.WriteAsync(${idExpr}, __scope, ${responseExpr}, null);`,
     `        Response.Headers["${CACHE_STATUS_HEADER}"] = "miss";`,
   ];
 }
@@ -181,6 +187,7 @@ export function renderByIdCacheModule(
     "using System.Reflection;",
     "using System.Runtime.ExceptionServices;",
     "using System.Text.Json;",
+    "using System.Text.Json.Nodes;",
     "using Microsoft.AspNetCore.Mvc;",
     "using Microsoft.Extensions.Logging;",
     "using Microsoft.Extensions.Options;",
@@ -246,8 +253,13 @@ export function renderByIdCacheModule(
           "",
         ]
       : []),
+    "/// <summary>An in-process map with expiry, holding at most <c>MaxEntries</c> entries: a",
+    "/// write that finds it full drops the expired entries, and is skipped when it is",
+    "/// still full.</summary>",
     "public sealed class MemoryCacheStore : ICacheStore",
     "{",
+    `    public const int MaxEntries = ${IN_MEMORY_CACHE_MAX_ENTRIES};`,
+    "",
     "    private readonly ConcurrentDictionary<string, (string Value, DateTime ExpiresAt)> _entries = new();",
     "",
     "    public Task<string?> GetAsync(string key)",
@@ -263,6 +275,13 @@ export function renderByIdCacheModule(
     "",
     "    public Task SetAsync(string key, string value, int ttlSeconds)",
     "    {",
+    "        if (!_entries.ContainsKey(key) && _entries.Count >= MaxEntries)",
+    "        {",
+    "            var now = DateTime.UtcNow;",
+    "            foreach (var (k, e) in _entries)",
+    "                if (e.ExpiresAt <= now) _entries.TryRemove(k, out _);",
+    "            if (_entries.Count >= MaxEntries) return Task.CompletedTask;",
+    "        }",
     "        _entries[key] = (value, DateTime.UtcNow.AddSeconds(ttlSeconds));",
     "        return Task.CompletedTask;",
     "    }",
@@ -279,6 +298,9 @@ export function renderByIdCacheModule(
     "{",
     ...storeLines,
     "}",
+    "",
+    "/// <summary>One scope's answer as stored: the wire body's JSON text and its tag.</summary>",
+    "public sealed record CachedAnswer(string Body, string? Etag);",
     "",
     "/// <summary>The cached by-id reads of one aggregate: one entry per id, holding each",
     "/// caller scope's answer.</summary>",
@@ -306,33 +328,73 @@ export function renderByIdCacheModule(
     "        _log = log;",
     "    }",
     "",
-    "    public async Task<string?> ReadAsync(string id, string scope)",
+    "    /// <summary>The stored entry, or an empty one when it is not a JSON object.</summary>",
+    "    private static JsonObject EntryOf(string? raw)",
+    "    {",
+    "        if (raw is null) return new JsonObject();",
+    "        try",
+    "        {",
+    "            return JsonNode.Parse(raw) as JsonObject ?? new JsonObject();",
+    "        }",
+    "        catch (JsonException)",
+    "        {",
+    "            return new JsonObject();",
+    "        }",
+    "    }",
+    "",
+    '    /// <summary><paramref name="answer"/> when it is a readable answer, else null.</summary>',
+    "    private static CachedAnswer? Readable(JsonNode? answer)",
+    "    {",
+    "        if (answer is not JsonObject a) return null;",
+    `        if (a["${CACHE_ENTRY.body}"] is not JsonValue body || !body.TryGetValue<string>(out var text) || !IsJson(text)) return null;`,
+    `        var etag = a["${CACHE_ENTRY.etag}"];`,
+    "        if (etag is null) return new CachedAnswer(text, null);",
+    "        return etag is JsonValue v && v.TryGetValue<string>(out var tag) ? new CachedAnswer(text, tag) : null;",
+    "    }",
+    "",
+    "    private static bool IsJson(string text)",
     "    {",
     "        try",
     "        {",
-    "            var raw = await _store.GetAsync(_entryPrefix + id);",
-    "            if (raw is null) return null;",
-    "            var entry = JsonSerializer.Deserialize<Dictionary<string, string>>(raw);",
-    "            return entry is not null && entry.TryGetValue(scope, out var body) ? body : null;",
+    "            using var _ = JsonDocument.Parse(text);",
+    "            return true;",
+    "        }",
+    "        catch (JsonException)",
+    "        {",
+    "            return false;",
+    "        }",
+    "    }",
+    "",
+    '    /// <summary>The answer stored for the id under <paramref name="scope"/>; an unreadable one is a miss.</summary>',
+    "    public async Task<CachedAnswer?> ReadAsync(string id, string scope)",
+    "    {",
+    "        string? raw;",
+    "        try",
+    "        {",
+    "            raw = await _store.GetAsync(_entryPrefix + id);",
     "        }",
     "        catch (Exception err)",
     "        {",
     `            ${warn("read")}`,
     "            return null;",
     "        }",
+    "        return Readable(EntryOf(raw)[scope]);",
     "    }",
     "",
-    "    public async Task WriteAsync(string id, string scope, object response)",
+    '    /// <summary>Store the wire answer under <paramref name="scope"/>, keeping the other',
+    "    /// scopes' answers; an entry that does not parse is replaced.</summary>",
+    "    public async Task WriteAsync(string id, string scope, object response, string? etag)",
     "    {",
     "        try",
     "        {",
     "            var key = _entryPrefix + id;",
-    "            var raw = await _store.GetAsync(key);",
-    "            var entry = raw is null",
-    "                ? new Dictionary<string, string>()",
-    "                : JsonSerializer.Deserialize<Dictionary<string, string>>(raw) ?? new Dictionary<string, string>();",
-    "            entry[scope] = JsonSerializer.Serialize(response, response.GetType(), _json);",
-    "            await _store.SetAsync(key, JsonSerializer.Serialize(entry), _ttlSeconds);",
+    "            var entry = EntryOf(await _store.GetAsync(key));",
+    "            entry[scope] = new JsonObject",
+    "            {",
+    `                ["${CACHE_ENTRY.body}"] = JsonSerializer.Serialize(response, response.GetType(), _json),`,
+    `                ["${CACHE_ENTRY.etag}"] = etag,`,
+    "            };",
+    "            await _store.SetAsync(key, entry.ToJsonString(), _ttlSeconds);",
     "        }",
     "        catch (Exception err)",
     "        {",

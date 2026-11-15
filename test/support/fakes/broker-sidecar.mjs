@@ -516,6 +516,69 @@ export function parseResp(buf) {
   return { values: out, rest: buf.subarray(i) };
 }
 
+/** Send `commands` on one connection and return their replies, in order. */
+async function redisCommands(host, port, password, commands) {
+  const sock = net.connect({ host, port });
+  await new Promise((resolve, reject) => {
+    sock.once("connect", resolve);
+    sock.once("error", reject);
+  });
+  const want = commands.length + (password ? 1 : 0);
+  const replies = [];
+  let buf = Buffer.alloc(0);
+  try {
+    return await Promise.race([
+      new Promise((resolve) => {
+        sock.on("data", (d) => {
+          const { values, rest } = parseResp(Buffer.concat([buf, d]));
+          buf = rest;
+          replies.push(...values);
+          if (replies.length >= want) resolve(replies.slice(password ? 1 : 0));
+        });
+        sock.write((password ? resp("AUTH", password) : "") + commands.map((c) => resp(...c)).join(""));
+      }),
+      sleep(10_000).then(() => Promise.reject(new Error("cache fake: valkey did not answer"))),
+    ]);
+  } finally {
+    sock.destroy();
+  }
+}
+
+/**
+ * The by-id cache entries a backend stored, as backend-neutral golden rows:
+ * each entry's key with its trailing id replaced, and per scope fingerprint the
+ * stored answer's field names and its body's top-level field names.  Every
+ * backend writes the plan's one envelope (`CACHE_ENTRY`), so every backend's
+ * rows are equal — a backend that wrote its own shape diverges here, which is
+ * the shape another backend on the same redis could not read.
+ */
+export function cacheEntries(pairs) {
+  return pairs
+    .map(([key, raw]) => {
+      let entry;
+      try {
+        entry = JSON.parse(raw);
+      } catch {
+        return { entry: key.replace(/[^:]+$/, "<id>"), unreadable: String(raw).slice(0, 80) };
+      }
+      const scopes = Object.keys(entry)
+        .sort()
+        .map((scope) => {
+          const answer = entry[scope];
+          if (typeof answer !== "object" || answer === null) return { scope, answer: typeof answer };
+          let bodyFields = null;
+          try {
+            bodyFields = Object.keys(JSON.parse(answer.body)).sort();
+          } catch {
+            // left null: the body is not JSON text
+          }
+          return { scope, answer: Object.keys(answer).sort(), bodyFields };
+        });
+      return { entry: key.replace(/[^:]+$/, "<id>"), scopes };
+    })
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+}
+
 async function startRedis(opts) {
   let host = "127.0.0.1";
   let port;
@@ -599,10 +662,23 @@ async function startRedis(opts) {
       ? rehost(c.url, gate ? "127.0.0.1" : host, gate ? gate.port : port)
       : clientBase;
   }
+  // A `kind: cache` resource's URL is the one compose hands it (and the client
+  // bakes as its fallback), re-hosted onto the sidecar.
+  const caches = (opts.resources ?? []).filter((r) => r.kind === "cache");
+  for (const r of caches) {
+    const url = r.url ?? names.resourceSidecarUrl("redis", opts.storage.name);
+    env[names.resourceUrlVar(r.name)] = rehost(url, gate ? "127.0.0.1" : host, gate ? gate.port : port);
+  }
+  // A storage that only caches reports the entries its backend stored
+  // (`effects.cache`); one that carries a channel reports its publishes.
+  const cacheOnly = caches.length > 0 && !(opts.channelSources ?? []).length;
+  // A shared server (`LOOM_FAKE_REDIS_URL`) still holds the previous case's
+  // entries.
+  if (cacheOnly) await redisCommands(host, port, password, [["FLUSHDB"]]);
 
   return {
     backendStarting: gm.backendStarting,
-    kind: "broker",
+    kind: cacheOnly ? "cache" : "broker",
     env,
     url: base,
     captured,
@@ -612,6 +688,10 @@ async function startRedis(opts) {
      *  lands between a publish and its delivery reports it missing. */
     async observe() {
       gm.assertGateMet();
+      if (cacheOnly) return cacheEntries(await redisCommands(host, port, password, [["KEYS", "*"]]).then(async ([keys]) => {
+        const values = keys.length ? await redisCommands(host, port, password, keys.map((k) => ["GET", k])) : [];
+        return keys.map((k, i) => [k, values[i]]);
+      }));
       const nonce = `${Date.now()}-${Math.random()}`;
       const seen = new Promise((resolve) => barriers.set(nonce, resolve));
       const pub = net.connect({ host, port });

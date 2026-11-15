@@ -35,6 +35,15 @@ export const messages = {
     resource: unknown;
   }) =>
     `aggregate '${p.aggregate}' has a read scope, mask or derived field that reads other rows (an \`exists\` row rule, a policy function over a reference, a field followed through an \`X id\`), so cache resource '${p.resource}' does not cache its by-id read: a write to one of those rows would change the answer without evicting it.  The other aggregates of the context are cached.`,
+  "loom.cache-writer-not-evicting": (p: {
+    deployable: unknown;
+    context: unknown;
+    resource: unknown;
+    cachedBy: unknown;
+  }) =>
+    `deployable '${p.deployable}' hosts context '${p.context}' on the database cache resource '${p.resource}' is filled from, but does not list '${p.resource}': its writes would evict nothing, so '${p.cachedBy}' would serve the old answer until the ttl expires.  Add '${p.resource}' to its \`dataSources\` (it then evicts on every write).`,
+  "loom.cache-in-memory-shared": (p: { resource: unknown; deployables: unknown }) =>
+    `cache resource '${p.resource}' uses an \`inMemory\` storage and is listed by '${p.deployables}': each process keeps its own map, so a write in one evicts nothing in the others.  Use a \`redis\` storage for a cache more than one deployable lists.`,
   "loom.api-call-principal-unsupported#reactor": (p: {
     name: unknown;
     resource: unknown;

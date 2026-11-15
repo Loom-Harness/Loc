@@ -1,0 +1,15 @@
+{
+  "title": "the by-id read cache on a redis store: `cache-by-id`'s scenarios on the valkey sidecar, and the stored entry envelope every backend writes",
+  "doc": "resources",
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "The registry (`Org`) serves its two reads and no writes; its self-scope hides every row from the harness principal.  `api.relabel.run(...)` drives a command workflow — a write path the cache must evict on (a not-lifted workflow route).",
+    "uncalled": {
+      "getOrgById": "tenantRegistryRow",
+      "allOrg": "tenantRegistryRow"
+    },
+    "unattributed": [
+      "api.relabel.run (no such aggregate)"
+    ]
+  }
+}
