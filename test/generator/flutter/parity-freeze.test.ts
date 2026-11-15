@@ -46,7 +46,7 @@ system Par {
     valueobject Addr { line: string  geo: Geo }
     valueobject LineItem { sku: string  active: bool }
     enum Color { red  green }
-    aggregate Item {
+    aggregate Item with crudish {
       name: string
       addr: Addr
       lines: LineItem[]

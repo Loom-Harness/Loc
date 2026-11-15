@@ -1,5 +1,6 @@
+// Gate for D-WIRE-POLICY (docs/decisions).
 // The node/Hono backend takes every wire refusal from ONE IR fact — the
-// `wirePolicy` table (`src/ir/enrich/wire-policy.ts`): status, title, fixed
+// `wirePolicy` table (`src/ir/util/wire-policy.ts`): status, title, fixed
 // detail or sentence, field message, ingress JSON type.
 //
 // Two halves:
@@ -18,8 +19,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ingressFor } from "../../../src/ir/enrich/wire-policy.js";
 import type { WirePrimitive } from "../../../src/ir/types/wire-types.js";
+import { ingressFor } from "../../../src/ir/util/wire-policy.js";
 import { BODY_PRIMITIVE } from "../../../src/platform/hono/shared/routes-builder.js";
 
 const ROOT = path.resolve(__dirname, "../../..");
@@ -126,7 +127,7 @@ describe("node wire-policy census — source", () => {
     const bad = hits(rel).filter((h) => !waived(rel, h.text));
     expect(
       bad.map((h) => `${rel}:${h.line} — ${h.what}: ${h.text}`),
-      "render it from src/ir/enrich/wire-policy.ts (wireStatus / wireTitle / wireFixedDetail / tsSentence / fieldFixedMessage / errorVariantResponse)",
+      "render it from src/ir/util/wire-policy.ts (wireStatus / wireTitle / wireFixedDetail / tsSentence / fieldFixedMessage / errorVariantResponse)",
     ).toEqual([]);
   });
 

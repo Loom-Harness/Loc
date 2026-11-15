@@ -23,7 +23,7 @@ import type {
   StmtIR,
   TypeIR,
 } from "../../types/loom-ir.js";
-import { canonicalDestroy } from "../../util/canonical-lifecycle.js";
+import { canonicalDestroy, emitsRestCreate } from "../../util/canonical-lifecycle.js";
 import { readableOperations, resolveAggregateRead } from "../../util/page-read.js";
 import type { PagedFindRoutes } from "../../util/paged-find-routes.js";
 import { typeLabel } from "../../util/type-label.js";
@@ -407,6 +407,43 @@ export function checkDestroyFormOf(
           origin: host.origin,
         });
       }
+    });
+  }
+}
+
+// -------------------------------------------------------------------------
+// `loom.create-form-no-create` — a `CreateForm { of: X }` over an aggregate
+// that serves no create.  The form submits the aggregate's create request,
+// and `X` has none: no create record, no create route, no create hook or
+// context function.  Every target would render a form calling something that
+// was never emitted, so the model is refused here instead.  An `of:` that is
+// not a resolved aggregate is the walker's own give-up, not this check's.
+// -------------------------------------------------------------------------
+
+/** Reject a `CreateForm` over an aggregate that serves no create.  One
+ *  diagnostic per (host, aggregate). */
+export function checkCreateFormOf(
+  host: PageIR | ComponentIR,
+  where: string,
+  aggByName: ReadonlyMap<string, AggregateIR>,
+  diags: LoomDiagnostic[],
+): void {
+  const flagged = new Set<string>();
+  for (const root of walkerRenderedExprs(host)) {
+    walkExprDeep(root, (e) => {
+      if (e.kind !== "call" || e.callKind !== "free" || e.name !== "CreateForm") return;
+      const of = namedArg(e, "of");
+      if (of?.kind !== "ref") return;
+      const agg = aggByName.get(of.name);
+      if (agg === undefined || emitsRestCreate(agg) || flagged.has(agg.name)) return;
+      flagged.add(agg.name);
+      diags.push({
+        severity: "error",
+        code: "loom.create-form-no-create",
+        message: diagMessage("loom.create-form-no-create", { name: agg.name }),
+        source: where,
+        origin: host.origin,
+      });
     });
   }
 }

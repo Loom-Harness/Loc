@@ -56,3 +56,5 @@ statement vocabulary) are unaffected. No emitter changes.
 **Sources.** `src/ir/validate/checks/if-stmt-checks.ts` (`validateIfStatementPlacement`,
 the UI arm); `src/diagnostics/messages.ts` (`loom.if-stmt-page-body-unsupported`);
 [`page-metamodel.md`](../page-metamodel.md).
+
+**Enforced by:** `test/ir/if-stmt-placement.test.ts`

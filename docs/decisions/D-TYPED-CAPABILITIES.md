@@ -22,3 +22,5 @@ deduplication when a capability is reused (`typed-capabilities.md` OQ#1).
 **Affects.** `typed-capabilities.md` (canonical); `../capabilities.md` (evolves
 its mechanism); `multi-tenancy-design-note.md` (`tenantOwned`/`tenantRegistry`
 are capabilities).
+
+**Enforced by:** `test/macro/prelude.test.ts`

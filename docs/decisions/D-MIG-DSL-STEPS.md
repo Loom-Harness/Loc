@@ -29,3 +29,5 @@ IS the applied-history record" property M-T2.1 pinned for renames.
 **Affects.** `../migrations.md` § Data migrations;
 [`../new-plan/missions/M-T2.3-data-migration-surface-design.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/archive/missions/M-T2.3-data-migration-surface-design.md) (canonical);
 `src/system/migrations-builder.ts`.
+
+**Enforced by:** none, tracked by #6013 — no test asserts that no user-edited stub is emitted or that a raw sql step applies exactly once

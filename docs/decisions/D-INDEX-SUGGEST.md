@@ -15,3 +15,5 @@ manual `index:` hatch (D-INDEX-INFRA). Advisory, never an error; never changes
 emitted schema on its own.
 
 **Affects.** `uniqueness-and-indexes.md` §11 (canonical); `../resources.md`.
+
+**Enforced by:** `test/ir/index-suggestion.test.ts`, `test/generator/hono/schema-index-parity.test.ts`

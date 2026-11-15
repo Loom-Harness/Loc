@@ -1,4 +1,3 @@
-import { notFoundStmtDetail, wireStatusResolver } from "../../ir/enrich/wire-policy.js";
 import {
   isWorkflowSelfType,
   liveLetNames,
@@ -34,6 +33,7 @@ import {
   opWorkflowInstances,
 } from "../../ir/util/openapi-ids.js";
 import { workflowEmits } from "../../ir/util/walk.js";
+import { notFoundStmtDetail, wireStatusResolver } from "../../ir/util/wire-policy.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,

@@ -64,7 +64,8 @@ describe("elixir-vanilla projection runtime", () => {
     expect(row).toContain("field :customer, :binary_id");
     // enum non-key field → Ecto.Enum (so the fold's `:Placed` atom round-trips)
     expect(row).toContain("field :status, Ecto.Enum, values: [:Placed, :Shipped]");
-    expect(row).toContain("timestamps()");
+    // The row carries exactly the shared columns: no Ecto timestamps.
+    expect(row).not.toContain("timestamps()");
   });
 
   it("emits nothing projection-related for a projection-less system (additivity)", async () => {

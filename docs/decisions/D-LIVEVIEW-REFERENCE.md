@@ -45,3 +45,5 @@ and fetches over HTTP.
 - `server-session-data-access.test.ts`: every `server-session` target's
   generated pages import no HTTP API client, run no hook runtime, validate no
   zod wire schema, and make every data read as an in-process context call.
+
+**Enforced by:** `test/system/walker-core-framework-census.test.ts`, `test/conformance/server-session-data-access.test.ts`

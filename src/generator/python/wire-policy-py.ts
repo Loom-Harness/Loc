@@ -1,17 +1,17 @@
-// The Python spelling of the `wirePolicy` fact (`src/ir/enrich/wire-policy.ts`).
+// The Python spelling of the `wirePolicy` fact (`src/ir/util/wire-policy.ts`).
 // The fact owns every refusal's status, title, fixed detail and sentence; this
 // module owns only how a FastAPI emitter writes them as Python source, so every
 // python site renders the same refusal the same way.
 
+import type { BoundedContextIR, ExprIR } from "../../ir/types/loom-ir.js";
+import { ruleParamRefs } from "../../ir/util/rule-params.js";
 import {
   errorVariantCode,
   errorVariantResponse,
   reasonPhrase,
   type WireRejectionClass,
   wireSentence,
-} from "../../ir/enrich/wire-policy.js";
-import type { BoundedContextIR, ExprIR } from "../../ir/types/loom-ir.js";
-import { ruleParamRefs } from "../../ir/util/rule-params.js";
+} from "../../ir/util/wire-policy.js";
 import { pyRef } from "../_imports/python.js";
 
 /** A Python f-string for a sentence detail, the subject given as f-string

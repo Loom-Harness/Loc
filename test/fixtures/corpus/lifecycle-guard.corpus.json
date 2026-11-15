@@ -1,4 +1,5 @@
 {
+  "//": "Gate for D-CREATE-GATE-ORDER (docs/decisions).",
   "title": "lifecycle authorization gate — `requires` in the canonical `create` (principal-only, pre-construction) and `destroy` (principal + `this`, post-load)",
   "doc": "auth",
   "backends": "ALL",

@@ -19,3 +19,5 @@ operations.
 **Consequence.** Do not "unify" projections with aggregates or add operations
 to them. Query-time projections are the other flavour: computed on every read,
 no replay, so reading current state there is correct by definition.
+
+**Enforced by:** `test/ir/projection.test.ts`

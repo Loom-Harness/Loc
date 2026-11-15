@@ -71,7 +71,7 @@
 
 import Handlebars from "handlebars";
 import { diagMessage } from "../../diagnostics/messages.js";
-import { isAggregateProblemCode } from "../../ir/enrich/wire-policy.js";
+import { isAggregateProblemCode } from "../../ir/util/wire-policy.js";
 import type { PackFormat } from "../../util/builtin-formats.js";
 import { contentHash } from "../../util/content-hash.js";
 import { sourceText } from "../_i18n/source-text.js";

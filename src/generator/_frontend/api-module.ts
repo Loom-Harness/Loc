@@ -1,5 +1,4 @@
 import type { ContractOperation, ContractRecord } from "../../ir/contract/frontend-contract.js";
-import { undeclaredCreateRequestFields } from "../../ir/plan/create-request.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -30,6 +29,7 @@ import {
 import { AUDIT_HISTORY_FIND } from "../../ir/util/audit-history.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
 import type { ContractResponse, ContractResponseField } from "../../ir/util/declared-response.js";
+import type { ClassifyContext, SingleFieldPattern } from "../../ir/util/invariant-classify.js";
 import { maskedPatchParams } from "../../ir/util/op-gates.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import {
@@ -38,7 +38,6 @@ import {
   valueObjectPool,
 } from "../../ir/util/reachable-types.js";
 import { responseWireFor } from "../../ir/util/response-wire.js";
-import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
@@ -229,14 +228,12 @@ export function buildApiModule(
     ? options.records.find((r) => r.name === create.request)
     : undefined;
   // The declared create command record, as the contract carries it, and the
-  // invariants over its fields.  An aggregate whose context declares no
-  // record sends the create input every backend's create route reads.
-  const requiredFields: readonly CreateRequestField[] = createRequest
-    ? createRequest.fields
-    : undeclaredCreateRequestFields(agg);
+  // invariants over its fields.  A served create always has a record (the
+  // scaffold splices one for every concrete aggregate of an exposed context).
+  const requiredFields: readonly CreateRequestField[] = createRequest?.fields ?? [];
   const createInvariants: InvariantIR[] = createRequest
     ? (create?.invariants ?? []).map((inv) => ({ ...inv, source: "" }))
-    : agg.invariants;
+    : [];
   if (restCreate) {
     lines.push(
       ...emitObjectWithRefines(

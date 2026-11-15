@@ -33,3 +33,5 @@ form's.
 
 **Affects.** `database-seeding.md` §2 (D-SEED-PATH), §3.2, §6 (per-
 backend emitters), §8 (`loom.seed-raw-unchecked`).
+
+**Enforced by:** none, tracked by #6013 — invariant-on-seed is runtime; needs a booted invariant-violating seed leg

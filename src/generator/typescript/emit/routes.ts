@@ -1,10 +1,3 @@
-import {
-  MISSING_FILE_PART_DETAIL,
-  wireCode,
-  wireFixedDetail,
-  wireStatus,
-  wireTitle,
-} from "../../../ir/enrich/wire-policy.js";
 import { hasDurableEvents, routedPolymorphicRead } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR } from "../../../ir/types/loom-ir.js";
 import { isMaterializedProjection, isQueryTimeProjection } from "../../../ir/types/loom-ir.js";
@@ -16,6 +9,13 @@ import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-li
 import { realtimeEventTypes } from "../../../ir/util/channels.js";
 import { existsReadAggregates } from "../../../ir/util/in-app-exists.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
+import {
+  MISSING_FILE_PART_DETAIL,
+  wireCode,
+  wireFixedDetail,
+  wireStatus,
+  wireTitle,
+} from "../../../ir/util/wire-policy.js";
 import { API_BASE_PATH, AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";

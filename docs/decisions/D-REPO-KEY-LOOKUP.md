@@ -61,3 +61,5 @@ needs a routed `queryHandler` over the read. What the codemod reports (route
 reads, must-exist finds over non-unique keys, variant matches on a
 `T or <Error>` read, row-less finds) is what the `FindDecl` removal still has
 to settle by hand.
+
+**Enforced by:** `test/language/validation/repo-key-lookup.test.ts`, `test/fixtures/corpus/tenancy-claim-name.ddd`

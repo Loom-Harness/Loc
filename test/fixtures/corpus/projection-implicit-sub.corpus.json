@@ -1,4 +1,5 @@
 {
+  "//": "Gate for D-PROJECTION-IMPLICIT-SUB (docs/decisions).",
   "title": "implicit in-process subscription — a folded projection AND a workflow reactor whose events NO `channel` carries",
   "doc": "channels",
   "backends": "ALL",

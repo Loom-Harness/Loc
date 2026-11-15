@@ -110,6 +110,11 @@ function loc(site: ThrowSite): string {
 }
 
 describe("generator throw census — every codegen crash site names what keeps valid input off it", () => {
+  it("CLASSIFICATIONS is sorted by site id, so concurrent additions land on different lines", () => {
+    const keys = Object.keys(CLASSIFICATIONS);
+    expect(keys, "keep CLASSIFICATIONS sorted by its site id").toEqual([...keys].sort());
+  });
+
   const sites = computeThrowSites();
   const byId = new Map(sites.map((s) => [s.id, s]));
 

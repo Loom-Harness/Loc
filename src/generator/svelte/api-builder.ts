@@ -14,7 +14,7 @@ import {
   type EnrichedAggregateIR,
   type RepositoryIR,
 } from "../../ir/types/loom-ir.js";
-import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
+import { canonicalDestroy, emitsRestCreate } from "../../ir/util/canonical-lifecycle.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
@@ -102,16 +102,22 @@ export function buildSvelteApiModule(
   for (const vo of usedVOs) lines.push(...emitValueObjectSchema(vo));
   lines.push("");
 
-  const requiredFields = createRequestFields(ctx.payloads, agg);
-  lines.push(
-    ...emitObjectWithRefines(
-      `Create${agg.name}Request`,
-      requiredFields.map((f) => ({ name: f.name, base: zodForRequest(f.type) })),
-      agg.invariants,
-      new Set(requiredFields.map((f) => f.name)),
-    ),
-  );
-  lines.push(`export type Create${agg.name}Request = z.infer<typeof Create${agg.name}Request>;`);
+  // The create request schema and hook exist only for a served create (the
+  // same gate as `useDelete` below): an aggregate with no create route gets
+  // neither, so no hook POSTs to a route that does not exist.
+  const restCreate = emitsRestCreate(agg);
+  const requiredFields = restCreate ? createRequestFields(ctx.payloads, agg) : [];
+  if (restCreate) {
+    lines.push(
+      ...emitObjectWithRefines(
+        `Create${agg.name}Request`,
+        requiredFields.map((f) => ({ name: f.name, base: zodForRequest(f.type) })),
+        agg.invariants,
+        new Set(requiredFields.map((f) => f.name)),
+      ),
+    );
+    lines.push(`export type Create${agg.name}Request = z.infer<typeof Create${agg.name}Request>;`);
+  }
   // Dual FormState/Payload aliases — emitted only where the schema carries a
   // real transform (`moneySchema`: decimal string in, `Decimal` out), so
   // `z.input` genuinely differs from `z.output`.  The Svelte form emitter
@@ -286,17 +292,19 @@ export function buildSvelteApiModule(
   lines.push(`}`);
   lines.push("");
 
-  lines.push(`export function useCreate${agg.name}() {`);
-  lines.push(`  const qc = useQueryClient();`);
-  lines.push(`  return createMutation(() => ({`);
-  lines.push(`    mutationFn: async (input: Create${agg.name}Request) => {`);
-  lines.push(`      const r = await api.post(\`/${tag}\`, input);`);
-  lines.push(`      return z.object({ id: z.string() }).parse(r);`);
-  lines.push(`    },`);
-  lines.push(`    onSuccess: () => qc.invalidateQueries({ queryKey: ${aggKey} }),`);
-  lines.push(`  }));`);
-  lines.push(`}`);
-  lines.push("");
+  if (restCreate) {
+    lines.push(`export function useCreate${agg.name}() {`);
+    lines.push(`  const qc = useQueryClient();`);
+    lines.push(`  return createMutation(() => ({`);
+    lines.push(`    mutationFn: async (input: Create${agg.name}Request) => {`);
+    lines.push(`      const r = await api.post(\`/${tag}\`, input);`);
+    lines.push(`      return z.object({ id: z.string() }).parse(r);`);
+    lines.push(`    },`);
+    lines.push(`    onSuccess: () => qc.invalidateQueries({ queryKey: ${aggKey} }),`);
+    lines.push(`  }));`);
+    lines.push(`}`);
+    lines.push("");
+  }
 
   if (canonicalDestroy(agg)) {
     lines.push(`export function useDelete${agg.name}() {`);

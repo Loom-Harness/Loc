@@ -80,7 +80,6 @@ defmodule D.Parties.Party do
     field :version, :integer, default: 1
     field :credit_limit, :decimal
     field :rating, :integer
-    timestamps(type: :utc_datetime)
   end
 end
 ```
@@ -152,7 +151,6 @@ schema "parties" do
   field :email, :string
   field :credit_limit, :decimal
   field :version, :integer, default: 1
-  timestamps(type: :utc_datetime)
 end
 ```
 ::: end
@@ -297,7 +295,6 @@ schema "machines" do
   field :label, :string
   field :serial, :string
   field :version, :integer, default: 1
-  timestamps(type: :utc_datetime)
 end
 ```
 ::: end

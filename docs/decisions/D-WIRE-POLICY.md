@@ -8,7 +8,7 @@ backend (#3584, #3585, #3508), because each backend decided for itself which
 input is a 400 / 415 / 422 / 409, what the problem body says, and which check
 runs first.
 
-**Decision.** One derived table, `src/ir/enrich/wire-policy.ts`, owns those
+**Decision.** One derived table, `src/ir/util/wire-policy.ts`, owns those
 answers, and backends render it:
 
 - **Rejection classes** (`wireRejection`): status (fixed, or the stdlib error
@@ -40,3 +40,5 @@ sentence a node emitter picks itself. python/FastAPI renders it through
 The remaining backends move onto it one at a time; until each does, its
 wire-golden legs carry a per-golden waiver in `test/_helpers/wire-waivers.ts`
 for the missing-field sentence.
+
+**Enforced by:** `test/generator/hono/wire-policy-census.test.ts`, `test/generator/python/wire-policy-census.test.ts`

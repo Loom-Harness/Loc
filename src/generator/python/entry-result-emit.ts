@@ -11,7 +11,6 @@
 // writes of the reactors its events ran inline — and the route dispatches the
 // workflow's own emits only on success.
 
-import { errorVariantResponse } from "../../ir/enrich/wire-policy.js";
 import { isScalarVariant, variantTag } from "../../ir/stdlib/unions.js";
 import type { BoundedContextIR, ExprIR, TypeIR, WireField } from "../../ir/types/loom-ir.js";
 import {
@@ -20,6 +19,7 @@ import {
   entryErrorTags,
 } from "../../ir/util/entry-result.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
+import { errorVariantResponse } from "../../ir/util/wire-policy.js";
 import { unionMembers } from "../_payload/union-wire.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { PY, pyIdType } from "./py-symbols.js";

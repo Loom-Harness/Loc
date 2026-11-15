@@ -1,3 +1,4 @@
+// Gate for D-VANILLA-ES-HOME (docs/decisions).
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";

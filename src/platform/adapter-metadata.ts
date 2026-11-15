@@ -146,6 +146,17 @@ export function allAdapterNames(platform: Platform, kind: AdapterAxisKind): stri
   return [...meta[kind].real, ...meta[kind].stub].sort();
 }
 
+/** The persistence adapters that lay a shared database's tables out their own
+ *  way rather than mapping the shared migration schema column for column:
+ *  MikroORM syncs its own entities at boot, and Dapper and Ecto store a value
+ *  object as one json column (each with its own key spelling) where the shared
+ *  schema flattens it into leaf columns.  Every other adapter — and python's
+ *  SQLAlchemy, which has no adapter menu — maps the shared schema exactly, so
+ *  any backend on the database may have created the tables it reads.  Each
+ *  adapter named here is refused beside a deployable of another layout by its
+ *  own `loom.<adapter>-shared-database` diagnostic. */
+export const OWN_LAYOUT_PERSISTENCE: ReadonlySet<string> = new Set(["mikroorm", "dapper", "ecto"]);
+
 /** Defaults a platform falls back to when the source doesn't pin one, or
  *  `undefined` for frontend / python / unknown platforms. */
 export function defaultsFor(platform: Platform): PlatformAdapterDefaults | undefined {

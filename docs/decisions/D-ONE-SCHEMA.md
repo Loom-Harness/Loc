@@ -1,0 +1,55 @@
+# D-ONE-SCHEMA — every backend maps the one schema the shared migrations derive
+
+**Status:** PINNED.
+
+**Problem.** Deployables bound to one postgres `storage` share its database,
+and only the first of them applies migrations; every other deployable reads and
+writes tables a different backend created. That is sound only if every backend
+maps the same physical layout. The SQL backends render the schema through one
+renderer, but the Ecto emitter projected it onto a layout of its own (bundled
+`timestamps()` columns, a synthetic id on value-collection rows, its own index
+names, a value object folded into one json column), so a Phoenix deployable
+beside any other backend failed every read and write on the other side's
+tables.
+
+**Decision.** In the relational shape there is ONE schema per database, derived
+once as `MigrationsIR` in phase ⑨. Every backend and persistence adapter maps it
+exactly: the same tables, columns, column types, keys, constraints and index
+names, and no extra columns. A value object is its prefix-named leaf columns; a
+value-object collection is a child table keyed by `(parent_fk, ordinal)`; an
+index carries the shared name. An emitter whose ORM wants a different layout
+adapts its mapping, never the schema.
+
+json columns appear only where the model asks for them: a `shape: document`
+aggregate's tree, an embedded aggregate's parts, the `json` field type, the audit
+before/after snapshots and file references. Those columns are part of the one
+schema too, so every backend creates them identically; the shared-database leg
+measures `shape: embedded` and `shape: document` cases like any other.
+
+An adapter that does not map the shared schema is honest about it: a
+`loom.<adapter>-shared-database` diagnostic refuses it beside a deployable of
+another layout. Each such adapter is a tracked gap, not a supported variant:
+MikroORM and Dapper (value objects as json, MikroORM's boot-time sync), and Ecto
+for a stored value object (as one `:map` column).
+
+**Mechanism.**
+
+- `OWN_LAYOUT_PERSISTENCE` (`src/platform/adapter-metadata.ts`) lists the
+  adapters that still lay tables out their own way; each has its
+  `loom.<adapter>-shared-database` refusal.
+- `test/system/shared-database-layout-census.test.ts` reads every
+  database-bearing backend and persistence adapter off the registry. An adapter
+  not in the list must emit the shared DDL statement for statement; one in it
+  must have its refusal.
+- The booted shared-database leg (`LOOM_BH_ELIXIR_SCHEMA=shared`,
+  `test/behavioral/shared-schema.mjs`) runs every elixir behavioural case as a
+  non-owner on the schema a node deployable's migrations create, and requires
+  the elixir migrations to create the identical catalog — every table, the
+  machinery tables (outbox, audit and provenance history, timer claim, consumer
+  inbox) included; only each migrator's own bookkeeping table is left out.
+
+**Affects.** `docs/migrations.md`,
+`docs/language-reference/02-systems-and-topology.md`, the Ecto migration and
+schema emitters, `src/ir/validate/checks/orm-adapter-checks.ts`.
+
+**Enforced by:** `test/system/shared-database-layout-census.test.ts`

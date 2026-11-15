@@ -193,7 +193,7 @@ describe("java — the invariant validator skips a null instead of dereferencing
 // python `if not (not (self.taxRate > 0) or (…))`.
 //
 // `singleFieldShape` returns null for any guarded invariant
-// (`src/ir/validate/invariant-classify.ts`), so the generic-predicate arm of
+// (`src/ir/util/invariant-classify.ts`), so the generic-predicate arm of
 // `buildChecks` is the ONLY arm a guarded invariant can reach — nothing else
 // (no bean-validation annotation, no `patternCheck` chain) double-enforces it,
 // which is exactly why dropping the guard was a silent over-refusal.

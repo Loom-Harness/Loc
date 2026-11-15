@@ -16,3 +16,5 @@ nested values a flat-keyed zod schema would reject. Emitting the alias pair
 only on a transform avoids structurally identical alias noise.
 
 **Consequence.** Gate: `test/generator/react/dual-form-types.test.ts`.
+
+**Enforced by:** `test/generator/react/dual-form-types.test.ts`

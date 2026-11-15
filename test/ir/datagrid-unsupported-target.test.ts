@@ -1,3 +1,4 @@
+// Gate for D-DATAGRID-TARGETS (docs/decisions).
 // `loom.target-unsupported#datagrid` — DataGrid on a frontend that can't
 // render it is a COMPILE ERROR, not a silently missing grid.
 //

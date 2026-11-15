@@ -1,3 +1,4 @@
+// Gate for D-PROJECTION-FOLD, D-PROJECTION-NOT-AGGREGATE, D-PROJECTION-ROW-SEED (docs/decisions).
 // Projection read models (projection.md) — the lowered `ProjectionIR`.
 // Covers the grammar surface, state-field lowering, the explicit `keyed by`
 // correlation field, and the pure `on(e: Event)` fold handlers.

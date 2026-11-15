@@ -1,3 +1,4 @@
+// Gate for D-HEEX-I18N-FORMAT, D-I18N-ATTR, D-I18N-HEEX-ICU (docs/decisions).
 // The Phoenix translated-locale leg: the rendered LiveView under `fr-FR`.
 //
 // `run-heex-ui.mjs i18n` copies this in as `heex-i18n.spec.ts` beside the

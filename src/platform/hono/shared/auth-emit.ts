@@ -10,7 +10,6 @@ import {
 import { devStubIdExpr } from "../../../generator/_auth/dev-stub-id.js";
 import { renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
-import { wireCode } from "../../../ir/enrich/wire-policy.js";
 import type {
   AuthIR,
   AuthValueIR,
@@ -20,6 +19,7 @@ import type {
   UserIR,
 } from "../../../ir/types/loom-ir.js";
 import { type OrgContextPlan, orgContextPlan } from "../../../ir/util/org-context.js";
+import { wireCode } from "../../../ir/util/wire-policy.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";

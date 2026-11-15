@@ -1,0 +1,1 @@
+Shared ledgers become per-fixture sidecars (train B moves the authz ladders)

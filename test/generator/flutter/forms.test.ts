@@ -29,7 +29,7 @@ system FormsDemo {
     context Shop {
       enum Status { draft active archived }
       valueobject Money { amount: int  currency: string }
-      aggregate Product {
+      aggregate Product with crudish {
         name: string
         price: int
         weight: decimal
@@ -39,11 +39,6 @@ system FormsDemo {
         note: string?
         cost: Money
         operation discount(percent: int) { }
-        // \`ProductAdmin\` hosts a \`DestroyForm { of: Product }\`, which submits the
-        // aggregate's CANONICAL destroy — \`loom.destroy-form-of-unresolved\`
-        // (M-T1.31) rejects the form without one, and until it did this fixture
-        // emitted a give-up comment for the very widget the test counts.
-        destroy { }
       }
       repository Products for Product { }
     }

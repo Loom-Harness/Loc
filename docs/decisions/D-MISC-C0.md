@@ -74,3 +74,5 @@ wave **C6**.
 [`T3-security-governance.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T3-security-governance.md) M-T3.11 and
 [`execution-context.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/execution-context.md) §Open questions;
 D-CTX-SHAPE.
+
+**Enforced by:** none, tracked by #6013 — four mixed rulings (ratchet sequencing, storage wiring, OpenAPI per-op tags, scopeId), none with a test

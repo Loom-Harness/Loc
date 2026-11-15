@@ -1,3 +1,4 @@
+// Gate for D-HEEX-I18N-FORMAT, D-I18N-HEEX-ICU (docs/decisions).
 // Phoenix HEEx translation runtime (M-T1.11) — the LAST frontend, and the one
 // that diverges most.
 //

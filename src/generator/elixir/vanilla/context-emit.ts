@@ -1511,7 +1511,7 @@ function renderTruncateDtHelper(): string {
  *  reads a struct as an already-persisted row and produces an empty changeset —
  *  the child row silently never persists), whereas a plain map WITHOUT an `id`
  *  inserts and one WITH an `id` is kept/updated.  Dropping `__meta__` /
- *  timestamps / the unloaded `belongs_to` / nil fields keeps existing rows on
+ *  the unloaded `belongs_to` / nil fields keeps existing rows on
  *  their PK and lets new ones insert cleanly (`on_replace: :delete` rewrites). */
 /** Every relational entity part's value-object collection fields, as
  *  `[partModule, fieldAtom]` pairs — the part fields `__put_assoc_parts/1`
@@ -1558,7 +1558,7 @@ function renderPutAssocPartsHelper(partValueFields: [string, string][] = []): st
   defp __put_assoc_parts(%{__struct__: _} = part) do
     part
     |> Map.from_struct()
-    |> Map.drop([:__meta__, :inserted_at, :updated_at])
+    |> Map.drop([:__meta__])
     |> Enum.reject(fn {_k, v} ->
       match?(%Ecto.Association.NotLoaded{}, v) or is_nil(v)
     end)
