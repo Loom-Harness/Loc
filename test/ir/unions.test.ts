@@ -1,3 +1,4 @@
+// Gate for D-ABSENCE-MODEL (docs/decisions).
 // Discriminated unions (payload-transport-layer.md, P4a) — IR side.
 //
 // Covers lowering both union surfaces (anonymous `A or B`; named

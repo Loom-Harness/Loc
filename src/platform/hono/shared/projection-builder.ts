@@ -19,12 +19,6 @@ import {
   foldTenantColumns,
 } from "../../../ir/enrich/fold-tenancy.js";
 import {
-  wireCode,
-  wireFixedDetail,
-  wireStatus,
-  wireTitle,
-} from "../../../ir/enrich/wire-policy.js";
-import {
   type FoldRowSeed,
   type FoldStep,
   foldInboxClaimSql,
@@ -48,6 +42,7 @@ import {
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
+import { wireCode, wireFixedDetail, wireStatus, wireTitle } from "../../../ir/util/wire-policy.js";
 import {
   OUTBOX_PURGE_INTERVAL_SECONDS,
   OUTBOX_RETENTION_DEFAULT_DAYS,

@@ -281,6 +281,22 @@ Each optional knob is gated to the kinds / storage types where it's meaningful (
 >
 > `kind: cache` (with `ttl` / `keyPrefix`) is the by-id read cache — [resources.md → The by-id read cache](../resources.md#the-by-id-read-cache--kind-cache).
 
+### Reserved table names
+
+Table names starting with `_` belong to the generated runtime — its outbox, inbox, timer, migration and seed tables share the context's schema with the user's tables. A declaration whose derived table would start with `_`, or a `tablePrefix:` starting with `_`, is refused as `loom.persisted-table-reserved`.
+
+```ddd
+context Billing {
+  aggregate _Ledger with crudish { label: string }   // table `_ledgers`
+}
+resource billingState { for: Billing, kind: state, use: primary, tablePrefix: "_b" }
+```
+
+```text
+error loom.persisted-table-reserved: context 'Billing': aggregate '_Ledger' persists to table '_ledgers', and table names starting with '_' are reserved for the tables the generated runtime owns (outbox, inbox, timers, migration and seed ledgers). Rename the declaration so its name does not start with '_'.
+error loom.persisted-table-reserved: resource 'billingState': tablePrefix "_b" starts with '_', …
+```
+
 ### Manual indexes
 
 An index is infrastructure, not a domain fact, so it lives on the binding and names its entity explicitly (an aggregate **or** one of its contained parts — each has its own table). Always non-unique: uniqueness is the domain `unique (...)` invariant ([Invariants](07-invariants-derived-functions.md)).

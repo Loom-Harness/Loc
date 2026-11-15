@@ -20,7 +20,7 @@ const SOURCE = (design: string) => `
   system Shop {
     subdomain Sales {
       context Catalog {
-        aggregate Product {
+        aggregate Product with crudish {
           name: string
           quantity: int
           price: money

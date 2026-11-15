@@ -22,3 +22,5 @@ already lower through `ExprTarget`, so it would net three backends.
 **Consequence.** A proposed seam is net-negative when it is a ~10-method
 interface over mostly divergent arms; a contract method with one use folds back
 into the leaf table.
+
+**Enforced by:** review — `docs/review-checklist.md#d-persistence-per-backend` — a design-audit conclusion about where persistence code lives, with no generated behaviour to assert

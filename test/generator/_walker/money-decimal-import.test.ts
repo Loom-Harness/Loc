@@ -41,7 +41,7 @@ const SYSTEM = (framework: string, body: string): string => `
 system S {
   subdomain D {
     context C {
-      aggregate A { name: string  price: money }
+      aggregate A with crudish { name: string  price: money }
       repository As for A { }
     }
   }
@@ -114,7 +114,7 @@ describe("money intrinsics render in a page body on every JS frontend", () => {
     // The import is conditional, so a money-free page stays byte-identical.
     const files = await generateSystemFiles(`
       system S2 {
-        subdomain D { context C { aggregate A { name: string } repository As for A { } } }
+        subdomain D { context C { aggregate A with crudish { name: string } repository As for A { } } }
         api Api from D
         storage pg { type: postgres }
         resource st { for: C, kind: state, use: pg }
@@ -156,7 +156,7 @@ const MONEY_FORM_SYSTEM = (framework: string): string => `
 system MF {
   subdomain D {
     context C {
-      aggregate A { name: string  price: money  derived display: string = name }
+      aggregate A with crudish { name: string  price: money  derived display: string = name }
       repository As for A { }
     }
   }
@@ -250,7 +250,7 @@ describe("the FormState alias rides a type-only import specifier (M-T1.23)", () 
       system OF {
         subdomain D {
           context C {
-            aggregate A {
+            aggregate A with crudish {
               name: string
               price: money
               derived display: string = name
@@ -292,7 +292,7 @@ describe("a React component brings its own `Decimal` into scope (M-T1.23)", () =
       system CM {
         subdomain D {
           context C {
-            aggregate A { name: string  price: money  derived display: string = name }
+            aggregate A with crudish { name: string  price: money  derived display: string = name }
             repository As for A { }
           }
         }
@@ -338,7 +338,7 @@ describe("the Svelte api module exports the dual FormState/Payload aliases (M-T1
     system SM {
       subdomain D {
         context C {
-          aggregate A {
+          aggregate A with crudish {
             name: string
             price: money
             derived display: string = name
@@ -375,7 +375,7 @@ describe("the Svelte api module exports the dual FormState/Payload aliases (M-T1
       system SN {
         subdomain D {
           context C {
-            aggregate B { name: string  derived display: string = name }
+            aggregate B with crudish { name: string  derived display: string = name }
             repository Bs for B { }
           }
         }

@@ -27,7 +27,7 @@ function phoenixSystem(uiOrderBody: string, extras = ""): string {
           currency: string
         }
         ${extras}
-        aggregate Product {
+        aggregate Product with crudish {
           sku: string
           price: Money
           notes: string
@@ -85,7 +85,7 @@ describe("HEEx form — value-object field renders as plain leaf inputs", () => 
               amount: decimal
               currency: Currency
             }
-            aggregate Product {
+            aggregate Product with crudish {
               sku: string
               price: Price
               derived display: string = sku
@@ -118,7 +118,7 @@ describe("HEEx form — value-object field renders as plain leaf inputs", () => 
         subdomain M {
           context C {
             valueobject Money { amount: decimal currency: string }
-            aggregate Product {
+            aggregate Product with crudish {
               sku: string
               price: Money?
               derived display: string = sku

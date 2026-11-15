@@ -45,7 +45,7 @@ const SRC = `
 system Mobile {
   subdomain S {
     context Shop {
-      aggregate Product { name: string }
+      aggregate Product with crudish { name: string }
       repository Products for Product { }
     }
   }

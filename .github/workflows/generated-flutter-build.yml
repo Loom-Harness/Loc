@@ -138,7 +138,11 @@ jobs:
                   create(label: string) { let c = Category.create(name: label) }
                 }
                 error OutOfStock { detail: string }
-                aggregate Product {
+                // `with crudish` gives Product the create NewProduct's
+                // CreateForm submits (a CreateForm over an aggregate with no
+                // create is refused, `loom.create-form-no-create`) and the
+                // canonical destroy ProductAdmin's DestroyForm submits.
+                aggregate Product with crudish {
                   name: string  price: int  inStock: bool  status: Status  note: string?  cost: Money
                   // The `money` PRIMITIVE (M-T1.21).  Until this landed, the
                   // whole class was unwitnessed here: `price` is an `int` and
@@ -167,13 +171,6 @@ jobs:
                   operation rename(newName: string) { name := newName }
                   operation reprice(newPrice: money) { unitPrice := newPrice }
                   operation restock(): Product or OutOfStock { inStock := true }
-                  // The CANONICAL destroy the `DestroyForm { of: Product }` on
-                  // ProductAdmin submits.  Without it the form had nothing to
-                  // call, so the walker gave up and emitted a `loom:unrendered`
-                  // comment — this fixture's header claims DestroyForm coverage
-                  // and, until `loom.destroy-form-of-unresolved` refused the
-                  // shape, silently did not have it.
-                  destroy { }
                   // CLIENT-SIDE INVARIANT VALIDATION (M-T1.16).  Until these
                   // landed no case in this workflow carried a single
                   // `invariant`, so the whole Flutter validation fork — the
@@ -640,7 +637,7 @@ jobs:
           system ApkSmoke {
             api ShopApi from Cat
             subdomain Cat { context C {
-              aggregate Product {
+              aggregate Product with crudish {
                 name: string
                 price: int
                 operation rename(newName: string) { name := newName }

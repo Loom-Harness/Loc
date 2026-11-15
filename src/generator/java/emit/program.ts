@@ -15,7 +15,7 @@
 // `gradle wrapper` once to add one).
 // ---------------------------------------------------------------------------
 
-import { MISSING_FILE_PART_DETAIL, wireStatus } from "../../../ir/enrich/wire-policy.js";
+import { MISSING_FILE_PART_DETAIL, wireStatus } from "../../../ir/util/wire-policy.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import {

@@ -58,3 +58,5 @@ row `dapper-no-schema-evolution` (fix field: both options, sized);
 [`T6-backend-parity.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T6-backend-parity.md) M-T6.35;
 `src/ir/validate/checks/migration-checks.ts`, `src/generator/dotnet/emit/dapper.ts`,
 `src/generator/dotnet/index.ts`, `src/platform/hono/v4/emit.ts`.
+
+**Enforced by:** none, tracked by #6013 — the mikroorm half has no ALTER path or gate; only dapper is observed booted

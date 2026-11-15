@@ -81,3 +81,5 @@ in the same change.
 (`idValueType = "guid"`); wave C2 packet 2n's hand-off note
 ([`docs/new-plan/waves/handoffs/wave-c2-2n-backends.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c2-2n-backends.md)), which carries the
 generated output the table above summarises.
+
+**Enforced by:** none, tracked by #6013 — the TPC base id is still refused; the representation it rules on is not built

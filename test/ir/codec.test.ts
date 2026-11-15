@@ -1,3 +1,4 @@
+// Gate for D-CODEC (docs/decisions).
 // The `Codec` fact (src/ir/enrich/codec.ts): each row pinned against the
 // RS-rule or ruling it encodes, the `codecOf` resolution over declared types,
 // and the owner `RULINGS` pinned against the table (with `UNRULED` empty).
@@ -86,7 +87,7 @@ describe("scalar codecs — the cross-backend contract", () => {
   });
 
   it("each wire JSON type agrees with the wirePolicy ingress table", async () => {
-    const { ingressFor } = await import("../../src/ir/enrich/wire-policy.js");
+    const { ingressFor } = await import("../../src/ir/util/wire-policy.js");
     for (const c of allScalarCodecs())
       expect(ingressFor(c.primitive).json, c.primitive).toBe(c.wire.json);
   });

@@ -31,7 +31,7 @@ import {
   UNRENDERABLE_MARKER,
 } from "../../src/generator/zod-refine.js";
 import type { ExprIR, InvariantIR, TypeIR } from "../../src/ir/types/loom-ir.js";
-import { classifyForWire } from "../../src/ir/validate/invariant-classify.js";
+import { classifyForWire } from "../../src/ir/util/invariant-classify.js";
 import { COLLECTION_OP_SIGNATURES } from "../../src/util/collection-ops.js";
 import type { ExprOf } from "../_helpers/ir-builders.js";
 

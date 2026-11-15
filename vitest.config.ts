@@ -57,6 +57,7 @@ const CORPUS = [
   "test/cli/new.test.ts",
   "test/system/typing-differential.test.ts",
   "test/ir/verify-lowered-corpus.test.ts",
+  "test/system/tool-name-census.test.ts",
 ];
 
 const INCLUDE = ["test/**/*.test.ts", "packages/**/*.test.ts"];

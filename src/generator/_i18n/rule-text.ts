@@ -22,9 +22,9 @@
 // like any other key.
 // ---------------------------------------------------------------------------
 
-import { fieldCode, wireCode } from "../../ir/enrich/wire-policy.js";
 import type { ExprIR, InvariantIR, MessageIR } from "../../ir/types/loom-ir.js";
-import { singleFieldShape } from "../../ir/validate/invariant-classify.js";
+import { singleFieldShape } from "../../ir/util/invariant-classify.js";
+import { fieldCode, wireCode } from "../../ir/util/wire-policy.js";
 import { sourceText } from "./source-text.js";
 import { wireErrorMessage } from "./wire-error-text.js";
 

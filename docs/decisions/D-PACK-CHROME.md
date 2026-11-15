@@ -54,3 +54,5 @@ attribute. Both live in `test/generator/pack-declared-chrome.test.ts`.
 **Affects.** `design-packs.md` §2 `chrome`, `i18n.md`;
 `_packs/pack-chrome.ts`, `_packs/loader.ts`, `_walker/render-primitive.ts`,
 `_frontend/i18n-runtime.ts`, `system/i18n-catalog.ts`; every `pack.json`.
+
+**Enforced by:** `test/generator/pack-declared-chrome.test.ts`

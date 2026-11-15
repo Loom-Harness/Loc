@@ -1,3 +1,4 @@
+// Gate for D-REF-ADMISSION (docs/decisions).
 // `loom.tenancy-ref-unresolvable` (docs/tenancy.md → "Reference admission"): a
 // persisted reference to a `tenantOwned` aggregate of another context is
 // stored unchecked.  Under `enforcement: denyByDefault` the model does not

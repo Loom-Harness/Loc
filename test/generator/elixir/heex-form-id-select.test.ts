@@ -38,7 +38,7 @@ const phoenixSystem = (orderField: string): string => `
           derived display: string = name
         }
         repository Customers for Customer { }
-        aggregate Order {
+        aggregate Order with crudish {
           ${orderField}
           notes: string
           derived display: string = notes
@@ -114,7 +114,7 @@ describe("HEEx form — `X id` field renders as <.input type='select'>", () => {
           context C {
             aggregate Customer { name: string }
             repository Customers for Customer { }
-            aggregate Order {
+            aggregate Order with crudish {
               customerId: Customer id
               derived display: string = "ord"
             }
@@ -151,9 +151,9 @@ describe("HEEx form — `X id` field renders as <.input type='select'>", () => {
           context C {
             aggregate Customer { name: string  derived display: string = name }
             repository Customers for Customer { }
-            aggregate Product { sku: string  derived display: string = sku }
+            aggregate Product with crudish { sku: string  derived display: string = sku }
             repository Products for Product { }
-            aggregate Order {
+            aggregate Order with crudish {
               customerId: Customer id
               productId: Product id
               derived display: string = "ord"

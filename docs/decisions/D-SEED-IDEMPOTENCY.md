@@ -37,3 +37,5 @@ module's migration pass. `LOOM_SEED` gates which datasets run.
 
 **Affects.** `database-seeding.md` §2 (D-SEED-IDEMPOTENCY), §7, §10
 (deferred upsert), build-order §11 phase 6.
+
+**Enforced by:** none, tracked by #6013 — ship-once is runtime and only emitted text pins it; boot twice and count rows is buildable

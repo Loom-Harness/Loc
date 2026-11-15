@@ -1,3 +1,4 @@
+// Gate for D-PHOENIX-SURFACE (docs/decisions).
 import { describe, expect, it } from "vitest";
 
 import type { Platform } from "../../src/ir/types/loom-ir.js";

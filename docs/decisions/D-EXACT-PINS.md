@@ -34,3 +34,5 @@ is generated; transitive dependencies still float. Environment constraints
 **Consequences.** Security fixes inside a range no longer arrive on their own;
 they ride the currency sweeps (#3685). The pinned set is the one the
 `generated-*-build` and `test:tsc` gates exercise.
+
+**Enforced by:** `test/system/generated-manifest-pins.test.ts`

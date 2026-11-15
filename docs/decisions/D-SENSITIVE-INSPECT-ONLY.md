@@ -72,3 +72,5 @@ M-T3.8 stays open and commissioned.
 [`T3-security-governance.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T3-security-governance.md) M-T3.8;
 [`sensitivity-and-compliance.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/sensitivity-and-compliance.md);
 [`auth.md`](../auth.md) (`mask unless`).
+
+**Enforced by:** `test/ir/sensitive-wire-unsupported.test.ts`, `test/language/validation/sensitivity-warnings.test.ts`

@@ -1,4 +1,5 @@
 {
+  "//": "Gate for D-TARGET-RESERVED-NAMES (docs/decisions).",
   "title": "every word any target reserves (the TS / C# / Java / Python / Elixir / F# / Dart keyword tables in `src/util/target-identifiers.ts`) that the `.ddd` grammar admits, as a field, an enum value, an operation AND its parameter, plus value objects named after .NET BCL / UI-primitive / framework types (`Task`, `Table`, `Widget`, `Repo`, `BaseModel`, …)",
   "doc": "language",
   "backends": "ALL",

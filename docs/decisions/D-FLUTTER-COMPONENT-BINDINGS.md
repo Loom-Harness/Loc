@@ -103,3 +103,5 @@ shapes → wave **C2 packet 2j** (dispositioned there); the build → **M-T1.34*
 `src/ir/validate/checks/store-checks.ts` (the async-effect arm);
 `src/generator/flutter/riverpod-emit.ts` (`renderVariantMatchNotifier`, and the
 internal floor the bypass reached).
+
+**Enforced by:** `test/ir/user-component-deferred.test.ts`, `test/ir/flutter-async-effect.test.ts`

@@ -35,3 +35,5 @@ filters and bare `filter` declarations, its stamps, its capability tags and its
 Gate: `test/generator/inherited-capability-filter.test.ts` — one case per
 backend × TPH/TPC; a Truck read carries the base's `is_deleted` filter and
 `ignoring softDeletable` on Truck drops it.
+
+**Enforced by:** `test/fixtures/corpus/inheritance-base-reads.ddd`

@@ -24,3 +24,5 @@ every behavioural leg. `test/system/projection-params-census.test.ts` fails on a
 query-projection emitter that reads a projection's parameter list around the
 plan. A type-mismatch sentence (`?maxRank=many`) is still the framework's text,
 as it is for every query parameter (`FIELD_REASONS["type-mismatch"]`).
+
+**Enforced by:** `test/fixtures/corpus/projection-params.ddd`, `test/system/projection-params-census.test.ts`

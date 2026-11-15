@@ -34,7 +34,7 @@ const baseOrderSystem = (body: string) => `
   system S {
     subdomain M {
       context C {
-        aggregate Order {
+        aggregate Order with crudish {
           customerId: string
           derived display: string = customerId
           quantity:   int
@@ -83,7 +83,7 @@ describe("CreateForm { of: <Aggregate> } auto-dispatch", () => {
       system S {
         subdomain M {
           context C {
-            aggregate Order {
+            aggregate Order with crudish {
               customerId: string
               derived display: string = customerId
               note:       string?
@@ -118,7 +118,7 @@ describe("CreateForm { of: <Aggregate> } auto-dispatch", () => {
               derived display: string = name
             }
             repository Customers for Customer { }
-            aggregate Order {
+            aggregate Order with crudish {
               customerId: Customer id
               quantity:   int
             }
@@ -160,7 +160,7 @@ describe("CreateForm { of: <Aggregate> } auto-dispatch", () => {
               derived display: string = firstName + " " + lastName
             }
             repository Customers for Customer { }
-            aggregate Order {
+            aggregate Order with crudish {
               customerId: Customer id
               quantity:   int
             }
@@ -248,7 +248,7 @@ describe("CreateForm renders the create-input contract, not raw fields (S1b)", (
         user { id: guid  role: string }
         subdomain M {
           context C {
-            aggregate Order {
+            aggregate Order with crudish {
               customerId: string
               createdByRole: string
               stamp onCreate { createdByRole := currentUser.role }
@@ -290,7 +290,7 @@ describe("CreateForm renders the create-input contract, not raw fields (S1b)", (
         subdomain M {
           context C {
             enum Priority { High Low }
-            aggregate Order {
+            aggregate Order with crudish {
               customerId: string
               derived display: string = customerId
               quantity:   int      = 3

@@ -1,7 +1,7 @@
 import { foldFloorTerms, foldTenancyFor } from "../../ir/enrich/fold-tenancy.js";
-import { wireStatusResolver } from "../../ir/enrich/wire-policy.js";
 import type { EnrichedBoundedContextIR, ProjectionIR } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../ir/types/loom-ir.js";
+import { wireStatusResolver } from "../../ir/util/wire-policy.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { pyRef } from "../_imports/python.js";

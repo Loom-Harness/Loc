@@ -1,3 +1,4 @@
+// Gate for D-REFCOLL-SET (docs/decisions).
 import { describe, expect, it } from "vitest";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
 import { generateBackendFiles, parseString, toLoomModel } from "../../_helpers/index.js";

@@ -357,6 +357,22 @@ Each `.ddd` is built on its own, so a file that generates only together with
 its imports records `validation-error` on both sides, and Vue, Svelte and
 Angular examples run under the pack they declare.
 
+### A written claim names what holds it
+
+A decision record ends with an `**Enforced by:**` line, and a universal claim
+in a reference doc ("every backend …", "all five …") is either made specific —
+the plan module that decides it, or the backends it holds for — or carries a
+marker on its own line after its paragraph: `<!-- gate: \`<test or corpus
+fixture>\` -->`, `<!-- review: docs/review-checklist.md#<anchor> -->` or
+`<!-- tracked: #N — <what a gate would assert> -->`. A gate must be a test or
+fixture CI runs, and for runtime behaviour a booted one; a `toContain` on
+emitted source gates only what the string tier may claim. CLAUDE.md makes no
+universal claim; it points at the reference doc that carries the marker.
+`test/system/decision-gates.test.ts` and `test/system/doc-claims.test.ts` hold
+both. The doc check finds claims by the spellings in its `CLAIM_PHRASES`
+constant: that list is a tripwire, not a proof, and a reviewer who sees a
+universal claim it missed extends it.
+
 ## Running any CI gate locally — the reverse index
 
 **Every CI gate runs locally.** Do not push a commit just to see whether a
@@ -415,7 +431,7 @@ fails the fast suite.
 | `behavioral-e2e-dotnet.yml` | `cd test/behavioral && node run-dotnet.mjs` | pg |
 | `behavioral-e2e-dapper.yml` | `cd test/behavioral && node run-dapper.mjs` | pg |
 | `behavioral-e2e-java.yml` | `cd test/behavioral && node run-java.mjs` | pg |
-| `behavioral-e2e-elixir.yml` | `cd test/behavioral && node run-elixir.mjs` | pg, mirror |
+| `behavioral-e2e-elixir.yml` | `cd test/behavioral && node run-elixir.mjs`, then the shared-database leg: `LOOM_BH_ELIXIR_SCHEMA=shared node run-elixir.mjs <cases>` (the case list in the workflow; no list runs the whole corpus) | pg, mirror |
 | `behavioral-e2e-mikroorm.yml` | `cd test/behavioral && node run-mikroorm.mjs` | pg |
 | `behavioral-ui-e2e.yml` | `cd test/behavioral && node run-ui.mjs` (then `node paged-ui.mjs`, `node i18n-ui.mjs` — the translated-locale leg, all four static-bundle frontends) | — |
 | `behavioral-ui-vue-e2e.yml` | `cd test/behavioral && node run-ui.mjs sales-system-vue` (the Vue/Vuetify round-trip + the numeric LIST probe; same harness as the React cell) | — |

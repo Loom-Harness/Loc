@@ -1,3 +1,4 @@
+// Gate for D-FINDDECL-REMOVED (docs/decisions).
 import { describe, expect, it } from "vitest";
 import { parseString } from "../../_helpers/parse.js";
 

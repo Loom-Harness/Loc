@@ -1,3 +1,4 @@
+// Gate for D-HEEX-SHARED-WALKER, D-LIVEVIEW-REFERENCE (docs/decisions).
 // The shared walker core names no framework.
 //
 // `walker-core.ts` and `_walker/primitives/**` are the half of the page walker

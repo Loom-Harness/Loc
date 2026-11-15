@@ -45,3 +45,5 @@ whole point of the acknowledgment.
 M-T3.6 (6); [`tenancy-authorization-final-surface.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/tenancy-authorization-final-surface.md);
 `src/diagnostics/messages.ts` `loom.policy-target-not-tenant-owned#read|#write`;
 D-TENANCY-SCOPE, D-TENANCY-DEFAULT.
+
+**Enforced by:** none, tracked by #6013 — the acknowledgement diagnostic it rules on (`loom.crosstenant-needs-policy`) is not built

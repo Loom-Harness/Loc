@@ -54,3 +54,5 @@ unaffected.
 (`saas` template), §4 (entire turnkey-auth section), §7 (build order);
 `auth.md` (the verifier-hook seam is OIDC's mount point — no rewrite, just the
 completion it always anticipated).
+
+**Enforced by:** `test/e2e/auth-oidc-e2e.test.ts`, `test/generator/java/generator-java-auth-oidc.test.ts`, `test/generator/elixir/auth-oidc-emit.test.ts`

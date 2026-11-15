@@ -46,6 +46,7 @@ import { routeSegmentFor } from "../../util/storage-names.js";
 import { UUID_WIRE_MESSAGE } from "../../util/uuid-wire.js";
 import type { InvariantIR } from "../types/loom-ir.js";
 import type { WirePrimitive } from "../types/wire-types.js";
+import { classifyForWire, type SingleFieldPattern } from "./invariant-classify.js";
 import {
   CONCURRENCY_CONFLICT_SUFFIX,
   DANGLING_REFERENCE_DETAIL,
@@ -53,8 +54,7 @@ import {
   problemTitle,
   UNIQUE_CONFLICT_DETAIL,
   UNSUPPORTED_MEDIA_TYPE_DETAIL,
-} from "../util/openapi-errors.js";
-import { classifyForWire, type SingleFieldPattern } from "../validate/invariant-classify.js";
+} from "./openapi-errors.js";
 
 // ---------------------------------------------------------------------------
 // Stages — where a check runs

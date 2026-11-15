@@ -79,11 +79,13 @@ describe("elixir delta — a table added later is created exactly as a fresh cre
     expect(block).not.toContain("timestamps()");
   });
 
-  it("a value-object collection table: the synthetic `id` PK, no timestamps", async () => {
+  it("a value-object collection table: the shared (parent_fk, ordinal) PK, no timestamps", async () => {
     const delta = await lastDelta([V1, V2, V3]);
     const block = createBlock(delta, "post_addrs");
     expect(block).toBe(createBlock(await freshCreate(V3, "post_addrs"), "post_addrs"));
-    expect(block).toContain("add :id, :uuid, primary_key: true, null: false");
+    expect(block).toMatch(/add :post_id, references\(:posts.*primary_key: true/);
+    expect(block).toContain("add :ordinal, :integer, null: false, primary_key: true");
+    expect(block).not.toContain("add :id,");
     expect(block).not.toContain("timestamps()");
   });
 });

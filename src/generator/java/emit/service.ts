@@ -5,11 +5,7 @@ import {
   operationVersionCheck,
   readsIfMatch,
 } from "../../../ir/enrich/version-check.js";
-import {
-  createInputFields,
-  emitsRestCreate,
-  isRequiredCreateInput,
-} from "../../../ir/enrich/wire-projection.js";
+import { createInputFields, isRequiredCreateInput } from "../../../ir/enrich/wire-projection.js";
 import {
   canOpLadder,
   destroyLadder,
@@ -29,7 +25,11 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, operationUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { maskedHistoryFields } from "../../../ir/util/audit-history.js";
-import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import {
+  canonicalCreate,
+  canonicalDestroy,
+  emitsRestCreate,
+} from "../../../ir/util/canonical-lifecycle.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { existsReadAggregates } from "../../../ir/util/in-app-exists.js";
 import { isMergePatchUpdate } from "../../../ir/util/merge-patch.js";
