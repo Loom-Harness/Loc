@@ -52,6 +52,8 @@ function expectedRequests(sys: EnrichedSystemIR): { want: string[]; have: Set<st
  *  enrichment adds, but the scaffold — which runs before enrichment — splices
  *  no command record for it.  Pinned exactly; a fix deletes its rows. */
 const UNCONTRACTED_REQUESTS = [
+  "test/fixtures/corpus/cache-by-id.ddd: CreateNoteCommand",
+  "test/fixtures/corpus/cache-by-id.ddd: UpdateNoteCommand",
   "test/fixtures/corpus/exists-quantifier.ddd: CreateCategoryCommand",
   "test/fixtures/corpus/exists-quantifier.ddd: UpdateCategoryCommand",
   "test/fixtures/corpus/exists-quantifier.ddd: CreateCategoryShareCommand",
