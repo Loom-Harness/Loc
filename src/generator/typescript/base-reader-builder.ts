@@ -29,7 +29,12 @@
 
 import type { PolymorphicRead } from "../../ir/enrich/read-scope.js";
 import { reasonPhrase, wireStatus } from "../../ir/enrich/wire-policy.js";
-import type { PolymorphicReadGate } from "../../ir/plan/index.js";
+import {
+  type PolymorphicReadGate,
+  polymorphicReadOperations,
+  readLadder,
+  readLadderGates,
+} from "../../ir/plan/index.js";
 import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
 import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import { isValueCollectionType } from "../../ir/util/value-collections.js";
@@ -477,17 +482,18 @@ export function buildMikroBaseReaderFile(
 export function buildBaseRoutesFile(
   base: EnrichedAggregateIR,
   read: PolymorphicRead,
-  gates: readonly PolymorphicReadGate[],
   masked: ReadonlySet<string>,
   ctx: EnrichedBoundedContextIR,
 ): string {
   const B = base.name;
-  // Every concrete's list-read gate, checked before the load: a caller who
-  // fails any of them gets that concrete's own pre-load 403.
-  const handlerHead = baseReadHandlerHead(gates, masked, "      ");
+  // Every concrete's list-read gate, checked before the load (`readLadder`): a
+  // caller who fails any of them gets that concrete's own pre-load 403.
+  const handlerHead = baseReadHandlerHead(readLadderGates(readLadder(base, ctx)), masked, "      ");
+  // Each route declares the 403 its derived operation answers.
   const forbidden = wireStatus("forbidden", ctx.structuralErrorStatuses);
-  const forbiddenResponse =
-    gates.length > 0
+  const ops = polymorphicReadOperations(base, ctx);
+  const forbiddenResponse = (kind: "find" | "getById"): string[] =>
+    ops.find((o) => o.kind === kind)?.errorStatuses.includes(forbidden)
       ? [
           `        ${forbidden}: { description: ${JSON.stringify(reasonPhrase(forbidden))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
         ]
@@ -516,7 +522,7 @@ export function buildBaseRoutesFile(
     `      request: { query: ${B}PageQuery },`,
     `      responses: {`,
     `        200: { description: "OK", content: { "application/json": { schema: ${B}Paged } } },`,
-    ...forbiddenResponse,
+    ...forbiddenResponse("find"),
     `        ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     `      },`,
     `    }),`,
@@ -529,7 +535,7 @@ export function buildBaseRoutesFile(
     `  );`,
     "",
     ...(read.layout === "sharedTable"
-      ? byIdRouteLines(B, handlerHead, forbiddenResponse, wireArgs)
+      ? byIdRouteLines(B, handlerHead, forbiddenResponse("getById"), wireArgs)
       : []),
     `  return app;`,
     `}`,

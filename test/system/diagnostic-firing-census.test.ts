@@ -2782,6 +2782,12 @@ system S {
   // the read-path find/projection gate (`repository.ts`) and the handler-body
   // statement (`types.ts`) — share this code, so one fixture covers the family.
   "loom.requires-not-bool": orderOps("operation p() requires name { total := total + 1 }"),
+  // A parameter gate after an assignment: it reads no field and no local, so
+  // it could sit on the gate ladder, but runs after the load, `If-Match` and
+  // `when`.
+  "loom.requires-not-leading": orderOps(
+    "operation p(n: int) { total := total + 1\n requires n > 0 }",
+  ),
   "loom.precondition-not-bool": orderOps("operation p() { precondition name }"),
   "loom.assign-to-derived": orderOps('operation p() { label := "x" }'),
   "loom.assign-to-local": orderOps("operation p(n: int) { n := 2 }"),

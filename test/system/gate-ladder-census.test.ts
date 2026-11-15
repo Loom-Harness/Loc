@@ -10,8 +10,8 @@ import { expectReach } from "../_helpers/census-reach.js";
 // gates run before the row load, which after it, which a `can_<op>` probe
 // cannot decide — is decided once, in `src/ir/plan/gate-ladder.ts`
 // (`operationLadder` / `canOpLadder` / `destroyLadder` /
-// `mergePatchUpdateLadder`), and every backend renders the rungs it is handed
-// (`ladderGates`, `probeUndecided`).
+// `mergePatchUpdateLadder` / `readLadder`), and every backend renders the
+// rungs it is handed (`ladderGates`, `probeUndecided`, `readLadderGates`).
 //
 // A backend that classifies a gate itself is a sixth copy of the decision: a
 // classifier fix in the plan does not reach it, and its routes refuse in a
@@ -19,9 +19,11 @@ import { expectReach } from "../_helpers/census-reach.js";
 //
 // THE DETECTORS (TypeScript AST, so comments and strings never count):
 //
-//   classifier      any reference to `gateReadsRow` / `gateReadsParam` —
-//                   an import, a call, or a callback (`.filter(gateReadsRow)`).
-//                   → take the rung's gates from the ladder (`ladderGates`).
+//   classifier      any reference to `gateReadsRow` / `gateReadsParam` /
+//                   `polymorphicReadGates` — an import, a call, or a callback
+//                   (`.filter(gateReadsRow)`).
+//                   → take the rung's gates from the ladder (`ladderGates`,
+//                     `readLadderGates`).
 //   hand-partition  a `.filter(…)` on the gate list itself: on a call to
 //                   `operationGates(…)` / `lifecycleGates(…)`, or on a local
 //                   bound to one in the same file.
@@ -32,7 +34,7 @@ import { expectReach } from "../_helpers/census-reach.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PLAN_DIR = path.join(repoRoot, "src", "ir", "plan");
-const CLASSIFIERS = new Set(["gateReadsRow", "gateReadsParam"]);
+const CLASSIFIERS = new Set(["gateReadsRow", "gateReadsParam", "polymorphicReadGates"]);
 const GATE_LISTS = new Set(["operationGates", "lifecycleGates"]);
 
 /** Sites that are not a ladder decision, each with the reason it stays. */
@@ -124,6 +126,14 @@ describe("gate-ladder census: no backend decides a gate's rung itself", () => {
     const hits = scanSource(
       "src/generator/x/seeded.ts",
       "const pre = operationGates(op).map((g) => g).filter((g) => !gateReadsRow(g));",
+    );
+    expect(hits.map((h) => h.rule)).toEqual(["classifier"]);
+  });
+
+  it("the classifier detector fires on a polymorphic base read's gates taken around the ladder", () => {
+    const hits = scanSource(
+      "src/generator/x/seeded.ts",
+      "const gated = polymorphicReadGates(base, ctx).length > 0;",
     );
     expect(hits.map((h) => h.rule)).toEqual(["classifier"]);
   });
