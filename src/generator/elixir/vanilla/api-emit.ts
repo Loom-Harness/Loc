@@ -25,7 +25,7 @@ import {
 } from "../../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import { createRequestFields } from "../../../ir/plan/create-request.js";
-import { polymorphicReadGates, routedPolymorphicRead } from "../../../ir/plan/index.js";
+import { readLadder, readLadderGates, routedPolymorphicRead } from "../../../ir/plan/index.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -467,10 +467,13 @@ ${pagingElseArm(`${appModule}Web.ProblemDetails`, "    ")}
   const indexParamArg = indexPaged ? "params" : "_params";
   // An abstract base answers every concrete's rows, so before it loads it
   // checks EVERY concrete's list-read gate, each with the denial that
-  // concrete's own `index` answers (`polymorphicReadGates`).
+  // concrete's own `index` answers (`readLadder`).
   // The base's own gate, when it declares one, is checked first.
   const polyGates = readOnly
-    ? polymorphicReadGates(agg, ctx).map((g) => ({ expr: g.find.requires, name: g.find.name }))
+    ? readLadderGates(readLadder(agg, ctx)).map((g) => ({
+        expr: g.find.requires,
+        name: g.find.name,
+      }))
     : [];
   const polyGated = (
     body: string,

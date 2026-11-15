@@ -11,7 +11,7 @@ import {
   validateApplierBodies,
   validatePartConstructionOwner,
 } from "./checks/body-stmt-vocabulary.js";
-import { validateCacheReads } from "./checks/cache-checks.js";
+import { validateCacheReads, validateCacheTopology } from "./checks/cache-checks.js";
 import { validateElixirBoundMutatingCalls } from "./checks/call-result-checks.js";
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
@@ -57,6 +57,7 @@ import {
   validateTimerTenantReads,
 } from "./checks/reactor-principal-checks.js";
 import { validateMemberRepositoryAccess } from "./checks/repo-access-checks.js";
+import { validateRequiresPlacement } from "./checks/requires-placement-checks.js";
 import { validateReservedFieldNames } from "./checks/reserved-field-name-checks.js";
 import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
 import { validateResourceOpPlacement } from "./checks/resource-op-positions.js";
@@ -251,6 +252,7 @@ export function validateLoomModel(
     validateDuplicateTables(sys, diags);
     validateDataSourceCoverage(sys, diags);
     validateCacheReads(sys, diags);
+    validateCacheTopology(sys, diags);
     validateFileFieldObjectStorage(sys, diags);
     validateChannelWiring(sys, diags);
     validateSavingShapeSupport(sys, diags);
@@ -336,6 +338,10 @@ export function validateLoomModel(
     // through `update`.  Points at `immutable` (and `managed` for the create
     // half), which leave the operation free to assign it.
     validateUpdateGateSuggestions(sys, diags);
+    // `loom.requires-not-leading`: a `requires` past the leading run that
+    // reads no row and no local, so it could sit on the gate ladder but runs
+    // in the domain method after the load, `If-Match` and `when`.
+    validateRequiresPlacement(sys, diags);
     // Advisory `loom.loop-gate-not-implied`: a loop over a list read calls a
     // `when`-gated operation whose gate the read's predicate does not carry.
     for (const mod of sys.subdomains) {

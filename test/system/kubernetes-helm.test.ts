@@ -331,3 +331,34 @@ describe("kubernetes / helm — deploy-tier wiring", () => {
     );
   });
 });
+
+// String pin, not a booted claim: what it guards is a chart guard that only
+// `helm template` evaluates (the opt-in k8s-validate tier renders the default
+// replica count, which passes).
+describe("kubernetes / helm — inMemory by-id cache", () => {
+  const cached = (storageType: string) => `
+system Shop {
+  subdomain Catalog { context Products { aggregate Product with crudish { name: string } } }
+  storage primary { type: postgres }
+  storage hot { type: ${storageType} }
+  resource st { for: Products, kind: state, use: primary }
+  resource pc { for: Products, kind: cache, use: hot }
+  api ShopApi from Catalog
+  deployable api { platform: node contexts: [Products] serves: ShopApi dataSources: [st, pc] port: 8080 }
+}`;
+
+  it("refuses to render more than one replica of a deployable whose cache lives in its process", async () => {
+    const deployment = (await filesFor(cached("inMemory"), true)).get(
+      "helm/templates/api-deployment.yaml",
+    )!;
+    expect(deployment).toContain("{{- if gt (int .Values.api.replicas) 1 }}");
+    expect(deployment).toContain("{{- fail ");
+  });
+
+  it("does not limit replicas when the cache is a shared redis store", async () => {
+    const deployment = (await filesFor(cached("redis"), true)).get(
+      "helm/templates/api-deployment.yaml",
+    )!;
+    expect(deployment).not.toContain("{{- fail ");
+  });
+});

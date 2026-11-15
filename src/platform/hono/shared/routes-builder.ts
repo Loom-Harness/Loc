@@ -115,6 +115,7 @@ import type {
   FindIR,
   InvariantIR,
   OperationIR,
+  ParamIR,
   PayloadIR,
   RepositoryIR,
   TypeIR,
@@ -1856,18 +1857,23 @@ export function buildRoutesFile(
   return assembled + "\n";
 }
 
-/** The `when` canCommand gate (criterion.md use site 2): evaluate the
- *  predicate against the loaded aggregate; false → DisallowedError,
- *  which the shared onError maps to a 409 ProblemDetails.  Throwing
- *  (rather than an inline `return c.json`) keeps one shape across the
- *  plain, returning, and transactional (audit/prov) paths. */
+/** The value an operation handler passes for parameter `p`: the wire value,
+ *  or, on a merge-patch update (RS-47), the stored value when the body omits
+ *  the key.  The stored value is read through the field's getter, whose
+ *  spelling escapes a name the class reserves (`constructor` → `constructor_`). */
+function opArgExpr(op: OperationIR, p: ParamIR, ctx: BoundedContextIR): string {
+  const value = wireToDomainExpr(`body.${p.name}`, p.type, ctx);
+  return isMergePatchUpdate(op)
+    ? `(body.${p.name} === undefined ? aggregate.${escapeTargetFieldMember("ts", p.name)} : ${value})`
+    : value;
+}
+
 /** The hoisted authorization gate — the leading run of `requires` statements,
- *  evaluated by the HANDLER rather than the aggregate (`src/ir/util/op-gates.ts`).
- *
- *  Emitted post-load (so `this` resolves against the loaded `aggregate`, exactly
- *  as it did when the check ran inside the method) and BEFORE the `when` state
- *  gate: an unauthorized caller must not learn whether the operation would have
- *  been allowed in the row's current state.  403 precedes 409. */
+ *  evaluated by the HANDLER rather than the aggregate (`src/ir/util/op-gates.ts`),
+ *  at the rungs of the gate ladder (`ir/plan/gate-ladder.ts`): the row-free
+ *  gates before the load, the row-reading ones after it and BEFORE the `when`
+ *  state gate, so an unauthorized caller never learns whether the operation
+ *  would have been allowed in the row's current state.  403 precedes 409. */
 function requiresGateLines(
   op: OperationIR,
   pad: string,
@@ -1886,11 +1892,13 @@ function requiresGateLines(
       // Operation params are NOT locals here — the handler holds them at the
       // wire-read expression the call is about to pass (`body.<name>`), so an
       // arg-aware gate (`requires amount <= limit`) must read the same thing.
+      // A merge-patch update's parameter gate runs after the load and reads
+      // the merged value (RS-47): the stored one when the body omits the key.
       paramExpr:
         argExpr ??
         ((name) => {
           const p = op.params.find((q) => q.name === name);
-          return p ? wireToDomainExpr(`body.${p.name}`, p.type, ctx) : undefined;
+          return p ? opArgExpr(op, p, ctx) : undefined;
         }),
     });
     // A merge-patch update's mask write gate runs only when the body carries
@@ -1952,6 +1960,11 @@ function currentUserBindLine(pad: string): string {
   return `${pad}const currentUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`;
 }
 
+/** The `when` canCommand gate (criterion.md use site 2): evaluate the
+ *  predicate against the loaded aggregate; false → DisallowedError,
+ *  which the shared onError maps to a 409 ProblemDetails.  Throwing
+ *  (rather than an inline `return c.json`) keeps one shape across the
+ *  plain, returning, and transactional (audit/prov) paths. */
 function whenGateLine(agg: AggregateIR, op: OperationIR, pad: string): string[] {
   if (!op.when) return [];
   const pred = renderTsExpr(op.when, { thisName: "aggregate" });
@@ -2320,15 +2333,7 @@ function emitOperationRoute(
   }
   // A merge-patch update (RS-47) passes the stored value for every key the
   // body leaves out, so the operation runs on the merged state.
-  const mergePatch = isMergePatchUpdate(op);
-  const baseCallArgs = op.params.map((p) => {
-    const value = wireToDomainExpr(`body.${p.name}`, p.type, ctx);
-    // The stored value is read through the field's getter, whose spelling
-    // escapes a name the class reserves (`constructor` → `constructor_`).
-    return mergePatch
-      ? `(body.${p.name} === undefined ? aggregate.${escapeTargetFieldMember("ts", p.name)} : ${value})`
-      : value;
-  });
+  const baseCallArgs = op.params.map((p) => opArgExpr(op, p, ctx));
   const callArgs = (usesUser ? [...baseCallArgs, "currentUser"] : baseCallArgs).join(", ");
 
   // The mutation block — extern dispatch or the direct method call —

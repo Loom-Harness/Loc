@@ -272,6 +272,14 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     // the fixture's `test e2e` drives its 403 and its 204.
     "operation POST /api/tickets/{id}/retitle": R.rowDataGate,
     "gateProbe GET /api/tickets/{id}/can_retitle": R.probeAnswersFalse,
+    // `requires amount < 100` on a merge-patch update reads the merged value
+    // (the stored one when the body omits `amount`), not the caller; the
+    // fixture's `test e2e` drives its 403 and its 204.
+    "operation POST /api/budgets/{id}/update": R.rowDataGate,
+    // `Vault.secret` is masked from every harness principal: its reads redact
+    // inside a 200; the update's mask write gate is the fixture's `test e2e`.
+    "find GET /api/vaults": R.maskIsNotAStatus,
+    "getById GET /api/vaults/{id}": R.maskIsNotAStatus,
   },
 
   // ── mask unless — no status to refuse ────────────────────────────────────
@@ -472,6 +480,23 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "operation POST /api/items/{id}/update": R.sharedTenancyIdentity,
     "operation POST /api/notes/{id}/update": R.sharedTenancyIdentity,
   },
+  // The redis twin of `cache-by-id`: the same routes and the same reasons.
+  "corpus/cache-by-id-redis": {
+    "create POST /api/items": R.sharedTenancyIdentity,
+    "create POST /api/notes": R.sharedTenancyIdentity,
+    "destroy DELETE /api/notes/{id}": R.sharedTenancyIdentity,
+    "find GET /api/items": R.sharedTenancyIdentity,
+    "find GET /api/notes": R.sharedTenancyIdentity,
+    "find GET /api/orgs": R.sharedTenancyIdentity,
+    "getById GET /api/items/{id}": R.sharedTenancyIdentity,
+    "getById GET /api/notes/{id}": R.sharedTenancyIdentity,
+    "getById GET /api/orgs/{id}": R.sharedTenancyIdentity,
+    "operation POST /api/items/{id}/rename": R.sharedTenancyIdentity,
+    "operation POST /api/items/{id}/restore": R.sharedTenancyIdentity,
+    "operation POST /api/items/{id}/soft_delete": R.sharedTenancyIdentity,
+    "operation POST /api/items/{id}/update": R.sharedTenancyIdentity,
+    "operation POST /api/notes/{id}/update": R.sharedTenancyIdentity,
+  },
   "corpus/tenancy-owned": {
     "create POST /api/invoices": R.sharedTenancyIdentity,
     "create POST /api/organizations": R.sharedTenancyIdentity,
@@ -593,17 +618,18 @@ export const NON_PARSING_SOURCES: readonly string[] = [];
  */
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   // +4: the masked concretes' reads in `inheritance-read-gates`.
-  maskIsNotAStatus: 11,
+  maskIsNotAStatus: 13,
   sharedPrincipalId: 6,
   notABehaviouralCase: 11,
   importGateOnly: 1,
   probeAnswersFalse: 2,
   principalFreeGate: 20,
-  rowDataGate: 6,
+  rowDataGate: 7,
   // Includes the two polymorphic base list reads of
   // `inheritance-read-restrictions`: their refusals are the ladder's
   // cross-tenant `rowVisible` rungs, like every other collection read in that
-  // pin block.
-  sharedTenancyIdentity: 127,
+  // pin block.  +14: `cache-by-id-redis`, the redis twin of `cache-by-id`,
+  // whose routes carry the same reason.
+  sharedTenancyIdentity: 141,
   oneSeededId: 6,
 };

@@ -53,8 +53,12 @@ export {
   gateReadsRow,
   ladderGates,
   mergePatchUpdateLadder,
+  misplacedGates,
   operationLadder,
   probeUndecided,
+  type ReadCheck,
+  readLadder,
+  readLadderGates,
 } from "./gate-ladder.js";
 export { lookupOp } from "./operation-lookup.js";
 export {

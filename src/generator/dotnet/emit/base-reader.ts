@@ -1,5 +1,6 @@
 import { type PolymorphicRead, polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
-import type { PolymorphicReadGate } from "../../../ir/plan/index.js";
+import { wireStatus } from "../../../ir/enrich/wire-policy.js";
+import { polymorphicReadOperations, readLadder, readLadderGates } from "../../../ir/plan/index.js";
 import {
   type AggregateIR,
   type EnrichedAggregateIR,
@@ -211,7 +212,7 @@ function renderTpcBaseReaderImpl(
  *  hidden by a restriction).  Each item is `{ "type": "<Concrete>", …that
  *  concrete's own by-id wire body }` (the tagged-union wire, payloads.md).
  *
- *  Both reads check every concrete's list-read gate (`gates`) before they load:
+ *  Both reads check every concrete's list-read gate (`readLadder`) before they load:
  *  a caller who fails any one gets that concrete's own pre-load 403
  *  (`Forbidden: find <name>`).  A concrete's `mask unless` fields are redacted
  *  per row by its own response projection, under the request's principal. */
@@ -221,9 +222,9 @@ export function renderBaseController(
   ctx: EnrichedBoundedContextIR,
   ns: string,
   routePrefix: string,
-  gates: readonly PolymorphicReadGate[] = [],
 ): string {
   const B = base.name;
+  const gates = readLadderGates(readLadder(base, ctx));
   const C = plural(upperFirst(B));
   const gateUsesUser = gates.some((g) => findGateUsesCurrentUser(g.find));
   const gateUsings = new Set<string>();
@@ -237,8 +238,13 @@ export function renderBaseController(
         `        if (!(${renderCsGate(g.find.requires)})) throw new ForbiddenException(${JSON.stringify(`Forbidden: find ${g.find.name}`)});`,
     ),
   ];
-  const forbidden =
-    gates.length > 0 ? [csProducesProblem("forbidden", ctx.structuralErrorStatuses)] : [];
+  // Each route declares the 403 its derived operation answers.
+  const forbiddenStatus = wireStatus("forbidden", ctx.structuralErrorStatuses);
+  const ops = polymorphicReadOperations(base, ctx);
+  const forbidden = (kind: "find" | "getById"): string[] =>
+    ops.find((o) => o.kind === kind)?.errorStatuses.includes(forbiddenStatus)
+      ? [csProducesProblem("forbidden", ctx.structuralErrorStatuses)]
+      : [];
   const ctorParams = [
     `I${B}Repository repo`,
     "IOptions<JsonOptions> json",
@@ -298,7 +304,7 @@ export function renderBaseController(
       "",
       "    [HttpGet]",
       "    [ProducesResponseType(typeof(Paged<JsonObject>), 200)]",
-      ...forbidden,
+      ...forbidden("find"),
       csProducesProblem("field-invalid"),
       `    public async Task<ActionResult<Paged<JsonObject>>> All${B}(${pageParam}, ${pageSizeParam})`,
       "    {",
@@ -311,7 +317,7 @@ export function renderBaseController(
             "",
             '    [HttpGet("{id}")]',
             "    [ProducesResponseType(typeof(JsonObject), 200)]",
-            ...forbidden,
+            ...forbidden("getById"),
             csProducesProblem("not-found"),
             csProducesProblem("field-invalid"),
             `    public async Task<ActionResult<JsonObject>> Get${B}ById([FromRoute] ${idClr} id)`,
