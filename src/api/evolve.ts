@@ -247,7 +247,40 @@ function foldDeclaredRenames(
     out.splice(out.indexOf(removed), 1);
     out[out.indexOf(added)] = renamed;
   };
+  // A renamed field moves in the aggregate's read record and in each of its
+  // request records (`<Op><Agg>Command`, `Get<Agg>Query`, …) alike.
+  const isRequestOf = (entity: string, agg: string) => {
+    const bare = entity.split(".").pop() ?? entity;
+    return bare.endsWith(`${agg}Command`) || bare.endsWith(`${agg}Query`);
+  };
   for (const r of cur.renameIntents) {
+    for (;;) {
+      const inRequest = (c: WireContractChange) =>
+        c.bucket === "requests" && isRequestOf(c.entity, r.aggregate);
+      const removed = out.find(
+        (c) => inRequest(c) && c.kind === "property-removed" && c.field === r.from,
+      );
+      const added =
+        removed &&
+        out.find(
+          (c) =>
+            inRequest(c) &&
+            c.entity === removed.entity &&
+            (c.kind === "property-added-optional" || c.kind === "property-added-required") &&
+            c.field === r.to,
+        );
+      if (!removed || !added) break;
+      replacePair(removed, added, {
+        kind: "property-renamed",
+        breaking: true,
+        bucket: added.bucket,
+        entity: added.entity,
+        field: r.to,
+        detail: `property '${r.from}' on ${added.entity} renamed to '${r.to}' (declared in migration "${r.migration}")`,
+        from: r.from,
+        to: r.to,
+      });
+    }
     const at = (c: WireContractChange) =>
       c.bucket === "aggregates" && isAgg(c.entity, r.aggregate, r.context);
     const removed = out.find((c) => at(c) && c.kind === "property-removed" && c.field === r.from);
