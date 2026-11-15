@@ -30,6 +30,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { freePort } from "./support/ports.js";
 import { redeliveryWitness, seedInboxForPurge } from "./support/redelivery-witness.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT_JAVA === "1";
@@ -83,10 +84,10 @@ system Acme {
 }
 `;
 
-const SALES_PORT = 3211;
-const REPLICA_PORTS = [3212, 3213];
-const PG_PORT = 55443;
-const AMQP_PORT = 55675;
+const SALES_PORT = await freePort();
+const REPLICA_PORTS = await Promise.all([freePort(), freePort()]);
+const PG_PORT = await freePort();
+const AMQP_PORT = await freePort();
 const ORDERS = 6;
 const ADDRESS = "loom.Orders.Lifecycle";
 

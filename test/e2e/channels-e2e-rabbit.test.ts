@@ -26,6 +26,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { installGeneratedProject } from "./support/npm-install.js";
+import { freePort } from "./support/ports.js";
 import { redeliveryWitness, seedInboxForPurge } from "./support/redelivery-witness.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT === "1";
@@ -53,9 +54,8 @@ const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT === "1";
 const PERSISTENCE = process.env.LOOM_CHANNELS_PERSISTENCE;
 const PLATFORM = PERSISTENCE ? `node { persistence: ${PERSISTENCE} }` : "node";
 const LEG = PERSISTENCE ?? "drizzle";
-// Ports / container names shift for a variant leg so it can run beside the
-// default one locally without squatting its ports.
-const PORT_SHIFT = PERSISTENCE ? 20 : 0;
+// Container names shift for a variant leg so it can run beside the default
+// one locally; ports are allocated, so they never collide.
 const NAME_SUFFIX = PERSISTENCE ? `-${PERSISTENCE}` : "";
 
 const FIXTURE = `
@@ -107,10 +107,10 @@ system Acme {
 }
 `;
 
-const SALES_PORT = 3187 + PORT_SHIFT;
-const REPLICA_PORTS = [3188 + PORT_SHIFT, 3189 + PORT_SHIFT, 3190 + PORT_SHIFT];
-const PG_PORT = 55435 + PORT_SHIFT;
-const AMQP_PORT = 55672 + PORT_SHIFT;
+const SALES_PORT = await freePort();
+const REPLICA_PORTS = await Promise.all([freePort(), freePort(), freePort()]);
+const PG_PORT = await freePort();
+const AMQP_PORT = await freePort();
 const PG_NAME = `loom-channels-rb-pg${NAME_SUFFIX}`;
 const MQ_NAME = `loom-channels-rb-mq${NAME_SUFFIX}`;
 const ORDERS = 6;

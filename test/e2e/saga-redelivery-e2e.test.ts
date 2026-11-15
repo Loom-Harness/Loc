@@ -21,6 +21,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mixDepsGet } from "./support/mix-retry.js";
 import { installGeneratedProject } from "./support/npm-install.js";
+import { freePort } from "./support/ports.js";
 
 const ENABLED = process.env.LOOM_SAGA_REDELIVERY_E2E === "1";
 
@@ -116,8 +117,6 @@ interface Leg {
    *  `last_event_id` on this fixture). */
   saga: boolean;
   crossContext: boolean;
-  pgPort: number;
-  appPort: number;
 }
 const LEGS: Leg[] = (
   [
@@ -138,20 +137,25 @@ const LEGS: Leg[] = (
       boot: "dotnet",
       saga: true,
     },
-  ] satisfies Omit<Leg, "crossContext" | "pgPort" | "appPort">[]
-).map((l, i) => ({ ...l, crossContext: true, pgPort: 55461 + i, appPort: 4261 + i }));
+  ] satisfies Omit<Leg, "crossContext">[]
+).map((l) => ({ ...l, crossContext: true }));
 
 describe.skipIf(!ENABLED).each(LEGS)(
   "durable redelivery is a no-op ($backend)",
-  ({ backend, platform, boot, saga, crossContext, pgPort, appPort }) => {
+  ({ backend, platform, boot, saga, crossContext }) => {
     let dir: string;
+    let pgPort = 0;
+    let appPort = 0;
     let app: ChildProcess | undefined;
     const pg = `loom-saga-redelivery-${backend}-pg`;
-    const base = `http://localhost:${appPort}`;
+    let base = "";
     const psql = (sql: string): string =>
       sh(`docker exec ${pg} psql -U postgres -d d -At -c "${sql}"`);
 
     beforeAll(async () => {
+      pgPort = await freePort();
+      appPort = await freePort();
+      base = `http://localhost:${appPort}`;
       dir = mkdtempSync(join(tmpdir(), `loom-saga-redelivery-${backend}-`));
       writeFileSync(join(dir, "sys.ddd"), fixture(platform, crossContext));
       sh(`node ${join(process.cwd(), "bin/cli.js")} generate system sys.ddd -o out`, dir);
