@@ -11,10 +11,9 @@
 //   - no frontend emitter imports the derived `createInputFields`;
 //   - `declaredCreateCommandFor` has one caller, the plan, so there is no
 //     second record reader;
-//   - `undeclaredCreateRequestFields` (the aggregate whose context declares no
-//     create record) is reached only through the plan and the api module, and
-//     no served aggregate of a shipped model reaches it: the scaffold splices
-//     a create record for every concrete aggregate.
+//   - there is no derived fallback for an aggregate with no create record,
+//     and every served creatable aggregate of a shipped model has one: the
+//     scaffold splices a create record for every concrete aggregate.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -25,7 +24,6 @@ import { createRequestRecord } from "../../src/ir/plan/create-request.js";
 import { emitsRestCreate } from "../../src/ir/util/canonical-lifecycle.js";
 import { expectReach } from "../_helpers/census-reach.js";
 import { dddSourceOf, trackedDddFiles } from "../_helpers/ddd-corpus.js";
-import { fenceProblem } from "../_helpers/live-fences.js";
 import { parseString } from "../_helpers/parse.js";
 
 const repo = path.resolve(__dirname, "../..");
@@ -65,19 +63,6 @@ function filesNaming(symbol: string, files: readonly string[]): string[] {
   });
 }
 
-/** The derived create-request fallback (`undeclaredCreateRequestFields`) and
- *  the files that still read it.  No served create reaches it (the last test
- *  holds that at zero); what does is a create request schema the Elixir
- *  OpenAPI emitter and the Svelte api module emit for an aggregate that serves
- *  no create.  Deferred, not standing: once both gate that schema on a served
- *  create, the fallback and this waiver go. */
-const UNDECLARED_FALLBACK = {
-  readers: ["src/generator/_frontend/api-module.ts", "src/ir/plan/create-request.ts"],
-  deferred: "dead create request schemas for aggregates with no create route still read it",
-  reviewUntil: "2026-12-15",
-  blockedBy: "#5951",
-};
-
 describe("create request census", () => {
   it("no frontend emitter reads the derived create input", () => {
     const files = frontendEmitters();
@@ -91,17 +76,9 @@ describe("create request census", () => {
       "src/ir/plan/create-request.ts",
       "src/ir/util/declared-request.ts",
     ]);
-    expect(filesNaming("undeclaredCreateRequestFields", all)).toEqual(UNDECLARED_FALLBACK.readers);
-  });
-
-  it("the derived create-request fallback is a live, unexpired deferral", () => {
-    expect(fenceProblem(UNDECLARED_FALLBACK.blockedBy)).toBe("");
-    const until = Date.parse(`${UNDECLARED_FALLBACK.reviewUntil}T00:00:00Z`);
-    const now = Date.now();
-    expect(until, "the deferral expired: settle it or re-justify it").toBeGreaterThan(now);
-    expect(until - now, "a deferral parks at most 60 days out").toBeLessThanOrEqual(
-      60 * 86_400_000,
-    );
+    // No derived fallback: an aggregate with no declared create record takes
+    // no create request.
+    expect(filesNaming("undeclaredCreateRequestFields", all)).toEqual([]);
   });
 
   it("every served creatable aggregate has a declared create record", async () => {

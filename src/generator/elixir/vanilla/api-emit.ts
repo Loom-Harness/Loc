@@ -21,6 +21,7 @@ import {
 } from "../../../ir/enrich/version-check.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
+import { createRequestFields } from "../../../ir/plan/create-request.js";
 import { readLadder, readLadderGates, routedPolymorphicRead } from "../../../ir/plan/index.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -1169,7 +1170,7 @@ defmodule ${appModule}Web.${aggPascal}Controller do
 ${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
-${renderRequiredParamsPlug(new Map([...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), isMergePatchUpdate(op) ? [] : requiredWireParams(op.params)])))}${renderPatchNullPlug(agg.operations.find((o) => o.name === "update"))}${renderStrictParamsPlug(new Map([["create", strictIngressFields(createInputFields(agg))], ...[...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), strictIngressFields(op.params)] as const)]))}
+${renderRequiredParamsPlug(new Map([...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), isMergePatchUpdate(op) ? [] : requiredWireParams(op.params)])))}${renderPatchNullPlug(agg.operations.find((o) => o.name === "update"))}${renderStrictParamsPlug(new Map([["create", strictIngressFields(createRequestFields(ctx.payloads, agg))], ...[...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), strictIngressFields(op.params)] as const)]))}
 ${indexAction}
 
 ${showAction}${historyAction}

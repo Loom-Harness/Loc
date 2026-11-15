@@ -13,7 +13,7 @@ system Shop {
   subdomain S {
     context Ctx {
       valueobject LineItem { sku: string  qty: int }
-      aggregate Order {
+      aggregate Order with crudish {
         name: string
         doc: File
         tags: string[]

@@ -35,7 +35,7 @@ async function angularFiles(): Promise<Map<string, string>> {
     system Demo {
       subdomain S {
         context C {
-          aggregate Product {
+          aggregate Product with crudish {
             name: string
             sku: string
             qty: int

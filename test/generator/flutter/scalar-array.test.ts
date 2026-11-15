@@ -13,7 +13,7 @@ const SRC = `
 system S {
   api A from D
   subdomain D { context C {
-    aggregate Post {
+    aggregate Post with crudish {
       title: string
       tags: string[]
       scores: int[]

@@ -7,12 +7,12 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 
 const SRC = (platform: string, port: number) => `
 system S { subdomain M { context C {
-  aggregate Order { customerId: string status: string = "draft" active: bool = true
+  aggregate Order with crudish { customerId: string status: string = "draft" active: bool = true
     operation cancel(reason: string = "customer request") { status := reason } }
   repository Orders for Order { } } }
   api Api from M
   ui Web with scaffold(aggregates: [Order]) { api C: Api
-    page NewOrder { route: "/orders/new" body: CreateForm { of: Order } } }
+    page NewOrder { route: "/orders/create" body: CreateForm { of: Order } } }
   storage loomDb { type: postgres }
   resource cState { for: C, kind: state, use: loomDb }
   deployable api { platform: node, contexts: [C], dataSources: [cState], serves: Api, port: ${port} }
