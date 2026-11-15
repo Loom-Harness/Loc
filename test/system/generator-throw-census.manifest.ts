@@ -336,6 +336,11 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "`slot`/`action` types are legal only on component params, and those are rendered only by the frontends; renderTypeWith callers are the backend type renderers (java/dotnet/python/typescript render-expr), with no frontend importers.",
   },
 
+  // src/generator/_walker/walker-model.ts
+  "src/generator/_walker/walker-model.ts#contextOfHome": {
+    invariant:
+      "Only Angular and Feliz call it, and they walk on `walkerModelOf`, whose homes are the bounded contexts it was handed; the walker-model census pins those targets to the enriched model, so no .ddd input reaches the throw.",
+  },
   // src/generator/_walker/i18n-chrome.ts
   "src/generator/_walker/i18n-chrome.ts#chromeMessage": {
     invariant:

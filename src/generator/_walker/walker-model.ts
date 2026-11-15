@@ -15,13 +15,7 @@
 import type { ContractField, FrontendContract } from "../../ir/contract/frontend-contract.js";
 import { createRequestFields } from "../../ir/plan/create-request.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  FieldIR,
-  TypeIR,
-  WorkflowIR,
-} from "../../ir/types/loom-ir.js";
+import type { AggregateIR, BoundedContextIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import {
@@ -106,6 +100,12 @@ export interface WalkerModel {
   modelTextOwner(typeName: string, home: WalkerHome | undefined): string | undefined;
   /** The form-spec env for forms over `home`'s types. */
   formSpecEnv(home: WalkerHome, aggregatesByName: ReadonlyMap<string, AggregateIR>): FormSpecEnv;
+}
+
+/** The model of a walk that reaches no bounded context — a layout slot, a
+ *  store, a body with no domain reads. */
+export function emptyWalkerModel(): WalkerModel {
+  return walkerModelOf({});
 }
 
 /** The model of a ui that reaches the given contexts.  `bcByAggregate` /

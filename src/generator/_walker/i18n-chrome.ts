@@ -28,7 +28,6 @@
 
 import type {
   ActionIR,
-  AggregateIR,
   ExprIR,
   FieldIR,
   LayoutIR,
@@ -36,14 +35,12 @@ import type {
   StmtIR,
   TypeIR,
   UiIR,
-  WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { detectAwaitedOp } from "../../ir/util/awaited-op.js";
 import type { PageNameCtx } from "../../ir/util/page-kind.js";
 import { menuMetaString } from "../../ir/util/page-menu.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { walkExprDeep, walkExprStmtsDeep, walkStmtsDeep } from "../../ir/util/walk.js";
-import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { humanize } from "../../util/naming.js";
 import { isDefaultNavPage } from "../_frontend/menu-emitter.js";
 import { sourceText } from "../_i18n/source-text.js";

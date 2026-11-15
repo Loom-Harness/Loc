@@ -1,4 +1,4 @@
-import type { AggregateIR, ExprIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { AggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import type { ScopeField } from "../../ir/util/reachable-types.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
