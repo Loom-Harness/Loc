@@ -489,6 +489,17 @@ function censusFailures(
         `401/403/404, or pin it with a reason in ${pinHome(c.key)}.`,
     );
   }
+  for (const s of unrefused) {
+    const reason = pins[s.key];
+    if (reason === undefined) continue;
+    const cls = Object.entries(R).find(([, v]) => v === reason)?.[0] as keyof typeof R | undefined;
+    const misfit = cls === undefined ? "" : classMisfit(cls, s);
+    if (misfit)
+      out.push(
+        `${c.key}: pin \`${s.key}\` is \`${cls}\`, which ${misfit} (gates: ${s.gates.join(", ")}). ` +
+          `Pin it under the class that explains it (${pinHome(c.key)}).`,
+      );
+  }
   for (const key of Object.keys(pins)) {
     if (unrefusedKeys.has(key)) continue;
     const exists = surfaces.some((s) => s.key === key);
@@ -505,13 +516,41 @@ function censusFailures(
   return out;
 }
 
+/** The gate each reason class explains: a pin's surface must carry it, so a
+ *  pin cannot be moved to a class that does not describe the surface (out of
+ *  a class the emitted census re-checks, say).  The two harness classes
+ *  explain a limit of the runners, not a gate, and fit any surface. */
+const CLASS_GATE: Readonly<Record<keyof typeof R, GateKind | null>> = {
+  oneSeededId: null,
+  notABehaviouralCase: null,
+  rowDataGate: "requires",
+  importGateOnly: "requires",
+  probeAnswersFalse: "requires",
+  principalFreeGate: "policy",
+  sharedTenancyIdentity: "tenancy",
+  sharedPrincipalId: "tenancy",
+  maskIsNotAStatus: "mask",
+};
+
+/** Why `cls` does not describe surface `s` (empty when it does). */
+function classMisfit(cls: keyof typeof R, s: GatedSurface): string {
+  const gate = CLASS_GATE[cls];
+  if (gate !== null && !s.gates.includes(gate))
+    return `explains a \`${gate}\` gate the surface does not carry`;
+  if (cls === "probeAnswersFalse" && s.routeClass !== "gateProbe")
+    return "explains a `can_<op>` probe route";
+  return "";
+}
+
 /** Where a case's pins are written: a corpus fixture's in its sidecar, any
  *  other source's in `AUTHZ_GATE_PINS`. */
 function pinHome(caseKey: string): string {
   const corpus = /^corpus\/(.+)$/.exec(caseKey);
-  return corpus
-    ? `test/fixtures/corpus/${corpus[1]}.corpus.json → "authzGate" (value: an R class name)`
-    : `AUTHZ_GATE_PINS["${caseKey}"] (test/ir/authz-gate-census-pins.ts)`;
+  if (!corpus) return `AUTHZ_GATE_PINS["${caseKey}"] (test/ir/authz-gate-census-pins.ts)`;
+  const sidecar = (id: string) => `test/fixtures/corpus/${id}.corpus.json`;
+  const own = JSON.parse(fs.readFileSync(path.join(REPO, sidecar(corpus[1])), "utf8"));
+  const home = own.authzGate === undefined && own.inherits ? own.inherits : corpus[1];
+  return `${sidecar(home)} → "authzGate" (value: an R class name)`;
 }
 
 // ---------------------------------------------------------------------------
@@ -766,6 +805,17 @@ describe("authz gate census — mutation proof", () => {
     expect(named[0]).toContain("has NO caller that must be REFUSED");
     expect(named[0]).toContain("whose `unauthorized` (or `anonymous`) arm expects 401/403/404");
     expect(named[0]).toContain("or pin it with a reason in AUTHZ_GATE_PINS");
+  });
+
+  it("FAILS a pin whose class does not describe the surface", async () => {
+    const { gated } = surfacesOf(await modelOf(MUT_SOURCE));
+    const key = "operation POST /api/widgets/{id}/rename";
+    expect(censusFailures(MUT_CASE, gated, new Set(), { [key]: R.rowDataGate })).toEqual([]);
+    const failures = censusFailures(MUT_CASE, gated, new Set(), { [key]: R.maskIsNotAStatus });
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain(
+      "is `maskIsNotAStatus`, which explains a `mask` gate the surface does not carry",
+    );
   });
 
   it("STILL FAILS when the ladder drives only the ALLOWED side", async () => {
