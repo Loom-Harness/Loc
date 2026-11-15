@@ -21,6 +21,7 @@ import type {
   WalkerTarget,
 } from "../../../src/generator/_walker/target.js";
 import type { WalkContext } from "../../../src/generator/_walker/walker-core.js";
+import { walkerModelOf } from "../../../src/generator/_walker/walker-model.js";
 import { angularTarget } from "../../../src/generator/angular/walker/angular-target.js";
 import { heexTarget } from "../../../src/generator/elixir/heex-target.js";
 import { felizTarget } from "../../../src/generator/feliz/feliz-target.js";
@@ -101,7 +102,7 @@ describe("data-access seam", () => {
 
   /** The fields of a walk the seam reads. */
   const walkOn = (target: WalkerTarget, sink?: unknown): WalkContext =>
-    ({ target, dataBindings: new Map(), bcByAggregate: new Map(), sink }) as unknown as WalkContext;
+    ({ target, dataBindings: new Map(), model: walkerModelOf({}), sink }) as unknown as WalkContext;
 
   it("a client-state target binds a read as a handle the page declares", () => {
     const ctx = walkOn(tsxTarget);

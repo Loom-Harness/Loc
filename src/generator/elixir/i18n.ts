@@ -63,6 +63,7 @@ import {
   HEEX_SENTENCES,
 } from "../_walker/i18n-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 
 /** The gettext domain every generated message lands in — the Phoenix default,
  *  so `mix gettext.extract` and every `.po` tool need no configuration. */
@@ -467,7 +468,7 @@ export function renderGettextCatalog(
   translation: Record<string, string> | undefined = undefined,
 ): string {
   const scope: FormSentenceScope = {
-    contexts: modelTextContexts,
+    model: walkerModelOf({ contexts: modelTextContexts }),
     sentences: HEEX_SENTENCES,
     flashOnCustomSubmit: true,
     implicitModelText: true,

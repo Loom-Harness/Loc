@@ -77,6 +77,7 @@ import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { HAND_BUILT_FORM_SENTENCES } from "../_walker/i18n-chrome.js";
 import { collectUiMessages, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import { buildAngularApiModule } from "./api-module.js";
 import { renderAngularChartRuntime } from "./chart-runtime.js";
@@ -317,7 +318,7 @@ export function generateAngularForContexts(
     // sentence chrome.
     const formScope = {
       layouts: sys.layouts,
-      contexts,
+      model: walkerModelOf({ contexts }),
       sentences: HAND_BUILT_FORM_SENTENCES.rows,
       implicitModelText: angularTarget.modelTextImplicitSites === true,
       sessionView: authUi,
@@ -502,9 +503,8 @@ export function generateAngularForContexts(
         userComponentParams,
         ui?.apiParams ?? [],
         aggregatesIRByName,
-        bcByAggregate,
+        walkerModelOf({ bcByAggregate, bcByWorkflow }),
         workflowsByName,
-        bcByWorkflow,
         new Map(),
         pageRoutes,
         externFunctionNames,

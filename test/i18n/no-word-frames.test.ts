@@ -21,6 +21,7 @@ import {
   FORM_CHROME,
   TABLE_CONTROLS_CHROME,
 } from "../../src/generator/_walker/i18n-chrome.js";
+import { walkerModelOf } from "../../src/generator/_walker/walker-model.js";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { buildMessageCatalog } from "../../src/system/i18n-catalog.js";
@@ -193,7 +194,7 @@ describe("i18n: no word-inserting frames", () => {
         const catalog = buildUiCatalog(
           ui,
           {},
-          { contexts, sentences: ["addItem", "operationSucceeded"] },
+          { model: walkerModelOf({ contexts }), sentences: ["addItem", "operationSucceeded"] },
         );
         const chrome = Object.fromEntries(
           Object.entries(catalog).filter(([key]) => key.startsWith("chrome.")),

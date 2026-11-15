@@ -74,6 +74,7 @@ import {
   renderActionMutationArg,
   walkBody,
 } from "../../_walker/walker-core.js";
+import { type WalkerModel, walkerModelOf } from "../../_walker/walker-model.js";
 import { storeImportSpecifier, storeVarName } from "../store-builder.js";
 import { renderSvelteApiHookImports, renderSvelteImportLines } from "./import-lines.js";
 import { svelteTarget } from "./svelte-target.js";
@@ -313,7 +314,7 @@ function renderFormOpWiring(
     // snippet's trigger — handed the record — writes the record seed
     // (`record.<field>`, see `formSeedTs`) into it each time the dialog opens.
     defaultValuesTs: state.recordVar
-      ? formSeedTs(operationFormSpec(agg, op, formSpecEnvOf(state.bc, new Map())), state.bc, {})
+      ? formSeedTs(operationFormSpec(agg, op, formSpecEnvOf(state.home, new Map())), state.home, {})
       : defaultValuesTs,
     recordType: state.recordVar ? state.recordType : undefined,
     recordSeed: state.recordVar ? defaultValuesTs : undefined,
@@ -444,9 +445,8 @@ export function renderSveltePage(
     userComponents,
     apiParams,
     aggregatesByName,
-    bcByAggregate,
+    walkerModelOf({ bcByAggregate, bcByWorkflow }),
     workflowsByName,
-    bcByWorkflow,
     aggregateParamTypes(params, aggregatesByName),
     pageRoutes,
     externFunctions,
@@ -487,9 +487,8 @@ export function renderSveltePage(
       dataBindings,
       apiParams,
       aggregatesByName,
-      bcByAggregate,
+      model: walkerModelOf({ bcByAggregate, bcByWorkflow }),
       workflowsByName,
-      bcByWorkflow,
       pageRoutes,
       usedParams,
       usesNavigate,
@@ -796,8 +795,7 @@ export function renderSvelteComponentFile(
     userComponents,
     apiParams,
     aggregatesByName,
-    bcByAggregate,
-    new Map(),
+    walkerModelOf({ bcByAggregate }),
     new Map(),
     aggregateParamTypes(params, aggregatesByName),
     pageRoutes,
@@ -1103,9 +1101,8 @@ function dummyCtx(
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),
-    bcByAggregate: new Map(),
+    model: walkerModelOf({}),
     workflowsByName: new Map(),
-    bcByWorkflow: new Map(),
     formOfs: [],
     actionMutations: [],
     collectedTestids: new Set(),
@@ -1178,9 +1175,8 @@ interface ActionWalkShared {
   dataBindings: Map<string, DataBinding>;
   apiParams: ReadonlyArray<UiApiParamIR>;
   aggregatesByName: ReadonlyMap<string, AggregateIR>;
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR>;
+  model: WalkerModel;
   workflowsByName: ReadonlyMap<string, WorkflowIR>;
-  bcByWorkflow: ReadonlyMap<string, BoundedContextIR>;
   pageRoutes: ReadonlyMap<string, string>;
   usedParams: Set<string>;
   usesNavigate: boolean;
@@ -1219,9 +1215,8 @@ function buildActionLines(
     ctx.dataBindings = shared.dataBindings;
     ctx.apiParamNames = new Map(shared.apiParams.map((p) => [p.name, p.apiName]));
     ctx.aggregatesByName = shared.aggregatesByName;
-    ctx.bcByAggregate = shared.bcByAggregate;
+    ctx.model = shared.model;
     ctx.workflowsByName = shared.workflowsByName;
-    ctx.bcByWorkflow = shared.bcByWorkflow;
     ctx.pageRoutes = shared.pageRoutes;
     ctx.authUi = shared.authUi;
     ctx.usesNavigate = shared.usesNavigate;
