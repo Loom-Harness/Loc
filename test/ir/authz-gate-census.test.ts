@@ -109,12 +109,7 @@ import { API_BASE_PATH } from "../../src/util/api-base.js";
 import { snake } from "../../src/util/naming.js";
 import { buildLoomModel } from "../_helpers/ir.js";
 import { E2E_LESS_CORPUS_FIXTURES } from "./api-caller-census-pins.js";
-import {
-  AUTHZ_GATE_PINS,
-  NON_PARSING_SOURCES,
-  PIN_CLASS_CENSUS,
-  R,
-} from "./authz-gate-census-pins.js";
+import { AUTHZ_GATE_PINS, NON_PARSING_SOURCES, R } from "./authz-gate-census-pins.js";
 import { type CensusCase, loadPopulation } from "./authz-gate-census-population.js";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -516,8 +511,7 @@ function censusFailures(
         `told apart from an absent one. Remedy: add a \`gated\` probe for ${s.method} ` +
         `${s.path} to AUTHZ_LADDERS["${c.key.replace(/^[a-z/]*\//, "")}"] ` +
         `(test/behavioral/cases.mjs) whose \`unauthorized\` (or \`anonymous\`) arm expects ` +
-        `401/403/404, or pin it in AUTHZ_GATE_PINS["${c.key}"] ` +
-        `(test/ir/authz-gate-census-pins.ts) with a reason.`,
+        `401/403/404, or pin it with a reason in ${pinHome(c.key)}.`,
     );
   }
   for (const key of Object.keys(pins)) {
@@ -530,10 +524,19 @@ function censusFailures(
             "added the ladder arm."
           : `no such gated surface in ${c.file} (the gate, or the route, was renamed or ` +
             "removed). Delete the pin.") +
-        ` (AUTHZ_GATE_PINS["${c.key}"], test/ir/authz-gate-census-pins.ts)`,
+        ` (${pinHome(c.key)})`,
     );
   }
   return out;
+}
+
+/** Where a case's pins are written: a corpus fixture's in its sidecar, any
+ *  other source's in `AUTHZ_GATE_PINS`. */
+function pinHome(caseKey: string): string {
+  const corpus = /^corpus\/(.+)$/.exec(caseKey);
+  return corpus
+    ? `test/fixtures/corpus/${corpus[1]}.corpus.json → "authzGate" (value: an R class name)`
+    : `AUTHZ_GATE_PINS["${caseKey}"] (test/ir/authz-gate-census-pins.ts)`;
 }
 
 // ---------------------------------------------------------------------------
@@ -562,26 +565,16 @@ describe("authz gate census — every emitted gate has a refused caller or a pin
     }
   });
 
-  it("keeps the per-class pin census honest", () => {
-    // Recomputed from the pins and compared BOTH ways: an added pin whose count
-    // was not raised fails, and so does a drained one whose count was not
-    // lowered.  Matched by the `R.*` STRING (the pins store the value, not the
-    // key), so a renamed class shows up as an unknown reason rather than as a
-    // silently-zero count.
-    const byReason = new Map<string, string>(Object.entries(R).map(([k, v]) => [v, k]));
-    const actual: Record<string, number> = {};
-    for (const surfaces of Object.values(AUTHZ_GATE_PINS)) {
-      for (const reason of Object.values(surfaces)) {
-        const cls = byReason.get(reason);
-        expect(cls, `pin reason is not one of the R.* constants: ${reason}`).toBeDefined();
-        actual[cls as string] = (actual[cls as string] ?? 0) + 1;
-      }
-    }
-    expect(
-      actual,
-      "PIN_CLASS_CENSUS (test/ir/authz-gate-census-pins.ts) disagrees with the pins above it. " +
-        "Adding a pin raises its count; draining one lowers it; a class at zero is deleted.",
-    ).toEqual(PIN_CLASS_CENSUS);
+  it("pins only to a declared reason class", () => {
+    // Matched by the `R.*` STRING (the pins store the value, not the key), so a
+    // renamed class shows up as an unknown reason.  No per-class tally is
+    // pinned: it is a pure function of the pins.
+    const reasons = new Set<string>(Object.values(R));
+    for (const surfaces of Object.values(AUTHZ_GATE_PINS))
+      for (const reason of Object.values(surfaces))
+        expect(reasons.has(reason), `pin reason is not one of the R.* constants: ${reason}`).toBe(
+          true,
+        );
   });
 
   it("pins no case that left the population", () => {
@@ -797,7 +790,7 @@ describe("authz gate census — mutation proof", () => {
     expect(named[0]).toContain("gates: requires");
     expect(named[0]).toContain("has NO caller that must be REFUSED");
     expect(named[0]).toContain("whose `unauthorized` (or `anonymous`) arm expects 401/403/404");
-    expect(named[0]).toContain("or pin it in AUTHZ_GATE_PINS");
+    expect(named[0]).toContain("or pin it with a reason in AUTHZ_GATE_PINS");
   });
 
   it("STILL FAILS when the ladder drives only the ALLOWED side", async () => {

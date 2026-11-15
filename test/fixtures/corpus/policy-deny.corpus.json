@@ -11,5 +11,29 @@
       "updateOrg": "tenantRegistryRow",
       "allOrg": "tenantRegistryRow"
     }
+  },
+  "authzGate": {
+    "//": "── `policy { deny … }` + the tenant floor around it ───────────────────── `Secret` / `Note` are read-denied and `Account` is write-denied: all three sentinels are principal-free, so the fixture's own `test e2e` is the refusal and a ladder arm would restate it.  What the ladder DOES add is on `Account`: its write surfaces refused and its READ seam open, for the second identity — so those two writes are not pinned.  `Ledger` (the control aggregate) and `Org` (the tenant registry) carry only the tenant floor.",
+    "create POST /api/accounts": "principalFreeGate",
+    "create POST /api/ledgers": "sharedTenancyIdentity",
+    "create POST /api/notes": "principalFreeGate",
+    "create POST /api/orgs": "sharedTenancyIdentity",
+    "create POST /api/secrets": "principalFreeGate",
+    "destroy DELETE /api/notes/{id}": "principalFreeGate",
+    "destroy DELETE /api/orgs/{id}": "sharedTenancyIdentity",
+    "destroy DELETE /api/secrets/{id}": "principalFreeGate",
+    "find GET /api/accounts": "sharedTenancyIdentity",
+    "find GET /api/ledgers": "sharedTenancyIdentity",
+    "find GET /api/notes": "principalFreeGate",
+    "find GET /api/orgs": "sharedTenancyIdentity",
+    "find GET /api/secrets": "principalFreeGate",
+    "explicitHandler GET /api/secrets/by_code/{c}": "principalFreeGate",
+    "getById GET /api/accounts/{id}": "sharedTenancyIdentity",
+    "getById GET /api/notes/{id}": "principalFreeGate",
+    "getById GET /api/orgs/{id}": "sharedTenancyIdentity",
+    "getById GET /api/secrets/{id}": "principalFreeGate",
+    "operation POST /api/notes/{id}/update": "principalFreeGate",
+    "operation POST /api/orgs/{id}/update": "sharedTenancyIdentity",
+    "operation POST /api/secrets/{id}/update": "principalFreeGate"
   }
 }

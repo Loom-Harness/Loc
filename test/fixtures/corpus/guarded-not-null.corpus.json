@@ -2,5 +2,11 @@
   "title": "a guarded `x != null when …` rule with the field left out (aggregate + value-collection element)",
   "doc": "language",
   "backends": "ALL",
-  "note": "Every backend answers the rule's own `problem.domain-floor` entry. Node's zod issue mapper treated a rule's `refine` issue on an absent key as `field.missing`, the one divergence."
+  "note": "Every backend answers the rule's own `problem.domain-floor` entry. Node's zod issue mapper treated a rule's `refine` issue on an absent key as `field.missing`, the one divergence.",
+  "typing": {
+    "ir-differs": {
+      "n": 2,
+      "why": "bare `null` literals: the pass types them never?, the IR's untyped null literal carries the string placeholder"
+    }
+  }
 }

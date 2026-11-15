@@ -9,5 +9,12 @@
       "api.payslips.history (no derived operation)",
       "api.promoteIfPresent.run (no such aggregate)"
     ]
+  },
+  "authzGate": {
+    "//": "The history read behind its guards.  Employee's reads are UNGATED, so the mask is their only authz surface; the ladder reads Employee's history with both principals and the golden pins the two bodies (salary's entries kept for `ops.manage`, dropped for `ops.none`) — the mask's witness, as a body and not a status.  Payslip's gated reads are refused by the ladder; only its by-id read (ungated, masked) is pinned.",
+    "find GET /api/employees": "maskIsNotAStatus",
+    "getById GET /api/employees/{id}": "maskIsNotAStatus",
+    "history GET /api/employees/{id}/history": "maskIsNotAStatus",
+    "getById GET /api/payslips/{id}": "maskIsNotAStatus"
   }
 }
