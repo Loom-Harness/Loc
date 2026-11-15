@@ -21,7 +21,11 @@ the read scopes (tenancy, policy, masks, soft delete) a database read applies?
   process, is listed by one deployable only (`loom.cache-in-memory-shared`).
   Refusing these topologies was preferred to evicting from deployables that do
   not list the cache, which would hand them a store connection their model
-  never asked for and still could not reach another process's memory.
+  never asked for and still could not reach another process's memory.  A deployable that lists an `inMemory` cache runs as one instance: the Helm
+  chart refuses `replicas` above 1 for it.  The raw `k8s/` manifests pin one
+  replica and the dev compose runs one container per service; scaling those
+  by hand is outside what the generator checks, and keeping them at one
+  instance is the operator's responsibility.
 - **One stored envelope on every backend.** An entry is a JSON object from
   scope fingerprint to `{body: <wire JSON text>, etag: <tag> | null}`, so
   backends sharing a redis read each other's entries.  An entry or answer a
