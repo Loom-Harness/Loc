@@ -35,6 +35,7 @@ import type { LoadedPack } from "../_packs/loader.js";
 import { defaultInitForJs } from "../_walker/js-target-helpers.js";
 import type { StateRef, WalkerTarget } from "../_walker/target.js";
 import { emitStmt, type WalkContext } from "../_walker/walker-core.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 import { angularTarget } from "./walker/angular-target.js";
 
 /** PascalCase store-service class name (`Cart` → `CartStore`). */
@@ -149,9 +150,8 @@ function storeActionCtx(
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),
-    bcByAggregate: new Map(),
+    model: walkerModelOf({}),
     workflowsByName: new Map(),
-    bcByWorkflow: new Map(),
     formOfs: [],
     actionMutations: [],
     collectedTestids: new Set(),

@@ -53,4 +53,12 @@ describe("python by-id read cache wiring", () => {
     expect(files.get("d/pyproject.toml")).toContain("redis==");
     expect(files.get("d/app/main.py")).toContain("install_by_id_cache_eviction()");
   });
+
+  // Import hygiene: a deployable without auth has no `app.auth` package, so a
+  // cache module that imported it would stop the app at boot.
+  it("a deployable without auth imports nothing from app.auth", async () => {
+    const files = await generateSystemFiles(src("redis", true));
+    expect([...files.keys()].some((p) => p.startsWith("d/app/auth/"))).toBe(false);
+    expect(files.get("d/app/by_id_cache.py")).not.toContain("app.auth");
+  });
 });

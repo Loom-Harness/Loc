@@ -198,9 +198,9 @@ export type TypeIR =
  *  `paged` is AUTHOR-WRITTEN (`Customer paged`) and monomorphizes to a named
  *  `PayloadIR` record.  `provenanced` is the odd one out: it has no
  *  grammar arm at all — nobody writes `int provenanced` as a *type*, they write
- *  `total: int provenanced` as a field MODIFIER — and the enrichment pass
- *  synthesizes the instance into `wireShape` from `FieldIR.provenanced`
- *  (`wireTypeForField`, `src/ir/enrich/wire-projection.ts`).  It is also
+ *  `total: int provenanced` as a field MODIFIER — and the instance is
+ *  synthesized onto a response row from `FieldIR.provenanced`
+ *  (`responseWireFor`, `src/ir/util/response-wire.ts`).  It is also
  *  rendered STRUCTURALLY (an inline `{ value, lineage }` object) rather than
  *  monomorphized to a named DTO, so it never reaches
  *  `monomorphizeGenericInstances`. */

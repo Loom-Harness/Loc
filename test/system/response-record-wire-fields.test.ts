@@ -2,12 +2,11 @@
 // on every backend.
 //
 // `with scaffoldHandlers` splices a `response <Agg>Response` record, and every
-// backend's response DTO / OpenAPI schema is rendered from THAT record, while
-// the repository serialises the derived shape (`forApiRead(wireFieldsFor…)`).
-// The record walk must therefore reproduce the derived list exactly — same
-// names, same order — or the DTO understates (or reorders, for the positional
-// .NET / Java records) what the serializer emits.  Three shapes reach the arms
-// a record walk can miss:
+// backend's response DTO / OpenAPI schema and the repository serializer are
+// rendered from THAT record (`responseWireFor`).  The emitted record must
+// therefore list exactly the record's rows — same names, same order — or the
+// positional .NET / Java records misstate what the serializer emits.  Three
+// shapes reach the arms a record walk can miss:
 //
 //   inheritance.ddd          fields inherited through `extends` (TPH + TPC)
 //   provenance.ddd           a `provenanced` field (the `Provenanced<T>` carrier)
@@ -15,15 +14,15 @@
 //                            `contains`), which belongs in the containment slot
 //                            after `version`, not among the value properties
 //
-// The expectation is read off the enriched IR, not hand-written, so it is the
-// derived shape itself the emitted records are compared against.
+// The expectation is read off the enriched IR's declared record, not
+// hand-written, so it is the record itself the emitted DTOs are compared against.
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
-import { forApiRead, wireFieldsForAggregate } from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { allContexts } from "../../src/ir/types/loom-ir.js";
+import { responseWireFor } from "../../src/ir/util/response-wire.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseString } from "../_helpers/parse.js";
 
@@ -121,13 +120,15 @@ describe("scaffolded <Agg>Response records carry the canonical wire fields", () 
         const { model } = await parseString(source, { validate: true });
         const enriched = enrichLoomModel(lowerModel(model));
         const byName = new Map(
-          allContexts(enriched).flatMap((c) => c.aggregates.map((a) => [a.name, a])),
+          allContexts(enriched).flatMap((c) =>
+            c.aggregates.map((a) => [a.name, { agg: a, payloads: c.payloads }] as const),
+          ),
         );
         const files = await generateSystemFiles(source);
         for (const name of aggs) {
-          const agg = byName.get(name);
-          if (!agg) throw new Error(`${file}: no aggregate ${name}`);
-          const wire = forApiRead(wireFieldsForAggregate(agg));
+          const owned = byName.get(name);
+          if (!owned) throw new Error(`${file}: no aggregate ${name}`);
+          const wire = responseWireFor(owned.payloads, owned.agg);
           const emitted = emittedRecord(files, platform, `${name}Response`);
           expect(
             emitted.map(([n]) => n),

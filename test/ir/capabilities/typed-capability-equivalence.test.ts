@@ -1,4 +1,3 @@
-import { wireFieldsFor } from "../../../src/ir/enrich/wire-projection.js";
 // Typed capabilities — Phase 2 (expander splice + equivalence).
 //
 // A `capability { fields + filter + stamp }` applied via `with` produces
@@ -10,7 +9,7 @@ import { wireFieldsFor } from "../../../src/ir/enrich/wire-projection.js";
 
 import { describe, expect, it } from "vitest";
 import type { AggregateIR } from "../../../src/ir/types/loom-ir.js";
-import { buildLoomModel } from "../../_helpers/ir.js";
+import { buildHostedModel, responseRows } from "../../_helpers/ir.js";
 import { parseString } from "../../_helpers/parse.js";
 
 function findAgg(
@@ -46,7 +45,7 @@ function stripOrigin<T>(value: T): T {
 
 describe("typed capability expansion (typed-capabilities.md Phase 2)", () => {
   it("a filter capability via `with` == hand-written filter + field", async () => {
-    const viaCapability = await buildLoomModel(`
+    const viaCapability = await buildHostedModel(`
       capability trashable {
         isDeleted: bool
         filter !this.isDeleted
@@ -55,7 +54,7 @@ describe("typed capability expansion (typed-capabilities.md Phase 2)", () => {
         aggregate Order with trashable { subject: string }
       }}}
     `);
-    const handWritten = await buildLoomModel(`
+    const handWritten = await buildHostedModel(`
       system Demo { subdomain M { context C {
         aggregate Order {
           subject: string
@@ -69,11 +68,13 @@ describe("typed capability expansion (typed-capabilities.md Phase 2)", () => {
     expect(JSON.stringify(stripOrigin(a.contextFilters))).toEqual(
       JSON.stringify(stripOrigin(b.contextFilters)),
     );
-    expect(wireFieldsFor(a).map((f) => f.name)).toEqual(wireFieldsFor(b).map((f) => f.name));
+    expect(responseRows(viaCapability, a).map((f) => f.name)).toEqual(
+      responseRows(handWritten, b).map((f) => f.name),
+    );
   });
 
   it("a fields + stamp capability via `with` == hand-written", async () => {
-    const viaCapability = await buildLoomModel(`
+    const viaCapability = await buildHostedModel(`
       capability tracked {
         createdAt: datetime
         updatedAt: datetime
@@ -84,7 +85,7 @@ describe("typed capability expansion (typed-capabilities.md Phase 2)", () => {
         aggregate Order with tracked { subject: string }
       }}}
     `);
-    const handWritten = await buildLoomModel(`
+    const handWritten = await buildHostedModel(`
       system Demo { subdomain M { context C {
         aggregate Order {
           subject: string
@@ -100,11 +101,13 @@ describe("typed capability expansion (typed-capabilities.md Phase 2)", () => {
     expect(JSON.stringify(stripOrigin(a.contextStamps))).toEqual(
       JSON.stringify(stripOrigin(b.contextStamps)),
     );
-    expect(wireFieldsFor(a).map((f) => f.name)).toEqual(wireFieldsFor(b).map((f) => f.name));
+    expect(responseRows(viaCapability, a).map((f) => f.name)).toEqual(
+      responseRows(handWritten, b).map((f) => f.name),
+    );
   });
 
   it("one capability is reused across many aggregates (independent clones)", async () => {
-    const ir = await buildLoomModel(`
+    const ir = await buildHostedModel(`
       capability trashable {
         isDeleted: bool
         filter !this.isDeleted
@@ -117,7 +120,7 @@ describe("typed capability expansion (typed-capabilities.md Phase 2)", () => {
     for (const name of ["Order", "Invoice"]) {
       const agg = findAgg(ir, name);
       expect(agg.contextFilters?.length).toBe(1);
-      expect(wireFieldsFor(agg).some((f) => f.name === "isDeleted")).toBe(true);
+      expect(responseRows(ir, agg).some((f) => f.name === "isDeleted")).toBe(true);
     }
   });
 
@@ -135,7 +138,7 @@ describe("typed capability expansion (typed-capabilities.md Phase 2)", () => {
   });
 
   it("context-level `with` applies the capability to every aggregate (the *ByDefault replacement)", async () => {
-    const ir = await buildLoomModel(`
+    const ir = await buildHostedModel(`
       capability trashable {
         isDeleted: bool
         filter !this.isDeleted
@@ -150,12 +153,12 @@ describe("typed capability expansion (typed-capabilities.md Phase 2)", () => {
     for (const name of ["Order", "Invoice"]) {
       const agg = findAgg(ir, name);
       expect(agg.contextFilters?.length).toBe(1);
-      expect(wireFieldsFor(agg).some((f) => f.name === "isDeleted")).toBe(true);
+      expect(responseRows(ir, agg).some((f) => f.name === "isDeleted")).toBe(true);
     }
   });
 
   it("context-level `with` == applying the capability to each aggregate individually", async () => {
-    const viaContext = await buildLoomModel(`
+    const viaContext = await buildHostedModel(`
       capability tracked {
         createdAt: datetime
         stamp onCreate { createdAt := now() }
@@ -166,7 +169,7 @@ describe("typed capability expansion (typed-capabilities.md Phase 2)", () => {
         }
       }}
     `);
-    const viaAggregate = await buildLoomModel(`
+    const viaAggregate = await buildHostedModel(`
       capability tracked {
         createdAt: datetime
         stamp onCreate { createdAt := now() }
@@ -180,11 +183,13 @@ describe("typed capability expansion (typed-capabilities.md Phase 2)", () => {
     const a = findAgg(viaContext, "Order");
     const b = findAgg(viaAggregate, "Order");
     expect(JSON.stringify(a.contextStamps)).toEqual(JSON.stringify(b.contextStamps));
-    expect(wireFieldsFor(a).map((f) => f.name)).toEqual(wireFieldsFor(b).map((f) => f.name));
+    expect(responseRows(viaContext, a).map((f) => f.name)).toEqual(
+      responseRows(viaAggregate, b).map((f) => f.name),
+    );
   });
 
   it("an aggregate's own member wins over a context-applied capability member (override-by-name)", async () => {
-    const ir = await buildLoomModel(`
+    const ir = await buildHostedModel(`
       capability trashable {
         isDeleted: bool
         filter !this.isDeleted
@@ -198,7 +203,7 @@ describe("typed capability expansion (typed-capabilities.md Phase 2)", () => {
     const agg = findAgg(ir, "Order");
     // The aggregate's explicit isDeleted suppresses the capability's clone — so
     // exactly one isDeleted field, no duplicate column.
-    expect(wireFieldsFor(agg).filter((f) => f.name === "isDeleted").length).toBe(1);
+    expect(responseRows(ir, agg).filter((f) => f.name === "isDeleted").length).toBe(1);
   });
 
   it("an unknown `with` name that is neither macro nor capability errors", async () => {
@@ -213,7 +218,7 @@ describe("typed capability expansion (typed-capabilities.md Phase 2)", () => {
   // --- Phase 4b: typed `implements <Cap>` (synonym of `with <Cap>`) ----------
 
   it("typed `implements <Cap>` == `with <Cap>`", async () => {
-    const viaImplements = await buildLoomModel(`
+    const viaImplements = await buildHostedModel(`
       capability trashable {
         isDeleted: bool
         filter !this.isDeleted
@@ -222,7 +227,7 @@ describe("typed capability expansion (typed-capabilities.md Phase 2)", () => {
         aggregate Order { implements trashable  subject: string }
       }}}
     `);
-    const viaWith = await buildLoomModel(`
+    const viaWith = await buildHostedModel(`
       capability trashable {
         isDeleted: bool
         filter !this.isDeleted
@@ -234,11 +239,13 @@ describe("typed capability expansion (typed-capabilities.md Phase 2)", () => {
     const a = findAgg(viaImplements, "Order");
     const b = findAgg(viaWith, "Order");
     expect(JSON.stringify(a.contextFilters)).toEqual(JSON.stringify(b.contextFilters));
-    expect(wireFieldsFor(a).map((f) => f.name)).toEqual(wireFieldsFor(b).map((f) => f.name));
+    expect(responseRows(viaImplements, a).map((f) => f.name)).toEqual(
+      responseRows(viaWith, b).map((f) => f.name),
+    );
   });
 
   it("typed `implements <Cap>` at context scope applies to every aggregate", async () => {
-    const ir = await buildLoomModel(`
+    const ir = await buildHostedModel(`
       capability trashable {
         isDeleted: bool
         filter !this.isDeleted
@@ -254,7 +261,7 @@ describe("typed capability expansion (typed-capabilities.md Phase 2)", () => {
     for (const name of ["Order", "Invoice"]) {
       const agg = findAgg(ir, name);
       expect(agg.contextFilters?.length).toBe(1);
-      expect(wireFieldsFor(agg).some((f) => f.name === "isDeleted")).toBe(true);
+      expect(responseRows(ir, agg).some((f) => f.name === "isDeleted")).toBe(true);
     }
   });
 

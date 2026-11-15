@@ -38,6 +38,10 @@ interface Surface {
   /** Workflows and projections of a served context: their routes are on the
    *  wire, so a type edge may name them. */
   routed: Set<string>;
+  /** Workflow → its start params and instance-row fields. */
+  workflows: Map<string, Set<string>>;
+  /** Readable projection → its row fields. */
+  projections: Map<string, Set<string>>;
   records: Map<string, Set<string>>;
   events: Map<string, Set<string>>;
   valueObjects: Map<string, Set<string>>;
@@ -63,6 +67,8 @@ const ENVELOPE_KEYS = [
   "responses",
   "records",
   "events",
+  "workflows",
+  "projections",
   "valueObjects",
   "enums",
   "values",
@@ -100,6 +106,8 @@ export function exposedSurface(model: EnrichedLoomModel, sys: EnrichedSystemIR):
     enums: new Map(),
     user: new Set((sys.user?.fields ?? []).map((f) => f.name)),
     routed: new Set(),
+    workflows: new Map(),
+    projections: new Map(),
   };
   const all = [...sys.subdomains.flatMap((sd) => sd.contexts), ...model.contexts];
   const exposed = exposedContexts(sys);
@@ -108,8 +116,17 @@ export function exposedSurface(model: EnrichedLoomModel, sys: EnrichedSystemIR):
     s.entities.set(entity, new Set(fields.keys()));
   };
   for (const ctx of exposed) {
-    for (const w of ctx.workflows) s.routed.add(w.name);
-    for (const p of ctx.projections) s.routed.add(p.name);
+    for (const w of ctx.workflows) {
+      s.routed.add(w.name);
+      s.workflows.set(
+        w.name,
+        new Set([...w.params, ...(w.instanceWireShape ?? [])].map((f) => f.name)),
+      );
+    }
+    for (const p of ctx.projections) {
+      s.routed.add(p.name);
+      s.projections.set(p.name, new Set((p.wireShape ?? []).map((f) => f.name)));
+    }
     for (const agg of ctx.aggregates) {
       if (agg.isAbstract) continue;
       if (!declaredResponseFor(ctx.payloads, agg)) continue;
@@ -227,6 +244,22 @@ export function surfaceViolations(
     }
   };
   against(wire.records, "records", s.records);
+  for (const w of (wire.workflows as Json[]) ?? []) {
+    const surface = s.workflows.get(w.name as string);
+    if (!surface) {
+      out.push(`wire.workflows: ${w.name} is not exposed`);
+      continue;
+    }
+    const members = [
+      ...((w.params as Json[] | undefined) ?? []),
+      ...((w.instance as Json[] | undefined) ?? []),
+    ];
+    for (const f of members) {
+      if (!surface.has(f.name as string))
+        out.push(`wire.workflows.${w.name}: field '${f.name}' is not on the wire`);
+    }
+  }
+  against(wire.projections, "projections", s.projections);
   against(wire.events, "events", s.events);
   against(wire.valueObjects, "valueObjects", s.valueObjects);
   against(wire.enums, "enums", s.enums);

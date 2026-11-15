@@ -58,6 +58,7 @@ import type { LoadedPack } from "../_packs/loader.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { componentKeyPrefix, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { isWalkableLayoutBody, walkBody } from "../_walker/walker-core.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 import { svelteLayoutGroup } from "./layouts-emitter.js";
 import {
   renderSvelteComponentFile,
@@ -518,7 +519,7 @@ export function emitSveltePageObjectsForUi(
       userComponents,
       ui.apiParams,
       ctx.aggregatesByName,
-      bcByAggregate,
+      walkerModelOf({ bcByAggregate }),
     );
     // Keyed on the page's emit identity, not its bare name — see the React
     // sibling: two custom pages sharing a name across areas collapsed onto one

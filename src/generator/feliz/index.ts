@@ -11,6 +11,7 @@
 // `id` read from outside a page view fn (`update`/`init`).  A single-page ui
 // still emits the one flat root `view` with no routing table.
 
+import { buildFrontendHost } from "../../ir/contract/host.js";
 import { wireCode } from "../../ir/enrich/wire-policy.js";
 import { createRequestFields } from "../../ir/plan/create-request.js";
 import type {
@@ -28,7 +29,6 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { DEFAULT_SOURCE_LOCALE, sourceLocaleOf } from "../../ir/types/loom-ir.js";
-import { backendServesRealtime } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesDataGrid } from "../../ir/util/data-grid.js";
 import { felizComponentStateInit } from "../../ir/util/feliz-component-state-init.js";
@@ -36,10 +36,7 @@ import { typeIsFile } from "../../ir/util/file-field.js";
 import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
 import { menuMetaString } from "../../ir/util/page-menu.js";
 import { readableProjectionNames } from "../../ir/util/projection-read.js";
-import {
-  type RealtimeStreamCredential,
-  realtimeStreamCredential,
-} from "../../ir/util/realtime-rooms.js";
+import type { RealtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
@@ -76,8 +73,9 @@ import {
   pageNameEntry,
 } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
-import { bcByAggregateOf, type PagedQueryContext } from "../_walker/paged-query.js";
+import type { PagedQueryContext } from "../_walker/paged-query.js";
 import { walkBody } from "../_walker/walker-core.js";
+import { bcByAggregateOf, walkerModelOf } from "../_walker/walker-model.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import {
   AUTH_MODULE_CLAIMS,
@@ -567,9 +565,8 @@ function renderPageView(
     externComponents, // userComponents (extern only)
     ui.apiParams,
     aggregatesByName,
-    bcByAggregate, // form seams resolve enum-typed fields → <select> options
+    walkerModelOf({ bcByAggregate, bcByWorkflow }),
     workflowsByName, // WorkflowForm(runs:) resolves here
-    bcByWorkflow, // workflow-form enum resolution
     new Map(), // paramTypes
     new Map(), // pageRoutes
     externFunctionNames, // extern frontend function names
@@ -1259,7 +1256,7 @@ function shapeCtxOf(
   return {
     apiParamNames: new Set(ui.apiParams.map((p) => p.name)),
     aggregatesByName,
-    bcByAggregate: bcByAggregateOf(contexts),
+    model: walkerModelOf({ bcByAggregate: bcByAggregateOf(contexts) }),
   };
 }
 
@@ -2536,8 +2533,9 @@ export function generateFelizForContexts(
   // Auth gate (D-AUTH-OIDC, `auth: ui`): this feliz deployable opts in AND its
   // target backend enforces auth AND the system declares a `user { }` claim
   // shape — mirrors the React frontend's `authUi` gate.
+  const host = buildFrontendHost(sys, deployable);
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
-  const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
+  const authUi = host.authUi;
   const anyForm =
     formsForUi(ui, contexts).length > 0 ||
     operationFormsForUi(ui, contexts).length > 0 ||
@@ -2559,7 +2557,7 @@ export function generateFelizForContexts(
     authUi ||
     hasEffects ||
     hasFileUploads;
-  const backendRealtime = backendServesRealtime(target?.platform);
+  const backendRealtime = host.realtime.served;
   // `--sourcemap` (M-T8.1 / `ddd trace`): collected while `App.fs` is built,
   // anchored once it exists.  Feliz emits ONE file for the whole ui, so a page
   // is a REGION of `src/App.fs` rather than a file of its own.
@@ -2572,7 +2570,7 @@ export function generateFelizForContexts(
     backendRealtime,
     // Stream credential from the shared realtime plan (M-T4.12 RULE 2) — the
     // SAME gate the app's other authenticated traffic rides.
-    realtimeStreamCredential(deployable, target, sys.user),
+    host.realtime.credential,
     options.sourcemap ? (page, text) => pageViews.push({ page, text }) : undefined,
     sourceLocaleOf(sys),
     options.translations,

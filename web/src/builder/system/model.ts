@@ -1,9 +1,7 @@
 import { AstUtils, type AstNode } from "langium";
-import {
-  wireFieldsForAggregate,
-  wireFieldsForValueObject,
-} from "../../../../src/ir/enrich/wire-projection.js";
 import type { LoomModel, TraceabilityIR, TypeIR, WireField } from "../../../../src/ir/types/loom-ir.js";
+import { declaredResponseFor } from "../../../../src/ir/util/declared-response.js";
+import { responseWireFor, valueObjectWire } from "../../../../src/ir/util/response-wire.js";
 import type {
   Aggregate,
   Api,
@@ -250,10 +248,14 @@ function* wireOwners(
     ...loom.systems.flatMap((s) => s.subdomains.flatMap((m) => m.contexts)),
   ];
   for (const c of contexts) {
-    for (const a of c.aggregates)
-      yield { kind: "aggregate", name: a.name, wireShape: wireFieldsForAggregate(a) };
+    for (const a of c.aggregates) {
+      // The declared response record's rows; a context no deployable exposes
+      // has none.
+      const wireShape = declaredResponseFor(c.payloads, a) ? responseWireFor(c.payloads, a) : undefined;
+      yield { kind: "aggregate", name: a.name, wireShape };
+    }
     for (const v of c.valueObjects)
-      yield { kind: "valueobject", name: v.name, wireShape: wireFieldsForValueObject(v) };
+      yield { kind: "valueobject", name: v.name, wireShape: valueObjectWire(v) };
   }
 }
 

@@ -30,6 +30,7 @@ import {
   type WalkContext,
   type WalkResult,
 } from "../../_walker/walker-core.js";
+import { walkerModelOf } from "../../_walker/walker-model.js";
 import { angularWireType } from "../extern-components.js";
 import {
   type AngularFieldArraySpec,
@@ -489,9 +490,11 @@ export function renderAngularPage(input: AngularPageShellInput): string {
         usedParams: result.usedParams,
         apiParamNames: actionApiParamNames,
         aggregatesByName: input.aggregatesByName ?? new Map(),
-        bcByAggregate: input.bcByAggregate ?? new Map(),
+        model: walkerModelOf({
+          bcByAggregate: input.bcByAggregate ?? new Map(),
+          bcByWorkflow: input.bcByWorkflow ?? new Map(),
+        }),
         workflowsByName: input.workflowsByName ?? new Map(),
-        bcByWorkflow: input.bcByWorkflow ?? new Map(),
         // An action body may call an extern frontend function; register the use
         // into the SHARED result set so the import/member block below covers it
         // exactly like a main-body call.
@@ -1286,9 +1289,8 @@ function derivedCtx(
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),
-    bcByAggregate: new Map(),
+    model: walkerModelOf({}),
     workflowsByName: new Map(),
-    bcByWorkflow: new Map(),
     formOfs: [],
     actionMutations: [],
     collectedTestids: new Set(),

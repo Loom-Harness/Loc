@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { wireFieldsFor } from "../../src/ir/enrich/wire-projection.js";
 import { allAggregates } from "../../src/ir/types/loom-ir.js";
-import { buildLoomModel, enrichedContexts, reEnrich } from "../_helpers/index.js";
+import { valueObjectWire } from "../../src/ir/util/response-wire.js";
+import {
+  buildHostedModel,
+  buildLoomModel,
+  enrichedContexts,
+  reEnrich,
+  responseRows,
+} from "../_helpers/index.js";
 
 // enrichLoomModel runs one pure pass after lowering.  These tests pin the
 // two derivations every backend's DTO emitter and repository depend on:
@@ -23,10 +29,9 @@ const SRC = `
 
 describe("enrichment — wireShape", () => {
   it("orders fields id → declared properties → containments → derived", async () => {
-    const loom = await buildLoomModel(SRC);
+    const loom = await buildHostedModel(SRC);
     const order = allAggregates(loom).find((a) => a.name === "Order")!;
-    expect(wireFieldsFor(order), "Order.wireShape").toBeDefined();
-    const shape = wireFieldsFor(order);
+    const shape = responseRows(loom, order);
     expect(shape.map((f) => f.source)).toEqual([
       "id",
       "property",
@@ -46,11 +51,11 @@ describe("enrichment — wireShape", () => {
   });
 
   it("gives a contained part a wireShape whose first field is its id", async () => {
-    const loom = await buildLoomModel(SRC);
+    const loom = await buildHostedModel(SRC);
     const order = allAggregates(loom).find((a) => a.name === "Order")!;
     const line = order.parts.find((p) => p.name === "OrderLine")!;
-    expect(wireFieldsFor(line)[0]!.source).toBe("id");
-    expect(wireFieldsFor(line)[0]!.name).toBe("id");
+    expect(responseRows(loom, line)[0]!.source).toBe("id");
+    expect(responseRows(loom, line)[0]!.name).toBe("id");
   });
 
   it("a value object's wireShape carries neither an id nor a containment", async () => {
@@ -58,7 +63,7 @@ describe("enrichment — wireShape", () => {
     const money = enrichedContexts(loom)
       .flatMap((c) => c.valueObjects)
       .find((v) => v.name === "Money")!;
-    for (const f of wireFieldsFor(money)) {
+    for (const f of valueObjectWire(money)) {
       expect(f.source).not.toBe("id");
       expect(f.source).not.toBe("containment");
     }

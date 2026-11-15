@@ -602,14 +602,24 @@ export function renderJavaService(
         !!ctx.authed && (operationBodyUsesCurrentUser(op) || operationGatesUseCurrentUser(op));
       // Only what REMAINS of the body still takes the trailing argument.
       const passUser = !!ctx.authed && operationBodyUsesCurrentUser(op);
-      const args = [
-        ...op.params.map((p) =>
-          patch
-            ? `request.has(${JSON.stringify(p.name)}) ? ${localOf(opLocals, p.name)} : aggregate.${DOMAIN_NAMES.java.prop(p.name)}()`
-            : localOf(opLocals, p.name),
-        ),
-        ...(passUser ? ["currentUser"] : []),
-      ].join(", ");
+      // The value the call passes, which a post-load gate reads too: on a
+      // merge-patch update, the stored value for a key the body left out.
+      const argOf = (p: (typeof op.params)[number]): string =>
+        patch
+          ? `request.has(${JSON.stringify(p.name)}) ? ${localOf(opLocals, p.name)} : aggregate.${DOMAIN_NAMES.java.prop(p.name)}()`
+          : localOf(opLocals, p.name);
+      const rowGateLines = requiresGateLines(
+        op,
+        opLocals,
+        "row-reading",
+        patch
+          ? (n) => {
+              const p = op.params.find((q) => q.name === n);
+              return p ? `(${argOf(p)})` : undefined;
+            }
+          : undefined,
+      );
+      const args = [...op.params.map(argOf), ...(passUser ? ["currentUser"] : [])].join(", ");
       if (op.extern) {
         // Extern op (extern-domain-extension-point.md §3a): the op is a
         // real aggregate method now — it runs its preconditions, delegates to the
@@ -623,7 +633,7 @@ export function renderJavaService(
           ...rowFreeGateLines,
           ...lets,
           `        var aggregate = repository.getById(id);`,
-          ...requiresGateLines(op, opLocals, "row-reading"),
+          ...rowGateLines,
           ifMatchGuardFor(op),
           whenGateLine(op, opLocals),
           `        aggregate.${DOMAIN_NAMES.java.op(op.name)}(${args});`,
@@ -679,7 +689,7 @@ export function renderJavaService(
         ...rowFreeGateLines,
         ...lets,
         `        var aggregate = repository.getById(id);`,
-        ...requiresGateLines(op, opLocals, "row-reading"),
+        ...rowGateLines,
         ifMatchGuardFor(op),
         whenGateLine(op, opLocals),
         audited ? `        var __before = ${agg.name}Response.from(aggregate);` : null,

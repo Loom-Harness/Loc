@@ -1,13 +1,7 @@
-import {
-  type BoundedContextIR,
-  contextUsesMoney,
-  type WorkflowIR,
-} from "../../ir/types/loom-ir.js";
-import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
+import type { ContractWorkflow } from "../../ir/contract/frontend-contract.js";
+import type { BoundedContextIR, WorkflowIR } from "../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../util/naming.js";
-import { requestNamesForContexts } from "../_frontend/request-names.js";
-import { workflowResultSegment } from "../_frontend/workflow-result.js";
-import { collectSchemaDeps, hasAnyWorkflow } from "../_frontend/workflows-module.js";
+import { collectSchemaDeps, type WorkflowsModuleScope } from "../_frontend/workflows-module.js";
 import { zodForRequest, zodForResponse } from "../_frontend/zod-schemas.js";
 
 // ---------------------------------------------------------------------------
@@ -16,10 +10,6 @@ import { zodForRequest, zodForResponse } from "../_frontend/zod-schemas.js";
 // with the data layer swapped to @tanstack/svelte-query v6 (same
 // exported use* names).  Page objects come from the shared builders.
 // ---------------------------------------------------------------------------
-
-/** Whether the deployable's workflows API module has anything to emit — the
- *  shared gate (a command-startable or observable workflow exists). */
-export { hasAnyWorkflow };
 
 /** Gather every workflow with its owning context, sorted by name for
  *  stable emission. */
@@ -39,20 +29,22 @@ export function allWorkflows(
 // deployable.  One file at `src/lib/api/workflows.ts` aggregating them all.
 // ---------------------------------------------------------------------------
 
-export function buildWorkflowsApiModule(contexts: BoundedContextIR[]): string {
-  const workflows = allWorkflows(contexts);
+export function buildWorkflowsApiModule(
+  workflows: readonly ContractWorkflow[],
+  scope: WorkflowsModuleScope,
+): string {
   // Identifier bases minted against the deployable's whole universe so a
   // workflow's request schema cannot alias an aggregate's create/operation one
   // (`_frontend/request-names.ts`).
-  const names = requestNamesForContexts(contexts);
+  const { names } = scope;
   // Observable workflows (a persisted correlation-state row) get read-only
   // instance query hooks (workflow-instance-visibility.md) — `useQuery` is
   // only imported when at least one exists, so a saga-less project's module
   // stays byte-identical.
-  const anyInstances = workflows.some(({ wf }) => wf.instanceWireShape);
+  const anyInstances = workflows.some((wf) => wf.instance);
   // Only a command-startable workflow gets a request schema + mutation — an
   // event-only saga has no `POST /workflows/<wf>` route on any backend.
-  const anyCommands = workflows.some(({ wf }) => emitsCommandRoute(wf));
+  const anyCommands = workflows.some((wf) => wf.params);
   const factories = [anyCommands ? "createMutation" : "", anyInstances ? "createQuery" : ""].filter(
     Boolean,
   );
@@ -61,10 +53,10 @@ export function buildWorkflowsApiModule(contexts: BoundedContextIR[]): string {
   lines.push(`import { z } from "zod";`);
   lines.push(`import { ${factories.join(", ")} } from "@tanstack/svelte-query";`);
   lines.push(`import { api, seg } from "./client";`);
-  if (contexts.some(contextUsesMoney)) {
+  if (scope.usesMoney) {
     lines.push(`import { moneySchema } from "../schemas";`);
   }
-  const { imports: schemaImports, locals: schemaLocals } = collectSchemaDeps(workflows);
+  const { imports: schemaImports, locals: schemaLocals } = collectSchemaDeps(workflows, scope);
   lines.push(...schemaImports);
   lines.push("");
   if (schemaLocals.length > 0) {
@@ -72,9 +64,9 @@ export function buildWorkflowsApiModule(contexts: BoundedContextIR[]): string {
     lines.push("");
   }
 
-  for (const { wf } of workflows) {
-    if (!emitsCommandRoute(wf)) {
-      if (wf.instanceWireShape) lines.push(...emitInstanceHooks(wf));
+  for (const wf of workflows) {
+    if (!wf.params) {
+      if (wf.instance) lines.push(...emitInstanceHooks(wf));
       continue;
     }
     const base = names.workflow(wf.name);
@@ -89,7 +81,7 @@ export function buildWorkflowsApiModule(contexts: BoundedContextIR[]): string {
     lines.push(`  return createMutation(() => ({`);
     lines.push(`    mutationFn: async (input: ${base}Request) => {`);
     lines.push(
-      workflowResultSegment(wf)
+      wf.resultSegment
         ? `      return String(await api.post(\`/workflows/${snake(wf.name)}\`, input));`
         : `      await api.post(\`/workflows/${snake(wf.name)}\`, input);`,
     );
@@ -97,7 +89,7 @@ export function buildWorkflowsApiModule(contexts: BoundedContextIR[]): string {
     lines.push(`  }));`);
     lines.push(`}`);
     lines.push("");
-    if (wf.instanceWireShape) {
+    if (wf.instance) {
       lines.push(...emitInstanceHooks(wf));
     }
   }
@@ -110,16 +102,14 @@ export function buildWorkflowsApiModule(contexts: BoundedContextIR[]): string {
  *  `<Wf>InstanceListResponse` Zod schemas (the React mirror of the Hono DTOs)
  *  plus `useAll<Wf>Instances()` / `use<Wf>InstanceById(id)` — the same
  *  react-query shape as an aggregate's `useAll<Agg>` / `use<Agg>ById`. */
-function emitInstanceHooks(wf: WorkflowIR): string[] {
+function emitInstanceHooks(wf: ContractWorkflow): string[] {
   const T = upperFirst(wf.name);
   const slug = snake(wf.name);
   const key = `["workflow_instances", "${slug}"]`;
   const lines: string[] = [];
   lines.push(`export const ${T}InstanceResponse = z.object({`);
-  for (const f of wf.instanceWireShape ?? []) {
-    lines.push(
-      `  ${f.name}: ${f.source === "id" ? "z.string()" : zodForResponse(f.type, f.optional)},`,
-    );
+  for (const f of wf.instance ?? []) {
+    lines.push(`  ${f.name}: ${f.id ? "z.string()" : zodForResponse(f.type, f.optional)},`);
   }
   lines.push(`});`);
   lines.push(`export type ${T}InstanceResponse = z.infer<typeof ${T}InstanceResponse>;`);

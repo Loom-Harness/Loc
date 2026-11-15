@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { wireFieldsFor } from "../../../src/ir/enrich/wire-projection.js";
 import { allAggregates } from "../../../src/ir/types/loom-ir.js";
 import {
   buildWireSpec,
   jsonPropertyForType,
   renderWireSpec,
 } from "../../../src/system/wire-spec.js";
-import { buildLoomModel, loadExampleModel, toLoomModel } from "../../_helpers/index.js";
+import {
+  buildHostedModel,
+  buildLoomModel,
+  loadExampleModel,
+  responseRows,
+  toLoomModel,
+} from "../../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
 // Wire-spec snapshot.  Locks the public format of
@@ -133,7 +138,7 @@ describe("wire-spec — primitive mappings", () => {
   });
 
   it("end-to-end: a money field on an aggregate flows through lowering → enrichment → wireShape as money", async () => {
-    const loom = await buildLoomModel(`
+    const loom = await buildHostedModel(`
       context Billing {
         aggregate Invoice {
           subtotal: money
@@ -143,13 +148,13 @@ describe("wire-spec — primitive mappings", () => {
     `);
     const inv = allAggregates(loom).find((a) => a.name === "Invoice");
     expect(inv).toBeDefined();
-    const subtotal = wireFieldsFor(inv!).find((f) => f.name === "subtotal");
+    const subtotal = responseRows(loom, inv!).find((f) => f.name === "subtotal");
     expect(subtotal).toBeDefined();
     expect(subtotal!.type).toEqual({ kind: "primitive", name: "money" });
   });
 
   it("id row is guid → uuid (the only aggregate id kind Loom emits)", async () => {
-    const loom = await buildLoomModel(`
+    const loom = await buildHostedModel(`
       context Support {
         aggregate Note {
           body: string
@@ -158,7 +163,7 @@ describe("wire-spec — primitive mappings", () => {
       }
     `);
     const note = allAggregates(loom).find((a) => a.name === "Note")!;
-    const idRow = wireFieldsFor(note).find((f) => f.name === "id")!;
+    const idRow = responseRows(loom, note).find((f) => f.name === "id")!;
     expect(jsonPropertyForType(idRow.type)).toEqual({ type: "string", format: "uuid" });
   });
 });

@@ -1,4 +1,8 @@
-import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
+import type {
+  ContractProjection,
+  ContractWorkflow,
+  FrontendContract,
+} from "../../ir/contract/frontend-contract.js";
 import type { TypeIR } from "../../ir/types/loom-ir.js";
 
 /** The Frontend Contract a frontend generation reads.  Every caller — the
@@ -59,4 +63,22 @@ export function clientFinds(
 /** Whether `aggregate` serves its entity-history trail. */
 export function servesHistory(contract: FrontendContract, aggregate: string): boolean {
   return contract.wire.aggregates.some((a) => a.name === aggregate && a.history === true);
+}
+
+/** The workflows a client of `contexts` starts or observes, by name. */
+export function clientWorkflows(
+  contract: FrontendContract,
+  contexts: Iterable<string>,
+): ContractWorkflow[] {
+  const served = new Set(contexts);
+  return contract.wire.workflows.filter((w) => served.has(w.context));
+}
+
+/** The projections a client of `contexts` reads, in declaration order. */
+export function clientProjections(
+  contract: FrontendContract,
+  contexts: Iterable<string>,
+): ContractProjection[] {
+  const served = new Set(contexts);
+  return contract.wire.projections.filter((p) => served.has(p.context));
 }

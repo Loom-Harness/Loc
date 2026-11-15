@@ -1,3 +1,5 @@
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
+import { buildFrontendHost } from "../../ir/contract/host.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -13,12 +15,10 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { contextUsesMoney, sourceLocaleOf } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
-import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
 import { menuMetaString } from "../../ir/util/page-menu.js";
 import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
-import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
@@ -32,6 +32,11 @@ import {
   HIGHLIGHT_THEME_ANGULAR_STYLE,
 } from "../_frontend/code-highlight.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
+import {
+  clientProjections,
+  clientWorkflows,
+  requireFrontendContract,
+} from "../_frontend/contract.js";
 import {
   E2E_PACKAGE_JSON_ANGULAR,
   E2E_TSCONFIG_JSON,
@@ -65,13 +70,14 @@ import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
 import { prepareThemeVM } from "../_frontend/theme-preparer.js";
 import { DOM_TOAST_SOURCE, uiUsesToastEffect } from "../_frontend/toast-effect.js";
 import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
-import { hasAnyWorkflow } from "../_frontend/workflows-module.js";
+import { workflowsModuleScope } from "../_frontend/workflows-module.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { HAND_BUILT_FORM_SENTENCES } from "../_walker/i18n-chrome.js";
 import { collectUiMessages, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import { buildAngularApiModule } from "./api-module.js";
 import { renderAngularChartRuntime } from "./chart-runtime.js";
@@ -86,7 +92,7 @@ import {
   renderAngularLocaleSignal,
   renderAngularLocaleSwitcher,
 } from "./locale-switcher.js";
-import { buildAngularProjectionsModule, hasReadableProjections } from "./projections-module.js";
+import { buildAngularProjectionsModule } from "./projections-module.js";
 import {
   buildAngularRealtimeHandlers,
   buildAngularToastService,
@@ -138,6 +144,9 @@ export interface GenerateAngularOptions {
    *  generated i18n shim, under the SAME `i18nEnabled` gate as `en.json`.
    *  Absent / empty is the normal case → byte-identical output. */
   translations?: TranslationCatalogs;
+  /** The system's Frontend Contract (`src/ir/contract/`).  Every caller
+   *  passes it; see `requireFrontendContract`. */
+  frontendContract?: FrontendContract;
 }
 
 const DEFAULT_DESIGN = "angularMaterial@v1";
@@ -158,6 +167,8 @@ export function generateAngularForContexts(
     resolvePackDir(deployable.design ?? DEFAULT_DESIGN, deployable.designBaseDir),
   );
 
+  const host = buildFrontendHost(sys, deployable);
+  const contract = requireFrontendContract(options.frontendContract, host.deployable);
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   const apiBaseUrl = options.apiBaseUrl ?? API_BASE_PATH;
   // Dev fallback for the static server's `/api` reverse proxy.  Compose
@@ -190,7 +201,7 @@ export function generateAngularForContexts(
   }
   const hasDelete = aggregates.some((a) => !!canonicalDestroy(a.agg));
   const usesMoney = contexts.some(contextUsesMoney);
-  const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
+  const authUi = host.authUi;
   // Hoisted above the project shell: the shell's package.json / angular.json /
   // main.ts all gate on whether this ui renders a `CodeBlock`.
   const ui = deployable.uiName ? sys.uis.find((u) => u.name === deployable.uiName) : undefined;
@@ -307,7 +318,7 @@ export function generateAngularForContexts(
     // sentence chrome.
     const formScope = {
       layouts: sys.layouts,
-      contexts,
+      model: walkerModelOf({ contexts }),
       sentences: HAND_BUILT_FORM_SENTENCES.rows,
       implicitModelText: angularTarget.modelTextImplicitSites === true,
       sessionView: authUi,
@@ -492,9 +503,8 @@ export function generateAngularForContexts(
         userComponentParams,
         ui?.apiParams ?? [],
         aggregatesIRByName,
-        bcByAggregate,
+        walkerModelOf({ bcByAggregate, bcByWorkflow }),
         workflowsByName,
-        bcByWorkflow,
         new Map(),
         pageRoutes,
         externFunctionNames,
@@ -627,9 +637,7 @@ export function generateAngularForContexts(
   // ui additionally declares `on <channel>.<Event>` handlers, emit the
   // renderless RealtimeHandlersComponent + the minimal toast service, and
   // the app shell mounts the component (`hasRealtimeHandlers`).
-  const realtimeTypes = backendServesRealtime(target?.platform)
-    ? [...new Set(contexts.flatMap((c) => [...realtimeEventTypes(c)]))].sort()
-    : [];
+  const realtimeTypes = host.realtime.eventTypes;
   if (realtimeTypes.length > 0) {
     out.set(
       "src/api/realtime.ts",
@@ -637,11 +645,7 @@ export function generateAngularForContexts(
       // SAME `auth: ui` / `auth: required` gate the api client's
       // `credentials: "include"` rides, so the SSE stream authenticates exactly
       // like an ordinary API call instead of 401-ing on an authenticated deployable.
-      renderRealtimeClient(
-        realtimeTypes,
-        "API_BASE_URL",
-        realtimeStreamCredential(deployable, target, sys.user),
-      ),
+      renderRealtimeClient(realtimeTypes, "API_BASE_URL", host.realtime.credential),
     );
   }
   const hasRealtimeHandlers = realtimeTypes.length > 0 && (ui?.notifications?.length ?? 0) > 0;
@@ -803,8 +807,15 @@ export function generateAngularForContexts(
   // React/Vue zod modules: TanStack `injectQuery` / `injectMutation` off an
   // `@Injectable` service.  Emitted only when the served contexts declare any
   // workflow, so a plain project's tree is unchanged.
-  if (hasAnyWorkflow(contexts)) {
-    out.set("src/api/workflows.ts", buildAngularWorkflowsModule(contexts));
+  const clientWfs = clientWorkflows(
+    contract,
+    contexts.map((c) => c.name),
+  );
+  if (clientWfs.length > 0) {
+    out.set(
+      "src/api/workflows.ts",
+      buildAngularWorkflowsModule(clientWfs, workflowsModuleScope(contexts)),
+    );
   }
 
   // Query-time projection clients (M-T1.3).  Angular FORKS the shared
@@ -814,8 +825,12 @@ export function generateAngularForContexts(
   // header for the rule, and this one's for the four divergences).  Emitted
   // only when the deployable serves a readable projection, so a
   // projection-free app stays byte-identical.
-  if (hasReadableProjections(contexts)) {
-    out.set("src/api/projections.ts", buildAngularProjectionsModule(contexts));
+  const clientProjs = clientProjections(
+    contract,
+    contexts.map((c) => c.name),
+  );
+  if (clientProjs.length > 0) {
+    out.set("src/api/projections.ts", buildAngularProjectionsModule(clientProjs));
   }
 
   // --- Playwright e2e harness (angular-frontend-plan.md) -------

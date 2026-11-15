@@ -34,6 +34,7 @@ import {
 import { baseAliases, localeEntries } from "../_frontend/locale-meta.js";
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
 import { HAND_BUILT_FORM_SENTENCES } from "../_walker/i18n-chrome.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 import { fsString } from "./fs-expr.js";
 
 /** The npm dependency the ICU half needs — the same engine, at the same pin,
@@ -128,7 +129,7 @@ export function renderFelizI18nModule(
   authGate = false,
 ): string {
   const scope = {
-    contexts,
+    model: walkerModelOf({ contexts }),
     sentences: HAND_BUILT_FORM_SENTENCES.rows,
     implicitModelText: true,
     pageNames: "navbar" as const,

@@ -64,11 +64,28 @@ describe("agent-tool catalog", () => {
     expect(sales).toBeDefined();
     const order = sales?.aggregates.find((a) => a.name === "Order");
     expect(order?.context).toBe("Sales");
-    // Wire shape leads with the id token, then the declared `total: int`.
-    expect(order?.wire.some((f) => f.source === "id")).toBe(true);
-    const total = order?.wire.find((f) => f.name === "total");
+    // A loose context is exposed by no deployable, so nothing serves a wire;
+    // its members still describe the aggregate: the id token, then the
+    // declared `total: int`.
+    expect(order?.wire).toEqual([]);
+    expect(order?.members.some((f) => f.source === "id")).toBe(true);
+    const total = order?.members.find((f) => f.name === "total");
     expect(total?.type).toBe("int");
     expect(total?.source).toBe("property");
+  });
+
+  it("loom_read_model's wire is the exposed record; members keep what the wire hides", async () => {
+    const source = `system S {
+  subdomain M { context Sales { aggregate Order { total: int  note: string internal } } }
+  storage pg { type: postgres }
+  resource st { for: Sales, kind: state, use: pg }
+  deployable api { platform: node contexts: [Sales] dataSources: [st] port: 8080 }
+}`;
+    const mv = (await callTool("loom_read_model", { source })) as ModelView;
+    const order = mv.systems.flatMap((s) => s.aggregates).find((a) => a.name === "Order");
+    expect(order?.wire.map((f) => f.name)).toEqual(["id", "total", "rowVersion"]);
+    // An `internal` field never crosses the wire, but it is still a member.
+    expect(order?.members.map((f) => f.name)).toContain("note");
   });
 
   it("loom_read_model returns an empty view for a source that can't lower", async () => {

@@ -74,6 +74,7 @@ import {
   tryRenderNavigateCall,
   type WalkContext,
 } from "../_walker/walker-core.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 import { copyWithChain } from "./copy-with.js";
 import { coerceDartMoneyInit, dartString, dartZeroValue, isMoneyType } from "./dart-expr.js";
 import { dartMember } from "./dart-member.js";
@@ -164,9 +165,8 @@ export function stateCtx(opts: {
     lambdaParams: locals,
     shellLocals: new Set(),
     aggregatesByName,
-    bcByAggregate: new Map(),
+    model: walkerModelOf({}),
     workflowsByName: new Map(),
-    bcByWorkflow: new Map(),
     formOfs: [],
     sink: {},
     actionMutations: [],

@@ -6,8 +6,7 @@
 // trigger surface onto the operation state its Form child just pushed,
 // so it must share the same sink and live alongside the form emitters.
 
-import { createRequestFields } from "../../../ir/plan/create-request.js";
-import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import type { AggregateIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { operationFormParams } from "../../../ir/util/op-gates.js";
 import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
@@ -31,7 +30,7 @@ import {
 } from "../../_frontend/form-helpers.js";
 import { optionalGroupRendererFor } from "../../_frontend/form-optional-group.js";
 import { rowBinderFor } from "../../_frontend/form-row-binding.js";
-import { formSpecEnvOf, operationFormSpec } from "../../_frontend/form-spec.js";
+import { operationFormSpec } from "../../_frontend/form-spec.js";
 import { frontendRequestNames } from "../../_frontend/request-names.js";
 import { serverSourcedDefaultFields } from "../../_frontend/server-default.js";
 import type { FormFieldVM } from "../../_frontend/view-models.js";
@@ -81,6 +80,7 @@ import {
   testidAttr,
   walk,
 } from "../walker-core.js";
+import type { WalkerHome } from "../walker-model.js";
 import { emitActionThen } from "./controls.js";
 import { selectPlaceholderAttr } from "./inputs.js";
 
@@ -100,9 +100,9 @@ import { selectPlaceholderAttr } from "./inputs.js";
 function formStateTypeFor(
   action: string,
   fields: readonly { type: TypeIR }[],
-  bc: BoundedContextIR,
+  home: WalkerHome,
 ): string | undefined {
-  return fields.some((f) => typeReachesMoney(f.type, bc)) ? `${action}FormState` : undefined;
+  return fields.some((f) => typeReachesMoney(f.type, home)) ? `${action}FormState` : undefined;
 }
 
 export function emitCreateForm(
@@ -368,8 +368,8 @@ function emitFormOfOperationByName(
   opName: string,
 ): string {
   const agg = ctx.aggregatesByName.get(aggName);
-  const bc = ctx.bcByAggregate.get(aggName);
-  if (!agg || !bc) {
+  const home = ctx.model.homeOfAggregate(aggName);
+  if (!agg || !home) {
     return giveUp(
       ctx.target,
       "loom.page-ref-unreachable",
@@ -396,12 +396,12 @@ function emitFormOfOperationByName(
     ctx,
     fields,
     fieldsForHelpers,
-    bc,
+    home,
     testidNamespace,
     undefined,
     (name) => paramLabelOwner(agg, name),
   );
-  const opLabel = opModelText(ctx, bc, agg.name, op.name);
+  const opLabel = opModelText(ctx, home, agg.name, op.name);
   addImport(
     ctx,
     `../api/${lowerFirst(agg.name)}`,
@@ -411,7 +411,7 @@ function emitFormOfOperationByName(
   ctx.collectedTestids.add(testidNamespace);
   ctx.collectedTestids.add(`${testidNamespace}-form`);
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
-  const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, fields, bc);
+  const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, fields, home);
   if (opFormStateType) addTypeImport(ctx, `../api/${lowerFirst(agg.name)}`, opFormStateType);
   const gate = opGateFor(ctx, agg, op);
   if (gate) addImport(ctx, `../api/${lowerFirst(agg.name)}`, gate.hook);
@@ -423,7 +423,7 @@ function emitFormOfOperationByName(
     ...opDialogChromeLabels(ctx, op.name),
     agg,
     op,
-    bc,
+    home,
     formStateType: opFormStateType,
     fields,
     idExpr: routeIdExpr(ctx),
@@ -478,7 +478,7 @@ function prepareFormFields(
   ctx: WalkContext,
   fields: { name: string; type: TypeIR }[],
   fieldsForHelpers: { name: string; type: TypeIR; optional: boolean; default?: ExprIR }[],
-  bc: BoundedContextIR,
+  home: WalkerHome,
   testidNamespace: string,
   seedRecordVar: string | undefined,
   /** The model type each input's label is keyed under (by input name), for
@@ -490,21 +490,21 @@ function prepareFormFields(
   defaultValuesSeed?: string,
 ): PreparedForm {
   const aggregatesByNameMut = new Map(ctx.aggregatesByName);
-  const idTargets = idTargetsInFields(fieldsForHelpers, bc, aggregatesByNameMut);
-  const useController = needsController(fieldsForHelpers, bc, aggregatesByNameMut);
+  const idTargets = idTargetsInFields(fieldsForHelpers, home, aggregatesByNameMut);
+  const useController = needsController(fieldsForHelpers, home, aggregatesByNameMut);
   // A `this.<field>` op-param default seeds as `<seedRecordVar>.<field>` only
   // when the caller passes a record var in scope at the seed site (op forms on
   // record-threading packs); otherwise it falls back to the type-zero seed.
   const defaultValuesTs =
-    defaultValuesSeed ?? initialValuesTs(fieldsForHelpers, bc, { recordVar: seedRecordVar });
+    defaultValuesSeed ?? initialValuesTs(fieldsForHelpers, home, { recordVar: seedRecordVar });
   const fieldVMs = fields.map((f) =>
     prepareFormFieldVM(
       f.name,
       f.type,
-      bc,
+      home,
       `${testidNamespace}-input-${f.name}`,
       aggregatesByNameMut,
-      ctx.bcByAggregate,
+      ctx.model,
       labelOwnerOf(f.name),
     ),
   );
@@ -699,8 +699,8 @@ function emitFormOfAggregate(
     );
   }
   const agg = ctx.aggregatesByName.get(aggName);
-  const bc = ctx.bcByAggregate.get(aggName);
-  if (!agg || !bc) {
+  const home = ctx.model.homeOfAggregate(aggName);
+  if (!agg || !home) {
     return giveUp(
       ctx.target,
       "loom.page-ref-unreachable",
@@ -718,7 +718,7 @@ function emitFormOfAggregate(
   // An optional value object is the exception: it renders as an opt-in group
   // that submits `null` until the user adds it, so the create form offers the
   // same group the update form does.
-  const request = createRequestFields(bc.payloads, agg);
+  const request = ctx.model.createRequestFields(home, agg);
   const fields = request.filter(
     (f) => !f.optional || (f.type.kind === "optional" && f.type.inner.kind === "valueobject"),
   );
@@ -730,7 +730,7 @@ function emitFormOfAggregate(
     ctx,
     fields,
     fields,
-    bc,
+    home,
     testidNamespace,
     undefined,
     () => agg.name,
@@ -764,14 +764,14 @@ function emitFormOfAggregate(
   // request — and that is also the set its `dualTypeAliases` gate reads.  An
   // aggregate whose only money field is OPTIONAL takes the dual alias, so the
   // filtered list would disagree with the schema.
-  const createFormStateType = formStateTypeFor(`Create${agg.name}`, request, bc);
+  const createFormStateType = formStateTypeFor(`Create${agg.name}`, request, home);
   if (createFormStateType) {
     addTypeImport(ctx, `../api/${lowerFirst(agg.name)}`, createFormStateType);
   }
   ctx.formOfs.push({
     kind: "aggregate",
     agg,
-    bc,
+    home,
     formStateType: createFormStateType,
     fields,
     idTargets: prepared.idTargets,
@@ -792,7 +792,7 @@ function emitFormOfAggregate(
         : "",
     redirectStmt: `navigate(\`/${slug}/\${out.id}\`)`,
     submitPendingExpr: "create.isPending",
-    submitLabel: opModelText(ctx, bc, agg.name, "create")?.markup ?? "Create",
+    submitLabel: opModelText(ctx, home, agg.name, "create")?.markup ?? "Create",
   });
 }
 
@@ -820,8 +820,8 @@ function emitFormRuns(
     );
   }
   const workflow = ctx.workflowsByName.get(wfName);
-  const bc = ctx.bcByWorkflow.get(wfName);
-  if (!workflow || !bc) {
+  const home = ctx.model.homeOfWorkflow(wfName);
+  if (!workflow || !home) {
     return giveUp(
       ctx.target,
       "loom.page-ref-unreachable",
@@ -840,7 +840,7 @@ function emitFormRuns(
     ctx,
     fields,
     fieldsForHelpers,
-    bc,
+    home,
     testidNamespace,
     undefined,
     () => workflow.name,
@@ -862,13 +862,13 @@ function emitFormRuns(
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
   const onSubmitJs = emitFormOnSubmit(ctx, call, prepared.idTargets, "run");
   const resultSegment = workflowResultSegment(workflow);
-  const wfFormStateType = formStateTypeFor(wfPascalForImport, fields, bc);
+  const wfFormStateType = formStateTypeFor(wfPascalForImport, fields, home);
   if (wfFormStateType) addTypeImport(ctx, "../api/workflows", wfFormStateType);
   ctx.formOfs.push({
     kind: "workflow",
     workflow,
     requestBase: wfPascalForImport,
-    bc,
+    home,
     formStateType: wfFormStateType,
     fields,
     idTargets: prepared.idTargets,
@@ -893,7 +893,7 @@ function emitFormRuns(
       ? `navigate(\`/${resultSegment}/\${out}\`)`
       : `navigate("/workflows")`,
     submitPendingExpr: "run.isPending",
-    submitLabel: workflowRunModelText(ctx, bc, workflow.name) ?? "Run",
+    submitLabel: workflowRunModelText(ctx, home, workflow.name) ?? "Run",
   });
 }
 
@@ -930,8 +930,8 @@ function emitFormOfOperation(
     );
   }
   const agg = ctx.aggregatesByName.get(aggName);
-  const bc = ctx.bcByAggregate.get(aggName);
-  if (!agg || !bc) {
+  const home = ctx.model.homeOfAggregate(aggName);
+  if (!agg || !home) {
     return giveUp(
       ctx.target,
       "loom.page-ref-unreachable",
@@ -970,11 +970,7 @@ function emitFormOfOperation(
   // The form's spec also prefills every param named and typed like one of the
   // aggregate's fields from the record (an update form opens on the current
   // values), so the record is threaded for that too.
-  const spec = operationFormSpec(
-    agg,
-    op,
-    formSpecEnvOf(bc, ctx.aggregatesByName, ctx.bcByAggregate),
-  );
+  const spec = operationFormSpec(agg, op, ctx.model.formSpecEnv(home, ctx.aggregatesByName));
   const wantsRecord =
     ctx.pack.manifest.seedsOpFormRecord === true &&
     (spec.prefillsFromRecord || fieldsForHelpers.some((f) => defaultUsesThis(f.default)));
@@ -986,13 +982,13 @@ function emitFormOfOperation(
     ctx,
     fields,
     fieldsForHelpers,
-    bc,
+    home,
     testidNamespace,
     seedRecordVar,
     (name) => paramLabelOwner(agg, name),
-    formSeedTs(spec, bc, { recordVar: seedRecordVar }),
+    formSeedTs(spec, home, { recordVar: seedRecordVar }),
   );
-  const opLabel = opModelText(ctx, bc, agg.name, op.name);
+  const opLabel = opModelText(ctx, home, agg.name, op.name);
   addImport(
     ctx,
     `../api/${lowerFirst(agg.name)}`,
@@ -1010,7 +1006,7 @@ function emitFormOfOperation(
   ctx.collectedTestids.add(testidNamespace);
   ctx.collectedTestids.add(`${testidNamespace}-form`);
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
-  const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, fields, bc);
+  const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, fields, home);
   if (opFormStateType) addTypeImport(ctx, `../api/${lowerFirst(agg.name)}`, opFormStateType);
   const gate = opGateFor(ctx, agg, op);
   if (gate) addImport(ctx, `../api/${lowerFirst(agg.name)}`, gate.hook);
@@ -1022,7 +1018,7 @@ function emitFormOfOperation(
     ...opDialogChromeLabels(ctx, op.name),
     agg,
     op,
-    bc,
+    home,
     formStateType: opFormStateType,
     fields,
     idExpr,

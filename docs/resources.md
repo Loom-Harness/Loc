@@ -383,7 +383,7 @@ context — the `GET /{id}` read — in the bound storage, and evicts it on ever
 write.  Lists, `findAll`, criterion and paged reads always go to the database.
 
 ```ddd
-storage hotCache { type: redis }   // or `type: inMemory` (one process)
+storage hotCache { type: redis }   // or `type: inMemory` (one deployable, one process)
 resource catalogCache { for: Catalog, kind: cache, use: hotCache, keyPrefix: "shop", ttl: 120 }
 deployable api { platform: node, contexts: [Catalog], dataSources: [catalogState, catalogCache], … }
 ```
@@ -407,6 +407,17 @@ backend composes a key or an eviction set of its own
   (create, update, operation, workflow / handler / reactor write, soft delete)
   or `delete`; both evict the id's whole entry, every scope at once.
 - **ttl** — `ttl:` seconds, default 60.
+- **Entry** — one envelope on every backend, so backends sharing a redis read
+  each other's entries: the value under the key is a JSON object mapping each
+  scope fingerprint to `{"body": "<the wire answer's JSON text>", "etag":
+  "<tag>" | null}`.  A hit answers the stored body and sends a non-null tag
+  as `etag`.  An entry that is not a JSON object, or an answer that is not
+  such a pair (or whose body is not JSON text), is a miss: the read goes to
+  the database and its write replaces the unreadable value.
+- **`inMemory` bound** — at most 10 000 entries (one per id).  A write that
+  finds the store full drops the expired entries first and is skipped when it
+  is still full; a read drops the expired entry it finds.  No backend runs a
+  sweep timer.
 
 An aggregate whose answer depends on **other rows** — an `exists` row rule, a
 policy function over a referenced row, a field followed through an `X id` — is
@@ -420,14 +431,32 @@ eviction is logged (`cache_unavailable`) and expires at its ttl.
 
 | backend | store client (`redis` / `inMemory`) | eviction |
 |---|---|---|
-| node | `ioredis` / a `Map` with expiry (`cache/by-id-cache.ts`) | `save` / `delete` of every repository class, wrapped once at `createApp` |
-| .NET | `StackExchange.Redis` / a `ConcurrentDictionary` with expiry (`Infrastructure/Caching/ByIdCache.cs`) | a `DispatchProxy` decorator over `I<Agg>Repository`, registered in DI |
-| Java | Lettuce / a `ConcurrentHashMap` with expiry (`config/ByIdCaches.java`) | the repository's `save` / `delete`, after commit when a transaction is active |
-| Python | `redis.asyncio` / a dict with expiry (`app/by_id_cache.py`) | the repository's `save` / `delete`, wrapped at app startup |
-| Phoenix | `Redix` / an ETS table with expiry (`lib/<app>/by_id_cache.ex`) | the repository's insert / update / delete, after commit through `PostCommit` |
+| node | `ioredis` / a bounded `Map` with expiry (`cache/by-id-cache.ts`) | `save` / `delete` of every repository class, wrapped once at `createApp` |
+| .NET | `StackExchange.Redis` / a bounded `ConcurrentDictionary` with expiry (`Infrastructure/Caching/ByIdCache.cs`) | a `DispatchProxy` decorator over `I<Agg>Repository`, registered in DI |
+| Java | Lettuce / a bounded `ConcurrentHashMap` with expiry (`config/ByIdCaches.java`) | the repository's `save` / `delete`, after commit when a transaction is active |
+| Python | `redis.asyncio` / a bounded dict with expiry (`app/by_id_cache.py`) | the repository's `save` / `delete`, wrapped at app startup |
+| Phoenix | `Redix` / a bounded ETS table with expiry (`lib/<app>/by_id_cache.ex`) | the repository's insert / update / delete, after commit through `PostCommit` |
 
-A backend that sends an `ETag` on `GET /{id}` (node) stores it beside the
-body; the others send none and store the body alone.  A deployable that does not list the cache resource reads the database.
+A backend that sends an `ETag` on `GET /{id}` (node) stores it in the
+answer; the others store `null`.
+
+**Every writer evicts.** Eviction runs in the process that writes, so the
+validator refuses the topologies in which a write could leave a cached answer
+stale:
+
+- `loom.cache-writer-not-evicting` — a deployable hosts the cached context on
+  the database the cache is filled from but does not list the cache resource.
+  List it: the deployable then evicts on every write.
+- `loom.cache-in-memory-shared` — an `inMemory` cache resource is listed by
+  more than one deployable.  Each process keeps its own map; use a `redis`
+  storage instead.
+
+An `inMemory` store is per process, so a deployable that lists one runs as a
+single instance.  The Helm chart refuses to render it with `replicas` above 1.
+The raw `k8s/` manifests pin `replicas: 1`, and the dev compose runs one
+container per service; scaling either by hand (editing the manifest,
+`docker compose up --scale`) is outside what the generator can check, so
+keeping one instance there is the operator's job.
 
 The node read, for `Item with tenantOwned` and a `cost` masked unless
 `currentUser.role == "manager"`:
@@ -439,11 +468,11 @@ const __hit = await itemCache.read(id, __scope);
 if (__hit) {
   if (__hit.etag !== null) c.header("etag", __hit.etag);
   c.header("x-loom-cache", "hit");
-  return c.json(JSON.parse(__hit.body) as z.infer<typeof ItemResponse>, 200);
+  return c.json(__hit.wire as z.infer<typeof ItemResponse>, 200);
 }
 const found = await repo.findById(Ids.ItemId(id));
 // … 404, masks, etag …
-await itemCache.write(id, __scope, { body: JSON.stringify(out), etag: versionETag(found.rowVersion) });
+await itemCache.write(id, __scope, JSON.stringify(out), versionETag(found.rowVersion));
 c.header("x-loom-cache", "miss");
 ```
 

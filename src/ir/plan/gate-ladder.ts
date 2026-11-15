@@ -26,9 +26,16 @@
 // takes the gates of each rung from `ladderGates` — it never re-partitions a
 // gate list itself (`test/system/gate-ladder-census.test.ts`).
 
-import type { OperationIR } from "../types/loom-ir.js";
-import { lifecycleGates, operationGates, type RequiresStmtIR } from "../util/op-gates.js";
+import type { AggregateIR, BoundedContextIR, OperationIR } from "../types/loom-ir.js";
+import { isMergePatchUpdate } from "../util/merge-patch.js";
+import {
+  lifecycleGates,
+  operationGates,
+  type RequiresStmtIR,
+  splitLeadingGates,
+} from "../util/op-gates.js";
 import { walkExprDeep } from "../util/walk.js";
+import { type PolymorphicReadGate, polymorphicReadGates } from "./repo-polymorphic.js";
 
 /** One rung of the ladder. */
 export type GateStep =
@@ -67,13 +74,22 @@ export type GateCheck =
 
 /** The ordered checks a route renders around an operation on a loaded row:
  *  the row-independent `requires` gates, the load, the row-reading gates,
- *  the version check (when the route reads `If-Match`), then `when`. */
+ *  the version check (when the route reads `If-Match`), then `when`.  A
+ *  merge-patch `update` (RS-47) partitions its gates by
+ *  {@link mergePatchUpdateLadder}: a gate that reads a parameter reads the
+ *  merged value, so it runs after the load like a row-reading one. */
 export function operationLadder(op: OperationIR, opts: { readsIfMatch: boolean }): GateCheck[] {
   const gates = operationGates(op);
   return [
-    ...gates.filter((g) => !gateReadsRow(g)).map((gate) => ({ step: "requires" as const, gate })),
-    { step: "load" },
-    ...gates.filter(gateReadsRow).map((gate) => ({ step: "row-requires" as const, gate })),
+    ...(isMergePatchUpdate(op)
+      ? mergePatchUpdateLadder(gates)
+      : [
+          ...gates
+            .filter((g) => !gateReadsRow(g))
+            .map((gate) => ({ step: "requires" as const, gate })),
+          { step: "load" as const },
+          ...gates.filter(gateReadsRow).map((gate) => ({ step: "row-requires" as const, gate })),
+        ]),
     ...(opts.readsIfMatch ? [{ step: "version" as const }] : []),
     ...(op.when ? [{ step: "when" as const }] : []),
   ];
@@ -180,6 +196,51 @@ export function gateReadsParam(g: RequiresStmtIR): boolean {
   let reads = false;
   walkExprDeep(g.expr, (e) => {
     if (e.kind === "ref" && e.refKind === "param") reads = true;
+  });
+  return reads;
+}
+
+/** One check the polymorphic base read (`GET /api/<bases>`, TPH `/{id}`)
+ *  renders, at its rung. */
+export type ReadCheck = { step: "requires"; gate: PolymorphicReadGate } | { step: "load" };
+
+/** The ordered checks the polymorphic base read renders: every concrete's
+ *  list-read gate, in variant order, then the load.  Each gate reads the
+ *  principal only (a list read has no row to read), so a caller one refuses
+ *  gets that concrete's 403 whatever rows exist; a TPH by-id read runs the same
+ *  gates before its load, so a missing id is 404 only for a caller every gate
+ *  admits. */
+export function readLadder(
+  base: AggregateIR,
+  ctx: Pick<BoundedContextIR, "aggregates" | "repositories">,
+): ReadCheck[] {
+  return [
+    ...polymorphicReadGates(base, ctx).map((gate) => ({ step: "requires" as const, gate })),
+    { step: "load" },
+  ];
+}
+
+/** The gates a read ladder renders before its load, in order. */
+export function readLadderGates(ladder: readonly ReadCheck[]): PolymorphicReadGate[] {
+  return ladder.flatMap((c) => (c.step === "requires" ? [c.gate] : []));
+}
+
+/** The `requires` statements of `op` that sit outside its ladder although
+ *  nothing before them can change their answer: top-level statements past the
+ *  leading run that read no row and no `let`.  Each runs in the domain method,
+ *  after the load, `If-Match` and `when`; moved into the leading run, it keeps
+ *  its meaning and runs on the ladder (`loom.requires-not-leading`). */
+export function misplacedGates(op: OperationIR): RequiresStmtIR[] {
+  return splitLeadingGates(op.statements).body.filter(
+    (s): s is RequiresStmtIR =>
+      s.kind === "requires" && s.maskWriteOf === undefined && !gateReadsRow(s) && !readsLet(s),
+  );
+}
+
+function readsLet(g: RequiresStmtIR): boolean {
+  let reads = false;
+  walkExprDeep(g.expr, (e) => {
+    if (e.kind === "ref" && e.refKind === "let") reads = true;
   });
   return reads;
 }

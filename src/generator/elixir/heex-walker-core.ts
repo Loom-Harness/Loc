@@ -727,7 +727,6 @@ function walkShared(body: ExprIR, sink: HeexWalkSink): string {
     undefined,
     undefined,
     undefined,
-    undefined,
     new Set((ui.functions ?? []).map((f) => f.name)),
     new Set((page.derived ?? []).map((d) => d.name)),
     undefined,
@@ -1025,9 +1024,15 @@ function maskOfMember(
 }
 
 function renderMemberValue(expr: Extract<ExprIR, { kind: "member" }>, ctx: WalkContext): string {
-  // Map well-known property accesses to their Elixir analogs.
+  // `.count` / `.length` are the collection size, except on a record, where
+  // they read a field (`ledger.count`).  Only the record test is safe: a
+  // page-body lambda param over a row set carries the `string` placeholder,
+  // not an array type.
   if (expr.member === "length" || expr.member === "count") {
-    return `Enum.count(${renderExpr(expr.receiver, ctx)})`;
+    const t = expr.receiverType.kind === "optional" ? expr.receiverType.inner : expr.receiverType;
+    if (t.kind !== "entity" && t.kind !== "valueobject") {
+      return `Enum.count(${renderExpr(expr.receiver, ctx)})`;
+    }
   }
   if (expr.receiver.kind === "ref" && expr.receiver.refKind === "current-user") {
     const cu = ctx.position === "template" ? "@current_user" : "socket.assigns.current_user";

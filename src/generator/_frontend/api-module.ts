@@ -32,7 +32,11 @@ import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
 import type { ContractResponse, ContractResponseField } from "../../ir/util/declared-response.js";
 import { maskedPatchParams } from "../../ir/util/op-gates.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
-import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
+import {
+  findValueObjectInScope,
+  type TypeScope,
+  valueObjectPool,
+} from "../../ir/util/reachable-types.js";
 import { responseWireFor } from "../../ir/util/response-wire.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
@@ -900,7 +904,7 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
  *  FormState/Payload aliases (frontend-acl.md — emitted only
  *  where `z.input` and `z.output` genuinely diverge; structurally
  *  identical aliases would be noise). */
-export function typeReachesMoney(t: TypeIR, ctx: BoundedContextIR): boolean {
+export function typeReachesMoney(t: TypeIR, ctx: TypeScope): boolean {
   if (t.kind === "primitive") return t.name === "money";
   if (t.kind === "array") return typeReachesMoney(t.element, ctx);
   if (t.kind === "optional") return typeReachesMoney(t.inner, ctx);

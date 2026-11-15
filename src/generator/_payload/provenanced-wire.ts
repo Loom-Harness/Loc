@@ -20,8 +20,8 @@
 //     "total": { "value": 120, "lineage": { …ProvLineage… } | null }
 //
 // The shape is declared once in `GENERIC_SHAPES.provenanced`
-// (`src/ir/stdlib/generics.ts`) and stamped into `wireShape` once by
-// `wireTypeForField` (`src/ir/enrich/wire-projection.ts`).  This module is the
+// (`src/ir/stdlib/generics.ts`) and applied to a response row once by
+// `responseWireFor` (`src/ir/util/response-wire.ts`).  This module is the
 // GENERATOR-side reader of that declaration: emitters take the member names and
 // their order from here instead of re-spelling `"value"` / `"lineage"`, so the
 // key set cannot drift between targets even though each target formats its own
@@ -77,7 +77,7 @@ export const PROVENANCED_LINEAGE_OPTIONAL: boolean =
 export const PROVENANCED_LINEAGE_NULLABLE = true;
 
 /** The message every surface throws when a `Provenanced<T>` carrier turns up on
- *  the REQUEST side.  It cannot: `wireTypeForField` stamps the carrier onto the
+ *  the REQUEST side.  It cannot: `responseWireFor` puts the carrier on the
  *  read/response projection only, and a create/update input carries the bare
  *  value the caller supplies (a client never authors a lineage).  One spelling,
  *  so the invariant reads the same wherever it is asserted. */

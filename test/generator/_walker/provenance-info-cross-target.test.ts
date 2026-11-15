@@ -4,7 +4,7 @@
 // A `provenanced` field records the lineage of every value it holds
 // (docs/provenance.md).  Since M-T6.12 the value and its lineage ride the wire
 // as ONE `Provenanced<T>` carrier — `{ value, lineage }` — stamped into
-// `wireShape` once by `wireTypeForField`, so EVERY frontend's response type
+// `wireShape` once by `responseWireFor`, so EVERY frontend's response type
 // carries the lineage rather than the React-first opt-in it used to be.  On a
 // scaffolded DETAIL page the figure reads `<record>.<field>.value` and pairs
 // with a `ProvenanceInfo` "?" disclosure over `<record>.<field>.lineage`.

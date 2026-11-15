@@ -63,6 +63,7 @@ import { usesValueEquals } from "../_frontend/value-equals.js";
 import { componentKeyPrefix } from "../_walker/i18n-extract.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type DataBinding, emitExpr, walkBody } from "../_walker/walker-core.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 import { FLUTTER_CHILD_PARAM } from "./dart-expr.js";
 import { dartComponentMember } from "./dart-member.js";
 import { dartType } from "./dart-types.js";
@@ -143,9 +144,8 @@ function walkComponent(
     componentParams,
     ctx.apiParams,
     ctx.aggregatesByName,
-    ctx.bcByAggregate,
+    walkerModelOf({ bcByAggregate: ctx.bcByAggregate }),
     new Map(), // workflowsByName — a component hosts no WorkflowForm
-    new Map(), // bcByWorkflow
     new Map(), // paramTypes
     new Map(), // pageRoutes
     new Set(), // externFunctions
