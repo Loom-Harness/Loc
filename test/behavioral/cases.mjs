@@ -371,6 +371,17 @@ export const AUTHZ_LADDERS = {
         body: {},
         arms: { anonymous: null, unauthorized: 403, authorized: 409 },
       },
+      // A merge-patch update's mask write gate runs after the scoped load
+      // (\`mergePatchUpdateLadder\`): a missing id is 404 for every caller,
+      // never the mask's 403.  The visible-row 403 and the out-of-scope 404
+      // are the fixture's \`test e2e\`.
+      {
+        label: "gate order — a masked key on a missing id answers 404, not the mask's 403",
+        method: "POST",
+        path: "/api/vaults/00000000-0000-4000-8000-0000000000ae/update",
+        body: { secret: "rewritten" },
+        arms: { anonymous: null, unauthorized: 404, authorized: 404 },
+      },
       // \`can_<op>\` runs the operation's ladder (#5194) and answers its outcome
       // as \`{ allowed }\`: a caller the operation's \`requires\` refuses gets
       // \`allowed: false\` (the recorded golden pins the body), not the row's

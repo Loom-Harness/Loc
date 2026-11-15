@@ -150,7 +150,7 @@
   "test/fixtures/corpus/audit-history.ddd :: ir-differs": 44,
   "test/fixtures/corpus/audited.ddd :: ir-differs": 22,
   "test/fixtures/corpus/auth-oidc.ddd :: ir-differs": 15,
-  "test/fixtures/corpus/auth-simple.ddd :: ir-differs": 36,
+  "test/fixtures/corpus/auth-simple.ddd :: ir-differs": 48,
   "test/fixtures/corpus/cache-by-id.ddd :: ir-differs": 33,
   "test/fixtures/corpus/collection-op-shapes.ddd :: ir-differs": 27,
   "test/fixtures/corpus/concurrency-conflict.ddd :: ir-differs": 10,

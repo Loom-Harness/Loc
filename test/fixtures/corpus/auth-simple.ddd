@@ -72,6 +72,20 @@ system SimpleAuth {
         create(label: string, amount: int) { label := label  amount := amount }
       }
       repository Budgets for Budget { }
+
+      // A merge-patch `update` with a `mask unless` write gate: the gate runs
+      // after the SCOPED load, so a missing id and a row outside the read
+      // scope (soft-deleted) answer 404 before it; a visible row answers its
+      // 403.  No harness principal is an auditor.
+      aggregate Vault with crudish(updateOnly: true), softDeletable, softDelete {
+        label: string
+        secret: string mask unless currentUser.role == "auditor"
+        create(label: string, secret: string) {
+          label := label
+          secret := secret
+        }
+      }
+      repository Vaults for Vault { }
     }
   }
   storage primary { type: postgres }
@@ -169,5 +183,17 @@ system SimpleAuth {
     expect(api.budgets.getById(high).amount).toBe(10)
     expect(api.budgets.update(high, { amount: 200 })).toThrow(403)
     expect(api.budgets.all().items.length).toBe(2)
+
+    let v = api.vaults.create({ label: "box", secret: "s1" })
+    // A visible row: the masked key is refused, the rest of the patch is not.
+    expect(api.vaults.update(v, { secret: "s2" })).toThrow(403)
+    api.vaults.update(v, { label: "box 2" })
+    expect(api.vaults.getById(v).label).toBe("box 2")
+    // Outside the read scope: 404 before the mask gate.
+    let gone = api.vaults.create({ label: "gone", secret: "s3" })
+    api.vaults.softDelete(gone)
+    expect(api.vaults.update(gone, { secret: "s4" })).toThrow(404)
+    expect(api.vaults.restore(gone)).toThrow(404)
+    expect(api.vaults.all().items.length).toBe(1)
   }
 }
