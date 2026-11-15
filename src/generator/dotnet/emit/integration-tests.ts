@@ -22,7 +22,7 @@
 // tracked 3b follow-up (the app's in-process cascade is DI-resolved, so it needs
 // a service provider the plain test harness doesn't build).
 
-import { testPrincipal } from "../../../ir/plan/test-principal.js";
+import { type TestPrincipalShape, testPrincipal } from "../../../ir/plan/test-principal.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -31,7 +31,6 @@ import type {
   TestIR,
   TestPrincipalIR,
   TestStmtIR,
-  UserIR,
 } from "../../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
@@ -111,10 +110,10 @@ const aggNamespace = (aggName: string, ns: string): string =>
  *  principal the unit tier passes. */
 function renderPrincipal(
   p: TestPrincipalIR | undefined,
-  user: UserIR,
+  user: TestPrincipalShape,
   ctx: BoundedContextIR,
 ): string {
-  return renderTestPrincipal(testPrincipal(user.fields, p, enumPool(ctx)), CS_PRINCIPAL);
+  return renderTestPrincipal(testPrincipal(user, p, enumPool(ctx)), CS_PRINCIPAL);
 }
 
 /** A currentUser-reading operation takes the principal the test has bound in
@@ -124,7 +123,7 @@ const ambient = (scope: PrincipalScope): string | undefined =>
   scope.user ? AMBIENT_PRINCIPAL : undefined;
 
 interface PrincipalScope {
-  user: UserIR | undefined;
+  user: TestPrincipalShape | undefined;
   /** Bindings the test asserts null — their read is not narrowed. */
   absent: Set<string>;
 }
@@ -260,7 +259,7 @@ export interface IntegrationAuthOpts {
   interceptor?: boolean;
   /** The system's `user { … }` block when the project emits the auth layer:
    *  every test then runs inside a request frame bound to a principal. */
-  user?: UserIR;
+  user?: TestPrincipalShape;
 }
 
 export function renderContextIntegrationTest(

@@ -1,5 +1,9 @@
 import { type AssertionRelation, assertionPlan } from "../../../ir/plan/test-assertion.js";
-import { testPrincipal } from "../../../ir/plan/test-principal.js";
+import {
+  type TestPrincipalShape,
+  testPrincipal,
+  testPrincipalShape,
+} from "../../../ir/plan/test-principal.js";
 import type {
   AggregateIR,
   DomainServiceIR,
@@ -129,10 +133,13 @@ export const EX_PRINCIPAL: PrincipalTarget = {
 
 /** The test principal a currentUser-reading op call in a unit test takes. */
 export function exTestPrincipal(
-  user: readonly FieldIR[] | undefined,
+  user: TestPrincipalShape | undefined,
   enums: readonly EnumIR[],
 ): string {
-  return renderTestPrincipal(testPrincipal(user ?? [], undefined, enums), EX_PRINCIPAL);
+  return renderTestPrincipal(
+    testPrincipal(user ?? testPrincipalShape(undefined), undefined, enums),
+    EX_PRINCIPAL,
+  );
 }
 
 /** A domain `test` shape the vanilla ExUnit emitter deliberately cannot lower to

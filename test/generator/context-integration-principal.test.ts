@@ -52,13 +52,13 @@ describe("context integration tests bind a principal", () => {
     const t = get(files, "test/c.integration.test.ts");
     expect(t).toContain(`import { actAsUser, runAsUser } from "../auth/middleware";`);
     expect(t).toContain(
-      `runAsUser({ id: "00000000-0000-0000-0000-000000000000", tenantId: "admin", roles: [] }, async () => {`,
+      `runAsUser({ id: "00000000-0000-0000-0000-000000000001", tenantId: "tenantId", roles: ["roles"] }, async () => {`,
     );
     expect(t).toContain(
-      `runAsUser({ id: "00000000-0000-0000-0000-000000000000", tenantId: "acme", roles: ["agent"] }, async () => {`,
+      `runAsUser({ id: "00000000-0000-0000-0000-000000000001", tenantId: "acme", roles: ["agent"] }, async () => {`,
     );
     expect(t).toContain(
-      `await actAsUser({ id: "00000000-0000-0000-0000-000000000000", tenantId: "beta", roles: [] });`,
+      `await actAsUser({ id: "00000000-0000-0000-0000-000000000001", tenantId: "beta", roles: ["roles"] });`,
     );
     // The read asserted null is still a nullable read.
     expect(t).toContain(`const r = (await repos.note.findById(n.id))!;`);
@@ -76,13 +76,13 @@ describe("context integration tests bind a principal", () => {
     const t = get(files, "tests/test_c_integration.py");
     expect(t).toContain("    current_user_var.set(principal)");
     expect(t).toContain(
-      `    _act_as(User(id="00000000-0000-0000-0000-000000000000", tenant_id="admin", roles=[]))`,
+      `    _act_as(User(id="00000000-0000-0000-0000-000000000001", tenant_id="tenantId", roles=["roles"]))`,
     );
     expect(t).toContain(
-      `    _act_as(User(id="00000000-0000-0000-0000-000000000000", tenant_id="acme", roles=["agent"]))`,
+      `    _act_as(User(id="00000000-0000-0000-0000-000000000001", tenant_id="acme", roles=["agent"]))`,
     );
     expect(t).toContain(
-      `    _act_as(User(id="00000000-0000-0000-0000-000000000000", tenant_id="beta", roles=[]))`,
+      `    _act_as(User(id="00000000-0000-0000-0000-000000000001", tenant_id="beta", roles=["roles"]))`,
     );
     expect(t).toContain("        n._stamp_on_create(__principal)");
     expect(t).toContain("    r = await note_repo.find_by_id(n.id)\n    assert r is None");
@@ -94,13 +94,13 @@ describe("context integration tests bind a principal", () => {
     expect(t).toContain("new AppDbContext(opts, new HttpContextCurrentUserAccessor())");
     expect(t).toContain(".AddInterceptors(new AuditableInterceptor())");
     expect(t).toContain(
-      `using var __principal = ActAs(new User(Id: System.Guid.Parse("00000000-0000-0000-0000-000000000000"), TenantId: "admin", Roles: new System.Collections.Generic.List<string>()));`,
+      `using var __principal = ActAs(new User(Id: System.Guid.Parse("00000000-0000-0000-0000-000000000001"), TenantId: "tenantId", Roles: new System.Collections.Generic.List<string> { "roles" }));`,
     );
     expect(t).toContain(
-      `using var __principal = ActAs(new User(Id: System.Guid.Parse("00000000-0000-0000-0000-000000000000"), TenantId: "acme", Roles: new System.Collections.Generic.List<string> { "agent" }));`,
+      `using var __principal = ActAs(new User(Id: System.Guid.Parse("00000000-0000-0000-0000-000000000001"), TenantId: "acme", Roles: new System.Collections.Generic.List<string> { "agent" }));`,
     );
     expect(t).toContain(
-      `using var __principal1 = ActAs(new User(Id: System.Guid.Parse("00000000-0000-0000-0000-000000000000"), TenantId: "beta", Roles: new System.Collections.Generic.List<string>()));`,
+      `using var __principal1 = ActAs(new User(Id: System.Guid.Parse("00000000-0000-0000-0000-000000000001"), TenantId: "beta", Roles: new System.Collections.Generic.List<string> { "roles" }));`,
     );
     expect(t).toContain("var r = await noteRepo.GetByIdAsync(n.Id);");
     expect(t).toContain("using D.Auth;");
@@ -110,13 +110,13 @@ describe("context integration tests bind a principal", () => {
     const files = await generateSystemFiles(src("java"));
     const t = get(files, "CIntegrationTests.java");
     expect(t).toContain(
-      `CurrentUserAccessor.actAs(new User(UUID.fromString("00000000-0000-0000-0000-000000000000"), "admin", List.of()));`,
+      `CurrentUserAccessor.actAs(new User(UUID.fromString("00000000-0000-0000-0000-000000000001"), "tenantId", List.of("roles")));`,
     );
     expect(t).toContain(
-      `CurrentUserAccessor.actAs(new User(UUID.fromString("00000000-0000-0000-0000-000000000000"), "acme", List.of("agent")));`,
+      `CurrentUserAccessor.actAs(new User(UUID.fromString("00000000-0000-0000-0000-000000000001"), "acme", List.of("agent")));`,
     );
     expect(t).toContain(
-      `CurrentUserAccessor.actAs(new User(UUID.fromString("00000000-0000-0000-0000-000000000000"), "beta", List.of()));`,
+      `CurrentUserAccessor.actAs(new User(UUID.fromString("00000000-0000-0000-0000-000000000001"), "beta", List.of("roles")));`,
     );
     expect(t).toContain("@AfterEach");
     expect(t).toContain("var r = noteRepository.findById(n.id()).orElse(null);");
@@ -129,13 +129,13 @@ describe("context integration tests bind a principal", () => {
     const files = await generateSystemFiles(src("elixir"));
     const t = get(files, "test/c_integration_test.exs");
     expect(t).toContain(
-      `current_user = DWeb.Auth.as_principal(%{id: "00000000-0000-0000-0000-000000000000", tenant_id: "admin", roles: []})`,
+      `current_user = DWeb.Auth.as_principal(%{id: "00000000-0000-0000-0000-000000000001", tenant_id: "tenantId", roles: ["roles"]})`,
     );
     expect(t).toContain(
-      `current_user = DWeb.Auth.as_principal(%{id: "00000000-0000-0000-0000-000000000000", tenant_id: "acme", roles: ["agent"]})`,
+      `current_user = DWeb.Auth.as_principal(%{id: "00000000-0000-0000-0000-000000000001", tenant_id: "acme", roles: ["agent"]})`,
     );
     expect(t).toContain(
-      `current_user = DWeb.Auth.as_principal(%{id: "00000000-0000-0000-0000-000000000000", tenant_id: "beta", roles: []})`,
+      `current_user = DWeb.Auth.as_principal(%{id: "00000000-0000-0000-0000-000000000001", tenant_id: "beta", roles: ["roles"]})`,
     );
     expect(t).toContain(`D.C.create_note(%{text: "acme only"}, current_user)`);
     expect(t).toContain(`case D.C.get_note(n.id, current_user) do`);

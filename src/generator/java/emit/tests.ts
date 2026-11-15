@@ -1,6 +1,10 @@
 import { createInputFields, createOmissionValue } from "../../../ir/enrich/wire-projection.js";
 import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
-import { testPrincipal } from "../../../ir/plan/test-principal.js";
+import {
+  type TestPrincipalShape,
+  testPrincipal,
+  testPrincipalShape,
+} from "../../../ir/plan/test-principal.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -43,7 +47,7 @@ export function renderJavaTestsFile(
   /** System user-block fields — when ops referencing currentUser are
    *  invoked from a test body, a stub test user is materialised with the
    *  dev-stub claim values and threaded as the trailing argument. */
-  userFields?: readonly FieldIR[],
+  userFields?: TestPrincipalShape,
   /** Package holding another aggregate's root class, resolved through the SAME
    *  layout router this file's own package came from — so the sibling import
    *  below is correct under `byLayer` and `byFeature` alike. */
@@ -68,7 +72,7 @@ export function renderJavaVoTestsFile(
   ctx: BoundedContextIR,
   basePkg: string,
   pkg: string,
-  userFields?: readonly FieldIR[],
+  userFields?: TestPrincipalShape,
 ): string | null {
   return renderJavaSubjectTests(vo.name, vo.tests, ctx, basePkg, pkg, userFields, false);
 }
@@ -80,7 +84,7 @@ export function renderJavaServiceTestsFile(
   ctx: BoundedContextIR,
   basePkg: string,
   pkg: string,
-  userFields?: readonly FieldIR[],
+  userFields?: TestPrincipalShape,
 ): string | null {
   return renderJavaSubjectTests(svc.name, svc.tests, ctx, basePkg, pkg, userFields, true);
 }
@@ -91,7 +95,7 @@ function renderJavaSubjectTests(
   ctx: BoundedContextIR,
   basePkg: string,
   pkg: string,
-  userFields: readonly FieldIR[] | undefined,
+  userFields: TestPrincipalShape | undefined,
   includeServices: boolean,
   siblingPkgFor?: (aggregateName: string) => string,
 ): string | null {
@@ -138,7 +142,7 @@ function renderJavaSubjectTests(
     ...(state.usesTestUser
       ? [
           `    private static final ${javaRef(`${basePkg}.auth`, "User")} __testUser = ${renderTestPrincipal(
-            testPrincipal(userFields ?? [], undefined, enumPool(ctx)),
+            testPrincipal(userFields ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),
             javaPrincipal(basePkg),
           )};`,
           ``,
@@ -174,7 +178,7 @@ export function javaPrincipal(basePkg: string): PrincipalTarget {
 
 interface TestEmitState {
   usesTestUser: boolean;
-  userFields?: readonly FieldIR[];
+  userFields?: TestPrincipalShape;
   ctx: BoundedContextIR;
 }
 

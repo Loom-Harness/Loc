@@ -9,20 +9,43 @@
 // `currentUser.email` sees a string on every backend and a positional `User`
 // record is constructed with all of its components.
 //
-// The values are the dev-stub identity every backend's dev verifier already
-// serves: `"admin"` for a string, the zero guid for a guid or an `X id`, an
-// empty list, zero, `false`, the epoch, an enum's first member, and nothing
-// for an optional claim.  How each value is spelled is the test framework's
-// leaf table (`src/generator/_test/principal-target.ts`).
+// The default principal has FULL ACCESS, with typed deterministic values
+// (D-GENERATED-TESTS): a fixed id (the `id` claim, a guid or an `X id`), the
+// claim's own name for any other string claim, every permission the system's
+// catalogue declares for the `permissions` claim (the catalogue's closure, so
+// any `requires currentUser.permissions.contains(…)` passes), the claim's own
+// name as the one element of any other string list, zero, `false`, the epoch,
+// an enum's first member, and nothing for an optional claim.  A test about
+// authorization states its principal with `as { … }`.  How each value is
+// spelled is the test framework's leaf table
+// (`src/generator/_test/principal-target.ts`).
 
-import type { EnumIR, FieldIR, TestPrincipalIR, TypeIR } from "../types/loom-ir.js";
+import type { EnumIR, FieldIR, SystemIR, TestPrincipalIR, TypeIR } from "../types/loom-ir.js";
 
-/** The zero identity a dev-stub principal carries for a guid or strong id. */
-const TEST_PRINCIPAL_ZERO_GUID = "00000000-0000-0000-0000-000000000000";
+/** The fixed identity the default principal carries. */
+const TEST_PRINCIPAL_ID = "00000000-0000-0000-0000-000000000001";
 
-/** The value a string claim takes when no `as { … }` claim sets it. */
-const TEST_PRINCIPAL_TEXT = "admin";
+/** The claim carrying the principal's permissions. */
+const PERMISSIONS_CLAIM = "permissions";
 
+/** What a test principal is built from: the system's `user { … }` fields and
+ *  every permission its catalogue declares. */
+export interface TestPrincipalShape {
+  fields: readonly FieldIR[];
+  permissions: readonly string[];
+}
+
+/** The shape of a system's test principal.  "All permissions" is the whole
+ *  catalogue, every subdomain's `permissions { … }` block: holding every
+ *  permission is holding the closure of every `implies`. */
+export function testPrincipalShape(sys: SystemIR | undefined): TestPrincipalShape {
+  return {
+    fields: sys?.user?.fields ?? [],
+    permissions: [
+      ...new Set((sys?.subdomains ?? []).flatMap((m) => m.permissions.map((p) => p.runtimeString))),
+    ].sort(),
+  };
+}
 /** One claim value at its declared type. */
 export type PrincipalValue =
   | { kind: "text"; value: string }
@@ -51,14 +74,16 @@ export interface PrincipalClaim {
 /** The principal a test runs as: every `user { … }` field, in declared order,
  *  at its dev-stub value or the value `overrides` gives it. */
 export function testPrincipal(
-  user: readonly FieldIR[],
+  shape: TestPrincipalShape,
   overrides?: TestPrincipalIR,
   enums: readonly EnumIR[] = [],
 ): PrincipalClaim[] {
-  return user.map((field) => {
+  return shape.fields.map((field) => {
     const claim = overrides?.claims.find((c) => c.name === field.name);
     const value =
-      claim !== undefined ? claimValue(field.type, claim.value) : stubValue(field, enums);
+      claim !== undefined
+        ? claimValue(field.type, claim.value)
+        : defaultValue(field, shape.permissions, enums);
     return { field, value };
   });
 }
@@ -77,17 +102,33 @@ function claimValue(type: TypeIR, value: string | readonly string[]): PrincipalV
   return { kind: "text", value };
 }
 
-function stubValue(field: FieldIR, enums: readonly EnumIR[]): PrincipalValue {
+function defaultValue(
+  field: FieldIR,
+  permissions: readonly string[],
+  enums: readonly EnumIR[],
+): PrincipalValue {
   if (field.optional || field.type.kind === "optional") return { kind: "absent" };
-  return typeStub(field.type, enums);
+  const t = field.type;
+  if (field.name === "id" && t.kind === "primitive" && t.name === "string") {
+    return { kind: "text", value: TEST_PRINCIPAL_ID };
+  }
+  if (t.kind === "array" && t.element.kind === "primitive" && t.element.name === "string") {
+    const values = field.name === PERMISSIONS_CLAIM ? permissions : [field.name];
+    return {
+      kind: "list",
+      element: t.element,
+      values: values.map((value) => ({ kind: "text", value })),
+    };
+  }
+  return typeDefault(field.name, t, enums);
 }
 
-function typeStub(t: TypeIR, enums: readonly EnumIR[]): PrincipalValue {
+function typeDefault(name: string, t: TypeIR, enums: readonly EnumIR[]): PrincipalValue {
   switch (t.kind) {
     case "primitive":
       switch (t.name) {
         case "guid":
-          return { kind: "guid", value: TEST_PRINCIPAL_ZERO_GUID };
+          return { kind: "guid", value: TEST_PRINCIPAL_ID };
         case "int":
         case "long":
           return { kind: "int" };
@@ -101,12 +142,12 @@ function typeStub(t: TypeIR, enums: readonly EnumIR[]): PrincipalValue {
         case "date":
           return { kind: "date" };
         case "string":
-          return { kind: "text", value: TEST_PRINCIPAL_TEXT };
+          return { kind: "text", value: name };
         default:
           return { kind: "absent" };
       }
     case "id":
-      return { kind: "id", targetName: t.targetName, value: TEST_PRINCIPAL_ZERO_GUID };
+      return { kind: "id", targetName: t.targetName, value: TEST_PRINCIPAL_ID };
     case "array":
       return { kind: "list", element: t.element, values: [] };
     case "enum": {

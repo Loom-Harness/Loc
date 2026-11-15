@@ -1,6 +1,10 @@
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
-import { testPrincipal } from "../../../ir/plan/test-principal.js";
+import {
+  type TestPrincipalShape,
+  testPrincipal,
+  testPrincipalShape,
+} from "../../../ir/plan/test-principal.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -113,7 +117,7 @@ const DOMAIN_REJECTION_TUPLE = `(${DOMAIN_REJECTION_ERRORS.map((n) => pyRef("app
 export function renderPyTestsFile(
   agg: AggregateIR,
   ctx: BoundedContextIR,
-  user?: readonly FieldIR[],
+  principal?: TestPrincipalShape,
 ): string | null {
   return renderPySubjectTests(
     agg.name,
@@ -123,7 +127,7 @@ export function renderPyTestsFile(
       module: `app.domain.${snake(agg.name)}`,
       symbols: [agg.name, ...agg.parts.map((p) => p.name)],
     },
-    user,
+    principal,
   );
 }
 
@@ -133,9 +137,9 @@ export function renderPyTestsFile(
 export function renderPyVoTestsFile(
   vo: ValueObjectIR,
   ctx: BoundedContextIR,
-  user?: readonly FieldIR[],
+  principal?: TestPrincipalShape,
 ): string | null {
-  return renderPySubjectTests(vo.name, vo.tests, ctx, null, user);
+  return renderPySubjectTests(vo.name, vo.tests, ctx, null, principal);
 }
 
 /** Domain-service unit-test module (test-placement.md).  A service op
@@ -144,7 +148,7 @@ export function renderPyVoTestsFile(
 export function renderPyServiceTestsFile(
   svc: DomainServiceIR,
   ctx: BoundedContextIR,
-  user?: readonly FieldIR[],
+  principal?: TestPrincipalShape,
 ): string | null {
   return renderPySubjectTests(
     svc.name,
@@ -154,7 +158,7 @@ export function renderPyServiceTestsFile(
       module: `app.domain.services.${snake(svc.name)}`,
       symbols: svc.operations.map((o) => snake(o.name)),
     },
-    user,
+    principal,
   );
 }
 
@@ -168,7 +172,7 @@ function renderPySubjectTests(
   tests: readonly TestIR[],
   ctx: BoundedContextIR,
   subjectImport: { module: string; symbols: string[] } | null,
-  user: readonly FieldIR[] | undefined,
+  principal: TestPrincipalShape | undefined,
 ): string | null {
   if (tests.length === 0) return null;
 
@@ -179,15 +183,15 @@ function renderPySubjectTests(
     body.push(...renderTest(t, ctx, usedNames));
   }
   if (body.some((l) => l.includes(TEST_PRINCIPAL_CALL))) {
-    const principal = renderTestPrincipal(
-      testPrincipal(user ?? [], undefined, enumPool(ctx)),
+    const rendered = renderTestPrincipal(
+      testPrincipal(principal ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),
       PY_PRINCIPAL,
     );
     body.unshift(
       "",
       "",
       `def ${TEST_PRINCIPAL_CALL.slice(0, -2)}() -> ${pyRef("app.auth.user", "User")}:`,
-      `    return ${principal}`,
+      `    return ${rendered}`,
     );
   }
   const bodyStr = body.join("\n");

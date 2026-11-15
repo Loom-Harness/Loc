@@ -1,3 +1,4 @@
+// Gate for D-GENERATED-TESTS (docs/decisions).
 // The generated-test plan's decisions, read off a lowered model: what each
 // assertion compares and how its expected literal is built
 // (`assertionPlan`), and who a test runs as (`testPrincipal`).  The behaviour
@@ -6,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { assertionPlan } from "../../src/ir/plan/test-assertion.js";
-import { testPrincipal } from "../../src/ir/plan/test-principal.js";
+import { testPrincipal, testPrincipalShape } from "../../src/ir/plan/test-principal.js";
 import type { TestStmtIR } from "../../src/ir/types/loom-ir.js";
 import { allAggregates } from "../../src/ir/types/loom-ir.js";
 import { buildLoomModel } from "../_helpers/index.js";
@@ -14,7 +15,9 @@ import { buildLoomModel } from "../_helpers/index.js";
 const SRC = `
   system S {
     user { id: string  role: string  permissions: string[]  email: string  customer: Customer id  since: datetime  nick: string? }
-    subdomain D { context C {
+    subdomain D {
+      permissions { view, edit implies view }
+      context C {
       valueobject Price { amount: money  currency: string }
       aggregate Customer { name: string }
       aggregate Order {
@@ -84,17 +87,29 @@ describe("assertionPlan", () => {
 describe("testPrincipal", () => {
   it("carries every declared claim at its dev-stub value, overrides replacing", async () => {
     const loom = await buildLoomModel(SRC);
-    const user = loom.systems[0]!.user!.fields;
+    const shape = testPrincipalShape(loom.systems[0]);
     const values = (overrides?: Parameters<typeof testPrincipal>[1]) =>
-      testPrincipal(user, overrides).map((c) => [c.field.name, c.value]);
+      testPrincipal(shape, overrides).map((c) => [c.field.name, c.value]);
     expect(values()).toEqual([
-      ["id", { kind: "text", value: "admin" }],
-      ["role", { kind: "text", value: "admin" }],
-      ["permissions", { kind: "list", element: { kind: "primitive", name: "string" }, values: [] }],
-      ["email", { kind: "text", value: "admin" }],
+      // A fixed id; any other string claim is its own name.
+      ["id", { kind: "text", value: "00000000-0000-0000-0000-000000000001" }],
+      ["role", { kind: "text", value: "role" }],
+      // Full access: every permission the catalogue declares.
+      [
+        "permissions",
+        {
+          kind: "list",
+          element: { kind: "primitive", name: "string" },
+          values: [
+            { kind: "text", value: "d.edit" },
+            { kind: "text", value: "d.view" },
+          ],
+        },
+      ],
+      ["email", { kind: "text", value: "email" }],
       [
         "customer",
-        { kind: "id", targetName: "Customer", value: "00000000-0000-0000-0000-000000000000" },
+        { kind: "id", targetName: "Customer", value: "00000000-0000-0000-0000-000000000001" },
       ],
       ["since", { kind: "datetime" }],
       ["nick", { kind: "absent" }],

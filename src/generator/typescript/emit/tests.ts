@@ -1,6 +1,10 @@
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
-import { testPrincipal } from "../../../ir/plan/test-principal.js";
+import {
+  type TestPrincipalShape,
+  testPrincipal,
+  testPrincipalShape,
+} from "../../../ir/plan/test-principal.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -92,7 +96,7 @@ export const TS_PRINCIPAL: PrincipalTarget = {
 export function renderTestsFile(
   agg: AggregateIR,
   ctx: BoundedContextIR,
-  user?: readonly FieldIR[],
+  principal?: TestPrincipalShape,
 ): string | null {
   return renderTestsCore(
     agg.name,
@@ -102,7 +106,7 @@ export function renderTestsFile(
       symbols: [agg.name, ...agg.parts.map((p) => p.name)],
       modulePath: `./${lowerFirst(agg.name)}`,
     },
-    user,
+    principal,
   );
 }
 
@@ -112,9 +116,9 @@ export function renderTestsFile(
 export function renderVoTestsFile(
   vo: ValueObjectIR,
   ctx: BoundedContextIR,
-  user?: readonly FieldIR[],
+  principal?: TestPrincipalShape,
 ): string | null {
-  return renderTestsCore(vo.name, vo.tests, ctx, null, user);
+  return renderTestsCore(vo.name, vo.tests, ctx, null, principal);
 }
 
 /** Domain-service unit-test file (test-placement.md).  The service is
@@ -122,14 +126,14 @@ export function renderVoTestsFile(
 export function renderServiceTestsFile(
   svc: DomainServiceIR,
   ctx: BoundedContextIR,
-  user?: readonly FieldIR[],
+  principal?: TestPrincipalShape,
 ): string | null {
   return renderTestsCore(
     svc.name,
     svc.tests,
     ctx,
     { symbols: [svc.name], modulePath: "./services" },
-    user,
+    principal,
   );
 }
 
@@ -176,7 +180,7 @@ function renderTestsCore(
   tests: TestIR[],
   ctx: BoundedContextIR,
   subjectImport: { symbols: string[]; modulePath: string } | null,
-  user: readonly FieldIR[] | undefined,
+  principal: TestPrincipalShape | undefined,
 ): string | null {
   if (tests.length === 0) return null;
   // Render the describe body first so the import set can be narrowed to
@@ -220,11 +224,11 @@ function renderTestsCore(
   lines.push("");
   if (rejection) lines.push(...domainRejectionHelper(), "");
   if (new RegExp(`\\b${TEST_PRINCIPAL}\\b`).test(bodyStr)) {
-    const principal = renderTestPrincipal(
-      testPrincipal(user ?? [], undefined, enumPool(ctx)),
+    const rendered = renderTestPrincipal(
+      testPrincipal(principal ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),
       TS_PRINCIPAL,
     );
-    lines.push(`const ${TEST_PRINCIPAL}: import("../auth/user-types").User = ${principal};`, "");
+    lines.push(`const ${TEST_PRINCIPAL}: import("../auth/user-types").User = ${rendered};`, "");
   }
   lines.push(...body);
   return lines.join("\n") + "\n";
