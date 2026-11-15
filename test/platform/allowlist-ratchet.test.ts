@@ -405,7 +405,10 @@ const REGISTERED: Ratchet[] = [
     // asynchronous local redelivery (#5839).
     // 25 → 21: the s3/rabbitmq/localDisk sidecars re-arm `resources`,
     // `handler-resource-ops`, `channels-broker` and `channels-broker-workflow`.
-    max: 21,
+    // 21 → 22: `channels-broker-relay-fold`, a broker row: the relay-side
+    // consumer-inbox purge is a timer the `test e2e` vocabulary cannot wait on,
+    // and the fold needs a broker sidecar (#5839); the compile tier builds it.
+    max: 22,
   },
 ];
 
