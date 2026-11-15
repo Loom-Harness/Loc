@@ -195,6 +195,26 @@ describe("ddd diff — classification rules", SPAWNING, () => {
     expect(report.breakingForData).toBe(false);
   });
 
+  // The request contract moves on its own: an operation parameter is no
+  // column and no read-record field, so only the `requests` bucket sees it.
+  it("a dropped operation parameter breaks clients and touches no data", () => {
+    const op = (params: string) =>
+      model(`${BASE_FIELDS}  operation relabel(${params}) { label := to }`);
+    const { status, report } = diffJson(op("to: string, reason: string"), op("to: string"));
+    expect(report.wireChanges).toEqual([
+      expect.objectContaining({
+        entity: "request RelabelOrderCommand",
+        kind: "property-removed",
+        field: "reason",
+        class: "breaking-for-clients",
+      }),
+    ]);
+    expect(report.migrations).toEqual([]);
+    expect(report.breakingForClients).toBe(true);
+    expect(report.breakingForData).toBe(false);
+    expect(status).toBe(1);
+  });
+
   it("prints one classified line per change and the verdict", () => {
     const dir = project({
       "old.ddd": model(BASE_FIELDS),
