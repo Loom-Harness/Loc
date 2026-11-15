@@ -1,4 +1,3 @@
-import { emitsRestCreate } from "../../ir/enrich/wire-projection.js";
 import { createRequestFields } from "../../ir/plan/create-request.js";
 import {
   PAGED_DEFAULT_PAGE,
@@ -15,7 +14,7 @@ import {
   type EnrichedAggregateIR,
   type RepositoryIR,
 } from "../../ir/types/loom-ir.js";
-import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
+import { canonicalDestroy, emitsRestCreate } from "../../ir/util/canonical-lifecycle.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";

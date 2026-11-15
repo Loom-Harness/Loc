@@ -17,7 +17,7 @@
 //
 // `fieldLimits` is the same switch for the declared-field-limit codes
 // (`field.min` … `field.pattern`, `FIELD_LIMIT_REASONS` in
-// `src/ir/enrich/wire-policy.ts`), which a backend answers by calling the
+// `src/ir/util/wire-policy.ts`), which a backend answers by calling the
 // shared `fieldLimitChecks` at its native-constraint site.  A backend whose
 // `status` is `done` but whose `fieldLimits` is `pending` is gated on every
 // other code, and waived on exactly a field-limit entry's `code` / `params`.

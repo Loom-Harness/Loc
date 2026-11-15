@@ -25,13 +25,9 @@
 // land on.
 
 import { describe, expect, it } from "vitest";
-import {
-  emitsRestCreate,
-  hasCreate,
-  isConstructible,
-} from "../../src/ir/enrich/wire-projection.js";
+import { hasCreate, isConstructible } from "../../src/ir/enrich/wire-projection.js";
 import { allAggregates } from "../../src/ir/types/loom-ir.js";
-import { canonicalCreate } from "../../src/ir/util/canonical-lifecycle.js";
+import { canonicalCreate, emitsRestCreate } from "../../src/ir/util/canonical-lifecycle.js";
 import { buildLoomModel, generateSystemFiles } from "../_helpers/index.js";
 
 const FIXTURE = `

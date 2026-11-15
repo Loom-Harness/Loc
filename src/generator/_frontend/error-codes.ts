@@ -7,9 +7,9 @@
 // reason its zod code names.  Without i18n there is no catalog, so `t` is the
 // identity on the English.
 
-import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../../ir/enrich/wire-policy.js";
 import type { InvariantIR } from "../../ir/types/loom-ir.js";
-import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
+import type { SingleFieldPattern } from "../../ir/util/invariant-classify.js";
+import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../../ir/util/wire-policy.js";
 
 /** One client-side check a single-field rule implies, with the catalog code
  *  and params its message renders under. */

@@ -14,7 +14,6 @@
 // module stays the single import surface the sibling repository builders
 // already reference.
 
-import { FIND_ABSENT_DETAIL } from "../../ir/enrich/wire-policy.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   BoundedContextIR,
@@ -30,6 +29,7 @@ import type {
 import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { defaultSortOrder, sortableFields } from "../../ir/util/sortable-fields.js";
 import { valueCollectionsFor } from "../../ir/util/value-collections.js";
+import { FIND_ABSENT_DETAIL } from "../../ir/util/wire-policy.js";
 import { indent, lines } from "../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";

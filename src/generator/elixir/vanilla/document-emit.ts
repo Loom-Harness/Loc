@@ -61,10 +61,10 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
+import { singleFieldConstraints } from "../../../ir/util/invariant-classify.js";
 import { aggregateHasMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import { isDocumentShaped, resolveDataSourceConfig } from "../../../ir/util/resolve-datasource.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
-import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import {
   elixirLocal,
   elixirString,

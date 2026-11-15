@@ -10,7 +10,6 @@
 // SQLSTATE, so every arm that already answers a dangling reference answers it
 // the same way: a foreign tenant's row is indistinguishable from a missing one.
 
-import { wireFixedDetail } from "../../ir/enrich/wire-policy.js";
 import { admittedReferences, type ScopedReference } from "../../ir/plan/ref-scope.js";
 import type {
   AggregateIR,
@@ -18,6 +17,7 @@ import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
 } from "../../ir/types/loom-ir.js";
+import { wireFixedDetail } from "../../ir/util/wire-policy.js";
 import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { PG_FOREIGN_KEY_VIOLATION } from "../_persistence/pg-sqlstate.js";
 import { rowClassOf } from "./emit/mikroorm-entities.js";

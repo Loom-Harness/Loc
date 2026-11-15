@@ -1,13 +1,13 @@
-import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../ir/enrich/wire-policy.js";
 import type { BinOp, ExprIR, InvariantIR } from "../ir/types/loom-ir.js";
-import { ruleParams } from "../ir/util/rule-params.js";
 import {
   type ClassifyContext,
   classifyForWire,
   pickErrorPath,
   type SingleFieldPattern,
   singleFieldShape,
-} from "../ir/validate/invariant-classify.js";
+} from "../ir/util/invariant-classify.js";
+import { ruleParams } from "../ir/util/rule-params.js";
+import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../ir/util/wire-policy.js";
 import { bodyTypeOf } from "../util/expr-body-type.js";
 import { intrinsicKey } from "../util/intrinsics.js";
 import { escapeTsIdent, humanize } from "../util/naming.js";

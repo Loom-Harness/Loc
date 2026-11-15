@@ -28,7 +28,6 @@
 // and applies every concrete's guarded filter.
 
 import type { PolymorphicRead } from "../../ir/enrich/read-scope.js";
-import { reasonPhrase, wireStatus } from "../../ir/enrich/wire-policy.js";
 import {
   type PolymorphicReadGate,
   polymorphicReadOperations,
@@ -38,6 +37,7 @@ import {
 import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
 import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import { isValueCollectionType } from "../../ir/util/value-collections.js";
+import { reasonPhrase, wireStatus } from "../../ir/util/wire-policy.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst } from "../../util/naming.js";

@@ -1,12 +1,3 @@
-import {
-  fieldCode,
-  INTEGER_RANGE_PARAMS,
-  MISSING_FILE_PART_DETAIL,
-  wireSentenceFor,
-  wireStatus,
-  wireStatusResolver,
-} from "../../../ir/enrich/wire-policy.js";
-import { emitsRestCreate } from "../../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import {
   QUERY_PARAM_MISMATCH_MESSAGES,
@@ -14,7 +5,7 @@ import {
 } from "../../../ir/plan/index.js";
 import type { AggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import { type ApiOperationIR, relativeOpPath } from "../../../ir/util/api-surface.js";
-import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import { canonicalDestroy, emitsRestCreate } from "../../../ir/util/canonical-lifecycle.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import { errorStatuses, type OpErrorKind } from "../../../ir/util/openapi-errors.js";
 import {
@@ -26,6 +17,14 @@ import {
   opGetById,
   opOperation,
 } from "../../../ir/util/openapi-ids.js";
+import {
+  fieldCode,
+  INTEGER_RANGE_PARAMS,
+  MISSING_FILE_PART_DETAIL,
+  wireSentenceFor,
+  wireStatus,
+  wireStatusResolver,
+} from "../../../ir/util/wire-policy.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
