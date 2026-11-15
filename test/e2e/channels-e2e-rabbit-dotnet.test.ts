@@ -321,9 +321,7 @@ describe.skipIf(!ENABLED)(`rabbitmq queue semantics — dotnet${SUFFIX} leg`, ()
     );
     await waitFor(
       async () => {
-        const out = sh(
-          `docker exec ${MQ} rabbitmqadmin get messages --queue loom.dlq.${ADDRESS}`,
-        );
+        const out = sh(`docker exec ${MQ} rabbitmqadmin get messages --queue loom.dlq.${ADDRESS}`);
         return out.includes("not-json{{");
       },
       20_000,
