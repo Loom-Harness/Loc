@@ -1,6 +1,6 @@
 # D-NO-TOOL-NAME — generated output carries no tool name
 
-**Status:** PINNED — the rule, the reserved table namespace, and the owner's rulings on root namespaces, CSS, and the clean break. The old→new mapping below is a proposal awaiting the owner's signature; rows marked **?** are open. The tool markers and the `.loom/` bundle await an owner design.
+**Status:** PINNED — the rule, the reserved table namespace, the owner's rulings on root namespaces, CSS and the clean break, and the old→new mapping below (signed by the owner). A row marked *default* is the default the owner signed; the train that renames it may revise it. Each rename train repeats the exact old and new names it lands in its PR.
 
 **Problem.** A generated project is code a team owns. The compiler's name in its tables, types, headers, environment variables, helpers, file names and comments marks it as tool output, leaks into wire contracts between deployables and into persisted data, and takes names a user's model can collide with.
 
@@ -41,7 +41,7 @@ Each of these is a clean break: the step that renames it resets the state below 
 | `"LOOM"` (Dapper boot advisory-lock key) | two instances on different versions do not exclude each other during one rolling deploy | 3 |
 | Java package root `com.loom.<app>` | serialized Java class names (none persisted today) | 3 |
 
-## Mapping (proposal)
+## Mapping
 
 Steps refer to the rename lane: 2 tables, 3 wire names and deployment configuration, 4 backend types and helpers, 5 frontend components and design packs, 6 prose. `<system>` is the model's system name, cased per target (`shop`, `Shop`); `<app>` is the deployable's OTP app / project name.
 
@@ -67,27 +67,27 @@ Steps refer to the rename lane: 2 tables, 3 wire names and deployment configurat
 | `x-loom-test-reset` (header), `x_loom_test_reset` (FastAPI param) | test-reset route | `x-test-reset-token`, `x_test_reset_token` | yes |
 | `/__loom/test-reset` | every backend | `/__test/reset` | yes |
 | `x-loom-dev-claims` | dev-stub auth, every backend + frontends | `x-dev-claims` | yes |
-| `x-loom-attempts` | rabbitmq retry header | `x-delivery-attempts` | ? RabbitMQ owns `x-delivery-count` (quorum queues, a different counter); the names do not clash |
-| `x-loom-cache` | by-id cache response header | `x-cache-status` | ? not `x-cache`, which CDNs and Varnish overwrite |
+| `x-loom-attempts` | rabbitmq retry header | `x-delivery-attempts` | default; the owner may revise it in the train that renames it — RabbitMQ owns `x-delivery-count` (quorum queues, a different counter); the names do not clash |
+| `x-loom-cache` | by-id cache response header | `x-cache-status` | default; the owner may revise it in the train that renames it — not `x-cache`, which CDNs and Varnish overwrite |
 | `loomchannel` (CloudEvents extension) | channel envelope, every backend | `channel` | yes |
 | `loomkey` (CloudEvents extension) | kafka partition key | `partitionkey` | yes — the CloudEvents Partitioning extension's own attribute |
-| `loomcausedby` (CloudEvents extension) | originating user id | `causedby` | ? |
-| `/loom/<context>` (CloudEvents `source`) | channel envelope | `/<system>/<context>` | ? |
-| `/loom` (rabbitmq vhost) | compose, Helm, k8s, broker-init | `/<system>` | ? |
-| `loom.<Context>.<Channel>[.<deployable>]` | broker exchange / topic / durable group | `<system>.<Context>.<Channel>[.<deployable>]` | ? |
-| `loom.dlx`, `loom.dlq.<queue>`, `loom.retry.<queue>` | rabbitmq topology | `<system>.dlx`, `<system>.dlq.<queue>`, `<system>.retry.<queue>` | ? |
+| `loomcausedby` (CloudEvents extension) | originating user id | `causedby` | default; the owner may revise it in the train that renames it |
+| `/loom/<context>` (CloudEvents `source`) | channel envelope | `/<system>/<context>` | default; the owner may revise it in the train that renames it |
+| `/loom` (rabbitmq vhost) | compose, Helm, k8s, broker-init | `/<system>` | default; the owner may revise it in the train that renames it |
+| `loom.<Context>.<Channel>[.<deployable>]` | broker exchange / topic / durable group | `<system>.<Context>.<Channel>[.<deployable>]` | default; the owner may revise it in the train that renames it |
+| `loom.dlx`, `loom.dlq.<queue>`, `loom.retry.<queue>` | rabbitmq topology | `<system>.dlx`, `<system>.dlq.<queue>`, `<system>.retry.<queue>` | default; the owner may revise it in the train that renames it |
 | `loom-kafka-<group>` | kafka client id | `<group>` | yes |
-| `loom.correlation_id`, `loom.scope_id`, `loom.actor_id` | log / trace attributes, every backend | `app.correlation_id`, `app.scope_id`, `app.actor_id` | ? OpenTelemetry asks for a namespace on custom attributes |
+| `loom.correlation_id`, `loom.scope_id`, `loom.actor_id` | log / trace attributes, every backend | `app.correlation_id`, `app.scope_id`, `app.actor_id` | default; the owner may revise it in the train that renames it — OpenTelemetry asks for a namespace on custom attributes |
 | `"loom"` (tracer / logger / .NET formatter name) | every backend | the deployable's service name; formatter `"json"` | yes |
 | `:loom` (telemetry event prefix) | elixir | `:<app>` (the OTP app atom) | yes |
-| `__loomOrigin` (key inside persisted outbox payloads) | dotnet, java | `__origin` | ? |
-| `__loomEventId` | node workflows | `__eventId` | ? |
+| `__loomOrigin` (key inside persisted outbox payloads) | dotnet, java | `__origin` | default; the owner may revise it in the train that renames it |
+| `__loomEventId` | node workflows | `__eventId` | default; the owner may revise it in the train that renames it |
 | `loom_outbox_event_id` (ContextVar) | python | `outbox_event_id` | yes |
-| `loom.locale` (localStorage), `loom_locale` (cookie) | every frontend, backends that read it | `<system>.locale`, `<system>_locale` | ? system-prefixed so two apps on one origin keep separate choices |
-| `loom.store.<Store>` (localStorage) | react, vue, svelte | `<system>.store.<Store>` | ? |
+| `loom.locale` (localStorage), `loom_locale` (cookie) | every frontend, backends that read it | `<system>.locale`, `<system>_locale` | default; the owner may revise it in the train that renames it — system-prefixed so two apps on one origin keep separate choices |
+| `loom.store.<Store>` (localStorage) | react, vue, svelte | `<system>.store.<Store>` | default; the owner may revise it in the train that renames it |
 | `Symbol("loom.session")` | svelte | `Symbol("auth.session")` | yes |
 | `loomDemoTenant` (seed dataset name) | tenancy registry demo | `demoTenant` | yes |
-| `loom-page`, `loom-sort` (LiveView `phx-click` events) | elixir | `__page`, `__sort`, reserved against a user `action` of that name by a diagnostic or the symbol plan | ? |
+| `loom-page`, `loom-sort` (LiveView `phx-click` events) | elixir | `__page`, `__sort`, reserved against a user `action` of that name by a diagnostic or the symbol plan | default; the owner may revise it in the train that renames it |
 
 ### Environment variables — step 3
 
@@ -95,7 +95,7 @@ Steps refer to the rename lane: 2 tables, 3 wire names and deployment configurat
 |---|---|---|
 | `LOOM_TEST_RESET` | `TEST_RESET` | yes |
 | `LOOM_TEST_RESET_TOKEN` | `TEST_RESET_TOKEN` | yes |
-| `LOOM_SECURE_TRANSPORT` | `SECURE_TRANSPORT` | ? |
+| `LOOM_SECURE_TRANSPORT` | `SECURE_TRANSPORT` | default; the owner may revise it in the train that renames it |
 | `LOOM_OPENAPI_UI` | `OPENAPI_UI` | yes |
 | `LOOM_DEV_AUTH` | `DEV_AUTH` | yes |
 | `LOOM_SEED` | `SEED_DATA` | yes |
@@ -114,7 +114,7 @@ Every root namespace spelled with the tool name today, and its system-derived re
 | Helm helpers `loom.name`, `loom.fullname`, `loom.labels` | `<chart>.name`, `<chart>.fullname`, `<chart>.labels` — the chart is already named from the system | yes |
 | npm package names `loom-e2e`, `loom-<framework>-app`, `loom-<framework>-app-e2e` | `<system>-e2e`, `<system>-<deployable>`, `<system>-<deployable>-e2e` | yes |
 | .NET namespaces, the Python package, the compose project | carry no tool name today (deployable-derived) | — |
-| `app.kubernetes.io/managed-by: loom` (k8s label) | `managed-by: Helm` in the chart; dropped from raw manifests, which keep `part-of: <system>` | ? |
+| `app.kubernetes.io/managed-by: loom` (k8s label) | `managed-by: Helm` in the chart; dropped from raw manifests, which keep `part-of: <system>` | default; the owner may revise it in the train that renames it |
 | `<deployable>-loom-channel-<name>-url` (Helm / k8s secret key) | `<deployable>-channel-<name>-url` | yes |
 | `loom-dev-<kind>[-<deployable>]` (dev broker / cache credentials) | `dev-<kind>[-<deployable>]` | yes |
 | `loom-claim-<claim>`, `loom-declared-audience` (Keycloak mappers) | `claim-<claim>`, `declared-audience` | yes |
@@ -122,7 +122,7 @@ Every root namespace spelled with the tool name today, and its system-derived re
 | `loom-db` (README container name) | `<system>-db` | yes |
 | `/tmp/loom-certs`, keystore alias `loom-<cert>` (Java Dockerfile) | `/tmp/extra-certs`, `extra-<cert>` | yes |
 | `__LOOM_API_BASE__`, `__LOOM_BASENAME__` (window globals an embedding host sets) | `__APP_API_BASE__`, `__APP_BASENAME__` — the playground changes in the same step | yes |
-| `__loom_sandbox__` (playground mount path, in comments) | follows the playground | ? |
+| `__loom_sandbox__` (playground mount path, in comments) | follows the playground | default; the owner may revise it in the train that renames it |
 | `"loom_dev"` (Phoenix signing salt) | `"<app>_dev"` | yes |
 | `"LOOM"` (Dapper boot advisory-lock key) | `"MIGRATIONS"` | yes |
 
@@ -132,11 +132,11 @@ Every root namespace spelled with the tool name today, and its system-derived re
 |---|---|---|---|
 | `LoomEventEnvelope` | node, dotnet, java | `EventEnvelope` | yes |
 | `LoomOutbox`, `LoomOutboxRow`, `LoomOutboxMessage`, `LoomOutboxRepository`, `LoomEventOutbox` | elixir, dotnet, python, java | `Outbox`, `OutboxRow`, `OutboxMessage`, `OutboxRepository`, `EventOutbox` | yes — a user aggregate `Outbox` is the symbol plan's collision case |
-| `LoomIssue`, `LoomFieldError`, `LoomIssueParams` | every backend, react | `ProblemIssue`, `FieldError`, `IssueParams` | ? |
-| `LoomErrorHandler` | dotnet, elixir, java, python, angular | `ErrorHandler`; `AppErrorHandler` on Angular (its own `ErrorHandler` class) and wherever the symbol plan finds a framework type of that name | ? |
+| `LoomIssue`, `LoomFieldError`, `LoomIssueParams` | every backend, react | `ProblemIssue`, `FieldError`, `IssueParams` | default; the owner may revise it in the train that renames it |
+| `LoomErrorHandler` | dotnet, elixir, java, python, angular | `ErrorHandler`; `AppErrorHandler` on Angular (its own `ErrorHandler` class) and wherever the symbol plan finds a framework type of that name | default; the owner may revise it in the train that renames it |
 | `LoomJsonFormatter`, `LoomJsonFormatMapperConfig` | dotnet, java | `JsonLineFormatter`, `JsonFormatMapperConfig` | yes |
 | `LoomWaitForDbAsync` | dotnet | `WaitForDatabaseAsync` | yes |
-| `LoomConsumed` | node | `Consumed` | ? |
+| `LoomConsumed` | node | `Consumed` | default; the owner may revise it in the train that renames it |
 | `LoomChannel`, `LoomKey` (envelope record members) | dotnet | `Channel`, `PartitionKey` | yes |
 
 ### Frontend components and design packs — step 5
@@ -254,9 +254,9 @@ A helper drops the tool name. A name that becomes a common word takes the target
 
 `Loom`, `loom`, `Loom-generated`, `Loom-derived` in comments, READMEs, Helm `NOTES.txt` and chart descriptions: rewritten to describe the generated project without naming the tool — "generated", "the generator".
 
-## Pending owner design — tool markers and `.loom/`
+## Tool markers and `.loom/` — no read-back
 
-Whether generated output contains anything the compiler reads back, and where artifacts belong, is an open design. These names stay listed under the census's `pending` group, and nothing is proposed for them. What writes and reads each one today:
+The generator reads nothing back from its own output, and the generated tree has no `.loom/` folder. Documentation artifacts move to `docs/` in the generated tree; the manifest and the `scaffold-once` marker go (the generator owns its output folders outright, except paths an ignore file names, and writes a scaffold-once file only when it is absent); the walker hands the unrendered list over directly instead of a marker being re-scanned; the source map stays opt-in, beside the build output; an artifact with no reader gets a real home or is dropped. The redesign is tracked as #5993; until it lands these names stay in the census's `pending` group. What writes and reads each one today:
 
 | artifact / marker | writer | read back by | could the reader take it from elsewhere? |
 |---|---|---|---|

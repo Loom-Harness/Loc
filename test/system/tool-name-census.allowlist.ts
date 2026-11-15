@@ -10,8 +10,8 @@
 // `step` is the #5942 step that renames the name: 2 tables, 3 wire names (headers,
 // routes, env, compose/Helm/k8s), 4 backend types and helpers, 5 frontend
 // components and design packs, 6 prose.  `"pending-design"` marks the tool
-// markers and the `.loom/` bundle, whose place in the generated tree awaits an
-// owner design (D-NO-TOOL-NAME, "Pending owner design");
+// markers and the `.loom/` bundle, which the no-read-back redesign (#5993)
+// removes from the generated tree (D-NO-TOOL-NAME, "Tool markers and .loom/");
 // `"standing"` marks a name derived from a name the fixture itself declares.
 // A `pattern` row covers a family whose middle is the user's (a context, a
 // channel, a deployable); `shows` is how the family reads.
@@ -1102,67 +1102,67 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     name: "path:.loom",
     group: "pending",
     step: "pending-design",
-    note: "the .loom/ artifact bundle",
+    note: "the .loom/ artifact bundle — removed by #5993",
   },
   {
     name: ".loom/",
     group: "pending",
     step: "pending-design",
-    note: "references to the .loom/ bundle",
+    note: "references to the .loom/ bundle — removed by #5993",
   },
   {
     name: "x-loom",
     group: "pending",
     step: "pending-design",
-    note: "AsyncAPI extension key in .loom/asyncapi.yaml",
+    note: "AsyncAPI extension key in .loom/asyncapi.yaml — #5993",
   },
   {
     name: "loom-std",
     group: "pending",
     step: "pending-design",
-    note: "stdlib pseudo-source URI in .loom/sourcemap.json",
+    note: "stdlib pseudo-source URI in .loom/sourcemap.json — #5993",
   },
   {
     name: "loomignore",
     group: "pending",
     step: "pending-design",
-    note: "tool marker / `.loom/` reference — pending owner design",
+    note: "tool marker / .loom/ reference — removed by #5993 (no read-back)",
   },
   {
     name: "loom:scaffold-once",
     group: "pending",
     step: "pending-design",
-    note: "tool marker / `.loom/` reference — pending owner design",
+    note: "tool marker / .loom/ reference — removed by #5993 (no read-back)",
   },
   {
     name: "loom:sourcemap-begin",
     group: "pending",
     step: "pending-design",
-    note: "tool marker / `.loom/` reference — pending owner design",
+    note: "tool marker / .loom/ reference — removed by #5993 (no read-back)",
   },
   {
     name: "loom:sourcemap-end",
     group: "pending",
     step: "pending-design",
-    note: "tool marker / `.loom/` reference — pending owner design",
+    note: "tool marker / .loom/ reference — removed by #5993 (no read-back)",
   },
   {
     name: "loom:unrendered",
     group: "pending",
     step: "pending-design",
-    note: "tool marker / `.loom/` reference — pending owner design",
+    note: "tool marker / .loom/ reference — removed by #5993 (no read-back)",
   },
   {
     name: "loom.<diagnostic-code>",
     group: "pending",
     step: "pending-design",
-    note: "tool marker / `.loom/` reference — pending owner design",
+    note: "tool marker / .loom/ reference — removed by #5993 (no read-back)",
   },
   {
     name: "loomsnap",
     group: "pending",
     step: "pending-design",
-    note: "tool marker / `.loom/` reference — pending owner design",
+    note: "tool marker / .loom/ reference — removed by #5993 (no read-back)",
   },
 
   // ── user ────────────────────────────────────────────────────────
