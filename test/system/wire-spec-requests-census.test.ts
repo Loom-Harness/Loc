@@ -54,6 +54,8 @@ function expectedRequests(sys: EnrichedSystemIR): { want: string[]; have: Set<st
 const UNCONTRACTED_REQUESTS = [
   "test/fixtures/corpus/cache-by-id.ddd: CreateNoteCommand",
   "test/fixtures/corpus/cache-by-id.ddd: UpdateNoteCommand",
+  "test/fixtures/corpus/cache-by-id-redis.ddd: CreateNoteCommand",
+  "test/fixtures/corpus/cache-by-id-redis.ddd: UpdateNoteCommand",
   "test/fixtures/corpus/exists-quantifier.ddd: CreateCategoryCommand",
   "test/fixtures/corpus/exists-quantifier.ddd: UpdateCategoryCommand",
   "test/fixtures/corpus/exists-quantifier.ddd: CreateCategoryShareCommand",
