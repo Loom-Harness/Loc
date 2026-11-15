@@ -66,8 +66,12 @@ const OTHER = "2027-01-01T00:00:00Z";
 describe("a datetime matcher's ISO-8601 expected value compares as a date", () => {
   it("TS: epoch milliseconds — toBe would compare Date identity", async () => {
     const src = findFile(await generateSystemFiles(FIXTURE), /widget\.test\.ts$/i);
-    expect(lineWith(src, AT)).toMatch(/\.toBe\(new Date\("2026-02-02T12:30:00Z"\)\.getTime\(\)\);$/);
-    expect(lineWith(src, OTHER)).toMatch(/\.not\.toBe\(new Date\("2027-01-01T00:00:00Z"\)\.getTime\(\)\);$/);
+    expect(lineWith(src, AT)).toMatch(
+      /\.toBe\(new Date\("2026-02-02T12:30:00Z"\)\.getTime\(\)\);$/,
+    );
+    expect(lineWith(src, OTHER)).toMatch(
+      /\.not\.toBe\(new Date\("2027-01-01T00:00:00Z"\)\.getTime\(\)\);$/,
+    );
     expect(lineWith(src, '"W1")')).toMatch(/\.toBe\("W1"\);$/);
   });
 
