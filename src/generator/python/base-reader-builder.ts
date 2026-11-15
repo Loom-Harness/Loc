@@ -1,8 +1,10 @@
 import { type PolymorphicRead, polymorphicReadFor } from "../../ir/enrich/read-scope.js";
 import { type WireRejectionClass, wireStatus } from "../../ir/enrich/wire-policy.js";
 import {
-  polymorphicReadGates,
   polymorphicReadMasked,
+  polymorphicReadOperations,
+  readLadder,
+  readLadderGates,
   routedPolymorphicRead,
 } from "../../ir/plan/index.js";
 import {
@@ -276,17 +278,15 @@ export function buildPyBaseRoutesFile(
       : `${B}Response = ${union}`;
   const problem = (cls: WireRejectionClass): string =>
     pyProblemResponseEntry(wireStatus(cls), H.ProblemDetails);
-  // Every concrete's list-read gate, checked before the load: a caller who
-  // fails any of them gets that concrete's own pre-load 403.
-  const gates = polymorphicReadGates(base, ctx);
-  const forbidden =
-    gates.length > 0
-      ? [
-          pyProblemResponseEntry(
-            wireStatus("forbidden", ctx.structuralErrorStatuses),
-            H.ProblemDetails,
-          ),
-        ]
+  // Every concrete's list-read gate, checked before the load (`readLadder`): a
+  // caller who fails any of them gets that concrete's own pre-load 403.
+  const gates = readLadderGates(readLadder(base, ctx));
+  // Each route declares the 403 its derived operation answers.
+  const forbiddenStatus = wireStatus("forbidden", ctx.structuralErrorStatuses);
+  const ops = polymorphicReadOperations(base, ctx);
+  const forbidden = (kind: "find" | "getById"): string[] =>
+    ops.find((o) => o.kind === kind)?.errorStatuses.includes(forbiddenStatus)
+      ? [pyProblemResponseEntry(forbiddenStatus, H.ProblemDetails)]
       : [];
   const gateUsesUser = gates.some((g) => exprUsesCurrentUser(g.find.requires));
   const gateLines = (): (string | null)[] => [
@@ -302,7 +302,7 @@ export function buildPyBaseRoutesFile(
       ? [
           "",
           "",
-          `@router.get("/{id}", response_model=${B}Response, operation_id="get${B}ById", responses={${[...forbidden, problem("not-found"), problem("field-invalid")].join(", ")}})`,
+          `@router.get("/{id}", response_model=${B}Response, operation_id="get${B}ById", responses={${[...forbidden("getById"), problem("not-found"), problem("field-invalid")].join(", ")}})`,
           `async def get_${snake(B)}_by_id(${ID_PARAM}, ${requestParam}session: SessionDep) -> dict[str, object]:`,
           ...gateLines(),
           "    repo = _repo(session)",
@@ -339,7 +339,7 @@ export function buildPyBaseRoutesFile(
     `    return ${repoRef(B)}(session, ${H.NoopDomainEventDispatcher}())`,
     "",
     "",
-    `@router.get("", response_model=${B}Paged, operation_id="all${B}", responses={${[...forbidden, problem("field-invalid")].join(", ")}})`,
+    `@router.get("", response_model=${B}Paged, operation_id="all${B}", responses={${[...forbidden("find"), problem("field-invalid")].join(", ")}})`,
     `async def all_${route}(${requestParam}session: SessionDep, ${PY_PAGED_CONTROLS.join(", ")}) -> dict[str, object]:`,
     ...gateLines(),
     "    repo = _repo(session)",

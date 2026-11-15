@@ -37,6 +37,7 @@ import {
   findUsesCurrentUser,
   type InvariantIR,
   type OperationIR,
+  type ParamIR,
   type RepositoryIR,
   type TypeIR,
 } from "../../ir/types/loom-ir.js";
@@ -51,7 +52,7 @@ import {
 import { canonicalCreate, canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
 import { disallowedDetail } from "../../ir/util/denial-detail.js";
-import { mergePatchFields } from "../../ir/util/merge-patch.js";
+import { isMergePatchUpdate, mergePatchFields } from "../../ir/util/merge-patch.js";
 import {
   lifecycleGates,
   lifecycleGatesReadRow,
@@ -1040,9 +1041,21 @@ function destroyRoute(
   );
 }
 
-/** The `when` state-gate line(s) injected after the aggregate loads and
- *  before the operation body runs — false → DisallowedError (409),
- *  matching the side-effect-free `can_<op>` predicate. */
+/** The value an operation handler passes for parameter `p`: the wire value,
+ *  or, on a merge-patch update (RS-47), the stored value when the body left the
+ *  key out.  A required field's `None` can only mean absent (the model refused
+ *  an explicit null); an optional one asks `model_fields_set`. */
+function opArgExpr(op: OperationIR, p: ParamIR, ctx: BoundedContextIR): string {
+  const attr = `body.${pythonWireIdent(p.name)}`;
+  const value = pyWireToDomain(attr, p.type, ctx);
+  if (!isMergePatchUpdate(op)) return value;
+  const present =
+    p.type.kind === "optional"
+      ? `${JSON.stringify(pythonWireIdent(p.name))} in body.model_fields_set`
+      : `${attr} is not None`;
+  return `(${value} if ${present} else found.${pythonIdent(p.name)})`;
+}
+
 /** The hoisted authorization gate — the leading run of `requires` statements,
  *  evaluated by the HANDLER rather than the aggregate (`src/ir/util/op-gates.ts`).
  *
@@ -1066,10 +1079,11 @@ function requiresGate(
     const guard = renderPyNegatedGuard(g.expr, {
       thisName: "found",
       // Operation params are NOT locals here — the handler holds them at the
-      // wire-read expression the call is about to pass.
+      // wire-read expression the call is about to pass (on a merge-patch
+      // update, the merged value — `opArgExpr`).
       paramExpr: (name) => {
         const p = op.params.find((q) => q.name === name);
-        return p ? pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx) : undefined;
+        return p ? opArgExpr(op, p, ctx) : undefined;
       },
     });
     // A merge-patch update's mask write gate runs only when the body carries
@@ -1116,6 +1130,9 @@ function lifecycleGateStmt(
   ];
 }
 
+/** The `when` state-gate line(s) injected after the aggregate loads and
+ *  before the operation body runs — false → DisallowedError (409),
+ *  matching the side-effect-free `can_<op>` predicate. */
 function whenGate(agg: EnrichedAggregateIR, op: OperationIR): string[] {
   if (!op.when) return [];
   return [
@@ -1349,19 +1366,7 @@ function operationRoute(
   // A merge-patch update (RS-47) passes the stored value for every key the
   // body left out.  A required field's `None` can only mean absent (the model
   // refused an explicit null); an optional one asks `model_fields_set`.
-  const patch = mergePatchFields(op);
-  const callArgs = [
-    ...op.params.map((p) => {
-      const attr = `body.${pythonWireIdent(p.name)}`;
-      const value = pyWireToDomain(attr, p.type, ctx);
-      if (!patch) return value;
-      const present =
-        p.type.kind === "optional"
-          ? `${JSON.stringify(pythonWireIdent(p.name))} in body.model_fields_set`
-          : `${attr} is not None`;
-      return `(${value} if ${present} else found.${pythonIdent(p.name)})`;
-    }),
-  ];
+  const callArgs = op.params.map((p) => opArgExpr(op, p, ctx));
   if (usesUser) callArgs.push("current_user");
   const vsave = versionedSave(agg);
   // A scalar (non-void, non-union) return type — `operation describe(): string`.
