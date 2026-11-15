@@ -23,7 +23,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { workflowStateTableName } from "../../../util/naming.js";
 import { tableNameFor } from "../../../util/storage-names.js";
 import { eventLogTable } from "../../plan/index.js";
-import type { EnrichedBoundedContextIR } from "../../types/loom-ir.js";
+import type { EnrichedBoundedContextIR, EnrichedLoomModel } from "../../types/loom-ir.js";
 import { isMaterializedProjection } from "../../types/loom-ir.js";
 import type { OriginRef } from "../../types/origin.js";
 import { isTphBase, isTphConcrete } from "../../util/inheritance.js";
@@ -182,5 +182,62 @@ export function validatePersistedTableCollisions(
       source: `${ctx.name}/${t.declaredName}`,
       origin: t.origin,
     });
+  }
+}
+
+// -------------------------------------------------------------------------
+// The reserved table namespace (`loom.persisted-table-reserved`).
+//
+// Tables the generated runtime owns — the outbox, the consumer inbox, the timer
+// tables, the migration and seed ledgers — live beside the user's tables in the
+// same schema and are named with a leading `_` (D-NO-TOOL-NAME).  A user
+// declaration whose derived table starts with `_` could take one of those
+// names, and the migration would then create one table for two owners.  The DSL
+// can reach that namespace two ways: an identifier may start with `_` (the `ID`
+// terminal admits it, and `snake` keeps it), and a relational binding's
+// `tablePrefix:` is prepended to every table of its context.  Both are refused
+// here so the namespace stays the runtime's.
+// -------------------------------------------------------------------------
+
+/** The leading character every runtime-owned table name carries. */
+export const RESERVED_TABLE_PREFIX = "_";
+
+export function validateReservedTableNames(
+  ctx: EnrichedBoundedContextIR,
+  diags: LoomDiagnostic[],
+): void {
+  for (const t of persistedTablesOf(ctx)) {
+    if (!t.table.startsWith(RESERVED_TABLE_PREFIX)) continue;
+    diags.push({
+      severity: "error",
+      code: "loom.persisted-table-reserved",
+      message: diagMessage("loom.persisted-table-reserved#declaration", {
+        ctx: ctx.name,
+        owner: t.owner,
+        table: t.table,
+      }),
+      source: `${ctx.name}/${t.declaredName}`,
+      origin: t.origin,
+    });
+  }
+}
+
+export function validateReservedTablePrefixes(
+  loom: EnrichedLoomModel,
+  diags: LoomDiagnostic[],
+): void {
+  for (const sys of loom.systems) {
+    for (const d of sys.dataSources) {
+      if (d.tablePrefix === undefined || !d.tablePrefix.startsWith(RESERVED_TABLE_PREFIX)) continue;
+      diags.push({
+        severity: "error",
+        code: "loom.persisted-table-reserved",
+        message: diagMessage("loom.persisted-table-reserved#prefix", {
+          resource: d.name,
+          prefix: d.tablePrefix,
+        }),
+        source: `${sys.name}/${d.name}`,
+      });
+    }
   }
 }
