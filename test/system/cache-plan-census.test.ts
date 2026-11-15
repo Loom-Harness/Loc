@@ -1,3 +1,4 @@
+// Gate for D-CACHE-BY-ID (docs/decisions).
 // The by-id read cache has ONE decision-maker: `src/ir/plan/cache.ts` decides
 // which reads are cached, the entry key, the scope fingerprint, the ttl and
 // the evicting writes.  A backend that read a cache resource's `ttl` /

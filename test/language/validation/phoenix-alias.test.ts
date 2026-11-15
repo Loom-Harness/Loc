@@ -1,3 +1,4 @@
+// Gate for D-ELIXIR-PLATFORM (docs/decisions).
 import { describe, expect, it } from "vitest";
 import { parseString } from "../../_helpers/parse.js";
 

@@ -1,3 +1,4 @@
+// Gate for D-REPO-VERBS, D-STORAGE-SPLIT (docs/decisions).
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

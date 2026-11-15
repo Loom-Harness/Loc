@@ -1,4 +1,5 @@
 {
+  "//": "Gate for D-EF-TPH-ROOT-READS (docs/decisions).",
   "title": "inheritance (TPH + TPC) × a subtype capability × a subtype-only-column filter × `ignoring` × polymorphic base reads × `tenantOwned` across two tenants",
   "doc": "inheritance",
   "backends": "ALL",

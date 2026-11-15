@@ -1,4 +1,5 @@
 {
+  "//": "Gate for D-PROJECTION-FOLD-AFTER-COMMIT (docs/decisions).",
   "title": "folded-projection fold failure — a fold whose write fails in the database leaves the command committed and the read model as it was (after commit, isolated per handler)",
   "doc": "language",
   "backends": "ALL",

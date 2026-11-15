@@ -20,3 +20,5 @@ alternate dataSources, with no new grammar beyond what D-STORAGE-SPLIT
 landed. Option ② (`overrides { storage … }`) is declined.
 
 **Affects.** Storage proposal §3.8 (`overrides`) does not land.
+
+**Enforced by:** review — `docs/review-checklist.md#d-env-swap` — declines a feature (a deployable overrides block); nothing exists to observe

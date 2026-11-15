@@ -1,3 +1,4 @@
+// Gate for D-HANDLE-REMOVAL (docs/decisions).
 // The workflow `handle name(…) { … }` member is gone (D-HANDLE-REMOVAL): a
 // named command entry is a context-level `commandHandler`.  A source still
 // using it fails to PARSE, and the one diagnostic names the replacement and

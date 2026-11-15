@@ -1,3 +1,4 @@
+// Gate for D-WIRE-RECORDS (docs/decisions).
 // One source for what a create request is (`src/ir/plan/create-request.ts`).
 //
 // Every create form, create request schema, page object and i18n chrome entry

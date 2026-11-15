@@ -25,3 +25,5 @@ so keeps it honest when document/JSON saving enters via `shape`).
 **Affects.** `aggregate-inheritance.md` (its `storage: shared|own`
 clause is this modifier); `document-and-json-hierarchies.md` §4a (same
 header line). Interacts with D-ES-TPH below.
+
+**Enforced by:** `test/language/parsing/aggregate-inheritance.test.ts`

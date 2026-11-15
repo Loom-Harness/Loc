@@ -1,3 +1,4 @@
+// Gate for D-FLUTTER-BEARER (docs/decisions).
 // Flutter's authenticated http client + the native bearer rule — M-T4.12 item
 // (1), under **D-FLUTTER-BEARER**.
 //

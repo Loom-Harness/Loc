@@ -1,3 +1,4 @@
+// Gate for D-DEFAULT-DENY-LIST-WARN (docs/decisions).
 // A function-form policy is context-local, and context names are unique across
 // the workspace, so a policy declared in another FILE is always declared in
 // another context.  Every way of reaching one must report

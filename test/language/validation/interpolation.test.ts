@@ -1,3 +1,4 @@
+// Gate for D-ICU-DOMAIN-DROP-WARN (docs/decisions).
 // A6 string interpolation (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md) — the backtick template
 // `` `Order {id} for {customer.name}` ``.  Parse-level coverage: the
 // two-mode lexer (interpolation coexists with ordinary block braces), and

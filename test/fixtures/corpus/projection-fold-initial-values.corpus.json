@@ -1,4 +1,5 @@
 {
+  "//": "Gate for D-PROJECTION-ROW-SEED (docs/decisions).",
   "title": "folded-projection fresh row — every column a fold has not written starts at its declared default, its type's neutral zero, or null",
   "doc": "language",
   "backends": "ALL",
