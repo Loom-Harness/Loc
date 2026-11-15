@@ -43,5 +43,11 @@ system DeclaredTimestamps {
     expect(read.lines.length).toBe(1)
     expect(read.lines.first().insertedAt).toBeSameInstant("2024-02-03T04:05:06Z")
     expect(read.lines.first().updatedAt).toBeSameInstant("2024-02-03T04:05:06Z")
+    api.carts.update(c, { name: "c2", insertedAt: "2025-05-06T07:08:09Z" })
+    let listed = api.carts.all()
+    expect(listed.items.length).toBe(1)
+    expect(listed.items.first().insertedAt).toBeSameInstant("2025-05-06T07:08:09Z")
+    api.carts.destroy(c)
+    expect(api.carts.all().items.length).toBe(0)
   }
 }

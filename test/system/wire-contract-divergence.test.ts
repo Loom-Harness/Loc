@@ -59,6 +59,7 @@ const BASELINE: Record<string, Divergence> = {
   "core-domain.ddd Orders.Order": "containment-response-suffix",
   // acronym-names' `contains variants: VariantSKU[]` — the same deliberate B1 shape.
   "acronym-names.ddd Catalog.ProductSKU": "containment-response-suffix",
+  "declared-timestamp-columns.ddd Carts.Cart": "containment-response-suffix",
   // part-rules-private-op's `lines: Line[]` (an inferred containment) — the
   // same deliberate B1 shape.
   "part-rules-private-op.ddd Billing.Invoice": "containment-response-suffix",
