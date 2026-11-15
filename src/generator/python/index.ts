@@ -823,11 +823,11 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // colocated pytest modules under tests/, emitted off the merged context like
   // the service modules above; only when the subject declares a `test`.
   for (const vo of merged.valueObjects) {
-    const voTests = renderPyVoTestsFile(vo, merged);
+    const voTests = renderPyVoTestsFile(vo, merged, args.sys.user?.fields);
     if (voTests) out.set(`tests/test_${snake(vo.name)}.py`, voTests);
   }
   for (const svc of merged.domainServices) {
-    const svcTests = renderPyServiceTestsFile(svc, merged);
+    const svcTests = renderPyServiceTestsFile(svc, merged, args.sys.user?.fields);
     if (svcTests) out.set(`tests/test_${snake(svc.name)}.py`, svcTests);
   }
 
@@ -845,7 +845,6 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       ? {
           principal: {
             user: args.sys.user.fields,
-            stubKwargs: renderPyStubUserKwargs(args.sys.user),
           },
         }
       : {}),
@@ -959,7 +958,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       );
       out.set(routesPath, routesContent);
       sourcemap?.file(routesPath, out.get(routesPath)!, agg.origin, construct);
-      const tests = renderPyTestsFile(agg, ctx);
+      const tests = renderPyTestsFile(agg, ctx, args.sys.user?.fields);
       if (tests != null) {
         const testsPath = `tests/test_${snake(agg.name)}.py`;
         out.set(testsPath, tests);

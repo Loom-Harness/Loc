@@ -18,6 +18,7 @@
 // `expect(...)`, so the `await` stays a statement-level concern and the assertion
 // expressions render synchronously.
 
+import { testPrincipal } from "../../../ir/plan/test-principal.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -29,11 +30,19 @@ import type {
   TestPrincipalIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
+import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { repoVerbMethod, repoVerbOpAt } from "../../../util/repository-contract.js";
+import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { renderTsExpr } from "../render-expr.js";
 import { T } from "../ts-symbols.js";
-import { renderCreateInput, renderExplicitMatcher, testBodyValueImports } from "./tests.js";
+import {
+  renderCreateInput,
+  renderExplicitMatcher,
+  TS_PRINCIPAL,
+  testBodyValueImports,
+} from "./tests.js";
 
 /** A repository find on `agg` named `name`, or undefined. */
 function findRepoQuery(name: string, aggName: string, ctx: BoundedContextIR): FindIR | undefined {
@@ -170,10 +179,17 @@ function renderStmt(
       ) {
         const aggName = s.expr.receiverType.name;
         const recv = renderTsExpr(s.expr.receiver);
-        const args = s.expr.args.map((a) => renderTsExpr(a)).join(", ");
+        const args = s.expr.args.map((a) => renderTsExpr(a));
+        // A currentUser-reading operation takes the principal as a trailing
+        // argument: the one the test has bound in the ambient frame.
+        const member = s.expr.member;
+        const op = ctx.aggregates
+          .find((a) => a.name === aggName)
+          ?.operations.find((o) => o.name === member);
+        if (user && op && operationBodyUsesCurrentUser(op)) args.push(`${T.requireCurrentUser}()`);
         return [
           `${recv} = (await ${repoHandle(aggName)}.findById(${recv}.id))!;`,
-          `${recv}.${s.expr.member}(${args});`,
+          `${recv}.${s.expr.member}(${args.join(", ")});`,
           `await ${repoHandle(aggName)}.save(${recv});`,
         ];
       }
@@ -191,7 +207,7 @@ function renderStmt(
     case "principal":
       // A body `as { … }` line: rebind the ambient frame's principal.
       if (!user) return [];
-      return [`await ${T.actAsUser}(${renderPrincipalClaims(s.principal, user)});`];
+      return [`await ${T.actAsUser}(${renderPrincipalClaims(s.principal, user, ctx)});`];
     default:
       // let / expression / expect(-throws) are the surviving integration shapes;
       // anything else is an IR-validator gap.
@@ -202,27 +218,15 @@ function renderStmt(
 /** One `as { … }` claim value as a TS literal of the claim's declared type:
  *  an id claim goes through its branded `Ids` factory, every other settable
  *  claim (`string` / `guid` / `string[]`) is plain JSON. */
-function renderClaimValue(field: FieldIR | undefined, value: string | readonly string[]): string {
-  const t = field?.type.kind === "optional" ? field.type.inner : field?.type;
-  if (t?.kind === "id" && typeof value === "string") {
-    return `Ids.${t.targetName}Id(${JSON.stringify(value)})`;
-  }
-  return JSON.stringify(value);
-}
-
-/** The claims a test runs as: the dev-stub identity with the test's
- *  `as { … }` claims spread over it. */
-function renderPrincipalClaims(p: TestPrincipalIR | undefined, user: readonly FieldIR[]): string {
-  const overrides = (p?.claims ?? []).map(
-    (c) =>
-      `${c.name}: ${renderClaimValue(
-        user.find((f) => f.name === c.name),
-        c.value,
-      )}`,
-  );
-  return overrides.length > 0
-    ? `{ ...${T.devStubClaims}(), ${overrides.join(", ")} }`
-    : `${T.devStubClaims}()`;
+/** The principal a test runs as (`testPrincipal`): the dev-stub identity with
+ *  the test's `as { … }` claims replacing the fields they name — the same
+ *  principal the unit tier passes. */
+function renderPrincipalClaims(
+  p: TestPrincipalIR | undefined,
+  user: readonly FieldIR[],
+  ctx: BoundedContextIR,
+): string {
+  return renderTestPrincipal(testPrincipal(user, p, enumPool(ctx)), TS_PRINCIPAL);
 }
 
 function renderTest(
@@ -244,7 +248,7 @@ function renderTest(
   // by the test's `as { … }` claims.
   return [
     `  it(${JSON.stringify(t.name)}, () =>`,
-    `    ${T.runAsUser}(${renderPrincipalClaims(t.principal, user)}, async () => {`,
+    `    ${T.runAsUser}(${renderPrincipalClaims(t.principal, user, ctx)}, async () => {`,
     ...body.map((l) => `      ${l}`),
     "    }));",
   ];

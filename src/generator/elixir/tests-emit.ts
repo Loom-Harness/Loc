@@ -1,9 +1,11 @@
 import type { EnrichedBoundedContextIR, FieldIR, SystemIR } from "../../ir/types/loom-ir.js";
+import { enumPool } from "../../ir/util/reachable-types.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { voHasConstraints } from "./vanilla/changeset-validators.js";
 import { pureCoreShape } from "./vanilla/domain-core-emit.js";
 import { renderVanillaContextIntegrationTest } from "./vanilla/integration-tests-emit.js";
 import {
+  exTestPrincipal,
   renderVanillaAggregateTestModule,
   renderVanillaServiceTestModule,
   renderVanillaVoTestModule,
@@ -44,6 +46,7 @@ export function emitAggregateTests(
     docAggs: new Set(
       ctx.aggregates.filter((a) => pureCoreShape(a, ctx, sys) === "document").map((a) => a.name),
     ),
+    principal: exTestPrincipal(sys?.user?.fields, enumPool(ctx)),
   };
   // Value objects with a validating constructor (F5) — the emitter lowers
   // `expect(VO{bad}).toThrow()` against these.

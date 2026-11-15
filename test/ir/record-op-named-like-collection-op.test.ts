@@ -67,9 +67,10 @@ describe("a record operation named like a collection op lowers as the operation"
     for (const name of NAMES) {
       const call = calls.find((c) => c.member === name && c.receiverType?.kind === "entity");
       expect(call, `o.${name}(0)`).toBeDefined();
-      expect(call!.isCollectionOp ?? false, `o.${name}(0) is Order.${name}, not the collection op`).toBe(
-        false,
-      );
+      expect(
+        call!.isCollectionOp ?? false,
+        `o.${name}(0) is Order.${name}, not the collection op`,
+      ).toBe(false);
     }
     // The collection receiver still gets the collection op.
     const onTags = calls.find((c) => c.member === "take" && c.receiverType?.kind === "array");

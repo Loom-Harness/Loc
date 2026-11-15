@@ -1,25 +1,24 @@
+import { type AssertionRelation, assertionPlan } from "../../../ir/plan/test-assertion.js";
+import { testPrincipal } from "../../../ir/plan/test-principal.js";
 import type {
   AggregateIR,
   DomainServiceIR,
   EnrichedAggregateIR,
+  EnumIR,
   ExprIR,
+  FieldIR,
   OperationIR,
   TestIR,
   TestStmtIR,
-  TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { walkExprDeep, walkStmtExprsDeep, walkStmtsDeep } from "../../../ir/util/walk.js";
 import type { ThrowKindName } from "../../../util/intrinsic-matchers.js";
 import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { elixirCodePointLength } from "../../_expr/code-point.js";
-import {
-  coerceMatcherExpected,
-  coerceTestLiteral,
-  decideLiteralCoercion,
-  matcherSubjectType,
-  type TestLiteralTarget,
-} from "../../_test/arg-coercion.js";
+import { coerceTestLiteral, type TestLiteralTarget } from "../../_test/arg-coercion.js";
+import { type AssertionTarget, renderAssertionPlan } from "../../_test/assertion-target.js";
+import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { renderExpr, valueObjectFunctionCall } from "../render-expr.js";
 import { appModuleOf, guardErrorModule } from "./denial.js";
@@ -99,6 +98,8 @@ export interface Env {
    *  the `<Agg>.Data` embed, which stores an enum as its declared-case STRING
    *  (not the `Ecto.Enum` atom the relational struct holds). */
   docAggs?: ReadonlySet<string>;
+  /** The test principal a currentUser-reading op call takes. */
+  principal?: string;
   /** Test-local names bound to a document aggregate's record, collected while a
    *  test renders (`let d = Doc.create(…)`), so a later read or op call on `d`
    *  speaks the embed's string enums. */
@@ -107,32 +108,32 @@ export interface Env {
   enumAsString?: boolean;
 }
 
-const MATCHER_OP: Record<string, string> = {
-  toBe: "==",
-  toBeGreaterThan: ">",
-  toBeGreaterThanOrEqual: ">=",
-  toBeLessThan: "<",
-  toBeLessThanOrEqual: "<=",
+/** Elixir spelling of the shared test principal (`testPrincipal`,
+ *  src/ir/plan/test-principal.ts): a map of every declared claim, which is the
+ *  shape `.field` access on the actor reads and `as_principal/1` takes. */
+export const EX_PRINCIPAL: PrincipalTarget = {
+  text: (v) => elixirString(v),
+  guid: (v) => elixirString(v),
+  // An id is an Ecto `:binary_id`, whose runtime value is the uuid string.
+  id: (_targetName, v) => elixirString(v),
+  int: "0",
+  decimal: () => `Decimal.new("0")`,
+  bool: "false",
+  datetime: "~U[1970-01-01 00:00:00Z]",
+  date: "~D[1970-01-01]",
+  enumMember: (_name, member) => elixirString(member),
+  list: (_element, items) => `[${items.join(", ")}]`,
+  absent: "nil",
+  record: (claims) => `%{${claims.map((c) => `${snake(c.field.name)}: ${c.rendered}`).join(", ")}}`,
 };
 
-/** Decimal comparison tail per matcher — `Decimal.compare/2` returns
- *  `:lt | :eq | :gt`, scale-insensitive (unlike `==` on `%Decimal{}`). */
-const MONEY_CMP: Record<string, string> = {
-  toBeGreaterThan: "== :gt",
-  toBeGreaterThanOrEqual: "in [:gt, :eq]",
-  toBeLessThan: "== :lt",
-  toBeLessThanOrEqual: "in [:lt, :eq]",
-};
-
-// A synthetic privileged actor threaded into a currentUser-gated op call in a
-// domain test (the pure-core fn gained a trailing `current_user \\ nil` arg —
-// §11d).  A bare test block has no auth context, so without this the guard reads
-// a nil actor (`nil.role` → BadMapError, not the ArgumentError a `requires`
-// raises) and the test mis-fails.  Mirror of node's `TEST_ACTOR` (emit/tests.ts):
-// a map satisfying the common guard fields (role/permissions/id) — Elixir `.field`
-// access works on a plain map, so no `%User{}` struct is needed.
-const TEST_ACTOR =
-  '%{id: "00000000-0000-0000-0000-000000000000", role: "admin", permissions: ["*"]}';
+/** The test principal a currentUser-reading op call in a unit test takes. */
+export function exTestPrincipal(
+  user: readonly FieldIR[] | undefined,
+  enums: readonly EnumIR[],
+): string {
+  return renderTestPrincipal(testPrincipal(user ?? [], undefined, enums), EX_PRINCIPAL);
+}
 
 /** A domain `test` shape the vanilla ExUnit emitter deliberately cannot lower to
  *  the pure domain core — an unsupported matcher/statement/expression, or a
@@ -165,6 +166,9 @@ function skipBody(reason: string): string[] {
 export interface ShapeFacts {
   esCreates: ReadonlyMap<string, OperationIR | undefined>;
   docAggs: ReadonlySet<string>;
+  /** The test principal (`exTestPrincipal`) a currentUser-reading op call
+   *  takes as its trailing argument. */
+  principal?: string;
 }
 
 export function renderVanillaAggregateTestModule(
@@ -294,96 +298,72 @@ function renderStmt(s: TestStmtIR, env: Env, used: Set<string>, index = 0): stri
   }
 }
 
-/** `string?` is still a string for containment; `string[]?` still a list. */
-function unwrapOptionalType(t: TypeIR): TypeIR {
-  return t.kind === "optional" ? unwrapOptionalType(t.inner) : t;
-}
+/** `Decimal.compare/2`, `DateTime.compare/2` and `Date.compare/2` answer
+ *  `:lt | :eq | :gt`; the tail each relation asserts on that answer. */
+const COMPARE_TAIL: Readonly<Record<AssertionRelation, string>> = {
+  eq: "== :eq",
+  gt: "== :gt",
+  ge: "in [:gt, :eq]",
+  lt: "== :lt",
+  le: "in [:lt, :eq]",
+};
+
+const EX_RELATION_OP: Readonly<Record<AssertionRelation, string>> = {
+  eq: "==",
+  gt: ">",
+  ge: ">=",
+  lt: "<",
+  le: "<=",
+};
+
+const exVerb = (negate: boolean, s: string): string => (negate ? `refute ${s}` : `assert ${s}`);
+
+/** ExUnit leaves for the shared assertion plan.  `==` on a `%Decimal{}` is
+ *  scale-sensitive and `<`/`>` on a `%DateTime{}` or `%Date{}` is structural
+ *  term order, so those compare through their modules' `compare/2`.  A record
+ *  or list compares through the app's value equality, which normalizes every
+ *  decimal and instant inside it. */
+const EXUNIT_ASSERTIONS: AssertionTarget = {
+  compare: {
+    scalar: ({ relation, negate, actual, expected }) =>
+      exVerb(negate, `${actual} ${EX_RELATION_OP[relation]} ${expected}`),
+    decimal: ({ relation, negate, actual, expected }) =>
+      exVerb(
+        negate,
+        relation === "eq"
+          ? `Decimal.equal?(${actual}, ${expected})`
+          : `Decimal.compare(${actual}, ${expected}) ${COMPARE_TAIL[relation]}`,
+      ),
+    instant: ({ relation, negate, actual, expected }) =>
+      exVerb(negate, `DateTime.compare(${actual}, ${expected}) ${COMPARE_TAIL[relation]}`),
+    date: ({ relation, negate, actual, expected }) =>
+      exVerb(negate, `Date.compare(${actual}, ${expected}) ${COMPARE_TAIL[relation]}`),
+    structural: ({ negate, actual, expected }) =>
+      exVerb(negate, renderValueObjectEquality("==", actual, expected)),
+    sequence: ({ negate, actual, expected }) =>
+      exVerb(negate, renderValueObjectEquality("==", actual, expected)),
+  },
+  // A struct field that holds nothing holds `nil`.  `is_nil/1` keeps the
+  // assertion a guard, which ExUnit reports more usefully than `== nil`.
+  isNull: (negate, actual) => exVerb(negate, `is_nil(${actual})`),
+  // Elixir has no operator covering both lowerings: `in` is membership in an
+  // enumerable (it raises on a binary) and `String.contains?/2` is substring
+  // (it raises on a list), so the plan's subject kind picks the call.
+  contain: (within, negate, actual, expected) =>
+    exVerb(
+      negate,
+      within === "string" ? `String.contains?(${actual}, ${expected})` : `${expected} in ${actual}`,
+    ),
+  literal: EX_TEST_LITERAL,
+};
 
 export function renderExpect(expr: ExprIR, env: Env): string {
-  if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) {
-    throw new UnsupportedTestShapeError("expect requires a matcher");
-  }
-  let receiver = expr.receiver;
-  let negate = false;
-  if (receiver.kind === "member" && receiver.member === "not") {
-    negate = true;
-    receiver = receiver.receiver;
-  }
-  const inner = receiver.kind === "paren" ? receiver.inner : receiver;
-  const op = MATCHER_OP[expr.member];
-  const actual = vtExpr(inner, env);
-  const arg = expr.args[0];
-  const expected = arg ? vtExpr(arg, readsDocRecord(inner, env) ? docEnv(env) : env) : "";
-  const verb = (s: string): string => (negate ? `refute ${s}` : `assert ${s}`);
-
-  // Absence.  An Elixir struct field that holds nothing holds `nil`, so the
-  // language's one absence value is `nil` here.  `is_nil/1` rather than
-  // `== nil` keeps the assertion a guard, which ExUnit reports more usefully.
-  // (`toBeAbsent` never reaches this emitter — it is e2e-only: a struct
-  // ALWAYS carries its declared keys, defaulted to nil, so in-process there is
-  // no absent form to observe.)
-  if (expr.member === "toBeNull") return verb(`is_nil(${actual})`);
-
-  // Containment — the one backend where the DSL's "two lowerings, chosen by
-  // the subject's type" is literally two different function calls.  Elixir has
-  // no operator covering both: `in` is membership in an enumerable and would
-  // raise `Protocol.UnimplementedError` on a binary, while `String.contains?/2`
-  // is substring and would raise `FunctionClauseError` on a list.  Picking the
-  // wrong one is a run-time crash in the generated suite, not a wrong answer,
-  // so read the SUBJECT'S RESOLVED TYPE off the IR — the same dispatch
-  // `checkContainReceiver` validated, which has already refused every third
-  // receiver type.
-  if (expr.member === "toContain") {
-    const t = unwrapOptionalType(matcherSubjectType(expr));
-    if (t.kind === "array") return verb(`${expected} in ${actual}`);
-    if (t.kind === "primitive" && t.name === "string") {
-      return verb(`String.contains?(${actual}, ${expected})`);
-    }
-    throw new UnsupportedTestShapeError(
-      `toContain over a '${t.kind}' subject: elixir spells collection membership and ` +
-        "substring as two different calls, and this subject is neither a collection nor " +
-        "a string",
-    );
-  }
-
-  if (!op) throw new UnsupportedTestShapeError(`unsupported value matcher '${expr.member}'`);
-
-  // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`):
-  // compared as instants.  `DateTime.compare/2` raises on a binary, so a value
-  // STORED as the raw string fails the assertion instead of equalling it.
-  // A `date` subject compares by `Date.compare/2` on the same footing.
-  // A `money` subject keeps the `Decimal` comparison below.
-  const temporal = expr.args[0]
-    ? decideLiteralCoercion(matcherSubjectType(expr), expr.args[0]).kind
-    : "none";
-  const dt =
-    temporal === "date" || temporal === "datetime"
-      ? coerceMatcherExpected(expr, expected, EX_TEST_LITERAL)
-      : undefined;
-  if (dt !== undefined) {
-    const mod = temporal === "date" ? "Date" : "DateTime";
-    return verb(`${mod}.compare(${actual}, ${dt}) == :eq`);
-  }
-
-  // `toBe(nil)`-shaped asserts keep the native operator.
-  const nullArg = arg?.kind === "literal" && arg.lit === "null";
-  const subject = unwrapOptionalType(matcherSubjectType(expr));
-  const subjectPrim = subject.kind === "primitive" ? subject.name : null;
-  if (
-    !nullArg &&
-    (isMoneyLike(inner, arg) || subjectPrim === "money" || subjectPrim === "decimal")
-  ) {
-    if (expr.member === "toBe") return verb(`Decimal.equal?(${actual}, ${expected})`);
-    return verb(`Decimal.compare(${actual}, ${expected}) ${MONEY_CMP[expr.member]}`);
-  }
-  // A `%DateTime{}` is a struct: `<`/`>` on it is STRUCTURAL term ordering
-  // (field by field, not chronological), and `==` is sensitive to the
-  // microsecond precision tuple.  Compare instants (banking eval B-01).
-  if (!nullArg && (subjectPrim === "datetime" || (arg?.kind === "literal" && arg.lit === "now"))) {
-    const tail = expr.member === "toBe" ? "== :eq" : MONEY_CMP[expr.member];
-    return verb(`DateTime.compare(${actual}, ${expected}) ${tail}`);
-  }
-  return verb(`${actual} ${op} ${expected}`);
+  const plan = assertionPlan(expr);
+  if (plan === undefined) throw new UnsupportedTestShapeError("expect requires a matcher");
+  return renderAssertionPlan(plan, EXUNIT_ASSERTIONS, {
+    renderSubject: (e) => vtExpr(e, env),
+    renderExpected: (e) => vtExpr(e, readsDocRecord(plan.subject, env) ? docEnv(env) : env),
+  });
 }
 
 function renderThrows(expr: ExprIR, env: Env, kind?: ThrowKindName, index = 0): string[] {
@@ -680,7 +660,7 @@ function renderCreate(e: ExprIR, env: Env): string {
   // `Agg.create(...)` — the receiver is the bare aggregate ref; honour its name.
   const mod = target !== undefined ? `${env.ctxModule}.${upperFirst(target)}` : env.aggMod;
   // An event-sourced create whose guard reads `currentUser` takes the actor.
-  const actor = create && opUsesCurrentUser(create) ? `, ${TEST_ACTOR}` : "";
+  const actor = create && opUsesCurrentUser(create) ? `, ${env.principal ?? "%{}"}` : "";
   return `${mod}.create(${attrs}${actor})`;
 }
 
@@ -728,10 +708,9 @@ function renderOp(e: ExprIR, env: Env): string {
         )}`,
     )
     .join(", ");
-  // A currentUser-gated op's pure-core fn carries a trailing `current_user`
-  // (§11d); thread a synthetic privileged actor so the guard runs (parity with
-  // node's test emitter).  Ungated ops are byte-identical.
-  const actor = opUsesCurrentUser(op) ? `, ${TEST_ACTOR}` : "";
+  // A currentUser-reading op's pure-core fn carries a trailing `current_user`;
+  // thread the test principal so the guard runs.
+  const actor = opUsesCurrentUser(op) ? `, ${env.principal ?? "%{}"}` : "";
   return `${env.aggMod}.${snake(op.name)}(${recv}, %{${params}}${actor})`;
 }
 
@@ -792,15 +771,6 @@ function isAggOp(e: ExprIR, env: Env): boolean {
     e.member !== "create" &&
     findOp(e.member, env) !== undefined
   );
-}
-
-function isMoneyLike(inner: ExprIR, arg: ExprIR | undefined): boolean {
-  const memberMoney =
-    inner.kind === "member" &&
-    inner.memberType.kind === "primitive" &&
-    (inner.memberType.name === "money" || inner.memberType.name === "decimal");
-  const argMoney = arg?.kind === "literal" && (arg.lit === "money" || arg.lit === "decimal");
-  return Boolean(memberMoney || argMoney);
 }
 
 function usedRefNames(statements: readonly TestStmtIR[]): Set<string> {

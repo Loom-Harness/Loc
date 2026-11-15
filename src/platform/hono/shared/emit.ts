@@ -1462,7 +1462,7 @@ export function generateTypeScriptForContexts(
       for (const artifact of artifacts) {
         placeArtifact(artifact as HonoArtifact, agg.origin, construct);
       }
-      const testsFile = renderTestsFile(agg, ctx);
+      const testsFile = renderTestsFile(agg, ctx, system.sys.user?.fields);
       if (testsFile) {
         place("domain-test", agg.name, testsFile, agg.origin, construct);
       }
@@ -1472,11 +1472,11 @@ export function generateTypeScriptForContexts(
     // behavioral-unit glob as aggregate tests.  Emitted only when the subject
     // declares a `test`, so a test-free project stays byte-identical.
     for (const vo of ctx.valueObjects) {
-      const voTests = renderVoTestsFile(vo, ctx);
+      const voTests = renderVoTestsFile(vo, ctx, system.sys.user?.fields);
       if (voTests) place("domain-test", vo.name, voTests, vo.origin, `${ctx.name}.${vo.name}`);
     }
     for (const svc of ctx.domainServices) {
-      const svcTests = renderServiceTestsFile(svc, ctx);
+      const svcTests = renderServiceTestsFile(svc, ctx, system.sys.user?.fields);
       if (svcTests) place("domain-test", svc.name, svcTests, undefined, `${ctx.name}.${svc.name}`);
     }
     // Context INTEGRATION test (test-placement.md) — an in-process,

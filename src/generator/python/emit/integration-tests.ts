@@ -17,6 +17,7 @@
 // v1 constraint (`loom.integration-find-must-bind`, shared with node): a
 // repository find must be LET-BOUND, not written inline inside `expect(...)`.
 
+import { testPrincipal } from "../../../ir/plan/test-principal.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -27,14 +28,23 @@ import type {
   TestPrincipalIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { bindingsAssertedAbsent } from "../../../ir/util/test-null-subjects.js";
 import { snake } from "../../../util/naming.js";
 import { type RepoOp, repoVerbOpAt } from "../../../util/repository-contract.js";
 import { pyRef } from "../../_imports/python.js";
-import { pyIdType } from "../py-symbols.js";
+import { renderTestPrincipal } from "../../_test/principal-target.js";
+import { PY } from "../py-symbols.js";
 import { renderPyExpr } from "../render-expr.js";
 import { pyStampedSaveLines } from "../stamp-call.js";
-import { renderCreateInput, renderExplicitMatcher, renderTestExpr, testFnName } from "./tests.js";
+import {
+  PY_PRINCIPAL,
+  renderCreateInput,
+  renderExplicitMatcher,
+  renderTestExpr,
+  TEST_PRINCIPAL_CALL,
+  testFnName,
+} from "./tests.js";
 
 /** A repository find on `agg` named `name`, or undefined. */
 function findRepoQuery(name: string, aggName: string, ctx: BoundedContextIR): FindIR | undefined {
@@ -112,28 +122,16 @@ function renderReadCall(find: { aggName: string; method: string; args: ExprIR[] 
  *  mutating ops persist via the repository; let-bound finds await a repository
  *  read (nullable → `assert is not None`); everything else defers to the shared
  *  expression / matcher renderers. */
-/** One `as { … }` claim value as a Python literal of the claim's declared
- *  type: an id claim goes through its `NewType` factory, every other settable
- *  claim (`string` / `guid` / `string[]`) is a plain literal. */
-function renderClaimValue(field: FieldIR | undefined, value: string | readonly string[]): string {
-  const t = field?.type.kind === "optional" ? field.type.inner : field?.type;
-  if (t?.kind === "id" && typeof value === "string") {
-    return `${pyIdType(t.targetName)}(${JSON.stringify(value)})`;
-  }
-  return JSON.stringify(value);
-}
-
-/** `_act_as(<claims>)` — bind the dev-stub principal with these claims
- *  replaced as the ambient principal. */
-function renderActAs(p: TestPrincipalIR | undefined, user: readonly FieldIR[]): string {
-  const kwargs = (p?.claims ?? []).map(
-    (c) =>
-      `${snake(c.name)}=${renderClaimValue(
-        user.find((f) => f.name === c.name),
-        c.value,
-      )}`,
-  );
-  return `    _act_as(${kwargs.join(", ")})`;
+/** `_act_as(<principal>)` — bind the principal a test runs as
+ *  (`testPrincipal`: the dev-stub identity with the test's `as { … }` claims
+ *  replacing the fields they name, the same principal the unit tier passes)
+ *  as the ambient principal. */
+function renderActAs(
+  p: TestPrincipalIR | undefined,
+  user: readonly FieldIR[],
+  ctx: BoundedContextIR,
+): string {
+  return `    _act_as(${renderTestPrincipal(testPrincipal(user, p, enumPool(ctx)), PY_PRINCIPAL)})`;
 }
 
 interface PrincipalScope {
@@ -211,7 +209,7 @@ function renderStmt(
       return ["    with pytest.raises(Exception):", `        ${renderTestExpr(s.expr, ctx, lets)}`];
     case "principal":
       // A body `as { … }` line: rebind the ambient principal.
-      return scope.user ? [renderActAs(s.principal, scope.user)] : [];
+      return scope.user ? [renderActAs(s.principal, scope.user, ctx)] : [];
     default:
       // let / expression / expect(-throws) are the surviving integration shapes;
       // anything else is an IR-validator gap.
@@ -243,7 +241,7 @@ function renderTest(
   // Under auth every repository reads the ambient principal, so the test
   // binds one first: the dev-stub identity with the test's `as { … }` claims.
   const body = [
-    ...(user ? [renderActAs(t.principal, user)] : []),
+    ...(user ? [renderActAs(t.principal, user, ctx)] : []),
     ...t.statements.flatMap((s) => renderStmt(s, ctx, lets, scope)),
   ];
   const bodyStr = body.join("\n");
@@ -279,10 +277,10 @@ export function renderPyContextIntegrationTest(
   ctx: BoundedContextIR,
   opts: {
     inProcessDispatcher: boolean;
-    /** The system's `user { … }` fields and the dev-stub `User(...)` keyword
-     *  arguments when the project emits the auth layer: every test then binds
-     *  a principal into `current_user_var`.  Absent ⇒ none is bound. */
-    principal?: { user: readonly FieldIR[]; stubKwargs: string };
+    /** The system's `user { … }` fields when the project emits the auth
+     *  layer: every test then binds a principal into `current_user_var`.
+     *  Absent ⇒ none is bound. */
+    principal?: { user: readonly FieldIR[] };
   },
 ): string | null {
   if (ctx.tests.length === 0) return null;
@@ -326,20 +324,19 @@ export function renderPyContextIntegrationTest(
   // A per-test session bound to the app's real engine — LOOM_PG_URL-driven so it
   // is provisioning-agnostic (compose Postgres, Testcontainers, a CI service…).
   if (opts.principal) {
-    // The dev-stub identity — the same keyword arguments the app's
-    // `_dev_stub_verifier` builds its `User` from.
-    out.push(`_DEV_USER = ${pyRef("app.auth.user", "User")}(${opts.principal.stubKwargs})`);
+    const user = pyRef("app.auth.user", "User");
+    const currentUserVar = pyRef("app.auth.user", "current_user_var");
+    out.push(`def _act_as(principal: ${user}) -> None:`);
+    out.push(
+      "    # Bind the principal as the ambient principal every repository reads",
+      "    # (the ContextVar the auth middleware sets per request).",
+    );
+    out.push(`    ${currentUserVar}.set(principal)`);
     out.push("");
     out.push("");
-    out.push(`def _act_as(**claims: ${pyRef("typing", "Any")}) -> None:`);
-    out.push(
-      "    # Bind the dev-stub principal, with `claims` replaced, as the ambient",
-      "    # principal every repository reads (the ContextVar the auth middleware",
-      "    # sets per request).",
-    );
-    out.push(
-      `    ${pyRef("app.auth.user", "current_user_var")}.set(${pyRef("dataclasses", "replace")}(_DEV_USER, **claims))`,
-    );
+    // A currentUser-reading operation takes the bound principal.
+    out.push(`def ${TEST_PRINCIPAL_CALL.slice(0, -2)}() -> ${user}:`);
+    out.push(`    return ${PY.cast}(${user}, ${currentUserVar}.get())`);
     out.push("");
     out.push("");
   }
