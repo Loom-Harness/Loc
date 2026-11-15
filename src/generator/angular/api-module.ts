@@ -1,4 +1,5 @@
-import { createInputFields, forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
+import { forApiRead } from "../../ir/enrich/wire-projection.js";
+import { createRequestFields } from "../../ir/plan/create-request.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -30,7 +31,7 @@ import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
 import { maskedPatchParams } from "../../ir/util/op-gates.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
-import { responseWireFor } from "../../ir/util/response-wire.js";
+import { responseWireFor, valueObjectWire } from "../../ir/util/response-wire.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
@@ -174,7 +175,7 @@ export function collectResponseTypes(
       const vo = voByName.get(b.name);
       if (!vo) return;
       vos.set(b.name, vo);
-      for (const f of forApiRead(wireFieldsFor(vo))) if (f.source !== "id") visit(f.type);
+      for (const f of forApiRead(valueObjectWire(vo))) if (f.source !== "id") visit(f.type);
     } else if (b.kind === "enum" && !enums.has(b.name)) {
       const e = enumByName.get(b.name);
       if (e) enums.set(b.name, e);
@@ -223,7 +224,7 @@ function emitEnumType(e: EnumIR): string {
 export function emitVoResponseInterface(vo: ValueObjectIR): string[] {
   return [
     `export interface ${vo.name}Response {`,
-    ...forApiRead(wireFieldsFor(vo)).map(
+    ...forApiRead(valueObjectWire(vo)).map(
       (f) => `  ${f.name}: ${f.source === "id" ? "string" : wireTsType(f.type, true)};`,
     ),
     "}",
@@ -372,7 +373,7 @@ export function buildAngularApiModule(
   const pagedName = `${single}Paged`;
 
   const fields = responseWireFor(bc?.payloads ?? [], agg);
-  const createFields = createInputFields(agg);
+  const createFields = createRequestFields(bc?.payloads ?? [], agg);
   // Containment parts → a `<Part>Response` interface each, children-first so a
   // nested part is declared before the sibling that references it.  The
   // aggregate's `contains` fields (and any nested part field) are typed against

@@ -12,6 +12,7 @@
 // still emits the one flat root `view` with no routing table.
 
 import { wireCode } from "../../ir/enrich/wire-policy.js";
+import { createRequestFields } from "../../ir/plan/create-request.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -1217,14 +1218,27 @@ function vosFromContexts(contexts: EnrichedBoundedContextIR[]): Map<string, read
  *  `CreateForm(of: X)`. */
 function formsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizForm[] {
   const aggregatesByName = new Map<string, EnrichedBoundedContextIR["aggregates"][number]>();
-  for (const c of contexts) for (const a of c.aggregates) aggregatesByName.set(a.name, a);
+  const createRequests = new Map<string, readonly FieldIR[]>();
+  for (const c of contexts) {
+    for (const a of c.aggregates) {
+      aggregatesByName.set(a.name, a);
+      createRequests.set(a.name, createRequestFields(c.payloads, a));
+    }
+  }
   const enumsByName = enumsFromContexts(contexts);
   const idLabels = idLabelsFromContexts(contexts);
   const vosByName = vosFromContexts(contexts);
   const seen = new Set<string>();
   const out: FelizForm[] = [];
   for (const page of ui.pages) {
-    for (const f of collectPageForms(page, aggregatesByName, enumsByName, idLabels, vosByName)) {
+    for (const f of collectPageForms(
+      page,
+      aggregatesByName,
+      createRequests,
+      enumsByName,
+      idLabels,
+      vosByName,
+    )) {
       if (seen.has(f.aggregate)) continue;
       seen.add(f.aggregate);
       out.push(f);

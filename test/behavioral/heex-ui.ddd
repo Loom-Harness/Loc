@@ -98,6 +98,23 @@ system HeexUiSystem {
       }
       repository Memos for Memo { }
 
+      // An event-sourced aggregate: its create form is its `create` action's
+      // params (`owner`), bound to a plain form (there is no state changeset
+      // to bind), and the detail page reads the folded state back.
+      event AccountOpened { account: Account id, owner: string }
+      aggregate Account persistedAs: eventLog {
+        owner: string
+        balance: int
+        create(owner: string) {
+          emit AccountOpened { account: id, owner: owner }
+        }
+        apply(e: AccountOpened) {
+          owner := e.owner
+          balance := 0
+        }
+      }
+      repository Accounts for Account { }
+
       // A write-denied aggregate whose operation a LiveView `Action` button
       // invokes: the button's handler must load the row through the write
       // scope, as the REST op route does, so the click changes nothing.
@@ -145,6 +162,7 @@ system HeexUiSystem {
 
   storage primary { type: postgres }
   resource catalogState { for: Catalog, kind: state, use: primary }
+  resource catalogLog { for: Catalog, kind: eventLog, use: primary }
 
   ui Web with scaffold(subdomains: [Catalog]) {
     api C: CatalogApi
@@ -190,7 +208,7 @@ system HeexUiSystem {
   deployable phoenixApp {
     platform: elixir
     contexts: [Catalog]
-    dataSources: [catalogState]
+    dataSources: [catalogState, catalogLog]
     serves: CatalogApi
     ui: Web { C: phoenixApp }
     port: 4000
@@ -222,5 +240,12 @@ system HeexUiSystem {
     let read = ui.counters.getById(c)
     expect(read.label).toHaveText("Clicks")
     expect(read.count).toHaveText("3")
+  }
+
+  test e2e "an event-sourced account opens through its create form" against phoenixApp {
+    let a = ui.accounts.create({ owner: "Ada" })
+    let read = ui.accounts.getById(a)
+    expect(read.owner).toHaveText("Ada")
+    expect(read.balance).toHaveText("0")
   }
 }

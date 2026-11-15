@@ -31,6 +31,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { installGeneratedProject } from "./support/npm-install.js";
+import { freePort } from "./support/ports.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_KAFKA === "1";
 
@@ -90,10 +91,10 @@ system Acme {
 }
 `;
 
-const SALES_PORT = 3217;
-const REPLICA_PORTS = [3218, 3219];
-const PG_PORT = 55445;
-const KAFKA_PORT = 55677;
+const SALES_PORT = await freePort();
+const REPLICA_PORTS = await Promise.all([freePort(), freePort()]);
+const PG_PORT = await freePort();
+const KAFKA_PORT = await freePort();
 const ORDERS = 6;
 const ADDRESS = "loom.Orders.Lifecycle";
 
@@ -382,10 +383,10 @@ const LATE_FIXTURE = FIXTURE.replace("channel Lifecycle {", "channel Backlog {")
     "channelSource backlogBus { for: Backlog, use: bus }",
   )
   .replaceAll("channels: [lifecycleBus]", "channels: [backlogBus]");
-const LATE_SALES_PORT = 3227;
-const LATE_SHIP_PORT = 3228;
-const LATE_PG_PORT = 55451; // unique across the channels-e2e suites
-const LATE_KAFKA_PORT = 55685;
+const LATE_SALES_PORT = await freePort();
+const LATE_SHIP_PORT = await freePort();
+const LATE_PG_PORT = await freePort();
+const LATE_KAFKA_PORT = await freePort();
 const LATE_ORDERS = 4;
 
 describe.skipIf(!ENABLED)("kafka work queue: a late-joining group starts at earliest (D3)", () => {

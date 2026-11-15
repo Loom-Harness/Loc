@@ -570,7 +570,7 @@ by who it breaks:
 
 | Class | Raised by | Examples |
 |---|---|---|
-| `breaking-for-clients` | the wire contract (`.loom/wire-spec.json`) moved under an existing client | a field dropped or renamed, a type changed (an enum member removed, a carrier narrowed such as `decimal` → `int`), optional → required, a newly required field |
+| `breaking-for-clients` | the wire contract (`.loom/wire-spec.json`) moved under an existing client — a read record or a request record | a field dropped or renamed, a type changed (an enum member removed, a carrier narrowed such as `decimal` → `int`), optional → required, a newly required field; on a request: an operation or `create` parameter dropped, or a new required one |
 | `breaking-for-data` | the destructive migration gate — the same one `migrate add` applies without `--allow-destructive` | a column or table drop, a NOT NULL add with no default or backfill, a narrowing column type, a reshape |
 | `compatible` | everything else | a new optional field, required → optional, a new aggregate, a declared `RENAME COLUMN` |
 
@@ -585,9 +585,21 @@ resolve to the old files and a multi-file project diffs as a whole. With no
 flag the committed `migrations/` chain is the baseline; the chain records a
 schema, not a wire contract, so that run classifies only the data side.
 
+Request records are compared like read records, so a change that only moves
+what a route accepts is still caught. Dropping the `reason` parameter of
+`operation relabel(to: string, reason: string?)` touches no column and no
+read field:
+
+```text
+Diff against m.ddd:
+  breaking-for-clients  property 'reason' removed from RelabelOrderCommand
+BREAKING for clients.
+```
+
 A rename declared in a `migration` block is reported as one
 `property-renamed` (or `entity-renamed`) change, not as a dropped field plus
-an added one. Its data side is a `RENAME COLUMN`, which is compatible. Its
+an added one, on the read record and on each request record that carries
+the field. Its data side is a `RENAME COLUMN`, which is compatible. Its
 wire side is still `breaking-for-clients`, because no backend keeps serving
 the old field name.
 
