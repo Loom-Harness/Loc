@@ -28,11 +28,7 @@
 // the aggregate has ref-collection fields).
 // ---------------------------------------------------------------------------
 
-import {
-  forApiRead,
-  type WireMaskPlan,
-  wireFieldsForValueObject,
-} from "../../../ir/enrich/wire-projection.js";
+import { forApiRead, type WireMaskPlan } from "../../../ir/enrich/wire-projection.js";
 import { provenancedCarrier } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -46,7 +42,11 @@ import type {
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { responseMaskPlan, responseWireFor } from "../../../ir/util/response-wire.js";
+import {
+  responseMaskPlan,
+  responseWireFor,
+  valueObjectWire,
+} from "../../../ir/util/response-wire.js";
 import { snake } from "../../../util/naming.js";
 import { provenancedEntries } from "../../_payload/provenanced-wire.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -370,7 +370,7 @@ function renderShapeSerialize(
   // an undefined function.  Own names shadow; helpers are still emitted only
   // for the VOs the shape actually reaches.
   const vos = new Map<string, WireField[]>(
-    valueObjectPool(ctx).map((v) => [v.name, forApiRead(wireFieldsForValueObject(v))]),
+    valueObjectPool(ctx).map((v) => [v.name, forApiRead(valueObjectWire(v))]),
   );
 
   // Derived wire fields are COMPUTED (not stored columns) — every other backend

@@ -47,6 +47,44 @@ Phoenix, Python, Java (and the React/Vue/Svelte/Angular/Feliz frontends) by
 construction, not by coincidence. This is the shape a union variant or a
 carrier argument projects through when it names an aggregate.
 
+### Request records — the request contract
+
+What a route accepts is a declared `command` / `query` record too:
+`Create<Agg>Command` for each `create`, `<Op><Agg>Command` for each public
+operation, `Get<Agg>Query` for the by-id read (spliced by `scaffoldHandlers`
+beside the response record, or written by hand). `.loom/wire-spec.json` carries
+every one in its `requests` bucket, with a `<Workflow>Command` entry for each
+command-started workflow built from its `create` parameters. So
+
+```
+aggregate Order with crudish {
+  label: string
+  qty: int
+  note: string?
+  operation relabel(to: string, reason: string?) { label := to }
+}
+```
+
+publishes
+
+```json
+"CreateOrderCommand": {
+  "type": "object",
+  "properties": { "label": { "type": "string" }, "qty": { "type": "integer" }, "note": { "type": "string" } },
+  "required": ["label", "qty"],
+  "additionalProperties": false
+},
+"RelabelOrderCommand": {
+  "type": "object",
+  "properties": { "to": { "type": "string" }, "reason": { "type": "string" } },
+  "required": ["to"],
+  "additionalProperties": false
+}
+```
+
+and `ddd diff` classifies a change to a request record exactly as it does a
+read-record change ([`tools.md`](tools.md#diff--is-this-change-compatible)).
+
 ### Numeric wire forms — `money` is a string, `decimal` is a number
 
 `wireShape` fixes the field *order*; the numeric **primitive you pick fixes the
