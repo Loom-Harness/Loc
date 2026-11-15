@@ -31,9 +31,8 @@
 
 import type { FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
-import { MONEY_INTEGER_DIGITS, MONEY_MAX_EXCLUSIVE } from "../../money-scale.js";
 import { exFieldCode, exLit, exValuePrefix } from "../wire-policy-ex.js";
-import { exMoneyGrammarRegex } from "./codec-spelling-ex.js";
+import { exMoneyColumnSql, exMoneyGrammarRegex, exMoneyMaxExclusive } from "./codec-spelling-ex.js";
 
 /** One decimal leaf the ingress guard checks: its snake-cased path from the
  *  aggregate root, and whether a blank value means "absent" (only a top-level
@@ -160,15 +159,16 @@ export function renderDecimalIngressHelpers(): string {
     end)
   end
 
-  # Out of range for the money column: more integer digits than NUMERIC(19,4)
-  # holds.  Counted on the text, since Decimal's own cast refuses such a value.
+  # Out of range for the ${exMoneyColumnSql()} column: as many integer digits as
+  # the exclusive bound has, or more.  Counted on the text, since Decimal's own
+  # cast refuses such a value.
   defp __loom_money_too_big?(value) when is_binary(value) do
     [int | _] = value |> String.trim() |> String.trim_leading("-") |> String.split(".")
-    String.length(String.trim_leading(int, "0")) > ${MONEY_INTEGER_DIGITS}
+    String.length(String.trim_leading(int, "0")) >= String.length(${exMoneyMaxExclusive()})
   end
 
   defp __loom_money_too_big?(%Decimal{} = d),
-    do: Decimal.compare(Decimal.abs(d), Decimal.new("${MONEY_MAX_EXCLUSIVE}")) != :lt
+    do: not Decimal.lt?(Decimal.abs(d), Decimal.new(${exMoneyMaxExclusive()}))
 
   defp __loom_money_too_big?(value) when is_number(value),
     do: __loom_money_too_big?(Decimal.new("#{value}"))
