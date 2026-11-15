@@ -51,3 +51,5 @@ for a stored value object (as one `:map` column).
 **Affects.** `docs/migrations.md`,
 `docs/language-reference/02-systems-and-topology.md`, the Ecto migration and
 schema emitters, `src/ir/validate/checks/orm-adapter-checks.ts`.
+
+**Enforced by:** `test/system/shared-database-layout-census.test.ts`

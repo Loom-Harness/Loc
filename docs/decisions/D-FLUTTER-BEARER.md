@@ -50,3 +50,5 @@ M-T4.12 (Wave 1 packet 1g note, RULE 1 / RULE 2 and "Still open under this ID"
 item 1); [`auth.md`](../auth.md) ("Session depth");
 `src/ir/util/realtime-rooms.ts`, `src/generator/_frontend/realtime.ts`,
 `src/generator/flutter/realtime.ts`.
+
+**Enforced by:** `test/generator/flutter/api-client-auth.test.ts`

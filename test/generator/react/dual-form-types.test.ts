@@ -1,3 +1,4 @@
+// Gate for D-REACT-FORM-NESTED (docs/decisions).
 // Frontend-ACL Phase 3, realized as "keep nested, transform only"
 // (maintainer decision 2026-06-12): the dual FormState (`z.input`) /
 // Payload (`z.output`) aliases emit ONLY for actions whose request

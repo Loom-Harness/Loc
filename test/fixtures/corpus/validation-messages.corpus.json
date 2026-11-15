@@ -1,4 +1,5 @@
 {
+  "//": "Gate for D-MESSAGELESS-RULE-WIRE-MESSAGE (docs/decisions).",
   "title": "a rule name on invariant / field check / precondition / VO invariant + the per-backend message CATALOG the wire `code` resolves against",
   "doc": "language",
   "backends": "ALL",

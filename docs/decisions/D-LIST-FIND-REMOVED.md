@@ -47,3 +47,5 @@ to #3951. The emitters' find paths stay: each is still reached by single-row
 finds, `find all`, or the synthesised paged finds. The scaffolded list page's
 filter bar and its per-view pages were built from list finds only, so they
 went with the hard error.
+
+**Enforced by:** `test/language/validation/criterion-retrieval-name-clash.test.ts`

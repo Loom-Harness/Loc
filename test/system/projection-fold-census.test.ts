@@ -1,3 +1,4 @@
+// Gate for D-PROJECTION-FOLD, D-PROJECTION-FOLD-INBOX (docs/decisions).
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";

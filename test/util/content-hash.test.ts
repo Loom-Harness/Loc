@@ -1,3 +1,4 @@
+// Gate for D-I18N-KEY (docs/decisions).
 import { describe, expect, it } from "vitest";
 import { contentHash } from "../../src/util/content-hash.js";
 

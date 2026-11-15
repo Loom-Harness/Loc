@@ -1,3 +1,4 @@
+// Gate for D-LIST-FIND-REMOVED (docs/decisions).
 // loom.criterion-retrieval-name-clash (D-LIST-FIND-REMOVED).
 //
 // A criterion and a retrieval sharing a name in one context are an error:

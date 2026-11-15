@@ -1,3 +1,4 @@
+// Gate for D-PAGE-BODY-EXPRESSION (docs/decisions).
 // M-FT.11 — where the `if` statement may be written.
 //
 // In a domain body it is valid on every backend: lowering rewrites an early

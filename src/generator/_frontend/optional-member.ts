@@ -1,4 +1,5 @@
-import type { AggregateIR, ExprIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { AggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { ScopeField } from "../../ir/util/reachable-types.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import type { MemberReadSpec } from "../_walker/target.js";
@@ -93,7 +94,7 @@ export function apiReadMemberType(expr: ExprIR, ctx: WalkContext): TypeIR | unde
  *  provider restricts a containment's partType to the declaring aggregate), so
  *  two aggregates may each own a `Line`, and a bare name would silently resolve
  *  to whichever was found first. */
-export type RowShape = { readonly name: string; readonly fields: readonly FieldIR[] };
+export type RowShape = { readonly name: string; readonly fields: readonly ScopeField[] };
 
 /** Resolve a row key — `"Note"` or the qualified `"Note.NoteLine"` — to the
  *  shape whose fields the row's cells read. */

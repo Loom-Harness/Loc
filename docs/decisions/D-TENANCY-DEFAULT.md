@@ -16,3 +16,5 @@ Shipped as **error** (`loom.tenancy-stance-unmarked`, `tenancy-checks.ts`).
 
 **Affects.** `multi-tenancy-design-note.md` R3 (supersedes original decision #2's
 silent-default *mechanism*; the fail-closed *goal* survives via the lint).
+
+**Enforced by:** `test/ir/tenancy-checks.test.ts`

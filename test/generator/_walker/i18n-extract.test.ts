@@ -1,3 +1,4 @@
+// Gate for D-I18N-KEY (docs/decisions).
 // i18n user-visible-string extraction (M-T1.11, i18n.md Phase 1).
 //
 // `collectUiMessages` / `buildMessageCatalog` walk a UI's pages/components/menu

@@ -22,3 +22,5 @@ shape pinned in
 **Affects.** `authorization.md` (its central grammar);
 `policies-supplementary-note.md` stays superseded background;
 `ddd.langium` gains the `policy` rule (Phase 3.2).
+
+**Enforced by:** review — `docs/review-checklist.md#d-policy-style` — the block-over-function choice is a grammar-shape ruling; its sub-section names predate the read ladder

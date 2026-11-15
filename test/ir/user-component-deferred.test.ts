@@ -1,3 +1,4 @@
+// Gate for D-FLUTTER-COMPONENT-BINDINGS (docs/decisions).
 // `loom.user-component-deferred-target` — a user `component` whose SHAPE the
 // Feliz / Angular / Flutter component emitter FILTERS OUT.
 //

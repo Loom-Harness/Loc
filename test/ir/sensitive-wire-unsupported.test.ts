@@ -1,3 +1,4 @@
+// Gate for D-SENSITIVE-INSPECT-ONLY (docs/decisions).
 // `loom.sensitive-wire-unsupported` (M-T3.8, diagnostic slice) — `sensitive(...)`
 // protects the DEBUG surface and not the API surface, and until this gate
 // nothing said so.

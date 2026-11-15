@@ -63,3 +63,5 @@ sets the policy any future
 Ash-boundary feature are evaluated against. **Depends on
 D-VANILLA-PHOENIX-FOUNDATION**; **informs D-VANILLA-DEFAULT** (its
 stabilisation signals double as the sunset-review trigger).
+
+**Enforced by:** review — `docs/review-checklist.md#d-phoenix-foundation-strategy` — superseded: the Ash foundation it planned around is removed

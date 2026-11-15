@@ -14,7 +14,9 @@
 // being deleted is reported the next night.
 //
 // Readers: src/diagnostics/unsupported-register.ts `mission` (via
-// unsupported-register.test.ts), and the `blockedBy` of the waivers in
+// unsupported-register.test.ts), the `none, tracked by #N` line of a decision
+// record (docs/decisions, via decision-gates.test.ts), and the `blockedBy` of
+// the waivers in
 // symbol-plan-census, openapi-native-census, e2e-fixed-port-census and
 // ir-walk-census.
 
@@ -46,6 +48,9 @@ export const LIVE_FENCES: Readonly<Record<string, string>> = {
   "#5900": "P2 redelivery dedupe: holds src/generator/elixir/dispatch-emit.ts",
   "#5923": "e2e suites still publishing fixed host ports",
   "#5933": "Re-own unsupported-register gaps whose owning issue closed",
+  "#5994": "Shared ledgers become per-fixture sidecars (train B moves the authz ladders)",
+  "#6013": "Decision records with no enforcing gate yet",
+  "#6018": "Reference-doc every-backend claims with no gate yet",
   "#6023": "Elixir unit tier: invariant floor for document-aggregate operations",
 };
 

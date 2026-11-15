@@ -25,3 +25,5 @@ corrected by the *next* migration, not by rewinding.
 
 **Affects.** `../migrations.md` § Data migrations; `dotnet/emit/migrations.ts`
 (`Down()` comment); every backend's migration emitter.
+
+**Enforced by:** none, tracked by #6013 — only the presence of the EF `Down()` is asserted; no test checks every backend's down body is a no-op

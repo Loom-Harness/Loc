@@ -132,3 +132,5 @@ listener sees its events; Python's 4xx answer rolls back the request
 session; Elixir runs the body in `Repo.transaction` under `PostCommit.transaction`
 and rolls back on the `{:error, {:variant, …}}` outcome, which drops the
 deferred events.)
+
+**Enforced by:** `test/fixtures/corpus/workflow-expected-failure.ddd`, `test/language/validation/unhandled-result.test.ts`

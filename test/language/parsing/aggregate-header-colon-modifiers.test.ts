@@ -1,3 +1,4 @@
+// Gate for D-HEADER-MODIFIER-PLACEMENT (docs/decisions).
 // M-T5.17 (finding #1) — Phase 2 cutover.  The aggregate-header enum-axis
 // modifiers are COLON clauses (`persistedAs: eventLog`), order-independent, and
 // `crossTenant` leads beside `abstract`.  The legacy paren form was removed.
