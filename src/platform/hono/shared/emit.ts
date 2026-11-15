@@ -12,6 +12,7 @@ import {
   routedPolymorphicRead,
   workflowIsolation,
 } from "../../../ir/plan/index.js";
+import { testPrincipalShape } from "../../../ir/plan/test-principal.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
 // This orchestrator (project assembly: which files, framework wiring,
 // package.json/Dockerfile) is backend-specific, so it lives with the
@@ -1461,7 +1462,7 @@ export function generateTypeScriptForContexts(
       for (const artifact of artifacts) {
         placeArtifact(artifact as HonoArtifact, agg.origin, construct);
       }
-      const testsFile = renderTestsFile(agg, ctx);
+      const testsFile = renderTestsFile(agg, ctx, testPrincipalShape(system.sys));
       if (testsFile) {
         place("domain-test", agg.name, testsFile, agg.origin, construct);
       }
@@ -1471,11 +1472,11 @@ export function generateTypeScriptForContexts(
     // behavioral-unit glob as aggregate tests.  Emitted only when the subject
     // declares a `test`, so a test-free project stays byte-identical.
     for (const vo of ctx.valueObjects) {
-      const voTests = renderVoTestsFile(vo, ctx);
+      const voTests = renderVoTestsFile(vo, ctx, testPrincipalShape(system.sys));
       if (voTests) place("domain-test", vo.name, voTests, vo.origin, `${ctx.name}.${vo.name}`);
     }
     for (const svc of ctx.domainServices) {
-      const svcTests = renderServiceTestsFile(svc, ctx);
+      const svcTests = renderServiceTestsFile(svc, ctx, testPrincipalShape(system.sys));
       if (svcTests) place("domain-test", svc.name, svcTests, undefined, `${ctx.name}.${svc.name}`);
     }
     // Context INTEGRATION test (test-placement.md) — an in-process,
@@ -1490,7 +1491,7 @@ export function generateTypeScriptForContexts(
       // The project's own runner whenever it ships one (see `hasMigrations`).
       ...(!usingMikro && (system.migrations?.length ?? 0) > 0 ? { migrator: "../db/migrate" } : {}),
       // The auth layer is emitted below under the same condition.
-      ...(authRequired && system.sys.user ? { user: system.sys.user.fields } : {}),
+      ...(authRequired && system.sys.user ? { user: testPrincipalShape(system.sys) } : {}),
     });
     if (integrationTests) {
       out.set(`test/${lowerFirst(ctx.name)}.integration.test.ts`, integrationTests);

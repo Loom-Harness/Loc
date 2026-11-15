@@ -1,4 +1,5 @@
 import { channelPlan, deployableNeedsInbox } from "../../../ir/plan/index.js";
+import { testPrincipalShape } from "../../../ir/plan/test-principal.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
 import { aggregateRouteTypes } from "../../../ir/util/wire-policy.js";
 import { frontendAxesOf } from "../../../util/frontend-axes.js";
@@ -554,7 +555,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     });
     if (seedMod) seedModules.push(seedMod.module);
     // Domain `test "..."` blocks → ExUnit (pure-subset; see tests-emit.ts).
-    const principalUser = deployable.auth?.required === true ? sys.user?.fields : undefined;
+    const principalUser =
+      deployable.auth?.required === true && sys.user ? testPrincipalShape(sys) : undefined;
     if (emitAggregateTests(ctx, appModule, out, sys, principalUser)) hasDomainTests = true;
   }
   if (hasDomainTests) emitTestHelper(out);

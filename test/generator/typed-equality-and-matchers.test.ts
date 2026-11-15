@@ -99,7 +99,7 @@ describe("B-01 — unit-test value matchers are subject-type aware", () => {
     const t = await file("node", "domain/acct.test.ts");
     expect(t).toContain("expect((a.lastDay)?.getTime()).toBe(new Date(a.lastDay).getTime());");
     expect(t).toContain(
-      "expect((a.lastDay)?.getTime()).toBeLessThanOrEqual(new Date(new Date()).getTime());",
+      "expect((a.lastDay)?.getTime()).toBeLessThanOrEqual(new Date().getTime());",
     );
   });
 
