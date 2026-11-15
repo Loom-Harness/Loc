@@ -156,9 +156,9 @@ interface DeferredUseSite {
 
 const DEFERRED_USE_SITE_EMITTERS: Readonly<Record<string, DeferredUseSite>> = {
   "src/generator/elixir/dispatch-emit.ts": {
-    deferred: "the Elixir event-dispatch emitter; another lane is rewriting it",
-    reviewUntil: "2026-11-28",
-    blockedBy: "#5900",
+    deferred: "the Elixir event-dispatch emitter formats handler names itself",
+    reviewUntil: "2027-01-10",
+    blockedBy: "#5289",
   },
 };
 
