@@ -8,6 +8,7 @@ import {
   openGaps,
   UNSUPPORTED_REGISTER,
 } from "../../src/diagnostics/unsupported-register.js";
+import { fenceProblem } from "../_helpers/live-fences.js";
 
 // ---------------------------------------------------------------------------
 // Gate for the `*-unsupported` register (M-T9.27).
@@ -737,5 +738,16 @@ describe("`*-unsupported` register (M-T9.27)", () => {
     );
     const malformed = owners.filter((m) => !/^#\d+$/.test(m));
     expect(malformed, "Register `mission` must be an issue/PR ref `#NNNN`.").toEqual([]);
+  });
+
+  it("cites only owners that are still open (test/_helpers/live-fences.ts)", () => {
+    // A row whose owning issue closed is owned by nobody: the issue was closed
+    // without draining it, or the gap moved to another issue the row does not
+    // name.  Offline: the register of open owners is committed; its nightly
+    // leg checks that register against GitHub.
+    const stale = UNSUPPORTED_REGISTER.flatMap((e) =>
+      e.mission && fenceProblem(e.mission) ? [`${e.code}: ${fenceProblem(e.mission)}`] : [],
+    );
+    expect(stale).toEqual([]);
   });
 });
