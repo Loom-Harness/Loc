@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { installGeneratedProject } from "./support/npm-install.js";
+import { freePort } from "./support/ports.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E === "1";
 
@@ -47,9 +48,8 @@ const ENABLED = process.env.LOOM_CHANNELS_E2E === "1";
 const PERSISTENCE = process.env.LOOM_CHANNELS_PERSISTENCE;
 const PLATFORM = PERSISTENCE ? `node { persistence: ${PERSISTENCE} }` : "node";
 const LEG = PERSISTENCE ?? "drizzle";
-// Ports/container names shift for a variant leg so it can run beside the
-// default one locally without squatting its ports.
-const PORT_SHIFT = PERSISTENCE ? 10 : 0;
+// Container names shift for a variant leg so it can run beside the default
+// one locally; ports are allocated, so they never collide.
 const NAME_SUFFIX = PERSISTENCE ? `-${PERSISTENCE}` : "";
 
 const FIXTURE = `
@@ -108,10 +108,10 @@ system Acme {
 }
 `;
 
-const SALES_PORT = 3181 + PORT_SHIFT;
-const SHIP_PORT = 3182 + PORT_SHIFT;
-const PG_PORT = 55433 + PORT_SHIFT;
-const REDIS_PORT = 56390 + PORT_SHIFT;
+const SALES_PORT = await freePort();
+const SHIP_PORT = await freePort();
+const PG_PORT = await freePort();
+const REDIS_PORT = await freePort();
 const PG_NAME = `loom-channels-pg${NAME_SUFFIX}`;
 const VALKEY_NAME = `loom-channels-valkey${NAME_SUFFIX}`;
 
