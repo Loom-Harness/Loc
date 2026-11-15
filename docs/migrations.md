@@ -1451,8 +1451,8 @@ CREATE INDEX order_items_product_id_idx ON order_items (product_id);
 
 A VO *array* (`charges: Money[]`) produces an id-less child table
 (`<parent>_<field>`) of flattened VO columns keyed by `(parent_fk, ordinal)`.
-Phoenix creates the same child table plus a synthetic `id` uuid primary key (the
-Ecto `has_many` row identity `cast_assoc` needs) and no timestamps — the same
+Phoenix creates the same child table, keyed the same way (its Ecto child schema
+declares the composite primary key, so `cast_assoc` matches rows by it) — the same
 table whether it arrives in the initial generation or in a later delta. Dapper
 has no child table: the list is one `jsonb` column on the parent.
 

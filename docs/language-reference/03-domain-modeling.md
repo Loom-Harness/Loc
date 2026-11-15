@@ -524,12 +524,6 @@ owns:
   backend — `loom.dunder-field-name`. Elixir refuses `__struct__` in a struct
   definition, Ecto defines `__meta__` on every schema, and pydantic does not treat
   a dunder annotation as a field at all.
-- **`inserted_at` / `updated_at`** (or `insertedAt`) are the columns Ecto's bundled
-  `timestamps()` defines. On an aggregate root the Elixir backend drops
-  `timestamps()` from the schema and its migration, and the declared field owns
-  the column. On a relational entity part hosted on `platform: elixir` the name —
-  and `updatedAt`, whose column is `updated_at` — is refused,
-  `loom.elixir-part-timestamp-field`. A part's `createdAt` is an ordinary column.
 
 Elixir reserved words (`end`, `after`, `fn`, `do`, …) are fine as field and
 parameter names. The Elixir backend binds the local as `end_` and keeps the wire

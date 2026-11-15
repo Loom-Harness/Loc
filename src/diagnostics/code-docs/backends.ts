@@ -5,10 +5,6 @@
 // wrong family.
 
 export const anchors: Readonly<Record<string, string>> = {
-  // --- src/language/validators/types.ts (M-T9.56 drain) --------------------
-  "loom.elixir-part-timestamp-field":
-    "03-domain-modeling.md#field-names-a-generated-runtime-reserves",
-
   // --- src/ir/validate/checks/backend-syntax-checks.ts --------------------
   "loom.elixir-invariant-unenforced":
     "07-invariants-derived-functions.md#elixir-enforced-or-reported",
@@ -24,4 +20,5 @@ export const anchors: Readonly<Record<string, string>> = {
   // --- src/ir/validate/checks/orm-adapter-checks.ts -----------------------
   "loom.mikroorm-shared-database": "02-systems-and-topology.md#the-composed-stack",
   "loom.dapper-shared-database": "02-systems-and-topology.md#the-composed-stack",
+  "loom.ecto-shared-database": "02-systems-and-topology.md#the-composed-stack",
 };

@@ -1740,9 +1740,7 @@ the conforming backends, and the fix that established it.
   `javaInstantWire`; elixir spells the envelope `time` and a `datetime` in
   `data` through `Loom.Datetime.wire/1`, and its realtime frame is not yet
   audited (#3394). None of the envelope is goldened. Elixir's audit and provenance `at` is the same millisecond
-  `Loom.Datetime` instant (its column is a `datetime`, so `timestamptz`); only
-  Ecto's own `inserted_at` / `updated_at`, which never reach a wire, stay
-  `:utc_datetime`. A deployed
+  `Loom.Datetime` instant (its column is a `datetime`, so `timestamptz`). A deployed
   elixir database created before this rule keeps its `timestamp(0)` columns until
   an operator alters them — see [`migrations.md`](migrations.md).
 - **Conforms.** node, dotnet, java, python, elixir.

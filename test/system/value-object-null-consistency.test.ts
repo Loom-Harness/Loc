@@ -65,11 +65,14 @@ system VO {
   api SApi from S
   storage loomDb { type: postgres }
   resource cState { for: C, kind: state, use: loomDb }
+  // Ecto stores a value object as one json column, so phoenix keeps its own database.
+  storage phoenixDb { type: postgres }
+  resource pState { for: C, kind: state, use: phoenixDb }
   deployable h { platform: node   contexts: [C] dataSources: [cState] serves: SApi port: 3000 }
   deployable d { platform: dotnet contexts: [C] dataSources: [cState] serves: SApi port: 8080 }
   deployable j { platform: java   contexts: [C] dataSources: [cState] serves: SApi port: 8081 }
   deployable y { platform: python contexts: [C] dataSources: [cState] serves: SApi port: 8000 }
-  deployable p { platform: elixir contexts: [C] dataSources: [cState] serves: SApi port: 4000 }
+  deployable p { platform: elixir contexts: [C] dataSources: [pState] serves: SApi port: 4000 }
 }
 `;
 

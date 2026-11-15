@@ -93,7 +93,7 @@ describe("phoenix migrations-emit — delta path", () => {
     const body = files.get("priv/repo/migrations/20260101000003_sales_cleanup.exs")!;
     expect(body).toMatch(/remove :legacy_note/);
     expect(body).toMatch(/drop table\(:old_table\)/);
-    expect(body).toMatch(/create index\(:orders, \[:status\]\)/);
+    expect(body).toContain('create index(:orders, [:status], name: "orders_status_idx")');
   });
 
   it("renders a renameTable step as an Ecto `rename table(...), to: table(...)` (M-T2.1)", () => {
@@ -425,7 +425,9 @@ describe("phoenix migrations-emit — delta path", () => {
     const pipelines = files.get("priv/repo/migrations/20260101000011_create_pipelines.exs")!;
     expect(pipelines).toContain('create table(:pipelines, primary_key: false, prefix: "catalog")');
     expect(pipelines).toMatch(/references\(:projects, prefix: "catalog", type: :uuid/);
-    expect(pipelines).toContain('create index(:pipelines, [:project_id], prefix: "catalog")');
+    expect(pipelines).toContain(
+      'create index(:pipelines, [:project_id], name: "pipelines_project_id_idx", prefix: "catalog")',
+    );
   });
 });
 

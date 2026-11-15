@@ -1,4 +1,3 @@
-import { FOLD_INBOX_TABLE } from "../../ir/plan/index.js";
 import type {
   ColumnShape,
   IndexShape,
@@ -8,6 +7,7 @@ import type {
 } from "../../ir/types/migrations-ir.js";
 import { splitTransactionalSteps } from "../../ir/util/migration-steps.js";
 import { snake, upperFirst } from "../../util/naming.js";
+import { FOLD_INBOX_TABLE } from "../../ir/plan/index.js";
 import { TIMER_CLAIM_TABLE } from "../../util/timer.js";
 import { collapseVoGroups, collapseVoSteps } from "../_persistence/vo-json-columns.js";
 import {
@@ -97,15 +97,15 @@ function prefixOpt(schema: string | undefined): string {
 /** Trailing Ecto `create index(...)` options for one `IndexShape`.
  *  `, unique: true` for a unique index; `, where: "…"` for a partial index
  *  (a `unique` key on a softDeletable aggregate — re-create after soft-delete
- *  is allowed); an explicit `, name: "…"` for unique indexes so the
- *  changeset's `unique_constraint` and the cross-backend 23505 → 409 mapping
- *  reference the same deterministic constraint name.  FK / performance indexes
- *  keep Ecto's default name (never referenced), so output is unchanged. */
+ *  is allowed); and always the shared `, name: "…"`.  Ecto's default name
+ *  (`<table>_<cols>_index`) differs from the one every other backend creates
+ *  (`<table>_<cols>_idx`), and a later `dropIndex` / `renameIndex` step — or
+ *  the changeset's `unique_constraint` and the cross-backend 23505 → 409
+ *  mapping — names the index the shared way, whichever backend created it. */
 function ectoIndexOpts(i: IndexShape, prefix: string): string {
   const unique = i.unique ? ", unique: true" : "";
   const where = i.predicate ? `, where: ${JSON.stringify(i.predicate)}` : "";
-  const name = i.unique ? `, name: ${JSON.stringify(i.name)}` : "";
-  return `${unique}${where}${name}${prefix}`;
+  return `${unique}${where}, name: ${JSON.stringify(i.name)}${prefix}`;
 }
 
 /** The indexes this backend can actually create on `table`.
@@ -142,52 +142,6 @@ function ectoIndexColumns(i: IndexShape): string {
  *  schema.  Forward-only — matching the no-op down of every other backend. */
 function schemaCreateLines(schema: string | undefined): string[] {
   return schema ? [`execute "CREATE SCHEMA IF NOT EXISTS ${schema}"`] : [];
-}
-
-/** The `timestamps()` line a state-table migration appends — column-aware
- *  so it matches the emitted schema (otherwise `ecto.migrate` fails with
- *  "column updated_at specified more than once").  An audit capability
- *  (`with audit` / `auditable`) declares explicit `created_at` /
- *  `updated_at` columns; the bundled `timestamps()` would add a SECOND
- *  `updated_at`.  The Ecto schema drops `timestamps()` entirely when an
- *  `updated_at` field is present (`vanilla/schema-emit.ts`), so the
- *  migration must too — the audit columns are the only timestamps.  With
- *  no `updated_at` column present the migration emits a plain
- *  `timestamps()`, so non-audit output is unchanged. */
-function timestampsMacro(table: TableShape): string | null {
-  // The transactional outbox (dispatch-delivery-semantics.md) is a fixed
-  // machinery shape shared by every backend: its time columns are the
-  // explicit `occurred_at`/`dispatched_at`, and the relay writers never
-  // populate Ecto timestamps — a bundled NOT NULL `inserted_at` would
-  // reject every insert.
-  if (table.name === "__loom_outbox") return null;
-  // Same rule for the audit history: `audit_records` is fixed machinery whose
-  // only time column is the explicit `at`.  The audit writer builds the row
-  // struct by hand and never populates Ecto timestamps, so a bundled NOT NULL
-  // `inserted_at` would reject every audited command — and because the insert
-  // rides the action's transaction, it would roll back the state change too.
-  if (table.name === "audit_records") return null;
-  // And for the provenance history: `provenance_records` is fixed machinery
-  // whose only time column is the explicit `at`.  The flush builds each row as
-  // a plain map and calls `Repo.insert_all/2` (which bypasses autogenerate), so
-  // a bundled NOT NULL `inserted_at` would reject every provenanced write — and
-  // because the flush rides the save transaction, it would roll the aggregate
-  // write back with it.
-  if (table.name === "provenance_records") return null;
-  // And for the `every:` timer claim row: its one time column is the explicit
-  // `fired_at`, and the claim is a raw upsert that never fills Ecto timestamps.
-  if (table.name === TIMER_CLAIM_TABLE) return null;
-  // And for the fold inbox: its one time column is the explicit `received_at`,
-  // and the fold's claim is a raw insert that never fills Ecto timestamps.
-  if (table.name === FOLD_INBOX_TABLE) return null;
-  // A declared `inserted_at` / `insertedAt` field owns the other bundled
-  // column the same way (`ownsEctoTimestampColumn` in `vanilla/schema-emit.ts`
-  // drops the schema's `timestamps()` in lockstep) — a second `inserted_at`
-  // would fail `ecto.migrate` with "column specified more than once".
-  const ownsTimestamp = table.columns.some(
-    (c) => c.name === "updated_at" || c.name === "inserted_at",
-  );
-  return ownsTimestamp ? null : "timestamps()";
 }
 
 export function emitMigrations(
@@ -465,21 +419,19 @@ function createTableLines(table: TableShape): string[] {
  *  event-log-architecture.md).  It has no `id` (so it would otherwise fall to
  *  `stateColumnLines`), but unlike a saga-state table it carries a
  *  `bigserial` `seq` cursor, a composite `(stream_type, stream_id, version)`
- *  PK, a unique index on `seq`, and NO `timestamps()` (its time column is
- *  `occurred_at`).  Detected by the `seq` bigserial column, unique to this
+ *  PK and a unique index on `seq`.  Detected by the `seq` bigserial column, unique to this
  *  table. */
 function isEventLogTable(t: TableShape): boolean {
   return t.columns.some((c) => c.name === "seq" && c.type.kind === "bigserial");
 }
 
 /** The event log's columns: composite PK columns marked `primary_key: true`,
- *  the remaining columns (incl. the `bigserial` `seq`) as plain adds.  No
- *  `timestamps()` — the log's time column is the explicit `occurred_at`. */
+ *  the remaining columns (incl. the `bigserial` `seq`) as plain adds. */
 function eventLogColumnLines(table: TableShape): string[] {
   const pk = new Set(table.primaryKey);
   return table.columns.map((c) =>
     pk.has(c.name)
-      ? `add :${c.name}, ${exMigrationKeyType(c.type)}, primary_key: true, null: false`
+      ? pkColumnLine(c)
       : renderEctoColumn(c, table),
   );
 }
@@ -493,6 +445,12 @@ function isStateTable(t: TableShape): boolean {
   return !t.columns.some((c) => c.name === "id") && !isJoinTable(t);
 }
 
+/** A primary-key column, with the shared default when it has one (the outbox's
+ *  `gen_random_uuid()` id: the relay's raw insert relies on it). */
+function pkColumnLine(c: ColumnShape): string {
+  return `add :${c.name}, ${exMigrationKeyType(c.type)}, primary_key: true, null: false${ectoDefaultClause(c.default)}`;
+}
+
 /** An id-less state table's columns.  Value-object leaf columns regroup into
  *  ONE `:map` column, as on an entity table: the saga-state / projection-row
  *  schema types a value-object field `:map` (`ectoStateFieldType`,
@@ -501,12 +459,29 @@ function stateColumnLines(table: TableShape): string[] {
   const pk = new Set(table.primaryKey);
   const lines = collapseVoGroups(table.columns.filter((c) => !c.valueArrayChildTable)).map((c) =>
     pk.has(c.name)
-      ? `add :${c.name}, ${exMigrationKeyType(c.type)}, primary_key: true, null: false`
+      ? pkColumnLine(c)
       : renderEctoColumn(c, table),
   );
-  const ts = timestampsMacro(table);
-  if (ts) lines.push(ts);
+  if (carriesEctoTimestamps(table)) lines.push("timestamps()");
   return lines;
+}
+
+/** Machinery tables: a fixed shape every backend writes with raw inserts, so
+ *  none carries Ecto's timestamps. */
+const MACHINERY_TABLES: ReadonlySet<string> = new Set([
+  "__loom_outbox",
+  "audit_records",
+  "provenance_records",
+  TIMER_CLAIM_TABLE,
+  FOLD_INBOX_TABLE,
+]);
+
+/** A workflow-state or projection-row table (id-less, FK-less, not machinery)
+ *  still carries Ecto's `timestamps()`: its schema (`dispatch-emit.ts`,
+ *  `projections-emit.ts`) declares them.  Every other table carries exactly
+ *  the shared columns. */
+function carriesEctoTimestamps(table: TableShape): boolean {
+  return table.foreignKeys.length === 0 && !MACHINERY_TABLES.has(table.name);
 }
 
 /** An entity table's columns: the `id` PK, then the rest with value objects
@@ -520,37 +495,24 @@ function entityColumnLines(table: TableShape): string[] {
   const otherCols = collapseVoGroups(
     table.columns.filter((c) => c.name !== "id" && !c.valueArrayChildTable),
   );
-  const lines = [
-    `add :id, ${pkType}, primary_key: true, null: false`,
+  return [
+    `add :id, ${pkType}, primary_key: true, null: false${ectoDefaultClause(idCol?.default)}`,
     ...otherCols.map((c) => renderEctoColumn(c, table)),
   ];
-  const ts = timestampsMacro(table);
-  if (ts) lines.push(ts);
-  return lines;
 }
 
 /** A value-object collection child table's columns (`charges: Money[]` →
- *  `order_charges`).  Unlike the relational backends — whose child table is
- *  keyed by the composite `(parent_fk, ordinal)` in the shared MigrationsIR —
- *  the Phoenix child carries a SYNTHETIC `id` uuid primary key so it can be
- *  modelled as an Ecto `has_many` whose rows are managed via `cast_assoc`
- *  (which wants row identity for the replace-on-update diff).  The synthetic
- *  id never reaches the wire — the child's Jason encoder projects only the
- *  value object's own fields, so the array stays `[{amount,currency},…]`,
- *  byte-identical with every other backend.  Parent FK cascades; `ordinal`
- *  preserves declared order.  No `timestamps()`: the child schema has none. */
+ *  `order_charges`), keyed by the shared composite `(parent_fk, ordinal)`.
+ *  The Ecto child schema declares the same two-column primary key, so a row
+ *  another backend wrote is a row this one reads and replaces. */
 function valueCollectionColumnLines(table: TableShape): string[] {
-  return [
-    `add :id, ${exMigrationRowIdType()}, primary_key: true, null: false`,
-    ...keyedColumnLines(table, new Set()),
-  ];
+  return keyedColumnLines(table, new Set(table.primaryKey));
 }
 
 /** A many-to-many join table's columns.  Composite PK on the two FK columns,
  *  both `primary_key: true` (this is what enforces the set-semantics contract
- *  for `Id<T>[]` — the pair IS the whole row, no payload column); no
- *  `timestamps()` (join rows are pure relationship records, and the
- *  `many_to_many` insert writes only the keys).  Deterministic read-back
+ *  for `Id<T>[]` — the pair IS the whole row, no payload column).
+ *  Deterministic read-back
  *  order is a read-time projection (the `many_to_many` preloads
  *  `order_by: [asc: :id]` on the target), not a stored `ordinal`. */
 function joinColumnLines(table: TableShape): string[] {
@@ -708,8 +670,7 @@ export function renderEctoStep(step: MigrationStep): string[] {
       if (!step.concurrently) return [`create index(:${step.index.table}, [${cols}]${opts})`];
       // The same pair the SQL backends render (`renderAddIndexConcurrently`):
       // drop a leftover INVALID index a failed concurrent build left behind,
-      // then build.  The drop names the index exactly as the create does —
-      // same table, columns and options, so Ecto derives the same name.
+      // then build.  The drop names the index exactly as the create does.
       return [
         `drop_if_exists index(:${step.index.table}, [${cols}]${opts}, concurrently: true)`,
         `create index(:${step.index.table}, [${cols}]${opts}, concurrently: true)`,

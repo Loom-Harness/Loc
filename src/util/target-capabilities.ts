@@ -371,10 +371,7 @@ export type UiScope =
 export type BackendScope =
   /** Generated members and types are C#, so two names that differ only in a
    *  way C# folds (or that clash with a namespace) collide. */
-  | "names:csharp-members"
-  /** A relational entity part's schema carries implicit `inserted_at` /
-   *  `updated_at` timestamp columns. */
-  | "fields:part-implicit-timestamps";
+  | "names:csharp-members";
 
 // --- the feature-tuple axis ---------------------------------------------------
 //
@@ -889,7 +886,6 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
       // any struct exists.
       "stamp:reads-aggregate@document": owned("loom.stamp-reads-aggregate-unsupported"),
     },
-    backendScopes: ["fields:part-implicit-timestamps"],
     compositions: {
       ...COMMON_COMPOSITIONS,
       // A declared create on a document aggregate demands the defaulted
