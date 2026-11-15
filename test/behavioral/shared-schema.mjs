@@ -1,4 +1,5 @@
-// The shared-database leg (`LOOM_BH_ELIXIR_SCHEMA=shared`) — D-ONE-SCHEMA.
+// Gate for D-ONE-SCHEMA (docs/decisions).
+// The shared-database leg (`LOOM_BH_ELIXIR_SCHEMA=shared`).
 //
 // Deployables bound to one postgres storage share its database, and only the
 // first of them applies migrations: every other backend reads and writes

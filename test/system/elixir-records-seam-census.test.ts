@@ -1,3 +1,4 @@
+// Gate for D-ONE-SCHEMA (docs/decisions).
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
