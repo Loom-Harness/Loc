@@ -997,7 +997,18 @@ system S {
 system S {
   subdomain D { context A {
     valueobject Money { amount: decimal  currency: string }
-    aggregate Keep with crudish { name: string  price: Money }
+    aggregate Keep with crudish {
+      name: string
+      operation sell() { emit Sold { keep: id, price: Money { amount: 1, currency: "EUR" } } }
+    }
+    repository Keeps for Keep { }
+    event Sold { keep: Keep id, price: Money }
+    channel Sales { carries: Sold  delivery: broadcast  retention: ephemeral }
+    projection Board keyed by keep {
+      keep: Keep id
+      price: Money?
+      on(e: Sold) { price := e.price }
+    }
   } }
   storage primary { type: postgres }
   resource aState { for: A, kind: state, use: primary }

@@ -103,7 +103,7 @@ describe("elixir — query-time projection over a `shape: document` source", () 
         "    rows =",
         "      D.C.Article",
         "      |> Ecto.Query.order_by([r], r.id)",
-        "      |> Repo.all()",
+        "      |> Records.all()",
         "      |> Enum.filter(fn row ->",
         "        record = row.data",
         "        (record.view_count > 10) and (not record.is_deleted)",
@@ -140,7 +140,7 @@ describe("elixir — query-time projection over a `shape: document` source", () 
     // An unused import is a warning, and the corpus compile runs
     // `mix compile --warnings-as-errors`.
     expect(mod).not.toContain("import Ecto.Query");
-    expect(mod).toContain("  alias D.Repo");
+    expect(mod).toContain("  alias D.Records");
     // …but the ordered read calls `order_by` FULLY QUALIFIED, and that is a
     // MACRO: without the `require`, Elixir parses it as a remote function call,
     // the `[r]` never becomes a query binding, and the module fails to compile
@@ -175,7 +175,7 @@ describe("elixir — query-time projection over a `shape: document` source", () 
       [
         "    rows =",
         "      from(record in D.C.Note.base_query(), where: record.stars > 1)",
-        "      |> Repo.all(current_user: current_user)",
+        "      |> Records.all(current_user: current_user)",
         "    Enum.map(rows, fn record ->",
         "      %{",
         "        line: record.body",

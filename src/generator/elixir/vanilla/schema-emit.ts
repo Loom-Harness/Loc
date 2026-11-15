@@ -4,8 +4,10 @@
 //
 //   primitives + array-of-primitive map directly; system fields are skipped.
 //   enum → `Ecto.Enum` with a values list;
-//   valueobject → `Loom.ValueObject` over a jsonb column, cast and loaded
-//     into the constructor shape (value-object-type-emit.ts); id (foreign key reference) →
+//   valueobject → its leaf columns (`price_amount`, …, the shared schema) plus
+//     a virtual `Loom.ValueObject` field in the constructor shape, composed and
+//     decomposed by `<App>.Records` (records-emit.ts); inside an embed, the
+//     jsonb value itself; id (foreign key reference) →
 //     `:binary_id` column; optional wrapper unwraps the inner type.
 // ---------------------------------------------------------------------------
 

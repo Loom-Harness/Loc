@@ -1044,6 +1044,7 @@ phoenix_app/
 ├── lib/phoenix_app/
 │   ├── application.ex                            # supervision tree: Repo, Endpoint, PubSub
 │   ├── repo.ex                                   # Ecto.Repo
+│   ├── records.ex                                # every read/write: composes a stored VO from its leaf columns
 │   ├── request_context.ex                        # ambient exec-context carrier (Plug → Logger.metadata: correlation_id/scope_id/actor_id) — see architecture/request-context.md
 │   └── sales/                                    # one folder per BoundedContext
 │       ├── customer.ex                           # Ecto.Schema per aggregate
@@ -1052,7 +1053,8 @@ phoenix_app/
 │       ├── order_status.ex                       # enums as Ecto.Enum
 │       ├── email.ex                              # a CONSTRAINED value object → a schemaless-changeset
 │                                                #   validator module.  An UNCONSTRAINED VO (Money) emits
-│                                                #   no module at all — it is a :map column on the owner.
+│                                                #   no module at all — it is leaf columns + a virtual
+│                                                #   field on the owner.
 │       ├── events/order_confirmed.ex             # plain defstruct modules
 │       ├── workflows/place_order.ex              # context fns wrapping Repo.transaction
 │       ├── dispatcher.ex                         # in-process event router (when a channel carries a subscribed event)
@@ -1087,7 +1089,7 @@ Aggregate IR maps onto Ecto/Phoenix:
 | `derived total: Money = expr` | a `def total(record)` function over the struct (`<lowered>`) |
 | `invariant <pred> when <guard>` | Two carriers. An unnamed, unguarded SINGLE-FIELD rule takes an idiomatic native line (`validate_number` / `validate_length` / `validate_format`). Everything else routes to a custom `validate_invariants/1` piped onto `base_changeset`, `update_changeset` AND the operation-persist path — cross-field comparisons, guarded rules, named rules (whose wire `code` rides the `add_error` metadata), and, since #3023, **member reads, method calls, collection ops and `derived` reads** (`sku.trim().length > 0`, `lines.count > 0`, `lines.any(l => …)`, `isBig == false`). A `derived` read INLINES its defining expression, because an Ecto struct carries no computed field. A contained collection is normalised (`%NotLoaded{}` → `[]`) before it is read. **The one shape deliberately NOT enforced here is a reference collection** (`X id[]`): its join rows are written after the changeset, so the changeset would read `[]` and the rule would pass for every input — enforcement in name only. That case, and anything else this carrier cannot evaluate (a `domainService` / resource call), now raises `loom.elixir-invariant-unenforced` (a warning) instead of being silently dropped, so an invariant on this backend is either enforced or reported. The shared judgement is `src/ir/util/changeset-invariant-carrier.ts`, read by both the emitter and the phase-⑦ gate. |
 | `operation op(args) { body }` | a context function `def <snake_op>(record, params)` (precondition + `put_change` + `Repo.update`) |
-| `valueobject Money { … }` | **A `:map` (JSONB) column on the owner's schema** — `field :total, :map`, `add :total, :map` in the migration — never an `embedded_schema`, never a custom `Ecto.Type` (`mapTypeToEcto` in `vanilla/schema-emit.ts` returns `":map"` for a `valueobject` unconditionally). A VO carrying a `check` additionally gets a **schemaless-changeset validator module** (`@types` map + `cast/3` + the invariant validators + `new/1`); an unconstrained VO gets no module at all. The *wire* shape stays the nested `{ amount, currency }` object every backend agrees on — the column layout is a deliberate divergence, recorded in [`language-reference/03-domain-modeling.md` § `valueobject`](language-reference/03-domain-modeling.md#valueobject). |
+| `valueobject Money { … }` | **Its leaf columns on the owner's schema, plus a virtual field** — `field :total_amount, :decimal` / `field :total_currency, …` (a nested VO prefix-chained, exactly the columns the shared migration creates) and `field :total, Loom.ValueObject, …, virtual: true`, which domain code, the expression renderer and the serializers read. `<App>.Records` (`vanilla/records-emit.ts`) composes the virtual field from the leaf columns on every read (recursing into loaded parts and value-collection rows) and writes it back to them on every insert/update; a query filter or projection aggregate reads the leaf column (`record.total_amount`). Inside an `embedded_schema` part or a document it stays a jsonb value. A saga-state or projection row stores a value object as one `:map` column. A VO carrying a `check` additionally gets a **schemaless-changeset validator module** (`@types` map + `cast/3` + the invariant validators + `new/1`); an unconstrained VO gets no module at all. |
 | `event LineAdded { … }` | plain `defstruct` module under `<Ctx>.Events.<Event>` |
 | `repository finds: find byCustomer(...) where ...` | a context query function `def by_customer(customer_id) = Repo.all(from … where: …)` |
 | `workflow placeOrder(...) { ... }` | a context function wrapping `Repo.transaction(fn -> with … end)` |

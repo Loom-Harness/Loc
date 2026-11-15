@@ -12,7 +12,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 //       query = if opts[:limit], do: limit(query, ^opts[:limit]), else: query
 //       query = if opts[:offset], do: offset(query, ^opts[:offset]), else: query
 //       query = order_by(query, [record], [<dir>: record.<field>, ...])
-//       {:ok, Repo.all(query)}
+//       {:ok, Records.all(query)}
 //     end
 //
 // The context facade adds `defdelegate run_<ret>_<agg>(args..., opts \\ [])`
@@ -80,7 +80,7 @@ describe("vanilla — retrieval modules under lib/<app>/<ctx>/retrievals/", () =
     const files = await load();
     const body = files.get([...files.keys()].find((k) => k.endsWith("/retrievals/by_status.ex"))!)!;
     expect(body).toContain("import Ecto.Query");
-    expect(body).toContain("alias Api.Repo");
+    expect(body).toContain("alias Api.Records");
   });
 
   it("renders the from/where over the aggregate schema with `record` binding", async () => {
@@ -130,11 +130,11 @@ describe("vanilla — retrieval modules under lib/<app>/<ctx>/retrievals/", () =
     expect(body).toContain("query = order_by(query, [record], [asc: record.id])");
   });
 
-  it("returns `{:ok, Repo.all(query)}` (the contract that repo-run lowering will consume)", async () => {
+  it("returns `{:ok, Records.all(query)}` (the contract that repo-run lowering will consume)", async () => {
     const files = await load();
     const body = files.get([...files.keys()].find((k) => k.endsWith("/retrievals/by_status.ex"))!)!;
     expect(body).toContain(
-      "{:ok, Repo.all(query, current_user: opts[:current_user], skip_filters: opts[:skip_filters])}",
+      "{:ok, Records.all(query, current_user: opts[:current_user], skip_filters: opts[:skip_filters])}",
     );
   });
 
