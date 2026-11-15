@@ -32,8 +32,10 @@ The read-surface work lands in its stated order: projection masking, then the
 two small gates, then the system-read construct.
 
 ### D-TARGET-MATRIX-FROZEN
-No PR adds a backend or frontend target (a `src/platform/registry.ts` entry or
-a `TARGET_FACTS` row) without reopening this ruling.
+The wide matrix is deliberate: five backends and six frontends, each carried
+to parity. No PR adds a backend or frontend target (a `src/platform/registry.ts`
+entry or a `TARGET_FACTS` row) without reopening this ruling, and none proposes
+narrowing the matrix as a way to close a gap.
 
 ### D-PYTHON-SINGLE-REALIZATION
 A missing second python realization (persistence or style adapter) is not filed
@@ -59,6 +61,10 @@ spelling.
 
 ## Declined or removed designs — do not reintroduce
 
+A design that a later ruling *replaced* is not listed here: its record says
+`**Enforced by:** superseded by \`D-<TAG>\``, and the replacing record carries
+the gate.
+
 ### D-ENV-SWAP
 No deployable `overrides` block or other per-environment storage-swap syntax
 is added to the grammar.
@@ -70,10 +76,6 @@ to seed datasets.
 ### D-TENANCY-SCOPE
 The per-aggregate tenancy stance stays two values (`tenantOwned` /
 `crossTenant`); no `platform` scope value is added.
-
-### D-TENANCY-HIERARCHY
-Superseded by D-TENANCY-FLAT: no `dataKey` stamp, materialized path or
-`deep`/`global` read level is reintroduced.
 
 ### D-NO-MIXED-FOUNDATION
 Superseded with the foundation axis: no per-aggregate or per-deployable
@@ -90,13 +92,8 @@ emission.
 ### D-VANILLA-PHOENIX-FOUNDATION
 Superseded with the foundation axis: no `foundation:` clause is reintroduced.
 
-### D-PHOENIX-TRANSPORT
-Superseded: no `transport:` axis or `phoenixRouter` alias is reintroduced.
-
 ### D-POLICY-STYLE
-Superseded: authorization grammar stays the allow/deny/read ladder; the
-data/operations/fields policy sub-sections are not reintroduced.
+Authorization stays in dedicated `policy { }` blocks, one place per aggregate
+to read what governs it; no function-style policy DSL or scattered guard
+functions are added beside them.
 
-### D-WIRESHAPE-KEEP
-Superseded by D-WIRE-RECORDS: the declared response record is the wire source
-of truth; no derived wire shape is reintroduced as an alternative.

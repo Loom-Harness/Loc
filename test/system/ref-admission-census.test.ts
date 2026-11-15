@@ -109,4 +109,3 @@ describe("reference admission census — every admitting save probes", () => {
     }
   }
 });
-// Gate for D-REF-ADMISSION (docs/decisions/D-REF-ADMISSION.md).

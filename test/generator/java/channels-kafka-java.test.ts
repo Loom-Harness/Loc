@@ -193,4 +193,3 @@ describe("kafka log transport — java leg (M-T4.4 slice 8c)", () => {
     expect(find(files, "sales_api", "build.gradle.kts")).not.toContain("kafka-clients");
   });
 });
-// Gate for D-KAFKA-START-OFFSET (docs/decisions/D-KAFKA-START-OFFSET.md).

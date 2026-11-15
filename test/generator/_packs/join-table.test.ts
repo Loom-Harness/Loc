@@ -113,4 +113,3 @@ describe("reference-collection join tables (TS/Hono)", () => {
     ).toBe(true);
   });
 });
-// Gate for D-REFCOLL-SET (docs/decisions/D-REFCOLL-SET.md).

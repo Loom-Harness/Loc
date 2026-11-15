@@ -115,4 +115,3 @@ describe("policy read gate — validation", () => {
     expect(diagnostics.some((d) => d.code === "loom.requires-not-bool")).toBe(true);
   });
 });
-// Gate for D-READ-GATE-IN-POLICY (docs/decisions/D-READ-GATE-IN-POLICY.md).

@@ -8,9 +8,13 @@
 //   gate:      **Enforced by:** `test/…/a.test.ts`, `test/fixtures/corpus/x.ddd`
 //   review:    **Enforced by:** review — `docs/review-checklist.md#<tag>` — <why a gate is impractical>
 //   not built: **Enforced by:** none, tracked by #NNNN — <why there is no gate yet>
+//   superseded: **Enforced by:** superseded by `D-<TAG>`
 //
-// A gate path must exist, must mention the record's tag (so the link holds
-// from both ends and survives a rename of either), and must run in CI.  A
+// A gate path must exist, must name the record's tag in its header — the
+// comment lines above its first line of code, or for a corpus fixture its
+// `.corpus.json` sidecar — so the link holds from both ends and survives a
+// rename of either, and must run in CI.  A superseded record names the record
+// that replaced it, which must exist and not be superseded itself.  A
 // review anchor must be a section of the checklist that names the tag, and
 // every checklist section must be pointed at by its record.  `tracked by`
 // names a live fence (`test/_helpers/live-fences.ts`), so the deferral
@@ -29,6 +33,7 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 const DIR = "docs/decisions";
 const LINE = /^\*\*Enforced by:\*\* (.+)$/;
 const NONE_TRACKED = /^none, tracked by (#\d+) — (.+)$/;
+const SUPERSEDED = /^superseded by `(D[-0-9][A-Z0-9-]*)`$/;
 const REVIEW = /^review — `([^`#]+)#([a-z0-9-]+)` — (.+)$/;
 /** The one checklist review-tier records point into; the runbook sends every
  *  session to it. */
@@ -55,7 +60,8 @@ const NOT_BUILT: readonly string[] = [
 type Enforcement =
   | { kind: "gates"; paths: string[] }
   | { kind: "tracked"; issue: string; reason: string }
-  | { kind: "review"; doc: string; anchor: string; reason: string };
+  | { kind: "review"; doc: string; anchor: string; reason: string }
+  | { kind: "superseded"; by: string };
 
 /** The record's enforcement line, parsed, or what is wrong with it. */
 function parseEnforcement(text: string): Enforcement | string {
@@ -69,6 +75,8 @@ function parseEnforcement(text: string): Enforcement | string {
   const body = LINE.exec(last)?.[1] ?? "";
   const tracked = NONE_TRACKED.exec(body);
   if (tracked) return { kind: "tracked", issue: tracked[1], reason: tracked[2] };
+  const superseded = SUPERSEDED.exec(body);
+  if (superseded) return { kind: "superseded", by: superseded[1] };
   const review = REVIEW.exec(body);
   if (review) return { kind: "review", doc: review[1], anchor: review[2], reason: review[3] };
   if (GATES.test(body))
@@ -76,7 +84,7 @@ function parseEnforcement(text: string): Enforcement | string {
   return (
     "the line must be `**Enforced by:** `<path>`, …`, " +
     "`**Enforced by:** review — `docs/review-checklist.md#<tag>` — <why>` or " +
-    "`**Enforced by:** none, tracked by #N — <why>`"
+    "`**Enforced by:** none, tracked by #N — <why>` or `**Enforced by:** superseded by `D-<TAG>``"
   );
 }
 
@@ -106,6 +114,16 @@ function ciRunProblem(path: string, src: string, ci: string): string {
   if (envGated && !ci.includes(path) && !ci.includes(path.split("/").pop() as string))
     return "is env-gated and no workflow (or package script a workflow runs) names it";
   return "";
+}
+
+/** Where a gate names the decisions it enforces: a corpus fixture's sidecar,
+ *  else the file's header — its leading comment and blank lines. */
+function headerOf(path: string, read: (path: string) => string | undefined): string {
+  if (/^test\/fixtures\/corpus\/[a-z0-9-]+\.ddd$/.test(path))
+    return read(path.replace(/\.ddd$/, ".corpus.json")) ?? "";
+  const lines = (read(path) ?? "").split("\n");
+  const end = lines.findIndex((l) => !/^\s*(?:\/\/|\/\*|\*|$)/.test(l));
+  return lines.slice(0, end < 0 ? lines.length : end).join("\n");
 }
 
 /** The checklist's sections by anchor (a heading's GitHub slug) → their text,
@@ -140,6 +158,16 @@ function recordProblems(
     return problem ? [`${tag}: ${problem}`] : [];
   }
   const tagWord = new RegExp(`(^|[^A-Z0-9-])${tag}(?![A-Z0-9-])`);
+  if (e.kind === "superseded") {
+    const target = read(`${DIR}/${e.by}.md`);
+    if (target === undefined) return [`${tag}: superseded by ${e.by}, which has no record`];
+    const t = parseEnforcement(target);
+    return typeof t !== "string" && t.kind === "superseded"
+      ? [
+          `${tag}: superseded by ${e.by}, which is itself superseded by ${t.by} — name the live record`,
+        ]
+      : [];
+  }
   if (e.kind === "review") {
     if (e.doc !== CHECKLIST)
       return [`${tag}: a review line points into ${CHECKLIST}, not \`${e.doc}\``];
@@ -154,9 +182,9 @@ function recordProblems(
       out.push(`${tag}: \`${p}\` does not exist`);
       continue;
     }
-    if (!tagWord.test(src))
+    if (!tagWord.test(headerOf(p, read)))
       out.push(
-        `${tag}: \`${p}\` does not mention ${tag} — name the decision where the gate checks it`,
+        `${tag}: \`${p}\` does not name ${tag} in its header — name the decision in the file's top comment (a corpus fixture: its .corpus.json "//")`,
       );
     const dead = ci === "" ? "" : ciRunProblem(p, src, ci);
     if (dead) out.push(`${tag}: \`${p}\` ${dead}`);
@@ -273,7 +301,7 @@ describe("decision records name their gate", () => {
       "D-X: `test/gone.test.ts` does not exist",
     ]);
     expect(recordProblems("D-X", rec("**Enforced by:** `test/b.test.ts`"), read, open)).toEqual([
-      "D-X: `test/b.test.ts` does not mention D-X — name the decision where the gate checks it",
+      `D-X: \`test/b.test.ts\` does not name D-X in its header — name the decision in the file's top comment (a corpus fixture: its .corpus.json "//")`,
     ]);
     expect(
       recordProblems("D-X", rec("**Enforced by:** none, tracked by #1 — not built"), read, open),
@@ -298,11 +326,33 @@ describe("decision records name their gate", () => {
     expect(recordProblems("D-X", rec("**Enforced by:** tests"), read, open)[0]).toMatch(
       /the line must be/,
     );
+    // The tag must be in the header: a mention below the first line of code,
+    // where other changes append tests, does not count.
+    const below = (p: string) =>
+      p === "test/d.test.ts" ? 'import x from "y";\n// D-X\n' : read(p);
+    expect(
+      recordProblems("D-X", rec("**Enforced by:** `test/d.test.ts`"), below, open),
+    ).toHaveLength(1);
+    // A superseded record names a live record.
+    const records = (p: string) =>
+      ({
+        "docs/decisions/D-Y.md": "# D-Y\n\n**Enforced by:** `test/a.test.ts`\n",
+        "docs/decisions/D-Z.md": "# D-Z\n\n**Enforced by:** superseded by `D-Y`\n",
+      })[p] ?? read(p);
+    expect(
+      recordProblems("D-X", rec("**Enforced by:** superseded by `D-Y`"), records, open),
+    ).toEqual([]);
+    expect(
+      recordProblems("D-X", rec("**Enforced by:** superseded by `D-Q`"), records, open),
+    ).toEqual(["D-X: superseded by D-Q, which has no record"]);
+    expect(
+      recordProblems("D-X", rec("**Enforced by:** superseded by `D-Z`"), records, open),
+    ).toEqual(["D-X: superseded by D-Z, which is itself superseded by D-Y — name the live record"]);
     // A tag is matched as a whole word: D-X does not credit a file naming D-XY.
     expect(
       recordProblems("D-X", rec("**Enforced by:** `test/c.test.ts`"), () => "// D-XY", open),
     ).toEqual([
-      "D-X: `test/c.test.ts` does not mention D-X — name the decision where the gate checks it",
+      `D-X: \`test/c.test.ts\` does not name D-X in its header — name the decision in the file's top comment (a corpus fixture: its .corpus.json "//")`,
     ]);
   });
 });

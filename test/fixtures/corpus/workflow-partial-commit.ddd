@@ -79,4 +79,3 @@ system WorkflowPartialCommit {
     expect(api.orders.getById(o)).toThrow(404)
   }
 }
-// Gate for D-WORKFLOW-TX-BOUNDARY (docs/decisions/D-WORKFLOW-TX-BOUNDARY.md).

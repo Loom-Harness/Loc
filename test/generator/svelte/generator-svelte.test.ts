@@ -239,4 +239,3 @@ describe("svelte generator — project shape", () => {
     expect(out.has("web/index.html")).toBe(false);
   });
 });
-// Gate for D-SVELTE-FRONTEND (docs/decisions/D-SVELTE-FRONTEND.md).

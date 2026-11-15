@@ -167,4 +167,3 @@ describe("gate-ladder census: no backend decides a gate's rung itself", () => {
     expect(Object.keys(WAIVERS).length).toBeLessThanOrEqual(WAIVER_CEILING);
   });
 });
-// Gate for D-GATE-LADDER (docs/decisions/D-GATE-LADDER.md).

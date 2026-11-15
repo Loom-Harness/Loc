@@ -145,4 +145,3 @@ describe("shared-database layout census", () => {
     expect(runner).toContain("sharedSchemaMigrate");
   });
 });
-// Gate for D-ONE-SCHEMA (docs/decisions/D-ONE-SCHEMA.md).

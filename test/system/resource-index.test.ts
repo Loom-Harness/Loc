@@ -122,4 +122,3 @@ describe("resource index: — validation", () => {
     expect(d).toEqual([]);
   });
 });
-// Gate for D-INDEX-INFRA (docs/decisions/D-INDEX-INFRA.md).

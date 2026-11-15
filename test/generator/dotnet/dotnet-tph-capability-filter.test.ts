@@ -346,4 +346,3 @@ describe(".NET EF TPH read-source census", () => {
     });
   }
 });
-// Gate for D-EF-TPH-ROOT-READS (docs/decisions/D-EF-TPH-ROOT-READS.md).

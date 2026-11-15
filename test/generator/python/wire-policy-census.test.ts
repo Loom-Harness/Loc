@@ -179,4 +179,3 @@ describe("python wire-policy census — ingress", () => {
     expect(annotation("string")).not.toMatch(/min_length|StringConstraints/);
   });
 });
-// Gate for D-WIRE-POLICY (docs/decisions/D-WIRE-POLICY.md).

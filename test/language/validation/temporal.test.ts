@@ -95,4 +95,3 @@ describe("validation — A5 duration constructors + temporal arithmetic", () => 
     expect(errors).toEqual([]);
   });
 });
-// Gate for D-STDLIB-LAYERS (docs/decisions/D-STDLIB-LAYERS.md).

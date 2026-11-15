@@ -141,4 +141,3 @@ describe("vue generator — project shape", () => {
     expect(vite.match(/proxy: \{ "\/api":/g)?.length).toBe(2);
   });
 });
-// Gate for D-VUE-FRONTEND (docs/decisions/D-VUE-FRONTEND.md).

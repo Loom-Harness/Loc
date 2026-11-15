@@ -131,5 +131,3 @@ describe("generics — the removed `envelope` carrier", () => {
     expect(codes.filter((c) => c === "loom.generic-position")).toHaveLength(1);
   });
 });
-// Gate for D-ENVELOPE-RATIFY (docs/decisions/D-ENVELOPE-RATIFY.md).
-// Gate for D1-D4-D14-D15 (docs/decisions/D1-D4-D14-D15.md).

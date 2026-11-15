@@ -188,4 +188,3 @@ describe("M-T6.38 — the `when` state gate is a property of the domain method",
     });
   }
 });
-// Gate for D-WHEN-GATE-DOMAIN (docs/decisions/D-WHEN-GATE-DOMAIN.md).

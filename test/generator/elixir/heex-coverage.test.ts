@@ -87,4 +87,3 @@ describe("HEEx showcase coverage", () => {
     expect(gaps, `HEEx showcase coverage gaps:\n${text}`).toEqual([]);
   });
 });
-// Gate for D-HEEX-SHARED-WALKER (docs/decisions/D-HEEX-SHARED-WALKER.md).

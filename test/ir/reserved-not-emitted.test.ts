@@ -105,4 +105,3 @@ describe("loom.reserved-not-emitted", () => {
     expect(unreached).toEqual([]);
   });
 });
-// Gate for D-TIME-AS-EVENT (docs/decisions/D-TIME-AS-EVENT.md).

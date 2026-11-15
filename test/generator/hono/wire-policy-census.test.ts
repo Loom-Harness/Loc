@@ -157,4 +157,3 @@ describe("node wire-policy census — ingress", () => {
     expect(zod).toMatch(JSON_BASE[ingressFor(p).json]!);
   });
 });
-// Gate for D-WIRE-POLICY (docs/decisions/D-WIRE-POLICY.md).

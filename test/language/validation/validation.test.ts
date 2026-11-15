@@ -3106,4 +3106,3 @@ describe("Loom IR validation (post-lowering)", async () => {
     });
   });
 });
-// Gate for D-NO-PAGE-ARCHETYPES (docs/decisions/D-NO-PAGE-ARCHETYPES.md).

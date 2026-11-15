@@ -131,4 +131,3 @@ describe("RS-43 — an unnamed rule answers node's sentence on every backend", (
     );
   });
 });
-// Gate for D-MESSAGELESS-RULE-WIRE-MESSAGE (docs/decisions/D-MESSAGELESS-RULE-WIRE-MESSAGE.md).

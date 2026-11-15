@@ -257,4 +257,3 @@ describe("Frontend Contract wire source", () => {
     ]);
   });
 });
-// Gate for D-WIRE-RECORDS (docs/decisions/D-WIRE-RECORDS.md).

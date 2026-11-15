@@ -166,4 +166,3 @@ system Demo {
     ).not.toContain(CODE);
   });
 });
-// Gate for D-FLUTTER-COMPONENT-BINDINGS (docs/decisions/D-FLUTTER-COMPONENT-BINDINGS.md).

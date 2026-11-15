@@ -167,5 +167,3 @@ describe("walker-core framework census", () => {
     ]);
   });
 });
-// Gate for D-HEEX-SHARED-WALKER (docs/decisions/D-HEEX-SHARED-WALKER.md).
-// Gate for D-LIVEVIEW-REFERENCE (docs/decisions/D-LIVEVIEW-REFERENCE.md).

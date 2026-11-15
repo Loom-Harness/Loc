@@ -558,5 +558,3 @@ describe("organizationContext.ancestors — where it can be read", () => {
     expect(diags[0]!.message).toContain("onProbed.create(e: Probed)");
   });
 });
-// Gate for D-TENANCY-DEFAULT (docs/decisions/D-TENANCY-DEFAULT.md).
-// Gate for D-TENANCY-REGISTRY (docs/decisions/D-TENANCY-REGISTRY.md).

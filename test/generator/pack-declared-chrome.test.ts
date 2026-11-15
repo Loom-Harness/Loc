@@ -438,4 +438,3 @@ describe("pack-declared chrome — catalogs and emission", () => {
     expect(fileEndingWith(files, "src/lib/format.tsx")).toContain(">Yes<");
   });
 });
-// Gate for D-PACK-CHROME (docs/decisions/D-PACK-CHROME.md).

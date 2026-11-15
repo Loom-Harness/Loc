@@ -96,4 +96,3 @@ function cadence(clause: string): string {
     }
   `;
 }
-// Gate for D-TIME-AS-EVENT (docs/decisions/D-TIME-AS-EVENT.md).

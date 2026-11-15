@@ -89,4 +89,3 @@ describe("server-session frontends reach the domain in-process", () => {
     });
   }
 });
-// Gate for D-LIVEVIEW-REFERENCE (docs/decisions/D-LIVEVIEW-REFERENCE.md).

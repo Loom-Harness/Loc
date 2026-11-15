@@ -135,4 +135,3 @@ system ProjectionParamsSys {
     api.runs.destroy(r2)
   }
 }
-// Gate for D-PROJECTION-PARAMS (docs/decisions/D-PROJECTION-PARAMS.md).

@@ -247,4 +247,3 @@ describe("dev-auth-stub refuses a malformed x-loom-dev-claims header with 400 (D
     }
   });
 });
-// Gate for D-FORBIDDEN-DETAIL-DEV-ECHO (docs/decisions/D-FORBIDDEN-DETAIL-DEV-ECHO.md).

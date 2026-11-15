@@ -543,4 +543,3 @@ describe("byte-identity: a model with no reserved names keeps its node bindings"
     );
   });
 });
-// Gate for D-TARGET-RESERVED-NAMES (docs/decisions/D-TARGET-RESERVED-NAMES.md).

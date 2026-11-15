@@ -23,4 +23,4 @@ shape pinned in
 `policies-supplementary-note.md` stays superseded background;
 `ddd.langium` gains the `policy` rule (Phase 3.2).
 
-**Enforced by:** review — `docs/review-checklist.md#d-policy-style` — superseded: the policy grammar is the allow/deny/read ladder, not the sub-sections this ruled on
+**Enforced by:** review — `docs/review-checklist.md#d-policy-style` — the block-over-function choice is a grammar-shape ruling; its sub-section names predate the read ladder

@@ -44,4 +44,3 @@ describe("loom.tenancy-ref-unresolvable severity follows enforcement", () => {
     expect((await unresolvable("enforcement: opt")).map((d) => d.severity)).toEqual(["warning"]);
   });
 });
-// Gate for D-REF-ADMISSION (docs/decisions/D-REF-ADMISSION.md).

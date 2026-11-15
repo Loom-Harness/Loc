@@ -5472,5 +5472,3 @@ describe("the generic code `loom.unknown` reaches no user", () => {
     });
   }
 });
-// Gate for D-SENSITIVE-INSPECT-ONLY (docs/decisions/D-SENSITIVE-INSPECT-ONLY.md).
-// Gate for D-STORAGE-SPLIT (docs/decisions/D-STORAGE-SPLIT.md).
