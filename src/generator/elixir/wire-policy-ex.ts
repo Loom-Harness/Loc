@@ -1,9 +1,11 @@
-// The Elixir spelling of the `wirePolicy` fact (`src/ir/enrich/wire-policy.ts`).
+// The Elixir spelling of the `wirePolicy` fact (`src/ir/util/wire-policy.ts`).
 // The fact owns every refusal's status, title, fixed detail, sentence, field
 // message and ingress JSON type; this module owns only how a Phoenix emitter
 // writes them as Elixir source, so every elixir site renders the same refusal
 // the same way.
 
+import type { TypeIR } from "../../ir/types/loom-ir.js";
+import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import {
   errorVariantResponse,
   fieldCode,
@@ -21,9 +23,7 @@ import {
   wireSentence,
   wireStatus,
   wireTitle,
-} from "../../ir/enrich/wire-policy.js";
-import type { TypeIR } from "../../ir/types/loom-ir.js";
-import { wireTypeInfo } from "../../ir/types/wire-types.js";
+} from "../../ir/util/wire-policy.js";
 
 /** The per-api `httpStatus <Error> -> <Code>` map. */
 export type StatusOverrides = Readonly<Record<string, number>> | undefined;

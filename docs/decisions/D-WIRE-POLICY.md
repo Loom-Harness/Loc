@@ -8,7 +8,7 @@ backend (#3584, #3585, #3508), because each backend decided for itself which
 input is a 400 / 415 / 422 / 409, what the problem body says, and which check
 runs first.
 
-**Decision.** One derived table, `src/ir/enrich/wire-policy.ts`, owns those
+**Decision.** One derived table, `src/ir/util/wire-policy.ts`, owns those
 answers, and backends render it:
 
 - **Rejection classes** (`wireRejection`): status (fixed, or the stdlib error

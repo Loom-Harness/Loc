@@ -1,6 +1,6 @@
 // Gate for D-WIRE-POLICY (docs/decisions).
 // The python/FastAPI backend takes every wire refusal from ONE IR fact — the
-// `wirePolicy` table (`src/ir/enrich/wire-policy.ts`): status, title, fixed
+// `wirePolicy` table (`src/ir/util/wire-policy.ts`): status, title, fixed
 // detail or sentence, field message, ingress JSON type.  Twin of the node
 // census (`test/generator/hono/wire-policy-census.test.ts`).
 //
@@ -22,9 +22,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { requestPyType } from "../../../src/generator/python/emit/http-models.js";
-import { ingressFor } from "../../../src/ir/enrich/wire-policy.js";
 import type { BoundedContextIR } from "../../../src/ir/types/loom-ir.js";
 import type { WirePrimitive } from "../../../src/ir/types/wire-types.js";
+import { ingressFor } from "../../../src/ir/util/wire-policy.js";
 
 const ROOT = path.resolve(__dirname, "../../..");
 const SPELLING = "src/generator/python/wire-policy-py.ts";
@@ -138,7 +138,7 @@ describe("python wire-policy census — source", () => {
     const bad = hits(rel).filter((h) => !waived(rel, h.text));
     expect(
       bad.map((h) => `${rel}:${h.line} — ${h.what}: ${h.text}`),
-      "render it from src/ir/enrich/wire-policy.ts through src/generator/python/wire-policy-py.ts (wireStatus / wireTitle / wireFixedDetail / pySentence / fieldFixedMessage / pyErrorVariantReturn)",
+      "render it from src/ir/util/wire-policy.ts through src/generator/python/wire-policy-py.ts (wireStatus / wireTitle / wireFixedDetail / pySentence / fieldFixedMessage / pyErrorVariantReturn)",
     ).toEqual([]);
   });
 

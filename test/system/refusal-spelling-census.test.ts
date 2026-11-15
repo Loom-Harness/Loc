@@ -4,7 +4,7 @@
 // Which wire `code` a refusal carries (`problem.<class>`, `field.<reason>`),
 // and the fixed English its `detail` / `errors[].message` reads, is decided
 // once: the rejection classes and field reasons in
-// `src/ir/enrich/wire-policy.ts`, the query/path type-mismatch sentences in
+// `src/ir/util/wire-policy.ts`, the query/path type-mismatch sentences in
 // `src/ir/plan/projection-params.ts`.  Each backend renders from those
 // accessors (`wireCode`, `fieldCode`, `wireFixedDetail`, `fieldFixedMessage`,
 // `QUERY_PARAM_MISMATCH_MESSAGES`).  A literal spelling of one in an emitter
@@ -20,14 +20,14 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
+import { QUERY_PARAM_MISMATCH_MESSAGES } from "../../src/ir/plan/projection-params.js";
 import {
   FIELD_REASONS,
   type FieldRejectionReason,
   fieldFixedMessage,
   WIRE_REJECTION_CLASSES,
   wireFixedDetail,
-} from "../../src/ir/enrich/wire-policy.js";
-import { QUERY_PARAM_MISMATCH_MESSAGES } from "../../src/ir/plan/projection-params.js";
+} from "../../src/ir/util/wire-policy.js";
 import { expectReach } from "../_helpers/census-reach.js";
 
 const ROOT = join(__dirname, "../..");

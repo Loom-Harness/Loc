@@ -35,9 +35,9 @@ import type {
   StmtIR,
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
+import { singleFieldShape } from "../../ir/util/invariant-classify.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { walkStmtsDeep, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
-import { singleFieldShape } from "../../ir/validate/invariant-classify.js";
 import { floorRuleText } from "./rule-text.js";
 
 /** True when some aggregate the context emits carries a NAMED rule that can

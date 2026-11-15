@@ -6,9 +6,9 @@ import type {
   SystemIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
+import { singleFieldConstraints } from "../../../ir/util/invariant-classify.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
-import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { renderInvariantValidatorFn } from "./changeset-invariant-emit.js";
 import { taggedConstraintLines } from "./changeset-validators.js";

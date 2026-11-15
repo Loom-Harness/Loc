@@ -10,19 +10,15 @@
 // http-models` import cycle.
 // ---------------------------------------------------------------------------
 
-import {
-  type FieldLimitCheck,
-  fieldCode,
-  fieldLimitChecks,
-} from "../../../ir/enrich/wire-policy.js";
 import type { InvariantIR } from "../../../ir/types/loom-ir.js";
-import { type MergePatchField, ruleMembers } from "../../../ir/util/merge-patch.js";
 import {
   classifyForWire,
   pickErrorPath,
   singleFieldConstraints,
   singleFieldShape,
-} from "../../../ir/validate/invariant-classify.js";
+} from "../../../ir/util/invariant-classify.js";
+import { type MergePatchField, ruleMembers } from "../../../ir/util/merge-patch.js";
+import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../../../ir/util/wire-policy.js";
 import { lines } from "../../../util/code-builder.js";
 import { pythonWireIdent, pythonWireNeedsAlias } from "../../../util/naming.js";
 import { ruleCode, ruleText } from "../../_i18n/rule-text.js";

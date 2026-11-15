@@ -24,8 +24,8 @@
 // `t(key, default, values?)` call sites the walker emits are unchanged.
 // ---------------------------------------------------------------------------
 
-import { isAggregateProblemKey } from "../../ir/enrich/wire-policy.js";
 import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
+import { isAggregateProblemKey } from "../../ir/util/wire-policy.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { sourceOverrideKeys, sourceText } from "../_i18n/source-text.js";
 import { chromeMergedWhenEnabled, type FormSentenceScope } from "../_walker/i18n-chrome.js";

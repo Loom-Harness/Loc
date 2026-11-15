@@ -1,4 +1,4 @@
-import { wireStatus } from "../../../ir/enrich/wire-policy.js";
+import { wireStatus } from "../../../ir/util/wire-policy.js";
 import { SpanAttr } from "../../_obs/tracing.js";
 import { csCodeInit, csSentence, csTitle } from "../wire-policy-cs.js";
 

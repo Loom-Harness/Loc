@@ -1,4 +1,4 @@
-import { WIRE_REJECTION_CLASSES, wireParams } from "../../../ir/enrich/wire-policy.js";
+import { WIRE_REJECTION_CLASSES, wireParams } from "../../../ir/util/wire-policy.js";
 // ---------------------------------------------------------------------------
 // Vanilla ProblemDetails — `lib/<app>_web/problem_details.ex`.
 // vanilla-foundation-tdd-plan.md (exception-less alignment).

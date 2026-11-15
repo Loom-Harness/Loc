@@ -1,4 +1,4 @@
-import { MISSING_FILE_PART_DETAIL } from "../../../ir/enrich/wire-policy.js";
+import { MISSING_FILE_PART_DETAIL } from "../../../ir/util/wire-policy.js";
 import type { ApiRoute } from "../api-emit.js";
 import { exLit, exProblemResponse } from "../wire-policy-ex.js";
 
