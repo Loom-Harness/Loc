@@ -1,4 +1,5 @@
 import { createInputFields, createOmissionValue } from "../../../ir/enrich/wire-projection.js";
+import { unitTestGateChecks } from "../../../ir/plan/gate-ladder.js";
 import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
 import {
   type TestPrincipalShape,
@@ -160,9 +161,13 @@ function renderSubjectTestsFile(
   // declare it and import the Auth-layer `User` (a system with no `user` block
   // emits no `${ns}.Auth` namespace, so an unconditional import would not
   // compile).
-  const methodBlocks = tests.map((t) => renderTest(t, ctx).map((l) => `    ${l}`));
+  const methodBlocks = tests.map((t) => renderTest(t, ctx, principal).map((l) => `    ${l}`));
   const principalRef = new RegExp(`\\b${TEST_PRINCIPAL}\\b`);
   const usesActor = methodBlocks.some((b) => b.some((l) => principalRef.test(l)));
+  const defaultActor = methodBlocks.some(
+    (b, i) => !tests[i]!.principal && b.some((l) => principalRef.test(l)),
+  );
+  const gated = methodBlocks.some((b) => b.some((l) => l.includes(`${GATED}(`)));
   // Every OTHER aggregate the bodies name.  A test body may legally reach for a
   // sibling aggregate — the validator admits it, and it is the only way to
   // exercise a value object holding a CROSS-aggregate reference
@@ -209,7 +214,8 @@ function renderSubjectTestsFile(
   lines.push("");
   lines.push(`public sealed class ${name}Tests`);
   lines.push("{");
-  if (usesActor) {
+  if (gated) lines.push(...gatedHelpers());
+  if (defaultActor) {
     const rendered = renderTestPrincipal(
       testPrincipal(principal ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),
       CS_PRINCIPAL,
@@ -224,18 +230,60 @@ function renderSubjectTestsFile(
   return lines.join("\n") + "\n";
 }
 
-function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
+function renderTest(
+  t: TestIR,
+  ctx: BoundedContextIR,
+  principal: TestPrincipalShape | undefined,
+): string[] {
   const methodName = upperFirst(t.name.replace(/[^A-Za-z0-9]+/g, "_")) || "Test";
-  const out: string[] = [];
-  out.push(`[Fact(DisplayName = ${JSON.stringify(t.name)})]`);
-  out.push(`public void ${methodName}()`);
-  out.push(`{`);
+  const body: string[] = [];
   for (const [i, s] of t.statements.entries()) {
     const rendered = renderTestStmt(s, ctx, i);
-    if (rendered) out.push(...rendered.split("\n"));
+    if (rendered) body.push(...rendered.split("\n"));
   }
-  out.push(`}`);
-  return out;
+  // A head `as { … }` clause shadows the class's `TestPrincipal` with this
+  // test's principal, so its operation calls and their gates run as it.
+  const principalRef = new RegExp(`\\b${TEST_PRINCIPAL}\\b`);
+  const own =
+    t.principal && body.some((l) => principalRef.test(l))
+      ? [
+          `    var ${TEST_PRINCIPAL} = ${renderTestPrincipal(testPrincipal(principal ?? testPrincipalShape(undefined), t.principal, enumPool(ctx)), CS_PRINCIPAL)};`,
+        ]
+      : [];
+  return [
+    `[Fact(DisplayName = ${JSON.stringify(t.name)})]`,
+    `public void ${methodName}()`,
+    `{`,
+    ...own,
+    ...body,
+    `}`,
+  ];
+}
+
+/** The class-local helpers a unit test checks an operation's route gates with
+ *  (`unitTestGateChecks`): the route runs them before the domain method, so a
+ *  test calling the method runs them itself, against its test principal. */
+export const GATED = "Gated";
+export function gatedHelpers(): string[] {
+  const loop = [
+    "        foreach (var (allowed, message) in gates)",
+    "            if (!allowed) throw new ForbiddenException(message);",
+  ];
+  return [
+    "    /// <summary>Route <c>requires</c> gates of the operation called next: refused as the route refuses them.</summary>",
+    `    private static T ${GATED}<T>((bool, string)[] gates, Func<T> call)`,
+    "    {",
+    ...loop,
+    "        return call();",
+    "    }",
+    "",
+    `    private static void ${GATED}((bool, string)[] gates, Action call)`,
+    "    {",
+    ...loop,
+    "        call();",
+    "    }",
+    "",
+  ];
 }
 
 /** Coerce a raw test literal to a strongly-typed C# factory / operation
@@ -539,7 +587,12 @@ export function renderTestExpr(
           : renderTestExpr(a, ctx, principal);
       });
       if (operationBodyUsesCurrentUser(op)) args.push(principal);
-      return `${recv}.${upperFirst(e.member)}(${args.join(", ")})`;
+      const call = `${recv}.${upperFirst(e.member)}(${args.join(", ")})`;
+      const gates = unitTestGateChecks(op, e).map(
+        (c) =>
+          `(${renderCsExpr(c.cond, { thisName: "this", currentUserExpr: principal })}, ${JSON.stringify(`Forbidden: ${c.gate.source}`)})`,
+      );
+      return gates.length === 0 ? call : `${GATED}(new[] { ${gates.join(", ")} }, () => ${call})`;
     }
   }
   return renderCreateCall(e, ctx) ?? renderCsExpr(e);
