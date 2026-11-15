@@ -5,8 +5,11 @@
 //
 // Fixture contract (the same in every rabbit leg): the consumer deployable
 // hosts `workflow Fulfil { create(p: OrderPlaced) by p.order { Shipment.create
-// … } }`, wired to the producer's `queue`/`work` channel at `address`, and
-// serves `/api/shipments`.  The witness publishes straight to the channel's
+// … } }` and the event-sourced `workflow Track eventSourced { create(p:
+// OrderPlaced) by p.order { emit Tracked … } }` — two consumers of one event,
+// claiming under two keys — wired to the producer's `queue`/`work` channel at
+// `address`, and serves `/api/shipments`.  Each case counts both effects: the
+// Shipments, and the appends to the context's event log.  The witness publishes straight to the channel's
 // exchange inside the rabbitmq sidecar, so it needs the docker container.
 
 import { execSync } from "node:child_process";
@@ -60,6 +63,15 @@ function envelope(address: string, id: string, order: string = randomUUID()): st
 /** One `rabbitmqadmin publish` of `body`, as a shell word list for `sh -c`. */
 function publishCmd(address: string, body: string): string {
   return `rabbitmqadmin publish message --exchange ${address} --payload '${body}'`;
+}
+
+/** Rows in the consumer's event log — only `Track` appends there. */
+function trackAppends(pg: string): number {
+  const table = psql(
+    pg,
+    "select quote_ident(table_schema) || '.' || quote_ident(table_name) from information_schema.columns where column_name = 'stream_type' limit 1",
+  );
+  return table === "" ? 0 : Number(psql(pg, `select count(*) from ${table}`));
 }
 
 async function shipments(base: string): Promise<number> {
@@ -119,21 +131,26 @@ export function redeliveryWitness(opts: RedeliveryWitnessOptions): void {
     const container = opts.container();
     if (!container) return; // AMQP override: no container to publish from
     const base = opts.consumer();
+    const pg = opts.postgres();
     const before = await shipments(base);
+    const appendsBefore = trackAppends(pg);
     const body = envelope(opts.address, randomUUID());
     // The same envelope id twice, one after the other: the broker's
     // redelivery of one outbox row.
     for (let i = 0; i < 2; i++) sh(`docker exec ${container} ${publishCmd(opts.address, body)}`);
     await settle(container, base, before + 1);
     expect(await shipments(base)).toBe(before + 1);
+    expect(trackAppends(pg), "event-sourced appends").toBe(appendsBefore + 1);
   }, 90_000);
 
   it("applies an envelope delivered to two replicas at once exactly once", async () => {
     const container = opts.container();
     if (!container) return;
     const base = opts.consumer();
+    const pg = opts.postgres();
     const N = 20;
     const before = await shipments(base);
+    const appendsBefore = trackAppends(pg);
     for (let k = 0; k < N; k++) {
       // Both copies leave one shell together, so the competing replicas
       // receive them back to back and run their handlers concurrently.
@@ -145,6 +162,7 @@ export function redeliveryWitness(opts: RedeliveryWitnessOptions): void {
     }
     await settle(container, base, before + N);
     expect(await shipments(base)).toBe(before + N);
+    expect(trackAppends(pg), "event-sourced appends").toBe(appendsBefore + N);
   }, 120_000);
 
   it("rolls a failed application back with its claim, so the redelivery applies once", async () => {

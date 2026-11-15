@@ -40,14 +40,15 @@ describe("python durable-channel outbox", () => {
     expect(schema).toContain(
       'attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))',
     );
-    // Idempotent-consumer marker on the saga row.
-    expect(schema).toContain("last_event_id: Mapped[str | None] = mapped_column(Text)");
-    // The shared migration also creates the outbox + marker column.
+    // The saga row carries no marker column: the consumer inbox dedupes.
+    expect(schema).not.toContain("last_event_id");
+    // The shared migration creates the outbox and the consumer inbox.
     const migration = [...files.entries()].find(
       ([p, c]) => p.startsWith("api/migrations/") && c.includes("__loom_outbox"),
     );
     expect(migration).toBeDefined();
-    expect(migration![1]).toContain("last_event_id");
+    expect(migration![1]).toContain("__loom_inbox");
+    expect(migration![1]).not.toContain("last_event_id");
   });
 
   it("OutboxDispatcher records durable events; ephemeral fall through in-process", async () => {
@@ -107,11 +108,10 @@ describe("python durable-channel outbox", () => {
   it("saga handlers claim the delivery in the consumer inbox; chained emits clear the relayed id", async () => {
     const files = await build();
     const dispatch = files.get("api/app/dispatch.py")!;
-    // The inbox claim runs in the handler's session before the body; the row
-    // records the last event applied to it.
+    // The inbox claim runs in the handler's session before the body.
     expect(dispatch).toContain("__eid = _current_event_id.get()");
     expect(dispatch).toContain("if __claimed.first() is None:");
-    expect(dispatch).toContain("state.last_event_id = __eid");
+    expect(dispatch).not.toContain("last_event_id");
     // A handler's own emits dispatch with the relayed id cleared.
     expect(dispatch).toContain(
       "async def _dispatch_chained(events: InProcessDispatcher, event: DomainEvent) -> None:",
@@ -119,10 +119,11 @@ describe("python durable-channel outbox", () => {
     expect(dispatch).toContain("await _dispatch_chained(events, ev)");
   });
 
-  it("the lifespan starts + cancels the relay background task", async () => {
+  it("the lifespan starts + cancels the relay and the inbox purge", async () => {
     const files = await build();
     const main = files.get("api/app/main.py")!;
-    expect(main).toContain("from app.dispatch import start_outbox_relay");
+    expect(main).toContain("from app.dispatch import start_inbox_purge, start_outbox_relay");
+    expect(main).toContain("_inbox_purge = start_inbox_purge()");
     expect(main).toContain("_outbox_relay = start_outbox_relay()");
     expect(main).toContain("_outbox_relay.cancel()");
   });

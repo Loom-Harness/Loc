@@ -50,6 +50,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { expectReach } from "../_helpers/census-reach.js";
+import { fenceProblem } from "../_helpers/live-fences.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ROOTS = ["src/generator", "src/platform", "src/system"];
@@ -131,6 +132,7 @@ const LEDGER: Record<string, Record<string, Row>> = {
     "durable-set": { count: 1, waiver: OUTBOX_CAPTURE },
     subscriptions: { count: 1, waiver: PER_CONTEXT_SUBS },
   },
+  "src/generator/python/emit/schema.ts": { "durable-gate": { count: 1, waiver: OUTBOX_CAPTURE } },
   "src/generator/typescript/emit/mikroorm-event-sourced.ts": {
     "durable-gate": { count: 1, waiver: OUTBOX_CAPTURE },
   },
@@ -224,7 +226,8 @@ describe("channel plan census", () => {
           if (w.standing.trim().length < 20) bad.push(`${id}: a standing waiver needs its reason`);
           continue;
         }
-        if (!/^#\d+$/.test(w.blockedBy)) bad.push(`${id}: blockedBy must name an issue`);
+        const fence = fenceProblem(w.blockedBy);
+        if (fence !== "") bad.push(`${id}: ${fence}`);
         const due = /^\d{4}-\d{2}-\d{2}$/.test(w.reviewUntil)
           ? Date.parse(`${w.reviewUntil}T23:59:59Z`)
           : Number.NaN;

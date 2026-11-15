@@ -61,27 +61,26 @@ function file(files: Map<string, string>, suffix: string): string {
 }
 
 describe("elixir idempotent-consumer markers (M-T4.3)", () => {
-  it("maps last_event_id on the saga-state Ecto schema under a durable channel", async () => {
+  it("maps no marker column on the saga-state Ecto schema: the inbox claim dedupes", async () => {
     const files = await build(DURABLE);
-    expect(file(files, "fulfil_state.ex")).toContain("field :last_event_id, :string");
+    expect(file(files, "fulfil_state.ex")).not.toContain("last_event_id");
   });
 
-  it("claims the create starter's delivery in the consumer inbox, then stamps the row", async () => {
+  it("claims the create starter's delivery in the consumer inbox under its own key", async () => {
     const files = await build(DURABLE);
     const start = file(files, "start_order_placed.ex");
     expect(start).toContain("event_id = Process.get(:loom_event_id)");
-    expect(start).toContain('["workflow:Fulfil", to_string(event_id)]).num_rows == 0 do');
-    expect(start).toContain(
-      "Repo.update!(Ecto.Changeset.change(state, %{last_event_id: event_id}))",
-    );
+    expect(start).toContain('/create/Fulfil.OrderPlaced", to_string(event_id)]).num_rows == 0 do');
+    expect(start).not.toContain("last_event_id");
   });
 
-  it("claims the on reactor's delivery in the consumer inbox, then stamps the row", async () => {
+  it("claims the on reactor's delivery in the consumer inbox under its own key", async () => {
     const files = await build(DURABLE);
     const on = file(files, "on_shipment_requested.ex");
     expect(on).toContain("event_id = Process.get(:loom_event_id)");
-    expect(on).toContain("insert into __loom_fold_inbox");
-    expect(on).toContain("Repo.update!(Ecto.Changeset.change(state, %{last_event_id: event_id}))");
+    expect(on).toContain("insert into __loom_inbox");
+    expect(on).toContain('/on/Fulfil.ShipmentRequested", to_string(event_id)]');
+    expect(on).not.toContain("last_event_id");
   });
 
   it("parks the envelope id on the process dictionary in the consumer", async () => {

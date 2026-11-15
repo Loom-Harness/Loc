@@ -115,14 +115,11 @@ function find(files: Map<string, string>, dep: string, suffix: string): string {
 }
 
 describe("java idempotent-consumer markers (M-T4.3)", () => {
-  it("maps last_event_id on the hosted saga-state entity under a durable channel", async () => {
+  it("maps no marker column on the hosted saga-state entity: the inbox claim dedupes", async () => {
     const files = await generateSystemFiles(COLOCATED);
     const state = find(files, "sales_api", "FulfilState.java");
-    expect(state).toContain('@Column(name = "last_event_id")');
-    expect(state).toContain("String lastEventId;");
-    // Record-style accessor (read) + JavaBean setter (write from the dispatcher).
-    expect(state).toContain("public String lastEventId() {");
-    expect(state).toContain("public void setLastEventId(String lastEventId) {");
+    expect(state).toContain("public class FulfilState");
+    expect(state).not.toContain("lastEventId");
   });
 
   it("emits the OutboxDelivery carrier and the dispatcher's inbox claim + stamp", async () => {
@@ -137,9 +134,8 @@ describe("java idempotent-consumer markers (M-T4.3)", () => {
     // Preamble: claim the delivery in the consumer inbox on the method's
     // transaction; a delivery already claimed does nothing.
     expect(dispatcher).toContain("var __eventId = OutboxDelivery.currentEventId();");
-    expect(dispatcher).toContain('"workflow:Fulfil", __eventId) == 0) return;');
-    // The row records the last event applied to it.
-    expect(dispatcher).toContain("if (__eventId != null) state.setLastEventId(__eventId);");
+    expect(dispatcher).toContain('/create/Fulfil.OrderPlaced", __eventId) == 0) return;');
+    expect(dispatcher).not.toContain("setLastEventId");
   });
 
   it("threads the envelope id through the broker consumer around each dispatch", async () => {
@@ -154,7 +150,7 @@ describe("java idempotent-consumer markers (M-T4.3)", () => {
     const files = await generateSystemFiles(FOREIGN);
     // shipApi hosts no durable channel, but it consumes one: a broker
     // redelivers its envelopes exactly as a local relay would.
-    expect(find(files, "ship_api", "FulfilState.java")).toContain("last_event_id");
+    expect(find(files, "ship_api", "FulfilState.java")).not.toContain("last_event_id");
     expect(find(files, "ship_api", "ChannelConsumerService.java")).toContain(
       "OutboxDelivery.setCurrentEventId(envelope.id());",
     );
@@ -199,10 +195,12 @@ system Acme {
   resource adminState { for: AdminFeed, kind: state, use: pg }
   deployable d { platform: java contexts: [Catalog, AdminFeed] dataSources: [catalogState, adminState] port: 3000 }
 }`);
-    expect(find(files, "d", "FeedState.java")).toContain("last_event_id");
+    expect(find(files, "d", "FeedState.java")).not.toContain("last_event_id");
     expect(find(files, "d", "AdminFeedDispatcher.java")).toContain(
       "OutboxDelivery.currentEventId()",
     );
-    expect(find(files, "d", "AdminFeedDispatcher.java")).toContain("setLastEventId");
+    expect(find(files, "d", "AdminFeedDispatcher.java")).toContain(
+      '"AdminFeed/create/Feed.Logged", __eventId) == 0) return;',
+    );
   });
 });

@@ -118,7 +118,7 @@ describe("node: a consumer of a foreign durable channel dedupes its folds", () =
   // needs the broker between two booted services (#5613).
   it("claims the fold inbox and boots the inbox purge", async () => {
     const out = await files("channels-broker-projection", "node");
-    expect(file(out, "ship_api/http/projections.ts")).toContain("__loom_fold_inbox");
+    expect(file(out, "ship_api/http/projections.ts")).toContain("__loom_inbox");
     expect(file(out, "ship_api/boot.ts")).toContain("startInboxPurge(db)");
   });
 });

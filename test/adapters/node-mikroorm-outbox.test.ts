@@ -77,21 +77,19 @@ describe("MikroORM transactional outbox", () => {
     expect(entities).toMatch(/export const entities = \[[^\]]*LoomOutboxRowSchema[^\]]*\];/);
   });
 
-  it("gives the saga Row the idempotent-consumer marker column", async () => {
-    // Without `lastEventId` the reactor preamble's redelivery no-op has no
-    // column to read and the emitted handler would not type-check.
+  it("maps the consumer inbox and claims in a transaction; the saga Row carries no marker", async () => {
+    // MikroORM owns its schema through `schema.update()`, so the inbox table
+    // must be an entity; the saga row holds only the declared state.
     const entities = (await emit(sys("mikroorm"))).get("api/db/entities.ts")!;
     expect(entities).toContain("export class OrderFulfillmentRow {");
-    expect(entities).toContain('lastEventId: { type: "string", nullable: true },');
-    // …and a freshly allocated instance spells the null out, since the mikro
-    // state type is the Row CLASS (a required, if nullable, property).
+    expect(entities).toContain("__loom_inbox");
+    expect(entities).not.toContain("lastEventId");
     const wf = (await emit(sys("mikroorm"))).get("api/http/workflows.ts")!;
     expect(wf).toContain(
-      "const state = (await loadOrderFulfillment(db, __key)) ?? { orderId: __key, attempts: 0, lastEventId: null };",
+      "const state = (await loadOrderFulfillment(db, __key)) ?? { orderId: __key, attempts: 0 };",
     );
-    // The inbox claim dedupes; the row only records the last event applied.
     expect(wf).toContain("await db.transactional(async (__tx) => {");
-    expect(wf).toContain("if (__eventId !== undefined) state.lastEventId = __eventId;");
+    expect(wf).not.toContain("lastEventId");
   });
 
   it("captures durable events on the EntityManager, not drizzle", async () => {
