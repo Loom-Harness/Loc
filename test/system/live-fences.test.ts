@@ -10,7 +10,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { fenceProblem, LIVE_FENCES } from "../_helpers/live-fences.js";
+import { fenceFileProblem, fenceProblem, LIVE_FENCES } from "../_helpers/live-fences.js";
 
 /** Every file that may cite a fence: the gap register and the test/system
  *  censuses that defer on one. */
@@ -18,18 +18,32 @@ function readerText(): string {
   const sys = readdirSync("test/system")
     .filter((f) => f.endsWith(".ts") && f !== "live-fences.test.ts")
     .map((f) => readFileSync(join("test/system", f), "utf8"));
-  return [readFileSync("src/diagnostics/unsupported-register.ts", "utf8"), ...sys].join("\n");
+  return [
+    readFileSync("src/diagnostics/unsupported-register.ts", "utf8"),
+    readFileSync("test/support/fakes/coverage.ts", "utf8"),
+    readFileSync("test/behavioral/registers.mjs", "utf8"),
+    ...sys,
+  ].join("\n");
 }
 
 describe("live-fence register", () => {
   it("every fence is cited by a register row or a census waiver", () => {
     const text = readerText();
     const unused = Object.keys(LIVE_FENCES).filter((ref) => !text.includes(`"${ref}"`));
-    expect(unused, "fences nothing cites — delete the row").toEqual([]);
+    expect(unused, "fences nothing cites — delete the file").toEqual([]);
+  });
+
+  it("refuses a misnamed or multi-line fence file", () => {
+    expect(fenceFileProblem("5994.txt", "Shared ledgers\n")).toBe("");
+    expect(fenceFileProblem("5994.md", "Shared ledgers\n")).toMatch(
+      /is named <issue or PR number>\.txt/,
+    );
+    expect(fenceFileProblem("5994.txt", "Shared\nledgers\n")).toMatch(/title on one line/);
+    expect(fenceFileProblem("5994.txt", "")).toMatch(/title on one line/);
   });
 
   it("refuses a reference that is not registered, and a malformed one", () => {
-    expect(fenceProblem("#1")).toMatch(/not in LIVE_FENCES/);
+    expect(fenceProblem("#1")).toMatch(/is not a live fence/);
     expect(fenceProblem("M-T1.2")).toMatch(/not an issue or PR reference/);
     const [first] = Object.keys(LIVE_FENCES);
     expect(fenceProblem(first)).toBe("");
