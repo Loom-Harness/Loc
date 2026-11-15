@@ -210,16 +210,22 @@ export function renderPyByIdCacheModule(
           "",
         ]
       : []),
-    `def principal_scope(user: ${C.User}) -> dict[str, object]:`,
-    '    """The whole principal: its declared claims and the per-request operating-org',
-    '    slots, which are class attributes and so not part of `asdict`."""',
-    "    return {",
-    `        **${C.asdict}(user),`,
-    '        "operating_org": getattr(user, "operating_org", ""),',
-    '        "operating_ancestors": getattr(user, "operating_ancestors", ()),',
-    "    }",
-    "",
-    "",
+    // Only a read keyed on the whole principal calls it, and only a deployable
+    // with auth has `app.auth.user` to import.
+    ...(reads.some((r) => r.scope.some((i) => i.kind === "principal"))
+      ? [
+          `def principal_scope(user: ${C.User}) -> dict[str, object]:`,
+          '    """The whole principal: its declared claims and the per-request operating-org',
+          '    slots, which are class attributes and so not part of `asdict`."""',
+          "    return {",
+          `        **${C.asdict}(user),`,
+          '        "operating_org": getattr(user, "operating_org", ""),',
+          '        "operating_ancestors": getattr(user, "operating_ancestors", ()),',
+          "    }",
+          "",
+          "",
+        ]
+      : []),
     "def fingerprint(*inputs: object) -> str:",
     '    """The caller scope: the JSON array of the principal inputs the read depends on."""',
     `    return ${C.json}.dumps(list(inputs), separators=(",", ":"), default=str, sort_keys=True)`,

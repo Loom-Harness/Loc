@@ -451,8 +451,12 @@ stale:
   more than one deployable.  Each process keeps its own map; use a `redis`
   storage instead.
 
-An `inMemory` store is per process, so a deployable that lists one must run
-as a single instance: the Helm chart's `replicas` value stays at 1 for it.
+An `inMemory` store is per process, so a deployable that lists one runs as a
+single instance.  The Helm chart refuses to render it with `replicas` above 1.
+The raw `k8s/` manifests pin `replicas: 1`, and the dev compose runs one
+container per service; scaling either by hand (editing the manifest,
+`docker compose up --scale`) is outside what the generator can check, so
+keeping one instance there is the operator's job.
 
 The node read, for `Item with tenantOwned` and a `cost` masked unless
 `currentUser.role == "manager"`:
