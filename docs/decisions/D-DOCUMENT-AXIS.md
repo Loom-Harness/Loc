@@ -20,7 +20,8 @@ rehydration (gated behind the appliers feature). See
 
 **Problem.** Loom models internal hierarchies but the
 relational-vs-document storage choice is implicit and unselectable
-(value objects → inline JSONB; entity parts → child tables); there is
+(entity parts → child tables; the relational shape's value-object
+layout is [D-ONE-SCHEMA](D-ONE-SCHEMA.md)); there is
 no open-shape JSON field; and a document/event-store backend (Marten)
 has nowhere to attach. The shipped `persistenceStrategy:` clause also
 conflates the event-sourcing *body contract* with *persistence* and

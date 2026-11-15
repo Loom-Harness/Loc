@@ -15,7 +15,7 @@ const SOURCE = `
   system Shop {
     subdomain Sales {
       context Catalog {
-        aggregate Product {
+        aggregate Product with crudish {
           sku: string
           name: string
           quantity: int
@@ -124,7 +124,7 @@ const OP_SOURCE = `
   system Shop {
     subdomain Sales {
       context Catalog {
-        aggregate Product {
+        aggregate Product with crudish {
           name: string
           quantity: int
           operation restock(amount: int) {
@@ -187,7 +187,7 @@ const LEN_ONLY_SOURCE = `
   system Shop {
     subdomain Sales {
       context Catalog {
-        aggregate Product {
+        aggregate Product with crudish {
           sku: string
           invariant sku.length <= 8
         }

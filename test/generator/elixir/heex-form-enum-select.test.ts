@@ -29,7 +29,7 @@ function phoenixSystemWithEnum(enumBody: string, fieldType = "OrderStatus"): str
     subdomain M {
       context C {
         enum OrderStatus ${enumBody}
-        aggregate Order {
+        aggregate Order with crudish {
           status: ${fieldType}
           notes: string
           derived display: string = notes

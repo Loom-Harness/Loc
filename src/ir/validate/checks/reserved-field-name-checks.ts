@@ -10,34 +10,10 @@
 //     pydantic silently does not treat a dunder annotation as a field at all,
 //     so `body.__meta__` is an AttributeError at request time.  A rename would
 //     move the wire key on those backends alone, so refuse it up front.
-//
-//   - `loom.elixir-part-timestamp-field` (elixir only).  A RELATIONAL entity
-//     part's Ecto schema carries the bundled `timestamps()` macro (its child
-//     table is created with them), so a declared part field whose column is
-//     `inserted_at` / `updated_at` — `updatedAt` included — defines the field
-//     twice and the generated project fails `mix compile`.  On an aggregate
-//     ROOT the emitter instead drops `timestamps()` and lets the declared field own the column
-//     (`ownsEctoTimestampColumn`, `vanilla/schema-emit.ts`); the part path
-//     cannot do that cleanly, because the shared relational-containment helper
-//     (`__put_assoc_parts`) strips `:inserted_at`/`:updated_at` off every part
-//     before `put_assoc` — a declared column of that name would silently lose
-//     its value on every containment write.  Scoped to contexts a
-//     `platform: elixir` deployable hosts; node / python / java / dotnet have
-//     no implicit timestamp columns and are untouched.  A part's `createdAt`
-//     (column `created_at`) is not this shape: it is an ordinary declared
-//     column on every part schema.
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { snake } from "../../../util/naming.js";
-import { platformHasBackendScope } from "../../../util/target-capabilities.js";
-import type {
-  BoundedContextIR,
-  EnrichedAggregateIR,
-  FieldIR,
-  SystemIR,
-} from "../../types/loom-ir.js";
-import { effectiveSavingShape, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
+import type { BoundedContextIR, FieldIR, SystemIR } from "../../types/loom-ir.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 const DUNDER = /^__\w+__$/;
@@ -57,12 +33,6 @@ function fieldHolders(ctx: BoundedContextIR): [string, string, FieldIR[]][] {
 }
 
 export function validateReservedFieldNames(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  const timestampPartContexts = new Set<string>();
-  for (const dep of sys.deployables) {
-    if (platformHasBackendScope(dep.platform, "fields:part-implicit-timestamps")) {
-      for (const c of dep.contextNames) timestampPartContexts.add(c);
-    }
-  }
   for (const m of sys.subdomains) {
     for (const ctx of m.contexts) {
       // One diagnostic per (record, field): an event is also reachable as a
@@ -97,32 +67,6 @@ export function validateReservedFieldNames(sys: SystemIR, diags: LoomDiagnostic[
             source: `${sys.name}/${ctx.name}/${owner}`,
             code: "loom.dunder-field-name",
           });
-        }
-      }
-      if (!timestampPartContexts.has(ctx.name)) continue;
-      for (const a of ctx.aggregates) {
-        // Only a RELATIONAL owner gives its parts table-backed schemas with
-        // `timestamps()`; an embedded / document owner folds them into an
-        // `embedded_schema` with no timestamp fields.
-        const enriched = a as EnrichedAggregateIR;
-        const shape = effectiveSavingShape(enriched, resolveDataSourceConfig(enriched, ctx, sys));
-        if (shape !== "relational") continue;
-        for (const p of a.parts) {
-          for (const f of p.fields) {
-            const column = snake(f.name);
-            if (column !== "inserted_at" && column !== "updated_at") continue;
-            diags.push({
-              severity: "error",
-              message: diagMessage("loom.elixir-part-timestamp-field", {
-                owner: `${a.name}.${p.name}`,
-                name: f.name,
-                column,
-                ctxName: ctx.name,
-              }),
-              source: `${sys.name}/${ctx.name}/${a.name}.${p.name}`,
-              code: "loom.elixir-part-timestamp-field",
-            });
-          }
         }
       }
     }

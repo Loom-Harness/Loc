@@ -14,7 +14,7 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 const MODEL = `
       context Cat {
         valueobject Line { sku: string  qty: int }
-        aggregate Order { name: string  lines: Line[] }
+        aggregate Order with crudish { name: string  lines: Line[] }
         repository Orders for Order { }
         workflow Fulfil { create(n: string) { let o = Order.create(name: n, lines: []) } }
       }`;

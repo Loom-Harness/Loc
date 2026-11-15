@@ -993,6 +993,17 @@ system S {
   deployable one { platform: dotnet, contexts: [A], dataSources: [aState], port: 3000 }
   deployable two { platform: dotnet { persistence: dapper }, contexts: [A], dataSources: [aState], port: 3001 }
 }`,
+  "loom.ecto-shared-database": `
+system S {
+  subdomain D { context A {
+    valueobject Money { amount: decimal  currency: string }
+    aggregate Keep with crudish { name: string  price: Money }
+  } }
+  storage primary { type: postgres }
+  resource aState { for: A, kind: state, use: primary }
+  deployable one { platform: node, contexts: [A], dataSources: [aState], port: 3000 }
+  deployable two { platform: elixir, contexts: [A], dataSources: [aState], port: 3001 }
+}`,
   "loom.mikroorm-shared-database": `
 system S {
   subdomain D { context A { aggregate Keep with crudish { name: string } } }
@@ -2486,23 +2497,6 @@ system P {
   // Universal: a dunder field (Ecto's `__meta__`), on any backend.
   "loom.dunder-field-name": repoOnly(`    aggregate Thing with crudish { __meta__: string }
     repository Things for Thing`),
-  // Needs an ELIXIR deployable and a RELATIONAL part (the default shape): the
-  // part schema's bundled `timestamps()` already defines `inserted_at`.
-  "loom.elixir-part-timestamp-field": `
-system P {
-  subdomain D { context Orders {
-    aggregate Order with crudish {
-      note: string
-      contains lines: Line[]
-      entity Line { sku: string  inserted_at: string }
-    }
-    repository Orders for Order
-  } }
-  api A from D
-  storage pg { type: postgres }
-  resource st { for: Orders, kind: state, use: pg }
-  deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
-}`,
   // A document-shaped aggregate on an ELIXIR deployable whose stamp value calls
   // the aggregate's own function: the document write seam has no record to
   // evaluate it against.
@@ -3313,6 +3307,26 @@ system S {
     framework: react
     api C: Api
     page A(id: Note id) { route: "/a/:id"  body: Stack { DestroyForm { of: Note } } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  // `CreateForm { of: … }` over an aggregate that serves no create: `Note`
+  // declares no `create` and is not `with crudish`, so no target emits the
+  // create route, hook or context function the form would call.
+  "loom.create-form-no-create": `
+system S {
+  subdomain Sub { context C {
+    aggregate Note { text: string }
+    repository Notes for Note
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page A { route: "/a"  body: Stack { CreateForm { of: Note } } }
   }
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }

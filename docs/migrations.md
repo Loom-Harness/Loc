@@ -1231,6 +1231,15 @@ adapters do not, and each is refused on a database it shares:
 - **`loom.dapper-shared-database`** — Dapper projects the chain onto its own column
   layout (a value object folds into one jsonb column); Dapper beside Dapper is
   sound, Dapper beside any other adapter is not.
+- **`loom.ecto-shared-database`** — the Ecto migrations create every shared table
+  column for column (no ORM timestamps, the `(parent_fk, ordinal)` value-collection
+  key, the shared index names) except a value object, which Ecto stores as one
+  `:map` column; so an elixir deployable is refused beside another adapter when a
+  context on the database stores a value object in a column.
+
+The rule is [D-ONE-SCHEMA](decisions/D-ONE-SCHEMA.md): every deployable on a
+database maps the one schema the chain derives, whichever backend created it.  A
+database an older generator migrated is not converted: regenerate it.
 
 `migrationsOwner` ([`enrichments.ts`](../src/ir/enrich/enrichments.ts),
 `assignMigrationsOwner`) is the per-module owning deployable: the first `needsDb`
@@ -1451,8 +1460,8 @@ CREATE INDEX order_items_product_id_idx ON order_items (product_id);
 
 A VO *array* (`charges: Money[]`) produces an id-less child table
 (`<parent>_<field>`) of flattened VO columns keyed by `(parent_fk, ordinal)`.
-Phoenix creates the same child table plus a synthetic `id` uuid primary key (the
-Ecto `has_many` row identity `cast_assoc` needs) and no timestamps — the same
+Phoenix creates the same child table, keyed the same way (its Ecto child schema
+declares the composite primary key, so `cast_assoc` matches rows by it) — the same
 table whether it arrives in the initial generation or in a later delta. Dapper
 has no child table: the list is one `jsonb` column on the parent.
 

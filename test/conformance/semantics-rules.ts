@@ -147,7 +147,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
   },
   {
     id: "RS-7",
-    title: "Value-object subfields survive a jsonb round-trip",
+    title: "Value-object subfields survive a storage round-trip",
     trigger:
       "valueobject Money { amount, currency } as an aggregate field on a jsonb-storing backend",
     observable:

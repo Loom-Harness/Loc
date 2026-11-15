@@ -28,7 +28,7 @@ async function vueFiles(src: string): Promise<Map<string, string>> {
 const sys = (pageBody: string, design = "") => `
   system S {
     subdomain M { context C {
-      aggregate Order { name: string }
+      aggregate Order with crudish { name: string }
       repository Orders for Order { }
       workflow placeOrder {
         create(customerName: string, quantity: int) {
