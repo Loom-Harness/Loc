@@ -10,7 +10,6 @@ import type {
   EnrichedAggregateIR,
   EnumIR,
   ExprIR,
-  FieldIR,
   OperationIR,
   TestIR,
   TestStmtIR,
