@@ -35,7 +35,13 @@ for a value object on a saga-state or projection row (as one `:map` column).
 An ORM whose schema type cannot span several columns maps a value object as its
 leaf columns plus an in-memory value composed from them: Ecto declares the leaf
 fields and a virtual value-object field, and the generated `<App>.Repo.Records`
-composes it on every read and decomposes it on every write.
+composes it on every read and decomposes it on every write.  `<App>.Repo` stays
+the plain Ecto repo; the seam is a module of its own, so nothing about the repo
+behaves differently from what a Phoenix developer expects.  Hand-written Elixir
+beside the generated code (an `extern` body, an ejected file) reads and writes
+an aggregate through `<App>.Repo.Records` for the same reason the emitters do:
+a raw `Repo.all` returns the struct with its value objects unset, and a raw
+`Repo.insert` of a changed value object writes none of its columns.
 
 **Mechanism.**
 
