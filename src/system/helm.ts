@@ -1,3 +1,4 @@
+import { cacheStoragesOf } from "../ir/plan/cache.js";
 import type { SystemIR } from "../ir/types/loom-ir.js";
 import { API_BASE_PATH } from "../util/api-base.js";
 import { emissionSink } from "../util/emission-sink.js";
@@ -153,9 +154,19 @@ function renderValues(_sys: SystemIR, workloads: WorkloadModel[], brokers: Broke
   return lines.join("\n") + "\n";
 }
 
-function renderDeploymentTemplate(w: WorkloadModel): string {
+/** `inMemoryCache` is the `inMemory` cache resource the deployable lists, if
+ *  any: its map lives in one process, so the chart refuses to render more than
+ *  one replica of it (a write in one pod would evict nothing in another). */
+function renderDeploymentTemplate(w: WorkloadModel, inMemoryCache?: string): string {
   const v = `.Values.${w.valuesKey}`;
   const lines: string[] = [];
+  if (inMemoryCache) {
+    lines.push(`{{- if gt (int ${v}.replicas) 1 }}`);
+    lines.push(
+      `{{- fail ${JSON.stringify(`${w.deployableName} lists the inMemory cache resource ${inMemoryCache}, which lives in one process: run one replica, or bind the cache to a redis storage`)} }}`,
+    );
+    lines.push("{{- end }}");
+  }
   lines.push("apiVersion: apps/v1");
   lines.push("kind: Deployment");
   lines.push("metadata:");
@@ -497,7 +508,14 @@ export function renderHelmChart(sys: SystemIR): Map<string, string> {
   out.set("helm/values.yaml", renderValues(sys, workloads, brokers));
   out.set("helm/templates/_helpers.tpl", renderHelpers(sys));
   for (const w of workloads) {
-    out.set(`helm/templates/${w.name}-deployment.yaml`, gated(w, renderDeploymentTemplate(w)));
+    const deployable = sys.deployables.find((d) => d.name === w.deployableName);
+    const inMemoryCache = deployable
+      ? cacheStoragesOf(sys, deployable).find((c) => c.storageType === "inMemory")?.resource
+      : undefined;
+    out.set(
+      `helm/templates/${w.name}-deployment.yaml`,
+      gated(w, renderDeploymentTemplate(w, inMemoryCache)),
+    );
     out.set(`helm/templates/${w.name}-service.yaml`, gated(w, renderServiceTemplate(w)));
     if (w.configEnv.length > 0) {
       out.set(`helm/templates/${w.name}-config.yaml`, gated(w, renderConfigMapTemplate(w)));

@@ -8,8 +8,10 @@
 //
 //   - one store per cache storage — a named Redix connection (the
 //     `<RESOURCE>_URL` connection, valkey in the dev compose) for a `redis`
-//     storage, a named ETS table with expiry owned by a small GenServer for
-//     `inMemory`;
+//     storage, a named ETS table with expiry, bounded by the plan's entry
+//     limit and owned by a small GenServer, for `inMemory`;
+//   - the entry as the plan's `CACHE_ENTRY` envelope, so another backend on
+//     the same redis reads it; an unreadable entry is a miss;
 //   - `<App>.ByIdCache`, the store-agnostic read / write / evict, and one
 //     `<App>.ByIdCache.<Aggregate>` module per cached aggregate carrying its
 //     plan facts;
@@ -23,15 +25,18 @@
 //
 // A store that refuses a call never fails the request: a read falls back to the
 // database, a failed write or eviction is logged and the entry expires at its
-// ttl.  Cachex is not used: an ETS table with an expiry sweep is the whole
+// ttl.  Cachex is not used: a bounded ETS table with expiry is the whole
 // in-process store, and keeps the dependency set to what the wired storages
 // need (Redix, which the redis channel transport already pins).
 
 import {
+  CACHE_ENTRY,
+  CACHE_ETAG_HEADER,
   CACHE_STATUS_HEADER,
   type CachedByIdRead,
   type CacheScopeInput,
   cacheStoragesOf,
+  IN_MEMORY_CACHE_MAX_ENTRIES,
 } from "../../../ir/plan/cache.js";
 import type { DeployableIR, SystemIR } from "../../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../../util/naming.js";
@@ -98,14 +103,14 @@ export function renderCachedShowBody(
   return `    scope = ${byIdCacheModule(appModule)}.fingerprint([${inputs}])
 
     case ${cache}.read(id, scope) do
-      {:hit, answer} ->
-        ${responder}(conn, answer["body"], answer["etag"], "hit")
+      {:hit, body, etag} ->
+        ${responder}(conn, body, etag, "hit")
 
       :miss ->
         case ${ctxModule}.get_${aggSnake}(${loadArgs}) do
           {:ok, record} ->
             body = Jason.encode!(serialize(record))
-            ${cache}.write(id, scope, %{"body" => body, "etag" => nil})
+            ${cache}.write(id, scope, body, nil)
             ${responder}(conn, body, nil, "miss")
 
           {:error, :not_found} ->
@@ -187,8 +192,20 @@ export function renderByIdCache(
     ...(usesMemory
       ? [
           `  defp store_set({:memory, table}, key, value, ttl_seconds) do
-    :ets.insert(table, {key, value, System.monotonic_time(:millisecond) + ttl_seconds * 1000})
+    now = System.monotonic_time(:millisecond)
+
+    if :ets.member(table, key) or :ets.info(table, :size) < @memory_max_entries or
+         sweep(table, now) < @memory_max_entries do
+      :ets.insert(table, {key, value, now + ttl_seconds * 1000})
+    end
+
     {:ok, :ok}
+  end
+
+  # Drops every expired row; the rows left.
+  defp sweep(table, now) do
+    :ets.select_delete(table, [{{:_, :_, :"$1"}, [{:"=<", :"$1", now}], [true]}])
+    :ets.info(table, :size)
   end`,
         ]
       : []),
@@ -218,27 +235,16 @@ export function renderByIdCache(
 defmodule ${cacheMod}.Memory do
   @moduledoc false
   # The in-process store: a named public ETS table of \`{key, value, expires_at}\`
-  # rows, owned by this process.  A row is dropped when a read finds it expired,
-  # and the sweep drops the ones nobody reads again.
+  # rows, owned by this process.  \`${cacheMod}\` bounds it: a write that finds
+  # it full drops the expired rows, and is skipped when it is still full.
   use GenServer
-
-  @sweep_ms 60_000
 
   def start_link(table), do: GenServer.start_link(__MODULE__, table)
 
   @impl true
   def init(table) do
     :ets.new(table, [:named_table, :public, :set, read_concurrency: true])
-    Process.send_after(self(), :sweep, @sweep_ms)
     {:ok, table}
-  end
-
-  @impl true
-  def handle_info(:sweep, table) do
-    now = System.monotonic_time(:millisecond)
-    :ets.select_delete(table, [{{:_, :_, :"$1"}, [{:<, :"$1", now}], [true]}])
-    Process.send_after(self(), :sweep, @sweep_ms)
-    {:noreply, table}
   end
 end
 `
@@ -258,7 +264,7 @@ defmodule ${byIdCacheAggregateModule(appModule, r)} do
   }
 
   def read(id, scope), do: ${cacheMod}.read(@cache, id, scope)
-  def write(id, scope, answer), do: ${cacheMod}.write(@cache, id, scope, answer)
+  def write(id, scope, body, etag), do: ${cacheMod}.write(@cache, id, scope, body, etag)
   def evict(id), do: ${cacheMod}.evict(@cache, id)
 
   @doc "Pipe stage of a repository write (${r.evictOn.join(", ")}): evicts the written id's entry once the write commits."
@@ -287,23 +293,28 @@ defmodule ${cacheMod} do
   @doc "The caller's scope fingerprint: the JSON array of the plan's inputs."
   def fingerprint(inputs) when is_list(inputs), do: Jason.encode!(inputs)
 
-  @doc "The answer cached for \`id\` under \`scope\`: \`{:hit, answer}\` or \`:miss\`."
+${usesMemory ? `  @memory_max_entries ${IN_MEMORY_CACHE_MAX_ENTRIES}\n\n` : ""}  @doc "The answer cached for \`id\` under \`scope\`: \`{:hit, body, etag}\` or \`:miss\`; an unreadable answer is a miss."
   def read(cache, id, scope) do
     with {:ok, raw} when is_binary(raw) <-
            guarded(cache, "read", fn -> store_get(cache.store, cache.prefix <> id) end),
-         {:ok, %{^scope => answer}} <- Jason.decode(raw) do
-      {:hit, answer}
+         %{"${CACHE_ENTRY.body}" => body} = answer when is_binary(body) <-
+           Map.get(decode_entry(raw), scope),
+         etag = Map.get(answer, "${CACHE_ENTRY.etag}"),
+         true <- is_nil(etag) or is_binary(etag),
+         {:ok, _} <- Jason.decode(body) do
+      {:hit, body, etag}
     else
       _ -> :miss
     end
   end
 
-  @doc "Store \`answer\` under \`scope\` in the id's entry, keeping the other scopes' answers."
-  def write(cache, id, scope, answer) do
+  @doc "Store \`body\` (the wire answer's JSON text) under \`scope\` in the id's entry, keeping the other scopes' answers; an entry that does not parse is replaced."
+  def write(cache, id, scope, body, etag) do
     key = cache.prefix <> id
 
     guarded(cache, "write", fn ->
       with {:ok, raw} <- store_get(cache.store, key) do
+        answer = %{"${CACHE_ENTRY.body}" => body, "${CACHE_ENTRY.etag}" => etag}
         entry = Map.put(decode_entry(raw), scope, answer)
         store_set(cache.store, key, Jason.encode!(entry), cache.ttl_seconds)
       end
@@ -320,7 +331,7 @@ defmodule ${cacheMod} do
 
   @doc "Send one by-id answer, marked \`hit\` or \`miss\`."
   def respond(conn, body, etag, status) do
-    conn = if etag, do: put_resp_header(conn, "etag", etag), else: conn
+    conn = if etag, do: put_resp_header(conn, ${JSON.stringify(CACHE_ETAG_HEADER)}, etag), else: conn
 
     conn
     |> put_resp_header(${JSON.stringify(CACHE_STATUS_HEADER)}, status)
