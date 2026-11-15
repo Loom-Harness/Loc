@@ -120,17 +120,12 @@ in the effect's transaction, is the one claim that holds under concurrency
 and across a crash.  One table and one key format mean one mechanism to
 reason about, migrate and purge.
 
-**Enforced by:**
-- `test/e2e/support/redelivery-witness.ts`, run by every
-  `channels-e2e-rabbit*` leg on all five backends.  An envelope id is
-  redelivered in sequence, twenty ids are each delivered to two replicas at
-  once, and an application fails once inside its transaction and is
-  redelivered.  Each case changes the state-based saga's Shipments and the
-  event-sourced workflow's stream once per id.  A purge case shows the boot
-  purge deleting an expired claim and keeping a live one.
-- `test/e2e/saga-redelivery-e2e.test.ts`, which forces a local-relay
-  redelivery on every backend and persistence adapter.
-- `test/ir/plan/consumer-inbox.test.ts`, which asserts the key format and that
-  no two handlers of one event in the corpus share a key.
-- `test/system/projection-fold-census.test.ts`, which refuses a hand-written
-  inbox statement outside `src/ir/plan/`.
+The redelivery witness runs on every `channels-e2e-rabbit*` leg: node, mikroorm, dotnet (EF, and Dapper with `LOOM_CHANNELS_PERSISTENCE=dapper`), python, java and elixir.  Its cases:
+- one envelope id redelivered in sequence;
+- twenty ids, each delivered to two replicas at once;
+- an application that fails once inside its transaction beside a sibling handler that succeeds;
+- the boot purge deleting an expired claim and keeping a live one.
+
+Each case changes the state-based saga and the event-sourced stream exactly once per id.  The saga-redelivery leg forces a local-relay redelivery on every backend and persistence adapter.  The plan test pins the key format and its stability, checks that no corpus handler shares a key, and checks that the migrations create the inbox wherever a consumer claims.  The censuses refuse a hand-written inbox statement and a re-derived dedupe decision.
+
+**Enforced by:** `test/e2e/support/redelivery-witness.ts`, `test/e2e/saga-redelivery-e2e.test.ts`, `test/ir/plan/consumer-inbox.test.ts`, `test/system/projection-fold-census.test.ts`, `test/system/channel-plan-census.test.ts`

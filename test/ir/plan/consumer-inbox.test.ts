@@ -1,3 +1,4 @@
+// Enforces D-CONSUMER-INBOX: the key and the inbox fact.
 // The consumer inbox's key (`src/ir/plan/consumer-inbox.ts`): one key per
 // handler that can receive an event, the same on every deployable that hosts
 // it, and never shared by two handlers of the same event.
