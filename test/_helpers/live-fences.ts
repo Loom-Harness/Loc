@@ -43,6 +43,8 @@ export const LIVE_FENCES: Readonly<Record<string, string>> = {
   "#5163": "`exists` positions still refused",
   "#5179": "Assigning a member of a let-bound entity part",
   "#5321": "OpenAPI .NET: one shared wire record per value object",
+  "#5900": "P2 redelivery dedupe: holds src/generator/elixir/dispatch-emit.ts",
+  "#5933": "Re-own unsupported-register gaps whose owning issue closed",
 };
 
 /** `""` when `ref` is a live fence, else the reason it is not. */
