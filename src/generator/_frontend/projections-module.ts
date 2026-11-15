@@ -52,27 +52,10 @@
 // extraction itself only happened after a real second target existed.
 // ---------------------------------------------------------------------------
 
-import type { BoundedContextIR, ProjectionIR } from "../../ir/types/loom-ir.js";
-import { contextUsesMoney } from "../../ir/types/loom-ir.js";
-import {
-  isFrontendReadableProjection,
-  projectionReadShape,
-} from "../../ir/util/projection-read.js";
+import type { ContractProjection, FrontendContract } from "../../ir/contract/frontend-contract.js";
+import type { TypeIR } from "../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { zodForResponse } from "./api-module.js";
-
-/** Every readable projection across the served contexts, in declaration order. */
-export function readableProjections(
-  contexts: readonly BoundedContextIR[],
-): Array<{ proj: ProjectionIR; ctx: BoundedContextIR }> {
-  const out: Array<{ proj: ProjectionIR; ctx: BoundedContextIR }> = [];
-  for (const ctx of contexts) {
-    for (const proj of ctx.projections ?? []) {
-      if (isFrontendReadableProjection(proj)) out.push({ proj, ctx });
-    }
-  }
-  return out;
-}
 
 /** Per-framework emission leaves.
  *
@@ -96,8 +79,16 @@ export interface ProjectionsModuleOptions {
   schemasImport?: string;
 }
 
+/** What a projections API module reads beside the projections themselves:
+ *  the enums their rows name, and whether the served contexts use money. */
+export interface ProjectionsModuleScope {
+  enums: FrontendContract["wire"]["enums"];
+  usesMoney: boolean;
+}
+
 export function buildProjectionsApiModule(
-  contexts: BoundedContextIR[],
+  projections: readonly ContractProjection[],
+  scope: ProjectionsModuleScope,
   options: ProjectionsModuleOptions = {},
 ): string {
   const queryPackage = options.queryPackage ?? "@tanstack/react-query";
@@ -108,14 +99,13 @@ export function buildProjectionsApiModule(
   // supplies, so it stays a boolean instead of a renderer seam.
   const openOptions = options.thunkOptions ? "() => ({" : "{";
   const closeOptions = options.thunkOptions ? "}));" : "});";
-  const projections = readableProjections(contexts);
 
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import { z } from "zod";`);
   lines.push(`import { ${queryFactory} } from "${queryPackage}";`);
   lines.push(`import { api } from "./client";`);
-  if (contexts.some(contextUsesMoney)) {
+  if (scope.usesMoney) {
     lines.push(`import { moneySchema } from "${schemasImport}";`);
   }
   lines.push("");
@@ -125,12 +115,8 @@ export function buildProjectionsApiModule(
   // backend's `zodForRow` makes — because the `<Enum>Schema` consts live in the
   // per-AGGREGATE api modules and this module has no ownership rule to import
   // them by (an enum may back several aggregates' modules, or none).
-  const enumValues = new Map<string, string[]>();
-  for (const ctx of contexts) for (const e of ctx.enums ?? []) enumValues.set(e.name, e.values);
-  const zodForProjField = (
-    t: import("../../ir/types/loom-ir.js").TypeIR,
-    optional: boolean,
-  ): string => {
+  const enumValues = new Map(scope.enums.map((e) => [e.name, e.values]));
+  const zodForProjField = (t: TypeIR, optional: boolean): string => {
     const inner = t.kind === "optional" ? t.inner : t;
     if (inner.kind === "enum") {
       const values = enumValues.get(inner.name) ?? [];
@@ -140,7 +126,7 @@ export function buildProjectionsApiModule(
     return zodForResponse(t, optional);
   };
 
-  for (const { proj } of projections) {
+  for (const proj of projections) {
     const T = upperFirst(proj.name);
     const slug = snake(proj.name);
     // A LIST-shaped projection (one row per `group by` group, or a shorthand
@@ -148,12 +134,12 @@ export function buildProjectionsApiModule(
     // whole-table aggregation stays the bare object.  Asked through
     // `projectionReadShape` so the client, the walker's binding and the
     // validator can't answer it three different ways.
-    const grouped = projectionReadShape(proj) === "many";
+    const grouped = proj.many === true;
     // The row schema mirrors the backend's `<Proj>Row` field-for-field — same
     // `wireShape`, so the two can't drift.
     lines.push(`export const ${T}${grouped ? "Row" : "Response"} = z.object({`);
-    for (const f of proj.wireShape ?? []) {
-      lines.push(`  ${f.name}: ${zodForProjField(f.type, !!f.optional)},`);
+    for (const f of proj.fields) {
+      lines.push(`  ${f.name}: ${zodForProjField(f.type, f.optional)},`);
     }
     lines.push(`});`);
     if (grouped) lines.push(`export const ${T}Response = z.array(${T}Row);`);

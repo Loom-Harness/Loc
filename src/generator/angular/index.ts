@@ -1,3 +1,4 @@
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
 import { buildFrontendHost } from "../../ir/contract/host.js";
 import type {
   AggregateIR,
@@ -32,6 +33,11 @@ import {
 } from "../_frontend/code-highlight.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import {
+  clientProjections,
+  clientWorkflows,
+  requireFrontendContract,
+} from "../_frontend/contract.js";
+import {
   E2E_PACKAGE_JSON_ANGULAR,
   E2E_TSCONFIG_JSON,
   e2eHarnessFiles,
@@ -64,7 +70,7 @@ import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
 import { prepareThemeVM } from "../_frontend/theme-preparer.js";
 import { DOM_TOAST_SOURCE, uiUsesToastEffect } from "../_frontend/toast-effect.js";
 import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
-import { hasAnyWorkflow } from "../_frontend/workflows-module.js";
+import { workflowsModuleScope } from "../_frontend/workflows-module.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -85,7 +91,7 @@ import {
   renderAngularLocaleSignal,
   renderAngularLocaleSwitcher,
 } from "./locale-switcher.js";
-import { buildAngularProjectionsModule, hasReadableProjections } from "./projections-module.js";
+import { buildAngularProjectionsModule } from "./projections-module.js";
 import {
   buildAngularRealtimeHandlers,
   buildAngularToastService,
@@ -137,6 +143,9 @@ export interface GenerateAngularOptions {
    *  generated i18n shim, under the SAME `i18nEnabled` gate as `en.json`.
    *  Absent / empty is the normal case → byte-identical output. */
   translations?: TranslationCatalogs;
+  /** The system's Frontend Contract (`src/ir/contract/`).  Every caller
+   *  passes it; see `requireFrontendContract`. */
+  frontendContract?: FrontendContract;
 }
 
 const DEFAULT_DESIGN = "angularMaterial@v1";
@@ -158,6 +167,7 @@ export function generateAngularForContexts(
   );
 
   const host = buildFrontendHost(sys, deployable);
+  const contract = requireFrontendContract(options.frontendContract, host.deployable);
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   const apiBaseUrl = options.apiBaseUrl ?? API_BASE_PATH;
   // Dev fallback for the static server's `/api` reverse proxy.  Compose
@@ -797,8 +807,15 @@ export function generateAngularForContexts(
   // React/Vue zod modules: TanStack `injectQuery` / `injectMutation` off an
   // `@Injectable` service.  Emitted only when the served contexts declare any
   // workflow, so a plain project's tree is unchanged.
-  if (hasAnyWorkflow(contexts)) {
-    out.set("src/api/workflows.ts", buildAngularWorkflowsModule(contexts));
+  const clientWfs = clientWorkflows(
+    contract,
+    contexts.map((c) => c.name),
+  );
+  if (clientWfs.length > 0) {
+    out.set(
+      "src/api/workflows.ts",
+      buildAngularWorkflowsModule(clientWfs, workflowsModuleScope(contexts)),
+    );
   }
 
   // Query-time projection clients (M-T1.3).  Angular FORKS the shared
@@ -808,8 +825,12 @@ export function generateAngularForContexts(
   // header for the rule, and this one's for the four divergences).  Emitted
   // only when the deployable serves a readable projection, so a
   // projection-free app stays byte-identical.
-  if (hasReadableProjections(contexts)) {
-    out.set("src/api/projections.ts", buildAngularProjectionsModule(contexts));
+  const clientProjs = clientProjections(
+    contract,
+    contexts.map((c) => c.name),
+  );
+  if (clientProjs.length > 0) {
+    out.set("src/api/projections.ts", buildAngularProjectionsModule(clientProjs));
   }
 
   // --- Playwright e2e harness (angular-frontend-plan.md) -------

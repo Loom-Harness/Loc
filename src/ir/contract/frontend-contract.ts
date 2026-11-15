@@ -56,7 +56,9 @@ import {
 import { exposedContexts } from "../util/exposed-contexts.js";
 import { maskedPatchParams } from "../util/op-gates.js";
 import { pagedFindRoutes } from "../util/paged-find-routes.js";
+import { isFrontendReadableProjection, projectionReadShape } from "../util/projection-read.js";
 import { aggregateIsVersioned } from "../util/versioned-capability.js";
+import { emitsCommandRoute, workflowResultSegment } from "../util/workflow-command-route.js";
 import { classifyForWire } from "../validate/invariant-classify.js";
 import { drop, keep, list, type Rule, record } from "./allowlist.js";
 import { componentRule, exprRule, layoutRule, messageRule, typeRule, uiRule } from "./ui-spec.js";
@@ -89,6 +91,12 @@ export interface FrontendContract {
     records: ContractRecord[];
     /** Events a UI notification subscribes to. */
     events: ContractRecord[];
+    /** Every workflow of an exposed context a client starts or observes, by
+     *  name. */
+    workflows: ContractWorkflow[];
+    /** Every projection of an exposed context a client reads, in declaration
+     *  order. */
+    projections: ContractProjection[];
     valueObjects: ContractValueObject[];
     enums: { name: string; values: string[] }[];
   };
@@ -115,6 +123,40 @@ export interface ContractFind {
    *  order, else `id`. */
   sortDefault?: string;
   routes?: { api: string; path: string }[];
+}
+
+/** A workflow, as a client starts or observes it. */
+export interface ContractWorkflow {
+  name: string;
+  /** The bounded context that owns it. */
+  context: string;
+  /** The body params of its `POST /workflows/<wf>` start route; absent on a
+   *  workflow no command starts (`emitsCommandRoute`). */
+  params?: ContractParam[];
+  /** The route segment of the aggregate a successful start created, when the
+   *  start route answers with its id. */
+  resultSegment?: string;
+  /** The instance row of an observable workflow
+   *  (`GET /workflows/<wf>/instances`). */
+  instance?: ContractInstanceField[];
+}
+
+export interface ContractInstanceField {
+  name: string;
+  type: TypeIR;
+  optional: boolean;
+  /** The correlation id token: a string on the wire. */
+  id?: true;
+}
+
+/** A projection, as a client reads it (`GET /projections/<proj>`). */
+export interface ContractProjection {
+  name: string;
+  /** The bounded context that owns it. */
+  context: string;
+  /** The read answers a list of rows rather than one (`projectionReadShape`). */
+  many?: true;
+  fields: ContractField[];
 }
 
 export interface ContractParam {
@@ -233,15 +275,39 @@ const aggregateRule = record<ContractAggregate>("ContractAggregate", {
   history: keep,
 });
 
+const paramRule = record<ContractParam>("ContractParam", { name: keep, type: typeRule });
+
 const findRule = record<ContractFind>("ContractFind", {
   aggregate: keep,
   name: keep,
-  params: list(record<ContractParam>("ContractParam", { name: keep, type: typeRule })),
+  params: list(paramRule),
   returnType: typeRule,
   sortDefault: keep,
   routes: list(
     record<{ api: string; path: string }>("ContractFindRoute", { api: keep, path: keep }),
   ),
+});
+
+const workflowRule = record<ContractWorkflow>("ContractWorkflow", {
+  name: keep,
+  context: keep,
+  params: list(paramRule),
+  resultSegment: keep,
+  instance: list(
+    record<ContractInstanceField>("ContractInstanceField", {
+      name: keep,
+      type: typeRule,
+      optional: keep,
+      id: keep,
+    }),
+  ),
+});
+
+const projectionRule = record<ContractProjection>("ContractProjection", {
+  name: keep,
+  context: keep,
+  many: keep,
+  fields: list(field),
 });
 
 const apiRule = record<ApiIR>("ApiIR", {
@@ -368,6 +434,58 @@ export function buildFrontendContract(
     }
   }
 
+  const workflows: ContractWorkflow[] = [];
+  const projections: ContractProjection[] = [];
+  for (const ctx of contexts) {
+    for (const wf of ctx.workflows) {
+      const command = emitsCommandRoute(wf);
+      if (!command && !wf.instanceWireShape) continue;
+      const resultSegment = command ? workflowResultSegment(wf) : undefined;
+      workflows.push(
+        as(
+          workflowRule,
+          {
+            name: wf.name,
+            context: ctx.name,
+            ...(command ? { params: wf.params.map((p) => ({ name: p.name, type: p.type })) } : {}),
+            ...(resultSegment !== undefined ? { resultSegment } : {}),
+            ...(wf.instanceWireShape
+              ? {
+                  instance: wf.instanceWireShape.map((f) => ({
+                    name: f.name,
+                    type: f.type,
+                    optional: f.optional,
+                    ...(f.source === "id" ? { id: true as const } : {}),
+                  })),
+                }
+              : {}),
+          },
+          `${at}.workflows.${wf.name}`,
+        ),
+      );
+    }
+    for (const proj of ctx.projections ?? []) {
+      if (!isFrontendReadableProjection(proj)) continue;
+      projections.push(
+        as(
+          projectionRule,
+          {
+            name: proj.name,
+            context: ctx.name,
+            ...(projectionReadShape(proj) === "many" ? { many: true as const } : {}),
+            fields: (proj.wireShape ?? []).map((f) => ({
+              name: f.name,
+              type: f.type,
+              optional: !!f.optional,
+            })),
+          },
+          `${at}.projections.${proj.name}`,
+        ),
+      );
+    }
+  }
+  workflows.sort((a, b) => a.name.localeCompare(b.name));
+
   const uis = sys.uis.map((u) => as<UiIR>(uiRule, u, `${at}.ui ${u.name}`));
   const eventNames = new Set(sys.uis.flatMap((u) => u.notifications.map((n) => n.eventType)));
   const events: ContractRecord[] = [];
@@ -406,6 +524,8 @@ export function buildFrontendContract(
       responses,
       records,
       events,
+      workflows,
+      projections,
       valueObjects: [],
       enums: [],
     },

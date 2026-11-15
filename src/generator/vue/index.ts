@@ -26,7 +26,13 @@ import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_SESSION_TS, AUTH_USE_SESSION_VUE, authGateVue } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
-import { clientFinds, requireFrontendContract, servesHistory } from "../_frontend/contract.js";
+import {
+  clientFinds,
+  clientProjections,
+  clientWorkflows,
+  requireFrontendContract,
+  servesHistory,
+} from "../_frontend/contract.js";
 import { e2eHarnessFiles, e2eSignsIn } from "../_frontend/e2e-harness.js";
 import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
 import {
@@ -57,7 +63,7 @@ import {
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { VUE_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
 import { pageEmitPath } from "../_frontend/page-identity.js";
-import { buildProjectionsApiModule, readableProjections } from "../_frontend/projections-module.js";
+import { buildProjectionsApiModule } from "../_frontend/projections-module.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import {
   vueChromeAttr as shellChromeAttr,
@@ -67,7 +73,7 @@ import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
 import { prepareThemeVM } from "../_frontend/theme-preparer.js";
 import { uiUsesToastEffect } from "../_frontend/toast-effect.js";
 import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
-import { buildWorkflowsApiModule, hasAnyWorkflow } from "../_frontend/workflows-module.js";
+import { buildWorkflowsApiModule, workflowsModuleScope } from "../_frontend/workflows-module.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
@@ -561,10 +567,16 @@ export function generateVueForContexts(
 
   // Shared workflows api module — 1:1 with the inventory,
   // same builder as React with the vue-query import.
-  if (hasAnyWorkflow(contexts)) {
+  const clientWfs = clientWorkflows(
+    contract,
+    contexts.map((c) => c.name),
+  );
+  if (clientWfs.length > 0) {
     out.set(
       "src/api/workflows.ts",
-      buildWorkflowsApiModule(contexts, { queryPackage: "@tanstack/vue-query" }),
+      buildWorkflowsApiModule(clientWfs, workflowsModuleScope(contexts), {
+        queryPackage: "@tanstack/vue-query",
+      }),
     );
   }
 
@@ -573,10 +585,21 @@ export function generateVueForContexts(
   // `useQuery` is API-compatible with the React one, so the emitted module is
   // otherwise identical.  Emitted only when the deployable actually serves a
   // readable projection, so a projection-free app stays byte-identical.
-  if (readableProjections(contexts).length > 0) {
+  const clientProjs = clientProjections(
+    contract,
+    contexts.map((c) => c.name),
+  );
+  if (clientProjs.length > 0) {
     out.set(
       "src/api/projections.ts",
-      buildProjectionsApiModule(contexts, { queryPackage: "@tanstack/vue-query" }),
+      buildProjectionsApiModule(
+        clientProjs,
+        {
+          enums: contract.wire.enums,
+          usesMoney: contexts.some(contextUsesMoney),
+        },
+        { queryPackage: "@tanstack/vue-query" },
+      ),
     );
   }
 

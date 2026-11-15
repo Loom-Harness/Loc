@@ -14,8 +14,11 @@ as JSON (stdout, or `<out>/.loom/frontend-contract.json`). It has two halves:
 - **Wire:** the exposed API — the operations of every context an `api`
   exposes, one response record per exposed aggregate and part, the declared
   `command` / `query` / `error` / `payload` records with the paged and union
-  carriers, the events a UI notification names, and the value objects (fields,
-  derived members, wire-validated invariants) and enums the contract names.
+  carriers, the events a UI notification names, the workflows a client starts
+  or observes (start body, the created record's route segment when the start
+  answers its id, the instance row) and the projections it reads (one row or a
+  list, the row fields), and the value objects (fields, derived members,
+  wire-validated invariants) and enums the contract names.
 
 **Built by allowlist.** Every reachable IR type has a spec in
 `src/ir/contract/` naming each of its fields as kept, projected, dropped or
@@ -58,6 +61,12 @@ body params a merge-patch form may omit (`optionalParams`) — and a find carrie
 the `{api, path}` routes that serve it. A client keeps the first route on an api
 its host reads through (`clientFinds`, `src/generator/_frontend/contract.ts`),
 which is the route the target backend mounts.
+
+**Workflows and projections are decided once.** Which workflows a client
+starts or observes and which projections it reads, with their shapes, are
+contract facts; every frontend's workflows and projections api module renders
+them (`clientWorkflows` / `clientProjections`) and none re-derives them from the
+domain IR (`test/system/frontend-workflow-projection-census.test.ts`).
 
 **A request is its declared command record.** A `create` names the declared
 command record its body is (`request`, found by `declaredCreateCommandFor` in

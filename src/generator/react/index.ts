@@ -22,7 +22,13 @@ import { humanize, lowerFirst, snake } from "../../util/naming.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_SESSION_TS, authGateTsx } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
-import { clientFinds, requireFrontendContract, servesHistory } from "../_frontend/contract.js";
+import {
+  clientFinds,
+  clientProjections,
+  clientWorkflows,
+  requireFrontendContract,
+  servesHistory,
+} from "../_frontend/contract.js";
 import { e2eHarnessFiles, e2eSignsIn } from "../_frontend/e2e-harness.js";
 import {
   renderI18nModule,
@@ -35,14 +41,14 @@ import { localeDir } from "../_frontend/locale-meta.js";
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { buildPageModuleIndex } from "../_frontend/page-identity.js";
-import { buildProjectionsApiModule, readableProjections } from "../_frontend/projections-module.js";
+import { buildProjectionsApiModule } from "../_frontend/projections-module.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import { jsxChromeText as shellChromeText } from "../_frontend/shell-chrome.js";
 import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
 import {
   allWorkflows,
   buildWorkflowsApiModule,
-  hasAnyWorkflow,
+  workflowsModuleScope,
 } from "../_frontend/workflows-module.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
@@ -314,16 +320,33 @@ export function generateReactForContexts(
   // workflow inventory; emit it regardless of the page-emission
   // path.  Pages + page-objects emit through `emitPagesForUi` /
   // `emitPageObjectsForUi`.
-  if (hasAnyWorkflow(contexts)) {
-    out.set("src/api/workflows.ts", buildWorkflowsApiModule(contexts));
+  const clientWfs = clientWorkflows(
+    contract,
+    contexts.map((c) => c.name),
+  );
+  if (clientWfs.length > 0) {
+    out.set(
+      "src/api/workflows.ts",
+      buildWorkflowsApiModule(clientWfs, workflowsModuleScope(contexts)),
+    );
   }
 
   // Query-time projection clients (M-T1.3) — one shared module, 1:1
   // with the frontend-readable projection inventory.  Emitted only when the
   // deployable actually serves one, so a projection-free app stays
   // byte-identical.
-  if (readableProjections(contexts).length > 0) {
-    out.set("src/api/projections.ts", buildProjectionsApiModule(contexts));
+  const clientProjs = clientProjections(
+    contract,
+    contexts.map((c) => c.name),
+  );
+  if (clientProjs.length > 0) {
+    out.set(
+      "src/api/projections.ts",
+      buildProjectionsApiModule(clientProjs, {
+        enums: contract.wire.enums,
+        usesMoney: contexts.some(contextUsesMoney),
+      }),
+    );
   }
 
   for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, sys))) {
