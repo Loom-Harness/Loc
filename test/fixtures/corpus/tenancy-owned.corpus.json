@@ -8,5 +8,21 @@
       "destroyOrganization": "tenantRegistryRow",
       "updateOrganization": "tenantRegistryRow"
     }
+  },
+  "authzGate": {
+    "create POST /api/invoices": "sharedTenancyIdentity",
+    "create POST /api/organizations": "sharedTenancyIdentity",
+    "destroy DELETE /api/organizations/{id}": "sharedTenancyIdentity",
+    "find GET /api/invoices": "sharedTenancyIdentity",
+    "explicitHandler GET /api/invoices/by_number/{n}": "sharedTenancyIdentity",
+    "find GET /api/organizations": "sharedTenancyIdentity",
+    "getById GET /api/organizations/{id}": "sharedTenancyIdentity",
+    "operation POST /api/organizations/{id}/update": "sharedTenancyIdentity",
+    "create POST /api/payments": "sharedTenancyIdentity",
+    "getById GET /api/payments/{id}": "sharedTenancyIdentity",
+    "destroy DELETE /api/payments/{id}": "sharedTenancyIdentity",
+    "operation POST /api/payments/{id}/relink": "sharedTenancyIdentity",
+    "operation POST /api/payments/{id}/update": "sharedTenancyIdentity",
+    "find GET /api/payments": "sharedTenancyIdentity"
   }
 }

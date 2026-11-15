@@ -8,5 +8,21 @@
       "canReopenTicket": "gateProbe",
       "canRetitleTicket": "gateProbe"
     }
+  },
+  "authzGate": {
+    "//": "`reopen()`'s `can_reopen` probe: the operation's `requires` answers `{ allowed: false }`, a 200 (the gate order, docs/auth.md). `requires isOpenNow()` reads the row's own state, not the caller: the fixture's `test e2e` drives the admitted (204) and refused (403) arms. `requires to != subject` reads the body and the row, not the caller; the fixture's `test e2e` drives its 403 and its 204. `requires amount < 100` on a merge-patch update reads the merged value (the stored one when the body omits `amount`), not the caller; the fixture's `test e2e` drives its 403 and its 204. `Vault.secret` is masked from every harness principal: its reads redact inside a 200; the update's mask write gate is the fixture's `test e2e`.",
+    "gateProbe GET /api/tickets/{id}/can_reopen": "probeAnswersFalse",
+    "operation POST /api/tickets/{id}/archive": "rowDataGate",
+    "operation POST /api/tickets/{id}/retitle": "rowDataGate",
+    "gateProbe GET /api/tickets/{id}/can_retitle": "probeAnswersFalse",
+    "operation POST /api/budgets/{id}/update": "rowDataGate",
+    "find GET /api/vaults": "maskIsNotAStatus",
+    "getById GET /api/vaults/{id}": "maskIsNotAStatus"
+  },
+  "typing": {
+    "ir-differs": {
+      "n": 1,
+      "why": "a bare `null` literal synthesised by `softDeletable` on `Vault`: the pass types it never?, the IR's untyped null literal carries the string placeholder"
+    }
   }
 }

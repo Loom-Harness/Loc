@@ -56,6 +56,7 @@ import {
 import { tyKey, typingSession } from "../../src/language/typing/index.js";
 import { dddSourceOf, inlineDddDocuments, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 import { parseString } from "../_helpers/index.js";
+import { CORPUS } from "../fixtures/corpus/manifest.js";
 
 /** The pinned counts — read rather than JSON-imported (the repo compiles on a
  *  module setting where `import … with { type: "json" }` does not typecheck). */
@@ -90,12 +91,14 @@ const NOT_A_HOLE = "not-a-value";
  *     when entries started to need a reason.  FROZEN: an entry may be lowered
  *     or deleted, never raised or added; its key count may only fall
  *     (LEGACY_MAX_KEYS).
- *   - `typing-differential.allowance.json` — every other entry, each
- *     `{ "n": <count>, "why": "<the construct that differs, and why the IR
- *     representation is deliberate>" }`.  A pass-gap cause (`no-rule`,
- *     `unreached`: the pass has no rule, not an author error) also names the
- *     open issue that adds the rule: `"issue": "#NNNN"`.
- * A key lives in one file only.
+ *   - a corpus fixture's sidecar (`test/fixtures/corpus/<id>.corpus.json`,
+ *     `"typing": { "<class>": … }`) — every new entry for a corpus document,
+ *     so two changes adding fixtures edit different files;
+ *   - `typing-differential.allowance.json` — every other new entry.
+ * A new entry is `{ "n": <count>, "why": "<the construct that differs, and why
+ * the IR representation is deliberate>" }`.  A pass-gap cause (`no-rule`,
+ * `unreached`: the pass has no rule, not an author error) also names the open
+ * issue that adds the rule: `"issue": "#NNNN"`.  A key lives in one place only.
  *
  * `LOOM_TYPING_DIFF_REBASELINE=1 npx vitest run <this file>` LOWERS entries
  * to the documents' counts and deletes the zeros, in both files.  It never
@@ -109,10 +112,24 @@ interface AllowanceEntry {
   why: string;
   issue?: string;
 }
-const ALLOWANCE = JSON.parse(fs.readFileSync(ALLOWANCE_FILE, "utf8")) as Record<
+const ALLOWANCE_IN_FILE = JSON.parse(fs.readFileSync(ALLOWANCE_FILE, "utf8")) as Record<
   string,
   AllowanceEntry
 >;
+const CORPUS_DOC = /^test\/fixtures\/corpus\/([^/]+)\.ddd :: (.+)$/;
+/** The corpus fixtures' sidecar rows, keyed like the file's. */
+const ALLOWANCE_IN_SIDECARS: Record<string, AllowanceEntry> = Object.fromEntries(
+  CORPUS.flatMap((f) =>
+    Object.entries(f.typing ?? {}).map(([cls, row]) => [
+      `test/fixtures/corpus/${f.id}.ddd :: ${cls}`,
+      { ...row },
+    ]),
+  ),
+);
+const ALLOWANCE: Record<string, AllowanceEntry> = {
+  ...ALLOWANCE_IN_FILE,
+  ...ALLOWANCE_IN_SIDECARS,
+};
 /** The legacy file's key count: it may only fall. */
 const LEGACY_MAX_KEYS = 1149;
 
@@ -130,6 +147,27 @@ function writeEntries(file: URL, entries: Record<string, unknown>): void {
     file,
     `{\n${keys.map((k) => `  ${JSON.stringify(k)}: ${entryText(entries[k])}`).join(",\n")}\n}\n`,
   );
+}
+
+/** Write lowered sidecar rows back into the sidecar each one is declared in
+ *  (a twin that inherits its rows gets its own `typing` block), dropping the
+ *  rows the differential no longer counts. */
+function lowerSidecars(lowered: Record<string, AllowanceEntry>): void {
+  const dir = new URL("../fixtures/corpus/", import.meta.url);
+  for (const f of CORPUS) {
+    if (!f.typing) continue;
+    const file = new URL(`${f.id}.corpus.json`, dir);
+    const side = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+    const typing: Record<string, AllowanceEntry> = {};
+    for (const cls of Object.keys(f.typing)) {
+      const row = lowered[`test/fixtures/corpus/${f.id}.ddd :: ${cls}`];
+      if (row) typing[cls] = row;
+    }
+    if (JSON.stringify(typing) === JSON.stringify(f.typing)) continue;
+    if (Object.keys(typing).length > 0) side.typing = typing;
+    else delete side.typing;
+    fs.writeFileSync(file, `${JSON.stringify(side, null, 2)}\n`);
+  }
 }
 
 /** A stable key for an inline document: its test file plus a hash of its
@@ -225,9 +263,17 @@ function inTestBody(node: AstNode): boolean {
 function allowanceProblems(
   allowance: Record<string, AllowanceEntry>,
   legacy: Record<string, number>,
+  sidecars: Record<string, AllowanceEntry> = {},
 ): string[] {
   const out: string[] = [];
-  for (const [k, e] of Object.entries(allowance)) {
+  for (const k of Object.keys(allowance)) {
+    const corpus = CORPUS_DOC.exec(k);
+    if (corpus)
+      out.push(
+        `${k}: a corpus document's entry lives in its sidecar — move it to test/fixtures/corpus/${corpus[1]}.corpus.json as "typing": { "${corpus[2]}": … }`,
+      );
+  }
+  for (const [k, e] of Object.entries({ ...allowance, ...sidecars })) {
     if (typeof e !== "object" || e === null || typeof e.n !== "number") {
       out.push(`${k}: must be { "n": <count>, "why": "…" }`);
       continue;
@@ -237,7 +283,8 @@ function allowanceProblems(
     const cause = /:: unknown\{(.+)\}$/.exec(k)?.[1];
     if (cause && PASS_GAPS.has(cause) && !/^#\d+$/.test(e.issue ?? ""))
       out.push(`${k}: a pass gap (no rule in the typing pass) needs "issue": "#NNNN"`);
-    if (Object.hasOwn(legacy, k)) out.push(`${k}: in both files — keep one`);
+    if (Object.hasOwn(legacy, k))
+      out.push(`${k}: in both the legacy file and an allowance — keep one`);
   }
   const n = Object.keys(legacy).length;
   if (n > LEGACY_MAX_KEYS)
@@ -440,7 +487,14 @@ describe("typing differential: the pass against lowering (and the unknown ratche
       writeEntries(
         ALLOWANCE_FILE,
         lower(
-          ALLOWANCE,
+          ALLOWANCE_IN_FILE,
+          (v) => v.n,
+          (v, n) => ({ ...v, n }),
+        ),
+      );
+      lowerSidecars(
+        lower(
+          ALLOWANCE_IN_SIDECARS,
           (v) => v.n,
           (v, n) => ({ ...v, n }),
         ),
@@ -465,21 +519,30 @@ describe("typing differential: the pass against lowering (and the unknown ratche
       over,
       "typing failure class / unknown cause GREW in these documents (an unlisted document is " +
         "allowed 0).  Fix the typing, or — for a deliberate IR representation choice — add an " +
-        'entry to test/system/typing-differential.allowance.json: { "n": <count>, "why": "<the ' +
-        'construct>" }, plus "issue" for a no-rule / unreached gap.  ' +
+        'entry { "n": <count>, "why": "<the construct>" }, plus "issue" for a no-rule / ' +
+        "unreached gap: for a corpus document in its sidecar " +
+        '(test/fixtures/corpus/<id>.corpus.json, "typing": { "<class>": … }), for any other ' +
+        "in test/system/typing-differential.allowance.json.  " +
         "Samples: LOOM_TYPING_DIFF_REPORT=/tmp/r.json.\n" +
         over.join("\n"),
     ).toEqual([]);
     expect(
       stale,
       "allowance entries above the document's count — lower them " +
-        "(LOOM_TYPING_DIFF_REBASELINE=1 lowers both files, never raises):\n" +
+        "(LOOM_TYPING_DIFF_REBASELINE=1 lowers every allowance, never raises):\n" +
         stale.join("\n"),
     ).toEqual([]);
   });
 
   it("every allowance entry says why, a pass gap names its issue, and legacy stays frozen", () => {
-    expect(allowanceProblems(ALLOWANCE, LEGACY)).toEqual([]);
+    expect(allowanceProblems(ALLOWANCE_IN_FILE, LEGACY, ALLOWANCE_IN_SIDECARS)).toEqual([]);
+  });
+
+  it("refuses a corpus document's entry in the shared allowance file", () => {
+    const k = "test/fixtures/corpus/some-fixture.ddd :: ir-differs";
+    expect(allowanceProblems({ [k]: { n: 1, why: "a bare null literal in an arm" } }, {})).toEqual([
+      `${k}: a corpus document's entry lives in its sidecar — move it to test/fixtures/corpus/some-fixture.corpus.json as "typing": { "ir-differs": … }`,
+    ]);
   });
 
   it("refuses an unexplained entry, a pass gap without an issue, and a grown legacy file", () => {
@@ -499,7 +562,7 @@ describe("typing differential: the pass against lowering (and the unknown ratche
         { [both]: { n: 1, why: "the money fold returns a decimal" } },
         { [both]: 1 },
       ),
-    ).toEqual([`${both}: in both files — keep one`]);
+    ).toEqual([`${both}: in both the legacy file and an allowance — keep one`]);
     const grown = Object.fromEntries(
       Array.from({ length: LEGACY_MAX_KEYS + 1 }, (_, i) => [`d${i}.ddd :: ir-differs`, 1]),
     );

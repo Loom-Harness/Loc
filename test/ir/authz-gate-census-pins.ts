@@ -1,5 +1,7 @@
 // Pinned gaps for the AUTHORIZATION-GATE CENSUS (`authz-gate-census.test.ts`)
 // — M-T9.28 slice 2.
+
+import { CORPUS } from "../fixtures/corpus/manifest.js";
 //
 // Slice 1 (#2515) minted the second principal in both auth flavours
 // (`DEV_CLAIMS_UNAUTHORIZED`, `oidc.unauthorizedToken`) so the behavioural tier
@@ -20,11 +22,9 @@
 //     route was renamed / removed — fails as STALE, so a drain deletes its pin
 //     in the same change.
 //
-// The per-class counts are NOT written in prose here.  `api-caller-census-pins`
-// learned that the hard way (its header said 15 while the pins said 20, because
-// a comment is not reachable from the thing it describes), so the tallies live
-// in `PIN_CLASS_CENSUS` at the foot of this file and the gate recomputes them
-// from the pins, both directions.
+// The per-class counts are NOT written anywhere: they are a pure function of
+// the pins, and a hand-kept tally of them is one line every pinning change
+// edits.  The gate prints them.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // THE CENSUS, AS MEASURED (the gate recomputes every figure; these are the
@@ -258,321 +258,14 @@ export const R = {
  *
  * Case keys match `POPULATION` in `authz-gate-census.test.ts`; surface keys are
  * `<route class> <METHOD> <path>` exactly as the census prints them, so a
- * failure message can be pasted here verbatim.
+ * failure message can be pasted verbatim.
+ *
+ * A corpus fixture's pins live in its sidecar
+ * (`test/fixtures/corpus/<id>.corpus.json`, `authzGate`, naming an `R` class),
+ * so two changes pinning different fixtures edit different files; only a
+ * non-corpus source's pins are written here.
  */
 export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
-  // `reopen()`'s `can_reopen` probe: the operation's `requires` answers
-  // `{ allowed: false }`, a 200 (the gate order, docs/auth.md).
-  "corpus/auth-simple": {
-    "gateProbe GET /api/tickets/{id}/can_reopen": R.probeAnswersFalse,
-    // `requires isOpenNow()` reads the row's own state, not the caller: the
-    // fixture's `test e2e` drives the admitted (204) and refused (403) arms.
-    "operation POST /api/tickets/{id}/archive": R.rowDataGate,
-    // `requires to != subject` reads the body and the row, not the caller;
-    // the fixture's `test e2e` drives its 403 and its 204.
-    "operation POST /api/tickets/{id}/retitle": R.rowDataGate,
-    "gateProbe GET /api/tickets/{id}/can_retitle": R.probeAnswersFalse,
-    // `requires amount < 100` on a merge-patch update reads the merged value
-    // (the stored one when the body omits `amount`), not the caller; the
-    // fixture's `test e2e` drives its 403 and its 204.
-    "operation POST /api/budgets/{id}/update": R.rowDataGate,
-    // `Vault.secret` is masked from every harness principal: its reads redact
-    // inside a 200; the update's mask write gate is the fixture's `test e2e`.
-    "find GET /api/vaults": R.maskIsNotAStatus,
-    "getById GET /api/vaults/{id}": R.maskIsNotAStatus,
-  },
-
-  // ── mask unless — no status to refuse ────────────────────────────────────
-  // Every read surface that projects `salary` / `nationalId`.  The ladder's
-  // control arm drives two of them with the second identity and records the
-  // redacted body; what it cannot do is assert a refusal, because there is not
-  // one.  See `R.maskIsNotAStatus` and finding 5.
-  // ── a guard that cannot refuse: the domain-service IMPORT is the subject ──
-  "corpus/domain-services": {
-    "operation POST /api/accounts/{id}/withdraw": R.importGateOnly,
-  },
-
-  // The masked concretes' reads: the visitor reads them as the agent does,
-  // nulls and all.  The gated concretes and every base read are refused by
-  // the ladder; the masked writes are its `→ 403` mask-gate rungs.
-  "corpus/inheritance-read-gates": {
-    "find GET /api/drivers": R.maskIsNotAStatus,
-    "find GET /api/trucks": R.maskIsNotAStatus,
-    "getById GET /api/drivers/{id}": R.maskIsNotAStatus,
-    "getById GET /api/trucks/{id}": R.maskIsNotAStatus,
-  },
-
-  "corpus/field-mask": {
-    "find GET /api/employees": R.maskIsNotAStatus,
-    "getById GET /api/employees/{id}": R.maskIsNotAStatus,
-    // The audit-history read projects the same masked shape (`historyFind`
-    // copies the list read's gate at enrichment), so it inherits the mask.
-    "history GET /api/employees/{id}/history": R.maskIsNotAStatus,
-  },
-
-  // The history read behind its guards.  Employee's reads are UNGATED, so the
-  // mask is their only authz surface; the ladder reads Employee's history with
-  // both principals and the golden pins the two bodies (salary's entries kept
-  // for `ops.manage`, dropped for `ops.none`) — the mask's witness, as a body
-  // and not a status.  Payslip's gated reads are refused by the ladder; only
-  // its by-id read (ungated, masked) is pinned.
-  "corpus/audit-history-guarded": {
-    "find GET /api/employees": R.maskIsNotAStatus,
-    "getById GET /api/employees/{id}": R.maskIsNotAStatus,
-    "history GET /api/employees/{id}/history": R.maskIsNotAStatus,
-    "getById GET /api/payslips/{id}": R.maskIsNotAStatus,
-  },
-
-  // ── `policy { deny … }` + the tenant floor around it ─────────────────────
-  // `Secret` / `Note` are read-denied and `Account` is write-denied: all three
-  // sentinels are principal-free, so the fixture's own `test e2e` is the
-  // refusal and a ladder arm would restate it.  What the ladder DOES add is on
-  // `Account`: its write surfaces refused and its READ seam open, for the second
-  // identity — so those two writes are not pinned.  `Ledger` (the control
-  // aggregate) and `Org` (the tenant registry) carry only the tenant floor.
-  "corpus/policy-deny": {
-    "create POST /api/accounts": R.principalFreeGate,
-    "create POST /api/ledgers": R.sharedTenancyIdentity,
-    "create POST /api/notes": R.principalFreeGate,
-    "create POST /api/orgs": R.sharedTenancyIdentity,
-    "create POST /api/secrets": R.principalFreeGate,
-    "destroy DELETE /api/notes/{id}": R.principalFreeGate,
-    "destroy DELETE /api/orgs/{id}": R.sharedTenancyIdentity,
-    "destroy DELETE /api/secrets/{id}": R.principalFreeGate,
-    "find GET /api/accounts": R.sharedTenancyIdentity,
-    "find GET /api/ledgers": R.sharedTenancyIdentity,
-    "find GET /api/notes": R.principalFreeGate,
-    "find GET /api/orgs": R.sharedTenancyIdentity,
-    "find GET /api/secrets": R.principalFreeGate,
-    "explicitHandler GET /api/secrets/by_code/{c}": R.principalFreeGate,
-    "getById GET /api/accounts/{id}": R.sharedTenancyIdentity,
-    "getById GET /api/notes/{id}": R.principalFreeGate,
-    "getById GET /api/orgs/{id}": R.sharedTenancyIdentity,
-    "getById GET /api/secrets/{id}": R.principalFreeGate,
-    "operation POST /api/notes/{id}/update": R.principalFreeGate,
-    "operation POST /api/orgs/{id}/update": R.sharedTenancyIdentity,
-    "operation POST /api/secrets/{id}/update": R.principalFreeGate,
-  },
-
-  // ── the same two stances on a `shape: document` aggregate ────────────────
-  // `Note` is the deny carve-out (principal-free); `Thing` carries `allow local`
-  // — principal-REFERENCING, but anchored on the claim the two harness
-  // identities share, so still not discriminable — and `Org` is the hierarchy
-  // registry's self-scope.  This fixture is the one whose `.ddd` argues at the
-  // site for no ladder at all, and that argument holds; see finding 3.
-  "corpus/policy-document": {
-    "create POST /api/notes": R.principalFreeGate,
-    "create POST /api/orgs": R.sharedTenancyIdentity,
-    "create POST /api/things": R.sharedTenancyIdentity,
-    "destroy DELETE /api/notes/{id}": R.principalFreeGate,
-    "destroy DELETE /api/orgs/{id}": R.sharedTenancyIdentity,
-    "destroy DELETE /api/things/{id}": R.sharedTenancyIdentity,
-    "find GET /api/notes": R.principalFreeGate,
-    "find GET /api/orgs": R.sharedTenancyIdentity,
-    "find GET /api/things": R.sharedTenancyIdentity,
-    "explicitHandler GET /api/things/by_label/{l}": R.sharedTenancyIdentity,
-    "getById GET /api/notes/{id}": R.principalFreeGate,
-    "getById GET /api/orgs/{id}": R.sharedTenancyIdentity,
-    "getById GET /api/things/{id}": R.sharedTenancyIdentity,
-    "operation POST /api/notes/{id}/update": R.principalFreeGate,
-    "operation POST /api/orgs/{id}/update": R.sharedTenancyIdentity,
-    "operation POST /api/things/{id}/update": R.sharedTenancyIdentity,
-  },
-
-  // ── the tenancy cluster ──────────────────────────────────────────────────
-  // Three fixtures, one cause: every route of a `tenantOwned` aggregate (and of
-  // the registry itself) is narrowed by a predicate keyed on the tenancy claim
-  // both harness identities hold.  A refusal here is a statement about two
-  // TENANTS, which is `tenancy-e2e`'s two-principal shape, not this tier's.
-  "corpus/tenancy-claim-name": {
-    "create POST /api/invoices": R.sharedTenancyIdentity,
-    "create POST /api/organizations": R.sharedTenancyIdentity,
-    "destroy DELETE /api/organizations/{id}": R.sharedTenancyIdentity,
-    "find GET /api/invoices": R.sharedTenancyIdentity,
-    "explicitHandler GET /api/invoices/by_number/{n}": R.sharedTenancyIdentity,
-    "find GET /api/organizations": R.sharedTenancyIdentity,
-    "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
-    "operation POST /api/organizations/{id}/update": R.sharedTenancyIdentity,
-  },
-  "corpus/exists-quantifier": {
-    "create POST /api/products": R.sharedPrincipalId,
-    "getById GET /api/products/{id}": R.sharedPrincipalId,
-    "destroy DELETE /api/products/{id}": R.sharedPrincipalId,
-    "operation POST /api/products/{id}/update": R.sharedPrincipalId,
-    "find GET /api/products": R.sharedPrincipalId,
-    "explicitHandler GET /api/products/shared_with/{g}": R.sharedPrincipalId,
-    "create POST /api/racks": R.rowDataGate,
-    "destroy DELETE /api/racks/{id}": R.rowDataGate,
-    "operation POST /api/racks/{id}/relabel": R.rowDataGate,
-    "gateProbe GET /api/racks/{id}/can_relabel": R.rowDataGate,
-    "create POST /api/seals": R.principalFreeGate,
-    "destroy DELETE /api/seals/{id}": R.principalFreeGate,
-    "operation POST /api/seals/{id}/update": R.principalFreeGate,
-  },
-  "corpus/tenancy-filter": {
-    "create POST /api/accounts": R.sharedTenancyIdentity,
-    "find GET /api/accounts": R.sharedTenancyIdentity,
-    "explicitHandler GET /api/accounts/by_min_balance/{min}": R.sharedTenancyIdentity,
-  },
-  // The fixture wave-3 row 3.3 drained.  Every gate on it is the TENANCY scope
-  // filter and nothing else — there is no `requires` in the system — so the
-  // in-tenant unauthorized principal is correctly ALLOWED and a 403 arm would
-  // assert a refusal that must not happen.  What the drain added is a value
-  // assertion the ladder cannot express anyway: a leaking aggregation answers
-  // 200 with a wrong NUMBER.
-  "corpus/projection-agg-filters": {
-    "create POST /api/orders": R.sharedTenancyIdentity,
-    "destroy DELETE /api/orders/{id}": R.sharedTenancyIdentity,
-    "find GET /api/orders": R.sharedTenancyIdentity,
-    "getById GET /api/orders/{id}": R.sharedTenancyIdentity,
-    "operation POST /api/orders/{id}/restore": R.sharedTenancyIdentity,
-    "operation POST /api/orders/{id}/soft_delete": R.sharedTenancyIdentity,
-    "operation POST /api/orders/{id}/update": R.sharedTenancyIdentity,
-    // The registry aggregate's own surface, same class as its twins in
-    // `tenancy-owned` / `tenancy-claim-name` below.
-    "create POST /api/organizations": R.sharedTenancyIdentity,
-    "destroy DELETE /api/organizations/{id}": R.sharedTenancyIdentity,
-    "find GET /api/organizations": R.sharedTenancyIdentity,
-    "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
-    "operation POST /api/organizations/{id}/update": R.sharedTenancyIdentity,
-  },
-  // Row rules / `when` / `own` (D-SHARING).  The ladder refuses a foreign
-  // tenant on Category's and Note's by-id read, update and destroy.  Products
-  // and shares carry a `Category id` foreign key, so a seed needs a second
-  // aggregate's row; the fixture's own `test e2e` refuses them (a foreign org
-  // reads, updates and loses its shares as 404s).
-  "corpus/policy-row-rules": {
-    "create POST /api/orgs": R.sharedTenancyIdentity,
-    "find GET /api/orgs": R.sharedTenancyIdentity,
-    "getById GET /api/orgs/{id}": R.sharedTenancyIdentity,
-    "operation POST /api/orgs/{id}/update": R.sharedTenancyIdentity,
-    "destroy DELETE /api/orgs/{id}": R.sharedTenancyIdentity,
-    "create POST /api/categories": R.sharedTenancyIdentity,
-    "find GET /api/categories": R.sharedTenancyIdentity,
-    "create POST /api/category_shares": R.sharedTenancyIdentity,
-    "find GET /api/category_shares": R.sharedTenancyIdentity,
-    "getById GET /api/category_shares/{id}": R.oneSeededId,
-    "operation POST /api/category_shares/{id}/update": R.oneSeededId,
-    "destroy DELETE /api/category_shares/{id}": R.oneSeededId,
-    "create POST /api/products": R.sharedTenancyIdentity,
-    "find GET /api/products": R.sharedTenancyIdentity,
-    "getById GET /api/products/{id}": R.oneSeededId,
-    "operation POST /api/products/{id}/update": R.oneSeededId,
-    "destroy DELETE /api/products/{id}": R.oneSeededId,
-    "create POST /api/notes": R.sharedTenancyIdentity,
-    "find GET /api/notes": R.sharedTenancyIdentity,
-  },
-  // The by-id cache fixture: its isolation rungs are cross-tenant / cross-role /
-  // `own` statements in the e2e body, not refusal arms (see `sharedTenancyIdentity`).
-  "corpus/cache-by-id": {
-    "create POST /api/items": R.sharedTenancyIdentity,
-    "create POST /api/notes": R.sharedTenancyIdentity,
-    "destroy DELETE /api/notes/{id}": R.sharedTenancyIdentity,
-    "find GET /api/items": R.sharedTenancyIdentity,
-    "find GET /api/notes": R.sharedTenancyIdentity,
-    "find GET /api/orgs": R.sharedTenancyIdentity,
-    "getById GET /api/items/{id}": R.sharedTenancyIdentity,
-    "getById GET /api/notes/{id}": R.sharedTenancyIdentity,
-    "getById GET /api/orgs/{id}": R.sharedTenancyIdentity,
-    "operation POST /api/items/{id}/rename": R.sharedTenancyIdentity,
-    "operation POST /api/items/{id}/restore": R.sharedTenancyIdentity,
-    "operation POST /api/items/{id}/soft_delete": R.sharedTenancyIdentity,
-    "operation POST /api/items/{id}/update": R.sharedTenancyIdentity,
-    "operation POST /api/notes/{id}/update": R.sharedTenancyIdentity,
-  },
-  // The redis twin of `cache-by-id`: the same routes and the same reasons.
-  "corpus/cache-by-id-redis": {
-    "create POST /api/items": R.sharedTenancyIdentity,
-    "create POST /api/notes": R.sharedTenancyIdentity,
-    "destroy DELETE /api/notes/{id}": R.sharedTenancyIdentity,
-    "find GET /api/items": R.sharedTenancyIdentity,
-    "find GET /api/notes": R.sharedTenancyIdentity,
-    "find GET /api/orgs": R.sharedTenancyIdentity,
-    "getById GET /api/items/{id}": R.sharedTenancyIdentity,
-    "getById GET /api/notes/{id}": R.sharedTenancyIdentity,
-    "getById GET /api/orgs/{id}": R.sharedTenancyIdentity,
-    "operation POST /api/items/{id}/rename": R.sharedTenancyIdentity,
-    "operation POST /api/items/{id}/restore": R.sharedTenancyIdentity,
-    "operation POST /api/items/{id}/soft_delete": R.sharedTenancyIdentity,
-    "operation POST /api/items/{id}/update": R.sharedTenancyIdentity,
-    "operation POST /api/notes/{id}/update": R.sharedTenancyIdentity,
-  },
-  "corpus/tenancy-owned": {
-    "create POST /api/invoices": R.sharedTenancyIdentity,
-    "create POST /api/organizations": R.sharedTenancyIdentity,
-    "destroy DELETE /api/organizations/{id}": R.sharedTenancyIdentity,
-    "find GET /api/invoices": R.sharedTenancyIdentity,
-    "explicitHandler GET /api/invoices/by_number/{n}": R.sharedTenancyIdentity,
-    "find GET /api/organizations": R.sharedTenancyIdentity,
-    "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
-    "operation POST /api/organizations/{id}/update": R.sharedTenancyIdentity,
-    "create POST /api/payments": R.sharedTenancyIdentity,
-    "getById GET /api/payments/{id}": R.sharedTenancyIdentity,
-    "destroy DELETE /api/payments/{id}": R.sharedTenancyIdentity,
-    "operation POST /api/payments/{id}/relink": R.sharedTenancyIdentity,
-    "operation POST /api/payments/{id}/update": R.sharedTenancyIdentity,
-    "find GET /api/payments": R.sharedTenancyIdentity,
-  },
-
-  // The #3954 inheritance fixture.  Every gate is the tenant floor and there is
-  // no `requires`, so the in-tenant unauthorized principal is correctly
-  // ALLOWED.  Its tenancy statements are the ladder's cross-tenant rungs — a
-  // 404 by id, and the seeded row ABSENT from a 2xx collection read
-  // (`rowVisible`) — which this census does not count as refusals.
-  "corpus/inheritance-read-restrictions": {
-    "create POST /api/cars": R.sharedTenancyIdentity,
-    "create POST /api/dispatchers": R.sharedTenancyIdentity,
-    "create POST /api/drivers": R.sharedTenancyIdentity,
-    "create POST /api/trucks": R.sharedTenancyIdentity,
-    "destroy DELETE /api/dispatchers/{id}": R.sharedTenancyIdentity,
-    "destroy DELETE /api/trucks/{id}": R.sharedTenancyIdentity,
-    "find GET /api/cars": R.sharedTenancyIdentity,
-    "find GET /api/crews": R.sharedTenancyIdentity,
-    "find GET /api/vehicles": R.sharedTenancyIdentity,
-    "explicitHandler GET /api/cars/by_plate_any_tenant": R.sharedTenancyIdentity,
-    "explicitHandler GET /api/cars/by_plate_all": R.sharedTenancyIdentity,
-    "find GET /api/dispatchers": R.sharedTenancyIdentity,
-    "find GET /api/drivers": R.sharedTenancyIdentity,
-    "explicitHandler GET /api/drivers/by_name": R.sharedTenancyIdentity,
-    "explicitHandler GET /api/drivers/by_name_all": R.sharedTenancyIdentity,
-    "find GET /api/organizations": R.sharedTenancyIdentity,
-    "find GET /api/trucks": R.sharedTenancyIdentity,
-    "getById GET /api/dispatchers/{id}": R.sharedTenancyIdentity,
-    "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
-    "getById GET /api/trucks/{id}": R.sharedTenancyIdentity,
-    "operation POST /api/cars/{id}/restore": R.sharedTenancyIdentity,
-    "operation POST /api/cars/{id}/soft_delete": R.sharedTenancyIdentity,
-    "operation POST /api/cars/{id}/update": R.sharedTenancyIdentity,
-    "operation POST /api/dispatchers/{id}/update": R.sharedTenancyIdentity,
-    "operation POST /api/drivers/{id}/restore": R.sharedTenancyIdentity,
-    "operation POST /api/drivers/{id}/soft_delete": R.sharedTenancyIdentity,
-    "operation POST /api/drivers/{id}/update": R.sharedTenancyIdentity,
-  },
-
-  // Widened reads (`find(C) ignoring …`) on both persistence shapes.  The
-  // ladder reads every seeded row back as a FOREIGN tenant — 404 on the by-id
-  // read, ABSENT from the collection, PRESENT under the bypassing reads — so
-  // these surfaces' refusals are tenant-scoped, which only a second tenant can
-  // observe.
-  "corpus/find-bypass": {
-    "create POST /api/notes": R.sharedTenancyIdentity,
-    "create POST /api/orders": R.sharedTenancyIdentity,
-    "find GET /api/notes": R.sharedTenancyIdentity,
-    "find GET /api/orders": R.sharedTenancyIdentity,
-    "explicitHandler GET /api/orders/any_tenant": R.sharedTenancyIdentity,
-    "explicitHandler GET /api/orders/unfiltered": R.sharedTenancyIdentity,
-    "explicitHandler GET /api/notes/any_tenant": R.sharedTenancyIdentity,
-    "explicitHandler GET /api/notes/unfiltered": R.sharedTenancyIdentity,
-    "find GET /api/organizations": R.sharedTenancyIdentity,
-    "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
-    "operation POST /api/notes/{id}/restore": R.sharedTenancyIdentity,
-    "operation POST /api/notes/{id}/soft_delete": R.sharedTenancyIdentity,
-    "operation POST /api/notes/{id}/update": R.sharedTenancyIdentity,
-    "operation POST /api/orders/{id}/restore": R.sharedTenancyIdentity,
-    "operation POST /api/orders/{id}/soft_delete": R.sharedTenancyIdentity,
-    "operation POST /api/orders/{id}/update": R.sharedTenancyIdentity,
-  },
-
   // ── the showcase example — five `requires` and no runtime caller ─────────
   // `examples/showcase.ddd` is the repo's broadest sample and no runner boots
   // it, so its two guarded operations, two guarded workflow starters and one
@@ -592,6 +285,23 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "workflow POST /api/workflows/promote_to_production": R.notABehaviouralCase,
     "workflow POST /api/workflows/register_project": R.notABehaviouralCase,
   },
+
+  ...Object.fromEntries(
+    CORPUS.filter((f) => f.authzGate).map((f) => [
+      `corpus/${f.id}`,
+      Object.fromEntries(
+        Object.entries(f.authzGate ?? {})
+          .filter(([surface]) => surface !== "//")
+          .map(([surface, cls]) => {
+            if (!Object.hasOwn(R, cls))
+              throw new Error(
+                `${f.id}.corpus.json: authzGate["${surface}"] names no R class (${cls})`,
+              );
+            return [surface, R[cls as keyof typeof R]];
+          }),
+      ),
+    ]),
+  ),
 };
 
 /**
@@ -605,31 +315,3 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
  * with its own pins), a newly-broken one fails here first.
  */
 export const NON_PARSING_SOURCES: readonly string[] = [];
-
-/**
- * How many pins each reason class carries.  Recomputed from the pins by the
- * gate and compared BOTH ways, so adding a pin without raising its count is as
- * loud as draining one without lowering it — the mistake
- * `api-caller-census-pins`' prose tallies made twice.
- *
- * Only classes with at least one pin appear; a class that drains to zero is
- * deleted from here while its `R.*` reason stays, documenting the class for
- * when it recurs.
- */
-export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
-  // +4: the masked concretes' reads in `inheritance-read-gates`.
-  maskIsNotAStatus: 13,
-  sharedPrincipalId: 6,
-  notABehaviouralCase: 11,
-  importGateOnly: 1,
-  probeAnswersFalse: 2,
-  principalFreeGate: 20,
-  rowDataGate: 7,
-  // Includes the two polymorphic base list reads of
-  // `inheritance-read-restrictions`: their refusals are the ladder's
-  // cross-tenant `rowVisible` rungs, like every other collection read in that
-  // pin block.  +14: `cache-by-id-redis`, the redis twin of `cache-by-id`,
-  // whose routes carry the same reason.
-  sharedTenancyIdentity: 141,
-  oneSeededId: 6,
-};
