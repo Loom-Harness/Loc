@@ -22,6 +22,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 const repo = path.resolve(__dirname, "../..");
 
@@ -72,7 +73,8 @@ const PRINCIPAL_REDERIVATION: Readonly<Record<string, RegExp>> = {
 
 describe("generated-test plan census", () => {
   it("every listed emitter exists", () => {
-    for (const f of TEST_EMITTERS) expect(fs.existsSync(path.join(repo, f)), f).toBe(true);
+    const present = TEST_EMITTERS.filter((f) => fs.existsSync(path.join(repo, f)));
+    expectReach("generated-test emitter files", present.length, TEST_EMITTERS.length);
   });
 
   for (const [what, re] of Object.entries(ASSERTION_REDERIVATION)) {
