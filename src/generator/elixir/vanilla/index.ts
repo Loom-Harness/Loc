@@ -1,5 +1,5 @@
 import { aggregateRouteTypes } from "../../../ir/enrich/wire-policy.js";
-import { channelPlan, inboxDedupes } from "../../../ir/plan/index.js";
+import { channelPlan, deployableNeedsInbox } from "../../../ir/plan/index.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
 import { frontendAxesOf } from "../../../util/frontend-axes.js";
 import { bootRequiredAuthEnv } from "../../_auth/boot-required.js";
@@ -294,7 +294,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // routes through the `<App>.Channels` tee at the emit seams.
   const chPlan = channelPlan(contexts, sys ? { deployable, sys } : undefined);
   // Some consumer claims in the consumer inbox (`src/ir/plan/consumer-inbox.ts`).
-  const consumerDedupes = contexts.some((c) => inboxDedupes(c, chPlan.receivesDurable));
+  const consumerDedupes = deployableNeedsInbox(contexts, chPlan);
   const channelBindings = chPlan.bindings;
   const hasChannels = channelBindings.length > 0;
   // Durable-producer split (design §5): HOSTED durable events carried by a
@@ -514,7 +514,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // Saga tables live in the context's schema (matching the migration
     // `prefix:`), so the Ecto `@schema_prefix` and the DDL agree at runtime.
     const wfSchema = sys ? resolveContextSchema(ctx, sys) : undefined;
-    emitWorkflowStateSchemas(appName, ctx, appModule, out, wfSchema, chPlan.receivesDurable);
+    emitWorkflowStateSchemas(appName, ctx, appModule, out, wfSchema);
     // Event-sourced workflows (workflow-and-applier.md A2-S5b): the per-workflow
     // fold struct + `<wf>_events` Ecto schema + fold + stream IO modules (the
     // saga analogue of the ES aggregate files above).  The dispatcher branches
@@ -829,7 +829,6 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
         durableBroker: durableBrokerEvents.size > 0,
         carriesOrigin: deployable.auth?.required === true && !!sys.user,
         localOutbox: localOutboxBesideBroker,
-        pruneInbox: contexts.some((c) => inboxDedupes(c, true)),
         parksEventId: durableBrokerEvents.size > 0 || consumerDedupes,
       },
     );
@@ -855,13 +854,12 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       hostedDispatchers,
       deployable.auth?.required === true && !!sys.user,
       localOutboxBesideBroker ? { emitsSchema: durableBrokerEvents.size === 0 } : undefined,
-      contexts.some((c) => inboxDedupes(c, true)),
     );
     for (const [path, content] of emission.files) out.set(path, content);
     channelChildren = [...channelChildren, ...emission.children];
   }
-  // The consumer inbox's purge where no relay runs to do it.
-  if (consumerDedupes && !chPlan.hasOutbox) {
+  // The consumer inbox's purge, wherever a consumer claims.
+  if (consumerDedupes) {
     const emission = emitElixirInboxPurge(appName, appModule);
     for (const [path, content] of emission.files) out.set(path, content);
     channelChildren = [...channelChildren, ...emission.children];

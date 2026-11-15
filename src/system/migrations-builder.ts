@@ -56,7 +56,6 @@ import type {
   TableShape,
 } from "../ir/types/migrations-ir.js";
 import { contextHasAuditedTarget } from "../ir/util/audit-capability.js";
-import { durableEventTypes } from "../ir/util/channels.js";
 import { directParentOf } from "../ir/util/containment-parent.js";
 import {
   isDiscriminatedTphBase,
@@ -539,9 +538,10 @@ function outboxTableShape(ownerModule: string): TableShape {
   };
 }
 
-/** The fold inbox table — one row per `(projection, event_id)` a fold applied,
- *  written in the fold's own transaction.  The outbox retention purge deletes
- *  rows older than its window, the same window a redelivery can arrive in. */
+/** The consumer inbox table — one row per `(consumer, event_id)` a consumer
+ *  applied, written in the consumer's own transaction.  The inbox purge
+ *  deletes rows older than the outbox retention window, the same window a
+ *  redelivery can arrive in. */
 function inboxTableShape(ownerModule: string): TableShape {
   return {
     name: INBOX_TABLE,

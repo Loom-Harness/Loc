@@ -70,7 +70,6 @@ import {
   hasDurableEvents,
   hasStateRow,
   inboxClaimSql,
-  inboxDedupes,
   lookupOp,
   nestedSaves,
   reposNeeded,
@@ -438,7 +437,6 @@ export function buildWorkflowsFile(
         opFragments,
         usingMikro,
         resolveIsolation,
-        receivesDurable,
       ).map((l) => `  ${l}`),
     );
     body.push("");
@@ -978,13 +976,10 @@ function emitWorkflowRoute(
    *  files stay unmapped at the whole-file grain, but a fragment anchors by
    *  exact text regardless of what else shares the file). */
   opFragments?: OpFragment[],
-  /** `persistence: mikroorm` — the saga row this route load-or-allocates (F58)
-   *  is the Row ENTITY class, whose nullable `lastEventId` is a required
-   *  property under a durable channel; the allocate literal must spell it out.
-   *  Drizzle builds stay byte-identical. */
+  /** `persistence: mikroorm` — the saga row this route load-or-allocates is
+   *  the Row ENTITY class (F58). */
   usingMikro = false,
   resolveIsolation: (wf: WorkflowIR) => IsolationLevel | undefined = (wf) => wf.isolation,
-  receivesDurable: boolean = contextReceivesDurable(ctx),
 ): string[] {
   const out: string[] = [];
   out.push(`app.openapi(`);
@@ -2294,12 +2289,6 @@ function allocateLiteral(
   for (const f of requiredStateFields(wf)) {
     parts.push(`${f.name}: ${defaultLiteralFor(f.type, ctx)}`);
   }
-  // The idempotent-consumer marker is a NULLABLE column, which drizzle's
-  // `$inferInsert` makes optional — so the drizzle literal omits it.  The mikro
-  // state type is the Row CLASS, where `lastEventId!: string | null` is a
-  // required (if nullable) property, so a fresh instance must spell out the
-  // null: without it the `load ?? allocate` union loses the property and the
-  // marker read below does not type-check.
   return `{ ${parts.join(", ")} }`;
 }
 

@@ -269,10 +269,9 @@ public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
 `;
 }
 
-/** The AsyncLocal carrier for the in-flight outbox row id — set by the
- *  relay around each dispatch so saga handlers' idempotent-consumer
- *  markers (dispatch-delivery-semantics.md §3) can compare/stamp
- *  `LastEventId` without widening the event records. */
+/** The AsyncLocal carrier for the delivered envelope id — set by the relay
+ *  and the broker consumer around each dispatch, and claimed in the consumer
+ *  inbox by every consumer, without widening the event records. */
 export function renderOutboxDelivery(ns: string): string {
   return `// Auto-generated.
 using System.Threading;

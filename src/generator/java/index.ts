@@ -7,8 +7,8 @@ import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import { type CachedByIdRead, cachePlanFor } from "../../ir/plan/cache.js";
 import {
   channelPlan,
+  deployableNeedsInbox,
   eventSourcedWorkflows,
-  inboxDedupes,
   observableWorkflows,
   polymorphicReadGates,
   polymorphicReadMasked,
@@ -426,10 +426,9 @@ function emitProjectFromContexts(
   // Durable broker-bound events (M-T4.4): HOSTED durable events carried by a
   // wired `queue`/`work` (or future `log`) channel — their producer path rides
   // the outbox relay (design §5), never the inline tee.
-  // The relay purge prunes the consumer inbox when a hosted consumer claims.
-  const pruneInbox = contexts.some((c) => inboxDedupes(c, true));
-  // Some consumer claims in the consumer inbox (`src/ir/plan/consumer-inbox.ts`).
-  const consumerDedupes = contexts.some((c) => inboxDedupes(c, chPlan.receivesDurable));
+  // Some consumer claims in the consumer inbox (`src/ir/plan/consumer-inbox.ts`):
+  // the deployable runs the inbox purge.
+  const consumerDedupes = deployableNeedsInbox(contexts, chPlan);
   // The delivery-id carrier: the relays and the broker consumer set it, every
   // claiming consumer reads it.
   if (chPlan.hasOutbox || consumerDedupes) {
@@ -1002,14 +1001,7 @@ function emitProjectFromContexts(
       place(
         `${workflowStateClass(wf)}.java`,
         "infra-persistence",
-        renderWorkflowStateEntity(
-          wf,
-          ctx,
-          basePkg,
-          pkgFor("infra-persistence"),
-          ctxSchema,
-          chPlan.receivesDurable,
-        ),
+        renderWorkflowStateEntity(wf, ctx, basePkg, pkgFor("infra-persistence"), ctxSchema),
         undefined,
         wf.origin,
         wfConstruct,
@@ -1093,6 +1085,7 @@ function emitProjectFromContexts(
         extraChannels: hasChannels ? wiredForeignChannels : undefined,
         brokerEvents: hasChannels ? brokerEvents : undefined,
         deployableDurable: chPlan.receivesDurable,
+        sys: system?.sys,
         localDurableEvents: standaloneOutbox ? localDurable : undefined,
         resources: { classes: resourceEmission.classes, pkg: pkgFor("resource-client") },
       },
@@ -1327,7 +1320,6 @@ function emitProjectFromContexts(
         configPkg: pkgFor("config"),
         entityPkg: pkgFor("infra-persistence"),
         repoPkg: pkgFor("spring-data-repository"),
-        pruneInbox,
       })) {
         // The broker relay (OutboxRelayService) is replaced by LocalOutboxRelay.
         if (f.name === "OutboxRelayService.java") continue;
@@ -1342,7 +1334,6 @@ function emitProjectFromContexts(
       repoPkg: pkgFor("spring-data-repository"),
       carriesOrigin: authRequired,
       partitioned: partitionedOutbox,
-      pruneInbox,
     })) {
       place(f.name, f.category, f.content);
     }
@@ -1460,7 +1451,6 @@ function emitProjectFromContexts(
         carriesOrigin: authRequired,
         basePkg,
         partitioned: partitionedOutbox,
-        pruneInbox,
       })) {
         place(f.name, f.category, f.content);
       }
@@ -1468,7 +1458,7 @@ function emitProjectFromContexts(
   }
 
   // The consumer inbox's purge where no relay runs to do it.
-  if (consumerDedupes && !standaloneOutbox && durableBrokerEvents.size === 0) {
+  if (consumerDedupes) {
     place("InboxPurgeService.java", "config", renderJavaInboxPurgeService(pkgFor("config")));
   }
 

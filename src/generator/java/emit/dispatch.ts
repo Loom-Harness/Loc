@@ -3,14 +3,14 @@ import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
 import {
   esStarterSharesEvent,
   type FoldStep,
-  foldInboxClaimSql,
+  foldConsumerKey,
   foldSteps,
   foldsDedupe,
   inboxClaimSql,
   namesBound,
   subscriptionHandler,
   workflowClaims,
-  workflowInboxKey,
+  workflowConsumerKey,
 } from "../../../ir/plan/index.js";
 import type {
   ChannelIR,
@@ -19,6 +19,7 @@ import type {
   ExprIR,
   ProjectionIR,
   ProjectionOnIR,
+  SystemIR,
   WorkflowIR,
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
@@ -103,9 +104,10 @@ export interface DispatchCtx {
    *  delivery instead of Spring's local fan-out). */
   brokerEvents?: ReadonlySet<string>;
   /** The deployable delivers durably (`channelPlan(...).receivesDurable`):
-   *  folds and state-based saga handlers claim in the consumer inbox, and
-   *  saga rows map `last_event_id`. */
+   *  folds and workflow handlers claim in the consumer inbox. */
   deployableDurable?: boolean;
+  /** The system: each consumer-inbox key names its declaring context. */
+  sys?: SystemIR;
   /** Durable events on a channel with NO broker (dispatch-delivery-semantics.md
    *  standalone tier): their handlers also DROP the local `@EventListener` — a
    *  durable event is recorded in `__loom_outbox` inside the producer's tx and
@@ -201,12 +203,25 @@ function projRepoField(proj: ProjectionIR): string {
  *  The key is the immutable `@EmbeddedId`, seeded by `_allocate`.  The method
  *  carries no `@EventListener`: the dispatcher's `ReactorListener` runs it
  *  after the command commits, in its own transaction. */
+/** The consumer-inbox claim at the top of a handler method: the dispatcher
+ *  is `@Transactional`, so the claim through its `JdbcTemplate` commits with
+ *  the method's writes, and a delivery already claimed — redelivered, here or
+ *  on another replica — returns at once. */
+function javaClaimLines(consumerKey: string): string[] {
+  return [
+    `        var __eventId = OutboxDelivery.currentEventId();`,
+    `        if (__eventId != null && jdbc.update(${JSON.stringify(inboxClaimSql("?", "?", false))}, ${JSON.stringify(consumerKey)}, __eventId) == 0) return;`,
+  ];
+}
+
 function renderProjectionFold(
   proj: ProjectionIR,
   on: ProjectionOnIR,
   sub: EventSubscriptionIR,
   basePkg: string,
-  dedupe = false,
+  /** The fold's consumer-inbox key when it claims durably delivered events;
+   *  absent, it claims nothing. */
+  consumerKey?: string,
 ): string[] {
   const corr = proj.correlationField as string;
   const cls = projectionRowClass(proj);
@@ -237,14 +252,9 @@ function renderProjectionFold(
   // metadata — the dispatching frame's event origin — keys the row by it and
   // stamps it on allocation.  An event with no tenant has no tenant's row.
   const tenancy = foldTenancyFor(proj);
-  // A durably delivered event folds once: the claim on `(projection, event_id)`
-  // in the fold inbox commits with the row save, in the method's transaction.
-  const claim = dedupe
-    ? [
-        `        var __eventId = OutboxDelivery.currentEventId();`,
-        `        if (__eventId != null && jdbc.update(${JSON.stringify(foldInboxClaimSql("?", "?", false))}, ${JSON.stringify(proj.name)}, __eventId) == 0) return;`,
-      ]
-    : [];
+  // A durably delivered event folds once: the consumer-inbox claim commits
+  // with the row save, in the method's transaction.
+  const claim = consumerKey !== undefined ? javaClaimLines(consumerKey) : [];
   const body: string[] = tenancy
     ? [
         `        var __origin = ${basePkg}.auth.User.currentEventOrigin();`,
@@ -262,7 +272,9 @@ function renderProjectionFold(
   for (const step of steps) body.push(...renderProjectionFoldStep(step, proj, renderCtx));
   body.push(`        ${repo}.save(state);`);
   return [
-    ...(dedupe ? [`    @org.springframework.transaction.annotation.Transactional`] : []),
+    ...(consumerKey !== undefined
+      ? [`    @org.springframework.transaction.annotation.Transactional`]
+      : []),
     `    @EventListener`,
     `    public void on${DOMAIN_NAMES.java.type(proj.name)}On${DOMAIN_NAMES.java.type(sub.event)}(${sub.event} ${param}) {`,
     ...body,
@@ -395,8 +407,14 @@ export function renderJavaDispatcher(
   // Projections whose fold this dispatcher wires — each injects a read-model row
   // Spring Data repo (deduped, declaration order).
   const touchedProjections: ProjectionIR[] = [];
-  // Folds claim each durably delivered event in the fold inbox (`foldsDedupe`).
+  // Folds claim each durably delivered event in the consumer inbox (`foldsDedupe`).
   const dedupe = foldsDedupe(ctx, dctx.deployableDurable === true);
+  // A workflow handler's consumer-inbox key when it claims durably delivered
+  // events (`workflowClaims`).
+  const keyFor = (wf: WorkflowIR, sub: EventSubscriptionIR): string | undefined =>
+    workflowClaims(wf, dctx.deployableDurable === true)
+      ? workflowConsumerKey(dctx.sys, ctx, sub, subs)
+      : undefined;
 
   // Event-sourced saga double-append (S5b): when an event-sourced workflow has
   // BOTH an `on` reactor and an event-`create` starter for the SAME event,
@@ -448,7 +466,13 @@ export function renderJavaDispatcher(
       pushHandler(
         `on${DOMAIN_NAMES.java.type(proj.name)}On${DOMAIN_NAMES.java.type(sub.event)}`,
         sub.event,
-        renderProjectionFold(proj, on, sub, dctx.basePkg, dedupe),
+        renderProjectionFold(
+          proj,
+          on,
+          sub,
+          dctx.basePkg,
+          dedupe ? foldConsumerKey(dctx.sys, ctx, proj.name, on.event) : undefined,
+        ),
         true,
       );
       if (foldTenancyFor(proj) && !relayDelivered(sub.event)) foldReadsOrigin = true;
@@ -484,6 +508,7 @@ export function renderJavaDispatcher(
           dctx.resources?.classes,
           unionPkgOf,
           `${dctx.basePkg}.auth`,
+          keyFor(wf, sub),
         ),
         true,
       );
@@ -507,6 +532,7 @@ export function renderJavaDispatcher(
             dctx.resources?.classes,
             unionPkgOf,
             `${dctx.basePkg}.auth`,
+            keyFor(wf, sub),
           )
         : renderHandler(
             ctx,
@@ -518,7 +544,7 @@ export function renderJavaDispatcher(
             dctx.resources?.classes,
             unionPkgOf,
             `${dctx.basePkg}.auth`,
-            dctx.deployableDurable === true,
+            keyFor(wf, sub),
           ),
       true,
     );
@@ -649,12 +675,8 @@ export function renderJavaDispatcher(
   ) {
     imports.add(`${res.pkg}.*`);
   }
-  // The idempotent-consumer marker preamble (renderHandler, above) references
-  // OutboxDelivery only for non-event-sourced sagas under a durable channel.
-  if (
-    dctx.deployableDurable === true &&
-    (stateWfs.length > 0 || (dedupe && touchedProjections.length > 0))
-  ) {
+  // The consumer-inbox claim reads the delivery id off OutboxDelivery.
+  if (methods.some((m) => m.includes("OutboxDelivery.currentEventId()"))) {
     imports.add(`${dctx.basePkg}.domain.common.OutboxDelivery`);
   }
 
@@ -805,8 +827,9 @@ function renderHandler(
   unionPkgOf?: (unionName: string) => string | undefined,
   /** The generated `auth` package — see `javaPublishDrained`. */
   authPkg?: string,
-  /** The deployable delivers durably — see `DispatchCtx.deployableDurable`. */
-  durable = false,
+  /** The handler's consumer-inbox key (`workflowConsumerKey`) when it claims
+   *  durably delivered events; absent, it claims nothing. */
+  consumerKey?: string,
 ): string[] {
   const corr = wf.correlationField as string;
   // The event param is the method's own parameter, alongside `__key`, `state`,
@@ -852,13 +875,7 @@ function renderHandler(
   // A durably delivered event is claimed in the consumer inbox first, on the
   // method's transaction: the claim commits with the body's writes, and a
   // delivery already claimed — here or on another replica — does nothing.
-  const claims = workflowClaims(wf, durable);
-  if (claims) {
-    body.push(`        var __eventId = OutboxDelivery.currentEventId();`);
-    body.push(
-      `        if (__eventId != null && jdbc.update(${JSON.stringify(inboxClaimSql("?", "?", false))}, ${JSON.stringify(workflowInboxKey(wf.name))}, __eventId) == 0) return;`,
-    );
-  }
+  if (consumerKey !== undefined) body.push(...javaClaimLines(consumerKey));
   body.push(`        var __key = ${keyExpr};`);
   if (sub.trigger === "create") {
     body.push(
@@ -926,9 +943,6 @@ function renderHandler(
       )}`,
     );
   }
-  // The row records the last event applied to it; the inbox claim, not this
-  // column, is what dedupes.
-  if (claims) body.push(`        if (__eventId != null) state.setLastEventId(__eventId);`);
   body.push(`        ${repo}.save(state);`);
   if (hasEmit) {
     body.push(`        for (var __e : __events) events.publishEvent(__e);`);
@@ -966,6 +980,9 @@ function renderEsHandler(
   unionPkgOf?: (unionName: string) => string | undefined,
   /** The generated `auth` package — see `javaPublishDrained`. */
   authPkg?: string,
+  /** The handler's consumer-inbox key when it claims: the claim and the
+   *  stream append share the method's transaction. */
+  consumerKey?: string,
 ): string[] {
   const corr = wf.correlationField as string;
   const reserved = reactorReserved(wf, [resolved], ctx);
@@ -1034,7 +1051,10 @@ function renderEsHandler(
 
   // The handler body at the 8-space base; wrapped below in a child frame so the
   // base shifts to 12-space without rewriting every line.
-  const body: string[] = [`        var __key = ${keyExpr};`];
+  const body: string[] = [
+    ...(consumerKey !== undefined ? javaClaimLines(consumerKey) : []),
+    `        var __key = ${keyExpr};`,
+  ];
   // `__sid` is needed by an `on` reactor's stream load (always), the append
   // (when the body emits), and the fold load (when the body reads state).
   if (sub.trigger === "on" || hasEmit || usesState) {
@@ -1245,6 +1265,8 @@ function renderEsMergedHandler(
   unionPkgOf?: (unionName: string) => string | undefined,
   /** The generated `auth` package — see `javaPublishDrained`. */
   authPkg?: string,
+  /** See `renderEsHandler`. */
+  consumerKey?: string,
 ): string[] {
   const corr = wf.correlationField as string;
   // Both event bindings are locals of the ONE merged method (the create
@@ -1301,6 +1323,7 @@ function renderEsMergedHandler(
   const usesState = createBranch.usesState || onBranch.usesState;
 
   const body: string[] = [
+    ...(consumerKey !== undefined ? javaClaimLines(consumerKey) : []),
     `        var __key = ${keyExpr};`,
     `        var __sid = String.valueOf(__key.value());`,
     `        var __rows = jdbc.queryForList(`,

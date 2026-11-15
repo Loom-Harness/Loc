@@ -1,4 +1,4 @@
-import { foldInboxPurgeSql } from "../../ir/plan/index.js";
+import { inboxPurgeSql } from "../../ir/plan/index.js";
 import type { EventIR, StmtIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { branchesContain } from "../../ir/util/if-normal-form.js";
 import {
@@ -239,7 +239,7 @@ export interface ElixirConsumerRoute {
  *     there is no aggregate change to be atomic with.
  *   - `<App>.LocalOutboxRelay` (a GenServer poll loop) drains undispatched rows,
  *     decodes each back to its struct, parks the row id on the process
- *     dictionary (the `last_event_id` saga marker dedups redelivery), and
+ *     dictionary (every consumer claims it in the consumer inbox), and
  *     broadcasts it to every hosted context Dispatcher — the subscriber handles
  *     it, non-subscribers no-op (the Dispatcher's catch-all clause).  A
  *     reactor's own durable emit re-enters the tee → the next drain, so
@@ -322,9 +322,6 @@ function elixirOutboxRelayModule(
   /** The relay takes only rows of these event types: set when a broker relay
    *  and a local relay share __loom_outbox, so each row has one relay. */
   types?: readonly string[],
-  /** The folds claim events in the fold inbox (`foldsDedupe`): the purge
-   *  prunes it on the outbox's window. */
-  pruneInbox = false,
 ): string {
   const typeAttr = types ? `\n  @types ${JSON.stringify([...types].sort())}\n` : "";
   const typeWhere = types ? " and o.type in ^@types" : "";
@@ -442,12 +439,7 @@ ${
         limit: @purge_batch
       )
 
-    ${appModule}.Repo.delete_all(from(o in ${appModule}.LoomOutbox, where: o.id in subquery(expired)))${
-      pruneInbox
-        ? `
-    ${appModule}.Repo.query!(${JSON.stringify(foldInboxPurgeSql("$1"))}, [cutoff])`
-        : ""
-    }
+    ${appModule}.Repo.delete_all(from(o in ${appModule}.LoomOutbox, where: o.id in subquery(expired)))
   rescue
     error ->
       ${purgeErrorLog}
@@ -511,8 +503,6 @@ export function emitElixirStandaloneOutbox(
    *  `LoomOutbox` schema: this tier is then `<App>.LocalOutbox`, the broker
    *  tee's local fallthrough, and its relay takes only its own event types. */
   besideBroker?: { emitsSchema: boolean },
-  /** See `elixirOutboxRelayModule`. */
-  pruneInbox = false,
 ): ElixirChannelFiles {
   const tee = besideBroker ? "LocalOutbox" : "Channels";
   const files = emissionSink("generator/elixir/channels-emit");
@@ -630,8 +620,8 @@ end
     `# Auto-generated.  Standalone transactional-outbox relay
 # (dispatch-delivery-semantics.md §2): drains pending __loom_outbox rows in
 # occurred_at order and delivers them to the LOCAL context dispatchers
-# at-least-once.  The row id rides the process dictionary so a saga handler's
-# last_event_id marker no-ops on a redelivery.
+# at-least-once.  The row id rides the process dictionary, and every consumer
+# claims it in the consumer inbox, so a redelivery applies once.
 ${elixirOutboxRelayModule(
   appModule,
   "LocalOutboxRelay",
@@ -644,7 +634,6 @@ ${elixirOutboxRelayModule(
     end`,
   false,
   besideBroker ? durableNames : undefined,
-  pruneInbox,
 )}`,
   );
   children.push(`      ${appModule}.LocalOutboxRelay`);
@@ -671,8 +660,6 @@ export function emitElixirChannelFiles(
      *  local fallthrough goes through `<App>.LocalOutbox`, which records them,
      *  and the broker relay takes only the broker-routed rows. */
     localOutbox?: boolean;
-    /** The folds claim events in the fold inbox (`foldsDedupe`). */
-    pruneInbox?: boolean;
     /** The consumer parks the envelope id in the process dictionary for the
      *  dispatch it runs: a consumer claims in the inbox, or the relay sets the
      *  same carrier.  Defaults to `durableBroker`. */
@@ -1240,7 +1227,6 @@ ${elixirOutboxRelayModule(
   `    ${appModule}.Channels.publish_from_relay(row.type, row.payload, row.id)`,
   true,
   opts.localOutbox ? [...durableRouting.keys()] : undefined,
-  opts.pruneInbox ?? false,
 )}`,
     );
     children.push(`      ${appModule}.OutboxRelay`);
@@ -1904,7 +1890,7 @@ defmodule ${appModule}.InboxPurge do
   @doc "One purge pass: deletes the claims no redelivery can still need."
   def purge do
     cutoff = DateTime.add(DateTime.utc_now(), -retention_days() * 86_400, :second)
-    ${appModule}.Repo.query!(${JSON.stringify(foldInboxPurgeSql("$1"))}, [cutoff])
+    ${appModule}.Repo.query!(${JSON.stringify(inboxPurgeSql("$1"))}, [cutoff])
   rescue
     error ->
       ${purgeErrorLog}

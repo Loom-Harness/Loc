@@ -5,21 +5,21 @@ import {
   eventSourcedWorkflows,
   type FoldRowSeed,
   type FoldStep,
+  foldConsumerKey,
   foldedEventNames,
-  foldInboxClaimSql,
-  foldInboxPurgeSql,
   foldRowSeeds,
   foldSteps,
   foldsDedupe,
   inboxClaimSql,
   inboxDedupes,
+  inboxPurgeSql,
   liveLetNames,
   reposNeeded,
   requiredStateFields,
   stateZero,
   subscriptionHandler,
   workflowClaims,
-  workflowInboxKey,
+  workflowConsumerKey,
 } from "../../ir/plan/index.js";
 import type {
   AggregateIR,
@@ -88,7 +88,7 @@ import { pyWorkflowStmtTarget } from "./workflows-builder.js";
 // durable events in `__loom_outbox` inside the request transaction; a
 // background relay (`start_outbox_relay`, drained by `_run_outbox_relay`)
 // redelivers them at-least-once through the in-process dispatcher, with
-// `last_event_id` idempotent-consumer dedup on the saga rows
+// the consumer-inbox claim of every durably delivered event
 // (dispatch-delivery-semantics.md).  Ephemeral channels keep the
 // at-most-once in-process path.
 // ---------------------------------------------------------------------------
@@ -203,7 +203,7 @@ export function buildPyDispatchFile(
 ): string | null {
   const subs = dispatchSubscriptionsOf(ctx);
   // Durable tier: events on a `retention: log | work` channel route
-  // through `__loom_outbox` + the relay; saga rows gain `last_event_id`.
+  // through `__loom_outbox` + the relay.
   const durableSet = durableEventTypes(ctx);
   const durableEvents = ctx.events.filter((e) => durableSet.has(e.name));
   const hasOutbox = outboxTier && durableEvents.length > 0;
@@ -320,7 +320,15 @@ export function buildPyDispatchFile(
       const on = proj.handlers.find((h) => h.event === sub.event && h.param === sub.param);
       if (!on) continue;
       const fn = `_proj_${DOMAIN_NAMES.python.stem(proj.name)}_${DOMAIN_NAMES.python.stem(sub.event)}`;
-      handlers.push(projectionHandlerFn(fn, proj, on, foldsDedupe(ctx, durable)), "");
+      handlers.push(
+        projectionHandlerFn(
+          fn,
+          proj,
+          on,
+          foldsDedupe(ctx, durable) ? foldConsumerKey(sys, ctx, proj.name, on.event) : undefined,
+        ),
+        "",
+      );
       const list = handlerByEvent.get(sub.event) ?? [];
       list.push(fn);
       handlerByEvent.set(sub.event, list);
@@ -354,7 +362,7 @@ export function buildPyDispatchFile(
         construct,
         ctx,
         opFragments,
-        workflowClaims(wf, durable),
+        workflowClaims(wf, durable) ? workflowConsumerKey(sys, ctx, sub, subs) : undefined,
       ),
       "",
     );
@@ -439,12 +447,12 @@ export function buildPyDispatchFile(
             pureProducer: false,
             hasRealtime,
             carriesOrigin,
-            pruneInbox: inboxDedupes(ctx, true),
           }),
         ]
       : consumerDedupes
-        ? ["", "", consumerInboxBlock()]
+        ? ["", "", deliveryIdBlock()]
         : []),
+    ...(consumerDedupes ? ["", "", inboxPurgeBlock()] : []),
   );
   const eventNames = [...new Set(subs.map((s) => s.event))].sort();
   // `let x = Agg.create(…)` constructs the domain class directly.
@@ -573,13 +581,27 @@ function projectionStateHelper(proj: ProjectionIR): string {
  *  key (every handler allocates — a projection has no route-or-drop split),
  *  apply the fold plan's steps against `state`, flush.  Pure — no repos, no
  *  emit, no child-context frame (enforced by `loom.projection-fold-impure`). */
+/** The consumer-inbox claim at the top of a handler: it runs in the
+ *  handler's session, whose transaction commits with the handler's writes, so
+ *  a delivery already claimed — redelivered, here or on another replica —
+ *  does nothing. */
+function pyClaimLines(consumerKey: string): string[] {
+  return [
+    "    __eid = _current_event_id.get()",
+    "    if __eid is not None:",
+    `        __claimed = await session.execute(${SA_TEXT}(${JSON.stringify(inboxClaimSql(":consumer", ":event_id", true))}), {"consumer": ${JSON.stringify(consumerKey)}, "event_id": __eid})`,
+    "        if __claimed.first() is None:",
+    "            return",
+  ];
+}
+
 function projectionHandlerFn(
   fn: string,
   proj: ProjectionIR,
   on: ProjectionOnIR,
-  /** Folds claim each durably delivered event in the fold inbox
-   *  (`foldsDedupe`); the claim commits with the caller's session. */
-  dedupe = false,
+  /** The fold's consumer-inbox key when it claims durably delivered events;
+   *  the claim commits with the caller's session. */
+  consumerKey?: string,
 ): string {
   const row = schemaRow(`${proj.name}Row`);
   const corr = DOMAIN_NAMES.python.prop(proj.correlationField as string);
@@ -613,15 +635,7 @@ function projectionHandlerFn(
           "        return",
         ]
       : []),
-    ...(dedupe
-      ? [
-          "    __eid = _current_event_id.get()",
-          "    if __eid is not None:",
-          `        __claimed = await session.execute(${SA_TEXT}(${JSON.stringify(foldInboxClaimSql(":projection", ":event_id", true))}), {"projection": ${JSON.stringify(proj.name)}, "event_id": __eid})`,
-          "        if __claimed.first() is None:",
-          "            return",
-        ]
-      : []),
+    ...(consumerKey !== undefined ? pyClaimLines(consumerKey) : []),
     `    __key = str(${keyExpr})`,
     `    state = await _load_${DOMAIN_NAMES.python.stem(proj.name)}(session, __key${cols ? ", __tenant" : ""})`,
     "    if state is None:",
@@ -789,9 +803,10 @@ function handlerFn(
   ctx: EnrichedBoundedContextIR,
   /** Source-map — see `buildPyDispatchFile`'s `opFragments`. */
   opFragments?: OpFragment[],
-  /** The handler claims a durably delivered event in the consumer inbox
-   *  (`workflowClaims`), in the session's transaction, before its body. */
-  claims = false,
+  /** The handler's consumer-inbox key when it claims durably delivered
+   *  events (`workflowConsumerKey`), in the session's transaction, before its
+   *  body. */
+  consumerKey?: string,
 ): string {
   if (wf.correlationField && wf.eventSourced) {
     return esHandlerFn(
@@ -806,6 +821,7 @@ function handlerFn(
       construct,
       ctx,
       opFragments,
+      consumerKey,
     );
   }
   const param = DOMAIN_NAMES.python.binding(sub.param);
@@ -819,18 +835,7 @@ function handlerFn(
     ") -> None:",
     ...bindSystemPrincipal(statements, ctx),
   ];
-  if (claims) {
-    // The claim runs in the session's transaction, which commits with the
-    // body's writes: a delivery already claimed — redelivered, here or on
-    // another replica — does nothing.
-    out.push(
-      "    __eid = _current_event_id.get()",
-      "    if __eid is not None:",
-      `        __claimed = await session.execute(${SA_TEXT}(${JSON.stringify(inboxClaimSql(":consumer", ":event_id", true))}), {"consumer": ${JSON.stringify(workflowInboxKey(wf.name))}, "event_id": __eid})`,
-      "        if __claimed.first() is None:",
-      "            return",
-    );
-  }
+  if (consumerKey !== undefined) out.push(...pyClaimLines(consumerKey));
   const persisted = !!wf.correlationField;
   // Persisted handlers render `this.<stateField>` against the tracked row.
   const rctx = persisted ? { thisName: "state" } : { thisName: "self" };
@@ -857,10 +862,6 @@ function handlerFn(
     }
     // The row records the last event applied to it; the inbox claim above,
     // not this column, is what dedupes.
-    if (claims) {
-      out.push("    if __eid is not None:");
-      out.push("        state.last_event_id = __eid");
-    }
   }
   for (const r of reposIn(statements, saves)) {
     out.push(
@@ -929,6 +930,9 @@ function esHandlerFn(
   ctx: EnrichedBoundedContextIR,
   /** Source-map — see `buildPyDispatchFile`'s `opFragments`. */
   opFragments?: OpFragment[],
+  /** The handler's consumer-inbox key when it claims: the claim and the
+   *  stream append share the session's transaction. */
+  consumerKey?: string,
 ): string {
   const param = DOMAIN_NAMES.python.binding(sub.param);
   const corr = wf.correlationField as string;
@@ -961,6 +965,7 @@ function esHandlerFn(
     `    session: AsyncSession, events: "InProcessDispatcher", ${param}: ${sub.event}`,
     ") -> None:",
     ...bindSystemPrincipal(statements, ctx),
+    ...(consumerKey !== undefined ? pyClaimLines(consumerKey) : []),
     `    __key = str(${keyExpr})`,
   ];
   // `__events` is needed by an `on` reactor's empty-stream check (always), a
@@ -1053,11 +1058,10 @@ const OUTBOX_FAIL_BLOCK: readonly string[] = [
  *  environment (a missing, non-numeric or non-positive value falls back to
  *  the default) and one bounded-batch DELETE of the dispatched rows older
  *  than it.  Dead rows are never dispatched, so they are never purged. */
-/** The delivery-id carrier and the inbox purge of a module with no outbox
- *  tier: the broker consumer sets `_current_event_id` for the dispatch it
- *  runs, the claiming handlers read it, and `start_inbox_purge` prunes claims
- *  on the outbox retention window (the relay does it otherwise). */
-function consumerInboxBlock(): string {
+/** The delivery-id carrier of a module with no outbox tier: the broker
+ *  consumer sets `_current_event_id` for the dispatch it runs and the claiming
+ *  handlers read it. */
+function deliveryIdBlock(): string {
   return lines(
     `_current_event_id: ${CONTEXT_VAR}[str | None] = ${CONTEXT_VAR}("loom_outbox_event_id", default=None)`,
     "",
@@ -1072,9 +1076,15 @@ function consumerInboxBlock(): string {
     "        await events.dispatch(event)",
     "    finally:",
     "        _current_event_id.reset(token)",
-    "",
-    "",
-    "def _outbox_retention_days() -> int:",
+  );
+}
+
+/** The consumer inbox's retention purge, started by the lifespan wherever a
+ *  consumer claims: `purge_inbox` deletes claims older than the outbox
+ *  retention window, once at start and then every purge interval. */
+function inboxPurgeBlock(): string {
+  return lines(
+    "def _inbox_retention_days() -> int:",
     "    try:",
     `        days = int(${OS}.environ.get("${OUTBOX_RETENTION_ENV}", ""))`,
     "    except ValueError:",
@@ -1083,13 +1093,13 @@ function consumerInboxBlock(): string {
     "",
     "",
     "async def purge_inbox() -> None:",
-    `    cutoff = ${PY.datetime}.now(${PY.UTC}) - ${PY.timedelta}(days=_outbox_retention_days())`,
+    `    cutoff = ${PY.datetime}.now(${PY.UTC}) - ${PY.timedelta}(days=_inbox_retention_days())`,
     `    async with AsyncSession(${ENGINE}) as session:`,
-    `        await session.execute(${SA_TEXT}(${JSON.stringify(foldInboxPurgeSql(":cutoff"))}), {"cutoff": cutoff})`,
+    `        await session.execute(${SA_TEXT}(${JSON.stringify(inboxPurgeSql(":cutoff"))}), {"cutoff": cutoff})`,
     "        await session.commit()",
     "",
     "",
-    `async def _inbox_purge_loop() -> None:`,
+    "async def _inbox_purge_loop() -> None:",
     "    # A start prunes at once, so a restart never waits a whole interval.",
     "    while True:",
     "        try:",
@@ -1104,7 +1114,7 @@ function consumerInboxBlock(): string {
   );
 }
 
-function outboxPurgeFns(pruneInbox = false): readonly string[] {
+function outboxPurgeFns(): readonly string[] {
   return [
     "def _outbox_retention_days() -> int:",
     "    try:",
@@ -1119,12 +1129,6 @@ function outboxPurgeFns(pruneInbox = false): readonly string[] {
     `    expired = ${SELECT}(${OUTBOX_ROW}.id).where(${OUTBOX_ROW}.dispatched_at < cutoff).limit(${OUTBOX_PURGE_BATCH})`,
     `    async with AsyncSession(${ENGINE}) as session:`,
     `        await session.execute(${DELETE}(${OUTBOX_ROW}).where(${OUTBOX_ROW}.id.in_(expired)))`,
-    // The fold inbox shares the window: a claim outlives every redelivery.
-    ...(pruneInbox
-      ? [
-          `        await session.execute(${SA_TEXT}(${JSON.stringify(foldInboxPurgeSql(":cutoff"))}), {"cutoff": cutoff})`,
-        ]
-      : []),
     "        await session.commit()",
     "",
     "",
@@ -1156,9 +1160,6 @@ function outboxBlock(
     pureProducer: boolean;
     hasRealtime?: boolean;
     carriesOrigin?: boolean;
-    /** The folds claim events in the fold inbox (`foldsDedupe`): the purge
-     *  prunes it on the outbox's window. */
-    pruneInbox?: boolean;
   },
 ): string {
   const origin = opts.carriesOrigin ?? false;
@@ -1278,7 +1279,7 @@ function outboxBlock(
     "        raise halted",
     "",
     "",
-    ...outboxPurgeFns(opts.pruneInbox),
+    ...outboxPurgeFns(),
     "async def _run_outbox_relay(",
     `    interval: float = ${OUTBOX_RELAY.intervalMs / 1000}, max_attempts: int = ${OUTBOX_RELAY.maxAttempts}, batch_size: int = ${OUTBOX_RELAY.batchSize}`,
     ") -> None:",

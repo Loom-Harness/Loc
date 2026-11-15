@@ -16,7 +16,6 @@ import {
   projectionTableName,
 } from "../../../ir/enrich/storage-names.js";
 import {
-  contextReceivesDurable,
   eventLogTable,
   eventSourcedWorkflows,
   hasStateRow,

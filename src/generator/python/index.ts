@@ -16,7 +16,7 @@ import {
 import { cachePlanFor } from "../../ir/plan/cache.js";
 import {
   channelPlan,
-  inboxDedupes,
+  deployableNeedsInbox,
   observableWorkflows,
   QUERY_PARAM_MISMATCH_MESSAGES,
   type QueryParamMismatchKind,
@@ -536,10 +536,10 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // (design §5): no subscription, but the relay must still drain the outbox
   // to publish.  No durable channel → byte-identical boot.
   const startsRelay = chPlan.hasOutbox;
-  // A consumer claims in the inbox (`src/ir/plan/consumer-inbox.ts`) and no
-  // relay runs to purge it.
-  const consumerDedupes = inboxDedupes(merged, chPlan.receivesDurable);
-  const inboxPurge = consumerDedupes && !startsRelay;
+  // A consumer claims in the consumer inbox (`src/ir/plan/consumer-inbox.ts`):
+  // the lifespan runs the inbox purge.
+  const consumerDedupes = deployableNeedsInbox(args.contexts, chPlan);
+  const inboxPurge = consumerDedupes;
   // Explicit transport layer (unfoldable-api-derivation.md, A2): one APIRouter
   // per served api whose `route` list resolves to a hosted handler, dispatching
   // each route to its `app/application/<handler>.py` function.  Emitted before
@@ -644,7 +644,6 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       resolveWorkflowSchema,
       resolveProjectionSchema,
       resolveStreamContext,
-      chPlan.receivesDurable,
     ),
   );
   out.set("app/db/wire.py", WIRE_PY);

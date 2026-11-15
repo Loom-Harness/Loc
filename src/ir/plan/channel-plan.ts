@@ -79,8 +79,8 @@ export interface ChannelPlan {
   /** Consumed events whose redelivery the consumer must dedupe on the
    *  envelope id: every consumed durable event, hosted or foreign. */
   dedupedEvents: ReadonlySet<string>;
-  /** The deployable's consumers run the redelivery dedupe — the saga
-   *  `last_event_id` marker and the projection fold inbox: it hosts a durable
+  /** The deployable's consumers claim durably delivered events in the
+   *  consumer inbox (`src/ir/plan/consumer-inbox.ts`): it hosts a durable
    *  channel, or it consumes a durable event a wired foreign channel carries.
    *  A broker redelivers a foreign durable event exactly as the local relay
    *  redelivers a hosted one. */

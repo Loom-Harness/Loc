@@ -5,12 +5,7 @@ import {
   projectionTableName,
 } from "../../../ir/enrich/storage-names.js";
 import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
-import {
-  contextReceivesDurable,
-  eventLogTable,
-  hasDurableEvents,
-  hasStateRow,
-} from "../../../ir/plan/index.js";
+import { eventLogTable, hasDurableEvents, hasStateRow } from "../../../ir/plan/index.js";
 import type {
   AggregateIR,
   AssociationIR,

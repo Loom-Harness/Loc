@@ -1139,8 +1139,8 @@ export function generateTypeScriptForContexts(
         // The `every:` claim table — the MigrationsIR table the drizzle path
         // gets from its migrations; mikro's `schema.update()` needs an entity.
         timerClaim: ownsIntervalTimers(system),
-        // The fold inbox — the MigrationsIR table the drizzle path gets from
-        // its migrations, on the condition the folds claim it.
+        // The consumer inbox — the MigrationsIR table the drizzle path gets
+        // from its migrations, on the plan's answer.
         inbox: inboxPurge,
       }),
     );
@@ -1800,9 +1800,8 @@ export function generateTypeScriptForContexts(
     // reactor or fold consumes (in any hosted context), or a wired binding
     // carries (the relay publishes it).  Persistence-neutral.
     outboxRelay: chPlan.hasOutbox,
-    // The fold inbox's retention purge, where no relay runs to do it: a
-    // consumer that only receives durable events off a broker.
-    inboxPurge: inboxPurge,
+    // The consumer inbox's retention purge, wherever a consumer claims.
+    inboxPurge,
     // Realtime tee: the relay's inner dispatcher rides through it so
     // relayed (durable) events reach the SSE wire too.  Persistence-neutral.
     hasRealtime: contexts.some((c) => realtimeEventTypes(c).size > 0),

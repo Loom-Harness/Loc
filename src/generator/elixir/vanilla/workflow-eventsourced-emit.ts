@@ -24,6 +24,7 @@ import {
   esStarterSharesEvent,
   eventSourcedWorkflows,
   foldedEventNames,
+  inboxClaimSql,
   requiredStateFields,
   workflowStreamType,
 } from "../../../ir/plan/index.js";
@@ -335,6 +336,23 @@ interface EsSub {
  *
  *  Returns the module content plus one `fragment()` anchor per lowered step
  *  (see `HandlerResult` in `dispatch-emit.ts`, whose shape this matches). */
+/** A handler body wrapped in its consumer-inbox claim: it runs at the top of
+ *  the handler's `Repo.transaction`, so the claim commits with the handler's
+ *  writes and appends, and a delivery already claimed — redelivered, here or
+ *  on another replica — does nothing.  `inner` is indented to the
+ *  transaction body (4 spaces); the claim binds `event_id`. */
+export function elixirClaimWrap(appModule: string, consumerKey: string, inner: string): string {
+  return [
+    `    event_id = Process.get(:loom_event_id)`,
+    "",
+    `    if event_id && ${appModule}.Repo.query!(${JSON.stringify(inboxClaimSql("$1", "$2", true))}, [${JSON.stringify(consumerKey)}, to_string(event_id)]).num_rows == 0 do`,
+    `      :ok`,
+    `    else`,
+    ...inner.split("\n").map((l) => (l === "" ? l : `  ${l}`)),
+    `    end`,
+  ].join("\n");
+}
+
 export function renderEsWorkflowHandler(
   contextModule: string,
   ctx: EnrichedBoundedContextIR,
@@ -346,6 +364,9 @@ export function renderEsWorkflowHandler(
    *  re-publish through `<App>.Channels.dispatch/2`, so broker-carried
    *  saga events publish instead of fanning out locally. */
   channels?: ElixirChannelsCfg,
+  /** The handler's consumer-inbox key when it claims: the claim and the
+   *  stream append share the handler's transaction. */
+  consumerKey?: string,
 ): { content: string; regions: { text: string; origin: OriginRef | undefined }[] } {
   const wf = sub.workflow;
   // contextModule is `<appModule>.<Context>`; strip the context segment for the
@@ -458,7 +479,7 @@ ${requireLogger}  def handle(%${contextModule}.Events.${N.type(sub.event)}{} = e
     ${appModule}.RequestContext.with_child_frame(fn ->
 ${renderCtx.reactorPrincipal ? `    current_user = ${appModule}Web.Auth.system_principal()\n\n` : ""}    ${appModule}.PostCommit.transaction(fn ->
     ${appModule}.Repo.transaction(fn ->
-${inner}
+${consumerKey !== undefined ? elixirClaimWrap(appModule, consumerKey, inner) : inner}
     end)
     end)
     end)
