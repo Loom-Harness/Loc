@@ -40,7 +40,7 @@ export const QUEUE_GATES = [
       {
         label: "npm test (unit + mocked + corpus projects)",
         cmd: "npx vitest run --reporter=dot",
-        minutes: 9,
+        minutes: 20,
       },
     ],
   },
@@ -63,7 +63,11 @@ export const QUEUE_GATES = [
     cmds: [
       {
         label: "actionlint",
-        cmd: 'docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:latest -color',
+        // CI's flags (workflow-lint.yml): shellcheck at warning, no pyflakes.
+        // Files are named because a worktree's `.git` is a file actionlint
+        // does not take for a project root; `-u` lets the container read a
+        // 0700 temp dir.
+        cmd: 'docker run --rm -u "$(id -u):$(id -g)" -e SHELLCHECK_OPTS=--severity=warning -v "$PWD":/repo -w /repo rhysd/actionlint:latest -pyflakes= -color .github/workflows/*.yml',
         needs: ["docker"],
         minutes: 0.5,
       },
