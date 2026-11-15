@@ -57,6 +57,21 @@ system SimpleAuth {
         text: string
       }
       repository Notes for Note { }
+
+      // A merge-patch `update` whose `requires` reads a parameter: the gate
+      // reads the MERGED value (RS-47), so a body that omits `amount` is
+      // judged on the stored amount, on every backend.
+      aggregate Budget {
+        label: string
+        amount: int
+        operation update(label: string, amount: int) {
+          requires amount < 100
+          label := label
+          amount := amount
+        }
+        create(label: string, amount: int) { label := label  amount := amount }
+      }
+      repository Budgets for Budget { }
     }
   }
   storage primary { type: postgres }
@@ -137,5 +152,22 @@ system SimpleAuth {
     expect(api.tickets.retitle(r, { to: "Old" })).toThrow(403)
     api.tickets.retitle(r, { to: "New" })
     expect(api.tickets.getById(r).subject).toBe("New")
+  }
+
+  test e2e "a merge-patch update's parameter gate reads the merged value" against d {
+    let low = api.budgets.create({ label: "low", amount: 50 })
+    // `amount` omitted: the gate reads the stored 50, which passes.
+    api.budgets.update(low, { label: "low renamed" })
+    expect(api.budgets.getById(low).label).toBe("low renamed")
+    expect(api.budgets.getById(low).amount).toBe(50)
+    let high = api.budgets.create({ label: "high", amount: 500 })
+    // `amount` omitted: the gate reads the stored 500, which refuses.
+    expect(api.budgets.update(high, { label: "high renamed" })).toThrow(403)
+    expect(api.budgets.getById(high).label).toBe("high")
+    // A body that carries `amount` is judged on the value it sets.
+    api.budgets.update(high, { amount: 10 })
+    expect(api.budgets.getById(high).amount).toBe(10)
+    expect(api.budgets.update(high, { amount: 200 })).toThrow(403)
+    expect(api.budgets.all().items.length).toBe(2)
   }
 }

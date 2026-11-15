@@ -85,7 +85,12 @@ export function polymorphicReadOperations(
   ctx: BoundedContextIR,
 ): ApiOperationIR[] {
   const read = routedPolymorphicRead(base, ctx);
-  return read ? derivePolymorphicReadOperations(base, read.layout, apiStatusContext(ctx)) : [];
+  // A concrete's list-read gate rides both reads (`readLadder`), so both
+  // declare its 403.
+  const guarded = polymorphicReadGates(base, ctx).length > 0;
+  return read
+    ? derivePolymorphicReadOperations(base, read.layout, apiStatusContext(ctx), guarded)
+    : [];
 }
 
 /** Every HTTP operation a context serves: each aggregate's own operations,

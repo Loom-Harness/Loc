@@ -41,6 +41,16 @@ system G {
         }
       }
       repository Shipments for Shipment { }
+      aggregate Budget {
+        amount: int
+        create(amount: int) { amount := amount }
+        operation update(amount: int) {
+          requires currentUser.role == "agent"
+          requires amount < 100
+          amount := amount
+        }
+      }
+      repository Budgets for Budget { }
     }
   }
 }
@@ -92,5 +102,15 @@ describe("gate-ladder plan", () => {
       "load",
       "row-requires",
     ]);
+  });
+
+  it("runs a merge-patch update's parameter gate after the load, on the merged value", async () => {
+    const b = enrichedAggregates(await buildLoomModel(SRC)).find((a) => a.name === "Budget")!;
+    const op = b.operations.find((o) => o.name === "update")!;
+    const ladder = operationLadder(op, { readsIfMatch: true });
+    expect(ladder.map((c) => c.step)).toEqual(["requires", "load", "row-requires", "version"]);
+    // The principal gate stays before the load; `amount < 100` reads the body
+    // merged over the stored row, so it needs the row.
+    expect(ladder[2]).toMatchObject({ step: "row-requires", gate: { source: "amount < 100" } });
   });
 });

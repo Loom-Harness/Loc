@@ -1077,6 +1077,15 @@ export const AUTHZ_LADDERS = {
     gated: [
       { label: "TPH base — the polymorphic list read", method: "GET", path: "/api/vehicles" },
       { label: "TPH base — the polymorphic by-id read", method: "GET", path: "/api/vehicles/{id}" },
+      // The base read's ladder (`readLadder`): every concrete's list-read gate
+      // runs before the load, so a refused caller gets 403 for a missing id
+      // too — the refusal says nothing about which rows exist.
+      {
+        label: "TPH base — a missing id answers the refused caller's 403, not 404",
+        method: "GET",
+        path: "/api/vehicles/00000000-0000-4000-8000-0000000000ad",
+        arms: { anonymous: null, unauthorized: 403, authorized: 404 },
+      },
       {
         label: "TPC base — the polymorphic list read",
         seed: { path: "/api/dispatchers", body: { name: "LADDER-D", desk: 1 } },

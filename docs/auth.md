@@ -470,12 +470,17 @@ Every backend refuses a request on an aggregate row in one order
 |---|---|---|
 | 1 | authentication | 401 |
 | 2 | request shape (framework binding) | 422 |
-| 3 | `requires` that reads no row (the principal, the parameters) | 403 |
+| 3 | leading `requires` that reads no row (the principal, the parameters) | 403 |
 | 4 | load through the read scope (`policy { read }`, tenancy, shares) | 404 |
-| 5 | `requires` that reads the row (a field, a derived, a call to the aggregate's own function); the write scope | 403 / 404 |
+| 5 | leading `requires` that reads the row (a field, a derived, a call to the aggregate's own function); the write scope | 403 / 404 |
 | 6 | version (`If-Match`) | 409 |
 | 7 | `when` | 409 |
 | 8 | preconditions, invariants | 409 / 422 |
+
+On a merge-patch `update` (RS-47 in `conformance-semantics.md`) a `requires`
+that reads a parameter reads the merged value — the stored one when the body
+omits the key — so it runs at step 5, as does a `mask unless` write gate (only
+when the body carries the masked key).
 
 A caller refused at step 3 gets 403 for an existing id, a missing id, a stale
 `If-Match` and a row in the wrong state alike, so the refusal reveals nothing
@@ -643,6 +648,10 @@ Consequences worth knowing:
 - A `requires` that is **not** in the leading run (one that appears after a
   mutation or a `let` it depends on) stays in the body and still throws from the
   domain — hoisting it would change *when* it evaluates, not just where it lives.
+  It runs after the load, the `If-Match` check and `when`, outside the
+  [gate order](#gate-order).  When such a gate reads no field and no `let`, nothing before it
+  can change its answer, so the compiler warns (`loom.requires-not-leading`):
+  move it into the leading run to put it on the ladder.
 
 This is how all five backends behave, by two different routes. **Node, .NET,
 Java, and Python** needed the hoist: each emitted the 403 inside the aggregate
