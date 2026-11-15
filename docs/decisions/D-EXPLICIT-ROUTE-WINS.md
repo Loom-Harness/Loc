@@ -43,3 +43,5 @@ waiver for the scaffold shape and fails if a derived route and an explicit one
 share a slot again. Not covered: the two aggregate-scoped routes the derivation
 does not lift (`GET <base>/{id}/history`, `GET <base>/prepare`) — an explicit
 route on one of those slots still double-registers.
+
+**Enforced by:** `test/generator/explicit-route-mount.test.ts`

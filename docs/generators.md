@@ -12,7 +12,7 @@ For language syntax see [`language.md`](language.md); for architecture
 see [`technical.md`](technical.md); for CLI / Docker / Playwright
 workflow see [`tools.md`](tools.md).
 
-To see one identical domain lowered onto every backend, pick the
+To see one identical domain lowered onto three backends, pick the
 **Storefront** trio from the playground dropdown — `storefront-system`
 (Hono + React), `storefront-dotnet` (.NET + embedded SPA), and
 `storefront-elixir` (Elixir/Phoenix LiveView). All three share the same
@@ -83,9 +83,11 @@ Open parity gaps are tracked as GitHub issues (label `gap`).
 > `T` and carried no wrapper, so the keyword is refused with a quick fix that drops
 > it — see [`payloads.md`](payloads.md).
 
-`(universal)` means no per-backend gate exists — every backend emits the
-feature — and `test/platform/backend-parity-gates.test.ts` pins the emission per
-backend.
+`(universal)` means no validator gate refuses the feature on any of the five.
+`test/platform/backend-parity-gates.test.ts` asserts, per backend, that the model
+is accepted and the feature's emitter marker is present — for every row except
+TPC inheritance, the principal capability filter and `with audit` stamping,
+which carry no row there.
 
 | Construct | TypeScript (Hono + Drizzle) | .NET (ASP.NET + EF + Mediator) | React (Vite + RQ + Mantine) |
 | --- | --- | --- | --- |
@@ -218,8 +220,9 @@ recovery (missed-run catch-up) and fires exactly once across replicas
 (single-fire), with retries. Each backend uses its ecosystem's Postgres-native
 job store: **node → pg-boss**, **.NET → Hangfire**, **Java → JobRunr**,
 **Python → procrastinate**, **Elixir → Oban**. The `every:` tier is the
-in-process poll + the `__loom_timer` period claim on every backend (one shared
-statement, one shared `MigrationsIR` table).
+in-process poll + the `__loom_timer` period claim: node, .NET, Java, Python and
+Elixir render the one claim statement from `timerClaimSql`
+(`src/util/timer.ts`) against the one `MigrationsIR` table.
 
 ### Per-aggregate detail
 
@@ -825,7 +828,7 @@ generator uses (`src/generator/_walker/walker-core.ts`) with
 | Realtime | `realtime` channels emit a `RealtimeHandlers.svelte` that subscribes via a `$effect` to `src/lib/api/realtime.ts` (shared transport contract `src/generator/_frontend/realtime.ts`), surfacing a `realtime-toast` on events — parity with the react realtime client. |
 | Extern hatch | `extern function` → a typed signature stub `src/lib/extern/<name>.signature.ts` re-exported through `$lib/<name>`.  `extern component` → a forwarding `<Name>.svelte` wrapper rendering `<Impl {...props} />` against a typed `<Name>.props.ts` (slots typed as `Snippet`). |
 | e2e | Same testid-keyed Playwright surface as react: page objects from the shared `_frontend` builders (api imports root at `src/lib/api`), smoke spec, fixtures, config.  `test e2e … against <svelte deployable>` lowers to a Playwright ui spec, gated at runtime by `generated-svelte-e2e.yml` (`vite preview` + the spec). |
-| Embedding | Every backend host that mounts a UI can embed the SvelteKit SPA (`framework: svelte` on the ui binding; `node` mounts none).  dotnet/java fullstack hosts mount it under `ClientApp/` (Dockerfile copies `build/` → wwwroot); phoenix mounts it under `assets/` served at `/app`, with `kit.paths.base = "/app"` so asset URLs resolve (the fleet-wide base-path fix also covers react/vue). |
+| Embedding | The dotnet, java, python and phoenix hosts embed the SvelteKit SPA (`framework: svelte` on the ui binding; `node` mounts none).  dotnet/java/python fullstack hosts mount it under `ClientApp/` (the Dockerfile copies `build/` into the host's static dir); phoenix mounts it under `assets/` served at `/app`, with `kit.paths.base = "/app"` so asset URLs resolve (the fleet-wide base-path fix also covers react/vue). |
 | CI | `generated-svelte-build.yml` — per `{example × pack}`: `npm install` + `svelte-check --fail-on-warnings` + `vite build` (`npm run test:svelte-build` locally); `generated-svelte-e2e.yml` adds the runtime preview + Playwright gate. |
 
 ## Vue frontend (`platform: vue`)
@@ -1275,8 +1278,8 @@ member folding.
 
 Conformance: a `pythonApi` deployable ships in `examples/showcase.ddd`
 and the e2e OpenAPI cross-check compares it pairwise against Hono /
-.NET / Phoenix / Java (all five backends are diffed — strict in
-`conformance-parity.yml`).
+.NET / Phoenix / Java (strict in `conformance-parity.yml`, which runs
+`test/e2e/e2e.test.ts`).
 
 Resource verb clients (`objectStore` → boto3, `queue` → aio-pika,
 `api` → httpx, `mailer` → aiosmtplib) are emitted under
@@ -1340,7 +1343,7 @@ namespaces) never collided.  Pinned by the `python-reserved-words` corpus row
 (every compile tier + the wire-golden differential) and
 `test/generator/target-reserved-member-names.test.ts`.
 
-### The per-target reserved-identifier table (every backend)
+### The per-target reserved-identifier table
 
 The Java and Python sections above are two instances of one contract.  Every
 target's reserved words now live in ONE table,
@@ -1428,7 +1431,8 @@ each compilation unit that sees both. The table of non-generic framework type
 names per namespace, `src/generator/_symbols/ambient-dotnet.ts`, is generated
 from the SDK reference packs and the pinned packages by
 `scripts/gen-dotnet-ambient-types.mjs`. The gate is the corpus fixture
-`domain-symbol-collisions`, on every backend's compile leg.
+`domain-symbol-collisions` (`backends: ALL`), built by the per-backend corpus
+compile legs (`test/e2e/corpus-{tsc,dotnet,java,python,elixir}-build.test.ts`).
 
 The plan does not cover:
 
@@ -1533,9 +1537,9 @@ Postgres-backed emitters lives in
 | Python | `migrations/<version>_<module>_<name>.sql` | `run_migrations()` in the `app/main.py` lifespan |
 | .NET | `Migrations/<Version>_<Name>.cs` (`migrationBuilder.Sql(@"...")`) | `db.Database.Migrate()` in `Program.cs` after `builder.Build()`; no `ModelSnapshot` is emitted — Loom owns SQL generation, so `dotnet ef migrations add` is never run and the runtime migrator is happy without one |
 
-Phoenix stays in Ecto DSL because its output is Elixir.  All five
-backends share `src/generator/sql-pg.ts` for bit-identical Postgres DDL (Phoenix
-wraps it in Ecto DSL).
+Phoenix stays in Ecto DSL because its output is Elixir.  The node, .NET (EF
+and Dapper), Java, Python and Elixir migration emitters render their Postgres
+DDL through one renderer, `src/generator/sql-pg.ts` (Phoenix wraps it in Ecto DSL).
 
 Every `generate system` renders the whole chain: one file per backend
 per recorded generation, the first of each subdomain its "Initial".
@@ -1571,7 +1575,7 @@ A `test e2e "name" against <deployable> { … }` block lowers via
 Out of scope for v1 (intentional):
 
 - **Production identity provider**: `auth: required` + a `user {}`
-  block emit a *first-class* auth surface on every backend — a typed
+  block emit a *first-class* auth surface on node, .NET, Java, Python and Elixir — a typed
   principal, a request boundary (401), `requires` 403 gates on
   operations / pages, `currentUser`/tenancy capability filters,
   and an OIDC turnkey verifier — but without an `auth { oidc }` block the
@@ -1607,8 +1611,9 @@ Out of scope for v1 (intentional):
   why.  A **server-side** typeahead is out of scope: the picker loads every
   row of the target.
 - **Ordering on `X id[]` collections**: `Target id[]` is a set
-  ([D-REFCOLL-SET](decisions/D-REFCOLL-SET.md)).  On all five backends the join table
-  is only the composite `(owner, target)` key — no `ordinal` column —
+  ([D-REFCOLL-SET](decisions/D-REFCOLL-SET.md)).  The join table is one `MigrationsIR`
+  table (`tableForAssociation` in `src/system/migrations-builder.ts`) holding only
+  the composite `(owner, target)` key — no `ordinal` column —
   and every backend reads the rows back sorted by the target FK id
   (Drizzle/EF/Dapper/SQLAlchemy `ORDER BY` it, JPA's argument-less
   `@OrderBy`, Ecto's `preload_order: [asc: :id]`).  So the order is
@@ -1617,6 +1622,7 @@ Out of scope for v1 (intentional):
   `party`."  When position is part of the domain (a battle slot, a
   draft pick number), model it as an explicit ordinal field on a
   separate child aggregate instead of relying on collection order.
+  <!-- tracked: #6018 — a corpus `test e2e` reading an `X id[]` back on every backend and asserting target-id order -->
 - **Server-side rendering**: client-only Vite.  Next.js variant
   would be a separate platform.
 - **Generated CI pipelines**: project-init concerns, not derived from

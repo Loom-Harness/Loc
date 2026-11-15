@@ -60,11 +60,11 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   policy { read Secret requires currentUser.role == "admin" }
   ```
 
-  Every backend evaluates the gate **before** the load, so a refused caller
+  The gate runs **before** the load, so a refused caller
   gets 403 (on `/{id}`, for an existing and a missing id alike — no existence
-  oracle); the routes' OpenAPI responses gain 403.  All five backends resolve
-  the list and by-id reads through one shared derivation
-  (`src/ir/util/read-gates.ts`).  `requires true` is the explicit public
+  oracle); the routes' OpenAPI responses gain 403.  The list and by-id reads
+  take their gate from one derivation (`src/ir/util/read-gates.ts`) that each
+  backend's route emitter consults.  `requires true` is the explicit public
   escape; the tenancy filter and `mask unless` still apply on top of the gate.
   Spell the list return type the way the warning does: the injected read is
   `T paged` (the `Paged<T>` envelope) on every aggregate whose rows page, and a
@@ -87,6 +87,7 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   `currentUser`-only: use a row rule to make visibility depend on another row.
   See [Migration: the synthesised reads fail closed](#migration-the-synthesised-reads-fail-closed)
   for what changes for an existing model.
+  <!-- tracked: #6018 — a ladder arm reading a MISSING id through the gated by-id read and expecting 403 (read-gates.ddd denies existing rows only) -->
 - **an event-sourced `create` is the one remaining exception — on the four backends that
   cannot gate it.**  A `persistedAs: eventLog` aggregate's create body renders
   into the domain `_init`, which has no principal in scope, so a `requires` there
@@ -118,6 +119,7 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
     (`GET /projections/<p>` and `GET /projections/<p>/{key}`), 403 before the
     lookup — so a denied caller cannot distinguish "forbidden" from "no such
     key".
+  <!-- gate: `test/fixtures/corpus/read-gates.ddd` -->
 
   The projections `scaffoldDashboard` emits carry the source aggregate's
   `policy { read X requires … }` gate on their header, so a dashboard total is
@@ -150,8 +152,8 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   state" are different questions (this example authorizes them to different
   roles deliberately).  It is `currentUser`-only for the same reason the find
   and projection gates are: it runs before any instance is loaded, so there is
-  no instance to reference (`loom.workflow-gate-not-current-user`).  Enforced
-  on all five backends, on both routes, ahead of the store read — so a denied
+  no instance to reference (`loom.workflow-gate-not-current-user`).  Node,
+  .NET, Java, Python and Elixir emit it on both routes, ahead of the store read — so a denied
   caller cannot tell an existing correlation id from an absent one.
 
   Like the folded projection before it, this read was previously **ungateable**
@@ -178,6 +180,7 @@ list `GET /api/<plural>` and the by-id `GET /api/<plural>/{id}` — are **refuse
 at runtime with 403** on all five backends (evaluated before the load — no
 existence oracle) unless the aggregate has a read gate.  To keep serving them,
 write the gate (`requires true` for intentionally public):
+<!-- tracked: #6018 — a booted leg per backend reading an ungated derived list and by-id under denyByDefault and expecting 403 -->
 
 ```ddd
 policy { read Order requires currentUser.role == "clerk" }
@@ -463,8 +466,8 @@ the same way as the operation route does.
 
 #### Gate order
 
-Every backend refuses a request on an aggregate row in one order
-(`src/ir/plan/gate-ladder.ts`, D-GATE-LADDER):
+A request on an aggregate row is refused in one order, decided once in
+`src/ir/plan/gate-ladder.ts` (D-GATE-LADDER) and rendered per backend:
 
 | # | Step | Status |
 |---|---|---|
@@ -484,8 +487,7 @@ when the body carries the masked key).
 
 A caller refused at step 3 gets 403 for an existing id, a missing id, a stale
 `If-Match` and a row in the wrong state alike, so the refusal reveals nothing
-about the row.  A body that does not bind is refused (422) before any gate, by
-the framework, on every backend.  A row outside the read scope answers 404, never 403.
+about the row.  A row outside the read scope answers 404, never 403.
 
 ```ddd
 operation reopen() when !open {
@@ -509,9 +511,9 @@ reads an operation parameter cannot be decided without the body, so the probe
 answers `{ "allowed": false }` for it, after the load (a missing row is still
 404).
 
-The order is one plan, `src/ir/plan/gate-ladder.ts`, that every backend
-renders; `test/system/gate-ladder-census.test.ts` refuses a backend that
-classifies a gate itself.
+`test/system/gate-ladder-census.test.ts` refuses a backend that classifies a
+gate itself instead of rendering the plan's rungs.
+<!-- gate: `test/system/gate-ladder-census.test.ts`, `test/fixtures/corpus/auth-simple.ddd` -->
 
 #### Guarded state transitions — close the generic-update side door
 
@@ -619,7 +621,8 @@ public cancel(reason: string): void {
 ```
 
 **What the 403 says (ruling D4, amended 2026-11-03).** The thrown message names
-the failed gate, and every backend writes it to its `forbidden` log line. The
+the failed gate, and the server logs it as the `forbidden` event
+(`src/generator/_obs/log-events.ts`). The
 RFC 7807 **body** never repeats it: DSL source does not appear in a response,
 under any verifier.
 
@@ -628,9 +631,9 @@ under any verifier.
 | any (dev stub, `auth { oidc … }`, or none) | `Forbidden` | `problem.forbidden` | `Forbidden: currentUser.role == "manager" && reason != ""` |
 
 So a caller learns that it was forbidden, not which predicate it failed; the
-developer wiring claims reads the predicate from the server log. Every backend
-carries the constant: Node's `ForbiddenError.detail` (read by every `onError`
-arm), .NET's `DomainExceptionFilter`, Python's `install_error_handlers`, Java's
+developer wiring claims reads the predicate from the server log. The constant
+is carried by Node's `ForbiddenError.detail` (read by every `onError` arm),
+.NET's `DomainExceptionFilter`, Python's `install_error_handlers`, Java's
 `ApiExceptionAdvice` and Phoenix's `ProblemDetails.problem_response/4` — plus
 the LiveView forms' flash.
 
@@ -653,14 +656,13 @@ Consequences worth knowing:
   can change its answer, so the compiler warns (`loom.requires-not-leading`):
   move it into the leading run to put it on the ladder.
 
-This is how all five backends behave, by two different routes. **Node, .NET,
-Java, and Python** needed the hoist: each emitted the 403 inside the aggregate
-method, so the gate moved out to the caller — the route handler / command
+The gate reaches the caller by one of two routes. **Node, .NET, Java, and
+Python** hoist it out of the aggregate method to the caller — the route handler / command
 handler / service, plus the inline op-call inside a workflow or explicit
 handler, because a gate that only the HTTP path evaluates is a gate a saga can
 walk around.
 
-**Phoenix/Elixir was already right**, and by a better factoring. Its guards
+**Phoenix/Elixir** gets there by a different factoring. Its guards
 (`requires`, `precondition`, and the `when` gate alike) lift into a leading
 `with :ok <- ensure(…)` chain on the **context function** — Phoenix's
 application layer — leaving the Ecto schema a plain data struct. Because every
@@ -875,8 +877,9 @@ subdomain Sales {
 
 A `requires PolicyName(args)` reference is **inlined** at the gate (the
 argument substituted for the parameter), exactly like a `criterion … of bool`
-reference (see [`docs/criterion.md`](criterion.md)).  Because the result is an
-ordinary boolean gate expression, **every backend enforces it through the same
+reference (see [`docs/criterion.md`](criterion.md)).  Lowering does the
+inlining (`src/ir/lower/lower-expr.ts`), so no backend sees a policy call: the
+result is an ordinary boolean gate expression, **enforced through the ordinary
 `requires` → 403 path** — no new render code.  The generated `approve` body:
 
 ```ts
@@ -923,7 +926,7 @@ policy {
 ```
 
 ```sql
--- Product read, every backend
+-- Product read: the predicate the read query carries
 WHERE p.tenant_id = $tenant
    OR EXISTS (SELECT 1 FROM category_shares s
               WHERE s.category_id = p.category_id AND s.grantee = $tenant
@@ -988,10 +991,11 @@ policy {
 ```
 
 - **`deny on X`** denies **read**: `X` becomes invisible — `findAll` returns `[]`
-  and `findById` 404s. Because every backend's write command-load reuses the read
-  filter, writes fail too.
+  and `findById` 404s. The write command-load reuses the read filter, so writes
+  fail too.
 - **`deny write on X`** denies **write** only: reads still work, but every instance
   mutation (update-style ops, `destroy`, applier dispatch) 404s.
+<!-- gate: `test/fixtures/corpus/policy-deny.ddd` -->
 
 **Every mutation re-checks the write scope, whatever loaded the row.** A workflow
 command or `commandHandler` can hold a row no write-scope load produced — one
@@ -1096,13 +1100,10 @@ redacts). The masked field is nullable in the response schema. Internal
 audit/provenance snapshots stay unmasked (they record the real value). A
 mask-free aggregate is byte-identical.
 
-All five backends do this the same way. (.NET used to diverge — its audited
-command handlers reused the ordinary, masked wire projection, so a masked field
-was recorded as `null` whenever the acting principal failed the predicate, and
-the stored trail depended on *who* performed the write. Closed 2026-08-31: the
-four .NET audit projection sites pass `unmasked` (M-T3.9). The redaction did not
-vanish — reading the trail back through `GET /<agg>/{id}/history` still drops a
-masked field's `FieldChange`, which is where it belongs.)
+The stored audit trail therefore does not depend on *who* performed the write.
+The redaction applies when the trail is read back: `GET /<agg>/{id}/history`
+drops a masked field's `FieldChange` for a caller who fails the predicate.
+<!-- gate: `test/fixtures/corpus/field-mask.ddd` -->
 
 ```ts
 // generated (Hono) — the aggregate's read serializer
@@ -1246,13 +1247,14 @@ Phase ⑥ computes that once (`src/ir/enrich/mask-taint.ts`), and each sink eith
 
 | Sink | What happens |
 | --- | --- |
-| a `derived` that reads a masked field (directly or through another derived) | redacts under the conjunction of the masks it reads — it is on the wire with `maskUnless`, so every backend's masked serializer nulls it |
+| a `derived` that reads a masked field (directly or through another derived) | redacts under the conjunction of the masks it reads — it is on the wire with `maskUnless`, so the masked serializer nulls it |
 | a read whose predicate reads a masked field — a `criterion` behind `scaffoldGet` / a `queryHandler`'s, `commandHandler`'s or workflow `create`'s `Repo.find(C)` / `Repo.all(C)` / a retrieval, the same reads inside a `reading` domain service the body calls, or a capability `filter` the read runs under | inherits the mask as a leading `requires` (403), evaluated before the query: a 200-or-404 on a guessed value would be an existence oracle.  Several masked fields in one predicate require all their masks (AND); a gate the body already leads with is not repeated |
 | an operation that writes a caller-supplied value into a masked field (the generic `update` among them) | inherits the mask as a hoisted `requires` (403); on a merge-patch update it runs only when the body carries the masked key |
 | a `create` | not a sink: a new row has no stored value to overwrite |
 | the synthesized `inspect` — what `toString()` / `Inspect`, and so every log line and exception, print | redacts the field as `<redacted>`, like a `sensitive` one |
 | an event whose payload reads a masked value, carried on a `channel` | refused — `loom.field-mask-event-channel` (a subscriber receives the message with no principal in scope); a folded projection of it is refused by `loom.field-mask-projection-source` |
 | a `unique (…)` key over a masked field | refused unless the create requires the mask predicate — `loom.field-mask-unique-oracle` (a 409 answers whether a guessed value exists) |
+<!-- gate: `test/fixtures/corpus/field-mask.ddd` -->
 
 Every inherited gate is the mask predicate alone.  It reads only `currentUser`
 (`loom.field-mask-not-current-user`), never the row or the value the caller
@@ -1324,8 +1326,6 @@ The gate is a hoisted `requires`, so it runs wherever the operation's gates run
 form also calls).  A client that echoes a whole read body back sends the masked
 key as `null`, so it is refused: send only the keys you mean to change.
 
-Read redaction is emitted on **all five backends** (node, .NET, Python, Java,
-Elixir): a `mask unless` field redacts fail-closed on every one.
 The write side inherits the mask as a hoisted gate (above); a gate of your own
 on another field has the same shape:
 `operation update(…) requires <field> == this.<field> || <caller-check>`.
@@ -1334,7 +1334,7 @@ on another field has the same shape:
 | --- | --- |
 | `loom.field-mask-not-current-user` | the predicate references the row / a param, not just `currentUser` |
 | `loom.field-mask-principal-without-auth` | the predicate reads `currentUser` but the hosting deployable has no auth (no `auth: required` + `user {}`) — there is no principal to evaluate it against, so the field could only ever read as null; the mask-side sibling of `loom.guard-principal-without-auth` |
-| `loom.field-mask-unsupported` | the hosting backend does not emit the read redaction (none today — every backend supports it) |
+| `loom.field-mask-unsupported` | no backend deployable hosts the context, so no read projection emits the redaction |
 | `loom.field-mask-projection-source` | a masked aggregate is a query-time `projection` source — projection responses aren't read-masked yet, so it would leak |
 | `loom.field-mask-event-channel` | an event a `channel` carries reads a masked value in its payload |
 | `loom.field-mask-unique-oracle` | a `unique` key includes a masked field and the create does not require the mask predicate |
@@ -1361,8 +1361,9 @@ routed `queryHandler` / `commandHandler` whose body reads the aggregate through
 its repository (`get` / `find` / `getBy` / `findBy` / `all`, at any nesting
 depth): enrichment prepends the gate to the handler body as a leading
 `requires` — one per distinct gated aggregate the body reads, in first-read
-order, rendered as the same `Forbidden: read Order requires …` 403 on all five
-backends, ahead of the first repository call.  Because the gate is
+order (`applyHandlerReadGates`, `src/ir/enrich/policy-read-gates.ts`), so it
+renders as an ordinary leading-`requires` 403 (`Forbidden: read Order requires …`),
+ahead of the first repository call.  Because the gate is
 `currentUser`-only it never depends on a handler parameter, so it is hoisted
 unconditionally; a leading `requires` that already spells the same predicate is
 not repeated, and `scaffoldGet` relies on this instead of splicing the gate
@@ -1385,8 +1386,8 @@ aggregate must be declared in the same context (`loom.policy-unknown-aggregate`)
 ordinary identifier (a permission, an operation, `let read = …`) everywhere
 else; any other word there is `loom.policy-unknown-rule`.
 
-The generated handler throws `ForbiddenError`/`ForbiddenException` (→ RFC-7807
-403) on all five backends before touching the repository:
+On Hono, for example, the generated handler throws `ForbiddenError` (→ RFC-7807
+403) before touching the repository:
 
 ```ts
 // generated Hono route for `GET /orders/{id}` under
@@ -1395,8 +1396,10 @@ const currentUser = c.get("currentUser");
 if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: find byId");
 ```
 
-The `detail` names the read the gate refused (`find all`, `find byId`,
-`find history`, `find <name>`), identically on every backend.
+The thrown message names the read the gate refused (`Forbidden: find all`,
+`find byId`, `find history`, `find <name>`); it reaches the server's
+`forbidden` log line, while the 403 body carries the constant `Forbidden`
+(see [What the 403 says](#where-the-guard-lands)).
 
 ### UI gate — `page { requires <expr> }`
 
@@ -1461,9 +1464,9 @@ request**:
 
 The validator surfaces a friendly diagnostic for any disallowed use.
 
-> **All five backends emit auth files.** The two file layouts documented
-> below (.NET and Hono) are representative — Python, Java, and
-> Elixir/Phoenix emit the same surface (a strongly-typed `User`, a verifier
+> **Node, .NET, Python, Java and Elixir/Phoenix each emit auth files.** The
+> two file layouts documented below (.NET and Hono) are representative — Python,
+> Java, and Elixir/Phoenix emit the same surface (a strongly-typed `User`, a verifier
 > hook, and request middleware that stashes the resolved principal), plus
 > the OIDC authorization-code handshake when an `auth { oidc { … } }` block
 > is present.
@@ -1561,7 +1564,7 @@ it as the trailing argument to the aggregate method.
 ### Absent claims (generated OIDC verifier)
 
 A claim the verified token does not carry becomes the field's **null**, never
-`undefined` or a stub default. Every backend lowers `currentUser.x != null` to a
+`undefined` or a stub default. A `currentUser.x != null` gate renders as a
 plain null test, so the value an absent claim maps to decides the gate.
 
 ```ddd
@@ -1583,7 +1586,7 @@ function toUser(payload: JWTPayload): UserClaims | null {
 }
 ```
 
-- **Optional claim, absent** → `null` / `None` / `nil` on all five backends. A
+- **Optional claim, absent** → `null` / `None` / `nil`. A
   `!= null` gate denies (403). The token still verifies.
 - **Identifier claim, malformed** → treated as absent. A `guid` or `X id` claim
   that is present but not a UUID (`"demo-agent"`) would otherwise be non-null
@@ -1593,6 +1596,7 @@ function toUser(payload: JWTPayload): UserClaims | null {
   **string** claim that is absent still maps to `""` on .NET and Java.
 - **Required array claim, absent** → the empty list. An IdP routinely omits an
   empty `permissions`, so this is not a reason to reject.
+<!-- gate: `test/fixtures/corpus/auth-oidc.ddd` -->
 
 ```ddd
 user { id: string  role: string  permissions: string[]  assignee: Ticket id? }
@@ -1667,8 +1671,9 @@ it. `E2E_OIDC_USERNAME` / `E2E_OIDC_PASSWORD` select another realm user.
 ## Dev-stub verifier (`x-loom-dev-claims`)
 
 A system with `auth: required` and a `user { … }` block but **no
-`auth { oidc }` block** gets a **dev stub** verifier on every backend — a
+`auth { oidc }` block** gets the generated **dev stub** verifier — a
 development login, never a production one.
+<!-- gate: `test/fixtures/corpus/auth-simple.ddd` -->
 
 - **It is off unless the backend runs with `LOOM_DEV_AUTH=1`.**  Off, it
   refuses every request with 401 — a request with no token and one carrying
@@ -1729,7 +1734,7 @@ the LiveView mounts as that principal. A browser that sends no header runs as
 the stub's built-in identity.
 
 > **The stub exists only without an `auth { oidc … }` block.** Declaring one
-> replaces the stub with the generated OIDC verifier on every backend
+> replaces the stub with the generated OIDC verifier
 > (D-AUTH-OIDC): .NET, Java, Python and Phoenix emit no dev stub at all, and
 > node's `auth/dev-stub.ts` is registered only by the playground preview's
 > `bootApp(db, { verifier: "dev-stub" })`, which the preview passes only when
@@ -1754,8 +1759,9 @@ the stub's built-in identity.
 
 > **The encoding is load-bearing.** A header that is **present but does not
 > decode to a JSON object** — raw JSON, broken base64, a JSON array or string —
-> is refused on all five backends with **400**, before any route runs
-> (ruling D6, eval-closure #23):
+> is refused with **400**, before any route runs; the refusal `detail` is one
+> constant (`MALFORMED_DEV_CLAIMS_DETAIL`, `src/generator/_auth/dev-claims.ts`)
+> each backend's stub emits (ruling D6):
 >
 > ```json
 > { "type": "about:blank", "title": "Bad Request", "status": 400,
@@ -1763,10 +1769,10 @@ the stub's built-in identity.
 >   "instance": "/api/orders" }
 > ```
 >
-> It used to be silently ignored, running the request as the built-in `admin`,
-> so a permission test that sent a typo'd header could pass as the broad
-> principal it never meant to be. An absent or empty header still means the
-> built-in identity.
+> Ignoring it would run the request as the built-in `admin`, so a permission
+> test that sent a typo'd header could pass as the broad principal it never
+> meant to be. An absent or empty header still means the built-in identity.
+<!-- tracked: #6018 — a booted leg per backend sending a malformed x-loom-dev-claims header and asserting the 400 problem body (only node's stub is executed today) -->
 
 **Under `auth { oidc }` the stub is preview-only.** The Hono backend still
 emits `auth/dev-stub.ts`, but its start-up sequence (`bootApp` in `boot.ts`)
@@ -1793,6 +1799,7 @@ derived from the declared shape, so a non-optional field is never null and the
 same `.ddd` yields the same principal on every backend. It is a **dev
 convenience, not a production path**: register a real verifier (above) before
 shipping.
+<!-- gate: `test/fixtures/corpus/field-mask.ddd`, `test/fixtures/corpus/principal-read-filter.ddd` -->
 
 The same identity is what a model's **tests** run as. A context integration
 `test` binds it (in process, through the seam the middleware binds a request's)
@@ -1817,26 +1824,24 @@ CustomerId: new CustomerId(System.Guid.Empty),
 ```
 
 The seed widens with the aggregate's id value type (`int`/`long` → zero,
-`string`/`guid` → the all-zero uuid) and is decided once for all five backends in
+`string`/`guid` → the all-zero uuid) and is decided once, in
 `src/generator/_auth/dev-stub-id.ts`. An **optional** id claim stays `null` /
 `None` / `nil`, as the declaration allows.
 
-> **The header does NOT carry every claim type on every backend.** Only
-> **string**-typed `user { … }` fields are honoured on .NET, Python, Java and
-> Elixir: each emits its claim mapper over the string fields alone, so a
-> non-string claim in the header is silently discarded and the field keeps its
-> built-in value. For an array that value is the EMPTY list — so a
-> `requires currentUser.permissions.contains(…)` gate fails closed no matter
-> what you send. Only Hono spreads the decoded JSON wholesale and therefore
-> carries an array through. The **OIDC** path has no such limit: all five map
-> `string[]` claims (a `realm_access.roles`-shaped list) from the verified
-> token. This asymmetry is dev-stub-only, it is not surfaced by any `loom.*`
-> diagnostic, and it is why a permission-gated fixture cannot be driven from
-> the behavioural harness on four of the five backends.
+> **The header carries only `string` and `string[]` claims on .NET, Python,
+> Java and Elixir.** Each emits its claim mapper over the non-optional `string`
+> and `string[]` fields alone (`devClaimKind`, `src/util/dev-claims.ts`), so
+> any other claim in the header is silently discarded and the field keeps its
+> built-in value. Only Hono spreads the decoded JSON wholesale. The **OIDC**
+> path has no such limit: a verified token's `string[]` claims (a
+> `realm_access.roles`-shaped list) map on every backend. The header raises no
+> `loom.*` diagnostic; a `test e2e … as { … }` clause naming a claim the stub
+> cannot decode is refused.
+<!-- gate: `test/fixtures/corpus/auth-oidc.ddd`, `test/fixtures/corpus/lifecycle-guard.ddd` -->
 
 **Typed claims on the OIDC path.** A verified token's non-string claims —
 `X id`, `guid`, `int`, `long`, `bool`, `datetime`, `decimal`, and lists of
-them — reach `currentUser` on every backend. .NET and Java decode each into the
+them — reach `currentUser`. .NET and Java decode each into the
 declared type (an `X id` claim is built through the generated `XId` type; a
 number may arrive as a JSON number or a numeric string; a `datetime` as
 ISO-8601 or epoch seconds). Node, Python and Elixir carry the JSON value, except
@@ -1911,12 +1916,14 @@ refresh token when the access token expires and **Sign out** clears both.
 
 An `oidc { … }` value bound to `env("…")` (the issuer, the audience) has no
 fallback, so a service that starts without it could only answer 401s while
-reporting ready. Every backend checks those variables once at boot: when none of
-the names that supply a setting is set (the canonical `OIDC_ISSUER` /
+reporting ready. The required settings are listed once
+(`src/generator/_auth/boot-required.ts`) and each backend checks them at boot:
+when none of the names that supply a setting is set (the canonical `OIDC_ISSUER` /
 `OIDC_AUDIENCE` override, or the variable the model names), the service logs
 one `config_missing` event (`setting`, `vars`) and exits non-zero. The env
 contract classes those variables as `boot`, so compose and the k8s chart must
 wire them.
+<!-- gate: `test/e2e/lifecycle-e2e.test.ts` -->
 
 ```ddd
 auth { oidc { issuer: env("OIDC_ISSUER") clientId: "gate" audience: env("OIDC_AUDIENCE") } }
@@ -1931,7 +1938,8 @@ A literal value needs no check: it is its own fallback.
 ## Token audience (`aud`)
 
 `oidc { audience: … }` is the token's intended recipient. When it resolves to a
-value, every backend's verifier requires the token's `aud` claim to carry it.
+value, the verifier requires the token's `aud` claim to carry it — one rule
+(`src/generator/_auth/audience.ts`) that each backend's verifier renders.
 When it resolves to **nothing** — no `audience:` declared *and* `OIDC_AUDIENCE`
 unset — the `aud` check is skipped and the verifier accepts any token the issuer
 signed, including one that issuer minted for a *different* client of the same
@@ -1942,7 +1950,7 @@ no `audience:` raises **`loom.auth-oidc-no-audience`** (warning, not error — a
 single-client deployment is a legitimate shape, and the check can still be turned
 on at deploy time without editing the `.ddd`).
 
-**The value is always env-overridable, declared or not.** All five backends read
+**The value is always env-overridable, declared or not.** The verifier reads
 `OIDC_AUDIENCE`, falling back to the declared value:
 
 | declared | resolves to | resolves EMPTY (`OIDC_AUDIENCE` unset or `""`) |
@@ -1954,6 +1962,7 @@ on at deploy time without editing the `.ddd`).
 
 So an operator can enforce audience isolation on a stack that never declared one
 by setting `OIDC_AUDIENCE` in compose — no `.ddd` edit, no rebuild.
+<!-- tracked: #6018 — the Elixir OIDC leg runs the audience probe (`test/e2e/support/audience-probe.ts`) the node, .NET, Java and Python legs already run -->
 
 > **A declared audience fails closed.** Once the model declares `audience:`, an
 > audience that resolves empty does not turn the check off: every verifier
@@ -1962,8 +1971,7 @@ by setting `OIDC_AUDIENCE` in compose — no `.ddd` edit, no rebuild.
 > that forgot the variable gets a stack that refuses everyone, not one that
 > accepts tokens minted for any other client of the same issuer. The only way
 > to skip the `aud` check is to declare no `audience:` (which raises
-> `loom.auth-oidc-no-audience`) and leave `OIDC_AUDIENCE` empty — the same on
-> all five backends.
+> `loom.auth-oidc-no-audience`) and leave `OIDC_AUDIENCE` empty.
 >
 > **A rejected token is logged.** Every verifier still answers a failed
 > verification with 401 (never 500), and now also logs the catalog event
@@ -1974,7 +1982,7 @@ by setting `OIDC_AUDIENCE` in compose — no `.ddd` edit, no rebuild.
 > **The bundled dev realm mints the audience.** A literal `audience: "x"` gets an
 > audience mapper for `x`; an `env(…)` audience gets one for the realm's own
 > client id (`<realm>-app`), and the generated `docker-compose.yml` sets
-> `OIDC_AUDIENCE: "<realm>-app"` on every backend service, so the dev stack
+> `OIDC_AUDIENCE: "<realm>-app"` on each token-verifying service, so the dev stack
 > enforces the check out of the box. Point a deployment at a real IdP and set
 > `OIDC_AUDIENCE` to the value that IdP puts in `aud`.
 
@@ -1990,7 +1998,7 @@ auth {
 ```
 
 ```yaml
-# generated — docker-compose.yml (every backend service)
+# generated — docker-compose.yml (each token-verifying service)
 OIDC_AUDIENCE: "shop-app"
 ```
 
@@ -2078,7 +2086,7 @@ onto the call:
 | elixir | the process dictionary, set by the auth plug; a LiveView reads it from the Phoenix session |
 
 **The token must pass the callee's `aud` check.** It does in compose, because
-every backend service gets the same `OIDC_AUDIENCE` (see
+compose gives each token-verifying service the same `OIDC_AUDIENCE` (see
 [Token audience](#token-audience-aud)). If a deploy gives each service its own
 audience, a forwarded token is rejected with 401.
 
@@ -2102,8 +2110,8 @@ A service credential for these callers, and how it carries tenancy and
 
 ## Auth routes
 
-Every backend mounts its auth routes under the shared API base, i.e.
-`/api/auth`, alongside the domain routes (`/api/...`):
+The auth routes mount under the shared API base (`AUTH_BASE_PATH`,
+`src/util/api-base.ts`), i.e. `/api/auth`, alongside the domain routes (`/api/...`):
 
 - `/api/auth/me` — the session probe the `auth: ui` frontend guard reads;
   always present under `auth: required`, and **not** bypassed (the
@@ -2127,6 +2135,7 @@ Every backend mounts its auth routes under the shared API base, i.e.
   Emitted with the handshake; bypassed by the middleware (the caller has no
   valid access token yet). On a spent/revoked token it clears both cookies
   (→ full `/login`).
+<!-- gate: `test/fixtures/corpus/auth-simple.ddd` -->
 
 ### Session depth (PKCE + refresh rotation)
 
@@ -2152,8 +2161,9 @@ The handshake is hardened by default (no knobs):
   `Strict-Transport-Security` header (see
   [Security headers](tools.md#security-response-headers)).
 
-Emitted identically across all five backends (Hono, .NET, Java/Spring,
-Python/FastAPI, Phoenix).
+Hono, .NET, Java/Spring, Python/FastAPI and Phoenix each emit the handshake
+with these three properties.
+<!-- tracked: #6018 — an OIDC leg per backend asserting the S256 challenge on /login, refresh-token rotation on /refresh, and the Secure flag following LOOM_SECURE_TRANSPORT -->
 
 ### The generated Playwright suite signs in
 
@@ -2215,13 +2225,15 @@ overriding the default.
 
 ## Bypass list
 
-Every backend bypasses auth on these paths so docker-compose health
-checks, OpenAPI clients, and Swagger UI work without tokens:
+The auth middleware lets these paths through without a token, so
+docker-compose health checks, OpenAPI clients, and Swagger UI work:
 
 - `/health`
 - `/ready`
 - `/openapi.json`
-- `/swagger` (and any `/swagger/...` subpath)
+- `/swagger` (and any `/swagger/...` subpath) — on node, .NET, Java and
+  Python; Phoenix serves no Swagger UI
+<!-- tracked: #6018 — a booted leg per backend fetching /ready and /openapi.json (and /swagger where served) without a token; the OIDC legs reach /health only -->
 
 Pin the per-platform middleware file in `.loomignore` if you need
 to widen or tighten the list.
@@ -2238,7 +2250,7 @@ to widen or tighten the list.
 | Workflow body calls a currentUser-bound repository find | Validation error: "references a currentUser-bound find, which workflows don't yet pass the user into."  Use `getById` or move the call to the route layer. |
 | `auth: required` + a `user { … }` block but no `auth { oidc }` | `loom.auth-dev-login-only` (**warning**): "auth: required without auth { oidc }: development login only" — the generated verifier is the [dev stub](#dev-stub-verifier-x-loom-dev-claims). |
 
-No configuration fails fast at startup: every backend registers a verifier
-by itself.  A deployed build with no `auth { oidc }` block and no
+A missing verifier never stops startup: the generated one registers
+itself.  A deployed build with no `auth { oidc }` block and no
 `LOOM_DEV_AUTH=1` boots, logs `auth_dev_stub_disabled` once, and answers 401
 to every authenticated request.

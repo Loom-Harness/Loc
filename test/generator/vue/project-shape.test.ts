@@ -1,3 +1,4 @@
+// Gate for D-VUE-FRONTEND (docs/decisions).
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 

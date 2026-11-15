@@ -49,3 +49,5 @@ not a factory call, so neither the cutover nor the codemod touches it. An HTTP c
 chain, not an aggregate name, so the rule never reaches it. The generated
 backends keep their `static create(input)` factories — this is the language
 surface only.
+
+**Enforced by:** `test/ir/effects.test.ts`, `test/system/codemod-create-record-to-call.test.ts`

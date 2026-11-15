@@ -24,7 +24,21 @@ function readerText(): string {
 describe("live-fence register", () => {
   it("every fence is cited by a register row or a census waiver", () => {
     const text = readerText();
-    const unused = Object.keys(LIVE_FENCES).filter((ref) => !text.includes(`"${ref}"`));
+    // A decision record cites a fence on its `**Enforced by:** none, tracked by #N` line.
+    const decisions = readdirSync("docs/decisions")
+      .map((f) => readFileSync(join("docs/decisions", f), "utf8"))
+      .join("\n");
+    // A reference doc cites one on a `<!-- tracked: #N — … -->` claim marker.
+    const docs = readdirSync("docs")
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => readFileSync(join("docs", f), "utf8"))
+      .join("\n");
+    const unused = Object.keys(LIVE_FENCES).filter(
+      (ref) =>
+        !text.includes(`"${ref}"`) &&
+        !decisions.includes(`none, tracked by ${ref} `) &&
+        !docs.includes(`<!-- tracked: ${ref} `),
+    );
     expect(unused, "fences nothing cites — delete the row").toEqual([]);
   });
 

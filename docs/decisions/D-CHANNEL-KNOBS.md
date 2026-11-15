@@ -18,3 +18,5 @@ requirement change flips a knob.
 
 **Consequence.** `retention: log` plus a cursor is replay, which lines up with
 `persistedAs: eventLog` and the appliers.
+
+**Enforced by:** `test/language/channel.test.ts`

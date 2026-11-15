@@ -95,3 +95,5 @@ onto the records and retiring `.loom/wire-spec.json`.
 M-T5.10 and M-T5.40;
 [`docs/old/proposals/unfoldable-api-derivation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/unfoldable-api-derivation.md) steps 6–8 and its coordination
 note's item 3.
+
+**Enforced by:** superseded by `D-WIRE-RECORDS`

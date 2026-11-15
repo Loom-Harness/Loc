@@ -1,3 +1,4 @@
+// Gate for D-I18N-ATTR (docs/decisions).
 // An INTERPOLATED user-visible slot in ATTRIBUTE position translates.
 //
 // The sibling of `dynamic-user-visible-slots.test.ts`, one step along: that file

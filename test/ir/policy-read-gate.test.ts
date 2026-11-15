@@ -1,3 +1,4 @@
+// Gate for D-READ-GATE-IN-POLICY (docs/decisions).
 // `policy { read X requires <expr> }` — who may read aggregate X.
 //
 // Lowering puts the rule on the context (`policyReadGates`); enrichment puts

@@ -47,3 +47,5 @@ release sequencing); `src/language/validators/data/platform-rules.ts`
 (`loom.foundation-default-flipping` warning during the warn cycle); release
 notes for the two flip-related releases. **Depends on
 D-VANILLA-PHOENIX-FOUNDATION**.
+
+**Enforced by:** review — `docs/review-checklist.md#d-vanilla-default` — a release-sequencing ruling already carried out; no test can observe a sequence

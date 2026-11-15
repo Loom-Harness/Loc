@@ -42,6 +42,11 @@ interface Surface {
   workflows: Map<string, Set<string>>;
   /** Readable projection → its row fields. */
   projections: Map<string, Set<string>>;
+  /** Aggregate → its entity parts. */
+  parts: Map<string, Set<string>>;
+  /** `vo:<Name>` / `enum:<Name>` → the contexts declaring it (not at system
+   *  level); `record:<Name>` → the contexts declaring the record. */
+  owners: Map<string, Set<string>>;
   records: Map<string, Set<string>>;
   events: Map<string, Set<string>>;
   valueObjects: Map<string, Set<string>>;
@@ -108,6 +113,8 @@ export function exposedSurface(model: EnrichedLoomModel, sys: EnrichedSystemIR):
     routed: new Set(),
     workflows: new Map(),
     projections: new Map(),
+    parts: new Map(),
+    owners: new Map(),
   };
   const all = [...sys.subdomains.flatMap((sd) => sd.contexts), ...model.contexts];
   const exposed = exposedContexts(sys);
@@ -152,10 +159,21 @@ export function exposedSurface(model: EnrichedLoomModel, sys: EnrichedSystemIR):
     for (const p of ctx.payloads) {
       if (p.kind === "event" || !isWireRecord(p)) continue;
       s.records.set(p.name, new Set(p.fields.map((f) => f.name)));
+      const set = s.owners.get(`record:${p.name}`) ?? new Set<string>();
+      set.add(ctx.name);
+      s.owners.set(`record:${p.name}`, set);
     }
   }
   const subscribed = new Set(sys.uis.flatMap((u) => u.notifications.map((n) => n.eventType)));
+  const own = (key: string, ctxName: string) => {
+    const set = s.owners.get(key) ?? new Set<string>();
+    set.add(ctxName);
+    s.owners.set(key, set);
+  };
   for (const ctx of all) {
+    for (const agg of ctx.aggregates) s.parts.set(agg.name, new Set(agg.parts.map((p) => p.name)));
+    for (const vo of ctx.valueObjects) if (!vo.systemLevel) own(`vo:${vo.name}`, ctx.name);
+    for (const en of ctx.enums) if (!en.systemLevel) own(`enum:${en.name}`, ctx.name);
     for (const ev of ctx.events) {
       if (subscribed.has(ev.name)) s.events.set(ev.name, new Set(ev.fields.map((f) => f.name)));
     }
@@ -260,6 +278,27 @@ export function surfaceViolations(
     }
   }
   against(wire.projections, "projections", s.projections);
+  for (const a of (wire.aggregates as Json[]) ?? []) {
+    if (a.createRequest !== undefined && !s.records.has(a.createRequest as string))
+      out.push(
+        `wire.aggregates.${a.name}: create request '${a.createRequest}' is not a declared record`,
+      );
+    for (const p of (a.parts as string[] | undefined) ?? []) {
+      if (!s.parts.get(a.name as string)?.has(p))
+        out.push(`wire.aggregates.${a.name}: part '${p}' is not one of its parts`);
+    }
+  }
+  for (const [where, kind] of [
+    ["valueObjects", "vo"],
+    ["enums", "enum"],
+    ["records", "record"],
+  ] as const) {
+    for (const t of (wire[where] as Json[]) ?? []) {
+      if (t.context === undefined) continue;
+      if (!s.owners.get(`${kind}:${t.name}`)?.has(t.context as string))
+        out.push(`wire.${where}.${t.name}: context '${t.context}' does not declare it`);
+    }
+  }
   against(wire.events, "events", s.events);
   against(wire.valueObjects, "valueObjects", s.valueObjects);
   against(wire.enums, "enums", s.enums);

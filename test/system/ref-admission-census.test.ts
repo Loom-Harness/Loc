@@ -1,3 +1,4 @@
+// Gate for D-REF-ADMISSION (docs/decisions).
 // Write-time reference admission census (docs/tenancy.md → "Reference
 // admission").
 //

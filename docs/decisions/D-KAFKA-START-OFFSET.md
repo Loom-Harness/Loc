@@ -25,3 +25,5 @@ first boot breaks that promise. A replay of already-handled records is safe on
 a work queue because consumers dedupe on the envelope id. On a log, a fresh
 deployable replaying the whole history is a semantic change of its own
 (the replay cursor, M-T4.2), so it stays out of this ruling.
+
+**Enforced by:** none, tracked by #6013 — late-join is booted only on node; the other backends' kafka legs lack the scenario

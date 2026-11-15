@@ -86,7 +86,7 @@ import {
   pageKeyPrefix,
 } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import { walkerModelOfContract } from "../_walker/walker-model.js";
 // Framework-neutral pieces that live react-side today (same sharing
 // pattern as the elixir theme-emit): the e2e harness constants, the
 // page-object emitters (testid/DOM-only — `@loom/ui-test-driver`
@@ -234,9 +234,11 @@ export function generateVueForContexts(
   // Pack-DECLARED chrome rides the SAME already-enabled gate (see the React
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
+  const contextNames = contexts.map((c) => c.name);
+  const walkerModel = walkerModelOfContract(contract, contextNames);
   const formScope = {
     layouts: sys.layouts,
-    model: walkerModelOf({ contexts }),
+    model: walkerModelOfContract(contract, contextNames, "contexts"),
     sentences: pack.manifest.sentenceChrome ?? [],
     implicitModelText: vueTarget.modelTextImplicitSites === true,
     sessionView: authUi,
@@ -294,7 +296,6 @@ export function generateVueForContexts(
   const aggregatesIRByName = new Map<string, AggregateIR>();
   const bcByAggregate = new Map<string, BoundedContextIR>();
   const workflowsByName = new Map<string, WorkflowIR>();
-  const bcByWorkflow = new Map<string, BoundedContextIR>();
   for (const ctx of contexts) {
     for (const agg of ctx.aggregates) {
       aggregatesIRByName.set(agg.name, agg);
@@ -302,7 +303,6 @@ export function generateVueForContexts(
     }
     for (const wf of ctx.workflows) {
       workflowsByName.set(wf.name, wf);
-      bcByWorkflow.set(wf.name, ctx);
     }
   }
   const pageRoutes = new Map<string, string>();
@@ -394,6 +394,7 @@ export function generateVueForContexts(
       ui.apiParams,
       aggregatesIRByName,
       bcByAggregate,
+      walkerModel,
       pageRoutes,
       externFunctionNames,
       externComponentNames,
@@ -435,7 +436,7 @@ export function generateVueForContexts(
       userComponents,
       ui.apiParams,
       aggregatesIRByName,
-      walkerModelOf({ bcByAggregate, bcByWorkflow }),
+      walkerModel,
       workflowsByName,
       new Map(),
       pageRoutes,
@@ -467,7 +468,7 @@ export function generateVueForContexts(
       // needs to recognise + hoist an awaited op's vue-query mutation.
       apiParams: ui.apiParams,
       aggregatesByName: aggregatesIRByName,
-      bcByAggregate,
+      model: walkerModel,
       // The route table a `navigate(<Page>)` in an ACTION body resolves against
       // (the body walk above already gets it).
       pageRoutes,
@@ -557,6 +558,7 @@ export function generateVueForContexts(
     contextsByName: new Map(contexts.map((c) => [c.name, c])),
     pack,
     topLevelComponents: options.topLevelComponents ?? [],
+    walkerModel,
   });
   for (const [path, content] of pageObjects) out.set(path, content);
   for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, sys))) {

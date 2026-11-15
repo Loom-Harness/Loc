@@ -1,3 +1,4 @@
+// Gate for D-EMBEDDED-TPH, D-ES-TPH, D-RENAME (docs/decisions).
 // Aggregate-inheritance surface (aggregate-inheritance.md, phase I1).
 // Covers the grammar (`abstract` prefix, `extends <Base>`,
 // `inheritanceUsing: sharedTable|ownTable` header modifier), the IR

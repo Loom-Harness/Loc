@@ -56,3 +56,5 @@ validates, so it could drift from the running service without any check
 noticing — the parity gate would compare one document with itself. A
 framework-generated document is evidence about the running backend; that
 evidence is the point of the gate.
+
+**Enforced by:** `test/system/openapi-native-census.test.ts`
