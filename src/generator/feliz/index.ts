@@ -73,8 +73,9 @@ import {
   pageNameEntry,
 } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
-import { bcByAggregateOf, type PagedQueryContext } from "../_walker/paged-query.js";
+import type { PagedQueryContext } from "../_walker/paged-query.js";
 import { walkBody } from "../_walker/walker-core.js";
+import { bcByAggregateOf, walkerModelOf } from "../_walker/walker-model.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import {
   AUTH_MODULE_CLAIMS,
@@ -564,9 +565,8 @@ function renderPageView(
     externComponents, // userComponents (extern only)
     ui.apiParams,
     aggregatesByName,
-    bcByAggregate, // form seams resolve enum-typed fields → <select> options
+    walkerModelOf({ bcByAggregate, bcByWorkflow }),
     workflowsByName, // WorkflowForm(runs:) resolves here
-    bcByWorkflow, // workflow-form enum resolution
     new Map(), // paramTypes
     new Map(), // pageRoutes
     externFunctionNames, // extern frontend function names
@@ -1256,7 +1256,7 @@ function shapeCtxOf(
   return {
     apiParamNames: new Set(ui.apiParams.map((p) => p.name)),
     aggregatesByName,
-    bcByAggregate: bcByAggregateOf(contexts),
+    model: walkerModelOf({ bcByAggregate: bcByAggregateOf(contexts) }),
   };
 }
 

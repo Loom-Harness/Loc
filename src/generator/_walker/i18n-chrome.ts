@@ -26,11 +26,9 @@
 // entry per chrome string as the pack-chrome slices land.
 // ---------------------------------------------------------------------------
 
-import { createRequestFields } from "../../ir/plan/create-request.js";
 import type {
   ActionIR,
   AggregateIR,
-  BoundedContextIR,
   ExprIR,
   FieldIR,
   LayoutIR,
@@ -53,6 +51,7 @@ import { WIRE_ERROR_MESSAGES } from "../_i18n/wire-error-text.js";
 import { type MessageEntry, pageNameEntry } from "./i18n-extract.js";
 import { implicitModelTextEntries } from "./model-text-sites.js";
 import { gridHasFilterableColumn, gridHasSelection } from "./primitives/data-grid-shape.js";
+import type { WalkerModel } from "./walker-model.js";
 
 /** Stable key for a pack-chrome string: `chrome.<name>`. */
 export function chromeKey(name: string): string {
@@ -333,24 +332,34 @@ function refArgName(call: ExprIR & { kind: "call" }, argName: string): string | 
   return arg?.kind === "ref" ? arg.name : undefined;
 }
 
+/** The aggregates, workflows and create requests a UI's form calls resolve
+ *  against. */
+function formsOf(model: WalkerModel | undefined): {
+  aggregates: Map<string, AggregateIR>;
+  workflows: Map<string, WorkflowIR>;
+  createRequests: Map<string, readonly FieldIR[]>;
+} {
+  const aggregates = new Map<string, AggregateIR>();
+  const workflows = new Map<string, WorkflowIR>();
+  const createRequests = new Map<string, readonly FieldIR[]>();
+  if (!model) return { aggregates, workflows, createRequests };
+  for (const [name, { agg, home }] of model.aggregates) {
+    aggregates.set(name, agg);
+    createRequests.set(name, model.createRequestFields(home, agg));
+  }
+  for (const [name, { wf }] of model.workflows) workflows.set(name, wf);
+  return { aggregates, workflows, createRequests };
+}
+
 /** The {@link FALLBACK_LABEL_CHROME} names a UI renders, one per site where the
  *  HEEx emitter has no model text to show: a form with no input to label
  *  (`fieldFallback`), a form whose `of:` / `runs:` is not a resolvable
  *  reference (`submitFallback`), a `Table` with no column (`dataFallback`), a
  *  `KeyValueRow` with no label (`fieldFallback`).  Exact per call, so the
  *  catalog never carries a message nothing reads. */
-function fallbackLabelNamesForUi(ui: UiIR, contexts: readonly BoundedContextIR[]): string[] {
+function fallbackLabelNamesForUi(ui: UiIR, model: WalkerModel): string[] {
   const names = new Set<string>();
-  const aggregates = new Map<string, AggregateIR>();
-  const workflows = new Map<string, WorkflowIR>();
-  const createRequests = new Map<string, readonly FieldIR[]>();
-  for (const bc of contexts) {
-    for (const agg of bc.aggregates) {
-      aggregates.set(agg.name, agg);
-      createRequests.set(agg.name, createRequestFields(bc.payloads, agg));
-    }
-    for (const wf of bc.workflows) workflows.set(wf.name, wf);
-  }
+  const { aggregates, workflows, createRequests } = formsOf(model);
   const visit = (body: ExprIR | undefined) =>
     walkExprDeep(body, (e) => {
       if (e.kind !== "call") return;
@@ -380,7 +389,7 @@ function fallbackLabelNamesForUi(ui: UiIR, contexts: readonly BoundedContextIR[]
 
 /** What the model-dependent sentences of a UI's FORMS are enumerated against.
  *
- *  `contexts` resolve the aggregates, operations and workflows a form call
+ *  `model` resolves the aggregates, operations and workflows a form call
  *  names; `sentences` are the sentence bases (`operationSucceeded`, `addItem`)
  *  the active design pack actually renders — its manifest's `sentenceChrome`.
  *  A pack that renders neither contributes no such key, so no catalog carries a
@@ -389,7 +398,7 @@ export interface FormSentenceScope {
   /** The system's named layouts: the slot text of those a page selects is part
    *  of the ui's catalog. */
   readonly layouts?: readonly LayoutIR[];
-  readonly contexts: readonly BoundedContextIR[];
+  readonly model: WalkerModel;
   readonly sentences: readonly string[];
   /** The rendering target keys its IMPLICIT model-text sites by identity
    *  (`WalkerTarget.modelTextImplicitSites`), so their keys belong in the
@@ -489,19 +498,10 @@ function hasCustomSubmit(call: ExprIR & { kind: "call" }): boolean {
 export function sentenceChromeNamesForUi(ui: UiIR, scope?: FormSentenceScope): string[] {
   const names = new Set<string>();
   const wants = (base: string) => scope?.sentences.includes(base) === true;
-  const aggregates = new Map<string, AggregateIR>();
-  const workflows = new Map<string, WorkflowIR>();
-  const createRequests = new Map<string, readonly FieldIR[]>();
-  for (const bc of scope?.contexts ?? []) {
-    for (const agg of bc.aggregates) {
-      aggregates.set(agg.name, agg);
-      createRequests.set(agg.name, createRequestFields(bc.payloads, agg));
-    }
-    for (const wf of bc.workflows) workflows.set(wf.name, wf);
-  }
+  const { aggregates, workflows, createRequests } = formsOf(scope?.model);
   const vos = new Map<string, readonly FormInput[]>();
-  for (const bc of scope?.contexts ?? []) {
-    for (const vo of valueObjectPool(bc)) vos.set(vo.name, vo.fields);
+  for (const home of scope?.model.homes ?? []) {
+    for (const vo of valueObjectPool(home)) vos.set(vo.name, vo.fields);
   }
   const leaves: FormLeaves = {
     elements: new Set(),
@@ -814,11 +814,7 @@ function uiUsesProvenanceInfo(ui: UiIR): boolean {
 
 /** The pages whose name a frontend renders (see
  *  {@link FormSentenceScope.pageNames}). */
-function pagesNamedBy(
-  ui: UiIR,
-  mode: "all" | "navbar",
-  contexts: readonly BoundedContextIR[],
-): readonly PageIR[] {
+function pagesNamedBy(ui: UiIR, mode: "all" | "navbar", model: WalkerModel): readonly PageIR[] {
   if (mode === "all") return ui.pages;
   if (ui.menu) return [];
   const topLevel = ui.pages.filter((p) => !(p.route ?? "/").includes(":"));
@@ -826,8 +822,8 @@ function pagesNamedBy(
   // The bar links the default nav pages; a link with its own `menu { label }`
   // reads that label's key, not the page name's.
   const nameCtx: PageNameCtx = {
-    aggregateNames: contexts.flatMap((c) => c.aggregates.map((a) => a.name)),
-    workflowNames: contexts.flatMap((c) => c.workflows.map((w) => w.name)),
+    aggregateNames: [...model.aggregates.keys()],
+    workflowNames: [...model.workflows.keys()],
   };
   return topLevel.filter(
     (p) => isDefaultNavPage(p, nameCtx) && menuMetaString(p, "label") === undefined,
@@ -862,7 +858,7 @@ export function chromeMergedWhenEnabled(
       out[chromeKey(name)] = chromeMessage(name);
     }
     if (scope?.pageNames) {
-      for (const page of pagesNamedBy(ui, scope.pageNames, scope.contexts)) {
+      for (const page of pagesNamedBy(ui, scope.pageNames, scope.model)) {
         const entry = pageNameEntry(ui, page);
         if (entry) out[entry.key] = entry.message;
       }
@@ -872,7 +868,7 @@ export function chromeMergedWhenEnabled(
       if (entry) out[entry.key] = entry.message;
     }
     if (scope?.fallbackLabels) {
-      for (const name of fallbackLabelNamesForUi(ui, scope.contexts)) {
+      for (const name of fallbackLabelNamesForUi(ui, scope.model)) {
         out[chromeKey(name)] = chromeMessage(name);
       }
     }
@@ -880,7 +876,7 @@ export function chromeMergedWhenEnabled(
     // buttons) — identity-keyed, and like the form chrome above never the
     // reason a UI turns translatable.
     if (scope?.implicitModelText) {
-      for (const { key, message } of implicitModelTextEntries(ui, scope.contexts, {
+      for (const { key, message } of implicitModelTextEntries(ui, scope.model, {
         optionalCreateInputs: scope.optionalCreateInputs === true,
       })) {
         out[key] = message;

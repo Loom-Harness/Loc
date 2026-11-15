@@ -55,6 +55,7 @@ import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import { emitShellFiles, emitShellGlobs } from "../_packs/shell-emits.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { collectUiMessages, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 import {
   E2E_PACKAGE_JSON,
   E2E_TSCONFIG_JSON,
@@ -262,7 +263,7 @@ export function generateReactForContexts(
   const packChrome = packChromeCatalog(pack.manifest);
   const formScope = {
     layouts: sys.layouts,
-    contexts,
+    model: walkerModelOf({ contexts }),
     sentences: pack.manifest.sentenceChrome ?? [],
     implicitModelText: tsxTarget.modelTextImplicitSites === true,
     sessionView: authUi,

@@ -18,13 +18,14 @@
 // ---------------------------------------------------------------------------
 
 import { pagedReturn } from "../../ir/stdlib/generics.js";
-import type { BoundedContextIR, ExprIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { type ApiHookDetectorContext, tryDetectApiHook } from "./api-hook-detector.js";
+import type { WalkerModel } from "./walker-model.js";
 
-/** What `isPagedQuery` needs beyond the detector's own context: the bounded
- *  context each aggregate lives in, so the read's find can be looked up. */
+/** What `isPagedQuery` needs beyond the detector's own context: the read's
+ *  repository find. */
 export interface PagedQueryContext extends ApiHookDetectorContext {
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR>;
+  model: Pick<WalkerModel, "find">;
   /** Names of the readable projections whose response is the LIST shape —
    *  `projectionReadShape === "many"` (a `group by` read, one row per group;
    *  or a SHORTHAND read, the filtered source rows).  Optional for the same
@@ -72,9 +73,7 @@ export function queryShape(ofArg: ExprIR, ctx: PagedQueryContext): QueryShape {
   // `byId` is a STANDARD op with no declared find to inspect, and it is the
   // overwhelmingly common single read — answer it before the repository lookup.
   if (detected.operation === "byId") return { paged: false, single: true };
-  const bc = ctx.bcByAggregate.get(detected.aggregateName);
-  const repo = bc?.repositories.find((r) => r.aggregateName === detected.aggregateName);
-  const find = repo?.finds.find((f) => f.name === detected.operation);
+  const find = ctx.model.find(detected.aggregateName, detected.operation);
   if (!find) return { paged: false, single: false };
   if (pagedReturn(find.returnType)) return { paged: true, single: false };
   // A declared find returning `T` or `T?` (an absence-shaped union included) is
@@ -88,14 +87,4 @@ export function queryShape(ofArg: ExprIR, ctx: PagedQueryContext): QueryShape {
  *  alias over `queryShape` for the call sites that only ask that half. */
 export function isPagedQuery(ofArg: ExprIR, ctx: PagedQueryContext): boolean {
   return queryShape(ofArg, ctx).paged;
-}
-
-/** Build the `bcByAggregate` index `isPagedQuery` needs from a ui's bound
- *  contexts.  Shared so the Feliz and Flutter collectors index identically. */
-export function bcByAggregateOf(
-  contexts: readonly BoundedContextIR[],
-): ReadonlyMap<string, BoundedContextIR> {
-  const out = new Map<string, BoundedContextIR>();
-  for (const c of contexts) for (const a of c.aggregates) out.set(a.name, c);
-  return out;
 }

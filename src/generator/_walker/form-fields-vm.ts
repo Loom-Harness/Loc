@@ -10,8 +10,7 @@
 // lacks a display) with `formInput` in form-helpers.ts.
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR, BoundedContextIR, TypeIR } from "../../ir/types/loom-ir.js";
-import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
+import type { AggregateIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { modelTextKey } from "../../util/model-text-key.js";
 import { humanize } from "../../util/naming.js";
@@ -20,32 +19,34 @@ import {
   type FormFieldArms,
   type FormFieldSpec,
   formFieldSpec,
-  formSpecEnvOf,
   renderFormField,
 } from "../_frontend/form-spec.js";
 import type { FormFieldVM } from "../_frontend/view-models.js";
+import type { WalkerHome, WalkerModel } from "./walker-model.js";
 
 export function prepareFormFieldVM(
   path: string,
   t: TypeIR,
-  ctx: BoundedContextIR,
+  ctx: WalkerHome,
   testId: string,
   aggregatesByName: Map<string, AggregateIR>,
-  /** Aggregate → owning context, for `isPagedAllRead`.  Absent means "assume
-   *  the bare array": the conservative answer, per `isPagedAllRead`'s own
-   *  contract — a bare-array read of an envelope renders an empty list, while
-   *  an `.items` read of a bare array is a type error AND an empty list. */
-  bcByAggregate?: ReadonlyMap<string, BoundedContextIR>,
+  /** The walk's model: whether a referenced aggregate's list read is paged,
+   *  and which context a label is keyed under.  A model that reaches no
+   *  aggregate answers "the bare array", the conservative answer per
+   *  `isPagedAllRead` — a bare-array read of an envelope renders an empty
+   *  list, while an `.items` read of a bare array is a type error AND an
+   *  empty list. */
+  model: WalkerModel,
   /** The model type the field is declared on (an aggregate, value object or
    *  workflow), for its identity-keyed label; absent when the input names no
    *  model fact.  Nested value-object fields key under the value object. */
   labelOwner?: string,
 ): FormFieldVM {
-  const vm = prepareFormFieldVMInner(path, t, ctx, testId, aggregatesByName, bcByAggregate);
+  const vm = prepareFormFieldVMInner(path, t, ctx, testId, aggregatesByName, model);
   if (labelOwner === undefined) return vm;
   const leaf = path.split(".").pop()!;
   const labelKey = modelTextKey({
-    ctx: modelTextContextOf(labelOwner, ctx, bcByAggregate?.values()),
+    ctx: model.modelTextOwner(labelOwner, ctx),
     type: labelOwner,
     facet: "field",
     member: leaf,
@@ -57,27 +58,27 @@ export function prepareFormFieldVM(
 function enumValueKeysOf(
   name: string,
   values: readonly string[],
-  ctx: BoundedContextIR,
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR> | undefined,
+  ctx: WalkerHome,
+  model: WalkerModel,
 ): string[] {
-  const owner = modelTextContextOf(name, ctx, bcByAggregate?.values());
+  const owner = model.modelTextOwner(name, ctx);
   return values.map((v) => modelTextKey({ ctx: owner, type: name, facet: "value", member: v }));
 }
 
 function prepareFormFieldVMInner(
   path: string,
   t: TypeIR,
-  ctx: BoundedContextIR,
+  ctx: WalkerHome,
   testId: string,
   aggregatesByName: Map<string, AggregateIR>,
-  bcByAggregate?: ReadonlyMap<string, BoundedContextIR>,
+  model: WalkerModel,
 ): FormFieldVM {
   // Label = humanised leaf segment so nested VO fields render as
   // "Amount" / "Currency" rather than "price.amount" / etc.
   const leaf = path.split(".").pop()!;
   const spec = formFieldSpec(
     { name: leaf, type: t },
-    formSpecEnvOf(ctx, aggregatesByName, bcByAggregate),
+    model.formSpecEnv(ctx, aggregatesByName),
     path,
   );
   return renderFormField(spec, JSX_FORM_FIELD_ARMS, {
@@ -87,7 +88,7 @@ function prepareFormFieldVMInner(
     errorExpr: errorAccess(path),
     ctx,
     aggregatesByName,
-    bcByAggregate,
+    model,
   });
 }
 
@@ -96,9 +97,9 @@ interface JsxArmCtx {
   label: string;
   testId: string;
   errorExpr: string;
-  ctx: BoundedContextIR;
+  ctx: WalkerHome;
   aggregatesByName: Map<string, AggregateIR>;
-  bcByAggregate?: ReadonlyMap<string, BoundedContextIR>;
+  model: WalkerModel;
 }
 
 /** The VM fields every arm shares; each arm names its `template` literally
@@ -147,7 +148,7 @@ function valueObjectVM(f: FormFieldSpec, c: JsxArmCtx): FormFieldVM {
       c.ctx,
       `${c.testId}-${vf.name}`,
       c.aggregatesByName,
-      c.bcByAggregate,
+      c.model,
       vo.name,
     ),
   );
@@ -180,7 +181,7 @@ export const JSX_FORM_FIELD_ARMS: FormFieldArms<FormFieldVM, JsxArmCtx> = {
     ...base(c),
     template: "field-input-enum-select",
     enumValuesJson: JSON.stringify(f.enumValues),
-    enumValueKeys: enumValueKeysOf(f.enumName!, f.enumValues!, c.ctx, c.bcByAggregate),
+    enumValueKeys: enumValueKeysOf(f.enumName!, f.enumValues!, c.ctx, c.model),
   }),
   ref: refVM,
   optionalRef: refVM,
@@ -244,7 +245,7 @@ function objectArrayVM(f: FormFieldSpec, c: JsxArmCtx): FormFieldVM {
       c.ctx,
       `${c.testId}-${vf.name}`,
       c.aggregatesByName,
-      c.bcByAggregate,
+      c.model,
       vo.name,
     );
     // The row's own error access: the sub-field VM's `errorExpr` was built

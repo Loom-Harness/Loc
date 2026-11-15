@@ -1,5 +1,5 @@
-import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
-import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import type { AggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { enumPool, findValueObjectInScope, type TypeScope } from "../../ir/util/reachable-types.js";
 import { lowerFirst, plural } from "../../util/naming.js";
 import { type DefaultSeedCtx, renderDefaultSeed } from "./default-seed.js";
 import type { FormFieldSpec, FormSpec } from "./form-spec.js";
@@ -43,7 +43,7 @@ import type { FormFieldSpec, FormSpec } from "./form-spec.js";
  * field falls back to the text variant. */
 export function needsController(
   fields: { type: TypeIR }[],
-  ctx: BoundedContextIR,
+  ctx: TypeScope,
   aggregatesByName: Map<string, AggregateIR>,
 ): boolean {
   const probe = (t: TypeIR): boolean => {
@@ -95,7 +95,7 @@ export function needsController(
  * the option-label resolution (each target's `display`-marked field). */
 export function idTargetsInFields(
   fields: { type: TypeIR }[],
-  ctx: BoundedContextIR,
+  ctx: TypeScope,
   aggregatesByName: Map<string, AggregateIR>,
 ): AggregateIR[] {
   const seen = new Set<string>();
@@ -134,7 +134,7 @@ export function idTargetHookVar(target: AggregateIR): string {
  */
 export function initialValuesTs(
   fields: { name: string; type: TypeIR; optional: boolean; default?: ExprIR }[],
-  ctx: BoundedContextIR,
+  ctx: TypeScope,
   seedCtx: DefaultSeedCtx = {},
 ): string {
   const entries = fields.map((f) => {
@@ -154,7 +154,7 @@ export function initialValuesTs(
  * form opens on the current values; otherwise a field seeds from its declared
  * default when the client can evaluate it, else its kind's zero.
  */
-export function formSeedTs(spec: FormSpec, ctx: BoundedContextIR, seedCtx: DefaultSeedCtx): string {
+export function formSeedTs(spec: FormSpec, ctx: TypeScope, seedCtx: DefaultSeedCtx): string {
   const entries = spec.fields.map((f) => {
     const fromRecord =
       seedCtx.recordVar !== undefined && f.prefill.from === "record"
@@ -171,7 +171,7 @@ export function formSeedTs(spec: FormSpec, ctx: BoundedContextIR, seedCtx: Defau
  *  the `datetime-local` input's `YYYY-MM-DDTHH:mm`.  An absent optional value
  *  seeds the kind's empty input — `""` for the text-like kinds (the request
  *  schema reads an empty optional input as `null`), the zero otherwise. */
-function recordSeedTs(f: FormFieldSpec, recordVar: string, ctx: BoundedContextIR): string {
+function recordSeedTs(f: FormFieldSpec, recordVar: string, ctx: TypeScope): string {
   const carrier = f.prefill.from === "record" && f.prefill.carrier ? ".value" : "";
   const read = `${recordVar}.${f.name}${carrier}`;
   const textLike =
@@ -198,7 +198,7 @@ function recordSeedTs(f: FormFieldSpec, recordVar: string, ctx: BoundedContextIR
   return `${read} ?? ${initialValueTs(f.type, ctx, false)}`;
 }
 
-export function initialValueTs(t: TypeIR, ctx: BoundedContextIR, optional: boolean): string {
+export function initialValueTs(t: TypeIR, ctx: TypeScope, optional: boolean): string {
   const inner = unwrapOpt(t);
   // An optional value object starts absent: its form group is opt-in
   // (`form-optional-group.ts`), and a zero object would fail its invariants.

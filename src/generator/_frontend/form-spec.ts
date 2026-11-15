@@ -7,7 +7,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { operationFormParams } from "../../ir/util/op-gates.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
-import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { enumPool, findValueObjectInScope, type TypeScope } from "../../ir/util/reachable-types.js";
 
 /** The closed set of input shapes a scaffolded form renders.  Optionality is a
  *  separate axis ({@link FormFieldSpec.optional}) except where it changes the
@@ -150,7 +150,7 @@ export interface FormSpecEnv {
 
 /** The env for forms over `ctx`'s types. */
 export function formSpecEnvOf(
-  ctx: BoundedContextIR,
+  ctx: TypeScope,
   aggregatesByName: ReadonlyMap<string, AggregateIR>,
   bcByAggregate?: ReadonlyMap<string, BoundedContextIR>,
 ): FormSpecEnv {

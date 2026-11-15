@@ -68,6 +68,7 @@ import type { LoadedPack } from "../_packs/loader.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 import { buildSvelteApiModule } from "./api-builder.js";
 import { renderSvelteChartRuntime } from "./chart-runtime.js";
 import {
@@ -210,7 +211,7 @@ export function generateSvelteForContexts(
   pack.setChromeI18n(i18nEnabled);
   const formScope = {
     layouts: sys.layouts,
-    contexts,
+    model: walkerModelOf({ contexts }),
     sentences: pack.manifest.sentenceChrome ?? [],
     implicitModelText: svelteTarget.modelTextImplicitSites === true,
     sessionView: authUi,
