@@ -1749,8 +1749,9 @@ Two change records sit side by side and are easy to conflate:
 - **`migrations/`** (beside the `.ddd`, committed) *is* the migration history —
   every recorded generation's steps and the schema it leaves; the next
   `migrate add` diffs against its head.
-- **`.loom/wire-spec.json`** is the JSON-Schema-shaped derivation of every
-  aggregate's `wireShape` — the network contract, not the database schema. Both are
+- **`.loom/wire-spec.json`** is the JSON-Schema-shaped rendering of the declared
+  contract records — every exposed aggregate's response record and every request
+  record — the network contract, not the database schema. Both are
   diffable change detectors, but they describe different surfaces (the JSON over the
   wire vs. the tables on disk).
 
