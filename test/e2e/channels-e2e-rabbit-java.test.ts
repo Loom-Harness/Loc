@@ -30,7 +30,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { redeliveryWitness } from "./support/redelivery-witness.js";
+import { redeliveryWitness, seedInboxForPurge } from "./support/redelivery-witness.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT_JAVA === "1";
 
@@ -208,6 +208,8 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — java leg (M-T4.4 slice 7
     boot("ship_api", REPLICA_PORTS[0], "ship_api");
     await waitFor(ready(SALES_PORT), 180_000, "salesApi /ready");
     await waitFor(ready(REPLICA_PORTS[0]), 180_000, "shipApi replica 1 /ready");
+    // The next replica's boot purges the consumer inbox (redelivery witness).
+    seedInboxForPurge("loom-channels-rbjv-pg");
     boot("ship_api", REPLICA_PORTS[1], "ship_api");
     await waitFor(ready(REPLICA_PORTS[1]), 180_000, "shipApi replica 2 /ready");
   }, 900_000);
@@ -298,6 +300,7 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — java leg (M-T4.4 slice 7
     container: () => (dlqProbe ? "loom-channels-rbjv-mq" : undefined),
     address: ADDRESS,
     consumer: () => `http://localhost:${REPLICA_PORTS[0]}`,
+    postgres: () => "loom-channels-rbjv-pg",
   });
 
   it("parks a poisoned message in the DLQ instead of losing it", async () => {

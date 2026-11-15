@@ -2319,7 +2319,8 @@ export function renderJavaInboxPurgeService(configPkg: string): string {
     `            } catch (RuntimeException e) {`,
     `                CatalogLog.event(${javaLogEvent("outboxRelayError")}, "error", String.valueOf(e.getMessage()));`,
     `            }`,
-    `        }, PURGE_INTERVAL_MS, PURGE_INTERVAL_MS, TimeUnit.MILLISECONDS);`,
+    // A start prunes at once, so a restart never waits a whole interval.
+    `        }, 0, PURGE_INTERVAL_MS, TimeUnit.MILLISECONDS);`,
     `    }`,
     ``,
     `    @Override`,

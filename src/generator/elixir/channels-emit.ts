@@ -1889,7 +1889,8 @@ defmodule ${appModule}.InboxPurge do
 
   @impl true
   def init(:ok) do
-    Process.send_after(self(), :purge, @purge_interval_ms)
+    # A start prunes at once, so a restart never waits a whole interval.
+    send(self(), :purge)
     {:ok, %{}}
   end
 

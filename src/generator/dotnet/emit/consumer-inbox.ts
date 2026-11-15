@@ -160,6 +160,8 @@ ${outboxRetentionMembers(purge)}
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // A start prunes at once, so a restart never waits a whole interval.
+        _lastPurge = DateTime.MinValue;
         while (!stoppingToken.IsCancellationRequested)
         {
             try

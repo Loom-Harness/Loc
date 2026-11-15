@@ -43,7 +43,7 @@ import {
 } from "../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { contextStaticSubpathRoutes, deriveContextOperations } from "../../ir/util/api-surface.js";
-import { durableEventTypes, realtimeEventTypes } from "../../ir/util/channels.js";
+import { realtimeEventTypes } from "../../ir/util/channels.js";
 import { migratesAtBoot } from "../../ir/util/databases.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../ir/util/denial-detail.js";
 import { entryResult } from "../../ir/util/entry-result.js";
@@ -278,13 +278,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // rides the outbox relay (design §5), never the inline tee.  Intersected
   // with the HOSTED durable set: only a producer that hosts the channel's
   // context owns the outbox tier (see the stub-knob pin above).
-  const hostedDurable = durableEventTypes(merged);
-  const durableBrokerEvents = new Set(
-    channelBindings
-      .filter((b) => b.retention === "work" || b.retention === "log")
-      .flatMap((b) => b.events)
-      .filter((ev) => hostedDurable.has(ev)),
-  );
+  const durableBrokerEvents = chPlan.durableBrokerEvents;
   // Realtime SSE wire (channels.md Part I): any `delivery: broadcast` channel
   // makes its carried events UI-observable at GET /realtime/events.  Gates the
   // `app/realtime.py` module, the dispatcher's `RealtimeDispatcher` tee, and

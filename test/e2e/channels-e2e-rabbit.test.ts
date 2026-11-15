@@ -26,7 +26,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { installGeneratedProject } from "./support/npm-install.js";
-import { redeliveryWitness } from "./support/redelivery-witness.js";
+import { redeliveryWitness, seedInboxForPurge } from "./support/redelivery-witness.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT === "1";
 
@@ -236,6 +236,8 @@ describe.skipIf(!ENABLED)(`rabbitmq queue semantics (channels-e2e, M-T4.4 slice 
     boot("ship_api", REPLICA_PORTS[0], "ship_api");
     await waitFor(ready(SALES_PORT), 60_000, "salesApi /ready");
     await waitFor(ready(REPLICA_PORTS[0]), 60_000, "shipApi replica 1 /ready");
+    // The next replica's boot purges the consumer inbox (redelivery witness).
+    seedInboxForPurge(PG_NAME);
     boot("ship_api", REPLICA_PORTS[1], "ship_api");
     boot("ship_api", REPLICA_PORTS[2], "ship_api");
     await waitFor(ready(REPLICA_PORTS[1]), 60_000, "shipApi replica 2 /ready");
@@ -355,6 +357,7 @@ describe.skipIf(!ENABLED)(`rabbitmq queue semantics (channels-e2e, M-T4.4 slice 
     container: () => (dlqProbe ? MQ_NAME : undefined),
     address: ADDRESS,
     consumer: () => `http://localhost:${REPLICA_PORTS[0]}`,
+    postgres: () => PG_NAME,
   });
 
   it("parks a poisoned message in the DLQ instead of losing it", async () => {

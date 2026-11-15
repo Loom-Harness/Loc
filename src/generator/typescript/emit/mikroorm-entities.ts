@@ -16,10 +16,10 @@ import {
   projectionTableName,
 } from "../../../ir/enrich/storage-names.js";
 import {
+  contextReceivesDurable,
   eventLogTable,
   eventSourcedWorkflows,
   FOLD_INBOX_TABLE,
-  hasDurableEvents,
   hasStateRow,
 } from "../../../ir/plan/index.js";
 import type {
@@ -1175,7 +1175,7 @@ export function renderMikroEntities(
     const { block, schemaName } = renderRecordRowEntity(
       mikroWorkflowRowClass(wf),
       workflowStateTableName(wf.name),
-      workflowStateColumns(wf, ctx, opts.receivesDurable ?? hasDurableEvents(ctx)),
+      workflowStateColumns(wf, ctx, opts.receivesDurable ?? contextReceivesDurable(ctx)),
     );
     schemaNames.push(schemaName);
     blocks.push(block);

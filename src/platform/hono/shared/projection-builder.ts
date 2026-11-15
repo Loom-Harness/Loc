@@ -25,6 +25,7 @@ import {
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
 import {
+  contextReceivesDurable,
   type FoldRowSeed,
   type FoldStep,
   foldInboxClaimSql,
@@ -32,7 +33,6 @@ import {
   foldRowSeeds,
   foldSteps,
   foldsDedupe,
-  hasDurableEvents,
 } from "../../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
@@ -115,7 +115,7 @@ export function buildProjectionsFile(
   /** The deployable's consumers run the redelivery dedupe
    *  (`channelPlan(...).receivesDurable`).  Absent → this context hosts a
    *  durable channel. */
-  receivesDurable: boolean = hasDurableEvents(ctx),
+  receivesDurable: boolean = contextReceivesDurable(ctx),
 ): string {
   // FOLDED (materialized) projections only — the event-folded read model with a
   // physical row table + by-key routes.  Query-time projections
@@ -876,12 +876,15 @@ export function buildInboxPurgeFile(usingMikro: boolean): string {
       `export function startInboxPurge(db: ${projDbType(usingMikro)}): () => void {`,
       `  const days = Number(process.env.${OUTBOX_RETENTION_ENV});`,
       `  const retentionMs = (Number.isFinite(days) && days > 0 ? days : ${OUTBOX_RETENTION_DEFAULT_DAYS}) * 86_400_000;`,
-      `  const timer = setInterval(() => {`,
+      `  const purge = (): void => {`,
       `    const cutoff = new Date(Date.now() - retentionMs);`,
       `    ${del}.catch((err: unknown) => {`,
       `      ${TS.baseLogger}.warn({ event: "outbox_relay_error", error: err instanceof Error ? err.message : String(err) });`,
       `    });`,
-      `  }, ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000});`,
+      `  };`,
+      `  // A start prunes at once, so a restart never waits a whole interval.`,
+      `  purge();`,
+      `  const timer = setInterval(purge, ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000});`,
       `  timer.unref();`,
       `  return () => clearInterval(timer);`,
       `}`,

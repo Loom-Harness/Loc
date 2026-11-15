@@ -25,7 +25,6 @@ import {
 } from "../../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../../ir/util/api-resource-binding.js";
 import { contextHasAuditedTarget } from "../../../ir/util/audit-capability.js";
-import { durableEventTypes } from "../../../ir/util/channels.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import type { PageNameCtx } from "../../../ir/util/page-kind.js";
 import {
@@ -300,17 +299,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   const hasChannels = channelBindings.length > 0;
   // Durable-producer split (design §5): HOSTED durable events carried by a
   // wired `queue`/`work` (or future `log`) channel ride the outbox relay,
-  // never the inline tee.  Hosted-only on purpose: the module-level
-  // migrations back the `__loom_outbox` table and can't see a foreign
-  // wiring; a foreign `queue`/`work` consumer relies on broker ack
-  // semantics + idempotent reactors (the slice-3 stance).
-  const hostedDurable = new Set(contexts.flatMap((c) => [...durableEventTypes(c)]));
-  const durableBrokerEvents = new Set(
-    channelBindings
-      .filter((b) => b.retention === "work" || b.retention === "log")
-      .flatMap((b) => b.events)
-      .filter((ev) => hostedDurable.has(ev)),
-  );
+  // never the inline tee.
+  const durableBrokerEvents = chPlan.durableBrokerEvents;
   // Local outbox tier (channels.md "Event routing"): the plan's outbox events
   // no wired binding carries are recorded and redelivered in-process by the
   // LocalOutboxRelay — on a broker-wired deployable too, where the tier is

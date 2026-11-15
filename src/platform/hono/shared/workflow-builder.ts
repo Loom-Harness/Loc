@@ -64,6 +64,7 @@ import {
 import {
   callsAuditedOp,
   commandCreateReturnsSelf,
+  contextReceivesDurable,
   esStarterSharesEvent,
   eventSourcedWorkflows,
   foldInboxPurgeSql,
@@ -230,7 +231,7 @@ export function buildWorkflowsFile(
   /** The deployable's consumers run the redelivery dedupe
    *  (`channelPlan(...).receivesDurable`): it hosts a durable channel or
    *  consumes a durable foreign one.  Absent → this context hosts one. */
-  receivesDurable: boolean = hasDurableEvents(ctx),
+  receivesDurable: boolean = contextReceivesDurable(ctx),
 ): string {
   if (ctx.workflows.length === 0) return buildProducerOutboxFile(ctx, usingMikro, carriesOrigin);
   // Build the body first; imports are derived from what the body actually
@@ -987,7 +988,7 @@ function emitWorkflowRoute(
    *  Drizzle builds stay byte-identical. */
   usingMikro = false,
   resolveIsolation: (wf: WorkflowIR) => IsolationLevel | undefined = (wf) => wf.isolation,
-  receivesDurable: boolean = hasDurableEvents(ctx),
+  receivesDurable: boolean = contextReceivesDurable(ctx),
 ): string[] {
   const out: string[] = [];
   out.push(`app.openapi(`);
@@ -1719,7 +1720,7 @@ function emitSubscriptionHandlers(
   /** Durable events carry their event origin through the outbox (ruling D1)
    *  — see `buildWorkflowsFile`. */
   carriesOrigin = false,
-  receivesDurable: boolean = hasDurableEvents(ctx),
+  receivesDurable: boolean = contextReceivesDurable(ctx),
 ): string[] {
   const subs = ctx.eventSubscriptions;
   const out: string[] = [];

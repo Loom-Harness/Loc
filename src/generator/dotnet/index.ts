@@ -40,7 +40,6 @@ import {
 } from "../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
-import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
 import { migratesAtBoot } from "../../ir/util/databases.js";
 import { discardedAggregates } from "../../ir/util/discards.js";
@@ -398,13 +397,7 @@ function emitProjectFromContexts(
   // Durable broker-bound events (M-T4.4): HOSTED durable events
   // carried by a wired `queue`/`work` (or future `log`) channel — their
   // producer path rides the outbox relay (design §5), never the inline tee.
-  const hostedDurable = new Set(contexts.flatMap((c) => [...durableEventTypes(c)]));
-  const durableBrokerEvents = new Set(
-    channelBindings
-      .filter((b) => b.retention === "work" || b.retention === "log")
-      .flatMap((b) => b.events)
-      .filter((ev) => hostedDurable.has(ev)),
-  );
+  const durableBrokerEvents = chPlan.durableBrokerEvents;
   // The outbox tier (channels.md "Event routing"): a hosted durable event is
   // consumed here or carried by a wired binding.  A producer with no local
   // consumer still relays, to publish.
@@ -671,7 +664,7 @@ function emitProjectFromContexts(
   // (migration-chain DDL) through raw Npgsql.  The `OutboxDelivery` AsyncLocal
   // carrier + the dispatcher/relay class NAMES are identical, so Program.cs's
   // registration lines are shared.
-  const durableTypes = [...new Set(contexts.flatMap((c) => [...durableEventTypes(c)]))].sort();
+  const durableTypes = [...chPlan.hostedDurable].sort();
   const outboxUsesDapper = system.deployable.persistence === "dapper";
   const hasOutbox = hasOutboxTier;
   // The ambient delivery id: the relay and the broker consumer set it, and

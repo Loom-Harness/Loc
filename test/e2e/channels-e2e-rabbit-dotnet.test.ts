@@ -25,7 +25,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { redeliveryWitness } from "./support/redelivery-witness.js";
+import { redeliveryWitness, seedInboxForPurge } from "./support/redelivery-witness.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT_DOTNET === "1";
 
@@ -201,6 +201,8 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — dotnet leg (M-T4.4 slice
     boot("ship_api", REPLICA_PORTS[0], "ship_api");
     await waitFor(ready(SALES_PORT), 180_000, "salesApi /ready");
     await waitFor(ready(REPLICA_PORTS[0]), 180_000, "shipApi replica 1 /ready");
+    // The next replica's boot purges the consumer inbox (redelivery witness).
+    seedInboxForPurge("loom-channels-rbdn-pg");
     boot("ship_api", REPLICA_PORTS[1], "ship_api");
     await waitFor(ready(REPLICA_PORTS[1]), 180_000, "shipApi replica 2 /ready");
   }, 900_000);
@@ -291,6 +293,7 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — dotnet leg (M-T4.4 slice
     container: () => (dlqProbe ? "loom-channels-rbdn-mq" : undefined),
     address: ADDRESS,
     consumer: () => `http://localhost:${REPLICA_PORTS[0]}`,
+    postgres: () => "loom-channels-rbdn-pg",
   });
 
   it("parks a poisoned message in the DLQ instead of losing it", async () => {

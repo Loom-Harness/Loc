@@ -21,11 +21,30 @@ export interface RedeliveryWitnessOptions {
   address: string;
   /** Base URL of one consumer replica (`http://localhost:<port>`). */
   consumer: () => string;
+  /** The postgres sidecar container holding the consumer's `ship_api`
+   *  database; under `LOOM_CHANNELS_PG_URL` the witness reaches that server
+   *  with the host's `psql` instead. */
+  postgres: () => string;
 }
 
 const sh = (cmd: string): string => execSync(cmd, { encoding: "utf8", stdio: "pipe" });
 
-function envelope(address: string, id: string): string {
+/** Runs `sql` against the consumer's `ship_api` database, in the sidecar
+ *  container or, under `LOOM_CHANNELS_PG_URL`, on that server; returns the
+ *  unaligned output. */
+function psql(container: string, sql: string): string {
+  const override = process.env.LOOM_CHANNELS_PG_URL;
+  const target = override
+    ? `psql "${new URL("/ship_api", override).toString()}"`
+    : `docker exec -i ${container} psql -U postgres -d ship_api`;
+  return execSync(`${target} -v ON_ERROR_STOP=1 -tA`, {
+    encoding: "utf8",
+    stdio: "pipe",
+    input: sql,
+  }).trim();
+}
+
+function envelope(address: string, id: string, order: string = randomUUID()): string {
   return JSON.stringify({
     specversion: "1.0",
     id,
@@ -34,7 +53,7 @@ function envelope(address: string, id: string): string {
     time: new Date().toISOString(),
     datacontenttype: "application/json",
     loomchannel: address,
-    data: { order: randomUUID(), at: new Date().toISOString() },
+    data: { order, at: new Date().toISOString() },
   });
 }
 
@@ -74,7 +93,27 @@ async function settle(container: string, base: string, expected: number): Promis
   await new Promise((r) => setTimeout(r, 1_000));
 }
 
-/** Registers the two redelivery cases on the enclosing `describe`. */
+/** The claims `seedInboxForPurge` planted, per postgres container. */
+const seeded = new Map<string, { expired: string; live: string }>();
+
+/** Plants one claim older than any retention window and one fresh claim in
+ *  the consumer's inbox.  A leg calls it once its first consumer replica has
+ *  migrated the database and before the next replica boots: every
+ *  deployable that runs no outbox relay purges its inbox at start, so the
+ *  next boot prunes the expired claim and keeps the fresh one. */
+export function seedInboxForPurge(container: string): void {
+  const expired = `witness-expired-${randomUUID()}`;
+  const live = `witness-live-${randomUUID()}`;
+  psql(
+    container,
+    `insert into __loom_fold_inbox (projection, event_id, received_at) values
+  ('workflow:Fulfil', '${expired}', now() - interval '400 days'),
+  ('workflow:Fulfil', '${live}', now());`,
+  );
+  seeded.set(container, { expired, live });
+}
+
+/** Registers the redelivery cases on the enclosing `describe`. */
 export function redeliveryWitness(opts: RedeliveryWitnessOptions): void {
   it("applies a redelivered envelope of a foreign durable channel once", async () => {
     const container = opts.container();
@@ -107,4 +146,68 @@ export function redeliveryWitness(opts: RedeliveryWitnessOptions): void {
     await settle(container, base, before + N);
     expect(await shipments(base)).toBe(before + N);
   }, 120_000);
+
+  it("rolls a failed application back with its claim, so the redelivery applies once", async () => {
+    const container = opts.container();
+    if (!container) return;
+    const pg = opts.postgres();
+    const base = opts.consumer();
+    const before = await shipments(base);
+    const order = randomUUID();
+    // The saga row's write fails once for this order, inside the handler's
+    // transaction, after (or, where the starter allocates first, around) the
+    // Shipment it creates.  `nextval` is not transactional, so the second
+    // attempt passes.  The broker's retry redelivers the same envelope id.
+    const table = psql(
+      pg,
+      "select quote_ident(table_schema) || '.' || quote_ident(table_name) from information_schema.tables where table_name = 'fulfils'",
+    );
+    expect(table, "the Fulfil saga table").not.toBe("");
+    psql(
+      pg,
+      `create sequence loom_witness_crash;
+create function loom_witness_crash() returns trigger as $$
+begin
+  if new.order_id::text = '${order}' and nextval('loom_witness_crash') = 1 then
+    raise exception 'redelivery witness: the application fails once';
+  end if;
+  return new;
+end $$ language plpgsql;
+create trigger loom_witness_crash before insert or update on ${table}
+  for each row execute function loom_witness_crash();`,
+    );
+    try {
+      sh(
+        `docker exec ${container} ${publishCmd(opts.address, envelope(opts.address, randomUUID(), order))}`,
+      );
+      await settle(container, base, before + 1);
+      expect(await shipments(base)).toBe(before + 1);
+      // The failure really happened: the trigger ran for both attempts.
+      expect(Number(psql(pg, "select last_value from loom_witness_crash"))).toBeGreaterThanOrEqual(
+        2,
+      );
+    } finally {
+      psql(
+        pg,
+        `drop trigger if exists loom_witness_crash on ${table};
+drop function if exists loom_witness_crash();
+drop sequence if exists loom_witness_crash;`,
+      );
+    }
+  }, 120_000);
+
+  it("purges inbox claims past the retention window at start, and keeps live ones", async () => {
+    const pg = opts.postgres();
+    const planted = seeded.get(pg);
+    expect(planted, "the leg seeds the inbox with seedInboxForPurge").toBeDefined();
+    if (!planted) return;
+    const count = (id: string): number =>
+      Number(psql(pg, `select count(*) from __loom_fold_inbox where event_id = '${id}'`));
+    const deadline = Date.now() + 30_000;
+    while (count(planted.expired) > 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    expect(count(planted.expired), "the expired claim").toBe(0);
+    expect(count(planted.live), "the live claim").toBe(1);
+  }, 60_000);
 }

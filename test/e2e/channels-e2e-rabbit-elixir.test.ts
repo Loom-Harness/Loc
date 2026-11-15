@@ -25,7 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mixDepsGet } from "./support/mix-retry.js";
-import { redeliveryWitness } from "./support/redelivery-witness.js";
+import { redeliveryWitness, seedInboxForPurge } from "./support/redelivery-witness.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT_ELIXIR === "1";
 
@@ -222,6 +222,8 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — elixir leg (M-T4.4 slice
     boot("ship_api", REPLICA_PORTS[0], "ship_api");
     await waitFor(ready(SALES_PORT), 180_000, "salesApi /health");
     await waitFor(ready(REPLICA_PORTS[0]), 180_000, "shipApi replica 1 /health");
+    // The next replica's boot purges the consumer inbox (redelivery witness).
+    seedInboxForPurge("loom-channels-rbex-pg");
     boot("ship_api", REPLICA_PORTS[1], "ship_api");
     await waitFor(ready(REPLICA_PORTS[1]), 180_000, "shipApi replica 2 /health");
   }, 900_000);
@@ -315,6 +317,7 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — elixir leg (M-T4.4 slice
     container: () => (dlqProbe ? "loom-channels-rbex-mq" : undefined),
     address: ADDRESS,
     consumer: () => `http://localhost:${REPLICA_PORTS[0]}`,
+    postgres: () => "loom-channels-rbex-pg",
   });
 
   it("parks a poisoned message in the DLQ instead of losing it", async () => {

@@ -5,7 +5,7 @@ import {
   projectionTableName,
 } from "../../../ir/enrich/storage-names.js";
 import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
-import { hasDurableEvents } from "../../../ir/plan/index.js";
+import { contextReceivesDurable } from "../../../ir/plan/index.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -228,7 +228,7 @@ export function renderPySchema(
   // one row per running instance, keyed by the correlation field.  The
   // shared migration leaves these unqualified (public schema).  A durable
   // delivery adds `last_event_id`, the last event applied to the row.
-  const durable = receivesDurable ?? hasDurableEvents(ctx);
+  const durable = receivesDurable ?? contextReceivesDurable(ctx);
   for (const wf of ctx.workflows) {
     if (!wf.correlationField) continue;
     // An `eventSourced` workflow's stream lives in the shared per-context

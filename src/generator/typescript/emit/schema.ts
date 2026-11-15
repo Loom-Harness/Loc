@@ -5,7 +5,12 @@ import {
   projectionTableName,
 } from "../../../ir/enrich/storage-names.js";
 import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
-import { eventLogTable, hasDurableEvents, hasStateRow } from "../../../ir/plan/index.js";
+import {
+  contextReceivesDurable,
+  eventLogTable,
+  hasDurableEvents,
+  hasStateRow,
+} from "../../../ir/plan/index.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -307,7 +312,12 @@ export function renderSchema(
     // workflow keeps its mutable state row.
     if (hasStateRow(wf))
       tables.push(
-        emitWorkflowStateTable(wf, ctx, wfSchema, opts.receivesDurable ?? hasDurableEvents(ctx)),
+        emitWorkflowStateTable(
+          wf,
+          ctx,
+          wfSchema,
+          opts.receivesDurable ?? contextReceivesDurable(ctx),
+        ),
       );
   }
   // Projection read models (projection.md): one context-owned state table per

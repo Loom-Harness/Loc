@@ -45,7 +45,6 @@ import {
 } from "../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { contextStaticSubpathRoutes } from "../../ir/util/api-surface.js";
-import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentOf } from "../../ir/util/containment-parent.js";
 import { discardedAggregates } from "../../ir/util/discards.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
@@ -427,22 +426,16 @@ function emitProjectFromContexts(
   // Durable broker-bound events (M-T4.4): HOSTED durable events carried by a
   // wired `queue`/`work` (or future `log`) channel — their producer path rides
   // the outbox relay (design §5), never the inline tee.
-  const hostedDurable = new Set(contexts.flatMap((c) => [...durableEventTypes(c)]));
   // The relay purge prunes the consumer inbox when a hosted consumer claims.
   const pruneInbox = contexts.some((c) => inboxDedupes(c, true));
   // Some consumer claims in the consumer inbox (`src/ir/plan/consumer-inbox.ts`).
   const consumerDedupes = contexts.some((c) => inboxDedupes(c, chPlan.receivesDurable));
   // The delivery-id carrier: the relays and the broker consumer set it, every
   // claiming consumer reads it.
-  if (hostedDurable.size > 0 || consumerDedupes) {
+  if (chPlan.hasOutbox || consumerDedupes) {
     place("OutboxDelivery.java", "domain-common", renderJavaOutboxDelivery(basePkg));
   }
-  const durableBrokerEvents = new Set(
-    channelBindings
-      .filter((b) => b.retention === "work" || b.retention === "log")
-      .flatMap((b) => b.events)
-      .filter((ev) => hostedDurable.has(ev)),
-  );
+  const durableBrokerEvents = chPlan.durableBrokerEvents;
   const wiredForeignChannels = chPlan.foreignChannels;
   const brokerEvents = new Set(channelBindings.flatMap((b) => b.events));
   // Local outbox tier (channels.md "Event routing"): the outbox events no wired
