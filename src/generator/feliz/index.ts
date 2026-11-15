@@ -75,7 +75,7 @@ import {
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { PagedQueryContext } from "../_walker/paged-query.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { bcByAggregateOf, walkerModelOf } from "../_walker/walker-model.js";
+import { bcByAggregateOf, emptyWalkerModel, walkerModelOf } from "../_walker/walker-model.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import {
   AUTH_MODULE_CLAIMS,
@@ -2638,6 +2638,8 @@ export function generateFelizForContexts(
       contextsByName: new Map<string, BoundedContextIR>(contexts.map((c) => [c.name, c])),
       pack: felizPack(),
       topLevelComponents: [],
+      // No walker page objects (below), so no body walk reads the model.
+      walkerModel: emptyWalkerModel(),
     },
     /* walkerPageObjects */ false,
     /* selectStyle */ "native",

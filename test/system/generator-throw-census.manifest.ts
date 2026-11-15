@@ -398,6 +398,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Every target that runs the shared walker implements renderStoreFieldRead and renderStoreActionCall; HEEx forks its own walker (heex-target.ts:230). (tsx-target.ts:474/481, vue-target.ts:541/549, svelte-target.ts:455/462, angular-target.ts:636/645, feliz-target.ts:330/333, flutter-target.ts:287/292)",
   },
 
+  "src/generator/_walker/walker-model.ts#contextOfHome": {
+    invariant:
+      "Only Angular and Feliz call it, and they walk on `walkerModelOf`, whose homes are the bounded contexts it was handed; the walker-model census pins those targets to the enriched model, so no .ddd input reaches the throw.",
+  },
   "src/generator/dotnet/adapters/by-feature-layout.ts#need": {
     invariant:
       "Every artifact routed through the dotnet layout adapters is built with aggregateName set (per-aggregate place() and the cqrs emitForAggregate wrapper), so the missing-aggregateName branch is an internal-caller precondition. (src/generator/dotnet/index.ts:1387 (place() always sets aggregateName: agg.name) and index.ts:1777 + adapters/cqrs-style.ts:236-243 (cqrs artifacts always carry aggregateName); these are the only pathFor callers)",

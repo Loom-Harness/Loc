@@ -77,7 +77,7 @@ import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { HAND_BUILT_FORM_SENTENCES } from "../_walker/i18n-chrome.js";
 import { collectUiMessages, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import { emptyWalkerModel, walkerModelOf } from "../_walker/walker-model.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import { buildAngularApiModule } from "./api-module.js";
 import { renderAngularChartRuntime } from "./chart-runtime.js";
@@ -854,6 +854,7 @@ export function generateAngularForContexts(
         contextsByName: new Map(contexts.map((c) => [c.name, c])),
         pack,
         topLevelComponents: options.topLevelComponents ?? [],
+        walkerModel: emptyWalkerModel(),
       },
       // No walker-driven custom-page objects: Angular forms render inline
       // (no pack form templates), so the shared React TSX walker would throw

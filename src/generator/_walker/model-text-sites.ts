@@ -20,8 +20,8 @@
 //     the translation runtime on by itself.
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR, EnumIR, ExprIR, TypeIR, UiIR } from "../../ir/types/loom-ir.js";
-import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import type { AggregateIR, ExprIR, TypeIR, UiIR } from "../../ir/types/loom-ir.js";
+import { enumPool, findValueObjectInScope, type ScopeEnum } from "../../ir/util/reachable-types.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { modelTextDefaultOfKey, modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
 import { humanize } from "../../util/naming.js";
@@ -29,7 +29,7 @@ import type { FormFieldVM } from "../_frontend/view-models.js";
 import { localizedModelText } from "./i18n-emit.js";
 import type { MessageEntry } from "./i18n-extract.js";
 import type { WalkContext } from "./walker-core.js";
-import type { WalkerHome, WalkerModel } from "./walker-model.js";
+import type { WalkerAggregate, WalkerHome, WalkerModel } from "./walker-model.js";
 
 const STRING: TypeIR = { kind: "primitive", name: "string" };
 
@@ -249,7 +249,7 @@ export function formInputModelText(
 /** The type a form input's label is keyed under: the aggregate when it
  *  declares a field of that name (an operation parameter mirroring a field),
  *  else none — an input that names no model fact keeps its English. */
-export function paramLabelOwner(agg: AggregateIR, name: string): string | undefined {
+export function paramLabelOwner(agg: WalkerAggregate, name: string): string | undefined {
   return agg.fields.some((f) => f.name === name) ? agg.name : undefined;
 }
 
@@ -315,7 +315,7 @@ function fieldEntries(
   }
 }
 
-function enumEntries(en: EnumIR, home: WalkerHome, model: WalkerModel): MessageEntry[] {
+function enumEntries(en: ScopeEnum, home: WalkerHome, model: WalkerModel): MessageEntry[] {
   const owner = model.modelTextOwner(en.name, home);
   return en.values.map((v) => {
     const e = modelTextEntry({ ctx: owner, type: en.name, facet: "value", member: v });
@@ -324,7 +324,7 @@ function enumEntries(en: EnumIR, home: WalkerHome, model: WalkerModel): MessageE
 }
 
 function opEntry(
-  agg: AggregateIR,
+  agg: WalkerAggregate,
   opName: string,
   home: WalkerHome,
   model: WalkerModel,
