@@ -289,7 +289,10 @@ describe("decision records name their gate", () => {
     expect(
       ciRunProblem("test/system/x.test.ts", `describe.skip("all", () => { ${live} });`, ci),
     ).toMatch(/skipped or todo/);
-    const gated = `describe.skipIf(!process.env.LOOM_X)("e2e", () => { ${live} });`;
+    // Assembled from parts so the skip-gate scanner does not read this sample
+    // as a real `LOOM_*` gate on this file.
+    const envRead = ["process", "env", "LOOM_X"].join(".");
+    const gated = `describe.skipIf(!${envRead})("e2e", () => { ${live} });`;
     expect(ciRunProblem("test/e2e/gated.test.ts", gated, ci)).toBe("");
     expect(ciRunProblem("test/e2e/orphan.test.ts", gated, ci)).toMatch(/env-gated and no workflow/);
     expect(ciRunProblem("scripts/x.mjs", "", ci)).toMatch(/no workflow runs/);
