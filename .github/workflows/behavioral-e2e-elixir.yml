@@ -257,6 +257,6 @@ jobs:
         env:
           LOOM_BH_ELIXIR_SCHEMA: shared
         run: >-
-          node run-elixir.mjs value-collections part-value-collection
+          node run-elixir.mjs --value-objects value-collections part-value-collection
           contained-part-rebuild audited acronym-names saga channels-broker
           tph tenancy-owned unique-conflict
