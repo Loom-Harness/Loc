@@ -30,6 +30,14 @@ import { redeliveryWitness, seedInboxForPurge } from "./support/redelivery-witne
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT_DOTNET === "1";
 
+// `LOOM_CHANNELS_PERSISTENCE=dapper` forces a `persistence:` clause onto both
+// deployables, so the Dapper unit of work runs the same witness.
+const PERSISTENCE = process.env.LOOM_CHANNELS_PERSISTENCE;
+const PLATFORM = PERSISTENCE ? `dotnet { persistence: ${PERSISTENCE} }` : "dotnet";
+const SUFFIX = PERSISTENCE ? `-${PERSISTENCE}` : "";
+const PG = `loom-channels-rbdn${SUFFIX}-pg`;
+const MQ = `loom-channels-rbdn${SUFFIX}-mq`;
+
 const FIXTURE = `
 system Acme {
   subdomain Sales {
@@ -83,8 +91,8 @@ system Acme {
   resource ordersState { for: Orders, kind: state, use: primary }
   resource shippingState { for: Shipping, kind: state, use: shipping }
   channelSource lifecycleBus { for: Lifecycle, use: bus }
-  deployable salesApi { platform: dotnet contexts: [Orders] dataSources: [ordersState] channels: [lifecycleBus] port: 3000 }
-  deployable shipApi  { platform: dotnet contexts: [Shipping] dataSources: [shippingState] channels: [lifecycleBus] port: 3001 }
+  deployable salesApi { platform: ${PLATFORM} contexts: [Orders] dataSources: [ordersState] channels: [lifecycleBus] port: 3000 }
+  deployable shipApi  { platform: ${PLATFORM} contexts: [Shipping] dataSources: [shippingState] channels: [lifecycleBus] port: 3001 }
 }
 `;
 
@@ -116,7 +124,7 @@ const ready = (port: number) => async (): Promise<boolean> =>
 const countEvents = (log: string, event: string): number =>
   log.split("\n").filter((l) => l.includes(`"${event}"`)).length;
 
-describe.skipIf(!ENABLED)("rabbitmq queue semantics — dotnet leg (M-T4.4 slice 7b)", () => {
+describe.skipIf(!ENABLED)(`rabbitmq queue semantics — dotnet${SUFFIX} leg`, () => {
   let dir: string;
   const apps: ChildProcess[] = [];
   const dockerNames: string[] = [];
@@ -160,9 +168,9 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — dotnet leg (M-T4.4 slice
       pgConn = (db) => toConn(pgOverride, db);
     } else {
       sh(
-        `docker run -d --rm --name loom-channels-rbdn-pg -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 postgres:18-alpine`,
+        `docker run -d --rm --name ${PG} -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 postgres:18-alpine`,
       );
-      dockerNames.push("loom-channels-rbdn-pg");
+      dockerNames.push(PG);
       pgConn = (db) =>
         `Host=localhost;Port=${PG_PORT};Database=${db};Username=postgres;Password=postgres`;
       // The postgres entrypoint restarts after initdb — make CREATE DATABASE
@@ -170,7 +178,7 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — dotnet leg (M-T4.4 slice
       await waitFor(
         async () => {
           sh(
-            `docker exec loom-channels-rbdn-pg psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
+            `docker exec ${PG} psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
           );
           return true;
         },
@@ -185,15 +193,15 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — dotnet leg (M-T4.4 slice
       // docker storage drivers the image's .erlang.cookie can surface with
       // unreadable ownership and rabbit crash-loops on eacces.
       sh(
-        `docker run -d --name loom-channels-rbdn-mq -p ${AMQP_PORT}:5672 --entrypoint sh rabbitmq:4-management-alpine ` +
+        `docker run -d --name ${MQ} -p ${AMQP_PORT}:5672 --entrypoint sh rabbitmq:4-management-alpine ` +
           `-c 'mkdir -p /var/lib/rabbitmq && echo loomcookie > /var/lib/rabbitmq/.erlang.cookie && chown -R rabbitmq:rabbitmq /var/lib/rabbitmq && chmod 600 /var/lib/rabbitmq/.erlang.cookie && exec docker-entrypoint.sh rabbitmq-server'`,
       );
-      dockerNames.push("loom-channels-rbdn-mq");
+      dockerNames.push(MQ);
       amqpUrl = `amqp://guest:guest@localhost:${AMQP_PORT}`;
       dlqProbe = true;
       await waitFor(
         async () => {
-          sh(`docker exec loom-channels-rbdn-mq rabbitmq-diagnostics -q ping`);
+          sh(`docker exec ${MQ} rabbitmq-diagnostics -q ping`);
           return true;
         },
         120_000,
@@ -212,7 +220,7 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — dotnet leg (M-T4.4 slice
     await waitFor(ready(SALES_PORT), 180_000, "salesApi /ready");
     await waitFor(ready(REPLICA_PORTS[0]), 180_000, "shipApi replica 1 /ready");
     // The next replica's boot purges the consumer inbox (redelivery witness).
-    seedInboxForPurge("loom-channels-rbdn-pg");
+    seedInboxForPurge(PG);
     boot("ship_api", REPLICA_PORTS[1], "ship_api");
     await waitFor(ready(REPLICA_PORTS[1]), 180_000, "shipApi replica 2 /ready");
   }, 900_000);
@@ -300,21 +308,21 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — dotnet leg (M-T4.4 slice
   }, 120_000);
 
   redeliveryWitness({
-    container: () => (dlqProbe ? "loom-channels-rbdn-mq" : undefined),
+    container: () => (dlqProbe ? MQ : undefined),
     address: ADDRESS,
     consumer: () => `http://localhost:${REPLICA_PORTS[0]}`,
-    postgres: () => "loom-channels-rbdn-pg",
+    postgres: () => PG,
   });
 
   it("parks a poisoned message in the DLQ instead of losing it", async () => {
     if (!dlqProbe) return; // AMQP override: no container to drive rabbitmqadmin in
     sh(
-      `docker exec loom-channels-rbdn-mq rabbitmqadmin publish message --exchange ${ADDRESS} --payload 'not-json{{'`,
+      `docker exec ${MQ} rabbitmqadmin publish message --exchange ${ADDRESS} --payload 'not-json{{'`,
     );
     await waitFor(
       async () => {
         const out = sh(
-          `docker exec loom-channels-rbdn-mq rabbitmqadmin get messages --queue loom.dlq.${ADDRESS}`,
+          `docker exec ${MQ} rabbitmqadmin get messages --queue loom.dlq.${ADDRESS}`,
         );
         return out.includes("not-json{{");
       },

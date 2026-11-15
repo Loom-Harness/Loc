@@ -198,16 +198,27 @@ end $$ language plpgsql;
 create trigger loom_witness_crash before insert or update on ${table}
   for each row execute function loom_witness_crash();`,
     );
+    const appendsBefore = trackAppends(pg);
+    const id = randomUUID();
     try {
-      sh(
-        `docker exec ${container} ${publishCmd(opts.address, envelope(opts.address, randomUUID(), order))}`,
-      );
+      sh(`docker exec ${container} ${publishCmd(opts.address, envelope(opts.address, id, order))}`);
       await settle(container, base, before + 1);
       expect(await shipments(base)).toBe(before + 1);
       // The failure really happened: the trigger ran for both attempts.
       expect(Number(psql(pg, "select last_value from loom_witness_crash"))).toBeGreaterThanOrEqual(
         2,
       );
+      // The other handler of the same delivery (the event-sourced Track) is
+      // not touched by Fulfil's failure: whether it committed on the first
+      // attempt or ran only on the redelivery, its append lands once, and
+      // each handler holds exactly one claim for the id.
+      expect(trackAppends(pg), "event-sourced appends").toBe(appendsBefore + 1);
+      expect(
+        psql(pg, `select consumer from __loom_inbox where event_id = '${id}' order by consumer`)
+          .trim()
+          .split("\n")
+          .map((k) => k.replace(/^.*\/create\//, "create/")),
+      ).toEqual(["create/Fulfil.OrderPlaced", "create/Track.OrderPlaced"]);
     } finally {
       psql(
         pg,

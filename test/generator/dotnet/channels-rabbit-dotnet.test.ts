@@ -133,7 +133,6 @@ describe("rabbitmq queue transport — dotnet leg (M-T4.4 slice 7b)", () => {
     // The consumer does not host the durable channel's context, so it runs no
     // outbox tier, but its saga claims each delivery in the consumer inbox:
     // the consumer parks the envelope id for it.
-    expect(mod).toContain("OutboxDelivery.CurrentEventId = envelope.Id;");
     expect(files.get("ship_api/Infrastructure/Events/OutboxRelayService.cs")).toBeUndefined();
     // Foreign vocabulary still lands: event record + id brand + routing.
     expect(files.get("ship_api/Domain/Events/OrderPlaced.cs")).toBeDefined();

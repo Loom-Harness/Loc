@@ -28,7 +28,8 @@ system Acme {
       aggregate Order with crudish { status: string }
       repository Orders for Order {}
       event OrderPlaced { order: Order id }
-      channel Lifecycle { carries: OrderPlaced delivery: queue retention: work }
+      event OrderCancelled { order: Order id }
+      channel Lifecycle { carries: OrderPlaced, OrderCancelled delivery: queue retention: work }
       projection Book keyed by order {
         order: Order id
         n: int
@@ -134,6 +135,31 @@ describe("consumer inbox key", () => {
     ]);
     expect(deployableNeedsInbox([orders, billing], { receivesDurable: true })).toBe(true);
     expect(deployableNeedsInbox([orders, billing], { receivesDurable: false })).toBe(false);
+  });
+
+  it("a single handler per event carries no ordinal, and handlers for other events leave its key alone", async () => {
+    const keysOf = async (extra: string) => {
+      const loom = await buildLoomModel(
+        TWO_CONTEXTS.replace(
+          "        on(q: OrderPlaced) by q.order { let i = Invoice.create(orderRef: q.order) }\n",
+          extra,
+        ),
+      );
+      const sys = loom.systems[0];
+      const billing = sys.subdomains[0].contexts[1];
+      const subs = billing.eventSubscriptions.filter((s) => !s.projection);
+      return subs
+        .filter((s) => s.event === "OrderPlaced")
+        .map((s) => workflowConsumerKey(sys, billing, s, subs))
+        .sort();
+    };
+    const alone = await keysOf("");
+    expect(alone).toEqual(["Billing/create/Bill.OrderPlaced", "Billing/on/Bill.OrderPlaced"]);
+    // A handler for another event, declared before it, keys nothing new here.
+    const withOther = await keysOf(
+      "        on(c: OrderCancelled) by c.order { let i = Invoice.create(orderRef: c.order) }\n",
+    );
+    expect(withOther).toEqual(alone);
   });
 
   it("the migrations create the inbox for every context whose consumers claim", async () => {

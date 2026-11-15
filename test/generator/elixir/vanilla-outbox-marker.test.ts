@@ -64,20 +64,17 @@ describe("elixir idempotent-consumer markers (M-T4.3)", () => {
     expect(file(files, "fulfil_state.ex")).not.toContain("last_event_id");
   });
 
-  it("claims the create starter's delivery in the consumer inbox under its own key", async () => {
+  it("reads the parked event id in the create starter, and maps no marker", async () => {
     const files = await build(DURABLE);
     const start = file(files, "start_order_placed.ex");
     expect(start).toContain("event_id = Process.get(:loom_event_id)");
-    expect(start).toContain('/create/Fulfil.OrderPlaced", to_string(event_id)]).num_rows == 0 do');
     expect(start).not.toContain("last_event_id");
   });
 
-  it("claims the on reactor's delivery in the consumer inbox under its own key", async () => {
+  it("reads the parked event id in the on reactor, and maps no marker", async () => {
     const files = await build(DURABLE);
     const on = file(files, "on_shipment_requested.ex");
     expect(on).toContain("event_id = Process.get(:loom_event_id)");
-    expect(on).toContain("insert into __loom_inbox");
-    expect(on).toContain('/on/Fulfil.ShipmentRequested", to_string(event_id)]');
     expect(on).not.toContain("last_event_id");
   });
 

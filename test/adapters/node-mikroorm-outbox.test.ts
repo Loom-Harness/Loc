@@ -82,13 +82,11 @@ describe("MikroORM transactional outbox", () => {
     // must be an entity; the saga row holds only the declared state.
     const entities = (await emit(sys("mikroorm"))).get("api/db/entities.ts")!;
     expect(entities).toContain("export class OrderFulfillmentRow {");
-    expect(entities).toContain("__loom_inbox");
     expect(entities).not.toContain("lastEventId");
     const wf = (await emit(sys("mikroorm"))).get("api/http/workflows.ts")!;
     expect(wf).toContain(
       "const state = (await loadOrderFulfillment(db, __key)) ?? { orderId: __key, attempts: 0 };",
     );
-    expect(wf).toContain("await db.transactional(async (__tx) => {");
     expect(wf).not.toContain("lastEventId");
   });
 

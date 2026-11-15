@@ -37,7 +37,11 @@ every envelope it dispatches.
 **The consumer key** is `<context>/<kind>/<owner>.<event>`, with
 `kind ∈ {fold, create, on}`.  A workflow may declare two `on` handlers for one
 event, so the n-th further handler of one kind on one event in one owner adds
-`#n`.  The context is the one that **declares** the workflow or projection,
+`#n`.  The ordinal follows source order: a single handler per event carries
+none, and adding handlers for other events never changes its key, but
+reordering two same-event handlers, or inserting one before another, re-keys
+the later ones.  A re-keyed handler applies an event still inside the
+retention window once more.  The context is the one that **declares** the workflow or projection,
 not the name a multi-context deployable merges its contexts under.  So every
 deployable that hosts a consumer uses the same key.  Deployables that host
 the same consumer and share one database apply an event exactly once between

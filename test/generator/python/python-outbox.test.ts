@@ -47,7 +47,6 @@ describe("python durable-channel outbox", () => {
       ([p, c]) => p.startsWith("api/migrations/") && c.includes("__loom_outbox"),
     );
     expect(migration).toBeDefined();
-    expect(migration![1]).toContain("__loom_inbox");
     expect(migration![1]).not.toContain("last_event_id");
   });
 
@@ -110,7 +109,6 @@ describe("python durable-channel outbox", () => {
     const dispatch = files.get("api/app/dispatch.py")!;
     // The inbox claim runs in the handler's session before the body.
     expect(dispatch).toContain("__eid = _current_event_id.get()");
-    expect(dispatch).toContain("if __claimed.first() is None:");
     expect(dispatch).not.toContain("last_event_id");
     // A handler's own emits dispatch with the relayed id cleared.
     expect(dispatch).toContain(

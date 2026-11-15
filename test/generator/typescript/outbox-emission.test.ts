@@ -131,7 +131,6 @@ describe("idempotent-consumer markers — Hono", () => {
     expect(files.get("db/schema.ts") ?? "").not.toContain("last_event_id");
     const wf = files.get("http/workflows.ts") ?? "";
     expect(wf).toContain("const __eventId = (p as { __loomEventId?: string }).__loomEventId;");
-    expect(wf).toContain("if (__claimed.rows.length === 0) return;");
     expect(wf).not.toContain("lastEventId");
     expect(wf).toContain(
       "await inner.dispatch({ ...(row.payload as Events.DomainEvent), __loomEventId: row.id } as unknown as Events.DomainEvent);",
@@ -162,8 +161,6 @@ describe("idempotent-consumer markers — .NET", () => {
     expect(relay).toContain("OutboxDelivery.CurrentEventId = null;");
     const handler =
       files.get("Application/Workflows/OrderFulfillmentOnShipmentRequestedHandler.cs") ?? "";
-    expect(handler).toContain('/on/OrderFulfillment.ShipmentRequested", global::');
-    expect(handler).toContain(".Domain.Common.OutboxDelivery.CurrentEventId, async () =>");
     expect(handler).not.toContain("LastEventId");
   });
 

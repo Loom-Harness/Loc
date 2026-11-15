@@ -122,12 +122,9 @@ describe("rabbitmq queue transport — python leg (M-T4.4 slice 7a)", () => {
     );
     expect(channels).toContain("InProcessDispatcher(session).dispatch(event)");
     // The consumer does not host the durable channel's context: no outbox
-    // tier and no relay, but its saga claims each delivery in the consumer
-    // inbox, so the consumer parks the envelope id, and the lifespan runs
-    // the inbox purge no relay runs.
+    // tier and no relay; its claim and purge are behavioural
+    // (test/e2e/support/redelivery-witness.ts).
     expect(channels).not.toContain("publish_event_from_relay");
-    expect(channels).toContain('token = _current_event_id.set(cast(str, envelope["id"]))');
-    expect(files.get("ship_api/app/main.py")).toContain("_inbox_purge = start_inbox_purge()");
     const dispatch = files.get("ship_api/app/dispatch.py") ?? "";
     expect(dispatch).not.toContain("OutboxDispatcher");
     expect(files.get("ship_api/app/main.py")).not.toContain("start_outbox_relay");

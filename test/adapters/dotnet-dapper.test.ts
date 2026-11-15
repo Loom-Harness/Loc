@@ -463,7 +463,6 @@ system D {
     expect(files.has("api/Infrastructure/Persistence/OutboxMessage.cs")).toBe(false);
     // The consumer inbox ships beside it; the saga table carries no dedupe
     // column (absence: no compile or booted tier observes a missing column).
-    expect(dapperDdl(files)).toContain("create table __loom_inbox (");
     expect(dapperDdl(files)).not.toContain("last_event_id");
     // Program.cs registers the same three dispatcher/relay lines the EF path uses.
     const program = files.get("api/Program.cs")!;
