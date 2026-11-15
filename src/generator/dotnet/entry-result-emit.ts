@@ -12,7 +12,6 @@
 // problem+json at the arm's mapped status, and any other record at 200
 // through the union base (the base is what writes the `type` tag).
 
-import { errorVariantResponse } from "../../ir/enrich/wire-policy.js";
 import { isScalarVariant, unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import type {
   EnrichedAggregateIR,
@@ -25,6 +24,7 @@ import {
   type EntryResultLeaf,
   entryErrorTags,
 } from "../../ir/util/entry-result.js";
+import { errorVariantResponse } from "../../ir/util/wire-policy.js";
 import { lines } from "../../util/code-builder.js";
 import { RFC7807_MEMBERS, type UnionMember, unionMembers } from "../_payload/union-wire.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";

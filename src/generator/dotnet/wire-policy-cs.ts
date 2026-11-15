@@ -1,8 +1,10 @@
-// The C# spelling of the `wirePolicy` fact (`src/ir/enrich/wire-policy.ts`).
+// The C# spelling of the `wirePolicy` fact (`src/ir/util/wire-policy.ts`).
 // The fact owns every refusal's status, title, fixed detail and sentence; this
 // module owns only how an ASP.NET emitter writes them as C# source, so every
 // .NET site (EF and Dapper alike) renders the same refusal the same way.
 
+import type { ExprIR } from "../../ir/types/loom-ir.js";
+import { ruleParamRefs } from "../../ir/util/rule-params.js";
 import {
   aggregateProblemParams,
   errorVariantCode,
@@ -17,9 +19,7 @@ import {
   wireSentence,
   wireStatus,
   wireTitle,
-} from "../../ir/enrich/wire-policy.js";
-import type { ExprIR } from "../../ir/types/loom-ir.js";
-import { ruleParamRefs } from "../../ir/util/rule-params.js";
+} from "../../ir/util/wire-policy.js";
 
 type Overrides = Readonly<Record<string, number>>;
 

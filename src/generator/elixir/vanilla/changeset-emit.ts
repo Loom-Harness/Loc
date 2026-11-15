@@ -6,14 +6,13 @@
 // `change_<op>/2` helpers wrap the basic cast with the action's param
 // allow-list.  Per-field `validate_*` (length, format, …) deferred to a later
 // slice.  The constraints ARE available at the IR layer now —
-// `src/ir/validate/invariant-classify.ts`'s `singleFieldShape` yields
+// `src/ir/util/invariant-classify.ts`'s `singleFieldShape` yields
 // min/max/between/len-*/regex patterns from invariants (the same
 // classifier Zod and FluentValidation consume); this emitter just
 // doesn't consume it yet.
 // ---------------------------------------------------------------------------
 
 import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
-import { aggregateTypeKey } from "../../../ir/enrich/wire-policy.js";
 import {
   createInputFields,
   createOmissionValue,
@@ -31,11 +30,12 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { outboundReferenceFields } from "../../../ir/util/aggregate-flags.js";
 import { baseOf, ownFieldsOf, uniqueKeyIndex } from "../../../ir/util/inheritance.js";
+import { singleFieldConstraints } from "../../../ir/util/invariant-classify.js";
 import { aggregateHasMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
-import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
+import { aggregateTypeKey } from "../../../ir/util/wire-policy.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";

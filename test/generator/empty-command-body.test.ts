@@ -19,9 +19,9 @@
 // are the EMITTED-CODE assertions that keep each backend's seam in place.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { fieldSentenceSuffix } from "../../src/ir/enrich/wire-policy.js";
 import { commandBodyOptional } from "../../src/ir/util/command-body.js";
 import { UNSUPPORTED_MEDIA_TYPE_DETAIL } from "../../src/ir/util/openapi-errors.js";
+import { fieldSentenceSuffix } from "../../src/ir/util/wire-policy.js";
 import { elixirOperationsText } from "../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 

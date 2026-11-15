@@ -1,8 +1,4 @@
-import {
-  createInputFields,
-  emitsRestCreate,
-  isRequiredCreateInput,
-} from "../../../ir/enrich/wire-projection.js";
+import { createInputFields, isRequiredCreateInput } from "../../../ir/enrich/wire-projection.js";
 import { createRequestRequiredNames } from "../../../ir/plan/create-request.js";
 import { observableWorkflows } from "../../../ir/plan/index.js";
 import { provenancedCarrier } from "../../../ir/stdlib/generics.js";
@@ -16,6 +12,7 @@ import type {
   TypeIR,
   WireField,
 } from "../../../ir/types/loom-ir.js";
+import { emitsRestCreate } from "../../../ir/util/canonical-lifecycle.js";
 import { declaredResponseFor } from "../../../ir/util/declared-response.js";
 import { type MergePatchField, mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";

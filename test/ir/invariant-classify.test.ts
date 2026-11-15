@@ -5,7 +5,7 @@ import {
   pickErrorPath,
   singleFieldConstraints,
   singleFieldShape,
-} from "../../src/ir/validate/invariant-classify.js";
+} from "../../src/ir/util/invariant-classify.js";
 import type { ExprOf } from "../_helpers/ir-builders.js";
 
 // ---------------------------------------------------------------------------

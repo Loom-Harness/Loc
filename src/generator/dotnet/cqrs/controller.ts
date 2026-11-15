@@ -1,9 +1,4 @@
 import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
-import {
-  aggregateTypeKey,
-  errorVariantCode,
-  errorVariantResponse,
-} from "../../../ir/enrich/wire-policy.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import { unionInstanceName } from "../../../ir/stdlib/unions.js";
@@ -22,6 +17,11 @@ import {
 } from "../../../ir/util/api-surface.js";
 import { mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import {
+  aggregateTypeKey,
+  errorVariantCode,
+  errorVariantResponse,
+} from "../../../ir/util/wire-policy.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { findUnionSpec, unionMembers } from "../../_payload/union-wire.js";

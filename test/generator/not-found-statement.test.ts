@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { notFoundStmtDetail } from "../../src/ir/enrich/wire-policy.js";
 import type { WorkflowStmtIR } from "../../src/ir/types/loom-ir.js";
 import { workflowCanAnswerNotFound } from "../../src/ir/types/loom-ir.js";
+import { notFoundStmtDetail } from "../../src/ir/util/wire-policy.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { buildLoomModel, enrichedContexts } from "../_helpers/ir.js";
 

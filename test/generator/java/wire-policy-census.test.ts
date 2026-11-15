@@ -1,5 +1,5 @@
 // The java/Spring backend takes every wire refusal from ONE IR fact — the
-// `wirePolicy` table (`src/ir/enrich/wire-policy.ts`): status, title, fixed
+// `wirePolicy` table (`src/ir/util/wire-policy.ts`): status, title, fixed
 // detail or sentence, field message, ingress JSON type.  Twin of the node and
 // python censuses (`test/generator/hono/wire-policy-census.test.ts`).
 //
@@ -16,7 +16,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderWireNumberStrictness } from "../../../src/generator/java/emit/common.js";
 import { javaIngressCoercions } from "../../../src/generator/java/wire-policy-java.js";
-import { ingressFor } from "../../../src/ir/enrich/wire-policy.js";
+import { ingressFor } from "../../../src/ir/util/wire-policy.js";
 
 const ROOT = path.resolve(__dirname, "../../..");
 const SPELLING = "src/generator/java/wire-policy-java.ts";
@@ -149,7 +149,7 @@ describe("java wire-policy census — source", () => {
     const bad = hits(rel).filter((h) => !waived(rel, h.text));
     expect(
       bad.map((h) => `${rel}:${h.line} — ${h.what}: ${h.text}`),
-      "render it from src/ir/enrich/wire-policy.ts through src/generator/java/wire-policy-java.ts (wireStatus / wireTitle / wireFixedDetail / javaSentence / fieldFixedMessage / javaErrorVariantLines)",
+      "render it from src/ir/util/wire-policy.ts through src/generator/java/wire-policy-java.ts (wireStatus / wireTitle / wireFixedDetail / javaSentence / fieldFixedMessage / javaErrorVariantLines)",
     ).toEqual([]);
   });
 

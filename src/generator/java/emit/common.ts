@@ -3,13 +3,13 @@
 // class per file — Java's rule) + the DomainEvent marker interface.
 // ---------------------------------------------------------------------------
 
-import { FIND_ABSENT_DETAIL, fieldCode, fieldValuePrefix } from "../../../ir/enrich/wire-policy.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
   PAGED_MAX_PAGE,
   PAGED_MAX_PAGE_SIZE,
 } from "../../../ir/stdlib/generics.js";
+import { FIND_ABSENT_DETAIL, fieldCode, fieldValuePrefix } from "../../../ir/util/wire-policy.js";
 import { lines } from "../../../util/code-builder.js";
 import {
   javaCalendarDateParse,
