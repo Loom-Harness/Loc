@@ -1,5 +1,5 @@
 import type { InvariantIR } from "../../ir/types/loom-ir.js";
-import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
+import type { SingleFieldPattern } from "../../ir/util/invariant-classify.js";
 import { clientLimitChecks } from "../_frontend/error-codes.js";
 import { namedRuleText } from "../_i18n/rule-text.js";
 import { singleFieldMessage, takeSingleFieldChain } from "../zod-refine.js";

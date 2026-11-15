@@ -4,7 +4,7 @@
 // A problem body's `code` (`problem.<class>`) and each `errors[]` entry's
 // (`field.<reason>`) is the catalog key a client localizes it by:
 // `t(pd.code, pd.detail, pd.params)`.  Every backend answers the code from
-// `wireCode` / `fieldCode` (`src/ir/enrich/wire-policy.ts`), and every catalog
+// `wireCode` / `fieldCode` (`src/ir/util/wire-policy.ts`), and every catalog
 // carries the English here — merged into the frontend and system catalogs by
 // `_walker/i18n-chrome.ts` (`chromeMergedWhenEnabled`) — so the two cannot
 // drift.  A leaf module so the backends' rule text (`rule-text.ts`) reads it
@@ -22,7 +22,7 @@ import {
   WIRE_REJECTION_CLASSES,
   type WireRejectionClass,
   wireCode,
-} from "../../ir/enrich/wire-policy.js";
+} from "../../ir/util/wire-policy.js";
 import { sourceText } from "./source-text.js";
 
 const PROBLEM_TEXT: Readonly<Record<WireRejectionClass, string>> = {

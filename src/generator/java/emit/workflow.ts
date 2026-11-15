@@ -1,4 +1,3 @@
-import { notFoundStmtDetail } from "../../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import {
   isWorkflowSelfType,
@@ -39,6 +38,7 @@ import {
   walkWorkflowStmtsDeep,
   workflowEmits,
 } from "../../../ir/util/walk.js";
+import { notFoundStmtDetail } from "../../../ir/util/wire-policy.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,

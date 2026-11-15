@@ -1,5 +1,4 @@
 import { type PolymorphicRead, polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
-import { wireStatus } from "../../../ir/enrich/wire-policy.js";
 import { polymorphicReadOperations, readLadder, readLadderGates } from "../../../ir/plan/index.js";
 import {
   type AggregateIR,
@@ -8,6 +7,7 @@ import {
   findGateUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
+import { wireStatus } from "../../../ir/util/wire-policy.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";

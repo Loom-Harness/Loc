@@ -2,7 +2,6 @@ import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
 import { aggregateTableName, partTableName } from "../../ir/enrich/storage-names.js";
 import { isTenantScopedStream } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
-import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import { type CachedByIdRead, cachePlanFor } from "../../ir/plan/cache.js";
 import {
@@ -82,6 +81,7 @@ import {
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
+import { aggregateRouteTypes } from "../../ir/util/wire-policy.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";

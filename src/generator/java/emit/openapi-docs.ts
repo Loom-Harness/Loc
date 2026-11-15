@@ -1,4 +1,3 @@
-import { reasonPhrase } from "../../../ir/enrich/wire-policy.js";
 import type { EnrichedBoundedContextIR, WireField, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import {
   workflowCanAnswerNotFound,
@@ -6,6 +5,7 @@ import {
   workflowIsGuarded,
 } from "../../../ir/types/loom-ir.js";
 import { errorStatuses, PROBLEM_JSON, PROBLEM_SCHEMA } from "../../../ir/util/openapi-errors.js";
+import { reasonPhrase } from "../../../ir/util/wire-policy.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,
