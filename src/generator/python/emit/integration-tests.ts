@@ -335,10 +335,12 @@ export function renderPyContextIntegrationTest(
     out.push("");
     out.push("");
     // A currentUser-reading operation takes the bound principal.
-    out.push(`def ${TEST_PRINCIPAL_CALL.slice(0, -2)}() -> ${user}:`);
-    out.push(`    return ${PY.cast}(${user}, ${currentUserVar}.get())`);
-    out.push("");
-    out.push("");
+    if (bodyStr.includes(TEST_PRINCIPAL_CALL)) {
+      out.push(`def ${TEST_PRINCIPAL_CALL.slice(0, -2)}() -> ${user}:`);
+      out.push(`    return ${PY.cast}(${user}, ${currentUserVar}.get())`);
+      out.push("");
+      out.push("");
+    }
   }
   out.push("@pytest.fixture");
   out.push("async def session() -> AsyncIterator[AsyncSession]:");

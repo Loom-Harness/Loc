@@ -23,7 +23,7 @@ export interface PrincipalTarget {
   record(claims: readonly { field: FieldIR; rendered: string }[]): string;
 }
 
-export function renderPrincipalValue(v: PrincipalValue, t: PrincipalTarget): string {
+function renderPrincipalValue(v: PrincipalValue, t: PrincipalTarget): string {
   switch (v.kind) {
     case "text":
       return t.text(v.value);

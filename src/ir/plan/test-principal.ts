@@ -18,10 +18,10 @@
 import type { EnumIR, FieldIR, TestPrincipalIR, TypeIR } from "../types/loom-ir.js";
 
 /** The zero identity a dev-stub principal carries for a guid or strong id. */
-export const TEST_PRINCIPAL_ZERO_GUID = "00000000-0000-0000-0000-000000000000";
+const TEST_PRINCIPAL_ZERO_GUID = "00000000-0000-0000-0000-000000000000";
 
 /** The value a string claim takes when no `as { … }` claim sets it. */
-export const TEST_PRINCIPAL_TEXT = "admin";
+const TEST_PRINCIPAL_TEXT = "admin";
 
 /** One claim value at its declared type. */
 export type PrincipalValue =

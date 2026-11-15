@@ -2,5 +2,8 @@
   "title": "Generated unit-test assertions and principal — money/datetime/date/value-object/list/id comparisons, a collection-op-named operation, a declared claim read through the test principal",
   "doc": "language",
   "backends": "ALL",
-  "note": "Each backend's test emitter decided what `toBe` and the ordering matchers compare and which synthetic user a currentUser-reading operation runs as; the same test passed, failed or did not compile depending on the backend.  The comparison and the expected literal are decided once (`src/ir/plan/test-assertion.ts`), the principal once (`src/ir/plan/test-principal.ts`), and each test framework renders them from a leaf table.  The `test` blocks are the runtime proof on every backend's unit tier; no `test e2e` — the subject is the generated test, not the wire."
+  "note": "Each backend's test emitter decided what `toBe` and the ordering matchers compare and which synthetic user a currentUser-reading operation runs as; the same test passed, failed or did not compile depending on the backend.  The comparison and the expected literal are decided once (`src/ir/plan/test-assertion.ts`), the principal once (`src/ir/plan/test-principal.ts`), and each test framework renders them from a leaf table.  The `test` blocks are the runtime proof on every backend's unit tier; no `test e2e` — the subject is the generated test, not the wire.",
+  "apiCaller": {
+    "e2eLess": "UNIT-TIER WITNESS — the subject is the generated unit test (its assertions and principal), which every backend's behavioural unit tier runs; no route of the fixture is the claim, so a `test e2e` would assert nothing this fixture is about."
+  }
 }

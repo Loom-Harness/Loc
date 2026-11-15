@@ -25,14 +25,14 @@ const SRC = `
         customer: Customer id
         qty: int = 0
         test "plans" {
-          let o = Order.create(customer: "00000000-0000-0000-0000-000000000001", tags: [])
+          let o = Order.create(customer: "00000000-0000-0000-0000-000000000001", tags: ["a"])
           let t = o.total
           expect(t).toBe(15)
           expect(t).toBeGreaterThan(10)
           expect(o.placedAt).toBeGreaterThan("2026-01-01T00:00:00Z")
           expect(o.day).not.toBe("2026-01-01")
           expect(Price { amount: 1.50, currency: "USD" }).toBe(Price { amount: 1.5, currency: "USD" })
-          expect(o.tags).toBe([])
+          expect(o.tags).toBe(["a"])
           expect(o.customer).toBe("00000000-0000-0000-0000-000000000001")
           expect(o.qty).toBeLessThan(3)
           expect(o.placedAt).toBeNull()

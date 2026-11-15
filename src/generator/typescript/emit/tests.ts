@@ -419,8 +419,10 @@ const VITEST_ASSERTIONS: AssertionTarget = {
       relation === "eq"
         ? `  expect(String(${actual})).${vitestTail(negate, "toBe")}(new Decimal(${expected}).toString());`
         : `  expect(new Decimal(${actual}).comparedTo(${expected})).${vitestTail(negate, VITEST_RELATION[relation])}(0);`,
+    // A coerced ISO literal is already a `Date`; any other expected value is
+    // wrapped, which also accepts an ISO string.
     instant: ({ relation, negate, actual, expected }) =>
-      `  expect((${actual})?.getTime()).${vitestTail(negate, VITEST_RELATION[relation])}(new Date(${expected}).getTime());`,
+      `  expect((${actual})?.getTime()).${vitestTail(negate, VITEST_RELATION[relation])}(${expected.startsWith("new Date(") ? expected : `new Date(${expected})`}.getTime());`,
     date: ({ relation, negate, actual, expected }) =>
       `  expect(Date.parse(String(${actual}))).${vitestTail(negate, VITEST_RELATION[relation])}(Date.parse(${expected}));`,
     structural: ({ negate, actual, expected }) =>

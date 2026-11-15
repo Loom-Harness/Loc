@@ -348,8 +348,10 @@ const JAVA_RELATION_OP: Readonly<Record<AssertionRelation, string>> = {
  *  are not defined on them and `BigDecimal.equals` is scale-sensitive, so
  *  every relation goes through `compareTo`. */
 function viaCompareTo(relation: AssertionRelation, negate: boolean, a: string, e: string): string {
-  const cmp = `(${a}).compareTo(${e}) ${relation === "eq" ? "==" : JAVA_RELATION_OP[relation]} 0`;
-  return `assert${negate ? "False" : "True"}(${cmp});`;
+  if (relation === "eq") {
+    return `assert${negate ? "NotEquals" : "Equals"}(0, (${a}).compareTo(${e}));`;
+  }
+  return `assert${negate ? "False" : "True"}((${a}).compareTo(${e}) ${JAVA_RELATION_OP[relation]} 0);`;
 }
 
 /** A record or collection compared field by field (element by element, in
