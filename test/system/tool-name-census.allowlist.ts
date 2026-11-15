@@ -9,8 +9,9 @@
 //
 // `step` is the #5942 step that renames the name: 2 tables, 3 wire names (headers,
 // routes, env, compose/Helm/k8s), 4 backend types and helpers, 5 frontend
-// components and design packs, 6 prose.  `"ruling"` marks compiler vocabulary
-// surfaced in output that awaits an owner ruling on whether it is in scope;
+// components and design packs, 6 prose.  `"pending-design"` marks the tool
+// markers and the `.loom/` bundle, whose place in the generated tree awaits an
+// owner design (D-NO-TOOL-NAME, "Pending owner design");
 // `"standing"` marks a name derived from a name the fixture itself declares.
 // A `pattern` row covers a family whose middle is the user's (a context, a
 // channel, a deployable); `shows` is how the family reads.
@@ -24,10 +25,10 @@ export type ToolNameGroup =
   | "helper"
   | "file"
   | "comment"
-  | "ruling"
+  | "pending"
   | "user";
 
-export type ToolNameStep = 2 | 3 | 4 | 5 | 6 | "ruling" | "standing";
+export type ToolNameStep = 2 | 3 | 4 | 5 | 6 | "pending-design" | "standing";
 
 export type ToolNameEntry = (
   | { readonly name: string }
@@ -291,7 +292,7 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     name: "data-loom-title",
     group: "type",
     step: 5,
-    note: "CSS class / design token / data attribute",
+    note: "page-title data attribute (not a pack token); ruled prefix: data-app-title",
   },
   { name: "Loom.ValueObject", group: "type", step: 4 },
   {
@@ -946,6 +947,12 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
 
   // ── helper ──────────────────────────────────────────────────────
   {
+    name: "loom:no-transaction",
+    group: "helper",
+    step: 4,
+    note: "SQL migration marker the generated migrate runner reads",
+  },
+  {
     name: "loomCode",
     group: "helper",
     step: 4,
@@ -1090,54 +1097,72 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
   { name: "Loom-generated", group: "comment", step: 6, note: "prose" },
   { name: "Loom-derived", group: "comment", step: 6, note: "prose" },
 
-  // ── ruling ──────────────────────────────────────────────────────
+  // ── pending ─────────────────────────────────────────────────────
+  {
+    name: "path:.loom",
+    group: "pending",
+    step: "pending-design",
+    note: "the .loom/ artifact bundle",
+  },
+  {
+    name: ".loom/",
+    group: "pending",
+    step: "pending-design",
+    note: "references to the .loom/ bundle",
+  },
+  {
+    name: "x-loom",
+    group: "pending",
+    step: "pending-design",
+    note: "AsyncAPI extension key in .loom/asyncapi.yaml",
+  },
+  {
+    name: "loom-std",
+    group: "pending",
+    step: "pending-design",
+    note: "stdlib pseudo-source URI in .loom/sourcemap.json",
+  },
   {
     name: "loomignore",
-    group: "ruling",
-    step: "ruling",
-    note: "compiler vocabulary surfaced in output — owner ruling",
+    group: "pending",
+    step: "pending-design",
+    note: "tool marker / `.loom/` reference — pending owner design",
   },
   {
     name: "loom:scaffold-once",
-    group: "ruling",
-    step: "ruling",
-    note: "compiler vocabulary surfaced in output — owner ruling",
-  },
-  {
-    name: "loom:no-transaction",
-    group: "ruling",
-    step: "ruling",
-    note: "compiler vocabulary surfaced in output — owner ruling",
+    group: "pending",
+    step: "pending-design",
+    note: "tool marker / `.loom/` reference — pending owner design",
   },
   {
     name: "loom:sourcemap-begin",
-    group: "ruling",
-    step: "ruling",
-    note: "compiler vocabulary surfaced in output — owner ruling",
+    group: "pending",
+    step: "pending-design",
+    note: "tool marker / `.loom/` reference — pending owner design",
   },
   {
     name: "loom:sourcemap-end",
-    group: "ruling",
-    step: "ruling",
-    note: "compiler vocabulary surfaced in output — owner ruling",
+    group: "pending",
+    step: "pending-design",
+    note: "tool marker / `.loom/` reference — pending owner design",
   },
   {
     name: "loom:unrendered",
-    group: "ruling",
-    step: "ruling",
-    note: "compiler vocabulary surfaced in output — owner ruling",
+    group: "pending",
+    step: "pending-design",
+    note: "tool marker / `.loom/` reference — pending owner design",
   },
   {
     name: "loom.<diagnostic-code>",
-    group: "ruling",
-    step: "ruling",
-    note: "compiler vocabulary surfaced in output — owner ruling",
+    group: "pending",
+    step: "pending-design",
+    note: "tool marker / `.loom/` reference — pending owner design",
   },
   {
     name: "loomsnap",
-    group: "ruling",
-    step: "ruling",
-    note: "compiler vocabulary surfaced in output — owner ruling",
+    group: "pending",
+    step: "pending-design",
+    note: "tool marker / `.loom/` reference — pending owner design",
   },
 
   // ── user ────────────────────────────────────────────────────────

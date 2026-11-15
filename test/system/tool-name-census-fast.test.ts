@@ -58,8 +58,8 @@ describe("no tool name in generated output (fast sample)", () => {
       if (seen.has(key)) problems.push(`duplicate row ${key}`);
       seen.add(key);
       if ("pattern" in r && !/^\^.*\$$/.test(r.pattern)) problems.push(`unanchored ${r.pattern}`);
-      if ((r.step === "ruling") !== (r.group === "ruling"))
-        problems.push(`${key}: ruling step/group`);
+      if ((r.step === "pending-design") !== (r.group === "pending"))
+        problems.push(`${key}: pending step/group`);
       if ((r.step === "standing") !== (r.group === "user"))
         problems.push(`${key}: standing step/group`);
       // An exact row a pattern also covers is dead weight.
@@ -78,7 +78,8 @@ describe("no tool name in generated output (fast sample)", () => {
     expect(namesIn("[:loom, :domain, :fault]", false)).toEqual([":loom"]);
     expect(namesIn("package com.loom.shop.domain;", false)).toEqual(["com.loom"]);
     expect(namesIn("src/main/java/com/loom/shop/App.java", true)).toEqual(["path:com/loom"]);
-    expect(namesIn("see .loom/sourcemap.json", false)).toEqual([]);
+    expect(namesIn("see .loom/sourcemap.json", false)).toEqual([".loom/"]);
+    expect(namesIn(".loom/wire-spec.json", true)).toEqual(["path:.loom"]);
     expect(namesIn('logger.info({ "loom.correlation_id": id })', false)).toEqual([
       "loom.correlation_id",
     ]);

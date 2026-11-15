@@ -1,27 +1,49 @@
 # D-NO-TOOL-NAME — generated output carries no tool name
 
-**Status:** PINNED (rule and reserved table namespace). The old→new mapping below is a proposal awaiting the owner's signature; rows marked **?** are open.
+**Status:** PINNED — the rule, the reserved table namespace, and the owner's rulings on root namespaces, CSS, and the clean break. The old→new mapping below is a proposal awaiting the owner's signature; rows marked **?** are open. The tool markers and the `.loom/` bundle await an owner design.
 
-**Problem.** A generated project is code a team owns. The compiler's name in its tables, types, headers, environment variables, helpers, file names and comments marks it as tool output, leaks into wire contracts between deployables and into persisted data, and collides with nothing the user can see coming.
+**Problem.** A generated project is code a team owns. The compiler's name in its tables, types, headers, environment variables, helpers, file names and comments marks it as tool output, leaks into wire contracts between deployables and into persisted data, and takes names a user's model can collide with.
 
 **Rule.** No backend or frontend emits the tool's name (`loom`, any case) into generated source, SQL, configuration, compose / Helm / Kubernetes files, HTTP headers, routes, environment-variable names, broker topology, log and trace keys, browser storage keys, file or directory names, or comments.
 
 - **Runtime-owned tables** take a reserved `_` prefix: `_outbox`, `_inbox`, `_timer`, `_timer_runs`, `_migrations`, `_seed`. Table names starting with `_` belong to the runtime; a user declaration whose derived table, or a `tablePrefix:`, starts with `_` is refused as `loom.persisted-table-reserved`. There is no dedicated schema.
 - **Generated types and UI components** take role names with no prefix (`Money`, `EventEnvelope`, `OutboxMessage`, `DataTable`, `AppForm`). The names are reserved through the symbol plan (`src/generator/_symbols/plan.ts`), which disambiguates or refuses a user type of the same name in one place per target.
+- **Root namespaces derive from the system name.** Where a target needs a root namespace (a Java package, an Elixir module root, a Helm chart's helper prefix, a package name, a browser-storage key, a broker vhost), it is spelled from the model's system name, lower-cased or cased per the target, with no new language knob.
+- **CSS classes, design tokens and data attributes** take the `app-` prefix: `app-btn`, `--app-primary`, `data-app-title`.
 - **Headers, routes, environment variables and helpers** take neutral names, idiomatic per target language, checked for collisions with user-declared names (through the symbol plan), with well-known names that mean something else, and with each target's reserved words.
-- **Out of scope:** the `.loom/` artifact bundle, `loom.*` diagnostic codes in the compiler's own reports, `LOOM_*` variables that gate this repository's test tiers, and compiler-internal types. A name the user's own model spells (a system called `LoomLanding`) is the user's.
+- **Clean break.** A rename lands without compatibility code: no read-both window, no alias. Every rename that resets durable state is listed under "Durable state a rename resets", and the step that lands it says so in its PR.
+- **Out of scope:** `loom.*` diagnostic codes in the compiler's own reports, `LOOM_*` variables that gate this repository's test tiers, compiler-internal types, and names the user's own model spells (a system called `LoomLanding`).
 
-**Enforcement.** `test/system/tool-name-census.test.ts` generates the whole corpus plus the `ddd new` starter on every backend × design pack and holds every tool-named name against the shrink-only allowlist `test/system/tool-name-census.allowlist.ts`: a name no row covers fails, and a row nothing reaches fails as stale. `tool-name-census-fast.test.ts` runs a fixed sample in `npm test`. `test/_helpers/tool-name-scan.ts` defines what a name is.
+**Enforcement.** `test/system/tool-name-census.test.ts` (the `corpus` project) generates every tracked `.ddd` — a `__PLATFORM__` fixture on all five backends — plus the `ddd new` starter on every backend × design pack, and holds every tool-named name in the output against the shrink-only allowlist `test/system/tool-name-census.allowlist.ts`: a name no row covers fails, and a row nothing reaches fails as stale. `tool-name-census-fast.test.ts` runs a fixed sample in `npm test` and checks new names only. `test/_helpers/tool-name-scan.ts` defines what a name is.
 
 **Dependencies.**
 - Runtime tables have no rename path in `MigrationsIR`; renaming them through the chain (`ALTER TABLE … RENAME`, not drop/create) needs one first.
 - Backend types and helpers move through the symbol plan's per-area lanes; until a lane covers an emitter, that emitter's names stay listed.
-- The consumer inbox replaces `__loom_fold_inbox` with one inbox table; its name follows the outbox (`_inbox` in the mapping) and the allowlist follows `main`.
-- Cross-deployable names (headers, environment variables, CloudEvents attributes, broker topology) change on every backend in one change so a mixed stack keeps interoperating. Durable broker names (consumer groups, durable queues) and keys inside persisted payloads need a read-both window; renaming them in place loses committed offsets or orphans stored rows.
+- The consumer inbox replaces `__loom_fold_inbox` with one inbox table; its name follows the outbox (`_inbox`) and the allowlist follows `main`.
+- Cross-deployable names (headers, environment variables, CloudEvents attributes, broker topology) change on every backend in one change so a stack generated by one compiler version stays consistent.
+
+## Durable state a rename resets
+
+Each of these is a clean break: the step that renames it resets the state below on an existing deployment.
+
+| name | state reset | step |
+|---|---|---|
+| `loom.<Context>.<Channel>.<deployable>` (kafka consumer group, rabbitmq durable queue) | committed offsets / queued messages: consumers restart from the configured start offset, unacked messages stay in the old queue | 3 |
+| `loom.<Context>.<Channel>` (exchange / topic), `loom.dlx`, `loom.dlq.<queue>`, `loom.retry.<queue>`, vhost `/loom` | broker topology is re-declared under new names; parked dead letters stay in the old DLQ | 3 |
+| `__loomOrigin` (key inside persisted outbox payloads) | outbox rows written before the rename lose their origin on relay | 3 |
+| `__loomEventId` (node workflow event payloads) | in-flight workflow events get a fresh event id (dedupe misses once) | 3 |
+| `loom.locale`, `loom_locale` (localStorage, cookie) | each user's saved locale choice | 3 |
+| `loom.store.<Store>` (localStorage) | each user's persisted store drafts | 3 |
+| `app.kubernetes.io/managed-by: loom`, Helm helper names | label selectors on an existing release; a Helm upgrade re-creates selector-bound objects | 3 |
+| `loom.correlation_id`, `loom.scope_id`, `loom.actor_id`, tracer / logger `"loom"`, telemetry `[:loom, …]`, `loomCatalog` logger | dashboards, saved queries and alerts keyed on the old names | 3 |
+| `loomDemoTenant` (seed dataset), `LOOM_SEED` | a deployment selecting the dataset by its old name seeds nothing | 3 |
+| `__loom_migrations`, `__loom_seed`, `__loom_outbox`, `__loom_timer`, `loom_timer_runs`, the inbox | none when renamed through the chain (`ALTER TABLE … RENAME`); a drop/create would lose the ledgers and queued rows | 2 |
+| `"LOOM"` (Dapper boot advisory-lock key) | two instances on different versions do not exclude each other during one rolling deploy | 3 |
+| Java package root `com.loom.<app>` | serialized Java class names (none persisted today) | 3 |
 
 ## Mapping (proposal)
 
-Steps refer to the rename lane: 2 tables, 3 wire names and deployment config, 4 backend types and helpers, 5 frontend components and design packs, 6 prose.
+Steps refer to the rename lane: 2 tables, 3 wire names and deployment configuration, 4 backend types and helpers, 5 frontend components and design packs, 6 prose. `<system>` is the model's system name, cased per target (`shop`, `Shop`); `<app>` is the deployable's OTP app / project name.
 
 ### Tables and indexes — step 2
 
@@ -31,10 +53,10 @@ Steps refer to the rename lane: 2 tables, 3 wire names and deployment config, 4 
 | `__loom_outbox_pending_idx` | `_outbox_pending_idx` | yes |
 | `__loom_fold_inbox` / `__loom_inbox` | `_inbox` | yes |
 | `__loom_timer` | `_timer` | yes |
-| `loom_timer_runs` | `_timer_runs` | yes |
+| `loom_timer_runs` | `_timer_runs` | yes — today a user aggregate `LoomTimerRun` takes this name |
 | `__loom_migrations` | `_migrations` | yes |
 | `__loom_seed` | `_seed` | yes |
-| `CreateLoomOutbox`, `CreateLoomFoldInbox` (Ecto migration modules) | `CreateOutboxTable`, `CreateInboxTable` | ? a user aggregate `Outbox` gets `CreateOutboxes`; the `Table` suffix keeps them apart |
+| `CreateLoomOutbox`, `CreateLoomFoldInbox` (Ecto migration modules) | `CreateOutboxTable`, `CreateInboxTable` | yes — the `Table` suffix keeps them apart from a user aggregate `Outbox`'s `CreateOutboxes` |
 | `LoomMigration` (.NET migration-ledger entity) | `SchemaMigration` | yes |
 | `<ts>_create___loom_outbox.exs` (file) | `<ts>_create__outbox.exs` | yes |
 
@@ -45,27 +67,27 @@ Steps refer to the rename lane: 2 tables, 3 wire names and deployment config, 4 
 | `x-loom-test-reset` (header), `x_loom_test_reset` (FastAPI param) | test-reset route | `x-test-reset-token`, `x_test_reset_token` | yes |
 | `/__loom/test-reset` | every backend | `/__test/reset` | yes |
 | `x-loom-dev-claims` | dev-stub auth, every backend + frontends | `x-dev-claims` | yes |
-| `x-loom-attempts` | rabbitmq retry header | `x-delivery-attempts` | ? RabbitMQ owns `x-delivery-count` (quorum queues, different counter) and other `x-` AMQP headers; `delivery-attempts` avoids the `x-` namespace |
-| `x-loom-cache` | by-id cache response header | `x-cache` | ? CDNs and Varnish set `X-Cache` themselves and overwrite it; RFC 9211 `Cache-Status` is the standard alternative |
-| `loomchannel` (CloudEvents ext.) | channel envelope, every backend | `channel` | yes |
-| `loomkey` (CloudEvents ext.) | kafka partition key | `partitionkey` | yes — the CloudEvents Partitioning extension's own attribute |
-| `loomcausedby` (CloudEvents ext.) | originating user id | `causedby` | ? |
+| `x-loom-attempts` | rabbitmq retry header | `x-delivery-attempts` | ? RabbitMQ owns `x-delivery-count` (quorum queues, a different counter); the names do not clash |
+| `x-loom-cache` | by-id cache response header | `x-cache-status` | ? not `x-cache`, which CDNs and Varnish overwrite |
+| `loomchannel` (CloudEvents extension) | channel envelope, every backend | `channel` | yes |
+| `loomkey` (CloudEvents extension) | kafka partition key | `partitionkey` | yes — the CloudEvents Partitioning extension's own attribute |
+| `loomcausedby` (CloudEvents extension) | originating user id | `causedby` | ? |
 | `/loom/<context>` (CloudEvents `source`) | channel envelope | `/<system>/<context>` | ? |
 | `/loom` (rabbitmq vhost) | compose, Helm, k8s, broker-init | `/<system>` | ? |
-| `loom.<Context>.<Channel>[.<deployable>]` | broker exchange / topic / durable group | `<system>.<Context>.<Channel>[.<deployable>]` | ? durable group rename loses offsets — needs a read-both window |
+| `loom.<Context>.<Channel>[.<deployable>]` | broker exchange / topic / durable group | `<system>.<Context>.<Channel>[.<deployable>]` | ? |
 | `loom.dlx`, `loom.dlq.<queue>`, `loom.retry.<queue>` | rabbitmq topology | `<system>.dlx`, `<system>.dlq.<queue>`, `<system>.retry.<queue>` | ? |
 | `loom-kafka-<group>` | kafka client id | `<group>` | yes |
-| `loom.correlation_id`, `loom.scope_id`, `loom.actor_id` | log/trace attributes, every backend | `app.correlation_id`, `app.scope_id`, `app.actor_id` | ? OpenTelemetry asks for a namespace on custom attributes; bare `correlation_id` is the other choice |
-| `"loom"` (tracer / logger / .NET formatter name) | every backend | the deployable's service name (`OTEL_SERVICE_NAME`); formatter `"json"` | yes |
+| `loom.correlation_id`, `loom.scope_id`, `loom.actor_id` | log / trace attributes, every backend | `app.correlation_id`, `app.scope_id`, `app.actor_id` | ? OpenTelemetry asks for a namespace on custom attributes |
+| `"loom"` (tracer / logger / .NET formatter name) | every backend | the deployable's service name; formatter `"json"` | yes |
 | `:loom` (telemetry event prefix) | elixir | `:<app>` (the OTP app atom) | yes |
-| `__loomOrigin` (key inside persisted outbox payloads) | dotnet, java | `__origin` | ? stored rows carry the old key; readers accept both for one release |
-| `__loomEventId` | node workflows | `__eventId` | yes |
+| `__loomOrigin` (key inside persisted outbox payloads) | dotnet, java | `__origin` | ? |
+| `__loomEventId` | node workflows | `__eventId` | ? |
 | `loom_outbox_event_id` (ContextVar) | python | `outbox_event_id` | yes |
-| `loom.locale` (localStorage), `loom_locale` (cookie) | every frontend, backends that read it | `locale` | ? renaming resets saved locale choices once |
-| `loom.store.<Store>` (localStorage) | react, vue, svelte | `store.<Store>` | ? same reset |
+| `loom.locale` (localStorage), `loom_locale` (cookie) | every frontend, backends that read it | `<system>.locale`, `<system>_locale` | ? system-prefixed so two apps on one origin keep separate choices |
+| `loom.store.<Store>` (localStorage) | react, vue, svelte | `<system>.store.<Store>` | ? |
 | `Symbol("loom.session")` | svelte | `Symbol("auth.session")` | yes |
 | `loomDemoTenant` (seed dataset name) | tenancy registry demo | `demoTenant` | yes |
-| `loom-page`, `loom-sort` (LiveView `phx-click` events) | elixir | `__page`, `__sort` | ? must not collide with a user `action` name; `__` keeps them out of that namespace |
+| `loom-page`, `loom-sort` (LiveView `phx-click` events) | elixir | `__page`, `__sort`, reserved against a user `action` of that name by a diagnostic or the symbol plan | ? |
 
 ### Environment variables — step 3
 
@@ -73,7 +95,7 @@ Steps refer to the rename lane: 2 tables, 3 wire names and deployment config, 4 
 |---|---|---|
 | `LOOM_TEST_RESET` | `TEST_RESET` | yes |
 | `LOOM_TEST_RESET_TOKEN` | `TEST_RESET_TOKEN` | yes |
-| `LOOM_SECURE_TRANSPORT` | `SECURE_TRANSPORT` | ? `HTTPS_ONLY` reads better |
+| `LOOM_SECURE_TRANSPORT` | `SECURE_TRANSPORT` | ? |
 | `LOOM_OPENAPI_UI` | `OPENAPI_UI` | yes |
 | `LOOM_DEV_AUTH` | `DEV_AUTH` | yes |
 | `LOOM_SEED` | `SEED_DATA` | yes |
@@ -81,21 +103,25 @@ Steps refer to the rename lane: 2 tables, 3 wire names and deployment config, 4 
 | `LOOM_CHANNEL_<NAME>_URL` | `CHANNEL_<NAME>_URL` | yes — beside the existing `CHANNEL_MAX_ATTEMPTS`; the `_URL` suffix keeps a channel named `MaxAttempts` apart |
 | `LOOM_OUTBOX_RETENTION_DAYS` | `OUTBOX_RETENTION_DAYS` | yes |
 
-### Deployment configuration — step 3
+### Root namespaces and deployment configuration — step 3
+
+Every root namespace spelled with the tool name today, and its system-derived replacement:
 
 | old | proposed | sure? |
 |---|---|---|
-| `com.loom.<app>` (Java base package, Gradle `group`, `com/loom/` directories) | `app.<app>` | ? Java wants a reverse domain the model does not declare |
-| Helm helpers `loom.name`, `loom.fullname`, `loom.labels` | `<chart>.name`, `<chart>.fullname`, `<chart>.labels` (Helm's own convention) | yes |
-| `app.kubernetes.io/managed-by: loom` (k8s label) | `managed-by: Helm` in the chart; dropped from raw manifests, which keep `part-of: <system>` | ? selectors on existing clusters match the old label |
-| `<deployable>-loom-channel-<name>-url` (Helm/k8s secret key) | `<deployable>-channel-<name>-url` | yes |
-| `loom-dev-<kind>[-<deployable>]` (dev broker/cache credentials) | `dev-<kind>[-<deployable>]` | yes |
+| Java base package `com.loom.<deployable>`, Gradle `group = "com.loom"`, `src/main/java/com/loom/…` | `<system>.<deployable>` (`shop.api`), Gradle `group = "<system>"` | yes — each segment goes through the existing `javaPackageSegment` (lower-case, `[a-z0-9_]` only, `_` before a leading digit, `_` after a reserved word: `Default` → `default_`), so every system name yields a valid package and no diagnostic is needed. `ddd new` spells the system name PascalCase from the project name and prefixes `App` before a leading digit. |
+| Elixir runtime modules `Loom.Datetime`, `Loom.ValueObject` (`loom_datetime.ex`, `loom_value_object.ex`) | `<App>.Datetime`, `<App>.ValueObject` under the OTP app's own root | yes |
+| Helm helpers `loom.name`, `loom.fullname`, `loom.labels` | `<chart>.name`, `<chart>.fullname`, `<chart>.labels` — the chart is already named from the system | yes |
+| npm package names `loom-e2e`, `loom-<framework>-app`, `loom-<framework>-app-e2e` | `<system>-e2e`, `<system>-<deployable>`, `<system>-<deployable>-e2e` | yes |
+| .NET namespaces, the Python package, the compose project | carry no tool name today (deployable-derived) | — |
+| `app.kubernetes.io/managed-by: loom` (k8s label) | `managed-by: Helm` in the chart; dropped from raw manifests, which keep `part-of: <system>` | ? |
+| `<deployable>-loom-channel-<name>-url` (Helm / k8s secret key) | `<deployable>-channel-<name>-url` | yes |
+| `loom-dev-<kind>[-<deployable>]` (dev broker / cache credentials) | `dev-<kind>[-<deployable>]` | yes |
 | `loom-claim-<claim>`, `loom-declared-audience` (Keycloak mappers) | `claim-<claim>`, `declared-audience` | yes |
 | `loom-definitions.json`, `10-loom.conf` (rabbitmq) | `definitions.json`, `10-definitions.conf` | yes |
 | `loom-db` (README container name) | `<system>-db` | yes |
 | `/tmp/loom-certs`, keystore alias `loom-<cert>` (Java Dockerfile) | `/tmp/extra-certs`, `extra-<cert>` | yes |
-| `loom-e2e`, `loom-<framework>-app`, `loom-<framework>-app-e2e` (package names) | `<system>-e2e`, `<deployable>`, `<deployable>-e2e` | yes |
-| `__LOOM_API_BASE__`, `__LOOM_BASENAME__` (window globals set by an embedding host) | `__APP_API_BASE__`, `__APP_BASENAME__` | ? the playground sets them; it changes in the same step |
+| `__LOOM_API_BASE__`, `__LOOM_BASENAME__` (window globals an embedding host sets) | `__APP_API_BASE__`, `__APP_BASENAME__` — the playground changes in the same step | yes |
 | `__loom_sandbox__` (playground mount path, in comments) | follows the playground | ? |
 | `"loom_dev"` (Phoenix signing salt) | `"<app>_dev"` | yes |
 | `"LOOM"` (Dapper boot advisory-lock key) | `"MIGRATIONS"` | yes |
@@ -106,13 +132,12 @@ Steps refer to the rename lane: 2 tables, 3 wire names and deployment config, 4 
 |---|---|---|---|
 | `LoomEventEnvelope` | node, dotnet, java | `EventEnvelope` | yes |
 | `LoomOutbox`, `LoomOutboxRow`, `LoomOutboxMessage`, `LoomOutboxRepository`, `LoomEventOutbox` | elixir, dotnet, python, java | `Outbox`, `OutboxRow`, `OutboxMessage`, `OutboxRepository`, `EventOutbox` | yes — a user aggregate `Outbox` is the symbol plan's collision case |
-| `LoomIssue`, `LoomFieldError`, `LoomIssueParams` | every backend, react | `Issue`, `FieldError`, `IssueParams` | ? `Issue` is a common user aggregate name; `ProblemIssue` avoids most collisions |
-| `LoomErrorHandler` | dotnet, elixir, java, python, angular | `ErrorHandler` | ? Angular's own `ErrorHandler` class; `AppErrorHandler` there |
+| `LoomIssue`, `LoomFieldError`, `LoomIssueParams` | every backend, react | `ProblemIssue`, `FieldError`, `IssueParams` | ? |
+| `LoomErrorHandler` | dotnet, elixir, java, python, angular | `ErrorHandler`; `AppErrorHandler` on Angular (its own `ErrorHandler` class) and wherever the symbol plan finds a framework type of that name | ? |
 | `LoomJsonFormatter`, `LoomJsonFormatMapperConfig` | dotnet, java | `JsonLineFormatter`, `JsonFormatMapperConfig` | yes |
 | `LoomWaitForDbAsync` | dotnet | `WaitForDatabaseAsync` | yes |
 | `LoomConsumed` | node | `Consumed` | ? |
 | `LoomChannel`, `LoomKey` (envelope record members) | dotnet | `Channel`, `PartitionKey` | yes |
-| `Loom.Datetime`, `Loom.ValueObject` (Elixir modules, `loom_datetime.ex`, `loom_value_object.ex`) | elixir | `<App>.Datetime`, `<App>.ValueObject` | yes — app-namespaced like every other module |
 
 ### Frontend components and design packs — step 5
 
@@ -123,28 +148,30 @@ Steps refer to the rename lane: 2 tables, 3 wire names and deployment config, 4 
 | `LoomTable`, `LoomChart` (HEEx components, `loom_table.ex`, `loom_chart.ex`) | elixir | `DataTable`, `Chart` | yes |
 | `LoomPage`, `LoomNavDrawer`, `LoomQuery`, `LoomMoney`, `_LoomLocaleClient` | flutter | `AppPage`, `AppNavDrawer`, `QueryView`, `Money`, `_LocaleClient` | yes |
 | `LoomAura` (PrimeNG preset) | angular | `AppPreset` | yes |
-| CSS classes `loom-<x>` and tokens `--loom-<x>` (128 names, below) | design packs | `app-<x>`, `--app-<x>` | ? an un-prefixed class (`btn`, `card`) collides with the pack's own library; `app-` is Angular's selector convention and free in CSS |
-| `data-loom-title` | react, angular | `data-page-title` | yes |
+| CSS classes `loom-<x>`, tokens `--loom-<x>` (128 names, below) | design packs | `app-<x>`, `--app-<x>` | yes (ruled) |
+| `data-loom-title` | react, angular page shell (not a pack token) | `data-app-title` | yes (ruled) |
+
+`app-` against the libraries the packs load: daisyUI and Tailwind (utility and component classes are unprefixed words — `btn`, `card` — none starts `app-`), Mantine (`mantine-*`, hashed `m_*`), PrimeNG (`p-*`), Angular Material (`mat-*`, `mdc-*`), Spartan (`hlm*`), Vuetify (`v-*`), Chakra (`chakra-*`), MUI (`Mui*`, `css-*`), shadcn and Flowbite (Tailwind) — no class collides. Angular's component selectors use `app-` as an element prefix (`app-home`), which a class selector does not match.
 
 The CSS names: `loom-breadcrumbs`, `data-loom-title`, `loom-anchor`, `loom-skeleton`, `loom-skip-link`, `loom-stack`, `loom-input`, `loom-label`, `loom-btn`, `loom-nav-section`, `--loom-primary`, `loom-table-scroll`, `loom-ref-label`, `loom-locale-switcher`, `loom-field`, `loom-btn-primary`, `loom-alert`, `loom-table`, `loom-key-value-row`, `loom-kv-label`, `loom-kv-value`, `loom-alert-message`, `loom-alert-red`, `loom-skeleton-group`, `loom-error`, `loom-switch`, `--loom-radius`, `loom-icon`, `loom-btn-outline`, `loom-toolbar`, `loom-button`, `--loom-font-family`, `loom-active`, `loom-table-striped`, `loom-table-highlight`, `loom-modal-title`, `loom-paper`, `loom-empty`, `loom-table-sticky`, `loom-group`, `loom-alert-yellow`, `loom-btn-ghost`, `loom-code-block`, `--loom-font-family-mono`, `loom-icon-sm`, `loom-icon-lg`, `loom-skeleton-pulse`, `loom-divider-labelled`, `loom-brand`, `loom-shell`, `loom-nav-link`, `loom-button-primary`, `loom-modal`, `loom-toggle`, `loom-card`, `loom-card-content`, `loom-content`, `loom-main`, `loom-button-ghost`, `loom-badge`, `loom-code-block-title`, `loom-sidenav`, `--loom-neutral`, `--loom-error`, `--loom-accent`, `loom-container`, `loom-stat`, `loom-stat-label`, `loom-stat-value`, `loom-alert-title`, `loom-alert-green`, `loom-alert-blue`, `loom-inline-code`, `loom-avatar`, `loom-avatar-empty`, `loom-image`, `loom-icon-xs`, `loom-icon-xl`, `loom-grid`, `loom-divider-rule`, `loom-divider-label`, `loom-modal-backdrop`, `loom-modal-box`, `loom-sidebar`, `loom-nav`, `loom-button-secondary`, `loom-button-warn`, `loom-tab-trigger`, `loom-spin`, `loom-toast-host`, `loom-spinner`, `loom-icon-md`, `loom-provenance`, `loom-provenance-tree`, `loom-rabbitmq-reconnect`, `loom-field-label`, `loom-field-input`, `loom-loader-xs`, `loom-loader-sm`, `loom-loader-md`, `loom-loader-lg`, `loom-loader-xl`, `--loom-brand`, `loom-card-title`, `loom-divider`, `loom-tabs`, `loom-tabs-list`, `loom-spinner-xs`, `loom-spinner-sm`, `loom-spinner-lg`, `loom-spinner-xl`, `loom-toast-root`, `loom-toast`, `loom-channels`, `loom-select`, `loom-file-upload`, `loom-chart`, `loom-timeline`, `loom-timeline-entry`, `loom-timeline-action`, `loom-timeline-actor`, `loom-timeline-changes`, `loom-fieldset`, `loom-layout`, `loom-layout-header`, `loom-layout-body`, `loom-layout-main`, `loom-layout-footer`.
 
 ### Helpers and locals — step 4 (backend) / 5 (frontend)
 
-A helper drops the tool name. A name that becomes a common word takes the target's reserved spelling: a leading `__` for Elixir functions and module-attribute keys, a symbol-plan fresh name for locals.
+A helper drops the tool name. A name that becomes a common word takes the target's reserved spelling: a leading `__` for Elixir functions and option keys that live beside user names, a symbol-plan fresh name for locals (Elixir: a trailing `_`, since a used variable with a leading `_` warns; Java: a plain fresh name, never a `$` identifier).
 
 | old | target(s) | proposed | sure? |
 |---|---|---|---|
 | `__loom_int32_range` | elixir | `__int32_range` | yes |
 | `loom_code` | elixir | `msg_code` | yes |
-| `loom_params` | elixir | `__params` (function) — conn-assign key | ? |
+| `loom_params` | elixir | `rule_params` (changeset-error opts key) | yes |
 | `__loom_filters__` | elixir | `__filters__` | yes |
 | `loomTestResetToken` | dotnet | `testResetToken` | yes |
-| `loomCatalog` | java | `eventCatalog` (logger name) | ? |
-| `loomParams` | python | `__params` | ? |
+| `loomCatalog` | java | `eventCatalog` (SLF4J logger name) | yes |
+| `loomParams` | python | `rule_params` (pydantic context key) | yes |
 | `loomPort` | dotnet | `listenPort` | yes |
-| `loom_path` | elixir | `__path` | ? |
+| `loom_path` | elixir | `field_path` (opts key) | yes |
 | `loom_rule_code` | elixir | `rule_code` | yes |
-| `loom_current_user` | elixir, python | `current_user` | ? collides with Phoenix/phx_gen_auth `current_user` assign |
+| `loom_current_user` | elixir, python | `current_principal` (one word on every backend with this helper) | yes |
 | `loom_principal` | elixir | `principal` (Repo option key) | yes |
 | `loom_post_commit` | elixir, python | `post_commit` | yes |
 | `loomEnv` | dotnet | `appEnv` | yes |
@@ -154,8 +181,8 @@ A helper drops the tool name. A name that becomes a common word takes the target
 | `__loom_decimal_ok` | elixir | `__decimal_ok` | yes |
 | `__loom_filter__` | elixir | `__filter__` | yes |
 | `__loom_dig` | elixir | `__dig` | yes |
-| `loom_filter` | elixir | `__filter` | ? |
-| `loom_<kind>_<n>` | elixir | fresh local from the symbol plan (Elixir: trailing `_`, e.g. `l_`; a leading `_` would warn as a used ignored variable) | ? |
+| `loom_filter` | elixir | `scope_filter` | yes |
+| `loom_<kind>_<n>` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |
 | `loomStrictNumbers` | java | `strictNumbers` | yes |
 | `loom_request_session` | python | `request_session` | yes |
 | `loom_request_context` | python | `request_context` | yes |
@@ -169,69 +196,87 @@ A helper drops the tool name. A name that becomes a common word takes the target
 | `loom_ignoring` | python | `ignoring` (execution option) | yes |
 | `__loom_label_rows` | elixir | `__label_rows` | yes |
 | `loom_error_code` | elixir | `error_code` | yes |
-| `loom_l` | elixir | fresh local from the symbol plan (Elixir: trailing `_`, e.g. `l_`; a leading `_` would warn as a used ignored variable) | ? |
-| `loom_r` | elixir | fresh local from the symbol plan (Elixir: trailing `_`, e.g. `l_`; a leading `_` would warn as a used ignored variable) | ? |
+| `loom_l` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |
+| `loom_r` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |
 | `loom_body_value_object` | elixir | `body_value_object` | yes |
 | `__loom_ref_labels` | elixir | `__ref_labels` | yes |
 | `__loom_vo_param` | elixir | `__vo_param` | yes |
 | `__loom_id_param` | elixir | `__id_param` | yes |
-| `loom_e` | elixir | fresh local from the symbol plan (Elixir: trailing `_`, e.g. `l_`; a leading `_` would warn as a used ignored variable) | ? |
+| `loom_e` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |
 | `loom_domain_floor` | elixir | `domain_floor` | yes |
-| `loom_date` | elixir | `__date` | ? |
+| `loom_date` | elixir | `__date` | yes |
 | `__loom_vo_param_errors` | elixir | `__vo_param_errors` | yes |
 | `loom_pointer` | elixir | `pointer` (opts key) | yes |
-| `loom_c` | elixir | fresh local from the symbol plan (Elixir: trailing `_`, e.g. `l_`; a leading `_` would warn as a used ignored variable) | ? |
+| `loom_c` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |
 | `__loom_money_in_range` | elixir | `__money_in_range` | yes |
 | `loomKey` | dotnet, java | `partitionKey` | yes |
 | `loom_event_id` | elixir | `event_id` (process key) | yes |
 | `loom_icu` | elixir | `icu` | yes |
-| `loomL` | java | `l$` (lambda param, fresh via symbol plan) | ? |
-| `loomR` | java | `r$` | ? |
+| `loomL` | java | symbol-plan fresh name `left` (numeric suffix on collision) | yes |
+| `loomR` | java | symbol-plan fresh name `right` | yes |
 | `loomJsonFormatMapper` | java | `jsonFormatMapper` | yes |
 | `__loom_list` | elixir | `__list` | yes |
 | `loomChannel` | java | `channel` | yes |
 | `__loom_validate_invariants` | elixir | `__validate_invariants` | yes |
 | `loom_payload_refusal` | elixir | `payload_refusal` | yes |
-| `loom_state` | elixir | `__state` | ? |
+| `loom_state` | elixir | symbol-plan fresh local `loaded_` | yes |
 | `loom_prov_traces` | elixir, python | `prov_traces` | yes |
 | `__loomPageTitle` | vue | `__pageTitle` | yes |
 | `__loom_vo_rules` | elixir | `__vo_rules` | yes |
-| `loom_s` | elixir | fresh local from the symbol plan (Elixir: trailing `_`, e.g. `l_`; a leading `_` would warn as a used ignored variable) | ? |
+| `loom_s` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |
 | `__loom_tagged` | elixir | `__tagged` | yes |
 | `loom_body_vo_codes` | elixir | `body_vo_codes` | yes |
-| `loom_dir` | elixir | `dir` (assign) | ? user page state may be named `dir` |
+| `loom_dir` | elixir | `html_dir` (root-layout assign) | yes |
 | `loomHttp` | flutter | `httpClient` | yes |
 | `loom_caller_credential` | python, elixir | `caller_credential` | yes |
-| `loom_dt` | elixir | fresh local from the symbol plan (Elixir: trailing `_`, e.g. `l_`; a leading `_` would warn as a used ignored variable) | ? |
-| `loom_d` | elixir | fresh local from the symbol plan (Elixir: trailing `_`, e.g. `l_`; a leading `_` would warn as a used ignored variable) | ? |
-| `loom_other` | elixir | fresh local from the symbol plan (Elixir: trailing `_`, e.g. `l_`; a leading `_` would warn as a used ignored variable) | ? |
+| `loom_dt` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |
+| `loom_d` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |
+| `loom_other` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |
 | `loom_skeleton_` | elixir | `__skeleton_` | yes |
-| `loom_rich` | elixir | `rich` | ? |
+| `loom_rich` | elixir | `rich_text` (HEEx helper) | yes |
 | `__loom_date_param` | elixir | `__date_param` | yes |
-| `loom_m` | elixir | fresh local from the symbol plan (Elixir: trailing `_`, e.g. `l_`; a leading `_` would warn as a used ignored variable) | ? |
-| `loomV` | java | `v$` | ? |
-| `loom_arm_result` | elixir | fresh local from the symbol plan (Elixir: trailing `_`, e.g. `l_`; a leading `_` would warn as a used ignored variable) | ? |
+| `loom_m` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |
+| `loomV` | java | symbol-plan fresh name `value` | yes |
+| `loom_arm_result` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |
 | `__loomRow` | static | `__row` | yes |
-| `loom_found` | elixir | fresh local from the symbol plan (Elixir: trailing `_`, e.g. `l_`; a leading `_` would warn as a used ignored variable) | ? |
+| `loom_found` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |
 | `seed_loom_demo_tenant` | elixir | `seed_demo_tenant` | yes |
-| `loom_el` | elixir | fresh local from the symbol plan (Elixir: trailing `_`, e.g. `l_`; a leading `_` would warn as a used ignored variable) | ? |
+| `loom_el` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |
 | `__loom_payload_money` | elixir | `__payload_money` | yes |
 | `seedLoomDemoTenant` | node | `seedDemoTenant` | yes |
 | `loomRefLabelProvider` | flutter | `refLabelProvider` | yes |
 | `loomFmt$` | flutter | `fmt$` | yes |
 
+| `loom:no-transaction` | node, python (SQL migrations + runner) | `-- migrate:no-transaction` | yes |
+
 
 ### Prose — step 6
 
-`Loom`, `loom`, `Loom-generated`, `Loom-derived` in comments, READMEs, Helm `NOTES.txt` and chart descriptions: rewritten to describe the generated project without naming the tool ("generated", "the generator").
+`Loom`, `loom`, `Loom-generated`, `Loom-derived` in comments, READMEs, Helm `NOTES.txt` and chart descriptions: rewritten to describe the generated project without naming the tool — "generated", "the generator".
 
-### Awaiting a ruling — compiler vocabulary surfaced in output
+## Pending owner design — tool markers and `.loom/`
 
-| name | where | question |
-|---|---|---|
-| `.loomignore` | generated README and file headers | the user's ignore file the compiler reads — out of scope like `.loom/`? |
-| `loom:scaffold-once` | marker in scaffold-once files | read by the compiler on regenerate — out of scope? |
-| `loom:sourcemap-begin` / `-end` | markers under `--sourcemap` | read by `ddd trace` — out of scope? |
-| `loom:no-transaction` | first line of emitted SQL migrations | read by the GENERATED migrate runner — in scope; proposed `-- migrate:no-transaction` |
-| `loom:unrendered [loom.<code>]` | TSX comment on a walker give-up | the only `loom.*` diagnostic code in output — keep the code, or point at the docs anchor instead? |
-| `loomsnap` | provenance comments naming `.loom/…loomsnap.json` | follows `.loom/` — out of scope? |
+Whether generated output contains anything the compiler reads back, and where artifacts belong, is an open design. These names stay listed under the census's `pending` group, and nothing is proposed for them. What writes and reads each one today:
+
+| artifact / marker | writer | read back by | could the reader take it from elsewhere? |
+|---|---|---|---|
+| `.loom/manifest.json` | `generate system` (`src/system/manifest.ts`) | `generate system` — the prune plan and the scaffold-once flags | no — the only record of what a past run wrote |
+| `.loom/sourcemap.json` | `generate system --sourcemap` (`src/system/sourcemap.ts`) | `ddd trace`, `ddd breakpoints`, the DAP server, the playground | no — a generation-time record; the generated tree carries no other `.ddd` spans |
+| `.loom/wire-spec.json` | `generate system` (`src/system/wire-spec.ts`) | nothing in the toolchain (`ddd diff` rebuilds it from the models and the `migrations/` chain); external clients | yes — rebuilt from the model |
+| `.loom/traceability.json` | `generate system` | the playground's tests panel | yes — the same builder over the model |
+| `.loom/*.mmd`, `architecture.c4`, `asyncapi.yaml`, `datasources.md`, `traceability*.md`, `coverage.md`, `gaps.md` | `generate system` | humans, the playground's views | yes — recomputed from the model |
+| `.loom/messages.<locale>.json` | `generate system`, `ddd i18n extract` | nothing (`ddd i18n` re-extracts in memory); translators | yes — recomputed |
+| `.loom/verification.{json,md,mmd}` | `ddd verify` | nothing; CI reads the exit code | yes — recomputed from the `.ddd` and a results file |
+| `.loom/snapshots/*.loomsnap.json` | `ddd snapshot` | nothing today; `generate` keeps them from pruning | no — immutable records of the rules at capture time |
+| `.loom/frontend-contract.json` | `ddd emit-frontend-contract -o` only | nothing; frontends use the in-memory contract | yes — recomputed |
+| `locales/.loom/source.lock.json`, `stale/` | `ddd i18n sync` | `ddd i18n sync / status / check` (the merge base) | no — the source at the last sync |
+| `locales/.loom/exchange/` | `ddd i18n` export | translators | n/a — an export |
+| `loom:scaffold-once` (first line of scaffold-once files) | backend extern emitters, README | `generate system` — keeps the on-disk copy | partly — the manifest records the flag, the in-band marker protects an existing file |
+| `loom:sourcemap-begin` / `-end` (Java `build.gradle.kts`, `--sourcemap`) | `src/generator/java/emit/program.ts` | tests only | not read by the compiler |
+| `loom:unrendered [loom.<code>]` (TSX / HEEx comment on a walker give-up) | `src/generator/_walker/give-up.ts` | `generate system` re-scans the tree for it (`give-up-report.ts`) | yes — the walker could return the list |
+| `.loomignore` mentions (README, file headers) | `src/system/readme.ts`, comments | humans; the CLI honours the file itself | n/a |
+| `loomsnap` mentions (provenance comments) | python / hono provenance emitters | nobody | comments only |
+| `x-loom` (AsyncAPI extension key), `loom-std` (stdlib pseudo-source URI) | `.loom/asyncapi.yaml`, `.loom/sourcemap.json` | as their files | as their files |
+| `migrations/<entry>.json` beside the `.ddd` | `ddd migrate add` | `generate system`, `ddd diff`, `ddd migrate …`, the playground | no — the authoritative input; carries no tool name in its path |
+
+No generated app reads anything under `.loom/` at runtime. The one marker the generated runtime reads, `-- loom:no-transaction` (the node and python migrate runners), is runtime vocabulary and is mapped above.

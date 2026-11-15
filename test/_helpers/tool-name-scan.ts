@@ -19,12 +19,13 @@
 //     Elixir atom), `/loom` (the broker vhost, the CloudEvents `source`),
 //     `managed-by: loom` (the Kubernetes label), and otherwise `loom` / `Loom`
 //     (prose, mostly comments).
-// Out of scope by ruling, and never counted: everything under `.loom/` (the
-// compiler's artifact bundle, path and content) and a `.loom/` reference inside
-// a file.  A name the user's own model spells — a system called `LoomLanding`,
-// an OIDC client id `"loom-console"` — is the user's, not the tool's: a name
-// whose letters (case and punctuation folded) appear in the `.ddd` source is
-// skipped for that source.
+//   - the `.loom/` artifact bundle reads as one name, `.loom/` (a reference
+//     inside a file) or `path:.loom` (a file under it); its files' content is
+//     scanned like any other.
+// A name the user's own model spells — a system called `LoomLanding`, an OIDC
+// client id `"loom-console"` — is the user's, not the tool's: a name whose
+// letters (case and punctuation folded) appear in the `.ddd` source is skipped
+// for that source.
 
 import {
   DESIGN_PACKS,
@@ -40,11 +41,6 @@ const DIAGNOSTIC_CODES: ReadonlySet<string> = new Set(
   Object.keys(DIAGNOSTIC_MESSAGES).map((k) => k.replace(/#.*$/, "")),
 );
 
-/** Is `path` part of the `.loom/` artifact bundle (out of scope)? */
-export function isLoomBundlePath(path: string): boolean {
-  return path.startsWith(".loom/") || path.includes("/.loom/");
-}
-
 function fold(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
@@ -59,8 +55,11 @@ export function namesIn(text: string, isPath: boolean): string[] {
     const before = text.slice(Math.max(0, start - 4), start);
     const after = text.slice(end);
     if (/^loom$/i.test(tok)) {
-      // `.loom/…` — the artifact bundle, out of scope.
-      if (before.endsWith(".") && after.startsWith("/")) continue;
+      // `.loom/…` — the artifact bundle.
+      if (before.endsWith(".") && (after.startsWith("/") || (isPath && after === ""))) {
+        out.push(isPath ? "path:.loom" : ".loom/");
+        continue;
+      }
       // `com.loom.<app>` / `com/loom/<app>` — the Java base package.
       if (/com[./]$/.test(before)) {
         out.push(isPath ? "path:com/loom" : "com.loom");
@@ -110,7 +109,6 @@ export function toolNamesInTree(
     into.set(name, { count: hit.count + 1, samples: hit.samples });
   };
   for (const [path, content] of files) {
-    if (isLoomBundlePath(path)) continue;
     for (const n of namesIn(path, true)) add(n, path);
     if (!/loom/i.test(content)) continue;
     for (const line of content.split("\n")) {
