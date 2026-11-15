@@ -21,7 +21,7 @@ const SYS = (aggBody: string, pageBody: string, route = "/") => `
 system InvApp {
   subdomain S {
     context C {
-      aggregate Product {
+      aggregate Product with crudish {
 ${aggBody}
       }
       repository Products for Product { }

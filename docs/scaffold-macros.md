@@ -347,10 +347,10 @@ export const OrderResponse = z.object({
 }).openapi("OrderResponse");
 ```
 
-There is one exception. A record field cannot carry `mask unless`, so an
-aggregate with a masked field keeps the derived wire shape. That shape carries
-the predicate, so the masked field stays nullable on the response. A
-hand-declared record of the same name wins over the spliced one.
+A record field cannot declare `mask unless`; a masked aggregate's record field
+takes the aggregate's mask when it is read (`declaredResponseFor`), so the
+masked field stays nullable on the response. A hand-declared record of the
+same name wins over the spliced one.
 
 ### Composability
 

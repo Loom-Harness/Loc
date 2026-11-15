@@ -11,7 +11,7 @@
 // different contract that no gate compared.
 //
 // Now the shape is declared once (`GENERIC_SHAPES.provenanced`) and stamped
-// into `wireShape` once (`wireTypeForField`), and each emitter has ONE arm that
+// into `wireShape` once (`responseWireFor`), and each emitter has ONE arm that
 // builds the carrier from that declaration.  "Identical by construction" is
 // exactly the invariant that drifts later without a test pinning it — so this
 // generates the SAME provenanced aggregate for all five backends and asserts

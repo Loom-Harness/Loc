@@ -11,10 +11,9 @@
 //   - no frontend emitter imports the derived `createInputFields`;
 //   - `declaredCreateCommandFor` has one caller, the plan, so there is no
 //     second record reader;
-//   - `undeclaredCreateRequestFields` (the aggregate whose context declares no
-//     create record) is reached only through the plan and the api module, and
-//     no served aggregate of a shipped model reaches it: the scaffold splices
-//     a create record for every concrete aggregate.
+//   - there is no derived fallback for an aggregate with no create record,
+//     and every served creatable aggregate of a shipped model has one: the
+//     scaffold splices a create record for every concrete aggregate.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -77,10 +76,9 @@ describe("create request census", () => {
       "src/ir/plan/create-request.ts",
       "src/ir/util/declared-request.ts",
     ]);
-    expect(filesNaming("undeclaredCreateRequestFields", all)).toEqual([
-      "src/generator/_frontend/api-module.ts",
-      "src/ir/plan/create-request.ts",
-    ]);
+    // No derived fallback: an aggregate with no declared create record takes
+    // no create request.
+    expect(filesNaming("undeclaredCreateRequestFields", all)).toEqual([]);
   });
 
   it("every served creatable aggregate has a declared create record", async () => {

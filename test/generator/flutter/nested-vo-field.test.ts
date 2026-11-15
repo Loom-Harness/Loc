@@ -24,7 +24,7 @@ system S {
   subdomain D { context C {
     valueobject Geo { lat: decimal  lng: decimal }
     valueobject Addr { line: string  geo: Geo }
-    aggregate Place {
+    aggregate Place with crudish {
       name: string
       addr: Addr
     }

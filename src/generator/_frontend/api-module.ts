@@ -1,5 +1,4 @@
 import type { ContractOperation, ContractRecord } from "../../ir/contract/frontend-contract.js";
-import { undeclaredCreateRequestFields } from "../../ir/plan/create-request.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -229,14 +228,12 @@ export function buildApiModule(
     ? options.records.find((r) => r.name === create.request)
     : undefined;
   // The declared create command record, as the contract carries it, and the
-  // invariants over its fields.  An aggregate whose context declares no
-  // record sends the create input every backend's create route reads.
-  const requiredFields: readonly CreateRequestField[] = createRequest
-    ? createRequest.fields
-    : undeclaredCreateRequestFields(agg);
+  // invariants over its fields.  A served create always has a record (the
+  // scaffold splices one for every concrete aggregate of an exposed context).
+  const requiredFields: readonly CreateRequestField[] = createRequest?.fields ?? [];
   const createInvariants: InvariantIR[] = createRequest
     ? (create?.invariants ?? []).map((inv) => ({ ...inv, source: "" }))
-    : agg.invariants;
+    : [];
   if (restCreate) {
     lines.push(
       ...emitObjectWithRefines(

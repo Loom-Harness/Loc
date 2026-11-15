@@ -18,7 +18,7 @@ const WITH_FALLBACK = `
 system Par {
   api A from D
   subdomain D { context C {
-    aggregate Item { name: string }
+    aggregate Item with crudish { name: string }
     repository Items for Item {}
   } }
   storage db { type: postgres }
@@ -38,7 +38,7 @@ const CLEAN = `
 system Par {
   api A from D
   subdomain D { context C {
-    aggregate Item { name: string  qty: int }
+    aggregate Item with crudish { name: string  qty: int }
     repository Items for Item {}
   } }
   storage db { type: postgres }

@@ -642,7 +642,7 @@
   "effects": {
     "cache": [
       {
-        "entry": "cache_by_id_redis:catalog:item:fc77e37a:<id>",
+        "entry": "cache_by_id_redis:catalog:item:e83ad7a3:<id>",
         "scopes": [
           {
             "scope": "[\"acme\",\"clerk\"]",
