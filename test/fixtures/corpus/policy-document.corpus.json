@@ -11,5 +11,24 @@
       "updateOrg": "tenantRegistryRow",
       "allOrg": "tenantRegistryRow"
     }
+  },
+  "authzGate": {
+    "//": "── the same two stances on a `shape: document` aggregate ──────────────── `Note` is the deny carve-out (principal-free); `Thing` carries `allow local` — principal-REFERENCING, but anchored on the claim the two harness identities share, so still not discriminable — and `Org` is the hierarchy registry's self-scope.  This fixture is the one whose `.ddd` argues at the site for no ladder at all, and that argument holds; see finding 3.",
+    "create POST /api/notes": "principalFreeGate",
+    "create POST /api/orgs": "sharedTenancyIdentity",
+    "create POST /api/things": "sharedTenancyIdentity",
+    "destroy DELETE /api/notes/{id}": "principalFreeGate",
+    "destroy DELETE /api/orgs/{id}": "sharedTenancyIdentity",
+    "destroy DELETE /api/things/{id}": "sharedTenancyIdentity",
+    "find GET /api/notes": "principalFreeGate",
+    "find GET /api/orgs": "sharedTenancyIdentity",
+    "find GET /api/things": "sharedTenancyIdentity",
+    "explicitHandler GET /api/things/by_label/{l}": "sharedTenancyIdentity",
+    "getById GET /api/notes/{id}": "principalFreeGate",
+    "getById GET /api/orgs/{id}": "sharedTenancyIdentity",
+    "getById GET /api/things/{id}": "sharedTenancyIdentity",
+    "operation POST /api/notes/{id}/update": "principalFreeGate",
+    "operation POST /api/orgs/{id}/update": "sharedTenancyIdentity",
+    "operation POST /api/things/{id}/update": "sharedTenancyIdentity"
   }
 }

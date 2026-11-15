@@ -15,5 +15,20 @@
       "api.orderVolume.list (no such aggregate)",
       "api.salesTotals.list (no such aggregate)"
     ]
+  },
+  "authzGate": {
+    "//": "The fixture wave-3 row 3.3 drained.  Every gate on it is the TENANCY scope filter and nothing else — there is no `requires` in the system — so the in-tenant unauthorized principal is correctly ALLOWED and a 403 arm would assert a refusal that must not happen.  What the drain added is a value assertion the ladder cannot express anyway: a leaking aggregation answers 200 with a wrong NUMBER. The registry aggregate's own surface, same class as its twins in `tenancy-owned` / `tenancy-claim-name` below.",
+    "create POST /api/orders": "sharedTenancyIdentity",
+    "destroy DELETE /api/orders/{id}": "sharedTenancyIdentity",
+    "find GET /api/orders": "sharedTenancyIdentity",
+    "getById GET /api/orders/{id}": "sharedTenancyIdentity",
+    "operation POST /api/orders/{id}/restore": "sharedTenancyIdentity",
+    "operation POST /api/orders/{id}/soft_delete": "sharedTenancyIdentity",
+    "operation POST /api/orders/{id}/update": "sharedTenancyIdentity",
+    "create POST /api/organizations": "sharedTenancyIdentity",
+    "destroy DELETE /api/organizations/{id}": "sharedTenancyIdentity",
+    "find GET /api/organizations": "sharedTenancyIdentity",
+    "getById GET /api/organizations/{id}": "sharedTenancyIdentity",
+    "operation POST /api/organizations/{id}/update": "sharedTenancyIdentity"
   }
 }
