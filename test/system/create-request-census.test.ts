@@ -65,8 +65,10 @@ function filesNaming(symbol: string, files: readonly string[]): string[] {
 
 /** Served, REST-creatable aggregates whose context declares no create command
  *  record, so their create request is still the derived create input.  Pinned:
- *  a new one fails, and a fixed one must lower the ceiling in the same change. */
-const UNDECLARED_CEILING = 26;
+ *  a new one fails, and a fixed one must lower the ceiling in the same change.
+ *  `cache-by-id-redis` is `cache-by-id` on a redis store, so it repeats its
+ *  sibling's `Catalog.Note`. */
+const UNDECLARED_CEILING = 27;
 
 describe("create request census", () => {
   it("no frontend emitter reads the derived create input", () => {
