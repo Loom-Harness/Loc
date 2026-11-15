@@ -1233,12 +1233,12 @@ function enrichWorkflowReturnType(wf: WorkflowIR): WorkflowIR {
  *  workflow-instance analogue of an aggregate's `wireShape`
  *  (workflow-instance-visibility.md).  No-op for stateless workflows (no
  *  correlation field ⇒ no instance to read).  Event-sourced workflows DO carry
- *  it: `wireFieldsForWorkflow` reads only `correlationField` + `stateFields`
+ *  it: `workflowInstanceWire` reads only `correlationField` + `stateFields`
  *  (both present on ES workflows), and the read body folds the per-correlation
  *  event stream instead of selecting a `<wf>_state` row. */
 function enrichWorkflowInstanceShape(wf: WorkflowIR): WorkflowIR {
   if (!wf.correlationField) return wf;
-  return { ...wf, instanceWireShape: wireFieldsForWorkflow(wf) };
+  return { ...wf, instanceWireShape: workflowInstanceWire(wf) };
 }
 
 /** Derive a projection's canonical wire shape (projection.md) — the correlation
@@ -1332,7 +1332,7 @@ function selectDerivedFields(proj: ProjectionIR): readonly FieldIR[] {
  *  correlation field keeps its declared name (it is a real column on the
  *  state table `workflowStateTableShape` derives), unlike an aggregate's
  *  always-`"id"` key. */
-function wireFieldsForWorkflow(wf: WorkflowIR): WireField[] {
+function workflowInstanceWire(wf: WorkflowIR): WireField[] {
   const corr = wf.correlationField;
   const fields = wf.stateFields ?? [];
   const corrField = fields.find((f) => f.name === corr);

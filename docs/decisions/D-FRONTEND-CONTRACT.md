@@ -69,9 +69,9 @@ only the request's fields (`classifyForWire`).
 `mask unless` predicate and the mask-taint analysis stay server-side.
 
 **Which derivations are shared.** `invariant-classify`, `wire-policy` and
-`wire-projection` are shared read helpers; `wire-projection` (`wireFieldsFor*`)
-is internal-only and never part of a published contract package's API, so its
-retirement is not a breaking change for third-party frontends. `mask-taint` is
+`wire-projection` are shared read helpers; `wire-projection` (the access
+filters and the create/update input derivations) is internal-only and never
+part of a published contract package's API. `mask-taint` is
 server-only.
 
 **Why an allowlist, not a pruned clone.** Types erase on serialization, so the
