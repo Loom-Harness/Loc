@@ -1,5 +1,5 @@
 import { aggregateRouteTypes } from "../../../ir/enrich/wire-policy.js";
-import { channelPlan } from "../../../ir/plan/index.js";
+import { channelPlan, inboxDedupes } from "../../../ir/plan/index.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
 import { frontendAxesOf } from "../../../util/frontend-axes.js";
 import { bootRequiredAuthEnv } from "../../_auth/boot-required.js";
@@ -17,7 +17,6 @@ import { bootRequiredAuthEnv } from "../../_auth/boot-required.js";
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
 import { cachePlanFor } from "../../../ir/plan/cache.js";
-import { foldsDedupe } from "../../../ir/plan/index.js";
 import { sourceLocaleOf, workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
 import {
   aggregatesCanTripDanglingReference,
@@ -57,6 +56,7 @@ import {
   type ElixirChannelsCfg,
   type ElixirConsumerRoute,
   emitElixirChannelFiles,
+  emitElixirInboxPurge,
   emitElixirStandaloneOutbox,
 } from "../channels-emit.js";
 import { contextHasDispatcher, emitDispatch, emitWorkflowStateSchemas } from "../dispatch-emit.js";
@@ -294,6 +294,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // knobs (the Hono/Python/.NET/Java pattern); every broker-carried event
   // routes through the `<App>.Channels` tee at the emit seams.
   const chPlan = channelPlan(contexts, sys ? { deployable, sys } : undefined);
+  // Some consumer claims in the consumer inbox (`src/ir/plan/consumer-inbox.ts`).
+  const consumerDedupes = contexts.some((c) => inboxDedupes(c, chPlan.receivesDurable));
   const channelBindings = chPlan.bindings;
   const hasChannels = channelBindings.length > 0;
   // Durable-producer split (design §5): HOSTED durable events carried by a
@@ -522,7 +524,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // Saga tables live in the context's schema (matching the migration
     // `prefix:`), so the Ecto `@schema_prefix` and the DDL agree at runtime.
     const wfSchema = sys ? resolveContextSchema(ctx, sys) : undefined;
-    emitWorkflowStateSchemas(appName, ctx, appModule, out, wfSchema, hostedDurable.size > 0);
+    emitWorkflowStateSchemas(appName, ctx, appModule, out, wfSchema, chPlan.receivesDurable);
     // Event-sourced workflows (workflow-and-applier.md A2-S5b): the per-workflow
     // fold struct + `<wf>_events` Ecto schema + fold + stream IO modules (the
     // saga analogue of the ES aggregate files above).  The dispatcher branches
@@ -548,7 +550,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       sourcemap,
       channelsCfg,
       wiredForeignChannels,
-      hostedDurable.size > 0,
+      chPlan.receivesDurable,
       cached,
     );
     // First-boot seed data (database-seeding.md, M-T6.37) — one
@@ -837,7 +839,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
         durableBroker: durableBrokerEvents.size > 0,
         carriesOrigin: deployable.auth?.required === true && !!sys.user,
         localOutbox: localOutboxBesideBroker,
-        pruneInbox: contexts.some((c) => foldsDedupe(c, true)),
+        pruneInbox: contexts.some((c) => inboxDedupes(c, true)),
+        parksEventId: durableBrokerEvents.size > 0 || consumerDedupes,
       },
     );
     for (const [path, content] of emission.files) out.set(path, content);
@@ -862,8 +865,14 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       hostedDispatchers,
       deployable.auth?.required === true && !!sys.user,
       localOutboxBesideBroker ? { emitsSchema: durableBrokerEvents.size === 0 } : undefined,
-      contexts.some((c) => foldsDedupe(c, true)),
+      contexts.some((c) => inboxDedupes(c, true)),
     );
+    for (const [path, content] of emission.files) out.set(path, content);
+    channelChildren = [...channelChildren, ...emission.children];
+  }
+  // The consumer inbox's purge where no relay runs to do it.
+  if (consumerDedupes && !chPlan.hasOutbox) {
+    const emission = emitElixirInboxPurge(appName, appModule);
     for (const [path, content] of emission.files) out.set(path, content);
     channelChildren = [...channelChildren, ...emission.children];
   }

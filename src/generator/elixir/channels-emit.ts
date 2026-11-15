@@ -673,6 +673,10 @@ export function emitElixirChannelFiles(
     localOutbox?: boolean;
     /** The folds claim events in the fold inbox (`foldsDedupe`). */
     pruneInbox?: boolean;
+    /** The consumer parks the envelope id in the process dictionary for the
+     *  dispatch it runs: a consumer claims in the inbox, or the relay sets the
+     *  same carrier.  Defaults to `durableBroker`. */
+    parksEventId?: boolean;
   } = { durableBroker: false },
 ): ElixirChannelFiles {
   // `carriesOrigin`: the deployable carries auth — envelopes and outbox rows
@@ -1243,15 +1247,12 @@ ${elixirOutboxRelayModule(
   }
 
   if (routes.length > 0) {
-    // Idempotent-consumer marker (dispatch-delivery-semantics.md §3): where this
-    // deployable hosts a durable channel's context, park the envelope id (= the
-    // producer's outbox row id) in the process dictionary before routing, so the
-    // saga handler no-ops on a redelivery of the same id (at-least-once →
-    // effectively-once).  Every consumed event overwrites it before route/1, so
-    // no stale id leaks across messages on the consumer process.  Foreign
-    // consumers (durableBroker false) keep the ack-semantics stance.
+    // The envelope id (the producer's outbox row id) rides in as the delivery
+    // id: every consumer that claims in the inbox claims it, so a redelivery
+    // applies once.  Every consumed event overwrites it before route/1, so no
+    // stale id leaks across messages on the consumer process.
     const markEvLine = (indent: number): string =>
-      opts.durableBroker
+      (opts.parksEventId ?? opts.durableBroker)
         ? `${" ".repeat(indent)}Process.put(:loom_event_id, envelope["id"])\n`
         : "";
     const consumedLog = renderPhoenixLogCall("channelConsumed", [
@@ -1866,4 +1867,58 @@ end
   }
 
   return { files, children };
+}
+
+/** `lib/<app>/inbox_purge.ex`: the consumer inbox's retention purge on a
+ *  deployable that runs no outbox relay (the relay purges the inbox beside the
+ *  outbox otherwise).  Same window and interval as the relay's purge. */
+export function emitElixirInboxPurge(appName: string, appModule: string): ElixirChannelFiles {
+  const purgeErrorLog = renderPhoenixLogCall("outboxRelayError", [
+    { name: "error", valueExpr: "inspect(error)" },
+  ]);
+  const content = `# Auto-generated.
+defmodule ${appModule}.InboxPurge do
+  @moduledoc "Purges consumer-inbox claims older than the outbox retention window."
+  use GenServer
+  require Logger
+
+  @purge_interval_ms ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000}
+  @default_retention_days ${OUTBOX_RETENTION_DEFAULT_DAYS}
+
+  def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
+
+  @impl true
+  def init(:ok) do
+    Process.send_after(self(), :purge, @purge_interval_ms)
+    {:ok, %{}}
+  end
+
+  @impl true
+  def handle_info(:purge, state) do
+    purge()
+    Process.send_after(self(), :purge, @purge_interval_ms)
+    {:noreply, state}
+  end
+
+  @doc "One purge pass: deletes the claims no redelivery can still need."
+  def purge do
+    cutoff = DateTime.add(DateTime.utc_now(), -retention_days() * 86_400, :second)
+    ${appModule}.Repo.query!(${JSON.stringify(foldInboxPurgeSql("$1"))}, [cutoff])
+  rescue
+    error ->
+      ${purgeErrorLog}
+  end
+
+  defp retention_days do
+    case Integer.parse(System.get_env(${JSON.stringify(OUTBOX_RETENTION_ENV)}) || "") do
+      {days, ""} when days > 0 -> days
+      _ -> @default_retention_days
+    end
+  end
+end
+`;
+  return {
+    files: new Map([[`lib/${appName}/inbox_purge.ex`, content]]),
+    children: [`      ${appModule}.InboxPurge`],
+  };
 }

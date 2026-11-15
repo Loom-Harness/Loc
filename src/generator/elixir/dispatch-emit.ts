@@ -9,8 +9,11 @@ import {
   foldSteps,
   foldsDedupe,
   hasStateRow,
+  inboxClaimSql,
   requiredStateFields,
   subscriptionHandler,
+  workflowClaims,
+  workflowInboxKey,
 } from "../../ir/plan/index.js";
 import type {
   ChannelIR,
@@ -546,12 +549,13 @@ function renderHandler(
     { saves: sub.saves, plan, contextModule },
   );
 
-  // Idempotent-consumer marker (dispatch-delivery-semantics.md §3): under a
-  // durable channel, the ChannelConsumer parks the envelope id (= the outbox
-  // row id) in the process dictionary; the saga handler no-ops on a redelivery
-  // of the recorded id and stamps it before the state save.
+  // A durably delivered event is claimed in the consumer inbox first, in the
+  // handler's transaction: the ChannelConsumer and the relay park the envelope
+  // id in the process dictionary, and a delivery already claimed — here or on
+  // another replica — does nothing.
+  const claims = workflowClaims(wf, durable);
   // Saga routing wrapper, indented to the `def handle` body (4 spaces).
-  const inner = persisted
+  const routed = persisted
     ? renderPersistedBody(
         appModule,
         contextModule,
@@ -559,10 +563,22 @@ function renderHandler(
         sub,
         body,
         usesThis,
-        durable,
+        claims,
         stateDefaultDecls(ctx),
       )
     : indent(body, 4).join("\n");
+  const claimSql = inboxClaimSql("$1", "$2", true);
+  const inner = claims
+    ? [
+        `    event_id = Process.get(:loom_event_id)`,
+        "",
+        `    if event_id && ${appModule}.Repo.query!(${JSON.stringify(claimSql)}, [${JSON.stringify(workflowInboxKey(wf.name))}, to_string(event_id)]).num_rows == 0 do`,
+        `      :ok`,
+        `    else`,
+        ...routed.split("\n").map((l) => (l === "" ? l : `  ${l}`)),
+        `    end`,
+      ].join("\n")
+    : routed;
 
   // Module names render fully-qualified throughout the body, so the only
   // import a handler needs is `require Logger` for the `on` drop+log path
@@ -675,9 +691,9 @@ function renderPersistedBody(
   sub: Subscription,
   bodyLines: string[],
   usesThis: boolean,
-  /** Under a durable channel the body is wrapped in the idempotent-consumer
-   *  marker (check the process-dictionary event id against the loaded row, and
-   *  stamp it after the fold) — dispatch-delivery-semantics.md §3. */
+  /** The handler claims in the consumer inbox (`event_id` is bound by the
+   *  claim): the row records the last event applied to it.  The claim, not
+   *  this column, is what dedupes. */
   durable = false,
   /** The context's declarations — a required value-object / enum state field
    *  allocates its zero (`stateDefault`), never a NOT NULL-violating `nil`. */
@@ -697,8 +713,8 @@ function renderPersistedBody(
   // A durable handler always reads/stamps the loaded row, so `state` must bind
   // even when the fold body itself never touches `this`.
   const bind = usesThis || durable ? "state" : "_state";
-  // The stamp: rewrite the (possibly body-rebound) row with the processed id,
-  // in the same Repo call window as the fold — a redelivery then no-ops above.
+  // The stamp: rewrite the (possibly body-rebound) row with the applied id, in
+  // the handler's transaction.
   const stampLines = (base: number): string[] =>
     durable
       ? [
@@ -722,18 +738,7 @@ function renderPersistedBody(
       `      end`,
       "",
     ];
-    if (!durable) return [...load, ...indent(bodyLines, 4)].join("\n");
-    return [
-      ...load,
-      `    event_id = Process.get(:loom_event_id)`,
-      "",
-      `    if event_id && state.last_event_id == event_id do`,
-      `      :ok`,
-      `    else`,
-      ...indent(bodyLines, 6),
-      ...stampLines(6),
-      `    end`,
-    ].join("\n");
+    return [...load, ...indent(bodyLines, 4), ...stampLines(4)].join("\n");
   }
   // Reactor: route to the started instance, else drop + log `event_unrouted`.
   const logCall = renderPhoenixLogCall("eventUnrouted", [
@@ -750,14 +755,8 @@ function renderPersistedBody(
       `        :ok`,
       "",
       `      state ->`,
-      `        event_id = Process.get(:loom_event_id)`,
-      "",
-      `        if event_id && state.last_event_id == event_id do`,
-      `          :ok`,
-      `        else`,
-      ...indent(bodyLines, 10),
-      ...stampLines(10),
-      `        end`,
+      ...indent(bodyLines, 8),
+      ...stampLines(8),
       `    end`,
     ].join("\n");
   }

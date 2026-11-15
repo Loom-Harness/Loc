@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mixDepsGet } from "./support/mix-retry.js";
+import { redeliveryWitness } from "./support/redelivery-witness.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT_ELIXIR === "1";
 
@@ -309,6 +310,12 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — elixir leg (M-T4.4 slice
     // the relay, never the inline tee.
     expect(salesLog).toContain("publish_from_relay");
   }, 120_000);
+
+  redeliveryWitness({
+    container: () => (dlqProbe ? "loom-channels-rbex-mq" : undefined),
+    address: ADDRESS,
+    consumer: () => `http://localhost:${REPLICA_PORTS[0]}`,
+  });
 
   it("parks a poisoned message in the DLQ instead of losing it", async () => {
     if (!dlqProbe) return; // AMQP override: no container to drive rabbitmqadmin in
