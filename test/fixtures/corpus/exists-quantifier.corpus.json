@@ -6,5 +6,20 @@
     "uncalled": {
       "canRelabelRack": "gateProbe"
     }
+  },
+  "authzGate": {
+    "create POST /api/products": "sharedPrincipalId",
+    "getById GET /api/products/{id}": "sharedPrincipalId",
+    "destroy DELETE /api/products/{id}": "sharedPrincipalId",
+    "operation POST /api/products/{id}/update": "sharedPrincipalId",
+    "find GET /api/products": "sharedPrincipalId",
+    "explicitHandler GET /api/products/shared_with/{g}": "sharedPrincipalId",
+    "create POST /api/racks": "rowDataGate",
+    "destroy DELETE /api/racks/{id}": "rowDataGate",
+    "operation POST /api/racks/{id}/relabel": "rowDataGate",
+    "gateProbe GET /api/racks/{id}/can_relabel": "rowDataGate",
+    "create POST /api/seals": "principalFreeGate",
+    "destroy DELETE /api/seals/{id}": "principalFreeGate",
+    "operation POST /api/seals/{id}/update": "principalFreeGate"
   }
 }
