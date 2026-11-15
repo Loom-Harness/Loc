@@ -35,7 +35,7 @@ const SHIPPED: Record<string, string[] | null> = {
   ContractInstanceField: ["id", "name", "optional", "type"],
   ContractParam: ["name", "type"],
   ContractProjection: ["context", "fields", "many", "name"],
-  ContractWorkflow: ["context", "instance", "name", "params", "resultSegment"],
+  ContractWorkflow: ["context", "instance", "name", "params", "requestBase", "resultSegment"],
   ContractOperation: [
     "aggregate",
     "claimedByExplicitRoute",

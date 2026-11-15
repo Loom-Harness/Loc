@@ -78,7 +78,7 @@ import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { HAND_BUILT_FORM_SENTENCES } from "../_walker/i18n-chrome.js";
 import { collectUiMessages, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { emptyWalkerModel, walkerModelOf } from "../_walker/walker-model.js";
+import { emptyWalkerModel, walkerModelOf, walkerWorkflowsFor } from "../_walker/walker-model.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import { buildAngularApiModule } from "./api-module.js";
 import { renderAngularChartRuntime } from "./chart-runtime.js";
@@ -491,6 +491,7 @@ export function generateAngularForContexts(
     if (!page.body) {
       content = renderAngularPageStub(page, pageCtx, authUi, i18nEnabled);
     } else {
+      const pageModel = walkerModelOf({ bcByAggregate, bcByWorkflow });
       const result = walkBody(
         page.body,
         // Tag-addressable = the components LOOM emitted: those carry a kebab
@@ -504,8 +505,8 @@ export function generateAngularForContexts(
         userComponentParams,
         ui?.apiParams ?? [],
         aggregatesIRByName,
-        walkerModelOf({ bcByAggregate, bcByWorkflow }),
-        workflowsByName,
+        pageModel,
+        walkerWorkflowsFor(pageModel, workflowsByName),
         new Map(),
         pageRoutes,
         externFunctionNames,

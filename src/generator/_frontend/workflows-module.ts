@@ -6,10 +6,10 @@ import {
   type WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { type FrontendRequestNames, requestNamesForContexts } from "../../ir/util/request-names.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { typeReachesMoney, zodForResponse } from "./api-module.js";
-import { type FrontendRequestNames, requestNamesForContexts } from "./request-names.js";
 import { collectUsedTypes, emitEnumSchema, emitValueObjectSchema } from "./zod-schemas.js";
 
 // ---------------------------------------------------------------------------

@@ -35,7 +35,7 @@ export function buildWorkflowsApiModule(
 ): string {
   // Identifier bases minted against the deployable's whole universe so a
   // workflow's request schema cannot alias an aggregate's create/operation one
-  // (`_frontend/request-names.ts`).
+  // (`ir/util/request-names.ts`).
   const { names } = scope;
   // Observable workflows (a persisted correlation-state row) get read-only
   // instance query hooks (workflow-instance-visibility.md) — `useQuery` is

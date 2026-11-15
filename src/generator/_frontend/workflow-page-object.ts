@@ -3,9 +3,9 @@
 // from src/generator/react/workflow-builder.ts.
 
 import type { BoundedContextIR, WorkflowIR } from "../../ir/types/loom-ir.js";
+import type { FrontendRequestNames } from "../../ir/util/request-names.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { fillBlock, type SelectStyle } from "./page-objects-builder.js";
-import type { FrontendRequestNames } from "./request-names.js";
 
 export function buildWorkflowPageObject(
   wf: WorkflowIR,

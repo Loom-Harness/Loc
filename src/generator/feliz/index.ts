@@ -76,7 +76,12 @@ import {
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { PagedQueryContext } from "../_walker/paged-query.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { bcByAggregateOf, emptyWalkerModel, walkerModelOf } from "../_walker/walker-model.js";
+import {
+  bcByAggregateOf,
+  emptyWalkerModel,
+  walkerModelOf,
+  walkerWorkflowsFor,
+} from "../_walker/walker-model.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import {
   AUTH_MODULE_CLAIMS,
@@ -555,6 +560,7 @@ function renderPageView(
   );
   // The title statement follows the `derived` lets it may read.
   const titleStmt = titleLine ? `${titleLine}\n` : "";
+  const pageModel = walkerModelOf({ bcByAggregate, bcByWorkflow });
   const result = walkBody(
     page.body,
     felizTarget,
@@ -566,8 +572,8 @@ function renderPageView(
     externComponents, // userComponents (extern only)
     ui.apiParams,
     aggregatesByName,
-    walkerModelOf({ bcByAggregate, bcByWorkflow }),
-    workflowsByName, // WorkflowForm(runs:) resolves here
+    pageModel,
+    walkerWorkflowsFor(pageModel, workflowsByName), // WorkflowForm(runs:) resolves here
     new Map(), // paramTypes
     new Map(), // pageRoutes
     externFunctionNames, // extern frontend function names

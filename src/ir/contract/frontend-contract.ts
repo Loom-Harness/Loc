@@ -58,6 +58,7 @@ import { classifyForWire } from "../util/invariant-classify.js";
 import { maskedPatchParams } from "../util/op-gates.js";
 import { pagedFindRoutes } from "../util/paged-find-routes.js";
 import { isFrontendReadableProjection, projectionReadShape } from "../util/projection-read.js";
+import { requestNamesForContexts } from "../util/request-names.js";
 import { aggregateIsVersioned } from "../util/versioned-capability.js";
 import { emitsCommandRoute, workflowResultSegment } from "../util/workflow-command-route.js";
 import { drop, keep, list, type Rule, record } from "./allowlist.js";
@@ -149,6 +150,11 @@ export interface ContractWorkflow {
   /** The route segment of the aggregate a successful start created, when the
    *  start route answers with its id. */
   resultSegment?: string;
+  /** The identifier base of its client surface (`<base>Request`,
+   *  `use<base>Workflow`), on a workflow a command starts: its name, unless an
+   *  aggregate's create or operation request already spells that
+   *  (`frontendRequestNames`). */
+  requestBase?: string;
   /** The instance row of an observable workflow
    *  (`GET /workflows/<wf>/instances`). */
   instance?: ContractInstanceField[];
@@ -313,6 +319,7 @@ const workflowRule = record<ContractWorkflow>("ContractWorkflow", {
   context: keep,
   params: list(paramRule),
   resultSegment: keep,
+  requestBase: keep,
   instance: list(
     record<ContractInstanceField>("ContractInstanceField", {
       name: keep,
@@ -472,6 +479,7 @@ export function buildFrontendContract(
 
   const workflows: ContractWorkflow[] = [];
   const projections: ContractProjection[] = [];
+  const requestNames = requestNamesForContexts(contexts);
   for (const ctx of contexts) {
     for (const wf of ctx.workflows) {
       const command = emitsCommandRoute(wf);
@@ -485,6 +493,7 @@ export function buildFrontendContract(
             context: ctx.name,
             ...(command ? { params: wf.params.map((p) => ({ name: p.name, type: p.type })) } : {}),
             ...(resultSegment !== undefined ? { resultSegment } : {}),
+            ...(command ? { requestBase: requestNames.workflow(wf.name) } : {}),
             ...(wf.instanceWireShape
               ? {
                   instance: wf.instanceWireShape.map((f) => ({

@@ -37,7 +37,7 @@ import { emitActionThen } from "../_walker/primitives/controls.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import { emitExpr, type WalkContext, walk } from "../_walker/walker-core.js";
-import { contextOfHome, type WalkerHome } from "../_walker/walker-model.js";
+import { contextOfHome, contextOfOptionalHome, type WalkerHome } from "../_walker/walker-model.js";
 import { opActionGate } from "./auth-gate.js";
 import { FELIZ_GRID_ROW_VAR, renderFelizDataGridChild } from "./data-grid-child.js";
 import {
@@ -1042,7 +1042,14 @@ export const felizTarget: WalkerTarget = {
     const names = call.argNames ?? [];
     const runsArg = names.indexOf("runs") >= 0 ? call.args[names.indexOf("runs")] : undefined;
     const wfName = runsArg?.kind === "ref" ? runsArg.name : undefined;
-    const wf = wfName ? ctx.workflowsByName.get(wfName) : undefined;
+    // Feliz renders its form from the declared workflow, read off the enriched
+    // context its model was built from.
+    const wf =
+      wfName && ctx.workflowsByName.has(wfName)
+        ? contextOfOptionalHome(ctx.model.homeOfWorkflow(wfName))?.workflows.find(
+            (w) => w.name === wfName,
+          )
+        : undefined;
     if (!wf || !wfName) return null;
     const form = felizWorkflowForm(
       wf,

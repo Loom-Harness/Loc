@@ -31,10 +31,8 @@ import {
 import { optionalGroupRendererFor } from "../../_frontend/form-optional-group.js";
 import { rowBinderFor } from "../../_frontend/form-row-binding.js";
 import { operationFormSpec } from "../../_frontend/form-spec.js";
-import { frontendRequestNames } from "../../_frontend/request-names.js";
 import { serverSourcedDefaultFields } from "../../_frontend/server-default.js";
 import type { FormFieldVM } from "../../_frontend/view-models.js";
-import { workflowResultSegment } from "../../_frontend/workflow-result.js";
 import { FIELD_ERROR_TEXT, prepareFormFieldVM } from "../form-fields-vm.js";
 import { GIVE_UP_SENTINEL, giveUp } from "../give-up.js";
 import { opDialogChrome, sentenceChromeName } from "../i18n-chrome.js";
@@ -251,7 +249,7 @@ export function emitWorkflowForm(
   // form to submit to and no `use<Wf>Workflow` call helper to bind — give up
   // honestly, on every walker target, before a target fork could wire one.
   const runsWf = runsArg?.kind === "ref" ? ctx.workflowsByName.get(runsArg.name) : undefined;
-  if (runsWf && !emitsCommandRoute(runsWf)) {
+  if (runsWf && !runsWf.startable) {
     return giveUp(
       ctx.target,
       "loom.page-ref-unreachable",
@@ -828,7 +826,7 @@ function emitFormRuns(
       `WorkflowForm(runs: ${wfName}): workflow not found in this UI's reachable contexts`,
     );
   }
-  const fields = workflow.params;
+  const fields = [...workflow.params];
   // form-helpers expect `{ name, type, optional }` rows; workflow
   // params don't carry an `optional` flag so we adapt here.  All
   // workflow params are treated as required (matches the scaffold
@@ -846,13 +844,11 @@ function emitFormRuns(
     () => workflow.name,
   );
   // Identifier base for the workflow's whole frontend surface, minted against
-  // the SAME universe the api-module emitter resolves against (the deployable's
+  // the SAME universe the api-module emitter resolves against (the frontend's
   // aggregates + workflows), so the import names the symbol `api/workflows.ts`
-  // really exported — see `_frontend/request-names.ts`.
-  const wfPascalForImport = frontendRequestNames(
-    ctx.aggregatesByName.values(),
-    ctx.workflowsByName.values(),
-  ).workflow(workflow.name);
+  // really exported — see `ir/util/request-names.ts`.  One no command starts
+  // claims no base, so it keeps its own name.
+  const wfPascalForImport = workflow.requestBase ?? upperFirst(workflow.name);
   addImport(
     ctx,
     "../api/workflows",
@@ -861,7 +857,7 @@ function emitFormRuns(
   );
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
   const onSubmitJs = emitFormOnSubmit(ctx, call, prepared.idTargets, "run");
-  const resultSegment = workflowResultSegment(workflow);
+  const resultSegment = workflow.resultSegment;
   const wfFormStateType = formStateTypeFor(wfPascalForImport, fields, home);
   if (wfFormStateType) addTypeImport(ctx, "../api/workflows", wfFormStateType);
   ctx.formOfs.push({

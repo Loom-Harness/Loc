@@ -146,7 +146,7 @@ export function buildAngularWorkflowsModule(
 ): string {
   // Identifier bases for the command surface, minted against the deployable's
   // whole universe so a workflow's request interface cannot alias an
-  // aggregate's create/operation one (`_frontend/request-names.ts`).
+  // aggregate's create/operation one (`ir/util/request-names.ts`).
   const { names } = scope;
   const anyInstances = workflows.some((wf) => wf.instance);
   // Only a command-startable workflow gets a request interface, a service POST

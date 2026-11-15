@@ -277,6 +277,9 @@ export function surfaceViolations(
       if (!surface.has(f.name as string))
         out.push(`wire.workflows.${w.name}: field '${f.name}' is not on the wire`);
     }
+    // A client request surface exists only where a command starts the workflow.
+    if (w.requestBase !== undefined && w.params === undefined)
+      out.push(`wire.workflows.${w.name}: a request base on a workflow no command starts`);
   }
   against(wire.projections, "projections", s.projections);
   for (const a of (wire.aggregates as Json[]) ?? []) {

@@ -95,7 +95,12 @@ import { WALKER_PRIMITIVES } from "./registry.js";
 import { wirePackChromeImport } from "./render-primitive.js";
 import { describeReceiver, positionalArgs } from "./shared/args.js";
 import type { ChildSlot, DataBinding, RenderPosition, WalkerTarget, WalkScope } from "./target.js";
-import { emptyWalkerModel, type WalkerHome, type WalkerModel } from "./walker-model.js";
+import {
+  emptyWalkerModel,
+  type WalkerHome,
+  type WalkerModel,
+  type WalkerWorkflow,
+} from "./walker-model.js";
 
 export {
   type ActionMutationState,
@@ -447,7 +452,7 @@ export function walkBody(
   /** Workflows reachable from this UI's deployable.
    *  `WorkflowForm(runs: <wf>)` looks up the workflow's IR here (param
    *  list for form dispatch, owning BC for enum resolution). */
-  workflowsByName: ReadonlyMap<string, WorkflowIR> = new Map(),
+  workflowsByName: ReadonlyMap<string, WalkerWorkflow> = new Map(),
   /** In-scope instance variable → aggregate name (current body's
    *  aggregate-typed params), powering `Action(<instance>.<op>)`. */
   paramTypes: ReadonlyMap<string, string> = new Map(),
@@ -674,7 +679,7 @@ export interface WalkEnv {
   model: WalkerModel;
   /** Workflows reachable from this UI's deployable.
    *  Powers `WorkflowForm(runs: <wf>)` field dispatch. */
-  workflowsByName: ReadonlyMap<string, WorkflowIR>;
+  workflowsByName: ReadonlyMap<string, WalkerWorkflow>;
   /** Frontend-readable projection names — the detector's Pattern H set
    *  (`<apiHandle>.<Projection>`).  DERIVED from the served contexts rather
    *  than threaded through `walkBody`'s parameter list, since it is a pure
@@ -893,17 +898,17 @@ export interface AggregateFormState extends FormStateBase {
 
 export interface WorkflowFormState extends FormStateBase {
   kind: "workflow";
-  workflow: WorkflowIR;
+  workflow: WalkerWorkflow;
   /** Identifier base for this workflow's frontend surface — `<base>Request`,
    *  `<base>FormState`, `use<base>Workflow`.  Minted by the walker against the
-   *  deployable's whole universe (`_frontend/request-names.ts`) and carried
+   *  deployable's whole universe (`ir/util/request-names.ts`) and carried
    *  here, so the shells that render the form declare the SAME name the api
    *  module exported.  Equals `upperFirst(workflow.name)` unless an aggregate's
    *  create/operation request already spells that. */
   requestBase: string;
   /** Workflow params — all required (no optional filter; workflows
    *  don't have an "optional" notion the way aggregate fields do). */
-  fields: WorkflowIR["params"];
+  fields: WalkerWorkflow["params"];
 }
 
 /** `OperationForm(<instance>.<operation>)` — an aggregate-operation

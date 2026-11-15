@@ -39,6 +39,7 @@ import {
   pageConstructId,
   pageEmitName,
 } from "../../ir/util/page-kind.js";
+import { requestNamesForContexts } from "../../ir/util/request-names.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, plural, snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
@@ -52,7 +53,6 @@ import { renderGateExpr } from "../_frontend/gate-expr.js";
 import type { NavEntryVM, NavSectionVM } from "../_frontend/menu-emitter.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { buildPageObjectModule } from "../_frontend/page-objects-builder.js";
-import { requestNamesForContexts } from "../_frontend/request-names.js";
 import { buildWalkerPageObject } from "../_frontend/walker-page-objects.js";
 import { buildWorkflowPageObject } from "../_frontend/workflow-page-object.js";
 import type { LoadedPack } from "../_packs/loader.js";

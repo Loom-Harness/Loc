@@ -34,7 +34,8 @@ import {
   type ScopeValueObject,
   type TypeScope,
 } from "../../ir/util/reachable-types.js";
-import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
+import { requestNamesForContexts } from "../../ir/util/request-names.js";
+import { emitsCommandRoute, workflowResultSegment } from "../../ir/util/workflow-command-route.js";
 import { type FormSpecEnv, formSpecEnvOf } from "../_frontend/form-spec.js";
 
 /** One bounded context as the walker sees it: its name (the `<Ctx>` segment of
@@ -67,6 +68,32 @@ export interface WalkerWorkflow {
   readonly name: string;
   readonly params: readonly { readonly name: string; readonly type: TypeIR }[];
   readonly startable: boolean;
+  /** On a startable workflow: the route segment of the aggregate a successful
+   *  start created, when the start route answers with its id. */
+  readonly resultSegment?: string;
+  /** On a startable workflow: the identifier base of its client surface
+   *  (`<base>Request`, `use<base>Workflow`), minted against every aggregate
+   *  request the frontend's contexts export (`ir/util/request-names.ts`). */
+  readonly requestBase?: string;
+}
+
+/** The workflows of `model` a walk may run, restricted to `names` (a page walk
+ *  runs any; a component, action or store walk none). */
+export function walkerWorkflowsFor(
+  model: WalkerModel,
+  names: { keys(): Iterable<string> },
+): ReadonlyMap<string, WalkerWorkflow> {
+  const out = new Map<string, WalkerWorkflow>();
+  for (const name of names.keys()) {
+    const hit = model.workflows.get(name);
+    if (hit) out.set(name, hit.wf);
+  }
+  return out;
+}
+
+/** The workflows a walk may run, keyed by name: every one of `model`'s. */
+export function walkerWorkflowsOf(model: WalkerModel): ReadonlyMap<string, WalkerWorkflow> {
+  return new Map([...model.workflows].map(([name, { wf }]) => [name, wf] as const));
 }
 
 /** A repository find, as a page body calls it. */
@@ -137,6 +164,7 @@ function buildModel(opts: {
   ];
   const aggregates = new Map<string, { agg: WalkerAggregate; home: WalkerHome }>();
   const workflows = new Map<string, { wf: WalkerWorkflow; home: WalkerHome }>();
+  const requestNames = requestNamesForContexts(contexts);
   for (const bc of contexts) {
     for (const agg of bc.aggregates) aggregates.set(agg.name, { agg, home: bc });
     for (const wf of bc.workflows) {
@@ -147,6 +175,12 @@ function buildModel(opts: {
           // one has no start params to render.
           params: emitsCommandRoute(wf) ? wf.params : [],
           startable: emitsCommandRoute(wf),
+          ...(emitsCommandRoute(wf)
+            ? {
+                ...optionalSegment(workflowResultSegment(wf)),
+                requestBase: requestNames.workflow(wf.name),
+              }
+            : {}),
         },
         home: bc,
       });
@@ -300,7 +334,13 @@ export function walkerModelOfContract(
     const home = homeByName.get(wf.context);
     if (!home) continue;
     workflows.set(wf.name, {
-      wf: { name: wf.name, params: wf.params ?? [], startable: wf.params !== undefined },
+      wf: {
+        name: wf.name,
+        params: wf.params ?? [],
+        startable: wf.params !== undefined,
+        ...optionalSegment(wf.resultSegment),
+        ...(wf.requestBase !== undefined ? { requestBase: wf.requestBase } : {}),
+      },
       home,
     });
   }
@@ -374,3 +414,6 @@ function asField(f: ContractField): FieldIR {
     ...(f.default !== undefined ? { default: f.default } : {}),
   } as FieldIR;
 }
+
+const optionalSegment = (resultSegment: string | undefined) =>
+  resultSegment !== undefined ? { resultSegment } : {};

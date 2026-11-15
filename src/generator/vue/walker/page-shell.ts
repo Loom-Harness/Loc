@@ -514,7 +514,7 @@ export function renderVuePage(input: VuePageShellInput): string {
   // to /workflows.  Mutually exclusive with an aggregate form on the
   // same page in practice (one `form` instance per page).
   if (wfFormState && wfFormState.kind === "workflow") {
-    // Universe-resolved identifier base (`_frontend/request-names.ts`), not a
+    // Universe-resolved identifier base (`ir/util/request-names.ts`), not a
     // re-derivation from the workflow's name — it must match what
     // `api/workflows.ts` exported.
     const wf = wfFormState.requestBase;
@@ -1383,7 +1383,7 @@ export function renderVueComponentFile(
     apiImports.set(from, names);
   }
   if (wfFormState && wfFormState.kind === "workflow") {
-    // Universe-resolved identifier base (`_frontend/request-names.ts`), not a
+    // Universe-resolved identifier base (`ir/util/request-names.ts`), not a
     // re-derivation from the workflow's name — it must match what
     // `api/workflows.ts` exported.
     const wf = wfFormState.requestBase;

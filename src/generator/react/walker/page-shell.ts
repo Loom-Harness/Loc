@@ -16,7 +16,6 @@ import type {
   TypeIR,
   UiApiParamIR,
   ValueObjectIR,
-  WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { typeUsesMoney } from "../../../ir/types/loom-ir.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
@@ -50,7 +49,11 @@ import {
 } from "../../_walker/render-primitive.js";
 import { collectStoreReads } from "../../_walker/shared/store-reads.js";
 import { renderActionHandlers, renderActionMutationArg } from "../../_walker/walker-core.js";
-import { emptyWalkerModel, type WalkerModel } from "../../_walker/walker-model.js";
+import {
+  emptyWalkerModel,
+  type WalkerModel,
+  type WalkerWorkflow,
+} from "../../_walker/walker-model.js";
 import type {
   ActionMutationState,
   FormOfState,
@@ -151,7 +154,7 @@ export function renderCustomLayoutPage(
   srcImportPrefix: string = "../",
   /** Workflows reachable from this UI's deployable.
    *  Required for `WorkflowForm(runs: <wf>)` field dispatch. */
-  workflowsByName: ReadonlyMap<string, WorkflowIR> = new Map(),
+  workflowsByName: ReadonlyMap<string, WalkerWorkflow> = new Map(),
   /** Page name → route path, for `Action`'s `then: navigate(<Page>)`. */
   pageRoutes: ReadonlyMap<string, string> = new Map(),
   /** Extern frontend functions declared on this ui — body calls
@@ -907,7 +910,7 @@ function renderFormRunsWiring(
 ): FormWiring {
   const { workflow, idTargets, useController, defaultValuesTs, onSubmitJs, fieldArrays } = state;
   // The walker already resolved this workflow's identifier base against the
-  // deployable's universe (`_frontend/request-names.ts`); reading it back is
+  // deployable's universe (`ir/util/request-names.ts`); reading it back is
   // what keeps `<base>Request` / `use<base>Workflow` here identical to what
   // `api/workflows.ts` exported.
   const wfPascal = state.requestBase;

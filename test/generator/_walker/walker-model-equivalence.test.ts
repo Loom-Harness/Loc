@@ -148,6 +148,8 @@ function serialize(
         workflowHome: model.homeOfWorkflow(name)?.name ?? null,
         startable: wf.startable,
         params: wf.params.map((x) => ({ name: x.name, type: x.type })),
+        resultSegment: wf.resultSegment ?? null,
+        requestBase: wf.requestBase ?? null,
       }))
       .sort((a, b) => a.name.localeCompare(b.name)),
     readable: [...model.readableProjectionSet].sort(),

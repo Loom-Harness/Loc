@@ -78,8 +78,10 @@ describe("Frontend Contract surface gate", () => {
       en.context = "Elsewhere";
       order.createRequest = "GhostCommand";
       wire(c).records!.find((x) => x.context !== undefined)!.context = "Elsewhere";
+      delete wire(c).workflows!.find((w) => w.name === "placeOrder")!.params;
     });
     expect(v).toEqual([
+      "wire.workflows.placeOrder: a request base on a workflow no command starts",
       "wire.aggregates.Order: create request 'GhostCommand' is not a declared record",
       "wire.aggregates.Order: part 'GhostLine' is not one of its parts",
       "wire.valueObjects.Money: context 'Elsewhere' does not declare it",

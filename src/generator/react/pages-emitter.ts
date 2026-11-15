@@ -37,17 +37,17 @@ import {
   pageConstructId,
   pageEmitName,
 } from "../../ir/util/page-kind.js";
+import { requestNamesForContexts } from "../../ir/util/request-names.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { lowerFirst, snake } from "../../util/naming.js";
 import type { FrontendAggregateResolver } from "../_frontend/aggregate-model.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import { pageEmitPath, pageFileBase, pageModuleSpecifier } from "../_frontend/page-identity.js";
-import { requestNamesForContexts } from "../_frontend/request-names.js";
 import { buildWorkflowPageObject } from "../_frontend/workflows-module.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { componentKeyPrefix, pageKeyPrefix } from "../_walker/i18n-extract.js";
-import type { WalkerModel } from "../_walker/walker-model.js";
+import { type WalkerModel, walkerWorkflowsOf } from "../_walker/walker-model.js";
 import { isWalkableLayoutBody, walkBodyToTsx } from "./body-walker.js";
 import {
   buildExternFunctionShim,
@@ -149,18 +149,6 @@ function buildBcByAggregate(ctx: PageEmitContext): Map<string, BoundedContextIR>
   const out = new Map<string, BoundedContextIR>();
   for (const bc of ctx.contextsByName.values()) {
     for (const agg of bc.aggregates) out.set(agg.name, bc);
-  }
-  return out;
-}
-
-/** Derived map: workflow name → workflow IR.  Powers
- *  `WorkflowForm(runs: <wf>)` field dispatch in the walker. */
-function buildWorkflowsByName(
-  ctx: PageEmitContext,
-): Map<string, import("../../ir/types/loom-ir.js").WorkflowIR> {
-  const out = new Map<string, import("../../ir/types/loom-ir.js").WorkflowIR>();
-  for (const bc of ctx.contextsByName.values()) {
-    for (const wf of bc.workflows) out.set(wf.name, wf);
   }
   return out;
 }
@@ -364,7 +352,7 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
         ctx.aggregatesByName,
         walkerModel,
         srcImportPrefix,
-        buildWorkflowsByName(ctx),
+        walkerWorkflowsOf(ctx.walkerModel),
         pageRoutes,
         externFunctionNames,
         page.derived,

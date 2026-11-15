@@ -87,7 +87,7 @@ import {
   pageKeyPrefix,
 } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { walkerModelOfContract } from "../_walker/walker-model.js";
+import { walkerModelOfContract, walkerWorkflowsOf } from "../_walker/walker-model.js";
 // Framework-neutral pieces that live react-side today (same sharing
 // pattern as the elixir theme-emit): the e2e harness constants, the
 // page-object emitters (testid/DOM-only — `@loom/ui-test-driver`
@@ -439,7 +439,7 @@ export function generateVueForContexts(
       ui.apiParams,
       aggregatesIRByName,
       walkerModel,
-      workflowsByName,
+      walkerWorkflowsOf(walkerModel),
       new Map(),
       pageRoutes,
       externFunctionNames,
