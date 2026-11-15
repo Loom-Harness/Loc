@@ -10,6 +10,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { expectEmitted } from "../../_helpers/emitted.js";
 import { generateBackendFromFile } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -159,8 +160,10 @@ describe("idempotent-consumer markers — .NET", () => {
     const relay = files.get("Infrastructure/Events/OutboxRelayService.cs") ?? "";
     expect(relay).toContain("OutboxDelivery.CurrentEventId = row.Id.ToString();");
     expect(relay).toContain("OutboxDelivery.CurrentEventId = null;");
-    const handler =
-      files.get("Application/Workflows/OrderFulfillmentOnShipmentRequestedHandler.cs") ?? "";
+    const handler = expectEmitted(
+      files,
+      "Application/Workflows/OrderFulfillmentOnShipmentRequestedHandler.cs",
+    );
     expect(handler).not.toContain("LastEventId");
   });
 
