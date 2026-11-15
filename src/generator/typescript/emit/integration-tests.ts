@@ -25,7 +25,6 @@ import type {
   AggregateIR,
   BoundedContextIR,
   ExprIR,
-  FieldIR,
   FindIR,
   TestIR,
   TestPrincipalIR,

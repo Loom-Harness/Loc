@@ -32,7 +32,6 @@ import type {
   BoundedContextIR,
   EnumIR,
   ExprIR,
-  FieldIR,
   TestIR,
   TestPrincipalIR,
   TestStmtIR,

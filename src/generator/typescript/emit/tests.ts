@@ -12,7 +12,6 @@ import type {
   ContainmentIR,
   DomainServiceIR,
   ExprIR,
-  FieldIR,
   TestIR,
   TestStmtIR,
   TypeIR,

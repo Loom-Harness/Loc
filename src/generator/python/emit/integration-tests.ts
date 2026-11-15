@@ -18,16 +18,11 @@
 // repository find must be LET-BOUND, not written inline inside `expect(...)`.
 
 import { integrationIsolation } from "../../../ir/plan/test-isolation.js";
-import {
-  type TestPrincipalShape,
-  testPrincipal,
-  testPrincipalShape,
-} from "../../../ir/plan/test-principal.js";
+import { type TestPrincipalShape, testPrincipal } from "../../../ir/plan/test-principal.js";
 import type {
   AggregateIR,
   BoundedContextIR,
   ExprIR,
-  FieldIR,
   FindIR,
   TestIR,
   TestPrincipalIR,
