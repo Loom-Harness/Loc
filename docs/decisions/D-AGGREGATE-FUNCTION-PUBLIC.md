@@ -14,3 +14,5 @@ function would force callers to duplicate the predicate or to wrap it in an
 `operation`, which is a mutating member with its own gates. A pure query on an
 already-loaded aggregate leaks no state the caller could not read, so the
 public form costs nothing and matches what the emitters already do.
+
+**Enforced by:** `test/generator/aggregate-function-visibility.test.ts`

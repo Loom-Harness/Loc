@@ -1,3 +1,4 @@
+// Gate for D-LONG-AVG-DEFAULTS (docs/decisions).
 // `loom.integer-literal-imprecise` — the compile-time half of the `long`
 // safe-integer ceiling (M-T5.23 / `D-LONG-AVG-DEFAULTS`).
 //

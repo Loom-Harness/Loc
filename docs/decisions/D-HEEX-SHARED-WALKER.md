@@ -47,3 +47,5 @@ byte-identical at every step.
   walker or the HEEx target.
 - `heex-coverage.test.ts`, the walker-core framework census, and the
   D-LIVEVIEW-REFERENCE legs.
+
+**Enforced by:** `test/generator/elixir/heex-coverage.test.ts`, `test/system/walker-core-framework-census.test.ts`

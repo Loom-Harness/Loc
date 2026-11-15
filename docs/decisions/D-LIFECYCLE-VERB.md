@@ -13,3 +13,5 @@ conventional REST that hand-written clients already understand.
 
 **Affects.** `lifecycle-operations.md`; the per-backend route emitters
 (slug derivation reads `urlStyle`).
+
+**Enforced by:** `test/ir/lifecycle-url-style.test.ts`

@@ -1,3 +1,4 @@
+// Gate for D-MESSAGELESS-RULE-WIRE-MESSAGE (docs/decisions).
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 

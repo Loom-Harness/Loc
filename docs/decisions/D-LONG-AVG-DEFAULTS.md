@@ -69,3 +69,5 @@ or a uniform ingress narrowing.
 M-T5.24; [`numeric-types-audit-2026-08-23.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md)
 F13, F14; RS-12; `src/ir/lower/lower-projection.ts`,
 `src/ir/util/projection-aggregate.ts`, `src/generator/typescript/emit/schema.ts`.
+
+**Enforced by:** `test/ir/projection-aggregate-declared-type.test.ts`, `test/language/integer-literal-precision.test.ts`, `test/fixtures/corpus/projection-aggregation.ddd`

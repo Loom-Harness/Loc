@@ -50,3 +50,5 @@ against the real model here.
 **Affects.** `lifecycle-operations.md` Phase 2 + integration-seams
 sections (superseded by `lifecycle-url-style.md`); `ApiIR.urlStyle`,
 `OperationIR.routeSlug`; the enrichment pass; depends on D-LIFECYCLE-VERB.
+
+**Enforced by:** `test/ir/lifecycle-url-style.test.ts`

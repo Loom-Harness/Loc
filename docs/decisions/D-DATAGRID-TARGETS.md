@@ -91,3 +91,5 @@ it a candidate for `Table`, not an argument for a partial `DataGrid`.
 `util/flutter-deferred-primitives.ts`; `generator/feliz/data-grid-child.ts`;
 [`page-metamodel.md` §9.1](../page-metamodel.md); `[new-plan/T1-ui-frontend.md](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T1-ui-frontend.md)`
 M-T1.1.
+
+**Enforced by:** `test/ir/datagrid-unsupported-target.test.ts`

@@ -17,3 +17,5 @@ envelope level. A uniform `{ ok, value | error }` envelope is rejected
 D17, D18), `pagination-design-note.md` (`Paged<T>`/`unpaged`),
 `workflow-and-applier.md` (event-frame); every backend's DTO/route
 emitter; the `conformance-parity.yml` OpenAPI gate.
+
+**Enforced by:** none, tracked by #6013 — no census asserts every response is one of the four shapes; only per-route problem-details parity exists

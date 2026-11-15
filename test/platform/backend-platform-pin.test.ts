@@ -1,3 +1,4 @@
+// Gate for D-NODE-PLATFORM, D-PHOENIX-SURFACE (docs/decisions).
 import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";

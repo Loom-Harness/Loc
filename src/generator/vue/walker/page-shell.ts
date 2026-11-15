@@ -52,7 +52,7 @@ import {
   type WalkResult,
   walkBody,
 } from "../../_walker/walker-core.js";
-import { walkerModelOf } from "../../_walker/walker-model.js";
+import { emptyWalkerModel, type WalkerModel } from "../../_walker/walker-model.js";
 import { idTargetHookVar } from "../../react/form-helpers.js";
 import { vueTarget } from "./vue-target.js";
 
@@ -91,7 +91,7 @@ function initCtx(pack: LoadedPack): WalkContext {
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),
-    model: walkerModelOf({}),
+    model: emptyWalkerModel(),
     workflowsByName: new Map(),
     formOfs: [],
     actionMutations: [],
@@ -230,9 +230,9 @@ export interface VuePageShellInput {
    *  aggregate is looked up here (its `operation` params build the request
    *  payload; its `or`-union response type names the discriminated DTO). */
   aggregatesByName?: ReadonlyMap<string, AggregateIR>;
-  /** Bounded-context map keyed by aggregate name — classifies the awaited
-   *  union's error variant (via the owning context's `error` payloads). */
-  bcByAggregate?: ReadonlyMap<string, BoundedContextIR>;
+  /** The domain facts the action walk reads — classifies the awaited union's
+   *  error variant (via the owning context's `error` payloads). */
+  model?: WalkerModel;
   /** Page name -> route.  The BODY walk already receives this; the action walk
    *  did not, so a `navigate(<Page>)` in an action body resolved the fallback
    *  `/<snake(page)>` rather than the destination's declared `route:`. */
@@ -361,7 +361,7 @@ export function renderVuePage(input: VuePageShellInput): string {
       // `result.dataBindings`, drained by the hoist loop below).
       apiParamNames: new Map((input.apiParams ?? []).map((p) => [p.name, p.apiName])),
       aggregatesByName: input.aggregatesByName,
-      bcByAggregate: input.bcByAggregate,
+      model: input.model,
       dataBindings: result.dataBindings,
       pageRoutes: input.pageRoutes,
     },
@@ -1148,6 +1148,8 @@ export function renderVueComponentFile(
   apiParams: ReadonlyArray<UiApiParamIR> = [],
   aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
   bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
+  /** The domain facts the body walk reads. */
+  model: WalkerModel = emptyWalkerModel(),
   pageRoutes: ReadonlyMap<string, string> = new Map(),
   externFunctions: ReadonlySet<string> = new Set(),
   externComponents: ReadonlySet<string> = new Set(),
@@ -1185,7 +1187,7 @@ export function renderVueComponentFile(
     userComponents,
     apiParams,
     aggregatesByName,
-    walkerModelOf({ bcByAggregate }),
+    model,
     new Map(),
     paramTypes,
     pageRoutes,
@@ -1704,7 +1706,7 @@ function buildDerivedLines(
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName: new Map(),
-      model: walkerModelOf({}),
+      model: emptyWalkerModel(),
       workflowsByName: new Map(),
       formOfs: [],
       actionMutations: [],
@@ -1763,7 +1765,7 @@ interface ActionWalkCtx {
   dataBindings?: Map<string, DataBinding>;
   imports?: Map<string, Set<string>>;
   aggregatesByName?: ReadonlyMap<string, AggregateIR>;
-  bcByAggregate?: ReadonlyMap<string, BoundedContextIR>;
+  model?: WalkerModel;
   /** Page name -> route, so a `navigate(<Page>)` in an action body resolves the
    *  destination's declared `route:` instead of falling back to
    *  `/<snake(page)>` (docs/actions.md - the documented home for navigation). */
@@ -1824,7 +1826,7 @@ function buildActionLines(
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName: ctxOpts.aggregatesByName ?? new Map(),
-      model: walkerModelOf({ bcByAggregate: ctxOpts.bcByAggregate ?? new Map() }),
+      model: ctxOpts.model ?? emptyWalkerModel(),
       workflowsByName: new Map(),
       formOfs: [],
       actionMutations: [],

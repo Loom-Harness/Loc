@@ -1,3 +1,4 @@
+// Gate for D-REALIZATION-AXES (docs/decisions).
 // D-REALIZATION-AXES Phase 4 — the codegen-consumption keystone.
 //
 // Proves the per-deployable `application:` (→ style) and
