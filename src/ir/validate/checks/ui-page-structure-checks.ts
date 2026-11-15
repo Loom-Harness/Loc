@@ -13,7 +13,6 @@ import {
   WALKER_READ_PRIMITIVES,
   WALKER_SUB_PRIMITIVE_PARENTS,
 } from "../../../util/walker-primitive-names.js";
-import { emitsRestCreate } from "../../enrich/wire-projection.js";
 import type {
   ActionIR,
   AggregateIR,
@@ -24,7 +23,7 @@ import type {
   StmtIR,
   TypeIR,
 } from "../../types/loom-ir.js";
-import { canonicalDestroy } from "../../util/canonical-lifecycle.js";
+import { canonicalDestroy, emitsRestCreate } from "../../util/canonical-lifecycle.js";
 import { readableOperations, resolveAggregateRead } from "../../util/page-read.js";
 import type { PagedFindRoutes } from "../../util/paged-find-routes.js";
 import { typeLabel } from "../../util/type-label.js";
