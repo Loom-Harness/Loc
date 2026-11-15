@@ -11,11 +11,15 @@ import {
   foldRowSeeds,
   foldSteps,
   foldsDedupe,
+  inboxClaimSql,
+  inboxDedupes,
   liveLetNames,
   reposNeeded,
   requiredStateFields,
   stateZero,
   subscriptionHandler,
+  workflowClaims,
+  workflowInboxKey,
 } from "../../ir/plan/index.js";
 import type {
   AggregateIR,
@@ -192,6 +196,10 @@ export function buildPyDispatchFile(
    *  relay and the redelivery dedupe exist only with it.  Absent (a
    *  single-context emit) → every hosted durable event has the tier. */
   outboxTier = true,
+  /** The deployable delivers durably (`channelPlan(...).receivesDurable`):
+   *  its folds and state-based workflow handlers claim in the consumer inbox.
+   *  Absent → the context hosts a durable channel with an outbox tier. */
+  receivesDurable?: boolean,
 ): string | null {
   const subs = dispatchSubscriptionsOf(ctx);
   // Durable tier: events on a `retention: log | work` channel route
@@ -199,6 +207,12 @@ export function buildPyDispatchFile(
   const durableSet = durableEventTypes(ctx);
   const durableEvents = ctx.events.filter((e) => durableSet.has(e.name));
   const hasOutbox = outboxTier && durableEvents.length > 0;
+  const durable = receivesDurable ?? hasOutbox;
+  // Some consumer claims in the inbox (`src/ir/plan/consumer-inbox.ts`), so
+  // the delivery id carrier exists even with no outbox tier, and with no relay
+  // to purge the inbox the module runs its own purge.
+  const consumerDedupes = inboxDedupes(ctx, durable);
+  const deliveryId = hasOutbox || consumerDedupes;
   const durableBroker = durableBrokerEvents.size > 0;
   if (subs.length === 0) {
     if (!hasChannels) return hasRealtime ? buildRealtimeOnlyDispatch() : null;
@@ -306,7 +320,7 @@ export function buildPyDispatchFile(
       const on = proj.handlers.find((h) => h.event === sub.event && h.param === sub.param);
       if (!on) continue;
       const fn = `_proj_${DOMAIN_NAMES.python.stem(proj.name)}_${DOMAIN_NAMES.python.stem(sub.event)}`;
-      handlers.push(projectionHandlerFn(fn, proj, on, foldsDedupe(ctx, hasOutbox)), "");
+      handlers.push(projectionHandlerFn(fn, proj, on, foldsDedupe(ctx, durable)), "");
       const list = handlerByEvent.get(sub.event) ?? [];
       list.push(fn);
       handlerByEvent.set(sub.event, list);
@@ -336,10 +350,11 @@ export function buildPyDispatchFile(
         resolved.statements,
         resolved.saves,
         ctx.aggregates,
-        hasOutbox,
+        deliveryId,
         construct,
         ctx,
         opFragments,
+        workflowClaims(wf, durable),
       ),
       "",
     );
@@ -424,10 +439,12 @@ export function buildPyDispatchFile(
             pureProducer: false,
             hasRealtime,
             carriesOrigin,
-            pruneInbox: foldsDedupe(ctx, hasOutbox),
+            pruneInbox: inboxDedupes(ctx, true),
           }),
         ]
-      : []),
+      : consumerDedupes
+        ? ["", "", consumerInboxBlock()]
+        : []),
   );
   const eventNames = [...new Set(subs.map((s) => s.event))].sort();
   // `let x = Agg.create(…)` constructs the domain class directly.
@@ -772,6 +789,9 @@ function handlerFn(
   ctx: EnrichedBoundedContextIR,
   /** Source-map — see `buildPyDispatchFile`'s `opFragments`. */
   opFragments?: OpFragment[],
+  /** The handler claims a durably delivered event in the consumer inbox
+   *  (`workflowClaims`), in the session's transaction, before its body. */
+  claims = false,
 ): string {
   if (wf.correlationField && wf.eventSourced) {
     return esHandlerFn(
@@ -799,6 +819,18 @@ function handlerFn(
     ") -> None:",
     ...bindSystemPrincipal(statements, ctx),
   ];
+  if (claims) {
+    // The claim runs in the session's transaction, which commits with the
+    // body's writes: a delivery already claimed — redelivered, here or on
+    // another replica — does nothing.
+    out.push(
+      "    __eid = _current_event_id.get()",
+      "    if __eid is not None:",
+      `        __claimed = await session.execute(${SA_TEXT}(${JSON.stringify(inboxClaimSql(":consumer", ":event_id", true))}), {"consumer": ${JSON.stringify(workflowInboxKey(wf.name))}, "event_id": __eid})`,
+      "        if __claimed.first() is None:",
+      "            return",
+    );
+  }
   const persisted = !!wf.correlationField;
   // Persisted handlers render `this.<stateField>` against the tracked row.
   const rctx = persisted ? { thisName: "state" } : { thisName: "self" };
@@ -823,14 +855,10 @@ function handlerFn(
       );
       out.push("        return");
     }
-    // Idempotent-consumer dedup (dispatch-delivery-semantics.md §3): the
-    // relay redelivers at-least-once, so a row already stamped with this
-    // event id is a no-op; otherwise claim it before running the body.
-    if (hasOutbox) {
-      out.push("    __eid = _current_event_id.get()");
+    // The row records the last event applied to it; the inbox claim above,
+    // not this column, is what dedupes.
+    if (claims) {
       out.push("    if __eid is not None:");
-      out.push("        if state.last_event_id == __eid:");
-      out.push("            return");
       out.push("        state.last_event_id = __eid");
     }
   }
@@ -1025,6 +1053,56 @@ const OUTBOX_FAIL_BLOCK: readonly string[] = [
  *  environment (a missing, non-numeric or non-positive value falls back to
  *  the default) and one bounded-batch DELETE of the dispatched rows older
  *  than it.  Dead rows are never dispatched, so they are never purged. */
+/** The delivery-id carrier and the inbox purge of a module with no outbox
+ *  tier: the broker consumer sets `_current_event_id` for the dispatch it
+ *  runs, the claiming handlers read it, and `start_inbox_purge` prunes claims
+ *  on the outbox retention window (the relay does it otherwise). */
+function consumerInboxBlock(): string {
+  return lines(
+    `_current_event_id: ${CONTEXT_VAR}[str | None] = ${CONTEXT_VAR}("loom_outbox_event_id", default=None)`,
+    "",
+    "",
+    "async def _dispatch_chained(events: InProcessDispatcher, event: DomainEvent) -> None:",
+    `    """Re-emit a handler's own event with the delivery id cleared: a fresh`,
+    "    emit is never a redelivery, so chained handlers must not claim it",
+    "    under the delivered event's id.",
+    `    """`,
+    "    token = _current_event_id.set(None)",
+    "    try:",
+    "        await events.dispatch(event)",
+    "    finally:",
+    "        _current_event_id.reset(token)",
+    "",
+    "",
+    "def _outbox_retention_days() -> int:",
+    "    try:",
+    `        days = int(${OS}.environ.get("${OUTBOX_RETENTION_ENV}", ""))`,
+    "    except ValueError:",
+    `        return ${OUTBOX_RETENTION_DEFAULT_DAYS}`,
+    `    return days if days > 0 else ${OUTBOX_RETENTION_DEFAULT_DAYS}`,
+    "",
+    "",
+    "async def purge_inbox() -> None:",
+    `    cutoff = ${PY.datetime}.now(${PY.UTC}) - ${PY.timedelta}(days=_outbox_retention_days())`,
+    `    async with AsyncSession(${ENGINE}) as session:`,
+    `        await session.execute(${SA_TEXT}(${JSON.stringify(foldInboxPurgeSql(":cutoff"))}), {"cutoff": cutoff})`,
+    "        await session.commit()",
+    "",
+    "",
+    `async def _inbox_purge_loop() -> None:`,
+    "    while True:",
+    `        await ${ASYNCIO}.sleep(${OUTBOX_PURGE_INTERVAL_SECONDS})`,
+    "        try:",
+    "            await purge_inbox()",
+    "        except Exception as exc:  # noqa: BLE001 — logged, retried next interval",
+    `            ${PY.log}("warn", "outbox_relay_error", error=str(exc))`,
+    "",
+    "",
+    `def start_inbox_purge() -> "${ASYNCIO}.Task[None]":`,
+    `    return ${ASYNCIO}.create_task(_inbox_purge_loop())`,
+  );
+}
+
 function outboxPurgeFns(pruneInbox = false): readonly string[] {
   return [
     "def _outbox_retention_days() -> int:",

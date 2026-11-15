@@ -81,6 +81,10 @@ export function renderPySchema(
    *  migrations), not the merged `ctx.name`.  Absent → the merged `ctx.name`,
    *  byte-identical for single-context systems. */
   resolveStreamContext?: (streamName: string) => string | undefined,
+  /** The deployable delivers durably (`channelPlan(...).receivesDurable`):
+   *  saga rows map `last_event_id`.  Absent → the context hosts a durable
+   *  channel. */
+  receivesDurable?: boolean,
 ): string {
   const models: string[] = [];
   for (const agg of ctx.aggregates) {
@@ -223,8 +227,8 @@ export function renderPySchema(
   // Persisted workflow-correlation state (workflow-and-applier.md A2-S2):
   // one row per running instance, keyed by the correlation field.  The
   // shared migration leaves these unqualified (public schema).  A durable
-  // channel adds the `last_event_id` idempotent-consumer marker.
-  const durable = hasDurableEvents(ctx);
+  // delivery adds `last_event_id`, the last event applied to the row.
+  const durable = receivesDurable ?? hasDurableEvents(ctx);
   for (const wf of ctx.workflows) {
     if (!wf.correlationField) continue;
     // An `eventSourced` workflow's stream lives in the shared per-context
