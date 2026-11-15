@@ -1,5 +1,5 @@
 import type { ContractOperation, ContractRecord } from "../../ir/contract/frontend-contract.js";
-import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import { undeclaredCreateRequestFields } from "../../ir/plan/create-request.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -229,7 +229,7 @@ export function buildApiModule(
   // record sends the create input every backend's create route reads.
   const requiredFields: readonly CreateRequestField[] = createRequest
     ? createRequest.fields
-    : createInputFields(agg);
+    : undeclaredCreateRequestFields(agg);
   const createInvariants: InvariantIR[] = createRequest
     ? (create?.invariants ?? []).map((inv) => ({ ...inv, source: "" }))
     : agg.invariants;

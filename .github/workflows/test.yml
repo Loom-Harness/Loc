@@ -75,12 +75,11 @@ jobs:
         run: npm ci
 
       - name: Test (shard ${{ matrix.shard }}/4)
+        # No network-dependent assertion runs here: the shards gate PRs and the
+        # merge queue, whose verdict must not change when an unrelated issue
+        # closes or GitHub answers 5xx.  The coverage census's live-issue leg
+        # runs nightly (`census-online` below).
         run: npm test -- --project unit --project mocked --shard=${{ matrix.shard }}/4 --reporter=default
-        env:
-          # The coverage census's online leg (test/support/fakes/coverage.test.ts)
-          # asks GitHub whether the issues its pending rows lean on are still open.
-          LOOM_CENSUS_ONLINE: "1"
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # The whole-corpus censuses (`corpus` project): each iterates every tracked
   # `.ddd`, 30–95 s per file.  One job, alongside the shards.
@@ -161,6 +160,36 @@ jobs:
           name: coverage-html
           path: coverage/
           retention-days: 14
+
+  # Nightly only: the coverage census's online leg
+  # (test/support/fakes/coverage.test.ts) asks GitHub whether every issue a
+  # pending row or harness wait leans on is still open.  A closed one fails
+  # this run, and the main-red alarm files it; the fix deletes the issue from
+  # OPEN_TRACKING_ISSUES and settles the rows leaning on it.  It never runs on
+  # a PR or in the merge queue, so closing an issue cannot eject a train.
+  census-online:
+    name: coverage census (live issue state, nightly)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
+      - name: Install (runs langium:generate + build)
+        run: npm ci
+
+      - name: Coverage census against live GitHub issue state
+        run: npx vitest run test/support/fakes/coverage.test.ts --reporter=default
+        env:
+          LOOM_CENSUS_ONLINE: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Biome gates + the web/ typecheck, split off the test shards so they run
   # once (not 4×) and in parallel with them: `biome ci` over the repo, the

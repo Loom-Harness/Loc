@@ -1,4 +1,4 @@
-import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import { createRequestFields } from "../../ir/plan/create-request.js";
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { lowerFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
@@ -88,7 +88,7 @@ export function renderAngularCreateForm(
     );
   }
 
-  const fields = createInputFields(agg);
+  const fields = createRequestFields(bc.payloads, agg);
   const ns = `${routeSegmentFor(agg.name)}-new`;
   const importFrom = `../../api/${lowerFirst(agg.name)}`;
   const requestType = `Create${agg.name}Request`;

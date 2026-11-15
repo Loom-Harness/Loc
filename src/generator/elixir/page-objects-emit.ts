@@ -25,7 +25,7 @@
 //   }
 // ---------------------------------------------------------------------------
 
-import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import { createRequestFields } from "../../ir/plan/create-request.js";
 import type { AggregateIR, BoundedContextIR, PageIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { classifyPage, type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
@@ -292,10 +292,9 @@ function buildAggregateListPageObject(
   lines.push(`    return this;`);
   lines.push(`  }`);
   lines.push(``);
-  // Fill targets the non-optional create-input contract (`createInputFields`
-  // — excludes server-owned `managed`/`token`/`internal` fields, incl. stamp
-  // targets), matching the inputs the HEEx CreateForm renders.
-  const required = createInputFields(agg).filter((f) => !f.optional);
+  // Fill targets the non-optional fields of the create request
+  // (`createRequestFields`), matching the inputs the HEEx CreateForm renders.
+  const required = createRequestFields(_ctx.payloads, agg).filter((f) => !f.optional);
   lines.push(`  async fill(input: ${e2eInputParamType(required, _ctx)}): Promise<this> {`);
   for (const f of required) {
     const fillLines = fillBlock("input", f.name, f.type, _ctx, `${slug}-new-input-${f.name}`);
@@ -386,10 +385,9 @@ function buildAggregateNewPageObject(
   const aggPascal = upperFirst(agg.name);
   const className = `${upperFirst(emitName)}Page`;
   const route = page.route ?? `/${slug}/new`;
-  // Fill targets the non-optional create-input contract (`createInputFields`
-  // — excludes server-owned `managed`/`token`/`internal` fields, incl. stamp
-  // targets), matching the inputs the HEEx CreateForm renders.
-  const required = createInputFields(agg).filter((f) => !f.optional);
+  // Fill targets the non-optional fields of the create request
+  // (`createRequestFields`), matching the inputs the HEEx CreateForm renders.
+  const required = createRequestFields(ctx.payloads, agg).filter((f) => !f.optional);
 
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");

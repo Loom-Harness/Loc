@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mixDepsGet } from "./support/mix-retry.js";
+import { freePort } from "./support/ports.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT_ELIXIR === "1";
 
@@ -77,10 +78,10 @@ system Acme {
 }
 `;
 
-const SALES_PORT = 3214;
-const REPLICA_PORTS = [3215, 3216];
-const PG_PORT = 55444;
-const AMQP_PORT = 55676;
+const SALES_PORT = await freePort();
+const REPLICA_PORTS = await Promise.all([freePort(), freePort()]);
+const PG_PORT = await freePort();
+const AMQP_PORT = await freePort();
 const ORDERS = 6;
 const ADDRESS = "loom.Orders.Lifecycle";
 
