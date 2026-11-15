@@ -13,6 +13,8 @@
 // byte-identical copy of this rule (the `page-kind.ts` precedent).  Pure,
 // platform-neutral, browser-safe.
 // -------------------------------------------------------------------------
+
+import { routeSegmentFor } from "../../util/storage-names.js";
 import {
   type CreateIR,
   type EnrichedBoundedContextIR,
@@ -52,6 +54,14 @@ export function commandCreateResult(
         ...(c.returnTags ? { returnTags: c.returnTags } : {}),
       }
     : undefined;
+}
+
+/** The route segment of the aggregate a successful start created, when the
+ *  workflow's command route answers with its id: a client opens that record
+ *  once the run succeeds. */
+export function workflowResultSegment(wf: WorkflowIR): string | undefined {
+  const t = commandCreateResult(wf)?.type;
+  return t?.kind === "id" ? routeSegmentFor(t.targetName) : undefined;
 }
 
 /** The expected-failure result (`T or E`) of the workflow's command route, as

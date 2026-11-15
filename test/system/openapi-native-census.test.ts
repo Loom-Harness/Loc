@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { expectReach } from "../_helpers/census-reach.js";
+import { fenceProblem } from "../_helpers/live-fences.js";
 
 // ---------------------------------------------------------------------------
 // OpenAPI documents come from each framework's own generator
@@ -163,8 +164,8 @@ describe("OpenAPI framework-native census — no document post-processing", () =
     const now = Date.now();
     const bad: string[] = [];
     for (const [prefix, w] of Object.entries(WAIVERS)) {
-      if (!/^#\d+$/.test(w.blockedBy))
-        bad.push(`${prefix}: blockedBy "${w.blockedBy}" is not #NNNN`);
+      const fence = fenceProblem(w.blockedBy);
+      if (fence) bad.push(`${prefix}: ${fence}`);
       const due = /^\d{4}-\d{2}-\d{2}$/.test(w.reviewUntil)
         ? Date.parse(`${w.reviewUntil}T23:59:59Z`)
         : Number.NaN;

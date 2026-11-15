@@ -1,3 +1,5 @@
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
+import { buildFrontendHost } from "../../ir/contract/host.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -10,18 +12,21 @@ import {
   uiUsesMoney,
 } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
-import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
 import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
-import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
 import { AUTH_SESSION_TS, authGateSvelte } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
+import {
+  clientProjections,
+  clientWorkflows,
+  requireFrontendContract,
+} from "../_frontend/contract.js";
 import {
   E2E_PACKAGE_JSON_SVELTE,
   E2E_TSCONFIG_JSON,
@@ -45,7 +50,7 @@ import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
 import { deriveSidebarFromUi, navPageNameFallbacksFor } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { JSX_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
-import { buildProjectionsApiModule, readableProjections } from "../_frontend/projections-module.js";
+import { buildProjectionsApiModule } from "../_frontend/projections-module.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import {
   jsxChromeAttr as shellChromeAttr,
@@ -58,6 +63,7 @@ import {
   uiUsesToastEffect,
 } from "../_frontend/toast-effect.js";
 import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
+import { workflowsModuleScope } from "../_frontend/workflows-module.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
@@ -87,7 +93,7 @@ import {
 } from "./routes-emitter.js";
 import { renderSvelteStoreModule, storeModulePath } from "./store-builder.js";
 import { svelteTarget } from "./walker/svelte-target.js";
-import { allWorkflows, buildWorkflowsApiModule, hasAnyWorkflow } from "./workflow-builder.js";
+import { allWorkflows, buildWorkflowsApiModule } from "./workflow-builder.js";
 
 // ---------------------------------------------------------------------------
 // Svelte 5 + SvelteKit (static SPA) + svelte-query + Zod generator.
@@ -127,6 +133,9 @@ export interface GenerateSvelteOptions {
    *  generated i18n shim, under the SAME `i18nEnabled` gate as `en.json`.
    *  Absent / empty is the normal case → byte-identical output. */
   translations?: TranslationCatalogs;
+  /** The system's Frontend Contract (`src/ir/contract/`).  Every caller
+   *  passes it; see `requireFrontendContract`. */
+  frontendContract?: FrontendContract;
 }
 
 export function generateSvelteForContexts(
@@ -137,10 +146,12 @@ export function generateSvelteForContexts(
 ): Map<string, string> {
   const out = emissionSink("generator/svelte/index");
 
+  const host = buildFrontendHost(sys, deployable);
+  const contract = requireFrontendContract(options.frontendContract, host.deployable);
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   // The frontend session guard (`auth: ui`): also decides which chrome the
   // translation catalog carries, so it is derived before the catalog scope.
-  const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
+  const authUi = host.authUi;
   // Same-origin relative `/api` base; `vite dev` proxies it to the
   // target backend, docker-compose overrides via `VITE_API_BASE_URL`.
   const apiBaseUrl = options.apiBaseUrl ?? API_BASE_PATH;
@@ -240,8 +251,15 @@ export function generateSvelteForContexts(
       buildSvelteApiModule(agg, repo, ctx, pagedFindRoutes(sys, target ?? deployable)),
     );
   }
-  if (hasAnyWorkflow(contexts)) {
-    out.set("src/lib/api/workflows.ts", buildWorkflowsApiModule(contexts));
+  const clientWfs = clientWorkflows(
+    contract,
+    contexts.map((c) => c.name),
+  );
+  if (clientWfs.length > 0) {
+    out.set(
+      "src/lib/api/workflows.ts",
+      buildWorkflowsApiModule(clientWfs, workflowsModuleScope(contexts)),
+    );
   }
 
   // Query-time projection clients (M-T1.3) — the SHARED builder React
@@ -251,15 +269,26 @@ export function generateSvelteForContexts(
   // `src/lib/schemas.ts`, where React/Vue are two below `src/api/`).  Emitted
   // only when the deployable actually serves a readable projection, so a
   // projection-free app stays byte-identical.
-  if (readableProjections(contexts).length > 0) {
+  const clientProjs = clientProjections(
+    contract,
+    contexts.map((c) => c.name),
+  );
+  if (clientProjs.length > 0) {
     out.set(
       "src/lib/api/projections.ts",
-      buildProjectionsApiModule(contexts, {
-        queryPackage: "@tanstack/svelte-query",
-        queryFactory: "createQuery",
-        thunkOptions: true,
-        schemasImport: "../schemas",
-      }),
+      buildProjectionsApiModule(
+        clientProjs,
+        {
+          enums: contract.wire.enums,
+          usesMoney: contexts.some(contextUsesMoney),
+        },
+        {
+          queryPackage: "@tanstack/svelte-query",
+          queryFactory: "createQuery",
+          thunkOptions: true,
+          schemasImport: "../schemas",
+        },
+      ),
     );
   }
 
@@ -359,9 +388,7 @@ export function generateSvelteForContexts(
   // serving GET /realtime/events so far); the handlers component
   // emits when the ui declares `on <channel>.<Event>` members, and
   // the root layout mounts it (hasRealtimeHandlers below).
-  const realtimeTypes = backendServesRealtime(target?.platform)
-    ? [...new Set(contexts.flatMap((c) => [...realtimeEventTypes(c)]))].sort()
-    : [];
+  const realtimeTypes = host.realtime.eventTypes;
   if (realtimeTypes.length > 0) {
     out.set(
       "src/lib/api/realtime.ts",
@@ -369,11 +396,7 @@ export function generateSvelteForContexts(
       // SAME `auth: ui` / `auth: required` gate the api client's
       // `credentials: "include"` rides, so the SSE stream authenticates exactly
       // like an ordinary API call instead of 401-ing on an authenticated deployable.
-      renderRealtimeClient(
-        realtimeTypes,
-        "API_BASE_URL",
-        realtimeStreamCredential(deployable, target, sys.user),
-      ),
+      renderRealtimeClient(realtimeTypes, "API_BASE_URL", host.realtime.credential),
     );
   }
   const hasRealtimeHandlers = realtimeTypes.length > 0 && (ui.notifications?.length ?? 0) > 0;

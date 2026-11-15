@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { expectReach } from "../_helpers/census-reach.js";
+import { LIVE_FENCES } from "../_helpers/live-fences.js";
 
 // ---------------------------------------------------------------------------
 // "No hand-rolled IR walks" (Wave 2 packet 2.3 of
@@ -567,18 +568,9 @@ type Waiver = { standing: string } | { deferred: string; reviewUntil: string; bl
  *  enough that "we'll get to it" cannot quietly mean "never". */
 const MAX_DEFERRAL_DAYS = 180;
 
-/**
- * The fences a `blockedBy` waiver may name — PRs/packets that own a tree this
- * census flags and must not be edited around.
- *
- * ADD a row when you fence a file; DELETE the row the moment the fence lifts
- * (the PR merges, the packet folds).  Deleting it fails every waiver that
- * leaned on it, which is the point: the drain those waivers deferred becomes
- * due the same day the reason for deferring it stops being true.
- *
- * Empty is the healthy state.
- */
-const LIVE_FENCES: Record<string, string> = {};
+// The fences a `blockedBy` waiver may name live in the shared register
+// (test/_helpers/live-fences.ts), read by every census that defers on an issue
+// or PR.
 
 // ---------------------------------------------------------------------------
 // Shared reasons.  A `standing` reason is a rationale; a `deferred` one is an
@@ -1058,17 +1050,6 @@ describe("IR walk census — no hand-rolled switch/if-chain over ExprIR/StmtIR/W
       }
     }
     expect(orphaned, orphaned.join("\n")).toEqual([]);
-  });
-
-  it("the fence register itself ratchets — no fence with nothing behind it", () => {
-    // The mirror of the rule above.  A LIVE_FENCES row that no waiver cites is
-    // a fence nobody is standing behind: it can only mislead the next agent
-    // into thinking a tree is claimed when it is not.
-    const cited = new Set(
-      Object.values(WAIVERS).flatMap((w) => ("deferred" in w && w.blockedBy ? [w.blockedBy] : [])),
-    );
-    const unused = Object.keys(LIVE_FENCES).filter((pr) => !cited.has(pr));
-    expect(unused, `LIVE_FENCES rows no waiver cites: ${unused.join(", ")}`).toEqual([]);
   });
 
   it("never counts a switch on an unrelated `.kind` field sharing a receiver name", () => {
