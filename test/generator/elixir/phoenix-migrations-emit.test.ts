@@ -351,8 +351,8 @@ describe("phoenix migrations-emit — delta path", () => {
     };
     const body = emit(ir).get("priv/repo/migrations/20260101000000_create_accounts_events.exs")!;
     // Composite PK — every key column marked primary_key: true.
-    expect(body).toContain("add :stream_type, :string, primary_key: true, null: false");
-    expect(body).toContain("add :stream_id, :string, primary_key: true, null: false");
+    expect(body).toContain("add :stream_type, :text, primary_key: true, null: false");
+    expect(body).toContain("add :stream_id, :text, primary_key: true, null: false");
     expect(body).toContain("add :version, :integer, primary_key: true, null: false");
     // The bigserial cursor is a plain column (not a PK).
     expect(body).toContain("add :seq, :bigserial, null: false");
