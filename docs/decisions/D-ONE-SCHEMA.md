@@ -29,8 +29,7 @@ measures `shape: embedded` and `shape: document` cases like any other.
 An adapter that does not map the shared schema is honest about it: a
 `loom.<adapter>-shared-database` diagnostic refuses it beside a deployable of
 another layout. Each such adapter is a tracked gap, not a supported variant:
-MikroORM and Dapper (value objects as json, MikroORM's boot-time sync), and Ecto
-for a value object on a saga-state or projection row (as one `:map` column).
+MikroORM and Dapper (value objects as json, MikroORM's boot-time sync).
 
 An ORM whose schema type cannot span several columns maps a value object as its
 leaf columns plus an in-memory value composed from them: Ecto declares the leaf

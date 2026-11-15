@@ -145,7 +145,7 @@ describe("elixir delta — renaming a value-object leaf", () => {
       version: "20260102000000",
       name: "Gen1",
     };
-    const steps = collapseVoSteps(m, "snake", () => true);
+    const steps = collapseVoSteps(m, "snake");
     expect(steps.map((s) => s.op)).toEqual(["renameColumn", "sqlExec", "sqlExec"]);
     expect(steps[0]).toMatchObject({ from: "home", to: "house" });
     // The move targets the RENAMED column; `city` kept its key.

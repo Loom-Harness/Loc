@@ -72,7 +72,7 @@ describe("elixir idempotent-consumer markers (M-T4.3)", () => {
     expect(start).toContain("event_id = Process.get(:loom_event_id)");
     expect(start).toContain("if event_id && state.last_event_id == event_id do");
     expect(start).toContain(
-      "Repo.update!(Ecto.Changeset.change(state, %{last_event_id: event_id}))",
+      "Repo.Records.update!(Ecto.Changeset.change(state, %{last_event_id: event_id}))",
     );
   });
 
@@ -81,7 +81,7 @@ describe("elixir idempotent-consumer markers (M-T4.3)", () => {
     const on = file(files, "on_shipment_requested.ex");
     expect(on).toContain("event_id = Process.get(:loom_event_id)");
     expect(on).toContain("if event_id && state.last_event_id == event_id do");
-    expect(on).toContain("Repo.update!(Ecto.Changeset.change(state, %{last_event_id: event_id}))");
+    expect(on).toContain("Repo.Records.update!(Ecto.Changeset.change(state, %{last_event_id: event_id}))");
   });
 
   it("parks the envelope id on the process dictionary in the consumer", async () => {

@@ -199,7 +199,7 @@ function readPassesActor(
 }
 
 /** Does a body run a read that consumes the request actor — a criterion read
- *  (`Repo.all(<C>)`, or the single-row `Repo.find(<C>)` as a `let` or `if
+ *  (a repository `all(<C>)`, or the single-row `find(<C>)` as a `let` or `if
  *  let`) whose retrieval reads it (a principal filter such as `tenantOwned` on
  *  its target, or a `currentUser` criterion), or a declared / widened find that
  *  still scopes by it?  Then the body binds `current_user` and each such read
@@ -1512,7 +1512,7 @@ function renderWorkflowModule(
     ? [
         `    key = params[${JSON.stringify(corrParam.name)}]`,
         `    loom_state =`,
-        `      case Repo.get(${stateMod}, key) do`,
+        `      case ${repoMod}.Records.get(${stateMod}, key) do`,
         `        nil -> %${stateMod}{${allocFields.join(", ")}}`,
         `        existing -> existing`,
         `      end`,
@@ -1531,8 +1531,8 @@ function renderWorkflowModule(
   const persistLines = corrParam
     ? [
         writesState
-          ? `Repo.insert_or_update!(Ecto.Changeset.change(loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`
-          : "Repo.insert_or_update!(Ecto.Changeset.change(loom_state))",
+          ? `${repoMod}.Records.insert_or_update!(Ecto.Changeset.change(loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`
+          : `${repoMod}.Records.insert_or_update!(Ecto.Changeset.change(loom_state))`,
       ]
     : [];
   // An expected-failure result (`T or E`) or the workflow answering itself

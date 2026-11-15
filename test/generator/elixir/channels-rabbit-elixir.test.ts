@@ -73,7 +73,7 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
       '"OrderPlaced" => {"loom.Orders.Lifecycle", "Orders", :loom_channels_0, :rabbitmq}',
     );
     expect(tee).toContain("record_durable(type, ev)");
-    expect(tee).toContain("|> SalesApi.Repo.insert!()");
+    expect(tee).toContain("|> SalesApi.Repo.Records.insert!()");
     // The relay half publishes the drained row with ITS id as the envelope
     // id — the consumer-side idempotency key.
     expect(tee).toContain("def publish_from_relay(type, data, event_id) do");
