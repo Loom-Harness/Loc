@@ -54,6 +54,8 @@ const ROOT_FLOOR: Record<string, number> = {
 
 /** IR fields no target reads, by design.  Each says why that is benign. */
 const NO_READER_ALLOWED: Readonly<Record<string, string>> = {
+  requiredInput:
+    "consumed in the IR by `omittableCreateInputs` (src/ir/enrich/wire-projection.ts), which every backend's create request DTO reads, and by the create-call and e2e-route validators; the OpenAPI create-request `required` lists apply the same `isRequiredCreateInput` rule to the declared record through `createRequestRequiredNames`",
   awaited:
     "consumed in the IR by `checkMissingEffectMarker` (src/ir/validate/checks/ui-action-body-checks.ts): an awaited call is the handled form of a mutating command; the walkers read the awaited operation off the `variant-match` subject",
   sensitivity:
