@@ -147,7 +147,7 @@ export function renderAngularModal(
 
   // The operation's identity-keyed label (`<Ctx>.<Agg>.op.<op>`) — the text of
   // a trigger with no authored label, the dialog title and the submit button.
-  const opBc = ctx.bcByAggregate?.get(aggName);
+  const opBc = ctx.model.homeOfAggregate(aggName);
   const opLabelMarkup =
     (opBc && opModelText(ctx, opBc, aggName, op.name)?.markup) || humanize(op.name);
 
@@ -185,7 +185,7 @@ export function renderAngularModal(
         ? 'pButton type="button" [text]="true"'
         : 'class="loom-button loom-button-ghost" type="button"';
 
-  const bc = ctx.bcByAggregate?.get(aggName);
+  const bc = ctx.model.homeOfAggregate(aggName);
   const agg = ctx.aggregatesByName.get(aggName);
   addNg(ctx, "@angular/forms", "FormControl", "FormGroup", "ReactiveFormsModule");
   if (style === "material") addNg(ctx, "@angular/material/button", "MatButtonModule");

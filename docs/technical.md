@@ -79,8 +79,8 @@ them was costing readers an accurate mental model.
          │
          ▼   ⑧ Per-platform code generation src/generator/<platform>/
    Map<path, content> per deployable   ─ each backend gets the wire shape
-                                         from the shared `wireFieldsFor*`
-                                         helpers. Backends that execute
+                                         from the declared response records
+                                         (`responseWireFor`). Backends that execute
                                          domain logic also walk ExprIR /
                                          StmtIR via render-expr.ts /
                                          render-stmt.ts. The five
@@ -588,12 +588,12 @@ the IR consumers need.  The derivations, in order:
 
 1. **Wire-shape on every aggregate / part / value object.**  The
    canonical, ordered list of fields that appear on the wire for
-   that entity.  It is **not stored** on the IR: `wireFieldsForAggregate`
-   / `wireFieldsForPart` / `wireFieldsForValueObject` (and the
-   dispatching `wireFieldsFor`) in `src/ir/enrich/wire-projection.ts`
-   compute it on demand from the node, so every consumer derives the
-   same list.  (Projections are the exception — `ProjectionIR.wireShape`
-   is stored by enrichment.)
+   that entity.  It is **not derived** in this pass: an aggregate's or
+   part's wire is its declared `response <X>Response` record, turned
+   into rows on demand by `responseWireFor` (`src/ir/util/response-wire.ts`);
+   a value object's is its declaration (`valueObjectWire`).  Every
+   consumer reads the same rows.  (Projections are the exception —
+   `ProjectionIR.wireShape` is stored by enrichment.)
 
    ```ts
    interface WireField {
@@ -873,7 +873,7 @@ emitters that the registered package calls.
 | `emit/api.ts` | `[ApiController]` + `[Route]` controller per aggregate, plus `DomainExceptionFilter`. |
 | `emit/program.ts` | Hosting entry: DbContext, Mediator, Swashbuckle, CORS, camelCase JSON, `Database.Migrate()` (system mode; `EnsureCreated` only when there are no migrations), `/health`. |
 | `emit/tests.ts` | xUnit project + per-aggregate test class. |
-| `dto-mapping.ts` | Wire ↔ domain conversion: `wireType`, `wireToCommandArgument`, `projectToResponse`, `projectEntityExpr`, `aggregateResponseParams`, `entityResponseParams`.  Walks `wireFieldsForAggregate` so the DTOs line up with every other backend. |
+| `dto-mapping.ts` | Wire ↔ domain conversion: `wireType`, `wireToCommandArgument`, `projectToResponse`, `projectEntityExpr`, `aggregateResponseParams`, `entityResponseParams`.  Walks `responseWireFor` so the DTOs line up with every other backend. |
 | `cqrs-emit.ts` | Per-aggregate orchestration: emits Request / Response DTO files, Command + Handler per public op, Query + Handler per find, controller. |
 | `find-emit.ts` | Repository find-method bodies (LINQ predicate from convention or from a `where` filter). |
 | `auth-emit.ts` | JWT bearer auth + `[Authorize]` filter wiring when any deployable declares `auth: required`. |
@@ -1361,11 +1361,10 @@ The shape:
    and/or larger `*-builder.ts` files using `src/util/code-builder.ts`'s
    `lines` helper.  Rule of thumb: small, regularly-shaped emissions
    go in `emit/`; per-aggregate complexity goes in builders.
-5. If the backend serves a wire shape, get it from
-   `wireFieldsForAggregate` / `wireFieldsForPart` /
-   `wireFieldsForValueObject` in `src/ir/enrich/wire-projection.ts`
-   (there is no stored `wireShape` field on these nodes) — never
-   assemble the field list per backend.
+5. If the backend serves a wire shape, get it from `responseWireFor`
+   (aggregates and parts, the declared response record) and
+   `valueObjectWire` (value objects) in `src/ir/util/response-wire.ts` —
+   never assemble the field list per backend.
 6. If the platform needs a new value in `Platform`, also extend
    `language/ddd.langium`'s `Platform` rule, `ir/types/deployment.ts`'s
    `Platform` type, and `checkDeployable` in

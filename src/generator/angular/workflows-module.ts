@@ -1,11 +1,9 @@
-import type { BoundedContextIR, TypeIR, WorkflowIR } from "../../ir/types/loom-ir.js";
+import type { ContractWorkflow } from "../../ir/contract/frontend-contract.js";
+import type { TypeIR } from "../../ir/types/loom-ir.js";
 import { peelCollection, peelNullable, wireTypeInfo } from "../../ir/types/wire-types.js";
-import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
-import { requestNamesForContexts } from "../_frontend/request-names.js";
-import { workflowResultSegment } from "../_frontend/workflow-result.js";
-import { allWorkflows } from "../_frontend/workflows-module.js";
+import type { WorkflowsModuleScope } from "../_frontend/workflows-module.js";
 import {
   collectResponseTypes,
   emitVoResponseInterface,
@@ -76,11 +74,11 @@ export function wireTsType(t: TypeIR, precise = false): string {
   }
 }
 
-function instanceRowLines(wf: WorkflowIR): string[] {
+function instanceRowLines(wf: ContractWorkflow): string[] {
   const T = upperFirst(wf.name);
   const out: string[] = [`export interface ${T}InstanceRow {`];
-  for (const f of wf.instanceWireShape ?? []) {
-    out.push(`  ${f.name}: ${f.source === "id" ? "string" : wireTsType(f.type, true)};`);
+  for (const f of wf.instance ?? []) {
+    out.push(`  ${f.name}: ${f.id ? "string" : wireTsType(f.type, true)};`);
   }
   out.push("}");
   out.push("");
@@ -99,17 +97,19 @@ function instanceRowLines(wf: WorkflowIR): string[] {
  *  what was emitted.  A type reachable only from a workflow's persisted state is
  *  reached from no aggregate at all — hence the local declaration (#2864 T3 for
  *  enums; M-T1.36 F3 for value objects, which used to land as `unknown`). */
-function instanceTypeDeps(workflows: Array<{ wf: WorkflowIR; ctx: BoundedContextIR }>): {
+function instanceTypeDeps(
+  workflows: readonly ContractWorkflow[],
+  scope: WorkflowsModuleScope,
+): {
   imports: string[];
   locals: string[];
 } {
   const imports: string[] = [];
   const locals: string[] = [];
   const seen = new Set<string>();
-  for (const { wf, ctx } of workflows) {
-    const fieldTypes = (wf.instanceWireShape ?? [])
-      .filter((f) => f.source !== "id")
-      .map((f) => f.type);
+  for (const wf of workflows) {
+    const ctx = scope.contextOf(wf.context);
+    const fieldTypes = (wf.instance ?? []).filter((f) => !f.id).map((f) => f.type);
     const { vos, enums } = collectResponseTypes(fieldTypes, ctx);
     const exported = ctx.aggregates.map((a) => ({ a, types: exportedResponseTypes(a, ctx) }));
     for (const vo of vos) {
@@ -140,17 +140,19 @@ function instanceTypeDeps(workflows: Array<{ wf: WorkflowIR; ctx: BoundedContext
 
 /** Emit the `src/api/workflows.ts` module aggregating every workflow across the
  *  served contexts. */
-export function buildAngularWorkflowsModule(contexts: BoundedContextIR[]): string {
-  const workflows = allWorkflows(contexts);
+export function buildAngularWorkflowsModule(
+  workflows: readonly ContractWorkflow[],
+  scope: WorkflowsModuleScope,
+): string {
   // Identifier bases for the command surface, minted against the deployable's
   // whole universe so a workflow's request interface cannot alias an
   // aggregate's create/operation one (`_frontend/request-names.ts`).
-  const names = requestNamesForContexts(contexts);
-  const anyInstances = workflows.some(({ wf }) => wf.instanceWireShape);
+  const { names } = scope;
+  const anyInstances = workflows.some((wf) => wf.instance);
   // Only a command-startable workflow gets a request interface, a service POST
   // and a mutation factory — an event-only saga has no `POST /workflows/<wf>`
   // route on any backend (the shared `emitsCommandRoute` rule).
-  const anyCommands = workflows.some(({ wf }) => emitsCommandRoute(wf));
+  const anyCommands = workflows.some((wf) => wf.params);
   const injectors = [anyCommands ? "injectMutation" : "", anyInstances ? "injectQuery" : ""].filter(
     Boolean,
   );
@@ -167,40 +169,40 @@ export function buildAngularWorkflowsModule(contexts: BoundedContextIR[]): strin
   // The `<Enum>` / `<Vo>Response` types the instance rows below are typed against: imported
   // from the aggregate module that already exports one, declared here when no
   // aggregate module does.  See `instanceTypeDeps`.
-  const { imports: typeImports, locals: typeLocals } = instanceTypeDeps(workflows);
+  const { imports: typeImports, locals: typeLocals } = instanceTypeDeps(workflows, scope);
   if (typeImports.length > 0) out.push(...typeImports, "");
   if (typeLocals.length > 0) out.push(...typeLocals, "");
 
   // Request + instance-row interfaces.
-  for (const { wf } of workflows) {
-    if (emitsCommandRoute(wf)) {
+  for (const wf of workflows) {
+    if (wf.params) {
       const R = names.workflow(wf.name);
       out.push(`export interface ${R}Request {`);
       for (const p of wf.params) out.push(`  ${p.name}: ${wireTsType(p.type)};`);
       out.push("}");
       out.push("");
     }
-    if (wf.instanceWireShape) out.push(...instanceRowLines(wf));
+    if (wf.instance) out.push(...instanceRowLines(wf));
   }
 
   // Service.
   out.push(`@Injectable({ providedIn: "root" })`);
   out.push(`export class WorkflowsService {`);
   out.push("  private readonly http = inject(HttpClient);");
-  for (const { wf } of workflows) {
+  for (const wf of workflows) {
     const T = upperFirst(wf.name);
     const m = lowerFirst(wf.name);
     const slug = snake(wf.name);
-    if (emitsCommandRoute(wf)) {
+    if (wf.params) {
       out.push("");
       out.push(`  ${m}(input: ${names.workflow(wf.name)}Request) {`);
       // A start route that answers the created record's id hands it back.
       out.push(
-        `    return this.http.post<${workflowResultSegment(wf) ? "string" : "void"}>(\`\${API_BASE_URL}/workflows/${slug}\`, input);`,
+        `    return this.http.post<${wf.resultSegment ? "string" : "void"}>(\`\${API_BASE_URL}/workflows/${slug}\`, input);`,
       );
       out.push("  }");
     }
-    if (wf.instanceWireShape) {
+    if (wf.instance) {
       out.push("");
       out.push(`  ${m}Instances() {`);
       out.push(
@@ -219,10 +221,10 @@ export function buildAngularWorkflowsModule(contexts: BoundedContextIR[]): strin
   out.push("");
 
   // Factories.
-  for (const { wf } of workflows) {
+  for (const wf of workflows) {
     const T = upperFirst(wf.name);
     const m = lowerFirst(wf.name);
-    if (emitsCommandRoute(wf))
+    if (wf.params)
       out.push(
         `/** \`${wf.name}\` workflow command (TanStack \`injectMutation\`) — \`mutateAsync(input)\``,
         " *  POSTs the command params. */",
@@ -234,7 +236,7 @@ export function buildAngularWorkflowsModule(contexts: BoundedContextIR[]): strin
         "}",
         "",
       );
-    if (wf.instanceWireShape) {
+    if (wf.instance) {
       out.push(
         `/** \`${wf.name}\` instance list read — the saga-state rows. */`,
         `export function useAll${T}Instances() {`,

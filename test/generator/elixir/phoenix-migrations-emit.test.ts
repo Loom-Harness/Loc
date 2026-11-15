@@ -93,7 +93,7 @@ describe("phoenix migrations-emit — delta path", () => {
     const body = files.get("priv/repo/migrations/20260101000003_sales_cleanup.exs")!;
     expect(body).toMatch(/remove :legacy_note/);
     expect(body).toMatch(/drop table\(:old_table\)/);
-    expect(body).toMatch(/create index\(:orders, \[:status\]\)/);
+    expect(body).toContain('create index(:orders, [:status], name: "orders_status_idx")');
   });
 
   it("renders a renameTable step as an Ecto `rename table(...), to: table(...)` (M-T2.1)", () => {
@@ -351,8 +351,8 @@ describe("phoenix migrations-emit — delta path", () => {
     };
     const body = emit(ir).get("priv/repo/migrations/20260101000000_create_accounts_events.exs")!;
     // Composite PK — every key column marked primary_key: true.
-    expect(body).toContain("add :stream_type, :string, primary_key: true, null: false");
-    expect(body).toContain("add :stream_id, :string, primary_key: true, null: false");
+    expect(body).toContain("add :stream_type, :text, primary_key: true, null: false");
+    expect(body).toContain("add :stream_id, :text, primary_key: true, null: false");
     expect(body).toContain("add :version, :integer, primary_key: true, null: false");
     // The bigserial cursor is a plain column (not a PK).
     expect(body).toContain("add :seq, :bigserial, null: false");
@@ -425,7 +425,9 @@ describe("phoenix migrations-emit — delta path", () => {
     const pipelines = files.get("priv/repo/migrations/20260101000011_create_pipelines.exs")!;
     expect(pipelines).toContain('create table(:pipelines, primary_key: false, prefix: "catalog")');
     expect(pipelines).toMatch(/references\(:projects, prefix: "catalog", type: :uuid/);
-    expect(pipelines).toContain('create index(:pipelines, [:project_id], prefix: "catalog")');
+    expect(pipelines).toContain(
+      'create index(:pipelines, [:project_id], name: "pipelines_project_id_idx", prefix: "catalog")',
+    );
   });
 });
 

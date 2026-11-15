@@ -13,7 +13,7 @@ const SOURCE = `
         valueobject Note { text: string  tags: string[] }
         valueobject Stop { label: string  tags: string[] }
         valueobject Route { name: string  tags: string[]  stops: Stop[] }
-        aggregate Venue {
+        aggregate Venue with crudish {
           name: string
           note: Note
           operation plan(route: Route, routes: Route[]) { }

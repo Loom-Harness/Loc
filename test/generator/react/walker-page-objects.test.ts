@@ -107,7 +107,7 @@ describe("walker-side e2e page-object emitter", () => {
       system S {
         subdomain M {
           context C {
-            aggregate Order {
+            aggregate Order with crudish {
               customerId: string
               derived display: string = customerId
               quantity:   int
@@ -140,7 +140,7 @@ describe("walker-side e2e page-object emitter", () => {
       system S {
         subdomain M {
           context C {
-            aggregate Order {
+            aggregate Order with crudish {
               customerId: string
               derived display: string = customerId
             }
@@ -172,7 +172,7 @@ describe("walker-side e2e page-object emitter", () => {
       system S {
         subdomain M {
           context C {
-            aggregate Order {
+            aggregate Order with crudish {
               customerId: string
               derived display: string = customerId
             }

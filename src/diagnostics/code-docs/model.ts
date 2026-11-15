@@ -36,6 +36,8 @@ export const anchors: Readonly<Record<string, string>> = {
 
   // --- src/language/validators/statements.ts (M-T9.56 drain) ---------------
   "loom.member-not-callable": "05-expressions.md#member-access--calls",
+  "loom.create-form-no-create":
+    "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
   "loom.create-call-not-constructible":
     "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.create-call-missing-field":

@@ -993,6 +993,17 @@ system S {
   deployable one { platform: dotnet, contexts: [A], dataSources: [aState], port: 3000 }
   deployable two { platform: dotnet { persistence: dapper }, contexts: [A], dataSources: [aState], port: 3001 }
 }`,
+  "loom.ecto-shared-database": `
+system S {
+  subdomain D { context A {
+    valueobject Money { amount: decimal  currency: string }
+    aggregate Keep with crudish { name: string  price: Money }
+  } }
+  storage primary { type: postgres }
+  resource aState { for: A, kind: state, use: primary }
+  deployable one { platform: node, contexts: [A], dataSources: [aState], port: 3000 }
+  deployable two { platform: elixir, contexts: [A], dataSources: [aState], port: 3001 }
+}`,
   "loom.mikroorm-shared-database": `
 system S {
   subdomain D { context A { aggregate Keep with crudish { name: string } } }
@@ -2486,23 +2497,6 @@ system P {
   // Universal: a dunder field (Ecto's `__meta__`), on any backend.
   "loom.dunder-field-name": repoOnly(`    aggregate Thing with crudish { __meta__: string }
     repository Things for Thing`),
-  // Needs an ELIXIR deployable and a RELATIONAL part (the default shape): the
-  // part schema's bundled `timestamps()` already defines `inserted_at`.
-  "loom.elixir-part-timestamp-field": `
-system P {
-  subdomain D { context Orders {
-    aggregate Order with crudish {
-      note: string
-      contains lines: Line[]
-      entity Line { sku: string  inserted_at: string }
-    }
-    repository Orders for Order
-  } }
-  api A from D
-  storage pg { type: postgres }
-  resource st { for: Orders, kind: state, use: pg }
-  deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
-}`,
   // A document-shaped aggregate on an ELIXIR deployable whose stamp value calls
   // the aggregate's own function: the document write seam has no record to
   // evaluate it against.
@@ -2782,6 +2776,12 @@ system S {
   // the read-path find/projection gate (`repository.ts`) and the handler-body
   // statement (`types.ts`) — share this code, so one fixture covers the family.
   "loom.requires-not-bool": orderOps("operation p() requires name { total := total + 1 }"),
+  // A parameter gate after an assignment: it reads no field and no local, so
+  // it could sit on the gate ladder, but runs after the load, `If-Match` and
+  // `when`.
+  "loom.requires-not-leading": orderOps(
+    "operation p(n: int) { total := total + 1\n requires n > 0 }",
+  ),
   "loom.precondition-not-bool": orderOps("operation p() { precondition name }"),
   "loom.assign-to-derived": orderOps('operation p() { label := "x" }'),
   "loom.assign-to-local": orderOps("operation p(n: int) { n := 2 }"),
@@ -3307,6 +3307,26 @@ system S {
     framework: react
     api C: Api
     page A(id: Note id) { route: "/a/:id"  body: Stack { DestroyForm { of: Note } } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  // `CreateForm { of: … }` over an aggregate that serves no create: `Note`
+  // declares no `create` and is not `with crudish`, so no target emits the
+  // create route, hook or context function the form would call.
+  "loom.create-form-no-create": `
+system S {
+  subdomain Sub { context C {
+    aggregate Note { text: string }
+    repository Notes for Note
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page A { route: "/a"  body: Stack { CreateForm { of: Note } } }
   }
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
@@ -4445,6 +4465,37 @@ system S {
   resource cState { for: C, kind: state, use: primary }
   resource cCache { for: C, kind: cache, use: hot }
   deployable api { platform: node, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3000, auth: required }
+}
+`,
+  // A worker hosts the cached context on the same database but does not list
+  // the cache: its writes would leave the api's cached answers stale.
+  "loom.cache-writer-not-evicting": `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { label: string }
+  } }
+  api A from D
+  storage primary { type: postgres }
+  storage hot { type: redis }
+  resource cState { for: C, kind: state, use: primary }
+  resource cCache { for: C, kind: cache, use: hot }
+  deployable api { platform: node, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3000 }
+  deployable worker { platform: python, contexts: [C], dataSources: [cState], port: 3001 }
+}
+`,
+  // Two processes, two maps: a write in one evicts nothing in the other.
+  "loom.cache-in-memory-shared": `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { label: string }
+  } }
+  api A from D
+  storage primary { type: postgres }
+  storage hot { type: inMemory }
+  resource cState { for: C, kind: state, use: primary }
+  resource cCache { for: C, kind: cache, use: hot }
+  deployable api { platform: node, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3000 }
+  deployable api2 { platform: java, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3001 }
 }
 `,
   // Third tier, third reason (cf. `loom.e2e-ui-throw-invalid` just above): a ui

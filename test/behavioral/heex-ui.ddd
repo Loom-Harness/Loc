@@ -125,6 +125,15 @@ system HeexUiSystem {
       repository Ledgers for Ledger { }
       policy { deny write on Ledger }
 
+      // A field named like a collection op: on a record, `.count` reads the
+      // field.  Rendered as `Enum.count(@record)`, every read page of the
+      // aggregate raised `Protocol.UndefinedError` (500).
+      aggregate Counter with crudish {
+        label: string
+        count: int
+      }
+      repository Counters for Counter { }
+
       // Covers every read of Claim: the list LiveView, the detail LiveView,
       // and the REST list / by-id routes.  `admin` is the dev stub's built-in
       // principal, which the emitted smoke spec navigates as; the read-gate
@@ -224,6 +233,13 @@ system HeexUiSystem {
     let m = ui.memos.create({ subject: "Unreserved" })
     let read = ui.memos.getById(m)
     expect(read.subject).toHaveText("Unreserved")
+  }
+
+  test e2e "a field named count reads back on the detail page" against phoenixApp {
+    let c = ui.counters.create({ label: "Clicks", count: 3 })
+    let read = ui.counters.getById(c)
+    expect(read.label).toHaveText("Clicks")
+    expect(read.count).toHaveText("3")
   }
 
   test e2e "an event-sourced account opens through its create form" against phoenixApp {

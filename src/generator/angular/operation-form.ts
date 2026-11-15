@@ -125,7 +125,7 @@ export function renderAngularOperationForm(
     );
   }
   const { aggName, op, idExpr } = resolved;
-  const bc = ctx.bcByAggregate?.get(aggName);
+  const bc = ctx.model.homeOfAggregate(aggName);
 
   const opKey = `${lowerFirst(op.name)}${aggName}`;
   const formVar = `${opKey}Form`;

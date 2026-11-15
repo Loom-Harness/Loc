@@ -166,12 +166,12 @@ the conforming backends, and the fix that established it.
   component and materializing the declared default in the request→domain mapping
   (`emit/dto.ts` + `emit/service.ts`).
 
-### RS-7 · Value-object subfields survive a jsonb round-trip
-- **Guarantee.** A value object stored inline as jsonb rehydrates so that
-  subfield reads and wire serialization neither crash nor drop — the VO reads
-  back with all subfields.
+### RS-7 · Value-object subfields survive a storage round-trip
+- **Guarantee.** A value object rehydrates from storage — whatever its column
+  layout — so that subfield reads and wire serialization neither crash nor drop:
+  the VO reads back with all subfields.
 - **Trigger.** `valueobject Money { amount: decimal, currency: string }` as an
-  aggregate field on a jsonb-storing backend.
+  aggregate field.
 - **Observable.** `GET` returns the nested `{"amount":…,"currency":…}`; a
   subsequent op reading `self.price.amount` does not raise.
 - **Conforms.** node, dotnet, java, python, elixir.
@@ -1740,9 +1740,7 @@ the conforming backends, and the fix that established it.
   `javaInstantWire`; elixir spells the envelope `time` and a `datetime` in
   `data` through `Loom.Datetime.wire/1`, and its realtime frame is not yet
   audited (#3394). None of the envelope is goldened. Elixir's audit and provenance `at` is the same millisecond
-  `Loom.Datetime` instant (its column is a `datetime`, so `timestamptz`); only
-  Ecto's own `inserted_at` / `updated_at`, which never reach a wire, stay
-  `:utc_datetime`. A deployed
+  `Loom.Datetime` instant (its column is a `datetime`, so `timestamptz`). A deployed
   elixir database created before this rule keeps its `timestamp(0)` columns until
   an operator alters them — see [`migrations.md`](migrations.md).
 - **Conforms.** node, dotnet, java, python, elixir.
@@ -2122,7 +2120,12 @@ the conforming backends, and the fix that established it.
 
   The handler loads the row, passes the stored value for every absent key and
   calls the operation as before, so its gates, invariants, lifecycle stamps and
-  `If-Match` check (RS-46) run unchanged. An empty patch `{}` is a valid no-op
+  `If-Match` check (RS-46) run unchanged.  A `requires` that reads a parameter
+  reads the same merged value, so it runs after the load
+  (`mergePatchUpdateLadder`, `src/ir/plan/gate-ladder.ts`): with
+  `requires amount < 100`, a patch that omits `amount` is judged on the stored
+  amount.  A `mask unless` write gate runs after the load too, and only when the
+  patch carries the masked key. An empty patch `{}` is a valid no-op
   that still counts as a persisted mutation (RS-20: the version moves). No key
   of the request schema is `required`; only a `T?` member is nullable.
 - **Rules over a patch.** A wire rule (an invariant or precondition the request

@@ -10,8 +10,9 @@ import {
   deployableNeedsInbox,
   eventSourcedWorkflows,
   observableWorkflows,
-  polymorphicReadGates,
   polymorphicReadMasked,
+  readLadder,
+  readLadderGates,
   routedPolymorphicRead,
   stateRowWorkflows,
 } from "../../ir/plan/index.js";
@@ -1688,6 +1689,7 @@ function emitProjectFromContexts(
         ? generateSvelteForContexts(contexts, system.sys, system.deployable, {
             apiBaseUrl: "/api",
             pathPrefix: "ClientApp/",
+            frontendContract: system.frontendContract,
           })
         : uiFw === "vue"
           ? generateVueForContexts(contexts, system.sys, system.deployable, {
@@ -1699,6 +1701,7 @@ function emitProjectFromContexts(
             ? generateAngularForContexts(contexts, system.sys, system.deployable, {
                 apiBaseUrl: "/api",
                 pathPrefix: "ClientApp/",
+                frontendContract: system.frontendContract,
               })
             : uiFw === "feliz"
               ? generateFelizForContexts(contexts, system.sys, system.deployable, {
@@ -1809,7 +1812,7 @@ function emitAggregate(
           entityPkg: (name) => pkgFor("entity", name),
           responsePkg: (name) => pkgFor("response-dto", name),
           repositoryPkg: (name) => pkgFor("repository-interface", name),
-          gates: polymorphicReadGates(agg, ctx),
+          gates: readLadderGates(readLadder(agg, ctx)),
           masked: new Set(polymorphicReadMasked(agg, ctx)),
         }),
         agg.name,

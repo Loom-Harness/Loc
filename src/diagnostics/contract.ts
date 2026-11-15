@@ -169,7 +169,14 @@ export interface ModelAggregate {
   name: string;
   /** Owning bounded context. */
   context: string;
+  /** The read wire: the declared `<Agg>Response` record's rows, `id` first.
+   *  Empty while no deployable exposes the context — nothing serves it yet. */
   wire: ModelWireField[];
+  /** The aggregate's own members, whether or not anything exposes it: `id`,
+   *  every declared field (`internal` / `secret` ones included), each
+   *  containment, and each `derived` value — the shape an author reasons
+   *  about before deciding what to expose. */
+  members: ModelWireField[];
 }
 
 /** A deployable's manifest triple (mirrors the `generate` report). */

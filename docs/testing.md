@@ -306,6 +306,26 @@ is the coverage floor: `test/generator/elixir/heex-coverage.test.ts` fails when
 any primitive with a `heex` renderer, or any `WalkResult` accumulator, is not
 reached by it. A new HEEx renderer or accumulator extends that fixture.
 
+### Proving a frontend change byte-identical — `scripts/capture-frontend-snapshot.mjs`
+
+`scripts/capture-corpus-snapshot.mjs` walks the corpus fixtures, and no corpus
+fixture declares a `ui`, so it says nothing about a frontend emitter. The
+frontend snapshot captures the systems that carry frontends: every tracked
+`.ddd` outside `test/fixtures/corpus/`, generated as written, plus each React
+build example (`test/e2e/react-build-cases.ts`) under each React build pack.
+Capture each side from its own clean worktree:
+
+```bash
+npx tsc -b                                                        # the script reads out/
+node scripts/capture-frontend-snapshot.mjs /tmp/fe-before.json    # on the base commit
+node scripts/capture-frontend-snapshot.mjs /tmp/fe-after.json     # on the change
+node scripts/capture-frontend-snapshot.mjs --diff /tmp/fe-before.json /tmp/fe-after.json
+```
+
+Each `.ddd` is built on its own, so a file that generates only together with
+its imports records `validation-error` on both sides, and Vue, Svelte and
+Angular examples run under the pack they declare.
+
 ## Running any CI gate locally — the reverse index
 
 **Every CI gate runs locally.** Do not push a commit just to see whether a
@@ -364,7 +384,7 @@ fails the fast suite.
 | `behavioral-e2e-dotnet.yml` | `cd test/behavioral && node run-dotnet.mjs` | pg |
 | `behavioral-e2e-dapper.yml` | `cd test/behavioral && node run-dapper.mjs` | pg |
 | `behavioral-e2e-java.yml` | `cd test/behavioral && node run-java.mjs` | pg |
-| `behavioral-e2e-elixir.yml` | `cd test/behavioral && node run-elixir.mjs` | pg, mirror |
+| `behavioral-e2e-elixir.yml` | `cd test/behavioral && node run-elixir.mjs`, then the shared-database leg: `LOOM_BH_ELIXIR_SCHEMA=shared node run-elixir.mjs <cases>` (the case list in the workflow; no list runs the whole corpus) | pg, mirror |
 | `behavioral-e2e-mikroorm.yml` | `cd test/behavioral && node run-mikroorm.mjs` | pg |
 | `behavioral-ui-e2e.yml` | `cd test/behavioral && node run-ui.mjs` (then `node paged-ui.mjs`, `node i18n-ui.mjs` — the translated-locale leg, all four static-bundle frontends) | — |
 | `behavioral-ui-vue-e2e.yml` | `cd test/behavioral && node run-ui.mjs sales-system-vue` (the Vue/Vuetify round-trip + the numeric LIST probe; same harness as the React cell) | — |

@@ -42,10 +42,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, resetDatabase, awaitOutboxDrained, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { writeCaseSource } from "./case-source.mjs";
+import { BEHAVIOURAL_XFAIL } from "./registers.mjs";
 import { optInTestReset, stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
 import { startSidecars } from "../support/fakes/index.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
+import { applySharedSchema, ECTO_SHARED_DATABASE, OWNER_TEST_NAME, ensureDatabase, fingerprintDiff, refusalCodes, schemaFingerprint, withSchemaOwner } from "./shared-schema.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
 import { httpRequest, probeCodeFlow } from "../support/oidc-code-flow.mjs";
 
@@ -96,6 +98,11 @@ const BASE = EXTERNAL_BASE ?? `http://127.0.0.1:${PORT}`;
 // `auth {}` case adds joken/joken_jwks, a HEEx `ui:` adds phoenix_live_view), so
 // a mismatch simply primes a second warm tree next to the first. Any failure in
 // the reuse path falls back to a plain, self-contained full compile for that case.
+/** `shared`: the shared-database leg (shared-schema.mjs) — each case runs as a
+ *  non-owner on the schema a node deployable's migrations create, and the
+ *  elixir migrations must create the identical schema. */
+const SHARED_SCHEMA = process.env.LOOM_BH_ELIXIR_SCHEMA === "shared";
+
 const DEP_CACHE_OFF = process.env.LOOM_ELIXIR_NO_DEP_CACHE === "1";
 const DEP_CACHE_ROOT = process.env.LOOM_ELIXIR_DEP_CACHE ?? join(WORK, "dep-cache");
 /** Written last, so a half-primed tree (crash / cancelled job) is never trusted. */
@@ -294,7 +301,7 @@ async function waitForReady(base, timeoutMs = 60_000) {
 
 /** The e2e-run entry (bundled by esbuild): loads the emitted api suite and
  *  dispatches each request over real HTTP at the booted Phoenix server. */
-function entrySource(e2eFile, bearerToken, hasAuth, authzLadder, unauthorizedCreds, otherTenantCreds, mountsFiles) {
+function entrySource(e2eFile, bearerToken, hasAuth, authzLadder, unauthorizedCreds, otherTenantCreds, mountsFiles, dropTests = null) {
   const J = JSON.stringify;
   const bearerEnv = bearerToken ? `, E2E_BEARER_TOKEN: ${J(bearerToken)}` : "";
   return `
@@ -329,7 +336,8 @@ export async function run() {
     return { ok: true, response: { status: r.status, statusText: r.statusText, headers, body: await r.text() } };
   });
   const cases = await loadApiTests({ source: readFileSync(E2E_FILE, "utf8"), compile, dispatch, env: BEARER_ENV });
-  const results = await runTests(cases);
+  const DROP_TESTS = ${dropTests ? dropTests.toString() : "null"};
+  const results = await runTests(DROP_TESTS ? cases.filter((t) => !DROP_TESTS.test(t.name)) : cases);
   // RS-9 — appended AFTER the tier so the probes never shift the ordinals the
   // golden aligns on, and so a failing tier is diagnosed on its own requests.
   await __frameworkProbes(dispatch, { auth: ${J(!!hasAuth)}, files: ${J(!!mountsFiles)} });
@@ -343,6 +351,25 @@ export async function run() {
   return { results: [...results, ...__probeResults], authz, wire: __wire };
 }
 `;
+}
+
+/** The shared-database leg's migrate step: the node owner's chain creates the
+ *  database this app boots on, and this app's own `ecto.migrate` into a second
+ *  database must create the identical catalog. */
+async function sharedSchemaMigrate(genDir, deplDir, pgUrl, menv) {
+  const journals = walk(genDir, (p) => p.endsWith(join("db", "migrations", "meta", "_journal.json")));
+  if (journals.length !== 1) throw new Error(`shared-schema: expected one node owner project, found ${journals.length}`);
+  await applySharedSchema(dirname(dirname(dirname(dirname(journals[0])))), pgUrl);
+  const ectoUrl = new URL(pgUrl);
+  ectoUrl.pathname = `${ectoUrl.pathname}_ecto`;
+  await ensureDatabase(pgUrl, ectoUrl.pathname.slice(1));
+  await resetDatabase(ectoUrl.toString());
+  const ectoDatabaseUrl = ectoUrl.toString().replace(/^postgresql:/, "ecto:");
+  execFileSync("mix", ["ecto.migrate"], { cwd: deplDir, stdio: "pipe", env: menv({ DATABASE_URL: ectoDatabaseUrl }) });
+  const diff = fingerprintDiff(await schemaFingerprint(pgUrl), await schemaFingerprint(ectoUrl.toString()));
+  if (diff.length > 0) {
+    throw new Error(`shared-schema: the elixir migrations create a different schema than the shared one (- shared, + ecto):\n${diff.join("\n")}`);
+  }
 }
 
 /** The env every `mix` invocation shares: the dev config path (honors
@@ -509,8 +536,10 @@ async function runCase(c) {
       execFileSync("mix", ["ecto.create"], { cwd: deplDir, stdio: "pipe", env: menv() });
       // Clean DB per case (context-named schemas + schema_migrations), else the
       // 2nd case collides.  ecto.create ensured the DB exists first.
-      await resetDatabase(DATABASE_URL.replace("ecto://", "postgresql://"));
-      execFileSync("mix", ["ecto.migrate"], { cwd: deplDir, stdio: "pipe", env: menv() });
+      const pgUrl = DATABASE_URL.replace("ecto://", "postgresql://");
+      await resetDatabase(pgUrl);
+      if (SHARED_SCHEMA) await sharedSchemaMigrate(genDir, deplDir, pgUrl, menv);
+      else execFileSync("mix", ["ecto.migrate"], { cwd: deplDir, stdio: "pipe", env: menv() });
 
       // Nothing may still be listening on PORT: `waitForPort` below cannot tell
       // this case's server from a previous case's leftover, and answering with
@@ -548,6 +577,7 @@ async function runCase(c) {
         unauthorizedCredentials(isOidc ? "oidc" : hasAuth ? "devstub" : "none", isOidc && oidc ? oidc.unauthorizedToken : null),
         otherTenantCredentials(isOidc ? "oidc" : hasAuth ? "devstub" : "none"),
         mountsFiles,
+        SHARED_SCHEMA ? OWNER_TEST_NAME : null,
       ),
     );
     await build({ entryPoints: [entry], outfile: bundle, bundle: true, platform: "node", format: "esm", target: "node20", packages: "external", logLevel: "warning" });
@@ -570,9 +600,40 @@ async function runCase(c) {
 
 const only = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 // Manifest-derived corpus features (vanilla elixir) + shared tokenized systems.
-const corpus = [...(await featureCases("vanilla", "elixir", WORK, "elixir")), ...sharedSystemCases("elixir")].filter(
+const allCases = [...(await featureCases("vanilla", "elixir", WORK, "elixir")), ...sharedSystemCases("elixir")].filter(
   (c) => only.length === 0 || only.includes(c.name),
 );
+const corpus = SHARED_SCHEMA ? sharedSchemaCases(allCases) : allCases;
+
+/** The shared-database leg's cases: each case with a node owner declared before
+ *  its elixir deployable.  A case the validator refuses with
+ *  `loom.ecto-shared-database` is reported and left out; every other case runs,
+ *  so any other refusal fails it at generation. */
+function sharedSchemaCases(cases) {
+  const out = [];
+  const refused = [];
+  const tracked = [];
+  for (const c of cases) {
+    // A tracked expected failure fails for its own reason on the main leg;
+    // here it would only fail again, differently.
+    if (c.name in (BEHAVIOURAL_XFAIL.elixir ?? {})) {
+      tracked.push(c.name);
+      continue;
+    }
+    const source = withSchemaOwner(c.source);
+    const dir = join(WORK, c.name);
+    mkdirSync(dir, { recursive: true });
+    const probe = join(dir, "shared-probe.ddd");
+    writeCaseSource(probe, source, c.locales);
+    const codes = refusalCodes(REPO, probe);
+    if (codes.length === 1 && codes[0] === ECTO_SHARED_DATABASE) refused.push(c.name);
+    else out.push({ ...c, source });
+  }
+  process.stdout.write(
+    `shared-schema: ${out.length} case(s) run as a non-owner; ${refused.length} refused by ${ECTO_SHARED_DATABASE}: ${refused.join(", ") || "none"}; ${tracked.length} tracked expected failure(s) left to the main leg\n`,
+  );
+  return out;
+}
 
 // Stand up the mock OIDC issuer once if any case carries an `auth {}` block.
 if (corpus.some((c) => /\n\s*auth\s*\{/.test(c.source))) {

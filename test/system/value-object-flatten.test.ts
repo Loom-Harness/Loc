@@ -27,7 +27,10 @@ system TV {
   deployable d { platform: dotnet          contexts: [C] dataSources: [cState] serves: SApi port: 8080 }
   storage loomDb { type: postgres }
   resource cState { for: C, kind: state, use: loomDb }
-  deployable p { platform: elixir contexts: [C] dataSources: [cState] serves: SApi port: 4000 }
+  // Ecto stores a value object as one json column, so phoenix keeps its own database.
+  storage phoenixDb { type: postgres }
+  resource pState { for: C, kind: state, use: phoenixDb }
+  deployable p { platform: elixir contexts: [C] dataSources: [pState] serves: SApi port: 4000 }
 }
 `;
 

@@ -147,8 +147,8 @@ function valueObjectRowShape(
   if (arr?.kind !== "array") return undefined;
   const el = arr.element.kind === "optional" ? arr.element.inner : arr.element;
   if (el.kind !== "valueobject") return undefined;
-  const bc = ctx.bcByAggregate.get(aggName);
-  const vo = bc ? findValueObjectInScope(bc, el.name) : undefined;
+  const home = ctx.model.homeOfAggregate(aggName);
+  const vo = home ? findValueObjectInScope(home, el.name) : undefined;
   return vo ? { name: vo.name, fields: vo.fields } : undefined;
 }
 

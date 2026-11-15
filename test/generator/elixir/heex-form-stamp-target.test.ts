@@ -21,7 +21,7 @@ const SYSTEM = `
     user { id: guid  role: string }
     subdomain M {
       context C {
-        aggregate Order {
+        aggregate Order with crudish {
           notes: string
           memo: string?
           createdByRole: string

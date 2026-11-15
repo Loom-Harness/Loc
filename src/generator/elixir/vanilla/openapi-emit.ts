@@ -1,7 +1,7 @@
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { isRequiredCreateInput, wireCreateDefault } from "../../../ir/enrich/wire-projection.js";
 import { createRequestFields } from "../../../ir/plan/create-request.js";
-import { polymorphicReadGates, routedPolymorphicRead } from "../../../ir/plan/index.js";
+import { polymorphicReadOperations, routedPolymorphicRead } from "../../../ir/plan/index.js";
 import { PAGED_MAX_PAGE, PAGED_MAX_PAGE_SIZE, pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -93,6 +93,17 @@ import { emitsRestDelete } from "./rest-surface.js";
  *  is the HAND-ROLLED sets beside them — the audit-history read and the
  *  `?? [404]` fallback below, neither of which is lifted into
  *  `deriveContextOperations` (`apiSurfaceCoverage.notLifted`). */
+/** The aggregate serves a create — the derived create entry the router mounts
+ *  and the spec documents.  Its create request and response schemas are
+ *  emitted only then. */
+function servesCreate(ctx: EnrichedBoundedContextIR, agg: EnrichedAggregateIR): boolean {
+  if (isAbstractBase(agg)) return false;
+  const repo = ctx.repositories.find((r) => r.aggregateName === agg.name);
+  return deriveAggregateOperations(agg, repo, apiStatusContext(ctx)).some(
+    (o) => o.kind === "create",
+  );
+}
+
 function withResolvedNotFound(statuses: readonly number[], notFoundStatus: number): number[] {
   const stdlib = exStatus("not-found");
   if (notFoundStatus === stdlib) return [...statuses];
@@ -207,17 +218,13 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
   // the whole deployable -- a per-context scope would leave two contexts free to
   // collide in it.
   const requestComponentOwners: RequestComponentOwner[] = [
-    // The canonical create request, listed for EVERY aggregate because this
-    // backend emits `create_<agg>_request.ex` unconditionally (the schema loop
-    // below has no gate; only the SPEC's reference to it is gated, on the
-    // derived create entry).  The minter's contract is "the owners this backend
-    // actually publishes", and an occupied file path is occupied whether or not
-    // the document links to it -- so gating this on `emitsRestCreate` the way
-    // the Hono side does would leave a `create<Agg>` workflow free to clobber
-    // an orphan create schema.
-    ...allAggregates.map(
-      ({ agg }): RequestComponentOwner => ({ kind: "create", aggregate: agg.name }),
-    ),
+    // The canonical create request of every aggregate that serves a create —
+    // exactly the aggregates whose `create_<agg>_request.ex` the schema loop
+    // below writes, so the minter's owners are the files this backend
+    // publishes.
+    ...allAggregates
+      .filter(({ ctx, agg }) => servesCreate(ctx, agg))
+      .map(({ agg }): RequestComponentOwner => ({ kind: "create", aggregate: agg.name })),
     ...allAggregates.flatMap(({ agg }) =>
       agg.operations
         .filter((o) => o.visibility === "public")
@@ -372,18 +379,22 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
         renderAggregatePagedResponseSchema(agg, pagedName, webModule),
       );
     }
-    // Create request — path and module name both from the resolved name, for
-    // the same reason as the operation loop below (F-026).
-    const createReqName = reqNameFor({ kind: "create", aggregate: agg.name });
-    files.set(
-      `${schemaDir}/${snake(createReqName)}.ex`,
-      renderCreateRequestSchema(agg, webModule, createReqName, ctx.payloads),
-    );
-    // Create response — `{ id }`, matching Hono/.NET's Create<Agg>Response
-    files.set(
-      `${schemaDir}/create_${snake(agg.name)}_response.ex`,
-      renderCreateResponseSchema(agg, webModule),
-    );
+    // Create request and response — only for a served create, the same gate
+    // the router mounts and the spec documents.  The request's path and module
+    // name both come from the resolved name, for the same reason as the
+    // operation loop below.
+    if (servesCreate(ctx, agg)) {
+      const createReqName = reqNameFor({ kind: "create", aggregate: agg.name });
+      files.set(
+        `${schemaDir}/${snake(createReqName)}.ex`,
+        renderCreateRequestSchema(agg, webModule, createReqName, ctx.payloads),
+      );
+      // `{ id }`, matching Hono/.NET's Create<Agg>Response.
+      files.set(
+        `${schemaDir}/create_${snake(agg.name)}_response.ex`,
+        renderCreateResponseSchema(agg, webModule),
+      );
+    }
     // Per-operation request schemas
     for (const op of agg.operations.filter((o) => o.visibility === "public")) {
       // The PATH is derived from the resolved name, not from op+agg: the
@@ -1670,10 +1681,12 @@ function polymorphicOperations(
   schemasModule: string,
 ): ElixirApiOperation[] {
   if (!routedPolymorphicRead(base, ctx)) return [];
-  // The 403 is declared when a concrete's list-read gate rides the route.
-  const forbidden =
-    polymorphicReadGates(base, ctx).length > 0
-      ? [denialStatus("forbidden", denialOverrides(ctx))]
+  // Each route declares the 403 its derived operation answers.
+  const forbiddenStatus = denialStatus("forbidden", denialOverrides(ctx));
+  const ops = polymorphicReadOperations(base, ctx);
+  const forbidden = (kind: "find" | "getById"): number[] =>
+    ops.find((o) => o.kind === kind)?.errorStatuses.includes(forbiddenStatus)
+      ? [forbiddenStatus]
       : [];
   const out: ElixirApiOperation[] = [
     {
@@ -1685,7 +1698,7 @@ function polymorphicOperations(
       parameters: pagingQueryParams().slice(0, 2),
       responses: [
         jsonResponse(200, "OK", `${schemasModule}.${base.name}Paged`),
-        ...statusResponses([...forbidden, 422], schemasModule),
+        ...statusResponses([...forbidden("find"), 422], schemasModule),
       ],
     },
   ];
@@ -1699,7 +1712,7 @@ function polymorphicOperations(
       parameters: [pathIdParam()],
       responses: [
         jsonResponse(200, "OK", `${schemasModule}.${base.name}Response`),
-        ...statusResponses([...forbidden, 404, 422], schemasModule),
+        ...statusResponses([...forbidden("getById"), 404, 422], schemasModule),
       ],
     });
   }

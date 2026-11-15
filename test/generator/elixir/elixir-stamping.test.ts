@@ -98,10 +98,7 @@ describe("elixir/vanilla generator — lifecycle stamps", () => {
     expect(changeset).not.toContain(":updated_by");
   });
 
-  it("drops timestamps() entirely when auditable (audit columns are the only timestamps)", async () => {
-    // The vanilla Ecto schema drops the bundled `timestamps()` when an explicit
-    // `updated_at` field is present (it would collide); the migration must
-    // mirror that or `ecto.migrate` aborts with a duplicate `updated_at`.
+  it("the audit columns are the only timestamps (no Ecto timestamps())", async () => {
     const mig = (await generateSystemFiles(VANILLA_NON_PRINCIPAL)).get(MIGRATION)!;
     expect(mig).toContain("add :updated_at, :timestamptz, null: false");
     expect(mig).not.toContain("timestamps(");

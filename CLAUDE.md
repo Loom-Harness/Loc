@@ -134,7 +134,7 @@ The lowering phase has two sub-passes, both driven by `lowerModel`:
 
 After lowering, `src/ir/enrich/` (`enrichments.ts` + `wire-projection.ts`) runs **one pure pass** (phase ⑥) that derives:
 
-1. **The wire shape** of every aggregate / part / value object — the canonical ordered field list every backend's DTO emitter consumes (`id`, then declared properties, then containments, then derived). It is not stored on the IR: the `wireFieldsFor*` helpers in `wire-projection.ts` compute it on demand from the node, so every backend derives the same list. Cross-backend wire compatibility is structural, not coincidental.
+1. **The wire shape** is not derived here: it is the declared `response <Agg>Response` / `<Part>Response` record every exposed context carries (`scaffoldHandlers`, `api X from <Subdomain>`, or hand-written). `responseWireFor` (`src/ir/util/response-wire.ts`) turns a record into the ordered rows every backend's DTO and serializer render (`id`, then the record's fields, masks from `declaredResponseFor`), so cross-backend wire compatibility is structural, not coincidental; a value object's wire is its declaration (`valueObjectWire`). `wire-projection.ts` keeps the access-modifier filters and the create/update input derivations.
 2. **Auto-`findAll`** on every aggregate's repository.
 3. **Associations** for `X id[]` collection fields (join-table metadata).
 4. **React `targets:` module inheritance** — react deployables inherit their target backend's `moduleNames`.

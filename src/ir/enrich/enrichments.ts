@@ -1233,12 +1233,12 @@ function enrichWorkflowReturnType(wf: WorkflowIR): WorkflowIR {
  *  workflow-instance analogue of an aggregate's `wireShape`
  *  (workflow-instance-visibility.md).  No-op for stateless workflows (no
  *  correlation field ⇒ no instance to read).  Event-sourced workflows DO carry
- *  it: `wireFieldsForWorkflow` reads only `correlationField` + `stateFields`
+ *  it: `workflowInstanceWire` reads only `correlationField` + `stateFields`
  *  (both present on ES workflows), and the read body folds the per-correlation
  *  event stream instead of selecting a `<wf>_state` row. */
 function enrichWorkflowInstanceShape(wf: WorkflowIR): WorkflowIR {
   if (!wf.correlationField) return wf;
-  return { ...wf, instanceWireShape: wireFieldsForWorkflow(wf) };
+  return { ...wf, instanceWireShape: workflowInstanceWire(wf) };
 }
 
 /** Derive a projection's canonical wire shape (projection.md) — the correlation
@@ -1328,11 +1328,11 @@ function selectDerivedFields(proj: ProjectionIR): readonly FieldIR[] {
 /** The wire shape of a persisted workflow instance: the correlation field as
  *  the `id`-shaped `token` row (mirroring an aggregate's synthetic `id`),
  *  then the remaining `stateFields` as `property` rows in declaration order.
- *  Order is the contract, exactly like `wireFieldsForAggregate`.  The
+ *  Order is the contract, exactly like an aggregate's read rows.  The
  *  correlation field keeps its declared name (it is a real column on the
  *  state table `workflowStateTableShape` derives), unlike an aggregate's
  *  always-`"id"` key. */
-function wireFieldsForWorkflow(wf: WorkflowIR): WireField[] {
+function workflowInstanceWire(wf: WorkflowIR): WireField[] {
   const corr = wf.correlationField;
   const fields = wf.stateFields ?? [];
   const corrField = fields.find((f) => f.name === corr);
@@ -1652,8 +1652,8 @@ function enrichAggregate(
   // agg so enrichment is idempotent (second enrichment finds the synthesized
   // inspect already in `derived` and doesn't double-add, and
   // `resolveFieldAccess` skips fields that already carry access).  The canonical
-  // wire shape is NOT stamped — every consumer recomputes it on demand via
-  // `wireFieldsForAggregate` (see CLAUDE.md "Derive, don't stamp").
+  // read rows are NOT stamped — every consumer reads them on demand from the
+  // declared response record via `responseWireFor` (see CLAUDE.md "Derive, don't stamp").
   // Stamp routeSlug on every lifecycle action.  New objects (don't
   // mutate shared refs).
   const stamp = (o: OperationIR): OperationIR => ({ ...o, routeSlug: routeSlugFor(o, urlStyle) });
@@ -1964,7 +1964,7 @@ function enrichValueObject(vo: ValueObjectIR): EnrichedValueObjectIR {
  * fields.  A declared `X id` is a foreign-key reference — the client
  * supplies it (e.g. `holder: Customer id` on `Account.create(holder)`)
  * so it must default to editable, not `token`.  The aggregate's own
- * synthetic identity is added separately by `wireFieldsForAggregate`
+ * synthetic identity is added separately by `responseWireFor`
  * with `access: "token"` hardcoded.  Explicit token semantics for a
  * declared field (e.g. `version: int token` for optimistic concurrency)
  * are opt-in via the `token` modifier in source.
@@ -2143,16 +2143,6 @@ function enrichDeployables(deployables: DeployableIR[]): DeployableIR[] {
     return { ...d, contextNames: [...target.contextNames] };
   });
 }
-
-// ---------------------------------------------------------------------------
-// Wire-shape derivation.
-//
-// The canonical wire-shape walk (`wireFieldsForAggregate` / `-Part` /
-// `-ValueObject`) lives in `./wire-projection.ts` alongside the
-// access-modifier filters that consume it, so both the enrichment pass here
-// and the scaffold-time emit sites read the same single source.  See
-// CLAUDE.md "Derive, don't stamp".
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Traceability index — derived in one pure pass, exactly

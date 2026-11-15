@@ -665,6 +665,9 @@ export function derivePolymorphicReadOperations(
   base: AggregateIR,
   layout: "sharedTable" | "ownTable",
   statuses: ApiStatusContext,
+  /** True when a concrete's list-read gate rides the base read — both reads
+   *  then answer its 403 (`polymorphicReadGates`, `ir/plan/`). */
+  guarded: boolean,
 ): ApiOperationIR[] {
   const path = aggregateBase(base.name);
   const resolve = (name: string): number => resolveErrorStatus(name, denialOverridesFor(statuses));
@@ -704,7 +707,7 @@ export function derivePolymorphicReadOperations(
             `${path}/{id}`,
             [idParam()],
             entityType(base.name),
-            errorStatuses("getById", false, resolve),
+            errorStatuses("getById", guarded, resolve),
           ),
         ]
       : []),
@@ -714,7 +717,7 @@ export function derivePolymorphicReadOperations(
       path,
       [],
       all.returnType as TypeIR,
-      findErrorStatuses(all, false, base.name, statuses),
+      findErrorStatuses(all, guarded, base.name, statuses),
       all,
     ),
   ];

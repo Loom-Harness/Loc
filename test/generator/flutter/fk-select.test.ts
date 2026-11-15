@@ -19,7 +19,7 @@ system Sales {
       name: string
       derived display: string = name
     }
-    aggregate Order {
+    aggregate Order with crudish {
       customer: Customer id
       total: int
     }
@@ -75,8 +75,8 @@ describe("flutter FK-loaded select", () => {
 describe("flutter fk-select cell in an object-array row", () => {
   it("loads the target's options once and renders each row's cell as a dropdown", async () => {
     const src = SRC.replace(
-      "aggregate Order {\n      customer: Customer id",
-      "valueobject Line { sku: string, supplier: Customer id? }\n    aggregate Order {\n      lines: Line[]\n      customer: Customer id",
+      "aggregate Order with crudish {\n      customer: Customer id",
+      "valueobject Line { sku: string, supplier: Customer id? }\n    aggregate Order with crudish {\n      lines: Line[]\n      customer: Customer id",
     );
     const files = await generateSystemFiles(src);
     const forms = [...files].find(([p]) => p.endsWith("lib/forms.dart"))?.[1] ?? "";

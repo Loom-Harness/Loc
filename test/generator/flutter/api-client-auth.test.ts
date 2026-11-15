@@ -40,7 +40,7 @@ system Secure {
       : ""
   }
   subdomain D { context C {
-    aggregate Order { code: string  operation approve() { } }
+    aggregate Order with crudish { code: string  operation approve() { } }
     event OrderPlaced { code: string }
     channel live { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }
     repository Orders for Order {}

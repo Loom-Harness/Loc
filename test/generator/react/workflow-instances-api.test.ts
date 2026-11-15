@@ -5,7 +5,12 @@
 // `useAll<Agg>` / `use<Agg>ById`.
 
 import { describe, expect, it } from "vitest";
-import { buildWorkflowsApiModule } from "../../../src/generator/_frontend/workflows-module.js";
+import { clientWorkflows } from "../../../src/generator/_frontend/contract.js";
+import {
+  buildWorkflowsApiModule,
+  workflowsModuleScope,
+} from "../../../src/generator/_frontend/workflows-module.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { allContexts } from "../../../src/ir/types/loom-ir.js";
@@ -21,7 +26,9 @@ const SAGA = `
       status: FulfillmentStatus
       create(paid: PaymentReceived) by paid.order { let x = paid.amount }
     }
-  }}}`;
+  }}
+    deployable api { platform: node, contexts: [C], port: 3000 }
+  }`;
 
 const COMMAND_ONLY = `
   system S { subdomain M { context C {
@@ -29,11 +36,22 @@ const COMMAND_ONLY = `
     workflow placeOrder transactional {
       create(total: int) { let o = Order.create(total: total) }
     }
-  }}}`;
+  }}
+    deployable api { platform: node, contexts: [C], port: 3000 }
+  }`;
 
 async function apiModule(srcText: string): Promise<string> {
   const { model } = await parseString(srcText, { validate: false });
-  return buildWorkflowsApiModule(allContexts(enrichLoomModel(lowerModel(model))));
+  const loom = enrichLoomModel(lowerModel(model));
+  const contexts = allContexts(loom);
+  const contract = buildFrontendContract(loom, loom.systems[0]!);
+  return buildWorkflowsApiModule(
+    clientWorkflows(
+      contract,
+      contexts.map((c) => c.name),
+    ),
+    workflowsModuleScope(contexts),
+  );
 }
 
 describe("React workflows api module — instance hooks", () => {

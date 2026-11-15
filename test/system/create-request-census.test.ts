@@ -11,9 +11,9 @@
 //   - no frontend emitter imports the derived `createInputFields`;
 //   - `declaredCreateCommandFor` has one caller, the plan, so there is no
 //     second record reader;
-//   - `undeclaredCreateRequestFields` (the aggregate whose context declares no
-//     create record) is reached only through the plan and the api module, and
-//     the served aggregates that still reach it only shrink.
+//   - there is no derived fallback for an aggregate with no create record,
+//     and every served creatable aggregate of a shipped model has one: the
+//     scaffold splices a create record for every concrete aggregate.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -63,11 +63,6 @@ function filesNaming(symbol: string, files: readonly string[]): string[] {
   });
 }
 
-/** Served, REST-creatable aggregates whose context declares no create command
- *  record, so their create request is still the derived create input.  Pinned:
- *  a new one fails, and a fixed one must lower the ceiling in the same change. */
-const UNDECLARED_CEILING = 26;
-
 describe("create request census", () => {
   it("no frontend emitter reads the derived create input", () => {
     const files = frontendEmitters();
@@ -81,13 +76,12 @@ describe("create request census", () => {
       "src/ir/plan/create-request.ts",
       "src/ir/util/declared-request.ts",
     ]);
-    expect(filesNaming("undeclaredCreateRequestFields", all)).toEqual([
-      "src/generator/_frontend/api-module.ts",
-      "src/ir/plan/create-request.ts",
-    ]);
+    // No derived fallback: an aggregate with no declared create record takes
+    // no create request.
+    expect(filesNaming("undeclaredCreateRequestFields", all)).toEqual([]);
   });
 
-  it("the served aggregates with no create record only shrink", async () => {
+  it("every served creatable aggregate has a declared create record", async () => {
     const undeclared: string[] = [];
     let served = 0;
     for (const file of trackedDddFiles().filter(
@@ -115,10 +109,6 @@ describe("create request census", () => {
       }
     }
     expectReach("served creatable aggregates", served, 400);
-    expect(undeclared.length, undeclared.join("\n")).toBeLessThanOrEqual(UNDECLARED_CEILING);
-    expect(
-      undeclared.length,
-      `the undeclared-create ceiling is stale: lower UNDECLARED_CEILING to ${undeclared.length}`,
-    ).toBe(UNDECLARED_CEILING);
+    expect(undeclared).toEqual([]);
   }, 300_000);
 });

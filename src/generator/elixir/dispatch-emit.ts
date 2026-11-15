@@ -414,8 +414,7 @@ defmodule ${stateModule(contextModule, wf)} do
 
 ${prefixLine}  @primary_key {:${snake(corr)}, ${pkType}, autogenerate: false}
   schema "${table}" do
-${fieldLines.length > 0 ? fieldLines.join("\n") + "\n" : ""}    timestamps()
-  end
+${fieldLines.length > 0 ? fieldLines.join("\n") + "\n" : ""}  end
 end
 `;
 }

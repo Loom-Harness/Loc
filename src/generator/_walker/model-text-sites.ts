@@ -20,17 +20,7 @@
 //     the translation runtime on by itself.
 // ---------------------------------------------------------------------------
 
-import { createRequestFields } from "../../ir/plan/create-request.js";
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  EnumIR,
-  ExprIR,
-  TypeIR,
-  UiIR,
-  WorkflowIR,
-} from "../../ir/types/loom-ir.js";
-import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
+import type { AggregateIR, EnumIR, ExprIR, TypeIR, UiIR } from "../../ir/types/loom-ir.js";
 import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { modelTextDefaultOfKey, modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
@@ -39,6 +29,7 @@ import type { FormFieldVM } from "../_frontend/view-models.js";
 import { localizedModelText } from "./i18n-emit.js";
 import type { MessageEntry } from "./i18n-extract.js";
 import type { WalkContext } from "./walker-core.js";
+import type { WalkerHome, WalkerModel } from "./walker-model.js";
 
 const STRING: TypeIR = { kind: "primitive", name: "string" };
 
@@ -108,13 +99,13 @@ export function formFieldModelTextTokens(
  *  `<Ctx>.<Agg>.op.<op>`; undefined when the site is off. */
 export function opModelText(
   ctx: WalkContext,
-  bc: BoundedContextIR,
+  home: WalkerHome,
   aggName: string,
   opName: string,
 ): { markup: string; expr: string } | undefined {
   if (!implicitModelTextOn(ctx)) return undefined;
   const { key, defaultText } = modelTextEntry({
-    ctx: modelTextContextOf(aggName, bc, ctx.bcByAggregate.values()),
+    ctx: ctx.model.modelTextOwner(aggName, home),
     type: aggName,
     facet: "op",
     member: opName,
@@ -128,8 +119,8 @@ export function opModelText(
  *  key the scaffold's operation forms and `implicitModelTextEntries` share),
  *  else the humanized operation name. */
 export function actionButtonLabel(ctx: WalkContext, agg: AggregateIR, opName: string): string {
-  const bc = ctx.bcByAggregate.get(agg.name);
-  return (bc && opModelText(ctx, bc, agg.name, opName)?.markup) || humanize(opName);
+  const home = ctx.model.homeOfAggregate(agg.name);
+  return (home && opModelText(ctx, home, agg.name, opName)?.markup) || humanize(opName);
 }
 
 /** The English default of an operation's identity-keyed label
@@ -145,11 +136,11 @@ export function opDefaultText(typeName: string, opName: string): string {
  *  `WorkflowForm` submit reads. */
 export function workflowRunEntry(
   wfName: string,
-  bc: BoundedContextIR,
-  contexts: Iterable<BoundedContextIR>,
+  home: WalkerHome,
+  model: WalkerModel,
 ): { key: string; defaultText: string } {
   return modelTextEntry({
-    ctx: modelTextContextOf(wfName, bc, contexts),
+    ctx: model.modelTextOwner(wfName, home),
     type: wfName,
     facet: "op",
     member: "run",
@@ -160,21 +151,21 @@ export function workflowRunEntry(
  *  the site is off (the target keeps its literal "Run"). */
 export function workflowRunExpr(
   ctx: WalkContext,
-  bc: BoundedContextIR,
+  home: WalkerHome,
   wfName: string,
 ): string | undefined {
   if (!implicitModelTextOn(ctx)) return undefined;
-  const { key, defaultText } = workflowRunEntry(wfName, bc, ctx.bcByAggregate.values());
+  const { key, defaultText } = workflowRunEntry(wfName, home, ctx.model);
   return localizedModelText(ctx, key, defaultText);
 }
 
 /** {@link workflowRunExpr} as a markup token. */
 export function workflowRunModelText(
   ctx: WalkContext,
-  bc: BoundedContextIR,
+  home: WalkerHome,
   wfName: string,
 ): string | undefined {
-  const expr = workflowRunExpr(ctx, bc, wfName);
+  const expr = workflowRunExpr(ctx, home, wfName);
   return expr === undefined ? undefined : ctx.target.renderInterpolation(expr, STRING);
 }
 
@@ -209,24 +200,23 @@ function unwrapInputType(t: TypeIR): TypeIR {
  *  walking the value-object keys in `path` (outermost first).  `ownerOf` names
  *  the model type a TOP-LEVEL input is declared on (`undefined` ⇒ the input
  *  names no model fact and keeps its English).  `undefined` when the input
- *  cannot be resolved against `bc`. */
+ *  cannot be resolved against `home`. */
 export function formInputModelText(
   inputs: readonly { name: string; type: TypeIR }[],
   path: readonly string[],
   leaf: string,
   ownerOf: (name: string) => string | undefined,
-  bc: BoundedContextIR | undefined,
-  contexts: Iterable<BoundedContextIR>,
+  home: WalkerHome | undefined,
+  model: WalkerModel,
 ): FormInputModelText | undefined {
-  if (!bc) return undefined;
-  const all = [...contexts];
+  if (!home) return undefined;
   let fields: readonly { name: string; type: TypeIR }[] = inputs;
   let owner: string | undefined;
   let nested = false;
   for (const key of path) {
     const f = fields.find((x) => x.name === key);
     const t = f ? unwrapInputType(f.type) : undefined;
-    const vo = t?.kind === "valueobject" ? findValueObjectInScope(bc, t.name) : undefined;
+    const vo = t?.kind === "valueobject" ? findValueObjectInScope(home, t.name) : undefined;
     if (!vo) return undefined;
     fields = vo.fields;
     owner = vo.name;
@@ -237,15 +227,15 @@ export function formInputModelText(
   if (!nested) owner = ownerOf(leaf);
   if (owner === undefined) return undefined;
   const { key, defaultText } = modelTextEntry({
-    ctx: modelTextContextOf(owner, bc, all),
+    ctx: model.modelTextOwner(owner, home),
     type: owner,
     facet: "field",
     member: leaf,
   });
   const t = unwrapInputType(field.type);
-  const en = t.kind === "enum" ? enumPool(bc).find((e) => e.name === t.name) : undefined;
+  const en = t.kind === "enum" ? enumPool(home).find((e) => e.name === t.name) : undefined;
   if (!en) return { key, defaultText };
-  const enumCtx = modelTextContextOf(en.name, bc, all);
+  const enumCtx = model.modelTextOwner(en.name, home);
   return {
     key,
     defaultText,
@@ -271,10 +261,10 @@ export function enumBadgeValueExpr(
   valueExpr: string,
 ): string {
   if (!enumName || !implicitModelTextOn(ctx)) return valueExpr;
-  for (const bc of ctx.bcByAggregate.values()) {
-    const en = enumPool(bc).find((e) => e.name === enumName);
+  for (const home of ctx.model.homes) {
+    const en = enumPool(home).find((e) => e.name === enumName);
     if (!en) continue;
-    const owner = modelTextContextOf(en.name, bc, ctx.bcByAggregate.values());
+    const owner = ctx.model.modelTextOwner(en.name, home);
     const keys = en.values.map((v) =>
       modelTextKey({ ctx: owner, type: en.name, facet: "value", member: v }),
     );
@@ -293,14 +283,14 @@ export function enumBadgeValueExpr(
 function fieldEntries(
   owner: string | undefined,
   field: { name: string; type: TypeIR },
-  bc: BoundedContextIR,
-  contexts: readonly BoundedContextIR[],
+  home: WalkerHome,
+  model: WalkerModel,
   out: MessageEntry[],
   seen: Set<string> = new Set(),
 ): void {
   if (owner !== undefined) {
     const e = modelTextEntry({
-      ctx: modelTextContextOf(owner, bc, contexts),
+      ctx: model.modelTextOwner(owner, home),
       type: owner,
       facet: "field",
       member: field.name,
@@ -314,23 +304,19 @@ function fieldEntries(
     while (t.kind === "optional") t = t.inner;
   }
   if (t.kind === "enum") {
-    const en = enumPool(bc).find((x) => x.name === (t as { name: string }).name);
-    if (en) out.push(...enumEntries(en, bc, contexts));
+    const en = enumPool(home).find((x) => x.name === (t as { name: string }).name);
+    if (en) out.push(...enumEntries(en, home, model));
   } else if (t.kind === "valueobject") {
-    const vo = findValueObjectInScope(bc, t.name);
+    const vo = findValueObjectInScope(home, t.name);
     if (vo && !seen.has(vo.name)) {
       const next = new Set(seen).add(vo.name);
-      for (const vf of vo.fields) fieldEntries(vo.name, vf, bc, contexts, out, next);
+      for (const vf of vo.fields) fieldEntries(vo.name, vf, home, model, out, next);
     }
   }
 }
 
-function enumEntries(
-  en: EnumIR,
-  bc: BoundedContextIR,
-  contexts: readonly BoundedContextIR[],
-): MessageEntry[] {
-  const owner = modelTextContextOf(en.name, bc, contexts);
+function enumEntries(en: EnumIR, home: WalkerHome, model: WalkerModel): MessageEntry[] {
+  const owner = model.modelTextOwner(en.name, home);
   return en.values.map((v) => {
     const e = modelTextEntry({ ctx: owner, type: en.name, facet: "value", member: v });
     return { key: e.key, message: e.defaultText };
@@ -340,11 +326,11 @@ function enumEntries(
 function opEntry(
   agg: AggregateIR,
   opName: string,
-  bc: BoundedContextIR,
-  contexts: readonly BoundedContextIR[],
+  home: WalkerHome,
+  model: WalkerModel,
 ): MessageEntry {
   const e = modelTextEntry({
-    ctx: modelTextContextOf(agg.name, bc, contexts),
+    ctx: model.modelTextOwner(agg.name, home),
     type: agg.name,
     facet: "op",
     member: opName,
@@ -362,21 +348,16 @@ function namedRef(call: ExprIR & { kind: "call" }, name: string): string | undef
 }
 
 /** Every implicit model-text catalog entry a UI's forms and badges render,
- *  read off its page and component bodies against `contexts`.  Enum values are
- *  catalogued for every enum the contexts declare: an `EnumBadge`'s enum is a
- *  property of the row it reads, not of the call. */
+ *  read off its page and component bodies against `model`.  Enum values are
+ *  catalogued for every enum the model's contexts declare: an `EnumBadge`'s
+ *  enum is a property of the row it reads, not of the call. */
 export function implicitModelTextEntries(
   ui: UiIR,
-  contexts: readonly BoundedContextIR[],
+  model: WalkerModel,
   opts: { optionalCreateInputs?: boolean } = {},
 ): MessageEntry[] {
   const out: MessageEntry[] = [];
-  const aggregates = new Map<string, { agg: AggregateIR; bc: BoundedContextIR }>();
-  const workflows = new Map<string, { wf: WorkflowIR; bc: BoundedContextIR }>();
-  for (const bc of contexts) {
-    for (const agg of bc.aggregates) aggregates.set(agg.name, { agg, bc });
-    for (const wf of bc.workflows) workflows.set(wf.name, { wf, bc });
-  }
+  const { aggregates, workflows } = model;
   let rendersBadge = false;
   const visit = (body: ExprIR | undefined) =>
     walkExprDeep(body, (e) => {
@@ -384,12 +365,12 @@ export function implicitModelTextEntries(
       if (e.name === "CreateForm") {
         const hit = aggregates.get(namedRef(e, "of") ?? "");
         if (!hit) return;
-        for (const f of createRequestFields(hit.bc.payloads, hit.agg).filter(
-          (x) => opts.optionalCreateInputs || !x.optional,
-        )) {
-          fieldEntries(hit.agg.name, f, hit.bc, contexts, out);
+        for (const f of model
+          .createRequestFields(hit.home, hit.agg)
+          .filter((x) => opts.optionalCreateInputs || !x.optional)) {
+          fieldEntries(hit.agg.name, f, hit.home, model, out);
         }
-        out.push(opEntry(hit.agg, "create", hit.bc, contexts));
+        out.push(opEntry(hit.agg, "create", hit.home, model));
       } else if (e.name === "OperationForm") {
         const opArg = (e.argNames ?? []).indexOf("op");
         const named = opArg >= 0 ? e.args[opArg] : undefined;
@@ -405,19 +386,19 @@ export function implicitModelTextEntries(
         const candidates = owner
           ? [aggregates.get(owner)].filter((x) => x !== undefined)
           : [...aggregates.values()];
-        for (const { agg, bc } of candidates) {
+        for (const { agg, home } of candidates) {
           const op = agg.operations.find((o) => o.name === opName && o.visibility === "public");
           if (!op) continue;
-          out.push(opEntry(agg, opName, bc, contexts));
+          out.push(opEntry(agg, opName, home, model));
           for (const p of op.params)
-            fieldEntries(paramLabelOwner(agg, p.name), p, bc, contexts, out);
+            fieldEntries(paramLabelOwner(agg, p.name), p, home, model, out);
         }
       } else if (e.name === "WorkflowForm") {
         const hit = workflows.get(namedRef(e, "runs") ?? "");
         if (!hit) return;
-        const run = workflowRunEntry(hit.wf.name, hit.bc, contexts);
+        const run = workflowRunEntry(hit.wf.name, hit.home, model);
         out.push({ key: run.key, message: run.defaultText });
-        for (const p of hit.wf.params) fieldEntries(hit.wf.name, p, hit.bc, contexts, out);
+        for (const p of hit.wf.params) fieldEntries(hit.wf.name, p, hit.home, model, out);
       } else if (e.name === "Action") {
         const ref = (e.args.find((_, i) => !(e.argNames ?? [])[i]) ?? e.args[0]) as
           | ExprIR
@@ -426,9 +407,9 @@ export function implicitModelTextEntries(
         // The receiver is an in-scope instance whose aggregate the IR does not
         // name here, so every aggregate declaring the public operation is
         // catalogued — the same candidate rule `OperationForm` uses.
-        for (const { agg, bc } of aggregates.values()) {
+        for (const { agg, home } of aggregates.values()) {
           if (agg.operations.some((o) => o.name === ref.member && o.visibility === "public")) {
-            out.push(opEntry(agg, ref.member, bc, contexts));
+            out.push(opEntry(agg, ref.member, home, model));
           }
         }
       } else if (e.name === "EnumBadge") {
@@ -438,8 +419,8 @@ export function implicitModelTextEntries(
   for (const page of ui.pages) visit(page.body);
   for (const component of ui.components) visit(component.body);
   if (rendersBadge) {
-    for (const bc of contexts) {
-      for (const en of bc.enums) out.push(...enumEntries(en, bc, contexts));
+    for (const home of model.homes) {
+      for (const en of home.enums) out.push(...enumEntries(en, home, model));
     }
   }
   return out;

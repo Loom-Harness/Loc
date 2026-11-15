@@ -74,11 +74,12 @@ export function exMigrationColumnOpts(c: ColumnType): string {
     : "";
 }
 
-/** The migration type of a primary key / FK reference.  A text key is Ecto's
- *  `:string` (varchar(255)) by the string-PK convention; every other key is
- *  its column type. */
+/** The migration type of a primary key / FK reference: its column type, as
+ *  the shared schema declares it (a text key is `text`, not Ecto's
+ *  `varchar(255)` `:string`), so the table matches whichever backend created
+ *  it. */
 export function exMigrationKeyType(c: ColumnType): string {
-  return c.kind === "text" ? ":string" : exMigrationColumnType(c);
+  return exMigrationColumnType(c);
 }
 
 /** The Postgres type NAME of a `datetime` column, for a SQL `fragment` that
@@ -154,10 +155,10 @@ export function exEctoJsonType(): string {
   return exSchemaType(scalarCodec("json").column);
 }
 
-/** The Ecto type of Ecto's own bookkeeping columns — `inserted_at` /
- *  `updated_at` from `timestamps()`.  Never on a wire (the serializer strips
- *  them), and the migration's `timestamps()` creates them as `timestamp(0)`, so
- *  second precision is what the column holds. */
+/** The timestamp type the generated project configures for `mix phx.gen.*`
+ *  (`generators: [timestamp_type: …]`).  No emitted schema or migration uses
+ *  `timestamps()`: every table carries exactly the shared migration's columns,
+ *  which any backend on the database may have created. */
 export function exFrameworkTimestampType(): string {
   return ":utc_datetime";
 }

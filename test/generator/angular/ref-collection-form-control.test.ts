@@ -40,7 +40,7 @@ const SOURCE = (design: string) => `
           name: string
           derived display: string = name
         }
-        aggregate Post {
+        aggregate Post with crudish {
           title: string
           tags: Tag id[]
           names: string[]

@@ -27,7 +27,7 @@ const SRC = `
 system Inv {
   api A from D
   subdomain D { context C {
-    aggregate Ticket {
+    aggregate Ticket with crudish {
       title: string
       code: string
       priority: int
