@@ -20,4 +20,4 @@ once per target and is done, and the breadth budget goes to depth.
 `seam` rows in `src/diagnostics/unsupported-register.ts` exist for a target
 that is not coming.
 
-**Enforced by:** none, not observable — a process rule: a target is added only by reopening the ruling
+**Enforced by:** review — `docs/review-checklist.md#d-target-matrix-frozen` — a process rule: a target is added only by reopening the ruling

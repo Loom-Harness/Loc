@@ -1,18 +1,23 @@
 // Every decision record names the gate that enforces it.
 //
 // A ruling about how generated code behaves protects nothing unless a test
-// observes it.  So each `docs/decisions/D-*.md` ends with one line, its last
-// non-blank line, in one of three forms:
+// observes it, or — where a gate is impractical — a reviewer checks it against
+// a checklist every session is told to read.  So each `docs/decisions/D*.md`
+// ends with one line, its last non-blank line, in one of three tiers:
 //
-//   **Enforced by:** `test/…/a.test.ts`, `test/…/b.test.ts`
-//   **Enforced by:** none, tracked by #NNNN — <why there is no gate yet>
-//   **Enforced by:** none, not observable — <why no test can observe it>
+//   gate:      **Enforced by:** `test/…/a.test.ts`, `test/fixtures/corpus/x.ddd`
+//   review:    **Enforced by:** review — `docs/review-checklist.md#<tag>` — <why a gate is impractical>
+//   not built: **Enforced by:** none, tracked by #NNNN — <why there is no gate yet>
 //
-// A named path must exist and must mention the record's tag, so the link
-// holds from both ends and survives a rename of either.  `tracked by` names a
-// live fence (`test/_helpers/live-fences.ts`), so the deferral expires with
-// its issue.  The records that are `none` are pinned in NONE_RECORDS below:
-// the set only shrinks, and a new `none` record is a reviewed line here.
+// A gate path must exist, must mention the record's tag (so the link holds
+// from both ends and survives a rename of either), and must run in CI.  A
+// review anchor must be a section of the checklist that names the tag, and
+// every checklist section must be pointed at by its record.  `tracked by`
+// names a live fence (`test/_helpers/live-fences.ts`), so the deferral
+// expires with its issue.  The not-built records are pinned in NOT_BUILT
+// below: the set only shrinks, and a new one is a reviewed line here.  The
+// review tier is not forced to shrink; moving a record from gate to review is
+// a reviewed change of its line.
 //
 // Deterministic: it reads committed files only — no network, no clock.
 
@@ -24,50 +29,33 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 const DIR = "docs/decisions";
 const LINE = /^\*\*Enforced by:\*\* (.+)$/;
 const NONE_TRACKED = /^none, tracked by (#\d+) — (.+)$/;
-const NONE_UNOBSERVABLE = /^none, not observable — (.+)$/;
+const REVIEW = /^review — `([^`#]+)#([a-z0-9-]+)` — (.+)$/;
+/** The one checklist review-tier records point into; the runbook sends every
+ *  session to it. */
+const CHECKLIST = "docs/review-checklist.md";
 const GATES = /^`[^`]+`(?:, `[^`]+`)*$/;
 
-/** The records whose line is `none`, sorted, one per line.  Shrink-only. */
-const NONE_RECORDS: readonly string[] = [
-  "D-AI-EMPHASIS",
+/** The records with no gate built yet, sorted, one per line.  Shrink-only. */
+const NOT_BUILT: readonly string[] = [
   "D-API-TOOLKIT",
   "D-CROSSTENANT-ACK",
   "D-CTX-SHAPE",
-  "D-ENV-SWAP",
   "D-ENVELOPE",
   "D-FORM-BINDS-ACTION",
   "D-GRANULARITY",
-  "D-HONO-SHARED",
   "D-LIFECYCLE-SHAPE",
   "D-MIG-DSL-STEPS",
   "D-MIG-NO-DOWN",
   "D-MISC-C0",
   "D-MODAL-CONTROLLED-OP-FORM",
-  "D-NO-MIXED-FOUNDATION",
-  "D-PERSISTENCE-PER-BACKEND",
-  "D-PHOENIX-DIR",
-  "D-PHOENIX-FORMAT-GATE",
-  "D-PHOENIX-FOUNDATION-ROUTING",
-  "D-PHOENIX-FOUNDATION-STRATEGY",
-  "D-PHOENIX-TRANSPORT",
-  "D-POLICY-STYLE",
   "D-POLYMORPHIC-ID-REPRESENTATION",
-  "D-PRIORITY-ORDER",
-  "D-PYTHON-SINGLE-REALIZATION",
-  "D-READ-SURFACE-ORDER",
-  "D-SEED-XREF",
-  "D-TARGET-MATRIX-FROZEN",
-  "D-TENANCY-HIERARCHY",
-  "D-TENANCY-SCOPE",
   "D-TPH-BEATS-SHAPE",
-  "D-VANILLA-PHOENIX-FOUNDATION",
-  "D-WIRESHAPE-KEEP",
 ];
 
 type Enforcement =
   | { kind: "gates"; paths: string[] }
   | { kind: "tracked"; issue: string; reason: string }
-  | { kind: "not-observable"; reason: string };
+  | { kind: "review"; doc: string; anchor: string; reason: string };
 
 /** The record's enforcement line, parsed, or what is wrong with it. */
 function parseEnforcement(text: string): Enforcement | string {
@@ -81,13 +69,14 @@ function parseEnforcement(text: string): Enforcement | string {
   const body = LINE.exec(last)?.[1] ?? "";
   const tracked = NONE_TRACKED.exec(body);
   if (tracked) return { kind: "tracked", issue: tracked[1], reason: tracked[2] };
-  const unobservable = NONE_UNOBSERVABLE.exec(body);
-  if (unobservable) return { kind: "not-observable", reason: unobservable[1] };
+  const review = REVIEW.exec(body);
+  if (review) return { kind: "review", doc: review[1], anchor: review[2], reason: review[3] };
   if (GATES.test(body))
     return { kind: "gates", paths: [...body.matchAll(/`([^`]+)`/g)].map((m) => m[1]) };
   return (
     "the line must be `**Enforced by:** `<path>`, …`, " +
-    "`**Enforced by:** none, tracked by #N — <why>` or `**Enforced by:** none, not observable — <why>`"
+    "`**Enforced by:** review — `docs/review-checklist.md#<tag>` — <why>` or " +
+    "`**Enforced by:** none, tracked by #N — <why>`"
   );
 }
 
@@ -119,6 +108,23 @@ function ciRunProblem(path: string, src: string, ci: string): string {
   return "";
 }
 
+/** The checklist's sections by anchor (a heading's GitHub slug) → their text,
+ *  heading included, up to the next heading of any level. */
+function checklistSections(md: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const parts = md.split(/^(?=#{1,6} )/m);
+  for (const part of parts) {
+    const heading = /^#{1,6} (.+)$/m.exec(part)?.[1];
+    if (!heading || !part.startsWith("#")) continue;
+    const slug = heading
+      .toLowerCase()
+      .replace(/[^a-z0-9 -]/g, "")
+      .replace(/ /g, "-");
+    out.set(slug, part);
+  }
+  return out;
+}
+
 /** What is wrong with one record's enforcement (empty when nothing is). */
 function recordProblems(
   tag: string,
@@ -133,9 +139,15 @@ function recordProblems(
     const problem = fence(e.issue);
     return problem ? [`${tag}: ${problem}`] : [];
   }
-  if (e.kind === "not-observable") return [];
-  const out: string[] = [];
   const tagWord = new RegExp(`(^|[^A-Z0-9-])${tag}(?![A-Z0-9-])`);
+  if (e.kind === "review") {
+    if (e.doc !== CHECKLIST)
+      return [`${tag}: a review line points into ${CHECKLIST}, not \`${e.doc}\``];
+    const section = checklistSections(read(e.doc) ?? "").get(e.anchor);
+    if (section === undefined) return [`${tag}: ${e.doc} has no section \`#${e.anchor}\``];
+    return tagWord.test(section) ? [] : [`${tag}: ${e.doc}#${e.anchor} does not name ${tag}`];
+  }
+  const out: string[] = [];
   for (const p of e.paths) {
     const src = read(p);
     if (src === undefined) {
@@ -190,18 +202,35 @@ describe("decision records name their gate", () => {
     );
   });
 
-  it("the `none` records are exactly the pinned ones, and the set only shrinks", () => {
-    const none = tags.filter((t) => {
+  it("the not-built records are exactly the pinned ones, and the set only shrinks", () => {
+    const notBuilt = tags.filter((t) => {
       const e = parseEnforcement(textOf(t));
-      return typeof e !== "string" && e.kind !== "gates";
+      return typeof e !== "string" && e.kind === "tracked";
     });
     expect(
-      none,
-      "A record that gained a gate leaves NONE_RECORDS; a new `none` record is added there in review.",
-    ).toEqual([...NONE_RECORDS]);
-    expect([...NONE_RECORDS], "NONE_RECORDS is kept sorted, one tag per entry").toEqual(
-      [...new Set(NONE_RECORDS)].sort(),
+      notBuilt,
+      "A record whose gate landed leaves NOT_BUILT; a new not-built record is added there in review.",
+    ).toEqual([...NOT_BUILT]);
+    expect([...NOT_BUILT], "NOT_BUILT is kept sorted, one tag per entry").toEqual(
+      [...new Set(NOT_BUILT)].sort(),
     );
+  });
+
+  it("every checklist item is a review-tier record's, and the runbook sends sessions to the checklist", () => {
+    const pointed = new Set(
+      tags.flatMap((t) => {
+        const e = parseEnforcement(textOf(t));
+        return typeof e !== "string" && e.kind === "review" ? [e.anchor] : [];
+      }),
+    );
+    const items = [...checklistSections(readFileSync(CHECKLIST, "utf8")).keys()].filter((a) =>
+      /^d(?:-|\d)/.test(a),
+    );
+    expect(
+      items.filter((a) => !pointed.has(a)),
+      `${CHECKLIST} sections no review-tier record points at — delete them or point the record here`,
+    ).toEqual([]);
+    expect(readFileSync("docs/agent-runbook.md", "utf8")).toContain(CHECKLIST);
   });
 
   it("refuses a gate that never runs in CI", () => {
@@ -252,14 +281,20 @@ describe("decision records name their gate", () => {
     expect(
       recordProblems("D-X", rec("**Enforced by:** none, tracked by #2 — not built"), read, open),
     ).toEqual(["D-X: #2 is not a live fence"]);
-    expect(
-      recordProblems(
-        "D-X",
-        rec("**Enforced by:** none, not observable — a naming rule"),
-        read,
-        open,
-      ),
-    ).toEqual([]);
+    const checklist = "# Checklist\n\n### D-X\nThe diff keeps D-X.\n\n### D-Y\nOther.\n";
+    const withChecklist = (p: string) => (p === CHECKLIST ? checklist : read(p));
+    const review = (anchor: string, doc = CHECKLIST) =>
+      rec(`**Enforced by:** review — \`${doc}#${anchor}\` — a naming rule`);
+    expect(recordProblems("D-X", review("d-x"), withChecklist, open)).toEqual([]);
+    expect(recordProblems("D-X", review("d-z"), withChecklist, open)).toEqual([
+      `D-X: ${CHECKLIST} has no section \`#d-z\``,
+    ]);
+    expect(recordProblems("D-X", review("d-y"), withChecklist, open)).toEqual([
+      `D-X: ${CHECKLIST}#d-y does not name D-X`,
+    ]);
+    expect(recordProblems("D-X", review("d-x", "docs/other.md"), withChecklist, open)).toEqual([
+      `D-X: a review line points into ${CHECKLIST}, not \`docs/other.md\``,
+    ]);
     expect(recordProblems("D-X", rec("**Enforced by:** tests"), read, open)[0]).toMatch(
       /the line must be/,
     );

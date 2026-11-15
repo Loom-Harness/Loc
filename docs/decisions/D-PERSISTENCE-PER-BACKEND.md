@@ -23,4 +23,4 @@ already lower through `ExprTarget`, so it would net three backends.
 interface over mostly divergent arms; a contract method with one use folds back
 into the leaf table.
 
-**Enforced by:** none, not observable — a design-audit conclusion about where persistence code lives, with no generated behaviour to assert
+**Enforced by:** review — `docs/review-checklist.md#d-persistence-per-backend` — a design-audit conclusion about where persistence code lives, with no generated behaviour to assert

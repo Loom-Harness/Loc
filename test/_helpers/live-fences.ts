@@ -14,7 +14,9 @@
 // being deleted is reported the next night.
 //
 // Readers: src/diagnostics/unsupported-register.ts `mission` (via
-// unsupported-register.test.ts), and the `blockedBy` of the waivers in
+// unsupported-register.test.ts), the `none, tracked by #N` line of a decision
+// record (docs/decisions, via decision-gates.test.ts), and the `blockedBy` of
+// the waivers in
 // symbol-plan-census, openapi-native-census, e2e-fixed-port-census and
 // ir-walk-census.
 

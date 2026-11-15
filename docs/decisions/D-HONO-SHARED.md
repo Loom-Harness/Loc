@@ -25,4 +25,4 @@ backend-package machinery (`LoomBackendManifest` in `manifest.ts`,
 registry row (`docs/platforms.md` § Backend versioning); `shared/` is never
 renamed for it. Retiring a version deletes its pin-set directory only.
 
-**Enforced by:** none, not observable — a directory layout and naming rule for the Hono package
+**Enforced by:** review — `docs/review-checklist.md#d-hono-shared` — a directory layout and naming rule for the Hono package

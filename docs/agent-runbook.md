@@ -6,7 +6,7 @@
 You were given an issue (`#N`), or asked to find one. Everything else is discoverable:
 - The issue: goal, acceptance, `area:` labels, links — and its **comments**, which carry scope changes, blockers and earlier attempts. The issue is the work's only status record: there is no second copy to update in a doc.
 - A legacy `M-Tx.y` mission is picked up through an issue too. **Search first** — issues open *and* closed whose title or body names the id — and use the one you find; file a new one (title `M-Tx.y: …`) only when none exists. Owner decisions still pending are collected in #3316. Design records the issue links into the legacy record (removed from the tree; [browse it in history](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs)) still apply.
-- Repo ground rules: `CLAUDE.md` and `experience_gathered.md`.
+- Repo ground rules: `CLAUDE.md` and `experience_gathered.md`; the rulings a reviewer enforces by reading are in [`docs/review-checklist.md`](review-checklist.md).
 - Pinned decisions: `docs/decisions/<D-TAG>.md`, one file per tag — a `D-*` tag wins; re-open it explicitly rather than diverging.
 
 ## 1. Verify the issue still stands — before any code
@@ -41,7 +41,7 @@ Re-read the issue; if another claim landed first, back off — the earliest clai
 **Letting go.** If you stop before the acceptance is met — blocked, out of time, re-scoped — release the claim: comment what is done and what remains (with branch and evidence), edit the body so the next session inherits reality, unassign yourself and remove `in-progress`. An abandoned claim with no comment costs the next session a day.
 
 ## 3. Design before code (when the issue says so)
-Grammar-touching or `design` work: read the linked design records, follow the matching skill (`language-feature-developer`, `dependency-upgrade`, `generated-stack-verifier`, `parity-auditor`), and put the resolved open questions in the issue (a decision that will hold goes in a new `docs/decisions/<D-TAG>.md` with the code PR). A decision is not recorded until its gate is named: the record ends with `**Enforced by:** `<test path>`, …`, each named test mentioning the tag, or with `**Enforced by:** none, tracked by #N — <why>` (a live fence) / `none, not observable — <why>`, and a `none` record joins `NONE_RECORDS` in `test/system/decision-gates.test.ts`.
+Grammar-touching or `design` work: read the linked design records, follow the matching skill (`language-feature-developer`, `dependency-upgrade`, `generated-stack-verifier`, `parity-auditor`), and put the resolved open questions in the issue (a decision that will hold goes in a new `docs/decisions/<D-TAG>.md` with the code PR). A decision is not recorded until its gate is named: the record ends with `**Enforced by:** `<test path>`, …`, each named test mentioning the tag, or with `**Enforced by:** none, tracked by #N — <why>` (a live fence), or — where a hard gate is impractical — `**Enforced by:** review — `docs/review-checklist.md#<tag>` — <why>`, with a section in [`docs/review-checklist.md`](review-checklist.md) that names the tag. A not-built record also joins `NOT_BUILT` in `test/system/decision-gates.test.ts`.
 
 ## 4. Implement to the repo's bar
 - Every target, or an honest `loom.*` gate on the rest — never a silent gap, crash or emitted TODO. A new `*-unsupported` gap cites its owning issue as `mission: "#NNNN"` in `src/diagnostics/unsupported-register.ts`.

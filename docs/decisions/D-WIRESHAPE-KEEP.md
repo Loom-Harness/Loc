@@ -96,4 +96,4 @@ M-T5.10 and M-T5.40;
 [`docs/old/proposals/unfoldable-api-derivation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/unfoldable-api-derivation.md) steps 6–8 and its coordination
 note's item 3.
 
-**Enforced by:** none, not observable — superseded by D-WIRE-RECORDS; records a declined retirement
+**Enforced by:** review — `docs/review-checklist.md#d-wireshape-keep` — superseded by D-WIRE-RECORDS; records a declined retirement

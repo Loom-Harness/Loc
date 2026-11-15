@@ -30,4 +30,4 @@ stay in source order.
 **Affects.** `database-seeding.md` §3.1/§3.2 (cross-ref design), §5 (IR), §8
 (validation), §11 (build order — `raw` path is the cross-ref home).
 
-**Enforced by:** none, not observable — records a rejected construct (`@handle` seed references); there is nothing built to observe
+**Enforced by:** review — `docs/review-checklist.md#d-seed-xref` — records a rejected construct (`@handle` seed references); there is nothing built to observe

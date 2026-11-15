@@ -46,4 +46,4 @@ context" section is the conversational origin of this decision). No grammar
 change required (the constraint is already structural); no validator rule
 needed beyond today's per-deployable `foundation:` typing.
 
-**Enforced by:** none, not observable — superseded: the foundation axis is removed with Ash
+**Enforced by:** review — `docs/review-checklist.md#d-no-mixed-foundation` — superseded: the foundation axis is removed with Ash

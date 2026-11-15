@@ -65,4 +65,4 @@ than A — keep the direct customer.
 sequence them" block from IR-first to B+C platform-first with A deferred) and
 §7 (resolve the platform-vs-IR open question, citing this tag).
 
-**Enforced by:** none, not observable — a product-emphasis ruling with no generated or toolchain behaviour
+**Enforced by:** review — `docs/review-checklist.md#d-ai-emphasis` — a product-emphasis ruling with no generated or toolchain behaviour

@@ -71,4 +71,4 @@ its two deferrals; [`vanilla-phoenix-gaps.md`](https://github.com/Loom-Harness/L
 Slices 1–2; `src/generator/elixir/vanilla/shell-emit.ts`
 (`renderVanillaFormatterExs`).
 
-**Enforced by:** none, not observable — declines a CI gate (`mix format`); a process rule
+**Enforced by:** review — `docs/review-checklist.md#d-phoenix-format-gate` — declines a CI gate (`mix format`); a process rule

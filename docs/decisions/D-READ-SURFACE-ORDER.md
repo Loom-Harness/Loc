@@ -47,4 +47,4 @@ M-T3.15; [`M-T3.15 plan`](https://github.com/Loom-Harness/Loc/issues/3347);
 PRs #2523, #2766; `src/diagnostics/messages.ts`
 `loom.field-mask-projection-source`.
 
-**Enforced by:** none, not observable — a work-sequencing ruling for a mission
+**Enforced by:** review — `docs/review-checklist.md#d-read-surface-order` — a work-sequencing ruling for a mission

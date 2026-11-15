@@ -20,4 +20,4 @@ gate.
 **Affects.** `multi-tenancy-design-note.md` R2 (canonical); `authorization.md`
 §0/§2 (no longer lists `platform`).
 
-**Enforced by:** none, not observable — a negative design rule (no platform scope value); nothing tests an absent keyword
+**Enforced by:** review — `docs/review-checklist.md#d-tenancy-scope` — a negative design rule (no platform scope value); nothing tests an absent keyword

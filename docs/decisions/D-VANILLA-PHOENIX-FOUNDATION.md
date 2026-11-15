@@ -53,4 +53,4 @@ subtree (sibling emitters: `schema-emit`, `changeset-emit`, `policy-emit`,
 strict-parity conformance gate. **Depends on D-REALIZATION-AXES**;
 **enables D-VANILLA-ES-HOME**.
 
-**Enforced by:** none, not observable — superseded: Ash and the foundation axis are removed
+**Enforced by:** review — `docs/review-checklist.md#d-vanilla-phoenix-foundation` — superseded: Ash and the foundation axis are removed
