@@ -1462,9 +1462,9 @@ function renderMount(
    *  resolves at mount time. */
   idOptionsBindings: readonly string[],
   contextModuleByAggName: ReadonlyMap<string, string>,
-  /** Aggregate registry — kept for symmetry with the option-list emission
-   *  (the vanilla path reads the record id as the option label/value). */
-  _aggregatesByName: ReadonlyMap<string, AggregateIR>,
+  /** Aggregate registry: an event-sourced aggregate's create form has no
+   *  state changeset to bind (see below). */
+  aggregatesByName: ReadonlyMap<string, AggregateIR>,
   /** Stores this page touches (Stage 5) — each gets one
    *  `|> assign(:<store_snake>, %<Store>{})` seeding the per-page store struct
    *  (defaults from the store module's `defstruct`).  The matching `alias` is
@@ -1574,6 +1574,14 @@ function renderMount(
     if (fb.kind === "aggregate") {
       const ctxModule = contextModuleByAggName.get(fb.name);
       if (!ctxModule) continue; // unresolved — validator catches; silent skip
+      // An event-sourced aggregate's create request is its `create` action's
+      // params, not its folded state, so its context has no `change_<agg>`
+      // changeset: the form is a plain map namespaced as the aggregate, which
+      // submits `%{"<agg>" => %{…}}` exactly as a changeset form does.
+      if (aggregatesByName.get(fb.name)?.persistedAs === "eventLog") {
+        assigns.push(`      |> assign(:form, to_form(%{}, as: "${snake(fb.name)}"))`);
+        break;
+      }
       // A blank Ecto changeset off the schema struct via the `change_<agg>`
       // context facade.
       assigns.push(
@@ -2427,6 +2435,10 @@ function renderCreateEventClauses(
   // still on screen.  Without the clause it would be a CaseClauseError — the
   // LiveView crash the plan's A1 warns about.
   const createAgg = aggregatesByName.get(fb.name);
+  // An event-sourced create answers a reason term, never a changeset (it
+  // validates the command, not a state row): a refusal becomes an error flash
+  // and the form stays on screen.
+  const eventSourced = createAgg?.persistedAs === "eventLog";
   const gated = lifecycleGates(canonicalCreate(createAgg)).length > 0;
   const usesUser = lifecycleGatesUseCurrentUser(canonicalCreate(createAgg));
   return `\n  @impl true
@@ -2437,10 +2449,15 @@ ${blankOptionalVoLine(createAgg)}${usesUser ? "    current_user = Map.get(socket
          socket
          |> put_flash(:info, ${created})${nav}}
 
-      {:error, %Ecto.Changeset{} = changeset} ->
-        {:noreply, assign(socket, :form, to_form(changeset))}${
-          gated
-            ? `
+      ${
+        eventSourced
+          ? `{:error, reason} ->
+        {:noreply, put_flash(socket, :error, "${humanizeOp("create")} failed: #{inspect(reason)}")}`
+          : `{:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, assign(socket, :form, to_form(changeset))}`
+      }${
+        gated && !eventSourced
+          ? `
 
       {:error, {:forbidden, _detail}} ->
         {:noreply, put_flash(socket, :error, ${
@@ -2448,8 +2465,8 @@ ${blankOptionalVoLine(createAgg)}${usesUser ? "    current_user = Map.get(socket
             ? pgettextCall(wireCode("forbidden"), wireErrorMessage(wireCode("forbidden")))
             : JSON.stringify(CONSTANT_FORBIDDEN_DETAIL)
         })}`
-            : ""
-        }
+          : ""
+      }
     end
   end\n`;
 }
