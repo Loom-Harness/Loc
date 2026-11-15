@@ -93,7 +93,20 @@ async function sharedStatements(): Promise<string[]> {
     .filter((s) => s.length > 0);
 }
 
+/** Each adapter that lays tables out its own way is a tracked gap: the issue
+ *  that makes it map the shared schema, after which its row is deleted along
+ *  with its `loom.<adapter>-shared-database` refusal. */
+const OWN_LAYOUT_GAPS: Readonly<Record<string, string>> = {
+  mikroorm: "#5947",
+  dapper: "#5947",
+  ecto: "#5925",
+};
+
 describe("shared-database layout census", () => {
+  it("every own-layout adapter is a tracked gap, and every tracked gap still diverges", () => {
+    expect(Object.keys(OWN_LAYOUT_GAPS).sort()).toEqual([...OWN_LAYOUT_PERSISTENCE].sort());
+  });
+
   const targets = persistenceTargets();
 
   it("reads at least the five backends and both alternate adapters off the registry", () => {

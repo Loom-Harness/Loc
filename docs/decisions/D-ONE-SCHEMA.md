@@ -20,9 +20,17 @@ value-object collection is a child table keyed by `(parent_fk, ordinal)`; an
 index carries the shared name. An emitter whose ORM wants a different layout
 adapts its mapping, never the schema.
 
-An adapter that does not map the shared schema yet is honest about it: a
+json columns appear only where the model asks for them: a `shape: document`
+aggregate's tree, an embedded aggregate's parts, the `json` field type, the audit
+before/after snapshots and file references. Those columns are part of the one
+schema too, so every backend creates them identically; the shared-database leg
+measures `shape: embedded` and `shape: document` cases like any other.
+
+An adapter that does not map the shared schema is honest about it: a
 `loom.<adapter>-shared-database` diagnostic refuses it beside a deployable of
-another layout. Each such adapter is a tracked gap, not a supported variant.
+another layout. Each such adapter is a tracked gap, not a supported variant:
+MikroORM and Dapper (value objects as json, MikroORM's boot-time sync), and Ecto
+for a stored value object (as one `:map` column).
 
 **Mechanism.**
 
@@ -36,7 +44,9 @@ another layout. Each such adapter is a tracked gap, not a supported variant.
 - The booted shared-database leg (`LOOM_BH_ELIXIR_SCHEMA=shared`,
   `test/behavioral/shared-schema.mjs`) runs every elixir behavioural case as a
   non-owner on the schema a node deployable's migrations create, and requires
-  the elixir migrations to create the identical catalog.
+  the elixir migrations to create the identical catalog — every table, the
+  machinery tables (outbox, audit and provenance history, timer claim, consumer
+  inbox) included; only each migrator's own bookkeeping table is left out.
 
 **Affects.** `docs/migrations.md`,
 `docs/language-reference/02-systems-and-topology.md`, the Ecto migration and

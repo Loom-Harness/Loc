@@ -1,0 +1,47 @@
+// A declared field whose column is `inserted_at` / `updated_at` — the names an
+// ORM's own bookkeeping columns take — on an aggregate root AND on a
+// table-backed entity part.  The shared schema has exactly these declared
+// columns and no ORM timestamps, so every backend reads and writes them as
+// ordinary fields.
+system DeclaredTimestamps {
+  subdomain Shop {
+    context Carts {
+      aggregate Cart with crudish {
+        name: string
+        insertedAt: datetime
+        contains lines: Line[]
+        entity Line {
+          sku: string
+          insertedAt: datetime
+          updatedAt: datetime
+        }
+        operation addLine(sku: string, at: datetime) {
+          lines += Line { sku: sku, insertedAt: at, updatedAt: at }
+        }
+      }
+      repository Carts for Cart { }
+    }
+  }
+
+  api CartsApi from Shop
+  storage pg { type: postgres }
+  resource cartsState { for: Carts, kind: state, use: pg }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Carts]
+    dataSources: [cartsState]
+    serves: CartsApi
+    port: 4000
+  }
+
+  test e2e "declared timestamp-named columns round-trip on a root and a part" against d {
+    let c = api.carts.create({ name: "c", insertedAt: "2024-01-02T03:04:05Z" })
+    api.carts.addLine(c, { sku: "A", at: "2024-02-03T04:05:06Z" })
+    let read = api.carts.getById(c)
+    expect(read.insertedAt).toBeSameInstant("2024-01-02T03:04:05Z")
+    expect(read.lines.length).toBe(1)
+    expect(read.lines.first().insertedAt).toBeSameInstant("2024-02-03T04:05:06Z")
+    expect(read.lines.first().updatedAt).toBeSameInstant("2024-02-03T04:05:06Z")
+  }
+}

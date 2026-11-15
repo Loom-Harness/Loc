@@ -166,12 +166,12 @@ the conforming backends, and the fix that established it.
   component and materializing the declared default in the request→domain mapping
   (`emit/dto.ts` + `emit/service.ts`).
 
-### RS-7 · Value-object subfields survive a jsonb round-trip
-- **Guarantee.** A value object stored inline as jsonb rehydrates so that
-  subfield reads and wire serialization neither crash nor drop — the VO reads
-  back with all subfields.
+### RS-7 · Value-object subfields survive a storage round-trip
+- **Guarantee.** A value object rehydrates from storage — whatever its column
+  layout — so that subfield reads and wire serialization neither crash nor drop:
+  the VO reads back with all subfields.
 - **Trigger.** `valueobject Money { amount: decimal, currency: string }` as an
-  aggregate field on a jsonb-storing backend.
+  aggregate field.
 - **Observable.** `GET` returns the nested `{"amount":…,"currency":…}`; a
   subsequent op reading `self.price.amount` does not raise.
 - **Conforms.** node, dotnet, java, python, elixir.
