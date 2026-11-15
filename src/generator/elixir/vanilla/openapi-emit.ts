@@ -1,9 +1,6 @@
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
-import {
-  createInputFields,
-  isRequiredCreateInput,
-  wireCreateDefault,
-} from "../../../ir/enrich/wire-projection.js";
+import { isRequiredCreateInput, wireCreateDefault } from "../../../ir/enrich/wire-projection.js";
+import { createRequestFields } from "../../../ir/plan/create-request.js";
 import { polymorphicReadGates, routedPolymorphicRead } from "../../../ir/plan/index.js";
 import { PAGED_MAX_PAGE, PAGED_MAX_PAGE_SIZE, pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -380,7 +377,7 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
     const createReqName = reqNameFor({ kind: "create", aggregate: agg.name });
     files.set(
       `${schemaDir}/${snake(createReqName)}.ex`,
-      renderCreateRequestSchema(agg, webModule, createReqName),
+      renderCreateRequestSchema(agg, webModule, createReqName, ctx.payloads),
     );
     // Create response — `{ id }`, matching Hono/.NET's Create<Agg>Response
     files.set(
@@ -779,7 +776,7 @@ function apiOperations(
           parameters: [],
           requestBody: jsonRequestBody(
             `${schemasModule}.${reqNameFor({ kind: "create", aggregate: agg.name })}`,
-            !commandBodyOptional(createInputFields(agg)),
+            !commandBodyOptional(createRequestFields(ctx.payloads, agg)),
           ),
           responses: [
             jsonResponse(201, "Created", `${schemasModule}.Create${agg.name}Response`),
@@ -1785,16 +1782,17 @@ function renderCreateRequestSchema(
   webModule: string,
   /** Resolved by the caller over the whole deployable (F-026). */
   schemaName: string,
+  payloads: readonly PayloadIR[],
 ): string {
   const moduleName = `${webModule}.Api.Schemas.${schemaName}`;
-  // Create request carries the canonical create-input set the client may
-  // supply.  `createInputFields` = `forCreateInput` (drops `managed`,
-  // `token`, `internal`; keeps `immutable` and `secret`) INCLUDING
-  // optionals — which ride their own type nullability into the `required`
-  // list (see `renderProperties`).  Matches the .NET / Hono / React
-  // CreateRequest shapes so the parity gate's property + required sets agree.
+  // The create request is the declared create command record
+  // (`createRequestFields`): server-owned fields and an event-sourced
+  // aggregate's folded state are not in it.  Optionals ride their own type
+  // nullability into the `required` list (see `renderProperties`), matching
+  // the .NET / Hono / React CreateRequest shapes so the parity gate's
+  // property + required sets agree.
   const fields: Array<{ name: string; type: TypeIR; optional: boolean; wireDefault?: boolean }> =
-    createInputFields(agg).map((f: FieldIR) => ({
+    createRequestFields(payloads, agg).map((f: FieldIR) => ({
       name: f.name,
       type: f.type,
       optional: f.optional,

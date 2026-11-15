@@ -13,7 +13,7 @@
 // `test/system/create-request-census.test.ts` counts the aggregates that still
 // reach it so the count only shrinks.
 
-import { createInputFields } from "../enrich/wire-projection.js";
+import { createInputFields, isRequiredCreateInput } from "../enrich/wire-projection.js";
 import type { AggregateIR, FieldIR, PayloadIR } from "../types/loom-ir.js";
 import { declaredCreateCommandFor } from "../util/declared-request.js";
 
@@ -33,6 +33,18 @@ export function createRequestFields(
   agg: AggregateIR,
 ): readonly FieldIR[] {
   return createRequestRecord(payloads, agg)?.fields ?? undeclaredCreateRequestFields(agg);
+}
+
+/** The names of the create request's fields a client MUST send: the rest are
+ *  optional, defaulted, or a bare `bool` (`isRequiredCreateInput`).  What an
+ *  OpenAPI document lists as `required` on the create request body. */
+export function createRequestRequiredNames(
+  payloads: readonly PayloadIR[],
+  agg: AggregateIR,
+): string[] {
+  return createRequestFields(payloads, agg)
+    .filter(isRequiredCreateInput)
+    .map((f) => f.name);
 }
 
 /** The create request of an aggregate whose context declares no create

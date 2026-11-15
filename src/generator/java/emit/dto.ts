@@ -1,9 +1,9 @@
 import {
-  buildCreateInput,
   createInputFields,
   emitsRestCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
+import { createRequestRequiredNames } from "../../../ir/plan/create-request.js";
 import { observableWorkflows } from "../../../ir/plan/index.js";
 import { provenancedCarrier } from "../../../ir/stdlib/generics.js";
 import type {
@@ -270,9 +270,7 @@ export function renderDtoFiles(
         imports,
         undefined,
         reqNameFor({ kind: "create", aggregate: agg.name }),
-        buildCreateInput(agg)
-          .filter((c) => c.requiredInput)
-          .map((c) => c.field.name),
+        createRequestRequiredNames(payloads, agg),
       ),
     });
   }
