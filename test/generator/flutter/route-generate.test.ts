@@ -18,7 +18,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 const SRC = `
 system Fl {
   subdomain S { context C {
-    aggregate Thing { name: string }
+    aggregate Thing with crudish { name: string }
     repository Things for Thing { }
   } }
   ui App {
