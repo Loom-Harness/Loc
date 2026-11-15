@@ -7,12 +7,15 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  channelPlan,
+  contextReceivesDurable,
   deployableNeedsInbox,
   foldConsumerKey,
   inboxConsumerKey,
+  inboxDedupes,
   workflowConsumerKey,
 } from "../../../src/ir/plan/index.js";
-import type { EventSubscriptionIR } from "../../../src/ir/types/loom-ir.js";
+import type { EventSubscriptionIR, SystemIR } from "../../../src/ir/types/loom-ir.js";
 import { buildLoomModel } from "../../_helpers/index.js";
 import { corpusSourceFor } from "../../fixtures/corpus/harness.js";
 
@@ -50,6 +53,57 @@ system Acme {
 }
 `;
 
+/** A consumer context beside the context that hosts the durable channel, in
+ *  one deployable: the consumer hosts no channel of its own. */
+const SIBLING_HOST = `
+system SagaRedelivery {
+  subdomain Catalog {
+    context Catalog {
+      aggregate Product with crudish {
+        sku: string
+        operation record() { emit ProductLogged { product: id } }
+      }
+      repository Products for Product { }
+      event ProductLogged { product: Product id }
+      channel History { carries: ProductLogged delivery: queue retention: work }
+    }
+  }
+  subdomain Admin {
+    context AdminFeed {
+      aggregate Note with crudish { text: string }
+      repository Notes for Note { }
+      projection Tally keyed by product {
+        product: Product id
+        seen: int
+        on(e: ProductLogged) { seen += 1 }
+      }
+    }
+  }
+  storage pg { type: postgres }
+  resource catalogState { for: Catalog, kind: state, use: pg }
+  resource adminState { for: AdminFeed, kind: state, use: pg }
+  deployable d { platform: node contexts: [Catalog, AdminFeed] dataSources: [catalogState, adminState] port: 4000 }
+}
+`;
+
+/** Contexts whose consumers claim on a deployable (what its handlers render)
+ *  but whose migrations would not create the inbox (what the migrations ask
+ *  per context). */
+function inboxDisagreements(sys: SystemIR): string[] {
+  const all = sys.subdomains.flatMap((d) => d.contexts);
+  const out: string[] = [];
+  for (const deployable of sys.deployables) {
+    const hosted = all.filter((c) => deployable.contextNames.includes(c.name));
+    const plan = channelPlan(hosted, { deployable, sys });
+    if (!deployableNeedsInbox(hosted, plan)) continue;
+    for (const c of hosted) {
+      if (inboxDedupes(c, plan.receivesDurable) && !inboxDedupes(c, contextReceivesDurable(c, sys)))
+        out.push(`${deployable.name}/${c.name}`);
+    }
+  }
+  return out;
+}
+
 describe("consumer inbox key", () => {
   it("is <context>/<kind>/<owner>.<event>, with an ordinal past the first", () => {
     expect(inboxConsumerKey("Shipping", "create", "Fulfil", "OrderPlaced")).toBe(
@@ -82,6 +136,11 @@ describe("consumer inbox key", () => {
     expect(deployableNeedsInbox([orders, billing], { receivesDurable: false })).toBe(false);
   });
 
+  it("the migrations create the inbox for every context whose consumers claim", async () => {
+    const loom = await buildLoomModel(SIBLING_HOST);
+    expect(inboxDisagreements(loom.systems[0])).toEqual([]);
+  });
+
   it("no two handlers of one event share a key, across the whole corpus", async () => {
     const features = fs
       .readdirSync(CORPUS)
@@ -93,6 +152,8 @@ describe("consumer inbox key", () => {
     expect(features.length).toBeGreaterThan(100);
     let handlers = 0;
     const clashes: string[] = [];
+    // The same agreement as above, over every corpus system.
+    const disagreements: string[] = [];
     for (const feature of features) {
       let loom: Awaited<ReturnType<typeof buildLoomModel>>;
       try {
@@ -101,6 +162,7 @@ describe("consumer inbox key", () => {
         continue; // a fixture the node backend refuses has no node handlers
       }
       for (const sys of loom.systems) {
+        disagreements.push(...inboxDisagreements(sys).map((d) => `${feature}: ${d}`));
         const seen = new Map<string, string>();
         for (const ctx of sys.subdomains.flatMap((d) => d.contexts)) {
           const subs = ctx.eventSubscriptions.filter((s) => !s.projection);
@@ -128,5 +190,6 @@ describe("consumer inbox key", () => {
     }
     expect(handlers).toBeGreaterThan(40);
     expect(clashes).toEqual([]);
+    expect(disagreements).toEqual([]);
   }, 300_000);
 });
