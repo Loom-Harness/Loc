@@ -109,6 +109,50 @@ public void LineTotal_multiplies()
 
 The test name becomes the vitest `it(...)` label verbatim; on xUnit it is both the `[Fact(DisplayName = …)]` and a snake-cased method name. The subject name is the `describe(...)` / class scope.
 
+### Gates and the actor
+
+A unit test runs as the **test principal** ([D-GENERATED-TESTS](../decisions/D-GENERATED-TESTS.md)): one actor built from `user { … }`, with every permission the catalogue declares. An operation's `requires` gates run in the unit test as they run over HTTP: the route checks a leading `requires` before it calls the domain method, so a test that calls the method checks it too, against that actor. The default actor passes; a test about authorization names its actor in the head, `as { … }`, and the gate refuses it with the same rejection a `requires` raises, which a bare `toThrow()` accepts.
+
+```ddd
+subdomain Selling {
+  permissions { refund }
+  context Selling {
+    aggregate Order {
+      status: string = "new"
+      operation refund() {
+        requires currentUser.permissions.contains(permissions.refund)
+        status := "refunded"
+      }
+      test "the default test principal passes a requires gate" {
+        let o = Order.create()
+        o.refund()
+        expect(o.status).toBe("refunded")
+      }
+      test "a principal without the permission is refused by the requires gate" as { permissions: [] } {
+        let o = Order.create()
+        expect(o.refund()).toThrow()
+      }
+    }
+  }
+}
+```
+
+```ts
+// node — domain/order.test.ts
+function requireGate(allowed: boolean, message: string): void {
+  if (!allowed) throw new ForbiddenError(message);
+}
+
+it("a principal without the permission is refused by the requires gate", () => {
+  const testPrincipal = (): import("../auth/user-types").User =>
+    ({ id: "00000000-0000-0000-0000-000000000001", role: "role", permissions: [], email: "email" });
+  const o = Order.create({ … });
+  expectDomainRejection(() => { (requireGate((testPrincipal().permissions).includes("selling.refund"), "Forbidden: currentUser.permissions.contains(permissions.refund)"), o.refund()); });
+});
+```
+
+.NET, Java and Python wrap the call the same way (`Gated(…)`, `gated(…)`, `_gated(…)`); on elixir the pure core runs the operation's gates itself and takes the test's actor as its last argument. Only an aggregate unit test takes the clause, and only in its head: a value object or a domain service has no actor, and switching actors mid-test is the context rung's.
+
 ### Placement — `for <Subject>`
 
 A `test` may live outside its subject. Reachability is not a home: the `for` head names the subject exactly when nothing encloses it.
@@ -266,7 +310,7 @@ current_user = EWeb.Auth.as_principal(%{id: "00000000-0000-0000-0000-00000000000
 assert is_nil(r)
 ```
 
-A claim names a field of the system's `user { … }` block (`loom.test-principal-unknown-claim`; no block at all is `loom.test-principal-no-user`) and takes fixed data of its type — a string literal for a `string`, `guid` or `<Agg> id` claim (a UUID for the last two), a list of string literals for a `string[]` one (`loom.test-principal-claim-type`; anything but a literal is `loom.test-principal-value`, a claim set twice `loom.test-principal-duplicate-claim`). Only the context rung takes a principal — on an aggregate, value-object or domain-service unit test the clause is `loom.test-principal-placement`. Without `auth: required` nothing reads a principal and none is bound.
+A claim names a field of the system's `user { … }` block (`loom.test-principal-unknown-claim`; no block at all is `loom.test-principal-no-user`) and takes fixed data of its type — a string literal for a `string`, `guid` or `<Agg> id` claim (a UUID for the last two), a list of string literals for a `string[]` one (`loom.test-principal-claim-type`; anything but a literal is `loom.test-principal-value`, a claim set twice `loom.test-principal-duplicate-claim`). The context rung takes a principal in the head and as a body line, an aggregate unit test in the head ([Gates and the actor](#gates-and-the-actor)); anywhere else the clause is `loom.test-principal-placement`. Without `auth: required` nothing reads a principal and none is bound.
 
 ## `test e2e "…" against <Deployable>` — a live end-to-end test
 
