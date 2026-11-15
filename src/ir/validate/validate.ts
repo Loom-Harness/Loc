@@ -135,7 +135,11 @@ import {
   validateUiThisUnbound,
   validateVanillaDocumentScope,
 } from "./checks/system-checks.js";
-import { validatePersistedTableCollisions } from "./checks/table-name-checks.js";
+import {
+  validatePersistedTableCollisions,
+  validateReservedTableNames,
+  validateReservedTablePrefixes,
+} from "./checks/table-name-checks.js";
 import { validateTargetCapabilities } from "./checks/target-capability-checks.js";
 import { validateTenancy } from "./checks/tenancy-checks.js";
 import {
@@ -383,6 +387,7 @@ export function validateLoomModel(
     validatePagedParamNames(c, diags);
     validateUnknownRepositoryReads(c, diags);
     validatePersistedTableCollisions(c, diags);
+    validateReservedTableNames(c, diags);
     validateEntityPartParams(c, diags);
     validateResponseRecords(c, diags);
     validateAggregateTestBodies(c, diags);
@@ -468,6 +473,7 @@ export function validateLoomModel(
   // ends up with two physical tables — and an explicit `schema:` on the binding
   // is silently dropped.
   validateSelfProvisioningSchemaSupport(loom, diags);
+  validateReservedTablePrefixes(loom, diags);
   // `sensitive(...)` redacts the DEBUG surface (the synthesized `inspect`) and
   // nothing else — the response DTO serves the value in cleartext.  Say so at
   // the declaration until the wire masking lands (M-T3.8 phases 2-4).

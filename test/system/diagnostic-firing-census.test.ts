@@ -554,6 +554,15 @@ ${opts.e2e ?? ""}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // An aggregate whose derived table (`_ledgers`) lands in the runtime's
+  // reserved `_` namespace.
+  "loom.persisted-table-reserved": `
+system S {
+  subdomain M { context C {
+    aggregate _Ledger with crudish { label: string }
+    repository Ledgers for _Ledger { }
+  } }
+}`,
   // A backfill expression outside the SQL-renderable subset: a call.
   "loom.migration-expr-invalid": `
 system S {
@@ -3318,6 +3327,26 @@ system S {
     framework: react
     api C: Api
     page A(id: Note id) { route: "/a/:id"  body: Stack { DestroyForm { of: Note } } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  // `CreateForm { of: … }` over an aggregate that serves no create: `Note`
+  // declares no `create` and is not `with crudish`, so no target emits the
+  // create route, hook or context function the form would call.
+  "loom.create-form-no-create": `
+system S {
+  subdomain Sub { context C {
+    aggregate Note { text: string }
+    repository Notes for Note
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page A { route: "/a"  body: Stack { CreateForm { of: Note } } }
   }
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }

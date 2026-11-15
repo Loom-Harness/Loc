@@ -325,6 +325,18 @@ export const messages = {
     `table names are derived from declared names (snake case, pluralised), so the migration ` +
     `would create '${p.table}' twice and every backend would bind two models to one relation. ` +
     `Rename one of them.`,
+  "loom.persisted-table-reserved#declaration": (p: {
+    ctx: unknown;
+    owner: unknown;
+    table: unknown;
+  }) =>
+    `context '${p.ctx}': ${p.owner} persists to table '${p.table}', and table names starting ` +
+    `with '_' are reserved for the tables the generated runtime owns (outbox, inbox, timers, ` +
+    `migration and seed ledgers). Rename the declaration so its name does not start with '_'.`,
+  "loom.persisted-table-reserved#prefix": (p: { resource: unknown; prefix: unknown }) =>
+    `resource '${p.resource}': tablePrefix "${p.prefix}" starts with '_', and table names ` +
+    `starting with '_' are reserved for the tables the generated runtime owns (outbox, inbox, ` +
+    `timers, migration and seed ledgers). Choose a prefix that does not start with '_'.`,
   "loom.repo-unknown-read": (p: { repoName: unknown; method: unknown; suggestion?: unknown }) =>
     `repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  A repository declares no reads of its own: read with get / find(id), getBy / findBy over a declared \`unique (…)\` key, or find / all over a criterion or retrieval.`,
   "loom.findall-criterion-mismatch": (p: {

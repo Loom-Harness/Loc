@@ -27,7 +27,7 @@ system Files {
   api FApi from S
   subdomain S {
     context Ctx {
-      aggregate Doc {
+      aggregate Doc with crudish {
         name: string
         blob: File
         thumb: File?
