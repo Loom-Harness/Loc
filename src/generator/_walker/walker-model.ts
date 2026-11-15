@@ -31,7 +31,7 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
-import { type ContractResponse, contractResponsesFor } from "../../ir/util/declared-response.js";
+import { contractResponsesFor } from "../../ir/util/declared-response.js";
 import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
 import { clientActionGates, operationFormParams } from "../../ir/util/op-gates.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
@@ -50,6 +50,7 @@ import {
 import { requestNamesForContexts } from "../../ir/util/request-names.js";
 import { emitsCommandRoute, workflowResultSegment } from "../../ir/util/workflow-command-route.js";
 import { type FormSpecEnv, formSpecEnvOf } from "../_frontend/form-spec.js";
+import { containedPart, recordFields } from "./record-fields.js";
 
 /** One bounded context as the walker sees it: its name (the `<Ctx>` segment of
  *  an identity text key) and the enum and value-object declarations a type
@@ -201,37 +202,6 @@ export function walkerModelOf(opts: {
 }
 
 /** The walker's view of an enriched aggregate. */
-/** The stored fields of `entity` as its response record carries them: the
- *  record also carries the identity, the derived members and the contained
- *  parts (`partNames`), none of them a field declaration. */
-function recordFields(
-  responses: readonly ContractResponse[],
-  entity: string,
-  partNames: ReadonlySet<string>,
-): WalkerField[] {
-  return (responses.find((r) => r.entity === entity)?.fields ?? [])
-    .filter((f) => f.name !== "id" && !f.derived && !containedPart(f.type, partNames))
-    .map((f) => ({
-      name: f.name,
-      type: f.type,
-      optional: f.optional,
-      ...(f.provenanced ? { provenanced: true } : {}),
-    }));
-}
-
-/** The part a response field of type `t` contains, when `t` carries one of
- *  `partNames`' own response records. */
-function containedPart(
-  t: TypeIR,
-  partNames: ReadonlySet<string>,
-): { part: string; collection: boolean } | undefined {
-  const collection = t.kind === "array";
-  const el = t.kind === "array" ? t.element : t.kind === "optional" ? t.inner : t;
-  if (el.kind !== "entity" || !el.name.endsWith("Response")) return undefined;
-  const part = el.name.slice(0, -"Response".length);
-  return partNames.has(part) ? { part, collection } : undefined;
-}
-
 /** `op` as the walker sees it. */
 export function walkerOperationOf(op: OperationIR): WalkerOperation {
   const clientGates = clientActionGates(op);
