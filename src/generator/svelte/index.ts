@@ -1,3 +1,4 @@
+import { buildFrontendHost } from "../../ir/contract/host.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -10,13 +11,11 @@ import {
   uiUsesMoney,
 } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
-import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
 import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
-import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
@@ -137,10 +136,11 @@ export function generateSvelteForContexts(
 ): Map<string, string> {
   const out = emissionSink("generator/svelte/index");
 
+  const host = buildFrontendHost(sys, deployable);
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   // The frontend session guard (`auth: ui`): also decides which chrome the
   // translation catalog carries, so it is derived before the catalog scope.
-  const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
+  const authUi = host.authUi;
   // Same-origin relative `/api` base; `vite dev` proxies it to the
   // target backend, docker-compose overrides via `VITE_API_BASE_URL`.
   const apiBaseUrl = options.apiBaseUrl ?? API_BASE_PATH;
@@ -359,9 +359,7 @@ export function generateSvelteForContexts(
   // serving GET /realtime/events so far); the handlers component
   // emits when the ui declares `on <channel>.<Event>` members, and
   // the root layout mounts it (hasRealtimeHandlers below).
-  const realtimeTypes = backendServesRealtime(target?.platform)
-    ? [...new Set(contexts.flatMap((c) => [...realtimeEventTypes(c)]))].sort()
-    : [];
+  const realtimeTypes = host.realtime.eventTypes;
   if (realtimeTypes.length > 0) {
     out.set(
       "src/lib/api/realtime.ts",
@@ -369,11 +367,7 @@ export function generateSvelteForContexts(
       // SAME `auth: ui` / `auth: required` gate the api client's
       // `credentials: "include"` rides, so the SSE stream authenticates exactly
       // like an ordinary API call instead of 401-ing on an authenticated deployable.
-      renderRealtimeClient(
-        realtimeTypes,
-        "API_BASE_URL",
-        realtimeStreamCredential(deployable, target, sys.user),
-      ),
+      renderRealtimeClient(realtimeTypes, "API_BASE_URL", host.realtime.credential),
     );
   }
   const hasRealtimeHandlers = realtimeTypes.length > 0 && (ui.notifications?.length ?? 0) > 0;
