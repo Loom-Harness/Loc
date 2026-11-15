@@ -1,4 +1,5 @@
-import { createInputFields, forApiRead } from "../../ir/enrich/wire-projection.js";
+import { forApiRead } from "../../ir/enrich/wire-projection.js";
+import { createRequestFields } from "../../ir/plan/create-request.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -372,7 +373,7 @@ export function buildAngularApiModule(
   const pagedName = `${single}Paged`;
 
   const fields = responseWireFor(bc?.payloads ?? [], agg);
-  const createFields = createInputFields(agg);
+  const createFields = createRequestFields(bc?.payloads ?? [], agg);
   // Containment parts → a `<Part>Response` interface each, children-first so a
   // nested part is declared before the sibling that references it.  The
   // aggregate's `contains` fields (and any nested part field) are typed against

@@ -311,3 +311,29 @@ export async function judgeDetailCollections(page, origin, id) {
   }
   return why;
 }
+
+/** An event-sourced aggregate's create form asks for its `create` action's
+ *  params alone (`owner`), not the folded state (`balance`), and submitting it
+ *  opens an account the fold reads back. */
+export async function judgeEventSourcedCreate(page, origin) {
+  const owner = "Event-sourced Ada";
+  await page.goto(`${origin}/accounts/new`);
+  await (await inputOf(page, "accounts-new-input-owner")).fill(owner);
+  const why = [];
+  const stray = await page.locator('[data-testid^="accounts-new-input-balance"]').count();
+  if (stray > 0) why.push("accounts create form renders `balance`, which the create command does not take");
+  await page.locator('[data-testid="accounts-new-submit"]').first().click();
+  for (let i = 0; i < 30; i++) {
+    const r = await fetch(`${origin}/api/accounts`);
+    const body = r.ok ? await r.json() : null;
+    const rows = Array.isArray(body) ? body : (body?.items ?? []);
+    const hit = rows.find((a) => a.owner === owner);
+    if (hit) {
+      if (hit.balance !== 0) why.push(`the created account folded balance ${JSON.stringify(hit.balance)}, expected 0`);
+      return why;
+    }
+    await page.waitForTimeout(500);
+  }
+  why.push(`submitting the accounts create form opened no account owned by ${JSON.stringify(owner)}`);
+  return why;
+}

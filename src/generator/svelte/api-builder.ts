@@ -1,4 +1,4 @@
-import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import { createRequestFields } from "../../ir/plan/create-request.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -102,7 +102,7 @@ export function buildSvelteApiModule(
   for (const vo of usedVOs) lines.push(...emitValueObjectSchema(vo));
   lines.push("");
 
-  const requiredFields = createInputFields(agg);
+  const requiredFields = createRequestFields(ctx.payloads, agg);
   lines.push(
     ...emitObjectWithRefines(
       `Create${agg.name}Request`,
