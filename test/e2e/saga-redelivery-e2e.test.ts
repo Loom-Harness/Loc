@@ -1,3 +1,4 @@
+// Gate for D-CONSUMER-INBOX (docs/decisions).
 // Idempotent-consumer dedup, end to end: a durable envelope redelivered to a
 // hosted consumer is a no-op.  The consumers live in a different context than
 // the durable channel, so they only dedup if the decision is deployable-wide.

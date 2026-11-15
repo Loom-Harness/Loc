@@ -1,4 +1,4 @@
-// Enforces D-CONSUMER-INBOX's single dedupe decision (the durable-gate rule).
+// Gate for D-CONSUMER-INBOX (docs/decisions).
 // Census: the channel plan's facts are decided once.
 //
 // `channelPlan` (`src/ir/plan/channel-plan.ts`) answers, for one deployable,
