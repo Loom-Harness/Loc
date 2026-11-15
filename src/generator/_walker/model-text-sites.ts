@@ -20,7 +20,7 @@
 //     the translation runtime on by itself.
 // ---------------------------------------------------------------------------
 
-import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import { createRequestFields } from "../../ir/plan/create-request.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -384,7 +384,7 @@ export function implicitModelTextEntries(
       if (e.name === "CreateForm") {
         const hit = aggregates.get(namedRef(e, "of") ?? "");
         if (!hit) return;
-        for (const f of createInputFields(hit.agg).filter(
+        for (const f of createRequestFields(hit.bc.payloads, hit.agg).filter(
           (x) => opts.optionalCreateInputs || !x.optional,
         )) {
           fieldEntries(hit.agg.name, f, hit.bc, contexts, out);

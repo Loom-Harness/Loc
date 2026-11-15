@@ -25,6 +25,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { freePort } from "./support/ports.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_KAFKA_PYTHON === "1";
 
@@ -84,10 +85,10 @@ system Acme {
 }
 `;
 
-const SALES_PORT = 3220;
-const REPLICA_PORTS = [3221, 3222];
-const PG_PORT = 55446;
-const KAFKA_PORT = 55678;
+const SALES_PORT = await freePort();
+const REPLICA_PORTS = await Promise.all([freePort(), freePort()]);
+const PG_PORT = await freePort();
+const KAFKA_PORT = await freePort();
 const ORDERS = 6;
 const ADDRESS = "loom.Orders.Lifecycle";
 

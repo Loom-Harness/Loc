@@ -10,7 +10,7 @@
 // shared `lib/forms.dart`.
 //
 // Field introspection reuses the framework-neutral create-input contract
-// (`createInputFields` off the enriched aggregate) and the op's declared params.
+// (`createRequestFields`, the declared create command record) and the op's declared params.
 // Every field is classified ONCE by the shared form model
 // (`_frontend/form-spec.ts`: kind, optionality, enum values, picker, element
 // kind, value-object children) and rendered here through
@@ -36,7 +36,8 @@
 // (`FlutterFormSpec.dropped`), counted by the parity lint and by the form-spec
 // census.
 
-import { createInputFields, isConstructible } from "../../ir/enrich/wire-projection.js";
+import { isConstructible } from "../../ir/enrich/wire-projection.js";
+import { createRequestFields } from "../../ir/plan/create-request.js";
 import { PAGED_MAX_PAGE_SIZE } from "../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -807,7 +808,7 @@ export function flutterCreateForm(
   aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
   text?: FlutterFormText,
 ): FlutterFormSpec {
-  const inputs = createInputFields(agg);
+  const inputs = createRequestFields(bc?.payloads ?? [], agg);
   const { fields, dropped } = prepareFields(
     inputs,
     enumsFromBc(bc),

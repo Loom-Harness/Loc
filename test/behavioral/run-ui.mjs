@@ -49,6 +49,7 @@ import {
   driveAddVehicle,
   driveUpdate,
   judgeDetailCollections,
+  judgeEventSourcedCreate,
   judgeFormSpec,
   judgeRiderAdded,
   judgeVehicleAdded,
@@ -269,7 +270,7 @@ async function moneyCompareProbe(origin) {
  */
 async function formSpecProbe(origin) {
   const name =
-    "form-spec probe: update prefill, absence as null, collections, every-row pickers, the optional group and part-table columns";
+    "form-spec probe: update prefill, absence as null, collections, every-row pickers, the optional group, part-table columns and the event-sourced create form";
   execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], {
     cwd: HERE,
     stdio: "pipe",
@@ -323,6 +324,7 @@ async function formSpecProbe(origin) {
       await seedCoverage(origin, before.id);
       why.push(...(await judgePartTable(page, origin, before.id)));
     }
+    if (why.length === 0) why.push(...(await judgeEventSourcedCreate(page, origin)));
     if (why.length) {
       const text = await page.locator("body").innerText().catch(() => "");
       why.push(`page text: ${JSON.stringify(text.slice(0, 600))}`);
