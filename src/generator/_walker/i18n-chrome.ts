@@ -26,12 +26,13 @@
 // entry per chrome string as the pack-chrome slices land.
 // ---------------------------------------------------------------------------
 
-import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import { createRequestFields } from "../../ir/plan/create-request.js";
 import type {
   ActionIR,
   AggregateIR,
   BoundedContextIR,
   ExprIR,
+  FieldIR,
   LayoutIR,
   PageIR,
   StmtIR,
@@ -342,8 +343,12 @@ function fallbackLabelNamesForUi(ui: UiIR, contexts: readonly BoundedContextIR[]
   const names = new Set<string>();
   const aggregates = new Map<string, AggregateIR>();
   const workflows = new Map<string, WorkflowIR>();
+  const createRequests = new Map<string, readonly FieldIR[]>();
   for (const bc of contexts) {
-    for (const agg of bc.aggregates) aggregates.set(agg.name, agg);
+    for (const agg of bc.aggregates) {
+      aggregates.set(agg.name, agg);
+      createRequests.set(agg.name, createRequestFields(bc.payloads, agg));
+    }
     for (const wf of bc.workflows) workflows.set(wf.name, wf);
   }
   const visit = (body: ExprIR | undefined) =>
@@ -362,7 +367,7 @@ function fallbackLabelNamesForUi(ui: UiIR, contexts: readonly BoundedContextIR[]
         const inputs = wf
           ? wf.params.length
           : agg
-            ? createInputFields(agg).filter((f) => f.name !== "id").length
+            ? (createRequests.get(agg.name) ?? []).filter((f) => f.name !== "id").length
             : 0;
         if (inputs === 0) names.add("fieldFallback");
         if (!agg && !wf) names.add("submitFallback");
@@ -486,8 +491,12 @@ export function sentenceChromeNamesForUi(ui: UiIR, scope?: FormSentenceScope): s
   const wants = (base: string) => scope?.sentences.includes(base) === true;
   const aggregates = new Map<string, AggregateIR>();
   const workflows = new Map<string, WorkflowIR>();
+  const createRequests = new Map<string, readonly FieldIR[]>();
   for (const bc of scope?.contexts ?? []) {
-    for (const agg of bc.aggregates) aggregates.set(agg.name, agg);
+    for (const agg of bc.aggregates) {
+      aggregates.set(agg.name, agg);
+      createRequests.set(agg.name, createRequestFields(bc.payloads, agg));
+    }
     for (const wf of bc.workflows) workflows.set(wf.name, wf);
   }
   const vos = new Map<string, readonly FormInput[]>();
@@ -538,7 +547,7 @@ export function sentenceChromeNamesForUi(ui: UiIR, scope?: FormSentenceScope): s
         const agg = aggregates.get(owner ?? "");
         if (agg)
           collectFormLeaves(
-            createInputFields(agg).filter((f) => !f.optional),
+            (createRequests.get(agg.name) ?? []).filter((f) => !f.optional),
             vos,
             leaves,
           );
