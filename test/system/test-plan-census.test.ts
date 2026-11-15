@@ -78,6 +78,12 @@ const REJECTION_REDERIVATION: Readonly<Record<string, RegExp>> = {
     /\[\s*"(DomainException|DomainError|DisallowedException|DisallowedError|ForbiddenException|ForbiddenError)"/,
 };
 
+/** Re-deriving which route gates a unit test runs at an operation call. */
+const GATE_REDERIVATION: Readonly<Record<string, RegExp>> = {
+  "partitions an operation's gates itself":
+    /\b(operationLadder|ladderGates|operationGates|splitLeadingGates|canOpLadder)\(/,
+};
+
 /** Building a principal outside the plan. */
 const PRINCIPAL_REDERIVATION: Readonly<Record<string, RegExp>> = {
   "reads an auth layer's dev-stub value table":
@@ -103,6 +109,12 @@ describe("generated-test plan census", () => {
     });
   }
 
+  for (const [what, re] of Object.entries(GATE_REDERIVATION)) {
+    it(`no test emitter ${what}`, () => {
+      expect(TEST_EMITTERS.flatMap((f) => hits(f, re))).toEqual([]);
+    });
+  }
+
   for (const [what, re] of Object.entries(PRINCIPAL_REDERIVATION)) {
     it(`no test emitter ${what}`, () => {
       expect(TEST_EMITTERS.flatMap((f) => hits(f, re))).toEqual([]);
@@ -119,6 +131,17 @@ describe("generated-test plan census", () => {
       expect(files, `${b}: principal`).toMatch(/\brenderTestPrincipal\(/);
       expect(files, `${b}: rejection`).toMatch(/\brejectionPlan\(/);
       expect(files, `${b}: isolation`).toMatch(/\bintegrationIsolation\(/);
+    }
+  });
+
+  it("each backend whose unit tier calls the domain method runs the route gates from the plan", () => {
+    // Elixir's pure core runs an operation's gates inside the operation, so its
+    // unit tier calls it as is.
+    for (const b of ["typescript", "dotnet", "java", "python"]) {
+      const files = TEST_EMITTERS.filter((f) => f.includes(`/${b}/`))
+        .map(code)
+        .join("\n");
+      expect(files, `${b}: route gates`).toMatch(/\bunitTestGateChecks\(/);
     }
   });
 });
