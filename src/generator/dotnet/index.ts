@@ -5,6 +5,7 @@ import { eventLogCarriesTenant, eventsKeepOriginFrame } from "../../ir/enrich/st
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { type CachedByIdRead, cachePlanFor } from "../../ir/plan/cache.js";
 import { channelPlan, foldsDedupe, hasDurableEvents } from "../../ir/plan/index.js";
+import { testPrincipalShape } from "../../ir/plan/test-principal.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   BoundedContextIR,
@@ -516,11 +517,11 @@ function emitProjectFromContexts(
     // Value-object / domain-service unit tests (test-placement.md) —
     // colocated xUnit classes, emitted only when the subject declares a `test`.
     for (const vo of ctx.valueObjects) {
-      const voTests = renderVoTestsFile(vo, ctx, ns);
+      const voTests = renderVoTestsFile(vo, ctx, ns, testPrincipalShape(system.sys));
       if (voTests) out.set(`Tests/${ns}.Tests/ValueObjects/${vo.name}Tests.cs`, voTests);
     }
     for (const svc of ctx.domainServices) {
-      const svcTests = renderServiceTestsFile(svc, ctx, ns);
+      const svcTests = renderServiceTestsFile(svc, ctx, ns, testPrincipalShape(system.sys));
       if (svcTests) out.set(`Tests/${ns}.Tests/Services/${svc.name}Tests.cs`, svcTests);
     }
     emitWorkflows(ctx, ns, out, { routePrefix, sys: system.sys, sourcemap });
@@ -938,7 +939,7 @@ function emitProjectFromContexts(
             dbContextSrc,
           ),
         interceptor: out.has("Infrastructure/Persistence/AuditableInterceptor.cs"),
-        ...(authRequired && system.sys.user ? { user: system.sys.user } : {}),
+        ...(authRequired && system.sys.user ? { user: testPrincipalShape(system.sys) } : {}),
       },
     );
     if (integrationTests) {
@@ -1724,7 +1725,7 @@ function emitAggregate(
     out.set(path, artifact.content);
     sourcemap?.file(path, finalizeCsUnit(artifact.content), agg.origin, construct);
   }
-  const testsFile = renderTestsFile(agg, ctx, ns);
+  const testsFile = renderTestsFile(agg, ctx, ns, testPrincipalShape(emitCtx.sys));
   if (testsFile) {
     const testsPath = `Tests/${ns}.Tests/${aggFolder}/${agg.name}Tests.cs`;
     out.set(testsPath, testsFile);

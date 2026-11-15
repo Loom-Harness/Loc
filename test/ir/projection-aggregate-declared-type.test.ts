@@ -1,3 +1,4 @@
+// Gate for D-LONG-AVG-DEFAULTS (docs/decisions).
 // The type of a query-time projection's AGGREGATE select — M-T5.24 /
 // `D-LONG-AVG-DEFAULTS` (`docs/decisions.md`).
 //

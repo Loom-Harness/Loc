@@ -1,4 +1,5 @@
 {
+  "//": "Gate for D-INHERITED-CAPABILITIES (docs/decisions).",
   "title": "inheritance (TPH + TPC) × a capability on the ABSTRACT BASE × polymorphic base reads (`GET /<base>/{id}`, a projection `from <Base>`)",
   "doc": "inheritance",
   "backends": "BASE_READS",

@@ -1,3 +1,4 @@
+// Gate for D-CHANNEL-KNOBS (docs/decisions).
 // Channel + channelSource — parse + validation (channels.md, Slice 1).
 //
 // Surface-only slice: the declaration parses, the key-field and

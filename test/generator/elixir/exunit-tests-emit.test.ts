@@ -112,7 +112,7 @@ describe("elixir domain `test` → ExUnit emission", () => {
     expect(findFile(files, /van_api\/test\/test_helper\.exs$/).trim()).toBe("ExUnit.start()");
   });
 
-  it("vanilla: threads a synthetic actor into a currentUser-gated op call in a test", async () => {
+  it("vanilla: threads the test principal into a currentUser-gated op call in a test", async () => {
     // §11d follow-up — the pure-core gated op carries `current_user \\ nil`; the
     // ExUnit test must pass a privileged actor so the `requires currentUser` guard
     // runs (not `nil.role`).  Mirror of node's TEST_ACTOR.
@@ -143,7 +143,7 @@ system G {
 `;
     const src = findFile(await generateSystemFiles(SRC), /api\/test\/selling\/order_test\.exs$/);
     expect(src).toContain(
-      'Api.Selling.Order.cancel(o, %{"reason" => "done"}, %{id: "00000000-0000-0000-0000-000000000000", role: "admin", permissions: ["*"]})',
+      'Api.Selling.Order.cancel(o, %{"reason" => "done"}, %{id: "00000000-0000-0000-0000-000000000001", role: "role"})',
     );
   });
 

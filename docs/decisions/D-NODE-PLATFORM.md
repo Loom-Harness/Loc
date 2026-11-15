@@ -57,3 +57,5 @@ back-compat keyword); the `transport:` menu (`hono` becomes its default value);
 `src/platform/hono/` (reframed as node's Hono transport); the derived `language`
 property on `PlatformSurface`. **Depends on D-REALIZATION-AXES**; mirrors
 **D-PHOENIX-SURFACE**.
+
+**Enforced by:** `test/platform/backend-platform-pin.test.ts`

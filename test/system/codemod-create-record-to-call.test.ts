@@ -1,3 +1,4 @@
+// Gate for D-CREATE-CALL-STYLE (docs/decisions).
 // The codemod for the record-form factory-call hard cutover
 // (`scripts/codemod-create-record-to-call.mjs`, D-CREATE-CALL-STYLE), and the
 // tree gate that keeps the repo's own `.ddd` corpus migrated.

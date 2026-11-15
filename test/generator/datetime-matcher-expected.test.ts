@@ -1,14 +1,17 @@
 // A `datetime` subject asserted against an ISO-8601 string literal —
 // `expect(w.scheduledAt).toBe("2026-02-02T12:30:00Z")` — compares as the
 // backend's date type on every backend's unit-test emitter.  The decision is
-// `coerceMatcherExpected` in `src/generator/_test/arg-coercion.ts`; each
-// backend supplies its own `datetime` leaf.
+// `assertionPlan` in `src/ir/plan/test-assertion.ts` (an `instant` comparison,
+// the literal built at the subject's type); each backend supplies its own
+// leaves.  Its behaviour on every backend is the `test-assertions` corpus
+// fixture; this pins each backend's spelling.
 //
 // Rendering the literal raw is wrong two ways: on TS/.NET/Java a date never
 // equals a string (a red test, or a compile error), and on Python/Elixir a
 // value wrongly STORED as the raw string would equal it — hiding the exact
-// defect `vanilla-domain-tests.ddd` asserts against.  Ordering matchers and
-// non-datetime subjects are deliberately untouched (pinned below).
+// defect `vanilla-domain-tests.ddd` asserts against.  An ordering matcher
+// builds the literal the same way (pinned below); a non-datetime subject is
+// untouched.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
@@ -61,10 +64,14 @@ const AT = "2026-02-02T12:30:00Z";
 const OTHER = "2027-01-01T00:00:00Z";
 
 describe("a datetime matcher's ISO-8601 expected value compares as a date", () => {
-  it("TS: toEqual(new Date(…)) — toBe would compare Date identity", async () => {
+  it("TS: epoch milliseconds — toBe would compare Date identity", async () => {
     const src = findFile(await generateSystemFiles(FIXTURE), /widget\.test\.ts$/i);
-    expect(lineWith(src, AT)).toMatch(/\.toEqual\(new Date\("2026-02-02T12:30:00Z"\)\);$/);
-    expect(lineWith(src, OTHER)).toMatch(/\.not\.toEqual\(new Date\("2027-01-01T00:00:00Z"\)\);$/);
+    expect(lineWith(src, AT)).toMatch(
+      /\.toBe\(new Date\("2026-02-02T12:30:00Z"\)\.getTime\(\)\);$/,
+    );
+    expect(lineWith(src, OTHER)).toMatch(
+      /\.not\.toBe\(new Date\("2027-01-01T00:00:00Z"\)\.getTime\(\)\);$/,
+    );
     expect(lineWith(src, '"W1")')).toMatch(/\.toBe\("W1"\);$/);
   });
 
@@ -82,10 +89,12 @@ describe("a datetime matcher's ISO-8601 expected value compares as a date", () =
     expect(lineWith(src, '"W1"')).toMatch(/\.Should\(\)\.Be\("W1"\);$/);
   });
 
-  it("Java: assertEquals(Instant.parse(…), …)", async () => {
+  it("Java: compareTo(Instant.parse(…))", async () => {
     const src = findFile(await generateSystemFiles(FIXTURE), /WidgetTests\.java$/i);
-    expect(lineWith(src, AT)).toMatch(/^assertEquals\(Instant\.parse\("2026-02-02T12:30:00Z"\), /);
-    expect(lineWith(src, OTHER)).toMatch(/^assertNotEquals\(Instant\.parse\(/);
+    expect(lineWith(src, AT)).toMatch(
+      /^assertEquals\(0, \(w\.scheduledAt\(\)\)\.compareTo\(Instant\.parse\("2026-02-02T12:30:00Z"\)\)\);$/,
+    );
+    expect(lineWith(src, OTHER)).toMatch(/^assertNotEquals\(0, .*\.compareTo\(Instant\.parse\(/);
     expect(src).toMatch(/import java\.time\.Instant;/);
   });
 
@@ -99,8 +108,8 @@ describe("a datetime matcher's ISO-8601 expected value compares as a date", () =
   });
 });
 
-describe("the rule stays narrow", () => {
-  it("an ordering matcher over a datetime is NOT coerced", async () => {
+describe("an ordering matcher builds the literal the same way", () => {
+  it("node: both sides as epoch milliseconds", async () => {
     const src = findFile(
       await generateSystemFiles(
         FIXTURE.replace(
@@ -110,10 +119,7 @@ describe("the rule stays narrow", () => {
       ),
       /widget\.test\.ts$/i,
     );
-    // `coerceMatcherExpected` does not fire (no `toEqual`).  The node ORDERING
-    // matcher has its own subject-type arm (banking eval B-01, emit/tests.ts
-    // `renderTypedValueMatcher`): vitest's `toBeGreaterThan` rejects a `Date`
-    // subject outright, so both sides compare as epoch milliseconds.
+    // vitest's `toBeGreaterThan` rejects a `Date` subject outright.
     const line = lineWith(src, OTHER);
     expect(line).not.toContain("toEqual");
     expect(line).toMatch(

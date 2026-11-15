@@ -1,3 +1,4 @@
+// Gate for D-CODEC (docs/decisions).
 // The node/Hono backend takes every encoding decision from ONE IR fact — the
 // `Codec` table (`src/ir/enrich/codec.ts`): the money scale and column bounds,
 // the integral wire ranges, the datetime wire form, the scalar column types,

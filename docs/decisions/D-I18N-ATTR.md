@@ -47,3 +47,5 @@ Flutter) and one HTML round-trip disappeared with it.
 **Affects.** `i18n.md`, `accessibility.md`; `_walker/i18n-emit.ts`,
 `_walker/a11y-emit.ts`, `_walker/target.ts`; every `primitive-*.hbs`
 carrying a user-visible attribute, plus the Feliz/Flutter packs.
+
+**Enforced by:** `test/generator/_walker/interpolated-user-visible-slots.test.ts`, `test/behavioral/heex-i18n/heex-i18n.pw.ts`

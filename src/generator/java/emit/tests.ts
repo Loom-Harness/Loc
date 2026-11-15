@@ -1,31 +1,33 @@
 import { createInputFields, createOmissionValue } from "../../../ir/enrich/wire-projection.js";
+import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
+import {
+  type TestPrincipalShape,
+  testPrincipal,
+  testPrincipalShape,
+} from "../../../ir/plan/test-principal.js";
 import type {
   AggregateIR,
   BoundedContextIR,
   DomainServiceIR,
   ExprIR,
-  FieldIR,
   TestIR,
   TestStmtIR,
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeJavaIdent, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { javaRef } from "../../_imports/java.js";
-import {
-  coerceMatcherExpected,
-  coerceTestValue,
-  type TestValueTarget,
-} from "../../_test/arg-coercion.js";
+import { coerceTestValue, type TestValueTarget } from "../../_test/arg-coercion.js";
+import { type AssertionTarget, renderAssertion } from "../../_test/assertion-target.js";
+import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
 import { javaThrowKind } from "../../_test/throw-kind.js";
 import { jid } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { type JavaRenderContext, renderJavaExpr, withLambdaScope } from "../render-expr.js";
-import { stubUserValue } from "./auth.js";
 
 // ---------------------------------------------------------------------------
 // `test "..." { ... }` DSL → JUnit 5 test class (the xUnit/vitest analog).
@@ -44,7 +46,7 @@ export function renderJavaTestsFile(
   /** System user-block fields — when ops referencing currentUser are
    *  invoked from a test body, a stub test user is materialised with the
    *  dev-stub claim values and threaded as the trailing argument. */
-  userFields?: readonly FieldIR[],
+  userFields?: TestPrincipalShape,
   /** Package holding another aggregate's root class, resolved through the SAME
    *  layout router this file's own package came from — so the sibling import
    *  below is correct under `byLayer` and `byFeature` alike. */
@@ -69,7 +71,7 @@ export function renderJavaVoTestsFile(
   ctx: BoundedContextIR,
   basePkg: string,
   pkg: string,
-  userFields?: readonly FieldIR[],
+  userFields?: TestPrincipalShape,
 ): string | null {
   return renderJavaSubjectTests(vo.name, vo.tests, ctx, basePkg, pkg, userFields, false);
 }
@@ -81,7 +83,7 @@ export function renderJavaServiceTestsFile(
   ctx: BoundedContextIR,
   basePkg: string,
   pkg: string,
-  userFields?: readonly FieldIR[],
+  userFields?: TestPrincipalShape,
 ): string | null {
   return renderJavaSubjectTests(svc.name, svc.tests, ctx, basePkg, pkg, userFields, true);
 }
@@ -92,7 +94,7 @@ function renderJavaSubjectTests(
   ctx: BoundedContextIR,
   basePkg: string,
   pkg: string,
-  userFields: readonly FieldIR[] | undefined,
+  userFields: TestPrincipalShape | undefined,
   includeServices: boolean,
   siblingPkgFor?: (aggregateName: string) => string,
 ): string | null {
@@ -138,11 +140,10 @@ function renderJavaSubjectTests(
     `public class ${name}Tests {`,
     ...(state.usesTestUser
       ? [
-          `    private static final ${javaRef(`${basePkg}.auth`, "User")} __testUser = new ${javaRef(`${basePkg}.auth`, "User")}(${(
-            userFields ?? []
-          )
-            .map((f) => stubUserValue(f.type))
-            .join(", ")});`,
+          `    private static final ${javaRef(`${basePkg}.auth`, "User")} __testUser = ${renderTestPrincipal(
+            testPrincipal(userFields ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),
+            javaPrincipal(basePkg),
+          )};`,
           ``,
         ]
       : []),
@@ -152,9 +153,31 @@ function renderJavaSubjectTests(
   );
 }
 
+/** Java spelling of the shared test principal (`testPrincipal`,
+ *  src/ir/plan/test-principal.ts): the positional `User` record, every
+ *  declared claim in declared order. */
+export function javaPrincipal(basePkg: string): PrincipalTarget {
+  const uuid = (v: string): string => `${J.UUID}.fromString(${JSON.stringify(v)})`;
+  return {
+    text: (v) => JSON.stringify(v),
+    guid: uuid,
+    id: (targetName, v) => `new ${targetName}Id(${uuid(v)})`,
+    int: "0",
+    decimal: () => `${J.BigDecimal}.ZERO`,
+    bool: "false",
+    datetime: `${J.Instant}.EPOCH`,
+    date: `${J.LocalDate}.EPOCH`,
+    enumMember: (name, member) => `${name}.${jid(member)}`,
+    list: (_element, items) => `${J.List}.of(${items.join(", ")})`,
+    absent: "null",
+    record: (claims) =>
+      `new ${javaRef(`${basePkg}.auth`, "User")}(${claims.map((c) => c.rendered).join(", ")})`,
+  };
+}
+
 interface TestEmitState {
   usesTestUser: boolean;
-  userFields?: readonly FieldIR[];
+  userFields?: TestPrincipalShape;
   ctx: BoundedContextIR;
 }
 
@@ -245,6 +268,9 @@ export function renderOperationCall(
   e: ExprIR,
   ctx: BoundedContextIR,
   rctx: JavaRenderContext = TEST_CTX,
+  /** The principal a currentUser-reading operation takes as its trailing
+   *  argument, when the caller binds one. */
+  principal?: string,
 ): string | null {
   if (e.kind !== "method-call" || e.isIntrinsicMatcher) return null;
   const rt = e.receiverType as { name?: string } | undefined;
@@ -255,12 +281,16 @@ export function renderOperationCall(
   const op = [...(agg.operations ?? []), ...(agg.creates ?? []), ...(agg.destroys ?? [])].find(
     (o) => o.name === e.member,
   );
-  if (!op || op.params.length === 0) return null;
+  const takesPrincipal =
+    principal !== undefined &&
+    agg.operations.some((o) => o === op && operationBodyUsesCurrentUser(o));
+  if (!op || (op.params.length === 0 && !takesPrincipal)) return null;
   const recv = renderJavaExpr(e.receiver, rctx);
   const args = e.args.map((a, i) => {
     const p = op.params[i];
     return p ? coerceLiteralToJavaType(p.type, a, ctx, rctx) : renderJavaExpr(a, rctx);
   });
+  if (takesPrincipal) args.push(principal);
   return `${recv}.${jid(e.member)}(${args.join(", ")})`;
 }
 
@@ -308,70 +338,76 @@ export function renderCreateCall(
   return `${agg.name}.create(${args.join(", ")})`;
 }
 
-/** Explicit intrinsic matcher → a JUnit assertion.  Comparisons over
- *  BigDecimal receivers route through compareTo (BigDecimal's equals is
- *  scale-sensitive and `<`/`>` don't exist). */
+/** Java's operator for each relation. */
+const JAVA_RELATION_OP: Readonly<Record<AssertionRelation, string>> = {
+  eq: "==",
+  gt: ">",
+  ge: ">=",
+  lt: "<",
+  le: "<=",
+};
+
+/** A relation over a `Comparable` (BigDecimal, Instant, LocalDate): `<`/`>`
+ *  are not defined on them and `BigDecimal.equals` is scale-sensitive, so
+ *  every relation goes through `compareTo`. */
+function viaCompareTo(relation: AssertionRelation, negate: boolean, a: string, e: string): string {
+  if (relation === "eq") {
+    return `assert${negate ? "NotEquals" : "Equals"}(0, (${a}).compareTo(${e}));`;
+  }
+  return `assert${negate ? "False" : "True"}((${a}).compareTo(${e}) ${JAVA_RELATION_OP[relation]} 0);`;
+}
+
+/** A record or collection compared field by field (element by element, in
+ *  order) through AssertJ's recursive comparison, with every `BigDecimal`
+ *  inside compared by value.  `assertEquals` would call the record's
+ *  `equals`, which compares a `BigDecimal` component by scale. */
+function viaRecursiveComparison(negate: boolean, a: string, e: string): string {
+  const assertj = javaRef("org.assertj.core.api", "Assertions");
+  return (
+    `${assertj}.assertThat((Object) ${a}).usingRecursiveComparison()` +
+    `.withComparatorForType(${J.BigDecimal}::compareTo, ${J.BigDecimal}.class)` +
+    `.${negate ? "isNotEqualTo" : "isEqualTo"}(${e});`
+  );
+}
+
+/** JUnit leaves for the shared assertion plan. */
+const JUNIT_ASSERTIONS: AssertionTarget = {
+  compare: {
+    scalar: ({ relation, negate, actual, expected }) =>
+      relation === "eq"
+        ? negate
+          ? `assertNotEquals(${expected}, ${actual});`
+          : `assertEquals(${expected}, ${actual});`
+        : `assert${negate ? "False" : "True"}(${actual} ${JAVA_RELATION_OP[relation]} ${expected});`,
+    decimal: ({ relation, negate, actual, expected }) =>
+      viaCompareTo(relation, negate, actual, expected),
+    instant: ({ relation, negate, actual, expected }) =>
+      viaCompareTo(relation, negate, actual, expected),
+    date: ({ relation, negate, actual, expected }) =>
+      viaCompareTo(relation, negate, actual, expected),
+    structural: ({ negate, actual, expected }) => viaRecursiveComparison(negate, actual, expected),
+    sequence: ({ negate, actual, expected }) => viaRecursiveComparison(negate, actual, expected),
+  },
+  // An optional field is a boxed reference here (`Integer`, not `int`), so the
+  // language's one absence value is Java's `null`.
+  isNull: (negate, actual) => (negate ? `assertNotNull(${actual});` : `assertNull(${actual});`),
+  // `.contains(...)` is declared on `Collection<E>` (membership) and on
+  // `String` (substring); the subject's static type picks the method.
+  contain: (_within, negate, actual, expected) =>
+    `assert${negate ? "False" : "True"}(${actual}.contains(${expected}));`,
+  literal: javaTestLiteral(),
+};
+
+/** Explicit intrinsic matcher → a JUnit assertion, or null for a bare boolean,
+ *  which the caller asserts with `assertTrue`. */
 export function renderExplicitMatcher(
   expr: ExprIR,
   rctx: JavaRenderContext = TEST_CTX,
 ): string | null {
-  if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) return null;
-  const sig = intrinsicMatcherSig(expr.member);
-  if (sig?.on !== "value") return null;
-  let receiver = expr.receiver;
-  let negate = false;
-  if (receiver.kind === "member" && receiver.member === "not" && sig.negatable) {
-    negate = true;
-    receiver = receiver.receiver;
-  }
-  const inner = receiver.kind === "paren" ? receiver.inner : receiver;
-  const actual = renderJavaExpr(inner, rctx);
-  const arg = expr.args[0];
-  const rawExpected = arg !== undefined ? renderJavaExpr(arg, rctx) : "";
-  // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`)
-  // compares as an `Instant`, which never `equals` a `String`.
-  const expected = coerceMatcherExpected(expr, rawExpected, javaTestLiteral()) ?? rawExpected;
-  const moneyLike =
-    (inner.kind === "member" &&
-      inner.memberType.kind === "primitive" &&
-      (inner.memberType.name === "money" || inner.memberType.name === "decimal")) ||
-    (arg?.kind === "literal" && (arg.lit === "money" || arg.lit === "decimal"));
-  const cmp = (op: string): string =>
-    moneyLike ? `(${actual}).compareTo(${expected}) ${op} 0` : `${actual} ${op} ${expected}`;
-  switch (expr.member) {
-    case "toBe":
-      if (moneyLike) {
-        return negate
-          ? `assertTrue((${actual}).compareTo(${expected}) != 0);`
-          : `assertEquals(0, (${actual}).compareTo(${expected}));`;
-      }
-      return negate
-        ? `assertNotEquals(${expected}, ${actual});`
-        : `assertEquals(${expected}, ${actual});`;
-    case "toBeGreaterThan":
-      return `assert${negate ? "False" : "True"}(${cmp(">")});`;
-    case "toBeGreaterThanOrEqual":
-      return `assert${negate ? "False" : "True"}(${cmp(">=")});`;
-    case "toBeLessThan":
-      return `assert${negate ? "False" : "True"}(${cmp("<")});`;
-    case "toBeLessThanOrEqual":
-      return `assert${negate ? "False" : "True"}(${cmp("<=")});`;
-    // Absence.  An optional field is a boxed reference here (`Integer`, not
-    // `int`), so the language's one absence value is Java's `null`.
-    // (`toBeAbsent` never reaches this emitter — it is e2e-only, because a
-    // declared Java field has no "absent" form, only `null`.)
-    case "toBeNull":
-      return negate ? `assertNotNull(${actual});` : `assertNull(${actual});`;
-    // Containment.  Java spells BOTH lowerings `.contains(...)` — it is
-    // declared on `Collection<E>` (element membership) and on `String`
-    // (substring) — so the subject's static type picks the method, which is
-    // the same dispatch `checkContainReceiver` already validated.  One arm
-    // covers the two receiver kinds the DSL promises.
-    case "toContain":
-      return `assert${negate ? "False" : "True"}(${actual}.contains(${expected}));`;
-    default:
-      return null;
-  }
+  return renderAssertion(expr, JUNIT_ASSERTIONS, {
+    renderSubject: (e) => renderJavaExpr(e, rctx),
+    renderExpected: (e) => renderJavaExpr(e, rctx),
+  });
 }
 
 /** The exception classes a BARE `toThrow()` accepts on Java: every way the
