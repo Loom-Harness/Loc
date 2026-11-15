@@ -102,6 +102,8 @@ export type AssertionPlan =
       negate: boolean;
       /** The asserted expression, `.not` and parentheses peeled. */
       subject: ExprIR;
+      /** The subject may be absent (an optional field or binding). */
+      optional: boolean;
       expected: ExprIR;
       /** How the expected literal is built at the subject's type. */
       expectedLiteral: LiteralCoercion;
@@ -146,6 +148,7 @@ export function assertionPlan(expr: ExprIR): AssertionPlan | undefined {
     compare: compareKind(type, relation, expected),
     negate,
     subject,
+    optional: subjectType?.kind === "optional" || bodyTypeOf(subject)?.kind === "optional",
     expected,
     expectedLiteral: decideLiteralCoercion(type, expected),
   };

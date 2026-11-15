@@ -17,6 +17,8 @@ import { applyLiteralCoercion, type TestLiteralTarget } from "./arg-coercion.js"
 export interface CompareOperands {
   relation: AssertionRelation;
   negate: boolean;
+  /** The subject may be absent (`AssertionPlan.optional`). */
+  optional: boolean;
   /** The subject, rendered by the backend's own subject renderer. */
   actual: string;
   /** The expected value, coerced to the subject's type. */
@@ -82,6 +84,7 @@ export function renderAssertionPlan(
       return target.compare[plan.compare]({
         relation: plan.relation,
         negate: plan.negate,
+        optional: plan.optional,
         actual,
         expected,
       });

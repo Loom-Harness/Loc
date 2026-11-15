@@ -401,8 +401,14 @@ const PY_RELATION_OP: Readonly<Record<AssertionRelation, string>> = {
 /** One comparison: `Decimal`, `datetime`, `date`, dataclasses and lists all
  *  compare by value under Python's own operators, once the expected literal is
  *  built at the subject's type. */
-function pyCompare({ relation, negate, actual, expected }: CompareOperands): string {
+function pyCompare({ relation, negate, optional, actual, expected }: CompareOperands): string {
   const cmp = `${actual} ${PY_RELATION_OP[relation]} ${expected}`;
+  // An ordering over a subject that may be `None` narrows it first, so the
+  // comparison type-checks under `mypy --strict`; an absent subject fails the
+  // assertion either way.
+  if (optional && relation !== "eq") {
+    return `    assert ${actual} is not None and ${negate ? `not (${cmp})` : cmp}`;
+  }
   return negate ? `    assert not (${cmp})` : `    assert ${cmp}`;
 }
 

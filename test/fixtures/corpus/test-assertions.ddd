@@ -23,7 +23,7 @@ system TestAssertions {
       aggregate Customer with crudish { name: string }
       aggregate Order with crudish {
         code: string
-        total: money = 0.0
+        total: money
         status: string = "new"
         signedBy: string = ""
         tags: string[]
@@ -37,7 +37,7 @@ system TestAssertions {
         operation sign() { precondition currentUser.email.length > 0  signedBy := currentUser.email }
 
         test "money compares by value, whatever its scale" {
-          let o = Order.create(code: "a", customer: "00000000-0000-0000-0000-000000000001")
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
           o.setTotal(15.00)
           let t = o.total
           expect(t).toBe(15)
@@ -48,7 +48,7 @@ system TestAssertions {
         }
 
         test "a datetime and a date order against ISO strings" {
-          let o = Order.create(code: "a", customer: "00000000-0000-0000-0000-000000000001")
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
           o.place("2026-01-02T00:00:00Z")
           o.due("2026-03-01")
           expect(o.placedAt).toBe("2026-01-02T00:00:00Z")
@@ -62,25 +62,25 @@ system TestAssertions {
         test "a value object and a list compare by value" {
           let p = Price { amount: 1.50, currency: "USD" }
           expect(p).toBe(Price { amount: 1.5, currency: "USD" })
-          let o = Order.create(code: "a", customer: "00000000-0000-0000-0000-000000000001", tags: ["x", "y"])
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001", tags: ["x", "y"])
           expect(o.tags).toBe(["x", "y"])
           expect(o.tags).not.toBe(["y", "x"])
         }
 
         test "an id compares against the id its string names" {
-          let o = Order.create(code: "a", customer: "00000000-0000-0000-0000-000000000001")
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
           expect(o.customer).toBe("00000000-0000-0000-0000-000000000001")
         }
 
         test "an operation named like a collection op is the operation" {
-          let o = Order.create(code: "a", customer: "00000000-0000-0000-0000-000000000001")
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
           o.take(1)
           expect(o.status).toBe("taken")
           expect(o.take(0)).toThrow()
         }
 
         test "an operation reads a declared claim of the test principal" {
-          let o = Order.create(code: "a", customer: "00000000-0000-0000-0000-000000000001")
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
           o.sign()
           expect(o.signedBy).toBe("admin")
         }
