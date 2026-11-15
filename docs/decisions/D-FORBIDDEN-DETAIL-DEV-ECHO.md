@@ -33,4 +33,4 @@ flash follows the same rule as the HTTP body.
 backends' error handlers and dev stubs; `test/generator/forbidden-detail-echo.test.ts`,
 `test/generator/dev-claims-parity.test.ts`.
 
-**Enforced by:** `test/generator/forbidden-detail-echo.test.ts`, `test/generator/dev-claims-parity.test.ts`
+**Enforced by:** none, tracked by #6013 — the malformed-header 400 is never booted on the five backends; only node's stub runs in-process

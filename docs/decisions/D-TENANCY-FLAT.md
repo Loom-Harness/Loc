@@ -158,4 +158,4 @@ D-REACTOR-SYSTEM-PRINCIPAL (event origin); `src/macros/prelude.ts`
 `src/generator/_expr/subtree-like.ts`; the five backends' read-scope, stamp and
 principal seams.
 
-**Enforced by:** `test/ir/policy-levels.test.ts`, `test/system/tenant-registry-tree.test.ts`
+**Enforced by:** `test/ir/policy-levels.test.ts`, `test/system/tenant-registry-tree.test.ts`, `test/e2e/tenancy-isolation.test.ts`

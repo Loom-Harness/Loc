@@ -64,4 +64,4 @@ the `Home`/`WorkflowsIndex` registry primitives, and the page
 just `buildExpandContext`. A page's kind is derived on demand from its
 role-scoped name + area via `classifyPage` (`src/ir/util/page-kind.ts`).
 
-**Enforced by:** `test/language/validation/validation.test.ts`
+**Enforced by:** none, tracked by #6013 — nothing asserts List/Detail/MasterDetail are refused; one validation case per name is easy to add

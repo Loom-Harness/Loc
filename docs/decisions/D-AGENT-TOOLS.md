@@ -70,4 +70,4 @@ wanted, is a separate consent-gated tool).
 in-browser transports) and §7 item 6; the new `agent-tools-and-mcp.md` is the
 detailed spec; the future playground-chat slice builds on this seam.
 
-**Enforced by:** `test/tools/catalog.test.ts`
+**Enforced by:** none, tracked by #6013 — nothing checks src/tools stays MCP-free and browser-safe, or that the MCP list derives from TOOLS

@@ -1,3 +1,4 @@
+// Gate for D-EXPLICIT-ROUTE-WINS (docs/decisions).
 // M-T6.73 — WHERE an explicit `route <METHOD> <PATH> -> <Ctx>.<Handler>` is
 // served, across all five backends, and what it answers with.
 //

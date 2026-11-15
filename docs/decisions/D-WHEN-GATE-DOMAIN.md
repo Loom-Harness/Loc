@@ -95,4 +95,4 @@ it.
 | 17 | `D-SENSITIVE-INSPECT-ONLY` | `sensitive(...)` is inspect-only today; wire masking is `mask unless`; phases 2–4 stay **M-T3.8** |
 | 18 | `D-POLYMORPHIC-ID-REPRESENTATION` | a `<Base> id` to a TPC base is a plain id column — no FK, no discriminator; owner **M-T5.7** |
 
-**Enforced by:** `test/generator/when-gate-domain-entry.test.ts`
+**Enforced by:** none, tracked by #6013 — in-system refusal is unobserved; a corpus workflow cascading into a gated op is buildable

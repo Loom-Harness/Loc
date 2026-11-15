@@ -1,3 +1,4 @@
+// Gate for D-DOCUMENT-AXIS (docs/decisions).
 import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";

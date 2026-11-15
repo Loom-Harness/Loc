@@ -1,3 +1,4 @@
+// Gate for D-PAGE-PRIMITIVE-SHADOW (docs/decisions).
 // ---------------------------------------------------------------------------
 // `component <Name>` where `<Name>` is a walker-stdlib primitive.
 //

@@ -19,4 +19,4 @@ absolute duration with calendar offset (java.time's `Duration` vs `Period`).
 **Consequence.** Calendar units belong to a separate `period` type if one is
 ever added, not to `duration`.
 
-**Enforced by:** `test/language/validation/temporal.test.ts`
+**Enforced by:** `test/language/validation/temporal.test.ts`, `test/generator/intrinsic-completeness.test.ts`

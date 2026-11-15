@@ -88,4 +88,4 @@ deployable api {
   introduce the logical form ship `dataSource` from day one;
   per-aggregate `for:` does not land in v1 (see D-GRANULARITY).
 
-**Enforced by:** `test/system/diagnostic-firing-census.test.ts`
+**Enforced by:** `test/system/diagnostic-firing-census.test.ts`, `test/cli/parse-ir-validation.test.ts`

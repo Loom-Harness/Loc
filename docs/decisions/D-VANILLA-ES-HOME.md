@@ -51,4 +51,4 @@ costs nothing additional once vanilla exists.
 shared `<agg>_events` shape extends to the Ecto migrations renderer in P4).
 **Depends on D-VANILLA-PHOENIX-FOUNDATION**.
 
-**Enforced by:** `test/generator/elixir-vanilla/slice5b-eventsourcing.test.ts`
+**Enforced by:** `test/fixtures/corpus/event-sourcing.ddd`, `test/generator/elixir-vanilla/slice5b-eventsourcing.test.ts`

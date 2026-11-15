@@ -44,4 +44,4 @@ has a declared create record), both at zero;
 `test/ir/contract/frontend-contract-census.test.ts` (the Frontend Contract
 names no derived-wire helper).
 
-**Enforced by:** `test/system/wire-spec-requests-census.test.ts`, `test/ir/contract/frontend-contract-census.test.ts`
+**Enforced by:** `test/system/wire-spec-requests-census.test.ts`, `test/ir/contract/frontend-contract-census.test.ts`, `test/system/create-request-census.test.ts`

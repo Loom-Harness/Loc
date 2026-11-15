@@ -26,4 +26,4 @@ a work queue because consumers dedupe on the envelope id. On a log, a fresh
 deployable replaying the whole history is a semantic change of its own
 (the replay cursor, M-T4.2), so it stays out of this ruling.
 
-**Enforced by:** `test/generator/channels-kafka-transport.test.ts`, `test/generator/java/channels-kafka-java.test.ts`
+**Enforced by:** none, tracked by #6013 — late-join is booted only on node; the other backends' kafka legs lack the scenario

@@ -62,4 +62,4 @@ reads, must-exist finds over non-unique keys, variant matches on a
 `T or <Error>` read, row-less finds) is what the `FindDecl` removal still has
 to settle by hand.
 
-**Enforced by:** `test/language/validation/repo-key-lookup.test.ts`, `test/generator/repo-key-lookup.test.ts`
+**Enforced by:** `test/language/validation/repo-key-lookup.test.ts`, `test/fixtures/corpus/tenancy-claim-name.ddd`

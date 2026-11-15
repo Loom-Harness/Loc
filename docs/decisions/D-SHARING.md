@@ -232,4 +232,4 @@ behaviour; `src/language/ddd.langium` (policy rules, `exists`);
 `src/macros/stdlib/shareable/` (what it unfolds to); the read-scope enrichment and the five
 backends' scope renderers; the walker (Share primitive) and every design pack.
 
-**Enforced by:** `test/ir/policy-scopes.test.ts`, `test/ir/share-gates.test.ts`
+**Enforced by:** `test/ir/policy-scopes.test.ts`, `test/fixtures/corpus/policy-row-rules.ddd`, `test/fixtures/corpus/policy-deny.ddd`

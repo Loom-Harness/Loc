@@ -61,4 +61,4 @@ table".
 [`generators.md`](../generators.md) § "Names that are Python keywords" and
 § "Names that are Java reserved words".
 
-**Enforced by:** `test/generator/target-reserved-member-names.test.ts`, `test/fixtures/corpus/target-reserved-words.ddd`
+**Enforced by:** `test/fixtures/corpus/target-reserved-words.ddd`, `test/generator/target-reserved-member-names.test.ts`

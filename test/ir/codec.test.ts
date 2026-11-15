@@ -1,3 +1,4 @@
+// Gate for D-CODEC (docs/decisions).
 // The `Codec` fact (src/ir/enrich/codec.ts): each row pinned against the
 // RS-rule or ruling it encodes, the `codecOf` resolution over declared types,
 // and the owner `RULINGS` pinned against the table (with `UNRULED` empty).

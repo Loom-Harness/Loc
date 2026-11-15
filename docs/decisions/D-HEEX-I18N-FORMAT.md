@@ -44,4 +44,4 @@ message formats through its ICU hole.
 (`renderDateDisplay`), `generator/_i18n/locale-format.ts` (`uiUsesLocaleFormat`),
 `generator/elixir/vanilla/shell-emit.ts`.
 
-**Enforced by:** `test/generator/elixir/i18n-runtime.test.ts`
+**Enforced by:** `test/behavioral/heex-i18n/heex-i18n.pw.ts`, `test/generator/elixir/i18n-runtime.test.ts`

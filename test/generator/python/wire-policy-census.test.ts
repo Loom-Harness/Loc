@@ -1,3 +1,4 @@
+// Gate for D-WIRE-POLICY (docs/decisions).
 // The python/FastAPI backend takes every wire refusal from ONE IR fact — the
 // `wirePolicy` table (`src/ir/enrich/wire-policy.ts`): status, title, fixed
 // detail or sentence, field message, ingress JSON type.  Twin of the node

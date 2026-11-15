@@ -26,4 +26,4 @@ is "infrastructure-emitted events".
 exactly one backend deployable. Re-open temporal surface only for a concrete
 user need.
 
-**Enforced by:** `test/ir/reserved-not-emitted.test.ts`, `test/language/timer.test.ts`
+**Enforced by:** `test/ir/reserved-not-emitted.test.ts`, `test/e2e/timer-single-fire-e2e.test.ts`

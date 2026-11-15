@@ -137,4 +137,4 @@ in #724 — `shape: relational` == old `normalised(true)`, `shape: document`
   (codemod).
 - `resolve-datasource.ts` — mode→kind mapping collapses to identity.
 
-**Enforced by:** `test/ir/saving-shape-support.test.ts`, `test/language/parsing/aggregate-persistence-strategy.test.ts`
+**Enforced by:** `test/language/parsing/aggregate-persistence-strategy.test.ts`, `test/ir/saving-shape-support.test.ts`

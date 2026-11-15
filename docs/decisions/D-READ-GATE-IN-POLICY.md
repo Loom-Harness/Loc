@@ -43,4 +43,4 @@ longer answer to different principals — model them as different aggregates or
 gate the exposure instead. The `find all` exemption from
 `loom.repository-find-deprecated` is gone with the gate it existed for.
 
-**Enforced by:** `test/ir/policy-read-gate.test.ts`
+**Enforced by:** `test/ir/policy-read-gate.test.ts`, `test/fixtures/corpus/read-gates.ddd`

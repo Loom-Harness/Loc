@@ -38,4 +38,4 @@ answering it first leaks nothing (D-CREATE-GATE-ORDER).
 `AUTHZ_LADDERS["inheritance-read-gates"]` in
 `test/behavioral/cases.mjs`, run by every behavioural runner.
 
-**Enforced by:** `test/system/gate-ladder-census.test.ts`
+**Enforced by:** `test/system/gate-ladder-census.test.ts`, `test/fixtures/corpus/auth-simple.ddd`, `test/fixtures/corpus/read-gates.ddd`, `test/fixtures/corpus/inheritance-read-gates.ddd`

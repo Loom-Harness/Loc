@@ -64,4 +64,4 @@ Consequences).
 F11 + annex; [`conformance-semantics.md`](../conformance-semantics.md) RS-24 and the
 claim-the-number protocol; `test/behavioral/wire-golden/*.json`.
 
-**Enforced by:** `test/generator/decimal-exact-arithmetic.test.ts`, `test/fixtures/corpus/decimal-exact.ddd`
+**Enforced by:** `test/fixtures/corpus/decimal-exact.ddd`

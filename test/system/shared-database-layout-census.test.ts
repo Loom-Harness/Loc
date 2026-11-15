@@ -1,3 +1,4 @@
+// Gate for D-ONE-SCHEMA (docs/decisions).
 // Every backend on a shared database maps the ONE schema the shared migrations
 // derive — whichever backend's migrations created it.  This census makes a new
 // backend or persistence adapter choose a side, and it cannot be bypassed: the

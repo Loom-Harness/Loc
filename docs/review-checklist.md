@@ -44,6 +44,11 @@ or fixed as a gap.
 ### D-PHOENIX-FORMAT-GATE
 No PR adds a `mix format` (or Dialyzer) gate over generated Elixir.
 
+### D-VANILLA-DEFAULT
+The ruling sequenced a default flip that has since happened: plain Ecto/Phoenix
+is the only Elixir emission. A change does not reintroduce a second Elixir
+emission path or a release that flips the default back.
+
 ## Code layout
 
 ### D-HONO-SHARED

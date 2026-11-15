@@ -40,4 +40,4 @@ survive the alignment pass.
   describe is interim per this decision.
 - Depends on D-BACKEND-PKG (the surface is the discovery unit).
 
-**Enforced by:** `test/platform/adapter-metadata-consistency.test.ts`
+**Enforced by:** none, tracked by #6013 — no census forbids core statically importing backend adapter implementations; buildable as an import-graph check

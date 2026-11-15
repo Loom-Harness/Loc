@@ -48,4 +48,4 @@ release sequencing); `src/language/validators/data/platform-rules.ts`
 notes for the two flip-related releases. **Depends on
 D-VANILLA-PHOENIX-FOUNDATION**.
 
-**Enforced by:** `test/ir/deployable-axes-lowering.test.ts`
+**Enforced by:** review — `docs/review-checklist.md#d-vanilla-default` — a release-sequencing ruling already carried out; no test can observe a sequence

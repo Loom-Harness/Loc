@@ -118,4 +118,4 @@ framework (`foundation: ash` + `persistence: ashSqlite`). Every *other*
 conclusion of this decision stands (one `phoenix` platform, no `family@version`,
 no `apiOnly`, `framework:` is UI-only, default domain = Ash).
 
-**Enforced by:** `test/platform/hostable-frameworks.test.ts`
+**Enforced by:** `test/platform/hostable-frameworks.test.ts`, `test/platform/backend-platform-pin.test.ts`

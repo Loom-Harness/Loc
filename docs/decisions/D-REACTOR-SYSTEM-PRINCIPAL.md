@@ -89,4 +89,4 @@ auth (`channels.md` § Broker auth) is the boundary, not the attribute.
 `docs/tenancy.md`; `docs/workflow.md`; `docs/channels.md`;
 `src/ir/validate/checks/reactor-principal-checks.ts`.
 
-**Enforced by:** `test/ir/reactor-system-principal.test.ts`, `test/generator/reactor-system-principal.test.ts`
+**Enforced by:** none, tracked by #6013 — no booted fixture exercises a reactor hitting a gate; a corpus case with an isSystem gate is buildable

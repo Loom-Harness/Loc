@@ -25,4 +25,4 @@ cannot disagree with itself.
 (checked with the TypeScript type checker), and every fold emitter calls
 `foldSteps`.
 
-**Enforced by:** `test/system/projection-fold-census.test.ts`
+**Enforced by:** `test/system/projection-fold-census.test.ts`, `test/fixtures/corpus/projection-fold-statements.ddd`, `test/ir/projection.test.ts`

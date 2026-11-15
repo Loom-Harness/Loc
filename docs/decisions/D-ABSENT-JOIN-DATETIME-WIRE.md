@@ -77,4 +77,4 @@ elixir note that sizes it);
 `src/generator/dotnet/query-projection-emit.ts`,
 `src/generator/elixir/vanilla/context-emit.ts`.
 
-**Enforced by:** `test/fixtures/corpus/datetime-wire.ddd`, `test/generator/dotnet/query-projection-join-missing.test.ts`
+**Enforced by:** `test/fixtures/corpus/datetime-wire.ddd`

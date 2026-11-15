@@ -62,4 +62,4 @@ and does not emit the TPH base reader, which queries the EF root set.
 https://learn.microsoft.com/en-us/ef/core/querying/filters,
 https://learn.microsoft.com/ef/core/modeling/inheritance.
 
-**Enforced by:** `test/generator/dotnet/dotnet-tph-capability-filter.test.ts`
+**Enforced by:** `test/fixtures/corpus/inheritance-read-restrictions.ddd`, `test/generator/dotnet/dotnet-tph-capability-filter.test.ts`

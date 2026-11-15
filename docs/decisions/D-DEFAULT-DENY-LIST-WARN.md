@@ -48,4 +48,4 @@ language decision. It is a separate mission.
 `src/diagnostics/messages.ts`, `docs/auth.md`,
 `docs/language-reference/17-auth.md`, `docs/language.md`.
 
-**Enforced by:** `test/ir/default-deny-list-ungated.test.ts`
+**Enforced by:** `test/ir/default-deny-list-ungated.test.ts`, `test/language/validation/policy-out-of-scope-multifile.test.ts`

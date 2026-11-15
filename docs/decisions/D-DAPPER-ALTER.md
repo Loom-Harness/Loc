@@ -59,4 +59,4 @@ row `dapper-no-schema-evolution` (fix field: both options, sized);
 `src/ir/validate/checks/migration-checks.ts`, `src/generator/dotnet/emit/dapper.ts`,
 `src/generator/dotnet/index.ts`, `src/platform/hono/v4/emit.ts`.
 
-**Enforced by:** `test/generator/dotnet/dapper-migrations.test.ts`
+**Enforced by:** none, tracked by #6013 — the mikroorm half has no ALTER path or gate; only dapper is observed booted

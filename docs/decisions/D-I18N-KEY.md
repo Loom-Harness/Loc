@@ -33,4 +33,4 @@ never words.
 **Affects.** [`i18n.md`](../i18n.md); the `ddd i18n sync` three-way merge; the
 generated catalog key shape.
 
-**Enforced by:** `test/generator/_walker/i18n-extract.test.ts`, `test/util/content-hash.test.ts`
+**Enforced by:** `test/generator/_walker/i18n-extract.test.ts`, `test/util/content-hash.test.ts`, `test/generator/_walker/walker-model-text.test.ts`, `test/i18n/renames.test.ts`

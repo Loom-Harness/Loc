@@ -42,4 +42,4 @@ the request schema only when the patch carries every member it reads, and by
 the domain floor over the merged state otherwise. A caller no longer has to
 send a `mask unless` field it cannot read (#3600).
 
-**Enforced by:** `test/ir/unions.test.ts`, `test/generator/match-optional-subject.test.ts`
+**Enforced by:** `test/ir/unions.test.ts`

@@ -42,19 +42,33 @@ const GATES = /^`[^`]+`(?:, `[^`]+`)*$/;
 
 /** The records with no gate built yet, sorted, one per line.  Shrink-only. */
 const NOT_BUILT: readonly string[] = [
+  "D-ADAPTER-HOME",
+  "D-AGENT-TOOLS",
   "D-API-TOOLKIT",
   "D-CROSSTENANT-ACK",
   "D-CTX-SHAPE",
+  "D-DAPPER-ALTER",
   "D-ENVELOPE",
+  "D-FIRST-ON-EMPTY",
+  "D-FORBIDDEN-DETAIL-DEV-ECHO",
   "D-FORM-BINDS-ACTION",
   "D-GRANULARITY",
+  "D-KAFKA-START-OFFSET",
   "D-LIFECYCLE-SHAPE",
+  "D-MESSAGELESS-DEFAULT",
   "D-MIG-DSL-STEPS",
   "D-MIG-NO-DOWN",
   "D-MISC-C0",
   "D-MODAL-CONTROLLED-OP-FORM",
+  "D-NO-PAGE-ARCHETYPES",
+  "D-NUMERIC-INGRESS-STRICT",
   "D-POLYMORPHIC-ID-REPRESENTATION",
+  "D-REACTOR-SYSTEM-PRINCIPAL",
+  "D-SEED-IDEMPOTENCY",
+  "D-SEED-PATH",
   "D-TPH-BEATS-SHAPE",
+  "D-WHEN-GATE-DOMAIN",
+  "D-WRITE-TX",
 ];
 
 type Enforcement =
@@ -100,6 +114,10 @@ function ciRunProblem(path: string, src: string, ci: string): string {
       : "is a corpus fixture with no sidecar, so no corpus leg runs it";
   if (/^test\/behavioral\/systems\/[a-z0-9-]+\.ddd$/.test(path)) return "";
   if (/^scripts\//.test(path)) return ci.includes(path) ? "" : "is a script no workflow runs";
+  if (/^test\/behavioral\/.+\.pw\.ts$/.test(path))
+    return ci.includes(path.split("/").slice(-2, -1)[0] as string)
+      ? ""
+      : "is a behavioural Playwright spec no workflow runs";
   if (!/^(test|packages)\/.+\.test\.ts$/.test(path) || path.startsWith("test/fixtures/"))
     return "is neither a test file the suite collects, a corpus or behavioural fixture, nor a CI script";
   const active =

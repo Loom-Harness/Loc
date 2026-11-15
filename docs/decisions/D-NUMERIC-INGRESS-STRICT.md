@@ -61,4 +61,4 @@ residue row rather than waiting on a signature.
 F12 annex; M-T6.48 and `test/conformance/numeric-ingress-parity.test.ts`; RS-12,
 RS-24.
 
-**Enforced by:** `test/conformance/numeric-ingress-parity.test.ts`, `test/ir/wire-policy.test.ts`
+**Enforced by:** none, tracked by #6013 — the proposal is not applied (python is pinned lenient); a booted fixture sending "5" and a numeric money is buildable

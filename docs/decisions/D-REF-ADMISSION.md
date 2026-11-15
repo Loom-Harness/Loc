@@ -21,4 +21,4 @@ check.
 (every backend), `test/system/ref-admission-census.test.ts`, and
 `test/ir/ref-scope-checks.test.ts`.
 
-**Enforced by:** `test/system/ref-admission-census.test.ts`, `test/ir/ref-scope-checks.test.ts`
+**Enforced by:** `test/e2e/tenancy-isolation.test.ts`, `test/ir/ref-scope-checks.test.ts`, `test/system/ref-admission-census.test.ts`

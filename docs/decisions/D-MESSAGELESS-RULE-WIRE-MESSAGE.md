@@ -34,4 +34,4 @@ only a `loc`, and one field name can carry different bounds on two models.
 same sentence since [D-MESSAGELESS-DEFAULT](D-MESSAGELESS-DEFAULT.md),
 which extends this ruling to every backend and every message-less rule.
 
-**Enforced by:** `test/generator/python/unnamed-wire-message.test.ts`, `test/conformance/unnamed-rule-message.test.ts`
+**Enforced by:** `test/fixtures/corpus/validation-messages.ddd`, `test/generator/python/unnamed-wire-message.test.ts`

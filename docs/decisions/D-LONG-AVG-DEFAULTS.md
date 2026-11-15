@@ -70,4 +70,4 @@ M-T5.24; [`numeric-types-audit-2026-08-23.md`](https://github.com/Loom-Harness/L
 F13, F14; RS-12; `src/ir/lower/lower-projection.ts`,
 `src/ir/util/projection-aggregate.ts`, `src/generator/typescript/emit/schema.ts`.
 
-**Enforced by:** `test/ir/projection-aggregate-declared-type.test.ts`, `test/language/integer-literal-precision.test.ts`
+**Enforced by:** `test/ir/projection-aggregate-declared-type.test.ts`, `test/language/integer-literal-precision.test.ts`, `test/fixtures/corpus/projection-aggregation.ddd`

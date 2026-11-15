@@ -69,4 +69,4 @@ refuses every stdlib collection op in a page body — so the shared table's guar
 is backend-reachable only; that is recorded in RS-36 rather than left as a
 claim the frontends were changed.
 
-**Enforced by:** `test/generator/collection-op-first-partial.test.ts`
+**Enforced by:** none, tracked by #6013 — the runtime failure on an empty collection is never booted; a corpus `.first` on an empty collection expecting 500 is buildable
