@@ -16,9 +16,9 @@
 // pending row it guards.  A write with no ambient principal (a seed, a system
 // write) is unprobed, as it is unstamped.
 
-import { wireFixedDetail } from "../../../ir/enrich/wire-policy.js";
 import { admittedReferences, type ScopedReference } from "../../../ir/plan/ref-scope.js";
 import type { AggregateIR } from "../../../ir/types/loom-ir.js";
+import { wireFixedDetail } from "../../../ir/util/wire-policy.js";
 import { PG_FOREIGN_KEY_VIOLATION } from "../../_persistence/pg-sqlstate.js";
 import { jid } from "../java-ident.js";
 

@@ -1824,7 +1824,7 @@ the conforming backends, and the fix that established it.
   required`, .NET `The reason field is required.`, java `must not be null`).
   The owner ruling (#3881) fixes it as `"<field> is required"`, the field being
   the pointer's last key: `missingFieldMessage` in the `wirePolicy` fact
-  (`src/ir/enrich/wire-policy.ts`), create and update included. Node renders
+  (`src/ir/util/wire-policy.ts`), create and update included. Node renders
   it, and so do .NET, java, python and elixir: no backend sends the bare word
   `"Required"` and no golden carries a waiver for it. A `create` with no input fields publishes an
   optional `requestBody` like a parameterless command does.

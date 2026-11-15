@@ -1,4 +1,3 @@
-import { wireCode } from "../../../ir/enrich/wire-policy.js";
 import type { AuthIR, AuthValueIR, FieldIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import type { OrgContextPlan } from "../../../ir/util/org-context.js";
 import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
@@ -6,6 +5,7 @@ import {
   guidClaimAccessorName,
   guidFromStringTenancyClaim,
 } from "../../../ir/util/tenant-stance.js";
+import { wireCode } from "../../../ir/util/wire-policy.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { LOOM_OUTBOX_ORIGIN_KEY } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";

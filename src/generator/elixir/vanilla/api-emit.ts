@@ -19,10 +19,7 @@ import {
   operationVersionCheck,
   readsIfMatch,
 } from "../../../ir/enrich/version-check.js";
-import {
-  createInputFields,
-  emitsRestCreate as sharedEmitsRestCreate,
-} from "../../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import { readLadder, readLadderGates, routedPolymorphicRead } from "../../../ir/plan/index.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
@@ -42,7 +39,11 @@ import {
   relativeOpPath,
   servedOperations,
 } from "../../../ir/util/api-surface.js";
-import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import {
+  canonicalCreate,
+  canonicalDestroy,
+  emitsRestCreate as sharedEmitsRestCreate,
+} from "../../../ir/util/canonical-lifecycle.js";
 import { isMergePatchUpdate, mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { createBodyStatements, lifecycleGates } from "../../../ir/util/op-gates.js";
 import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";

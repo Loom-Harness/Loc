@@ -1,10 +1,12 @@
-// The wire-policy fact (`src/ir/enrich/wire-policy.ts`): which request input a
+// The wire-policy fact (`src/ir/util/wire-policy.ts`): which request input a
 // backend refuses, at which status, with which RFC 9457 body, at which stage.
 // These pin the fact itself — the owner rulings it encodes and the stage
 // order that decides which of two defects wins — independent of any backend
 // that renders it.
 
 import { describe, expect, it } from "vitest";
+import type { InvariantIR, OperationIR } from "../../src/ir/types/loom-ir.js";
+import type { SingleFieldPattern } from "../../src/ir/util/invariant-classify.js";
 import {
   errorVariantResponse,
   FIELD_LIMIT_REASONS,
@@ -26,9 +28,7 @@ import {
   wireSentenceFor,
   wireStatus,
   wireTitle,
-} from "../../src/ir/enrich/wire-policy.js";
-import type { InvariantIR, OperationIR } from "../../src/ir/types/loom-ir.js";
-import type { SingleFieldPattern } from "../../src/ir/validate/invariant-classify.js";
+} from "../../src/ir/util/wire-policy.js";
 import { UUID_WIRE_MESSAGE } from "../../src/util/uuid-wire.js";
 import { buildLoomModel, enrichedContexts } from "../_helpers/index.js";
 

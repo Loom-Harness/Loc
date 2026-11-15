@@ -1,8 +1,11 @@
-// The Java spelling of the `wirePolicy` fact (`src/ir/enrich/wire-policy.ts`).
+// The Java spelling of the `wirePolicy` fact (`src/ir/util/wire-policy.ts`).
 // The fact owns every refusal's status, title, fixed detail and sentence; this
 // module owns only how a Spring emitter writes them as Java source, so every
 // java site renders the same refusal the same way.
 
+import type { BoundedContextIR, ExprIR } from "../../ir/types/loom-ir.js";
+import type { WirePrimitive } from "../../ir/types/wire-types.js";
+import { ruleParamRefs } from "../../ir/util/rule-params.js";
 import {
   errorVariantCode,
   errorVariantResponse,
@@ -11,10 +14,7 @@ import {
   ingressFor,
   type WireRejectionClass,
   wireSentence,
-} from "../../ir/enrich/wire-policy.js";
-import type { BoundedContextIR, ExprIR } from "../../ir/types/loom-ir.js";
-import type { WirePrimitive } from "../../ir/types/wire-types.js";
-import { ruleParamRefs } from "../../ir/util/rule-params.js";
+} from "../../ir/util/wire-policy.js";
 
 /** A Java string literal.  JSON string escapes are valid Java ones for the
  *  printable text the fact carries. */

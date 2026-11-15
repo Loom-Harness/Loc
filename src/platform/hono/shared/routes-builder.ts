@@ -68,22 +68,7 @@ import {
   readsIfMatch,
   type VersionCheck,
 } from "../../../ir/enrich/version-check.js";
-import {
-  errorVariantResponse,
-  FIND_ABSENT_DETAIL,
-  fieldFixedMessage,
-  noneVariantResponse,
-  reasonPhrase,
-  wireCode,
-  wireFixedDetail,
-  wireStatus,
-  wireTitle,
-} from "../../../ir/enrich/wire-policy.js";
-import {
-  createInputFields,
-  emitsRestCreate,
-  wireCreateDefault,
-} from "../../../ir/enrich/wire-projection.js";
+import { createInputFields, wireCreateDefault } from "../../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import {
   canOpLadder,
@@ -144,11 +129,16 @@ import {
   servedOperations,
   staticSubpathMethods,
 } from "../../../ir/util/api-surface.js";
-import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import {
+  canonicalCreate,
+  canonicalDestroy,
+  emitsRestCreate,
+} from "../../../ir/util/canonical-lifecycle.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { existsReadAggregates } from "../../../ir/util/in-app-exists.js";
+import type { ClassifyContext, SingleFieldPattern } from "../../../ir/util/invariant-classify.js";
 import { isMergePatchUpdate, ruleMembers } from "../../../ir/util/merge-patch.js";
 import {
   callerGates,
@@ -179,11 +169,18 @@ import {
 } from "../../../ir/util/reachable-types.js";
 import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import {
+  errorVariantResponse,
+  FIND_ABSENT_DETAIL,
+  fieldFixedMessage,
+  noneVariantResponse,
+  reasonPhrase,
+  wireCode,
+  wireFixedDetail,
+  wireStatus,
+  wireTitle,
+} from "../../../ir/util/wire-policy.js";
 import { walkExpr } from "../../../ir/validate/checks/shared.js";
-import type {
-  ClassifyContext,
-  SingleFieldPattern,
-} from "../../../ir/validate/invariant-classify.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";

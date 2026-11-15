@@ -1,8 +1,4 @@
-import {
-  createInputFields,
-  emitsRestCreate,
-  wireCreateDefault,
-} from "../../../ir/enrich/wire-projection.js";
+import { createInputFields, wireCreateDefault } from "../../../ir/enrich/wire-projection.js";
 import { unionInstanceName } from "../../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -11,6 +7,7 @@ import type {
   RepositoryIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
+import { emitsRestCreate } from "../../../ir/util/canonical-lifecycle.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import { type MergePatchField, mergePatchFields } from "../../../ir/util/merge-patch.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
