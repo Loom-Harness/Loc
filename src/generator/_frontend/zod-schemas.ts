@@ -32,6 +32,7 @@ import {
   auditEntryWireShape,
   auditFieldChangeWireShape,
 } from "../../ir/util/audit-history.js";
+import { maskedPatchParams } from "../../ir/util/op-gates.js";
 import {
   collectReachableTypes,
   enumPool,
@@ -64,11 +65,20 @@ export function emitEnumSchema(e: EnumIR): string[] {
   return [`export const ${e.name}Schema = z.enum([${values}]);`];
 }
 
-export function emitValueObjectSchema(vo: ValueObjectIR): string[] {
+/** What a `<Vo>Schema` renders from: the value object's fields and the rules
+ *  a client validates it against. */
+export interface SchemaSource {
+  readonly name: string;
+  readonly fields: readonly { readonly name: string; readonly type: TypeIR }[];
+  readonly invariants: readonly Pick<InvariantIR, "expr" | "guard" | "message">[];
+}
+
+export function emitValueObjectSchema(vo: SchemaSource): string[] {
   return emitObjectWithRefines(
     `${vo.name}Schema`,
     vo.fields.map((f) => ({ name: f.name, base: valueObjectFieldZod(f.type) })),
-    vo.invariants,
+    // The refine renderer reads `expr` / `guard` / `message` only.
+    vo.invariants.map((inv) => ({ ...inv, source: "" })),
     new Set(vo.fields.map((f) => f.name)),
   );
 }
@@ -440,4 +450,15 @@ export function collectUsedTypes(
     // pool it needs only exists on `main` as of that merge.)
     enums: enumPool(ctx).filter((e) => enums.has(e.name)),
   };
+}
+
+/** The `<Op><Agg>Request` zod members — one per op param.  A masked
+ *  merge-patch key (`maskedPatchParams`) is optional: the generated form
+ *  leaves it out, and an absent key keeps the stored value. */
+export function opRequestFields(op: OperationIR): { name: string; base: string }[] {
+  const masked = maskedPatchParams(op);
+  return op.params.map((p) => ({
+    name: p.name,
+    base: masked.has(p.name) ? `${zodForRequest(p.type)}.optional()` : zodForRequest(p.type),
+  }));
 }

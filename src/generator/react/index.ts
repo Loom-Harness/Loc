@@ -19,6 +19,7 @@ import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, snake } from "../../util/naming.js";
+import { contractAggregate, frontendAggregatesOfContract } from "../_frontend/aggregate-model.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_SESSION_TS, authGateTsx } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
@@ -213,11 +214,12 @@ export function generateReactForContexts(
   // `ui.pages` for both pages and page-objects (single source).
   // A synthesized paged find is reachable only through the explicit route
   // the backend serves for it, so its hook binds to that route (or is absent).
-  for (const { agg, ctx } of aggregates) {
+  for (const { agg } of aggregates) {
+    const finds = clientFinds(contract, agg.name, host.serves);
     out.set(
       `src/api/${lowerFirst(agg.name)}.ts`,
-      buildApiModule(agg, ctx, {
-        finds: clientFinds(contract, agg.name, host.serves),
+      buildApiModule(contractAggregate(contract, agg.name, finds), {
+        finds,
         history: servesHistory(contract, agg.name),
         operations: contract.wire.operations,
         responses: contract.wire.responses,
@@ -281,6 +283,7 @@ export function generateReactForContexts(
     sourcemap: options.sourcemap,
     i18nEnabled,
     walkerModel: walkerModelOfContract(contract, contextNames),
+    frontendAggregate: frontendAggregatesOfContract(contract),
   };
   if (i18nEnabled) {
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`

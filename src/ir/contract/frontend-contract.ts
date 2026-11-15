@@ -580,20 +580,33 @@ function closeOverNamedTypes(
   // The context that declares each name: a system-level declaration is folded
   // into every context, so only a context's own one names it.
   const owner = new Map<string, string>();
+  // Declaration order: system order of contexts, then each context's own.
+  const ordinal = new Map<string, number>();
+  const declared = (key: string): void => {
+    if (!ordinal.has(key)) ordinal.set(key, ordinal.size);
+  };
   for (const ctx of allContexts) {
     for (const vo of ctx.valueObjects) {
+      declared(`vo:${vo.name}`);
       if (vos.has(vo.name)) continue;
       vos.set(vo.name, vo);
       if (!vo.systemLevel) owner.set(`vo:${vo.name}`, ctx.name);
     }
     for (const en of ctx.enums) {
+      declared(`enum:${en.name}`);
       if (enums.has(en.name)) continue;
       enums.set(en.name, en);
       if (!en.systemLevel) owner.set(`enum:${en.name}`, ctx.name);
     }
   }
-  for (const vo of model.rootValueObjects) if (!vos.has(vo.name)) vos.set(vo.name, vo);
-  for (const en of model.rootEnums) if (!enums.has(en.name)) enums.set(en.name, en);
+  for (const vo of model.rootValueObjects) {
+    declared(`vo:${vo.name}`);
+    if (!vos.has(vo.name)) vos.set(vo.name, vo);
+  }
+  for (const en of model.rootEnums) {
+    declared(`enum:${en.name}`);
+    if (!enums.has(en.name)) enums.set(en.name, en);
+  }
   const seenVo = new Set<string>();
   const seenEnum = new Set<string>();
   let frontier: unknown[] = [contract.ui, contract.wire];
@@ -624,8 +637,9 @@ function closeOverNamedTypes(
       frontier.push(projected);
     }
   }
-  contract.wire.enums.sort((a, b) => a.name.localeCompare(b.name));
-  contract.wire.valueObjects.sort((a, b) => a.name.localeCompare(b.name));
+  const rank = (key: string): number => ordinal.get(key) ?? Number.MAX_SAFE_INTEGER;
+  contract.wire.enums.sort((a, b) => rank(`enum:${a.name}`) - rank(`enum:${b.name}`));
+  contract.wire.valueObjects.sort((a, b) => rank(`vo:${a.name}`) - rank(`vo:${b.name}`));
 }
 
 function valueObjectContract(

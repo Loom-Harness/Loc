@@ -6,20 +6,8 @@ import {
   PAGED_MAX_PAGE_SIZE,
   pagedReturn,
 } from "../../ir/stdlib/generics.js";
-import { unionInstanceName, unionReturn, variantTag } from "../../ir/stdlib/unions.js";
-import {
-  type AggregateIR,
-  aggregateUsesMoneyDeep,
-  type BoundedContextIR,
-  type EnrichedAggregateIR,
-  type EnrichedEntityPartIR,
-  type EnumIR,
-  type ExprIR,
-  type InvariantIR,
-  type OperationIR,
-  type PayloadIR,
-  type TypeIR,
-} from "../../ir/types/loom-ir.js";
+import { unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
+import type { ExprIR, InvariantIR, TypeIR } from "../../ir/types/loom-ir.js";
 import {
   peelCollection,
   peelNullable,
@@ -27,16 +15,13 @@ import {
   wireTypeInfo,
 } from "../../ir/types/wire-types.js";
 import { AUDIT_HISTORY_FIND } from "../../ir/util/audit-history.js";
-import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
 import type { ContractResponse, ContractResponseField } from "../../ir/util/declared-response.js";
-import { maskedPatchParams } from "../../ir/util/op-gates.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import {
   type AnyTypeScope,
   findValueObjectInScope,
-  valueObjectPool,
+  type ScopeEnum,
 } from "../../ir/util/reachable-types.js";
-import { responseWireFor } from "../../ir/util/response-wire.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
@@ -48,11 +33,11 @@ import {
   refineClauseFor,
   takeSingleFieldChain,
 } from "../zod-refine.js";
+import type { FrontendAggregate } from "./aggregate-model.js";
 import type { ClientFind } from "./contract.js";
 import { serverSourcedDefaultFields } from "./server-default.js";
 import {
   AUDIT_ENTRY_LIST_TYPE,
-  collectUsedTypes,
   emitAuditEntrySchemas,
   emitValueObjectSchema,
   provenancedZod,
@@ -125,26 +110,7 @@ export function historyHookName(aggName: string): string {
   return hookFnName(aggName, AUDIT_HISTORY_FIND);
 }
 
-/** True iff the aggregate (root or a part) declares a `provenanced` field — the
- *  gate for importing `provLineageSchema` into the api module, since the
- *  `Provenanced<T>` carrier's `lineage` member references it.
- *
- *  Not an opt-in: the carrier is part of `wireShape`, so EVERY frontend's
- *  response schema carries the lineage the moment the field is declared
- *  `provenanced`.  Exported so the Svelte api-builder (which emits its
- *  response schema through the sibling `zod-schemas.ts` copy) shares the gate. */
-export function aggregateHasProvenanced(agg: EnrichedAggregateIR): boolean {
-  return (
-    agg.fields.some((f) => f.provenanced) ||
-    agg.parts.some((p) => p.fields.some((f) => f.provenanced))
-  );
-}
-
-export function buildApiModule(
-  agg: EnrichedAggregateIR,
-  ctx: BoundedContextIR,
-  options: ApiModuleOptions,
-): string {
+export function buildApiModule(agg: FrontendAggregate, options: ApiModuleOptions): string {
   const contractOps = options.operations.filter((o) => o.aggregate === agg.name);
   const sendsIfMatch = (opName: string): boolean =>
     contractOps.some((o) => o.kind === "operation" && o.opName === opName && o.ifMatch === true);
@@ -154,7 +120,7 @@ export function buildApiModule(
   // The `Provenanced<T>` carrier's `lineage` member references
   // `provLineageSchema`, so the import rides on the aggregate declaring a
   // provenanced field at all — not on a per-frontend opt-in (M-T6.12).
-  const carryProv = aggregateHasProvenanced(agg);
+  const carryProv = agg.carriesProvenance;
   // Vue's reactivity is pull-based: a parameterised `find` query takes a
   // `MaybeRefOrGetter` so a bound filter input live-refetches (React
   // re-renders and passes fresh args every render — no wrapper needed).
@@ -173,7 +139,7 @@ export function buildApiModule(
   // once, so a page that hoists the hook over an async QueryView record passes
   // a getter (`() => rec.data?.id ?? ""`) and the id is read when the mutation
   // or the `can_<op>` probe actually runs, not frozen at its pre-load `""`.
-  const publicOps = agg.operations.filter((o) => o.visibility === "public");
+  const publicOps = agg.operations;
   const vueImports = new Set<string>();
   if (isVueQuery && hasVueGetterHook) {
     for (const n of ["type MaybeRefOrGetter", "computed", "toValue"]) vueImports.add(n);
@@ -181,7 +147,7 @@ export function buildApiModule(
   if (isVueQuery && publicOps.length > 0) {
     vueImports.add("type MaybeRefOrGetter");
     vueImports.add("toValue");
-    if (publicOps.some((o) => o.when)) vueImports.add("computed");
+    if (publicOps.some((o) => o.gated)) vueImports.add("computed");
   }
   if (vueImports.size > 0) {
     const order = ["type MaybeRefOrGetter", "computed", "toValue"];
@@ -191,7 +157,7 @@ export function buildApiModule(
   // aggregate with no guarded write emits the import line it always did.
   const anyOcc = contractOps.some((o) => o.kind === "operation" && o.ifMatch === true);
   lines.push(`import { api,${anyOcc ? " ifMatch," : ""} seg } from "./client";`);
-  if (aggregateUsesMoneyDeep(agg, valueObjectPool(ctx))) {
+  if (agg.usesMoney) {
     // Shared `moneySchema` — single home for the precise-decimal
     // wire shape; emitted to `src/lib/schemas.ts` whenever any
     // context uses money.  Both request and response sides of every
@@ -207,10 +173,8 @@ export function buildApiModule(
   lines.push("");
 
   // Schemas — enums + value-objects + per-route DTOs.
-  const { valueObjects: usedVOs, enums: usedEnums } = collectUsedTypes(agg, repo, ctx);
-
-  for (const e of usedEnums) lines.push(...emitEnumSchema(e));
-  for (const vo of usedVOs) lines.push(...emitValueObjectSchema(vo));
+  for (const e of agg.enums) lines.push(...emitEnumSchema(e));
+  for (const vo of agg.valueObjects) lines.push(...emitValueObjectSchema(vo));
   lines.push("");
 
   // Request schemas.  `forCreateInput` drops server-controlled fields
@@ -262,7 +226,7 @@ export function buildApiModule(
     // Dual FormState/Payload aliases (frontend-acl.md) — only when
     // the schema carries a real transform (a money field somewhere in the
     // create input), so `z.input` ≠ `z.output`.
-    if (requiredFields.some((f) => typeReachesMoney(f.type, ctx))) {
+    if (requiredFields.some((f) => typeReachesMoney(f.type, agg.scope))) {
       lines.push(...dualTypeAliases(`Create${agg.name}`));
     }
   }
@@ -294,7 +258,7 @@ export function buildApiModule(
     lines.push(
       `export type ${opName}${agg.name}Request = z.infer<typeof ${opName}${agg.name}Request>;`,
     );
-    if (body.some((p) => typeReachesMoney(p.type, ctx))) {
+    if (body.some((p) => typeReachesMoney(p.type, agg.scope))) {
       lines.push(...dualTypeAliases(`${opName}${agg.name}`));
     }
   }
@@ -346,10 +310,8 @@ export function buildApiModule(
   // Response schemas.  Inner DTOs must come first so they're declared
   // before the root references them — and a nested part before the sibling
   // that references it (`z.array(LabelResponse)`), hence children-first.
-  for (const part of partsChildrenFirst(agg.parts)) {
-    lines.push(...emitResponseSchema(part, options.responses, ctx.payloads));
-  }
-  lines.push(...emitResponseSchema(agg, options.responses, ctx.payloads));
+  for (const part of agg.parts) lines.push(...emitResponseSchema(part, options.responses));
+  lines.push(...emitResponseSchema(agg.name, options.responses));
   lines.push(`export const ${agg.name}ListResponse = z.array(${agg.name}Response);`);
   lines.push(`export type ${agg.name}ListResponse = z.infer<typeof ${agg.name}ListResponse>;`);
   // Paged response DTOs (P3b) — one per distinct `<carrier> paged` find return.
@@ -395,11 +357,9 @@ export function buildApiModule(
   // ProblemDetails non-2xx and reified from the thrown `ApiError` at the call
   // site), but the type carries every arm so the `switch (result.type)` narrows.
   let emittedUnionResponse = false;
-  for (const op of agg.operations.filter((o) => o.visibility === "public")) {
-    if (!op.returnType) continue;
-    const u = unionReturn(op.returnType);
-    if (!u) continue;
-    lines.push(...emitOperationUnionResponse(op.name, agg, u.variants, ctx));
+  for (const op of agg.operations) {
+    if (!op.union) continue;
+    lines.push(...emitOperationUnionResponse(op.name, agg.name, op.union, agg.errorRecord));
     emittedUnionResponse = true;
   }
   // Only separate the union-response block from the Hooks section when one was
@@ -541,8 +501,8 @@ export function buildApiModule(
   for (const op of publicOps) {
     // URL segment from routeSlug (D-URLSTYLE); the hook name + request
     // type stay keyed on op.name.
-    const opSnake = snake(op.routeSlug ?? op.name);
-    const u = op.returnType ? unionReturn(op.returnType) : null;
+    const opSnake = op.segment;
+    const u = op.union;
     lines.push(`export function use${upperFirst(op.name)}${agg.name}(${idParam}) {`);
     lines.push(`  const qc = useQueryClient();`);
     lines.push(`  return useMutation({`);
@@ -580,7 +540,7 @@ export function buildApiModule(
     // which disables the op's trigger while it answers `allowed: false`.  Its
     // key nests under the record's (`["<tag>", id, …]`), so every mutation
     // that invalidates the record — this op's included — re-queries it.
-    if (op.when) {
+    if (op.gated) {
       lines.push(`export function useCan${upperFirst(op.name)}${agg.name}(${idParam}) {`);
       lines.push(`  return useQuery({`);
       // Vue: reactive options, so a getter id re-keys (and enables) the
@@ -716,17 +676,17 @@ export function buildApiModule(
  *  the aggregate's response schemas so `<Agg>Response.extend(…)` resolves. */
 export function emitOperationUnionResponse(
   opName: string,
-  agg: AggregateIR,
-  variants: TypeIR[],
-  ctx: BoundedContextIR,
+  aggName: string,
+  variants: readonly TypeIR[],
+  errorRecord: FrontendAggregate["errorRecord"],
 ): string[] {
-  const name = `${upperFirst(opName)}${agg.name}Response`;
+  const name = `${upperFirst(opName)}${aggName}Response`;
   const member = (v: TypeIR): string => {
     const tag = variantTag(v);
     const literal = `type: z.literal(${JSON.stringify(tag)})`;
     if (v.kind === "entity") {
-      const payload = ctx.payloads.find((p) => p.name === v.name);
-      if (payload?.kind === "error") {
+      const payload = errorRecord(v.name);
+      if (payload) {
         // Error variant — a `z.object` of the payload's own fields plus the tag.
         const fields = payload.fields.map(
           (f) => `${f.name}: ${zodForResponse(f.type, !!f.optional)}`,
@@ -749,7 +709,7 @@ export function emitOperationUnionResponse(
   ];
 }
 
-function emitEnumSchema(e: EnumIR): string[] {
+function emitEnumSchema(e: ScopeEnum): string[] {
   const values = e.values.map((v) => `"${v}"`).join(", ");
   return [`export const ${e.name}Schema = z.enum([${values}]);`];
 }
@@ -807,36 +767,23 @@ function emitObjectWithRefines(
   return out;
 }
 
-function emitResponseSchema(
-  ent: EnrichedAggregateIR | EnrichedEntityPartIR,
-  responses: readonly ContractResponse[],
-  payloads: readonly PayloadIR[],
-): string[] {
+function emitResponseSchema(entity: string, responses: readonly ContractResponse[]): string[] {
   const lines: string[] = [];
-  const name = `${ent.name}Response`;
+  const name = `${entity}Response`;
   lines.push(`export const ${name} = z.object({`);
-  const response = responses.find((r) => r.entity === ent.name);
-  if (response) {
-    // The declared response record, as the contract carries it: the fields the
-    // wire serves, in order.  A provenanced field rides inside its
-    // `Provenanced<T>` carrier, whose lineage `zodForResponse`'s `provenanced`
-    // arm renders from the one shape definition.
-    for (const f of response.fields) {
-      if (f.name === "id" && f.type.kind === "id") {
-        lines.push(`  ${f.name}: z.string(),`);
-      } else {
-        lines.push(`  ${f.name}: ${zodForResponse(responseWireType(f), f.optional)},`);
-      }
-    }
-  } else {
-    // An entity the contract carries no record for (a context no api
-    // exposes) reads its context's declared record directly.
-    for (const wf of responseWireFor(payloads, ent)) {
-      lines.push(
-        wf.source === "id"
-          ? `  ${wf.name}: z.string(),`
-          : `  ${wf.name}: ${zodForResponse(wf.type, wf.optional)},`,
-      );
+  const response = responses.find((r) => r.entity === entity);
+  if (!response) {
+    throw new Error(`internal: the contract carries no response record for '${entity}'`);
+  }
+  // The declared response record, as the contract carries it: the fields the
+  // wire serves, in order.  A provenanced field rides inside its
+  // `Provenanced<T>` carrier, whose lineage `zodForResponse`'s `provenanced`
+  // arm renders from the one shape definition.
+  for (const f of response.fields) {
+    if (f.name === "id" && f.type.kind === "id") {
+      lines.push(`  ${f.name}: z.string(),`);
+    } else {
+      lines.push(`  ${f.name}: ${zodForResponse(responseWireType(f), f.optional)},`);
     }
   }
   lines.push(`});`);
@@ -959,17 +906,6 @@ export function pickerOptionsHook(
       ]
     : [`      return ${aggName}ListResponse.parse(await api.get(\`/${tag}\`));`];
   return [...head, ...body, `    },`, `  ${close}`, `}`];
-}
-
-/** The `<Op><Agg>Request` zod members — one per op param.  A masked
- *  merge-patch key (`maskedPatchParams`) is optional: the generated form
- *  leaves it out, and an absent key keeps the stored value. */
-export function opRequestFields(op: OperationIR): { name: string; base: string }[] {
-  const masked = maskedPatchParams(op);
-  return op.params.map((p) => ({
-    name: p.name,
-    base: masked.has(p.name) ? `${zodForRequest(p.type)}.optional()` : zodForRequest(p.type),
-  }));
 }
 
 export function zodForResponse(t: TypeIR, optional: boolean): string {

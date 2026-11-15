@@ -1,10 +1,8 @@
-import { emitsRestCreate } from "../../ir/enrich/wire-projection.js";
-import { createRequestFields } from "../../ir/plan/create-request.js";
-import type { AggregateIR, BoundedContextIR, TypeIR } from "../../ir/types/loom-ir.js";
-import { operationFormParams } from "../../ir/util/op-gates.js";
-import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import type { TypeIR } from "../../ir/types/loom-ir.js";
+import { type AnyTypeScope, findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { lowerFirst, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import type { FrontendAggregate } from "./aggregate-model.js";
 import { unwrapOpt } from "./form-helpers.js";
 // ---------------------------------------------------------------------------
 // Page-object builder — emits Playwright page-object classes per
@@ -22,8 +20,7 @@ import { unwrapOpt } from "./form-helpers.js";
 // ---------------------------------------------------------------------------
 
 export function buildPageObjectModule(
-  agg: AggregateIR,
-  ctx: BoundedContextIR,
+  agg: FrontendAggregate,
   /** Project-relative root of the generated api modules, as seen
    *  from `e2e/pages/` — react projects keep them at `src/api`,
    *  SvelteKit projects at `src/lib/api`. */
@@ -37,11 +34,12 @@ export function buildPageObjectModule(
   // `emitsRestCreate` gate the scaffold uses to drop the `<Agg>New` page and
   // the `Create<Agg>Request` schema.  Without it, emit no NewPage page object
   // and no ListPage.create() (which would dangle on the dropped types/route).
-  const restCreate = emitsRestCreate(agg);
-  const ops = agg.operations.filter((o) => o.visibility === "public");
+  const restCreate = agg.restCreate;
+  const ops = agg.operations;
   // The New-page fill targets the inputs the CreateForm actually renders:
-  // the non-optional fields of the create request (`createRequestFields`).
-  const required = createRequestFields(ctx.payloads, agg).filter((f) => !f.optional);
+  // the non-optional fields of the create request.
+  const required = agg.createFields.filter((f) => !f.optional);
+  const ctx = agg.scope;
 
   // Collect the candidate api/* type imports, then narrow them once the
   // body is assembled — page-object classes rarely use every Request/Response,
@@ -164,10 +162,8 @@ export function buildPageObjectModule(
   lines.push(`  }`);
   lines.push("");
   // Per-contained-collection locators.
-  for (const c of agg.contains) {
-    if (!c.collection) continue;
-    const part = agg.parts.find((p) => p.name === c.partName);
-    if (!part) continue;
+  for (const name of agg.collections) {
+    const c = { name };
     lines.push(`  /** Locator for the row of the contained \`${c.name}\` collection. */`);
     lines.push(`  ${c.name}Row(id: string): Locator {`);
     lines.push(`    return this.page.getByTestId(\`${slug}-detail-${c.name}-row-\${id}\`);`);
@@ -184,7 +180,7 @@ export function buildPageObjectModule(
   // Per-operation method.
   for (const op of ops) {
     const opCap = upperFirst(op.name);
-    if (op.params.length === 0) {
+    if (op.paramCount === 0) {
       lines.push(`  /** ${op.name} (no parameters). */`);
       lines.push(`  async ${lowerFirst(op.name)}(): Promise<this> {`);
       lines.push(`    await this.page.getByTestId("${slug}-op-${op.name}").click();`);
@@ -203,8 +199,8 @@ export function buildPageObjectModule(
       );
       lines.push(`    await this.page.getByTestId("${slug}-op-${op.name}").click();`);
       lines.push(`    await this.page.getByTestId("${slug}-op-${op.name}-form").waitFor();`);
-      // The form leaves the masked merge-patch keys out (`operationFormParams`).
-      for (const p of operationFormParams(op)) {
+      // The form leaves the masked merge-patch keys out.
+      for (const p of op.formParams) {
         lines.push(
           ...fillBlock(
             "input",
@@ -285,7 +281,7 @@ export function fillBlock(
   inputVar: string,
   path: string,
   t: TypeIR,
-  ctx: BoundedContextIR,
+  ctx: AnyTypeScope,
   testId: string,
   selectStyle: SelectStyle = "combobox",
 ): string[] {

@@ -21,13 +21,12 @@ import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { aggregateHasProvenanced, frontendAggregateOf } from "../_frontend/aggregate-model.js";
 import {
-  aggregateHasProvenanced,
   clientFinds,
   dualTypeAliases,
   emitOperationUnionResponse,
   historyHookName,
-  opRequestFields,
   pickerOptionsHook,
   typeReachesMoney,
 } from "../_frontend/api-module.js";
@@ -41,6 +40,7 @@ import {
   emitResponseSchema,
   emitUnionSchema,
   emitValueObjectSchema,
+  opRequestFields,
   preconditionsAsInvariants,
   unionForFind,
   zodForRequest,
@@ -232,7 +232,14 @@ export function buildSvelteApiModule(
     if (!op.returnType) continue;
     const u = unionReturn(op.returnType);
     if (!u) continue;
-    lines.push(...emitOperationUnionResponse(op.name, agg, u.variants, ctx));
+    lines.push(
+      ...emitOperationUnionResponse(
+        op.name,
+        agg.name,
+        u.variants,
+        frontendAggregateOf(agg, ctx).errorRecord,
+      ),
+    );
   }
   lines.push("");
 

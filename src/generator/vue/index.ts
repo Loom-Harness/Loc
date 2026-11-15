@@ -22,6 +22,7 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, plural, snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { contractAggregate, frontendAggregatesOfContract } from "../_frontend/aggregate-model.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_SESSION_TS, AUTH_USE_SESSION_VUE, authGateVue } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
@@ -274,12 +275,13 @@ export function generateVueForContexts(
   // Per-aggregate api modules — 1:1 with the aggregate inventory,
   // emitted from the shared `_frontend` builder with vue-query naming.
   const serves = host.serves;
-  for (const { agg, ctx } of aggregates) {
+  for (const { agg } of aggregates) {
+    const finds = clientFinds(contract, agg.name, serves);
     out.set(
       `src/api/${agg.name[0]!.toLowerCase()}${agg.name.slice(1)}.ts`,
-      buildApiModule(agg, ctx, {
+      buildApiModule(contractAggregate(contract, agg.name, finds), {
         queryPackage: "@tanstack/vue-query",
-        finds: clientFinds(contract, agg.name, serves),
+        finds,
         history: servesHistory(contract, agg.name),
         operations: contract.wire.operations,
         responses: contract.wire.responses,
@@ -559,6 +561,7 @@ export function generateVueForContexts(
     pack,
     topLevelComponents: options.topLevelComponents ?? [],
     walkerModel,
+    frontendAggregate: frontendAggregatesOfContract(contract),
   });
   for (const [path, content] of pageObjects) out.set(path, content);
   for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, sys))) {

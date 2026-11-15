@@ -13,6 +13,16 @@ export type ThrowClassification =
   | { deferred: string; mission: string; reviewUntil: string };
 
 export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
+  // src/generator/_frontend/aggregate-model.ts
+  "src/generator/_frontend/aggregate-model.ts#contractAggregate": {
+    invariant:
+      "React and Vue ask for the aggregates of their own contexts that they emit an api module for (every concrete one and an `ownTable` read home), and the Frontend Contract lists every aggregate of a served context; the FrontendAggregate equivalence test builds the model for each such aggregate of every tracked React / Vue model and fails on a missing one.",
+  },
+  // src/generator/_frontend/api-module.ts
+  "src/generator/_frontend/api-module.ts#emitResponseSchema": {
+    invariant:
+      "The contract carries a declared response record for every aggregate and part a React / Vue api module emits: an exposed context declares one per aggregate and part, and the FrontendAggregate equivalence test fails on an aggregate or part with none.",
+  },
   // src/generator/_api/polymorphic-row.ts
   "src/generator/_api/polymorphic-row.ts#polymorphicRowOf": {
     invariant:
