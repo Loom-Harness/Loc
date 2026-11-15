@@ -1,4 +1,10 @@
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
+import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
+import {
+  type TestPrincipalShape,
+  testPrincipal,
+  testPrincipalShape,
+} from "../../../ir/plan/test-principal.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -11,16 +17,22 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { escapePythonIdent, pythonIdent, snake } from "../../../util/naming.js";
 import { PY_IMPORTS, pyModule, pyRef } from "../../_imports/python.js";
 import { ref, spellMarkers } from "../../_imports/symbol.js";
 import {
-  coerceMatcherExpected,
   coerceTestArgs,
   coerceTestValue,
   type TestValueTarget,
   withServiceMoneyArgs,
 } from "../../_test/arg-coercion.js";
+import {
+  type AssertionTarget,
+  type CompareOperands,
+  renderAssertion,
+} from "../../_test/assertion-target.js";
+import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
 import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
 import { PY, pyIdType, pyVoOrEnum } from "../py-symbols.js";
 import { renderPyExpr, renderPyType } from "../render-expr.js";
@@ -38,15 +50,37 @@ const PY_TEST_LITERAL: TestValueTarget = {
   omitted: "None",
 };
 
-// A currentUser-gated operation's method signature picks up a trailing
-// `current_user: User` parameter; a domain `test` block has no auth
-// context, so calls to such ops are supplied a synthetic full-access
-// actor — admin role + non-empty permissions so guards pass and the
-// test exercises the op's domain logic.  Built on a SimpleNamespace +
-// cast so it stays valid regardless of the system's actual
-// `user { ... }` claim shape (the Python analogue of the TS emitter's
-// `as unknown as User`).
-const TEST_ACTOR_PY = `${PY.cast}(${pyRef("app.auth.user", "User")}, ${pyRef("types", "SimpleNamespace")}(id="00000000-0000-0000-0000-000000000000", role="admin", permissions=["*"]))`;
+/** The call a test module reads its principal through; a currentUser-reading
+ *  operation call takes it as its trailing argument.  A unit-test module
+ *  defines it as the test principal, an integration module as the principal
+ *  bound in `current_user_var`. */
+export const TEST_PRINCIPAL_CALL = "_test_principal()";
+
+/** Python spelling of the shared test principal (`testPrincipal`,
+ *  src/ir/plan/test-principal.ts): the `User` dataclass, every declared claim
+ *  by keyword. */
+export const PY_PRINCIPAL: PrincipalTarget = {
+  text: (v) => JSON.stringify(v),
+  guid: (v) => JSON.stringify(v),
+  id: (targetName, v) => `${pyIdType(targetName)}(${JSON.stringify(v)})`,
+  int: "0",
+  decimal: (money) => (money ? `${PY.Decimal}("0")` : "0.0"),
+  bool: "False",
+  datetime: `${PY.datetime}.fromtimestamp(0, tz=${PY.UTC})`,
+  date: `${PY_CALENDAR_DATE}(1970, 1, 1)`,
+  enumMember: (name, member) =>
+    renderPyExpr({
+      kind: "ref",
+      name: member,
+      refKind: "enum-value",
+      enumName: name,
+      type: { kind: "enum", name },
+    } as ExprIR),
+  list: (_element, items) => `[${items.join(", ")}]`,
+  absent: "None",
+  record: (claims) =>
+    `${pyRef("app.auth.user", "User")}(${claims.map((c) => `${snake(c.field.name)}=${c.rendered}`).join(", ")})`,
+};
 
 /** `import pytest` — the `pytest.raises` context manager. */
 const PYTEST = ref(pyModule("pytest"));
@@ -79,18 +113,32 @@ const PYTEST = ref(pyModule("pytest"));
  *  out of broken generated code as a passing negative test (claims D2). */
 const DOMAIN_REJECTION_TUPLE = `(${DOMAIN_REJECTION_ERRORS.map((n) => pyRef("app.domain.errors", n)).join(", ")})`;
 
-export function renderPyTestsFile(agg: AggregateIR, ctx: BoundedContextIR): string | null {
-  return renderPySubjectTests(agg.name, agg.tests, ctx, {
-    module: `app.domain.${snake(agg.name)}`,
-    symbols: [agg.name, ...agg.parts.map((p) => p.name)],
-  });
+export function renderPyTestsFile(
+  agg: AggregateIR,
+  ctx: BoundedContextIR,
+  principal?: TestPrincipalShape,
+): string | null {
+  return renderPySubjectTests(
+    agg.name,
+    agg.tests,
+    ctx,
+    {
+      module: `app.domain.${snake(agg.name)}`,
+      symbols: [agg.name, ...agg.parts.map((p) => p.name)],
+    },
+    principal,
+  );
 }
 
 /** Value-object unit-test module (test-placement.md).  The VO is
  *  imported through the shared `app.domain.value_objects` narrowing — no
  *  dedicated subject import. */
-export function renderPyVoTestsFile(vo: ValueObjectIR, ctx: BoundedContextIR): string | null {
-  return renderPySubjectTests(vo.name, vo.tests, ctx, null);
+export function renderPyVoTestsFile(
+  vo: ValueObjectIR,
+  ctx: BoundedContextIR,
+  principal?: TestPrincipalShape,
+): string | null {
+  return renderPySubjectTests(vo.name, vo.tests, ctx, null, principal);
 }
 
 /** Domain-service unit-test module (test-placement.md).  A service op
@@ -99,11 +147,18 @@ export function renderPyVoTestsFile(vo: ValueObjectIR, ctx: BoundedContextIR): s
 export function renderPyServiceTestsFile(
   svc: DomainServiceIR,
   ctx: BoundedContextIR,
+  principal?: TestPrincipalShape,
 ): string | null {
-  return renderPySubjectTests(svc.name, svc.tests, ctx, {
-    module: `app.domain.services.${snake(svc.name)}`,
-    symbols: svc.operations.map((o) => snake(o.name)),
-  });
+  return renderPySubjectTests(
+    svc.name,
+    svc.tests,
+    ctx,
+    {
+      module: `app.domain.services.${snake(svc.name)}`,
+      symbols: svc.operations.map((o) => snake(o.name)),
+    },
+    principal,
+  );
 }
 
 /** Shared pytest-module renderer for any subject.  `subjectImport` names the
@@ -116,6 +171,7 @@ function renderPySubjectTests(
   tests: readonly TestIR[],
   ctx: BoundedContextIR,
   subjectImport: { module: string; symbols: string[] } | null,
+  principal: TestPrincipalShape | undefined,
 ): string | null {
   if (tests.length === 0) return null;
 
@@ -124,6 +180,18 @@ function renderPySubjectTests(
   for (const t of tests) {
     body.push("", "");
     body.push(...renderTest(t, ctx, usedNames));
+  }
+  if (body.some((l) => l.includes(TEST_PRINCIPAL_CALL))) {
+    const rendered = renderTestPrincipal(
+      testPrincipal(principal ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),
+      PY_PRINCIPAL,
+    );
+    body.unshift(
+      "",
+      "",
+      `def ${TEST_PRINCIPAL_CALL.slice(0, -2)}() -> ${pyRef("app.auth.user", "User")}:`,
+      `    return ${rendered}`,
+    );
   }
   const bodyStr = body.join("\n");
 
@@ -272,9 +340,9 @@ export function renderTestExpr(
         (a) => renderTestExpr(a, ctx, lets),
         PY_TEST_LITERAL,
       );
-      // A currentUser-gated op's method signature carries a trailing
-      // `current_user` parameter; thread the synthetic actor.
-      if (operationBodyUsesCurrentUser(op)) args.push(TEST_ACTOR_PY);
+      // A currentUser-reading op's method signature carries a trailing
+      // `current_user` parameter; thread the test principal.
+      if (operationBodyUsesCurrentUser(op)) args.push(TEST_PRINCIPAL_CALL);
       return `${recv}.${pythonIdent(e.member)}(${args.join(", ")})`;
     }
   }
@@ -324,69 +392,69 @@ function coerceCreateValue(value: ExprIR, type: TypeIR | undefined, ctx: Bounded
   return coerceTestValue(type, value, ctx, (e) => renderTestExpr(e, ctx), PY_TEST_LITERAL);
 }
 
-/** Comparison matchers map 1:1 onto Python operators. */
-const MATCHER_OP: Record<string, string> = {
-  toBe: "==",
-  toBeGreaterThan: ">",
-  toBeGreaterThanOrEqual: ">=",
-  toBeLessThan: "<",
-  toBeLessThanOrEqual: "<=",
+/** Python's operator for each relation. */
+const PY_RELATION_OP: Readonly<Record<AssertionRelation, string>> = {
+  eq: "==",
+  gt: ">",
+  ge: ">=",
+  lt: "<",
+  le: "<=",
 };
 
-/** `expect(x).<matcher>(y)` / `.not.<matcher>(y)` → a comparison assert.
- *  Returns null for bare boolean assertions (caller wraps those). */
+/** One comparison: `Decimal`, `datetime`, `date`, dataclasses and lists all
+ *  compare by value under Python's own operators, once the expected literal is
+ *  built at the subject's type. */
+function pyCompare({ relation, negate, optional, actual, expected }: CompareOperands): string {
+  const cmp = `${actual} ${PY_RELATION_OP[relation]} ${expected}`;
+  // An ordering over a subject that may be `None` narrows it first, so the
+  // comparison type-checks under `mypy --strict`; an absent subject fails the
+  // assertion either way.
+  if (optional && relation !== "eq") {
+    return `    assert ${actual} is not None and ${negate ? `not (${cmp})` : cmp}`;
+  }
+  return negate ? `    assert not (${cmp})` : `    assert ${cmp}`;
+}
+
+/** pytest leaves for the shared assertion plan. */
+const PYTEST_ASSERTIONS: AssertionTarget = {
+  compare: {
+    scalar: pyCompare,
+    decimal: pyCompare,
+    instant: pyCompare,
+    date: pyCompare,
+    structural: pyCompare,
+    sequence: pyCompare,
+  },
+  // `is None` rather than `== None`: identity cannot be intercepted by a
+  // `__eq__` on a value-object subject.
+  isNull: (negate, actual) =>
+    negate ? `    assert ${actual} is not None` : `    assert ${actual} is None`,
+  // Python's `in` covers element membership and substring, with the operands
+  // in the opposite order to every other matcher (`needle in haystack`).
+  contain: (_within, negate, actual, expected) =>
+    negate ? `    assert ${expected} not in ${actual}` : `    assert ${expected} in ${actual}`,
+  literal: PY_TEST_LITERAL,
+};
+
+/** `expect(x).<matcher>(y)` / `.not.<matcher>(y)` → a comparison assert, or
+ *  null for a bare boolean assertion, which the caller wraps. */
 export function renderExplicitMatcher(
   expr: ExprIR,
   ctx: BoundedContextIR,
   lets?: Map<string, string>,
 ): string | null {
-  if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) return null;
-  // The table lookup is deferred past `toBeNull` / `toContain` below: neither
-  // fits `<actual> <op> <expected>`.  `toBeNull` has no operand at all, and
-  // Python's containment operator takes its operands in the OPPOSITE order
-  // (`needle in haystack`), so rendering it through the table would emit
-  // `tags in "urgent"` — which is not a type error in Python, just silently
-  // the wrong question.
-  const op = MATCHER_OP[expr.member];
-  let receiver = expr.receiver;
-  let negate = false;
-  if (receiver.kind === "member" && receiver.member === "not") {
-    negate = true;
-    receiver = receiver.receiver;
-  }
-  const inner = receiver.kind === "paren" ? receiver.inner : receiver;
-  const rendered = renderTestExpr(inner, ctx, lets);
-  // Python CHAINS comparisons: `a == b == True` parses as
-  // `(a == b) and (b == True)`, so an `expect(a == b).toBe(true)` whose actual
-  // is itself a comparison must be parenthesized or the assert silently tests
-  // the wrong thing (found by numeric-operands, M-T6.44 — the first test block
-  // to wrap a comparison in a matcher).  Only the hazard shapes get parens so
-  // every existing emission stays byte-identical.
-  const chains =
-    inner.kind === "binary" && ["==", "!=", "<", "<=", ">", ">=", "&&", "||"].includes(inner.op);
-  const actual = chains ? `(${rendered})` : rendered;
-  const expected = expr.args.map((a) => renderTestExpr(a, ctx, lets)).join(", ");
-  // Absence.  `is None` rather than `== None`: identity is the idiom, and it
-  // cannot be intercepted by a `__eq__` on a value-object subject.
-  // (`toBeAbsent` never reaches this emitter — it is e2e-only.)
-  if (expr.member === "toBeNull") {
-    return negate ? `    assert ${actual} is not None` : `    assert ${actual} is None`;
-  }
-  // Containment.  Python's `in` covers BOTH receiver kinds — element
-  // membership for a list, substring for a `str` — which is the same pair the
-  // DSL promises and `checkContainReceiver` already restricted the subject to.
-  // Note the operand ORDER is reversed relative to every other matcher here.
-  if (expr.member === "toContain") {
-    return negate
-      ? `    assert ${expected} not in ${actual}`
-      : `    assert ${expected} in ${actual}`;
-  }
-  if (!op) return null;
-  // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`)
-  // compares as a `datetime`, so a value stored as the raw string fails.
-  const dt = coerceMatcherExpected(expr, expected, PY_TEST_LITERAL);
-  const cmp = `${actual} ${op} ${dt ?? expected}`;
-  return negate ? `    assert not (${cmp})` : `    assert ${cmp}`;
+  return renderAssertion(expr, PYTEST_ASSERTIONS, {
+    // Python CHAINS comparisons: `a == b == True` parses as
+    // `(a == b) and (b == True)`, so a subject that is itself a comparison is
+    // parenthesized.
+    renderSubject: (e) => {
+      const rendered = renderTestExpr(e, ctx, lets);
+      const chains =
+        e.kind === "binary" && ["==", "!=", "<", "<=", ">", ">=", "&&", "||"].includes(e.op);
+      return chains ? `(${rendered})` : rendered;
+    },
+    renderExpected: (e) => renderTestExpr(e, ctx, lets),
+  });
 }
 
 export function renderTestStmt(

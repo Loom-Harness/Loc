@@ -995,12 +995,17 @@ function applySuffixToRecv(
       const resultType = verbResultType(verbDef);
       return { recv: callIR, recvType: resultType };
     }
-    // A collection op needs a collection receiver: a string-receiver
-    // `contains` (or any future name collision) is the scalar INTRINSIC,
-    // not the collection op — key the flag off the receiver type so the
-    // renderers dispatch to the intrinsic snippet tables instead.
+    // A collection op needs a collection receiver.  A string-receiver
+    // `contains` is the scalar INTRINSIC, and a member call on a record (an
+    // aggregate, entity part or value object) is that record's own operation
+    // or function: an operation named `take` or `first` on `Order` is a call
+    // to `Order.take`, never `slice`/`Take()` on the instance.  Key the flag
+    // off the receiver type so the renderers dispatch accordingly.
+    const recvUnwrapped = recvType.kind === "optional" ? recvType.inner : recvType;
     const collectionOp =
       isCollectionOp(ms.member) &&
+      recvUnwrapped.kind !== "entity" &&
+      recvUnwrapped.kind !== "valueobject" &&
       !(recvType.kind === "primitive" && intrinsicFor(recvType.name, ms.member) !== undefined);
     // `avg(λ)` has NO renderer — it DESUGARS here to
     // `count == 0 ? null : sum(λ) / count`, riding the (now money/decimal-

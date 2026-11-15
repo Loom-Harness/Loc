@@ -15,6 +15,7 @@ import {
   routedPolymorphicRead,
   stateRowWorkflows,
 } from "../../ir/plan/index.js";
+import { testPrincipalShape } from "../../ir/plan/test-principal.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   DeployableIR,
@@ -839,7 +840,7 @@ function emitProjectFromContexts(
         ctx,
         basePkg,
         pkgFor("test-class", vo.name),
-        system?.sys?.user?.fields,
+        system?.sys?.user ? testPrincipalShape(system.sys) : undefined,
       );
       if (voTests)
         place(
@@ -857,7 +858,7 @@ function emitProjectFromContexts(
         ctx,
         basePkg,
         pkgFor("test-class", svc.name),
-        system?.sys?.user?.fields,
+        system?.sys?.user ? testPrincipalShape(system.sys) : undefined,
       );
       if (svcTests)
         place(
@@ -879,7 +880,7 @@ function emitProjectFromContexts(
       (a) => pkgFor("entity", a),
       (a) => pkgFor("repository-interface", a),
       // The auth layer (`auth/CurrentUserAccessor`) ships under this condition.
-      authRequired ? system?.sys?.user?.fields : undefined,
+      authRequired && system?.sys?.user ? testPrincipalShape(system.sys) : undefined,
     );
     if (integrationTest) {
       out.set(integrationTest.path, integrationTest.content);
@@ -2193,7 +2194,7 @@ function emitAggregate(
     ctx,
     basePkg,
     pkgFor("test-class", agg.name),
-    sys?.user?.fields,
+    sys?.user ? testPrincipalShape(sys) : undefined,
     (siblingName) => pkgFor("entity", siblingName),
   );
   if (testsFile) {

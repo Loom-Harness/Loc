@@ -1,5 +1,5 @@
 // §11c follow-up regression — a `requires currentUser.<…>` guard on an AGGREGATE
-// operation must compile on vanilla.  The guard renders `current_user.role` in the
+// operation must compile on vanilla.  The guard renders `current_user.permissions` in the
 // PURE domain-core module (domain-core-emit.ts), which is emitted only when the
 // aggregate carries `test` blocks (schema-emit.ts: `agg.tests.length > 0`).  That
 // pure-core op fn must accept the actor (`current_user \\ nil`, mirroring the
@@ -8,8 +8,9 @@
 // parity flip (showcase Catalog.Project.rename/archive, which carry tests + a
 // `requires currentUser` guard).
 system OpGuard {
-  user { id: string  role: string }
+  user { id: string  permissions: string[] }
   subdomain Sales {
+    permissions { manageOrders }
     context Selling {
       aggregate Order {
         customer: string
@@ -17,14 +18,14 @@ system OpGuard {
         invariant customer.length > 0
         // The guarded op — `currentUser` renders into the pure domain core.
         operation cancel(reason: string) {
-          requires currentUser.role == "admin"
+          requires currentUser.permissions.contains(permissions.manageOrders)
           status := "cancelled"
         }
         // A row-free gate that reads a parameter: the `can_reopen` probe cannot
         // decide it and drops it, so the probe's pre-load gates are not the
         // operation's own and it calls its own `can_reopen_order_gate`.
         operation reopen(note: string) when status == "cancelled" {
-          requires currentUser.role == "admin"
+          requires currentUser.permissions.contains(permissions.manageOrders)
           requires note.length > 0
           status := "open"
         }
@@ -36,9 +37,9 @@ system OpGuard {
         test "blank customer is rejected" {
           expect(Order.create(customer: "")).toThrow()
         }
-        // Calls the guarded op — the emitted ExUnit test must thread a synthetic
-        // privileged actor so the `requires currentUser.role == "admin"` guard
-        // runs (not `nil.role`).  Exercises §11d (pure-core binds the actor) AND
+        // Calls the guarded op — the emitted ExUnit test must thread the test
+        // principal, which holds every permission, so the guard passes
+        // (not `nil.permissions`).  Exercises §11d (pure-core binds the actor) AND
         // the test-emit actor threading together, at RUNTIME (mix test).
         test "an admin can cancel an order" {
           let o = Order.create(customer: "acme")
