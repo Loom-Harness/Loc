@@ -596,21 +596,22 @@ function closeOverNamedTypes(
   for (const en of model.rootEnums) if (!enums.has(en.name)) enums.set(en.name, en);
   const seenVo = new Set<string>();
   const seenEnum = new Set<string>();
+  const pushEnum = (name: string): void => {
+    const en = enums.get(name);
+    if (!en || seenEnum.has(name)) return;
+    seenEnum.add(name);
+    const enCtx = owner.get(`enum:${name}`);
+    contract.wire.enums.push({
+      name: en.name,
+      values: [...en.values],
+      ...(enCtx !== undefined ? { context: enCtx } : {}),
+    });
+  };
   let frontier: unknown[] = [contract.ui, contract.wire];
   while (frontier.length > 0) {
     const named = namedTypes(frontier);
     frontier = [];
-    for (const name of named.enums) {
-      const en = enums.get(name);
-      if (!en || seenEnum.has(name)) continue;
-      seenEnum.add(name);
-      const enCtx = owner.get(`enum:${name}`);
-      contract.wire.enums.push({
-        name: en.name,
-        values: [...en.values],
-        ...(enCtx !== undefined ? { context: enCtx } : {}),
-      });
-    }
+    for (const name of named.enums) pushEnum(name);
     for (const name of named.valueObjects) {
       const vo = vos.get(name);
       if (!vo || seenVo.has(name)) continue;
@@ -624,6 +625,10 @@ function closeOverNamedTypes(
       frontier.push(projected);
     }
   }
+  // Every enum an exposed context declares, system-level ones included, rides
+  // the contract even when no wire type names it: a ui that renders an
+  // `EnumBadge` catalogues the value text of each enum in its contexts' scope.
+  for (const ctx of exposedContexts(sys)) for (const en of ctx.enums) pushEnum(en.name);
   contract.wire.enums.sort((a, b) => a.name.localeCompare(b.name));
   contract.wire.valueObjects.sort((a, b) => a.name.localeCompare(b.name));
 }
