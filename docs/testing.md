@@ -321,7 +321,16 @@ serves every pg row below, or the suite starts its own sidecar where noted);
 proxy (`docs/tools.md` → "Compiling generated backends in Docker" has the
 full per-toolchain write-ups).
 
-`npm run prequeue` runs the cheap queue-blocking gates (typecheck, lint, fast censuses) on `origin/main` + HEAD in a throwaway worktree and lists the per-backend compile gates the diff reaches; `--heavy` runs them (`scripts/prequeue.mjs` holds the backend → command table).
+`npm run prequeue` runs the merge-queue gates on `origin/main` + HEAD in a throwaway worktree and prints every queue gate it did NOT run, with the reason. `scripts/prequeue-gates.mjs` holds one row per queue gate (`test/system/prequeue-gates.test.ts` pins it against `merge-queue-required-checks.ts`); whether a diff reaches a gate is read from that workflow's own `pull_request` `paths:` filter.
+
+| Tier | Flag | What runs | Time (4 cores) |
+|---|---|---|---|
+| fast | (default) | `tsc -b`, test typecheck, lint, the whole vitest suite (unit + mocked + corpus), langium-generated, actionlint (with docker) | ~12 min |
+| fast, censuses only | `--quick` | the vitest suite is replaced by the whole-tree censuses | ~4 min |
+| heavy | `--heavy` | the generated-project builds and the behavioural leg the diff reaches | up to ~3 h if a shared seam reaches all of them |
+| runtime | `--runtime` | the docker runtime legs (migrations, tenancy, channels, api-call, OIDC) the diff reaches | up to ~4 h |
+
+`--plan` prints the run / not-run list without running anything. The merge queue runs every gate on every group, so a gate prequeue skipped can still eject the train.
 
 Completeness is pinned by `test/system/local-run-mapping.test.ts` — every
 workflow file must have a row here, so a new gate without a local recipe
