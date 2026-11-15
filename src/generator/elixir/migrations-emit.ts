@@ -440,15 +440,18 @@ end
  *  `put_assoc` / preload against it fails at runtime. */
 function createTableLines(table: TableShape): string[] {
   const prefix = prefixOpt(table.schema);
-  const columns = table.valueCollection
-    ? valueCollectionColumnLines(table)
-    : isJoinTable(table)
-      ? joinColumnLines(table)
-      : isEventLogTable(table)
-        ? eventLogColumnLines(table)
-        : isStateTable(table)
-          ? stateColumnLines(table)
-          : entityColumnLines(table);
+  const columns =
+    table.name === INBOX_TABLE
+      ? inboxColumnLines(table)
+      : table.valueCollection
+        ? valueCollectionColumnLines(table)
+        : isJoinTable(table)
+          ? joinColumnLines(table)
+          : isEventLogTable(table)
+            ? eventLogColumnLines(table)
+            : isStateTable(table)
+              ? stateColumnLines(table)
+              : entityColumnLines(table);
   return [
     ...schemaCreateLines(table.schema),
     `create table(:${table.name}, primary_key: false${prefix}) do`,
@@ -489,6 +492,18 @@ function eventLogColumnLines(table: TableShape): string[] {
  *  foreign keys (the routing row is standalone).  The entity tables' `id` PK
  *  doesn't fit, so these render with the correlation column(s) marked
  *  `primary_key: true`. */
+/** The consumer inbox's columns, spelled to match the shared schema every
+ *  other backend creates: its two key columns are `text`, not the `:string`
+ *  (varchar) Ecto otherwise gives a text key. */
+function inboxColumnLines(table: TableShape): string[] {
+  const pk = new Set(table.primaryKey);
+  return table.columns.map((c) =>
+    pk.has(c.name)
+      ? `add :${c.name}, :text, primary_key: true, null: false`
+      : renderEctoColumn(c, table),
+  );
+}
+
 function isStateTable(t: TableShape): boolean {
   return !t.columns.some((c) => c.name === "id") && !isJoinTable(t);
 }
