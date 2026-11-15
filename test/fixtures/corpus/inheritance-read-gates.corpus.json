@@ -9,5 +9,154 @@
     "find GET /api/trucks": "maskIsNotAStatus",
     "getById GET /api/drivers/{id}": "maskIsNotAStatus",
     "getById GET /api/trucks/{id}": "maskIsNotAStatus"
+  },
+  "authzLadder": {
+    "//": [
+      "The polymorphic base reads under each concrete's read gate (inheritance-read-gates.ddd): one gated concrete in each hierarchy makes the whole base read 403 for a caller who fails its gate, on the list and the TPH by-id read, and 200 for one who passes.",
+      "The base read's ladder (`readLadder`): every concrete's list-read gate runs before the load, so a refused caller gets 403 for a missing id too — the refusal says nothing about which rows exist. The gated concretes' own reads — the 403 the base read mirrors. The masked concretes' write gate (docs/auth.md): neither harness principal is an auditor, so a new masked value is refused for both; the control is the same update without it going through."
+    ],
+    "seed": {
+      "path": "/api/cars",
+      "body": {
+        "plate": "LADDER-C",
+        "seats": 2
+      }
+    },
+    "gated": [
+      {
+        "label": "TPH base — the polymorphic list read",
+        "method": "GET",
+        "path": "/api/vehicles"
+      },
+      {
+        "label": "TPH base — the polymorphic by-id read",
+        "method": "GET",
+        "path": "/api/vehicles/{id}"
+      },
+      {
+        "label": "TPH base — a missing id answers the refused caller's 403, not 404",
+        "method": "GET",
+        "path": "/api/vehicles/00000000-0000-4000-8000-0000000000ad",
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 403,
+          "authorized": 404
+        }
+      },
+      {
+        "label": "TPC base — the polymorphic list read",
+        "seed": {
+          "path": "/api/dispatchers",
+          "body": {
+            "name": "LADDER-D",
+            "desk": 1
+          }
+        },
+        "method": "GET",
+        "path": "/api/crews"
+      },
+      {
+        "label": "TPH concrete — the gated list read",
+        "method": "GET",
+        "path": "/api/cars"
+      },
+      {
+        "label": "TPH concrete — the gated by-id read",
+        "method": "GET",
+        "path": "/api/cars/{id}"
+      },
+      {
+        "label": "TPC concrete — the gated list read",
+        "seed": {
+          "path": "/api/dispatchers",
+          "body": {
+            "name": "LADDER-D2",
+            "desk": 2
+          }
+        },
+        "method": "GET",
+        "path": "/api/dispatchers"
+      },
+      {
+        "label": "TPC concrete — the gated by-id read",
+        "seed": {
+          "path": "/api/dispatchers",
+          "body": {
+            "name": "LADDER-D3",
+            "desk": 3
+          }
+        },
+        "method": "GET",
+        "path": "/api/dispatchers/{id}"
+      },
+      {
+        "label": "TPH concrete — a new value for a masked field is refused",
+        "seed": {
+          "path": "/api/trucks",
+          "body": {
+            "plate": "LADDER-T",
+            "payloadKg": 1,
+            "vin": "V-L"
+          }
+        },
+        "method": "POST",
+        "path": "/api/trucks/{id}/update",
+        "body": {
+          "vin": "V-2"
+        },
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 403,
+          "authorized": 403
+        }
+      },
+      {
+        "label": "TPH concrete — the same update without the masked field goes through",
+        "seed": {
+          "path": "/api/trucks",
+          "body": {
+            "plate": "LADDER-T2",
+            "payloadKg": 1,
+            "vin": "V-L2"
+          }
+        },
+        "method": "POST",
+        "path": "/api/trucks/{id}/update",
+        "body": {
+          "payloadKg": 2
+        },
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 204,
+          "authorized": 204
+        }
+      },
+      {
+        "label": "TPC concrete — a new value for a masked field is refused",
+        "seed": {
+          "path": "/api/drivers",
+          "body": {
+            "name": "LADDER-DR",
+            "licence": "L-L"
+          }
+        },
+        "method": "POST",
+        "path": "/api/drivers/{id}/update",
+        "body": {
+          "licence": "L-2"
+        },
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 403,
+          "authorized": 403
+        }
+      }
+    ],
+    "arms": {
+      "anonymous": null,
+      "unauthorized": 403,
+      "authorized": 200
+    },
+    "anonymousNote": "dev-stub verifier accepts every request — no anonymous caller exists"
   }
 }

@@ -230,6 +230,24 @@ export interface CorpusFeature {
    * against the twin's own surfaces and fails a stale one there.
    */
   readonly inherits?: string;
+  /**
+   * Why the fixture's cells stop at the compile tier: the gate ledger
+   * (`test/system/gate-ledger.test.ts`) requires this reason on exactly the
+   * features no behavioural block boots.
+   */
+  readonly behaviouralAbsent?: string;
+  /**
+   * The fixture's rows in the behavioural registers: `xfail` maps a leg to its
+   * tracked expected failure (`BEHAVIOURAL_XFAIL` in
+   * `test/behavioral/registers.mjs`, whose own gate checks each row's shape).
+   */
+  readonly behavioural?: { readonly xfail?: Readonly<Record<string, unknown>> };
+  /**
+   * The fixture's authz ladder: the spec the behavioural runners hand to
+   * `__authzLadder` (`AUTHZ_LADDERS` in `test/behavioral/registers.mjs`), whose
+   * probes the authz gate census reads.  A `"//"` key is its comment.
+   */
+  readonly authzLadder?: Readonly<Record<string, unknown>>;
 }
 
 export interface CorpusTypingRow {
@@ -239,7 +257,7 @@ export interface CorpusTypingRow {
 }
 
 /** The gate blocks a twin inherits from the fixture it names in `inherits`. */
-export const INHERITED_BLOCKS = ["apiCaller", "authzGate", "typing"] as const;
+export const INHERITED_BLOCKS = ["apiCaller", "authzGate", "typing", "behaviouralAbsent"] as const;
 
 export interface CorpusApiCaller {
   readonly uncalled?: Readonly<Record<string, string>>;
@@ -274,6 +292,9 @@ const SIDECAR_KEYS = new Set([
   "authzGate",
   "typing",
   "inherits",
+  "behaviouralAbsent",
+  "behavioural",
+  "authzLadder",
 ]);
 const API_CALLER_KEYS = new Set(["//", "uncalled", "unattributed", "e2eLess"]);
 
@@ -336,6 +357,19 @@ function typingErrors(where: string, v: unknown): string[] {
   return errors;
 }
 
+/** Why a sidecar's `behavioural` block is malformed (empty when it is not). */
+function behaviouralErrors(where: string, v: unknown): string[] {
+  const isObject = (x: unknown): x is Record<string, unknown> =>
+    x !== null && typeof x === "object" && !Array.isArray(x);
+  if (!isObject(v)) return [`${where}: \`behavioural\` must be an object`];
+  const errors = Object.keys(v)
+    .filter((k) => k !== "xfail")
+    .map((k) => `${where}: unknown behavioural key ${JSON.stringify(k)}`);
+  if (v.xfail !== undefined && (!isObject(v.xfail) || !Object.values(v.xfail).every(isObject)))
+    errors.push(`${where}: \`behavioural.xfail\` must map legs to expected-failure rows`);
+  return errors;
+}
+
 const isComment = (v: unknown): boolean => typeof v === "string" || isStringList(v);
 
 /** Parse one sidecar's JSON into a row, or the reasons it is malformed. */
@@ -381,6 +415,14 @@ export function parseSidecar(id: string, raw: unknown): { row?: CorpusFeature; e
   if (o.apiCaller !== undefined) errors.push(...apiCallerErrors(`${id}${SIDECAR_SUFFIX}`, o.apiCaller));
   if (o.authzGate !== undefined) errors.push(...authzGateErrors(`${id}${SIDECAR_SUFFIX}`, o.authzGate));
   if (o.typing !== undefined) errors.push(...typingErrors(`${id}${SIDECAR_SUFFIX}`, o.typing));
+  if (o.behaviouralAbsent !== undefined && (typeof o.behaviouralAbsent !== "string" || o.behaviouralAbsent === ""))
+    errors.push(`${id}${SIDECAR_SUFFIX}: \`behaviouralAbsent\` must be a non-empty reason`);
+  if (o.behavioural !== undefined) errors.push(...behaviouralErrors(`${id}${SIDECAR_SUFFIX}`, o.behavioural));
+  if (
+    o.authzLadder !== undefined &&
+    (o.authzLadder === null || typeof o.authzLadder !== "object" || Array.isArray(o.authzLadder))
+  )
+    errors.push(`${id}${SIDECAR_SUFFIX}: \`authzLadder\` must be a ladder spec object`);
   if (o.inherits !== undefined && (typeof o.inherits !== "string" || o.inherits === id))
     errors.push(`${id}${SIDECAR_SUFFIX}: \`inherits\` must name another corpus fixture`);
   if (errors.length > 0 || !backends) return { errors };
@@ -398,6 +440,9 @@ export function parseSidecar(id: string, raw: unknown): { row?: CorpusFeature; e
       ...(o.authzGate !== undefined ? { authzGate: o.authzGate as Record<string, string> } : {}),
       ...(o.typing !== undefined ? { typing: o.typing as Record<string, CorpusTypingRow> } : {}),
       ...(o.inherits !== undefined ? { inherits: o.inherits as string } : {}),
+      ...(o.behaviouralAbsent !== undefined ? { behaviouralAbsent: o.behaviouralAbsent as string } : {}),
+      ...(o.behavioural !== undefined ? { behavioural: o.behavioural as CorpusFeature["behavioural"] } : {}),
+      ...(o.authzLadder !== undefined ? { authzLadder: o.authzLadder as Record<string, unknown> } : {}),
     },
   };
 }

@@ -13,5 +13,15 @@
       "api.withdrawTwice.run (no such aggregate)",
       "api.withdrawViaSecond.run (no such aggregate)"
     ]
+  },
+  "behavioural": {
+    "xfail": {
+      "elixir": {
+        "//": "Every test passes; the recording diverges from the golden in the two stale-save 409s, whose `detail` names no aggregate or id.",
+        "issue": "#3838",
+        "expect": "wire",
+        "reason": "the workflow 409 `detail` names no aggregate or id"
+      }
+    }
   }
 }

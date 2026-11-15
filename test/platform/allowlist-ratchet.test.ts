@@ -359,54 +359,6 @@ const REGISTERED: Ratchet[] = [
     kind: "record",
     max: 0,
   },
-  // The corpus features whose cells stop at the COMPILE tier — nothing boots
-  // them, so no gate observes their runtime behaviour.  Signed with a reason
-  // each; M-T9.13 owns the drain.  Unlike the skip maps above this register is
-  // asserted set-EQUAL to the derived ledger, so it cannot go stale in the
-  // other direction either — but it can still GROW, which is what this pins.
-  {
-    file: "test/system/gate-ledger.test.ts",
-    name: "BEHAVIOURAL_ABSENT",
-    kind: "record",
-    // Every remaining entry is one of two kinds, and each says which: the
-    // compile tier IS the oracle (the defect is a build failure the five corpus
-    // compile legs read directly, and a booted block would mint a golden with
-    // nothing the fix can change), or the case needs something the behavioural
-    // runners do not boot (a broker or resource container, a second deployable,
-    // a request header), named with the issue that tracks it.  A raise is a new
-    // row of one of those kinds; a drain deletes the row and lowers this bound
-    // in the same PR.  If this merges alongside another change to the
-    // register, re-derive the bound from the merged register's row count.
-    // 17 → 18: `optional-let`, a compile-tier row (the emitted null-handling
-    // form of a `let`-bound optional read); its booted block is #4335.
-    // 18 → 17: `envelope` — the carrier's BY-DESIGN row named the single-row
-    // `T envelope` find, which no longer exists, so its corpus case went too.
-    // 17 → 18: `factory-param-local-collision`, a compile-tier row (a .NET
-    // factory local re-declaring a create param, CS0136).
-    // 18 → 19: `tenancy-registry-split`, a compile-tier row (the orgPath
-    // registry lookup emitted on a deployable without the registry table) that
-    // is also two deployables; the cross-deployable resolution it refuses is #4806.
-    // 19 → 20: `api-call-auth`, a second-deployable row: the forwarded
-    // credential only means something when both services boot, which
-    // `api-call-e2e` does (its fixture requires auth on both sides).
-    // 20 → 21: `shareable`, a request-header / real-registry-id row like
-    // `org-context`: a grantee is a registry org id the `test e2e` vocabulary
-    // cannot name; the booted `assertShareable` leg of tenancy-e2e gates it.
-    // 21 → 22: `domain-symbol-collisions`, a compile-tier row (domain names
-    // colliding with a symbol the target binds: TS2304, CS0104, a python
-    // decorator rebound); every fix is a host spelling the wire cannot see.
-    // 22 → 23: `resource-endpoints`, a resource-container row like
-    // `resources`: every client it wires dials a provider (S3, RabbitMQ, a REST
-    // peer, SMTP, SES, SendGrid); the fakes answering on its host overrides are #5616.
-    // 23 → 24: `channels-broker-projection`, a broker + second-deployable row:
-    // a fold on one service over an event published from another needs a
-    // broker between two booted services (#5839).
-    // 24 → 25: `channels-broker-mixed-durable`, a broker row whose claim is an
-    // asynchronous local redelivery (#5839).
-    // 25 → 21: the s3/rabbitmq/localDisk sidecars re-arm `resources`,
-    // `handler-resource-ops`, `channels-broker` and `channels-broker-workflow`.
-    max: 21,
-  },
 ];
 
 /** Extract the balanced `[...]` (set) or `{...}` (record) literal bound to

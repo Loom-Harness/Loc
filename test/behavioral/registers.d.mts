@@ -56,6 +56,9 @@ export const HARNESS_WAITS: Readonly<Record<string, HarnessWait>>;
 /** The one test name a `race` entry may pin — the wire tier's two-writer probe. */
 export const RACE_PROBE_TEST: string;
 
+/** Corpus fixture id → its authz ladder spec, read from the fixture sidecars. */
+export const AUTHZ_LADDERS: Readonly<Record<string, unknown>>;
+
 /** Per-leg map of corpus case → its tracked expected failure. */
 export const BEHAVIOURAL_XFAIL: Readonly<Record<string, Readonly<Record<string, ExpectedFailure>>>>;
 

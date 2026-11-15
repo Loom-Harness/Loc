@@ -2,5 +2,74 @@
   "title": "lifecycle authorization gate — `requires` in the canonical `create` (principal-only, pre-construction) and `destroy` (principal + `this`, post-load)",
   "doc": "auth",
   "backends": "ALL",
-  "note": "the two halves render in DIFFERENT places — a create guard has no `this` yet, a destroy guard reads the row the caller already loaded; `Crate` carries the OTHER two shapes (an ungated create as the control, and a principal-ONLY destroy guard that leaves the loaded row unread)"
+  "note": "the two halves render in DIFFERENT places — a create guard has no `this` yet, a destroy guard reads the row the caller already loaded; `Crate` carries the OTHER two shapes (an ungated create as the control, and a principal-ONLY destroy guard that leaves the loaded row unread)",
+  "authzLadder": {
+    "//": [
+      "The WRITE side (lifecycle-guard.ddd) — the denial half of the `test e2e` in that fixture.  Its three `requires` sit on CANONICAL lifecycle operations rather than declared ones, which is the shape #2446 shipped ungated: `Shipment.create` (principal-only, no `this` yet), `Shipment.destroy` (principal AND row) and `Crate.destroy` (principal-only, on an `audited` aggregate, where a denial can land on the wrong side of the staged row).",
+      "This ladder could not run at all until the dev-stub claim mapper carried a `string[]`: the gate reads `currentUser.permissions.contains(...)`, and four of five backends dropped the array claim, so the AUTHORIZED principal was indistinguishable from the unauthorized one and every arm returned 403.  A gate emitted as a no-op would have passed that just as well — which is exactly the vacuous pass the fixture's waiver named.",
+      "`unauthorized` carries `permissions: [\"ops.none\"]`: a claim that is PRESENT and grants nothing, so the 403 comes from the predicate rather than from an absent claim. Keep it that way — a fixture that starts granting `ops.none` turns every arm below into a 2xx silently.",
+      "The GUARDED CREATE — added by M-T9.28 slice 2's census, which found it was the one `requires` in this fixture with no refusal arm anywhere. It is also the literal #2446 shape and the reason the fixture exists (\"a `requires` in a create parsed clean, emitted nothing, and left the route OPEN\"): the gate runs BEFORE the factory, so it reads the request principal and nothing else, and a no-op emission is invisible to every authorized-side assertion.  It addresses no row, which is what lets it sit beside the crate destroy below despite a spec carrying exactly one `{id}`. M-T3.16 C2 — the ORDER of the wire-validation rung and the create gate.  The same guarded create, with a body the wire validator refuses (`reference` shorter than the fixture's named invariant allows): BOTH principals answer 422, i.e. the request is validated before the gate is evaluated.  Node / .NET / java / python validate at the route boundary, ahead of the handler that runs the gate; Phoenix gated in the context BEFORE casting the changeset and answered 403 to the unauthorized caller — ungoldened until this surface.  Deny-first was weighed and declined (the M-T3.16 decision in the wave C5 5b note): the wire rung is a function of the body and the PUBLISHED schema alone, so answering it first discloses nothing about protected data. LAST in the list so the surfaces above keep their recorded ordinals. The THIRD gate, drained by wave C3 packet 3c: `Shipment.destroy` (principal AND row — `quantity == 0`, the default).  It was pinned `R.oneSeededId` because the spec's one `{id}` is the crate's; the surface now seeds its OWN shipment (`seed`, run right before its arms), and sits LAST so every recorded ordinal above keeps its place."
+    ],
+    "seed": {
+      "path": "/api/crates",
+      "body": {
+        "label": "authz ladder probe"
+      }
+    },
+    "gated": [
+      {
+        "label": "guarded create (principal-only, no row yet)",
+        "method": "POST",
+        "path": "/api/shipments",
+        "body": {
+          "reference": "authz ladder probe"
+        },
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 403,
+          "authorized": 201
+        }
+      },
+      {
+        "label": "guarded destroy (principal-only, audited row)",
+        "method": "DELETE",
+        "path": "/api/crates/{id}"
+      },
+      {
+        "label": "guarded create, INVALID body — the wire rung precedes the gate",
+        "method": "POST",
+        "path": "/api/shipments",
+        "body": {
+          "reference": "AB"
+        },
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 422,
+          "authorized": 422
+        }
+      },
+      {
+        "label": "guarded destroy (principal AND row, its own seeded shipment)",
+        "seed": {
+          "path": "/api/shipments",
+          "body": {
+            "reference": "ladder destroy"
+          }
+        },
+        "method": "DELETE",
+        "path": "/api/shipments/{id}",
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 403,
+          "authorized": 204
+        }
+      }
+    ],
+    "arms": {
+      "anonymous": null,
+      "unauthorized": 403,
+      "authorized": 204
+    },
+    "anonymousNote": "dev-stub verifier accepts every request — no anonymous caller exists"
+  }
 }

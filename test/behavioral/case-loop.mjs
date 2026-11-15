@@ -53,7 +53,7 @@ export function settle(entry, observed) {
   if (observed.kind === "pass") {
     return {
       verdict: "xpass",
-      detail: `expected to fail ${where} but PASSED — delete its BEHAVIOURAL_XFAIL entry (test/behavioral/registers.mjs)`,
+      detail: `expected to fail ${where} but PASSED — delete its expected-failure row (behavioural.xfail in the fixture's .corpus.json)`,
     };
   }
   if (observed.kind !== entry.expect) {

@@ -22,5 +22,89 @@
     "find GET /api/organizations": "sharedTenancyIdentity",
     "getById GET /api/organizations/{id}": "sharedTenancyIdentity",
     "operation POST /api/organizations/{id}/update": "sharedTenancyIdentity"
+  },
+  "authzLadder": {
+    "//": [
+      "The tenant floor keyed on a claim NOT named `tenantId` (`orgId`) — the cross-tenant principal varies both, so the refusal is the floor's.",
+      "The natural-key read names `number` alone; the floor supplies the tenant column, so another tenant's lookup of the same number misses."
+    ],
+    "seed": {
+      "path": "/api/invoices",
+      "body": {
+        "number": "LADDER-1",
+        "amountDue": 1
+      }
+    },
+    "gated": [
+      {
+        "label": "orgId floor — a foreign tenant's by-id read",
+        "method": "GET",
+        "path": "/api/invoices/{id}",
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 200,
+          "otherTenant": 404,
+          "authorized": 200
+        }
+      },
+      {
+        "label": "orgId floor — a foreign tenant's update",
+        "seed": {
+          "path": "/api/invoices",
+          "body": {
+            "number": "LADDER-2",
+            "amountDue": 2
+          }
+        },
+        "method": "POST",
+        "path": "/api/invoices/{id}/update",
+        "body": {
+          "number": "LADDER-2B",
+          "amountDue": 3
+        },
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 204,
+          "otherTenant": 404,
+          "authorized": 204
+        }
+      },
+      {
+        "label": "orgId floor — a foreign tenant's destroy",
+        "seed": {
+          "path": "/api/invoices",
+          "body": {
+            "number": "LADDER-3",
+            "amountDue": 4
+          }
+        },
+        "method": "DELETE",
+        "path": "/api/invoices/{id}",
+        "note": "same-tenant caller has no requires to fail - its DELETE would succeed and make the cross-tenant 404 after it meaningless",
+        "arms": {
+          "anonymous": null,
+          "unauthorized": null,
+          "otherTenant": 404,
+          "authorized": 204
+        }
+      },
+      {
+        "label": "orgId floor — a foreign tenant's natural-key read",
+        "method": "GET",
+        "path": "/api/invoices/amount?n=LADDER-1",
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 200,
+          "otherTenant": 404,
+          "authorized": 200
+        }
+      }
+    ],
+    "arms": {
+      "anonymous": null,
+      "unauthorized": 200,
+      "authorized": 200
+    },
+    "anonymousNote": "dev-stub verifier accepts every request — no anonymous caller exists"
   }
 }
