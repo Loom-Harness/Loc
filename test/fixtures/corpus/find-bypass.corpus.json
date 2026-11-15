@@ -8,5 +8,24 @@
     "java",
     "python"
   ],
-  "note": "minted by M-T6.54 F18.  `projection-agg-filters` witnesses `ignoring` on a query-time PROJECTION and the tenancy fixtures witness the filters with no bypass anywhere, so `find … ignoring` over a PRINCIPAL filter had no fixture at all — and java kept the tenant conjunct on both of its read surfaces (relational @Query JPQL and the document `findAll()`) while the (since-deleted) `ignoring` backend gate's family list certified it as honouring the clause.  Every assertion over it is paired presence + ABSENCE: the failure mode is a RETAINED conjunct, invisible to a presence-only check.  Also pins the fail-OPEN direction — the root `findAll`/by-id reads carry no `ignoring` clause, so no OTHER find's bypass may widen them.  Since F-005 this fixture is also the corpus' only source of `loom.tenancy-filter-bypass` — four warnings, one per `ignoring`-bearing find over a `tenantOwned` aggregate, all TRUE positives (that crossing is the fixture's subject), and the only trips a full-corpus `ddd parse` sweep reports for that code."
+  "note": "minted by M-T6.54 F18.  `projection-agg-filters` witnesses `ignoring` on a query-time PROJECTION and the tenancy fixtures witness the filters with no bypass anywhere, so `find … ignoring` over a PRINCIPAL filter had no fixture at all — and java kept the tenant conjunct on both of its read surfaces (relational @Query JPQL and the document `findAll()`) while the (since-deleted) `ignoring` backend gate's family list certified it as honouring the clause.  Every assertion over it is paired presence + ABSENCE: the failure mode is a RETAINED conjunct, invisible to a presence-only check.  Also pins the fail-OPEN direction — the root `findAll`/by-id reads carry no `ignoring` clause, so no OTHER find's bypass may widen them.  Since F-005 this fixture is also the corpus' only source of `loom.tenancy-filter-bypass` — four warnings, one per `ignoring`-bearing find over a `tenantOwned` aggregate, all TRUE positives (that crossing is the fixture's subject), and the only trips a full-corpus `ddd parse` sweep reports for that code.",
+  "authzGate": {
+    "//": "Widened reads (`find(C) ignoring …`) on both persistence shapes.  The ladder reads every seeded row back as a FOREIGN tenant — 404 on the by-id read, ABSENT from the collection, PRESENT under the bypassing reads — so these surfaces' refusals are tenant-scoped, which only a second tenant can observe.",
+    "create POST /api/notes": "sharedTenancyIdentity",
+    "create POST /api/orders": "sharedTenancyIdentity",
+    "find GET /api/notes": "sharedTenancyIdentity",
+    "find GET /api/orders": "sharedTenancyIdentity",
+    "explicitHandler GET /api/orders/any_tenant": "sharedTenancyIdentity",
+    "explicitHandler GET /api/orders/unfiltered": "sharedTenancyIdentity",
+    "explicitHandler GET /api/notes/any_tenant": "sharedTenancyIdentity",
+    "explicitHandler GET /api/notes/unfiltered": "sharedTenancyIdentity",
+    "find GET /api/organizations": "sharedTenancyIdentity",
+    "getById GET /api/organizations/{id}": "sharedTenancyIdentity",
+    "operation POST /api/notes/{id}/restore": "sharedTenancyIdentity",
+    "operation POST /api/notes/{id}/soft_delete": "sharedTenancyIdentity",
+    "operation POST /api/notes/{id}/update": "sharedTenancyIdentity",
+    "operation POST /api/orders/{id}/restore": "sharedTenancyIdentity",
+    "operation POST /api/orders/{id}/soft_delete": "sharedTenancyIdentity",
+    "operation POST /api/orders/{id}/update": "sharedTenancyIdentity"
+  }
 }

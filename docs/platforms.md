@@ -132,7 +132,10 @@ available. The matured axis today is **`persistence:`**:
   shape**: every relational / document / embedded / event-sourced / inheritance
   (TPH+TPC) shape, containment (incl. recursive part-in-part), associations,
   filters, audit / provenance / managed fields, retrievals, seeds, and the
-  workflow outbox all emit. `dapper` ≡ EF Core; `mikroorm` ≡ Drizzle. The
+  workflow outbox all emit. `dapper` answers like EF Core on the wire and
+  `mikroorm` like Drizzle, but their stored layout differs (each keeps
+  value-object collections in a JSONB column), so each refuses to share a
+  database with another layout. The
   alternates share the generated **domain layer** with the default and only
   swap the persistence layer (Dapper SQL repositories / MikroORM
   `EntitySchema` + `EntityManager`), so a project can switch persistence

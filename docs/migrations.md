@@ -8,9 +8,14 @@ function of the enriched IR that every DB backend needs identically, and (b) the
 output is *stateful* (it diffs against the schema the committed migration
 chain already builds). Deriving it
 once in phase ⑨ and handing the same `MigrationsIR[]` to Drizzle, EF Core, Ecto,
-Flyway, and the Python runner means a schema change is bit-for-bit equivalent
-across all five backends — cross-backend consistency falls out of having one
-canonical source rather than five hand-kept emitters.
+Flyway, and the Python runner gives every backend one source for its schema
+rather than five hand-kept emitters. The rendering is per adapter: the SQL
+adapters share one Postgres renderer, Ecto translates the steps into its own
+DSL, and an adapter that keeps its own layout refuses to share a database with
+another one. `test/system/shared-database-layout-census.test.ts` holds that
+split: every canonical adapter emits the shared DDL statement for statement,
+and every own-layout adapter carries its `loom.<adapter>-shared-database`
+refusal.
 
 > Builder: [`src/system/migrations-builder.ts`](../src/system/migrations-builder.ts).
 > Type: [`src/ir/types/migrations-ir.ts`](../src/ir/types/migrations-ir.ts).
@@ -965,8 +970,9 @@ not in per-backend stub files (D-MIG-DSL-STEPS) — one source, five backends.
 
 ## Locks on a populated table
 
-Every backend's runner applies a generation inside a transaction, so a lock a
-statement takes is held until that transaction commits. Two statement shapes
+Every runner applies each migration file inside a transaction (Drizzle, the
+Python runner and Dapper hold a whole generation in one), so a lock a statement
+takes is held until its transaction commits. Two statement shapes
 used to make that a full-table outage on a live system: at 1M rows, an UPDATE
 backfill plus two plain `CREATE INDEX` statements held the table for ~25 s, and
 every concurrent read and write of it waited. Both are now rendered so they hold

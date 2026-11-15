@@ -9,5 +9,9 @@
       "api.moveMoney.run (no such aggregate)",
       "api.registerAccount.run (no such aggregate)"
     ]
+  },
+  "authzGate": {
+    "//": "── mask unless — no status to refuse ──────────────────────────────────── Every read surface that projects `salary` / `nationalId`.  The ladder's control arm drives two of them with the second identity and records the redacted body; what it cannot do is assert a refusal, because there is not one.  See `R.maskIsNotAStatus` and finding 5. ── a guard that cannot refuse: the domain-service IMPORT is the subject ──",
+    "operation POST /api/accounts/{id}/withdraw": "importGateOnly"
   }
 }
