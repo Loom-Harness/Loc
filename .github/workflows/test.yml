@@ -161,11 +161,13 @@ jobs:
           path: coverage/
           retention-days: 14
 
-  # Nightly only: the coverage census's online leg
-  # (test/support/fakes/coverage.test.ts) asks GitHub whether every issue a
-  # pending row or harness wait leans on is still open.  A closed one fails
-  # this run, and the main-red alarm files it; the fix deletes the issue from
-  # OPEN_TRACKING_ISSUES and settles the rows leaning on it.  It never runs on
+  # Nightly only: the online legs of the coverage census
+  # (test/support/fakes/coverage.test.ts) and the live-fence register
+  # (test/system/live-fences.test.ts) ask GitHub whether every issue a pending
+  # row, harness wait, register `mission` or census `blockedBy` leans on is
+  # still open.  A closed one fails this run, and the main-red alarm files it;
+  # the fix deletes the issue from OPEN_TRACKING_ISSUES / LIVE_FENCES and
+  # settles what leaned on it.  It never runs on
   # a PR or in the merge queue, so closing an issue cannot eject a train.
   census-online:
     name: coverage census (live issue state, nightly)
@@ -186,7 +188,7 @@ jobs:
         run: npm ci
 
       - name: Coverage census against live GitHub issue state
-        run: npx vitest run test/support/fakes/coverage.test.ts --reporter=default
+        run: npx vitest run test/support/fakes/coverage.test.ts test/system/live-fences.test.ts --reporter=default
         env:
           LOOM_CENSUS_ONLINE: "1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
