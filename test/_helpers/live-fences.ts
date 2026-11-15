@@ -49,6 +49,7 @@ export const LIVE_FENCES: Readonly<Record<string, string>> = {
   "#5923": "e2e suites still publishing fixed host ports",
   "#5933": "Re-own unsupported-register gaps whose owning issue closed",
   "#6013": "Decision records with no enforcing gate yet",
+  "#6018": "Reference-doc every-backend claims with no gate yet",
 };
 
 /** `""` when `ref` is a live fence, else the reason it is not. */

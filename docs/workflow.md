@@ -98,6 +98,7 @@ workflow also rolls back the iterations before it; otherwise each earlier
 iteration's save has already committed).  So the retrieval being iterated
 must select only rows the gate admits — make its criterion imply the `when`
 predicate:
+<!-- tracked: #6018 — a corpus workflow looping over a `when`-gated operation fails the run at the first refused row and leaves later rows unvisited, on every backend -->
 
 ```ddd
 aggregate Ticket {
@@ -138,10 +139,8 @@ workflow scheduleWorkOrder transactional {
 ```
 
 Lowering resolves a `let` read against the enclosing context's repositories
-alone, so a foreign name never becomes a repository load at all — before the
-gate, every backend rendered the receiver verbatim into code that references a
-name it never defines (node: `const tech = Technicians.get(assignTo);` —
-no repository constructed, no `await`, `tsc`: *Cannot find name 'Technicians'*).
+alone, so a foreign name never becomes a repository load at all;
+`loom.workflow-cross-context-repository` refuses it before a backend renders a receiver it never defines.
 
 Reach the other context at its **public surface** instead — the same two
 sanctioned crossings [`domain-services.md`](domain-services.md#cross-context-data-in-ddd-terms-a-decision-not-a-todo)
@@ -170,8 +169,7 @@ workflow assign {
 A `projection` folded over the same events is **not** readable from a
 workflow — it is a read model with no repository, served through its GET
 endpoint and pages.  `let s = Seen.byKey(k)` in a workflow body is refused with
-`loom.workflow-unknown-name` (before the gate, every backend emitted an
-undefined `Seen` receiver).  If the two aggregates genuinely change together in
+`loom.workflow-unknown-name`.  If the two aggregates genuinely change together in
 one transaction, they belong in the same context.
 
 ### `if let` — single-result criterion lookup
@@ -665,9 +663,6 @@ supplied:
 - **Python**: `await session.connection(execution_options={"isolation_level": "SERIALIZABLE"})` (etc.).
 - **Java**: `@Transactional(isolation = Isolation.SERIALIZABLE)` (etc.).
 
-Bare `transactional` emits the no-arg form on every backend so the
-connection-default behaviour is preserved.
-
 ## Reactor failures
 
 An event-triggered `create(e: Event) by …` starter or `on(e: Event)` reactor
@@ -847,6 +842,7 @@ A workflow has no `handle name(params) { … }` member
 It had no correlation surface — nothing said *which* saga instance a call
 continued — and no backend ever emitted a route for it.  A named command entry
 is a context-level `commandHandler`, which every backend routes:
+<!-- gate: `test/fixtures/corpus/handler-aggregate-ops.ddd` -->
 
 ```ddd
 // before — no longer parses               // after
@@ -870,6 +866,7 @@ than one aggregate, or a name another handler of the context already holds.
 Model those continuations as an aggregate `operation` (the aggregate owns the
 state transition, and the operation gets a route on every backend), or as a
 second workflow started by the event the first one emits.
+<!-- gate: `test/fixtures/corpus/state-gate.ddd` -->
 
 > **Principal.** A reactor / event starter has no request, so it runs as the
 > **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions/D-REACTOR-SYSTEM-PRINCIPAL.md)): `currentUser.isSystem` is true, every claim is
