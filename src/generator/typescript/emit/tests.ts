@@ -222,9 +222,7 @@ function renderTestsCore(
   }
   lines.push(...value.domain);
   const rejection = /\bexpectDomainRejection\(/.test(bodyStr);
-  if (rejection) lines.push(`import { ${DOMAIN_REJECTION_ERRORS.join(", ")} } from "./errors";`);
-  lines.push("");
-  if (rejection) lines.push(...domainRejectionHelper(), "");
+  lines.push(...(rejection ? [...domainRejectionPrelude("./errors"), ""] : [""]));
   if (bodyStr.includes(TEST_PRINCIPAL_CALL)) {
     const rendered = renderTestPrincipal(
       testPrincipal(principal ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),

@@ -248,11 +248,9 @@ export function renderJavaContextIntegrationTest(
    *  Absent ⇒ none is bound. */
   userFields?: TestPrincipalShape,
 ): { path: string; content: string } | null {
-  const isolation = integrationIsolation(ctx);
-  if (isolation.kind !== "rollback-per-test") {
-    const never: never = isolation.kind;
-    throw new Error(`internal: unhandled integration isolation ${String(never)}`);
-  }
+  // Rollback per test is the one isolation the plan answers; a new answer
+  // fails this line at compile time until the emitter renders it.
+  integrationIsolation(ctx).kind satisfies "rollback-per-test";
   if (ctx.tests.length === 0) return null;
 
   const methods = ctx.tests.flatMap((t) => renderTest(t, ctx, userFields, basePkg));

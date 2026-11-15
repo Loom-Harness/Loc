@@ -258,7 +258,7 @@ export function pytestHead(
 }
 
 /** A test name slug usable as a python identifier, deduped per file. */
-export function testFnName(name: string, used: Set<string>): string {
+function testFnName(name: string, used: Set<string>): string {
   const base =
     `test_${name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`.replace(/_+$/, "") || "test_case";
   let candidate = base;

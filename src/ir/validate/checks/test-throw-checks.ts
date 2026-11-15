@@ -69,11 +69,15 @@ function checkContext(
         if (!rejectionNeedsInvariant(plan, op, owner)) continue;
         if (owner.persistedAs === "eventLog") continue;
         if (!isDocumentShaped(owner, resolveDataSourceConfig(owner, ctx, sys))) continue;
-        const params = { test: test.name, aggregate: owner.name, operation: op.name, platform };
         diags.push({
           severity: "error",
           code: "loom.test-throw-unsupported",
-          message: diagMessage("loom.test-throw-unsupported", params),
+          message: diagMessage("loom.test-throw-unsupported", {
+            test: test.name,
+            aggregate: owner.name,
+            operation: op.name,
+            platform,
+          }),
           source: `${ctx.name}/${agg.name}/${test.name}`,
           origin: s.origin ?? test.origin,
         });

@@ -522,7 +522,7 @@ function renderPureOp(
  *  methods throw at the end of an operation that returns nothing.  Empty when
  *  the aggregate declares no invariant the changeset checks, or the op returns
  *  a value.  Shared with `tests-emit.ts` through `ShapeFacts.invariantFloorOps`. */
-export function pureOpInvariantFloor(
+function pureOpInvariantFloor(
   agg: AggregateIR,
   ctx: BoundedContextIR,
   op: OperationIR,

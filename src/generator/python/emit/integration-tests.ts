@@ -287,11 +287,9 @@ export function renderPyContextIntegrationTest(
   if (ctx.tests.length === 0) return null;
   // Rollback per test (`integrationIsolation`): each test's `session` fixture
   // flushes and is never committed, so closing it rolls the test's writes back.
-  const isolation = integrationIsolation(ctx);
-  if (isolation.kind !== "rollback-per-test") {
-    const never: never = isolation.kind;
-    throw new Error(`internal: unhandled integration isolation ${String(never)}`);
-  }
+  // Rollback per test is the one isolation the plan answers; a new answer
+  // fails this line at compile time until the emitter renders it.
+  integrationIsolation(ctx).kind satisfies "rollback-per-test";
 
   const used = new Set<string>();
   const cascade = ctx.workflows.length > 0 && opts.inProcessDispatcher;

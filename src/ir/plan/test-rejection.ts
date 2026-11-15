@@ -45,7 +45,7 @@ export function rejectionPlan(s: { expr: ExprIR; throwKind?: ThrowKindName }): R
  *  expression.  Conservative on an unresolvable private call: it answers true.
  *  A bare `toThrow()` over an operation that cannot can only mean an invariant
  *  rejection. */
-export function operationMayRejectBeforeInvariants(
+function operationMayRejectBeforeInvariants(
   op: OperationIR | undefined,
   agg: Pick<AggregateIR, "operations">,
   seen: Set<string> = new Set(),
