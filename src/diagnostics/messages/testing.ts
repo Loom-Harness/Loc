@@ -223,6 +223,10 @@ export const messages = {
   "loom.test-principal-unknown-claim": (p: { name: unknown; fields: unknown }) =>
     `Principal claim '${p.name}' is not a field of the system's 'user { … }' block ` +
     `(declared: ${p.fields}).`,
+  "loom.test-throw-not-a-call": (p: { test: unknown }) =>
+    `test '${p.test}': 'toThrow' asserts that a call is refused, and its subject here is a ` +
+    "value, which is read, never called, so the assertion could only fail.  Pass the call " +
+    "that should be refused: `expect(o.close()).toThrow()`, `expect(Order.create(…)).toThrow()`.",
   "loom.test-throw-unsupported": (p: {
     test: unknown;
     aggregate: unknown;

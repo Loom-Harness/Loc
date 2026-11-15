@@ -37,7 +37,7 @@ describe("python: value-object + domain-service unit tests", () => {
     const vo = get(files, "tests/test_money.py");
     expect(vo, "test_money.py").toBeDefined();
     expect(vo).toContain("from app.domain.value_objects import Money");
-    expect(vo).toContain("def test_rejects_negative()");
+    expect(vo).toContain("def test_rejects_negative(_title: str)");
   });
 
   it("emits tests/test_pricing.py importing the service op function", async () => {

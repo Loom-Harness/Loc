@@ -1,12 +1,11 @@
-// L1-E / E8 (#2987) — a BARE `toThrow()` over an operation whose only possible
-// rejection is an INVARIANT.
+// A BARE `toThrow()` over an operation whose only possible rejection is an
+// INVARIANT.
 //
-// The vanilla pure op core runs preconditions only (the aggregate's invariants
-// live in the Ecto changeset), so the bare form's `assert_raise GuardError`
-// could never fire: the emitted test FAILED on a correct app.  An op with no
-// `precondition`/`requires` anywhere on its path (its private-op callees
-// included) now degrades honestly — the same skip the explicit
-// `toThrow(invariant)` takes — while a guarded op keeps its `assert_raise`.
+// The aggregate's invariants live in the Ecto changeset; the vanilla pure op
+// core checks them after a void operation's writes too (the invariant floor,
+// raising `GuardError` with kind `:invariant`), so the bare form's
+// `assert_raise GuardError` fires on every path: an invariant-only op, a
+// guarded op, and a guard reached through a private op.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
@@ -65,11 +64,12 @@ function block(src: string, name: string): string {
 }
 
 describe("elixir domain test — bare toThrow() over an invariant-only op (E8)", () => {
-  it("skips with a reason instead of an assert_raise that can never fire", async () => {
+  it("asserts the invariant rejection the pure core raises", async () => {
     const b = block(await testFile(), "invariant-only rejection");
-    expect(b).toContain("@tag :skip");
-    expect(b).toMatch(/Reason: bare toThrow\(\) over an aggregate operation with no precondition/);
-    expect(b).not.toContain("assert_raise");
+    expect(b).not.toContain("@tag :skip");
+    expect(b).toContain(
+      'assert_raise E.GuardError, fn -> E.C.Counter.set_qty(c, %{"n" => -1}) end',
+    );
   });
 
   it("keeps the assert_raise when the op carries a precondition", async () => {

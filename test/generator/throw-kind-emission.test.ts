@@ -208,23 +208,13 @@ describe("toThrow(<kind>) — the emitted unit assertion pins the rung on all fi
     });
   }
 
-  it("elixir: toThrow(invariant) over an aggregate op degrades to a REASONED skip", async () => {
-    // Measured on a generated tree, not assumed: the vanilla pure op core is
-    //
-    //   def complete(%__MODULE__{} = record, _params) do
-    //     if not (record.status == :InProgress), do: raise(D.GuardError, kind: :precondition, …)
-    //
-    // — preconditions and an in-memory struct update, and nothing else.  The
-    // aggregate's invariants live in the Ecto changeset (`validate_invariants/1`),
-    // which only the PERSISTENCE path pipes through, so an `invariant` rung has
-    // no in-memory subject here.  The established seam for that is
-    // `UnsupportedTestShapeError` → `@tag :skip` carrying the reason, which the
-    // no-silent-skip conformance gate reads.  Emitting an assertion that could
-    // only ever fail — or one that passes for the wrong reason — would be worse
-    // than saying so.
+  it("elixir: toThrow(invariant) over an aggregate op pins the rung the pure core raises", async () => {
+    // The vanilla pure op core checks the aggregate's invariants after a void
+    // operation's writes, through the same changeset the persisting path
+    // validates with, and raises `GuardError` with kind `:invariant`.
     const out = await unitTest("elixir", "toThrow(invariant)");
-    expect(out).toContain("@tag :skip");
-    expect(out).toContain("aggregate invariants are enforced in the Ecto changeset");
+    expect(out).not.toContain("@tag :skip");
+    expect(out).toContain("assert rejected1.kind == :invariant");
   });
 });
 
@@ -263,14 +253,14 @@ const BARE_PINS: Record<string, { must: string[]; mustNot: string[] }> = {
   dotnet: {
     must: [
       "Assert.ThrowsAny<Exception>(() => { wo.Complete(); });",
-      "is DomainException or DisallowedException or ForbiddenException,",
+      "is DisallowedException or DomainException or ForbiddenException,",
     ],
     mustNot: ["Assert.Throws<DomainException>("],
   },
   java: {
     must: [
       "assertThrows(RuntimeException.class, () -> wo.complete());",
-      "instanceof DomainException || __thrown1 instanceof DisallowedException || __thrown1 instanceof ForbiddenException,",
+      "instanceof DisallowedException || __thrown1 instanceof DomainException || __thrown1 instanceof ForbiddenException,",
     ],
     mustNot: ["assertThrows(Exception.class", "assertThrows(DomainException.class, "],
   },

@@ -108,8 +108,11 @@ describe("dotnet — emitted unit test for a create that omits inputs", () => {
     expect(src).toContain(
       "Assert.Throws<ValueObjectInvariantException>(() => { new Window(0); });",
     );
-    // Aggregate rejections still pin the exact `DomainException`.
-    expect(await testFile("TicketTests.cs")).toContain("Assert.Throws<DomainException>(");
+    // A bare `toThrow()` over an aggregate create accepts the whole domain
+    // floor (D-GENERATED-TESTS), never `Exception` alone.
+    expect(await testFile("TicketTests.cs")).toContain(
+      "is DisallowedException or DomainException or ForbiddenException or ValueObjectInvariantException,",
+    );
   });
 
   it("the test csproj suppresses the same MailKit advisories as the API csproj", async () => {
