@@ -11,7 +11,7 @@ import {
   validateApplierBodies,
   validatePartConstructionOwner,
 } from "./checks/body-stmt-vocabulary.js";
-import { validateCacheReads } from "./checks/cache-checks.js";
+import { validateCacheReads, validateCacheTopology } from "./checks/cache-checks.js";
 import { validateElixirBoundMutatingCalls } from "./checks/call-result-checks.js";
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
@@ -256,6 +256,7 @@ export function validateLoomModel(
     validateDuplicateTables(sys, diags);
     validateDataSourceCoverage(sys, diags);
     validateCacheReads(sys, diags);
+    validateCacheTopology(sys, diags);
     validateFileFieldObjectStorage(sys, diags);
     validateChannelWiring(sys, diags);
     validateSavingShapeSupport(sys, diags);

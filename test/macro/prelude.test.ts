@@ -1,4 +1,3 @@
-import { wireFieldsFor } from "../../src/ir/enrich/wire-projection.js";
 // Built-in capability prelude (typed-capabilities.md, Phase 3).
 //
 // The `auditable` capability ships with the toolchain (src/macros/prelude.ts) —
@@ -9,7 +8,7 @@ import { wireFieldsFor } from "../../src/ir/enrich/wire-projection.js";
 
 import { describe, expect, it } from "vitest";
 import type { AggregateIR } from "../../src/ir/types/loom-ir.js";
-import { buildLoomModel } from "../_helpers/ir.js";
+import { buildHostedModel, buildLoomModel, responseRows } from "../_helpers/ir.js";
 import { parseString } from "../_helpers/parse.js";
 
 function findAgg(
@@ -24,7 +23,7 @@ function findAgg(
 
 describe("built-in capability prelude (typed-capabilities.md Phase 3)", () => {
   it("`with auditable` resolves with nothing declared (built-in)", async () => {
-    const ir = await buildLoomModel(`
+    const ir = await buildHostedModel(`
       system D {
         user { id: string }
         subdomain M { context C {
@@ -33,7 +32,7 @@ describe("built-in capability prelude (typed-capabilities.md Phase 3)", () => {
       }
     `);
     const agg = findAgg(ir, "Order");
-    expect(wireFieldsFor(agg).map((f) => f.name)).toEqual(
+    expect(responseRows(ir, agg).map((f) => f.name)).toEqual(
       expect.arrayContaining(["createdAt", "updatedAt", "createdBy", "updatedBy"]),
     );
     expect(agg.contextStamps?.length).toBe(2);
@@ -72,20 +71,23 @@ describe("built-in capability prelude (typed-capabilities.md Phase 3)", () => {
   });
 
   it("`with softDeletable` resolves the built-in (state + filter)", async () => {
-    const ir = await buildLoomModel(`
+    const ir = await buildHostedModel(`
       system D { subdomain M { context C {
         aggregate Order with softDeletable { subject: string }
       }}}
     `);
     const agg = findAgg(ir, "Order");
-    expect(wireFieldsFor(agg).map((f) => f.name)).toEqual(
+    // `isDeleted` is the internal filter flag: a domain member, not an API-read row.
+    expect(agg.fields.map((f) => f.name)).toEqual(
       expect.arrayContaining(["isDeleted", "deletedAt"]),
     );
+    expect(responseRows(ir, agg).map((f) => f.name)).toContain("deletedAt");
+    expect(responseRows(ir, agg).map((f) => f.name)).not.toContain("isDeleted");
     expect(agg.contextFilters?.length).toBe(1);
   });
 
   it("`with tenantOwned` splices the tenantId field + onCreate stamp + tenant filter", async () => {
-    const ir = await buildLoomModel(`
+    const ir = await buildHostedModel(`
       system D {
         user { id: guid  tenantId: string }
         tenancy by user.tenantId of Org
@@ -100,7 +102,8 @@ describe("built-in capability prelude (typed-capabilities.md Phase 3)", () => {
     const tenantId = agg.fields.find((f) => f.name === "tenantId")!;
     expect(tenantId).toBeDefined();
     expect(tenantId.access).toBe("internal");
-    expect(wireFieldsFor(agg).map((f) => f.name)).toContain("tenantId");
+    // The row is `internal`: a domain member, never an API-read row.
+    expect(responseRows(ir, agg).map((f) => f.name)).not.toContain("tenantId");
     // Rows carry `tenantId` only — no materialized path.
     expect(agg.fields.map((f) => f.name)).not.toContain("dataKey");
     // Stamp: onCreate { tenantId := currentUser.tenantId }:
@@ -115,7 +118,7 @@ describe("built-in capability prelude (typed-capabilities.md Phase 3)", () => {
   });
 
   it("a user-declared `capability auditable` overrides the built-in", async () => {
-    const ir = await buildLoomModel(`
+    const ir = await buildHostedModel(`
       capability auditable { archived: bool }
       system D { subdomain M { context C {
         aggregate Order with auditable { subject: string }
@@ -123,7 +126,7 @@ describe("built-in capability prelude (typed-capabilities.md Phase 3)", () => {
     `);
     const agg = findAgg(ir, "Order");
     // The user's definition wins: `archived`, not the built-in audit fields.
-    expect(wireFieldsFor(agg).some((f) => f.name === "archived")).toBe(true);
-    expect(wireFieldsFor(agg).some((f) => f.name === "createdAt")).toBe(false);
+    expect(responseRows(ir, agg).some((f) => f.name === "archived")).toBe(true);
+    expect(responseRows(ir, agg).some((f) => f.name === "createdAt")).toBe(false);
   });
 });

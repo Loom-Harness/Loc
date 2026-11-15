@@ -184,7 +184,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/platform/hono/shared/explicit-handlers-builder.ts#buildExplicitRoutesFile$2": ALL_CONTEXTS,
   "src/generator/feliz/index.ts#enumsFromContexts": ALL_CONTEXTS,
   "src/generator/dotnet/bcl-collision.ts#declaredTypeNames": ALL_CONTEXTS,
-  "src/generator/_walker/model-text-sites.ts#implicitModelTextEntries": ALL_CONTEXTS,
 };
 
 describe("enum-pool census — no name resolution of an enum through a context's own `.enums`", () => {

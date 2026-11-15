@@ -8,9 +8,11 @@
 //
 //   - a `CacheStore` per cache resource — Lettuce for a `redis` storage (the
 //     `<RESOURCE>_URL` connection, valkey in the dev compose), a
-//     `ConcurrentHashMap` with expiry for `inMemory`;
-//   - one `ByIdCache` constant per cached aggregate, one entry per id holding
-//     a JSON map from the scope fingerprint to the wire answer;
+//     `ConcurrentHashMap` with expiry bounded by the plan's entry limit for
+//     `inMemory`;
+//   - one `ByIdCache` constant per cached aggregate, one entry per id in the
+//     plan's `CACHE_ENTRY` envelope, so another backend on the same redis
+//     reads it; an unreadable entry is a miss;
 //   - the repository impl's `save` / `delete` evict the written id once the
 //     surrounding transaction has committed (immediately outside one);
 //   - the controller action: fingerprint the caller, answer a hit from the
@@ -21,15 +23,19 @@
 // argument tuple, while an eviction here must drop every scope's answer for an
 // id at once.  A store that refuses a call never fails the request: a read
 // falls back to the database, a failed write or eviction is logged and the
-// entry expires at its ttl.  The Java routes send no entity-tag, so an entry
-// holds the body alone.
+// entry expires at its ttl.  The Java routes send no entity-tag, so the
+// answers they store carry a null tag; a hit replays a tag another backend
+// stored.
 
 import {
+  CACHE_ENTRY,
+  CACHE_ETAG_HEADER,
   CACHE_STATUS_HEADER,
   type CachedByIdRead,
   type CacheEvictingWrite,
   type CacheScopeInput,
   cacheStoragesOf,
+  IN_MEMORY_CACHE_MAX_ENTRIES,
 } from "../../../ir/plan/cache.js";
 import type { DeployableIR, SystemIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
@@ -83,12 +89,15 @@ export function renderJavaCacheHit(
       ? `        var __scope = "[]";`
       : `        var __scope = ${mapper}.writeValueAsString(java.util.Arrays.asList(${inputs}));`,
     `        var __hit = ${javaByIdCacheRef(read)}.read(String.valueOf(${idExpr}), __scope);`,
-    `        if (__hit != null) {`,
     // Answered as the route's declared response type, so the route keeps its
-    // typed OpenAPI contract.
-    `            return ResponseEntity.ok()`,
-    `                .header("${CACHE_STATUS_HEADER}", "hit")`,
-    `                .body(${mapper}.readValue(__hit, ${responseType}.class));`,
+    // typed OpenAPI contract; a body that does not decode is a miss.
+    `        var __hitBody = __hit == null ? null : ${BY_ID_CACHES_CLASS}.decode(__hit, ${mapper}, ${responseType}.class);`,
+    `        if (__hitBody != null) {`,
+    `            var __res = ResponseEntity.ok().header("${CACHE_STATUS_HEADER}", "hit");`,
+    `            if (__hit.${CACHE_ENTRY.etag}() != null) {`,
+    `                __res.header("${CACHE_ETAG_HEADER}", __hit.${CACHE_ENTRY.etag}());`,
+    `            }`,
+    `            return __res.body(__hitBody);`,
     `        }`,
   ];
 }
@@ -102,7 +111,7 @@ export function renderJavaCacheStore(
 ): string[] {
   return [
     `        var __out = ${outExpr};`,
-    `        ${javaByIdCacheRef(read)}.write(String.valueOf(${idExpr}), __scope, ${mapper}.writeValueAsString(__out));`,
+    `        ${javaByIdCacheRef(read)}.write(String.valueOf(${idExpr}), __scope, ${mapper}.writeValueAsString(__out), null);`,
     `        return ResponseEntity.ok().header("${CACHE_STATUS_HEADER}", "miss").body(__out);`,
   ];
 }
@@ -173,8 +182,47 @@ export function renderJavaByIdCaches(
     `    }`,
     ``,
     `    private static final JsonMapper JSON = JsonMapper.builder().build();`,
-    `    private static final TypeReference<Map<String, String>> ANSWERS = new TypeReference<>() {`,
+    `    private static final TypeReference<Map<String, Object>> ENTRY = new TypeReference<>() {`,
     `    };`,
+    ``,
+    `    /** One scope's answer as stored: the wire body's JSON text and its tag. */`,
+    `    public record Answer(String ${CACHE_ENTRY.body}, String ${CACHE_ENTRY.etag}) {`,
+    `    }`,
+    ``,
+    `    /** The stored entry, or an empty one when it is not a JSON object. */`,
+    `    static Map<String, Object> entryOf(String raw) {`,
+    `        var entry = new java.util.LinkedHashMap<String, Object>();`,
+    `        if (raw != null) {`,
+    `            try {`,
+    `                entry.putAll(JSON.readValue(raw, ENTRY));`,
+    `            } catch (RuntimeException e) {`,
+    `                // Unreadable: replaced by the next write.`,
+    `            }`,
+    `        }`,
+    `        return entry;`,
+    `    }`,
+    ``,
+    `    /** \`answer\` when it is a readable answer, else null. */`,
+    `    static Answer readable(Object answer) {`,
+    `        if (!(answer instanceof Map<?, ?> a)) {`,
+    `            return null;`,
+    `        }`,
+    `        var body = a.get(${JSON.stringify(CACHE_ENTRY.body)});`,
+    `        var etag = a.get(${JSON.stringify(CACHE_ENTRY.etag)});`,
+    `        if (!(body instanceof String b) || !(etag == null || etag instanceof String)) {`,
+    `            return null;`,
+    `        }`,
+    `        return new Answer(b, (String) etag);`,
+    `    }`,
+    ``,
+    `    /** The answer's body as \`type\`, or null when it does not decode (a miss). */`,
+    `    public static <T> T decode(Answer answer, tools.jackson.databind.ObjectMapper mapper, Class<T> type) {`,
+    `        try {`,
+    `            return mapper.readValue(answer.${CACHE_ENTRY.body}(), type);`,
+    `        } catch (RuntimeException e) {`,
+    `            return null;`,
+    `        }`,
+    `    }`,
     ``,
     `    /** The key-value store the entries live in. */`,
     `    interface CacheStore {`,
@@ -227,8 +275,12 @@ export function renderJavaByIdCaches(
           ``,
         ]
       : []),
-    `    /** An in-process map; an expired entry is dropped when it is next read. */`,
+    `    /** An in-process map with expiry, holding at most \`MAX_ENTRIES\` entries: a`,
+    `     *  write that finds it full drops the expired entries, and is skipped when it`,
+    `     *  is still full. */`,
     `    static final class MemoryStore implements CacheStore {`,
+    `        static final int MAX_ENTRIES = ${IN_MEMORY_CACHE_MAX_ENTRIES};`,
+    ``,
     `        private record Entry(String value, long expiresAt) {`,
     `        }`,
     ``,
@@ -249,6 +301,13 @@ export function renderJavaByIdCaches(
     ``,
     `        @Override`,
     `        public void set(String key, String value, int ttlSeconds) {`,
+    `            if (!entries.containsKey(key) && entries.size() >= MAX_ENTRIES) {`,
+    `                var now = System.currentTimeMillis();`,
+    `                entries.values().removeIf(e -> e.expiresAt() <= now);`,
+    `                if (entries.size() >= MAX_ENTRIES) {`,
+    `                    return;`,
+    `                }`,
+    `            }`,
     `            entries.put(key, new Entry(value, System.currentTimeMillis() + ttlSeconds * 1000L));`,
     `        }`,
     ``,
@@ -273,26 +332,28 @@ export function renderJavaByIdCaches(
     `            this.ttlSeconds = ttlSeconds;`,
     `        }`,
     ``,
-    `        /** The wire body stored for \`id\` under \`scope\`, or null. */`,
-    `        public String read(String id, String scope) {`,
+    `        /** The answer stored for \`id\` under \`scope\`; an unreadable one is a miss. */`,
+    `        public Answer read(String id, String scope) {`,
+    `            String raw;`,
     `            try {`,
-    `                var raw = store.get(entryPrefix + id);`,
-    `                return raw == null ? null : JSON.readValue(raw, ANSWERS).get(scope);`,
+    `                raw = store.get(entryPrefix + id);`,
     `            } catch (RuntimeException e) {`,
     `                unavailable("read", e);`,
     `                return null;`,
     `            }`,
+    `            return readable(entryOf(raw).get(scope));`,
     `        }`,
     ``,
-    `        public void write(String id, String scope, String body) {`,
+    `        /** Store \`body\` (the wire answer's JSON text) under \`scope\`, keeping the`,
+    `         *  other scopes' answers; an entry that does not parse is replaced. */`,
+    `        public void write(String id, String scope, String body, String etag) {`,
     `            try {`,
     `                var key = entryPrefix + id;`,
-    `                var raw = store.get(key);`,
-    `                Map<String, String> entry = new java.util.HashMap<>();`,
-    `                if (raw != null) {`,
-    `                    entry.putAll(JSON.readValue(raw, ANSWERS));`,
-    `                }`,
-    `                entry.put(scope, body);`,
+    `                var entry = entryOf(store.get(key));`,
+    `                var answer = new java.util.LinkedHashMap<String, Object>();`,
+    `                answer.put(${JSON.stringify(CACHE_ENTRY.body)}, body);`,
+    `                answer.put(${JSON.stringify(CACHE_ENTRY.etag)}, etag);`,
+    `                entry.put(scope, answer);`,
     `                store.set(key, JSON.writeValueAsString(entry), ttlSeconds);`,
     `            } catch (RuntimeException e) {`,
     `                unavailable("write", e);`,

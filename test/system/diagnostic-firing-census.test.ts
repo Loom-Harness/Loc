@@ -4462,6 +4462,37 @@ system S {
   deployable api { platform: node, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3000, auth: required }
 }
 `,
+  // A worker hosts the cached context on the same database but does not list
+  // the cache: its writes would leave the api's cached answers stale.
+  "loom.cache-writer-not-evicting": `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { label: string }
+  } }
+  api A from D
+  storage primary { type: postgres }
+  storage hot { type: redis }
+  resource cState { for: C, kind: state, use: primary }
+  resource cCache { for: C, kind: cache, use: hot }
+  deployable api { platform: node, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3000 }
+  deployable worker { platform: python, contexts: [C], dataSources: [cState], port: 3001 }
+}
+`,
+  // Two processes, two maps: a write in one evicts nothing in the other.
+  "loom.cache-in-memory-shared": `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { label: string }
+  } }
+  api A from D
+  storage primary { type: postgres }
+  storage hot { type: inMemory }
+  resource cState { for: C, kind: state, use: primary }
+  resource cCache { for: C, kind: cache, use: hot }
+  deployable api { platform: node, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3000 }
+  deployable api2 { platform: java, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3001 }
+}
+`,
   // Third tier, third reason (cf. `loom.e2e-ui-throw-invalid` just above): a ui
   // body asserts against RENDERED TEXT, which is always a string \u2014 so neither
   // absence spelling is observable there.  Needs a full react-targeting system,

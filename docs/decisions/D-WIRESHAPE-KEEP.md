@@ -1,7 +1,9 @@
 # D-WIRESHAPE-KEEP — the derived wire shape stays the source of truth; the declared response record is the thing that must be made to agree with it
 
-**Status:** interim — the derived shape stays for now; the goal is to retire
-it (owner ruling on #3383). Raised and measured by wave C4 packet 4e, which was sent to build slice 1 of
+**Status:** SUPERSEDED by D-WIRE-RECORDS: the derived wire shape and its
+helpers are gone, and the declared contract records are the only wire source.
+What follows records why the derived shape was kept until both re-open
+conditions held. Raised and measured by wave C4 packet 4e, which was sent to build slice 1 of
 the `wireShape` retirement or decline with the measurement. It declines.
 
 **Question.** [`docs/old/proposals/unfoldable-api-derivation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/unfoldable-api-derivation.md) steps 6–8 retire

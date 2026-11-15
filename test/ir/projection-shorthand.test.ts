@@ -1,6 +1,6 @@
 // Shorthand (`select`-less) query-time projection: `projection P { from <Agg>
 // as a where <filter> }` — NO declared fields, NO `select`.  The row shape is
-// the SOURCE AGGREGATE's full wire shape (enriched from `wireFieldsForAggregate`),
+// the SOURCE AGGREGATE's full wire shape (the source's declared response record),
 // and the read returns the filtered source rows serialized to that wire shape.
 // This is the projection replacement for the removed `view X = A where P` form.
 //

@@ -51,6 +51,7 @@ import { pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type DataBinding, emitExpr, walkBody } from "../_walker/walker-core.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 import {
   FLUTTER_API_CLIENT_IO_DART,
   FLUTTER_API_CLIENT_WEB_DART,
@@ -926,9 +927,8 @@ function renderPage(
       componentParams, // userComponents — a Foo(...) call resolves to the widget
       ui.apiParams,
       aggregatesByName,
-      bcByAggregate, // form seams resolve enum / value-object types here
+      walkerModelOf({ bcByAggregate, bcByWorkflow }),
       workflowsByName, // WorkflowForm(runs:) resolves the workflow's params here
-      bcByWorkflow, // …and its owning BC for enum / value-object resolution
       new Map(), // paramTypes — Flutter resolves op instances through its own seams
       pageRoutes,
       new Set(), // externFunctions

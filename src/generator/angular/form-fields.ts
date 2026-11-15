@@ -1,11 +1,4 @@
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  ExprIR,
-  FieldIR,
-  TypeIR,
-} from "../../ir/types/loom-ir.js";
-import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
+import type { AggregateIR, ExprIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
 import { modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
 import { humanize, lowerFirst, plural, upperFirst } from "../../util/naming.js";
@@ -15,13 +8,13 @@ import {
   type FormFieldArms,
   type FormFieldSpec,
   formFieldSpec,
-  formSpecEnvOf,
   renderFormField,
 } from "../_frontend/form-spec.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
 import { localizedModelText, localizedPageChromeText } from "../_walker/i18n-emit.js";
 import { enumLabelEntries, implicitModelTextOn } from "../_walker/model-text-sites.js";
 import type { WalkContext } from "../_walker/walker-core.js";
+import type { WalkerHome } from "../_walker/walker-model.js";
 import type { AngularFieldMessage } from "./form-validators.js";
 
 // ---------------------------------------------------------------------------
@@ -82,7 +75,7 @@ export interface AngularIdTargetSpec {
  *  exactly for the fields {@link fieldInput} renders as a `<select>`. */
 export function idTargetForField(
   t: TypeIR,
-  bc: BoundedContextIR,
+  bc: WalkerHome,
   ctx: WalkContext,
 ): AngularIdTargetSpec | undefined {
   // A reference collection (`Tag id[]`) reads its options from the same query.
@@ -105,7 +98,7 @@ export function idTargetForField(
  *  as a class field and imports its `use<X>Options` factory. */
 export function collectIdTargets(
   fields: { type: TypeIR }[],
-  bc: BoundedContextIR,
+  bc: WalkerHome,
   ctx: WalkContext,
 ): AngularIdTargetSpec[] {
   const seen = new Set<string>();
@@ -123,12 +116,9 @@ export function collectIdTargets(
 /** Resolve an `X id` field's target aggregate — preferring the cross-context
  *  `ctx.aggregatesByName` (covers cross-module refs the way the React seam
  *  does), falling back to the field's own bounded context. */
-function resolveIdTarget(
-  name: string,
-  bc: BoundedContextIR,
-  ctx: WalkContext,
-): AggregateIR | undefined {
-  return ctx.aggregatesByName.get(name) ?? bc.aggregates.find((a) => a.name === name);
+function resolveIdTarget(name: string, bc: WalkerHome, ctx: WalkContext): AggregateIR | undefined {
+  const own = ctx.model.aggregates.get(name);
+  return ctx.aggregatesByName.get(name) ?? (own?.home === bc ? own.agg : undefined);
 }
 
 /** The inline Reactive-Form rendering flavour the active Angular pack uses.
@@ -159,13 +149,13 @@ const STRING: TypeIR = { kind: "primitive", name: "string" };
  *  (`owner` undefined) keeps its English. */
 function fieldLabelText(
   ctx: WalkContext,
-  bc: BoundedContextIR,
+  bc: WalkerHome,
   owner: string | undefined,
   name: string,
 ): string {
   if (owner === undefined || !implicitModelTextOn(ctx)) return humanize(name);
   const { key, defaultText } = modelTextEntry({
-    ctx: modelTextContextOf(owner, bc, ctx.bcByAggregate.values()),
+    ctx: ctx.model.modelTextOwner(owner, bc),
     type: owner,
     facet: "field",
     member: name,
@@ -178,12 +168,12 @@ function fieldLabelText(
  *  wire values). */
 function enumOptionLabels(
   ctx: WalkContext,
-  bc: BoundedContextIR,
+  bc: WalkerHome,
   enumName: string,
   values: readonly string[],
 ): Map<string, string> | undefined {
   if (!implicitModelTextOn(ctx)) return undefined;
-  const owner = modelTextContextOf(enumName, bc, ctx.bcByAggregate.values());
+  const owner = ctx.model.modelTextOwner(enumName, bc);
   const keys = values.map((v) =>
     modelTextKey({ ctx: owner, type: enumName, facet: "value", member: v }),
   );
@@ -533,7 +523,7 @@ const ARRAY_UNSUPPORTED_PLACEHOLDER = "(arrays not yet supported in forms)";
 export function fieldInput(
   name: string,
   t: TypeIR,
-  bc: BoundedContextIR,
+  bc: WalkerHome,
   ns: string,
   ctx: WalkContext,
   testidBase: string = `${ns}-input-${name}`,
@@ -575,17 +565,14 @@ export function fieldInput(
     style,
     inner,
   };
-  const spec = formFieldSpec(
-    { name, type: t },
-    formSpecEnvOf(bc, ctx.aggregatesByName, ctx.bcByAggregate),
-  );
+  const spec = formFieldSpec({ name, type: t }, ctx.model.formSpecEnv(bc, ctx.aggregatesByName));
   return renderFormField(spec, ANGULAR_FORM_FIELD_ARMS, c);
 }
 
 interface AngularArmCtx {
   name: string;
   t: TypeIR;
-  bc: BoundedContextIR;
+  bc: WalkerHome;
   ctx: WalkContext;
   testidBase: string;
   formVar: string | undefined;
@@ -869,7 +856,7 @@ export interface AngularFieldArraySpec {
  *  a nested group; an array inside a value object is one control (scalar
  *  elements) or a nested `FormArray` (value-object elements).  `seen`
  *  guards a self-referencing value object. */
-function isFormSubField(f: FieldIR, bc: BoundedContextIR, seen: ReadonlySet<string>): boolean {
+function isFormSubField(f: FieldIR, bc: WalkerHome, seen: ReadonlySet<string>): boolean {
   const ft = unwrapOpt(f.type);
   if (ft.kind === "primitive" || ft.kind === "enum" || ft.kind === "id") return true;
   // A scalar collection is one control (rendered as the array stub, seeded
@@ -888,7 +875,7 @@ function isFormSubField(f: FieldIR, bc: BoundedContextIR, seen: ReadonlySet<stri
 
 function formSubFields(
   fields: readonly FieldIR[],
-  bc: BoundedContextIR,
+  bc: WalkerHome,
   seen: ReadonlySet<string>,
 ): FieldIR[] {
   return fields.filter((f) => isFormSubField(f, bc, seen));
@@ -900,7 +887,7 @@ function formSubFields(
  *  value object renders as a nested group inside the row. */
 function arrayVoFields(
   t: TypeIR,
-  bc: BoundedContextIR,
+  bc: WalkerHome,
   seen: ReadonlySet<string> = new Set(),
 ): FieldIR[] | null {
   const inner = unwrapOpt(t);
@@ -918,7 +905,7 @@ export function fieldArraySpec(
   name: string,
   voFields: FieldIR[],
   elementName: string,
-  bc: BoundedContextIR,
+  bc: WalkerHome,
   /** The enclosing path (`Address`) when the array sits inside a value object
    *  or a row; absent for a form-level array. */
   parentPath?: string,
@@ -987,7 +974,7 @@ export function fieldArrayInput(
   spec: AngularFieldArraySpec,
   voFields: FieldIR[],
   label: string,
-  bc: BoundedContextIR,
+  bc: WalkerHome,
   ns: string,
   ctx: WalkContext,
   /** The value object each row holds — owns its sub-field labels. */
@@ -1114,7 +1101,7 @@ export interface AngularFieldGroupSpec {
 
 /** The renderable sub-fields of a single `X: <VO>` input, or null when the
  *  field isn't a resolvable value object (see {@link isFormSubField}). */
-export function voScalarFields(t: TypeIR, bc: BoundedContextIR): FieldIR[] | null {
+export function voScalarFields(t: TypeIR, bc: WalkerHome): FieldIR[] | null {
   const inner = unwrapOpt(t);
   if (inner.kind !== "valueobject") return null;
   const vo = bc.valueObjects.find((v) => v.name === inner.name);
@@ -1125,7 +1112,7 @@ export function voScalarFields(t: TypeIR, bc: BoundedContextIR): FieldIR[] | nul
 
 /** `voFields` with every nested value object replaced by its own sub-fields,
  *  recursively — the leaf fields a group's id-target query scan reads. */
-function flattenSubFields(voFields: readonly FieldIR[], bc: BoundedContextIR): FieldIR[] {
+function flattenSubFields(voFields: readonly FieldIR[], bc: WalkerHome): FieldIR[] {
   return voFields.flatMap((f) => {
     const nested = voScalarFields(f.type, bc);
     return nested ? flattenSubFields(nested, bc) : [f];
@@ -1139,7 +1126,7 @@ function flattenSubFields(voFields: readonly FieldIR[], bc: BoundedContextIR): F
  *  nested arrays' members. */
 function splitSubFields(
   voFields: readonly FieldIR[],
-  bc: BoundedContextIR,
+  bc: WalkerHome,
   path: string,
 ): {
   controls: AngularFormControlSpec[];
@@ -1174,7 +1161,7 @@ function splitSubFields(
 
 /** A value-object sub-control's initial value: an enum starts on its first
  *  value, so the zero object a freshly enabled optional group holds is valid. */
-function subControlInit(t: TypeIR, bc: BoundedContextIR): string {
+function subControlInit(t: TypeIR, bc: WalkerHome): string {
   const inner = unwrapOpt(t);
   if (t.kind !== "optional" && inner.kind === "enum") {
     const first = enumPool(bc).find((e) => e.name === inner.name)?.values[0];
@@ -1205,7 +1192,7 @@ function groupInnerDecl(
 function fieldGroupSpec(
   name: string,
   voFields: FieldIR[],
-  bc: BoundedContextIR,
+  bc: WalkerHome,
   parentPath = "",
   optional = false,
 ): AngularFieldGroupSpec {
@@ -1243,7 +1230,7 @@ export function optionalGroupNames(form: {
  *  (default: `<ns>-input-<name>`). */
 function subFieldMarkup(
   f: FieldIR,
-  bc: BoundedContextIR,
+  bc: WalkerHome,
   ns: string,
   ctx: WalkContext,
   tid: string | undefined,
@@ -1292,7 +1279,7 @@ export function fieldGroupInput(
   spec: AngularFieldGroupSpec,
   voFields: FieldIR[],
   label: string,
-  bc: BoundedContextIR,
+  bc: WalkerHome,
   ns: string,
   ctx: WalkContext,
   /** The value object the group holds — owns its sub-field labels. */
@@ -1326,7 +1313,7 @@ export function fieldGroupInput(
  *  previous all-flat output. */
 export function partitionAngularFields(
   fields: readonly { name: string; type: TypeIR; optional?: boolean; default?: ExprIR }[],
-  bc: BoundedContextIR,
+  bc: WalkerHome,
   ns: string,
   ctx: WalkContext,
   formVar: string,

@@ -9,6 +9,7 @@ import {
   HEEX_SENTENCES,
 } from "../generator/_walker/i18n-chrome.js";
 import { collectUiMessages } from "../generator/_walker/i18n-extract.js";
+import { walkerModelOf } from "../generator/_walker/walker-model.js";
 import type { BoundedContextIR, EnrichedSystemIR, UiIR } from "../ir/types/loom-ir.js";
 import { isMacroEmitted, type OriginRef, type SourceRef } from "../ir/types/origin.js";
 import { factsFor } from "../platform/metadata.js";
@@ -188,7 +189,7 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
     for (const ui of sys.uis) {
       const formats = implicitModelTextFormats(sys, ui);
       const scope = {
-        contexts,
+        model: walkerModelOf({ contexts }),
         sentences: packSentencesForUi(sys, ui),
         implicitModelText: formats.size > 0,
         // The HEEx create form renders optional inputs too (it has no update

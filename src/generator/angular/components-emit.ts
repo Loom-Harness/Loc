@@ -66,6 +66,7 @@ import type {
 import type { LoadedPack } from "../_packs/loader.js";
 import { componentKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 import { angularComponentSelector } from "./component-selector.js";
 import { angularTargetFor } from "./walker/angular-target.js";
 import {
@@ -132,9 +133,8 @@ function renderOne(
     componentParams,
     ctx.apiParams,
     ctx.aggregatesByName,
-    ctx.bcByAggregate,
+    walkerModelOf({ bcByAggregate: ctx.bcByAggregate, bcByWorkflow: ctx.bcByWorkflow }),
     ctx.workflowsByName,
-    ctx.bcByWorkflow,
     // Aggregate-typed params (`component OrderActions(order: Order)`) so
     // `Action(order.confirm)` resolves the receiver's aggregate at walk time.
     new Map(

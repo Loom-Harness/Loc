@@ -10,9 +10,10 @@
 // This module is the one place the taint is computed.  It is a pure function of
 // the aggregate (Derive, don't stamp), read by:
 //
-//   - `wireFieldsForAggregate` — a `derived` that reads a masked field carries
-//     the inherited predicate on its wire field, so every backend's masked
-//     serializer (which reads `WireField.maskUnless`) redacts it too;
+//   - `declaredResponseFor` / `responseWireFor` — a `derived` that reads a masked
+//     field carries the inherited predicate on its response row, so every
+//     backend's masked serializer (which reads `WireField.maskUnless`)
+//     redacts it too;
 //   - `applyMaskWriteGates` — an operation that writes a caller-supplied value
 //     into a masked field gets the predicate as a hoisted `requires` (a caller
 //     who cannot read the field cannot change it; a merge-patch update that

@@ -126,14 +126,12 @@ export function noteAccessErrorType(
 /** Rewrite a user find's rendered args from positional to the object shape
  *  its binding takes (`<find><Agg>(query: <Find>Query)` — see
  *  `_frontend/api-module.ts`).  The find's param names come from the owning
- *  context's repository via `bcByAggregate`; paged finds gain the backend's
+ *  context's repository (`WalkerModel.find`); paged finds gain the backend's
  *  page/pageSize defaults.  Standard ops (`all`/`byId`/`create`/`update`/
  *  `delete`) and unknown names pass through untouched. */
 function shapeFindArgs(access: DataAccess, binding: DataBinding, ctx: WalkContext): DataBinding {
   if (access.kind !== "aggregate") return binding;
-  const bc = ctx.bcByAggregate.get(access.aggregateName);
-  const repo = bc?.repositories.find((r) => r.aggregateName === access.aggregateName);
-  const find = repo?.finds.find((f) => f.name === access.operation);
+  const find = ctx.model.find(access.aggregateName, access.operation);
   const isPaged = find ? pagedReturn(find.returnType) : null;
   // Standard ops (`byId`/`create`/…) pass through — EXCEPT a paged `all`
   // (paged by default), which takes the same object-shaped query arg a user
