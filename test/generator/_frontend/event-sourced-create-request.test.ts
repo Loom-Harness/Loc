@@ -2,13 +2,16 @@
 //
 // The backend's create command takes the action's params (`owner`), and the
 // declared `CreateAccountCommand` record says so; the folded state fields
-// (`balance`, set by `apply`) are never sent.  The React and Vue clients read
-// the create request off the Frontend Contract's declared record, so their
-// `CreateAccountRequest` asks for `owner` alone.
+// (`balance`, set by `apply`) are never sent.  Every frontend reads the create
+// request through `createRequestFields` (`src/ir/plan/create-request.ts`), so
+// the request schema, the create form and the page object ask for `owner`
+// alone.
 //
-// No booted leg submits a create form against an event-sourced aggregate, so
-// the emitted schema is EXECUTED here: it must accept the body the backend's
-// create command takes, and ask for nothing else.
+// The form-spec UI probe (`test/behavioral/form-spec-ui.mjs`,
+// `judgeEventSourcedCreate`) submits the built create form; here the emitted
+// schema is EXECUTED, and the absence of a `balance` input on every target is
+// checked over the whole generated tree (an absence no booted leg observes on
+// the targets that leg does not boot).
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -23,7 +26,7 @@ function createRequestSchema(api: string): z.ZodObject {
   return new Function("z", `return ${expr};`)(z) as z.ZodObject;
 }
 
-const source = (frontend: string) => `
+const source = (frontend: string, backend = "node") => `
 system L {
   subdomain S {
     context Ledger {
@@ -44,11 +47,10 @@ system L {
   }
   api A from S
   storage db { type: postgres }
-  resource st { for: Ledger, kind: state, use: db }
   resource log { for: Ledger, kind: eventLog, use: db }
   ui W with scaffold(subdomains: [S]) { api S: A }
-  deployable api { platform: node contexts: [Ledger] dataSources: [st, log] serves: A port: 3000 }
-  deployable web { platform: ${frontend} targets: api ui: W { S: api } port: 3001 }
+  deployable api { platform: ${backend} contexts: [Ledger] dataSources: [log] serves: A ${frontend === "liveview" ? "ui: W { S: api } " : ""}port: 3000 }
+  ${frontend === "liveview" ? "" : `deployable web { platform: ${frontend} targets: api ui: W { S: api } port: 3001 }`}
 }`;
 
 describe("an event-sourced create request is the create action's params", () => {
@@ -59,5 +61,27 @@ describe("an event-sourced create request is the create action's params", () => 
     const schema = createRequestSchema(api!);
     expect(Object.keys(schema.shape)).toEqual(["owner"]);
     expect(schema.safeParse({ owner: "ada" }).success).toBe(true);
+  });
+
+  // Absence: no create form or page object on any target asks for `balance`.
+  // Flutter's form has no test ids, so its create form is read for the field.
+  it.each([
+    ["react", "node", /accounts-new-input-balance/],
+    ["vue", "node", /accounts-new-input-balance/],
+    ["svelte", "node", /accounts-new-input-balance/],
+    ["angular", "node", /accounts-new-input-balance/],
+    ["feliz", "node", /accounts-new-input-balance/],
+    ["flutter", "node", /'balance'|_balanceController/],
+    ["liveview", "elixir", /accounts-new-input-balance/],
+  ] as const)("%s: no create form or page object asks for balance", async (fe, be, balanceInput) => {
+    const files = await generateSystemFiles(source(fe, be));
+    const owner = fe === "flutter" ? /'owner'|_ownerController/ : /accounts-new-input-owner/;
+    const forms = [...files].filter(([p]) => /new|App\.fs|forms\.dart|e2e\/pages/.test(p));
+    expect(
+      forms.some(([, c]) => owner.test(c)),
+      "the create form asks for owner",
+    ).toBe(true);
+    const asking = forms.filter(([, c]) => balanceInput.test(c)).map(([p]) => p);
+    expect(asking).toEqual([]);
   });
 });

@@ -16,7 +16,7 @@
 // lands on the record field with no casing seam, and Thoth's `Decode.field
 // "name"` maps the JSON key straight onto it.
 
-import { createInputFields, wireFieldsForValueObject } from "../../ir/enrich/wire-projection.js";
+import { wireFieldsForValueObject } from "../../ir/enrich/wire-projection.js";
 import { PAGED_MAX_PAGE_SIZE, PAGED_META_MEMBERS } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
@@ -823,7 +823,7 @@ function attachFieldRules(
  *  wiring: a string-typed `<Agg>CreateForm` record in the Model, one `Set` `Msg` per
  *  field, a `Submit<Agg>CreateForm` trigger that POSTs the Thoth-encoded body, and a
  *  `<Agg>Created` result that navigates to the list on success.  v1 renders the
- *  REQUIRED scalar create-input fields (`createInputFields` minus optionals and
+ *  REQUIRED scalar fields of the create request (`createRequestFields` minus optionals and
  *  non-scalars — nested/collection inputs are a follow-up). */
 export interface FelizForm extends FormRecord {
   /** The aggregate created (`Product`). */
@@ -969,9 +969,11 @@ export function felizAction(aggregate: string, op: OperationIR): FelizAction {
 }
 
 /** Build the `FelizForm` for a `CreateForm(of: agg)` from the aggregate's
- *  create-input contract — its flat cells and its value-object row groups. */
+ *  create request (`createRequestFields`) — its flat cells and its
+ *  value-object row groups. */
 export function felizCreateForm(
   agg: AggregateIR,
+  request: readonly FieldIR[],
   enumsByName: ReadonlyMap<string, string[]> = new Map(),
   idLabels: ReadonlyMap<string, string> = new Map(),
   vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
@@ -979,7 +981,7 @@ export function felizCreateForm(
   const name = agg.name;
   const formType = formTypeName("create", name);
   const fields = attachFieldRules(
-    felizFormFields(formType, createInputFields(agg), enumsByName, idLabels, vosByName),
+    felizFormFields(formType, request, enumsByName, idLabels, vosByName),
     // M-T1.16 — the aggregate's own invariants, narrowed by the shared gate to
     // the fields this form carries (`Create<Agg>Request`'s refine set).
     agg.invariants,
@@ -1003,13 +1005,7 @@ export function felizCreateForm(
     decoderExpr: `(Decode.field "id" Decode.string)`,
     resultType: "string",
     fields,
-    fieldArrays: felizFieldArrays(
-      formType,
-      createInputFields(agg),
-      vosByName,
-      enumsByName,
-      idLabels,
-    ),
+    fieldArrays: felizFieldArrays(formType, request, vosByName, enumsByName, idLabels),
   };
 }
 
@@ -1467,6 +1463,7 @@ export function collectPageMutations(
 export function collectPageForms(
   page: PageIR,
   aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  createRequests: ReadonlyMap<string, readonly FieldIR[]>,
   enumsByName: ReadonlyMap<string, string[]> = new Map(),
   idLabels: ReadonlyMap<string, string> = new Map(),
   vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
@@ -1479,7 +1476,9 @@ export function collectPageForms(
     const agg = aggregatesByName.get(aggName);
     if (!agg || seen.has(aggName)) continue;
     seen.add(aggName);
-    out.push(felizCreateForm(agg, enumsByName, idLabels, vosByName));
+    out.push(
+      felizCreateForm(agg, createRequests.get(aggName) ?? [], enumsByName, idLabels, vosByName),
+    );
   }
   return out;
 }

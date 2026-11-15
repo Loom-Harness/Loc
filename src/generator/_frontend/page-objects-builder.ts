@@ -1,4 +1,5 @@
-import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
+import { emitsRestCreate } from "../../ir/enrich/wire-projection.js";
+import { createRequestFields } from "../../ir/plan/create-request.js";
 import type { AggregateIR, BoundedContextIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { operationFormParams } from "../../ir/util/op-gates.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
@@ -39,9 +40,8 @@ export function buildPageObjectModule(
   const restCreate = emitsRestCreate(agg);
   const ops = agg.operations.filter((o) => o.visibility === "public");
   // The New-page fill targets the inputs the CreateForm actually renders:
-  // the non-optional create-input contract (`createInputFields` — excludes
-  // server-owned `managed`/`token`/`internal` fields, incl. stamp targets).
-  const required = createInputFields(agg).filter((f) => !f.optional);
+  // the non-optional fields of the create request (`createRequestFields`).
+  const required = createRequestFields(ctx.payloads, agg).filter((f) => !f.optional);
 
   // Collect the candidate api/* type imports, then narrow them once the
   // body is assembled — page-object classes rarely use every Request/Response,
