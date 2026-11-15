@@ -72,3 +72,5 @@ tracked on GitHub, not decided here.
 **Affects.** `docs/migrations.md`,
 `docs/language-reference/02-systems-and-topology.md`, the Ecto migration and
 schema emitters, `src/ir/validate/checks/orm-adapter-checks.ts`.
+
+**Enforced by:** `test/behavioral/shared-schema.mjs`, `test/system/shared-database-layout-census.test.ts`, `test/system/elixir-records-seam-census.test.ts`
