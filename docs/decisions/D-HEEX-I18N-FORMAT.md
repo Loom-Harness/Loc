@@ -43,3 +43,5 @@ message formats through its ICU hole.
 `loom_date/1` runtime, the gate), `generator/elixir/heex-pack.ts`
 (`renderDateDisplay`), `generator/_i18n/locale-format.ts` (`uiUsesLocaleFormat`),
 `generator/elixir/vanilla/shell-emit.ts`.
+
+**Enforced by:** `test/generator/elixir/i18n-runtime.test.ts`

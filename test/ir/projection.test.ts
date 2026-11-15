@@ -190,3 +190,4 @@ describe("projection validation", () => {
     expect(errs).toContain("loom.projection-duplicate-on");
   });
 });
+// Gate for D-PROJECTION-NOT-AGGREGATE (docs/decisions/D-PROJECTION-NOT-AGGREGATE.md).

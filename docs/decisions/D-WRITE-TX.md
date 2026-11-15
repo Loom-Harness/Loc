@@ -57,3 +57,5 @@ the emitter proves consistency, not correctness (rule 12).
 item 5; [`generator-code-review-2026-08-24.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/generator-code-review-2026-08-24.md)
 §Follow-up register rows 2–3 and §D5; ledger rows `G2667-C4` / `G2667-C5` /
 `G2667-D5`; [`dispatch-delivery-semantics.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/dispatch-delivery-semantics.md).
+
+**Enforced by:** `test/generator/post-commit-dispatch-py-ex-java.test.ts`, `test/fixtures/corpus/transactional-workflow-post-commit-dispatch.ddd`

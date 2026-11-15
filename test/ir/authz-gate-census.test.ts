@@ -908,3 +908,4 @@ describe("authz gate census — routed handler reads", () => {
     ).toBe(true);
   });
 });
+// Gate for D-CREATE-GATE-ORDER (docs/decisions/D-CREATE-GATE-ORDER.md).

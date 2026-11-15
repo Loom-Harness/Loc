@@ -231,3 +231,5 @@ behaviour; `src/language/ddd.langium` (policy rules, `exists`);
 `src/macros/prelude.ts` (the `shareable` marker) and
 `src/macros/stdlib/shareable/` (what it unfolds to); the read-scope enrichment and the five
 backends' scope renderers; the walker (Share primitive) and every design pack.
+
+**Enforced by:** `test/ir/policy-scopes.test.ts`, `test/ir/share-gates.test.ts`

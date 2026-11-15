@@ -136,3 +136,5 @@ in #724 — `shape: relational` == old `normalised(true)`, `shape: document`
   of `persistedAs: …` (header); hard cutover, one-step source migration
   (codemod).
 - `resolve-datasource.ts` — mode→kind mapping collapses to identity.
+
+**Enforced by:** `test/ir/saving-shape-support.test.ts`, `test/language/parsing/aggregate-persistence-strategy.test.ts`

@@ -60,3 +60,5 @@ table".
 **Sources.** the eval closure review (2026-09-28), item 6;
 [`generators.md`](../generators.md) § "Names that are Python keywords" and
 § "Names that are Java reserved words".
+
+**Enforced by:** `test/generator/target-reserved-member-names.test.ts`, `test/fixtures/corpus/target-reserved-words.ddd`

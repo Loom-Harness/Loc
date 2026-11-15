@@ -76,3 +76,4 @@ describe("dual FormState/Payload types — transform-bearing actions only", () =
     expect(tag).not.toContain("Payload =");
   });
 });
+// Gate for D-REACT-FORM-NESTED (docs/decisions/D-REACT-FORM-NESTED.md).

@@ -145,3 +145,4 @@ system CacheById {
     expect(api.notes.getById(memo)).toThrow(404)
   }
 }
+// Gate for D-CACHE-BY-ID (docs/decisions/D-CACHE-BY-ID.md).

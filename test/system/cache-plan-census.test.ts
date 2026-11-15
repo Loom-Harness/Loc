@@ -122,3 +122,4 @@ describe("cache plan census", () => {
     expect(envelopeOffences(seeded)).toHaveLength(4);
   });
 });
+// Gate for D-CACHE-BY-ID (docs/decisions/D-CACHE-BY-ID.md).

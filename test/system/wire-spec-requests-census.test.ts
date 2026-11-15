@@ -77,3 +77,4 @@ describe("wire-spec request contracts (corpus census)", () => {
     expect(missing).toEqual([]);
   }, 180_000);
 });
+// Gate for D-WIRE-RECORDS (docs/decisions/D-WIRE-RECORDS.md).

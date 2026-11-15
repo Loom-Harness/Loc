@@ -20,3 +20,5 @@ moves are an offline migration).
 
 **Affects.** `multi-tenancy-design-note.md` R1/R5; `typed-capabilities.md` (the
 `tenantRegistry` worked case).
+
+**Enforced by:** `test/ir/tenancy-checks.test.ts`

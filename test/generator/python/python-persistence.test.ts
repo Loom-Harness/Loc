@@ -247,3 +247,4 @@ describe("python nested part containment", () => {
     );
   });
 });
+// Gate for D-REFCOLL-SET (docs/decisions/D-REFCOLL-SET.md).

@@ -118,3 +118,4 @@ describe("backend-packages layering — versioned backend dirs", () => {
     expect(offenders).toEqual([]);
   });
 });
+// Gate for D-BACKEND-PKG (docs/decisions/D-BACKEND-PKG.md).

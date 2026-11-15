@@ -63,3 +63,5 @@ Consequences).
 [`numeric-types-audit-2026-08-23.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md)
 F11 + annex; [`conformance-semantics.md`](../conformance-semantics.md) RS-24 and the
 claim-the-number protocol; `test/behavioral/wire-golden/*.json`.
+
+**Enforced by:** `test/generator/decimal-exact-arithmetic.test.ts`, `test/fixtures/corpus/decimal-exact.ddd`

@@ -20,3 +20,5 @@ check.
 **Consequence.** Pinned by the isolation e2e's `assertReferenceAdmission` rung
 (every backend), `test/system/ref-admission-census.test.ts`, and
 `test/ir/ref-scope-checks.test.ts`.
+
+**Enforced by:** `test/system/ref-admission-census.test.ts`, `test/ir/ref-scope-checks.test.ts`

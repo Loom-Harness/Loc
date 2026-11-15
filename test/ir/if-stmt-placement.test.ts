@@ -197,3 +197,4 @@ describe("loom.if-stmt-page-body-unsupported", () => {
     expect(await codes(src)).toContain("loom.if-stmt-page-body-unsupported");
   });
 });
+// Gate for D-PAGE-BODY-EXPRESSION (docs/decisions/D-PAGE-BODY-EXPRESSION.md).

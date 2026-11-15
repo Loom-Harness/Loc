@@ -251,3 +251,4 @@ system S {
     expect(diagnostics.some((d) => d.code === "loom.interp-format-unknown")).toBe(true);
   });
 });
+// Gate for D-ICU-DOMAIN-DROP-WARN (docs/decisions/D-ICU-DOMAIN-DROP-WARN.md).

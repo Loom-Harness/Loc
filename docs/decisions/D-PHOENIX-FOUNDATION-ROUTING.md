@@ -38,3 +38,5 @@ ratification** workstream, not an emission one.
 `docs/generators.md` (the five-backend matrix's `elixir·ash` / `elixir·vanilla`
 columns); the `loom.*` gate diagnostics already cited above (unchanged — this
 decision ratifies their finality).
+
+**Enforced by:** none, not observable — superseded: the Ash foundation it routed is removed

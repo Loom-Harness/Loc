@@ -68,3 +68,5 @@ in Consequences is vacuous today — `loom.frontend-collection-op-unsupported`
 refuses every stdlib collection op in a page body — so the shared table's guard
 is backend-reachable only; that is recorded in RS-36 rather than left as a
 claim the frontends were changed.
+
+**Enforced by:** `test/generator/collection-op-first-partial.test.ts`

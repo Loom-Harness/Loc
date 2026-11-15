@@ -173,3 +173,4 @@ describe("kafka log transport (M-T4.4 slice 4)", () => {
     expect(files.get("sales_api/package.json")).not.toContain('"kafkajs"');
   });
 });
+// Gate for D-KAFKA-START-OFFSET (docs/decisions/D-KAFKA-START-OFFSET.md).

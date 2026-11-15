@@ -128,3 +128,4 @@ describe("403 detail echoes the gate only under the dev-stub verifier (ruling D4
     );
   });
 });
+// Gate for D-FORBIDDEN-DETAIL-DEV-ECHO (docs/decisions/D-FORBIDDEN-DETAIL-DEV-ECHO.md).

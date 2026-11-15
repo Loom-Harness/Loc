@@ -50,3 +50,5 @@ costs nothing additional once vanilla exists.
 `proposals/vanilla-phoenix-foundation.md` P0; `MigrationsIR` consumers (the
 shared `<agg>_events` shape extends to the Ecto migrations renderer in P4).
 **Depends on D-VANILLA-PHOENIX-FOUNDATION**.
+
+**Enforced by:** `test/generator/elixir-vanilla/slice5b-eventsourcing.test.ts`

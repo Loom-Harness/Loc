@@ -65,3 +65,5 @@ reactor symbol per backend.
 B20; [`language-gaps-2026-08.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/language-gaps-2026-08.md) (the
 "needs a semantics decision" row); `src/ir/enrich/enrichments.ts:1284-1340`;
 `src/generator/typescript/emit/routes.ts`.
+
+**Enforced by:** `test/generator/projection-implicit-sub.test.ts`, `test/fixtures/corpus/projection-implicit-sub.ddd`

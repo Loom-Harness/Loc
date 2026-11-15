@@ -23,3 +23,5 @@ contingent on session enrichment, else a per-request cached registry lookup.
 
 **Affects.** `multi-tenancy-design-note.md` R5; `authorization.md` §2 (`DataKey`
 = the hierarchical extension; directional predicates = the access levels).
+
+**Enforced by:** none, not observable — superseded by D-TENANCY-FLAT: data visibility is flat and rows carry no `dataKey`

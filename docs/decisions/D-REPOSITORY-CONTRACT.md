@@ -77,3 +77,5 @@ contract module and the lowerers fails it, unless waived with a count and a
 reason (the e2e test client's HTTP verbs, which name routes rather than
 repository calls, and the per-platform reserved find names that a later slice
 removes).
+
+**Enforced by:** `test/system/repo-verb-census.test.ts`

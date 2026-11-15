@@ -130,3 +130,4 @@ describe("built-in capability prelude (typed-capabilities.md Phase 3)", () => {
     expect(responseRows(ir, agg).some((f) => f.name === "createdAt")).toBe(false);
   });
 });
+// Gate for D-TYPED-CAPABILITIES (docs/decisions/D-TYPED-CAPABILITIES.md).

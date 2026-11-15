@@ -52,3 +52,5 @@ for a message the parser genuinely rejects.
 `generator/elixir/heex-walker-core.ts`,
 `generator/elixir/vanilla/shell-emit.ts`;
 `_walker/i18n-extract.ts` (`MessageEntry.icu`).
+
+**Enforced by:** `test/generator/elixir/i18n-runtime.test.ts`

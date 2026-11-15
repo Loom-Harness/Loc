@@ -22,3 +22,5 @@ shape pinned in
 **Affects.** `authorization.md` (its central grammar);
 `policies-supplementary-note.md` stays superseded background;
 `ddd.langium` gains the `policy` rule (Phase 3.2).
+
+**Enforced by:** none, not observable — superseded: the policy grammar is the allow/deny/read ladder, not the sub-sections this ruled on

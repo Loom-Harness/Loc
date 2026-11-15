@@ -47,3 +47,5 @@ surface excludes `svelte` until that lands.  The in-browser playground
 preview is likewise deferred (Svelte compiler in the VFS bundler).
 
 See [`docs/old/plans/svelte-frontend-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/svelte-frontend-plan.md) for the slice history.
+
+**Enforced by:** `test/generator/svelte/generator-svelte.test.ts`, `test/platform/hostable-frameworks.test.ts`

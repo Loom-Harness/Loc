@@ -47,3 +47,5 @@ language decision. It is a separate mission.
 `src/language/typing/qualified-policy.ts`, `src/language/typing/decl-index.ts`,
 `src/diagnostics/messages.ts`, `docs/auth.md`,
 `docs/language-reference/17-auth.md`, `docs/language.md`.
+
+**Enforced by:** `test/ir/default-deny-list-ungated.test.ts`

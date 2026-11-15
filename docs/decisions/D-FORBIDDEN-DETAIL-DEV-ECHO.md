@@ -32,3 +32,5 @@ flash follows the same rule as the HTTP body.
 **Affects.** `docs/auth.md` (§ requires gates, § Dev-stub verifier); the five
 backends' error handlers and dev stubs; `test/generator/forbidden-detail-echo.test.ts`,
 `test/generator/dev-claims-parity.test.ts`.
+
+**Enforced by:** `test/generator/forbidden-detail-echo.test.ts`, `test/generator/dev-claims-parity.test.ts`

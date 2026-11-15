@@ -328,3 +328,4 @@ describe("generated manifests pin every dependency to an exact version", () => {
     expect(rangeViolations(ok)).toEqual([]);
   });
 });
+// Gate for D-EXACT-PINS (docs/decisions/D-EXACT-PINS.md).

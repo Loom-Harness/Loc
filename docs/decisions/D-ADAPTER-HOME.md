@@ -39,3 +39,5 @@ survive the alignment pass.
 - `storage-and-platform-config*.md` — the adapter-registry shape they
   describe is interim per this decision.
 - Depends on D-BACKEND-PKG (the surface is the discovery unit).
+
+**Enforced by:** `test/platform/adapter-metadata-consistency.test.ts`

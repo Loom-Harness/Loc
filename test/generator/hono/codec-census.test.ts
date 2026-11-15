@@ -148,3 +148,4 @@ describe("node codec census", () => {
     ).toBe(true);
   });
 });
+// Gate for D-CODEC (docs/decisions/D-CODEC.md).

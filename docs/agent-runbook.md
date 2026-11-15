@@ -41,7 +41,7 @@ Re-read the issue; if another claim landed first, back off — the earliest clai
 **Letting go.** If you stop before the acceptance is met — blocked, out of time, re-scoped — release the claim: comment what is done and what remains (with branch and evidence), edit the body so the next session inherits reality, unassign yourself and remove `in-progress`. An abandoned claim with no comment costs the next session a day.
 
 ## 3. Design before code (when the issue says so)
-Grammar-touching or `design` work: read the linked design records, follow the matching skill (`language-feature-developer`, `dependency-upgrade`, `generated-stack-verifier`, `parity-auditor`), and put the resolved open questions in the issue (a decision that will hold goes in a new `docs/decisions/<D-TAG>.md` with the code PR).
+Grammar-touching or `design` work: read the linked design records, follow the matching skill (`language-feature-developer`, `dependency-upgrade`, `generated-stack-verifier`, `parity-auditor`), and put the resolved open questions in the issue (a decision that will hold goes in a new `docs/decisions/<D-TAG>.md` with the code PR). A decision is not recorded until its gate is named: the record ends with `**Enforced by:** `<test path>`, …`, each named test mentioning the tag, or with `**Enforced by:** none, tracked by #N — <why>` (a live fence) / `none, not observable — <why>`, and a `none` record joins `NONE_RECORDS` in `test/system/decision-gates.test.ts`.
 
 ## 4. Implement to the repo's bar
 - Every target, or an honest `loom.*` gate on the rest — never a silent gap, crash or emitted TODO. A new `*-unsupported` gap cites its owning issue as `mission: "#NNNN"` in `src/diagnostics/unsupported-register.ts`.

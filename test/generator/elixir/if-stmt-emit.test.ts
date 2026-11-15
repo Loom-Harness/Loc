@@ -245,3 +245,4 @@ system Grading {
     expect(elseArm).not.toContain("Events.Graded");
   });
 });
+// Gate for D-ELIXIR-IF-BRANCH (docs/decisions/D-ELIXIR-IF-BRANCH.md).

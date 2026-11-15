@@ -39,3 +39,5 @@ recorded here as the shape of that change, not scheduled.
 **Sources.** `src/platform/adapter-metadata.ts` (`BACKEND_ADAPTER_METADATA`, and
 its own note on python's absence); [`platforms.md`](../platforms.md);
 [`docs/audits/targets-completeness-2026-08-30.ledger.json`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/targets-completeness-2026-08-30.ledger.json).
+
+**Enforced by:** none, not observable — a product-scope classification: one realization on python is not a gap

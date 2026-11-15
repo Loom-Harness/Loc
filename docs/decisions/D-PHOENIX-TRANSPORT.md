@@ -36,3 +36,5 @@ value in the IR — repeating the framework name with no information added.
 (transport menu update); test expectations across the lowering / axes test
 files; `proposals/elixir-platform-rename.md`. **Depends on
 D-ELIXIR-PLATFORM**.
+
+**Enforced by:** none, not observable — superseded: the transport axis and the `phoenixRouter` alias are removed

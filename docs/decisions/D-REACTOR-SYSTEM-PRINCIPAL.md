@@ -88,3 +88,5 @@ auth (`channels.md` § Broker auth) is the boundary, not the attribute.
 **Affects.** `docs/language-reference/17-auth.md` § Reactors; `docs/auth.md`;
 `docs/tenancy.md`; `docs/workflow.md`; `docs/channels.md`;
 `src/ir/validate/checks/reactor-principal-checks.ts`.
+
+**Enforced by:** `test/ir/reactor-system-principal.test.ts`, `test/generator/reactor-system-principal.test.ts`

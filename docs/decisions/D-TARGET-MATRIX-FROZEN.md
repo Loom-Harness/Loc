@@ -19,3 +19,5 @@ once per target and is done, and the breadth budget goes to depth.
 "Add the target to the gate set" is never a reason to grow the matrix; the
 `seam` rows in `src/diagnostics/unsupported-register.ts` exist for a target
 that is not coming.
+
+**Enforced by:** none, not observable — a process rule: a target is added only by reopening the ruling

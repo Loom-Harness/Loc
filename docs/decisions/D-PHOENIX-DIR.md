@@ -37,3 +37,5 @@ updated alongside (`Phoenix LiveView build verification` → `Elixir / Ash
 build verification`, etc.). The `ashPhoenix` design pack name is **not**
 renamed in this pass — its foundation-aware rework belongs to P2 of
 `vanilla-phoenix-foundation.md`. **Depends on D-ELIXIR-PLATFORM**.
+
+**Enforced by:** none, not observable — a one-time directory, module and workflow rename; no ongoing behaviour

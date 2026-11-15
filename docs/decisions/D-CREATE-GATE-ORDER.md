@@ -19,3 +19,5 @@ INVALID body" in `test/behavioral/cases.mjs` (anonymous unpinned, unauthorized 4
 authorized 422). The body-rung pointer is `/<field>` for a
 single-field-shaped rule and `""` (the whole request) otherwise; a
 message-less domain-floor rule carries no `errors[]`.
+
+**Enforced by:** `test/ir/authz-gate-census.test.ts`

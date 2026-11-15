@@ -108,3 +108,4 @@ describe("loom.default-deny-list-ungated — the ungated list read is reported",
     expect(diags.filter((d) => d.code === CODE)).toEqual([]);
   });
 });
+// Gate for D-DEFAULT-DENY-LIST-WARN (docs/decisions/D-DEFAULT-DENY-LIST-WARN.md).

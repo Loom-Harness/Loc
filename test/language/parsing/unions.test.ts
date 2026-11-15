@@ -192,3 +192,4 @@ describe("unions — variant validation (P4)", () => {
     expect(errorCodes(diagnostics)).not.toContain("loom.union-position");
   });
 });
+// Gate for D1-D4-D14-D15 (docs/decisions/D1-D4-D14-D15.md).

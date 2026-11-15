@@ -12,3 +12,5 @@ nightly-only feedback.
 hollow cells."
 
 **Consequence.** This is the triage rule for issue priority labels.
+
+**Enforced by:** none, not observable — an issue-triage priority rule

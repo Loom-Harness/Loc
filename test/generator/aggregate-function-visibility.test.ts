@@ -197,3 +197,4 @@ describe("an aggregate `function` is callable from the code that calls it", () =
     });
   });
 });
+// Gate for D-AGGREGATE-FUNCTION-PUBLIC (docs/decisions/D-AGGREGATE-FUNCTION-PUBLIC.md).

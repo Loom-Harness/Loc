@@ -159,3 +159,4 @@ describe("channel + channelSource — parse / validation", () => {
     expect(errors).toEqual([]);
   });
 });
+// Gate for D-CHANNEL-KNOBS (docs/decisions/D-CHANNEL-KNOBS.md).

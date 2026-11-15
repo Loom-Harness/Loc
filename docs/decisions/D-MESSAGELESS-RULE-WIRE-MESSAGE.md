@@ -33,3 +33,5 @@ only a `loc`, and one field name can carry different bounds on two models.
 `validation-messages` wire golden (seq 14/15). .NET, Java and Elixir send the
 same sentence since [D-MESSAGELESS-DEFAULT](D-MESSAGELESS-DEFAULT.md),
 which extends this ruling to every backend and every message-less rule.
+
+**Enforced by:** `test/generator/python/unnamed-wire-message.test.ts`, `test/conformance/unnamed-rule-message.test.ts`

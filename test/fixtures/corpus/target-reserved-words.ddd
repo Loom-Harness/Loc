@@ -389,3 +389,4 @@ system TargetReservedWords {
     port: 4000
   }
 }
+// Gate for D-TARGET-RESERVED-NAMES (docs/decisions/D-TARGET-RESERVED-NAMES.md).

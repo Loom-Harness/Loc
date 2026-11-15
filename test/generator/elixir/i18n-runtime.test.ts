@@ -425,3 +425,4 @@ describe("Phoenix HEEx i18n — Action button label", () => {
     expect(live).not.toContain(">Reprice</.button>");
   });
 });
+// Gate for D-I18N-ATTR (docs/decisions/D-I18N-ATTR.md).

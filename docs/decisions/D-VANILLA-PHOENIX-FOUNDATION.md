@@ -52,3 +52,5 @@ subtree (sibling emitters: `schema-emit`, `changeset-emit`, `policy-emit`,
 `vanilla/problem-details-emit`); a new `ecto-postgres-persistence` adapter; the
 strict-parity conformance gate. **Depends on D-REALIZATION-AXES**;
 **enables D-VANILLA-ES-HOME**.
+
+**Enforced by:** none, not observable — superseded: Ash and the foundation axis are removed

@@ -64,3 +64,5 @@ than A — keep the direct customer.
 **Affects.** `ai-generation-platform.md` §4.4 (reframe the "two strategies,
 sequence them" block from IR-first to B+C platform-first with A deferred) and
 §7 (resolve the platform-vs-IR open question, citing this tag).
+
+**Enforced by:** none, not observable — a product-emphasis ruling with no generated or toolchain behaviour

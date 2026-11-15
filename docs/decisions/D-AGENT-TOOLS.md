@@ -69,3 +69,5 @@ wanted, is a separate consent-gated tool).
 **Affects.** `ai-authoring-loop.md` §3 (the tool surface is the catalog + MCP /
 in-browser transports) and §7 item 6; the new `agent-tools-and-mcp.md` is the
 detailed spec; the future playground-chat slice builds on this seam.
+
+**Enforced by:** `test/tools/catalog.test.ts`

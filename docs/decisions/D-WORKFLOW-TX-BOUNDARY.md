@@ -29,3 +29,5 @@ written to be safe to retry.
 **Proof.** `test/fixtures/corpus/workflow-partial-commit.ddd`: a workflow saves a
 counter, then fails; the counter keeps its bump on all five backends, and the
 `transactional` twin keeps nothing.
+
+**Enforced by:** `test/system/workflow-plan-census.test.ts`, `test/fixtures/corpus/workflow-partial-commit.ddd`

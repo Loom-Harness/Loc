@@ -792,3 +792,4 @@ system Sys {
     expect(sql).toMatch(/FOREIGN KEY \("party_id"\) REFERENCES "parties"\."parties"/);
   });
 });
+// Gate for D-RENAME (docs/decisions/D-RENAME.md).

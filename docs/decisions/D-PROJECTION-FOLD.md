@@ -24,3 +24,5 @@ cannot disagree with itself.
 `src/generator/` or `src/platform/` reads a fold handler's raw `statements`
 (checked with the TypeScript type checker), and every fold emitter calls
 `foldSteps`.
+
+**Enforced by:** `test/system/projection-fold-census.test.ts`

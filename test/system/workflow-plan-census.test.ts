@@ -900,3 +900,4 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 });
+// Gate for D-WORKFLOW-TX-BOUNDARY (docs/decisions/D-WORKFLOW-TX-BOUNDARY.md).

@@ -62,3 +62,4 @@ describe("frontend host census", () => {
     expect(hits).toEqual([]);
   });
 });
+// Gate for D-FRONTEND-CONTRACT (docs/decisions/D-FRONTEND-CONTRACT.md).

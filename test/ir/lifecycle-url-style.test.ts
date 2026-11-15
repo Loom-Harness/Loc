@@ -190,3 +190,4 @@ describe("urlStyle — conflict validation", () => {
     expect(codes).not.toContain("loom.subdomain-conflicting-urlstyle");
   });
 });
+// Gate for D-LIFECYCLE-VERB (docs/decisions/D-LIFECYCLE-VERB.md).

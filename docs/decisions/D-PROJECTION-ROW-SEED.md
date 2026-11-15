@@ -23,3 +23,5 @@ start. A datetime, enum or id has no value that means "nothing yet", so
 inventing one (the current instant, the first member) would read as data, and
 starting it null would break the field's own declaration: the model asks the
 author to say which.
+
+**Enforced by:** `test/fixtures/corpus/projection-fold-initial-values.ddd`

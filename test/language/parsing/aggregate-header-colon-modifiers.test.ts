@@ -104,3 +104,4 @@ describe("aggregate-header colon modifiers (M-T5.17 Phase 2)", () => {
   // (`crossTenant` is participation, not nature), so the rejection is now
   // inverted — see "crossTenant no longer parses in the prefix slot" above.
 });
+// Gate for D-HEADER-MODIFIER-PLACEMENT (docs/decisions/D-HEADER-MODIFIER-PLACEMENT.md).

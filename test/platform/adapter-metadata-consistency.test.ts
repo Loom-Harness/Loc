@@ -67,3 +67,4 @@ describe("adapter-metadata mirror agrees with the live surfaces", () => {
     }
   });
 });
+// Gate for D-ADAPTER-HOME (docs/decisions/D-ADAPTER-HOME.md).

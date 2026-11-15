@@ -117,3 +117,5 @@ gets the dedicated keyword `foundation:` so the data layer stays pickable under 
 framework (`foundation: ash` + `persistence: ashSqlite`). Every *other*
 conclusion of this decision stands (one `phoenix` platform, no `family@version`,
 no `apiOnly`, `framework:` is UI-only, default domain = Ash).
+
+**Enforced by:** `test/platform/hostable-frameworks.test.ts`

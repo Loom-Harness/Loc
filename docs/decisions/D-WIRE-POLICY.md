@@ -40,3 +40,5 @@ sentence a node emitter picks itself. python/FastAPI renders it through
 The remaining backends move onto it one at a time; until each does, its
 wire-golden legs carry a per-golden waiver in `test/_helpers/wire-waivers.ts`
 for the missing-field sentence.
+
+**Enforced by:** `test/generator/hono/wire-policy-census.test.ts`, `test/generator/python/wire-policy-census.test.ts`

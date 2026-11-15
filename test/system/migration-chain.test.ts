@@ -276,3 +276,4 @@ describe("generate system with a chain", () => {
     expect([...out.keys()].filter((k) => k.startsWith(".loom/snapshots/"))).toEqual([]);
   });
 });
+// Gate for D-MIGRATE-WORKFLOW (docs/decisions/D-MIGRATE-WORKFLOW.md).

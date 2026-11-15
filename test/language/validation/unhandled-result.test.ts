@@ -80,3 +80,4 @@ describe("loom.unhandled-result", () => {
     expect(lspCodes(diagnostics)).not.toContain(CODE);
   });
 });
+// Gate for D-FAILURE-MODEL (docs/decisions/D-FAILURE-MODEL.md).

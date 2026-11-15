@@ -62,3 +62,4 @@ describe("hostableFrameworks — the host-capability rule", () => {
     }
   });
 });
+// Gate for D-SVELTE-FRONTEND (docs/decisions/D-SVELTE-FRONTEND.md).

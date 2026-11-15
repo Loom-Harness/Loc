@@ -599,3 +599,4 @@ describe("workflow factory calls: positional and named are one create", () => {
     });
   }
 });
+// Gate for D-CREATE-CALL-STYLE (docs/decisions/D-CREATE-CALL-STYLE.md).

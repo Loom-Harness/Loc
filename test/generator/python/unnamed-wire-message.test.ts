@@ -153,3 +153,4 @@ describe("python — an unnamed single-field rule answers node's message (#15d, 
     expect(routes).not.toContain("ValidatorFunctionWrapHandler");
   });
 });
+// Gate for D-MESSAGELESS-RULE-WIRE-MESSAGE (docs/decisions/D-MESSAGELESS-RULE-WIRE-MESSAGE.md).
