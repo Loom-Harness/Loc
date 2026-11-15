@@ -554,6 +554,15 @@ ${opts.e2e ?? ""}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // An aggregate whose derived table (`_ledgers`) lands in the runtime's
+  // reserved `_` namespace.
+  "loom.persisted-table-reserved": `
+system S {
+  subdomain M { context C {
+    aggregate _Ledger with crudish { label: string }
+    repository Ledgers for _Ledger { }
+  } }
+}`,
   // A backfill expression outside the SQL-renderable subset: a call.
   "loom.migration-expr-invalid": `
 system S {
