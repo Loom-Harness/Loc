@@ -90,6 +90,25 @@ describe("Frontend Contract surface gate", () => {
     ]);
   });
 
+  it("names a display or derived flag, a client gate or a param default the model does not back", async () => {
+    const v = await gate("examples/showcase.ddd", (c) => {
+      delete wire(c).aggregates!.find((a) => a.name === "Project")!.display;
+      const op = wire(c).operations!.find((o) => o.id === "renameProject")!;
+      (op.clientGates as Json[]).push({ kind: "ref", name: "newName", refKind: "param" });
+      op.paramDefaults = [{ name: "ghost", value: { kind: "literal", lit: "string", value: "x" } }];
+      const fields = response(c, "ProjectResponse").fields as Json[];
+      fields.find((f) => f.name === "budget")!.derived = true;
+      delete fields.find((f) => f.name === "headline")!.derived;
+    });
+    expect(v).toEqual([
+      "wire.responses.ProjectResponse.budget: derived flag disagrees with its declaration",
+      "wire.responses.ProjectResponse.headline: derived flag disagrees with its declaration",
+      "wire.aggregates.Project: display flag disagrees with its derived display",
+      "wire.operations.renameProject: client gate reads 'newName' (param)",
+      "wire.operations.renameProject: default for 'ghost', which it does not send",
+    ]);
+  });
+
   it("names a mask predicate or a wrong maskable flag", async () => {
     const v = await gate("test/fixtures/corpus/field-mask.ddd", (c) => {
       const fields = response(c, "EmployeeResponse").fields as Json[];

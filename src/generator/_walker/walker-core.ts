@@ -57,11 +57,9 @@ import type {
   ActionIR,
   AggregateIR,
   ExprIR,
-  OperationIR,
   ParamIR,
   StmtIR,
   UiApiParamIR,
-  WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { collectionOpSite } from "../../ir/util/collection-op-site.js";
 import { walkStmtChildren } from "../../ir/util/walk.js";
@@ -97,9 +95,12 @@ import { describeReceiver, positionalArgs } from "./shared/args.js";
 import type { ChildSlot, DataBinding, RenderPosition, WalkerTarget, WalkScope } from "./target.js";
 import {
   emptyWalkerModel,
+  type WalkerAggregate,
   type WalkerHome,
   type WalkerModel,
+  type WalkerOperation,
   type WalkerWorkflow,
+  walkerAggregatesOf,
 } from "./walker-model.js";
 
 export {
@@ -440,11 +441,10 @@ export function walkBody(
    *  detected by the walker, hoisted to a hook call at page top,
    *  and rewritten to the local hook variable. */
   apiParams: ReadonlyArray<UiApiParamIR> = [],
-  /** Aggregates reachable from this UI's deployable.
-   *  `CreateForm(of: <Agg>)` and `IdLink(of: <Agg>)` look up the
-   *  aggregate's IR here (field list for form dispatch; display-
-   *  marked field for IdLink's link text). */
-  aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
+  /** The declared aggregates behind the walk, for a target that renders its
+   *  own forms from them (Angular, Feliz, Flutter, LiveView).  A target that
+   *  emits from the Frontend Contract passes none. */
+  domainAggregates: ReadonlyMap<string, AggregateIR> = new Map(),
   /** What the walk knows about the bounded contexts the ui reaches
    *  (`walker-model.ts`): the type scope a form's fields resolve in, the
    *  repository finds a read calls, the readable projections. */
@@ -509,7 +509,8 @@ export function walkBody(
     dataBindings: new Map(),
     lambdaParams: new Map(),
     shellLocals: new Set(),
-    aggregatesByName,
+    aggregatesByName: walkerAggregatesOf(model),
+    domainAggregates,
     model,
     workflowsByName,
     projectionsByName: model.readableProjectionSet,
@@ -671,10 +672,13 @@ export interface WalkEnv {
    *  declared at function top).  Refs matching a name in this set
    *  emit as the bare identifier — no `unresolved` comment. */
   shellLocals: ReadonlySet<string>;
-  /** Aggregates reachable from this UI's deployable.
-   *  Powers `CreateForm(of: <Agg>)` field dispatch and `IdLink(of: <Agg>)`
-   *  display-field resolution. */
-  aggregatesByName: ReadonlyMap<string, AggregateIR>;
+  /** The aggregates a walk reaches, by name, as the walker sees them: the
+   *  model's.  Powers `CreateForm(of: <Agg>)` field dispatch, `IdLink(of:
+   *  <Agg>)`'s label and the api-hook patterns that name an aggregate. */
+  aggregatesByName: ReadonlyMap<string, WalkerAggregate>;
+  /** The declared aggregates behind the walk, for a target that renders its
+   *  own forms from them; empty on a target that emits from the contract. */
+  domainAggregates: ReadonlyMap<string, AggregateIR>;
   /** What the walk knows about the bounded contexts the ui reaches. */
   model: WalkerModel;
   /** Workflows reachable from this UI's deployable.
@@ -846,7 +850,7 @@ interface FormStateBase {
    *  (resolved through `idTargetsInFields`).  One hook decl per
    *  target — collapsed across multiple `X id` fields on the same
    *  target aggregate. */
-  idTargets: readonly AggregateIR[];
+  idTargets: readonly WalkerAggregate[];
   /** True when any field needs RHF's `Controller` for binding
    *  (currently the case for enums + X id-as-select + bool +
    *  datetime + value-objects). */
@@ -886,7 +890,7 @@ interface FormStateBase {
 
 export interface AggregateFormState extends FormStateBase {
   kind: "aggregate";
-  agg: AggregateIR;
+  agg: WalkerAggregate;
   /** Non-optional aggregate fields — optional fields are excluded
    *  from the create form, matching the scaffold New-page rule. */
   fields: AggregateIR["fields"];
@@ -923,11 +927,11 @@ export interface WorkflowFormState extends FormStateBase {
  *  (`const <op> = use<Op><Agg>(<idExpr>)`). */
 export interface OperationFormState extends FormStateBase {
   kind: "operation";
-  agg: AggregateIR;
-  op: OperationIR;
+  agg: WalkerAggregate;
+  op: WalkerOperation;
   /** Operation params (always required — params have no optional
    *  notion).  Empty ⇒ the form renders a "no parameters" note. */
-  fields: OperationIR["params"];
+  fields: WalkerOperation["formParams"];
   /** JS expression for the instance id the mutation targets.
    *  `<instance>.id` when the instance is a function-top param;
    *  `id ?? ""` (the route param) when it's a render-lambda binding

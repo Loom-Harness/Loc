@@ -14,7 +14,6 @@
 // ---------------------------------------------------------------------------
 
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
-import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { giveUp } from "../../_walker/give-up.js";
@@ -46,7 +45,7 @@ export function renderVueDestroyForm(
       `DestroyForm(of: ${ofArg.name}): aggregate not found`,
     );
   }
-  if (!canonicalDestroy(agg)) {
+  if (!agg.destroyable) {
     return giveUp(
       ctx.target,
       "loom.page-ref-unreachable",

@@ -74,8 +74,10 @@ import {
   walkBody,
 } from "../../_walker/walker-core.js";
 import {
+  type WalkerAggregate,
   type WalkerModel,
   type WalkerWorkflow,
+  walkerAggregatesOf,
   walkerModelOf,
   walkerWorkflowsFor,
 } from "../../_walker/walker-model.js";
@@ -170,10 +172,10 @@ type FormWiring = {
  *  its own component and never collides; Vue emits these lines itself and
  *  dedupes at the same seam (`vue/walker/page-shell.ts`). */
 function undeclaredIdTargets(
-  idTargets: readonly AggregateIR[],
+  idTargets: readonly WalkerAggregate[],
   declaredPickers: Set<string>,
-): AggregateIR[] {
-  const out: AggregateIR[] = [];
+): WalkerAggregate[] {
+  const out: WalkerAggregate[] = [];
   for (const t of idTargets) {
     const hookVar = idTargetHookVar(t);
     if (declaredPickers.has(hookVar)) continue;
@@ -318,7 +320,15 @@ function renderFormOpWiring(
     // snippet's trigger — handed the record — writes the record seed
     // (`record.<field>`, see `formSeedTs`) into it each time the dialog opens.
     defaultValuesTs: state.recordVar
-      ? formSeedTs(operationFormSpec(agg, op, formSpecEnvOf(state.home, new Map())), state.home, {})
+      ? formSeedTs(
+          operationFormSpec(
+            agg,
+            op,
+            formSpecEnvOf(state.home, () => false),
+          ),
+          state.home,
+          {},
+        )
       : defaultValuesTs,
     recordType: state.recordVar ? state.recordType : undefined,
     recordSeed: state.recordVar ? defaultValuesTs : undefined,
@@ -1108,6 +1118,7 @@ function dummyCtx(
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),
+    domainAggregates: new Map(),
     model: walkerModelOf({}),
     workflowsByName: new Map(),
     formOfs: [],
@@ -1221,7 +1232,7 @@ function buildActionLines(
     ctx.imports = shared.imports;
     ctx.dataBindings = shared.dataBindings;
     ctx.apiParamNames = new Map(shared.apiParams.map((p) => [p.name, p.apiName]));
-    ctx.aggregatesByName = shared.aggregatesByName;
+    ctx.aggregatesByName = walkerAggregatesOf(shared.model);
     ctx.model = shared.model;
     ctx.workflowsByName = shared.workflowsByName;
     ctx.pageRoutes = shared.pageRoutes;

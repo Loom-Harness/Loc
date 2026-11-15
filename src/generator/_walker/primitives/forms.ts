@@ -6,10 +6,7 @@
 // trigger surface onto the operation state its Form child just pushed,
 // so it must share the same sink and live alongside the form emitters.
 
-import type { AggregateIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
-import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
-import { operationFormParams } from "../../../ir/util/op-gates.js";
-import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
+import type { ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import {
   escapeTsIdent,
   humanize,
@@ -78,7 +75,7 @@ import {
   testidAttr,
   walk,
 } from "../walker-core.js";
-import type { WalkerHome } from "../walker-model.js";
+import type { WalkerAggregate, WalkerHome } from "../walker-model.js";
 import { emitActionThen } from "./controls.js";
 import { selectPlaceholderAttr } from "./inputs.js";
 
@@ -180,7 +177,7 @@ export function emitDestroyForm(
       `DestroyForm(of: ${ofArg.name}): aggregate not found`,
     );
   }
-  if (!canonicalDestroy(agg)) {
+  if (!agg.destroyable) {
     return giveUp(
       ctx.target,
       "loom.page-ref-unreachable",
@@ -385,7 +382,7 @@ function emitFormOfOperationByName(
   // A masked field a merge-patch update guards is left off the form: the
   // caller may be unable to read it, and sending its key is refused (403);
   // left out, the stored value stays (`maskedPatchParams`).
-  const fields = operationFormParams(op);
+  const fields = [...op.formParams];
   const fieldsForHelpers = fields.map((f) => ({ ...f, optional: false }));
   const testidNamespace =
     stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-op-${op.name}`;
@@ -444,7 +441,7 @@ function emitFormOfOperationByName(
 }
 
 interface PreparedForm {
-  idTargets: AggregateIR[];
+  idTargets: WalkerAggregate[];
   useController: boolean;
   defaultValuesTs: string;
   fieldHtmls: string[];
@@ -582,7 +579,7 @@ function prepareFormFields(
 function emitFormOnSubmit(
   ctx: WalkContext,
   call: ExprIR & { kind: "call" },
-  idTargets: AggregateIR[],
+  idTargets: WalkerAggregate[],
   mutationLocal: string,
 ): string | null {
   // A named-action reference (`onSubmit: setCustomer`) binds the hoisted
@@ -954,7 +951,7 @@ function emitFormOfOperation(
   // A masked field a merge-patch update guards is left off the form: the
   // caller may be unable to read it, and sending its key is refused (403);
   // left out, the stored value stays (`maskedPatchParams`).
-  const fields = operationFormParams(op);
+  const fields = [...op.formParams];
   const fieldsForHelpers = fields.map((f) => ({ ...f, optional: false }));
   // A `this.<field>` param default can seed `defaultValues` from the loaded
   // record — but only when the active pack threads a `record` prop into the
@@ -966,7 +963,7 @@ function emitFormOfOperation(
   // The form's spec also prefills every param named and typed like one of the
   // aggregate's fields from the record (an update form opens on the current
   // values), so the record is threaded for that too.
-  const spec = operationFormSpec(agg, op, ctx.model.formSpecEnv(home, ctx.aggregatesByName));
+  const spec = operationFormSpec(agg, op, ctx.model.formSpecEnv(home));
   const wantsRecord =
     ctx.pack.manifest.seedsOpFormRecord === true &&
     (spec.prefillsFromRecord || fieldsForHelpers.some((f) => defaultUsesThis(f.default)));

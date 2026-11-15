@@ -37,7 +37,12 @@ import { emitActionThen } from "../_walker/primitives/controls.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import { emitExpr, type WalkContext, walk } from "../_walker/walker-core.js";
-import { contextOfHome, contextOfOptionalHome, type WalkerHome } from "../_walker/walker-model.js";
+import {
+  contextOfHome,
+  contextOfOptionalHome,
+  type WalkerHome,
+  walkerOperationOf,
+} from "../_walker/walker-model.js";
 import { opActionGate } from "./auth-gate.js";
 import { FELIZ_GRID_ROW_VAR, renderFelizDataGridChild } from "./data-grid-child.js";
 import {
@@ -726,7 +731,7 @@ export const felizTarget: WalkerTarget = {
   // navigate-on-success live in `update` (wired by index.ts's `collectPage
   // Mutations`); the view only dispatches.
   //
-  // The `of:` arg is resolved through `ctx.aggregatesByName` — the SAME map
+  // The `of:` arg is resolved through `ctx.domainAggregates` — the SAME map
   // `formOfAggs` (`feliz/wire.ts`) filters by when it collects the `Msg` cases.
   // Until M-T1.31 this seam only checked that the arg was a `ref` and
   // interpolated its raw NAME, so a `DestroyForm { of: <not an aggregate> }`
@@ -742,7 +747,7 @@ export const felizTarget: WalkerTarget = {
     const idx = names.indexOf("of");
     const ofArg = idx >= 0 ? call.args[idx] : undefined;
     if (ofArg?.kind !== "ref") return null;
-    const agg = ctx.aggregatesByName.get(ofArg.name);
+    const agg = ctx.domainAggregates.get(ofArg.name);
     if (!agg) return null;
     ctx.usesRouteId = true; // the delete dispatches with the route `id`
     // The label and the confirm prompt are emitter-built chrome:
@@ -870,7 +875,7 @@ export const felizTarget: WalkerTarget = {
     // own `id`.
     const recordAgg = ctx.paramTypes?.get(opRef.receiver.name);
     const aggName = recordAgg ?? ctx.listRowAggregates?.get(opRef.receiver.name);
-    const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
+    const agg = aggName ? ctx.domainAggregates.get(aggName) : undefined;
     const op = agg?.operations.find(
       (o) => o.name === opRef.member && o.visibility === "public" && o.params.length === 0,
     );
@@ -895,7 +900,7 @@ export const felizTarget: WalkerTarget = {
     // A `when`-gated op's `can_<op>` probe is per RECORD, so a row button does
     // not pre-disable on it; the server still answers the op's own refusal.
     const gate = recordAgg
-      ? opGateFor(ctx, agg, op, canProbeFieldName(agg.name, op.name))
+      ? opGateFor(ctx, agg, walkerOperationOf(op), canProbeFieldName(agg.name, op.name))
       : undefined;
     const gateProps = gate
       ? `prop.disabled ${gate.disabledExpr}; prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); `
@@ -924,14 +929,14 @@ export const felizTarget: WalkerTarget = {
     const idx = names.indexOf("of");
     const ofArg = idx >= 0 ? call.args[idx] : undefined;
     const aggName = ofArg?.kind === "ref" ? ofArg.name : undefined;
-    const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
+    const agg = aggName ? ctx.domainAggregates.get(aggName) : undefined;
     if (!agg || !aggName) return null;
     const request = createRequestFieldsIn(ctx, aggName, agg);
     const form = felizCreateForm(
       agg,
       request,
       enumsFromBc(ctx.model.homeOfAggregate(aggName)),
-      idLabelsFrom(ctx.aggregatesByName.values()),
+      idLabelsFrom(ctx.domainAggregates.values()),
       vosFromBc(ctx.model.homeOfAggregate(aggName)),
     );
     // The testid namespace the SHARED page objects fill against — the scaffold's
@@ -983,14 +988,14 @@ export const felizTarget: WalkerTarget = {
       }
     }
     if (!aggName || !opName) return null;
-    const agg = ctx.aggregatesByName.get(aggName);
+    const agg = ctx.domainAggregates.get(aggName);
     const op = agg?.operations.find((o) => o.name === opName && o.visibility === "public");
     if (!agg || !op) return null;
     const form = felizOperationForm(
       agg,
       op,
       enumsFromBc(ctx.model.homeOfAggregate(aggName)),
-      idLabelsFrom(ctx.aggregatesByName.values()),
+      idLabelsFrom(ctx.domainAggregates.values()),
       vosFromBc(ctx.model.homeOfAggregate(aggName)),
     );
     // A PARAM-LESS op (`confirm()`) renders too — an empty form with just the
@@ -1024,7 +1029,7 @@ export const felizTarget: WalkerTarget = {
     const disabled = submitDisabled(form);
     // A `when`-gated op also disables on its `can_<op>` probe (a page-entry read
     // collected by `collectPageGateProbes`), with the reason as the title.
-    const gate = opGateFor(ctx, agg, op, canProbeFieldName(agg.name, op.name));
+    const gate = opGateFor(ctx, agg, walkerOperationOf(op), canProbeFieldName(agg.name, op.name));
     const gated = gate
       ? `${submitDisabled(form, gate.disabledExpr)}prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); `
       : disabled;
@@ -1054,7 +1059,7 @@ export const felizTarget: WalkerTarget = {
     const form = felizWorkflowForm(
       wf,
       enumsFromBc(ctx.model.homeOfWorkflow(wfName)),
-      idLabelsFrom(ctx.aggregatesByName.values()),
+      idLabelsFrom(ctx.domainAggregates.values()),
       vosFromBc(ctx.model.homeOfWorkflow(wfName)),
     );
     // A PARAM-LESS workflow (`run()`) renders too — an empty form with just the
@@ -1120,7 +1125,7 @@ export const felizTarget: WalkerTarget = {
           found0.agg,
           found0.op,
           enumsFromBc(ctx.model.homeOfAggregate(found0.agg.name)),
-          idLabelsFrom(ctx.aggregatesByName.values()),
+          idLabelsFrom(ctx.domainAggregates.values()),
           vosFromBc(ctx.model.homeOfAggregate(found0.agg.name)),
         )
       : undefined;
@@ -1673,7 +1678,7 @@ function modalOp(formChild: ExprIR & { kind: "call" }, ctx: WalkContext) {
       opName = inst.member;
     }
   }
-  const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
+  const agg = aggName ? ctx.domainAggregates.get(aggName) : undefined;
   const op = agg?.operations.find((o) => o.name === opName && o.visibility === "public");
   return agg && op ? { agg, op } : undefined;
 }
@@ -1681,7 +1686,12 @@ function modalOp(formChild: ExprIR & { kind: "call" }, ctx: WalkContext) {
 function modalOpGate(formChild: ExprIR & { kind: "call" }, ctx: WalkContext) {
   const found = modalOp(formChild, ctx);
   return found
-    ? opGateFor(ctx, found.agg, found.op, canProbeFieldName(found.agg.name, found.op.name))
+    ? opGateFor(
+        ctx,
+        found.agg,
+        walkerOperationOf(found.op),
+        canProbeFieldName(found.agg.name, found.op.name),
+      )
     : undefined;
 }
 
