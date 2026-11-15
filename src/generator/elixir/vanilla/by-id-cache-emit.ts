@@ -39,7 +39,7 @@ import {
   IN_MEMORY_CACHE_MAX_ENTRIES,
 } from "../../../ir/plan/cache.js";
 import type { DeployableIR, SystemIR } from "../../../ir/types/loom-ir.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { resourceEnvUrlVar, resourceSidecarUrl } from "../../../util/resource-env.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 
@@ -297,9 +297,9 @@ ${usesMemory ? `  @memory_max_entries ${IN_MEMORY_CACHE_MAX_ENTRIES}\n\n` : ""} 
   def read(cache, id, scope) do
     with {:ok, raw} when is_binary(raw) <-
            guarded(cache, "read", fn -> store_get(cache.store, cache.prefix <> id) end),
-         %{"${CACHE_ENTRY.body}" => body} = answer when is_binary(body) <-
+         %{${elixirString(CACHE_ENTRY.body)} => body} = answer when is_binary(body) <-
            Map.get(decode_entry(raw), scope),
-         etag = Map.get(answer, "${CACHE_ENTRY.etag}"),
+         etag = Map.get(answer, ${elixirString(CACHE_ENTRY.etag)}),
          true <- is_nil(etag) or is_binary(etag),
          {:ok, _} <- Jason.decode(body) do
       {:hit, body, etag}
@@ -314,7 +314,7 @@ ${usesMemory ? `  @memory_max_entries ${IN_MEMORY_CACHE_MAX_ENTRIES}\n\n` : ""} 
 
     guarded(cache, "write", fn ->
       with {:ok, raw} <- store_get(cache.store, key) do
-        answer = %{"${CACHE_ENTRY.body}" => body, "${CACHE_ENTRY.etag}" => etag}
+        answer = %{${elixirString(CACHE_ENTRY.body)} => body, ${elixirString(CACHE_ENTRY.etag)} => etag}
         entry = Map.put(decode_entry(raw), scope, answer)
         store_set(cache.store, key, Jason.encode!(entry), cache.ttl_seconds)
       end
