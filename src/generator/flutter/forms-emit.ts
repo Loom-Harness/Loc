@@ -81,6 +81,7 @@ import {
   workflowRunEntry,
 } from "../_walker/model-text-sites.js";
 import { STANDARD_AGG_OPS } from "../_walker/walker-core.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 import { flutterHttpImport } from "./api-client.js";
 import {
   type FlutterFieldRule,
@@ -733,7 +734,14 @@ function inputTextOf(
   joinPath = false,
 ): { labelExpr: string; optionExprs?: Record<string, string> } | undefined {
   const textOf = (p: readonly string[], l: string): FormInputModelText | undefined =>
-    formInputModelText(src.inputs, p, l, src.ownerOf, src.bc, src.text.contexts);
+    formInputModelText(
+      src.inputs,
+      p,
+      l,
+      src.ownerOf,
+      src.bc,
+      walkerModelOf({ contexts: src.text.contexts }),
+    );
   const t = textOf(path, leaf);
   if (!t) return undefined;
   const segments =
@@ -946,7 +954,9 @@ export function flutterWorkflowForm(
     aggregatesByName,
   );
   attachModelText(fields, text && { inputs: wf.params, ownerOf: () => wf.name, bc, text });
-  const run = bc ? workflowRunEntry(wf.name, bc, text?.contexts ?? [bc]) : undefined;
+  const run = bc
+    ? workflowRunEntry(wf.name, bc, walkerModelOf({ contexts: text?.contexts ?? [bc] }))
+    : undefined;
   return {
     widgetName: workflowFormWidgetName(wf.name),
     kind: "create",

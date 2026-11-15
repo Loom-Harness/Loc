@@ -1,8 +1,6 @@
-import type { BoundedContextIR } from "../../ir/types/loom-ir.js";
-import { projectionReadShape } from "../../ir/util/projection-read.js";
+import type { ContractProjection } from "../../ir/contract/frontend-contract.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
-import { readableProjections } from "../_frontend/projections-module.js";
 import { wireTsType } from "./workflows-module.js";
 
 // ---------------------------------------------------------------------------
@@ -34,22 +32,16 @@ import { wireTsType } from "./workflows-module.js";
 // draws.  Same call `angular/workflows-module.ts` already made against
 // `_frontend/workflows-module.ts`, for the same four reasons.
 //
-// What IS still shared: `readableProjections` — the readability predicate and
-// declaration-order inventory are IR facts, identical on every frontend, and
-// they stay in one place (`ir/util/projection-read.ts` via the shared module).
-// A fork of the EMITTER is not a fork of the RULE about what is emittable.
+// What IS still shared: which projections a client reads, in what order, and
+// their row shapes — the Frontend Contract's `wire.projections`, identical on
+// every frontend.  A fork of the EMITTER is not a fork of the RULE about what
+// is emittable.
 // ---------------------------------------------------------------------------
-
-/** Whether this deployable serves any frontend-readable projection. */
-export function hasReadableProjections(contexts: BoundedContextIR[]): boolean {
-  return readableProjections(contexts).length > 0;
-}
 
 /** Emit `src/api/projections.ts` — every readable projection across the served
  *  contexts as a row interface + a `ProjectionsService` method + a read
  *  factory.  Structural twin of `buildAngularWorkflowsModule`. */
-export function buildAngularProjectionsModule(contexts: BoundedContextIR[]): string {
-  const projections = readableProjections(contexts);
+export function buildAngularProjectionsModule(projections: readonly ContractProjection[]): string {
   const out: string[] = [
     "// Auto-generated.  Do not edit by hand.",
     'import { HttpClient } from "@angular/common/http";',
@@ -64,9 +56,9 @@ export function buildAngularProjectionsModule(contexts: BoundedContextIR[]): str
   // `<Proj>Row` is built from, so the two cannot drift.  Typed through
   // `HttpClient`'s generic rather than parsed, which is why there is no zod
   // schema here (see the fork rationale above).
-  for (const { proj } of projections) {
+  for (const proj of projections) {
     out.push(`export interface ${upperFirst(proj.name)}Row {`);
-    for (const f of proj.wireShape ?? []) {
+    for (const f of proj.fields) {
       out.push(`  ${f.name}${f.optional ? "?" : ""}: ${wireTsType(f.type)};`);
     }
     out.push("}");
@@ -76,7 +68,7 @@ export function buildAngularProjectionsModule(contexts: BoundedContextIR[]): str
   out.push(`@Injectable({ providedIn: "root" })`);
   out.push(`export class ProjectionsService {`);
   out.push("  private readonly http = inject(HttpClient);");
-  for (const { proj } of projections) {
+  for (const proj of projections) {
     // A projection read takes no id and no query params — the projection IS the
     // row — so the method is nullary, unlike the aggregate services' `byId`.
     // The RESPONSE TYPE follows `projectionReadShape`: a whole-table
@@ -84,7 +76,7 @@ export function buildAngularProjectionsModule(contexts: BoundedContextIR[]): str
     // is no `.parse` boundary on this fork (see the header), so the generic IS
     // the whole contract — typing an array read as one object hands the walker
     // a `.map` over a non-array and fails `ng build`.
-    const rowType = `${upperFirst(proj.name)}Row${projectionReadShape(proj) === "many" ? "[]" : ""}`;
+    const rowType = `${upperFirst(proj.name)}Row${proj.many ? "[]" : ""}`;
     out.push("");
     out.push(`  ${lowerFirst(proj.name)}() {`);
     out.push(
@@ -95,11 +87,11 @@ export function buildAngularProjectionsModule(contexts: BoundedContextIR[]): str
   out.push("}");
   out.push("");
 
-  for (const { proj } of projections) {
+  for (const proj of projections) {
     const T = upperFirst(proj.name);
     out.push(
       `/** \`${proj.name}\` projection read — ${
-        projectionReadShape(proj) === "many" ? "one row per group" : "one row"
+        proj.many ? "one row per group" : "one row"
       }, no arguments. */`,
       `export function use${T}() {`,
       "  const service = inject(ProjectionsService);",

@@ -53,12 +53,7 @@ export interface CoverageRow {
  *  an entry the day its issue closes: every row still leaning on it then fails,
  *  which is the point — its witness is due.  Checked against GitHub by the
  *  census's online leg (`LOOM_CENSUS_ONLINE=1`), which runs nightly only. */
-export const OPEN_TRACKING_ISSUES: ReadonlySet<string> = new Set([
-  "#5617",
-  "#5672",
-  "#5712",
-  "#5846",
-]);
+export const OPEN_TRACKING_ISSUES: ReadonlySet<string> = new Set(["#5617", "#5712", "#5846"]);
 
 /** A pending row may not be parked further out than this. */
 export const MAX_PENDING_DAYS = 120;
@@ -105,7 +100,7 @@ export const COVERAGE: readonly CoverageRow[] = [
     kind: "cache",
     fake: "real-sidecar",
     module: "broker-sidecar.mjs",
-    pending: pending("#5672"),
+    witness: { fixture: "cache-by-id-redis", effects: "cache" },
   },
   {
     sourceType: "redis",

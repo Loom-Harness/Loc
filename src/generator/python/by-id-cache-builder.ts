@@ -7,7 +7,9 @@
 //
 //   - a store per cache resource — redis-py's asyncio client for a `redis`
 //     storage (the `<RESOURCE>_URL` connection, valkey in the dev compose), a
-//     dict with expiry for `inMemory`;
+//     dict with expiry bounded by the plan's entry limit for `inMemory`;
+//   - the entry as the plan's `CACHE_ENTRY` envelope, so another backend on
+//     the same redis reads it; an unreadable entry is a miss;
 //   - one `ByIdCache` per cached aggregate;
 //   - `install_by_id_cache_eviction`, which wraps the repository class's `save`
 //     and `delete` — every write of an aggregate reaches one of them, whichever
@@ -20,10 +22,13 @@
 // database, a failed write or eviction is logged and the entry expires at its ttl.
 
 import {
+  CACHE_ENTRY,
+  CACHE_ETAG_HEADER,
   CACHE_STATUS_HEADER,
   type CachedByIdRead,
   type CacheScopeInput,
   cacheStoragesOf,
+  IN_MEMORY_CACHE_MAX_ENTRIES,
 } from "../../ir/plan/cache.js";
 import type { DeployableIR, SystemIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
@@ -89,7 +94,7 @@ export function renderPyCacheHit(read: CachedByIdRead, idExpr: string): string[]
     `    scope = ${pyRef(MODULE, "fingerprint")}(${read.scope.map(scopeValue).join(", ")})`,
     `    hit = await ${byIdCacheRef(read)}.read(${idExpr}, scope)`,
     "    if hit is not None:",
-    `        return ${C.Response}(content=hit, media_type="application/json", headers={"${CACHE_STATUS_HEADER}": "hit"})`,
+    `        return ${C.Response}(content=hit.body, media_type="application/json", headers=hit.headers())`,
   ];
 }
 
@@ -103,7 +108,7 @@ export function renderPyCacheStore(
 ): string[] {
   return [
     `    body = ${model}.model_validate(${outExpr}).model_dump_json(by_alias=True)`,
-    `    await ${byIdCacheRef(read)}.write(${idExpr}, scope, body)`,
+    `    await ${byIdCacheRef(read)}.write(${idExpr}, scope, body, None)`,
     `    return ${C.Response}(content=body, media_type="application/json", headers={"${CACHE_STATUS_HEADER}": "miss"})`,
   ];
 }
@@ -150,7 +155,11 @@ export function renderPyByIdCacheModule(
     "",
     "",
     "class MemoryStore:",
-    '    """An in-process map with expiry."""',
+    '    """An in-process map with expiry, holding at most `MAX_ENTRIES` entries: a',
+    "    write that finds it full drops the expired entries, and is skipped when it",
+    '    is still full."""',
+    "",
+    `    MAX_ENTRIES = ${IN_MEMORY_CACHE_MAX_ENTRIES}`,
     "",
     "    def __init__(self) -> None:",
     "        self._entries: dict[str, tuple[str, float]] = {}",
@@ -165,6 +174,12 @@ export function renderPyByIdCacheModule(
     "        return entry[0]",
     "",
     "    async def set(self, key: str, value: str, ttl_seconds: int) -> None:",
+    "        if key not in self._entries and len(self._entries) >= self.MAX_ENTRIES:",
+    `            now = ${C.time}.monotonic()`,
+    "            for k in [k for k, e in self._entries.items() if e[1] <= now]:",
+    "                del self._entries[k]",
+    "            if len(self._entries) >= self.MAX_ENTRIES:",
+    "                return",
     `        self._entries[key] = (value, ${C.time}.monotonic() + ttl_seconds)`,
     "",
     "    async def delete(self, key: str) -> None:",
@@ -195,19 +210,65 @@ export function renderPyByIdCacheModule(
           "",
         ]
       : []),
-    `def principal_scope(user: ${C.User}) -> dict[str, object]:`,
-    '    """The whole principal: its declared claims and the per-request operating-org',
-    '    slots, which are class attributes and so not part of `asdict`."""',
-    "    return {",
-    `        **${C.asdict}(user),`,
-    '        "operating_org": getattr(user, "operating_org", ""),',
-    '        "operating_ancestors": getattr(user, "operating_ancestors", ()),',
-    "    }",
-    "",
-    "",
+    // Only a read keyed on the whole principal calls it, and only a deployable
+    // with auth has `app.auth.user` to import.
+    ...(reads.some((r) => r.scope.some((i) => i.kind === "principal"))
+      ? [
+          `def principal_scope(user: ${C.User}) -> dict[str, object]:`,
+          '    """The whole principal: its declared claims and the per-request operating-org',
+          '    slots, which are class attributes and so not part of `asdict`."""',
+          "    return {",
+          `        **${C.asdict}(user),`,
+          '        "operating_org": getattr(user, "operating_org", ""),',
+          '        "operating_ancestors": getattr(user, "operating_ancestors", ()),',
+          "    }",
+          "",
+          "",
+        ]
+      : []),
     "def fingerprint(*inputs: object) -> str:",
     '    """The caller scope: the JSON array of the principal inputs the read depends on."""',
     `    return ${C.json}.dumps(list(inputs), separators=(",", ":"), default=str, sort_keys=True)`,
+    "",
+    "",
+    "class Answer:",
+    '    """One scope\'s answer as stored: the wire body\'s JSON text and its tag."""',
+    "",
+    "    def __init__(self, body: str, etag: str | None) -> None:",
+    "        self.body = body",
+    "        self.etag = etag",
+    "",
+    "    def headers(self) -> dict[str, str]:",
+    `        headers = {"${CACHE_STATUS_HEADER}": "hit"}`,
+    "        if self.etag is not None:",
+    `            headers["${CACHE_ETAG_HEADER}"] = self.etag`,
+    "        return headers",
+    "",
+    "",
+    `def _entry_of(raw: str | None) -> dict[str, ${C.Any}]:`,
+    '    """The stored entry, or an empty one when it is not a JSON object."""',
+    "    if raw is None:",
+    "        return {}",
+    "    try:",
+    `        parsed = ${C.json}.loads(raw)`,
+    "    except ValueError:",
+    "        return {}",
+    "    return parsed if isinstance(parsed, dict) else {}",
+    "",
+    "",
+    `def _readable(answer: ${C.Any}) -> Answer | None:`,
+    '    """`answer` when it is a readable answer, else None."""',
+    "    if not isinstance(answer, dict):",
+    "        return None",
+    `    body = answer.get("${CACHE_ENTRY.body}")`,
+    `    etag = answer.get("${CACHE_ENTRY.etag}")`,
+    "    if not isinstance(body, str) or not (etag is None or isinstance(etag, str)):",
+    "        return None",
+    "    try:",
+    `        ${C.json}.loads(body)`,
+    "    except ValueError:",
+    "        return None",
+    "    return Answer(body, etag)",
     "",
     "",
     "class ByIdCache:",
@@ -221,23 +282,22 @@ export function renderPyByIdCacheModule(
     "        self._entry_prefix = entry_prefix",
     "        self._ttl_seconds = ttl_seconds",
     "",
-    "    async def read(self, entry_id: str, scope: str) -> str | None:",
+    "    async def read(self, entry_id: str, scope: str) -> Answer | None:",
+    '        """The answer stored for the id under `scope`; an unreadable one is a miss."""',
     "        try:",
     "            raw = await self._store.get(self._entry_prefix + entry_id)",
-    "            if raw is None:",
-    "                return None",
-    `            entry: dict[str, str] = ${C.json}.loads(raw)`,
-    "            return entry.get(scope)",
     "        except Exception as err:",
     `            ${warn("read")}`,
     "            return None",
+    "        return _readable(_entry_of(raw).get(scope))",
     "",
-    "    async def write(self, entry_id: str, scope: str, body: str) -> None:",
+    "    async def write(self, entry_id: str, scope: str, body: str, etag: str | None) -> None:",
+    '        """Store `body` (the wire answer\'s JSON text) under `scope`, keeping the other',
+    '        scopes\' answers; an entry that does not parse is replaced."""',
     "        try:",
     "            key = self._entry_prefix + entry_id",
-    "            raw = await self._store.get(key)",
-    `            entry: dict[str, str] = {} if raw is None else ${C.json}.loads(raw)`,
-    "            entry[scope] = body",
+    "            entry = _entry_of(await self._store.get(key))",
+    `            entry[scope] = {"${CACHE_ENTRY.body}": body, "${CACHE_ENTRY.etag}": etag}`,
     `            await self._store.set(key, ${C.json}.dumps(entry), self._ttl_seconds)`,
     "        except Exception as err:",
     `            ${warn("write")}`,

@@ -52,6 +52,7 @@ import {
   type WalkResult,
   walkBody,
 } from "../../_walker/walker-core.js";
+import { walkerModelOf } from "../../_walker/walker-model.js";
 import { idTargetHookVar } from "../../react/form-helpers.js";
 import { vueTarget } from "./vue-target.js";
 
@@ -90,9 +91,8 @@ function initCtx(pack: LoadedPack): WalkContext {
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),
-    bcByAggregate: new Map(),
+    model: walkerModelOf({}),
     workflowsByName: new Map(),
-    bcByWorkflow: new Map(),
     formOfs: [],
     actionMutations: [],
     collectedTestids: new Set(),
@@ -159,9 +159,9 @@ function opFormSeeds(
       onOpen: "",
     };
   }
-  const spec = operationFormSpec(st.agg, st.op, formSpecEnvOf(st.bc, new Map()));
+  const spec = operationFormSpec(st.agg, st.op, formSpecEnvOf(st.home, new Map()));
   return {
-    setup: formSeedTs(spec, st.bc, {}),
+    setup: formSeedTs(spec, st.home, {}),
     recordParam: `, record?: ${st.recordType}`,
     onOpen: `if (record) Object.assign(${formVar}.values, ${st.defaultValuesTs}); `,
   };
@@ -1185,8 +1185,7 @@ export function renderVueComponentFile(
     userComponents,
     apiParams,
     aggregatesByName,
-    bcByAggregate,
-    new Map(),
+    walkerModelOf({ bcByAggregate }),
     new Map(),
     paramTypes,
     pageRoutes,
@@ -1705,9 +1704,8 @@ function buildDerivedLines(
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName: new Map(),
-      bcByAggregate: new Map(),
+      model: walkerModelOf({}),
       workflowsByName: new Map(),
-      bcByWorkflow: new Map(),
       formOfs: [],
       actionMutations: [],
       collectedTestids: new Set(),
@@ -1826,9 +1824,8 @@ function buildActionLines(
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName: ctxOpts.aggregatesByName ?? new Map(),
-      bcByAggregate: ctxOpts.bcByAggregate ?? new Map(),
+      model: walkerModelOf({ bcByAggregate: ctxOpts.bcByAggregate ?? new Map() }),
       workflowsByName: new Map(),
-      bcByWorkflow: new Map(),
       formOfs: [],
       actionMutations: [],
       collectedTestids: new Set(),

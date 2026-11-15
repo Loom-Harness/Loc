@@ -8,7 +8,7 @@
 // leaves forward to the shared F# leaf table (`FS_LEAVES`).
 
 import { createRequestFields } from "../../ir/plan/create-request.js";
-import type { BoundedContextIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { AggregateIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { operationFormParams } from "../../ir/util/op-gates.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
 import { requireFrontendAxes } from "../../util/frontend-axes.js";
@@ -37,6 +37,7 @@ import { emitActionThen } from "../_walker/primitives/controls.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import { emitExpr, type WalkContext, walk } from "../_walker/walker-core.js";
+import type { WalkerHome } from "../_walker/walker-model.js";
 import { opActionGate } from "./auth-gate.js";
 import { FELIZ_GRID_ROW_VAR, renderFelizDataGridChild } from "./data-grid-child.js";
 import {
@@ -134,10 +135,22 @@ function isStringType(type: TypeIR | undefined): boolean {
   return type?.kind === "primitive" && type.name === "string";
 }
 
+/** A `CreateForm`'s request fields: the aggregate's create request in its
+ *  context, or the request no record declares when the walk does not reach
+ *  that context. */
+function createRequestFieldsIn(
+  ctx: WalkContext,
+  aggName: string,
+  agg: AggregateIR,
+): readonly FieldIR[] {
+  const home = ctx.model.homeOfAggregate(aggName);
+  return home ? ctx.model.createRequestFields(home, agg) : createRequestFields([], agg);
+}
+
 /** Enum name → allowed values, resolved from a form's owning bounded context so
  *  an enum-typed field renders a `<select>`.  Empty when the BC is absent (the
  *  enum field then renders as text — byte-identical to before enum-select). */
-function enumsFromBc(bc: BoundedContextIR | undefined): Map<string, string[]> {
+function enumsFromBc(bc: WalkerHome | undefined): Map<string, string[]> {
   const m = new Map<string, string[]>();
   if (bc) for (const e of enumPool(bc)) m.set(e.name, e.values);
   return m;
@@ -146,7 +159,7 @@ function enumsFromBc(bc: BoundedContextIR | undefined): Map<string, string[]> {
 /** Value-object name → its fields, resolved from a form's owning bounded context
  *  so a VO-typed field is flattened into per-sub-field inputs.  Empty when the
  *  BC is absent (the VO field is then dropped — as before nested-VO support). */
-function vosFromBc(bc: BoundedContextIR | undefined): Map<string, readonly FieldIR[]> {
+function vosFromBc(bc: WalkerHome | undefined): Map<string, readonly FieldIR[]> {
   const m = new Map<string, readonly FieldIR[]>();
   if (bc) for (const vo of bc.valueObjects) m.set(vo.name, vo.fields);
   return m;
@@ -165,7 +178,7 @@ interface FormTextSource {
   readonly inputs: readonly { name: string; type: TypeIR }[];
   /** The model type a top-level input is declared on. */
   readonly ownerOf: (name: string) => string | undefined;
-  readonly bc: BoundedContextIR | undefined;
+  readonly bc: WalkerHome | undefined;
 }
 
 function felizInputText(
@@ -180,7 +193,7 @@ function felizInputText(
 ): FelizInputText | undefined {
   if (!ctx.i18nPrefix) return undefined;
   const textOf = (p: readonly string[], l: string): FormInputModelText | undefined =>
-    formInputModelText(src.inputs, p, l, src.ownerOf, src.bc, ctx.bcByAggregate.values());
+    formInputModelText(src.inputs, p, l, src.ownerOf, src.bc, ctx.model);
   const text = textOf(path, leaf);
   if (!text) return undefined;
   const segments =
@@ -913,13 +926,13 @@ export const felizTarget: WalkerTarget = {
     const aggName = ofArg?.kind === "ref" ? ofArg.name : undefined;
     const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
     if (!agg || !aggName) return null;
-    const request = createRequestFields(ctx.bcByAggregate.get(aggName)?.payloads ?? [], agg);
+    const request = createRequestFieldsIn(ctx, aggName, agg);
     const form = felizCreateForm(
       agg,
       request,
-      enumsFromBc(ctx.bcByAggregate.get(aggName)),
+      enumsFromBc(ctx.model.homeOfAggregate(aggName)),
       idLabelsFrom(ctx.aggregatesByName.values()),
-      vosFromBc(ctx.bcByAggregate.get(aggName)),
+      vosFromBc(ctx.model.homeOfAggregate(aggName)),
     );
     // The testid namespace the SHARED page objects fill against — the scaffold's
     // `testid:` arg (`orders-new`) when present, else the same `<plural>-new`
@@ -928,7 +941,7 @@ export const felizTarget: WalkerTarget = {
     const src: FormTextSource = {
       inputs: request,
       ownerOf: () => agg.name,
-      bc: ctx.bcByAggregate.get(aggName),
+      bc: ctx.model.homeOfAggregate(aggName),
     };
     const { inputs, formError } = withServerErrors(form.formField, form.fields, base, true, (f) =>
       fieldInputText(ctx, src, f),
@@ -976,9 +989,9 @@ export const felizTarget: WalkerTarget = {
     const form = felizOperationForm(
       agg,
       op,
-      enumsFromBc(ctx.bcByAggregate.get(aggName)),
+      enumsFromBc(ctx.model.homeOfAggregate(aggName)),
       idLabelsFrom(ctx.aggregatesByName.values()),
-      vosFromBc(ctx.bcByAggregate.get(aggName)),
+      vosFromBc(ctx.model.homeOfAggregate(aggName)),
     );
     // A PARAM-LESS op (`confirm()`) renders too — an empty form with just the
     // submit (no inputs, no validity guard); the page object still drives it as
@@ -993,7 +1006,7 @@ export const felizTarget: WalkerTarget = {
     const src: FormTextSource = {
       inputs: operationFormParams(op),
       ownerOf: (name) => paramLabelOwner(agg, name),
-      bc: ctx.bcByAggregate.get(aggName),
+      bc: ctx.model.homeOfAggregate(aggName),
     };
     const { inputs, formError } = withServerErrors(
       form.formField,
@@ -1033,9 +1046,9 @@ export const felizTarget: WalkerTarget = {
     if (!wf || !wfName) return null;
     const form = felizWorkflowForm(
       wf,
-      enumsFromBc(ctx.bcByWorkflow.get(wfName)),
+      enumsFromBc(ctx.model.homeOfWorkflow(wfName)),
       idLabelsFrom(ctx.aggregatesByName.values()),
-      vosFromBc(ctx.bcByWorkflow.get(wfName)),
+      vosFromBc(ctx.model.homeOfWorkflow(wfName)),
     );
     // A PARAM-LESS workflow (`run()`) renders too — an empty form with just the
     // submit (no inputs, no validity guard), matching `renderOperationForm`'s
@@ -1048,7 +1061,7 @@ export const felizTarget: WalkerTarget = {
     const src: FormTextSource = {
       inputs: wf.params,
       ownerOf: () => wf.name,
-      bc: ctx.bcByWorkflow.get(wfName),
+      bc: ctx.model.homeOfWorkflow(wfName),
     };
     const { inputs, formError } = withServerErrors(
       form.formField,
@@ -1099,9 +1112,9 @@ export const felizTarget: WalkerTarget = {
       ? felizOperationForm(
           found0.agg,
           found0.op,
-          enumsFromBc(ctx.bcByAggregate.get(found0.agg.name)),
+          enumsFromBc(ctx.model.homeOfAggregate(found0.agg.name)),
           idLabelsFrom(ctx.aggregatesByName.values()),
-          vosFromBc(ctx.bcByAggregate.get(found0.agg.name)),
+          vosFromBc(ctx.model.homeOfAggregate(found0.agg.name)),
         )
       : undefined;
     if (!opForm) return null;
@@ -1668,8 +1681,8 @@ function modalOpGate(formChild: ExprIR & { kind: "call" }, ctx: WalkContext) {
 /** The declared type of `<voName>.<member>`, looked up across the bounded
  *  contexts the walk carries; undefined when the value object is unknown. */
 function optionalVoFieldType(voName: string, member: string, ctx: WalkContext): TypeIR | undefined {
-  for (const bc of ctx.bcByAggregate.values()) {
-    const vo = bc.valueObjects?.find((v) => v.name === voName);
+  for (const home of ctx.model.homes) {
+    const vo = home.valueObjects.find((v) => v.name === voName);
     if (vo) return vo.fields.find((f) => f.name === member)?.type;
   }
   return undefined;

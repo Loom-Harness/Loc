@@ -10,7 +10,8 @@
 // the database.  The cached value is that read's WIRE answer (the body every
 // backend already serialises, plus its version tag), so whatever the read
 // applied on the way out (the read scope, `mask unless`, derived fields) is
-// already inside it.
+// already inside it.  How an entry is stored — `CACHE_ENTRY` — is part of
+// the decision, because two backends on one redis read each other's entries.
 //
 // KEY.  One cache entry per aggregate id: `<entryPrefix><id>`.  The entry
 // holds a map from a SCOPE FINGERPRINT to the wire answer that fingerprint
@@ -47,7 +48,6 @@ import {
   readFilterRestrictions,
   readScopeFor,
 } from "../enrich/read-scope.js";
-import { wireFieldsForAggregate, wireFieldsForPart } from "../enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -55,10 +55,12 @@ import type {
   DeployableIR,
   ExprIR,
   FieldIR,
+  PayloadIR,
   SystemIR,
   ValueObjectIR,
 } from "../types/loom-ir.js";
 import { aggregateIsEventSourced } from "../util/resolve-datasource.js";
+import { responseWireFor } from "../util/response-wire.js";
 import { walkExprDeep } from "../util/walk.js";
 
 /** The response header a cached by-id read sets: `hit` when the answer came
@@ -68,6 +70,42 @@ export const CACHE_STATUS_HEADER = "x-loom-cache";
 
 /** The ttl a cache resource without `ttl:` applies, in seconds. */
 export const DEFAULT_CACHE_TTL_SECONDS = 60;
+
+/**
+ * The stored ENTRY, identical on every backend, so backends sharing one redis
+ * keyspace read each other's entries: the value under `<entryPrefix><id>` is
+ * the JSON text of an object mapping each scope fingerprint to one ANSWER, an
+ * object of exactly these two fields:
+ *
+ *   - `body` — the read's wire answer, as the JSON text the route sent (a
+ *     string, so no backend re-serialises another's answer);
+ *   - `etag` — the entity-tag the route sent with it, or `null` (a missing
+ *     field reads as `null`).  A hit sends a non-null tag back in the `etag`
+ *     header.
+ *
+ * An entry that is not a JSON object, or a scope's answer that is not such a
+ * pair or whose `body` is not JSON text, is UNREADABLE: the read is a miss and goes to the database, and the
+ * miss's write replaces the unreadable value (a whole entry that does not
+ * parse is replaced by a fresh one).  An unreadable entry never fails a
+ * request.
+ */
+export const CACHE_ENTRY = {
+  body: "body",
+  etag: "etag",
+} as const;
+
+/** The response header a hit replays a stored non-null tag on. */
+export const CACHE_ETAG_HEADER = "etag";
+
+/**
+ * The bound of an `inMemory` store, the same on every backend.  It holds at
+ * most this many entries (one per id).  A write that finds the store full
+ * first drops every expired entry; when it is still full the write is
+ * skipped, so the next read is a miss and goes to the database.  A read drops
+ * the expired entry it finds.  No backend runs a timer: the bound is what
+ * keeps a long-running process's memory finite.
+ */
+export const IN_MEMORY_CACHE_MAX_ENTRIES = 10_000;
 
 /** One principal input of the scope fingerprint, in fingerprint order. */
 export type CacheScopeInput =
@@ -142,12 +180,15 @@ function shapeHash(text: string): string {
   return h.toString(16).padStart(8, "0");
 }
 
-function wireShapeOf(agg: AggregateIR): string {
+/** The read wire a cached entry holds — the declared response records of the
+ *  aggregate and its parts — so an entry written under one shape is never read
+ *  under another. */
+function wireShapeOf(payloads: readonly PayloadIR[], agg: AggregateIR): string {
   const fields = (fs: readonly { name: string; type: unknown; optional: boolean }[]) =>
     fs.map((f) => [f.name, f.type, f.optional]);
   return JSON.stringify([
-    fields(wireFieldsForAggregate(agg)),
-    agg.parts.map((p) => [p.name, fields(wireFieldsForPart(p))]),
+    fields(responseWireFor(payloads, agg)),
+    agg.parts.map((p) => [p.name, fields(responseWireFor(payloads, p))]),
   ]);
 }
 
@@ -162,7 +203,9 @@ function stanceOf(restrictions: readonly ReadRestriction[], masked: readonly str
 function entryPrefixFor(sys: SystemIR, ds: DataSourceIR, agg: AggregateIR, stance: string): string {
   const base = ds.keyPrefix ?? `${snake(sys.name)}:${snake(ds.contextName)}:`;
   const sep = base.length === 0 || base.endsWith(":") ? "" : ":";
-  return `${base}${sep}${snake(agg.name)}:${shapeHash(wireShapeOf(agg) + stance)}:`;
+  const home = sys.subdomains.flatMap((sd) => sd.contexts).find((c) => c.name === ds.contextName);
+  const shape = wireShapeOf(home?.payloads ?? [], agg);
+  return `${base}${sep}${snake(agg.name)}:${shapeHash(shape + stance)}:`;
 }
 
 /** Every `mask unless` predicate the aggregate's wire answer applies. */
@@ -318,4 +361,70 @@ export function cacheStoragesOf(
     out.push({ storage: ds.storageName, storageType, resource: ds.name });
   }
   return out;
+}
+
+/** A deployable that writes a cached context's rows but evicts nothing: it
+ *  hosts the context on the database the caching deployables read, without
+ *  listing the cache resource, so its writes leave their answers stale. */
+export interface UnevictedWriter {
+  resource: string;
+  context: string;
+  deployable: string;
+  /** The deployables that list the cache resource. */
+  cachedBy: string[];
+}
+
+/** An `inMemory` cache resource listed by more than one deployable: each
+ *  process keeps its own map, so a write in one evicts nothing in another. */
+export interface SharedInMemoryCache {
+  resource: string;
+  deployables: string[];
+}
+
+/** The state storage `deployable` reads `context` from ("" when it lists no
+ *  state resource for it). */
+function stateStorageOf(sys: SystemIR, deployable: DeployableIR, context: string): string {
+  const ds = sys.dataSources.find(
+    (d) =>
+      d.kind === "state" &&
+      d.contextName === context &&
+      deployable.dataSourceNames.includes(d.name),
+  );
+  return ds?.storageName ?? "";
+}
+
+/**
+ * The topologies in which "every write evicts" cannot hold, because eviction
+ * runs in the process that writes and an entry is shared only through its
+ * store.  Every deployable that hosts a cached context on the database the
+ * cache is filled from must list the cache resource (it then evicts on each
+ * write), and an `inMemory` store, which is per process, may be listed by one
+ * deployable only.  The validator refuses both (`loom.cache-writer-not-evicting`,
+ * `loom.cache-in-memory-shared`).
+ */
+export function cacheTopologyGaps(sys: SystemIR): {
+  unevictedWriters: UnevictedWriter[];
+  sharedInMemory: SharedInMemoryCache[];
+} {
+  const unevictedWriters: UnevictedWriter[] = [];
+  const sharedInMemory: SharedInMemoryCache[] = [];
+  for (const ds of cacheResourcesOf(sys, undefined)) {
+    const listers = sys.deployables.filter((d) => d.dataSourceNames.includes(ds.name));
+    if (listers.length === 0) continue;
+    if (cacheStorageType(sys, ds) === "inMemory" && listers.length > 1) {
+      sharedInMemory.push({ resource: ds.name, deployables: listers.map((d) => d.name) });
+    }
+    const filledFrom = new Set(listers.map((d) => stateStorageOf(sys, d, ds.contextName)));
+    for (const d of sys.deployables) {
+      if (listers.includes(d) || !d.contextNames.includes(ds.contextName)) continue;
+      if (!filledFrom.has(stateStorageOf(sys, d, ds.contextName))) continue;
+      unevictedWriters.push({
+        resource: ds.name,
+        context: ds.contextName,
+        deployable: d.name,
+        cachedBy: listers.map((l) => l.name),
+      });
+    }
+  }
+  return { unevictedWriters, sharedInMemory };
 }

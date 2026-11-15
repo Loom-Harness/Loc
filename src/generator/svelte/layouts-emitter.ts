@@ -27,6 +27,7 @@ import { snake } from "../../util/naming.js";
 import { layoutKeyPrefix } from "../_frontend/layout-key.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { walkBody } from "../_walker/walker-core.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 import { renderSvelteImportLines } from "./walker/import-lines.js";
 import { localeSwitcherImport } from "./walker/page-shell.js";
 import { svelteTarget } from "./walker/svelte-target.js";
@@ -63,8 +64,7 @@ function walkSlot(
     userComponents,
     [],
     aggregatesByName,
-    bcByAggregate,
-    new Map(),
+    walkerModelOf({ bcByAggregate }),
     new Map(),
     new Map(),
     new Map(),

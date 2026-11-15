@@ -7,7 +7,6 @@ import {
   channelPlan,
   foldsDedupe,
   hasDurableEvents,
-  polymorphicReadGates,
   polymorphicReadMasked,
   QUERY_PARAM_MISMATCH_MESSAGES,
   routedPolymorphicRead,
@@ -1531,7 +1530,7 @@ export function generateTypeScriptForContexts(
         place(
           "http-routes",
           base.name,
-          buildBaseRoutesFile(base, read, polymorphicReadGates(base, ctx), masked, ctx),
+          buildBaseRoutesFile(base, read, masked, ctx),
           base.origin,
           baseConstruct,
         );
@@ -1567,7 +1566,7 @@ export function generateTypeScriptForContexts(
         place(
           "http-routes",
           base.name,
-          buildBaseRoutesFile(base, read, polymorphicReadGates(base, ctx), masked, ctx),
+          buildBaseRoutesFile(base, read, masked, ctx),
           base.origin,
           baseConstruct,
         );

@@ -17,6 +17,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { type WalkResult, walkBody } from "../_walker/walker-core.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 import { tsxTarget } from "./walker/tsx-target.js";
 
 export * from "../_walker/walker-core.js";
@@ -59,9 +60,8 @@ export function walkBodyToTsx(
     userComponents,
     apiParams,
     aggregatesByName,
-    bcByAggregate,
+    walkerModelOf({ bcByAggregate, bcByWorkflow }),
     workflowsByName,
-    bcByWorkflow,
     paramTypes,
     pageRoutes,
     externFunctions,

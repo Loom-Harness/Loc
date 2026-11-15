@@ -16,7 +16,18 @@
 // closure that matches what the emitted `<Vo>Schema` bodies reference.
 // Pure IR traversal: consumed downward by the generators, no back-edge.
 
-import type { BoundedContextIR, EnumIR, FieldIR, TypeIR, ValueObjectIR } from "../types/loom-ir.js";
+import type { EnumIR, FieldIR, TypeIR, ValueObjectIR } from "../types/loom-ir.js";
+
+/** The enum and value-object declarations a bounded context resolves a type
+ *  name against: its own, and the ones its sibling contexts declare.  A
+ *  `BoundedContextIR` is one; an emitter that holds only a context's type
+ *  scope passes that. */
+export interface TypeScope {
+  readonly enums: readonly EnumIR[];
+  readonly siblingEnums?: readonly EnumIR[];
+  readonly valueObjects: readonly ValueObjectIR[];
+  readonly siblingValueObjects?: readonly ValueObjectIR[];
+}
 
 /**
  * The value-object DECLARATIONS an emitter for this context may have to
@@ -36,7 +47,7 @@ import type { BoundedContextIR, EnumIR, FieldIR, TypeIR, ValueObjectIR } from ".
  * actually reaches, so an unreferenced sibling VO is never emitted.  Own names
  * shadow (`siblingValueObjects` is built already excluding them).
  */
-export function valueObjectPool(ctx: BoundedContextIR): ReadonlyArray<ValueObjectIR> {
+export function valueObjectPool(ctx: TypeScope): ReadonlyArray<ValueObjectIR> {
   const siblings = ctx.siblingValueObjects;
   return siblings && siblings.length > 0 ? [...ctx.valueObjects, ...siblings] : ctx.valueObjects;
 }
@@ -96,7 +107,7 @@ export function orderValueObjectsByDependency(vos: ReadonlyArray<ValueObjectIR>)
  *  it MATERIALISES an enum it merely references — a route file's
  *  `const <E>Schema = z.enum([...])`, a migration's `CHECK (<col> IN (...))`.
  *  Own names shadow (`siblingEnums` is built already excluding them). */
-export function enumPool(ctx: BoundedContextIR): ReadonlyArray<EnumIR> {
+export function enumPool(ctx: TypeScope): ReadonlyArray<EnumIR> {
   const siblings = ctx.siblingEnums;
   return siblings && siblings.length > 0 ? [...ctx.enums, ...siblings] : ctx.enums;
 }
@@ -106,9 +117,7 @@ export function enumPool(ctx: BoundedContextIR): ReadonlyArray<EnumIR> {
  *  Their `undefined` branch is silent too: EF emits `OwnsOne<Money>(x => x.Paid,
  *  o => { })` with no column names, and Java emits `new Money()` against a
  *  two-arg record. */
-export function valueObjectFieldLookup(
-  ctx: BoundedContextIR,
-): ReadonlyMap<string, readonly FieldIR[]> {
+export function valueObjectFieldLookup(ctx: TypeScope): ReadonlyMap<string, readonly FieldIR[]> {
   return new Map(valueObjectPool(ctx).map((v) => [v.name, v.fields] as const));
 }
 
@@ -119,10 +128,7 @@ export function valueObjectFieldLookup(
  *  DEGRADED fallback (a single text input for a whole money object, a
  *  `String(value)` page-object fill), not an error — so the miss is invisible
  *  until the generated project is run. */
-export function findValueObjectInScope(
-  ctx: BoundedContextIR,
-  name: string,
-): ValueObjectIR | undefined {
+export function findValueObjectInScope(ctx: TypeScope, name: string): ValueObjectIR | undefined {
   return (
     ctx.valueObjects.find((v) => v.name === name) ??
     ctx.siblingValueObjects?.find((v) => v.name === name)

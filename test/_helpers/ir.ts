@@ -1,13 +1,18 @@
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type {
+  AggregateIR,
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   EnrichedLoomModel,
   EnrichedSystemIR,
+  EntityPartIR,
   RawLoomModel,
+  WireField,
 } from "../../src/ir/types/loom-ir.js";
+import { responseWireFor } from "../../src/ir/util/response-wire.js";
 import type { Model } from "../../src/language/generated/ast.js";
+import { withBackendSystem } from "./backend-system.js";
 import { parseString, parseValid } from "./parse.js";
 
 /** Lower + enrich an already-parsed AST Model into the canonical Loom IR.
@@ -95,3 +100,66 @@ export const enrichedAggregates = (loom: EnrichedLoomModel): EnrichedAggregateIR
  *  in `src/ir/enrich/enrichments.ts` removes it. */
 export const reEnrich = (loom: EnrichedLoomModel): EnrichedLoomModel =>
   enrichLoomModel(loom as unknown as RawLoomModel);
+
+/** The API-read wire rows of an aggregate or entity part, read from the declared
+ *  `<X>Response` record of its owning context in `loom`.  The context must be
+ *  hosted by a deployable (that is what declares the records); asking about an
+ *  unhosted one throws, as `responseWireFor` does. */
+export function responseRows(
+  loom: EnrichedLoomModel,
+  ent: AggregateIR | EntityPartIR,
+): WireField[] {
+  for (const ctx of enrichedContexts(loom)) {
+    const owns = ctx.aggregates.some((a) => a === ent || a.parts.some((p) => p === ent));
+    if (owns) return responseWireFor(ctx.payloads, ent);
+  }
+  throw new Error(`responseRows: no context owns '${ent.name}'`);
+}
+
+/** Host every context of `source` on one node deployable so the model carries the
+ *  declared `<X>Response` records `responseRows` reads.  A source with no
+ *  `system` is wrapped by `withBackendSystem`; one with a `system` gets the
+ *  storage, resources and deployable spliced in before the system's closing brace. */
+export function hostSource(source: string): string {
+  const open = /^\s*system\s+[A-Z]\w*[^{]*\{/m.exec(source);
+  if (!open) return withBackendSystem(source, "node").source;
+  let depth = 1;
+  let i = open.index + open[0].length;
+  for (; i < source.length && depth > 0; i++) {
+    if (source[i] === "{") depth++;
+    else if (source[i] === "}") depth--;
+  }
+  const close = i - 1;
+  const body = source.slice(open.index, close);
+  const names = [...body.matchAll(/\bcontext\s+([A-Z]\w*)\b[^{\n]*\{/g)].map((m) => m[1]!);
+  const eventLog = /persistedAs:\s*eventLog/.test(body);
+  const lower = (c: string) => c.charAt(0).toLowerCase() + c.slice(1);
+  const resources = names.flatMap((c) => [
+    `  resource ${lower(c)}HostState { for: ${c}, kind: state, use: hostDb }`,
+    ...(eventLog
+      ? [`  resource ${lower(c)}HostLog { for: ${c}, kind: eventLog, use: hostDb }`]
+      : []),
+  ]);
+  const sources = names.flatMap((c) => [
+    `${lower(c)}HostState`,
+    ...(eventLog ? [`${lower(c)}HostLog`] : []),
+  ]);
+  const splice = [
+    "  storage hostDb { type: postgres }",
+    ...resources,
+    "  deployable hostApi {",
+    "    platform: node",
+    `    contexts: [${names.join(", ")}]`,
+    `    dataSources: [${sources.join(", ")}]`,
+    "    port: 8080",
+    "  }",
+    "",
+  ].join("\n");
+  return source.slice(0, close) + splice + source.slice(close);
+}
+
+/** `buildLoomModel` over `hostSource(source)`: the model's contexts are hosted, so
+ *  `responseRows` can read their declared response records. */
+export async function buildHostedModel(source: string): Promise<EnrichedLoomModel> {
+  return buildLoomModel(hostSource(source));
+}

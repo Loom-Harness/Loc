@@ -93,20 +93,19 @@ function ctx(): WalkContext {
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),
-    bcByAggregate: new Map([
-      [
-        "Order",
+    // The walk reads value objects off its model's homes.
+    model: {
+      homes: [
         {
           name: "Sales",
-          aggregates: [],
+          enums: [],
           valueObjects: [{ name: "Price", fields: [{ name: "amount" }, { name: "currency" }] }],
         },
       ],
-    ]),
+    },
     workflowsByName: new Map(),
     projectionsByName: new Set(),
     listShapedProjections: new Set(),
-    bcByWorkflow: new Map(),
     formOfs: [],
     sink: {},
     hoistedModuleDecls: [],

@@ -44,6 +44,30 @@ describe("Frontend Contract surface gate", () => {
     expect(v).toEqual(["wire.responses.OrderResponse: field 'internalMargin' is not on the wire"]);
   });
 
+  it("names a domain-only field seeded into a workflow or a projection", async () => {
+    const seedField = (fields: Json[]) =>
+      fields.push({
+        name: "internalScore",
+        type: { kind: "primitive", name: "int" },
+        optional: false,
+      });
+    const wf = await gate("test/fixtures/corpus/eventsourced-workflow.ddd", (c) => {
+      const w = wire(c).workflows!.find((x) => x.name === "OrderFulfillment")!;
+      seedField(w.instance as Json[]);
+      wire(c).workflows!.push({ name: "HiddenSaga", context: "Fulfillment" });
+    });
+    expect(wf).toEqual([
+      "wire.workflows.OrderFulfillment: field 'internalScore' is not on the wire",
+      "wire.workflows: HiddenSaga is not exposed",
+    ]);
+    const proj = await gate("test/fixtures/corpus/projection-groupby.ddd", (c) => {
+      seedField(wire(c).projections!.find((x) => x.name === "OrdersByStatus")!.fields as Json[]);
+    });
+    expect(proj).toEqual([
+      "wire.projections.OrdersByStatus: field 'internalScore' is not on the wire",
+    ]);
+  });
+
   it("names a mask predicate or a wrong maskable flag", async () => {
     const v = await gate("test/fixtures/corpus/field-mask.ddd", (c) => {
       const fields = response(c, "EmployeeResponse").fields as Json[];

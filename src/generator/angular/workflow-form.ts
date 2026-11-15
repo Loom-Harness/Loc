@@ -77,7 +77,7 @@ export function renderAngularWorkflowForm(
     );
   }
   const workflow = ctx.workflowsByName.get(wfName);
-  const bc = ctx.bcByWorkflow?.get(wfName);
+  const bc = ctx.model.homeOfWorkflow(wfName);
   if (!workflow || !bc) {
     return giveUp(
       ctx.target,

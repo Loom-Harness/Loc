@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { wireFieldsFor } from "../../src/ir/enrich/wire-projection.js";
 import { allContexts } from "../../src/ir/types/loom-ir.js";
 import {
   discriminatorValue,
@@ -12,7 +11,7 @@ import {
   tpcConcretesOf,
   tphConcretesOf,
 } from "../../src/ir/util/inheritance.js";
-import { buildLoomModel } from "../_helpers/index.js";
+import { buildHostedModel, responseRows } from "../_helpers/index.js";
 
 // The platform-neutral aggregate-inheritance predicates (aggregate-inheritance.md)
 // are the single source of truth every backend's table/discriminator emission
@@ -20,10 +19,10 @@ import { buildLoomModel } from "../_helpers/index.js";
 // derived identically on Hono, .NET, and Phoenix. This pins that contract.
 
 async function poolFor(src: string) {
-  const model = await buildLoomModel(src);
+  const model = await buildHostedModel(src);
   const ctx = allContexts(model).find((c) => c.name === "Reg")!;
   const byName = (n: string) => ctx.aggregates.find((a) => a.name === n)!;
-  return { pool: ctx.aggregates, byName };
+  return { pool: ctx.aggregates, byName, model };
 }
 
 describe("inheritance predicates — TPH (sharedTable)", () => {
@@ -82,7 +81,7 @@ describe("inheritance predicates — multi-level TPH chain (B11)", () => {
     // requires it).  Before B11 the merge was single-level, so Dog lost the
     // grandparent `name` from its wireShape while the TPH table still carried
     // the column → every insert failed.
-    const { pool, byName } = await poolFor(`
+    const { pool, byName, model } = await poolFor(`
       context Reg {
         abstract aggregate Animal { name: string }
         abstract aggregate Pet extends Animal { owner: string }
@@ -94,7 +93,7 @@ describe("inheritance predicates — multi-level TPH chain (B11)", () => {
     // Full transitive field merge: grandbase → base → own, in that order.
     expect(dog.fields.map((f) => f.name)).toEqual(["name", "owner", "breed", "rowVersion"]);
     // wireShape carries id + every inherited + own field (+ default-on version).
-    const wire = wireFieldsFor(dog);
+    const wire = responseRows(model, dog);
     expect(wire.map((w) => w.name)).toEqual(["id", "name", "owner", "breed", "rowVersion"]);
 
     // The whole hierarchy lives in ONE table at the ROOT — the intermediate

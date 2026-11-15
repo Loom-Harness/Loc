@@ -306,6 +306,26 @@ is the coverage floor: `test/generator/elixir/heex-coverage.test.ts` fails when
 any primitive with a `heex` renderer, or any `WalkResult` accumulator, is not
 reached by it. A new HEEx renderer or accumulator extends that fixture.
 
+### Proving a frontend change byte-identical — `scripts/capture-frontend-snapshot.mjs`
+
+`scripts/capture-corpus-snapshot.mjs` walks the corpus fixtures, and no corpus
+fixture declares a `ui`, so it says nothing about a frontend emitter. The
+frontend snapshot captures the systems that carry frontends: every tracked
+`.ddd` outside `test/fixtures/corpus/`, generated as written, plus each React
+build example (`test/e2e/react-build-cases.ts`) under each React build pack.
+Capture each side from its own clean worktree:
+
+```bash
+npx tsc -b                                                        # the script reads out/
+node scripts/capture-frontend-snapshot.mjs /tmp/fe-before.json    # on the base commit
+node scripts/capture-frontend-snapshot.mjs /tmp/fe-after.json     # on the change
+node scripts/capture-frontend-snapshot.mjs --diff /tmp/fe-before.json /tmp/fe-after.json
+```
+
+Each `.ddd` is built on its own, so a file that generates only together with
+its imports records `validation-error` on both sides, and Vue, Svelte and
+Angular examples run under the pack they declare.
+
 ## Running any CI gate locally — the reverse index
 
 **Every CI gate runs locally.** Do not push a commit just to see whether a

@@ -13,7 +13,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
-import { mergePatchFields } from "../../../ir/util/merge-patch.js";
+import { isMergePatchUpdate, mergePatchFields } from "../../../ir/util/merge-patch.js";
 import {
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
@@ -52,6 +52,16 @@ function principalBind(op: AggregateIR["operations"][number]): string {
   return operationGatesUseCurrentUser(op) ? "        var currentUser = _currentUser.User;\n" : "";
 }
 
+/** The value a command handler passes for parameter `name`: the command's,
+ *  or, on a merge-patch update (RS-47), the stored value when the body left
+ *  the key out.  A post-load gate reads the same value the call passes. */
+function opArgExpr(op: AggregateIR["operations"][number], name: string): string {
+  const prop = DOMAIN_NAMES.csharp.prop(name);
+  return isMergePatchUpdate(op)
+    ? `(command.PatchedKeys.Contains(${JSON.stringify(name)}) ? command.${prop} : aggregate.${prop})`
+    : `command.${prop}`;
+}
+
 /** The hoisted authorization gate — the leading run of `requires` statements,
  *  evaluated by the command HANDLER rather than the aggregate (op-gates.ts), in
  *  the gate-ladder order (`ir/plan/gate-ladder.ts`): the gates that read no row
@@ -79,9 +89,7 @@ function requiresGate(
       const pred = renderCsExpr(g.expr, {
         thisName: "aggregate",
         paramExpr: (name) =>
-          op.params.some((q) => q.name === name)
-            ? `command.${DOMAIN_NAMES.csharp.prop(name)}`
-            : undefined,
+          op.params.some((q) => q.name === name) ? opArgExpr(op, name) : undefined,
       });
       // A merge-patch update's mask write gate runs only when the body
       // carries the masked key (an absent key keeps the stored value).
@@ -558,11 +566,7 @@ export function emitOperationCommandAndHandler(
     // The handler evaluates the gate, so it needs the accessor injected even
     // when the remaining body takes no principal.
     const gateUsesUser = operationGatesUseCurrentUser(op);
-    const baseCallArgs = op.params.map((p) =>
-      patch
-        ? `(command.PatchedKeys.Contains(${JSON.stringify(p.name)}) ? command.${DOMAIN_NAMES.csharp.prop(p.name)} : aggregate.${DOMAIN_NAMES.csharp.prop(p.name)})`
-        : `command.${DOMAIN_NAMES.csharp.prop(p.name)}`,
-    );
+    const baseCallArgs = op.params.map((p) => opArgExpr(op, p.name));
     const callArgs = (usesUser ? [...baseCallArgs, "_currentUser.User"] : baseCallArgs).join(", ");
     const userExtraDeps = [
       ...(usesUser || gateUsesUser

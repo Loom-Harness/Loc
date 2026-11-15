@@ -1,4 +1,5 @@
 import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
+import { buildFrontendHost } from "../../ir/contract/host.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -13,12 +14,10 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { contextUsesMoney, sourceLocaleOf, uiUsesMoney } from "../../ir/types/loom-ir.js";
-import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
-import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, plural, snake } from "../../util/naming.js";
@@ -27,7 +26,13 @@ import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_SESSION_TS, AUTH_USE_SESSION_VUE, authGateVue } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
-import { clientFinds, requireFrontendContract, servesHistory } from "../_frontend/contract.js";
+import {
+  clientFinds,
+  clientProjections,
+  clientWorkflows,
+  requireFrontendContract,
+  servesHistory,
+} from "../_frontend/contract.js";
 import { e2eHarnessFiles, e2eSignsIn } from "../_frontend/e2e-harness.js";
 import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
 import {
@@ -58,7 +63,7 @@ import {
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { VUE_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
 import { pageEmitPath } from "../_frontend/page-identity.js";
-import { buildProjectionsApiModule, readableProjections } from "../_frontend/projections-module.js";
+import { buildProjectionsApiModule } from "../_frontend/projections-module.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import {
   vueChromeAttr as shellChromeAttr,
@@ -68,7 +73,7 @@ import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
 import { prepareThemeVM } from "../_frontend/theme-preparer.js";
 import { uiUsesToastEffect } from "../_frontend/toast-effect.js";
 import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
-import { buildWorkflowsApiModule, hasAnyWorkflow } from "../_frontend/workflows-module.js";
+import { buildWorkflowsApiModule, workflowsModuleScope } from "../_frontend/workflows-module.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
@@ -81,6 +86,7 @@ import {
   pageKeyPrefix,
 } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 // Framework-neutral pieces that live react-side today (same sharing
 // pattern as the elixir theme-emit): the e2e harness constants, the
 // page-object emitters (testid/DOM-only — `@loom/ui-test-driver`
@@ -168,12 +174,13 @@ export function generateVueForContexts(
   options: GenerateVueOptions = {},
 ): Map<string, string> {
   const out = emissionSink("generator/vue/index");
-  const contract = requireFrontendContract(options.frontendContract, deployable.name);
+  const host = buildFrontendHost(sys, deployable);
+  const contract = requireFrontendContract(options.frontendContract, host.deployable);
 
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   // The frontend session guard (`auth: ui`): also decides which chrome the
   // translation catalog carries, so it is derived before the catalog scope.
-  const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
+  const authUi = host.authUi;
   // Same-origin relative `/api` base; `vite dev` proxies it to the
   // target backend, docker-compose overrides via `VITE_API_BASE_URL`.
   const apiBaseUrl = options.apiBaseUrl ?? API_BASE_PATH;
@@ -229,7 +236,7 @@ export function generateVueForContexts(
   pack.setChromeI18n(i18nEnabled);
   const formScope = {
     layouts: sys.layouts,
-    contexts,
+    model: walkerModelOf({ contexts }),
     sentences: pack.manifest.sentenceChrome ?? [],
     implicitModelText: vueTarget.modelTextImplicitSites === true,
     sessionView: authUi,
@@ -264,7 +271,7 @@ export function generateVueForContexts(
 
   // Per-aggregate api modules — 1:1 with the aggregate inventory,
   // emitted from the shared `_frontend` builder with vue-query naming.
-  const serves = (target ?? deployable).serves;
+  const serves = host.serves;
   for (const { agg, ctx } of aggregates) {
     out.set(
       `src/api/${agg.name[0]!.toLowerCase()}${agg.name.slice(1)}.ts`,
@@ -428,9 +435,8 @@ export function generateVueForContexts(
       userComponents,
       ui.apiParams,
       aggregatesIRByName,
-      bcByAggregate,
+      walkerModelOf({ bcByAggregate, bcByWorkflow }),
       workflowsByName,
-      bcByWorkflow,
       new Map(),
       pageRoutes,
       externFunctionNames,
@@ -561,10 +567,16 @@ export function generateVueForContexts(
 
   // Shared workflows api module — 1:1 with the inventory,
   // same builder as React with the vue-query import.
-  if (hasAnyWorkflow(contexts)) {
+  const clientWfs = clientWorkflows(
+    contract,
+    contexts.map((c) => c.name),
+  );
+  if (clientWfs.length > 0) {
     out.set(
       "src/api/workflows.ts",
-      buildWorkflowsApiModule(contexts, { queryPackage: "@tanstack/vue-query" }),
+      buildWorkflowsApiModule(clientWfs, workflowsModuleScope(contexts), {
+        queryPackage: "@tanstack/vue-query",
+      }),
     );
   }
 
@@ -573,10 +585,21 @@ export function generateVueForContexts(
   // `useQuery` is API-compatible with the React one, so the emitted module is
   // otherwise identical.  Emitted only when the deployable actually serves a
   // readable projection, so a projection-free app stays byte-identical.
-  if (readableProjections(contexts).length > 0) {
+  const clientProjs = clientProjections(
+    contract,
+    contexts.map((c) => c.name),
+  );
+  if (clientProjs.length > 0) {
     out.set(
       "src/api/projections.ts",
-      buildProjectionsApiModule(contexts, { queryPackage: "@tanstack/vue-query" }),
+      buildProjectionsApiModule(
+        clientProjs,
+        {
+          enums: contract.wire.enums,
+          usesMoney: contexts.some(contextUsesMoney),
+        },
+        { queryPackage: "@tanstack/vue-query" },
+      ),
     );
   }
 
@@ -623,9 +646,7 @@ export function generateVueForContexts(
   // handlers, emit the renderless RealtimeHandlers component + the toast
   // queue the app-shell mounts; the config module exports `API_BASE_URL`
   // on Vue (the SvelteKit symbol).
-  const realtimeTypes = backendServesRealtime(target?.platform)
-    ? [...new Set(contexts.flatMap((c) => [...realtimeEventTypes(c)]))].sort()
-    : [];
+  const realtimeTypes = host.realtime.eventTypes;
   if (realtimeTypes.length > 0) {
     out.set(
       "src/api/realtime.ts",
@@ -633,11 +654,7 @@ export function generateVueForContexts(
       // SAME `auth: ui` / `auth: required` gate the api client's
       // `credentials: "include"` rides, so the SSE stream authenticates exactly
       // like an ordinary API call instead of 401-ing on an authenticated deployable.
-      renderRealtimeClient(
-        realtimeTypes,
-        "API_BASE_URL",
-        realtimeStreamCredential(deployable, target, sys.user),
-      ),
+      renderRealtimeClient(realtimeTypes, "API_BASE_URL", host.realtime.credential),
     );
   }
   const hasRealtimeHandlers = realtimeTypes.length > 0 && (ui.notifications?.length ?? 0) > 0;

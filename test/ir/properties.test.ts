@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { wireFieldsFor } from "../../src/ir/enrich/wire-projection.js";
 import type {
   EnrichedLoomModel,
   EntityPartIR,
@@ -7,9 +6,10 @@ import type {
   ValueObjectIR,
 } from "../../src/ir/types/loom-ir.js";
 import { allAggregates, allContexts } from "../../src/ir/types/loom-ir.js";
+import { valueObjectWire } from "../../src/ir/util/response-wire.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { buildWireSpec } from "../../src/system/wire-spec.js";
-import { loadExampleModel, reEnrich, toLoomModel } from "../_helpers/index.js";
+import { loadExampleModel, reEnrich, responseRows, toLoomModel } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
 // IR-transformation properties.  Every assertion here is an *invariant*
@@ -51,24 +51,22 @@ describe("IR invariants — every example", () => {
       it("every aggregate has wireShape with `id` first", async () => {
         const loom = await buildEnriched(example);
         for (const a of allAggregates(loom)) {
-          expect(wireFieldsFor(a), `${a.name}.wireShape`).toBeDefined();
-          expect(wireFieldsFor(a)[0]!.name, `${a.name} first field name`).toBe("id");
-          expect(wireFieldsFor(a)[0]!.source, `${a.name} first field source`).toBe("id");
+          expect(responseRows(loom, a)[0]!.name, `${a.name} first field name`).toBe("id");
+          expect(responseRows(loom, a)[0]!.source, `${a.name} first field source`).toBe("id");
         }
       });
 
       it("every part has wireShape with `id` first and a parent reference", async () => {
         const loom = await buildEnriched(example);
         for (const p of allParts(loom)) {
-          expect(wireFieldsFor(p), `${p.name}.wireShape`).toBeDefined();
-          expect(wireFieldsFor(p)[0]!.name).toBe("id");
+          expect(responseRows(loom, p)[0]!.name).toBe("id");
         }
       });
 
       it("value objects have no `id` and no `containment` in wire shape", async () => {
         const loom = await buildEnriched(example);
         for (const v of allValueObjects(loom)) {
-          for (const f of wireFieldsFor(v)) {
+          for (const f of valueObjectWire(v)) {
             expect(f.source, `${v.name}.${f.name}`).not.toBe("id");
             expect(f.source).not.toBe("containment");
           }

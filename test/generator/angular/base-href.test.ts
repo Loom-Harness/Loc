@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateAngularForContexts } from "../../../src/generator/angular/index.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
 
 // ---------------------------------------------------------------------------
@@ -46,8 +47,12 @@ async function bothMounts() {
   const sys = model.systems[0];
   const deployable = sys.deployables.find((d) => d.platform === "angular")!;
   const contexts = model.contexts;
-  const rootMount = generateAngularForContexts(contexts, sys, deployable, {});
-  const appMount = generateAngularForContexts(contexts, sys, deployable, { basePath: "/app" });
+  const frontendContract = buildFrontendContract(model, sys);
+  const rootMount = generateAngularForContexts(contexts, sys, deployable, { frontendContract });
+  const appMount = generateAngularForContexts(contexts, sys, deployable, {
+    basePath: "/app",
+    frontendContract,
+  });
   return { rootMount, appMount };
 }
 
