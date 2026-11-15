@@ -59,3 +59,5 @@ arm); every `family === "phoenix"` check across the toolchain (renamed to
 `"elixir"`); CLI `--platform` (canonical `elixir`, `phoenix` accepted as
 alias); the seven affected decisions get an amend-by-this-one note.
 **Mirrors D-NODE-PLATFORM**; **amends D-PHOENIX-SURFACE**.
+
+**Enforced by:** `test/language/validation/phoenix-alias.test.ts`

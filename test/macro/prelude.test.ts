@@ -1,3 +1,4 @@
+// Gate for D-TYPED-CAPABILITIES (docs/decisions).
 // Built-in capability prelude (typed-capabilities.md, Phase 3).
 //
 // The `auditable` capability ships with the toolchain (src/macros/prelude.ts) —

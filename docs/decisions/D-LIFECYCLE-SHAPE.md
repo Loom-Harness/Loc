@@ -24,3 +24,5 @@ the api-level `urlStyle`. Persistence-free bodies keep one body
 platform-neutral across all five backends.
 
 **Consequence.** Re-open any of these only on purpose.
+
+**Enforced by:** none, tracked by #6013 — no test asserts the absence of PATCH routes or persistence-free lifecycle bodies

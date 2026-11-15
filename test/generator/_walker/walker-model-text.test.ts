@@ -1,3 +1,4 @@
+// Gate for D-I18N-KEY (docs/decisions).
 // `label(…)` / `plural(…)` through the body walker — the React reference
 // (i18n identity keys, #4448).
 //

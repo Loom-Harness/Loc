@@ -1,3 +1,4 @@
+// Gate for D-SHARING (docs/decisions).
 // Phase ⑥ composition of `policy` level rules and row rules (D-SHARING): the
 // IR shape the five backends render.  What the composed scope DOES at runtime
 // is the `policy-row-rules` corpus fixture's job; this pins the composition's

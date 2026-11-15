@@ -32,3 +32,5 @@ earlier ids were applied.
 persistence adapter, a forced redelivery of the same outbox row leaves the
 fold's count at 1. `test/system/projection-fold-census.test.ts` refuses a
 hand-written inbox statement outside `src/ir/plan/`.
+
+**Enforced by:** `test/e2e/saga-redelivery-e2e.test.ts`, `test/system/projection-fold-census.test.ts`

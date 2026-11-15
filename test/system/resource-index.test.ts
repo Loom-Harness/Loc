@@ -1,3 +1,4 @@
+// Gate for D-INDEX-INFRA (docs/decisions).
 // `resource index: [...]` → derived non-unique performance indexes
 // (uniqueness-and-indexes.md §3.2).  Pure infrastructure: each spec names its
 // target entity explicitly (`Project.name`, or a contained part `Line.sku`),

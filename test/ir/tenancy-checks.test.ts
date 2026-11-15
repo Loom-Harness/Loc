@@ -1,3 +1,4 @@
+// Gate for D-TENANCY-DEFAULT, D-TENANCY-REGISTRY (docs/decisions).
 // IR-level tenancy checks (multi-tenancy Phase 1a, slice 1a.3 —
 // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-implementation.md §1): the explicit-stance lint
 // (registry + abstract exemptions), stance markers without a `tenancy by`

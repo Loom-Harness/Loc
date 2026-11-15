@@ -36,3 +36,5 @@ barrel; pack-declared `imports` tables flow into page scripts).  Vue
 packs own the `op-dialog` operation-modal wrapper.  `vue` is a
 STATIC_BUNDLE_FRAMEWORK — dotnet/java/phoenix hosts embed a
 `framework: vue` ui exactly like a React one.
+
+**Enforced by:** `test/generator/vue/project-shape.test.ts`

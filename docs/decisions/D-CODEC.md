@@ -80,3 +80,5 @@ elixir/Phoenix renders the fact through `src/generator/elixir/wire-policy-ex.ts`
 `cast/3` coerces across JSON types, so a controller plug (`require_wire_types`)
 checks each int/long/decimal/money/bool request key's raw value against
 `ingressFor` before the action runs; the key list is derived from the fact.
+
+**Enforced by:** `test/ir/codec.test.ts`, `test/generator/hono/codec-census.test.ts`

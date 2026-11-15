@@ -17,3 +17,5 @@ generalised, and the one compile waivers F11 / F13 were recording.
 
 **Affects.** `aggregate-inheritance.md`; the persistence adapter's
 table-layout resolution.
+
+**Enforced by:** `test/language/parsing/aggregate-inheritance.test.ts`

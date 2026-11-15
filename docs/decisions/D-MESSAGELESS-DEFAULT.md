@@ -45,3 +45,5 @@ errors}` rung, the message-less entry carrying no `code`
 field's `loc` and no "Value error, " prefix (`python/emit/wire-constraints.ts`).
 Pinned by RS-43 and the `validation-messages` / `intrinsics` wire goldens; the
 four `M-T6.86` waivers are deleted.
+
+**Enforced by:** none, tracked by #6013 — the multi-field `Invariant violated` sentence is never booted; extend validation-messages with an unnamed conjunction rule

@@ -56,3 +56,5 @@ site (#2734) survives on the outlet arm only.
 `src/generator/angular/walker/page-shell.ts` (the two registrations),
 `src/ir/util/component-children.ts`, `docs/extern.md`,
 [`docs/new-plan/waves/handoffs/wave-c2-2h-angular.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c2-2h-angular.md).
+
+**Enforced by:** `test/generator/angular/component-children-gate.test.ts`

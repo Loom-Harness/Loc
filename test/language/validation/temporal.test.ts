@@ -1,3 +1,4 @@
+// Gate for D-STDLIB-LAYERS (docs/decisions).
 // A5 temporal (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md) — duration constructors
 // (`days`/`hours`/`minutes`) + the closed temporal arithmetic rules in the
 // type system, and the AST gates:
