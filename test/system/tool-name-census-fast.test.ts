@@ -12,6 +12,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 import { REPO_ROOT } from "../_helpers/ddd-corpus.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import {
@@ -35,6 +36,8 @@ describe("no tool name in generated output (fast sample)", () => {
       source: readFileSync(resolve(REPO_ROOT, f), "utf8"),
     }));
     sources.push(...starterSources());
+    // REACH FLOOR — 2 examples + the starter on 5 backends × the design packs.
+    expectReach("generated sample trees", sources.length, 50);
     const unlisted: string[] = [];
     for (const { label, source } of sources) {
       const files = await generateSystemFiles(source, ALL_OPTIONS_ON);

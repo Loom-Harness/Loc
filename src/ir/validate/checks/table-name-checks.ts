@@ -200,7 +200,7 @@ export function validatePersistedTableCollisions(
 // -------------------------------------------------------------------------
 
 /** The leading character every runtime-owned table name carries. */
-export const RESERVED_TABLE_PREFIX = "_";
+const RESERVED_TABLE_PREFIX = "_";
 
 export function validateReservedTableNames(
   ctx: EnrichedBoundedContextIR,
