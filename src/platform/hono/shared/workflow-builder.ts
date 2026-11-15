@@ -68,7 +68,6 @@ import {
   esStarterSharesEvent,
   eventSourcedWorkflows,
   foldInboxPurgeSql,
-  foldsDedupe,
   hasDurableEvents,
   hasStateRow,
   inboxClaimSql,
