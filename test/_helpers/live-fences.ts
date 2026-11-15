@@ -15,8 +15,8 @@
 //
 // Readers: src/diagnostics/unsupported-register.ts `mission` (via
 // unsupported-register.test.ts), and the `blockedBy` of the waivers in
-// symbol-plan-census, openapi-native-census, e2e-fixed-port-census and
-// ir-walk-census.
+// symbol-plan-census, openapi-native-census, e2e-fixed-port-census,
+// ir-walk-census and create-request-census.
 
 export const LIVE_FENCES: Readonly<Record<string, string>> = {
   "#3317": "Server-driven Table filter",
@@ -46,6 +46,7 @@ export const LIVE_FENCES: Readonly<Record<string, string>> = {
   "#5900": "P2 redelivery dedupe: holds src/generator/elixir/dispatch-emit.ts",
   "#5923": "e2e suites still publishing fixed host ports",
   "#5933": "Re-own unsupported-register gaps whose owning issue closed",
+  "#5951": "Elixir and Svelte emit a create request schema for an aggregate with no create route",
 };
 
 /** `""` when `ref` is a live fence, else the reason it is not. */

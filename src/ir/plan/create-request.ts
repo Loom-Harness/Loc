@@ -11,8 +11,12 @@
 // derived create input (`undeclaredCreateRequestFields`).  That fallback is
 // the only place outside the backends that reads the derived set.  The
 // scaffold splices a create record for every concrete aggregate of an exposed
-// context, so no served aggregate of a shipped model reaches it;
-// `test/system/create-request-census.test.ts` holds that at zero.
+// context, so no served create of a shipped model reaches it;
+// `test/system/create-request-census.test.ts` holds that at zero.  What still
+// reaches it is an aggregate that serves NO create: the Elixir OpenAPI emitter
+// and the Svelte api module emit a create request schema for every aggregate,
+// and read the fallback for those.  Once both gate that schema on a served
+// create, the fallback has no reader and `createRequestFields` returns `[]`.
 
 import { createInputFields, isRequiredCreateInput } from "../enrich/wire-projection.js";
 import type { AggregateIR, FieldIR, PayloadIR } from "../types/loom-ir.js";

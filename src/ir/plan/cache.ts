@@ -48,7 +48,6 @@ import {
   readFilterRestrictions,
   readScopeFor,
 } from "../enrich/read-scope.js";
-import { wireFieldsForAggregate, wireFieldsForPart } from "../enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -56,10 +55,12 @@ import type {
   DeployableIR,
   ExprIR,
   FieldIR,
+  PayloadIR,
   SystemIR,
   ValueObjectIR,
 } from "../types/loom-ir.js";
 import { aggregateIsEventSourced } from "../util/resolve-datasource.js";
+import { responseWireFor } from "../util/response-wire.js";
 import { walkExprDeep } from "../util/walk.js";
 
 /** The response header a cached by-id read sets: `hit` when the answer came
@@ -179,12 +180,15 @@ function shapeHash(text: string): string {
   return h.toString(16).padStart(8, "0");
 }
 
-function wireShapeOf(agg: AggregateIR): string {
+/** The read wire a cached entry holds — the declared response records of the
+ *  aggregate and its parts — so an entry written under one shape is never read
+ *  under another. */
+function wireShapeOf(payloads: readonly PayloadIR[], agg: AggregateIR): string {
   const fields = (fs: readonly { name: string; type: unknown; optional: boolean }[]) =>
     fs.map((f) => [f.name, f.type, f.optional]);
   return JSON.stringify([
-    fields(wireFieldsForAggregate(agg)),
-    agg.parts.map((p) => [p.name, fields(wireFieldsForPart(p))]),
+    fields(responseWireFor(payloads, agg)),
+    agg.parts.map((p) => [p.name, fields(responseWireFor(payloads, p))]),
   ]);
 }
 
@@ -199,7 +203,9 @@ function stanceOf(restrictions: readonly ReadRestriction[], masked: readonly str
 function entryPrefixFor(sys: SystemIR, ds: DataSourceIR, agg: AggregateIR, stance: string): string {
   const base = ds.keyPrefix ?? `${snake(sys.name)}:${snake(ds.contextName)}:`;
   const sep = base.length === 0 || base.endsWith(":") ? "" : ":";
-  return `${base}${sep}${snake(agg.name)}:${shapeHash(wireShapeOf(agg) + stance)}:`;
+  const home = sys.subdomains.flatMap((sd) => sd.contexts).find((c) => c.name === ds.contextName);
+  const shape = wireShapeOf(home?.payloads ?? [], agg);
+  return `${base}${sep}${snake(agg.name)}:${shapeHash(shape + stance)}:`;
 }
 
 /** Every `mask unless` predicate the aggregate's wire answer applies. */

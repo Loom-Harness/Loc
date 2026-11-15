@@ -1056,7 +1056,7 @@ function workflowCorrelation(wf: Workflow): Property | undefined {
 
 /** A workflow's persisted-instance properties in wire-shape order — the
  *  correlation field first (the `token`), then the remaining state fields in
- *  declaration order.  Twin of `wireFieldsForWorkflow`; no correlation ⇒ no
+ *  declaration order.  Twin of `workflowInstanceWire`; no correlation ⇒ no
  *  instance shape (empty).  Shared by the instance builders. */
 function workflowInstanceProperties(wf: Workflow): Property[] {
   const corr = workflowCorrelation(wf);

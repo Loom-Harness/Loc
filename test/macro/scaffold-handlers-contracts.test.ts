@@ -16,9 +16,9 @@
 import { AstUtils } from "langium";
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
-import { forApiRead, wireFieldsFor } from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { allContexts } from "../../src/ir/types/loom-ir.js";
+import { responseWireFor } from "../../src/ir/util/response-wire.js";
 import {
   type BoundedContext,
   isAggregate,
@@ -182,7 +182,7 @@ describe("scaffoldHandlers — contract records (M-T5.10 PR1)", () => {
 });
 
 describe("apiReadFields — AST twin of forApiRead(wireShape) (PR2 byte-identity anchor)", () => {
-  it("matches forApiRead(wireShape) minus the synthetic id row, in order", async () => {
+  it("matches the declared response rows minus the synthetic id row, in order", async () => {
     const { model } = await parseString(SRC, { validate: false });
     // AST side: apiReadFields over the aggregate's post-expansion members.
     const astAgg = [...AstUtils.streamAllContents(model)]
@@ -191,10 +191,9 @@ describe("apiReadFields — AST twin of forApiRead(wireShape) (PR2 byte-identity
     const astNames = apiReadFields(astAgg).map((f) => f.name);
     // IR side: the enriched aggregate's wireShape, forApiRead, minus id.
     const enriched = enrichLoomModel(lowerModel(model));
-    const irAgg = allContexts(enriched)
-      .flatMap((c) => c.aggregates)
-      .find((a) => a.name === "Order")!;
-    const wireNames = forApiRead(wireFieldsFor(irAgg))
+    const irCtx = allContexts(enriched).find((c) => c.aggregates.some((a) => a.name === "Order"))!;
+    const irAgg = irCtx.aggregates.find((a) => a.name === "Order")!;
+    const wireNames = responseWireFor(irCtx.payloads, irAgg)
       .filter((w) => w.source !== "id")
       .map((w) => w.name);
     expect(astNames).toEqual(wireNames);
