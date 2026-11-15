@@ -81,7 +81,14 @@ export function collapseVoGroups(columns: readonly ColumnShape[]): ColumnShape[]
  *    add and in `baseline` for a drop.
  *
  *  Every other step passes through unchanged. */
-export function collapseVoSteps(m: MigrationsIR, keyCase: VoJsonKeyCase): MigrationStep[] {
+export function collapseVoSteps(
+  m: MigrationsIR,
+  keyCase: VoJsonKeyCase,
+  /** Which tables store their value objects as json; a step on any other
+   *  table passes through as the canonical leaf-column step.  Every table
+   *  when omitted. */
+  collapses: (table: string, schema: string | undefined) => boolean = () => true,
+): MigrationStep[] {
   const groupOf = (
     snap: SchemaSnapshot | null,
     table: string,
@@ -110,6 +117,16 @@ export function collapseVoSteps(m: MigrationsIR, keyCase: VoJsonKeyCase): Migrat
   };
   const out: MigrationStep[] = [];
   for (const step of m.steps) {
+    const target =
+      step.op === "addCheck"
+        ? { table: step.check.table, schema: step.schema }
+        : "table" in step && typeof step.table === "string"
+          ? { table: step.table, schema: "schema" in step ? step.schema : undefined }
+          : undefined;
+    if (target && !collapses(target.table, target.schema)) {
+      out.push(step);
+      continue;
+    }
     switch (step.op) {
       case "addColumn": {
         const group = step.column.voGroup;

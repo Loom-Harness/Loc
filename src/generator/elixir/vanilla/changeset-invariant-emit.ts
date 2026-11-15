@@ -90,7 +90,7 @@ function extendedShape(inv: InvariantIR): boolean {
  *      means "no children" — exactly the `[]` the other four backends hold, so
  *      `lines.count > 0` correctly fails rather than crashing.
  *    • UPDATE / operation-persist — the record comes from the repository, whose
- *      every read path ends `|> Repo.preload([:lines])`, so it is a real list.
+ *      every read path ends `|> Records.preload([:lines])`, so it is a real list.
  *
  *  So normalising `NotLoaded`/`nil` to `[]` is correct on both, and the
  *  normalisation is emitted ONCE per referenced collection rather than wrapping

@@ -6,6 +6,7 @@ import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { aggregateUsesPrincipalContextFilter } from "./capability-filter.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { readPreloadRels } from "./read-preload.js";
+import { withRecordsAlias } from "./records-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
 
 function concretesOf(base: AggregateIR, ctx: BoundedContextIR): AggregateIR[] {
@@ -72,7 +73,7 @@ end
 ${preloads
   .map(
     (p) =>
-      `  defp preload(%${modOf(p.agg)}{} = record), do: ${p.rels.length > 0 ? `Repo.preload(record, [${p.rels.join(", ")}])` : "record"}`,
+      `  defp preload(%${modOf(p.agg)}{} = record), do: ${p.rels.length > 0 ? `Records.preload(record, [${p.rels.join(", ")}])` : "record"}`,
   )
   .join("\n")}`
     : "";
@@ -80,7 +81,9 @@ ${preloads
 
   if (tph) {
     const kinds = concretes.map((c) => `${JSON.stringify(c.name)} => ${modOf(c)}`).join(", ");
-    return `# Auto-generated.
+    return withRecordsAlias(
+      appModule,
+      `# Auto-generated.
 defmodule ${baseModule}Repository do
   @moduledoc """
   Read-only polymorphic reader for the abstract ${upperFirst(base.name)} hierarchy (TPH):
@@ -104,7 +107,7 @@ ${listHead}
       |> order_by([record], asc: record.id)
       |> limit(^page_size)
       |> offset(^offset)
-      |> Repo.all(current_user: current_user)
+      |> Records.all(current_user: current_user)
       |> Enum.map(&as_concrete/1)
 
 ${pagedEnvelope}
@@ -116,7 +119,7 @@ ${findHead}
         where: record.id == ^id and record.kind in ^Map.keys(@kinds)
       )
 
-    case Repo.one(query, current_user: current_user) do
+    case Records.one(query, current_user: current_user) do
       nil -> {:error, :not_found}
       row -> {:ok, as_concrete(row)}
     end
@@ -132,7 +135,8 @@ ${findHead}
     |> Ecto.put_meta(state: :loaded)${finish}
   end${preloadFn}
 end
-`;
+`,
+    );
   }
 
   // TPC: merge each concrete's scoped read in the global `id` order.  A
@@ -154,7 +158,7 @@ end
         query = ${mod}.base_query()
 
         {Repo.aggregate(query, :count, current_user: current_user),
-         query |> order_by([record], asc: record.id) |> limit(^window) |> Repo.all(current_user: current_user)}
+         query |> order_by([record], asc: record.id) |> limit(^window) |> Records.all(current_user: current_user)}
       end`;
   });
   const finds = concretes.map((c) => {
@@ -165,14 +169,16 @@ end
           _ -> nil
         end
       end`
-      : `      fn -> Repo.one(from(record in ${mod}.base_query(), where: record.id == ^id), current_user: current_user) end`;
+      : `      fn -> Records.one(from(record in ${mod}.base_query(), where: record.id == ^id), current_user: current_user) end`;
   });
   const usesQuery = concretes.some((c) => !docs.has(c.name));
   // Every concrete a document one with no principal filter: nothing reads the
   // actor, and an unread binding fails `--warnings-as-errors`.
   const actorName =
     usesQuery || concretes.some((c) => actorArg(c)) ? "current_user" : "_current_user";
-  return `# Auto-generated.
+  return withRecordsAlias(
+    appModule,
+    `# Auto-generated.
 defmodule ${baseModule}Repository do
   @moduledoc """
   Read-only polymorphic reader for the abstract ${upperFirst(base.name)} hierarchy (TPC):
@@ -215,7 +221,8 @@ ${finds.join(",\n")}
     end
   end${preloadFn}
 end
-`;
+`,
+  );
 }
 
 /** The base controller's `serialize/1`: one clause per concrete, each the

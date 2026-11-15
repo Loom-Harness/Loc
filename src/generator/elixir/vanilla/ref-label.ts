@@ -102,7 +102,7 @@ export function renderRefLabelFacade(
 
       ids ->
         from(record in ${schema}, where: record.id in ^ids)
-        |> ${appModule}.Repo.all()
+        |> ${appModule}.Records.all()
         |> Map.new(fn record -> {record.id, ${aggSnake}_label(record)} end)
     end
   end`;
