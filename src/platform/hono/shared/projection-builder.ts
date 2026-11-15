@@ -28,16 +28,18 @@ import {
   contextReceivesDurable,
   type FoldRowSeed,
   type FoldStep,
-  foldInboxClaimSql,
-  foldInboxPurgeSql,
+  foldConsumerKey,
   foldRowSeeds,
   foldSteps,
   foldsDedupe,
+  inboxClaimSql,
+  inboxPurgeSql,
 } from "../../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
   ProjectionIR,
   ProjectionOnIR,
+  SystemIR,
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
@@ -116,6 +118,9 @@ export function buildProjectionsFile(
    *  (`channelPlan(...).receivesDurable`).  Absent → this context hosts a
    *  durable channel. */
   receivesDurable: boolean = contextReceivesDurable(ctx),
+  /** The system: each fold's consumer-inbox key names its declaring context
+   *  (`foldConsumerKey`). */
+  sys?: SystemIR,
 ): string {
   // FOLDED (materialized) projections only — the event-folded read model with a
   // physical row table + by-key routes.  Query-time projections
@@ -153,7 +158,10 @@ export function buildProjectionsFile(
     const hs = foldHandlers(p);
     if (hs.length === 0) continue;
     body.push(...emitStateHelpers(p, usingMikro), "");
-    for (const h of hs) body.push(...emitFoldHandler(p, h, usingMikro, ctx, dedupe), "");
+    for (const h of hs) {
+      const key = dedupe ? foldConsumerKey(sys, ctx, p.name, h.event) : undefined;
+      body.push(...emitFoldHandler(p, h, usingMikro, ctx, key), "");
+    }
   }
   body.push(...emitProjectionTee(folded, foldHandlers, usingMikro), "");
   body.push(...emitProjectionRoutes(folded, usingMikro, ctx));
@@ -354,7 +362,9 @@ function emitFoldHandler(
   h: ProjectionOnIR,
   usingMikro = false,
   ctxDecls?: EnrichedBoundedContextIR,
-  dedupe = false,
+  /** The fold's consumer-inbox key (`foldConsumerKey`) when it claims durably
+   *  delivered events; absent, it claims nothing. */
+  consumerKey?: string,
 ): string[] {
   const T = upperFirst(p.name);
   const corr = p.correlationField;
@@ -422,7 +432,7 @@ function emitFoldHandler(
     ...foldSteps(p, h).map((step) => `${indent}${renderFoldStep(step, ctxDecls).trimStart()}`),
     `${indent}await save${T}(${handle}, state);`,
   ];
-  if (!dedupe) {
+  if (consumerKey === undefined) {
     out.push(...apply(usingMikro ? "__em" : "db", "  "), `}`);
     return out;
   }
@@ -435,7 +445,7 @@ function emitFoldHandler(
     out.push(
       `  await __em.transactional(async (__tx) => {`,
       `    if (__eventId !== undefined) {`,
-      `      const __claimed = await __tx.execute(${JSON.stringify(foldInboxClaimSql("?", "?", true))}, [${JSON.stringify(p.name)}, __eventId]);`,
+      `      const __claimed = await __tx.execute(${JSON.stringify(inboxClaimSql("?", "?", true))}, [${JSON.stringify(consumerKey)}, __eventId]);`,
       `      if (__claimed.length === 0) return;`,
       `    }`,
       ...apply("__tx", "    "),
@@ -446,7 +456,7 @@ function emitFoldHandler(
       `  await db.transaction(async (__tx) => {`,
       `    const __db = __tx as unknown as NodePgDatabase<typeof schema>;`,
       `    if (__eventId !== undefined) {`,
-      `      const __claimed = await __db.execute(${TS.sql}\`${foldInboxClaimSql(`\${${JSON.stringify(p.name)}}`, "${__eventId}", true)}\`);`,
+      `      const __claimed = await __db.execute(${TS.sql}\`${inboxClaimSql(`\${${JSON.stringify(consumerKey)}}`, "${__eventId}", true)}\`);`,
       `      if (__claimed.rows.length === 0) return;`,
       `    }`,
       ...apply("__db", "    "),
@@ -860,8 +870,8 @@ function emitProjectionRoutes(
  *  window. */
 export function buildInboxPurgeFile(usingMikro: boolean): string {
   const del = usingMikro
-    ? `db.fork().getConnection().execute(${JSON.stringify(foldInboxPurgeSql("?"))}, [cutoff])`
-    : `db.execute(${TS.sql}\`${foldInboxPurgeSql("${cutoff}")}\`)`;
+    ? `db.fork().getConnection().execute(${JSON.stringify(inboxPurgeSql("?"))}, [cutoff])`
+    : `db.execute(${TS.sql}\`${inboxPurgeSql("${cutoff}")}\`)`;
   const imports = usingMikro
     ? ['import type { EntityManager } from "@mikro-orm/postgresql";']
     : [

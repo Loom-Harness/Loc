@@ -5,7 +5,7 @@
 // transaction on EF, the Dapper unit-of-work's ambient transaction on Dapper,
 // so every repository the body saves through enlists in it.
 
-import { foldInboxPurgeSql, inboxClaimSql } from "../../../ir/plan/index.js";
+import { inboxClaimSql, inboxPurgeSql } from "../../../ir/plan/index.js";
 import { outboxRetentionMembers } from "./outbox.js";
 
 /** `Domain/Common/IConsumerInbox.cs`. */
@@ -120,10 +120,10 @@ public sealed class DapperConsumerInbox : IConsumerInbox
 export function renderInboxPurgeService(ns: string, usingDapper: boolean): string {
   const purge = usingDapper
     ? `            await using var conn = await _db.OpenConnectionAsync(cancellationToken);
-            await conn.ExecuteAsync(new CommandDefinition("${foldInboxPurgeSql("@cutoff")}", new { cutoff }, cancellationToken: cancellationToken));`
+            await conn.ExecuteAsync(new CommandDefinition("${inboxPurgeSql("@cutoff")}", new { cutoff }, cancellationToken: cancellationToken));`
     : `            await using var scope = _scopes.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            await db.Database.ExecuteSqlInterpolatedAsync($"${foldInboxPurgeSql("{cutoff}")}", cancellationToken);`;
+            await db.Database.ExecuteSqlInterpolatedAsync($"${inboxPurgeSql("{cutoff}")}", cancellationToken);`;
   const dep = usingDapper
     ? { field: "NpgsqlDataSource _db", param: "NpgsqlDataSource db", assign: "_db = db" }
     : {

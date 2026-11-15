@@ -7,9 +7,9 @@ import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
 import { type CachedByIdRead, cachePlanFor } from "../../ir/plan/cache.js";
 import {
   channelPlan,
+  deployableNeedsInbox,
   foldsDedupe,
   hasDurableEvents,
-  inboxDedupes,
   workflowsDedupe,
 } from "../../ir/plan/index.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
@@ -567,10 +567,12 @@ function emitProjectFromContexts(
     name: ns,
     events: [...mergedBase.events, ...foreignConsumedEvents],
     eventSubscriptions: mergedSubscriptions,
-  }; // Some consumer here claims in the consumer inbox
-  // (`src/ir/plan/consumer-inbox.ts`): a fold, or a workflow handler
-  // (`consumerInbox`, which needs the `IConsumerInbox` port).
-  const consumerDedupes = inboxDedupes(merged, chPlan.receivesDurable);
+  };
+  // Some consumer here claims in the consumer inbox
+  // (`src/ir/plan/consumer-inbox.ts`): the deployable carries the table and
+  // runs its purge.  A claiming workflow handler needs the `IConsumerInbox`
+  // port (`consumerInbox`).
+  const consumerDedupes = deployableNeedsInbox(contexts, chPlan);
   const consumerInbox = workflowsDedupe(merged, chPlan.receivesDurable);
 
   // Foreign vocabulary emission (M-T4.4): the consumed foreign events' record
@@ -654,7 +656,13 @@ function emitProjectFromContexts(
     // Projection fold handlers (one INotificationHandler<TEvent> per fold),
     // derived over the merged context so a fold can route off another hosted
     // context's channel — mirrors the reactor derivation above.
-    emitProjectionDispatch(merged, ns, out, foldsDedupe(merged, chPlan.receivesDurable));
+    emitProjectionDispatch(
+      merged,
+      ns,
+      out,
+      foldsDedupe(merged, chPlan.receivesDurable),
+      system.sys,
+    );
   }
   // Transactional outbox (dispatch-delivery-semantics.md): durable channels
   // (`retention: log | work`) record their events in __loom_outbox and a relay
@@ -679,7 +687,7 @@ function emitProjectFromContexts(
       outboxUsesDapper ? renderDapperConsumerInbox(ns) : renderEfConsumerInbox(ns),
     );
   }
-  if (consumerDedupes && !hasOutbox) {
+  if (consumerDedupes) {
     out.set(
       "Infrastructure/Events/InboxPurgeService.cs",
       renderInboxPurgeService(ns, outboxUsesDapper),
@@ -696,7 +704,6 @@ function emitProjectFromContexts(
       durableBroker: durableBrokerEvents.size > 0,
       hasSubscriptions,
       carriesOrigin: deployableCarriesAuth,
-      pruneInbox: inboxDedupes(merged, true),
     };
     if (outboxUsesDapper) {
       out.set(
@@ -807,7 +814,6 @@ function emitProjectFromContexts(
     // (`emitDapperMigrations`) — every table the repositories and the workflow /
     // saga / outbox / projection / audit / provenance surfaces read is in that
     // chain, so this adapter keeps no DDL of its own.
-    const dapperWfDurable = chPlan.receivesDurable;
     out.set("Infrastructure/Persistence/DbSchema.cs", renderDapperMigrationRunner(ns));
     // The connection lease every Dapper repository opens + the ambient
     // unit-of-work transaction it enlists in, so a `transactional` workflow's
@@ -821,7 +827,6 @@ function emitProjectFromContexts(
       merged.workflows,
       merged.projections,
       eventLogContexts(contexts).map((c) => c.name),
-      dapperWfDurable,
       out,
       answersEntryResults(merged),
     );
@@ -905,13 +910,7 @@ function emitProjectFromContexts(
       const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
       return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
     };
-    emitWorkflowStatePersistence(
-      merged.workflows,
-      ns,
-      out,
-      chPlan.receivesDurable,
-      resolveWorkflowSchema,
-    );
+    emitWorkflowStatePersistence(merged.workflows, ns, out, resolveWorkflowSchema);
     // Projection read-model row POCOs + EF configs (one per projection); the
     // DbSet/ApplyConfiguration wiring is inside renderDbContext above.  Rows
     // land in their projection's OWNING-context schema (map-back by name over
@@ -1184,7 +1183,7 @@ function emitProjectFromContexts(
     hasSubscriptions,
     hasOutbox,
     consumerInbox,
-    inboxPurge: consumerDedupes && !hasOutbox,
+    inboxPurge: consumerDedupes,
     hasRealtime,
     realtimeRoomScoped,
     realtimeTenantClaim,

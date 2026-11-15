@@ -12,10 +12,11 @@ import {
 } from "../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant, STREAM_TENANT_METADATA } from "../ir/enrich/stream-tenancy.js";
 import {
+  contextReceivesDurable,
   eventLogTable,
-  FOLD_INBOX_TABLE,
   hasDurableEvents,
   hasStateRow,
+  INBOX_TABLE,
   inboxDedupes,
 } from "../ir/plan/index.js";
 import type {
@@ -126,18 +127,6 @@ import type { SnapshotStore } from "./snapshot.js";
 // per owning module.
 // ---------------------------------------------------------------------------
 
-/** Event types carried by a durable channel on any context of the module. */
-function moduleDurableEventTypes(module: EnrichedSubdomainIR): ReadonlySet<string> {
-  return new Set(module.contexts.flatMap((c) => [...durableEventTypes(c)]));
-}
-
-/** Event types carried by a durable channel anywhere in the system — the
- *  superset every backend's saga-table emitter (which sees only its hosted
- *  contexts) draws its `last_event_id` decision from. */
-function systemDurableEventTypes(sys: EnrichedSystemIR): ReadonlySet<string> {
-  return new Set(sys.subdomains.flatMap((md) => [...moduleDurableEventTypes(md)]));
-}
-
 export function schemaFromModule(
   module: EnrichedSubdomainIR,
   /** Per-aggregate saving shape (D-DOCUMENT-AXIS).  Selects the table
@@ -182,13 +171,13 @@ export function schemaFromModule(
    *  tests keep the legacy unqualified output.  Module/cross-context infra
    *  (outbox) is deliberately NOT stamped — it spans every context. */
   contextSchemaOf: (ctx: EnrichedBoundedContextIR) => string | undefined = () => undefined,
-  /** Event types any durable channel of the system carries.  A saga table
-   *  maps the `last_event_id` marker whenever its consumer can see a durable
-   *  channel — and the channel may be declared in a DIFFERENT context than the
-   *  workflow (the backend emitters see every context their deployable
-   *  hosts).  Defaults to the module's own channels for schema-only unit
-   *  tests. */
-  durableEvents: ReadonlySet<string> = moduleDurableEventTypes(module),
+  /** Whether a context receives durable events on some deployable hosting
+   *  it (`contextReceivesDurable`, which `buildMigrations` answers over the
+   *  system).  The consumer inbox exists on the plan's answer
+   *  (`inboxDedupes`).  Defaults to the context's own durable channels for
+   *  schema-only unit tests. */
+  receivesDurable: (ctx: EnrichedBoundedContextIR) => boolean = (ctx) =>
+    contextReceivesDurable(ctx),
   /** Whether a timerSource with an `every:` cadence fires an event of one of
    *  this module's contexts — the module then owns the `__loom_timer` claim
    *  table.  Timers are system-scope, so `buildMigrations` resolves this from
@@ -345,7 +334,6 @@ export function schemaFromModule(
   // schema, matching the plain `pgTable(...)` the Drizzle schema emitter uses
   // for these, so the runtime DDL and the ORM mapping line up.
   for (const ctx of module.contexts) {
-    const durable = durableEvents.size > 0 || hasDurableEvents(ctx);
     // The workflow's saga tables are context-owned (a workflow belongs to a
     // context), so they live in that context's schema — beside its aggregate
     // tables — not in `public`, where two contexts each with a `Tracker`
@@ -369,7 +357,7 @@ export function schemaFromModule(
       // per-workflow table.  A plain correlation-bearing workflow keeps its
       // mutable state table.
       if (hasStateRow(wf)) {
-        const t = workflowStateTableShape(wf, module.name, voLookup, durable);
+        const t = workflowStateTableShape(wf, module.name, voLookup);
         if (ctxSchema !== undefined) t.schema = ctxSchema;
         tables.push(t);
       }
@@ -394,11 +382,11 @@ export function schemaFromModule(
   if (module.contexts.some((c) => hasDurableEvents(c))) {
     tables.push(outboxTableShape(module.name));
   }
-  // Consumer inbox (D-PROJECTION-FOLD-INBOX): one shared table when a durably
-  // delivered event can reach a projection fold or a state-based workflow
-  // handler.  Machinery, like the outbox, so it takes no context schema.
-  if (module.contexts.some((c) => inboxDedupes(c, durableEvents.size > 0 || hasDurableEvents(c)))) {
-    tables.push(foldInboxTableShape(module.name));
+  // Consumer inbox (D-CONSUMER-INBOX): one shared table when some consumer
+  // of the module claims a durably delivered event, on the plan's answer.
+  // Machinery, like the outbox, so it takes no context schema.
+  if (module.contexts.some((c) => inboxDedupes(c, receivesDurable(c)))) {
+    tables.push(inboxTableShape(module.name));
   }
   // Command audit (audit-and-logging.md): one shared append-only table when any
   // hosted context declares an `audited` command action.  Like the outbox it is
@@ -554,16 +542,16 @@ function outboxTableShape(ownerModule: string): TableShape {
 /** The fold inbox table — one row per `(projection, event_id)` a fold applied,
  *  written in the fold's own transaction.  The outbox retention purge deletes
  *  rows older than its window, the same window a redelivery can arrive in. */
-function foldInboxTableShape(ownerModule: string): TableShape {
+function inboxTableShape(ownerModule: string): TableShape {
   return {
-    name: FOLD_INBOX_TABLE,
+    name: INBOX_TABLE,
     ownerModule,
     columns: [
-      { name: "projection", type: { kind: "text" }, nullable: false },
+      { name: "consumer", type: { kind: "text" }, nullable: false },
       { name: "event_id", type: { kind: "text" }, nullable: false },
       { name: "received_at", type: { kind: "datetime" }, nullable: false, default: "now()" },
     ],
-    primaryKey: ["projection", "event_id"],
+    primaryKey: ["consumer", "event_id"],
     foreignKeys: [],
     indexes: [],
   };
@@ -682,10 +670,6 @@ function workflowStateTableShape(
   wf: WorkflowIR,
   ownerModule: string,
   voLookup: VoLookup,
-  /** Idempotent-consumer marker (dispatch-delivery-semantics.md §3): a
-   *  durable channel adds `last_event_id` so handlers can no-op on the
-   *  relay's at-least-once redelivery. */
-  durable = false,
 ): TableShape {
   const tableName = workflowStateTableName(wf.name);
   const corr = wf.correlationField as string;
@@ -702,9 +686,6 @@ function workflowStateTableShape(
     for (const mapped of columnsForField(f, voLookup, wf.name)) {
       columns.push(mapped.column);
     }
-  }
-  if (durable) {
-    columns.push({ name: "last_event_id", type: { kind: "text" }, nullable: true });
   }
   return {
     name: tableName,
@@ -2773,7 +2754,8 @@ export function buildMigrations(
   // move tables between modules, so each module's derivation reads the others'
   // (a move finds its source tables in another module's baseline, and an event
   // log's fate depends on whether any module still declares it).
-  const systemDurable = systemDurableEventTypes(sys);
+  const receivesDurable = (ctx: EnrichedBoundedContextIR): boolean =>
+    contextReceivesDurable(ctx, sys);
   const owning = sys.subdomains.filter((md) => md.migrationsOwner);
   const baselineOf = new Map<string, SchemaSnapshot | null>();
   const nextOf = new Map<string, SchemaSnapshot>();
@@ -2790,7 +2772,7 @@ export function buildMigrations(
         schemaOf,
         manualIndexesOf,
         contextSchemaOf,
-        systemDurable,
+        receivesDurable,
         ownsIntervalTimer,
       ),
     );

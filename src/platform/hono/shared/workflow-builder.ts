@@ -67,7 +67,6 @@ import {
   contextReceivesDurable,
   esStarterSharesEvent,
   eventSourcedWorkflows,
-  foldInboxPurgeSql,
   hasDurableEvents,
   hasStateRow,
   inboxClaimSql,
@@ -84,7 +83,7 @@ import {
   withReadPortRepos,
   workflowCapturesDurableEmits,
   workflowClaims,
-  workflowInboxKey,
+  workflowConsumerKey,
   workflowNeedsCurrentUser,
   workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
@@ -96,6 +95,7 @@ import {
   type ExprIR,
   exprUsesCurrentUser,
   type IsolationLevel,
+  type SystemIR,
   type TypeIR,
   type WorkflowIR,
   type WorkflowStmtIR,
@@ -231,6 +231,9 @@ export function buildWorkflowsFile(
    *  (`channelPlan(...).receivesDurable`): it hosts a durable channel or
    *  consumes a durable foreign one.  Absent → this context hosts one. */
   receivesDurable: boolean = contextReceivesDurable(ctx),
+  /** The system: the consumer inbox keys name each handler's declaring
+   *  context (`workflowConsumerKey`). */
+  sys?: SystemIR,
 ): string {
   if (ctx.workflows.length === 0) return buildProducerOutboxFile(ctx, usingMikro, carriesOrigin);
   // Build the body first; imports are derived from what the body actually
@@ -612,6 +615,7 @@ export function buildWorkflowsFile(
         usingMikro,
         carriesOrigin,
         receivesDurable,
+        sys,
       ),
     );
   } else if (hasDurableEvents(ctx)) {
@@ -634,14 +638,7 @@ export function buildWorkflowsFile(
     body.push("");
     body.push(...emitDispatcherFactory(new Map(), usingMikro));
     body.push("");
-    body.push(
-      ...emitOutboxMachinery(
-        durableEventTypes(ctx),
-        usingMikro,
-        carriesOrigin,
-        inboxDedupes(ctx, true),
-      ),
-    );
+    body.push(...emitOutboxMachinery(durableEventTypes(ctx), usingMikro, carriesOrigin));
   }
   // Now derive imports from what the body actually references.
   const rawBodyStr = body.join("\n");
@@ -1224,10 +1221,7 @@ function emitWorkflowRoute(
           `${ind}const state = (await load${DOMAIN_NAMES.ts.type(wf.name)}(${handle}, ${corrParam.name})) ?? ${allocateLiteral(
             wf,
             ctx,
-            {
-              keyExpr: corrParam.name,
-              mikroDurable: usingMikro && receivesDurable,
-            },
+            { keyExpr: corrParam.name },
           )};`,
         ]
       : [];
@@ -1720,6 +1714,7 @@ function emitSubscriptionHandlers(
    *  — see `buildWorkflowsFile`. */
   carriesOrigin = false,
   receivesDurable: boolean = contextReceivesDurable(ctx),
+  sys?: SystemIR,
 ): string[] {
   const subs = ctx.eventSubscriptions;
   const out: string[] = [];
@@ -1771,6 +1766,9 @@ function emitSubscriptionHandlers(
             sub.trigger === "create" && esStarterSharesEvent(wf, sub.event),
             opFragments,
             usingMikro,
+            workflowClaims(wf, receivesDurable)
+              ? workflowConsumerKey(sys, ctx, sub, subs)
+              : undefined,
           )
         : emitHandlerFn(
             fn,
@@ -1782,7 +1780,9 @@ function emitSubscriptionHandlers(
             statements,
             saves,
             ctx,
-            receivesDurable,
+            workflowClaims(wf, receivesDurable)
+              ? workflowConsumerKey(sys, ctx, sub, subs)
+              : undefined,
             opFragments,
             usingMikro,
           )),
@@ -1796,7 +1796,7 @@ function emitSubscriptionHandlers(
   const durable = durableEventTypes(ctx);
   if (durable.size > 0) {
     out.push("");
-    out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin, inboxDedupes(ctx, true)));
+    out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin));
   }
   return out;
 }
@@ -1878,14 +1878,13 @@ const OUTBOX_RELAY_ERROR_LOG =
  *  the dispatched rows older than the retention window (`del` is the store's
  *  delete over `cutoff`).  A failed purge is logged and retried next interval
  *  — it never blocks delivery. */
-function outboxPurgeStep(del: string, inboxDel?: string): string[] {
+function outboxPurgeStep(del: string): string[] {
   return [
     `      if (Date.now() - lastPurge >= ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000}) {`,
     `        lastPurge = Date.now();`,
     `        const cutoff = new Date(lastPurge - retentionMs);`,
     `        try {`,
     `          await ${del};`,
-    ...(inboxDel ? [`          await ${inboxDel};`] : []),
     `        } catch (err) {`,
     `          ${OUTBOX_RELAY_ERROR_LOG}`,
     `        }`,
@@ -1910,9 +1909,6 @@ function emitOutboxMachinery(
   durable: ReadonlySet<string>,
   usingMikro = false,
   carriesOrigin = false,
-  /** The deployable's folds claim events in the fold inbox (`foldsDedupe`):
-   *  the purge prunes it on the outbox's window. */
-  pruneInbox = false,
 ): string[] {
   // The outbox row payload: the event, plus its origin under the reserved
   // key when the deployable carries auth (ruling D1).
@@ -1943,7 +1939,7 @@ function emitOutboxMachinery(
   out.push(...emitOutboxRetention());
   out.push(``);
   if (usingMikro) {
-    out.push(...emitMikroOutboxMachinery(captured, redeliver, pruneInbox));
+    out.push(...emitMikroOutboxMachinery(captured, redeliver));
     return out;
   }
   out.push(`export function createOutboxDispatcher(`);
@@ -1997,7 +1993,6 @@ function emitOutboxMachinery(
   out.push(
     ...outboxPurgeStep(
       "db.delete(schema.loomOutbox).where(lt(schema.loomOutbox.dispatchedAt, cutoff))",
-      pruneInbox ? `db.execute(sql\`${foldInboxPurgeSql("${cutoff}")}\`)` : undefined,
     ),
   );
   // The pass claims its batch: one transaction locks the rows it takes and
@@ -2058,7 +2053,6 @@ function emitOutboxMachinery(
 function emitMikroOutboxMachinery(
   captured: string,
   redeliver: (indent: string) => string[],
-  pruneInbox = false,
 ): string[] {
   const ROW = MIKRO_OUTBOX_ROW_CLASS;
   return [
@@ -2124,12 +2118,7 @@ function emitMikroOutboxMachinery(
     `    draining = true;`,
     `    try {`,
     `      const em = db.fork();`,
-    ...outboxPurgeStep(
-      `em.nativeDelete(${ROW}, { dispatchedAt: { $lt: cutoff } })`,
-      pruneInbox
-        ? `em.getConnection().execute(${JSON.stringify(foldInboxPurgeSql("?"))}, [cutoff])`
-        : undefined,
-    ),
+    ...outboxPurgeStep(`em.nativeDelete(${ROW}, { dispatchedAt: { $lt: cutoff } })`),
     // The pass claims its batch (FOR UPDATE SKIP LOCKED) inside one
     // transaction, exactly like the drizzle relay above.
     `      let halted: unknown;`,
@@ -2296,7 +2285,7 @@ function emitCodecStateHelpers(
 function allocateLiteral(
   wf: WorkflowIR,
   ctx: BoundedContextIR,
-  opts: { mikroDurable?: boolean; keyExpr?: string } = {},
+  opts: { keyExpr?: string } = {},
 ): string {
   const corr = wf.correlationField as string;
   // `__key` on the reactor path (it binds one); the command route allocates
@@ -2311,7 +2300,6 @@ function allocateLiteral(
   // required (if nullable) property, so a fresh instance must spell out the
   // null: without it the `load ?? allocate` union loses the property and the
   // marker read below does not type-check.
-  if (opts.mikroDurable) parts.push(`lastEventId: null`);
   return `{ ${parts.join(", ")} }`;
 }
 
@@ -2364,12 +2352,12 @@ function defaultLiteralFor(t: TypeIR, ctx: BoundedContextIR): string {
  *  replica. */
 function emitInboxClaimWrapper(
   fn: string,
-  workflow: string,
+  consumerKey: string,
   eventName: string,
   paramName: string,
   usingMikro: boolean,
 ): string[] {
-  const key = JSON.stringify(workflowInboxKey(workflow));
+  const key = JSON.stringify(consumerKey);
   const out = [
     `export async function ${fn}(`,
     `  db: ${wfDbType(usingMikro)},`,
@@ -2377,14 +2365,14 @@ function emitInboxClaimWrapper(
     `  ${paramName}: Events.${eventName},`,
     `): Promise<void> {`,
     `  const __eventId = (${paramName} as { __loomEventId?: string }).__loomEventId;`,
-    `  if (__eventId === undefined) return ${fn}Apply(db, events, ${paramName}, undefined);`,
+    `  if (__eventId === undefined) return ${fn}Apply(db, events, ${paramName});`,
   ];
   if (usingMikro) {
     out.push(
       `  await db.transactional(async (__tx) => {`,
       `    const __claimed = await __tx.execute(${JSON.stringify(inboxClaimSql("?", "?", true))}, [${key}, __eventId]);`,
       `    if (__claimed.length === 0) return;`,
-      `    await ${fn}Apply(__tx, events, ${paramName}, __eventId);`,
+      `    await ${fn}Apply(__tx, events, ${paramName});`,
       `  });`,
     );
   } else {
@@ -2393,7 +2381,7 @@ function emitInboxClaimWrapper(
       `    const __db = __tx as unknown as NodePgDatabase<typeof schema>;`,
       `    const __claimed = await __db.execute(${T.sql}\`${inboxClaimSql(`\${${key}}`, "${__eventId}", true)}\`);`,
       `    if (__claimed.rows.length === 0) return;`,
-      `    await ${fn}Apply(__db, events, ${paramName}, __eventId);`,
+      `    await ${fn}Apply(__db, events, ${paramName});`,
       `  });`,
     );
   }
@@ -2424,11 +2412,9 @@ function emitHandlerFn(
   statements: WorkflowStmtIR[],
   saves: { name: string; aggName: string; repoName: string }[],
   ctx: BoundedContextIR,
-  /** Idempotent-consumer marker (dispatch-delivery-semantics.md §3): under a
-   *  durable channel the relay redelivers at-least-once, so the handler
-   *  no-ops when the saga row already records the inbound outbox event id
-   *  and stamps it before save.  Ephemeral contexts stay byte-identical. */
-  durable = false,
+  /** The handler's consumer-inbox key (`workflowConsumerKey`) when it claims
+   *  durably delivered events; absent, it claims nothing. */
+  consumerKey: string | undefined,
   /** Source-map — see `emitWorkflowRoute`'s `opFragments`; same
    *  fragment-only discipline, keyed off the SAME `${ctx.name}.${wf.name}`
    *  construct as the workflow's command-route body (a reactor/starter body
@@ -2442,13 +2428,12 @@ function emitHandlerFn(
   // transaction as the body's effects (`src/ir/plan/consumer-inbox.ts`): the
   // exported handler opens the transaction and claims, `<fn>Apply` runs the
   // body.  A frame with no event id applies directly.
-  const claims = workflowClaims(wf, durable);
-  if (claims) out.push(...emitInboxClaimWrapper(fn, wf.name, eventName, paramName, usingMikro));
+  const claims = consumerKey !== undefined;
+  if (claims) out.push(...emitInboxClaimWrapper(fn, consumerKey, eventName, paramName, usingMikro));
   out.push(claims ? `async function ${fn}Apply(` : `export async function ${fn}(`);
   out.push(`  db: ${wfDbType(usingMikro)},`);
   out.push(`  events: DomainEventDispatcher,`);
   out.push(`  ${paramName}: Events.${eventName},`);
-  if (claims) out.push(`  __eventId: string | undefined,`);
   out.push(`): Promise<void> {`);
   out.push(...bindSystemPrincipal(statements, ctx));
   const persisted = !!wf.correlationField;
@@ -2467,11 +2452,7 @@ function emitHandlerFn(
     out.push(`  const __key = ${keyExpr};`);
     if (trigger === "create") {
       // Load-or-allocate: a starter creates the instance if its key is new.
-      out.push(
-        `  const state = (await load${T}(db, __key)) ?? ${allocateLiteral(wf, ctx, {
-          mikroDurable: usingMikro && durable,
-        })};`,
-      );
+      out.push(`  const state = (await load${T}(db, __key)) ?? ${allocateLiteral(wf, ctx)};`);
     } else {
       // Route-to-existing, else drop + log: a continuation needs a started
       // instance.  `requestLog()` resolves the request-bound logger (the
@@ -2542,11 +2523,6 @@ function emitHandlerFn(
   out.push(...audits.tail);
   out.push(...renderProvFlush(provSaves, bi, "db"));
   if (wrapsFrame) out.push(`  });`);
-  if (persisted && claims) {
-    // The row records the last event applied to it; the inbox claim, not
-    // this column, is what dedupes.
-    out.push(`  if (__eventId !== undefined) state.lastEventId = __eventId;`);
-  }
   if (persisted) out.push(`  await save${DOMAIN_NAMES.ts.type(wf.name)}(db, state);`);
   if (hasEmit) out.push(`  for (const ev of workflowEvents) await events.dispatch(ev);`);
   out.push(`}`);
@@ -2589,11 +2565,19 @@ function emitEventSourcedHandlerFn(
   opFragments?: OpFragment[],
   /** `persistence: mikroorm` — the `db` handle is the EntityManager. */
   usingMikro = false,
+  /** The handler's consumer-inbox key when it claims durably delivered
+   *  events: the claim and the stream append commit together. */
+  consumerKey?: string,
 ): string[] {
   const out: string[] = [];
   const corr = wf.correlationField as string;
   const helpers = esHelperNames(wf);
-  out.push(`export async function ${fn}(`);
+  if (consumerKey !== undefined) {
+    out.push(...emitInboxClaimWrapper(fn, consumerKey, eventName, paramName, usingMikro));
+  }
+  out.push(
+    consumerKey !== undefined ? `async function ${fn}Apply(` : `export async function ${fn}(`,
+  );
   out.push(`  db: ${wfDbType(usingMikro)},`);
   out.push(`  events: DomainEventDispatcher,`);
   out.push(`  ${paramName}: Events.${eventName},`);
@@ -2725,7 +2709,7 @@ function buildProducerOutboxFile(
         ]
       : [
           `import type { NodePgDatabase } from "drizzle-orm/node-postgres";`,
-          `import { and, asc, eq, isNull, lt${inboxDedupes(ctx, true) ? ", sql" : ""} } from "drizzle-orm";`,
+          `import { and, asc, eq, isNull, lt } from "drizzle-orm";`,
           `import * as schema from "../db/schema";`,
         ]),
     ...(carriesOrigin
@@ -2738,7 +2722,7 @@ function buildProducerOutboxFile(
   ];
   out.push(...emitDispatcherFactory(new Map(), usingMikro));
   out.push("");
-  out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin, inboxDedupes(ctx, true)));
+  out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin));
   return `${out.join("\n")}\n`;
 }
 

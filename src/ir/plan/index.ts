@@ -40,12 +40,16 @@ export {
   eventRoute,
 } from "./channel-plan.js";
 export {
-  foldInboxKey,
+  deployableNeedsInbox,
+  foldConsumerKey,
   INBOX_TABLE,
+  type InboxConsumerKind,
   inboxClaimSql,
+  inboxConsumerKey,
   inboxDedupes,
+  inboxPurgeSql,
   workflowClaims,
-  workflowInboxKey,
+  workflowConsumerKey,
   workflowsDedupe,
 } from "./consumer-inbox.js";
 export { hasDurableEvents } from "./context-events.js";
@@ -68,12 +72,9 @@ export {
 export { lookupOp } from "./operation-lookup.js";
 export {
   assignsFoldKey,
-  FOLD_INBOX_TABLE,
   type FoldRowSeed,
   type FoldRowZero,
   type FoldStep,
-  foldInboxClaimSql,
-  foldInboxPurgeSql,
   foldRowSeeds,
   foldRowUnseeded,
   foldSteps,

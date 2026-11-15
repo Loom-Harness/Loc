@@ -1,11 +1,18 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { foldFloorTerms, foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
 import { wireStatus } from "../../ir/enrich/wire-policy.js";
-import { type FoldRowSeed, type FoldStep, foldRowSeeds, foldSteps } from "../../ir/plan/index.js";
+import {
+  type FoldRowSeed,
+  type FoldStep,
+  foldConsumerKey,
+  foldRowSeeds,
+  foldSteps,
+} from "../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
   ProjectionIR,
   ProjectionOnIR,
+  SystemIR,
   TypeIR,
   WireField,
 } from "../../ir/types/loom-ir.js";
@@ -63,8 +70,10 @@ export function emitProjectionDispatch(
   ctx: EnrichedBoundedContextIR,
   ns: string,
   out: Map<string, string>,
-  /** Folds claim the event in the fold inbox (`foldsDedupe`). */
+  /** Folds claim the event in the consumer inbox (`foldsDedupe`). */
   dedupe = false,
+  /** The system: each fold's consumer key names its declaring context. */
+  sys?: SystemIR,
 ): void {
   const subs = deriveEventSubscriptions(ctx.channels, ctx.workflows, ctx.projections);
   for (const s of subs) {
@@ -76,7 +85,13 @@ export function emitProjectionDispatch(
     const cls = projectionHandlerClass(proj, on);
     out.set(
       `Application/Workflows/${cls}.cs`,
-      renderProjectionFoldHandler(cls, proj, on, ns, dedupe),
+      renderProjectionFoldHandler(
+        cls,
+        proj,
+        on,
+        ns,
+        dedupe ? foldConsumerKey(sys, ctx, proj.name, on.event) : undefined,
+      ),
     );
   }
 }
@@ -93,7 +108,8 @@ function renderProjectionFoldHandler(
   proj: ProjectionIR,
   on: ProjectionOnIR,
   ns: string,
-  dedupe: boolean,
+  /** The fold's consumer-inbox key when it claims; absent, it claims nothing. */
+  consumerKey: string | undefined,
 ): string {
   const corr = proj.correlationField as string;
   const corrPascal = upperFirst(corr);
@@ -145,16 +161,17 @@ function renderProjectionFoldHandler(
     `}`,
     ...assignLines.map((l) => l.replace(/^ {8}/, "")),
   ];
-  // A durably delivered event folds once: the store claims it in the fold
+  // A durably delivered event folds once: the store claims it in the consumer
   // inbox in the transaction that saves the row (`FoldOnceAsync`).
-  const apply = dedupe
-    ? [
-        `await _readModel.FoldOnceAsync(${JSON.stringify(proj.name)}, global::${ns}.Domain.Common.OutboxDelivery.CurrentEventId, async () =>`,
-        `{`,
-        ...applyLines.map((l) => `    ${l}`),
-        `}, cancellationToken);`,
-      ]
-    : [...applyLines, `await _readModel.SaveChangesAsync(cancellationToken);`];
+  const apply =
+    consumerKey !== undefined
+      ? [
+          `await _readModel.FoldOnceAsync(${JSON.stringify(consumerKey)}, global::${ns}.Domain.Common.OutboxDelivery.CurrentEventId, async () =>`,
+          `{`,
+          ...applyLines.map((l) => `    ${l}`),
+          `}, cancellationToken);`,
+        ]
+      : [...applyLines, `await _readModel.SaveChangesAsync(cancellationToken);`];
   return (
     `// Auto-generated.
 using System.Threading;

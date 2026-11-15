@@ -19,8 +19,8 @@ import {
   contextReceivesDurable,
   eventLogTable,
   eventSourcedWorkflows,
-  FOLD_INBOX_TABLE,
   hasStateRow,
+  INBOX_TABLE,
 } from "../../../ir/plan/index.js";
 import type {
   AssociationIR,
@@ -673,14 +673,14 @@ function outboxRowEntity(): { block: string; schemaName: string } {
   ]);
 }
 
-/** Fold inbox Row (`__loom_fold_inbox`): one row per `(projection, event_id)`
- *  a fold applied.  MikroORM owns its schema through `schema.update()`, so the
- *  table must be an entity or it is never created.  The folds only write it
- *  with the raw claim insert. */
+/** Consumer inbox Row (`__loom_inbox`): one row per `(consumer, event_id)` a
+ *  consumer applied.  MikroORM owns its schema through `schema.update()`, so
+ *  the table must be an entity or it is never created.  The consumers only
+ *  write it with the raw claim insert. */
 
-function foldInboxRowEntity(): { block: string; schemaName: string } {
-  return renderRecordRowEntity("LoomFoldInboxRow", FOLD_INBOX_TABLE, [
-    TEXT("projection", { primary: true }),
+function inboxRowEntity(): { block: string; schemaName: string } {
+  return renderRecordRowEntity("ConsumerInboxRow", INBOX_TABLE, [
+    TEXT("consumer", { primary: true }),
     TEXT("eventId", { primary: true }),
     TIMESTAMPTZ("receivedAt"),
   ]);
@@ -760,22 +760,13 @@ function stateFieldColumns(f: FieldIR, ctx: EnrichedBoundedContextIR): MikroColu
   ];
 }
 
-function workflowStateColumns(
-  wf: WorkflowIR,
-  ctx: EnrichedBoundedContextIR,
-  receivesDurable: boolean,
-): MikroColumn[] {
+function workflowStateColumns(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): MikroColumn[] {
   const corr = wf.correlationField;
   const cols: MikroColumn[] = (wf.stateFields ?? []).flatMap((f) =>
     f.name === corr
       ? [{ prop: f.name, mikroType: "string", tsType: "string", nullable: false, primary: true }]
       : stateFieldColumns(f, ctx),
   );
-  // Idempotent-consumer marker (dispatch-delivery-semantics.md §3) — the twin
-  // of the drizzle `emitWorkflowStateTable`'s `last_event_id`.  Under a durable
-  // channel the reactor preamble reads `state.lastEventId` and stamps it before
-  // save, so without this column the emitted handler would not type-check.
-  if (receivesDurable) cols.push(TEXT("lastEventId", { nullable: true }));
   return cols;
 }
 
@@ -923,13 +914,9 @@ export function renderMikroEntities(
     /** The deployable owns an `every:` timer — map the `__loom_timer` claim
      *  table. */
     timerClaim?: boolean;
-    /** A fold dedupes durably delivered events (`foldsDedupe`) — map the
-     *  `__loom_fold_inbox` table. */
-    foldInbox?: boolean;
-    /** The deployable's consumers run the redelivery dedupe
-     *  (`channelPlan(...).receivesDurable`): saga rows map `lastEventId`.
-     *  Absent → this context hosts a durable channel. */
-    receivesDurable?: boolean;
+    /** Some consumer claims in the consumer inbox (`deployableNeedsInbox`) —
+     *  map the `__loom_inbox` table. */
+    inbox?: boolean;
     /** Maps an event-sourced aggregate / workflow to the context that declares
      *  it. A multi-context deployable passes one merged context here, and each
      *  `<Ctx>EventRow` must still be named after its stream's owner — the name
@@ -1175,7 +1162,7 @@ export function renderMikroEntities(
     const { block, schemaName } = renderRecordRowEntity(
       mikroWorkflowRowClass(wf),
       workflowStateTableName(wf.name),
-      workflowStateColumns(wf, ctx, opts.receivesDurable ?? contextReceivesDurable(ctx)),
+      workflowStateColumns(wf, ctx),
     );
     schemaNames.push(schemaName);
     blocks.push(block);
@@ -1228,8 +1215,8 @@ export function renderMikroEntities(
     schemaNames.push(schemaName);
     blocks.push(block);
   }
-  if (opts.foldInbox) {
-    const { block, schemaName } = foldInboxRowEntity();
+  if (opts.inbox) {
+    const { block, schemaName } = inboxRowEntity();
     schemaNames.push(schemaName);
     blocks.push(block);
   }
