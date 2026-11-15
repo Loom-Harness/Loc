@@ -410,7 +410,10 @@ export function buildFrontendContract(
   const recordNames = new Set<string>();
   for (const ctx of contexts) {
     for (const agg of ctx.aggregates) {
-      if (agg.isAbstract) continue;
+      // An abstract base serves no rows of its own, except the polymorphic
+      // read home (`ownTable`), whose list and by-id reads answer with its
+      // declared response.
+      if (agg.isAbstract && agg.inheritanceUsing !== "ownTable") continue;
       for (const r of contractResponsesFor(ctx.payloads, agg) ?? []) {
         claimed.add(r.name);
         responses.push(as(responseRule, r, `${at}.responses.${r.name}`));
