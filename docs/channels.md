@@ -144,12 +144,15 @@ The plan also decides:
   together, and the tier captures every hosted durable event. With no
   in-process consumer the tier is the producer-only shape: every drained row
   goes to the broker.
-- **Dedupe.** Every consumer of a durably delivered event — a projection fold
-  and every handler of a state-based workflow — claims the envelope `id` in
-  the consumer inbox, in the transaction that applies it, whether the channel
-  is hosted or foreign (`ChannelPlan.receivesDurable`,
+- **Dedupe.** Every in-process consumer of a durably delivered event — a
+  projection fold, an event-triggered `create`, an `on` handler of a
+  state-based or event-sourced workflow — claims the envelope `id` in the
+  consumer inbox, in the transaction that applies it, whether the channel is
+  hosted or foreign (`ChannelPlan.receivesDurable`,
   [D-CONSUMER-INBOX](decisions/D-CONSUMER-INBOX.md)). A redelivery applies
-  once, on one replica or on two at the same time.
+  once, on one replica or on two at the same time.  A deployable whose
+  consumers claim carries the inbox table and starts its purge at boot
+  (`deployableNeedsInbox`).
 
 `test/system/channel-plan-census.test.ts` ratchets the emitter code that still
 derives these answers itself; the count only goes down.
@@ -177,14 +180,20 @@ Unbound channels keep today's direct in-process fan-out.
 in `__loom_outbox` inside the write transaction and published by the relay on
 drain, with the **outbox row id as the envelope `id`** — which doubles as the
 consumer-side idempotency key (a redelivered envelope is a no-op). Each
-consumer claims `(consumer, event_id)` in the consumer inbox,
-`__loom_fold_inbox`, in the transaction that applies the event: a fold under
-its projection name, a workflow's handlers under `workflow:<Name>`. A claim
-that inserts no row skips the event, and a failed application rolls its claim
-back ([D-CONSUMER-INBOX](decisions/D-CONSUMER-INBOX.md),
-[D-PROJECTION-FOLD-INBOX](decisions/D-PROJECTION-FOLD-INBOX.md)). The relay's
-retention purge prunes the inbox on the outbox's window; a deployable that runs
-no relay purges it on its own.
+consumer claims `(consumer, event_id)` in the consumer inbox, `__loom_inbox`,
+in the transaction that applies the event, under the key
+`<context>/<fold|create|on>/<owner>.<event>`. A claim that inserts no row
+skips the event, and a failed application rolls its claim back
+([D-CONSUMER-INBOX](decisions/D-CONSUMER-INBOX.md)). The inbox purge, started
+at boot, deletes claims older than the outbox's retention window.
+
+**External side effects are at-least-once.** The claim makes a handler's
+database effects happen once. A side effect outside the database — a resource
+call (email, object store, a REST `api` call) or the broker publish of an
+ephemeral event — runs inside the claimed transaction but is not part of it:
+if the transaction rolls back after it ran (a later statement fails, the
+process dies before commit), the redelivery runs it again. A side effect that
+must happen exactly once needs its receiver to dedupe it.
 `ephemeral` events publish inline post-dispatch (the tee). Backends without a
 prior outbox tier (java, elixir) gained one with their rabbit legs.
 

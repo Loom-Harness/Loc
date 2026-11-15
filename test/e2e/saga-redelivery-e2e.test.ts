@@ -4,10 +4,10 @@
 // A redelivery is forced by clearing the outbox row's `dispatched_at`, which
 // makes the local relay deliver the SAME row id again.
 //
-//   - saga reactor (java, elixir): without the `last_event_id` check the
+//   - saga reactor: without the consumer-inbox claim (D-CONSUMER-INBOX) the
 //     reactor runs twice and a second Note appears;
-//   - projection fold (every backend, D-PROJECTION-FOLD-INBOX): without the
-//     fold-inbox claim the `seen += 1` fold counts the event twice.
+//   - projection fold (every backend): without the claim the `seen += 1` fold
+//     counts the event twice.
 //
 // Opt-in: LOOM_SAGA_REDELIVERY_E2E=1 (npm run test:saga-redelivery-<backend>).
 // Needs docker, plus the leg's toolchain on PATH: gradle + JDK 25 (java), mix
@@ -113,8 +113,7 @@ interface Leg {
   platform: string;
   /** The toolchain that builds and boots it. */
   boot: "java" | "elixir" | "node" | "python" | "dotnet";
-  /** The saga reactor's dedup is asserted (the backends whose saga rows map
-   *  `last_event_id` on this fixture). */
+  /** The saga reactor's dedup is asserted. */
   saga: boolean;
   crossContext: boolean;
 }

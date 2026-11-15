@@ -104,7 +104,7 @@ public sealed class EfReadModelStore<TRow> : IReadModelStore<TRow> where TRow : 
 
     // The claim runs first, so a skipped event leaves nothing tracked for a
     // later SaveChanges on the same scope to write.
-    public async Task FoldOnceAsync(string projection, string? eventId, Func<Task> fold, CancellationToken cancellationToken = default)
+    public async Task FoldOnceAsync(string consumer, string? eventId, Func<Task> fold, CancellationToken cancellationToken = default)
     {
         if (eventId is null)
         {
@@ -116,7 +116,7 @@ public sealed class EfReadModelStore<TRow> : IReadModelStore<TRow> where TRow : 
             ? await _db.Database.BeginTransactionAsync(cancellationToken)
             : null;
         var claimed = await _db.Database.ExecuteSqlInterpolatedAsync(
-            $"insert into __loom_fold_inbox (projection, event_id, received_at) values ({projection}, {eventId}, now()) on conflict do nothing",
+            $"insert into __loom_inbox (consumer, event_id, received_at) values ({consumer}, {eventId}, now()) on conflict do nothing",
             cancellationToken);
         if (claimed == 0) return;
         await fold();

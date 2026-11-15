@@ -2,15 +2,13 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// Elixir-vanilla backend — idempotent-consumer markers (M-T4.3,
-// dispatch-delivery-semantics.md §3), closing the slice-7d residual (elixir's
-// saga last_event_id dedup was unwired — the ack-semantics stance).
+// Elixir-vanilla backend — idempotent consumers (D-CONSUMER-INBOX).
 //
-// Where a deployable HOSTS a durable channel's context AND a saga consumes it,
-// the ChannelConsumer parks the envelope id (= the producer's outbox row id) in
-// the process dictionary, the saga-state Ecto schema maps `last_event_id`, and
-// each handler no-ops on a redelivery of the recorded id and stamps it before
-// the state save — at-least-once becomes effectively-once.
+// Where a deployable receives a durable channel's events AND a saga consumes
+// them, the ChannelConsumer parks the envelope id (= the producer's outbox row
+// id) in the process dictionary, and each handler claims it in the consumer
+// inbox inside its `Repo.transaction`; a redelivery inserts no claim and
+// applies nothing.  The saga-state schema carries no dedupe column.
 // ---------------------------------------------------------------------------
 
 /** Co-located durable producer+consumer (queue/work + a rabbitmq channelSource)

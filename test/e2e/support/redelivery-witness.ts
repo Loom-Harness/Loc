@@ -75,7 +75,11 @@ function trackAppends(pg: string): number {
 }
 
 async function shipments(base: string): Promise<number> {
-  const res = await fetch(`${base}/api/shipments?pageSize=1`);
+  // A pooled keep-alive socket the server has already closed after an idle
+  // pause fails the first request ("other side closed"); one retry opens a
+  // fresh connection.
+  const get = () => fetch(`${base}/api/shipments?pageSize=1`);
+  const res = await get().catch(get);
   return ((await res.json()) as { total: number }).total;
 }
 
@@ -111,16 +115,16 @@ const seeded = new Map<string, { expired: string; live: string }>();
 /** Plants one claim older than any retention window and one fresh claim in
  *  the consumer's inbox.  A leg calls it once its first consumer replica has
  *  migrated the database and before the next replica boots: every
- *  deployable that runs no outbox relay purges its inbox at start, so the
- *  next boot prunes the expired claim and keeps the fresh one. */
+ *  deployable whose consumers claim purges its inbox at start, so the next
+ *  boot prunes the expired claim and keeps the fresh one. */
 export function seedInboxForPurge(container: string): void {
   const expired = `witness-expired-${randomUUID()}`;
   const live = `witness-live-${randomUUID()}`;
   psql(
     container,
-    `insert into __loom_fold_inbox (projection, event_id, received_at) values
-  ('workflow:Fulfil', '${expired}', now() - interval '400 days'),
-  ('workflow:Fulfil', '${live}', now());`,
+    `insert into __loom_inbox (consumer, event_id, received_at) values
+  ('witness/purge', '${expired}', now() - interval '400 days'),
+  ('witness/purge', '${live}', now());`,
   );
   seeded.set(container, { expired, live });
 }
@@ -220,7 +224,7 @@ drop sequence if exists loom_witness_crash;`,
     expect(planted, "the leg seeds the inbox with seedInboxForPurge").toBeDefined();
     if (!planted) return;
     const count = (id: string): number =>
-      Number(psql(pg, `select count(*) from __loom_fold_inbox where event_id = '${id}'`));
+      Number(psql(pg, `select count(*) from __loom_inbox where event_id = '${id}'`));
     const deadline = Date.now() + 30_000;
     while (count(planted.expired) > 0 && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 500));

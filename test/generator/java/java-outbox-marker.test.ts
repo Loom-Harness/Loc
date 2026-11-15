@@ -1,14 +1,10 @@
-// M-T4.3 — idempotent-consumer markers on the Java (Spring Boot) backend
-// (dispatch-delivery-semantics.md §3), closing the slice-7c residual (java's
-// saga `last_event_id` dedup was NOT wired — it relied on broker ack semantics
-// + idempotent reactors).
+// Idempotent consumers on the Java (Spring Boot) backend (D-CONSUMER-INBOX).
 //
-// Where a deployable HOSTS a durable channel's context AND a non-event-sourced
-// saga consumes it, the outbox relay rides the outbox row id as the envelope id,
-// the ChannelConsumerService parks it on `OutboxDelivery` around each dispatch,
-// and the saga handler compares/stamps its `last_event_id` — at-least-once
-// redelivery becomes effectively-once.  A FOREIGN consumer (its module owns no
-// outbox table) keeps the ack-semantics stance byte-identically.
+// Where a deployable receives a durable channel's events AND a saga consumes
+// them, the outbox relay rides the outbox row id as the envelope id, the
+// ChannelConsumerService parks it on `OutboxDelivery` around each dispatch,
+// and the saga handler claims it in the consumer inbox inside its
+// `@Transactional` dispatch — a redelivery applies nothing.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
