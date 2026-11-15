@@ -1,9 +1,10 @@
-// shape: the value assertions and the principal of a generated unit test.  A
-// `toBe` and an ordering matcher over a `money` (let-bound, so no member type
-// to read), a `datetime` and a `date` written as ISO strings, a value object, a
-// list and an `X id` written as a string; an operation named like a collection
-// op called inside `expect`; and an operation that reads a declared claim of a
-// non-default `user { … }` shape.
+// shape: the value assertions, the throw assertions and the principal of a
+// generated unit test.  A `toBe` and an ordering matcher over a `money`
+// (let-bound, so no member type to read), a `datetime` and a `date` written as
+// ISO strings, a value object, a list and an `X id` written as a string; an
+// operation named like a collection op called inside `expect`; an operation
+// that breaks an invariant, asserted by its rung and bare; and an operation
+// that reads a declared claim of a non-default `user { … }` shape.
 //
 // Each backend's test emitter decided these on its own, and the same test
 // passed on one backend, failed on another and did not compile on a third:
@@ -11,10 +12,11 @@
 // ordered it with `>` (no such operator); node compared a value object and a
 // list with `Object.is`; .NET and Java compared a typed id with its string;
 // four backends ordered a `datetime` against the raw string; `o.take(0)` was
-// lowered as the collection op; and the five synthetic actors carried
-// different claims, none of them `email`.  The negated assertions are the
-// other half of each proof: a comparison too lenient to tell two values apart
-// fails them.
+// lowered as the collection op; the five synthetic actors carried different
+// claims, none of them `email`; and Elixir skipped a `toThrow(invariant)` over
+// an operation, because its pure core checked no invariant.  The negated
+// assertions are the other half of each proof: a comparison too lenient to
+// tell two values apart fails them.
 system TestAssertions {
   user { id: string  role: string  permissions: string[]  email: string }
   subdomain Selling {
@@ -30,10 +32,12 @@ system TestAssertions {
         customer: Customer id
         placedAt: datetime?
         dueOn: date?
+        invariant total >= 0
         operation setTotal(t: money) { total := t }
         operation place(at: datetime) { placedAt := at }
         operation due(d: date) { dueOn := d }
         operation take(n: int) { precondition n > 0  status := "taken" }
+        operation discount(d: money) { total := total - d }
         operation sign() { precondition currentUser.email.length > 0  signedBy := currentUser.email }
 
         test "money compares by value, whatever its scale" {
@@ -77,6 +81,12 @@ system TestAssertions {
           o.take(1)
           expect(o.status).toBe("taken")
           expect(o.take(0)).toThrow()
+        }
+
+        test "an operation that breaks an invariant is refused by that rung" {
+          let o = Order.create(code: "a", total: 1, customer: "00000000-0000-0000-0000-000000000001")
+          expect(o.discount(5)).toThrow(invariant)
+          expect(o.discount(5)).toThrow()
         }
 
         test "an operation reads a declared claim of the test principal" {
