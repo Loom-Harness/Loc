@@ -32,15 +32,10 @@
 // cleared optional value object reaches the leaves as a CHANGE to nil.
 // ---------------------------------------------------------------------------
 
-/** The fully-qualified seam module. */
-export function recordsModule(appModule: string): string {
-  return `${appModule}.Records`;
-}
-
 /** `lib/<app>/records.ex`. */
 export function renderRecordsModule(appModule: string): string {
   return `# Auto-generated.
-defmodule ${recordsModule(appModule)} do
+defmodule ${appModule}.Records do
   @moduledoc """
   Every read and write of a table-backed schema.  A stored value object is its
   leaf columns; the schema carries it as a virtual field, composed here on
