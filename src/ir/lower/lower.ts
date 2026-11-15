@@ -105,7 +105,6 @@ import { descriptorFor } from "../../platform/metadata.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { parseDurationMs } from "../../util/timer.js";
 import { enrichContext } from "../enrich/enrichments.js";
-import { emitsRestCreate } from "../enrich/wire-projection.js";
 import type {
   AggregateIR,
   ApiIR,
@@ -164,6 +163,7 @@ import type {
 } from "../types/loom-ir.js";
 import { DEFAULT_SOURCE_LOCALE, lit } from "../types/loom-ir.js";
 import { type ApiOperationIR, deriveContextOperations } from "../util/api-surface.js";
+import { emitsRestCreate } from "../util/canonical-lifecycle.js";
 import { classifyPage, type PageKind, type PageNameCtx } from "../util/page-kind.js";
 import { computePermissionClosures, type PermissionEdge } from "../util/permission-closure.js";
 import { verifyLoweredModel } from "../verify/verify-lowered.js";

@@ -1,0 +1,5 @@
+{
+  "title": "declared fields named like ORM bookkeeping columns (`insertedAt`, `updatedAt`) on a root and a table-backed part",
+  "doc": "language",
+  "backends": "ALL"
+}

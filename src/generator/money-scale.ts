@@ -47,7 +47,7 @@ export const MONEY_MAX_EXCLUSIVE = `1${"0".repeat(MONEY_INTEGER_DIGITS)}`;
 
 /** The refusal message for an out-of-range money value — owned by the
  *  `wirePolicy` fact, re-exported for the backends that read it from here. */
-export { MONEY_RANGE_MESSAGE } from "../ir/enrich/wire-policy.js";
+export { MONEY_RANGE_MESSAGE } from "../ir/util/wire-policy.js";
 
 /** Money zero ON THE WIRE — `"0.0000"`, not `"0"`.
  *

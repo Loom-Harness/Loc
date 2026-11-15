@@ -56,7 +56,7 @@ import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { destroyVersionCheck, readsIfMatch } from "../enrich/version-check.js";
-import { emitsRestCreate, emitsRestDestroy } from "../enrich/wire-projection.js";
+import { emitsRestDestroy } from "../enrich/wire-projection.js";
 import { pagedReturn } from "../stdlib/generics.js";
 import {
   type AggregateIR,
@@ -67,7 +67,7 @@ import {
   type RepositoryIR,
   type TypeIR,
 } from "../types/loom-ir.js";
-import { canonicalCreate, canonicalDestroy } from "./canonical-lifecycle.js";
+import { canonicalCreate, canonicalDestroy, emitsRestCreate } from "./canonical-lifecycle.js";
 import { lifecycleGates } from "./op-gates.js";
 import { errorStatuses, UNPROCESSABLE_ENTITY } from "./openapi-errors.js";
 import {

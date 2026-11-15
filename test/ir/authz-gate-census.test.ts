@@ -88,7 +88,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { serverSourcedDefaultFields } from "../../src/generator/_frontend/server-default.js";
 import { handlerReadAggregates } from "../../src/ir/enrich/policy-read-gates.js";
-import { createInputFields, emitsRestCreate } from "../../src/ir/enrich/wire-projection.js";
+import { createInputFields } from "../../src/ir/enrich/wire-projection.js";
 import { contextOperations } from "../../src/ir/plan/repo-polymorphic.js";
 import {
   type AggregateIR,
@@ -102,19 +102,18 @@ import {
   type WorkflowIR,
 } from "../../src/ir/types/loom-ir.js";
 import { aggregateSegment } from "../../src/ir/util/api-surface.js";
-import { canonicalCreate, canonicalDestroy } from "../../src/ir/util/canonical-lifecycle.js";
+import {
+  canonicalCreate,
+  canonicalDestroy,
+  emitsRestCreate,
+} from "../../src/ir/util/canonical-lifecycle.js";
 import { lifecycleGates, operationGates } from "../../src/ir/util/op-gates.js";
 import { platformFor } from "../../src/platform/registry.js";
 import { API_BASE_PATH } from "../../src/util/api-base.js";
 import { snake } from "../../src/util/naming.js";
 import { buildLoomModel } from "../_helpers/ir.js";
 import { E2E_LESS_CORPUS_FIXTURES } from "./api-caller-census-pins.js";
-import {
-  AUTHZ_GATE_PINS,
-  NON_PARSING_SOURCES,
-  PIN_CLASS_CENSUS,
-  R,
-} from "./authz-gate-census-pins.js";
+import { AUTHZ_GATE_PINS, NON_PARSING_SOURCES, R } from "./authz-gate-census-pins.js";
 import { type CensusCase, loadPopulation } from "./authz-gate-census-population.js";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -516,9 +515,19 @@ function censusFailures(
         `told apart from an absent one. Remedy: add a \`gated\` probe for ${s.method} ` +
         `${s.path} to AUTHZ_LADDERS["${c.key.replace(/^[a-z/]*\//, "")}"] ` +
         `(test/behavioral/cases.mjs) whose \`unauthorized\` (or \`anonymous\`) arm expects ` +
-        `401/403/404, or pin it in AUTHZ_GATE_PINS["${c.key}"] ` +
-        `(test/ir/authz-gate-census-pins.ts) with a reason.`,
+        `401/403/404, or pin it with a reason in ${pinHome(c.key)}.`,
     );
+  }
+  for (const s of unrefused) {
+    const reason = pins[s.key];
+    if (reason === undefined) continue;
+    const cls = Object.entries(R).find(([, v]) => v === reason)?.[0] as keyof typeof R | undefined;
+    const misfit = cls === undefined ? "" : classMisfit(cls, s);
+    if (misfit)
+      out.push(
+        `${c.key}: pin \`${s.key}\` is \`${cls}\`, which ${misfit} (gates: ${s.gates.join(", ")}). ` +
+          `Pin it under the class that explains it (${pinHome(c.key)}).`,
+      );
   }
   for (const key of Object.keys(pins)) {
     if (unrefusedKeys.has(key)) continue;
@@ -530,10 +539,47 @@ function censusFailures(
             "added the ladder arm."
           : `no such gated surface in ${c.file} (the gate, or the route, was renamed or ` +
             "removed). Delete the pin.") +
-        ` (AUTHZ_GATE_PINS["${c.key}"], test/ir/authz-gate-census-pins.ts)`,
+        ` (${pinHome(c.key)})`,
     );
   }
   return out;
+}
+
+/** The gate each reason class explains: a pin's surface must carry it, so a
+ *  pin cannot be moved to a class that does not describe the surface (out of
+ *  a class the emitted census re-checks, say).  The two harness classes
+ *  explain a limit of the runners, not a gate, and fit any surface. */
+const CLASS_GATE: Readonly<Record<keyof typeof R, GateKind | null>> = {
+  oneSeededId: null,
+  notABehaviouralCase: null,
+  rowDataGate: "requires",
+  importGateOnly: "requires",
+  probeAnswersFalse: "requires",
+  principalFreeGate: "policy",
+  sharedTenancyIdentity: "tenancy",
+  sharedPrincipalId: "tenancy",
+  maskIsNotAStatus: "mask",
+};
+
+/** Why `cls` does not describe surface `s` (empty when it does). */
+function classMisfit(cls: keyof typeof R, s: GatedSurface): string {
+  const gate = CLASS_GATE[cls];
+  if (gate !== null && !s.gates.includes(gate))
+    return `explains a \`${gate}\` gate the surface does not carry`;
+  if (cls === "probeAnswersFalse" && s.routeClass !== "gateProbe")
+    return "explains a `can_<op>` probe route";
+  return "";
+}
+
+/** Where a case's pins are written: a corpus fixture's in its sidecar, any
+ *  other source's in `AUTHZ_GATE_PINS`. */
+function pinHome(caseKey: string): string {
+  const corpus = /^corpus\/(.+)$/.exec(caseKey);
+  if (!corpus) return `AUTHZ_GATE_PINS["${caseKey}"] (test/ir/authz-gate-census-pins.ts)`;
+  const sidecar = (id: string) => `test/fixtures/corpus/${id}.corpus.json`;
+  const own = JSON.parse(fs.readFileSync(path.join(REPO, sidecar(corpus[1])), "utf8"));
+  const home = own.authzGate === undefined && own.inherits ? own.inherits : corpus[1];
+  return `${sidecar(home)} → "authzGate" (value: an R class name)`;
 }
 
 // ---------------------------------------------------------------------------
@@ -562,26 +608,16 @@ describe("authz gate census — every emitted gate has a refused caller or a pin
     }
   });
 
-  it("keeps the per-class pin census honest", () => {
-    // Recomputed from the pins and compared BOTH ways: an added pin whose count
-    // was not raised fails, and so does a drained one whose count was not
-    // lowered.  Matched by the `R.*` STRING (the pins store the value, not the
-    // key), so a renamed class shows up as an unknown reason rather than as a
-    // silently-zero count.
-    const byReason = new Map<string, string>(Object.entries(R).map(([k, v]) => [v, k]));
-    const actual: Record<string, number> = {};
-    for (const surfaces of Object.values(AUTHZ_GATE_PINS)) {
-      for (const reason of Object.values(surfaces)) {
-        const cls = byReason.get(reason);
-        expect(cls, `pin reason is not one of the R.* constants: ${reason}`).toBeDefined();
-        actual[cls as string] = (actual[cls as string] ?? 0) + 1;
-      }
-    }
-    expect(
-      actual,
-      "PIN_CLASS_CENSUS (test/ir/authz-gate-census-pins.ts) disagrees with the pins above it. " +
-        "Adding a pin raises its count; draining one lowers it; a class at zero is deleted.",
-    ).toEqual(PIN_CLASS_CENSUS);
+  it("pins only to a declared reason class", () => {
+    // Matched by the `R.*` STRING (the pins store the value, not the key), so a
+    // renamed class shows up as an unknown reason.  No per-class tally is
+    // pinned: it is a pure function of the pins.
+    const reasons = new Set<string>(Object.values(R));
+    for (const surfaces of Object.values(AUTHZ_GATE_PINS))
+      for (const reason of Object.values(surfaces))
+        expect(reasons.has(reason), `pin reason is not one of the R.* constants: ${reason}`).toBe(
+          true,
+        );
   });
 
   it("pins no case that left the population", () => {
@@ -797,7 +833,18 @@ describe("authz gate census — mutation proof", () => {
     expect(named[0]).toContain("gates: requires");
     expect(named[0]).toContain("has NO caller that must be REFUSED");
     expect(named[0]).toContain("whose `unauthorized` (or `anonymous`) arm expects 401/403/404");
-    expect(named[0]).toContain("or pin it in AUTHZ_GATE_PINS");
+    expect(named[0]).toContain("or pin it with a reason in AUTHZ_GATE_PINS");
+  });
+
+  it("FAILS a pin whose class does not describe the surface", async () => {
+    const { gated } = surfacesOf(await modelOf(MUT_SOURCE));
+    const key = "operation POST /api/widgets/{id}/rename";
+    expect(censusFailures(MUT_CASE, gated, new Set(), { [key]: R.rowDataGate })).toEqual([]);
+    const failures = censusFailures(MUT_CASE, gated, new Set(), { [key]: R.maskIsNotAStatus });
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain(
+      "is `maskIsNotAStatus`, which explains a `mask` gate the surface does not carry",
+    );
   });
 
   it("STILL FAILS when the ladder drives only the ALLOWED side", async () => {

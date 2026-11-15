@@ -1,6 +1,6 @@
-import { wireCode } from "../../ir/enrich/wire-policy.js";
 import type { AuthIR, AuthValueIR, FieldIR, TypeIR, UserIR } from "../../ir/types/loom-ir.js";
 import type { OrgContextPlan } from "../../ir/util/org-context.js";
+import { wireCode } from "../../ir/util/wire-policy.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";

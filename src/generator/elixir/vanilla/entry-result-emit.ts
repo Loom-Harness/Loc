@@ -20,7 +20,6 @@
 // wire-shape serializers the REST reads use, and answers an error variant at
 // its mapped status with its problem body.
 
-import { errorVariantCode } from "../../../ir/enrich/wire-policy.js";
 import { isScalarVariant } from "../../../ir/stdlib/unions.js";
 import type {
   BoundedContextIR,
@@ -30,6 +29,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import type { EntryResult, EntryResultLeaf } from "../../../ir/util/entry-result.js";
 import { walkExprDeep, walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
+import { errorVariantCode } from "../../../ir/util/wire-policy.js";
 import { elixirString } from "../../../util/naming.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { exErrorVariant } from "../wire-policy-ex.js";

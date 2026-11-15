@@ -384,8 +384,9 @@ off the referenced aggregate (D-REF-ADMISSION):
 | the registry | `global` | the foreign key alone — a row may name another org (a share's grantee) |
 | `tenantOwned` in another context | `unresolvable` | no check is possible: `loom.tenancy-ref-unresolvable` is an error under `enforcement: denyByDefault`, a warning under `opt` |
 
-Every backend renders the probe at the repository **save**, inside the write
-transaction and before the row is written, so it covers every path that
+Every backend renders the probe in the repository **save**, before the row is
+written (`test/system/ref-admission-census.test.ts` pins it per backend), so it
+covers every path that
 persists the reference — the routes, workflows, handlers and reactors alike.
 It reads the target the way any read of it does, through the target's read
 scope (the `tenantOwned` floor on the operating org, plus any row rules,

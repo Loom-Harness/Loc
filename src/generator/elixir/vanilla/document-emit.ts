@@ -61,10 +61,10 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
+import { singleFieldConstraints } from "../../../ir/util/invariant-classify.js";
 import { aggregateHasMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import { isDocumentShaped, resolveDataSourceConfig } from "../../../ir/util/resolve-datasource.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
-import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import {
   elixirLocal,
   elixirString,
@@ -87,12 +87,7 @@ import {
   vanillaDocWriteScopeFilter,
 } from "./capability-filter.js";
 import { ectoValidator } from "./changeset-validators.js";
-import {
-  exEctoIdType,
-  exEctoJsonType,
-  exEctoScalarType,
-  exFrameworkTimestampType,
-} from "./codec-spelling-ex.js";
+import { exEctoIdType, exEctoJsonType, exEctoScalarType } from "./codec-spelling-ex.js";
 import { isVoValuedType, NORMALIZE_KEYS_DEFP, NORMALIZE_VO_KEYS_DEFP } from "./key-normalize.js";
 import { managedTimestampNames } from "./managed-timestamps.js";
 import { applyFnName, saveFnName } from "./op-in-memory.js";
@@ -127,7 +122,7 @@ export function isVanillaDocAgg(agg: AggregateIR, ctx: BoundedContextIR, sys?: S
  *  A server-managed `createdAt`/`updatedAt` STAYS IN, unlike on the relational
  *  path.  There it is excluded from the cast because the stamp `put_change`s a
  *  real column; a document aggregate HAS no such column — the root table is
- *  `(id, data, version)` plus Ecto's own `inserted_at`/`updated_at` — so
+ *  `(id, data, version)` — so
  *  dropping it left the field with nowhere to live: the stamp vanished, and the
  *  controller's `serialize/1` (which reads `record.created_at` off the embed)
  *  raised `KeyError` on every read.  It is cast here and supplied by
@@ -245,7 +240,6 @@ ${prefixLine}
   schema "${tableName}" do
     embeds_one :data, ${moduleName}.Data, on_replace: :update
     field :${ROW_VERSION_COLUMN}, :integer, default: 1
-    timestamps(type: ${exFrameworkTimestampType()})
   end
 ${pureCoreBlock}end
 `;

@@ -110,7 +110,7 @@
     },
     {
       "id": "RS-7",
-      "title": "Value-object subfields survive a jsonb round-trip",
+      "title": "Value-object subfields survive a storage round-trip",
       "trigger": "valueobject Money { amount, currency } as an aggregate field on a jsonb-storing backend",
       "observable": "GET returns the nested {amount,currency}; a later op reading self.price.amount does not raise",
       "conforms": [

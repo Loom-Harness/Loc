@@ -8,5 +8,11 @@
     "unattributed": [
       "api.scoreProvider.run (no such aggregate)"
     ]
+  },
+  "typing": {
+    "ir-differs": {
+      "n": 4,
+      "why": "empty list literals `[]` (pass [never], IR [string]) and a bare `null` (pass never?): untyped empty literals in ternary arms, the fixture's subject"
+    }
   }
 }

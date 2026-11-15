@@ -86,7 +86,7 @@ describe("scalar codecs — the cross-backend contract", () => {
   });
 
   it("each wire JSON type agrees with the wirePolicy ingress table", async () => {
-    const { ingressFor } = await import("../../src/ir/enrich/wire-policy.js");
+    const { ingressFor } = await import("../../src/ir/util/wire-policy.js");
     for (const c of allScalarCodecs())
       expect(ingressFor(c.primitive).json, c.primitive).toBe(c.wire.json);
   });

@@ -12,7 +12,6 @@
 // still emits the one flat root `view` with no routing table.
 
 import { buildFrontendHost } from "../../ir/contract/host.js";
-import { wireCode } from "../../ir/enrich/wire-policy.js";
 import { createRequestFields } from "../../ir/plan/create-request.js";
 import type {
   AggregateIR,
@@ -37,6 +36,7 @@ import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/p
 import { menuMetaString } from "../../ir/util/page-menu.js";
 import { readableProjectionNames } from "../../ir/util/projection-read.js";
 import type { RealtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
+import { wireCode } from "../../ir/util/wire-policy.js";
 import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";

@@ -137,7 +137,7 @@ export function refCollRelationLine(
 
 /** The join-row schema for a FOREIGN ref collection: one row of the join table
  *  the shared migration already creates (`<owner>_id` + `<target>_id`, both
- *  primary key, plus timestamps).  The target column is exposed as `:id`, so a
+ *  primary key).  The target column is exposed as `:id`, so a
  *  preloaded row reads exactly like a preloaded target struct to every
  *  id-projecting helper (`__ref_ids/1`, `__ref_id_list/1`, a `contains` find's
  *  `t.id == ^p`).  Both columns are the primary key, so `on_replace: :delete`
@@ -165,7 +165,6 @@ ${prefixLine}
   schema ${JSON.stringify(rc.assoc.joinTable)} do
     field :${rc.assoc.ownerFk}, :binary_id, primary_key: true
     field :id, ${ectoIdType()}, primary_key: true, source: :${rc.assoc.targetFk}
-    timestamps()
   end
 
   @doc false
