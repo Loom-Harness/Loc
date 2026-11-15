@@ -17,16 +17,11 @@
 // v1 constraint (`loom.integration-find-must-bind`, shared with node): a
 // repository find must be LET-BOUND, not written inline inside `expect(...)`.
 
-import {
-  type TestPrincipalShape,
-  testPrincipal,
-  testPrincipalShape,
-} from "../../../ir/plan/test-principal.js";
+import { type TestPrincipalShape, testPrincipal } from "../../../ir/plan/test-principal.js";
 import type {
   AggregateIR,
   BoundedContextIR,
   ExprIR,
-  FieldIR,
   FindIR,
   TestIR,
   TestPrincipalIR,

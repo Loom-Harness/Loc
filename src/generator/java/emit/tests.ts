@@ -10,7 +10,6 @@ import type {
   BoundedContextIR,
   DomainServiceIR,
   ExprIR,
-  FieldIR,
   TestIR,
   TestStmtIR,
   TypeIR,
