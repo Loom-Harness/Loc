@@ -126,12 +126,14 @@ ${findHead}
   end
 
   # One shared-table row as its concrete schema: the concrete maps the same
-  # columns with the same types, so this projects the loaded fields onto it.
+  # columns with the same types, so this projects the loaded fields onto it —
+  # the virtual value-object fields \`Records\` composed included.
   defp as_concrete(%{kind: kind} = row) do
     schema = Map.fetch!(@kinds, kind)
+    fields = schema.__schema__(:fields) ++ schema.__schema__(:virtual_fields)
 
     schema
-    |> struct(Map.take(Map.from_struct(row), schema.__schema__(:fields)))
+    |> struct(Map.take(Map.from_struct(row), fields))
     |> Ecto.put_meta(state: :loaded)${finish}
   end${preloadFn}
 end

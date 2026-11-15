@@ -154,7 +154,7 @@ defmodule ${recordsModule(appModule)} do
           case Ecto.Changeset.fetch_change(acc, field) do
             {:ok, value} ->
               Enum.reduce(leaf_values(value, node), acc, fn {column, leaf}, cs ->
-                Ecto.Changeset.force_change(cs, column, leaf)
+                Ecto.Changeset.force_change(cs, column, cast_leaf(schema, column, leaf))
               end)
 
             :error ->
@@ -178,7 +178,7 @@ defmodule ${recordsModule(appModule)} do
 
             value ->
               Enum.reduce(leaf_values(value, node), acc, fn {column, leaf}, s ->
-                Map.put(s, column, leaf)
+                Map.put(s, column, cast_leaf(schema, column, leaf))
               end)
           end
         end)
@@ -206,6 +206,18 @@ defmodule ${recordsModule(appModule)} do
       {key, column, _required} -> [{column, member(value, key)}]
       {key, inner} -> leaf_values(member(value, key), inner)
     end)
+  end
+
+  # A leaf the value object's own cast keeps as given (a \`date\`, a \`json\`
+  # member) is cast to its column's type here; one that does not cast is kept,
+  # and the value object's validating constructor has already refused it.
+  defp cast_leaf(_schema, _column, nil), do: nil
+
+  defp cast_leaf(schema, column, value) do
+    case Ecto.Type.cast(schema.__schema__(:type, column), value) do
+      {:ok, cast} -> cast
+      _ -> value
+    end
   end
 
   defp member(nil, _key), do: nil
