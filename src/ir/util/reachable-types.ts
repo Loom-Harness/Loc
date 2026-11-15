@@ -16,17 +16,43 @@
 // closure that matches what the emitted `<Vo>Schema` bodies reference.
 // Pure IR traversal: consumed downward by the generators, no back-edge.
 
-import type { EnumIR, FieldIR, TypeIR, ValueObjectIR } from "../types/loom-ir.js";
+import type { EnumIR, ExprIR, FieldIR, TypeIR, ValueObjectIR } from "../types/loom-ir.js";
 
 /** The enum and value-object declarations a bounded context resolves a type
  *  name against: its own, and the ones its sibling contexts declare.  A
  *  `BoundedContextIR` is one; an emitter that holds only a context's type
  *  scope passes that. */
-export interface TypeScope {
-  readonly enums: readonly EnumIR[];
-  readonly siblingEnums?: readonly EnumIR[];
-  readonly valueObjects: readonly ValueObjectIR[];
-  readonly siblingValueObjects?: readonly ValueObjectIR[];
+export interface TypeScope<
+  E extends ScopeEnum = EnumIR,
+  V extends ScopeValueObject = ValueObjectIR,
+> {
+  readonly enums: readonly E[];
+  readonly siblingEnums?: readonly E[];
+  readonly valueObjects: readonly V[];
+  readonly siblingValueObjects?: readonly V[];
+}
+
+/** A type scope whose declarations carry only what a lookup reads. */
+export type AnyTypeScope = TypeScope<ScopeEnum, ScopeValueObject>;
+
+/** What a type-scope lookup reads off an enum declaration. */
+export interface ScopeEnum {
+  readonly name: string;
+  readonly values: readonly string[];
+}
+
+/** What a type-scope lookup reads off a value-object declaration. */
+export interface ScopeValueObject {
+  readonly name: string;
+  readonly fields: readonly ScopeField[];
+}
+
+/** A value-object field, as a form seeds and renders it. */
+export interface ScopeField {
+  readonly name: string;
+  readonly type: TypeIR;
+  readonly optional?: boolean;
+  readonly default?: ExprIR;
 }
 
 /**
@@ -47,7 +73,9 @@ export interface TypeScope {
  * actually reaches, so an unreferenced sibling VO is never emitted.  Own names
  * shadow (`siblingValueObjects` is built already excluding them).
  */
-export function valueObjectPool(ctx: TypeScope): ReadonlyArray<ValueObjectIR> {
+export function valueObjectPool<V extends ScopeValueObject>(
+  ctx: TypeScope<ScopeEnum, V>,
+): ReadonlyArray<V> {
   const siblings = ctx.siblingValueObjects;
   return siblings && siblings.length > 0 ? [...ctx.valueObjects, ...siblings] : ctx.valueObjects;
 }
@@ -107,7 +135,9 @@ export function orderValueObjectsByDependency(vos: ReadonlyArray<ValueObjectIR>)
  *  it MATERIALISES an enum it merely references — a route file's
  *  `const <E>Schema = z.enum([...])`, a migration's `CHECK (<col> IN (...))`.
  *  Own names shadow (`siblingEnums` is built already excluding them). */
-export function enumPool(ctx: TypeScope): ReadonlyArray<EnumIR> {
+export function enumPool<E extends ScopeEnum>(
+  ctx: TypeScope<E, ScopeValueObject>,
+): ReadonlyArray<E> {
   const siblings = ctx.siblingEnums;
   return siblings && siblings.length > 0 ? [...ctx.enums, ...siblings] : ctx.enums;
 }
@@ -128,7 +158,10 @@ export function valueObjectFieldLookup(ctx: TypeScope): ReadonlyMap<string, read
  *  DEGRADED fallback (a single text input for a whole money object, a
  *  `String(value)` page-object fill), not an error — so the miss is invisible
  *  until the generated project is run. */
-export function findValueObjectInScope(ctx: TypeScope, name: string): ValueObjectIR | undefined {
+export function findValueObjectInScope<V extends ScopeValueObject>(
+  ctx: TypeScope<ScopeEnum, V>,
+  name: string,
+): V | undefined {
   return (
     ctx.valueObjects.find((v) => v.name === name) ??
     ctx.siblingValueObjects?.find((v) => v.name === name)

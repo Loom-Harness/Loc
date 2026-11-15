@@ -8,6 +8,7 @@ import { opModelText, paramLabelOwner } from "../_walker/model-text-sites.js";
 import { opGateFor } from "../_walker/op-gate.js";
 import { namedArgValue, positionalArgs, stringNamed } from "../_walker/shared/args.js";
 import { emitExpr, type WalkContext } from "../_walker/walker-core.js";
+import { contextOfOptionalHome } from "../_walker/walker-model.js";
 import {
   type AngularFieldArraySpec,
   type AngularFieldGroupSpec,
@@ -125,7 +126,7 @@ export function renderAngularOperationForm(
     );
   }
   const { aggName, op, idExpr } = resolved;
-  const bc = ctx.model.homeOfAggregate(aggName);
+  const bc = contextOfOptionalHome(ctx.model.homeOfAggregate(aggName));
 
   const opKey = `${lowerFirst(op.name)}${aggName}`;
   const formVar = `${opKey}Form`;
