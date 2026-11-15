@@ -1512,7 +1512,7 @@ function renderWorkflowModule(
     ? [
         `    key = params[${JSON.stringify(corrParam.name)}]`,
         `    loom_state =`,
-        `      case ${repoMod}.Records.get(${stateMod}, key) do`,
+        `      case Repo.Records.get(${stateMod}, key) do`,
         `        nil -> %${stateMod}{${allocFields.join(", ")}}`,
         `        existing -> existing`,
         `      end`,
@@ -1531,8 +1531,8 @@ function renderWorkflowModule(
   const persistLines = corrParam
     ? [
         writesState
-          ? `${repoMod}.Records.insert_or_update!(Ecto.Changeset.change(loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`
-          : `${repoMod}.Records.insert_or_update!(Ecto.Changeset.change(loom_state))`,
+          ? `Repo.Records.insert_or_update!(Ecto.Changeset.change(loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`
+          : `Repo.Records.insert_or_update!(Ecto.Changeset.change(loom_state))`,
       ]
     : [];
   // An expected-failure result (`T or E`) or the workflow answering itself
