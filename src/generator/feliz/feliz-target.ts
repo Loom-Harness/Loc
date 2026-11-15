@@ -7,7 +7,7 @@
 // `Msg` (the effect body lives in `update`, not the view).  Expression syntax
 // leaves forward to the shared F# leaf table (`FS_LEAVES`).
 
-import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import { createRequestFields } from "../../ir/plan/create-request.js";
 import type { BoundedContextIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { operationFormParams } from "../../ir/util/op-gates.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
@@ -913,8 +913,10 @@ export const felizTarget: WalkerTarget = {
     const aggName = ofArg?.kind === "ref" ? ofArg.name : undefined;
     const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
     if (!agg || !aggName) return null;
+    const request = createRequestFields(ctx.bcByAggregate.get(aggName)?.payloads ?? [], agg);
     const form = felizCreateForm(
       agg,
+      request,
       enumsFromBc(ctx.bcByAggregate.get(aggName)),
       idLabelsFrom(ctx.aggregatesByName.values()),
       vosFromBc(ctx.bcByAggregate.get(aggName)),
@@ -924,7 +926,7 @@ export const felizTarget: WalkerTarget = {
     // default the page-object builder computes from the aggregate.
     const base = stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-new`;
     const src: FormTextSource = {
-      inputs: createInputFields(agg),
+      inputs: request,
       ownerOf: () => agg.name,
       bc: ctx.bcByAggregate.get(aggName),
     };

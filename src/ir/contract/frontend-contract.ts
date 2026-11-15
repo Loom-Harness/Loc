@@ -20,6 +20,7 @@
 // the result was copied on purpose, so the result is JSON-exact — it equals
 // its own `JSON.parse(JSON.stringify(…))`.
 
+import { createRequestRecord } from "../plan/create-request.js";
 import { pagedReturn, pagedSortDefault } from "../stdlib/generics.js";
 import type {
   AggregateIR,
@@ -47,7 +48,6 @@ import {
   type ApiOperationParamIR,
   deriveContextOperations,
 } from "../util/api-surface.js";
-import { declaredCreateCommandFor } from "../util/declared-request.js";
 import {
   type ContractResponse,
   type ContractResponseField,
@@ -165,7 +165,7 @@ interface OperationFacts {
    *  the request body (`classifyForWire`), in that order. */
   invariants?: ContractInvariant[];
   /** On a `create`: the declared command record its body is, when the context
-   *  declares one (`declaredCreateCommandFor`). */
+   *  declares one (`createRequestRecord`). */
   request?: string;
 }
 
@@ -555,7 +555,7 @@ function createFacts(
   agg: AggregateIR,
 ): OperationFacts {
   if (op.kind !== "create") return {};
-  const record = declaredCreateCommandFor(ctx.payloads, agg);
+  const record = createRequestRecord(ctx.payloads, agg);
   if (!record) return {};
   const available = new Set(record.fields.map((f) => f.name));
   const invariants = agg.invariants

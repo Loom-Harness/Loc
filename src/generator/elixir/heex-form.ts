@@ -7,7 +7,7 @@
 // form, destroy-form and `bindEventHandler` seams.
 // ---------------------------------------------------------------------------
 
-import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import { createRequestFields } from "../../ir/plan/create-request.js";
 import type {
   BoundedContextIR,
   EnumIR,
@@ -149,13 +149,13 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   } else if (ofPascal) {
     const agg = ctx.aggregatesByName.get(ofPascal);
     if (agg) {
-      // Render the create-input contract (`createInputFields`), not raw
-      // `agg.fields` — server-owned fields (`managed`/`token`/`internal`,
-      // incl. `stamp` targets promoted by `promoteStampTargets`) must not
-      // surface as client inputs; the LiveView save path stamps them at
-      // persist.  Unlike the JS `CreateForm`, optionals stay rendered —
+      // Render the create request (`createRequestFields`, the declared
+      // create command record), not raw `agg.fields` — server-owned fields
+      // and an event-sourced aggregate's folded state must not surface as
+      // client inputs.  Unlike the JS `CreateForm`, optionals stay rendered —
       // the HEEx form has no update flow to defer them to.
-      for (const f of createInputFields(agg)) {
+      const bc = ctx.bcByAggregate.get(ofPascal);
+      for (const f of createRequestFields(bc?.payloads ?? [], agg)) {
         if (f.name === "id") continue;
         inputs.push(
           `  ${renderFieldInputForField(

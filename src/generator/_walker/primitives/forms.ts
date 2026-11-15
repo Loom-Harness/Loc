@@ -6,7 +6,7 @@
 // trigger surface onto the operation state its Form child just pushed,
 // so it must share the same sink and live alongside the form emitters.
 
-import { createInputFields } from "../../../ir/enrich/wire-projection.js";
+import { createRequestFields } from "../../../ir/plan/create-request.js";
 import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { operationFormParams } from "../../../ir/util/op-gates.js";
@@ -707,21 +707,19 @@ function emitFormOfAggregate(
       `CreateForm(of: ${aggName}): aggregate not found in this UI's reachable contexts`,
     );
   }
-  // The form renders the create-input contract (`createInputFields` —
-  // the same set the api-module's `Create<Agg>Request` zod schema and
-  // every backend DTO derive from), so a server-owned field (`managed`/
-  // `token`/`internal`, incl. stamp targets promoted by
-  // `promoteStampTargets`) never surfaces as a client input.  Raw
-  // `agg.fields` here rendered inputs the payload type doesn't carry.
-  // Optional fields are excluded on top — same rule as the scaffold
-  // New-page builder (`!f.optional`).  This keeps the first iteration
-  // of a form schema focused on what the wire contract REQUIRES;
-  // optional fields surface via update-flow operations on the detail
-  // page.
+  // The form renders the create request: the declared create command record
+  // (`createRequestFields`), the same record the api module's
+  // `Create<Agg>Request` schema, the page object and every backend's create
+  // command read.  So a server-owned field (`managed`/`token`/`internal`) or
+  // an event-sourced aggregate's folded state never surfaces as an input.
+  // Optional fields are excluded on top — same rule as the scaffold New-page
+  // builder (`!f.optional`); they surface via update-flow operations on the
+  // detail page.
   // An optional value object is the exception: it renders as an opt-in group
   // that submits `null` until the user adds it, so the create form offers the
   // same group the update form does.
-  const fields = createInputFields(agg).filter(
+  const request = createRequestFields(bc.payloads, agg);
+  const fields = request.filter(
     (f) => !f.optional || (f.type.kind === "optional" && f.type.inner.kind === "valueobject"),
   );
   const testidNamespace = stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-new`;
@@ -753,22 +751,20 @@ function emitFormOfAggregate(
   // with a clean import set.
   const hasServerDefaults =
     ctx.pack.manifest.seedsServerDefaults === true &&
-    serverSourcedDefaultFields(createInputFields(agg)).length > 0;
+    serverSourcedDefaultFields(request).length > 0;
   if (hasServerDefaults) {
     addImport(ctx, `../api/${lowerFirst(agg.name)}`, `usePrepare${agg.name}`);
     addImport(ctx, "react", "useEffect");
   }
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
   const onSubmitJs = emitFormOnSubmit(ctx, call, prepared.idTargets, "create");
-  // Gate on the FULL create-input set, not the `!optional`-filtered `fields`
+  // Gate on the FULL create request, not the `!optional`-filtered `fields`
   // the form RENDERS.  The generic has to describe what `zodResolver` parses —
-  // `Create<Agg>Request`, built by `api-module.ts` from the UNFILTERED
-  // `createInputFields(agg)` — and that is also the set its `dualTypeAliases`
-  // gate reads.  Reading the filtered list here made the two disagree for an
-  // aggregate whose only money field is OPTIONAL: the alias was emitted, the
-  // schema carried the transform, and the form still took the single generic —
-  // the original F1b TS2322/TS2345, one case narrower.
-  const createFormStateType = formStateTypeFor(`Create${agg.name}`, createInputFields(agg), bc);
+  // `Create<Agg>Request`, built by `api-module.ts` from the same unfiltered
+  // request — and that is also the set its `dualTypeAliases` gate reads.  An
+  // aggregate whose only money field is OPTIONAL takes the dual alias, so the
+  // filtered list would disagree with the schema.
+  const createFormStateType = formStateTypeFor(`Create${agg.name}`, request, bc);
   if (createFormStateType) {
     addTypeImport(ctx, `../api/${lowerFirst(agg.name)}`, createFormStateType);
   }

@@ -22,6 +22,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { freePort } from "./support/ports.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT_PYTHON === "1";
 
@@ -74,10 +75,10 @@ system Acme {
 }
 `;
 
-const SALES_PORT = 3205;
-const REPLICA_PORTS = [3206, 3207];
-const PG_PORT = 55441;
-const AMQP_PORT = 55673;
+const SALES_PORT = await freePort();
+const REPLICA_PORTS = await Promise.all([freePort(), freePort()]);
+const PG_PORT = await freePort();
+const AMQP_PORT = await freePort();
 const ORDERS = 6;
 const ADDRESS = "loom.Orders.Lifecycle";
 
