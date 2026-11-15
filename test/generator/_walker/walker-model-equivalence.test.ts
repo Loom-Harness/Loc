@@ -22,18 +22,10 @@ import {
   buildFrontendContract,
   type FrontendContract,
 } from "../../../src/ir/contract/frontend-contract.js";
-import type {
-  BoundedContextIR,
-  EnrichedLoomModel,
-  EnrichedSystemIR,
-} from "../../../src/ir/types/loom-ir.js";
+import type { BoundedContextIR, EnrichedSystemIR } from "../../../src/ir/types/loom-ir.js";
 import { enumPool, findValueObjectInScope } from "../../../src/ir/util/reachable-types.js";
 import { expectReach } from "../../_helpers/census-reach.js";
-import { dddSourceOf, trackedDddFiles } from "../../_helpers/ddd-corpus.js";
-import { toLoomModel } from "../../_helpers/ir.js";
-import { parseString } from "../../_helpers/parse.js";
-
-const CONTRACT_FRAMEWORKS = new Set(["react", "vue"]);
+import { CONTRACT_FRAMEWORKS, trackedFrontendModels } from "../../_helpers/frontend-models.js";
 
 /** The contexts the system hands a frontend deployable: its own, with every
  *  abstract base dropped except a polymorphic read home (`ownTable`). */
@@ -60,17 +52,27 @@ function enrichedModel(contexts: BoundedContextIR[], reach: WalkerReach): Walker
 }
 
 /** The type names a walk can ask about: everything the contract names (the
- *  closure of the ui and its wire), plus the aggregates, parts and workflows
- *  the contexts declare. */
+ *  closure of the ui and its wire), plus the enums, aggregates, parts and
+ *  workflows the contexts declare. */
 function probes(contract: FrontendContract, contexts: readonly BoundedContextIR[]) {
   const w = contract.wire;
+  const enums = [
+    ...new Set([
+      ...w.enums.map((e) => e.name),
+      ...contexts.flatMap((c) => [...c.enums, ...(c.siblingEnums ?? [])].map((e) => e.name)),
+    ]),
+  ].sort();
+  // A walk looks a value object up only by a type it meets in a page body or
+  // on the wire, and the contract carries the closure of both; an enum it may
+  // also iterate whole (an `EnumBadge` catalogues every declared one).
+  const valueObjects = w.valueObjects.map((v) => v.name).sort();
   return {
-    enums: w.enums.map((e) => e.name),
-    valueObjects: w.valueObjects.map((v) => v.name),
+    enums,
+    valueObjects,
     types: [
       ...new Set([
-        ...w.enums.map((e) => e.name),
-        ...w.valueObjects.map((v) => v.name),
+        ...enums,
+        ...valueObjects,
         ...contexts.flatMap((c) =>
           c.aggregates.flatMap((a) => [a.name, ...a.parts.map((p) => p.name)]),
         ),
@@ -88,6 +90,9 @@ function serialize(
 ) {
   const homeFacts = (home: WalkerHome) => ({
     name: home.name,
+    // An `EnumBadge` catalogues the text of every enum a home declares; the
+    // catalogue is keyed, so the set is what it reads.
+    declaredEnums: home.enums.map((e) => e.name).sort(),
     enums: Object.fromEntries(
       p.enums.map((n) => [n, enumPool(home).find((e) => e.name === n)?.values ?? null]),
     ),
@@ -159,18 +164,7 @@ interface Cell {
 
 async function cells(): Promise<Cell[]> {
   const out: Cell[] = [];
-  for (const file of trackedDddFiles()) {
-    if (file.startsWith("test/fixtures/corpus/")) continue;
-    const src = dddSourceOf(file);
-    if (!/\bui\b/.test(src)) continue;
-    let model: EnrichedLoomModel;
-    try {
-      const { model: ast, errors } = await parseString(src, { validate: true });
-      if (errors.length > 0) continue;
-      model = toLoomModel(ast);
-    } catch {
-      continue;
-    }
+  for (const { file, model } of await trackedFrontendModels()) {
     for (const sys of model.systems) {
       if (sys.uis.length === 0) continue;
       const contract = buildFrontendContract(model, sys);
@@ -192,6 +186,8 @@ describe("WalkerModel adapters answer alike", () => {
   it("the contract-built model equals the enriched one, for every React / Vue frontend", async () => {
     const all = await cells();
     expectReach("React / Vue frontend deployables", all.length, 20);
+    // A model split across imported files is among them.
+    expect(all.some((c) => c.file === "web/src/examples/erp/main.ddd")).toBe(true);
     const diffs: string[] = [];
     for (const c of all) {
       const names = c.contexts.map((x) => x.name);

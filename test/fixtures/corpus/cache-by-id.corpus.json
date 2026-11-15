@@ -11,5 +11,28 @@
     "unattributed": [
       "api.relabel.run (no such aggregate)"
     ]
+  },
+  "authzGate": {
+    "//": "The by-id cache fixture: its isolation rungs are cross-tenant / cross-role / `own` statements in the e2e body, not refusal arms (see `sharedTenancyIdentity`).",
+    "create POST /api/items": "sharedTenancyIdentity",
+    "create POST /api/notes": "sharedTenancyIdentity",
+    "destroy DELETE /api/notes/{id}": "sharedTenancyIdentity",
+    "find GET /api/items": "sharedTenancyIdentity",
+    "find GET /api/notes": "sharedTenancyIdentity",
+    "find GET /api/orgs": "sharedTenancyIdentity",
+    "getById GET /api/items/{id}": "sharedTenancyIdentity",
+    "getById GET /api/notes/{id}": "sharedTenancyIdentity",
+    "getById GET /api/orgs/{id}": "sharedTenancyIdentity",
+    "operation POST /api/items/{id}/rename": "sharedTenancyIdentity",
+    "operation POST /api/items/{id}/restore": "sharedTenancyIdentity",
+    "operation POST /api/items/{id}/soft_delete": "sharedTenancyIdentity",
+    "operation POST /api/items/{id}/update": "sharedTenancyIdentity",
+    "operation POST /api/notes/{id}/update": "sharedTenancyIdentity"
+  },
+  "typing": {
+    "ir-differs": {
+      "n": 1,
+      "why": "a bare `null` literal: the pass types it never?, the IR's untyped null literal carries the string placeholder"
+    }
   }
 }

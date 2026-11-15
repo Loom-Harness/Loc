@@ -208,7 +208,38 @@ export interface CorpusFeature {
    * a projection read); `e2eLess` says why the fixture has no `test e2e` block.
    */
   readonly apiCaller?: CorpusApiCaller;
+  /**
+   * The fixture's pins in the authz gate census
+   * (`test/ir/authz-gate-census.test.ts`): `<surface key>` → the name of its
+   * reason class (a key of `R` in `authz-gate-census-pins.ts`).  A `"//"` key
+   * carries the prose a pin needs.
+   */
+  readonly authzGate?: Readonly<Record<string, string>>;
+  /**
+   * The fixture's rows in the typing differential
+   * (`test/system/typing-differential.test.ts`): `<class>` → the number of
+   * expressions of that class and why.  The class is the part after ` :: ` in
+   * the differential's document key.
+   */
+  readonly typing?: Readonly<Record<string, CorpusTypingRow>>;
+  /**
+   * The fixture this one is a twin of.  Every gate block it does not declare
+   * itself (`INHERITED_BLOCKS`) is its parent's, so a twin that differs from
+   * its parent only in a realization knob carries no copy of the parent's
+   * rows.  The rows still have to hold for the twin: a census reads them
+   * against the twin's own surfaces and fails a stale one there.
+   */
+  readonly inherits?: string;
 }
+
+export interface CorpusTypingRow {
+  readonly n: number;
+  readonly why: string;
+  readonly issue?: string;
+}
+
+/** The gate blocks a twin inherits from the fixture it names in `inherits`. */
+export const INHERITED_BLOCKS = ["apiCaller", "authzGate", "typing"] as const;
 
 export interface CorpusApiCaller {
   readonly uncalled?: Readonly<Record<string, string>>;
@@ -231,7 +262,19 @@ export const BACKEND_SETS: Readonly<Record<string, readonly Backend[]>> = {
 };
 
 const SIDECAR_SUFFIX = ".corpus.json";
-const SIDECAR_KEYS = new Set(["//", "title", "doc", "backends", "note", "deployables", "apiCaller", "fakes"]);
+const SIDECAR_KEYS = new Set([
+  "//",
+  "title",
+  "doc",
+  "backends",
+  "note",
+  "deployables",
+  "apiCaller",
+  "fakes",
+  "authzGate",
+  "typing",
+  "inherits",
+]);
 const API_CALLER_KEYS = new Set(["//", "uncalled", "unattributed", "e2eLess"]);
 
 const isStringList = (v: unknown): v is string[] =>
@@ -260,6 +303,40 @@ function apiCallerErrors(where: string, v: unknown): string[] {
     errors.push(`${where}: \`apiCaller.e2eLess\` must be a string`);
   return errors;
 }
+
+/** Why a sidecar's `authzGate` block is malformed (empty when it is not). */
+function authzGateErrors(where: string, v: unknown): string[] {
+  if (v === null || typeof v !== "object" || Array.isArray(v))
+    return [`${where}: \`authzGate\` must map surface keys to reason-class names`];
+  return Object.entries(v as Record<string, unknown>)
+    .filter(([k, r]) => (k === "//" ? !isComment(r) : typeof r !== "string"))
+    .map(([k]) => `${where}: \`authzGate.${k}\` must be a reason-class name`);
+}
+
+/** Why a sidecar's `typing` block is malformed (empty when it is not). */
+function typingErrors(where: string, v: unknown): string[] {
+  if (v === null || typeof v !== "object" || Array.isArray(v))
+    return [`${where}: \`typing\` must map differential classes to { n, why, issue? }`];
+  const errors: string[] = [];
+  for (const [cls, row] of Object.entries(v as Record<string, unknown>)) {
+    const r = row as Record<string, unknown> | null;
+    const ok =
+      r !== null &&
+      typeof r === "object" &&
+      !Array.isArray(r) &&
+      Object.keys(r).every((k) => k === "n" || k === "why" || k === "issue") &&
+      Number.isInteger(r.n) &&
+      (r.n as number) > 0 &&
+      typeof r.why === "string" &&
+      r.why !== "" &&
+      (r.issue === undefined || (typeof r.issue === "string" && /^#\d+$/.test(r.issue)));
+    if (!ok)
+      errors.push(`${where}: \`typing.${cls}\` must be { n: <positive integer>, why: <text>, issue?: "#N" }`);
+  }
+  return errors;
+}
+
+const isComment = (v: unknown): boolean => typeof v === "string" || isStringList(v);
 
 /** Parse one sidecar's JSON into a row, or the reasons it is malformed. */
 export function parseSidecar(id: string, raw: unknown): { row?: CorpusFeature; errors: string[] } {
@@ -302,6 +379,10 @@ export function parseSidecar(id: string, raw: unknown): { row?: CorpusFeature; e
   )
     errors.push(`${id}${SIDECAR_SUFFIX}: \`fakes\` may only be { "broker": "after-boot" }`);
   if (o.apiCaller !== undefined) errors.push(...apiCallerErrors(`${id}${SIDECAR_SUFFIX}`, o.apiCaller));
+  if (o.authzGate !== undefined) errors.push(...authzGateErrors(`${id}${SIDECAR_SUFFIX}`, o.authzGate));
+  if (o.typing !== undefined) errors.push(...typingErrors(`${id}${SIDECAR_SUFFIX}`, o.typing));
+  if (o.inherits !== undefined && (typeof o.inherits !== "string" || o.inherits === id))
+    errors.push(`${id}${SIDECAR_SUFFIX}: \`inherits\` must name another corpus fixture`);
   if (errors.length > 0 || !backends) return { errors };
   return {
     errors,
@@ -314,6 +395,9 @@ export function parseSidecar(id: string, raw: unknown): { row?: CorpusFeature; e
       ...(deployables !== undefined ? { deployables: deployables as string[] } : {}),
       ...(fakes !== undefined ? { fakes: fakes as { broker?: "after-boot" } } : {}),
       ...(o.apiCaller !== undefined ? { apiCaller: o.apiCaller as CorpusApiCaller } : {}),
+      ...(o.authzGate !== undefined ? { authzGate: o.authzGate as Record<string, string> } : {}),
+      ...(o.typing !== undefined ? { typing: o.typing as Record<string, CorpusTypingRow> } : {}),
+      ...(o.inherits !== undefined ? { inherits: o.inherits as string } : {}),
     },
   };
 }
@@ -362,9 +446,34 @@ function loadCorpus(): readonly CorpusFeature[] {
     errors.push(...parsed.errors);
     if (parsed.row) rows.push(parsed.row);
   }
+  const resolved = resolveInherits(rows, errors);
   if (errors.length > 0)
     throw new Error(`corpus manifest (${dir}) is malformed:\n  ${errors.join("\n  ")}`);
-  return rows;
+  return resolved;
+}
+
+/** Fill each twin's undeclared gate blocks from the fixture it `inherits`.  A
+ *  parent must exist and must not itself inherit, so a row's blocks are at most
+ *  one hop from where they are written. */
+export function resolveInherits(rows: readonly CorpusFeature[], errors: string[]): CorpusFeature[] {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return rows.map((row) => {
+    if (row.inherits === undefined) return row;
+    const parent = byId.get(row.inherits);
+    if (!parent) {
+      errors.push(`${row.id}${SIDECAR_SUFFIX}: \`inherits\` names no corpus fixture (${row.inherits})`);
+      return row;
+    }
+    if (parent.inherits !== undefined) {
+      errors.push(
+        `${row.id}${SIDECAR_SUFFIX}: inherits ${parent.id}, which itself inherits ${parent.inherits}; name the root`,
+      );
+      return row;
+    }
+    const filled: Record<string, unknown> = { ...row };
+    for (const k of INHERITED_BLOCKS) if (filled[k] === undefined && parent[k] !== undefined) filled[k] = parent[k];
+    return filled as unknown as CorpusFeature;
+  });
 }
 
 /** Every corpus feature, sorted by id. */

@@ -25,19 +25,10 @@ import {
   type FrontendContract,
 } from "../../../src/ir/contract/frontend-contract.js";
 import { buildFrontendHost } from "../../../src/ir/contract/host.js";
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  EnrichedLoomModel,
-  TypeIR,
-} from "../../../src/ir/types/loom-ir.js";
+import type { AggregateIR, BoundedContextIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../../src/ir/util/reachable-types.js";
 import { expectReach } from "../../_helpers/census-reach.js";
-import { dddSourceOf, trackedDddFiles } from "../../_helpers/ddd-corpus.js";
-import { toLoomModel } from "../../_helpers/ir.js";
-import { parseString } from "../../_helpers/parse.js";
-
-const CONTRACT_FRAMEWORKS = new Set(["react", "vue"]);
+import { CONTRACT_FRAMEWORKS, trackedFrontendModels } from "../../_helpers/frontend-models.js";
 
 interface Cell {
   file: string;
@@ -93,18 +84,7 @@ function serialize(m: FrontendAggregate, probes: readonly string[]) {
 
 async function cells(): Promise<Cell[]> {
   const out: Cell[] = [];
-  for (const file of trackedDddFiles()) {
-    if (file.startsWith("test/fixtures/corpus/")) continue;
-    const src = dddSourceOf(file);
-    if (!/\bui\b/.test(src)) continue;
-    let model: EnrichedLoomModel;
-    try {
-      const { model: ast, errors } = await parseString(src, { validate: true });
-      if (errors.length > 0) continue;
-      model = toLoomModel(ast);
-    } catch {
-      continue;
-    }
+  for (const { file, model } of await trackedFrontendModels()) {
     for (const sys of model.systems) {
       if (sys.uis.length === 0) continue;
       const contract = buildFrontendContract(model, sys);
@@ -138,6 +118,10 @@ describe("FrontendAggregate adapters answer alike", () => {
   it("the contract-built model equals the enriched one, for every React / Vue api module", async () => {
     const all = await cells();
     expectReach("React / Vue api-module aggregates", all.length, 150);
+    // A model split across imported files, with a polymorphic read home.
+    expect(all.some((c) => c.file === "web/src/examples/erp/main.ddd" && c.agg.isAbstract)).toBe(
+      true,
+    );
     const diffs: string[] = [];
     for (const c of all) {
       const enriched = frontendAggregateOf(c.agg, c.ctx, c.finds);

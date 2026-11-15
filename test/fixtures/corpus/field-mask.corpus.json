@@ -8,5 +8,11 @@
     "unattributed": [
       "api.employees.history (no derived operation)"
     ]
+  },
+  "authzGate": {
+    "//": "The audit-history read projects the same masked shape (`historyFind` copies the list read's gate at enrichment), so it inherits the mask.",
+    "find GET /api/employees": "maskIsNotAStatus",
+    "getById GET /api/employees/{id}": "maskIsNotAStatus",
+    "history GET /api/employees/{id}/history": "maskIsNotAStatus"
   }
 }
