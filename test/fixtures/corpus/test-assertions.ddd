@@ -92,7 +92,7 @@ system TestAssertions {
         test "an operation reads a declared claim of the test principal" {
           let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
           o.sign()
-          expect(o.signedBy).toBe("admin")
+          expect(o.signedBy).toBe("email")
         }
       }
       repository Customers for Customer { }

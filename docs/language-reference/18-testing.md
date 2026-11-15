@@ -177,7 +177,7 @@ describe("Sales (integration)", () => {
 
 ### Running as a principal
 
-Under an `auth: required` deployable the repositories read the request principal — a `tenantOwned` aggregate is stamped and scoped by its tenant claim, a gate or a `currentUser`-reading stamp reads its claims. A context integration test therefore always runs as one: the **dev-stub principal** the HTTP tier's dev mode grants (one value per `user { … }` field: `"admin"` strings, the zero UUID, empty lists), with any claims the test sets in an `as { … }` clause. The same clause on a line of its own switches the principal for the statements after it — which is how one test shows that a second tenant cannot read what the first wrote:
+Under an `auth: required` deployable the repositories read the request principal — a `tenantOwned` aggregate is stamped and scoped by its tenant claim, a gate or a `currentUser`-reading stamp reads its claims. A context integration test therefore always runs as one: the **test principal**, the same actor a unit test passes to a `currentUser`-reading operation ([D-GENERATED-TESTS](../decisions/D-GENERATED-TESTS.md)). It carries one value per `user { … }` field and has full access by default: the fixed id `00000000-0000-0000-0000-000000000001` (an `id` string, a `guid` or an `X id` claim), a string claim's own name (`tenantId: "tenantId"`), every permission the system's catalogue declares for a `permissions: string[]` claim and the claim's own name as the one element of any other string list, an enum's first member, `0`, `false`, the epoch, and nothing for an optional claim. A test sets the claims it is about in an `as { … }` clause, and the same clause on a line of its own switches the principal for the statements after it — which is how one test shows that a second tenant cannot read what the first wrote:
 
 ```ddd
 system P {
@@ -188,7 +188,7 @@ system P {
     aggregate Note with tenantOwned, crudish { text: string }
     repository Notes for Note { }
 
-    test "a note reads back" {                       // the dev-stub principal
+    test "a note reads back" {                       // the test principal
       let n = Note.create(text: "hi")
       let r = Note.get(n.id)
       expect(r.text).toBe("hi")
@@ -205,16 +205,16 @@ system P {
 }
 ```
 
-Each backend binds the principal through the seam its own auth middleware binds a request's, so tenant stamps, scope filters and gates see it exactly as they would over HTTP:
+Each backend binds the principal through the seam its own auth middleware binds a request's, so tenant stamps, scope filters and gates see it exactly as they would over HTTP. The principal is spelled whole, every claim at its value:
 
 ```ts
 // node — test/c.integration.test.ts: runAsUser opens an ambient request frame, built from the
-// claims the way auth/middleware.ts builds a request's; devStubClaims() is the dev stub's identity
+// claims the way auth/middleware.ts builds a request's
 it("beta cannot read acme's note", () =>
-  runAsUser({ ...devStubClaims(), tenantId: "acme", roles: ["agent"] }, async () => {
+  runAsUser({ id: "00000000-0000-0000-0000-000000000001", tenantId: "acme", roles: ["agent"] }, async () => {
     const n = Note.create({ text: "acme only" });
     await repos.note.save(n);
-    await actAsUser({ ...devStubClaims(), tenantId: "beta" });
+    await actAsUser({ id: "00000000-0000-0000-0000-000000000001", tenantId: "beta", roles: ["roles"] });
     const r = (await repos.note.findById(n.id))!;
     expect(r).toBeNull();
   }));
@@ -222,51 +222,46 @@ it("beta cannot read acme's note", () =>
 
 ```python
 # python — tests/test_c_integration.py: the ContextVar the auth middleware sets per request
-_DEV_USER = User(id="00000000-0000-0000-0000-000000000000", tenant_id="admin", roles=[])
-
-def _act_as(**claims: Any) -> None:
-    current_user_var.set(replace(_DEV_USER, **claims))
-
 async def test_beta_cannot_read_acme_s_note(session: AsyncSession) -> None:
     …
-    _act_as(tenant_id="acme", roles=["agent"])
+    _act_as(User(id="00000000-0000-0000-0000-000000000001", tenant_id="acme", roles=["agent"]))
     n = Note.create(text="acme only")
     if (__principal := ambient_principal()) is not None:
         n._stamp_on_create(__principal)
     await note_repo.save(n)
     await session.flush()
-    _act_as(tenant_id="beta")
+    _act_as(User(id="00000000-0000-0000-0000-000000000001", tenant_id="beta", roles=["roles"]))
     r = await note_repo.find_by_id(n.id)
     assert r is None
 ```
 
 ```csharp
 // .NET — a RequestContext frame + the accessor AppDbContext's tenancy filters read
-using var __principal = ActAs(DevUser() with { TenantId = "acme", Roles = new System.Collections.Generic.List<string> { "agent" } });
+using var __principal = ActAs(new User(Id: System.Guid.Parse("00000000-0000-0000-0000-000000000001"), TenantId: "acme", Roles: new System.Collections.Generic.List<string> { "agent" }));
 var opts = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(ConnString()).AddInterceptors(new AuditableInterceptor()).Options;
 await using var db = new AppDbContext(opts, new HttpContextCurrentUserAccessor());
 …
-using var __principal1 = ActAs(DevUser() with { TenantId = "beta" });
+using var __principal1 = ActAs(new User(Id: System.Guid.Parse("00000000-0000-0000-0000-000000000001"), TenantId: "beta", Roles: new System.Collections.Generic.List<string> { "roles" }));
 var r = await noteRepo.GetByIdAsync(n.Id);
 r.Should().BeNull();
 ```
 
 ```java
 // java — the thread's CurrentUserAccessor principal (cleared @AfterEach)
-CurrentUserAccessor.actAs(new User(new UUID(0L, 0L), "acme", java.util.List.of("agent")));
+CurrentUserAccessor.actAs(new User(UUID.fromString("00000000-0000-0000-0000-000000000001"), "acme", List.of("agent")));
 var n = Note.create("acme only");
 noteRepository.save(n);
-CurrentUserAccessor.actAs(new User(new UUID(0L, 0L), "beta", List.of()));
+CurrentUserAccessor.actAs(new User(UUID.fromString("00000000-0000-0000-0000-000000000001"), "beta", List.of("roles")));
 var r = noteRepository.findById(n.id()).orElse(null);
 assertNull(r);
 ```
 
 ```elixir
 # elixir — the actor every scoped context function takes
-current_user = DWeb.Auth.as_principal(Map.merge(dev_claims(), %{tenant_id: "acme", roles: ["agent"]}))
+current_user = EWeb.Auth.as_principal(%{id: "00000000-0000-0000-0000-000000000001", tenant_id: "acme", roles: ["agent"]})
 Process.put(:loom_current_user, current_user)
-{:ok, n} = D.C.create_note(%{text: "acme only"}, current_user)
-current_user = DWeb.Auth.as_principal(Map.merge(dev_claims(), %{tenant_id: "beta"}))
+{:ok, n} = E.C.create_note(%{text: "acme only"}, current_user)
+current_user = EWeb.Auth.as_principal(%{id: "00000000-0000-0000-0000-000000000001", tenant_id: "beta", roles: ["roles"]})
 …
 assert is_nil(r)
 ```

@@ -19,7 +19,7 @@
 // expressions render synchronously.
 
 import { integrationIsolation } from "../../../ir/plan/test-isolation.js";
-import { testPrincipal } from "../../../ir/plan/test-principal.js";
+import { type TestPrincipalShape, testPrincipal } from "../../../ir/plan/test-principal.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -142,7 +142,7 @@ function renderStmt(
   s: TestStmtIR,
   ctx: BoundedContextIR,
   reassigned: Set<string>,
-  user: readonly FieldIR[] | undefined,
+  user: TestPrincipalShape | undefined,
 ): string[] {
   switch (s.kind) {
     case "let": {
@@ -220,7 +220,7 @@ function renderStmt(
  *  principal the unit tier passes. */
 function renderPrincipalClaims(
   p: TestPrincipalIR | undefined,
-  user: readonly FieldIR[],
+  user: TestPrincipalShape,
   ctx: BoundedContextIR,
 ): string {
   return renderTestPrincipal(testPrincipal(user, p, enumPool(ctx)), TS_PRINCIPAL);
@@ -229,7 +229,7 @@ function renderPrincipalClaims(
 function renderTest(
   t: TestIR,
   ctx: BoundedContextIR,
-  user: readonly FieldIR[] | undefined,
+  user: TestPrincipalShape | undefined,
 ): string[] {
   const reassigned = reassignedBindings(t);
   const body = t.statements.flatMap((s) => renderStmt(s, ctx, reassigned, user));
@@ -270,7 +270,7 @@ export function renderContextIntegrationTest(
     /** The system's `user { … }` fields when the project emits the auth
      *  layer (`auth/middleware.ts` + `auth/dev-stub.ts`): every test then runs
      *  inside `runAsUser`.  Absent ⇒ no principal is bound. */
-    user?: readonly FieldIR[];
+    user?: TestPrincipalShape;
   },
 ): string | null {
   if (ctx.tests.length === 0) return null;

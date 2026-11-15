@@ -18,7 +18,11 @@
 // repository find must be LET-BOUND, not written inline inside `expect(...)`.
 
 import { integrationIsolation } from "../../../ir/plan/test-isolation.js";
-import { testPrincipal } from "../../../ir/plan/test-principal.js";
+import {
+  type TestPrincipalShape,
+  testPrincipal,
+  testPrincipalShape,
+} from "../../../ir/plan/test-principal.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -130,14 +134,14 @@ function renderReadCall(find: { aggName: string; method: string; args: ExprIR[] 
  *  as the ambient principal. */
 function renderActAs(
   p: TestPrincipalIR | undefined,
-  user: readonly FieldIR[],
+  user: TestPrincipalShape,
   ctx: BoundedContextIR,
 ): string {
   return `    _act_as(${renderTestPrincipal(testPrincipal(user, p, enumPool(ctx)), PY_PRINCIPAL)})`;
 }
 
 interface PrincipalScope {
-  user: readonly FieldIR[] | undefined;
+  user: TestPrincipalShape | undefined;
   /** Bindings the test asserts null — their read is not narrowed. */
   absent: Set<string>;
 }
@@ -233,7 +237,7 @@ function renderTest(
   repoAggs: readonly AggregateIR[],
   cascade: boolean,
   used: Set<string>,
-  user: readonly FieldIR[] | undefined,
+  user: TestPrincipalShape | undefined,
 ): string[] {
   const lets = new Map<string, string>();
   for (const s of t.statements) {
@@ -282,7 +286,7 @@ export function renderPyContextIntegrationTest(
     /** The system's `user { … }` fields when the project emits the auth
      *  layer: every test then binds a principal into `current_user_var`.
      *  Absent ⇒ none is bound. */
-    principal?: { user: readonly FieldIR[] };
+    principal?: { user: TestPrincipalShape };
   },
 ): string | null {
   if (ctx.tests.length === 0) return null;

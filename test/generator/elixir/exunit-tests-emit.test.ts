@@ -143,7 +143,7 @@ system G {
 `;
     const src = findFile(await generateSystemFiles(SRC), /api\/test\/selling\/order_test\.exs$/);
     expect(src).toContain(
-      'Api.Selling.Order.cancel(o, %{"reason" => "done"}, %{id: "admin", role: "admin"})',
+      'Api.Selling.Order.cancel(o, %{"reason" => "done"}, %{id: "00000000-0000-0000-0000-000000000001", role: "role"})',
     );
   });
 

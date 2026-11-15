@@ -17,7 +17,11 @@
 // (`loom.integration-find-must-bind`, shared with node).
 
 import { integrationIsolation } from "../../../ir/plan/test-isolation.js";
-import { testPrincipal } from "../../../ir/plan/test-principal.js";
+import {
+  type TestPrincipalShape,
+  testPrincipal,
+  testPrincipalShape,
+} from "../../../ir/plan/test-principal.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -51,7 +55,7 @@ import { opCallParamFields } from "./workflow-execution-emit.js";
  *  Every context call whose seam takes the actor is handed `current_user`. */
 interface PrincipalScope {
   /** The system's `user { … }` fields; absent ⇒ no principal is bound. */
-  user: readonly FieldIR[] | undefined;
+  user: TestPrincipalShape | undefined;
   /** `<App>Web.Auth`, which derives a principal from a claims map. */
   authModule: string;
   /** The context's enum pool, for an enum claim's value. */
@@ -69,7 +73,10 @@ const actor = (scope: PrincipalScope, takesActor: boolean): string =>
  *  process's ambient principal (what the REST serializer's field masks and
  *  `system_principal/0` read). */
 function renderActAs(p: TestPrincipalIR | undefined, scope: PrincipalScope): string[] {
-  const claims = renderTestPrincipal(testPrincipal(scope.user ?? [], p, scope.enums), EX_PRINCIPAL);
+  const claims = renderTestPrincipal(
+    testPrincipal(scope.user ?? testPrincipalShape(undefined), p, scope.enums),
+    EX_PRINCIPAL,
+  );
   return [
     `current_user = ${scope.authModule}.as_principal(${claims})`,
     "Process.put(:loom_current_user, current_user)",
@@ -261,7 +268,7 @@ export function renderVanillaContextIntegrationTest(
   appModule: string,
   /** The system's `user { … }` fields when the deployable emits the auth
    *  plug: every test then runs as a principal.  Absent ⇒ none is bound. */
-  user?: readonly FieldIR[],
+  user?: TestPrincipalShape,
 ): string | null {
   if (ctx.tests.length === 0) return null;
   // Rollback per test (`integrationIsolation`): each test checks out an

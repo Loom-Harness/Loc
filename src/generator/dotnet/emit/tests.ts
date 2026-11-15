@@ -1,6 +1,10 @@
 import { createInputFields, createOmissionValue } from "../../../ir/enrich/wire-projection.js";
 import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
-import { testPrincipal } from "../../../ir/plan/test-principal.js";
+import {
+  type TestPrincipalShape,
+  testPrincipal,
+  testPrincipalShape,
+} from "../../../ir/plan/test-principal.js";
 import { type RejectionPlan, rejectionPlan } from "../../../ir/plan/test-rejection.js";
 import type {
   AggregateIR,
@@ -92,7 +96,7 @@ export function renderTestsFile(
   agg: AggregateIR,
   ctx: BoundedContextIR,
   ns: string,
-  user?: readonly FieldIR[],
+  principal?: TestPrincipalShape,
 ): string | null {
   return renderSubjectTestsFile(
     agg.name,
@@ -101,7 +105,7 @@ export function renderTestsFile(
     ns,
     upperFirst(plural(agg.name)),
     `${ns}.Domain.${upperFirst(plural(agg.name))}`,
-    user,
+    principal,
   );
 }
 
@@ -112,9 +116,9 @@ export function renderVoTestsFile(
   vo: ValueObjectIR,
   ctx: BoundedContextIR,
   ns: string,
-  user?: readonly FieldIR[],
+  principal?: TestPrincipalShape,
 ): string | null {
-  return renderSubjectTestsFile(vo.name, vo.tests, ctx, ns, "ValueObjects", null, user);
+  return renderSubjectTestsFile(vo.name, vo.tests, ctx, ns, "ValueObjects", null, principal);
 }
 
 /** Domain-service unit-test class (test-placement.md).  The service
@@ -123,7 +127,7 @@ export function renderServiceTestsFile(
   svc: DomainServiceIR,
   ctx: BoundedContextIR,
   ns: string,
-  user?: readonly FieldIR[],
+  principal?: TestPrincipalShape,
 ): string | null {
   return renderSubjectTestsFile(
     svc.name,
@@ -132,7 +136,7 @@ export function renderServiceTestsFile(
     ns,
     "Services",
     `${ns}.Domain.Services`,
-    user,
+    principal,
   );
 }
 
@@ -148,7 +152,7 @@ function renderSubjectTestsFile(
   ns: string,
   nsSuffix: string,
   ownUsing: string | null,
-  user: readonly FieldIR[] | undefined,
+  principal: TestPrincipalShape | undefined,
 ): string | null {
   if (tests.length === 0) return null;
   // Render the test bodies first so we know whether the test principal was
@@ -206,11 +210,11 @@ function renderSubjectTestsFile(
   lines.push(`public sealed class ${name}Tests`);
   lines.push("{");
   if (usesActor) {
-    const principal = renderTestPrincipal(
-      testPrincipal(user ?? [], undefined, enumPool(ctx)),
+    const rendered = renderTestPrincipal(
+      testPrincipal(principal ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),
       CS_PRINCIPAL,
     );
-    lines.push(`    private static readonly User ${TEST_PRINCIPAL} = ${principal};`, "");
+    lines.push(`    private static readonly User ${TEST_PRINCIPAL} = ${rendered};`, "");
   }
   for (const block of methodBlocks) {
     lines.push(...block);

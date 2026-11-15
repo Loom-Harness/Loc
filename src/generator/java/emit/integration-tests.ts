@@ -17,7 +17,7 @@
 // the tracked 3b follow-up.
 
 import { integrationIsolation } from "../../../ir/plan/test-isolation.js";
-import { testPrincipal } from "../../../ir/plan/test-principal.js";
+import { type TestPrincipalShape, testPrincipal } from "../../../ir/plan/test-principal.js";
 import { rejectionPlan } from "../../../ir/plan/test-rejection.js";
 import type {
   AggregateIR,
@@ -119,7 +119,7 @@ function _renderClaimValue(field: FieldIR | undefined, value: string | readonly 
  *  replacing the fields they name, the same principal the unit tier passes. */
 function renderActAs(
   p: TestPrincipalIR | undefined,
-  user: readonly FieldIR[],
+  user: TestPrincipalShape,
   basePkg: string,
   ctx: BoundedContextIR,
 ): string {
@@ -139,7 +139,7 @@ function ambientPrincipal(scope: PrincipalScope): string | undefined {
 }
 
 interface PrincipalScope {
-  user: readonly FieldIR[] | undefined;
+  user: TestPrincipalShape | undefined;
   basePkg: string;
   /** Bindings the test asserts null — their read is not unwrapped to a throw. */
   absent: Set<string>;
@@ -206,7 +206,7 @@ function renderStmt(
 function renderTest(
   t: TestIR,
   ctx: BoundedContextIR,
-  user: readonly FieldIR[] | undefined,
+  user: TestPrincipalShape | undefined,
   basePkg: string,
 ): string[] {
   const methodName =
@@ -246,7 +246,7 @@ export function renderJavaContextIntegrationTest(
   /** The system's `user { … }` fields when the project emits the auth layer
    *  (`auth/CurrentUserAccessor`): every test then binds a principal.
    *  Absent ⇒ none is bound. */
-  userFields?: readonly FieldIR[],
+  userFields?: TestPrincipalShape,
 ): { path: string; content: string } | null {
   const isolation = integrationIsolation(ctx);
   if (isolation.kind !== "rollback-per-test") {

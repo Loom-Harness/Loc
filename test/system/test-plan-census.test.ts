@@ -1,12 +1,12 @@
+// Gate for D-GENERATED-TESTS (docs/decisions).
 // One source for what a generated test's assertions compare and who it runs
 // as (`src/ir/plan/test-assertion.ts`, `src/ir/plan/test-principal.ts`).
 //
-// Each backend's test emitter used to decide on its own how `toBe` and the
-// ordering matchers compare a `money`, a `datetime`, a value object, a list or
-// an `X id`, and which synthetic user a `currentUser`-reading operation runs
-// as.  The five answers disagreed: the same `.ddd` test passed on one backend,
-// failed on another and did not compile on a third.  The decisions now live in
-// the plan and every test framework renders them from a leaf table
+// How `toBe` and the ordering matchers compare a `money`, a `datetime`, a value
+// object, a list or an `X id`, and which actor a `currentUser`-reading
+// operation runs as, are decisions: two backends answering differently make
+// the same `.ddd` test pass on one and fail on the other.  They live in the
+// plan, and every test framework renders them from a leaf table
 // (`src/generator/_test/assertion-target.ts`, `principal-target.ts`).
 //
 // What a `toThrow` accepts (`src/ir/plan/test-rejection.ts`) and how a
@@ -82,7 +82,7 @@ const REJECTION_REDERIVATION: Readonly<Record<string, RegExp>> = {
 const PRINCIPAL_REDERIVATION: Readonly<Record<string, RegExp>> = {
   "reads an auth layer's dev-stub value table":
     /\b(stubUserValue|renderPyStubUserKwargs|elixirStubValueFor|renderCsDevStubUserArgs|devStubClaims|DEV_STUB_ID_GUID)\b/,
-  "spells a dev-stub claim value": /"admin"|00000000-0000-0000-0000-000000000000/,
+  "spells a dev-stub claim value": /"admin"|00000000-0000-0000-0000-00000000000[01]/,
 };
 
 describe("generated-test plan census", () => {
