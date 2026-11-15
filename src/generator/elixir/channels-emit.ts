@@ -1855,9 +1855,9 @@ end
   return { files, children };
 }
 
-/** `lib/<app>/inbox_purge.ex`: the consumer inbox's retention purge on a
- *  deployable that runs no outbox relay (the relay purges the inbox beside the
- *  outbox otherwise).  Same window and interval as the relay's purge. */
+/** `lib/<app>/inbox_purge.ex`: the consumer inbox's retention purge, started
+ *  at boot wherever the deployable carries the inbox.  Same window and
+ *  interval as the outbox relay's purge. */
 export function emitElixirInboxPurge(appName: string, appModule: string): ElixirChannelFiles {
   const purgeErrorLog = renderPhoenixLogCall("outboxRelayError", [
     { name: "error", valueExpr: "inspect(error)" },

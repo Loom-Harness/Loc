@@ -863,11 +863,9 @@ function emitProjectionRoutes(
   return out;
 }
 
-/** `http/inbox-purge.ts`: the consumer inbox's retention purge for a
- *  deployable that runs no outbox relay (the relay purges the inbox beside
- *  the outbox otherwise).  A consumer that only receives durable events off a
- *  broker still claims every delivery, so its claims need the same retention
- *  window. */
+/** `http/inbox-purge.ts`: the consumer inbox's retention purge, started at
+ *  boot wherever the deployable carries the inbox.  It deletes claims older
+ *  than the outbox's retention window. */
 export function buildInboxPurgeFile(usingMikro: boolean): string {
   const del = usingMikro
     ? `db.fork().getConnection().execute(${JSON.stringify(inboxPurgeSql("?"))}, [cutoff])`

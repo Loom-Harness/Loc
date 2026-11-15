@@ -1457,7 +1457,7 @@ function emitProjectFromContexts(
     }
   }
 
-  // The consumer inbox's purge where no relay runs to do it.
+  // The consumer inbox's purge, wherever the deployable carries the inbox.
   if (consumerDedupes) {
     place("InboxPurgeService.java", "config", renderJavaInboxPurgeService(pkgFor("config")));
   }

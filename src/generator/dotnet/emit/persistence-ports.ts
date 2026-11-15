@@ -139,13 +139,23 @@ public sealed class EfReadModelStore<TRow> : IReadModelStore<TRow> where TRow : 
         await using var tx = _db.Database.CurrentTransaction is null
             ? await _db.Database.BeginTransactionAsync(cancellationToken)
             : null;
-        var claimed = await _db.Database.ExecuteSqlInterpolatedAsync(
-            $"${inboxClaimSql("{consumer}", "{eventId}", false)}",
-            cancellationToken);
-        if (claimed == 0) return;
-        await fold();
-        await _db.SaveChangesAsync(cancellationToken);
-        if (tx is not null) await tx.CommitAsync(cancellationToken);
+        try
+        {
+            var claimed = await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"${inboxClaimSql("{consumer}", "{eventId}", false)}",
+                cancellationToken);
+            if (claimed == 0) return;
+            await fold();
+            await _db.SaveChangesAsync(cancellationToken);
+            if (tx is not null) await tx.CommitAsync(cancellationToken);
+        }
+        catch when (tx is not null)
+        {
+            // A rolled-back fold's row stays tracked otherwise, and the next
+            // handler of the same delivery would save it.
+            _db.ChangeTracker.Clear();
+            throw;
+        }
     }
 }
 `;

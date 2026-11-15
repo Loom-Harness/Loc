@@ -2247,9 +2247,9 @@ export function renderJavaStandaloneOutboxFiles(
   ];
 }
 
-/** `InboxPurgeService.java`: the consumer inbox's retention purge on a
- *  deployable that runs no outbox relay (the relay purges the inbox beside the
- *  outbox otherwise).  Same window and interval as the relay's purge. */
+/** `InboxPurgeService.java`: the consumer inbox's retention purge, started at
+ *  boot wherever the deployable carries the inbox.  Same window and interval
+ *  as the outbox relay's purge. */
 export function renderJavaInboxPurgeService(configPkg: string): string {
   return lines(
     `package ${configPkg};`,

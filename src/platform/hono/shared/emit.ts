@@ -1211,7 +1211,7 @@ export function generateTypeScriptForContexts(
       buildProjectionsFile(merged, usingMikro, chPlan.receivesDurable, system.sys),
     );
   }
-  // The consumer inbox's retention purge, where no relay runs to do it.
+  // The consumer inbox's retention purge, wherever the deployable carries it.
   if (inboxPurge) out.set("http/inbox-purge.ts", buildInboxPurgeFile(usingMikro));
   // Query-time projections (read-path-architecture.md rev.13) — the always-
   // current read model of the query-time projection read.  Emitted to a distinct

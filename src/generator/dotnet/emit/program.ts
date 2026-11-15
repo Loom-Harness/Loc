@@ -224,7 +224,7 @@ export function renderProgram(
     /** Some workflow handler claims in the consumer inbox: registers
      *  `IConsumerInbox` (`src/ir/plan/consumer-inbox.ts`). */
     consumerInbox?: boolean;
-    /** No outbox relay purges the consumer inbox: registers the standalone
+    /** The deployable carries the consumer inbox: registers its
      *  `InboxPurgeService`. */
     inboxPurge?: boolean;
     /** Realtime SSE wire (channels.md Part I): registers the RealtimeHub

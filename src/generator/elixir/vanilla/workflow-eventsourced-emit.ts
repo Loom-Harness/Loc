@@ -471,7 +471,7 @@ ${body(4)}`;
 defmodule ${handlerMod} do
   @moduledoc "${sub.trigger === "on" ? "Reactor" : "Starter"} for ${N.type(sub.event)} → ${N.type(wf.name)} (event-sourced)."
 
-${requireLogger}  def handle(%${contextModule}.Events.${N.type(sub.event)}{} = event) do
+${requireLogger}  def handle(%${channels?.foreignEventModules.get(sub.event) ?? contextModule}.Events.${N.type(sub.event)}{} = event) do
     # A reactor is a per-dispatch boundary: child execution frame (parent_id <-
     # the dispatching request's scope).  The reaction is ATOMIC (workflow.md
     # § Reactor failures): a throw part-way rolls back every append and write

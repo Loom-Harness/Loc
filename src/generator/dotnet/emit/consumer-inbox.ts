@@ -57,12 +57,23 @@ public sealed class EfConsumerInbox : IConsumerInbox
         await using var tx = _db.Database.CurrentTransaction is null
             ? await _db.Database.BeginTransactionAsync(cancellationToken)
             : null;
-        var claimed = await _db.Database.ExecuteSqlInterpolatedAsync(
-            $"${inboxClaimSql("{consumer}", "{eventId}", false)}",
-            cancellationToken);
-        if (claimed == 0) return;
-        await apply();
-        if (tx is not null) await tx.CommitAsync(cancellationToken);
+        try
+        {
+            var claimed = await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"${inboxClaimSql("{consumer}", "{eventId}", false)}",
+                cancellationToken);
+            if (claimed == 0) return;
+            await apply();
+            if (tx is not null) await tx.CommitAsync(cancellationToken);
+        }
+        catch when (tx is not null)
+        {
+            // The rollback leaves the failed application's entities tracked
+            // in the scoped context; another handler of the same delivery
+            // would save them in its own transaction.
+            _db.ChangeTracker.Clear();
+            throw;
+        }
     }
 }
 `;
@@ -114,9 +125,8 @@ public sealed class DapperConsumerInbox : IConsumerInbox
 }
 
 /** `Infrastructure/Events/InboxPurgeService.cs`: the consumer inbox's
- *  retention purge on a deployable that runs no outbox relay (the relay
- *  purges the inbox beside the outbox otherwise).  Same window and interval as
- *  the relay's purge. */
+ *  retention purge, started at boot wherever the deployable carries the
+ *  inbox.  Same window and interval as the outbox relay's purge. */
 export function renderInboxPurgeService(ns: string, usingDapper: boolean): string {
   const purge = usingDapper
     ? `            await using var conn = await _db.OpenConnectionAsync(cancellationToken);

@@ -1380,8 +1380,7 @@ function renderMain(
   runsMigrations = true,
   // A cache resource caches a by-id read: the lifespan installs its eviction.
   installsByIdCache = false,
-  // Some consumer claims in the inbox and no relay purges it: the lifespan
-  // runs `start_inbox_purge`.
+  // Some consumer claims in the inbox: the lifespan runs `start_inbox_purge`.
   inboxPurge = false,
 ): string {
   // Every router mounts under the shared API base path (`/api/*`) so the
