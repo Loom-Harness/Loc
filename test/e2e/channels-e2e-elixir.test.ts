@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mixDepsGet } from "./support/mix-retry.js";
 import { installGeneratedProject } from "./support/npm-install.js";
+import { freePort } from "./support/ports.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_ELIXIR === "1";
 
@@ -66,10 +67,10 @@ system Acme {
 }
 `;
 
-const SALES_PORT = 3202;
-const SHIP_PORT = 3203;
-const PG_PORT = 55439;
-const REDIS_PORT = 56395;
+const SALES_PORT = await freePort();
+const SHIP_PORT = await freePort();
+const PG_PORT = await freePort();
+const REDIS_PORT = await freePort();
 
 const sh = (cmd: string, cwd?: string, env?: Record<string, string>): string =>
   execSync(cmd, {

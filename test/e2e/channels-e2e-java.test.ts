@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { installGeneratedProject } from "./support/npm-install.js";
+import { freePort } from "./support/ports.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_JAVA === "1";
 
@@ -73,10 +74,10 @@ system Acme {
 }
 `;
 
-const SALES_PORT = 3199;
-const SHIP_PORT = 3201;
-const PG_PORT = 55438;
-const REDIS_PORT = 56394;
+const SALES_PORT = await freePort();
+const SHIP_PORT = await freePort();
+const PG_PORT = await freePort();
+const REDIS_PORT = await freePort();
 
 const sh = (cmd: string, cwd?: string): string =>
   execSync(cmd, { cwd, stdio: ["ignore", "pipe", "pipe"], timeout: 600_000 }).toString();

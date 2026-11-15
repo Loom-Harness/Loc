@@ -6,7 +6,10 @@
 // OPEN_TRACKING_ISSUES (deleting the entry when the issue closes cascades to
 // every row leaning on it) and every pending row carries a dated review that
 // expires.  The online leg (`LOOM_CENSUS_ONLINE=1`, with network) also asks
-// GitHub, so a closed issue the register forgot still fails.
+// GitHub, so a closed issue the register forgot still fails.  It runs only in
+// the nightly `census-online` job of test.yml, never in a PR or merge-queue
+// shard: a queue verdict must not depend on network state or on an unrelated
+// issue closing.
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -241,6 +244,19 @@ describe("coverage census", () => {
     expect(censusProblems(COVERAGE, { ...base, open, today })).toContain(
       `harness wait ${issue}: ${issue} is not in OPEN_TRACKING_ISSUES`,
     );
+  });
+
+  it("the live-issue leg is armed only in the nightly job, never on a PR or in the queue", () => {
+    // Split test.yml into its top-level jobs (two-space-indented keys under
+    // `jobs:`) and find every job that arms the online leg.
+    const yml = readFileSync(join(REPO, ".github/workflows/test.yml"), "utf8");
+    const jobs = yml
+      .slice(yml.indexOf("\njobs:\n"))
+      .split(/\n(?= {2}[a-z][\w-]*:\n)/)
+      .slice(1);
+    const armed = jobs.filter((j) => j.includes("LOOM_CENSUS_ONLINE"));
+    expect(armed.map((j) => j.slice(2, j.indexOf(":")))).toEqual(["census-online"]);
+    expect(armed[0]).toMatch(/\n {4}if: github\.event_name == 'schedule'\n/);
   });
 
   it.runIf(process.env.LOOM_CENSUS_ONLINE === "1")(
