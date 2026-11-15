@@ -208,6 +208,13 @@ function renderSubjectTestsFile(
   if (enumPool(ctx).some((e) => new RegExp(`\\b${e.name}\\b`).test(bodyText)))
     lines.push(`using ${ns}.Domain.Enums;`);
   if (ctx.aggregates.length > 0) lines.push(`using ${ns}.Domain.Ids;`);
+  // A domain service named by a test body, or by a route gate a unit test
+  // checks (`unitTestGateChecks`).
+  if (
+    ownUsing !== `${ns}.Domain.Services` &&
+    ctx.domainServices.some((d) => new RegExp(`\\b${d.name}\\.`).test(bodyText))
+  )
+    lines.push(`using ${ns}.Domain.Services;`);
   if (usesActor) lines.push(`using ${ns}.Auth;`);
   lines.push("");
   lines.push(`namespace ${ns}.Tests.${nsSuffix};`);

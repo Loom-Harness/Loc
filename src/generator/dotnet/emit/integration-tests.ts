@@ -318,6 +318,7 @@ export function renderContextIntegrationTest(
   if (ctx.aggregates.length > 0) lines.push(`using ${ns}.Domain.Ids;`);
   if (usesValueObjects) lines.push(`using ${ns}.Domain.ValueObjects;`);
   if (usesEnums) lines.push(`using ${ns}.Domain.Enums;`);
+  if (ctx.domainServices.some((d) => spells(d.name))) lines.push(`using ${ns}.Domain.Services;`);
   for (const nsp of [...new Set(usedAggs.map((a) => aggNamespace(a.name, ns)))].sort()) {
     lines.push(`using ${nsp};`);
   }

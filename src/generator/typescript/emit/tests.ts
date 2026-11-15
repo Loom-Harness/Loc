@@ -21,7 +21,8 @@ import type {
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
-import { tsImportSlot } from "../../_imports/ts.js";
+import { ref } from "../../_imports/symbol.js";
+import { tsImportSlot, tsNamed } from "../../_imports/ts.js";
 import {
   coerceTestArgs,
   coerceTestValue,
@@ -31,7 +32,7 @@ import {
 import { type AssertionTarget, renderAssertion } from "../../_test/assertion-target.js";
 import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
 import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
-import { renderTsExpr } from "../render-expr.js";
+import { renderTsExpr, type TsRenderContext } from "../render-expr.js";
 import { T } from "../ts-symbols.js";
 
 /** TypeScript leaves for the shared test-literal coercion rule
@@ -52,6 +53,14 @@ const TS_TEST_LITERAL: TestValueTarget = {
  *  it as the test principal, an integration file as the principal the test
  *  has bound in the ambient frame. */
 export const TEST_PRINCIPAL_CALL = "testPrincipal()";
+
+/** How a route gate a unit test checks renders: `currentUser` is the test
+ *  principal, and a domain service it calls is a derived import of the file. */
+const GATE_CTX: TsRenderContext = {
+  thisName: "this",
+  principalExpr: TEST_PRINCIPAL_CALL,
+  serviceName: (service) => ref(tsNamed("~/domain/services", service)),
+};
 
 /** TypeScript spelling of the shared test principal (`testPrincipal`,
  *  src/ir/plan/test-principal.ts) — an object literal of the declared claim
@@ -168,6 +177,7 @@ export function testBodyValueImports(
     domain.push(`import { ${enumNames.join(", ")} } from "${domainDir}/value-objects";`);
   }
   domain.push(tsImportSlot("~/domain/ids"));
+  domain.push(tsImportSlot("~/domain/services"));
   const decimal = /\bnew Decimal\(/.test(bodyStr) ? [`import Decimal from "decimal.js";`] : [];
   return { decimal, domain };
 }
@@ -413,7 +423,7 @@ export function renderTestExpr(e: ExprIR, ctx: BoundedContextIR): string {
       const call = `${recv}.${e.member}(${args.join(", ")})`;
       const gates = unitTestGateChecks(op, e).map(
         (c) =>
-          `requireGate(${renderTsExpr(c.cond, { thisName: "this", principalExpr: TEST_PRINCIPAL_CALL })}, ${JSON.stringify(`Forbidden: ${c.gate.source}`)})`,
+          `requireGate(${renderTsExpr(c.cond, GATE_CTX)}, ${JSON.stringify(`Forbidden: ${c.gate.source}`)})`,
       );
       return gates.length === 0 ? call : `(${[...gates, call].join(", ")})`;
     }

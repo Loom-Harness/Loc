@@ -186,6 +186,7 @@ function renderStmt(
           ctx,
           rctx,
           ambientPrincipal(scope) ?? "null",
+          scope.basePkg,
         );
         return [`${I}${call};`, `${I}${repoField(aggName)}.save(${recv});`];
       }
@@ -206,6 +207,7 @@ function renderStmt(
           ctx,
           rctx,
           ambientPrincipal(scope) ?? "null",
+          scope.basePkg,
         );
       return javaRejection(rejectionPlan(s), inner, `__thrown${index}`, I);
     }

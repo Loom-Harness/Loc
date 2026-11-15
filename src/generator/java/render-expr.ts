@@ -133,6 +133,9 @@ export interface JavaRenderContext {
    *  Only the workflow render path wires this; aggregate-op contexts leave it
    *  undefined (and the validator forbids them calling a non-pure service). */
   serviceReading?: (service: string, op: string) => boolean;
+  /** Text a pure domain service's class renders as.  A test file spells it as a
+   *  derived-import symbol; unset, the bare name the file already imports. */
+  serviceName?: (service: string) => string;
   /** Regex-literal → static-field name map for hoisted `string.matches("…")`
    *  patterns (so a `private static final Pattern` is reused instead of a fresh
    *  `Pattern.compile(...)` on every evaluation).  Set by the entity / validator
@@ -819,7 +822,7 @@ function renderCall(args: string[], e: CallExpr, ctx: JavaRenderContext): string
       const reading = ctx.serviceReading?.(ref.service, ref.op) ?? false;
       return reading
         ? `${lowerFirst(ref.service)}.${jid(lowerFirst(ref.op))}(${argList})`
-        : `${upperFirst(ref.service)}.${jid(lowerFirst(ref.op))}(${argList})`;
+        : `${ctx.serviceName?.(ref.service) ?? upperFirst(ref.service)}.${jid(lowerFirst(ref.op))}(${argList})`;
     }
     case "repo-read": {
       // A read-only repository query in a `reading` domain-service body

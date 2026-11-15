@@ -234,6 +234,7 @@ export function withGates(
   ctx: BoundedContextIR,
   rctx: JavaRenderContext,
   principal: string,
+  basePkg: string,
 ): string {
   if (expr.kind !== "method-call" || expr.receiverType.kind !== "entity") return call;
   const name = expr.receiverType.name;
@@ -243,7 +244,11 @@ export function withGates(
   if (!op) return call;
   return unitTestGateChecks(op, expr).reduceRight(
     (inner, c) =>
-      `${GATED}(${renderJavaExpr(c.cond, { ...rctx, currentUserExpr: principal })}, ${JSON.stringify(`Forbidden: ${c.gate.source}`)}, () -> ${inner})`,
+      `${GATED}(${renderJavaExpr(c.cond, {
+        ...rctx,
+        currentUserExpr: principal,
+        serviceName: (svc) => javaRef(`${basePkg}.domain.services`, upperFirst(svc)),
+      })}, ${JSON.stringify(`Forbidden: ${c.gate.source}`)}, () -> ${inner})`,
     call,
   );
 }
@@ -544,6 +549,7 @@ function renderTestStmt(
         ctx,
         rctx,
         TEST_USER,
+        state.basePkg,
       );
     return javaRejection(rejectionPlan(s), expr, `__thrown${index}`, "        ");
   }
@@ -556,6 +562,7 @@ function renderTestStmt(
         ctx,
         rctx,
         TEST_USER,
+        state.basePkg,
       );
     return [`        var ${escapeJavaIdent(s.name)} = ${expr};`];
   }
@@ -572,6 +579,7 @@ function renderTestStmt(
         ctx,
         rctx,
         TEST_USER,
+        state.basePkg,
       );
     return [`        ${expr};`];
   }
