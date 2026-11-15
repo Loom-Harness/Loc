@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { expectReach } from "../_helpers/census-reach.js";
+import { fenceProblem } from "../_helpers/live-fences.js";
 
 // ---------------------------------------------------------------------------
 // The domain layer spells names only through the symbol plan
@@ -157,7 +158,7 @@ const DEFERRED_USE_SITE_EMITTERS: Readonly<Record<string, DeferredUseSite>> = {
   "src/generator/elixir/dispatch-emit.ts": {
     deferred: "the Elixir event-dispatch emitter; another lane is rewriting it",
     reviewUntil: "2026-11-28",
-    blockedBy: "#5706",
+    blockedBy: "#5900",
   },
 };
 
@@ -237,6 +238,7 @@ describe("symbol-plan census: the use-site emitters spell names through the plan
     it(`${rel} is deferred (blocked by ${d.blockedBy} until ${d.reviewUntil})`, () => {
       const file = path.join(ROOT, rel);
       expect(fs.existsSync(file), `${rel} is deferred but missing`).toBe(true);
+      expect(fenceProblem(d.blockedBy), rel).toBe("");
       const today = new Date().toISOString().slice(0, 10);
       expect(d.reviewUntil >= today, `${rel}: the deferral expired on ${d.reviewUntil}`).toBe(true);
       const horizon = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10);
