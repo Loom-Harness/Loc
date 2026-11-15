@@ -22,7 +22,9 @@
 // tracked 3b follow-up (the app's in-process cascade is DI-resolved, so it needs
 // a service provider the plain test harness doesn't build).
 
+import { integrationIsolation } from "../../../ir/plan/test-isolation.js";
 import { testPrincipal } from "../../../ir/plan/test-principal.js";
+import { rejectionPlan } from "../../../ir/plan/test-rejection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -45,7 +47,8 @@ import { csFindMethodName } from "../find-method-name.js";
 import { renderCsExpr } from "../render-expr.js";
 import {
   CS_PRINCIPAL,
-  csBareToThrow,
+  csRejection,
+  csThrowBody,
   renderCreateCall,
   renderExplicitMatcherToAwesome,
   renderTestExpr,
@@ -179,14 +182,9 @@ function renderStmt(
       throw new Error("expect requires a matcher (e.g. expect(x).toBe(y)).");
     }
     case "expect-throws": {
-      const inner = renderTestExpr(s.expr, ctx, ambient(scope));
-      const isInvocation = s.expr.kind === "method-call" || s.expr.kind === "call";
-      const body = isInvocation ? `${inner};` : `var __ = ${inner};`;
-      const family = csBareToThrow(s.expr, body, `__thrown${index}`, I, ctx, true);
-      if (family) return [family];
-      return [
-        `${I}await Assert.ThrowsAsync<DomainException>(async () => { ${body} await Task.CompletedTask; });`,
-      ];
+      const plan = rejectionPlan(s);
+      const body = csThrowBody(plan.call, renderTestExpr(plan.call, ctx, ambient(scope)));
+      return [csRejection(plan, body, `__thrown${index}`, I, ctx, true)];
     }
     case "principal":
       // A body `as { … }` line: enter a frame bound to the new principal.
@@ -208,6 +206,11 @@ function renderTest(
   opts: IntegrationAuthOpts,
 ): string[] {
   const methodName = upperFirst(t.name.replace(/[^A-Za-z0-9]+/g, "_")) || "Test";
+  const isolation = integrationIsolation(ctx);
+  if (isolation.kind !== "rollback-per-test") {
+    const never: never = isolation.kind;
+    throw new Error(`internal: unhandled integration isolation ${String(never)}`);
+  }
   const out: string[] = [];
   out.push(`    [Fact(DisplayName = ${JSON.stringify(t.name)})]`);
   out.push(`    public async Task ${methodName}()`);
@@ -223,6 +226,11 @@ function renderTest(
   if (dapper) {
     out.push(`        await using var db = ${CS.NpgsqlDataSource}.Create(ConnString());`);
     out.push("        await DbSchema.EnsureAsync(db);");
+    // Rollback per test (`integrationIsolation`): every repository lease joins
+    // this unit of work, which is disposed uncommitted.
+    out.push(
+      "        await using var __isolation = await DapperAmbientTransaction.BeginAsync(db, null, default);",
+    );
   } else {
     out.push(
       `        var opts = new DbContextOptionsBuilder<AppDbContext>()${CS.EfCore}.UseNpgsql(ConnString())${opts.interceptor ? ".AddInterceptors(new AuditableInterceptor())" : ""}.Options;`,
@@ -233,6 +241,9 @@ function renderTest(
       `        await using var db = new AppDbContext(opts${opts.dbContextTakesUser ? ", new HttpContextCurrentUserAccessor()" : ""});`,
     );
     out.push("        await db.Database.MigrateAsync();");
+    // Rollback per test (`integrationIsolation`): the context's own saves join
+    // this transaction, which is disposed uncommitted.
+    out.push("        await using var __isolation = await db.Database.BeginTransactionAsync();");
   }
   out.push("        var events = new NoopDomainEventDispatcher();");
   for (const a of usedAggs) {

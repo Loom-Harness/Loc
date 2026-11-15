@@ -1,6 +1,7 @@
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
 import { testPrincipal } from "../../../ir/plan/test-principal.js";
+import { rejectionPlan } from "../../../ir/plan/test-rejection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -42,9 +43,11 @@ const TS_TEST_LITERAL: TestValueTarget = {
   omitted: "null",
 };
 
-/** The identifier a unit-test file binds its principal to; a
- *  currentUser-reading operation call takes it as its trailing argument. */
-const TEST_PRINCIPAL = "testPrincipal";
+/** The call a test file reads its principal through; a currentUser-reading
+ *  operation call takes it as its trailing argument.  A unit-test file defines
+ *  it as the test principal, an integration file as the principal the test
+ *  has bound in the ambient frame. */
+export const TEST_PRINCIPAL_CALL = "testPrincipal()";
 
 /** TypeScript spelling of the shared test principal (`testPrincipal`,
  *  src/ir/plan/test-principal.ts) — an object literal of the declared claim
@@ -219,15 +222,47 @@ function renderTestsCore(
   if (rejection) lines.push(`import { ${DOMAIN_REJECTION_ERRORS.join(", ")} } from "./errors";`);
   lines.push("");
   if (rejection) lines.push(...domainRejectionHelper(), "");
-  if (new RegExp(`\\b${TEST_PRINCIPAL}\\b`).test(bodyStr)) {
+  if (bodyStr.includes(TEST_PRINCIPAL_CALL)) {
     const principal = renderTestPrincipal(
       testPrincipal(user ?? [], undefined, enumPool(ctx)),
       TS_PRINCIPAL,
     );
-    lines.push(`const ${TEST_PRINCIPAL}: import("../auth/user-types").User = ${principal};`, "");
+    lines.push(
+      `function ${TEST_PRINCIPAL_CALL.slice(0, -2)}(): import("../auth/user-types").User {`,
+      `  return ${principal};`,
+      "}",
+      "",
+    );
   }
   lines.push(...body);
   return lines.join("\n") + "\n";
+}
+
+/** `expect(<call>).toThrow(…)` as a call of the file-local helper, in either
+ *  tier (`rejectionPlan`).  A named rung pins WHICH rung rejected: the helper
+ *  reads the error's structural `kind`, so a deleted `precondition` fails the
+ *  test the moment an `invariant` throws in its place, whatever either rule's
+ *  message says. */
+export function renderRejection(
+  s: Extract<TestStmtIR, { kind: "expect-throws" }>,
+  ctx: BoundedContextIR,
+): string {
+  const plan = rejectionPlan(s);
+  const call = `() => { ${renderTestExpr(plan.call, ctx)}; }`;
+  return plan.accepts === "rung"
+    ? `expectDomainRejection(${call}, ${JSON.stringify(plan.rung)});`
+    : `expectDomainRejection(${call});`;
+}
+
+/** The import and file-local helper a test file whose body calls
+ *  `expectDomainRejection` needs; `errorsModule` is the path to
+ *  `domain/errors` from the file. */
+export function domainRejectionPrelude(errorsModule: string): string[] {
+  return [
+    `import { ${DOMAIN_REJECTION_ERRORS.join(", ")} } from "${errorsModule}";`,
+    "",
+    ...domainRejectionHelper(),
+  ];
 }
 
 /** The file-local helper `expect(<call>).toThrow()` / `.toThrow(<kind>)`
@@ -295,7 +330,7 @@ function isNullableMemberRead(e: ExprIR, ctx: BoundedContextIR): boolean {
   return false;
 }
 
-function renderTestExpr(e: ExprIR, ctx: BoundedContextIR): string {
+export function renderTestExpr(e: ExprIR, ctx: BoundedContextIR): string {
   const service = withServiceMoneyArgs(e, ctx);
   if (service !== e) return renderTestExpr(service, ctx);
   // A member read whose RECEIVER is a nullable field (single containment or
@@ -328,7 +363,7 @@ function renderTestExpr(e: ExprIR, ctx: BoundedContextIR): string {
       );
       // A currentUser-reading op's method signature carries a trailing
       // `currentUser` parameter; thread the test principal.
-      if (operationBodyUsesCurrentUser(op)) args.push(TEST_PRINCIPAL);
+      if (operationBodyUsesCurrentUser(op)) args.push(TEST_PRINCIPAL_CALL);
       return `${recv}.${e.member}(${args.join(", ")})`;
     }
   }
@@ -464,17 +499,7 @@ function renderTestStmt(s: TestStmtIR, ctx: BoundedContextIR): string {
     // boolean reaching codegen is an invariant violation, not user input.
     throw new Error("expect requires a matcher (e.g. expect(x).toBe(y)); got a bare expression.");
   }
-  if (s.kind === "expect-throws") {
-    const call = `() => { ${renderTestExpr(s.expr, ctx)}; }`;
-    // `toThrow(<kind>)` — pin WHICH rung rejected, not merely that something
-    // did: the helper reads the error's structural `kind`, so a deleted
-    // `precondition` fails the test the moment an `invariant` throws in its
-    // place, whatever either rule's message says.
-    if (s.throwKind) {
-      return `  expectDomainRejection(${call}, ${JSON.stringify(s.throwKind)});`;
-    }
-    return `  expectDomainRejection(${call});`;
-  }
+  if (s.kind === "expect-throws") return `  ${renderRejection(s, ctx)}`;
   if (s.kind === "let") {
     return `  const ${escapeTsIdent(s.name)} = ${renderTestExpr(s.expr, ctx)};`;
   }

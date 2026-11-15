@@ -17,6 +17,7 @@
 // v1 constraint (`loom.integration-find-must-bind`, shared with node): a
 // repository find must be LET-BOUND, not written inline inside `expect(...)`.
 
+import { integrationIsolation } from "../../../ir/plan/test-isolation.js";
 import { testPrincipal } from "../../../ir/plan/test-principal.js";
 import type {
   AggregateIR,
@@ -39,11 +40,12 @@ import { renderPyExpr } from "../render-expr.js";
 import { pyStampedSaveLines } from "../stamp-call.js";
 import {
   PY_PRINCIPAL,
+  pytestHead,
   renderCreateInput,
   renderExplicitMatcher,
+  renderRejection,
   renderTestExpr,
   TEST_PRINCIPAL_CALL,
-  testFnName,
 } from "./tests.js";
 
 /** A repository find on `agg` named `name`, or undefined. */
@@ -206,7 +208,7 @@ function renderStmt(
       return [`    assert ${renderTestExpr(s.expr, ctx, lets)}`];
     }
     case "expect-throws":
-      return ["    with pytest.raises(Exception):", `        ${renderTestExpr(s.expr, ctx, lets)}`];
+      return renderRejection(s, ctx, lets);
     case "principal":
       // A body `as { … }` line: rebind the ambient principal.
       return scope.user ? [renderActAs(s.principal, scope.user, ctx)] : [];
@@ -261,7 +263,7 @@ function renderTest(
   }
   const usesSession = mentions([...fixtures, bodyStr].join("\n"), "session");
   const out: string[] = [
-    `async def ${testFnName(t.name, used)}(${usesSession ? "session: AsyncSession" : ""}) -> None:`,
+    ...pytestHead(t.name, used, usesSession ? ["session: AsyncSession"] : [], true),
     ...fixtures,
   ];
   out.push(...(body.length > 0 ? body : ["    pass"]));
@@ -284,6 +286,13 @@ export function renderPyContextIntegrationTest(
   },
 ): string | null {
   if (ctx.tests.length === 0) return null;
+  // Rollback per test (`integrationIsolation`): each test's `session` fixture
+  // flushes and is never committed, so closing it rolls the test's writes back.
+  const isolation = integrationIsolation(ctx);
+  if (isolation.kind !== "rollback-per-test") {
+    const never: never = isolation.kind;
+    throw new Error(`internal: unhandled integration isolation ${String(never)}`);
+  }
 
   const used = new Set<string>();
   const cascade = ctx.workflows.length > 0 && opts.inProcessDispatcher;

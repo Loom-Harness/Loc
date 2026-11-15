@@ -18,6 +18,7 @@
 // `expect(...)`, so the `await` stays a statement-level concern and the assertion
 // expressions render synchronously.
 
+import { integrationIsolation } from "../../../ir/plan/test-isolation.js";
 import { testPrincipal } from "../../../ir/plan/test-principal.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -30,7 +31,6 @@ import type {
   TestPrincipalIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
-import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { repoVerbMethod, repoVerbOpAt } from "../../../util/repository-contract.js";
@@ -38,8 +38,12 @@ import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { renderTsExpr } from "../render-expr.js";
 import { T } from "../ts-symbols.js";
 import {
+  domainRejectionPrelude,
   renderCreateInput,
   renderExplicitMatcher,
+  renderRejection,
+  renderTestExpr,
+  TEST_PRINCIPAL_CALL,
   TS_PRINCIPAL,
   testBodyValueImports,
 } from "./tests.js";
@@ -179,17 +183,12 @@ function renderStmt(
       ) {
         const aggName = s.expr.receiverType.name;
         const recv = renderTsExpr(s.expr.receiver);
-        const args = s.expr.args.map((a) => renderTsExpr(a));
-        // A currentUser-reading operation takes the principal as a trailing
-        // argument: the one the test has bound in the ambient frame.
-        const member = s.expr.member;
-        const op = ctx.aggregates
-          .find((a) => a.name === aggName)
-          ?.operations.find((o) => o.name === member);
-        if (user && op && operationBodyUsesCurrentUser(op)) args.push(`${T.requireCurrentUser}()`);
+        // The unit tier's call renderer: arguments coerced to the declared
+        // parameter types, and a currentUser-reading operation handed
+        // `testPrincipal()`, which this file defines as the bound principal.
         return [
           `${recv} = (await ${repoHandle(aggName)}.findById(${recv}.id))!;`,
-          `${recv}.${s.expr.member}(${args.join(", ")});`,
+          `${renderTestExpr(s.expr, ctx)};`,
           `await ${repoHandle(aggName)}.save(${recv});`,
         ];
       }
@@ -200,10 +199,8 @@ function renderStmt(
       if (explicit) return [explicit.trimStart()];
       throw new Error("expect requires a matcher (e.g. expect(x).toBe(y)).");
     }
-    case "expect-throws": {
-      const inner = renderTsExpr(s.expr);
-      return [`await expect(async () => { ${inner}; }).rejects.toThrow();`];
-    }
+    case "expect-throws":
+      return [renderRejection(s, ctx)];
     case "principal":
       // A body `as { … }` line: rebind the ambient frame's principal.
       if (!user) return [];
@@ -236,21 +233,25 @@ function renderTest(
 ): string[] {
   const reassigned = reassignedBindings(t);
   const body = t.statements.flatMap((s) => renderStmt(s, ctx, reassigned, user));
+  // Each test runs inside `isolated` (the file's rollback-per-test
+  // transaction, `integrationIsolation`).
   if (!user) {
     return [
-      `  it(${JSON.stringify(t.name)}, async () => {`,
-      ...body.map((l) => `    ${l}`),
-      "  });",
+      `  it(${JSON.stringify(t.name)}, () =>`,
+      "    isolated(async () => {",
+      ...body.map((l) => `      ${l}`),
+      "    }));",
     ];
   }
   // Under auth every repository reads its principal from the ambient request
-  // frame, so the body runs inside one — the dev-stub identity, overridden
-  // by the test's `as { … }` claims.
+  // frame, so the body runs inside one — the test principal, with the test's
+  // `as { … }` claims.
   return [
     `  it(${JSON.stringify(t.name)}, () =>`,
-    `    ${T.runAsUser}(${renderPrincipalClaims(t.principal, user, ctx)}, async () => {`,
-    ...body.map((l) => `      ${l}`),
-    "    }));",
+    "    isolated(() =>",
+    `      ${T.runAsUser}(${renderPrincipalClaims(t.principal, user, ctx)}, async () => {`,
+    ...body.map((l) => `        ${l}`),
+    "      })));",
   ];
 }
 
@@ -303,6 +304,7 @@ export function renderContextIntegrationTest(
   lines.push(`import { describe, it, expect, beforeAll } from "vitest";`);
   lines.push(...value.decimal);
   lines.push(`import { Pool } from "pg";`);
+  lines.push(`import { TransactionRollbackError } from "drizzle-orm";`);
   lines.push(`import { drizzle } from "drizzle-orm/node-postgres";`);
   lines.push(
     `import { migrate } from ${JSON.stringify(opts.migrator ?? "drizzle-orm/node-postgres/migrator")};`,
@@ -320,28 +322,66 @@ export function renderContextIntegrationTest(
     );
   }
   lines.push(...value.domain);
+  if (bodyStr.includes("expectDomainRejection("))
+    lines.push(...domainRejectionPrelude("../domain/errors"));
+  if (bodyStr.includes(TEST_PRINCIPAL_CALL)) {
+    // The principal a currentUser-reading operation takes: the one the test
+    // has bound in the ambient frame.
+    lines.push(
+      "",
+      `function ${TEST_PRINCIPAL_CALL.slice(0, -2)}() {`,
+      `  return ${T.requireCurrentUser}();`,
+      "}",
+    );
+  }
   lines.push("");
   lines.push(
     `let repos: { ${usedAggs.map((a) => `${lowerFirst(a.name)}: ${a.name}Repository`).join("; ")} };`,
   );
   lines.push("");
+  const isolation = integrationIsolation(ctx);
+  switch (isolation.kind) {
+    case "rollback-per-test":
+      break;
+    default: {
+      const never: never = isolation.kind;
+      throw new Error(`internal: unhandled integration isolation ${String(never)}`);
+    }
+  }
+  lines.push("let pool: Pool;");
+  lines.push("");
   lines.push(`beforeAll(async () => {`);
   lines.push(
-    `  const pool = new Pool({ connectionString: process.env.LOOM_PG_URL ?? "postgres://postgres:postgres@localhost:5432/postgres" });`,
-  );
-  lines.push(`  const db = drizzle(pool, { schema });`);
-  lines.push(`  await migrate(db, { migrationsFolder: "./db/migrations" });`);
-  lines.push(
-    cascade
-      ? `  const events = createInProcessDispatcher(db);`
-      : `  const events = NoopDomainEventDispatcher;`,
+    `  pool = new Pool({ connectionString: process.env.LOOM_PG_URL ?? "postgres://postgres:postgres@localhost:5432/postgres" });`,
   );
   lines.push(
-    `  repos = { ${usedAggs
-      .map((a) => `${lowerFirst(a.name)}: new ${a.name}Repository(db, events)`)
-      .join(", ")} };`,
+    `  await migrate(drizzle(pool, { schema }), { migrationsFolder: "./db/migrations" });`,
   );
   lines.push(`});`);
+  lines.push("");
+  lines.push(
+    "/** Run one test inside a transaction rolled back at its end, so every test starts",
+    " *  from the database the migrations left.  The repositories' own transactions",
+    " *  become savepoints inside it. */",
+    "async function isolated(body: () => Promise<void>): Promise<void> {",
+    "  const db = drizzle(pool, { schema });",
+    "  await db",
+    "    .transaction(async (tx) => {",
+    "      const scoped = tx as unknown as typeof db;",
+    cascade
+      ? "      const events = createInProcessDispatcher(scoped);"
+      : "      const events = NoopDomainEventDispatcher;",
+    `      repos = { ${usedAggs
+      .map((a) => `${lowerFirst(a.name)}: new ${a.name}Repository(scoped, events)`)
+      .join(", ")} };`,
+    "      await body();",
+    "      tx.rollback();",
+    "    })",
+    "    .catch((err: unknown) => {",
+    "      if (!(err instanceof TransactionRollbackError)) throw err;",
+    "    });",
+    "}",
+  );
   lines.push("");
   lines.push(...body);
   return `${lines.join("\n")}\n`;

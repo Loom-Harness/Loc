@@ -223,6 +223,17 @@ export const messages = {
   "loom.test-principal-unknown-claim": (p: { name: unknown; fields: unknown }) =>
     `Principal claim '${p.name}' is not a field of the system's 'user { … }' block ` +
     `(declared: ${p.fields}).`,
+  "loom.test-throw-unsupported": (p: {
+    test: unknown;
+    aggregate: unknown;
+    operation: unknown;
+    platform: unknown;
+  }) =>
+    `test '${p.test}': this toThrow expects an invariant of '${p.aggregate}' to reject ` +
+    `'${p.operation}', and a '${p.platform}' unit test runs on a pure domain core that checks ` +
+    "invariants through the changeset, which a document-shaped aggregate's operation does not " +
+    "reach. Assert the rejection in a context-integration test, or name the rung the operation " +
+    "itself guards with (a precondition or a `when` gate).",
   "loom.test-principal-claim-type": (p: { name: unknown; shape: unknown }) =>
     p.shape === "string"
       ? `Principal claim '${p.name}' is a 'string' field — give it one string literal, not a list.`

@@ -16,6 +16,7 @@
 // v1 constraint: a repository find must be LET-BOUND
 // (`loom.integration-find-must-bind`, shared with node).
 
+import { integrationIsolation } from "../../../ir/plan/test-isolation.js";
 import { testPrincipal } from "../../../ir/plan/test-principal.js";
 import {
   PAGED_DEFAULT_PAGE,
@@ -263,6 +264,13 @@ export function renderVanillaContextIntegrationTest(
   user?: readonly FieldIR[],
 ): string | null {
   if (ctx.tests.length === 0) return null;
+  // Rollback per test (`integrationIsolation`): each test checks out an
+  // `Ecto.Adapters.SQL.Sandbox` connection, which rolls back at its end.
+  const isolation = integrationIsolation(ctx);
+  if (isolation.kind !== "rollback-per-test") {
+    const never: never = isolation.kind;
+    throw new Error(`internal: unhandled integration isolation ${String(never)}`);
+  }
 
   const ctxMod = `${appModule}.${upperFirst(ctx.name)}`;
   const repo = `${appModule}.Repo`;

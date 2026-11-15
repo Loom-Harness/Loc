@@ -16,7 +16,9 @@
 // dispatcher runs (autowired), but synchronous workflow-cascade assertions are
 // the tracked 3b follow-up.
 
+import { integrationIsolation } from "../../../ir/plan/test-isolation.js";
 import { testPrincipal } from "../../../ir/plan/test-principal.js";
+import { rejectionPlan } from "../../../ir/plan/test-rejection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -38,8 +40,8 @@ import { jid } from "../java-ident.js";
 import { packagePath } from "../naming.js";
 import { type JavaRenderContext, renderJavaExpr } from "../render-expr.js";
 import {
-  javaBareToThrow,
   javaPrincipal,
+  javaRejection,
   renderCreateCall,
   renderExplicitMatcher,
   renderOperationCall,
@@ -191,7 +193,7 @@ function renderStmt(
         renderCreateCall(s.expr, ctx, rctx) ??
         renderOperationCall(s.expr, ctx, rctx, ambientPrincipal(scope)) ??
         renderJavaExpr(s.expr, rctx);
-      return javaBareToThrow(s.expr, inner, `__thrown${index}`, I);
+      return javaRejection(rejectionPlan(s), inner, `__thrown${index}`, I);
     }
     case "principal":
       // A body `as { … }` line: rebind the thread's ambient principal.
@@ -246,6 +248,11 @@ export function renderJavaContextIntegrationTest(
    *  Absent ⇒ none is bound. */
   userFields?: readonly FieldIR[],
 ): { path: string; content: string } | null {
+  const isolation = integrationIsolation(ctx);
+  if (isolation.kind !== "rollback-per-test") {
+    const never: never = isolation.kind;
+    throw new Error(`internal: unhandled integration isolation ${String(never)}`);
+  }
   if (ctx.tests.length === 0) return null;
 
   const methods = ctx.tests.flatMap((t) => renderTest(t, ctx, userFields, basePkg));
@@ -289,6 +296,10 @@ export function renderJavaContextIntegrationTest(
     `import ${basePkg}.domain.valueobjects.*;`,
     ``,
     `@SpringBootTest`,
+    // Rollback per test (`integrationIsolation`): Spring's test-managed
+    // transaction wraps each test, the repositories' `@Transactional` methods
+    // join it, and it rolls back at the test's end.
+    `@${javaRef("org.springframework.transaction.annotation", "Transactional")}`,
     `public class ${className} {`,
     ...usedAggs.map((a) => `    @Autowired\n    private ${a.name}Repository ${repoField(a.name)};`),
     ``,

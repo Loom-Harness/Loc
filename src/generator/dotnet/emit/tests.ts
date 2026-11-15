@@ -1,6 +1,7 @@
 import { createInputFields, createOmissionValue } from "../../../ir/enrich/wire-projection.js";
 import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
 import { testPrincipal } from "../../../ir/plan/test-principal.js";
+import { type RejectionPlan, rejectionPlan } from "../../../ir/plan/test-rejection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -25,7 +26,7 @@ import {
   renderAssertion,
 } from "../../_test/assertion-target.js";
 import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
-import { csThrowKind } from "../../_test/throw-kind.js";
+import { CS_REJECTION_CLASSES, csThrowKind, rejectionClasses } from "../../_test/throw-kind.js";
 import { csCalendarDateParseExact } from "../codec-spelling.js";
 import { renderCsExpr, renderCsType } from "../render-expr.js";
 
@@ -83,7 +84,7 @@ export const CS_PRINCIPAL: PrincipalTarget = {
 // Every `expect` carries a matcher (no bare-boolean fallback);
 // `expect(call).toThrow()` emits `Assert.Throws<DomainException>` for a create
 // (a value-object construction: `Assert.Throws<ValueObjectInvariantException>`),
-// and an assertion over the domain-rejection family (`csBareToThrow`) for an
+// and an assertion over the domain-rejection family (`csRejection`) for an
 // operation call (xUnit + AwesomeAssertions coexist).
 // ---------------------------------------------------------------------------
 
@@ -402,49 +403,67 @@ export function renderExplicitMatcherToAwesome(expr: ExprIR): string | null {
   });
 }
 
-/** The exception types a BARE `toThrow()` accepts on .NET: every way the
- *  in-process domain floor refuses a call.  xUnit's `Assert.Throws<T>` matches
- *  the EXACT type, and these are siblings, not one hierarchy:
+/** `expect(<call>).toThrow(…)` as an xUnit assertion, in either tier
+ *  (`rejectionPlan`).  `body` is the lambda body (`t.Close();`); `isAsync`
+ *  renders the integration-test form.
  *
- *    DomainException               — a `precondition`, an aggregate / part invariant;
- *    DisallowedException           — an operation's `when` state gate (409);
- *    ForbiddenException            — a `requires` left in the operation body;
- *    ValueObjectInvariantException — a value object refused inside the body,
- *                                    emitted only when the context declares
- *                                    such an invariant.
- *
- *  Not `Exception`: a NullReferenceException out of broken generated code must
- *  FAIL a negative test, not pass it. */
-function csDomainRejections(ctx: BoundedContextIR): string[] {
-  const out = ["DomainException", "DisallowedException", "ForbiddenException"];
-  if (hasValueObjectInvariants(ctx)) out.push("ValueObjectInvariantException");
-  return out;
-}
-
-/** The bare `expect(<expr>).toThrow()` assertion over the domain-rejection
- *  family (claims D17), or `null` to keep the exact single-type
- *  `Assert.Throws<…>`: a `create(...)` or a value-object construction can only
- *  be refused by an invariant.  Anything else, an operation call above all,
- *  may be refused by a `when` gate or a `requires` as well.  `body` is the
- *  lambda body (`t.Close();`); `isAsync` renders the integration-test form. */
-export function csBareToThrow(
-  e: ExprIR,
+ *  xUnit's `Assert.Throws<T>` matches the EXACT type, and the floor's
+ *  exceptions are siblings, not one hierarchy: `DomainException` (a
+ *  precondition, an aggregate or part invariant), `DisallowedException` (a
+ *  `when` gate), `ForbiddenException` (a `requires` left in the body), and
+ *  `ValueObjectInvariantException` (a value object refused, emitted only when
+ *  the context declares such an invariant).  A single class asserts it
+ *  exactly; several catch any exception and require the family, so a
+ *  NullReferenceException out of broken generated code fails the test.  A
+ *  named rung asserts the exception's structural `Kind`, never its message;
+ *  a value object's invariant is its own exception TYPE, so there the type
+ *  already is the rung. */
+export function csRejection(
+  plan: RejectionPlan,
   body: string,
   local: string,
   indent: string,
   ctx: BoundedContextIR,
   isAsync = false,
-): string | null {
-  if (e.kind === "method-call" && e.member === "create") return null;
-  if (e.kind === "call" && e.callKind === "value-object-ctor") return null;
+): string {
+  const voCtor = plan.call.kind === "call" && plan.call.callKind === "value-object-ctor";
+  const one = (type: string): string =>
+    isAsync
+      ? `await Assert.ThrowsAsync<${type}>(async () => { ${body} await Task.CompletedTask; })`
+      : `Assert.Throws<${type}>(() => { ${body} })`;
+  if (plan.accepts === "rung") {
+    if (voCtor && plan.rung === "invariant")
+      return `${indent}${one("ValueObjectInvariantException")};`;
+    return [
+      `${indent}var ${local} = ${one("DomainException")};`,
+      `${indent}Assert.Equal(${csThrowKind(plan.rung)}, ${local}.Kind);`,
+    ].join("\n");
+  }
+  const classes = voCtor
+    ? ["ValueObjectInvariantException"]
+    : [
+        ...rejectionClasses(CS_REJECTION_CLASSES, plan.rungs),
+        ...(plan.rungs.includes("invariant") && hasValueObjectInvariants(ctx)
+          ? ["ValueObjectInvariantException"]
+          : []),
+      ];
+  if (classes.length === 1) return `${indent}${one(classes[0]!)};`;
   const caught = isAsync
     ? `await Assert.ThrowsAnyAsync<Exception>(async () => { ${body} await Task.CompletedTask; })`
     : `Assert.ThrowsAny<Exception>(() => { ${body} })`;
   return [
     `${indent}var ${local} = ${caught};`,
-    `${indent}Assert.True(${local} is ${csDomainRejections(ctx).join(" or ")},`,
+    `${indent}Assert.True(${local} is ${classes.join(" or ")},`,
     `${indent}    $"expected the domain to reject this call, but it threw: {${local}}");`,
   ].join("\n");
+}
+
+/** The lambda body of a throw assertion: an invocation is a valid expression
+ *  statement whether it returns void or a value; any other expression is
+ *  bound (CS0201), never a void call (CS0815). */
+export function csThrowBody(e: ExprIR, rendered: string): string {
+  const isInvocation = e.kind === "method-call" || e.kind === "call";
+  return isInvocation ? `${rendered};` : `var __ = ${rendered};`;
 }
 
 function renderTestStmt(
@@ -465,41 +484,9 @@ function renderTestStmt(
     throw new Error("expect requires a matcher (e.g. expect(x).toBe(y)); got a bare expression.");
   }
   if (s.kind === "expect-throws") {
-    const expr = renderTestExpr(s.expr, ctx);
-    // An invocation (operation call) is a valid expression-statement whether it
-    // returns void or a value — `() => { call(); }`.  Only a non-invocation
-    // expression (e.g. a property access) needs binding to satisfy CS0201;
-    // binding a void call to `var` is a CS0815 error, so never do it for calls.
-    const isInvocation = s.expr.kind === "method-call" || s.expr.kind === "call";
-    const body = isInvocation ? `${expr};` : `var __ = ${expr};`;
-    // `Assert.Throws<T>` matches the EXACT type, and a value object's invariant
-    // throws its own `ValueObjectInvariantException` (enums-vos.ts), a sibling
-    // of `DomainException` rather than a subclass.  Asserting `DomainException`
-    // for `expect(Money { amount: -1 … }).toThrow()` compiles, and then fails at
-    // run time even though the invariant fired.
-    // A `toThrow(precondition)` over one keeps `DomainException`, so it FAILS
-    // at run time as it does on every other backend: a value object declares
-    // invariants only, so no precondition can be what refused it.
-    const voCtor =
-      s.expr.kind === "call" &&
-      s.expr.callKind === "value-object-ctor" &&
-      s.throwKind !== "precondition";
-    const exceptionType = voCtor ? "ValueObjectInvariantException" : "DomainException";
-    const thrown = `Assert.Throws<${exceptionType}>(() => { ${body} })`;
-    // `toThrow(<kind>)` — pin WHICH rung rejected by the exception's structural
-    // `Kind`, never its message, which a rule's own text replaces.
-    // `Assert.Throws` returns the caught exception, so the rung is one local
-    // plus `Assert.Equal`; the local carries the statement index so two throw
-    // assertions in one `[Fact]` don't collide.  A value object's invariant is
-    // its own exception TYPE, so there the type already is the rung.
-    if (s.throwKind && !voCtor) {
-      const local = `__thrown${index}`;
-      return [
-        `    var ${local} = ${thrown};`,
-        `    Assert.Equal(${csThrowKind(s.throwKind)}, ${local}.Kind);`,
-      ].join("\n");
-    }
-    return csBareToThrow(s.expr, body, `__thrown${index}`, "    ", ctx) ?? `    ${thrown};`;
+    const plan = rejectionPlan(s);
+    const body = csThrowBody(plan.call, renderTestExpr(plan.call, ctx));
+    return csRejection(plan, body, `__thrown${index}`, "    ", ctx);
   }
   if (s.kind === "let") {
     const expr = renderTestExpr(s.expr, ctx);

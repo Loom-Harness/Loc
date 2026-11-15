@@ -1,6 +1,7 @@
 import { createInputFields, createOmissionValue } from "../../../ir/enrich/wire-projection.js";
 import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
 import { testPrincipal } from "../../../ir/plan/test-principal.js";
+import { type RejectionPlan, rejectionPlan } from "../../../ir/plan/test-rejection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -21,7 +22,7 @@ import { javaRef } from "../../_imports/java.js";
 import { coerceTestValue, type TestValueTarget } from "../../_test/arg-coercion.js";
 import { type AssertionTarget, renderAssertion } from "../../_test/assertion-target.js";
 import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
-import { javaThrowKind } from "../../_test/throw-kind.js";
+import { JAVA_REJECTION_CLASSES, javaThrowKind, rejectionClasses } from "../../_test/throw-kind.js";
 import { jid } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { type JavaRenderContext, renderJavaExpr, withLambdaScope } from "../render-expr.js";
@@ -30,7 +31,7 @@ import { type JavaRenderContext, renderJavaExpr, withLambdaScope } from "../rend
 // `test "..." { ... }` DSL → JUnit 5 test class (the xUnit/vitest analog).
 // Each block becomes a @Test method with @DisplayName carrying the source
 // name.  Explicit matchers lower to JUnit assertions; a bare `toThrow()` to
-// an assertion over the domain-rejection family (`javaBareToThrow`); a bare
+// an assertion over the domain-rejection family (`javaRejection`); a bare
 // boolean to assertTrue.
 // Pure domain tests — no Spring context, they run under plain `mvn test`.
 // ---------------------------------------------------------------------------
@@ -407,40 +408,36 @@ export function renderExplicitMatcher(
   });
 }
 
-/** The exception classes a BARE `toThrow()` accepts on Java: every way the
- *  in-process domain floor refuses a call.
+/** `expect(<call>).toThrow(…)` as a JUnit assertion, in either tier
+ *  (`rejectionPlan`).  `rendered` is the call, already rendered.
  *
- *    DomainException     — a `precondition`, an aggregate / part invariant, and
- *                          a value object's invariant (`ValueObjectInvariantException`
- *                          extends it);
- *    DisallowedException — an operation's `when` state gate (a SIBLING of
- *                          `DomainException`, so the advice can answer it 409);
- *    ForbiddenException  — a `requires` left in the operation body.
- *
- *  All three are emitted unconditionally into `domain.common`, which every test
- *  class imports by wildcard.  Not `RuntimeException`: a NullPointerException
- *  out of broken generated code must FAIL a negative test, not pass it. */
-const JAVA_DOMAIN_REJECTIONS = ["DomainException", "DisallowedException", "ForbiddenException"];
-
-/** The bare `expect(<expr>).toThrow()` assertion (claims D17).
- *
- *  A `create(...)` or value-object construction can only be refused by an
- *  invariant, so it keeps the exact `assertThrows(DomainException.class, …)`.
- *  Anything else, an operation call above all, may be refused by a `when` gate
- *  or a `requires` too, and `assertThrows` takes ONE class: catch the common
- *  base, then require the domain family, so any other runtime error still
- *  fails with its own name in the message. */
-export function javaBareToThrow(
-  e: ExprIR,
+ *  A named rung binds the thrown `DomainException` (a value object's
+ *  `ValueObjectInvariantException` subclasses it) and asserts its structural
+ *  `getKind()`, never its message, which a rule's own text replaces.  Any rung
+ *  of the floor: one class is `assertThrows(<class>)`; several (an operation
+ *  may be refused by a `when` gate's `DisallowedException` or a `requires`'
+ *  `ForbiddenException` too) catch the common base, then require the family,
+ *  so any other runtime error, a NullPointerException out of broken generated
+ *  code above all, fails with its own name in the message.  The local is
+ *  suffixed by the caller so several throw assertions in one body don't
+ *  collide. */
+export function javaRejection(
+  plan: RejectionPlan,
   rendered: string,
   local: string,
   indent: string,
 ): string[] {
-  const invariantOnly =
-    (e.kind === "method-call" && e.member === "create") ||
-    (e.kind === "call" && e.callKind === "value-object-ctor");
-  if (invariantOnly) return [`${indent}assertThrows(DomainException.class, () -> ${rendered});`];
-  const isDomain = JAVA_DOMAIN_REJECTIONS.map((n) => `${local} instanceof ${n}`).join(" || ");
+  if (plan.accepts === "rung") {
+    return [
+      `${indent}DomainException ${local} = assertThrows(DomainException.class, () -> ${rendered});`,
+      `${indent}assertEquals(${javaThrowKind(plan.rung)}, ${local}.getKind(), ${local}.getMessage());`,
+    ];
+  }
+  const classes = rejectionClasses(JAVA_REJECTION_CLASSES, plan.rungs);
+  if (classes.length === 1) {
+    return [`${indent}assertThrows(${classes[0]}.class, () -> ${rendered});`];
+  }
+  const isDomain = classes.map((n) => `${local} instanceof ${n}`).join(" || ");
   return [
     `${indent}RuntimeException ${local} = assertThrows(RuntimeException.class, () -> ${rendered});`,
     `${indent}assertTrue(${isDomain},`,
@@ -468,23 +465,7 @@ function renderTestStmt(
     const expr =
       renderCreateCall(s.expr, ctx, rctx) ??
       withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state);
-    // `toThrow(<kind>)` — bind the thrown `DomainException` (a value object's
-    // `ValueObjectInvariantException` subclasses it) and assert its structural
-    // `getKind()`, never its message, which a rule's own text
-    // replaces.  `assertThrows` already RETURNS the exception, so the rung
-    // costs one local and one assertion; the local is suffixed with the
-    // statement index so several throw assertions in one test body don't
-    // collide.
-    if (s.throwKind) {
-      // `assertEquals` needs no import bookkeeping — the module shell already
-      // emits `import static org.junit.jupiter.api.Assertions.*;`.
-      const local = `__thrown${index}`;
-      return [
-        `        DomainException ${local} = assertThrows(DomainException.class, () -> ${expr});`,
-        `        assertEquals(${javaThrowKind(s.throwKind)}, ${local}.getKind(), ${local}.getMessage());`,
-      ];
-    }
-    return javaBareToThrow(s.expr, expr, `__thrown${index}`, "        ");
+    return javaRejection(rejectionPlan(s), expr, `__thrown${index}`, "        ");
   }
   if (s.kind === "let") {
     const expr =

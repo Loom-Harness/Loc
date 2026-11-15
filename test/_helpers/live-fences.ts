@@ -46,6 +46,7 @@ export const LIVE_FENCES: Readonly<Record<string, string>> = {
   "#5900": "P2 redelivery dedupe: holds src/generator/elixir/dispatch-emit.ts",
   "#5923": "e2e suites still publishing fixed host ports",
   "#5933": "Re-own unsupported-register gaps whose owning issue closed",
+  "#6023": "Elixir unit tier: invariant floor for document-aggregate operations",
 };
 
 /** `""` when `ref` is a live fence, else the reason it is not. */
