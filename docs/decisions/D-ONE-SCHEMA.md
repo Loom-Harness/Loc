@@ -43,6 +43,13 @@ an aggregate through `<App>.Repo.Records` for the same reason the emitters do:
 a raw `Repo.all` returns the struct with its value objects unset, and a raw
 `Repo.insert` of a changed value object writes none of its columns.
 
+Reading an optional value object back from its leaf columns, Ecto takes it as
+absent when every required leaf is NULL (when it has no required leaf, when
+every leaf is NULL).  The shared null-consistency CHECK makes the backends agree
+on every row except one it still admits — required leaves NULL while an optional
+leaf is set — where the backends answer differently; that disagreement is
+tracked on GitHub, not decided here.
+
 **Mechanism.**
 
 - `OWN_LAYOUT_PERSISTENCE` (`src/platform/adapter-metadata.ts`) lists the

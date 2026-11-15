@@ -80,7 +80,7 @@ import {
   renderNotImplementedErrorModule,
 } from "./denial.js";
 import { renderRepoReadScope } from "./read-scope-emit.js";
-import { renderRecordsModule, renderRecordsTest } from "./records-emit.js";
+import { renderRecordsModule } from "./records-emit.js";
 import { renderObanConfig } from "./scheduler-emit.js";
 import { renderVanillaSecurityHeaders } from "./security-headers-emit.js";
 import { renderLoomValueObjectModule } from "./value-object-type-emit.js";
@@ -270,8 +270,6 @@ export function emitVanillaShellFiles(
   // The read/write seam: every emitted read composes a stored value object
   // from its leaf columns here, every write decomposes it (records-emit.ts).
   out.set(`lib/${appName}/repo/records.ex`, renderRecordsModule(appModule));
-  out.set("test/repo/records_test.exs", renderRecordsTest(appModule));
-  out.set("test/test_helper.exs", "ExUnit.start()\n");
   out.set(
     `lib/${appName}_web.ex`,
     // The TEMPLATE-side gate is the ui, not the merged catalog: `pgettext/2` in

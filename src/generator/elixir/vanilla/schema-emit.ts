@@ -54,6 +54,7 @@ import { renderInspectImpl } from "./inspect-emit.js";
 import { NORMALIZE_KEYS_DEFP } from "./key-normalize.js";
 import { provColumn, provenancedFieldsOf } from "./provenance-emit.js";
 import { ectoReadScope, renderSchemaReadScope } from "./read-scope-emit.js";
+import { renderRecordsTest } from "./records-emit.js";
 import {
   foreignRefCollFields,
   refCollFields,
@@ -140,6 +141,12 @@ export function emitVanillaSchemas(
     // byte-identical.  Rendered from the IR's synthesized `inspect` member, so
     // the redaction contract matches the TS/.NET backends exactly.
     const inspectImpl = renderInspectImpl(appModule, ctxModule, agg as EnrichedAggregateIR, ctx);
+    // An app that stores a value object as leaf columns carries the generated
+    // test of the rule `<App>.Repo.Records` composes it by.
+    if (schemaModule.includes("def __value_columns__")) {
+      out.set("test/repo/records_test.exs", renderRecordsTest(appModule));
+      out.set("test/test_helper.exs", "ExUnit.start()\n");
+    }
     const schemaPath = `lib/${appSnake}/${ctxSnake}/${aggSnake}.ex`;
     const schemaContent = inspectImpl ? `${schemaModule}\n${inspectImpl}` : schemaModule;
     out.set(schemaPath, schemaContent);
