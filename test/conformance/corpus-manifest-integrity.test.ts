@@ -4,6 +4,7 @@ import {
   CORPUS,
   type CorpusFeature,
   parseSidecar,
+  resolveInherits,
   unpairedFixtures,
 } from "../fixtures/corpus/manifest.js";
 
@@ -85,5 +86,56 @@ describe("corpus manifest integrity", () => {
       'a.corpus.json: unknown key "tilte"',
     ]);
     expect(parseSidecar("a", { backends: ["node"] }).row).toBeUndefined();
+  });
+
+  it("the gate blocks refuse a malformed row (positive control)", () => {
+    const side = (extra: Record<string, unknown>) => ({ title: "t", backends: "ALL", ...extra });
+    expect(
+      parseSidecar("a", side({ authzGate: { "//": "why", "find GET /x": "rowDataGate" } })).errors,
+    ).toEqual([]);
+    expect(parseSidecar("a", side({ authzGate: { "find GET /x": 3 } })).errors).toEqual([
+      "a.corpus.json: `authzGate.find GET /x` must be a reason-class name",
+    ]);
+    expect(
+      parseSidecar("a", side({ typing: { "ir-differs": { n: 1, why: "a null" } } })).errors,
+    ).toEqual([]);
+    expect(
+      parseSidecar("a", side({ typing: { "ir-differs": { n: 0, why: "a null" } } })).errors,
+    ).toEqual([
+      'a.corpus.json: `typing.ir-differs` must be { n: <positive integer>, why: <text>, issue?: "#N" }',
+    ]);
+    expect(parseSidecar("a", side({ inherits: "a" })).errors).toEqual([
+      "a.corpus.json: `inherits` must name another corpus fixture",
+    ]);
+  });
+
+  it("a twin takes its parent's undeclared gate blocks, one hop only (positive control)", () => {
+    const row = (id: string, extra: Partial<CorpusFeature> = {}) =>
+      ({ id, title: "t", backends: ["node"], ...extra }) as CorpusFeature;
+    const gate = { "find GET /x": "rowDataGate" };
+    const own = { "find GET /y": "maskIsNotAStatus" };
+    const errors: string[] = [];
+    const [, twin, ownTwin] = resolveInherits(
+      [
+        row("p", { authzGate: gate, typing: { "ir-differs": { n: 1, why: "a null" } } }),
+        row("t", { inherits: "p" }),
+        row("u", { inherits: "p", authzGate: own }),
+      ],
+      errors,
+    );
+    expect(errors).toEqual([]);
+    expect(twin?.authzGate).toEqual(gate);
+    expect(twin?.typing).toEqual({ "ir-differs": { n: 1, why: "a null" } });
+    expect(ownTwin?.authzGate).toEqual(own);
+    const bad: string[] = [];
+    resolveInherits(
+      [row("t", { inherits: "nope" }), row("p", { inherits: "t" }), row("q", { inherits: "p" })],
+      bad,
+    );
+    expect(bad).toEqual([
+      "t.corpus.json: `inherits` names no corpus fixture (nope)",
+      "p.corpus.json: inherits t, which itself inherits nope; name the root",
+      "q.corpus.json: inherits p, which itself inherits t; name the root",
+    ]);
   });
 });

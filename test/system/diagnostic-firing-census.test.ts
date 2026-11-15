@@ -554,232 +554,55 @@ ${opts.e2e ?? ""}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
-  // An aggregate whose derived table (`_ledgers`) lands in the runtime's
-  // reserved `_` namespace.
-  "loom.persisted-table-reserved": `
-system S {
-  subdomain M { context C {
-    aggregate _Ledger with crudish { label: string }
-    repository Ledgers for _Ledger { }
-  } }
-}`,
-  // A backfill expression outside the SQL-renderable subset: a call.
-  "loom.migration-expr-invalid": `
-system S {
-  subdomain M { context C {
-    aggregate Order with crudish { label: string  code: string }
-    repository Orders for Order { }
-  } }
-}
-migration "fill-code" { Order.code = label.toUpper() }`,
-  // `provenanced` on an entity part's field: lineage lives on the root only.
-  "loom.provenanced-part-field": `
-system S {
-  subdomain M { context C {
-    aggregate Cart with crudish { label: string  contains lines: Line[]  entity Line { qty: int provenanced } }
-    repository Carts for Cart { }
-  } }
-}`,
-  // The lowering backstop: a ui body reading a name nothing declares — the
-  // names validator leaves ui bodies to the typing pass, so nothing else
-  // refuses it.
-  "loom.unresolved-type": `
-system S {
-  subdomain M { context C { aggregate Doc with crudish { title: string } repository Docs for Doc { } } }
-  api A from M
-  ui U { api Api: A  page P { route: "/" body: For { each: orders, render: o => Text { "x" } } } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
-  deployable web { platform: react targets: d ui: U { Api: d } port: 3001 }
-}`,
-  // A response record typed onto a stored aggregate field.
-  "loom.transport-type-position": `
-system S {
-  subdomain M { context C {
-    response Ok { n: int }
-    aggregate Doc with crudish { title: string  last: Ok }
-  } }
-}`,
-  // An `exists` in an operation guard: not a position compiled into a query.
-  "loom.exists-outside-query": `
-system S {
-  subdomain M { context C {
-    aggregate Tag with crudish { label: string }
-    aggregate Doc with crudish {
-      title: string
-      operation touch() { precondition exists Tag as t where t.label == this.title  title := "x" }
+  // `toBeAbsent()` rewrites onto the receiver (`"<key>" in <obj>`), so it needs
+  // a FIELD READ to name a key.  A bare let-bound name supplies none — and in
+  // the e2e tier, which is the only one where the matcher is legal at all.
+  "loom.absent-receiver-invalid": throwKindProbe({
+    e2eTest: `    expect(wo).toBeAbsent()`,
+  }),
+
+  // An abstract inheritance base owning its own `contains`.  The part's table
+  // would have no reader and no writer — the base has no repository and the
+  // concretes do not inherit its parts.  This was a `persistence: mikroorm`-only
+  // reject until the shape was generated on every other target and the output
+  // read: silently dropped on drizzle / efcore / python / java, a dead FK'd
+  // table on dapper, and a 500-producing half-emission on elixir (schema +
+  // `has_many` + a serializing controller, no migration, no preload).
+  "loom.abstract-aggregate-contains":
+    repoOnly(`    abstract aggregate Party inheritanceUsing: sharedTable {
+      name: string
+      contains addresses: Address[]
+      entity Address { street: string }
+    }
+    aggregate Customer extends Party with crudish { creditLimit: int }
+    repository Customers for Customer`),
+  // F-114.  An aggregate with no `create`, no `with crudish`, nothing that
+  // builds one and no seed row: `POST /policies` is 405 and the table can only
+  // ever be empty.  The `Claim` beside it is the control — it carries
+  // `with crudish`, so exactly one of the two is flagged.
+  "loom.aggregate-not-constructible":
+    repoOnly(`    aggregate Claim with crudish { reference: string }
+    repository Claims for Claim
+    aggregate Policy { code: string }
+    repository Policies for Policy`),
+  // Two enums in one context declaring the same member, and a bare use with no
+  // expected type to resolve it — an untyped `let`.  First-wins would silently
+  // pick `OrderStatus` and lower a comparison between two different enums
+  // (F-022); the refusal is the honest answer.  The typed sites in the same
+  // aggregate stay silent, which is what makes this the ambiguous one.
+  "loom.ambiguous-enum-value": `
+system EnumAmbiguity {
+  subdomain S { context Billing {
+    enum OrderStatus   { Draft, Confirmed }
+    enum InvoiceStatus { Draft, Issued, Paid }
+    aggregate Invoice with crudish {
+      status: InvoiceStatus = Draft
+      label: string
+      operation touch() { let x = Draft  label := "x" }
     }
   } }
 }`,
-  // A row rule that never reads the row.
-  "loom.policy-row-not-queryable": `
-system S {
-  user { id: string  tenantId: string  role: string }
-  tenancy by user.tenantId of Org
-  subdomain M {
-    context C {
-      aggregate Org with crudish { name: string }
-      aggregate Doc with tenantOwned, crudish { title: string }
-      policy { allow on Doc as d where currentUser.role == "admin" }
-    }
-  }
-}`,
-  // A `when` that is not a claim comparison.
-  "loom.policy-when-not-caller-only": `
-system S {
-  user { id: string  tenantId: string  role: string }
-  tenancy by user.tenantId of Org
-  subdomain M {
-    context C {
-      aggregate Org with crudish { name: string }
-      aggregate Doc with tenantOwned, crudish { title: string }
-      policy { allow local on Doc when currentUser.role == "a" && 1 > 0 }
-    }
-  }
-}`,
-  // `allow share` on an aggregate that is not `shareable`.
-  "loom.policy-share-not-shareable": `
-system S {
-  user { id: string  tenantId: string  role: string }
-  tenancy by user.tenantId of Org
-  subdomain M {
-    context C {
-      aggregate Org with crudish { name: string }
-      aggregate Doc with tenantOwned, crudish { title: string }
-      policy { allow share on Doc }
-    }
-  }
-}`,
-  // `shareable` on an aggregate every caller already reads.
-  "loom.shareable-not-tenant-owned": `
-system S {
-  user { id: string  tenantId: string  role: string }
-  tenancy by user.tenantId of Org
-  subdomain M {
-    context C {
-      aggregate Org with crudish { name: string }
-      aggregate Doc with shareable, crudish { title: string }
-    }
-  }
-}`,
-  // A projection on another deployable reading a shareable aggregate's table.
-  "loom.share-host-bypass": `
-system S {
-  user { id: string  tenantId: string  role: string }
-  tenancy by user.tenantId of Org
-  subdomain M {
-    context A {
-      aggregate Org with crudish { name: string  implements tenantRegistry }
-      aggregate Doc with tenantOwned, shareable, crudish { title: string }
-    }
-    context B {
-      projection DocCount {
-        n: int
-        from Doc as d
-        select n = count()
-      }
-    }
-  }
-  storage pg { type: postgres }
-  resource a { for: A, kind: state, use: pg }
-  deployable da { platform: node, contexts: [A], dataSources: [a], port: 3000, auth: required }
-  deployable db { platform: node, contexts: [B], port: 3001, auth: required }
-}`,
-  // `shareable` with no `tenancy by … of <Registry>` to name grantee orgs by.
-  // A principal read inside a stateless domain service.
-  "loom.domain-service-no-principal": `
-system R {
-  user { id: string  permissions: string[] }
-  subdomain S {
-    context C {
-      domainService Calc {
-        operation f(x: int): int {
-          requires currentUser.permissions.contains("x")
-          return x + 1
-        }
-      }
-    }
-  }
-}`,
-  // A tenantOwned row referencing a tenantOwned aggregate of another context.
-  "loom.tenancy-ref-unresolvable": `
-system S {
-  user { id: string  tenantId: string }
-  tenancy by user.tenantId of Org
-  subdomain M {
-    context A {
-      aggregate Org with crudish { name: string }
-      aggregate Invoice with tenantOwned, crudish { number: string }
-    }
-    context B {
-      aggregate Claim with tenantOwned, crudish { invoice: Invoice id }
-    }
-  }
-}`,
-  "loom.shareable-no-tenancy": `
-context C {
-  aggregate Doc with tenantOwned, shareable, crudish { title: string }
-}`,
-  // `own` on an aggregate without `auditable`.
-  "loom.policy-own-no-creator": `
-system S {
-  user { id: string  tenantId: string  role: string }
-  tenancy by user.tenantId of Org
-  subdomain M {
-    context C {
-      aggregate Org with crudish { name: string }
-      aggregate Doc with tenantOwned, crudish { title: string }
-      policy { allow own on Doc }
-    }
-  }
-}`,
-  // A row rule on a TPH concrete.
-  "loom.policy-scope-inheritance-unsupported": `
-system S {
-  user { id: string  tenantId: string  role: string }
-  tenancy by user.tenantId of Org
-  subdomain M {
-    context C {
-      aggregate Org with crudish { name: string }
-      abstract aggregate Doc inheritanceUsing: sharedTable with tenantOwned { title: string }
-      aggregate Memo extends Doc with tenantOwned, crudish { body: string }
-      policy { allow on Memo as m where m.body == currentUser.role }
-    }
-  }
-}`,
-  // Two read scopes that reach each other through `exists`.
-  "loom.policy-row-cycle": `
-system S {
-  user { id: string  tenantId: string  role: string }
-  tenancy by user.tenantId of Org
-  subdomain M {
-    context C {
-      aggregate Org with crudish { name: string }
-      aggregate A with tenantOwned, crudish { key: string }
-      aggregate B with tenantOwned, crudish { key: string }
-      policy {
-        allow on A as a where exists B as b where b.key == a.key
-        allow on B as b where exists A as a where a.key == b.key
-      }
-    }
-  }
-}`,
-  // An `exists` over another context's aggregate: a different database.
-  "loom.exists-cross-context": `
-system S {
-  subdomain M {
-    context C { aggregate Doc with crudish { title: string  filter exists Tag as t where t.label == this.title } }
-    context D { aggregate Tag with crudish { label: string } }
-  }
-}`,
-  // An `exists` over the filtered row's own aggregate.
-  "loom.exists-unsupported": `
-system S {
-  subdomain M { context C {
-    aggregate Doc with crudish { title: string  filter exists Doc as d where d.title == this.title }
-  } }
-}`,
+  "loom.angular-deployable-missing-ui": spaMissingUi("angular"),
   // An event reactor calls an api whose server requires auth: it has no
   // caller credential to forward.
   "loom.api-call-principal-unsupported": `
@@ -800,65 +623,1117 @@ system S {
   deployable netSvc { platform: python contexts: [Orgs] dataSources: [orgState] serves: NetApi auth: required port: 3000 }
   deployable shopSvc { platform: node contexts: [Sales] dataSources: [saleState, orgs] serves: ShopApi auth: required port: 3001 }
 }`,
-  // The removed hierarchical surface (D-TENANCY-FLAT): each gets a named error
-  // with its replacement.
-  "loom.policy-level-removed": `
-system Flat {
-  user { id: guid  tenantId: string }
-  tenancy by user.tenantId of Org
-  subdomain Core { context Books {
-    aggregate Account with tenantOwned, crudish {
-      label: string
-      note: string?
-      
+  "loom.api-unknown-subdomain": systemScope("  api Ghost from Nowhere"),
+  // A second api the base's only backend never lists in `serves:` (#29).
+  "loom.api-unserved": topology("api OrphanApi from D"),
+
+  // An applier body is a pure fold; a CALL statement in one is the impurity.
+  // (Raises several event-sourcing codes together — the assertion is
+  // containment, so a fixture may legitimately trip more than its own.)
+  "loom.applier-impure-call": repoOnly(`    event Opened { account: Account id }
+    aggregate Account persistedAs: eventLog {
+      owner: string
+      operation touch() { owner := "x" }
+      create open(owner: string) { emit Opened { account: id } }
+      apply(e: Opened) { touch() }
     }
-    aggregate Org with crudish { name: string }
-    repository Accounts for Account { }
-    repository Orgs for Org { }
-    policy { allow deep on Account }
+    repository Accounts for Account`),
+  // An `emit` in a CONTEXT integration test: no backend's integration-test
+  // renderer has an arm for it, and before #3133 every one crashed generate.
+  // A `return` in an applier: a fold yields nothing, and the Phoenix fold
+  // renderer has no arm for it (it crashed generate before the gate).
+  "loom.applier-stmt-invalid": `
+system Ledger {
+  subdomain Core { context Accounts {
+    event Opened { account: Account id, owner: string }
+    aggregate Account persistedAs: eventLog {
+      owner: string
+      create open(owner: string) { emit Opened { account: id, owner: owner } }
+      apply(e: Opened) {
+        owner := e.owner
+        return owner
+      }
+    }
+    repository Accounts for Account
+  } }
+}`,
+  "loom.assign-through-local-unsupported": orderOps(
+    'operation p() { let t = tag\n t.label := "x" }',
+  ),
+  "loom.assign-to-derived": orderOps('operation p() { label := "x" }'),
+  "loom.assign-to-local": orderOps("operation p(n: int) { n := 2 }"),
+  "loom.assign-type-mismatch": orderOps("operation p() { name := 1 }"),
+
+  // The TARGET-AGNOSTIC `match await` subject gate (audit F66).  The fixture is
+  // deliberately a REACT deployable: the whole point of the promotion is that
+  // this model used to report `0 error(s), 0 warning(s)` there and emit
+  // `await Promise.reject(new Error("no remote op for variant-match"))`, while
+  // the identical model was refused on Feliz.  A plain `string` state field is
+  // the subject — no frontend can resolve it to an aggregate instance op.
+  "loom.async-effect-subject-unsupported": `
+system S {
+  subdomain Sub { context C {
+    aggregate Order { code: string  operation place() { code := "x" } }
+    repository Orders for Order
+  } }
+  api Api from Sub
+  ui WebApp {
+    api C: Api
+    page OrderDetail {
+      route: "/orders/:id"
+      state { message: string = "" }
+      action submit() {
+        match await message {
+          Order o => { message := o.code }
+        }
+      }
+      body: Stack { Button { "Place", onClick: submit } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  "loom.audited-backend-unsupported": repoOnly(`    aggregate Order with crudish {
+      code: string
+      operation dispatch() audited { code := "x" }
+    }`),
+  "loom.audited-no-command": aggShape("audited", "      name: string"),
+
+  // 22 uncoded sites: the three "modifier on a private operation" warnings,
+  // the guard type checks, the assignment / collection-mutation ladder, the
+  // `emit` field checks and the l-value / call resolution chain.  All of them
+  // shared one `loom.unknown` on the wire.  `orderOps(...)` puts the defect in
+  // one aggregate body, which is where every one of them lives.
+  "loom.audited-private-operation": orderOps(
+    "private operation quiet() audited { total := total + 1 }",
+  ),
+
+  // `auth: required` + a `user { … }` block with no `auth { oidc }`: the
+  // generated verifier is the dev stub (on only under LOOM_DEV_AUTH=1, header-
+  // forgeable) — a development login, which the warning says.
+  "loom.auth-dev-login-only": `
+system S {
+  user { id: string  role: string }
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing
   } }
   storage pg { type: postgres }
-  resource b { for: Books, kind: state, use: pg }
-  deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 auth: required }
 }`,
-  "loom.tenancy-principal-member-removed": `
-system Flat {
-  user { id: guid  tenantId: string }
+
+  // An `oidc { … }` block with no `audience:` — the verifier then validates
+  // signature / iss / exp and accepts ANY token that issuer minted, for any of
+  // its clients.  Warning, not error: single-client deployments are legitimate
+  // and every backend can still be switched on with OIDC_AUDIENCE at deploy
+  // time.  What was not legitimate is the silence (CR1-b / P0-4).
+  "loom.auth-oidc-no-audience": `
+system S {
+  user { id: string }
+  auth { oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+  } }
+}`,
+  "loom.bare-statement-invalid": orderOps("operation p() { name }"),
+  // V8 — a `Button { icon: }` name the builtin registry lacks.
+  "loom.button-icon-unknown": uiPage(`Button { "Delete", icon: "trash" }`),
+  // Two processes, two maps: a write in one evicts nothing in the other.
+  "loom.cache-in-memory-shared": `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { label: string }
+  } }
+  api A from D
+  storage primary { type: postgres }
+  storage hot { type: inMemory }
+  resource cState { for: C, kind: state, use: primary }
+  resource cCache { for: C, kind: cache, use: hot }
+  deployable api { platform: node, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3000 }
+  deployable api2 { platform: java, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3001 }
+}
+`,
+  // An \`exists\` row rule makes the read depend on another row, so the cache
+  // resource leaves the aggregate's by-id read to the database.
+  "loom.cache-read-uncached": `
+system S {
+  user { id: string  tenantId: string }
   tenancy by user.tenantId of Org
-  subdomain Core { context Books {
-    aggregate Account with tenantOwned, crudish {
-      label: string
-      note: string?
-      operation m() { note := currentUser.orgPath }
-    }
+  subdomain D { context C {
     aggregate Org with crudish { name: string }
-    repository Accounts for Account { }
-    repository Orgs for Org { }
-    
+    aggregate Share with tenantOwned, crudish { grantee: string }
+    aggregate Doc with tenantOwned, crudish { title: string }
+    policy {
+      allow on Doc as d where exists Share as s where s.grantee == currentUser.tenantId
+    }
+  } }
+  api A from D
+  storage primary { type: postgres }
+  storage hot { type: inMemory }
+  resource cState { for: C, kind: state, use: primary }
+  resource cCache { for: C, kind: cache, use: hot }
+  deployable api { platform: node, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3000, auth: required }
+}
+`,
+  // A worker hosts the cached context on the same database but does not list
+  // the cache: its writes would leave the api's cached answers stale.
+  "loom.cache-writer-not-evicting": `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { label: string }
+  } }
+  api A from D
+  storage primary { type: postgres }
+  storage hot { type: redis }
+  resource cState { for: C, kind: state, use: primary }
+  resource cCache { for: C, kind: cache, use: hot }
+  deployable api { platform: node, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3000 }
+  deployable worker { platform: python, contexts: [C], dataSources: [cState], port: 3001 }
+}
+`,
+  // `toBeCached()` needs a by-id api read of an aggregate the target caches;
+  // this deployable wires no cache resource.
+  "loom.cached-subject-invalid": `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { label: string }
+    repository Things for Thing
+  } }
+  api A from D
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], serves: A, port: 3000 }
+  test e2e "read" against api {
+    let t = api.things.create({ label: "x" })
+    expect(api.things.getById(t)).toBeCached()
+  }
+}
+`,
+
+  // M-T5.21 — `audited` on a `domainService` operation.  Before the callable
+  // fragments landed this was a bare parse error ("expecting '{' but found
+  // 'audited'"); the grammar now accepts the whole modifier surface at every
+  // callable site and `CALLABLE_SITES` refuses it WITH the reason.
+  "loom.callable-modifier-not-allowed-here": `
+system P {
+  subdomain S { context C {
+    domainService Pricing {
+      operation quote(base: int) audited : int { return base }
+    }
+    aggregate Thing { name: string }
+    repository Things for Thing
+  } }
+}`,
+  "loom.capability-host-invalid": uiWith("auditable"),
+  // An OPTIONAL reference collection: the schema has no optional form of a
+  // join-table set, and JPA crashed demanding an association for it.
+  "loom.collection-field-unpersisted": `
+system OptRefColl {
+  subdomain S { context C {
+    aggregate Tag with crudish { label: string }
+    aggregate Order with crudish {
+      code: string
+      tags: Tag id[]?
+    }
+  } }
+}`,
+  "loom.collection-mutation-element-type": orderOps("operation p() { tags += 1 }"),
+  "loom.collection-mutation-non-collection": orderOps('operation p() { name += "x" }'),
+
+  // A criterion that shadows an enum case of the same name, so `status == Open`
+  // compares the enum against the criterion's BOOLEAN.  The hint half of
+  // `loom.compare-type-mismatch` (finding F13) — the bare mismatch text is the
+  // same code without a shadow in scope.
+  "loom.compare-type-mismatch": repoOnly(`    enum Status { Open, Done }
+    aggregate Task with crudish {
+      title: string
+      status: Status
+      operation finish() {
+        precondition status == Open
+        status := Done
+      }
+    }
+    criterion Open() of Task = this.status != Done
+    repository Tasks for Task`),
+
+  // An EXTERN user component invoked with CHILDREN on an Angular-hosted ui.
+  // An extern component's `@Component({ selector })` is the author's, so Loom
+  // has no tag to spell and the call site is `<ng-container
+  // [ngComponentOutlet]=…>` — which cannot project content from a template, so
+  // the extra positional argument is dropped and the child markup appears
+  // nowhere in the emitted project.  The declaration must be `extern` (wave C2
+  // packet 2h, D-ANGULAR-EXTERN-CHILDREN): a WALKED component is addressed by
+  // the selector Loom stamped on it and projects its children correctly, so it
+  // no longer raises this.
+  "loom.component-children-unsupported": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+  } }
+  api Api from D
+  ui WebApp {
+    api C: Api
+    component Panel(label: string) extern from "widgets/panel"
+    page Home { route: "/" body: Stack { Panel("a", Text { "child" }) } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable app { platform: angular targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+
+  // A `component` whose NAME is a walker primitive.  The page-body dispatcher
+  // resolves a call by name, primitives first, so the component is emitted to
+  // `src/components/<Name>.tsx` and the PACK's primitive renders at the call
+  // site — the author's body appears nowhere, at `0 error(s), 0 warning(s)`.
+  // The `extern function` twin (`loom.extern-function-shadows-stdlib`) has
+  // always been refused; this arm was missing.  See D-PAGE-PRIMITIVE-SHADOW.
+  "loom.component-shadows-stdlib": uiPages(
+    "",
+    `    component Alert(msg: string) { body: Heading { msg, level: 3 } }
+    page Home {
+      route: "/"
+      body: Stack { Heading { "Home", level: 1 }, Alert("hi") }
+    }`,
+  ),
+  // `toContain` has exactly two lowerings, picked by the subject's type
+  // (collection membership / string substring).  An ENUM subject is neither,
+  // so it has no lowering and is refused at the IR, where the resolved type is
+  // available.
+  "loom.contain-receiver-invalid": throwKindProbe({
+    unitBody: `          expect(wo.status).toContain("Draft")`,
+  }),
+
+  // Two entity parts that contain each other.  `contains` is ownership, so the
+  // graph must be a tree; the cycle used to parse clean and then blow the JS
+  // stack inside the TypeScript repository emitter's `nestedContainLoads`.
+  // This census keys by bare code, so `loom.containment-cycle` gets ONE fixture.
+  // Two arrived at once — a direct self-cycle and this INDIRECT one (X -> Y -> X).
+  // The indirect chain is kept because it is the harder case: an implementation
+  // that walks only one level catches the direct cycle and misses this.  The
+  // direct case keeps its own coverage in `test/ir/containment-cycle.test.ts`
+  // ("direct self-containment raises loom.containment-cycle").
+  "loom.containment-cycle": repoOnly(`    aggregate A {
+      n: string
+      contains xs: X[]
+      derived display: string = n
+      entity X { contains ys: Y[] }
+      entity Y { contains zs: X[] }
+    }
+    repository As for A`),
+  "loom.containment-optional-collection": aggShape(
+    "",
+    "      entity Part { n: int }\n      contains parts: Part[]?",
+  ),
+  "loom.convert-aggregate-no-display": orderTypes("derived self: string = string(this)"),
+  "loom.convert-non-primitive": orderTypes("derived bad: string = string(tag)"),
+  "loom.convert-pair-invalid": orderTypes("derived bad: decimal = decimal(name)"),
+  // A factory call with more positions than the create input has.
+  "loom.create-args": repoOnly(`    aggregate Order with crudish { name: string }
+    repository Orders for Order
+    workflow W {
+      create(n: string) {
+        let o = Order.create(n, n)
+      }
+    }`),
+
+  // A create call site that omits a REQUIRED create-input field.  The factory
+  // input is the field-derived contract, so the emitted `.test.ts` fails the
+  // generated project's own tsc (TS2345, "Property 'binCode' is missing").
+  "loom.create-call-missing-field": repoOnly(`    aggregate Part {
+      sku: string
+      binCode: string
+      onHand: int
+      derived display: string = sku
+      test "part is built" {
+        let p = Part.create(sku: "a", onHand: 1)
+        expect(p.display).toBe("a")
+      }
+    }
+    repository Parts for Part`),
+
+  // An invariant over a CONTAINED collection cannot be satisfied from the create
+  // input, so the aggregate is not constructible and every backend emits no
+  // `static create(...)` — while the unit-test emitter kept emitting the call.
+  "loom.create-call-not-constructible": repoOnly(`    aggregate Order {
+      currency: string
+      contains lines: Line[]
+      derived display: string = currency
+      invariant lines.all(l => l.currency == currency)
+      entity Line { currency: string }
+      test "an order can be built" {
+        let o = Order.create(currency: "EUR")
+        expect(o.display).toBe("EUR")
+      }
+    }
+    repository Orders for Order`),
+  // `CreateForm { of: … }` over an aggregate that serves no create: `Note`
+  // declares no `create` and is not `with crudish`, so no target emits the
+  // create route, hook or context function the form would call.
+  "loom.create-form-no-create": `
+system S {
+  subdomain Sub { context C {
+    aggregate Note { text: string }
+    repository Notes for Note
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page A { route: "/a"  body: Stack { CreateForm { of: Note } } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  // A declared `create(…)` is the create input, so a param must BE a
+  // client-suppliable field — `n` names none.
+  "loom.create-param-not-a-field": `
+system P {
+  subdomain S { context C {
+    aggregate Thing {
+      name: string?
+      create(n: string) { }
+    }
+    repository Things for Thing
+  } }
+}`,
+  // A narrowed `create(…)` leaves out a required, undefaulted field — nothing
+  // would give `secret` a value at creation.
+  "loom.create-param-required-omitted": `
+system P {
+  subdomain S { context C {
+    aggregate Thing {
+      name: string
+      secret: string
+      create(name: string) { }
+    }
+    repository Things for Thing
+  } }
+}`,
+  // An aggregate factory call in the retired record form.
+  "loom.create-record-form": repoOnly(`    aggregate Order with crudish { name: string }
+    repository Orders for Order { }
+    workflow W {
+      create(n: string) {
+        // codemod-create-record-to-call: keep
+        let o = Order.create({ name: n })
+      }
+    }`),
+
+  "loom.criterion-retrieval-name-clash": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    criterion Named(n: string) of Thing = this.name == n
+    retrieval Named(n: string) of Thing { where: this.name == n  sort: [name asc] }`),
+  // A workflow fold constructing an entity part of an aggregate: nothing
+  // outside the owning aggregate can hold one (the IR arm; the AST arm — a part
+  // TYPE named outside its aggregate — never links, see `ddd-scope.ts`).
+  "loom.cross-aggregate-entity-part": `
+system WFN {
+  subdomain F { context F {
+    aggregate Order {
+      create(status: string) { }
+      status: string
+      entity Line { sku: string }
+      lines: Line[]
+    }
+    repository Orders for Order
+    event Started { order: Order id }
+    event Added { order: Order id, sku: string }
+    workflow Track eventSourced {
+      orderId: Order id
+      last: string
+      create(p: Started) by p.order { emit Added { order: p.order, sku: "x" } }
+      apply(a: Added) {
+        let l = Line { sku: a.sku }
+        last := a.sku
+      }
+    }
+  } }
+}`,
+  "loom.crudish-hard-delete": `
+system HardDelete {
+  subdomain Core { context Ledger {
+    aggregate Account with softDeletable, crudish { number: string }
+    repository Accounts for Account
+  } }
+  api LedgerApi from Core
+  storage pg { type: postgres }
+  resource st { for: Ledger, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Ledger], dataSources: [st], serves: LedgerApi, port: 3000 }
+}`,
+  "loom.current-user-needs-auth-ui": `
+system S {
+  user { id: guid  role: string }
+  auth { oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+  } }
+  api Api from Sub
+  ui WebApp {
+    api C: Api
+    page Home { route: "/" body: Text { currentUser.role } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  "loom.dapper-shared-database": `
+system S {
+  subdomain D { context A { aggregate Keep with crudish { name: string } } }
+  storage primary { type: postgres }
+  resource aState { for: A, kind: state, use: primary }
+  deployable one { platform: dotnet, contexts: [A], dataSources: [aState], port: 3000 }
+  deployable two { platform: dotnet { persistence: dapper }, contexts: [A], dataSources: [aState], port: 3001 }
+}`,
+  "loom.datasource-context-unlisted": topology(
+    "deployable api2 { platform: node contexts: [Orders] dataSources: [st, other] port: 3002 }",
+    { secondContext: true },
+  ),
+  "loom.datasource-duplicate": topology(
+    "deployable api2 { platform: node contexts: [Orders] dataSources: [st, st2] port: 3002 }",
+    { duplicateResource: true },
+  ),
+
+  "loom.default-deny-by-id-ungated": `
+system S {
+  user { id: guid  role: string }
+  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain D { context Vault {
+    aggregate Secret { body: string  create() { requires currentUser.role == "admin" } }
+    repository Secrets for Secret
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Vault, kind: state, use: pg }
+  deployable api { platform: node contexts: [Vault] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+
+  // F-004: `denyByDefault` + `persistedAs: eventLog`.  An event-sourced create
+  // cannot carry an ENFORCEABLE gate — its body renders into the domain `_init`,
+  // which has no principal in scope, so `loom.target-unsupported#lifecycle-guard-event-sourced`
+  // refuses one outright.  Demanding a `requires` here was therefore an
+  // unsatisfiable error, and the two settings were mutually exclusive for any
+  // event-sourced aggregate with a creation endpoint: gate present → 1 error,
+  // gate absent → 1 error.  Now the honest warning, on the RECOURSE precedent
+  // the by-id arm above is built on.
+  "loom.default-deny-es-create-ungateable": `
+system S {
+  user { id: guid  role: string }
+  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain D { context Ledger {
+    event Opened { account: Account id, owner: string }
+    aggregate Account persistedAs: eventLog {
+      owner: string
+      create(owner: string) { emit Opened { account: id, owner: owner } }
+      apply(e: Opened) { owner := e.owner }
+    }
+    repository Accounts for Account
+    policy { read Account requires currentUser.role == "admin" }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Ledger, kind: state, use: pg }
+  resource el { for: Ledger, kind: eventLog, use: pg }
+  deployable api { platform: node contexts: [Ledger] dataSources: [st, el] serves: Api port: 3000 auth: required }
+}`,
+
+  // Eval item 22 / ruling D5: the list read served by the injected `find all`.
+  "loom.default-deny-list-ungated": `
+system S {
+  user { id: guid  role: string }
+  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain D { context Vault {
+    aggregate Secret { body: string  create() { requires currentUser.role == "admin" } }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Vault, kind: state, use: pg }
+  deployable api { platform: node contexts: [Vault] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+  "loom.derived-type-mismatch": orderTypes("derived bad: int = name"),
+  "loom.design-pack-custom-unchecked": topology(
+    'deployable web { platform: react targets: api ui: WebApp design: "./design/bespoke" port: 3001 }',
+    { ui: true },
+  ),
+  "loom.design-pack-format-mismatch": topology(
+    "deployable web { platform: react targets: api ui: WebApp design: coreComponents port: 3001 }",
+    { ui: true },
+  ),
+  "loom.design-pack-ignored": topology(
+    "deployable api2 { platform: node contexts: [Orders] dataSources: [st] design: mantine port: 3002 }",
+  ),
+  // Driven with the CLI's disk-backed pack reader (see FIXTURE_HOST_OPTIONS):
+  // the path names no directory, so the pack has no `pack.json`.
+  "loom.design-pack-invalid": topology(
+    'deployable web { platform: react targets: api ui: WebApp design: "./no-such-design-pack" port: 3001 }',
+    { ui: true },
+  ),
+  "loom.design-pack-retired": topology(
+    'deployable web { platform: react targets: api ui: WebApp design: "mantine@v7" port: 3001 }',
+    { ui: true },
+  ),
+  "loom.design-pack-version-unknown": topology(
+    'deployable web { platform: react targets: api ui: WebApp design: "mantine@v999" port: 3001 }',
+    { ui: true },
+  ),
+  "loom.design-theme-unknown": topology(
+    "deployable web { platform: feliz targets: api ui: WebApp design: mantine port: 3001 }",
+    { ui: true, uiFramework: "feliz" },
+  ),
+  // `DestroyForm { of: … }` whose `of:` is not an aggregate carrying a canonical
+  // destroy.  `Note` declares no `destroy { }` and is not `with crudish`, so the
+  // form has nothing to submit — five frontends drop it for a comment and Feliz
+  // dispatches a `Msg` case that does not exist.
+  "loom.destroy-form-of-unresolved": `
+system S {
+  subdomain Sub { context C {
+    aggregate Note { text: string }
+    repository Notes for Note
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page A(id: Note id) { route: "/a/:id"  body: Stack { DestroyForm { of: Note } } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  // A domainService's `reading` tier is scoped to its OWN context: a body
+  // naming another context's repository never lowers to a `repo-read`, so all
+  // five backends render the unresolved receiver verbatim.
+  "loom.domain-service-cross-context-read": `
+system S {
+  subdomain Sub {
+    context Billing {
+      aggregate Customer { name: string }
+      repository Customers for Customer
+      criterion CustomersByName(name: string) of Customer = this.name == name
+    }
+    context Ordering {
+      aggregate Order { ref: string }
+      repository Orders for Order
+      domainService Naming {
+        operation isFree(r: string): bool { return Customers.find(CustomersByName(r)) == null }
+      }
+    }
+  }
+}`,
+  // `shareable` with no `tenancy by … of <Registry>` to name grantee orgs by.
+  // A principal read inside a stateless domain service.
+  "loom.domain-service-no-principal": `
+system R {
+  user { id: string  permissions: string[] }
+  subdomain S {
+    context C {
+      domainService Calc {
+        operation f(x: int): int {
+          requires currentUser.permissions.contains("x")
+          return x + 1
+        }
+      }
+    }
+  }
+}`,
+
+  // A repository read used as a MEMBER RECEIVER never lowers to a `repo-read`
+  // (the detector wants the whole chain), so no read port is threaded in and
+  // every backend emits the bare repository name.
+  "loom.domain-service-read-unsupported":
+    repoOnly(`    aggregate Customer with crudish { tier: string  unique (tier) }
+    repository Customers for Customer
+    domainService Lookup {
+      operation tierOf(t: string): string { return Customers.getBy(tier: t).tier }
+    }`),
+  // Needs the DEPLOYMENT side, and specifically a JAVA one: the same field is
+  // legal on every other backend (`get case()` / `def case` / `field :case` /
+  // `@case`), so a declaration-only system — or a node one — raises nothing.
+  // F11: an operation whose C# method name hides the sibling entity part the
+  // same class body constructs (`Comment._Create(...)` -> CS0119).
+  "loom.dotnet-name-collision": `
+system P {
+  subdomain D { context Orders {
+    aggregate Order with crudish {
+      note: string
+      contains lines: Line[]
+      operation line(sku: string) { lines += Line { sku: sku } }
+      entity Line { sku: string }
+    }
+    repository Orders for Order
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: dotnet, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
+}`,
+  // Universal: a dunder field (Ecto's `__meta__`), on any backend.
+  "loom.dunder-field-name": repoOnly(`    aggregate Thing with crudish { __meta__: string }
+    repository Things for Thing`),
+  "loom.duplicate-api": systemScope("  api Api from D\n  api Api from D"),
+  "loom.duplicate-derived": aggShape(
+    "",
+    "      name: string\n      derived display: string = name\n      derived display: string = name",
+  ),
+  "loom.duplicate-entity-part": aggShape(
+    "",
+    "      entity Part { n: int }\n      entity Part { n: int }",
+  ),
+  "loom.duplicate-let": orderOps("operation p() { let n = 1\n let n = 2\n total := n }"),
+  // M-T9.19 recorded FOUR of this file's codes as unemittable from source.
+  // Driving each one instead of re-reading the note found that claim wrong for
+  // `loom.workflow-name-collision`: its stated preemption ("by
+  // `loom.duplicate-workflow`") does not hold, because the two gates test
+  // different things — `duplicate-workflow` fires on a REPEATED workflow name,
+  // `workflow-name-collision` on a clash with an aggregate / value object /
+  // enum / event / repository, and a workflow named after an aggregate trips
+  // only the second.  The other three are confirmed preempted and pinned below.
+  "loom.duplicate-repository": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    repository Stuff for Thing`),
+  "loom.duplicate-resource": systemScope(
+    "  storage pg { type: postgres }\n" +
+      "  resource st { for: C, kind: state, use: pg }\n" +
+      "  resource st { for: C, kind: state, use: pg }",
+  ),
+  "loom.duplicate-storage": systemScope(
+    "  storage pg { type: postgres }\n  storage pg { type: postgres }",
+  ),
+  // Both `#slug`s of the theme rule: `composition.ts` counts across composing
+  // FILES, this arm counts inside one `system` block.  One source drives both.
+  "loom.duplicate-theme-block": systemScope(
+    '  theme { primary: "#3b82f6" }\n  theme { neutral: "#64748b" }',
+  ),
+  // The five system-scope declaration rules live on one `systemScope(...)`
+  // base; the aggregate-shape rules and the one forwarding helper live on
+  // `aggShape(...)`.
+  "loom.duplicate-ui": systemScope(
+    '  ui WebApp { framework: react  page H { route: "/" body: Stack { Text { "x" } } } }\n' +
+      '  ui WebApp { framework: react  page H2 { route: "/2" body: Stack { Text { "x" } } } }',
+  ),
+  "loom.duplicate-workflow": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    workflow Dup { create(n: string) { precondition n.length > 0 } }
+    workflow Dup { create(n: string) { precondition n.length > 0 } }`),
+
+  "loom.e2e-body-type-mismatch": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string  qty: int }
   } }
   storage pg { type: postgres }
-  resource b { for: Books, kind: state, use: pg }
-  deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4103 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1", qty: "not-a-number" })
+  }
 }`,
-  "loom.tenancy-data-key-removed": `
-system Flat {
-  user { id: guid  tenantId: string }
-  tenancy by user.tenantId of Org
-  subdomain Core { context Books {
-    aggregate Account with tenantOwned, crudish {
-      label: string
-      note: string?
-      operation m() { dataKey := "x" }
-    }
-    aggregate Org with crudish { name: string }
-    repository Accounts for Account { }
-    repository Orgs for Org { }
-    
+
+  // An e2e operation call's optional THIRD argument in a shape the renderer
+  // does not read — it used to be dropped silently, so a test that MEANT to
+  // send a stale `If-Match` sent none (M-T6.91).  `{ version: 1 }` is the
+  // natural misspelling of `{ ifMatch: 1 }`.
+  "loom.e2e-call-options": `
+system S {
+  subdomain D { context C {
+    aggregate Note with versioned, crudish { text: string }
+    repository Notes for Note
   } }
   storage pg { type: postgres }
-  resource b { for: Books, kind: state, use: pg }
-  deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4100 }
+  test e2e "t" against d {
+    let n = api.notes.create({ text: "a" })
+    api.notes.update(n, { text: "b" }, { version: 1 })
+  }
 }`,
+
+  "loom.e2e-missing-required-field": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string  qty: int }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4102 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1" })
+  }
+}`,
+  "loom.e2e-principal-claim-not-carried": principalSys({
+    e2e: `  test e2e "e" against d as { nick: "bob" } { let n = api.notes.create({ text: "a" }) }`,
+  }),
+  "loom.e2e-principal-oidc": principalSys({
+    extra: `  auth { oidc { issuer: "https://idp.example.com/realms/x"  clientId: "web" } }`,
+    e2e: `  test e2e "e" against d as { role: "agent" } { let n = api.notes.create({ text: "a" }) }`,
+  }),
+  "loom.e2e-principal-ui": principalSys({
+    extra: `  ui WebApp {
+    api Core: A
+    page Home { route: "/"  body: Stack { } }
+  }`,
+    e2e: `  deployable web { platform: static targets: d ui: WebApp { Core: d } port: 3001 }
+  test e2e "e" against web as { role: "agent" } { expect(1).toBe(1) }`,
+  }),
+
+  "loom.e2e-projection-read-arity": `
+system S {
+  subdomain D { context C {
+    event Placed { orderId: Widget id  qty: int }
+    aggregate Widget with crudish { code: string }
+    projection Board keyed by orderId {
+      orderId: Widget id
+      total: int
+      on(e: Placed) { total := total + e.qty }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4104 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1" })
+    let bs = api.board.list(w)
+  }
+}`,
+
+  // An explicit `route … -> <Ctx>.<Handler>` binding called with the WRONG
+  // ARGUMENT COUNT.  `Sum` declares two params and the body passes one — and
+  // because a routed handler's arguments bind POSITIONALLY, the miscount does
+  // not merely drop the last one: it shifts every later argument into the
+  // wrong slot and renders a literal `undefined` into a URL segment.
+  "loom.e2e-routed-handler-arity": `
+system S {
+  subdomain D { context Sales {
+    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    queryHandler Sum(a: int, b: int): int { return a + b }
+  } }
+  api A from D { route GET "/sum/{a}/{b}" -> Sales.Sum }
+  storage pg { type: postgres }
+  resource st { for: Sales, kind: state, use: pg }
+  deployable d {
+    platform: node, contexts: [Sales], dataSources: [st], serves: A, port: 4104
+  }
+  test e2e "t" against d {
+    expect(api.sales.sum(2)).toBe(5)
+  }
+}`,
+  //
+  // Each fixture is minimal and ISOLATING — it raises its own code and no
+  // sibling from the packet, so a future regression names one gate.  All four
+  // share the audit's probe shape: ONE operation carrying BOTH rungs, a
+  // `precondition` and a guarded collection `invariant`, so that deleting the
+  // precondition leaves the invariant to throw in its place.  That substitution
+  // is what `toThrow()` could not see and what the kind form exists to name.
+  "loom.e2e-throw-kind-invalid": throwKindProbe({
+    e2eTest: `    expect(api.workOrders.complete(wo, { })).toThrow(precondition)`,
+  }),
+  // Third tier, third reason (cf. `loom.e2e-ui-throw-invalid` just above): a ui
+  // body asserts against RENDERED TEXT, which is always a string \u2014 so neither
+  // absence spelling is observable there.  Needs a full react-targeting system,
+  // because the diagnostic reads the target deployable's platform.
+  "loom.e2e-ui-absence-invalid": `
+system S {
+  subdomain D { context C {
+    aggregate Technician with crudish {
+      name: string
+      derived display: string = name
+    }
+    repository Technicians for Technician
+  } }
+
+  ui WebApp with scaffold(subdomains: [D]) { }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+
+  deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
+  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+
+  test e2e "a ui body cannot assert an absence" against webApp {
+    let t = ui.technicians.create({ name: "Grace" })
+    let read = ui.technicians.getById(t)
+    expect(read.name).toBeNull()
+  }
+}`,
+  // `toThrow` in a block whose target is a FRONTEND deployable — it lowers to
+  // the Playwright renderer, where there is no HTTP response to pin a status
+  // on.  Needs a full system (the diagnostic reads the target deployable's
+  // platform), so it cannot use `repoOnly`.
+  "loom.e2e-ui-throw-invalid": `
+system S {
+  subdomain D { context C {
+    aggregate Technician with crudish {
+      name: string
+      invariant name.length > 0
+      derived display: string = name
+    }
+    repository Technicians for Technician
+  } }
+
+  ui WebApp with scaffold(subdomains: [D]) { }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+
+  deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
+  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+
+  test e2e "a ui body cannot pin a status" against webApp {
+    expect(ui.technicians.create({ name: "" })).toThrow(422)
+  }
+}`,
+
+  "loom.e2e-unaddressable-call": `
+system S {
+  subdomain D { context C {
+    aggregate Order with crudish { code: string }
+  } }
+  api A from D { }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], serves: A, port: 4000 }
+  test e2e "t" against d {
+    let summed = api.sum({ a: 1, b: 2 })
+    expect(summed).toBe(3)
+  }
+}`,
+
+  // The PAYLOAD half of the same file (F4).  Each body drives a verb that DOES
+  // route — `Widget with crudish` — so the only defect left is the one under
+  // test, and the diagnostic cannot be the routing one wearing a new code.
+  "loom.e2e-unknown-body-key": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4101 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ kode: "W-1" })
+  }
+}`,
+
+  "loom.e2e-unknown-query-key": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4104 }
+  test e2e "t" against d {
+    let ws = api.widgets.all({ pgae: 2 })
+  }
+}`,
+
+  "loom.e2e-unknown-response-field": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4104 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1" })
+    let g = api.widgets.getById(w)
+    expect(g.nonesuch).toBe("x")
+  }
+}`,
+
+  // The one-level `api.<name>(…)` call shape in a `test e2e` body.  Every call
+  // the harness can address is TWO-level (`api.<slug>.<method>(…)`), so this
+  // resolves to nothing — and before the refusal it was rendered against a bare
+  // `api` identifier the emitted file never binds.  `sum` on purpose: it
+  // collides with the collection intrinsic, which is the arm that MIS-COMPILED
+  // (to a `.reduce(…)` fold) rather than merely failing at run time.
+  // An e2e body calling a verb whose ROUTE this same compilation does not emit:
+  // `Product` declares no `create` (no `crudish`), so no backend mounts
+  // `POST /api/products` — and the emitted suite would POST there anyway.
+  "loom.e2e-unrouted-verb": `
+system S {
+  subdomain D { context C {
+    aggregate Product { sku: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4100 }
+  test e2e "t" against d {
+    let p = api.products.create({ sku: "W-1" })
+    expect(p.sku).toBe("W-1")
+  }
+}`,
+
+  // A `let`-bound mutating domain-service call in a workflow an elixir
+  // deployable emits.
+  "loom.elixir-bound-mutating-call-unsupported": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish {
+      code: string
+      operation touch() { code := "t" }
+    }
+    repository Orders for Order
+    domainService Touch {
+      operation run(o: Order): int {
+        o.touch()
+        return 1
+      }
+    }
+    workflow W {
+      create(oid: Order id) {
+        let o = Orders.get(oid)
+        let n = Touch.run(o)
+      }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
+}`,
+  // F-009: under the RECOMMENDED `denyByDefault`, the synthesised
+  // `GET /api/secrets/{id}` carries no gate on any backend and nothing said
+  // so — the admin-only `find all` next to it is no protection at all.
+  // #3023: an invariant the Ecto changeset carrier can enforce on NEITHER path
+  // used to fall through both in silence — enforced at the domain floor on
+  // node/.NET/python/java and nowhere on elixir, at `0 error(s), 0 warning(s)`.
+  // `members` is a REFERENCE collection, whose join rows the repository writes
+  // after the changeset runs: the changeset would read `[]` and the rule would
+  // pass for every input, so it is reported rather than emitted as a check that
+  // cannot fail.
+  "loom.elixir-invariant-unenforced": `
+system S {
+  subdomain Shop { context Shop {
+    aggregate Order {
+      label: string
+      members: Member id[]
+      invariant members.count <= 6
+    }
+    aggregate Member { nick: string }
+    repository Orders for Order
+    repository Members for Member
+  } }
+  storage pg { type: postgres }
+  resource st { for: Shop, kind: state, use: pg }
+  deployable api { platform: elixir contexts: [Shop] dataSources: [st] port: 4000 }
+}`,
+
+  // A guard inside a statement-`match` arm of an operation an elixir
+  // deployable hosts: the statement renders on Phoenix, but a nested guard
+  // could not be hoisted into the op's `with :ok <- ensure(…)` chain.
+  "loom.elixir-match-stmt-unsupported": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish {
+      code: string
+      operation annotate(n: string?) {
+        match n {
+          string s => { precondition s.length > 0  code := s }
+          else => { code := "none" }
+        }
+      }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
+}`,
+  "loom.emit-field-missing": orderOps("operation p() { emit Bumped { by: 1 } }"),
+  "loom.emit-field-type": orderOps('operation p() { emit Bumped { by: "no", note: "n" } }'),
+  // The code whose "covered by message in validation.test.ts" claim outlived
+  // the file it cited (M-T9.33's own opening finding).  It fires: an `emit`
+  // supplying a field the event does not declare.
+  // The AST-phase (④) twin of `loom.workflow-emit-unknown-field`, and the one
+  // site M-T9.56's gate half drained as its proof that the drain path works.
+  // Deliberately an AGGREGATE emit, not a workflow one: the IR check below only
+  // walks workflow bodies, so this shape is the half of the condition that used
+  // to reach the user as `loom.unknown` with nothing else raised beside it.
+  "loom.emit-unknown-field": repoOnly(`    event Opened { account: Account id, owner: string }
+    aggregate Account persistedAs: eventLog {
+      owner: string
+      create open(owner: string) { emit Opened { account: id, owner: owner, bogus: owner } }
+      apply(e: Opened) { owner := e.owner }
+    }
+    repository Accounts for Account`),
+  // Each fixture is minimal and ISOLATING — it raises its own code and no
+  // sibling from the packet, so a future regression names one gate.
+  // An entity-part-typed parameter on a PUBLIC operation.  The value-object
+  // spelling of the very same model is the passing sibling (it emits
+  // `z.array(LineSchema)` + `new Line(e.sku, e.qty)`), pinned in
+  // test/ir/entity-part-param.test.ts.
+  "loom.entity-part-param-unsupported": `
+system S {
+  subdomain D { context Ops {
+    aggregate Order {
+      ref: string
+      lines: Line[]
+      entity Line { sku: string  qty: int }
+      operation replaceLines(newLines: Line[]) { lines := newLines }
+    }
+    repository Orders for Order
+  } }
+}`,
+  // `T option` is the deprecated spelling of `T?`.
+  "loom.envelope-removed": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    queryHandler One(id: Order id): Order envelope {
+      let o = Orders.get(id)
+      return o
+    }`),
+
+  // These three read as "your backend can't do this", and the census read them
+  // as undrivable because every backend family IS in their capability set.
+  // But each carries a second arm their siblings don't: `!anyBackend` — no
+  // db-owning deployable hosts the context at all — and that arm is one
+  // deployable-less system away.  It is the arm that matters, too: it is what
+  // stops an event-sourced / provenanced / audited declaration from being
+  // written, parsed, and then hosted by nothing that could honour it.
+  "loom.event-sourcing-backend-unsupported":
+    repoOnly(`    event Opened { account: Account id, owner: string }
+    aggregate Account persistedAs: eventLog {
+      owner: string
+      create open(owner: string) { emit Opened { account: id, owner: owner } }
+      apply(e: Opened) { owner := e.owner }
+    }
+    repository Accounts for Account`),
+  // An `exists` over another context's aggregate: a different database.
+  "loom.exists-cross-context": `
+system S {
+  subdomain M {
+    context C { aggregate Doc with crudish { title: string  filter exists Tag as t where t.label == this.title } }
+    context D { aggregate Tag with crudish { label: string } }
+  }
+}`,
+  // An `exists` in an operation guard: not a position compiled into a query.
+  "loom.exists-outside-query": `
+system S {
+  subdomain M { context C {
+    aggregate Tag with crudish { label: string }
+    aggregate Doc with crudish {
+      title: string
+      operation touch() { precondition exists Tag as t where t.label == this.title  title := "x" }
+    }
+  } }
+}`,
+  // An `exists` over the filtered row's own aggregate.
+  "loom.exists-unsupported": `
+system S {
+  subdomain M { context C {
+    aggregate Doc with crudish { title: string  filter exists Doc as d where d.title == this.title }
+  } }
+}`,
+  "loom.expect-requires-matcher": matcherTest('expect("x")'),
+  // The two SELF-HOSTING frontends (own build toolchain, not the static-bundle
+  // pipeline) were missing from the rule entirely: feliz crashed codegen with a
+  // raw `Error`, flutter emitted a placeholder app at exit 0.
+  "loom.feliz-deployable-missing-ui": spaMissingUi("feliz"),
   // A masked value emitted on an event a channel publishes: every subscriber
   // would receive it in the clear.
   "loom.field-mask-event-channel": `
@@ -897,19 +1772,6 @@ system S {
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
 }`,
-  // A response record field must name a readable member of its aggregate.
-  "loom.payload-response-field": `
-system S {
-  user { id: string  role: string }
-  subdomain M { context C {
-    aggregate P with crudish { name: string }
-    repository Ps for P
-    response PResponse { name: string  nickname: string }
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
-}`,
   // A payload field has no serializer of its own: masks come from the aggregate.
   "loom.field-mask-on-payload": `
 system S {
@@ -936,6 +1798,11 @@ system S {
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
 }`,
+  "loom.field-mask-principal-without-auth": deployed(`      aggregate Order {
+        code: string
+        total: decimal mask unless currentUser.role == "admin"
+        create(code: string, total: decimal) { code := code  total := total }
+      }`),
   // A unique key over a masked field with an ungated create: a 409 answers
   // whether a guessed hidden value exists.
   "loom.field-mask-unique-oracle": `
@@ -952,359 +1819,283 @@ system S {
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
 }`,
-  // A store field's default is evaluated when the store is created, so on the
-  // JS-family store renderer it must be a constant: a call is refused.
-  "loom.store-init-not-constant": `
+  // A FOURTH of the same shape, found by reading `validateFieldMask` for the
+  // `anyBackend` arm rather than trusting `FIELD_MASK_BACKENDS` (which does
+  // list all five families).  `mask unless` on a context nothing hosts is the
+  // drivable case, so this belongs here and not in the pins beside its
+  // set-shaped siblings — the distinction the pin block warns about, caught in
+  // the act.  The gate needs a `user {}` block for `currentUser` to resolve.
+  "loom.field-mask-unsupported": `
 system S {
-  subdomain Catalog { context Stock {
-    aggregate Item with crudish { sku: string }
-    repository Items for Item
-  } }
-  api StockApi from Catalog
-  storage pg { type: postgres }
-  resource st { for: Stock, kind: state, use: pg }
-  deployable api { platform: node contexts: [Stock] dataSources: [st] serves: StockApi port: 8080 }
-  ui WebApp {
-    api Catalog: StockApi
-    store Prefs { state { stamp: string = now().toString() } }
-    page Browse { route: "/browse" body: Stack { Text { "x" } } }
-  }
-  deployable web { platform: static targets: api ui: WebApp { Catalog: api } port: 3001 }
-}`,
-  // Migration table steps (`Old -> New`, `A.Old -> B.New`), resolved on the
-  // merged IR: a context the model lacks, a target it lacks, a name two
-  // contexts declare, and a move between modules on different databases.
-  "loom.migration-step-unknown-context": `${systemScope("")}
-migration "m" { C.Thing -> Nowhere.Thing }`,
-  "loom.migration-enum-value-form": `
-enum Status { Open, Closed }
-${systemScope("")}
-migration "m" { Status.Draft = Open }`,
-  "loom.migration-enum-value-unknown": `
-enum Status { Open, Closed }
-${systemScope("")}
-migration "m" { Status.Draft -> Pending }`,
-  "loom.migration-step-target-missing": `${systemScope("")}
-migration "m" { Gone -> Missing }`,
-  "loom.migration-step-ambiguous": `
-system S {
-  subdomain D {
-    context A { aggregate Thing with crudish { name: string }  repository Things for Thing }
-    context B { aggregate Thing with crudish { name: string }  repository Things for Thing }
-  }
-}
-migration "m" { Old -> Thing }`,
-  "loom.dapper-shared-database": `
-system S {
-  subdomain D { context A { aggregate Keep with crudish { name: string } } }
-  storage primary { type: postgres }
-  resource aState { for: A, kind: state, use: primary }
-  deployable one { platform: dotnet, contexts: [A], dataSources: [aState], port: 3000 }
-  deployable two { platform: dotnet { persistence: dapper }, contexts: [A], dataSources: [aState], port: 3001 }
-}`,
-  "loom.mikroorm-shared-database": `
-system S {
-  subdomain D { context A { aggregate Keep with crudish { name: string } } }
-  storage primary { type: postgres }
-  resource aState { for: A, kind: state, use: primary }
-  deployable one { platform: node, contexts: [A], dataSources: [aState], port: 3000 }
-  deployable two { platform: node { persistence: mikroorm }, contexts: [A], dataSources: [aState], port: 3001 }
-}`,
-  "loom.migration-move-across-databases": `
-system S {
-  subdomain D1 { context A { aggregate Keep with crudish { name: string }  repository Keeps for Keep } }
-  subdomain D2 { context B { aggregate Note with crudish { name: string }  repository Notes for Note } }
-  deployable one { platform: node, contexts: [A], port: 3000 }
-  deployable two { platform: node, contexts: [B], port: 3001 }
-}
-migration "m" { A.Note -> B.Note }`,
-  // `label(…)` / `plural(…)` model text (i18n identity keys): a path naming no
-  // model element, a plural of a member, a call outside every page/component
-  // body, and a call spliced into a template.
-  "loom.model-text-unresolved": uiPage(`Text { label(Item.nope) }`),
-  // `Home` references `Status`, declared by neither it nor the system level but by
-  // both `Alpha` and `Beta`: the implicit form labels have no single owner.
-  "loom.model-text-implicit-ambiguous": `
-system S {
-  subdomain D {
-    context Alpha { aggregate Widget with crudish { n: int } enum Status { On, Off } }
-    context Beta { aggregate Gadget with crudish { n: int } enum Status { Up, Down } }
-    context Home { aggregate Hub with crudish { s: Status } }
-  }
-  ui WebApp with scaffold(subdomains: [D]) { }
-}`,
-  "loom.model-text-plural-member": uiPage(`Text { plural(Item.sku) }`),
-  "loom.model-text-outside-ui": repoOnly(`    aggregate Item with crudish {
-      sku: string
-      derived caption: string = label(Item)
-    }
-    repository Items for Item`),
-  "loom.model-text-in-template": uiPage("Text { `All {plural(Item)}` }"),
-  // Named rules: two rules of one aggregate sharing a name — an invariant and a
-  // field check, which share the aggregate's rule namespace — and the removed
-  // `message "…"` clause (an error that names the rule to write).
-  "loom.rule-name-duplicate": repoOnly(`    aggregate Item with crudish {
-      sku: string check skuRequired: sku.length > 0
-      invariant skuRequired: sku.length < 64
-    }
-    repository Items for Item`),
-  "loom.rule-message-removed": repoOnly(`    aggregate Item with crudish {
-      sku: string
-      invariant sku.length > 0 message "SKU is required"
-    }
-    repository Items for Item`),
-  // A construct its target's capability table refuses: `DataGrid` on Flutter
-  // (no JS runtime, so no TanStack row model).
-  "loom.target-unsupported": `
-system GridOnFlutter {
-  subdomain Sales { context Orders {
-    aggregate Customer with crudish { name: string }
-    repository Customers for Customer
-  } }
-  api SalesApi from Sales
-  storage pg { type: postgres }
-  resource st { for: Orders, kind: state, use: pg }
-  ui WebApp {
-    framework: flutter
-    api Sales: SalesApi
-    page X { route: "/x"  body: QueryView { of: Sales.Customer.all, data: rows => DataGrid(
-      Column("Name", o => o.name, sortable: true), rows: rows) } }
-  }
-  deployable api { platform: node, contexts: [Orders], dataSources: [st], serves: SalesApi, port: 3000 }
-  deployable web { platform: flutter, targets: api, port: 3001, ui: WebApp { Sales: api } }
-}`,
-  // An event-sourced workflow with only a command-triggered create and no
-  // id-shaped state field: its event stream has no key, so it is refused even
-  // though nothing consumes an event (the .NET / Java / Elixir ES emitters
-  // need the key's id class).
-  "loom.workflow-correlation-required": `
-system EsNoKey {
-  subdomain S { context C {
-    event Recorded { code: string, count: int }
-    workflow Tracker eventSourced {
-      code: string
-      archivedCount: int
-      create(c: string) { emit Recorded { code: c, count: 1 } }
-      apply(rec: Recorded) { archivedCount := archivedCount + rec.count }
-    }
-  } }
-}`,
-  // An OPTIONAL reference collection: the schema has no optional form of a
-  // join-table set, and JPA crashed demanding an association for it.
-  "loom.collection-field-unpersisted": `
-system OptRefColl {
-  subdomain S { context C {
-    aggregate Tag with crudish { label: string }
+  user { id: string  role: string }
+  subdomain Sub { context C {
     aggregate Order with crudish {
       code: string
-      tags: Tag id[]?
+      total: int mask unless currentUser.role == "admin"
     }
+    repository Orders for Order
   } }
 }`,
-  // A running total over an optional field with nothing to start from.
-  "loom.projection-accumulate-optional": `
-system AccumOptional {
-  subdomain S { context C {
-    aggregate Order with crudish { code: string }
-    event OrderPlaced { order: Order id, n: int }
-    projection Board keyed by order {
-      order: Order id
-      seen: int?
-      on(e: OrderPlaced) { seen += e.n }
+
+  // `navigate(…)` in a page action on a FLUTTER-hosted ui.  A Riverpod
+  // Notifier holds no BuildContext, so the emitter replaced the call with a
+  // `// TODO(flutter full-parity)` comment: the button was wired and did
+  // nothing.  (The `match await` on a standard agg op is the same code's other
+  // slug; one fixture per code is what the census asks for.)
+  // The `toast(…)` arm this fixture used to drive is DRAINED (wave C2 packet
+  // 2l gave the Notifier the `lib/toast.dart` bridge), so the fixture moved to
+  // the arm that survives: a `match await` on a STANDARD aggregate op, which
+  // the Flutter async-effect emitter resolves through `agg.operations` and so
+  // cannot find.  `create` is deliberately NOT one of `Order`'s declared
+  // operations here.
+  "loom.flutter-action-body-unsupported": flutterUi(`    page Edit {
+      route: "/edit"
+      state { n: int = 0 }
+      action go() {
+        match await Shop.Order.create(code: "c") {
+          Order o => n := 1,
+          else => n := 2
+        }
+      }
+      body: Stack { Heading { "Edit", level: 1 }, Button { "go", onClick: go } }
+    }`),
+
+  // A `match await` in a COMPONENT action, on a Flutter-hosted ui: the Flutter
+  // component emitter filters such a component out entirely (no widget, every
+  // call site an empty `SizedBox.shrink()`), so the gate makes the drop honest.
+  "loom.flutter-async-effect-unsupported": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string
+      operation reserve(): Order { return this }
     }
   } }
-}`,
-  // A required fold column whose type has no zero and that declares no default.
-  "loom.projection-field-no-start": `
-system NoStart {
-  subdomain S { context C {
-    aggregate Order with crudish { code: string }
-    event OrderPlaced { order: Order id, at: datetime }
-    projection Board keyed by order {
-      order: Order id
-      placedAt: datetime
-      on(e: OrderPlaced) { placedAt := e.at }
+  api Api from D
+  ui WebApp {
+    api C: Api
+    component Confirmer(order: Order) {
+      state { note: string = "" }
+      action go() {
+        match await C.Order.reserve() {
+          Order o => { note := o.customerId }
+          else    => { note := "x" }
+        }
+      }
+      body: Button { "Go", onClick: go }
     }
-  } }
-}`,
-  // A fold assigning its own key: the row is created with the routing key.
-  "loom.projection-key-assign": `
-system KeyAssign {
-  subdomain S { context C {
-    aggregate Order with crudish { code: string }
-    event OrderPlaced { order: Order id }
-    projection Board keyed by order {
-      order: Order id
-      placed: bool
-      on(e: OrderPlaced) { order := e.order  placed := true }
+    page Detail(id: Order id) {
+      route: "/orders/:id"
+      body: Confirmer(order: C.Order.byId(id))
     }
-  } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable app { platform: flutter targets: api ui: WebApp { C: api } port: 3001 }
 }`,
-  // A query-time projection selecting a \`datetime - datetime\` span: a
-  // \`duration\` has no column and no wire form, and node / .NET crashed on it.
-  "loom.projection-select-duration": `
-system SpanSelect {
-  subdomain S { context C {
-    aggregate Order with crudish {
+  "loom.flutter-deployable-missing-ui": spaMissingUi("flutter"),
+
+  "loom.for-placement": repoOnly(`    aggregate Order with crudish {
       code: string
-      openedAt: datetime
-      closedAt: datetime
+      notes: string[]
+      operation touch() { for n in notes { code := n } }
     }
-    projection Spans {
-      from Order as o
-      select code = o.code, span = o.closedAt - o.openedAt
-    }
-  } }
-}`,
-  // A `unique (…)` on an abstract TPC base lands on each concrete TABLE, so it
-  // cannot stop the same value existing once per sibling subtype.
-  "loom.unique-tpc-not-hierarchy-wide": `
-system TpcUnique {
-  subdomain S { context Parties {
-    abstract aggregate Party inheritanceUsing: ownTable {
-      email: string
-      unique (email)
-    }
-    aggregate Customer extends Party inheritanceUsing: ownTable { creditLimit: decimal }
-    aggregate Supplier extends Party inheritanceUsing: ownTable { rating: int }
-  } }
-}`,
-  // `create(…): T` — a result needs a caller.  An event-triggered starter has
-  // none (the in-process dispatcher drops whatever it would return).
-  "loom.workflow-return-no-caller": workflowResult(`
-      create(e: Opened): int by e.account {
-        let a = Accounts.get(e.account)
-        return a.balance
-      }`),
-  // A `return` before the last statement would be lowered apart from the body
-  // and silently answered AFTER the steps that follow it.
-  "loom.workflow-return-not-last": workflowResult(`
-      create(n: string): Account id {
-        let a = Account.create(number: n, balance: 0)
-        return a.id
-        let b = Account.create(number: n, balance: 1)
-      }`),
-  // A `return` with no `: T` — the route would answer a body its contract
-  // never published.
-  "loom.workflow-return-untyped": workflowResult(`
-      create(n: string) {
-        let a = Account.create(number: n, balance: 0)
-        return a.id
-      }`),
-  // A `: T` with no `return` — nothing to answer the declared 200 with.
-  "loom.workflow-return-missing": workflowResult(`
-      create(n: string): Account id {
-        let a = Account.create(number: n, balance: 0)
-      }`),
-  // The returned value disagrees with the declared type.
-  "loom.workflow-return-type-mismatch": workflowResult(`
-      create(n: string): int {
-        let a = Account.create(number: n, balance: 0)
-        return a.number
-      }`),
-  // An `eventSourced` workflow's create may only `emit` — no state for a
-  // result to read, and the event-sourced route has no result path.
-  "loom.workflow-return-event-sourced": workflowResult(
-    `
-      apply(e: Opened) { }
-      create(n: string): string {
-        emit Opened { account: n }
-        return n
-      }`,
-    " eventSourced",
+    repository Orders for Order`),
+  "loom.frontend-contexts-ignored": topology(
+    "deployable web { platform: react targets: api contexts: [Orders] port: 3001 }",
   ),
-  // An aggregate result has no workflow-route wire projection yet.
-  "loom.workflow-return-type-unsupported": workflowResult(`
-      create(n: string): Account {
-        let a = Account.create(number: n, balance: 0)
-        return a
+
+  // A `component` param whose declared type the shared TypeScript prop layer
+  // has no spelling for.  This USED to be `amount: money` — wave C2 packet 2k
+  // taught the layer `money` (`Decimal`), `File` and a `valueobject` (both
+  // structural) on all four TS-prop frontends, so those three no longer fire
+  // and the fixture moves to what still does: a CARRIER kind.  `A or B` is the
+  // only one a param position can even spell, and it is also refused by
+  // `loom.union-position` — which is exactly why the register row is now a
+  // latent `seam` rather than a drained gap.
+  "loom.frontend-prop-type-unsupported": uiPages(
+    "",
+    `    component Picker(x: Order or Order) { body: Text { "pick" } }
+    page Home {
+      route: "/"
+      body: Stack { Heading { "Home", level: 1 } }
+    }`,
+  ),
+  "loom.frontend-targets-invalid": topology(`
+  deployable web2 { platform: react targets: api port: 3002 }
+  deployable web { platform: react targets: web2 port: 3001 }`),
+  "loom.frontend-targets-missing": topology("deployable web { platform: react port: 3001 }"),
+
+  // A block-bodied `function` that mutates aggregate state.  The purity gate had
+  // no catalog entry and no firing proof at all until W4.1 — the scanner never
+  // saw the site, because its `message` was a shorthand property.
+  "loom.function-block-impure": repoOnly(`    aggregate Counter with crudish {
+      n: int
+      function bump(q: int): int {
+        n := q
+        return q
+      }
+    }
+    repository Counters for Counter`),
+  // The member-function form.  Its two siblings — the top-level
+  // expression-form function (`toplevel-function.ts`) and the block-body
+  // `return` (`types.ts`) — share this code.
+  "loom.function-return-type-mismatch": orderOps('function bad(): int = "x"'),
+
+  // These three arrived on `main` AFTER the 2026-08-13 census and were caught
+  // by this gate on the very next run, with no firing proof between them —
+  // which is the whole reason it exists.
+  "loom.guard-principal-without-auth": deployed(`      aggregate Order {
+        code: string
+        create(code: string) { requires currentUser.role == "admin"  code := code }
       }`),
-  // Ruling D1 — an event starter reaches a claims gate with no `isSystem`
-  // disjunct: the system principal it runs as can never pass it.
-  // The policy read gate runs before the load, so it may read only
-  // `currentUser` and constants — a row field there is refused.
-  "loom.policy-read-gate-not-current-user": `
+  // A handler `return` nested in a branch would not stop the statements after
+  // it; only a trailing single-row guard may hold one.
+  "loom.handler-return-not-last": `
 system S {
-  user { id: guid  role: string }
-  subdomain D { context Vault {
-    aggregate Secret { body: string  open: bool }
-    repository Secrets for Secret
-    policy { read Secret requires open == true }
+  subdomain D { context Orders {
+    aggregate Order with crudish { total: int }
+    repository Orders for Order
+    queryHandler Q(n: int): int { if n > 0 { return 1 } else { return 2 } }
   } }
 }`,
+  // A name that binds to nothing inside a `commandHandler` body — the handler
+  // twin of `loom.workflow-unknown-name`.
+  "loom.handler-unknown-name":
+    repoOnly(`    aggregate Thing with crudish { name: string  operation rename(n: string) { name := n } }
+    repository Things for Thing
+    commandHandler RenameThing(tid: Thing id) {
+      let t = Things.get(tid)
+      t.rename(Nowhere.label)
+    }`),
+  // An assignment in a `commandHandler` body — a handler has no state to write.
+  "loom.handler-unrecognised-statement":
+    repoOnly(`    aggregate Thing with crudish { name: string  operation rename(n: string) { name := n } }
+    repository Things for Thing
+    commandHandler RenameThing(tid: Thing id) {
+      let t = Things.get(tid)
+      let n = 1
+      t.rename("x")
+      n := 2
+    }`),
 
-  // `read` heads the gate rule as an identifier, not a keyword, so any word
-  // parses there — and every word but `read` is refused by name.
-  "loom.policy-unknown-rule": `
+  // A page `action` and a rendered component's `action` with one name, on a
+  // phoenixLiveView ui: a LiveView dispatches every `phx-click` BY NAME, so the
+  // lift would put two `handle_event("bump", …)` clauses in one module.
+  "loom.heex-handler-name-collision": heexUi(`
+    component Panel() {
+      state { n: int = 0 }
+      action bump() { n += 1 }
+      body: Button { "inc", onClick: bump }
+    }
+    page Home {
+      route: "/"
+      state { m: int = 0 }
+      action bump() { m += 7 }
+      body: Stack { Panel(), Button { "page inc", onClick: bump } }
+    }`),
+
+  // The same lift's other limit: one host assign per component NAME is one
+  // cell, so a `state`-declaring component rendered twice would have its two
+  // instances move together.
+  "loom.heex-stateful-component-reused": heexUi(`
+    component Counter() {
+      state { n: int = 0 }
+      action bump() { n += 1 }
+      body: Button { "inc", onClick: bump }
+    }
+    page Home { route: "/" body: Stack { Counter(), Counter() } }`),
+  // Two contexts one deployable hosts, each declaring an `Order` aggregate.
+  "loom.hosted-type-name-collision": `
 system S {
-  user { id: guid  role: string }
-  subdomain D { context Vault {
-    aggregate Secret { body: string }
-    repository Secrets for Secret
-    policy { view Secret requires true }
-  } }
-}`,
-
-  "loom.reactor-gate-unsatisfiable": `
-system ReactorGate {
-  user { id: guid  permissions: string[] }
   subdomain D {
-    permissions { close }
-    context Ord {
-      aggregate Order with crudish {
-        code: string
-        done: bool
-        operation finish() {
-          requires currentUser.permissions.contains(permissions.close)
-          done := true
-        }
-      }
+    context Sales {
+      aggregate Order with crudish { qty: int }
       repository Orders for Order
-      event Shipped { order: Order id, at: datetime }
-      workflow closeOrder {
-        orderRef: Order id
-        create(e: Shipped) by e.order {
-          let o = Orders.get(e.order)
-          o.finish()
-        }
-      }
+    }
+    context Billing {
+      aggregate Order with crudish { amt: int }
+      repository BillingOrders for Order
     }
   }
+  api A from D
+  storage pg { type: postgres }
+  resource s { for: Sales, kind: state, use: pg }
+  resource b { for: Billing, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Sales, Billing], dataSources: [s, b], serves: A, port: 4000 }
 }`,
-  // Ruling D1 — a timer tick has no tenant, so a tenant-scoped read from its
-  // reactor must say `ignoring tenantOwned`.
-  "loom.timer-tenant-read": `
-system TimerTenant {
-  user { id: guid  tenantId: string }
-  tenancy by user.tenantId of Organization
-  subdomain Ops {
-    context Jobs {
-      aggregate Sweep crossTenant { runId: string }
-      event SweepTick { sweep: Sweep id, at: datetime }
-      aggregate Job with tenantOwned, crudish {
-        code: string
-        done: bool
-        unique (code)
-        operation close() { done := true }
-      }
-      repository Jobs for Job
-      workflow sweepRun {
-        sweep: Sweep id
-        create(t: SweepTick) by t.sweep {
-          let j = Jobs.getBy(code: "x")
-          j.close()
+  "loom.i18n-duplicate": systemScope('  i18n { source: "en" }\n  i18n { source: "de" }'),
+  "loom.i18n-source-invalid": systemScope('  i18n { source: "not a tag" }'),
+  // `let r = o.hold()` whose result can be an error, never matched: nothing may
+  // save the tentative change.
+  // `X id` naming a value object: only aggregates and entity parts carry an id.
+  "loom.id-target-not-identity": repoOnly(`    valueobject Pt { x: int }
+    aggregate R with crudish { p: Pt id }`),
+
+  "loom.if-let-placement": repoOnly(`    aggregate Order with crudish {
+      code: string
+      operation touch() { if let c = code { code := c } }
+    }
+    repository Orders for Order`),
+
+  // The same statement in a PAGE action.  A page body is an expression tree —
+  // a condition is a VALUE there — and no frontend emitter has a
+  // statement-position conditional.
+  "loom.if-stmt-page-body-unsupported": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+  } }
+  ui WebApp {
+    page Home {
+      route: "/"
+      state { n: int = 0 }
+      action bump() {
+        if n == 0 {
+          n := 1
         }
       }
-      aggregate Organization with crudish { name: string }
+      body: Button { "Go", onClick: bump }
     }
   }
-  timerSource nightly { for: SweepTick, cron: "0 3 * * *" }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
+  deployable app { platform: react targets: api ui: WebApp port: 3001 }
 }`,
-  // `isSystem` / `causedBy` are the system principal's built-in slots.
-  "loom.user-reserved-field": `
-system Reserved {
-  user { id: guid  isSystem: bool }
-  subdomain S { context C { aggregate A with crudish { name: string } } }
+
+  // M-T5.25 — an `ignoring` bypass written on a `group by` operand.  It parses
+  // (a postfix chain admits the trailing clause anywhere an expression is
+  // admissible), binds to the GROUPING expression, and is then dropped: the
+  // read keeps applying every capability filter the author asked it to skip.
+  "loom.ignoring-clause-placement":
+    repoOnly(`    aggregate Order with crudish, softDeletable { code: string  total: int }
+    repository Orders for Order
+    projection TotalsByCode {
+      code: string
+      orders: int
+      from Order as o
+      group by o.code ignoring softDeletable
+      select code = o.code, orders = count()
+    }`),
+
+  // An integer literal the `INT` terminal cannot hold: `9007199254740993`
+  // reaches the AST as `…92`, so the value the author wrote is already gone
+  // before any emitter runs (M-T5.23).  The fixture writes it in a `derived`
+  // body — the position where it survived all the way into emitted source.
+  "loom.integer-literal-imprecise": `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish {
+      name: string
+      derived big: long = 9007199254740993
+    }
+    repository Things for Thing
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
 }`,
   // Item 38 / ruling D8: an ICU `plural` in a `derived` lowers to backend
   // domain code, where every backend renders the hole as its bare value — the
@@ -1331,6 +2122,122 @@ system IcuInvalid {
     }
   }
 }`,
+  "loom.invariant-guard-not-bool": orderTypes("invariant total > 0 when total"),
+  "loom.invariant-not-bool": orderTypes("invariant name"),
+
+  // A member read off an event-handler parameter nothing types (`e.count`): the
+  // member would type as a guessed `string`.
+  "loom.lambda-param-type-unknown": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+  } }
+  api Api from D
+  ui WebApp {
+    api C: Api
+    page Home {
+      route: "/"
+      state { count: int = 0 }
+      body: Stack { Button { "Go", onClick: e => { precondition e.count >= 0 } } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  "loom.layout-main-slot-missing": uiMembers(
+    'page P { route: "/a"  body: Stack { Text { "x" } } }',
+    { layouts: 'layout NoMain { header { Text { "h" } } }' },
+  ),
+  // `layout <Name> { … }` — the reserved-name and slot-count rules.
+  "loom.layout-name-reserved": uiMembers('page P { route: "/a"  body: Stack { Text { "x" } } }', {
+    layouts: "layout default { main }",
+  }),
+  // Both slugs: the `main` slot counted on its own, and a named slot repeated.
+  "loom.layout-slot-duplicate": uiMembers('page P { route: "/a"  body: Stack { Text { "x" } } }', {
+    layouts:
+      'layout TwoMain { main  main }\n  layout Chrome { main  header { Text { "h" } }  header { Text { "i" } } }',
+  }),
+  "loom.let-type-mismatch": orderOps('operation bad() { let n: int = "x" }'),
+  // A locator matcher (`toHaveText` / `toHaveCount` / `toBeVisible`) reads a
+  // DOM node, so its receiver has to be a field read on a row the test has on
+  // screen.  Anything else used to validate clean and then kill
+  // `generate system` from `renderExpectStmt` (audit 2026-09-03 F6); a plain
+  // string literal is the smallest receiver that can never be a locator.
+  "loom.locator-matcher-receiver": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    test "a locator matcher needs a page read" for Thing {
+      expect("x").toHaveText("x")
+    }`),
+  // A `softDeletable` aggregate that keeps `crudish`'s canonical destroy —
+  // `DELETE /{id}` is a hard delete, documented but rarely what was meant.
+  "loom.loop-gate-not-implied": repoOnly(`    enum Status { Open, Resolved, Closed }
+    aggregate Ticket with crudish {
+      status: Status immutable
+      age: int
+      operation close() when status == Resolved { status := Closed }
+    }
+    repository Tickets for Ticket
+    criterion Stale() of Ticket = this.age > 30
+    workflow Sweep {
+      create(n: int) {
+        let ts = Tickets.all(Stale(), page: { offset: n, limit: 100 })
+        for t in ts { t.close() }
+      }
+    }`),
+  "loom.macro-arg-duplicate": uiWith("scaffoldAggregate(of: Thing, of: Thing)"),
+  "loom.macro-arg-kind-mismatch": uiWith(`scaffoldAggregate(of: "Thing")`),
+
+  "loom.macro-arg-missing": uiWith("scaffoldAggregate()"),
+  // A collection op is an EXPRESSION: its lambda body renders through the
+  // expression renderer, so a primitive there emits as a bare function call
+  // (`Card(Text(i.name))`) that nothing imports.  `For { each: … }` is the
+  // slot that renders markup.
+  "loom.markup-primitive-in-collection-lambda": uiPage(
+    `QueryView { of: Item.all, data: rows => Stack { rows.map(i => Card { Text { i.sku } }) } }`,
+  ),
+  "loom.mask-unless-not-bool": orderTypes("masked: string  mask unless total"),
+  "loom.match-duplicate-variant": unionMatch(
+    `Order o => { message := o.code }, Order p => { message := p.code }, NotFound => { message := "" }`,
+  ),
+
+  // The `match { … }` shape rules, and the `expect(<actual>).<matcher>(…)`
+  // vocabulary's arity / placement / literal rules.  `matcherTest(...)` puts
+  // one `expect` in an in-process `test` block; the two tier-restricted forms
+  // need the opposite tier, so they carry their own source.
+  "loom.match-empty": orderTypes("derived b: string = match { }"),
+  "loom.match-no-else": orderTypes('derived a: string = match { total > 0 => "hi" }'),
+  "loom.match-non-exhaustive": unionMatch(`Order o => { message := o.code }`),
+  // The AST-level subject rule: a call subject is refused before its type is
+  // asked, so a by-id read (no union at all) reaches it.
+  "loom.match-subject-not-simple": repoOnly(`    error NotFound { resource: string }
+    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    workflow resolve {
+      create(id: Order id) {
+        let label = match Orders.get(id) { Order o => o.code, NotFound => "" }
+      }
+    }`),
+
+  "loom.match-unknown-variant": unionMatch(
+    `Order o => { message := o.code }, Other x => { message := x.resource }, else => { message := "" }`,
+  ),
+  "loom.matcher-arity": matcherTest('expect("x").toBe("x", "y")'),
+  // Both `#slug`s of the tier restriction: `toBeSameInstant` and
+  // `toThrow(<status>)` are wire-level and refused OUTSIDE a `test e2e`.
+  "loom.matcher-e2e-only": matcherTest('expect("x").toBeSameInstant("y")'),
+  "loom.matches-arity": matcherTest('expect("x").matches("a", "b")'),
+  "loom.matches-invalid-regex": matcherTest('expect("x").matches("[A-Z")'),
+  "loom.matches-named-arg": matcherTest('expect("x").matches(pattern: "a")'),
+  "loom.matches-not-literal": matcherTest('expect("x").matches(1)'),
+  // An operation reusing a field's name: one member namespace per aggregate.
+  "loom.member-name-collision": repoOnly(`    aggregate Thing with crudish {
+      qty: int
+      operation qty(n: int) { qty := n }
+    }
+    repository Things for Thing`),
+  "loom.member-not-callable": orderOps("operation p() { tag.label() }"),
   // An invented member on a receiver the LANGUAGE layer types as `unknown`
   // (a `let` bound from a list literal), so the AST member check stands down
   // and only the IR backstop sees it. Before #3133 node emitted `…[0].nope`.
@@ -1348,193 +2255,218 @@ system MemberBackstop {
     }
   } }
 }`,
-  // An `emit` in a CONTEXT integration test: no backend's integration-test
-  // renderer has an arm for it, and before #3133 every one crashed generate.
-  // A `return` in an applier: a fold yields nothing, and the Phoenix fold
-  // renderer has no arm for it (it crashed generate before the gate).
-  "loom.applier-stmt-invalid": `
-system Ledger {
-  subdomain Core { context Accounts {
-    event Opened { account: Account id, owner: string }
-    aggregate Account persistedAs: eventLog {
-      owner: string
-      create open(owner: string) { emit Opened { account: id, owner: owner } }
-      apply(e: Opened) {
-        owner := e.owner
-        return owner
+  "loom.menu-link-property-unknown": uiMembers(
+    'page P { route: "/a"  body: Stack { Text { "hi" } } }\n' +
+      '    menu { section "Main" { link P { bogusKey: "x" } } }',
+  ),
+
+  // A `menu` link naming a page that does not exist.  The linker already
+  // reports the bare unresolved reference; this check is the one that names
+  // what IS linkable — and a scaffolded page is named by ROLE inside a
+  // per-aggregate area (`Orders.List`), so the unqualified name an author
+  // reaches for is almost never the one that resolves.
+  "loom.menu-link-unresolved": uiPages(
+    " with scaffold(aggregates: [Order])",
+    `    menu {
+      section "Sales" {
+        link OrderList
       }
+    }`,
+  ),
+  "loom.migration-enum-value-form": `
+enum Status { Open, Closed }
+${systemScope("")}
+migration "m" { Status.Draft = Open }`,
+  "loom.migration-enum-value-unknown": `
+enum Status { Open, Closed }
+${systemScope("")}
+migration "m" { Status.Draft -> Pending }`,
+  // A backfill expression outside the SQL-renderable subset: a call.
+  "loom.migration-expr-invalid": `
+system S {
+  subdomain M { context C {
+    aggregate Order with crudish { label: string  code: string }
+    repository Orders for Order { }
+  } }
+}
+migration "fill-code" { Order.code = label.toUpper() }`,
+  "loom.migration-move-across-databases": `
+system S {
+  subdomain D1 { context A { aggregate Keep with crudish { name: string }  repository Keeps for Keep } }
+  subdomain D2 { context B { aggregate Note with crudish { name: string }  repository Notes for Note } }
+  deployable one { platform: node, contexts: [A], port: 3000 }
+  deployable two { platform: node, contexts: [B], port: 3001 }
+}
+migration "m" { A.Note -> B.Note }`,
+  "loom.migration-step-ambiguous": `
+system S {
+  subdomain D {
+    context A { aggregate Thing with crudish { name: string }  repository Things for Thing }
+    context B { aggregate Thing with crudish { name: string }  repository Things for Thing }
+  }
+}
+migration "m" { Old -> Thing }`,
+  "loom.migration-step-target-missing": `${systemScope("")}
+migration "m" { Gone -> Missing }`,
+  // Migration table steps (`Old -> New`, `A.Old -> B.New`), resolved on the
+  // merged IR: a context the model lacks, a target it lacks, a name two
+  // contexts declare, and a move between modules on different databases.
+  "loom.migration-step-unknown-context": `${systemScope("")}
+migration "m" { C.Thing -> Nowhere.Thing }`,
+  "loom.mikroorm-shared-database": `
+system S {
+  subdomain D { context A { aggregate Keep with crudish { name: string } } }
+  storage primary { type: postgres }
+  resource aState { for: A, kind: state, use: primary }
+  deployable one { platform: node, contexts: [A], dataSources: [aState], port: 3000 }
+  deployable two { platform: node { persistence: mikroorm }, contexts: [A], dataSources: [aState], port: 3001 }
+}`,
+
+  // The state-controlled shell and the operation-form dialog do not combine on
+  // react / vue / svelte / flutter — the WHOLE modal becomes a comment
+  // (F2-CFE-12).  Angular, Feliz and HEEx render it, so the gate is per-target.
+  "loom.modal-controlled-op-form-unsupported": `
+system S {
+  subdomain Sub { context C {
+    aggregate Thing with crudish {
+      name: string
+      operation activate() { }
     }
-    repository Accounts for Account
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page Home {
+      route: "/"
+      state { shown: bool = false }
+      body: Modal { open: shown, OperationForm { of: Thing, op: activate } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  // `Home` references `Status`, declared by neither it nor the system level but by
+  // both `Alpha` and `Beta`: the implicit form labels have no single owner.
+  "loom.model-text-implicit-ambiguous": `
+system S {
+  subdomain D {
+    context Alpha { aggregate Widget with crudish { n: int } enum Status { On, Off } }
+    context Beta { aggregate Gadget with crudish { n: int } enum Status { Up, Down } }
+    context Home { aggregate Hub with crudish { s: Status } }
+  }
+  ui WebApp with scaffold(subdomains: [D]) { }
+}`,
+  "loom.model-text-in-template": uiPage("Text { `All {plural(Item)}` }"),
+  "loom.model-text-outside-ui": repoOnly(`    aggregate Item with crudish {
+      sku: string
+      derived caption: string = label(Item)
+    }
+    repository Items for Item`),
+  "loom.model-text-plural-member": uiPage(`Text { plural(Item.sku) }`),
+  // `label(…)` / `plural(…)` model text (i18n identity keys): a path naming no
+  // model element, a plural of a member, a call outside every page/component
+  // body, and a call spliced into a template.
+  "loom.model-text-unresolved": uiPage(`Text { label(Item.nope) }`),
+  // `money` deserialises client-side to a \`Decimal\` object, which is not a
+  // renderable node — the emitted frontend fails its OWN typecheck.
+  "loom.money-in-text-slot": uiPage(
+    `QueryView { of: Item.all, data: rows => For { each: rows, i => Text { i.price } } }`,
+  ),
+
+  // A `money("…")` literal whose string is not a decimal.  One grammar rule now
+  // serves both `money("10.50")` (the literal) and `money(x)` (the conversion)
+  // — see `src/language/money-literal.ts` — and the STRING arm is checked as a
+  // literal rather than run through the conversion table, because the string
+  // reaches each backend's precise-decimal constructor verbatim (M-T9.60).
+  "loom.money-literal-malformed": repoOnly(`    aggregate Invoice with crudish {
+      subtotal: money
+      derived floor: money = money("USD 2.50")
+    }
+    repository Invoices for Invoice`),
+  // Two complete `system { }` blocks and NO top-level members — the shape that
+  // slipped past the fold-triggered composition check, because with nothing to
+  // fold it returned before ever counting systems (F36).  The smallest system
+  // pair that parses; the diagnostic lands on the SECOND one.
+  "loom.multiple-systems": `
+system Alpha {
+  subdomain S { context Ops {
+    aggregate Job { name: string }
+    repository Jobs for Job
+  } }
+}
+
+system Beta {
+  subdomain T { context Other {
+    aggregate Task { title: string }
+    repository Tasks for Task
   } }
 }`,
-  // A workflow fold constructing an entity part of an aggregate: nothing
-  // outside the owning aggregate can hold one (the IR arm; the AST arm — a part
-  // TYPE named outside its aggregate — never links, see `ddd-scope.ts`).
-  "loom.cross-aggregate-entity-part": `
-system WFN {
-  subdomain F { context F {
-    aggregate Order {
-      create(status: string) { }
-      status: string
-      entity Line { sku: string }
-      lines: Line[]
+  "loom.named-lifecycle-dropped": deployed(`      aggregate Order {
+        code: string
+        create(code: string) { code := code }
+        create draft(code: string) { code := code }
+      }`),
+
+  "loom.not-found-placement": repoOnly(`    aggregate Order with crudish {
+      code: string
+      operation touch() { notFound }
     }
+    repository Orders for Order`),
+
+  "loom.not-found-unreachable": repoOnly(`    aggregate Order with crudish { code: string }
     repository Orders for Order
-    event Started { order: Order id }
-    event Added { order: Order id, sku: string }
-    workflow Track eventSourced {
-      orderId: Order id
-      last: string
-      create(p: Started) by p.order { emit Added { order: p.order, sku: "x" } }
-      apply(a: Added) {
-        let l = Line { sku: a.sku }
-        last := a.sku
-      }
+    commandHandler Touch(code: string) {
+      notFound
+      precondition code != ""
+    }`),
+  "loom.not-throw-invalid": matcherTest('expect("x").not.toThrow()'),
+
+  // Every member of a `T?` (field, property, intrinsic, collection op) is an
+  // unguarded deref every backend emits bare (`this.path.length` over a
+  // `string | null`).  The guarded form —
+  // `this.path != null ? this.path.length : 0` — narrows and passes.
+  "loom.nullable-receiver": repoOnly(`    aggregate Thing with crudish {
+      path: string?
+      size: int
+      operation measure() { size := this.path.length }
     }
+    repository Things for Thing`),
+  // `OperationForm { of:, op: }` names no record, so every frontend targets the
+  // page's route `:id` — on a route that declares none it submits an empty id.
+  "loom.op-form-needs-route-id": `
+system S {
+  subdomain Sub { context C {
+    aggregate Item with crudish { name: string  operation activate() { } }
+    repository Items for Item
   } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page A { route: "/a"  body: Stack { OperationForm { of: Item, op: activate } } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
 }`,
-  "loom.test-statement-invalid": `
-system TestVocab {
-  subdomain S { context C {
-    event Pinged { n: int }
-    aggregate Task with crudish { title: string }
-    test "t" { emit Pinged { n: 1 } }
-  } }
-}`,
-  // The `as { … }` test principal (test-placement.md).
-  "loom.test-principal-placement": principalSys({
-    ctxTest: `    aggregate Pin { label: string  test "unit" as { role: "x" } { expect(1).toBe(1) } }`,
-  }),
-  "loom.test-principal-value": principalSys({
-    ctxTest: `    test "t" as { role: 1 + 2 } { let n = Note.create(text: "a") }`,
-  }),
-  "loom.test-principal-duplicate-claim": principalSys({
-    ctxTest: `    test "t" as { role: "a", role: "b" } { let n = Note.create(text: "a") }`,
-  }),
-  "loom.test-principal-no-user": principalSys({
-    user: "",
-    ctxTest: `    test "t" as { role: "a" } { let n = Note.create(text: "a") }`,
-  }).replace(" auth: required", ""),
-  "loom.test-principal-unknown-claim": principalSys({
-    ctxTest: `    test "t" as { nope: "a" } { let n = Note.create(text: "a") }`,
-  }),
-  "loom.test-principal-claim-type": principalSys({
-    ctxTest: `    test "t" as { level: "3" } { let n = Note.create(text: "a") }`,
-  }),
-  "loom.e2e-principal-claim-not-carried": principalSys({
-    e2e: `  test e2e "e" against d as { nick: "bob" } { let n = api.notes.create({ text: "a" }) }`,
-  }),
-  "loom.e2e-principal-oidc": principalSys({
-    extra: `  auth { oidc { issuer: "https://idp.example.com/realms/x"  clientId: "web" } }`,
-    e2e: `  test e2e "e" against d as { role: "agent" } { let n = api.notes.create({ text: "a" }) }`,
-  }),
-  "loom.e2e-principal-ui": principalSys({
-    extra: `  ui WebApp {
-    api Core: A
-    page Home { route: "/"  body: Stack { } }
-  }`,
-    e2e: `  deployable web { platform: static targets: d ui: WebApp { Core: d } port: 3001 }
-  test e2e "e" against web as { role: "agent" } { expect(1).toBe(1) }`,
-  }),
-  // A paged find's own `page` parameter: the paged read adds a `page` query
-  // control of its own, so the key would arrive twice and every generated
-  // repository signature would declare `page` twice.
-  "loom.paged-param-reserved": `
-system PagedParam {
-  subdomain S { context Shop {
-    aggregate Thing with crudish { rank: int }
-    repository Things for Thing
-    criterion ThingsByRank(page: int) of Thing = this.rank == page
-    queryHandler ListThingsByRank(page: int): Thing paged {
-      let r = Things.all(ThingsByRank(page))
+  "loom.operation-self-call": orderOps("operation p() { p() }"),
+
+  // The expression type-checker's own refusals: the two operator arms, the
+  // three `string(x)` / `decimal(x)` conversion arms, and the six leaf checks
+  // on a property / invariant / derived / default.
+  "loom.operator-non-bool-operands": orderTypes("derived bad: bool = total && name"),
+  "loom.operator-operand-mismatch": orderTypes("derived bad: string = total + flag"),
+  "loom.option-deprecated": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    criterion OrderByCode(code: string) of Order = this.code == code
+    queryHandler ByCode(code: string): Order option {
+      let r = Orders.find(OrderByCode(code))
       return r
-    }
-  } }
-}`,
-  // A `money managed` field: off the create input, no `= <default>`, no stamp,
-  // and `money` is the one scalar with NO language-defined absent value — a
-  // `Decimal` has no agreed zero, so node's create factory emitted `total:
-  // null` into a non-nullable slot while .NET persisted a fabricated `0`.
-  // Deliberately `money` and not `int`: an `int managed` IS constructible (the
-  // seed is `0`) and must stay silent, which is what keeps this fixture
-  // honest about what the gate refuses.
-  "loom.unconstructible-server-field": `
-system Unconstructible {
-  subdomain S { context Billing {
-    aggregate Invoice with crudish {
-      reference: string
-      total: money managed
-    }
-  } }
-}`,
-  // Two enums in one context declaring the same member, and a bare use with no
-  // expected type to resolve it — an untyped `let`.  First-wins would silently
-  // pick `OrderStatus` and lower a comparison between two different enums
-  // (F-022); the refusal is the honest answer.  The typed sites in the same
-  // aggregate stay silent, which is what makes this the ambiguous one.
-  "loom.ambiguous-enum-value": `
-system EnumAmbiguity {
-  subdomain S { context Billing {
-    enum OrderStatus   { Draft, Confirmed }
-    enum InvoiceStatus { Draft, Issued, Paid }
-    aggregate Invoice with crudish {
-      status: InvoiceStatus = Draft
-      label: string
-      operation touch() { let x = Draft  label := "x" }
-    }
-  } }
-}`,
-  // M-T3.6 items 3+5 — `organizationContext` has exactly one member, `.orgPath`.
-  // Any other shape is refused by name (the operating org's id is not
-  // derivable from a submitted path without a registry read).
-  "loom.org-context-surface": `
-system OrgCtx {
-  user { id: guid  tenantId: string }
-  tenancy by user.tenantId of Org
-  subdomain Core {
-    context Books {
-      aggregate Account with tenantOwned, crudish {
-        label: string
-        scope: string?
-        operation note() { scope := organizationContext.tenantId }
-      }
-      aggregate Org with crudish { name: string  implements tenantRegistry }
-      repository Accounts for Account
-      repository Orgs for Org
-    }
-  }
-  storage primary { type: postgres }
-  resource b { for: Books, kind: state, use: primary }
-  deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
-}`,
-  // The operating scope read on a deployable with no auth:
-  // there is no auth middleware, so no switch gate, so the read would be an
-  // unvalidated caller-submitted value.
-  // `organizationContext.ancestors` read on a deployable that does not host
-  // the registry's context — its database has no registry table to walk.
-  "loom.tenancy-registry-remote-unsupported": `
-system OrgAnc {
-  user { id: guid  tenantId: string }
-  tenancy by user.tenantId of Org
-  subdomain Core {
-    context Registry {
-      aggregate Org with crudish { name: string  implements tenantRegistry }
-      repository Orgs for Org
-    }
-    context Books {
-      aggregate Note with tenantOwned, crudish {
-        under: bool?
-        operation probe(org: Org id) { under := organizationContext.ancestors.contains(org) }
-      }
-      repository Notes for Note
-    }
-  }
-  storage primary { type: postgres }
-  resource r { for: Registry, kind: state, use: primary }
-  resource b { for: Books, kind: state, use: primary }
-  deployable reg { platform: node, contexts: [Registry], dataSources: [r], port: 3001, auth: required }
-  deployable books { platform: node, contexts: [Books], dataSources: [b], port: 3002, auth: required }
-}`,
+    }`),
   // A reactor reaching `organizationContext.ancestors` through an operation:
   // the system principal it runs as carries no ancestor set.
   "loom.org-context-ancestors-in-reactor": `
@@ -1584,1556 +2516,104 @@ system OrgCtx {
   resource b { for: Books, kind: state, use: primary }
   deployable api { platform: node, contexts: [Books], dataSources: [b], port: 3000 }
 }`,
-  // A part that contains itself.  The natural domain is ordinary (a sub-task
-  // tree), and before the check this parsed clean and then killed `generate`
-  // with a bare `RangeError: Maximum call stack size exceeded`.
-  // A tenancy registry nothing can create — the signup loop's step one is
-  // missing, so the first tenant can never exist.
-  "loom.tenant-registry-not-constructible": `
-system Billder {
-  user { id: guid  email: string  tenantId: string }
-  tenancy by user.tenantId of Organization
-  subdomain Billing {
-    context Accounts {
-      aggregate Organization { name: string }
-      repository Organizations for Organization
+  // M-T3.6 items 3+5 — `organizationContext` has exactly one member, `.orgPath`.
+  // Any other shape is refused by name (the operating org's id is not
+  // derivable from a submitted path without a registry read).
+  "loom.org-context-surface": `
+system OrgCtx {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Books {
+      aggregate Account with tenantOwned, crudish {
+        label: string
+        scope: string?
+        operation note() { scope := organizationContext.tenantId }
+      }
+      aggregate Org with crudish { name: string  implements tenantRegistry }
+      repository Accounts for Account
+      repository Orgs for Org
     }
   }
   storage primary { type: postgres }
-  resource b { for: Accounts, kind: state, use: primary }
-  deployable api { platform: node, contexts: [Accounts], dataSources: [b], auth: required, port: 3000 }
+  resource b { for: Books, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
 }`,
 
-  // M-T5.21 — `audited` on a `domainService` operation.  Before the callable
-  // fragments landed this was a bare parse error ("expecting '{' but found
-  // 'audited'"); the grammar now accepts the whole modifier surface at every
-  // callable site and `CALLABLE_SITES` refuses it WITH the reason.
-  "loom.callable-modifier-not-allowed-here": `
+  // Two `CreateForm`s on ONE page, over DIFFERENT aggregates.  React/Svelte
+  // emit the pack's bare `create` / `form` / `register` / `handleSubmit` twice
+  // in one scope (TS2300); Vue dedupes the declarations and COMPILES, so the
+  // second form silently submits the first form's mutation with the first
+  // form's schema.  (Angular scopes those locals by aggregate and would need
+  // the SAME aggregate twice — the fixture uses react, where the shape fires.)
+  "loom.page-form-locals-unsupported": `
 system P {
-  subdomain S { context C {
-    domainService Pricing {
-      operation quote(base: int) audited : int { return base }
-    }
-    aggregate Thing { name: string }
-    repository Things for Thing
-  } }
-}`,
-  // A declared `create(…)` is the create input, so a param must BE a
-  // client-suppliable field — `n` names none.
-  "loom.create-param-not-a-field": `
-system P {
-  subdomain S { context C {
-    aggregate Thing {
-      name: string?
-      create(n: string) { }
-    }
-    repository Things for Thing
-  } }
-}`,
-  // A narrowed `create(…)` leaves out a required, undefaulted field — nothing
-  // would give `secret` a value at creation.
-  "loom.create-param-required-omitted": `
-system P {
-  subdomain S { context C {
-    aggregate Thing {
-      name: string
-      secret: string
-      create(name: string) { }
-    }
-    repository Things for Thing
-  } }
-}`,
-  // --- phase ⑦ IR validate, elixir-only -----------------------------------
-  // A bare call to a PRIVATE operation whose body reads `currentUser`.  Vanilla
-  // lowers the call to a module-local `__op_<name>(record, …)` pure transform
-  // (M-T6.55 F24) and has no way to thread the request principal into it — the
-  // caller binds `current_user` only when its OWN body reads it.  Refused here
-  // rather than emitted as a body `mix compile` rejects.
-  "loom.vanilla-op-call-actor": `
-system VanillaActor {
-  user { id: guid  role: string }
-  subdomain Core { context Billing {
-    aggregate Invoice with crudish {
-      total: int
-      operation bump(by: int) {
-        total := total + by
-        recompute()
-      }
-      private operation recompute() {
-        requires currentUser.role == "admin"
-        total := total * 2
-      }
-    }
-  } }
-  api BillingApi from Core
-  storage pg { type: postgres }
-  resource st { for: Billing, kind: state, use: pg }
-  deployable d { platform: elixir, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 4000, auth: required }
-}`,
-  // A `crudish` aggregate whose `status` field is BOTH mass-assigned by the
-  // macro's generic `update` and written by a `requires`-gated `approve()` —
-  // audit D3.  `POST /invoices/{id}/update {"status":…}` skips the gate.  The
-  // advisory points at `immutable`, which removes the field from the update
-  // input while leaving the operation free to assign it.
-  "loom.update-gate-suggestion": `
-system UpdateGate {
-  user { id: guid  role: string }
-  subdomain Core { context Billing {
-    enum InvoiceStatus { Draft, Approved }
-    aggregate Invoice with crudish {
-      total: int
-      status: InvoiceStatus
-      operation approve() {
-        requires currentUser.role == "admin"
-        status := Approved
-      }
-    }
-    repository Invoices for Invoice
-  } }
-  api BillingApi from Core
-  storage pg { type: postgres }
-  resource st { for: Billing, kind: state, use: pg }
-  deployable d { platform: node, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 3000, auth: required }
-}`,
-  // A `softDeletable` aggregate that keeps `crudish`'s canonical destroy —
-  // `DELETE /{id}` is a hard delete, documented but rarely what was meant.
-  "loom.loop-gate-not-implied": repoOnly(`    enum Status { Open, Resolved, Closed }
-    aggregate Ticket with crudish {
-      status: Status immutable
-      age: int
-      operation close() when status == Resolved { status := Closed }
-    }
-    repository Tickets for Ticket
-    criterion Stale() of Ticket = this.age > 30
-    workflow Sweep {
-      create(n: int) {
-        let ts = Tickets.all(Stale(), page: { offset: n, limit: 100 })
-        for t in ts { t.close() }
-      }
-    }`),
-  "loom.crudish-hard-delete": `
-system HardDelete {
-  subdomain Core { context Ledger {
-    aggregate Account with softDeletable, crudish { number: string }
-    repository Accounts for Account
-  } }
-  api LedgerApi from Core
-  storage pg { type: postgres }
-  resource st { for: Ledger, kind: state, use: pg }
-  deployable d { platform: node, contexts: [Ledger], dataSources: [st], serves: LedgerApi, port: 3000 }
-}`,
-  // --- phase ④ AST validate -----------------------------------------------
-  // Two complete `system { }` blocks and NO top-level members — the shape that
-  // slipped past the fold-triggered composition check, because with nothing to
-  // fold it returned before ever counting systems (F36).  The smallest system
-  // pair that parses; the diagnostic lands on the SECOND one.
-  "loom.multiple-systems": `
-system Alpha {
-  subdomain S { context Ops {
-    aggregate Job { name: string }
-    repository Jobs for Job
-  } }
-}
-
-system Beta {
-  subdomain T { context Other {
-    aggregate Task { title: string }
-    repository Tasks for Task
-  } }
-}`,
-  // --- phase ① parse ------------------------------------------------------
-  // A mistyped design pack.  `loom.parse-error` is the code `src/api/report.ts`
-  // stamps on Langium's `parsing-error`, and the wording it carries is
-  // `src/language/parse-errors.ts`'s — the closed-set "did you mean" that
-  // replaced chevrotain's numbered token-sequence dump.
-  "loom.parse-error": `
-system S {
-  subdomain Sub { context C {
-    aggregate Thing with crudish { name: string }
-    repository Things for Thing
-  } }
-  ui WebApp with scaffold(subdomains: [Sub]) { }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
-  deployable web { platform: react, targets: api, ui: WebApp, port: 3001, design: mantinee }
-}`,
-
-  // A criterion that shadows an enum case of the same name, so `status == Open`
-  // compares the enum against the criterion's BOOLEAN.  The hint half of
-  // `loom.compare-type-mismatch` (finding F13) — the bare mismatch text is the
-  // same code without a shadow in scope.
-  "loom.compare-type-mismatch": repoOnly(`    enum Status { Open, Done }
-    aggregate Task with crudish {
-      title: string
-      status: Status
-      operation finish() {
-        precondition status == Open
-        status := Done
-      }
-    }
-    criterion Open() of Task = this.status != Done
-    repository Tasks for Task`),
-
-  // A `money("…")` literal whose string is not a decimal.  One grammar rule now
-  // serves both `money("10.50")` (the literal) and `money(x)` (the conversion)
-  // — see `src/language/money-literal.ts` — and the STRING arm is checked as a
-  // literal rather than run through the conversion table, because the string
-  // reaches each backend's precise-decimal constructor verbatim (M-T9.60).
-  "loom.money-literal-malformed": repoOnly(`    aggregate Invoice with crudish {
-      subtotal: money
-      derived floor: money = money("USD 2.50")
-    }
-    repository Invoices for Invoice`),
-
-  // --- create call sites ---------------------------------------------------
-  // An invariant over a CONTAINED collection cannot be satisfied from the create
-  // input, so the aggregate is not constructible and every backend emits no
-  // `static create(...)` — while the unit-test emitter kept emitting the call.
-  "loom.create-call-not-constructible": repoOnly(`    aggregate Order {
-      currency: string
-      contains lines: Line[]
-      derived display: string = currency
-      invariant lines.all(l => l.currency == currency)
-      entity Line { currency: string }
-      test "an order can be built" {
-        let o = Order.create(currency: "EUR")
-        expect(o.display).toBe("EUR")
-      }
-    }
-    repository Orders for Order`),
-
-  // A create call site that omits a REQUIRED create-input field.  The factory
-  // input is the field-derived contract, so the emitted `.test.ts` fails the
-  // generated project's own tsc (TS2345, "Property 'binCode' is missing").
-  "loom.create-call-missing-field": repoOnly(`    aggregate Part {
-      sku: string
-      binCode: string
-      onHand: int
-      derived display: string = sku
-      test "part is built" {
-        let p = Part.create(sku: "a", onHand: 1)
-        expect(p.display).toBe("a")
-      }
-    }
-    repository Parts for Part`),
-
-  // --- structural ---------------------------------------------------------
-  // Two entity parts that contain each other.  `contains` is ownership, so the
-  // graph must be a tree; the cycle used to parse clean and then blow the JS
-  // stack inside the TypeScript repository emitter's `nestedContainLoads`.
-  // This census keys by bare code, so `loom.containment-cycle` gets ONE fixture.
-  // Two arrived at once — a direct self-cycle and this INDIRECT one (X -> Y -> X).
-  // The indirect chain is kept because it is the harder case: an implementation
-  // that walks only one level catches the direct cycle and misses this.  The
-  // direct case keeps its own coverage in `test/ir/containment-cycle.test.ts`
-  // ("direct self-containment raises loom.containment-cycle").
-  "loom.containment-cycle": repoOnly(`    aggregate A {
-      n: string
-      contains xs: X[]
-      derived display: string = n
-      entity X { contains ys: Y[] }
-      entity Y { contains zs: X[] }
-    }
-    repository As for A`),
-
-  // A cross-aggregate invariant that reads through a repository.  It validated
-  // clean and emitted `Technicians.get(...)` into the per-instance floor —
-  // TS2304 on hono, the same unresolvable symbol on .NET/java, and on elixir the
-  // rule was silently emitted nowhere at all.
-  "loom.rule-expr-impure": repoOnly(`    aggregate Technician with crudish { skill: string }
-    aggregate WorkOrder with crudish {
-      technicianId: Technician id
-      invariant Technicians.get(technicianId).skill.length > 0
-    }
-    repository Technicians for Technician
-    repository WorkOrders for WorkOrder`),
-
-  // A block-bodied `function` that mutates aggregate state.  The purity gate had
-  // no catalog entry and no firing proof at all until W4.1 — the scanner never
-  // saw the site, because its `message` was a shorthand property.
-  "loom.function-block-impure": repoOnly(`    aggregate Counter with crudish {
-      n: int
-      function bump(q: int): int {
-        n := q
-        return q
-      }
-    }
-    repository Counters for Counter`),
-
-  // A `when` gate that reads an operation parameter.  The companion
-  // `GET /{id}/can_<op>` route takes no arguments, so the gate can only be a
-  // predicate over the aggregate's own state.
-  "loom.when-references-op-param": repoOnly(`    aggregate Order with crudish {
-      total: int
-      operation addLine(qty: int) when qty > 0 { total := total + qty }
-    }
-    repository Orders for Order`),
-
-  // The three positional statements, each written in a place its lowerer
-  // does NOT reach: the statement `match` in a pure `function`, and `for` /
-  // `if let` outside a workflow (which would lower to the `<unknown>` call
-  // sentinel).
-  "loom.variant-match-placement": repoOnly(`    aggregate Order with crudish {
-      code: string
-      note: string?
-      function noteLabel(): string {
-        match note {
-          string s => { let shown = s }
-          else => { let shown = code }
-        }
-        return code
-      }
-    }
-    repository Orders for Order`),
-
-  "loom.for-placement": repoOnly(`    aggregate Order with crudish {
-      code: string
-      notes: string[]
-      operation touch() { for n in notes { code := n } }
-    }
-    repository Orders for Order`),
-
-  "loom.not-found-placement": repoOnly(`    aggregate Order with crudish {
-      code: string
-      operation touch() { notFound }
-    }
-    repository Orders for Order`),
-
-  "loom.not-found-unreachable": repoOnly(`    aggregate Order with crudish { code: string }
-    repository Orders for Order
-    commandHandler Touch(code: string) {
-      notFound
-      precondition code != ""
-    }`),
-
-  "loom.if-let-placement": repoOnly(`    aggregate Order with crudish {
-      code: string
-      operation touch() { if let c = code { code := c } }
-    }
-    repository Orders for Order`),
-
-  "loom.criterion-retrieval-name-clash": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing
-    criterion Named(n: string) of Thing = this.name == n
-    retrieval Named(n: string) of Thing { where: this.name == n  sort: [name asc] }`),
-
-  // An abstract inheritance base owning its own `contains`.  The part's table
-  // would have no reader and no writer — the base has no repository and the
-  // concretes do not inherit its parts.  This was a `persistence: mikroorm`-only
-  // reject until the shape was generated on every other target and the output
-  // read: silently dropped on drizzle / efcore / python / java, a dead FK'd
-  // table on dapper, and a 500-producing half-emission on elixir (schema +
-  // `has_many` + a serializing controller, no migration, no preload).
-  "loom.abstract-aggregate-contains":
-    repoOnly(`    abstract aggregate Party inheritanceUsing: sharedTable {
-      name: string
-      contains addresses: Address[]
-      entity Address { street: string }
-    }
-    aggregate Customer extends Party with crudish { creditLimit: int }
-    repository Customers for Customer`),
-
-  // M-T5.25 — an `ignoring` bypass written on a `group by` operand.  It parses
-  // (a postfix chain admits the trailing clause anywhere an expression is
-  // admissible), binds to the GROUPING expression, and is then dropped: the
-  // read keeps applying every capability filter the author asked it to skip.
-  "loom.ignoring-clause-placement":
-    repoOnly(`    aggregate Order with crudish, softDeletable { code: string  total: int }
-    repository Orders for Order
-    projection TotalsByCode {
-      code: string
-      orders: int
-      from Order as o
-      group by o.code ignoring softDeletable
-      select code = o.code, orders = count()
-    }`),
-
-  // --- natural-key reads (repo-key-lookup) ---------------------------------
-  "loom.repo-key-not-unique":
-    repoOnly(`    aggregate Product with crudish { sku: string  name: string  unique (sku) }
-    repository Products for Product
-    workflow w { create(n: string) { if let p = Products.findBy(name: n) { } } }`),
-  "loom.repo-key-incomplete":
-    repoOnly(`    aggregate Product with crudish { region: string  name: string  unique (region, name) }
-    repository Products for Product
-    workflow w { create(n: string) { if let p = Products.findBy(name: n) { } } }`),
-  // --- the repository verbs (repo-verbs) ----------------------------------
-  // A retired verb names its replacement (the hard cutover, D-REPO-VERBS).
-  "loom.repo-verb-renamed": repoOnly(`    aggregate Order with crudish { code: string }
-    repository Orders for Order
-    workflow w { create(id: Order id) { let o = Orders.getById(id) } }`),
-  // `get` takes an id; a criterion read is `find`.
-  "loom.repo-get-criterion": repoOnly(`    aggregate Order with crudish { code: string }
-    repository Orders for Order
-    criterion ByCode(c: string) of Order = this.code == c
-    workflow w { create(c: string) { let o = Orders.get(ByCode(c)) } }`),
-  // A retrieval selects a list, so it goes to `all`, never `find`.
-  "loom.repo-find-retrieval": repoOnly(`    aggregate Order with crudish { code: string }
-    repository Orders for Order
-    criterion ByCode(c: string) of Order = this.code == c
-    retrieval Coded(c: string) of Order { where: ByCode(c)  sort: [code desc] }
-    workflow w { create(c: string) { if let o = Orders.find(Coded(c)) { } } }`),
-  // `sort:` on an `all` over a retrieval, which declares its own order.
-  "loom.repo-sort-placement": repoOnly(`    aggregate Order with crudish { code: string }
-    repository Orders for Order
-    criterion ByCode(c: string) of Order = this.code == c
-    retrieval Coded(c: string) of Order { where: ByCode(c) }
-    workflow w { create(c: string) { let xs = Orders.all(Coded(c), sort: [code desc], page: { limit: 5 }) } }`),
-  // A repository verb on a name no repository declares.
-  "loom.repository-unknown": repoOnly(`    aggregate Order with crudish { code: string }
-    workflow w { create(id: Order id) { let o = Orders.get(id) } }`),
-  // A repository read by a name no contract verb spells.
-  "loom.repo-unknown-read": repoOnly(`    aggregate Order with crudish { code: string }
-    repository Orders for Order
-    domainService Q {
-      operation taken(c: string): bool { return Orders.findByID(c) != null }
-    }`),
-
-  // --- variant match (structural-checks + the AST-level subject rule) ------
-  "loom.match-unknown-variant": unionMatch(
-    `Order o => { message := o.code }, Other x => { message := x.resource }, else => { message := "" }`,
-  ),
-  "loom.match-duplicate-variant": unionMatch(
-    `Order o => { message := o.code }, Order p => { message := p.code }, NotFound => { message := "" }`,
-  ),
-  "loom.match-non-exhaustive": unionMatch(`Order o => { message := o.code }`),
-  // Reading straight through an `or`-returning operation's result without a
-  // variant `match` (an unguarded dereference on all five backends).
-  "loom.union-read-undiscriminated": repoOnly(`    error NotFound { resource: string }
-    aggregate Order with crudish {
-      code: string
-      operation probe(): Order or NotFound { return NotFound { resource: code } }
-      operation touch() {
-        let r = probe()
-        code := r.code
-      }
-    }
-    repository Orders for Order`),
-  // The AST-level subject rule: a call subject is refused before its type is
-  // asked, so a by-id read (no union at all) reaches it.
-  "loom.match-subject-not-simple": repoOnly(`    error NotFound { resource: string }
-    aggregate Order with crudish { code: string }
-    repository Orders for Order
-    workflow resolve {
-      create(id: Order id) {
-        let label = match Orders.get(id) { Order o => o.code, NotFound => "" }
-      }
-    }`),
-
-  // --- retrieval `where` --------------------------------------------------
-  "loom.retrieval-where-unknown-field": repoOnly(`    aggregate Thing with crudish {
-      name: string
-      derived shouty: string = name
-    }
-    repository Things for Thing
-    retrieval Loud() of Thing { where: this.shouty == "X" }`),
-  "loom.retrieval-where-column-column":
-    repoOnly(`    aggregate Thing with crudish { name: string  other: string }
-    repository Things for Thing
-    retrieval Same() of Thing { where: name == other }`),
-
-  // --- projection `where` -------------------------------------------------
-  // A projection's `where` is a selection position too — it is pushed down to
-  // SQL by every backend — so it carries the same queryable-subset contract as
-  // the find / retrieval twins above.  Arithmetic does not lower: node/drizzle
-  // threw an internal error at generate time and the direct-table paths dropped
-  // the filter silently (an endpoint returning every row) until this gate.
-  "loom.projection-where-not-queryable":
-    repoOnly(`    aggregate Order with crudish { lineCount: int }
-    repository Orders for Order
-    projection SalesTotals {
-      orders: int
-      from Order as o
-      where o.lineCount + 1 > 5
-      select orders = count
-    }`),
-
-  // --- a member of a NULLABLE receiver ------------------------------------
-  // Every member of a `T?` (field, property, intrinsic, collection op) is an
-  // unguarded deref every backend emits bare (`this.path.length` over a
-  // `string | null`).  The guarded form —
-  // `this.path != null ? this.path.length : 0` — narrows and passes.
-  "loom.nullable-receiver": repoOnly(`    aggregate Thing with crudish {
-      path: string?
-      size: int
-      operation measure() { size := this.path.length }
-    }
-    repository Things for Thing`),
-
-  // --- macro expansion (phase ②) ------------------------------------------
-  "loom.macro-arg-missing": uiWith("scaffoldAggregate()"),
-  "loom.macro-arg-duplicate": uiWith("scaffoldAggregate(of: Thing, of: Thing)"),
-  "loom.macro-arg-kind-mismatch": uiWith(`scaffoldAggregate(of: "Thing")`),
-  "loom.capability-host-invalid": uiWith("auditable"),
-  "loom.scaffold-aggregate-unserved": `
-system S {
-  subdomain Sub { context C with scaffoldHandlers {
-    aggregate Thing with crudish { name: string }
-  } }
-}`,
-
-  // --- lifecycle gates (M-T3.16) ------------------------------------------
-  // These three arrived on `main` AFTER the 2026-08-13 census and were caught
-  // by this gate on the very next run, with no firing proof between them —
-  // which is the whole reason it exists.
-  "loom.guard-principal-without-auth": deployed(`      aggregate Order {
-        code: string
-        create(code: string) { requires currentUser.role == "admin"  code := code }
-      }`),
-  "loom.field-mask-principal-without-auth": deployed(`      aggregate Order {
-        code: string
-        total: decimal mask unless currentUser.role == "admin"
-        create(code: string, total: decimal) { code := code  total := total }
-      }`),
-  "loom.named-lifecycle-dropped": deployed(`      aggregate Order {
-        code: string
-        create(code: string) { code := code }
-        create draft(code: string) { code := code }
-      }`),
-  // --- undeclared principal claim (audit D2) ------------------------------
-  // The `user { }` block declares `id` and `role`; the gate reads a third,
-  // undeclared claim.  Both member-typing sites fail OPEN on the principal
-  // (unknown ⇒ `string`), so before this check the model parsed, validated and
-  // GENERATED clean — and the emitted backend then failed its own compile
-  // against a `UserClaims` shape built from exactly these two fields.
-  // --- invented member READ on a primitive (F-040) -------------------------
-  // `money` is a precise decimal, not a record: before this check the read
-  // typed as `unknown`, every operand validator suppressed on `unknown`, and
-  // `.amount` reached the emitters verbatim — so `invariant m.amount > 0` was
-  // a business rule that can never fire (python/elixir compile it happily).
-  "loom.unknown-primitive-member": `
-system S {
-  subdomain Sub { context C {
-    aggregate Cover with crudish {
-      limit: money
-      invariant limit.amount > 0
-    }
-    repository Covers for Cover
-  } }
-}`,
-  "loom.unknown-user-claim": `
-system S {
-  user { id: string  role: string }
-  subdomain Sub { context C {
-    aggregate Widget with crudish {
-      name: string
-      operation touch() { requires currentUser.totallyBogusField == "x" }
-    }
-    repository Widgets for Widget
-  } }
-}`,
-  // --- workflow instance-read gate (M-T3.15 §A2) --------------------------
-  // The header gate runs BEFORE any instance is loaded, so only `currentUser`
-  // is in scope; `stage` is a workflow STATE field and has no value to read.
-  // It is lowered in the bare context env precisely so such a reference cannot
-  // silently resolve — this turns that into a diagnostic.
-  "loom.workflow-gate-not-current-user": `
-system S {
-  user { id: guid  role: string }
-  subdomain Sales { context Orders {
-    aggregate Order { code: string }
-    repository Orders for Order
-    workflow Fulfilment requires stage == "started" {
-      orderId: Order id
-      stage: string
-      create start(order: Order id) { orderId := order  stage := "started" }
-    }
-  } }
-  api Api from Sales
-  storage pg { type: postgres }
-  resource st { for: Orders, kind: state, use: pg }
-  deployable d {
-    platform: node
-    contexts: [Orders]
-    dataSources: [st]
-    serves: Api
-    port: 3000
-    auth: required
-  }
-}`,
-
-  // An integer literal the `INT` terminal cannot hold: `9007199254740993`
-  // reaches the AST as `…92`, so the value the author wrote is already gone
-  // before any emitter runs (M-T5.23).  The fixture writes it in a `derived`
-  // body — the position where it survived all the way into emitted source.
-  "loom.integer-literal-imprecise": `
-system S {
   subdomain D { context C {
-    aggregate Thing with crudish {
-      name: string
-      derived big: long = 9007199254740993
-    }
-    repository Things for Thing
+    aggregate Order with crudish { customerId: string }
+    aggregate Note with crudish { text: string }
   } }
   api Api from D
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable d { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-}`,
-
-  // A declared row field whose type disagrees with the aggregation filling it
-  // (M-T5.24): `avg` over a MONEY column is money, and the declaration says
-  // `decimal` — which is what every backend's coercion reads, so the exact
-  // money mean would have shipped as a lossy float64 JSON number.  The fixture
-  // uses `avg` specifically because that is the operator the retype moved; a
-  // `sum` mismatch fires the same arm.
-  "loom.projection-aggregate-type-mismatch": `
-system S {
-  subdomain Sales { context Orders {
-    aggregate Order with crudish { code: string  total: money }
-    repository Orders for Order
-    projection SalesTotals {
-      avgTotal: decimal
-      from Order as o
-      select avgTotal = avg(o.total)
-    }
-  } }
-  api Api from Sales
-  storage pg { type: postgres }
-  resource st { for: Orders, kind: state, use: pg }
-  deployable d { platform: node contexts: [Orders] dataSources: [st] serves: Api port: 3000 }
-}`,
-
-  // A query-time projection whose direct-table arm aggregates a field that has
-  // no column: the source is `shape: document`, so `total` lives inside the
-  // `data` jsonb blob and `sum(o.total)` names nothing.  Universal, not
-  // per-backend — every backend emitted the missing reference.
-  "loom.projection-columnless-source": `
-system S {
-  subdomain Sales { context Orders {
-    aggregate Order shape: document, with crudish { code: string  total: int }
-    repository Orders for Order
-    projection OrderVolume {
-      revenue: int
-      from Order as o
-      select revenue = sum(o.total)
-    }
-  } }
-  api Api from Sales
-  storage pg { type: postgres }
-  resource st { for: Orders, kind: state, use: pg }
-  deployable d { platform: node contexts: [Orders] dataSources: [st] serves: Api port: 3000 }
-}`,
-
-  // A ROW COUNT over a `shape: document` source — which the column gate above
-  // deliberately allows, since a document table does have an `id` column —
-  // whose aggregate is read-filtered by `tenantOwned` + `softDeletable`.  Those
-  // predicates name `tenant_id` / `is_deleted`, which the `(id, data, version)`
-  // triple has not: four backends emit the missing reference and EF Core emits
-  // no filter at all, counting every tenant's rows.
-  "loom.projection-document-source-capability-filtered": `
-system S {
-  user { id: guid  org: string }
-  tenancy by user.org of Tenant
-  subdomain Sales { context Orders {
-    aggregate Tenant with tenantRegistry, crudish { slug: string }
-    aggregate Order shape: document, with tenantOwned, softDeletable, crudish { code: string }
-    repository Tenants for Tenant
-    repository Orders for Order
-    projection OrderVolume {
-      rows: int
-      from Order as o
-      select rows = count()
-    }
-  } }
-  api Api from Sales
-  storage pg { type: postgres }
-  resource st { for: Orders, kind: state, use: pg }
-  deployable d { platform: node contexts: [Orders] dataSources: [st] serves: Api port: 3000 auth: required }
-}`,
-
-  // --- inheritance × capability (the TPH cluster) --------------------------
-
-  // A subtype taking the OPPOSITE tenancy stance from the base it inherits.
-  // The base's `tenantOwned` reaches the subtype, so it would be both tenant
-  // data and shared data.
-  "loom.tenancy-inherited-stance-conflict": `
-system S {
-  user { id: guid  tenantId: string }
-  tenancy by user.tenantId of Org
-  subdomain Fleet { context Vehicles {
-    aggregate Org with crudish { title: string }
-    abstract aggregate Vehicle with tenantOwned { name: string }
-    aggregate Car extends Vehicle crossTenant with crudish { doors: int }
-    repository Cars for Car
-    repository Orgs for Org
-  } }
-  api Api from Fleet
-  storage pg { type: postgres }
-  resource st { for: Vehicles, kind: state, use: pg }
-  deployable d { platform: node contexts: [Vehicles] dataSources: [st] serves: Api port: 3000 auth: required }
-}`,
-
-  // A frontend deployable whose ui READS `currentUser` while the ui is not
-  // served under auth (`auth: ui` absent) — arrived on `main` mid-PR, same as
-  // the three above.
-  // A ui whose api handles fan out across two BACKENDS.  Parses and binds;
-  // the frontend is generated against `targets:` alone, so the second
-  // handle's api module is never written and the bundle does not typecheck.
-  "loom.ui-multi-backend-unsupported": `
-system S {
-  subdomain One { context A {
-    aggregate Alpha with crudish { code: string  derived display: string = code }
-    repository Alphas for Alpha
-  } }
-  subdomain Two { context B {
-    aggregate Beta with crudish { label: string  derived display: string = label }
-    repository Betas for Beta
-  } }
-  api OneApi from One
-  api TwoApi from Two
-  ui U {
-    api O: OneApi
-    api T: TwoApi
-    page Home { route: "/" body: Text { "hello" } }
-  }
-  storage pg { type: postgres }
-  resource aState { for: A, kind: state, use: pg }
-  resource bState { for: B, kind: state, use: pg }
-  deployable apiOne { platform: node, contexts: [A], dataSources: [aState], port: 3000, serves: OneApi }
-  deployable apiTwo { platform: node, contexts: [B], dataSources: [bState], port: 3001, serves: TwoApi }
-  deployable web { platform: react, targets: apiOne, ui: U { O: apiOne, T: apiTwo }, port: 3002, design: mantine }
-}
-`,
-  // A scaffold selecting a subdomain the frontend's `targets:` backend does not
-  // serve (eval-closure #18): parsed clean, then failed on generated pages.
-  "loom.ui-aggregate-unserved": `
-system S {
-  subdomain One { context A {
-    aggregate Alpha with crudish { code: string }
-    repository Alphas for Alpha
-  } }
-  subdomain Two { context B {
-    aggregate Beta with crudish { label: string }
-    repository Betas for Beta
-  } }
-  api OneApi from One
-  api TwoApi from Two
-  ui U with scaffold(subdomains: [One, Two]) { }
-  storage pg { type: postgres }
-  resource aState { for: A, kind: state, use: pg }
-  resource bState { for: B, kind: state, use: pg }
-  deployable apiOne { platform: node, contexts: [A], dataSources: [aState], port: 3000, serves: OneApi }
-  deployable apiTwo { platform: node, contexts: [B], dataSources: [bState], port: 3001, serves: TwoApi }
-  deployable web { platform: static, targets: apiOne, ui: U, port: 3002 }
-}
-`,
-  "loom.current-user-needs-auth-ui": `
-system S {
-  user { id: guid  role: string }
-  auth { oidc { issuer: "https://idp.example.com"  clientId: "app" } }
-  subdomain Sub { context C {
-    aggregate Thing with crudish { name: string }
-  } }
-  api Api from Sub
   ui WebApp {
     api C: Api
-    page Home { route: "/" body: Text { currentUser.role } }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-
-  // An `oidc { … }` block with no `audience:` — the verifier then validates
-  // signature / iss / exp and accepts ANY token that issuer minted, for any of
-  // its clients.  Warning, not error: single-client deployments are legitimate
-  // and every backend can still be switched on with OIDC_AUDIENCE at deploy
-  // time.  What was not legitimate is the silence (CR1-b / P0-4).
-  "loom.auth-oidc-no-audience": `
-system S {
-  user { id: string }
-  auth { oidc { issuer: "https://idp.example.com"  clientId: "app" } }
-  subdomain Sub { context C {
-    aggregate Thing with crudish { name: string }
-  } }
-}`,
-
-  // `auth: required` + a `user { … }` block with no `auth { oidc }`: the
-  // generated verifier is the dev stub (on only under LOOM_DEV_AUTH=1, header-
-  // forgeable) — a development login, which the warning says.
-  "loom.auth-dev-login-only": `
-system S {
-  user { id: string  role: string }
-  subdomain Sub { context C {
-    aggregate Thing with crudish { name: string }
-    repository Things for Thing
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 auth: required }
-}`,
-
-  // A repository read used as a MEMBER RECEIVER never lowers to a `repo-read`
-  // (the detector wants the whole chain), so no read port is threaded in and
-  // every backend emits the bare repository name.
-  "loom.domain-service-read-unsupported":
-    repoOnly(`    aggregate Customer with crudish { tier: string  unique (tier) }
-    repository Customers for Customer
-    domainService Lookup {
-      operation tierOf(t: string): string { return Customers.getBy(tier: t).tier }
-    }`),
-
-  // The parse-but-no-emit meta-warning (M-T5.9).  `connection:` reaches the IR
-  // and no generator reads it — the emitted compose / k8s wiring is derived
-  // heuristically from the compose host instead.
-  "loom.reserved-not-emitted": `
-system S {
-  subdomain Sub { context C {
-    aggregate Thing with crudish { name: string }
-    repository Things for Thing
-  } }
-  storage pg { type: postgres, connection: env("DB_URL") }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
-}`,
-
-  // `sensitive(...)` redacts the synthesized `inspect` and nothing else; the
-  // response DTO serves `ssn` in cleartext to every caller (M-T3.8).  The
-  // second field pins the suppression side — `mask unless` IS wired, so a
-  // masked sensitive field must not warn.
-  "loom.sensitive-wire-unsupported": repoOnly(`    aggregate Person with crudish {
-      ssn: string sensitive(pii)
-      salary: money sensitive(pii) mask unless currentUser.role == "hr"
-    }
-    repository People for Person`),
-
-  // `shape:` is read nowhere on an event-sourced aggregate — every backend's
-  // schema emitter short-circuits on `persistedAs: eventLog` first — so the
-  // clause parsed clean and generated byte-identical output.
-  "loom.shape-on-event-sourced": repoOnly(`    event Opened { account: Account id, owner: string }
-    aggregate Account persistedAs: eventLog shape: document {
-      owner: string
-      create open(owner: string) { emit Opened { account: id, owner: owner } }
-      apply(e: Opened) { owner := e.owner }
-    }
-    repository Accounts for Account`),
-
-  // `Slot { }` is a placement contract — only a `component` body has a caller
-  // whose children it can render; in a PAGE body it is an unbound reference.
-  "loom.slot-outside-component": `
-system S {
-  subdomain Sub { context C {
-    aggregate Thing with crudish { name: string }
-  } }
-  api Api from Sub
-  ui WebApp {
-    framework: react
-    api C: Api
-    page Home { route: "/"  body: Stack { Slot { } } }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-
-  // --- backend-capability gates, driven by their UNHOSTED arm --------------
-  // These three read as "your backend can't do this", and the census read them
-  // as undrivable because every backend family IS in their capability set.
-  // But each carries a second arm their siblings don't: `!anyBackend` — no
-  // db-owning deployable hosts the context at all — and that arm is one
-  // deployable-less system away.  It is the arm that matters, too: it is what
-  // stops an event-sourced / provenanced / audited declaration from being
-  // written, parsed, and then hosted by nothing that could honour it.
-  "loom.event-sourcing-backend-unsupported":
-    repoOnly(`    event Opened { account: Account id, owner: string }
-    aggregate Account persistedAs: eventLog {
-      owner: string
-      create open(owner: string) { emit Opened { account: id, owner: owner } }
-      apply(e: Opened) { owner := e.owner }
-    }
-    repository Accounts for Account`),
-  "loom.provenanced-backend-unsupported": repoOnly(`    aggregate Order with crudish {
-      total: int provenanced
-    }`),
-  "loom.audited-backend-unsupported": repoOnly(`    aggregate Order with crudish {
-      code: string
-      operation dispatch() audited { code := "x" }
-    }`),
-  // A FOURTH of the same shape, found by reading `validateFieldMask` for the
-  // `anyBackend` arm rather than trusting `FIELD_MASK_BACKENDS` (which does
-  // list all five families).  `mask unless` on a context nothing hosts is the
-  // drivable case, so this belongs here and not in the pins beside its
-  // set-shaped siblings — the distinction the pin block warns about, caught in
-  // the act.  The gate needs a `user {}` block for `currentUser` to resolve.
-  "loom.field-mask-unsupported": `
-system S {
-  user { id: string  role: string }
-  subdomain Sub { context C {
-    aggregate Order with crudish {
-      code: string
-      total: int mask unless currentUser.role == "admin"
-    }
-    repository Orders for Order
-  } }
-}`,
-  // Needs the DEPLOYMENT side, and specifically a JAVA one: the same field is
-  // legal on every other backend (`get case()` / `def case` / `field :case` /
-  // `@case`), so a declaration-only system — or a node one — raises nothing.
-  // F11: an operation whose C# method name hides the sibling entity part the
-  // same class body constructs (`Comment._Create(...)` -> CS0119).
-  "loom.dotnet-name-collision": `
-system P {
-  subdomain D { context Orders {
-    aggregate Order with crudish {
-      note: string
-      contains lines: Line[]
-      operation line(sku: string) { lines += Line { sku: sku } }
-      entity Line { sku: string }
-    }
-    repository Orders for Order
-  } }
-  api A from D
-  storage pg { type: postgres }
-  resource st { for: Orders, kind: state, use: pg }
-  deployable d { platform: dotnet, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
-}`,
-  // --- reserved-field-name-checks.ts ---------------------------------------
-  // Universal: a dunder field (Ecto's `__meta__`), on any backend.
-  "loom.dunder-field-name": repoOnly(`    aggregate Thing with crudish { __meta__: string }
-    repository Things for Thing`),
-  // A document-shaped aggregate on an ELIXIR deployable whose stamp value calls
-  // the aggregate's own function: the document write seam has no record to
-  // evaluate it against.
-  "loom.stamp-reads-aggregate-unsupported": `
-system P {
-  subdomain D { context Orders {
-    aggregate Order shape: document with crudish {
-      qty: int
-      total: int managed
-      function doubled(): int = qty * 2
-      stamp onCreate { total := doubled() }
-    }
-    repository Orders for Order
-  } }
-  api A from D
-  storage pg { type: postgres }
-  resource st { for: Orders, kind: state, use: pg }
-  deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
-}`,
-  // --- workflow-checks.ts --------------------------------------------------
-  // M-T9.19 recorded FOUR of this file's codes as unemittable from source.
-  // Driving each one instead of re-reading the note found that claim wrong for
-  // `loom.workflow-name-collision`: its stated preemption ("by
-  // `loom.duplicate-workflow`") does not hold, because the two gates test
-  // different things — `duplicate-workflow` fires on a REPEATED workflow name,
-  // `workflow-name-collision` on a clash with an aggregate / value object /
-  // enum / event / repository, and a workflow named after an aggregate trips
-  // only the second.  The other three are confirmed preempted and pinned below.
-  "loom.duplicate-repository": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing
-    repository Stuff for Thing`),
-  // An operation reusing a field's name: one member namespace per aggregate.
-  "loom.member-name-collision": repoOnly(`    aggregate Thing with crudish {
-      qty: int
-      operation qty(n: int) { qty := n }
-    }
-    repository Things for Thing`),
-  // Two contexts one deployable hosts, each declaring an `Order` aggregate.
-  "loom.hosted-type-name-collision": `
-system S {
-  subdomain D {
-    context Sales {
-      aggregate Order with crudish { qty: int }
-      repository Orders for Order
-    }
-    context Billing {
-      aggregate Order with crudish { amt: int }
-      repository BillingOrders for Order
-    }
-  }
-  api A from D
-  storage pg { type: postgres }
-  resource s { for: Sales, kind: state, use: pg }
-  resource b { for: Billing, kind: state, use: pg }
-  deployable d { platform: node, contexts: [Sales, Billing], dataSources: [s, b], serves: A, port: 4000 }
-}`,
-  "loom.duplicate-workflow": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing
-    workflow Dup { create(n: string) { precondition n.length > 0 } }
-    workflow Dup { create(n: string) { precondition n.length > 0 } }`),
-  // F-114.  An aggregate with no `create`, no `with crudish`, nothing that
-  // builds one and no seed row: `POST /policies` is 405 and the table can only
-  // ever be empty.  The `Claim` beside it is the control — it carries
-  // `with crudish`, so exactly one of the two is flagged.
-  "loom.aggregate-not-constructible":
-    repoOnly(`    aggregate Claim with crudish { reference: string }
-    repository Claims for Claim
-    aggregate Policy { code: string }
-    repository Policies for Policy`),
-  // F-113.  A PARTIALLY-wired command body: `reference` is read (the control —
-  // it proves the gate is not a blanket "a create has params"), `notes` is
-  // not, so the emitted request schema publishes `notes` as required and the
-  // body throws it away.  A wholly empty body is deliberately NOT this shape;
-  // see the check's header.
-  // An unread `find` read: it answers absence as a value, so the binding does
-  // nothing (a `get` would be an existence check and is not flagged).
-  "loom.unused-let": repoOnly(`    aggregate Claim with crudish { reference: string }
-    repository Claims for Claim
-    commandHandler Touch(c: Claim id) { let x = Claims.find(c) }`),
-  "loom.workflow-param-unused": repoOnly(`    aggregate Claim with crudish { reference: string }
-    repository Claims for Claim
-    workflow file {
-      create(reference: string, notes: string) {
-        let c = Claim.create(reference: reference)
-      }
-    }`),
-  "loom.workflow-name-collision": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing
-    workflow Thing { create(n: string) { precondition n.length > 0 } }`),
-  // Declared names differ only in case, so the namespace gate above passes —
-  // but both derive the table `sweeps`.
-  // `count` takes no column; the grouped select passes one.
-  "loom.projection-aggregate-arity":
-    repoOnly(`    aggregate Ticket with crudish { queue: string  breached: bool }
-    repository Tickets for Ticket
-    projection ByQueue { queue: string  breached: int
-      from Ticket as t
-      group by t.queue
-      select queue = t.queue, breached = count(t.breached) }`),
-  "loom.persisted-table-collision": repoOnly(`    aggregate Sweep with crudish { at: datetime }
-    repository Sweeps for Sweep
-    event Tick { sweep: Sweep id }
-    workflow sweep { sweep: Sweep id  create(t: Tick) by t.sweep { } }`),
-  // F58 / M-T6.62.  A correlation field exists, but the COMMAND create supplies
-  // it neither way: `oid` does not name-match `orderId`, and the body never
-  // assigns `orderId := oid` either — so the body would render against an
-  // unbound receiver on all five backends.
-  "loom.workflow-create-correlation-unsupplied":
-    repoOnly(`    aggregate Order with crudish { name: string }
-    repository Orders for Order
-    workflow W {
-      orderId: Order id
-      status: string
-      create(oid: Order id) { status := "Pending" }
-    }`),
-  // A state write on a workflow with no id-shaped state field: no instance row
-  // is kept, so the write is unaddressable.
-  "loom.workflow-uncorrelated-state-write":
-    repoOnly(`    aggregate Order with crudish { name: string }
-    repository Orders for Order
-    workflow Tally {
-      total: int
-      create(n: int) { total := n }
-    }`),
-  // The read twin: the create reads state the workflow keeps no row for.
-  "loom.workflow-uncorrelated-state-read":
-    repoOnly(`    aggregate Order with crudish { name: string }
-    repository Orders for Order
-    workflow Tally {
-      total: int
-      create(n: int) { precondition total == 0 }
-    }`),
-  // A let-bound mutating call: `a.rename` mutates `o`, but no save covers it.
-  "loom.workflow-mutation-unsaved": repoOnly(`    aggregate Order with crudish {
-      name: string
-      operation rename(n: string): string { name := n  return n }
-    }
-    repository Orders for Order
-    workflow W {
-      create(oid: Order id) {
-        let o = Orders.get(oid)
-        let r = o.rename("x") + "!"
-      }
-    }`),
-  // `let r = o.hold()` whose result can be an error, never matched: nothing may
-  // save the tentative change.
-  // `X id` naming a value object: only aggregates and entity parts carry an id.
-  "loom.id-target-not-identity": repoOnly(`    valueobject Pt { x: int }
-    aggregate R with crudish { p: Pt id }`),
-  // `create(…): W` answers the workflow's instance state, but W has no
-  // correlation field, so no instance is persisted.
-  "loom.workflow-return-this-uncorrelated": repoOnly(`    error Declined { reason: string }
-    workflow W {
-      create(n: int): W or Declined {
-        if n > 0 { notFound }
-        return this
-      }
-    }`),
-  "loom.workflow-mutation-result-unmatched": repoOnly(`    error Held { reason: string }
-    aggregate Order with crudish {
-      name: string
-      operation hold(): string or Held { name := "held"  return Held { reason: name } }
-    }
-    repository Orders for Order
-    workflow W {
-      create(oid: Order id) {
-        let o = Orders.get(oid)
-        let r = o.hold()
-        let s = r
-      }
-    }`),
-  // An aggregate factory call in the retired record form.
-  "loom.create-record-form": repoOnly(`    aggregate Order with crudish { name: string }
-    repository Orders for Order { }
-    workflow W {
-      create(n: string) {
-        // codemod-create-record-to-call: keep
-        let o = Order.create({ name: n })
-      }
-    }`),
-  // A factory call with more positions than the create input has.
-  "loom.create-args": repoOnly(`    aggregate Order with crudish { name: string }
-    repository Orders for Order
-    workflow W {
-      create(n: string) {
-        let o = Order.create(n, n)
-      }
-    }`),
-  // An explicit persistence statement in a workflow body: the body persists at
-  // its exit, so `Orders.save(o)` is refused rather than reinterpreted.
-  "loom.workflow-explicit-save": repoOnly(`    aggregate Order with crudish {
-      name: string
-      operation rename(n: string) { name := n }
-    }
-    repository Orders for Order
-    workflow W {
-      create(oid: Order id) {
-        let o = Orders.get(oid)
-        o.rename("x")
-        Orders.save(o)
-      }
-    }`),
-  // A repository reached INLINE, inside a `precondition` expression, instead of
-  // bound to its own `let`.  The let-bound sibling read (`Things.getById`) in
-  // the same body is the control: only the inline `Others` is flagged, which is
-  // what makes the fixture's diagnostic meaningful rather than a blanket
-  // "a repository name appears in this workflow".
-  "loom.workflow-inline-repository-call":
-    repoOnly(`    aggregate Thing with crudish { name: string  otherId: Other id }
-    repository Things for Thing
-    aggregate Other with crudish { label: string }
-    repository Others for Other
-    workflow W {
-      create(tid: Thing id) {
-        let t = Things.get(tid)
-        precondition t.name == "" || t.name == Others.get(t.otherId).label
-      }
-    }`),
-  // A name that binds to nothing inside a `commandHandler` body — the handler
-  // twin of `loom.workflow-unknown-name`.
-  "loom.handler-unknown-name":
-    repoOnly(`    aggregate Thing with crudish { name: string  operation rename(n: string) { name := n } }
-    repository Things for Thing
-    commandHandler RenameThing(tid: Thing id) {
-      let t = Things.get(tid)
-      t.rename(Nowhere.label)
-    }`),
-  // An assignment in a `commandHandler` body — a handler has no state to write.
-  "loom.handler-unrecognised-statement":
-    repoOnly(`    aggregate Thing with crudish { name: string  operation rename(n: string) { name := n } }
-    repository Things for Thing
-    commandHandler RenameThing(tid: Thing id) {
-      let t = Things.get(tid)
-      let n = 1
-      t.rename("x")
-      n := 2
-    }`),
-  // A member off an explicitly-paged `QueryView` binding that the paged
-  // envelope does not carry.
-  "loom.paged-envelope-unknown-member": uiPage(
-    `QueryView { of: Catalog.Item.all, paged: true, data: rows => Text { rows.frob } }`,
-  ),
-  // The code whose "covered by message in validation.test.ts" claim outlived
-  // the file it cited (M-T9.33's own opening finding).  It fires: an `emit`
-  // supplying a field the event does not declare.
-  // The AST-phase (④) twin of `loom.workflow-emit-unknown-field`, and the one
-  // site M-T9.56's gate half drained as its proof that the drain path works.
-  // Deliberately an AGGREGATE emit, not a workflow one: the IR check below only
-  // walks workflow bodies, so this shape is the half of the condition that used
-  // to reach the user as `loom.unknown` with nothing else raised beside it.
-  "loom.emit-unknown-field": repoOnly(`    event Opened { account: Account id, owner: string }
-    aggregate Account persistedAs: eventLog {
-      owner: string
-      create open(owner: string) { emit Opened { account: id, owner: owner, bogus: owner } }
-      apply(e: Opened) { owner := e.owner }
-    }
-    repository Accounts for Account`),
-
-  // --- the M-T9.56 drain of `src/language/validators/statements.ts` --------
-  // 22 uncoded sites: the three "modifier on a private operation" warnings,
-  // the guard type checks, the assignment / collection-mutation ladder, the
-  // `emit` field checks and the l-value / call resolution chain.  All of them
-  // shared one `loom.unknown` on the wire.  `orderOps(...)` puts the defect in
-  // one aggregate body, which is where every one of them lives.
-  "loom.audited-private-operation": orderOps(
-    "private operation quiet() audited { total := total + 1 }",
-  ),
-  "loom.when-private-operation": orderOps(
-    "private operation p() when total > 0 { total := total + 1 }",
-  ),
-  "loom.requires-private-operation": orderOps(
-    "private operation p() requires true { total := total + 1 }",
-  ),
-  "loom.when-not-bool": orderOps("operation p() when name { total := total + 1 }"),
-  // The `requires` gate at the OPERATION site.  Its four siblings — the in-body
-  // `requires` statement, the workflow create gate (`structural.ts`),
-  // the read-path find/projection gate (`repository.ts`) and the handler-body
-  // statement (`types.ts`) — share this code, so one fixture covers the family.
-  "loom.requires-not-bool": orderOps("operation p() requires name { total := total + 1 }"),
-  // A parameter gate after an assignment: it reads no field and no local, so
-  // it could sit on the gate ladder, but runs after the load, `If-Match` and
-  // `when`.
-  "loom.requires-not-leading": orderOps(
-    "operation p(n: int) { total := total + 1\n requires n > 0 }",
-  ),
-  "loom.precondition-not-bool": orderOps("operation p() { precondition name }"),
-  "loom.assign-to-derived": orderOps('operation p() { label := "x" }'),
-  "loom.assign-to-local": orderOps("operation p(n: int) { n := 2 }"),
-  "loom.assign-through-local-unsupported": orderOps(
-    'operation p() { let t = tag\n t.label := "x" }',
-  ),
-  "loom.duplicate-let": orderOps("operation p() { let n = 1\n let n = 2\n total := n }"),
-  "loom.assign-type-mismatch": orderOps("operation p() { name := 1 }"),
-  "loom.collection-mutation-non-collection": orderOps('operation p() { name += "x" }'),
-  "loom.collection-mutation-element-type": orderOps("operation p() { tags += 1 }"),
-  "loom.emit-field-type": orderOps('operation p() { emit Bumped { by: "no", note: "n" } }'),
-  "loom.emit-field-missing": orderOps("operation p() { emit Bumped { by: 1 } }"),
-  "loom.operation-self-call": orderOps("operation p() { p() }"),
-  "loom.unresolved-call": orderOps("operation p() { nope() }"),
-  // Both slugs of the code in one body: the mid-chain step (`tag.nope := …`)
-  // and the final member-call step, which can name the receiver type.
-  "loom.unresolved-member": orderOps(
-    'operation p() { tag.nope := "x" }\n      operation q() { tag.nope() }',
-  ),
-  "loom.member-not-callable": orderOps("operation p() { tag.label() }"),
-  "loom.bare-statement-invalid": orderOps("operation p() { name }"),
-  "loom.unresolved-lvalue-head": orderOps("operation p() { ghost := 1 }"),
-  // The member-function form.  Its two siblings — the top-level
-  // expression-form function (`toplevel-function.ts`) and the block-body
-  // `return` (`types.ts`) — share this code.
-  "loom.function-return-type-mismatch": orderOps('function bad(): int = "x"'),
-  "loom.let-type-mismatch": orderOps('operation bad() { let n: int = "x" }'),
-  // Every other callable with a declared result type: an operation here; the
-  // domain-service operation and handler arms share the check.
-  "loom.return-type-mismatch": orderOps('operation bad(): int { return "x" }'),
-  "loom.return-missing": orderOps("operation bad(): int { if total > 0 { return 1 } }"),
-  // A handler `return` nested in a branch would not stop the statements after
-  // it; only a trailing single-row guard may hold one.
-  "loom.handler-return-not-last": `
-system S {
-  subdomain D { context Orders {
-    aggregate Order with crudish { total: int }
-    repository Orders for Order
-    queryHandler Q(n: int): int { if n > 0 { return 1 } else { return 2 } }
-  } }
-}`,
-  // `T option` is the deprecated spelling of `T?`.
-  "loom.envelope-removed": repoOnly(`    aggregate Order with crudish { code: string }
-    repository Orders for Order
-    queryHandler One(id: Order id): Order envelope {
-      let o = Orders.get(id)
-      return o
-    }`),
-  "loom.option-deprecated": repoOnly(`    aggregate Order with crudish { code: string }
-    repository Orders for Order
-    criterion OrderByCode(code: string) of Order = this.code == code
-    queryHandler ByCode(code: string): Order option {
-      let r = Orders.find(OrderByCode(code))
-      return r
-    }`),
-  // A dropped `or E` result: the call statement throws the `error` case away.
-  "loom.unhandled-result": repoOnly(`    error Rejected { reason: string }
-    aggregate Order with crudish {
-      code: string
-      operation probe(): Order or Rejected { return Rejected { reason: code } }
-      operation touch() { probe() }
-    }`),
-  // `all(…)` over an inline predicate rather than a criterion / retrieval
-  // reference.
-  "loom.repo-all-arg": `
-system S {
-  subdomain Sales { context Orders {
-    aggregate Order with crudish { code: string  region: string }
-    repository Orders for Order
-    criterion ActiveOrder of Order = region != ""
-    command C { region: string }
-    workflow W {
-      create(c: C) { let xs = Orders.all(this.region == c.region) }
-    }
-  } }
-}`,
-
-  // A `paged` queryHandler over a named RETRIEVAL — no backend emits it (item 7
-  // of the 2026-09-28 eval-closure review: it used to crash `generate`).
-  "loom.paged-query-handler-shape": `
-system S {
-  subdomain Sales { context Orders {
-    aggregate Order with crudish { code: string  region: string }
-    repository Orders for Order
-    criterion InRegion(rgn: string) of Order = region == rgn
-    retrieval ByRegion(rgn: string) of Order { where: InRegion(rgn)  sort: [code asc] }
-    queryHandler ListViaRetrieval(rgn: string): Order paged {
-      let tag = "x"
-      let r = Orders.all(ByRegion(rgn))
-      return r
-    }
-  } }
-}`,
-
-  "loom.workflow-emit-unknown-field": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing
-    event Happened { thing: Thing id, label: string }
-    workflow W {
-      create(n: string) { emit Happened { thing: id, label: n, bogus: n } }
-    }`),
-  // `Repo.run(<Retrieval>(args))` naming a retrieval the context does not
-  // declare.  Its repository-side sibling is NOT drivable — an unknown
-  // repository name never lowers to a `repo-run` at all — so only this half
-  // gets a fixture.  Control: the same source with `ActiveOrders()` raises
-  // nothing, which is what makes the fixture's single diagnostic meaningful.
-  "loom.workflow-run-unknown-retrieval":
-    repoOnly(`    aggregate Order with crudish { code: string  archived: bool }
-    criterion Active of Order = !this.archived
-    retrieval ActiveOrders() of Order { where: Active  sort: [code asc] }
-    repository Orders for Order
-    workflow W {
-      create(n: string) { let batch = Orders.all(Nope()) }
-    }`),
-
-  // --- the last singletons, each DRIVEN before being classified -----------
-  // An applier body is a pure fold; a CALL statement in one is the impurity.
-  // (Raises several event-sourcing codes together — the assertion is
-  // containment, so a fixture may legitimately trip more than its own.)
-  "loom.applier-impure-call": repoOnly(`    event Opened { account: Account id }
-    aggregate Account persistedAs: eventLog {
-      owner: string
-      operation touch() { owner := "x" }
-      create open(owner: string) { emit Opened { account: id } }
-      apply(e: Opened) { touch() }
-    }
-    repository Accounts for Account`),
-
-  // A resource op whose capability the bound storage does not offer.
-  // `localDisk` offers objectStore{blob,list}; `signedUrl` is s3-only — so the
-  // SAME source on `type: s3` does not raise this code, which is what makes
-  // the fixture discriminating rather than incidental.
-  "loom.resource-missing-capability": `
-system S {
-  subdomain Sub { context C {
-    aggregate Doc with crudish { name: string }
-    repository Docs for Doc
-    workflow W {
-      create(k: string) { let u = Blobs.signedUrl(k) }
-    }
-  } }
-  storage pg { type: postgres }
-  storage files { type: localDisk }
-  resource st { for: C, kind: state, use: pg }
-  resource Blobs { for: C, kind: objectStore, use: files }
-  deployable api { platform: node contexts: [C] dataSources: [st, Blobs] port: 3000 }
-}`,
-
-  // A UI-mounting deployable whose form would need a Select picker for an
-  // `X id` naming no aggregate in the system.  Needs the ui + react deployable
-  // — a backend-only system never reaches the id-reference walk.
-  "loom.ui-id-ref-unknown-aggregate": `
-system S {
-  subdomain Sub { context C {
-    aggregate Order with crudish { code: string  buyer: Ghost id }
-    repository Orders for Order
-  } }
-  api A from Sub
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  ui W { api Sales: A }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
-  deployable web { platform: react targets: api ui: W { Sales: api } port: 3001 }
-}`,
-
-  "loom.sub-primitive-misplaced": `
-system S {
-  subdomain Sub { context C {
-    aggregate Thing with crudish { name: string }
-  } }
-  api Api from Sub
-  ui WebApp {
-    framework: react
-    api C: Api
-    page Home { route: "/"  body: Stack { Tab("one") } }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-
-  // The TARGET-AGNOSTIC `match await` subject gate (audit F66).  The fixture is
-  // deliberately a REACT deployable: the whole point of the promotion is that
-  // this model used to report `0 error(s), 0 warning(s)` there and emit
-  // `await Promise.reject(new Error("no remote op for variant-match"))`, while
-  // the identical model was refused on Feliz.  A plain `string` state field is
-  // the subject — no frontend can resolve it to an aggregate instance op.
-  "loom.async-effect-subject-unsupported": `
-system S {
-  subdomain Sub { context C {
-    aggregate Order { code: string  operation place() { code := "x" } }
-    repository Orders for Order
-  } }
-  api Api from Sub
-  ui WebApp {
-    api C: Api
-    page OrderDetail {
-      route: "/orders/:id"
-      state { message: string = "" }
-      action submit() {
-        match await message {
-          Order o => { message := o.code }
-        }
-      }
-      body: Stack { Button { "Place", onClick: submit } }
+    page Home {
+      route: "/"
+      body: Stack { CreateForm { of: Order }, CreateForm { of: Note } }
     }
   }
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
-  // The `persist:` ladder now ships on EVERY frontend, so the platform-wide arm
-  // of this code is gone; what remains is field-scoped.  Persistence on feliz
-  // and flutter crosses an untyped boundary per field, so a cell whose type has
-  // no total conversion in that language's codec is refused rather than
-  // silently dropped from the stored blob.  Since wave C2 packet 2i the FELIZ
-  // residue is exactly the types that would need a RECORD codec — a value
-  // object here; `datetime` (the fixture's old subject) now has a total
-  // `System.DateTime.TryParse` codec and rides the ladder.  Packet 2l added the
-  // `optional` arm, which does NOT widen this fixture: an optional of a record
-  // is refused for the same reason the bare record is.
-  "loom.store-lifetime-target-unsupported": `
+  // --- page-body / gate shapes that used to reach CODEGEN (audit D2/D3/D4) --
+  // `permissions.<name>` is a subdomain-scoped catalogue reference; a `ui` is
+  // declared outside the subdomain that owns it, so the name does not resolve
+  // and no frontend can evaluate the gate.  Before the check this reached
+  // `renderGateExpr`, which threw a bare JS `Error` with no code and no page.
+  "loom.page-gate-not-client-evaluable": `
 system S {
-  subdomain Sub { context C {
-    valueobject Money { amount: int  currency: string }
-    aggregate Thing with crudish { name: string }
-  } }
-  api Api from Sub
-  ui WebApp {
-    framework: feliz
-    api C: Api
-    store Cart persist: local { state { price: Money } }
-    page Home { route: "/"  body: Stack { Heading { "hi", level: 3 } } }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: feliz targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-
-  // A resource handle is ambient over the whole context, but only the
-  // application-layer emitters (workflow / command+query handler) have the
-  // resource client in scope — a domainService body is rejected too.
-  "loom.resource-op-outside-workflow": `
-system S {
-  subdomain Sub { context C {
-    aggregate Thing {
-      name: string
-      operation archive() { files.put("t/" + this.name, this.name) }
+  user { id: string  role: string  permissions: string[] }
+  subdomain Warehouse {
+    permissions { manage }
+    context Stock {
+      aggregate Item with crudish { sku: string }
+      repository Items for Item
     }
-    repository Things for Thing
-  } }
-  api Api from Sub
+  }
+  api StockApi from Warehouse
   storage pg { type: postgres }
-  storage blobs { type: s3, config: { bucket: "b" } }
-  resource st { for: C, kind: state, use: pg }
-  resource files { for: C, kind: objectStore, use: blobs }
+  resource st { for: Stock, kind: state, use: pg }
   deployable api {
     platform: node
-    contexts: [C]
-    dataSources: [st, files]
-    serves: Api
-    port: 3000
+    contexts: [Stock]
+    dataSources: [st]
+    serves: StockApi
+    auth: required
+    port: 8080
   }
-}`,
-  // A domainService's `reading` tier is scoped to its OWN context: a body
-  // naming another context's repository never lowers to a `repo-read`, so all
-  // five backends render the unresolved receiver verbatim.
-  "loom.domain-service-cross-context-read": `
-system S {
-  subdomain Sub {
-    context Billing {
-      aggregate Customer { name: string }
-      repository Customers for Customer
-      criterion CustomersByName(name: string) of Customer = this.name == name
-    }
-    context Ordering {
-      aggregate Order { ref: string }
-      repository Orders for Order
-      domainService Naming {
-        operation isFree(r: string): bool { return Customers.find(CustomersByName(r)) == null }
-      }
-    }
-  }
-}`,
-  // The workflow-body twin of the gate above, and the same mechanism: the
-  // workflow lowerer indexes `reposByName` from its own context alone, so a
-  // foreign repository name never becomes a `repo-let` — it survives as a `ref`
-  // with `refKind: "unknown"` and every backend renders it verbatim.
-  "loom.workflow-cross-context-repository": `
-system S {
-  subdomain Sub {
-    context Directory {
-      aggregate Technician with crudish { skills: string[] }
-      repository Technicians for Technician
-    }
-    context Dispatch {
-      aggregate WorkOrder with crudish {
-        status: string
-        operation assign() { status := "Assigned" }
-      }
-      repository WorkOrders for WorkOrder
-      workflow scheduleWorkOrder transactional {
-        create(workOrderId: WorkOrder id, assignTo: Technician id) {
-          let tech = Technicians.get(assignTo)
-          let wo = WorkOrders.get(workOrderId)
-          precondition tech.skills.count > 0
-          wo.assign()
-        }
-      }
-    }
-  }
-}`,
-  // The aggregate-side twin: a plain `operation` naming a repository — the
-  // spelling that is legal in a `workflow`, where a repository IS in scope.
-  // In a domain member body it lowers to an unresolved ref that all five
-  // backends render verbatim into a class that binds no repository.
-  "loom.repository-access-outside-workflow": `
-system S {
-  subdomain Sub { context Ops {
-    aggregate Technician { name: string }
-    repository Technicians for Technician
-    aggregate Job {
-      technicianId: Technician id
-      assignedName: string
-      operation assign(assignTo: Technician id) {
-        technicianId := assignTo
-        assignedName := Technicians.get(assignTo).name
-      }
-    }
-    repository Jobs for Job
-  } }
-}`,
-
-  // An unresolved bare ref in a rendered slot: the walker emits a comment and
-  // the content silently disappears on all six frontends (A17).
-  "loom.unresolved-page-ref": `
-system S {
-  subdomain Sub { context C {
-    aggregate Thing with crudish { name: string }
-  } }
-  api Api from Sub
   ui WebApp {
-    framework: react
-    api C: Api
-    page Home { route: "/"  body: Text { nosuchthing } }
+    api Warehouse: StockApi
+    page Secret {
+      route: "/secret"
+      requires currentUser.role.startsWith("staff")
+      body: Stack { Text { "hi" } }
+    }
   }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+  deployable web {
+    platform: static
+    targets: api
+    auth: ui
+    ui: WebApp { Warehouse: api }
+    port: 3001
+  }
 }`,
+  "loom.page-layout-unknown": uiMembers(
+    'page P { route: "/a"  layout: Nonesuch  body: Stack { Text { "hi" } } }',
+  ),
+  "loom.page-menu-key-unknown": uiMembers(
+    'page P { route: "/a"  menu { bogus: "x" }  body: Stack { Text { "hi" } } }',
+  ),
 
   // `Stat(label, value)` is a fixed two-slot shape, not a children container —
   // a third positional is rendered by no design pack (A7's arity half).
@@ -3147,60 +2627,6 @@ system S {
     framework: react
     api C: Api
     page Home { route: "/"  body: Stat { "Revenue", "10", Text { "extra" } } }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-
-  // A client-side `Table { filter: … }` over a SERVER-PAGED table narrows one
-  // server window, so the walker drops the arg.  The auto-paged rewrite makes
-  // this the shape the simplest hand-written paged table lands in (M-T1.1).
-  "loom.table-filter-server-paged": `
-system S {
-  subdomain Sub { context C {
-    aggregate Thing with crudish { name: string }
-  } }
-  api Api from Sub
-  ui WebApp {
-    framework: react
-    api C: Api
-    page Home {
-      route: "/"
-      state { q: string = "" }
-      body: QueryView {
-        of: C.Thing.all,
-        data: rows => Table { rows: rows, filter: q, Column { "Name", o => Text { o.name } } }
-      }
-    }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-
-  // The state-controlled shell and the operation-form dialog do not combine on
-  // react / vue / svelte / flutter — the WHOLE modal becomes a comment
-  // (F2-CFE-12).  Angular, Feliz and HEEx render it, so the gate is per-target.
-  "loom.modal-controlled-op-form-unsupported": `
-system S {
-  subdomain Sub { context C {
-    aggregate Thing with crudish {
-      name: string
-      operation activate() { }
-    }
-  } }
-  api Api from Sub
-  ui WebApp {
-    framework: react
-    api C: Api
-    page Home {
-      route: "/"
-      state { shown: bool = false }
-      body: Modal { open: shown, OperationForm { of: Thing, op: activate } }
-    }
   }
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
@@ -3247,1336 +2673,121 @@ system S {
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
 }`,
-  // A `QueryView` `of:` naming an operation the repository never declares.
-  // `findAllBySellable` is the shape a criterion gets only where `scaffoldPaged`
-  // synthesizes it; without that macro the criterion exists and the find does
-  // not, and the read used to become the unfiltered list on Phoenix.
-  "loom.ui-read-unresolved": `
-system S {
-  subdomain Sub { context C {
-    aggregate Product with crudish { name: string }
-    repository Products for Product
-  } }
-  api Api from Sub
-  ui WebApp {
-    framework: react
-    api C: Api
-    page Shop {
-      route: "/shop"
-      body: QueryView { of: Product.findAllBySellable(), data: rows => Text { rows.count } }
-    }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-  // `OperationForm { of:, op: }` names no record, so every frontend targets the
-  // page's route `:id` — on a route that declares none it submits an empty id.
-  "loom.op-form-needs-route-id": `
-system S {
-  subdomain Sub { context C {
-    aggregate Item with crudish { name: string  operation activate() { } }
-    repository Items for Item
-  } }
-  api Api from Sub
-  ui WebApp {
-    framework: react
-    api C: Api
-    page A { route: "/a"  body: Stack { OperationForm { of: Item, op: activate } } }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-  // `DestroyForm { of: … }` whose `of:` is not an aggregate carrying a canonical
-  // destroy.  `Note` declares no `destroy { }` and is not `with crudish`, so the
-  // form has nothing to submit — five frontends drop it for a comment and Feliz
-  // dispatches a `Msg` case that does not exist.
-  "loom.destroy-form-of-unresolved": `
-system S {
-  subdomain Sub { context C {
-    aggregate Note { text: string }
-    repository Notes for Note
-  } }
-  api Api from Sub
-  ui WebApp {
-    framework: react
-    api C: Api
-    page A(id: Note id) { route: "/a/:id"  body: Stack { DestroyForm { of: Note } } }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-  // `CreateForm { of: … }` over an aggregate that serves no create: `Note`
-  // declares no `create` and is not `with crudish`, so no target emits the
-  // create route, hook or context function the form would call.
-  "loom.create-form-no-create": `
-system S {
-  subdomain Sub { context C {
-    aggregate Note { text: string }
-    repository Notes for Note
-  } }
-  api Api from Sub
-  ui WebApp {
-    framework: react
-    api C: Api
-    page A { route: "/a"  body: Stack { CreateForm { of: Note } } }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-  // --- frontend deployable without a `ui:` binding ------------------------
-  "loom.react-deployable-missing-ui": spaMissingUi("react"),
-  "loom.svelte-deployable-missing-ui": spaMissingUi("svelte"),
-  "loom.vue-deployable-missing-ui": spaMissingUi("vue"),
-  "loom.angular-deployable-missing-ui": spaMissingUi("angular"),
-  // The two SELF-HOSTING frontends (own build toolchain, not the static-bundle
-  // pipeline) were missing from the rule entirely: feliz crashed codegen with a
-  // raw `Error`, flutter emitted a placeholder app at exit 0.
-  "loom.feliz-deployable-missing-ui": spaMissingUi("feliz"),
-  "loom.flutter-deployable-missing-ui": spaMissingUi("flutter"),
-  // --- the M-T9.56 drain of `ddd-validator.ts` + `structural.ts` + ---------
-  // --- `_shared.ts` (the last 13 uncoded sites) ---------------------------
-  // The five system-scope declaration rules live on one `systemScope(...)`
-  // base; the aggregate-shape rules and the one forwarding helper live on
-  // `aggShape(...)`.
-  "loom.duplicate-ui": systemScope(
-    '  ui WebApp { framework: react  page H { route: "/" body: Stack { Text { "x" } } } }\n' +
-      '  ui WebApp { framework: react  page H2 { route: "/2" body: Stack { Text { "x" } } } }',
-  ),
-  "loom.duplicate-api": systemScope("  api Api from D\n  api Api from D"),
-  "loom.api-unknown-subdomain": systemScope("  api Ghost from Nowhere"),
-  "loom.duplicate-storage": systemScope(
-    "  storage pg { type: postgres }\n  storage pg { type: postgres }",
-  ),
-  "loom.duplicate-resource": systemScope(
-    "  storage pg { type: postgres }\n" +
-      "  resource st { for: C, kind: state, use: pg }\n" +
-      "  resource st { for: C, kind: state, use: pg }",
-  ),
-  // Both `#slug`s of the theme rule: `composition.ts` counts across composing
-  // FILES, this arm counts inside one `system` block.  One source drives both.
-  "loom.duplicate-theme-block": systemScope(
-    '  theme { primary: "#3b82f6" }\n  theme { neutral: "#64748b" }',
-  ),
-  "loom.i18n-source-invalid": systemScope('  i18n { source: "not a tag" }'),
-  "loom.i18n-duplicate": systemScope('  i18n { source: "en" }\n  i18n { source: "de" }'),
-  "loom.audited-no-command": aggShape("audited", "      name: string"),
-  "loom.duplicate-entity-part": aggShape(
-    "",
-    "      entity Part { n: int }\n      entity Part { n: int }",
-  ),
-  "loom.duplicate-derived": aggShape(
-    "",
-    "      name: string\n      derived display: string = name\n      derived display: string = name",
-  ),
-  "loom.containment-optional-collection": aggShape(
-    "",
-    "      entity Part { n: int }\n      contains parts: Part[]?",
-  ),
-
-  // --- the M-T9.56 drain of `src/language/validators/datasource.ts` -------
-  // Three rules, nine sites: the kind must suit the storage's type, a knob
-  // must suit the kind, and a knob must suit the storage.  One fixture per
-  // CODE; the `#slug`s are the individual knobs.
-  "loom.resource-kind-storage-mismatch": resourced("resource bad { for: C, kind: state, use: kv }"),
-  "loom.resource-knob-kind-mismatch": resourced(
-    "resource ttlBad { for: C, kind: state, use: pg, ttl: 60 }",
-  ),
-  "loom.resource-knob-storage-mismatch": resourced(
-    'resource schemaBad { for: C, kind: cache, use: kv, schema: "s" }',
-  ),
-
-  // --- the M-T9.56 drain of `src/language/validators/traceability.ts` -----
-  // The `requirement { … }` prop bag: an unknown key, a repeated key, the four
-  // per-value shape rules, the two required keys and the parent-chain cycle.
-  "loom.requirement-property-unknown": requirements(
-    'requirement R1 { bogus: 1 type: UserStory title: "t" }',
-  ),
-  "loom.requirement-property-duplicate": requirements(
-    'requirement R2 { type: UserStory type: UserStory title: "t" }',
-  ),
-  "loom.requirement-type-invalid": requirements('requirement R3 { type: Nonsense title: "t" }'),
-  "loom.requirement-status-invalid": requirements(
-    'requirement R4 { type: UserStory title: "t" status: Nonsense }',
-  ),
-  "loom.requirement-title-not-string": requirements("requirement R5 { type: UserStory title: 7 }"),
-  "loom.requirement-priority-not-int": requirements(
-    'requirement R6 { type: UserStory title: "t" priority: "high" }',
-  ),
-  // Both `#slug`s: the missing `type` and the missing `title`.
-  "loom.requirement-property-missing": requirements(
-    'requirement R7 { title: "t" }\nrequirement R8 { type: UserStory }',
-  ),
-  "loom.requirement-parent-cycle": requirements(
-    'requirement R9 parent R10 { type: UserStory title: "t" }\n' +
-      'requirement R10 parent R9 { type: UserStory title: "t" }',
-  ),
-
-  // --- the M-T9.56 drain of `src/language/validators/match.ts` ------------
-  // The `match { … }` shape rules, and the `expect(<actual>).<matcher>(…)`
-  // vocabulary's arity / placement / literal rules.  `matcherTest(...)` puts
-  // one `expect` in an in-process `test` block; the two tier-restricted forms
-  // need the opposite tier, so they carry their own source.
-  "loom.match-empty": orderTypes("derived b: string = match { }"),
-  "loom.match-no-else": orderTypes('derived a: string = match { total > 0 => "hi" }'),
-  "loom.matcher-arity": matcherTest('expect("x").toBe("x", "y")'),
-  "loom.expect-requires-matcher": matcherTest('expect("x")'),
-  // Both `#slug`s of the tier restriction: `toBeSameInstant` and
-  // `toThrow(<status>)` are wire-level and refused OUTSIDE a `test e2e`.
-  "loom.matcher-e2e-only": matcherTest('expect("x").toBeSameInstant("y")'),
-  "loom.tothrow-arity": matcherTest('expect("x").toThrow(404, 500)'),
-  "loom.not-throw-invalid": matcherTest('expect("x").not.toThrow()'),
-  "loom.matches-arity": matcherTest('expect("x").matches("a", "b")'),
-  "loom.matches-named-arg": matcherTest('expect("x").matches(pattern: "a")'),
-  "loom.matches-not-literal": matcherTest('expect("x").matches(1)'),
-  "loom.matches-invalid-regex": matcherTest('expect("x").matches("[A-Z")'),
-  // The mirror of `#throw-status`: INSIDE a `test e2e`, the status argument
-  // must be an integer literal for the e2e renderer to pin it.
-  "loom.tothrow-status-not-int": `
-system S {
-  subdomain D { context C {
-    aggregate Thing with crudish { name: string }
-    repository Things for Thing
-  } }
-  api Api from D
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  test e2e "status must be an int literal" against api {
-    expect(api.things.create({ name: "x" })).toThrow("404")
-  }
-}`,
-
-  // --- the M-T9.56 drain of `src/language/validators/types.ts` ------------
-  // The expression type-checker's own refusals: the two operator arms, the
-  // three `string(x)` / `decimal(x)` conversion arms, and the six leaf checks
-  // on a property / invariant / derived / default.
-  "loom.operator-non-bool-operands": orderTypes("derived bad: bool = total && name"),
-  "loom.operator-operand-mismatch": orderTypes("derived bad: string = total + flag"),
-  "loom.convert-aggregate-no-display": orderTypes("derived self: string = string(this)"),
-  "loom.convert-non-primitive": orderTypes("derived bad: string = string(tag)"),
-  "loom.convert-pair-invalid": orderTypes("derived bad: decimal = decimal(name)"),
-  "loom.property-check-not-bool": orderTypes("checked: int  check total"),
-  "loom.mask-unless-not-bool": orderTypes("masked: string  mask unless total"),
-  "loom.property-default-type-mismatch": orderTypes('badDefault: int = "nope"'),
-  "loom.parameter-default-type-mismatch": orderTypes(
-    'operation withDefault(n: int = "x") { total := total + n }',
-  ),
-  "loom.invariant-not-bool": orderTypes("invariant name"),
-  "loom.invariant-guard-not-bool": orderTypes("invariant total > 0 when total"),
-  "loom.derived-type-mismatch": orderTypes("derived bad: int = name"),
-
-  // --- the M-T9.56 drain of `src/language/validators/ui.ts` ---------------
-  // The `theme { … }` block's five rules.  Each is one property in an
-  // otherwise-valid block, so the fixture's diagnostic set is exactly one.
-  "loom.theme-property-unknown": themed('bogus: "#fff"'),
-  "loom.theme-property-duplicate": themed('primary: "#3b82f6"\n    primary: "#3b82f6"'),
-  "loom.theme-color-invalid": themed('neutral: "not-a-hex"'),
-  "loom.theme-radius-invalid": themed('radius: "gigantic"'),
-  "loom.theme-color-scheme-invalid": themed('colorScheme: "sepia"'),
-  // The `ui { … }` member rules.
-  "loom.ui-api-param-duplicate": uiMembers("api Sales: SubApi\n    api Sales: SubApi"),
-  "loom.ui-api-unknown": uiMembers("api Ghost: NopeApi"),
-  "loom.ui-function-duplicate": uiMembers(
-    'function f(x: int): int extern from "./f"\n    function f(x: int): int extern from "./f"',
-  ),
-  "loom.ui-page-duplicate": uiMembers(
-    'page Twin { route: "/a"  body: Stack { Text { "hi" } } }\n' +
-      '    page Twin { route: "/b"  body: Stack { Text { "hi" } } }',
-  ),
   "loom.page-property-duplicate": uiMembers(
     'page P { route: "/a"  route: "/b"  body: Stack { Text { "hi" } } }',
   ),
-  "loom.page-menu-key-unknown": uiMembers(
-    'page P { route: "/a"  menu { bogus: "x" }  body: Stack { Text { "hi" } } }',
+  // A member off an explicitly-paged `QueryView` binding that the paged
+  // envelope does not carry.
+  "loom.paged-envelope-unknown-member": uiPage(
+    `QueryView { of: Catalog.Item.all, paged: true, data: rows => Text { rows.frob } }`,
   ),
-  "loom.page-layout-unknown": uiMembers(
-    'page P { route: "/a"  layout: Nonesuch  body: Stack { Text { "hi" } } }',
-  ),
-  "loom.ui-menu-duplicate": uiMembers(
-    'page P { route: "/a"  body: Stack { Text { "hi" } } }\n' +
-      '    menu { section "Main" { link P } }\n' +
-      '    menu { section "Other" { link P } }',
-  ),
-  "loom.menu-link-property-unknown": uiMembers(
-    'page P { route: "/a"  body: Stack { Text { "hi" } } }\n' +
-      '    menu { section "Main" { link P { bogusKey: "x" } } }',
-  ),
-  // The `<apiParam>.<Aggregate>.<op>` body chain — an aggregate the api's
-  // module does not hold, and an operation the aggregate does not declare.
-  "loom.ui-api-aggregate-unknown": uiMembers(
-    'api Sales: SubApi\n    page P { route: "/a"  body: Stack { Button { "go", onClick: Sales.Ghost.create({ name: "x" }) } } }',
-  ),
-  "loom.ui-api-operation-unknown": uiMembers(
-    'api Sales: SubApi\n    page P { route: "/a"  body: Stack { Button { "go", onClick: Sales.Thing.explode({ name: "x" }) } } }',
-  ),
-  // `api` and `channel` parameters share ONE namespace on a ui, which is what
-  // this rule is for — hence a channel param colliding with an api param.
-  "loom.ui-param-duplicate": `
-system P {
-  subdomain D { context C {
-    aggregate Order with crudish { customerId: string }
-    event OrderPlaced { order: Order id, at: datetime }
-    channel Lifecycle { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }
+  // A paged find's own `page` parameter: the paged read adds a `page` query
+  // control of its own, so the key would arrive twice and every generated
+  // repository signature would declare `page` twice.
+  "loom.paged-param-reserved": `
+system PagedParam {
+  subdomain S { context Shop {
+    aggregate Thing with crudish { rank: int }
+    repository Things for Thing
+    criterion ThingsByRank(page: int) of Thing = this.rank == page
+    queryHandler ListThingsByRank(page: int): Thing paged {
+      let r = Things.all(ThingsByRank(page))
+      return r
+    }
   } }
-  api Api from D
-  ui WebApp {
-    api Live: Api
-    channel Live: C.Lifecycle
-    page Home { route: "/" body: Stack { Heading { "home" } } }
-  }
 }`,
-  // `layout <Name> { … }` — the reserved-name and slot-count rules.
-  "loom.layout-name-reserved": uiMembers('page P { route: "/a"  body: Stack { Text { "x" } } }', {
-    layouts: "layout default { main }",
-  }),
-  "loom.layout-main-slot-missing": uiMembers(
-    'page P { route: "/a"  body: Stack { Text { "x" } } }',
-    { layouts: 'layout NoMain { header { Text { "h" } } }' },
-  ),
-  // Both slugs: the `main` slot counted on its own, and a named slot repeated.
-  "loom.layout-slot-duplicate": uiMembers('page P { route: "/a"  body: Stack { Text { "x" } } }', {
-    layouts:
-      'layout TwoMain { main  main }\n  layout Chrome { main  header { Text { "h" } }  header { Text { "i" } } }',
-  }),
 
-  // --- the M-T9.56 drain of `src/language/validators/deployable.ts` --------
-  // 24 uncoded sites, all of them deployable-composition rules that used to
-  // reach the user as `loom.unknown`.  One fixture each, over the shared
-  // `topology(...)` base above: the extra deployable / knob IS the defect.
-  "loom.static-deployable-missing-ui": topology(
-    "deployable web { platform: static targets: api port: 3001 }",
+  // A `paged` queryHandler over a named RETRIEVAL — no backend emits it (item 7
+  // of the 2026-09-28 eval-closure review: it used to crash `generate`).
+  "loom.paged-query-handler-shape": `
+system S {
+  subdomain Sales { context Orders {
+    aggregate Order with crudish { code: string  region: string }
+    repository Orders for Order
+    criterion InRegion(rgn: string) of Order = region == rgn
+    retrieval ByRegion(rgn: string) of Order { where: InRegion(rgn)  sort: [code asc] }
+    queryHandler ListViaRetrieval(rgn: string): Order paged {
+      let tag = "x"
+      let r = Orders.all(ByRegion(rgn))
+      return r
+    }
+  } }
+}`,
+  // V2 — a default on a callable site whose lowerer drops it.
+  "loom.param-default-unsupported": repoOnly(`    aggregate Thing with crudish { n: int }
+    repository Things for Thing
+    domainService Calc {
+      operation twice(x: int = 3): int { return x * 2 }
+    }`),
+  "loom.parameter-default-type-mismatch": orderTypes(
+    'operation withDefault(n: int = "x") { total := total + n }',
   ),
-  "loom.frontend-targets-missing": topology("deployable web { platform: react port: 3001 }"),
-  "loom.frontend-targets-invalid": topology(`
-  deployable web2 { platform: react targets: api port: 3002 }
-  deployable web { platform: react targets: web2 port: 3001 }`),
-  "loom.frontend-contexts-ignored": topology(
-    "deployable web { platform: react targets: api contexts: [Orders] port: 3001 }",
-  ),
-  "loom.targets-misplaced": topology(
-    "deployable api2 { platform: node targets: api contexts: [Orders] dataSources: [st] port: 3002 }",
-  ),
+  // A mistyped design pack.  `loom.parse-error` is the code `src/api/report.ts`
+  // stamps on Langium's `parsing-error`, and the wording it carries is
+  // `src/language/parse-errors.ts`'s — the closed-set "did you mean" that
+  // replaced chevrotain's numbered token-sequence dump.
+  "loom.parse-error": `
+system S {
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+  } }
+  ui WebApp with scaffold(subdomains: [Sub]) { }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+  deployable web { platform: react, targets: api, ui: WebApp, port: 3001, design: mantinee }
+}`,
+  // A response record field must name a readable member of its aggregate.
+  "loom.payload-response-field": `
+system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    response PResponse { name: string  nickname: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
+}`,
+  "loom.persisted-table-collision": repoOnly(`    aggregate Sweep with crudish { at: datetime }
+    repository Sweeps for Sweep
+    event Tick { sweep: Sweep id }
+    workflow sweep { sweep: Sweep id  create(t: Tick) by t.sweep { } }`),
+  // An aggregate whose derived table (`_ledgers`) lands in the runtime's
+  // reserved `_` namespace.
+  "loom.persisted-table-reserved": `
+system S {
+  subdomain M { context C {
+    aggregate _Ledger with crudish { label: string }
+    repository Ledgers for _Ledger { }
+  } }
+}`,
   "loom.platform-unknown": topology('deployable web { platform: "frobnicator" port: 3001 }'),
   "loom.platform-version-unknown": topology(
     'deployable api2 { platform: "node@v999" contexts: [Orders] dataSources: [st] port: 3002 }',
   ),
-  "loom.design-pack-ignored": topology(
-    "deployable api2 { platform: node contexts: [Orders] dataSources: [st] design: mantine port: 3002 }",
-  ),
-  "loom.design-theme-unknown": topology(
-    "deployable web { platform: feliz targets: api ui: WebApp design: mantine port: 3001 }",
-    { ui: true, uiFramework: "feliz" },
-  ),
-  "loom.design-pack-custom-unchecked": topology(
-    'deployable web { platform: react targets: api ui: WebApp design: "./design/bespoke" port: 3001 }',
-    { ui: true },
-  ),
-  "loom.design-pack-retired": topology(
-    'deployable web { platform: react targets: api ui: WebApp design: "mantine@v7" port: 3001 }',
-    { ui: true },
-  ),
-  "loom.design-pack-version-unknown": topology(
-    'deployable web { platform: react targets: api ui: WebApp design: "mantine@v999" port: 3001 }',
-    { ui: true },
-  ),
-  "loom.design-pack-format-mismatch": topology(
-    "deployable web { platform: react targets: api ui: WebApp design: coreComponents port: 3001 }",
-    { ui: true },
-  ),
-  // Driven with the CLI's disk-backed pack reader (see FIXTURE_HOST_OPTIONS):
-  // the path names no directory, so the pack has no `pack.json`.
-  "loom.design-pack-invalid": topology(
-    'deployable web { platform: react targets: api ui: WebApp design: "./no-such-design-pack" port: 3001 }',
-    { ui: true },
-  ),
-  "loom.datasource-context-unlisted": topology(
-    "deployable api2 { platform: node contexts: [Orders] dataSources: [st, other] port: 3002 }",
-    { secondContext: true },
-  ),
-  "loom.datasource-duplicate": topology(
-    "deployable api2 { platform: node contexts: [Orders] dataSources: [st, st2] port: 3002 }",
-    { duplicateResource: true },
-  ),
-  "loom.serves-on-frontend": topology(
-    "deployable web { platform: react targets: api ui: WebApp serves: OrdersApi port: 3001 }",
-    { ui: true },
-  ),
-  "loom.serves-duplicate-api": topology(
-    "deployable api2 { platform: node contexts: [Orders] dataSources: [st] serves: OrdersApi, OrdersApi port: 3002 }",
-  ),
-  "loom.serves-unknown-api": topology(
-    "deployable api2 { platform: node contexts: [Orders] dataSources: [st] serves: GhostApi port: 3002 }",
-  ),
-  // A second api the base's only backend never lists in `serves:` (#29).
-  "loom.api-unserved": topology("api OrphanApi from D"),
-  // The four `ui: <Ui> { … }` compose-binding rules.  `WebApp` declares one
-  // `api Sales: OrdersApi` parameter, so every shape below is a real binding
-  // defect rather than a missing declaration.
-  "loom.ui-binding-missing": topology(
-    "deployable web { platform: react targets: api ui: WebApp port: 3001 }",
-    { ui: true, uiApiParam: true },
-  ),
-  "loom.ui-binding-unknown-param": topology(
-    "deployable web { platform: react targets: api ui: WebApp { Nope: api } port: 3001 }",
-    { ui: true },
-  ),
-  "loom.ui-binding-duplicate": topology(
-    "deployable web { platform: react targets: api ui: WebApp { Sales: api, Sales: api } port: 3001 }",
-    { ui: true, uiApiParam: true },
-  ),
-  "loom.ui-binding-unknown-source": topology(
-    "deployable web { platform: react targets: api ui: WebApp { Sales: ghost } port: 3001 }",
-    { ui: true, uiApiParam: true },
-  ),
-  "loom.ui-binding-source-not-serving": topology(
-    `
-  deployable plain { platform: node contexts: [Orders] dataSources: [st] port: 3002 }
-  deployable web { platform: react targets: api ui: WebApp { Sales: plain } port: 3001 }`,
-    { ui: true, uiApiParam: true },
-  ),
-  // --- `ui:` on a platform that mounts no UI (Rule 3) ---------------------
-  "loom.ui-binding-unmountable-platform": `
-system P {
-  subdomain D { context Orders {
-    aggregate Order with crudish { name: string }
-    repository Orders for Order
-  } }
-  ui WebApp { }
-  storage pg { type: postgres }
-  resource st { for: Orders, kind: state, use: pg }
-  deployable api { platform: node contexts: [Orders] dataSources: [st] ui: WebApp port: 3000 }
-}`,
-
-  // The one-level `api.<name>(…)` call shape in a `test e2e` body.  Every call
-  // the harness can address is TWO-level (`api.<slug>.<method>(…)`), so this
-  // resolves to nothing — and before the refusal it was rendered against a bare
-  // `api` identifier the emitted file never binds.  `sum` on purpose: it
-  // collides with the collection intrinsic, which is the arm that MIS-COMPILED
-  // (to a `.reduce(…)` fold) rather than merely failing at run time.
-  // An e2e body calling a verb whose ROUTE this same compilation does not emit:
-  // `Product` declares no `create` (no `crudish`), so no backend mounts
-  // `POST /api/products` — and the emitted suite would POST there anyway.
-  "loom.e2e-unrouted-verb": `
-system S {
-  subdomain D { context C {
-    aggregate Product { sku: string }
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4100 }
-  test e2e "t" against d {
-    let p = api.products.create({ sku: "W-1" })
-    expect(p.sku).toBe("W-1")
-  }
-}`,
-
-  // An e2e operation call's optional THIRD argument in a shape the renderer
-  // does not read — it used to be dropped silently, so a test that MEANT to
-  // send a stale `If-Match` sent none (M-T6.91).  `{ version: 1 }` is the
-  // natural misspelling of `{ ifMatch: 1 }`.
-  "loom.e2e-call-options": `
-system S {
-  subdomain D { context C {
-    aggregate Note with versioned, crudish { text: string }
-    repository Notes for Note
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4100 }
-  test e2e "t" against d {
-    let n = api.notes.create({ text: "a" })
-    api.notes.update(n, { text: "b" }, { version: 1 })
-  }
-}`,
-
-  // An explicit `route … -> <Ctx>.<Handler>` binding called with the WRONG
-  // ARGUMENT COUNT.  `Sum` declares two params and the body passes one — and
-  // because a routed handler's arguments bind POSITIONALLY, the miscount does
-  // not merely drop the last one: it shifts every later argument into the
-  // wrong slot and renders a literal `undefined` into a URL segment.
-  "loom.e2e-routed-handler-arity": `
-system S {
-  subdomain D { context Sales {
-    aggregate Order with crudish { code: string }
-    repository Orders for Order
-    queryHandler Sum(a: int, b: int): int { return a + b }
-  } }
-  api A from D { route GET "/sum/{a}/{b}" -> Sales.Sum }
-  storage pg { type: postgres }
-  resource st { for: Sales, kind: state, use: pg }
-  deployable d {
-    platform: node, contexts: [Sales], dataSources: [st], serves: A, port: 4104
-  }
-  test e2e "t" against d {
-    expect(api.sales.sum(2)).toBe(5)
-  }
-}`,
-
-  // The PAYLOAD half of the same file (F4).  Each body drives a verb that DOES
-  // route — `Widget with crudish` — so the only defect left is the one under
-  // test, and the diagnostic cannot be the routing one wearing a new code.
-  "loom.e2e-unknown-body-key": `
-system S {
-  subdomain D { context C {
-    aggregate Widget with crudish { code: string }
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4101 }
-  test e2e "t" against d {
-    let w = api.widgets.create({ kode: "W-1" })
-  }
-}`,
-
-  "loom.e2e-missing-required-field": `
-system S {
-  subdomain D { context C {
-    aggregate Widget with crudish { code: string  qty: int }
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4102 }
-  test e2e "t" against d {
-    let w = api.widgets.create({ code: "W-1" })
-  }
-}`,
-
-  "loom.e2e-body-type-mismatch": `
-system S {
-  subdomain D { context C {
-    aggregate Widget with crudish { code: string  qty: int }
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4103 }
-  test e2e "t" against d {
-    let w = api.widgets.create({ code: "W-1", qty: "not-a-number" })
-  }
-}`,
-
-  "loom.e2e-unknown-query-key": `
-system S {
-  subdomain D { context C {
-    aggregate Widget with crudish { code: string }
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4104 }
-  test e2e "t" against d {
-    let ws = api.widgets.all({ pgae: 2 })
-  }
-}`,
-
-  "loom.e2e-projection-read-arity": `
-system S {
-  subdomain D { context C {
-    event Placed { orderId: Widget id  qty: int }
-    aggregate Widget with crudish { code: string }
-    projection Board keyed by orderId {
-      orderId: Widget id
-      total: int
-      on(e: Placed) { total := total + e.qty }
-    }
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4104 }
-  test e2e "t" against d {
-    let w = api.widgets.create({ code: "W-1" })
-    let bs = api.board.list(w)
-  }
-}`,
-
-  "loom.e2e-unknown-response-field": `
-system S {
-  subdomain D { context C {
-    aggregate Widget with crudish { code: string }
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4104 }
-  test e2e "t" against d {
-    let w = api.widgets.create({ code: "W-1" })
-    let g = api.widgets.getById(w)
-    expect(g.nonesuch).toBe("x")
-  }
-}`,
-
-  "loom.e2e-unaddressable-call": `
-system S {
-  subdomain D { context C {
-    aggregate Order with crudish { code: string }
-  } }
-  api A from D { }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable d { platform: node, contexts: [C], dataSources: [st], serves: A, port: 4000 }
-  test e2e "t" against d {
-    let summed = api.sum({ a: 1, b: 2 })
-    expect(summed).toBe(3)
-  }
-}`,
-
-  // A guard inside a statement-`match` arm of an operation an elixir
-  // deployable hosts: the statement renders on Phoenix, but a nested guard
-  // could not be hoisted into the op's `with :ok <- ensure(…)` chain.
-  "loom.elixir-match-stmt-unsupported": `
-system P {
-  subdomain D { context C {
-    aggregate Order with crudish {
-      code: string
-      operation annotate(n: string?) {
-        match n {
-          string s => { precondition s.length > 0  code := s }
-          else => { code := "none" }
-        }
-      }
-    }
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
-}`,
-
-  // A `let`-bound mutating domain-service call in a workflow an elixir
-  // deployable emits.
-  "loom.elixir-bound-mutating-call-unsupported": `
-system P {
-  subdomain D { context C {
-    aggregate Order with crudish {
-      code: string
-      operation touch() { code := "t" }
-    }
-    repository Orders for Order
-    domainService Touch {
-      operation run(o: Order): int {
-        o.touch()
-        return 1
-      }
-    }
-    workflow W {
-      create(oid: Order id) {
-        let o = Orders.get(oid)
-        let n = Touch.run(o)
-      }
-    }
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
-}`,
-
-  // The same statement in a PAGE action.  A page body is an expression tree —
-  // a condition is a VALUE there — and no frontend emitter has a
-  // statement-position conditional.
-  "loom.if-stmt-page-body-unsupported": `
-system P {
-  subdomain D { context C {
-    aggregate Order with crudish { customerId: string }
-  } }
-  ui WebApp {
-    page Home {
-      route: "/"
-      state { n: int = 0 }
-      action bump() {
-        if n == 0 {
-          n := 1
-        }
-      }
-      body: Button { "Go", onClick: bump }
-    }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
-  deployable app { platform: react targets: api ui: WebApp port: 3001 }
-}`,
-
-  // A `match await` in a COMPONENT action, on a Flutter-hosted ui: the Flutter
-  // component emitter filters such a component out entirely (no widget, every
-  // call site an empty `SizedBox.shrink()`), so the gate makes the drop honest.
-  "loom.flutter-async-effect-unsupported": `
-system P {
-  subdomain D { context C {
-    aggregate Order with crudish { customerId: string
-      operation reserve(): Order { return this }
-    }
-  } }
-  api Api from D
-  ui WebApp {
-    api C: Api
-    component Confirmer(order: Order) {
-      state { note: string = "" }
-      action go() {
-        match await C.Order.reserve() {
-          Order o => { note := o.customerId }
-          else    => { note := "x" }
-        }
-      }
-      body: Button { "Go", onClick: go }
-    }
-    page Detail(id: Order id) {
-      route: "/orders/:id"
-      body: Confirmer(order: C.Order.byId(id))
-    }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable app { platform: flutter targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-
-  // A `slot` param on a WALKED component, on an Angular-hosted ui: the Angular
-  // component emitter filters such a component out entirely (no class file, and
-  // every call site keeps `<!-- unknown layout component: Panel -->`), because
-  // `ngComponentOutletInputs` sets INPUTS and has no content-projection channel.
-  "loom.user-component-deferred-target": `
-system P {
-  subdomain D { context C {
-    aggregate Order with crudish { customerId: string }
-  } }
-  api Api from D
-  ui WebApp {
-    api C: Api
-    component Panel(head: slot) { body: Card { head } }
-    page Home { route: "/" body: Stack { Panel(head: Text { "hi" }) } }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable app { platform: angular targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-
-  // Two `CreateForm`s on ONE page, over DIFFERENT aggregates.  React/Svelte
-  // emit the pack's bare `create` / `form` / `register` / `handleSubmit` twice
-  // in one scope (TS2300); Vue dedupes the declarations and COMPILES, so the
-  // second form silently submits the first form's mutation with the first
-  // form's schema.  (Angular scopes those locals by aggregate and would need
-  // the SAME aggregate twice — the fixture uses react, where the shape fires.)
-  "loom.page-form-locals-unsupported": `
-system P {
-  subdomain D { context C {
-    aggregate Order with crudish { customerId: string }
-    aggregate Note with crudish { text: string }
-  } }
-  api Api from D
-  ui WebApp {
-    api C: Api
-    page Home {
-      route: "/"
-      body: Stack { CreateForm { of: Order }, CreateForm { of: Note } }
-    }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-
-  // An EXTERN user component invoked with CHILDREN on an Angular-hosted ui.
-  // An extern component's `@Component({ selector })` is the author's, so Loom
-  // has no tag to spell and the call site is `<ng-container
-  // [ngComponentOutlet]=…>` — which cannot project content from a template, so
-  // the extra positional argument is dropped and the child markup appears
-  // nowhere in the emitted project.  The declaration must be `extern` (wave C2
-  // packet 2h, D-ANGULAR-EXTERN-CHILDREN): a WALKED component is addressed by
-  // the selector Loom stamped on it and projects its children correctly, so it
-  // no longer raises this.
-  "loom.component-children-unsupported": `
-system P {
-  subdomain D { context C {
-    aggregate Order with crudish { customerId: string }
-  } }
-  api Api from D
-  ui WebApp {
-    api C: Api
-    component Panel(label: string) extern from "widgets/panel"
-    page Home { route: "/" body: Stack { Panel("a", Text { "child" }) } }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable app { platform: angular targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-
-  // A `toast(<expr>)` outside the message subset every realtime renderer
-  // implements — a CONVERSION call.  (A member CHAIN off the binding —
-  // `e.order.id` — used to sit here; it renders on all four renderers now, so
-  // the fixture moved to a shape that is still refused.)  Without the gate this
-  // aborts `ddd generate system` with a raw Error from `renderMessageExpr` /
-  // `renderFsToastMessage` / `renderMessageExprElixir` /
-  // `renderDartToastMessage`.
-  "loom.toast-message-unsupported": `
-system P {
-  subdomain D { context C {
-    aggregate Order with crudish { customerId: string }
-    event OrderPlaced { order: Order id, at: datetime }
-    channel Lifecycle { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }
-  } }
-  api Api from D
-  ui WebApp {
-    api C: Api
-    channel Live: C.Lifecycle
-    on Live.OrderPlaced(e) { toast(string(e.at)) }
-    page Home { route: "/" body: Stack { Heading { "home" } } }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-
-  // A page `requires` gate outside the closed, client-evaluable subset every
-  // JS/F#/Dart gate renderer implements — a CONVERSION, the same shape that
-  // catches the toast gate above.  Without this gate the model reports
-  // `0 error(s), 0 warning(s)` and then aborts `ddd generate system` with a raw
-  // `Error: UI gate: expression kind 'convert' is not supported in a UI gate`
-  // from `renderGateExpr` / `renderFelizGate` / `renderFlutterGate`.
-  "loom.ui-gate-expr-unsupported": `
-system P {
-  user { id: guid  role: string }
-  subdomain D { context C {
-    aggregate Order with crudish { customerId: string }
-  } }
-  api Api from D
-  ui WebApp {
-    api C: Api
-    page Home {
-      route: "/"
-      requires string(currentUser.role) == "admin"
-      body: Stack { Heading { "home" } }
-    }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
-  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 auth: ui }
-}`,
-
-  // `this` in a page action on a walker frontend: no aggregate instance is in
-  // scope there.  Without the gate the model reports `0 error(s)` and then the
-  // shared walker / Feliz update renderer abort `ddd generate system`.
-  "loom.ui-this-unbound": `
-system P {
-  subdomain D { context C {
-    aggregate Order with crudish { customerId: string }
-  } }
-  api Api from D
-  ui WebApp {
-    api C: Api
-    page Home {
-      route: "/"
-      state { label: string = "" }
-      action again() { label := string(this) }
-      body: Stack { Button { "Again", onClick: again } }
-    }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-
-  // A member read off an event-handler parameter nothing types (`e.count`): the
-  // member would type as a guessed `string`.
-  "loom.lambda-param-type-unknown": `
-system P {
-  subdomain D { context C {
-    aggregate Order with crudish { customerId: string }
-  } }
-  api Api from D
-  ui WebApp {
-    api C: Api
-    page Home {
-      route: "/"
-      state { count: int = 0 }
-      body: Stack { Button { "Go", onClick: e => { precondition e.count >= 0 } } }
-    }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-
-  // `display`/`inspect` are reserved derived names that only mean something on
-  // an aggregate — on a value object they are rejected.
-  "loom.reserved-derived-on-vo": repoOnly(`    valueobject Money {
-      amount: int
-      derived display: string = "x"
-    }`),
-
-  // --- hand-authored `area` identity (the clause census's `Area` fixture) --
-  // All three arrived with the page-identity fix and are the next instance of
-  // the pattern the lifecycle trio above records: a code landing on `main` with
-  // no proof it fires.  Shapes taken from `test/ir/ui-page-identity-gate.test.ts`.
-  //
-  // Two `area Ops` blocks in ONE scope: uniqueness was scoped per Area NODE, so
-  // both pages computed `src/pages/ops/…` and the second silently won.
-  "loom.ui-duplicate-area": uiPages(
-    "",
-    `    area Ops {
-      page Dashboard { route: "/ops/a" body: Stack { Heading { "A", level: 1 }, testid: "a" } }
-    }
-    area Ops {
-      page Overview { route: "/ops/b" body: Stack { Heading { "B", level: 1 }, testid: "b" } }
-    }`,
-  ),
-
-  // The author's `area Sales { area Orders { page List } }` and the SCAFFOLD's
-  // `area Orders { page List }` both classify as aggregate Order's list page.
-  // Only one can be routed; the other was emitted as an unreachable file.
-  //
-  // NOTE two sibling areas holding same-named pages is NOT this defect — that
-  // is the documented silent case, and using it here made the fixture raise
-  // nothing at all.
-  "loom.ui-page-slot-collision": uiPages(
-    " with scaffold(aggregates: [Order])",
-    `    area Sales {
-      area Orders {
-        page List {
-          route: "/orders"
-          body: Stack { Heading { "Mine", level: 1 }, testid: "mine" }
-        }
-      }
-    }`,
-  ),
-
-  // `area Workflows { page Ship }` lands on `src/pages/workflows/ship.tsx` —
-  // exactly where the scaffold's `ShipWorkflow` page goes.  The two classify
-  // DIFFERENTLY, so only the path check sees this one.
-  "loom.ui-page-path-collision": uiPages(
-    " with scaffold(workflows: [ship])",
-    `    area Workflows {
-      page Ship {
-        route: "/workflows/ship-custom"
-        body: Stack { Heading { "Ship", level: 1 }, testid: "ship" }
-      }
-    }`,
-  ),
-
-  // Two pages of one ui sharing a `route:`.  Distinct names, distinct emit
-  // paths, distinct archetype slots — so neither collision gate above sees it,
-  // and only one of the two pages is reachable in any router (SvelteKit cannot
-  // emit them at all, and used to `throw` a bare `Error` mid-generate).
-  "loom.ui-page-route-collision": uiPages(
-    "",
-    `    page Alpha { route: "/dup" body: Stack { Heading { "Alpha", level: 1 } } }
-    page Beta { route: "/dup" body: Stack { Heading { "Beta", level: 1 } } }`,
-  ),
-
-  // A page `action` and a rendered component's `action` with one name, on a
-  // phoenixLiveView ui: a LiveView dispatches every `phx-click` BY NAME, so the
-  // lift would put two `handle_event("bump", …)` clauses in one module.
-  "loom.heex-handler-name-collision": heexUi(`
-    component Panel() {
-      state { n: int = 0 }
-      action bump() { n += 1 }
-      body: Button { "inc", onClick: bump }
-    }
-    page Home {
-      route: "/"
-      state { m: int = 0 }
-      action bump() { m += 7 }
-      body: Stack { Panel(), Button { "page inc", onClick: bump } }
-    }`),
-
-  // The same lift's other limit: one host assign per component NAME is one
-  // cell, so a `state`-declaring component rendered twice would have its two
-  // instances move together.
-  "loom.heex-stateful-component-reused": heexUi(`
-    component Counter() {
-      state { n: int = 0 }
-      action bump() { n += 1 }
-      body: Button { "inc", onClick: bump }
-    }
-    page Home { route: "/" body: Stack { Counter(), Counter() } }`),
-
-  // `navigate(…)` in a page action on a FLUTTER-hosted ui.  A Riverpod
-  // Notifier holds no BuildContext, so the emitter replaced the call with a
-  // `// TODO(flutter full-parity)` comment: the button was wired and did
-  // nothing.  (The `match await` on a standard agg op is the same code's other
-  // slug; one fixture per code is what the census asks for.)
-  // The `toast(…)` arm this fixture used to drive is DRAINED (wave C2 packet
-  // 2l gave the Notifier the `lib/toast.dart` bridge), so the fixture moved to
-  // the arm that survives: a `match await` on a STANDARD aggregate op, which
-  // the Flutter async-effect emitter resolves through `agg.operations` and so
-  // cannot find.  `create` is deliberately NOT one of `Order`'s declared
-  // operations here.
-  "loom.flutter-action-body-unsupported": flutterUi(`    page Edit {
-      route: "/edit"
-      state { n: int = 0 }
-      action go() {
-        match await Shop.Order.create(code: "c") {
-          Order o => n := 1,
-          else => n := 2
-        }
-      }
-      body: Stack { Heading { "Edit", level: 1 }, Button { "go", onClick: go } }
-    }`),
-
-  // A `component` whose NAME is a walker primitive.  The page-body dispatcher
-  // resolves a call by name, primitives first, so the component is emitted to
-  // `src/components/<Name>.tsx` and the PACK's primitive renders at the call
-  // site — the author's body appears nowhere, at `0 error(s), 0 warning(s)`.
-  // The `extern function` twin (`loom.extern-function-shadows-stdlib`) has
-  // always been refused; this arm was missing.  See D-PAGE-PRIMITIVE-SHADOW.
-  "loom.component-shadows-stdlib": uiPages(
-    "",
-    `    component Alert(msg: string) { body: Heading { msg, level: 3 } }
-    page Home {
-      route: "/"
-      body: Stack { Heading { "Home", level: 1 }, Alert("hi") }
-    }`,
-  ),
-
-  // A `component` param whose declared type the shared TypeScript prop layer
-  // has no spelling for.  This USED to be `amount: money` — wave C2 packet 2k
-  // taught the layer `money` (`Decimal`), `File` and a `valueobject` (both
-  // structural) on all four TS-prop frontends, so those three no longer fire
-  // and the fixture moves to what still does: a CARRIER kind.  `A or B` is the
-  // only one a param position can even spell, and it is also refused by
-  // `loom.union-position` — which is exactly why the register row is now a
-  // latent `seam` rather than a drained gap.
-  "loom.frontend-prop-type-unsupported": uiPages(
-    "",
-    `    component Picker(x: Order or Order) { body: Text { "pick" } }
-    page Home {
-      route: "/"
-      body: Stack { Heading { "Home", level: 1 } }
-    }`,
-  ),
-
-  // A backend-body statement form in a ui action.  The sibling of
-  // `loom.if-stmt-page-body-unsupported`: same reasoning, three more kinds,
-  // each of which crashed the JS walker with a bare throw and emitted a silent
-  // no-op comment on Flutter.
-  "loom.ui-body-statement-kind": uiPages(
-    "",
-    `    page Home {
-      route: "/"
-      state { n: int = 0 }
-      action bump() { precondition n > 0 }
-      body: Button { "Go", onClick: bump }
-    }`,
-  ),
-
-  // --- the frontend body vocabulary (ui-body-vocabulary-checks.ts) ----------
-  // Each validated clean and then crashed `generate system`: the shared JS
-  // walker (`this`, a write to a non-state name), the Feliz MVU renderer (a block lambda in an action).
-  "loom.ui-assign-not-state": uiPages(
-    "",
-    `    page Home {
-      route: "/"
-      state { count: int = 0 }
-      action bump() { other := 1 }
-      body: Stack { Button { "Bump", onClick: bump } }
-    }`,
-  ),
-  "loom.ui-find-call-arity": uiPages(
-    "",
-    `    page Home {
-      route: "/"
-      body: QueryView { of: Order.findAllByByCode(), loading: Text { "l" }, error: Text { "e" }, empty: Text { "n" }, data: rows => Text { "x" } }
-    }`,
-  )
-    .replace("context Orders {", "context Orders with scaffoldPaged(of: ByCode) {")
-    .replace(
-      "repository Orders for Order",
-      "repository Orders for Order\n    criterion ByCode(code: string) of Order = this.code == code",
-    )
-    .replace(
-      "api SalesApi from Sales",
-      "api SalesApi with scaffoldPagedApi(of: ByCode) from Sales",
-    ),
-  "loom.ui-body-feature-unsupported": flutterUi(
-    `    page Detail(id: Order id) {
-      route: "/orders/:id"
-      state { msg: string = "" }
-      action go() {
-        match await Shop.Order.confirm() {
-          Order o => { match await Shop.Order.confirm() { Order p => { msg := p.code } else => { msg := "b" } } }
-          else => { msg := "u" }
-        }
-      }
-      body: Stack { Button { "Go", onClick: go } }
-    }`,
-  ),
-
-  // A `menu` link naming a page that does not exist.  The linker already
-  // reports the bare unresolved reference; this check is the one that names
-  // what IS linkable — and a scaffolded page is named by ROLE inside a
-  // per-aggregate area (`Orders.List`), so the unqualified name an author
-  // reaches for is almost never the one that resolves.
-  "loom.menu-link-unresolved": uiPages(
-    " with scaffold(aggregates: [Order])",
-    `    menu {
-      section "Sales" {
-        link OrderList
-      }
-    }`,
-  ),
-
-  // --- seed crossings (F2-SEED-*, validators/seed.ts rules 5-8) -------------
-  // Each of these parsed 0 errors / 0 warnings before the rule existed and
-  // then produced a DIFFERENT wrong artefact per backend.
-  "loom.seed-dataset-name-collision": repoOnly(`    aggregate Widget with crudish { name: string }
-    repository Widgets for Widget
-    seed default { Widget { name: "a" } }
-    seed Default { Widget { name: "b" } }`),
-  "loom.seed-raw-document-shape":
-    repoOnly(`    aggregate Article shape: document, with crudish { title: string }
-    repository Articles for Article
-    seed wired raw { Article { id: "11111111-1111-1111-1111-111111111111", title: "Anchor" } }`),
-  "loom.seed-raw-eventsourced": repoOnly(`    event Opened { account: Account id, owner: string }
-    aggregate Account persistedAs: eventLog {
-      owner: string
-      create open(owner: string) { emit Opened { account: id, owner: owner } }
-      apply(e: Opened) { owner := e.owner }
-    }
-    repository Accounts for Account
-    seed wired raw { Account { id: "11111111-1111-1111-1111-111111111111", owner: "seeded-alice" } }`),
-  "loom.seed-eventsourced-no-create":
-    repoOnly(`    event Opened { account: Account id, owner: string }
-    aggregate Account persistedAs: eventLog {
-      owner: string
-      apply(e: Opened) { owner := e.owner }
-    }
-    repository Accounts for Account
-    seed default { Account { owner: "seeded-alice" } }`),
-  // A locator matcher (`toHaveText` / `toHaveCount` / `toBeVisible`) reads a
-  // DOM node, so its receiver has to be a field read on a row the test has on
-  // screen.  Anything else used to validate clean and then kill
-  // `generate system` from `renderExpectStmt` (audit 2026-09-03 F6); a plain
-  // string literal is the smallest receiver that can never be a locator.
-  "loom.locator-matcher-receiver": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing
-    test "a locator matcher needs a page read" for Thing {
-      expect("x").toHaveText("x")
-    }`),
-  // `toThrow` in a block whose target is a FRONTEND deployable — it lowers to
-  // the Playwright renderer, where there is no HTTP response to pin a status
-  // on.  Needs a full system (the diagnostic reads the target deployable's
-  // platform), so it cannot use `repoOnly`.
-  "loom.e2e-ui-throw-invalid": `
-system S {
-  subdomain D { context C {
-    aggregate Technician with crudish {
-      name: string
-      invariant name.length > 0
-      derived display: string = name
-    }
-    repository Technicians for Technician
-  } }
-
-  ui WebApp with scaffold(subdomains: [D]) { }
-  storage primary { type: postgres }
-  resource cState { for: C, kind: state, use: primary }
-
-  deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
-
-  test e2e "a ui body cannot pin a status" against webApp {
-    expect(ui.technicians.create({ name: "" })).toThrow(422)
-  }
-}`,
-  // --- P11a / audit F11: `toThrow(<kind>)`, the discriminating throw ---------
-  //
-  // Each fixture is minimal and ISOLATING — it raises its own code and no
-  // sibling from the packet, so a future regression names one gate.  All four
-  // share the audit's probe shape: ONE operation carrying BOTH rungs, a
-  // `precondition` and a guarded collection `invariant`, so that deleting the
-  // precondition leaves the invariant to throw in its place.  That substitution
-  // is what `toThrow()` could not see and what the kind form exists to name.
-  "loom.e2e-throw-kind-invalid": throwKindProbe({
-    e2eTest: `    expect(api.workOrders.complete(wo, { })).toThrow(precondition)`,
-  }),
-  "loom.throw-kind-integration-unsupported": throwKindProbe({
-    contextTest: `        expect(wo.complete()).toThrow(precondition)`,
-  }),
-  "loom.throw-kind-outside-tothrow": throwKindProbe({
-    unitBody: `          expect(wo.reference).toBe(invariant)`,
-  }),
-  // --- M-T5.36 / P11b: the absence pair + containment ----------------------
-  // `toBeAbsent()` is a claim about a SERIALIZED PAYLOAD, so it is e2e-only:
-  // a unit `test` asserts against an in-memory aggregate whose declared fields
-  // always exist.  Fire it from the unit tier, which is the refusal.
-  "loom.unit-absent-invalid": throwKindProbe({
-    unitBody: `          expect(wo.reference).toBeAbsent()`,
-  }),
-  // `toContain` has exactly two lowerings, picked by the subject's type
-  // (collection membership / string substring).  An ENUM subject is neither,
-  // so it has no lowering and is refused at the IR, where the resolved type is
-  // available.
-  "loom.contain-receiver-invalid": throwKindProbe({
-    unitBody: `          expect(wo.status).toContain("Draft")`,
-  }),
-  // `toBeAbsent()` rewrites onto the receiver (`"<key>" in <obj>`), so it needs
-  // a FIELD READ to name a key.  A bare let-bound name supplies none — and in
-  // the e2e tier, which is the only one where the matcher is legal at all.
-  "loom.absent-receiver-invalid": throwKindProbe({
-    e2eTest: `    expect(wo).toBeAbsent()`,
-  }),
-  // `toBeCached()` needs a by-id api read of an aggregate the target caches;
-  // this deployable wires no cache resource.
-  "loom.cached-subject-invalid": `
-system S {
-  subdomain D { context C {
-    aggregate Thing with crudish { label: string }
-    repository Things for Thing
-  } }
-  api A from D
-  storage primary { type: postgres }
-  resource cState { for: C, kind: state, use: primary }
-  deployable api { platform: node, contexts: [C], dataSources: [cState], serves: A, port: 3000 }
-  test e2e "read" against api {
-    let t = api.things.create({ label: "x" })
-    expect(api.things.getById(t)).toBeCached()
-  }
-}
-`,
-  // An \`exists\` row rule makes the read depend on another row, so the cache
-  // resource leaves the aggregate's by-id read to the database.
-  "loom.cache-read-uncached": `
-system S {
-  user { id: string  tenantId: string }
-  tenancy by user.tenantId of Org
-  subdomain D { context C {
-    aggregate Org with crudish { name: string }
-    aggregate Share with tenantOwned, crudish { grantee: string }
-    aggregate Doc with tenantOwned, crudish { title: string }
-    policy {
-      allow on Doc as d where exists Share as s where s.grantee == currentUser.tenantId
-    }
-  } }
-  api A from D
-  storage primary { type: postgres }
-  storage hot { type: inMemory }
-  resource cState { for: C, kind: state, use: primary }
-  resource cCache { for: C, kind: cache, use: hot }
-  deployable api { platform: node, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3000, auth: required }
-}
-`,
-  // A worker hosts the cached context on the same database but does not list
-  // the cache: its writes would leave the api's cached answers stale.
-  "loom.cache-writer-not-evicting": `
-system S {
-  subdomain D { context C {
-    aggregate Thing with crudish { label: string }
-  } }
-  api A from D
-  storage primary { type: postgres }
-  storage hot { type: redis }
-  resource cState { for: C, kind: state, use: primary }
-  resource cCache { for: C, kind: cache, use: hot }
-  deployable api { platform: node, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3000 }
-  deployable worker { platform: python, contexts: [C], dataSources: [cState], port: 3001 }
-}
-`,
-  // Two processes, two maps: a write in one evicts nothing in the other.
-  "loom.cache-in-memory-shared": `
-system S {
-  subdomain D { context C {
-    aggregate Thing with crudish { label: string }
-  } }
-  api A from D
-  storage primary { type: postgres }
-  storage hot { type: inMemory }
-  resource cState { for: C, kind: state, use: primary }
-  resource cCache { for: C, kind: cache, use: hot }
-  deployable api { platform: node, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3000 }
-  deployable api2 { platform: java, contexts: [C], dataSources: [cState, cCache], serves: A, port: 3001 }
-}
-`,
-  // Third tier, third reason (cf. `loom.e2e-ui-throw-invalid` just above): a ui
-  // body asserts against RENDERED TEXT, which is always a string \u2014 so neither
-  // absence spelling is observable there.  Needs a full react-targeting system,
-  // because the diagnostic reads the target deployable's platform.
-  "loom.e2e-ui-absence-invalid": `
-system S {
-  subdomain D { context C {
-    aggregate Technician with crudish {
-      name: string
-      derived display: string = name
-    }
-    repository Technicians for Technician
-  } }
-
-  ui WebApp with scaffold(subdomains: [D]) { }
-  storage primary { type: postgres }
-  resource cState { for: C, kind: state, use: primary }
-
-  deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
-
-  test e2e "a ui body cannot assert an absence" against webApp {
-    let t = ui.technicians.create({ name: "Grace" })
-    let read = ui.technicians.getById(t)
-    expect(read.name).toBeNull()
-  }
-}`,
-  "loom.seed-abstract-aggregate": repoOnly(`    abstract aggregate Base { name: string }
-    aggregate Child extends Base with crudish { extra: int }
-    repository Children for Child
-    seed default { Base { name: "x" } }`),
-  "loom.seed-tenant-owned-needs-raw": `
-system S {
+  // The removed hierarchical surface (D-TENANCY-FLAT): each gets a named error
+  // with its replacement.
+  "loom.policy-level-removed": `
+system Flat {
   user { id: guid  tenantId: string }
   tenancy by user.tenantId of Org
-  subdomain Sub { context C {
-    aggregate Invoice with tenantOwned, crudish { label: string }
-    aggregate Org with crudish { name: string }
-    repository Invoices for Invoice
-    seed default { Invoice { label: "Seeded" } }
-  } }
-}`,
-  // F-009: under the RECOMMENDED `denyByDefault`, the synthesised
-  // `GET /api/secrets/{id}` carries no gate on any backend and nothing said
-  // so — the admin-only `find all` next to it is no protection at all.
-  // #3023: an invariant the Ecto changeset carrier can enforce on NEITHER path
-  // used to fall through both in silence — enforced at the domain floor on
-  // node/.NET/python/java and nowhere on elixir, at `0 error(s), 0 warning(s)`.
-  // `members` is a REFERENCE collection, whose join rows the repository writes
-  // after the changeset runs: the changeset would read `[]` and the rule would
-  // pass for every input, so it is reported rather than emitted as a check that
-  // cannot fail.
-  "loom.elixir-invariant-unenforced": `
-system S {
-  subdomain Shop { context Shop {
-    aggregate Order {
+  subdomain Core { context Books {
+    aggregate Account with tenantOwned, crudish {
       label: string
-      members: Member id[]
-      invariant members.count <= 6
+      note: string?
+      
     }
-    aggregate Member { nick: string }
-    repository Orders for Order
-    repository Members for Member
+    aggregate Org with crudish { name: string }
+    repository Accounts for Account { }
+    repository Orgs for Org { }
+    policy { allow deep on Account }
   } }
   storage pg { type: postgres }
-  resource st { for: Shop, kind: state, use: pg }
-  deployable api { platform: elixir contexts: [Shop] dataSources: [st] port: 4000 }
-}`,
-
-  // Eval item 22 / ruling D5: the list read served by the injected `find all`.
-  "loom.default-deny-list-ungated": `
-system S {
-  user { id: guid  role: string }
-  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
-  subdomain D { context Vault {
-    aggregate Secret { body: string  create() { requires currentUser.role == "admin" } }
-  } }
-  api Api from D
-  storage pg { type: postgres }
-  resource st { for: Vault, kind: state, use: pg }
-  deployable api { platform: node contexts: [Vault] dataSources: [st] serves: Api port: 3000 auth: required }
+  resource b { for: Books, kind: state, use: pg }
+  deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
 }`,
 
   // Eval item 39 / ruling D9: a policy called from a context that does not declare it.
@@ -4597,48 +2808,874 @@ system S {
   resource st2 { for: B, kind: state, use: pg }
   deployable api { platform: node contexts: [A, B] dataSources: [st, st2] port: 3000 auth: required }
 }`,
-
-  "loom.default-deny-by-id-ungated": `
+  // `own` on an aggregate without `auditable`.
+  "loom.policy-own-no-creator": `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context C {
+      aggregate Org with crudish { name: string }
+      aggregate Doc with tenantOwned, crudish { title: string }
+      policy { allow own on Doc }
+    }
+  }
+}`,
+  // Ruling D1 — an event starter reaches a claims gate with no `isSystem`
+  // disjunct: the system principal it runs as can never pass it.
+  // The policy read gate runs before the load, so it may read only
+  // `currentUser` and constants — a row field there is refused.
+  "loom.policy-read-gate-not-current-user": `
 system S {
   user { id: guid  role: string }
-  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
   subdomain D { context Vault {
-    aggregate Secret { body: string  create() { requires currentUser.role == "admin" } }
+    aggregate Secret { body: string  open: bool }
     repository Secrets for Secret
+    policy { read Secret requires open == true }
   } }
-  api Api from D
-  storage pg { type: postgres }
-  resource st { for: Vault, kind: state, use: pg }
-  deployable api { platform: node contexts: [Vault] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+  // Two read scopes that reach each other through `exists`.
+  "loom.policy-row-cycle": `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context C {
+      aggregate Org with crudish { name: string }
+      aggregate A with tenantOwned, crudish { key: string }
+      aggregate B with tenantOwned, crudish { key: string }
+      policy {
+        allow on A as a where exists B as b where b.key == a.key
+        allow on B as b where exists A as a where a.key == b.key
+      }
+    }
+  }
+}`,
+  // A row rule that never reads the row.
+  "loom.policy-row-not-queryable": `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context C {
+      aggregate Org with crudish { name: string }
+      aggregate Doc with tenantOwned, crudish { title: string }
+      policy { allow on Doc as d where currentUser.role == "admin" }
+    }
+  }
+}`,
+  // A row rule on a TPH concrete.
+  "loom.policy-scope-inheritance-unsupported": `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context C {
+      aggregate Org with crudish { name: string }
+      abstract aggregate Doc inheritanceUsing: sharedTable with tenantOwned { title: string }
+      aggregate Memo extends Doc with tenantOwned, crudish { body: string }
+      policy { allow on Memo as m where m.body == currentUser.role }
+    }
+  }
+}`,
+  // `allow share` on an aggregate that is not `shareable`.
+  "loom.policy-share-not-shareable": `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context C {
+      aggregate Org with crudish { name: string }
+      aggregate Doc with tenantOwned, crudish { title: string }
+      policy { allow share on Doc }
+    }
+  }
 }`,
 
-  // F-004: `denyByDefault` + `persistedAs: eventLog`.  An event-sourced create
-  // cannot carry an ENFORCEABLE gate — its body renders into the domain `_init`,
-  // which has no principal in scope, so `loom.target-unsupported#lifecycle-guard-event-sourced`
-  // refuses one outright.  Demanding a `requires` here was therefore an
-  // unsatisfiable error, and the two settings were mutually exclusive for any
-  // event-sourced aggregate with a creation endpoint: gate present → 1 error,
-  // gate absent → 1 error.  Now the honest warning, on the RECOURSE precedent
-  // the by-id arm above is built on.
-  "loom.default-deny-es-create-ungateable": `
+  // `read` heads the gate rule as an identifier, not a keyword, so any word
+  // parses there — and every word but `read` is refused by name.
+  "loom.policy-unknown-rule": `
 system S {
   user { id: guid  role: string }
-  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
-  subdomain D { context Ledger {
-    event Opened { account: Account id, owner: string }
+  subdomain D { context Vault {
+    aggregate Secret { body: string }
+    repository Secrets for Secret
+    policy { view Secret requires true }
+  } }
+}`,
+  // A `when` that is not a claim comparison.
+  "loom.policy-when-not-caller-only": `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context C {
+      aggregate Org with crudish { name: string }
+      aggregate Doc with tenantOwned, crudish { title: string }
+      policy { allow local on Doc when currentUser.role == "a" && 1 > 0 }
+    }
+  }
+}`,
+  "loom.precondition-not-bool": orderOps("operation p() { precondition name }"),
+  // A running total over an optional field with nothing to start from.
+  "loom.projection-accumulate-optional": `
+system AccumOptional {
+  subdomain S { context C {
+    aggregate Order with crudish { code: string }
+    event OrderPlaced { order: Order id, n: int }
+    projection Board keyed by order {
+      order: Order id
+      seen: int?
+      on(e: OrderPlaced) { seen += e.n }
+    }
+  } }
+}`,
+  // Declared names differ only in case, so the namespace gate above passes —
+  // but both derive the table `sweeps`.
+  // `count` takes no column; the grouped select passes one.
+  "loom.projection-aggregate-arity":
+    repoOnly(`    aggregate Ticket with crudish { queue: string  breached: bool }
+    repository Tickets for Ticket
+    projection ByQueue { queue: string  breached: int
+      from Ticket as t
+      group by t.queue
+      select queue = t.queue, breached = count(t.breached) }`),
+
+  // A declared row field whose type disagrees with the aggregation filling it
+  // (M-T5.24): `avg` over a MONEY column is money, and the declaration says
+  // `decimal` — which is what every backend's coercion reads, so the exact
+  // money mean would have shipped as a lossy float64 JSON number.  The fixture
+  // uses `avg` specifically because that is the operator the retype moved; a
+  // `sum` mismatch fires the same arm.
+  "loom.projection-aggregate-type-mismatch": `
+system S {
+  subdomain Sales { context Orders {
+    aggregate Order with crudish { code: string  total: money }
+    repository Orders for Order
+    projection SalesTotals {
+      avgTotal: decimal
+      from Order as o
+      select avgTotal = avg(o.total)
+    }
+  } }
+  api Api from Sales
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: node contexts: [Orders] dataSources: [st] serves: Api port: 3000 }
+}`,
+
+  // A query-time projection whose direct-table arm aggregates a field that has
+  // no column: the source is `shape: document`, so `total` lives inside the
+  // `data` jsonb blob and `sum(o.total)` names nothing.  Universal, not
+  // per-backend — every backend emitted the missing reference.
+  "loom.projection-columnless-source": `
+system S {
+  subdomain Sales { context Orders {
+    aggregate Order shape: document, with crudish { code: string  total: int }
+    repository Orders for Order
+    projection OrderVolume {
+      revenue: int
+      from Order as o
+      select revenue = sum(o.total)
+    }
+  } }
+  api Api from Sales
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: node contexts: [Orders] dataSources: [st] serves: Api port: 3000 }
+}`,
+
+  // A per-row query-time projection reading another context's aggregate on a
+  // backend that synthesises the source find only in the aggregate's context.
+  "loom.projection-cross-context-source-unsupported": `
+system S {
+  subdomain D {
+    context Orders {
+      aggregate Order with crudish { code: string  total: int }
+      repository Orders for Order { }
+    }
+    context Reports {
+      projection Codes {
+        code: string
+        from Order as o
+        select code = o.code
+      }
+    }
+  }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable api { platform: node contexts: [Orders, Reports] dataSources: [st] serves: Api port: 3000 }
+}`,
+
+  // A ROW COUNT over a `shape: document` source — which the column gate above
+  // deliberately allows, since a document table does have an `id` column —
+  // whose aggregate is read-filtered by `tenantOwned` + `softDeletable`.  Those
+  // predicates name `tenant_id` / `is_deleted`, which the `(id, data, version)`
+  // triple has not: four backends emit the missing reference and EF Core emits
+  // no filter at all, counting every tenant's rows.
+  "loom.projection-document-source-capability-filtered": `
+system S {
+  user { id: guid  org: string }
+  tenancy by user.org of Tenant
+  subdomain Sales { context Orders {
+    aggregate Tenant with tenantRegistry, crudish { slug: string }
+    aggregate Order shape: document, with tenantOwned, softDeletable, crudish { code: string }
+    repository Tenants for Tenant
+    repository Orders for Order
+    projection OrderVolume {
+      rows: int
+      from Order as o
+      select rows = count()
+    }
+  } }
+  api Api from Sales
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: node contexts: [Orders] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+  // A required fold column whose type has no zero and that declares no default.
+  "loom.projection-field-no-start": `
+system NoStart {
+  subdomain S { context C {
+    aggregate Order with crudish { code: string }
+    event OrderPlaced { order: Order id, at: datetime }
+    projection Board keyed by order {
+      order: Order id
+      placedAt: datetime
+      on(e: OrderPlaced) { placedAt := e.at }
+    }
+  } }
+}`,
+  // A fold assigning its own key: the row is created with the routing key.
+  "loom.projection-key-assign": `
+system KeyAssign {
+  subdomain S { context C {
+    aggregate Order with crudish { code: string }
+    event OrderPlaced { order: Order id }
+    projection Board keyed by order {
+      order: Order id
+      placed: bool
+      on(e: OrderPlaced) { order := e.order  placed := true }
+    }
+  } }
+}`,
+  // A query-time projection selecting a \`datetime - datetime\` span: a
+  // \`duration\` has no column and no wire form, and node / .NET crashed on it.
+  "loom.projection-select-duration": `
+system SpanSelect {
+  subdomain S { context C {
+    aggregate Order with crudish {
+      code: string
+      openedAt: datetime
+      closedAt: datetime
+    }
+    projection Spans {
+      from Order as o
+      select code = o.code, span = o.closedAt - o.openedAt
+    }
+  } }
+}`,
+
+  // A projection's `where` is a selection position too — it is pushed down to
+  // SQL by every backend — so it carries the same queryable-subset contract as
+  // the find / retrieval twins above.  Arithmetic does not lower: node/drizzle
+  // threw an internal error at generate time and the direct-table paths dropped
+  // the filter silently (an endpoint returning every row) until this gate.
+  "loom.projection-where-not-queryable":
+    repoOnly(`    aggregate Order with crudish { lineCount: int }
+    repository Orders for Order
+    projection SalesTotals {
+      orders: int
+      from Order as o
+      where o.lineCount + 1 > 5
+      select orders = count
+    }`),
+  "loom.property-check-not-bool": orderTypes("checked: int  check total"),
+  "loom.property-default-type-mismatch": orderTypes('badDefault: int = "nope"'),
+  "loom.provenanced-backend-unsupported": repoOnly(`    aggregate Order with crudish {
+      total: int provenanced
+    }`),
+  // `provenanced` on an entity part's field: lineage lives on the root only.
+  "loom.provenanced-part-field": `
+system S {
+  subdomain M { context C {
+    aggregate Cart with crudish { label: string  contains lines: Line[]  entity Line { qty: int provenanced } }
+    repository Carts for Cart { }
+  } }
+}`,
+  "loom.react-deployable-missing-ui": spaMissingUi("react"),
+
+  "loom.reactor-gate-unsatisfiable": `
+system ReactorGate {
+  user { id: guid  permissions: string[] }
+  subdomain D {
+    permissions { close }
+    context Ord {
+      aggregate Order with crudish {
+        code: string
+        done: bool
+        operation finish() {
+          requires currentUser.permissions.contains(permissions.close)
+          done := true
+        }
+      }
+      repository Orders for Order
+      event Shipped { order: Order id, at: datetime }
+      workflow closeOrder {
+        orderRef: Order id
+        create(e: Shipped) by e.order {
+          let o = Orders.get(e.order)
+          o.finish()
+        }
+      }
+    }
+  }
+}`,
+  // Reactors, no starter.  The event IS carried by a channel, so
+  // `loom.reactor-event-uncarried` (the sibling gate for the other cause)
+  // stays quiet and this fixture isolates the missing-starter cause.
+  "loom.reactor-without-starter": `
+system S {
+  subdomain D { context Ops {
+    aggregate Order { ref: string }
+    repository Orders for Order
+    event OrderPaid { order: Order id }
+    channel bus { carries: OrderPaid  delivery: broadcast  retention: ephemeral }
+    workflow Settle {
+      order: Order id
+      st: string
+      on(e: OrderPaid) { st := "paid" }
+    }
+  } }
+}`,
+  // `all(…)` over an inline predicate rather than a criterion / retrieval
+  // reference.
+  "loom.repo-all-arg": `
+system S {
+  subdomain Sales { context Orders {
+    aggregate Order with crudish { code: string  region: string }
+    repository Orders for Order
+    criterion ActiveOrder of Order = region != ""
+    command C { region: string }
+    workflow W {
+      create(c: C) { let xs = Orders.all(this.region == c.region) }
+    }
+  } }
+}`,
+  // A retrieval selects a list, so it goes to `all`, never `find`.
+  "loom.repo-find-retrieval": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    criterion ByCode(c: string) of Order = this.code == c
+    retrieval Coded(c: string) of Order { where: ByCode(c)  sort: [code desc] }
+    workflow w { create(c: string) { if let o = Orders.find(Coded(c)) { } } }`),
+  // `get` takes an id; a criterion read is `find`.
+  "loom.repo-get-criterion": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    criterion ByCode(c: string) of Order = this.code == c
+    workflow w { create(c: string) { let o = Orders.get(ByCode(c)) } }`),
+  "loom.repo-key-incomplete":
+    repoOnly(`    aggregate Product with crudish { region: string  name: string  unique (region, name) }
+    repository Products for Product
+    workflow w { create(n: string) { if let p = Products.findBy(name: n) { } } }`),
+
+  "loom.repo-key-not-unique":
+    repoOnly(`    aggregate Product with crudish { sku: string  name: string  unique (sku) }
+    repository Products for Product
+    workflow w { create(n: string) { if let p = Products.findBy(name: n) { } } }`),
+  // `sort:` on an `all` over a retrieval, which declares its own order.
+  "loom.repo-sort-placement": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    criterion ByCode(c: string) of Order = this.code == c
+    retrieval Coded(c: string) of Order { where: ByCode(c) }
+    workflow w { create(c: string) { let xs = Orders.all(Coded(c), sort: [code desc], page: { limit: 5 }) } }`),
+  // A repository read by a name no contract verb spells.
+  "loom.repo-unknown-read": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    domainService Q {
+      operation taken(c: string): bool { return Orders.findByID(c) != null }
+    }`),
+  // A retired verb names its replacement (the hard cutover, D-REPO-VERBS).
+  "loom.repo-verb-renamed": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    workflow w { create(id: Order id) { let o = Orders.getById(id) } }`),
+  // The aggregate-side twin: a plain `operation` naming a repository — the
+  // spelling that is legal in a `workflow`, where a repository IS in scope.
+  // In a domain member body it lowers to an unresolved ref that all five
+  // backends render verbatim into a class that binds no repository.
+  "loom.repository-access-outside-workflow": `
+system S {
+  subdomain Sub { context Ops {
+    aggregate Technician { name: string }
+    repository Technicians for Technician
+    aggregate Job {
+      technicianId: Technician id
+      assignedName: string
+      operation assign(assignTo: Technician id) {
+        technicianId := assignTo
+        assignedName := Technicians.get(assignTo).name
+      }
+    }
+    repository Jobs for Job
+  } }
+}`,
+  // A repository verb on a name no repository declares.
+  "loom.repository-unknown": repoOnly(`    aggregate Order with crudish { code: string }
+    workflow w { create(id: Order id) { let o = Orders.get(id) } }`),
+  "loom.requirement-parent-cycle": requirements(
+    'requirement R9 parent R10 { type: UserStory title: "t" }\n' +
+      'requirement R10 parent R9 { type: UserStory title: "t" }',
+  ),
+  "loom.requirement-priority-not-int": requirements(
+    'requirement R6 { type: UserStory title: "t" priority: "high" }',
+  ),
+  "loom.requirement-property-duplicate": requirements(
+    'requirement R2 { type: UserStory type: UserStory title: "t" }',
+  ),
+  // Both `#slug`s: the missing `type` and the missing `title`.
+  "loom.requirement-property-missing": requirements(
+    'requirement R7 { title: "t" }\nrequirement R8 { type: UserStory }',
+  ),
+
+  // The `requirement { … }` prop bag: an unknown key, a repeated key, the four
+  // per-value shape rules, the two required keys and the parent-chain cycle.
+  "loom.requirement-property-unknown": requirements(
+    'requirement R1 { bogus: 1 type: UserStory title: "t" }',
+  ),
+  "loom.requirement-status-invalid": requirements(
+    'requirement R4 { type: UserStory title: "t" status: Nonsense }',
+  ),
+  "loom.requirement-title-not-string": requirements("requirement R5 { type: UserStory title: 7 }"),
+  "loom.requirement-type-invalid": requirements('requirement R3 { type: Nonsense title: "t" }'),
+  // The `requires` gate at the OPERATION site.  Its four siblings — the in-body
+  // `requires` statement, the workflow create gate (`structural.ts`),
+  // the read-path find/projection gate (`repository.ts`) and the handler-body
+  // statement (`types.ts`) — share this code, so one fixture covers the family.
+  "loom.requires-not-bool": orderOps("operation p() requires name { total := total + 1 }"),
+  // A parameter gate after an assignment: it reads no field and no local, so
+  // it could sit on the gate ladder, but runs after the load, `If-Match` and
+  // `when`.
+  "loom.requires-not-leading": orderOps(
+    "operation p(n: int) { total := total + 1\n requires n > 0 }",
+  ),
+  "loom.requires-private-operation": orderOps(
+    "private operation p() requires true { total := total + 1 }",
+  ),
+
+  // `display`/`inspect` are reserved derived names that only mean something on
+  // an aggregate — on a value object they are rejected.
+  "loom.reserved-derived-on-vo": repoOnly(`    valueobject Money {
+      amount: int
+      derived display: string = "x"
+    }`),
+
+  // The parse-but-no-emit meta-warning (M-T5.9).  `connection:` reaches the IR
+  // and no generator reads it — the emitted compose / k8s wiring is derived
+  // heuristically from the compose host instead.
+  "loom.reserved-not-emitted": `
+system S {
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+  } }
+  storage pg { type: postgres, connection: env("DB_URL") }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
+}`,
+
+  // Three rules, nine sites: the kind must suit the storage's type, a knob
+  // must suit the kind, and a knob must suit the storage.  One fixture per
+  // CODE; the `#slug`s are the individual knobs.
+  "loom.resource-kind-storage-mismatch": resourced("resource bad { for: C, kind: state, use: kv }"),
+  "loom.resource-knob-kind-mismatch": resourced(
+    "resource ttlBad { for: C, kind: state, use: pg, ttl: 60 }",
+  ),
+  "loom.resource-knob-storage-mismatch": resourced(
+    'resource schemaBad { for: C, kind: cache, use: kv, schema: "s" }',
+  ),
+
+  // A resource op whose capability the bound storage does not offer.
+  // `localDisk` offers objectStore{blob,list}; `signedUrl` is s3-only — so the
+  // SAME source on `type: s3` does not raise this code, which is what makes
+  // the fixture discriminating rather than incidental.
+  "loom.resource-missing-capability": `
+system S {
+  subdomain Sub { context C {
+    aggregate Doc with crudish { name: string }
+    repository Docs for Doc
+    workflow W {
+      create(k: string) { let u = Blobs.signedUrl(k) }
+    }
+  } }
+  storage pg { type: postgres }
+  storage files { type: localDisk }
+  resource st { for: C, kind: state, use: pg }
+  resource Blobs { for: C, kind: objectStore, use: files }
+  deployable api { platform: node contexts: [C] dataSources: [st, Blobs] port: 3000 }
+}`,
+
+  // A resource handle is ambient over the whole context, but only the
+  // application-layer emitters (workflow / command+query handler) have the
+  // resource client in scope — a domainService body is rejected too.
+  "loom.resource-op-outside-workflow": `
+system S {
+  subdomain Sub { context C {
+    aggregate Thing {
+      name: string
+      operation archive() { files.put("t/" + this.name, this.name) }
+    }
+    repository Things for Thing
+  } }
+  api Api from Sub
+  storage pg { type: postgres }
+  storage blobs { type: s3, config: { bucket: "b" } }
+  resource st { for: C, kind: state, use: pg }
+  resource files { for: C, kind: objectStore, use: blobs }
+  deployable api {
+    platform: node
+    contexts: [C]
+    dataSources: [st, files]
+    serves: Api
+    port: 3000
+  }
+}`,
+  "loom.retrieval-where-column-column":
+    repoOnly(`    aggregate Thing with crudish { name: string  other: string }
+    repository Things for Thing
+    retrieval Same() of Thing { where: name == other }`),
+
+  "loom.retrieval-where-unknown-field": repoOnly(`    aggregate Thing with crudish {
+      name: string
+      derived shouty: string = name
+    }
+    repository Things for Thing
+    retrieval Loud() of Thing { where: this.shouty == "X" }`),
+  "loom.return-missing": orderOps("operation bad(): int { if total > 0 { return 1 } }"),
+  // Every other callable with a declared result type: an operation here; the
+  // domain-service operation and handler arms share the check.
+  "loom.return-type-mismatch": orderOps('operation bad(): int { return "x" }'),
+
+  // A cross-aggregate invariant that reads through a repository.  It validated
+  // clean and emitted `Technicians.get(...)` into the per-instance floor —
+  // TS2304 on hono, the same unresolvable symbol on .NET/java, and on elixir the
+  // rule was silently emitted nowhere at all.
+  "loom.rule-expr-impure": repoOnly(`    aggregate Technician with crudish { skill: string }
+    aggregate WorkOrder with crudish {
+      technicianId: Technician id
+      invariant Technicians.get(technicianId).skill.length > 0
+    }
+    repository Technicians for Technician
+    repository WorkOrders for WorkOrder`),
+  "loom.rule-message-removed": repoOnly(`    aggregate Item with crudish {
+      sku: string
+      invariant sku.length > 0 message "SKU is required"
+    }
+    repository Items for Item`),
+  // Named rules: two rules of one aggregate sharing a name — an invariant and a
+  // field check, which share the aggregate's rule namespace — and the removed
+  // `message "…"` clause (an error that names the rule to write).
+  "loom.rule-name-duplicate": repoOnly(`    aggregate Item with crudish {
+      sku: string check skuRequired: sku.length > 0
+      invariant skuRequired: sku.length < 64
+    }
+    repository Items for Item`),
+  "loom.scaffold-aggregate-unserved": `
+system S {
+  subdomain Sub { context C with scaffoldHandlers {
+    aggregate Thing with crudish { name: string }
+  } }
+}`,
+  "loom.seed-abstract-aggregate": repoOnly(`    abstract aggregate Base { name: string }
+    aggregate Child extends Base with crudish { extra: int }
+    repository Children for Child
+    seed default { Base { name: "x" } }`),
+
+  // Each of these parsed 0 errors / 0 warnings before the rule existed and
+  // then produced a DIFFERENT wrong artefact per backend.
+  "loom.seed-dataset-name-collision": repoOnly(`    aggregate Widget with crudish { name: string }
+    repository Widgets for Widget
+    seed default { Widget { name: "a" } }
+    seed Default { Widget { name: "b" } }`),
+  "loom.seed-eventsourced-no-create":
+    repoOnly(`    event Opened { account: Account id, owner: string }
     aggregate Account persistedAs: eventLog {
       owner: string
-      create(owner: string) { emit Opened { account: id, owner: owner } }
       apply(e: Opened) { owner := e.owner }
     }
     repository Accounts for Account
-    policy { read Account requires currentUser.role == "admin" }
+    seed default { Account { owner: "seeded-alice" } }`),
+  "loom.seed-raw-document-shape":
+    repoOnly(`    aggregate Article shape: document, with crudish { title: string }
+    repository Articles for Article
+    seed wired raw { Article { id: "11111111-1111-1111-1111-111111111111", title: "Anchor" } }`),
+  "loom.seed-raw-eventsourced": repoOnly(`    event Opened { account: Account id, owner: string }
+    aggregate Account persistedAs: eventLog {
+      owner: string
+      create open(owner: string) { emit Opened { account: id, owner: owner } }
+      apply(e: Opened) { owner := e.owner }
+    }
+    repository Accounts for Account
+    seed wired raw { Account { id: "11111111-1111-1111-1111-111111111111", owner: "seeded-alice" } }`),
+  "loom.seed-tenant-owned-needs-raw": `
+system S {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Sub { context C {
+    aggregate Invoice with tenantOwned, crudish { label: string }
+    aggregate Org with crudish { name: string }
+    repository Invoices for Invoice
+    seed default { Invoice { label: "Seeded" } }
   } }
-  api Api from D
+}`,
+
+  // `sensitive(...)` redacts the synthesized `inspect` and nothing else; the
+  // response DTO serves `ssn` in cleartext to every caller (M-T3.8).  The
+  // second field pins the suppression side — `mask unless` IS wired, so a
+  // masked sensitive field must not warn.
+  "loom.sensitive-wire-unsupported": repoOnly(`    aggregate Person with crudish {
+      ssn: string sensitive(pii)
+      salary: money sensitive(pii) mask unless currentUser.role == "hr"
+    }
+    repository People for Person`),
+  "loom.serves-duplicate-api": topology(
+    "deployable api2 { platform: node contexts: [Orders] dataSources: [st] serves: OrdersApi, OrdersApi port: 3002 }",
+  ),
+  "loom.serves-on-frontend": topology(
+    "deployable web { platform: react targets: api ui: WebApp serves: OrdersApi port: 3001 }",
+    { ui: true },
+  ),
+  "loom.serves-unknown-api": topology(
+    "deployable api2 { platform: node contexts: [Orders] dataSources: [st] serves: GhostApi port: 3002 }",
+  ),
+
+  // `shape:` is read nowhere on an event-sourced aggregate — every backend's
+  // schema emitter short-circuits on `persistedAs: eventLog` first — so the
+  // clause parsed clean and generated byte-identical output.
+  "loom.shape-on-event-sourced": repoOnly(`    event Opened { account: Account id, owner: string }
+    aggregate Account persistedAs: eventLog shape: document {
+      owner: string
+      create open(owner: string) { emit Opened { account: id, owner: owner } }
+      apply(e: Opened) { owner := e.owner }
+    }
+    repository Accounts for Account`),
+  // A projection on another deployable reading a shareable aggregate's table.
+  "loom.share-host-bypass": `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context A {
+      aggregate Org with crudish { name: string  implements tenantRegistry }
+      aggregate Doc with tenantOwned, shareable, crudish { title: string }
+    }
+    context B {
+      projection DocCount {
+        n: int
+        from Doc as d
+        select n = count()
+      }
+    }
+  }
   storage pg { type: postgres }
-  resource st { for: Ledger, kind: state, use: pg }
-  resource el { for: Ledger, kind: eventLog, use: pg }
-  deployable api { platform: node contexts: [Ledger] dataSources: [st, el] serves: Api port: 3000 auth: required }
+  resource a { for: A, kind: state, use: pg }
+  deployable da { platform: node, contexts: [A], dataSources: [a], port: 3000, auth: required }
+  deployable db { platform: node, contexts: [B], port: 3001, auth: required }
+}`,
+  "loom.shareable-no-tenancy": `
+context C {
+  aggregate Doc with tenantOwned, shareable, crudish { title: string }
+}`,
+  // `shareable` on an aggregate every caller already reads.
+  "loom.shareable-not-tenant-owned": `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context C {
+      aggregate Org with crudish { name: string }
+      aggregate Doc with shareable, crudish { title: string }
+    }
+  }
+}`,
+
+  // `Slot { }` is a placement contract — only a `component` body has a caller
+  // whose children it can render; in a PAGE body it is an unbound reference.
+  "loom.slot-outside-component": `
+system S {
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page Home { route: "/"  body: Stack { Slot { } } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  // A document-shaped aggregate on an ELIXIR deployable whose stamp value calls
+  // the aggregate's own function: the document write seam has no record to
+  // evaluate it against.
+  "loom.stamp-reads-aggregate-unsupported": `
+system P {
+  subdomain D { context Orders {
+    aggregate Order shape: document with crudish {
+      qty: int
+      total: int managed
+      function doubled(): int = qty * 2
+      stamp onCreate { total := doubled() }
+    }
+    repository Orders for Order
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
+}`,
+
+  // 24 uncoded sites, all of them deployable-composition rules that used to
+  // reach the user as `loom.unknown`.  One fixture each, over the shared
+  // `topology(...)` base above: the extra deployable / knob IS the defect.
+  "loom.static-deployable-missing-ui": topology(
+    "deployable web { platform: static targets: api port: 3001 }",
+  ),
+  // A store field's default is evaluated when the store is created, so on the
+  // JS-family store renderer it must be a constant: a call is refused.
+  "loom.store-init-not-constant": `
+system S {
+  subdomain Catalog { context Stock {
+    aggregate Item with crudish { sku: string }
+    repository Items for Item
+  } }
+  api StockApi from Catalog
+  storage pg { type: postgres }
+  resource st { for: Stock, kind: state, use: pg }
+  deployable api { platform: node contexts: [Stock] dataSources: [st] serves: StockApi port: 8080 }
+  ui WebApp {
+    api Catalog: StockApi
+    store Prefs { state { stamp: string = now().toString() } }
+    page Browse { route: "/browse" body: Stack { Text { "x" } } }
+  }
+  deployable web { platform: static targets: api ui: WebApp { Catalog: api } port: 3001 }
+}`,
+
+  // The `persist:` ladder now ships on EVERY frontend, so the platform-wide arm
+  // of this code is gone; what remains is field-scoped.  Persistence on feliz
+  // and flutter crosses an untyped boundary per field, so a cell whose type has
+  // no total conversion in that language's codec is refused rather than
+  // silently dropped from the stored blob.  Since wave C2 packet 2i the FELIZ
+  // residue is exactly the types that would need a RECORD codec — a value
+  // object here; `datetime` (the fixture's old subject) now has a total
+  // `System.DateTime.TryParse` codec and rides the ladder.  Packet 2l added the
+  // `optional` arm, which does NOT widen this fixture: an optional of a record
+  // is refused for the same reason the bare record is.
+  "loom.store-lifetime-target-unsupported": `
+system S {
+  subdomain Sub { context C {
+    valueobject Money { amount: int  currency: string }
+    aggregate Thing with crudish { name: string }
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: feliz
+    api C: Api
+    store Cart persist: local { state { price: Money } }
+    page Home { route: "/"  body: Stack { Heading { "hi", level: 3 } } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: feliz targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+
+  "loom.sub-primitive-misplaced": `
+system S {
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page Home { route: "/"  body: Stack { Tab("one") } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  "loom.svelte-deployable-missing-ui": spaMissingUi("svelte"),
+
+  // A client-side `Table { filter: … }` over a SERVER-PAGED table narrows one
+  // server window, so the walker drops the arg.  The auto-paged rewrite makes
+  // this the shape the simplest hand-written paged table lands in (M-T1.1).
+  "loom.table-filter-server-paged": `
+system S {
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page Home {
+      route: "/"
+      state { q: string = "" }
+      body: QueryView {
+        of: C.Thing.all,
+        data: rows => Table { rows: rows, filter: q, Column { "Name", o => Text { o.name } } }
+      }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  // A construct its target's capability table refuses: `DataGrid` on Flutter
+  // (no JS runtime, so no TanStack row model).
+  "loom.target-unsupported": `
+system GridOnFlutter {
+  subdomain Sales { context Orders {
+    aggregate Customer with crudish { name: string }
+    repository Customers for Customer
+  } }
+  api SalesApi from Sales
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  ui WebApp {
+    framework: flutter
+    api Sales: SalesApi
+    page X { route: "/x"  body: QueryView { of: Sales.Customer.all, data: rows => DataGrid(
+      Column("Name", o => o.name, sortable: true), rows: rows) } }
+  }
+  deployable api { platform: node, contexts: [Orders], dataSources: [st], serves: SalesApi, port: 3000 }
+  deployable web { platform: flutter, targets: api, port: 3001, ui: WebApp { Sales: api } }
+}`,
+  "loom.targets-misplaced": topology(
+    "deployable api2 { platform: node targets: api contexts: [Orders] dataSources: [st] port: 3002 }",
+  ),
+  "loom.tenancy-data-key-removed": `
+system Flat {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core { context Books {
+    aggregate Account with tenantOwned, crudish {
+      label: string
+      note: string?
+      operation m() { dataKey := "x" }
+    }
+    aggregate Org with crudish { name: string }
+    repository Accounts for Account { }
+    repository Orgs for Org { }
+    
+  } }
+  storage pg { type: postgres }
+  resource b { for: Books, kind: state, use: pg }
+  deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
 }`,
 
   // F-005: a one-word `ignoring tenantOwned` on an UNGATED query-time
@@ -4665,29 +3702,6 @@ system S {
   storage pg { type: postgres }
   resource st { for: Work, kind: state, use: pg }
   deployable api { platform: node contexts: [Work] dataSources: [st] serves: Api port: 3000 auth: required }
-}`,
-
-  // A per-row query-time projection reading another context's aggregate on a
-  // backend that synthesises the source find only in the aggregate's context.
-  "loom.projection-cross-context-source-unsupported": `
-system S {
-  subdomain D {
-    context Orders {
-      aggregate Order with crudish { code: string  total: int }
-      repository Orders for Order { }
-    }
-    context Reports {
-      projection Codes {
-        code: string
-        from Order as o
-        select code = o.code
-      }
-    }
-  }
-  api Api from D
-  storage pg { type: postgres }
-  resource st { for: Orders, kind: state, use: pg }
-  deployable api { platform: node contexts: [Orders, Reports] dataSources: [st] serves: Api port: 3000 }
 }`,
 
   // A folded projection over events of a `crossTenant` aggregate AND a
@@ -4722,6 +3736,45 @@ system S {
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
 }`,
 
+  // A subtype taking the OPPOSITE tenancy stance from the base it inherits.
+  // The base's `tenantOwned` reaches the subtype, so it would be both tenant
+  // data and shared data.
+  "loom.tenancy-inherited-stance-conflict": `
+system S {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Fleet { context Vehicles {
+    aggregate Org with crudish { title: string }
+    abstract aggregate Vehicle with tenantOwned { name: string }
+    aggregate Car extends Vehicle crossTenant with crudish { doors: int }
+    repository Cars for Car
+    repository Orgs for Org
+  } }
+  api Api from Fleet
+  storage pg { type: postgres }
+  resource st { for: Vehicles, kind: state, use: pg }
+  deployable d { platform: node contexts: [Vehicles] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+  "loom.tenancy-principal-member-removed": `
+system Flat {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core { context Books {
+    aggregate Account with tenantOwned, crudish {
+      label: string
+      note: string?
+      operation m() { note := currentUser.orgPath }
+    }
+    aggregate Org with crudish { name: string }
+    repository Accounts for Account { }
+    repository Orgs for Org { }
+    
+  } }
+  storage pg { type: postgres }
+  resource b { for: Books, kind: state, use: pg }
+  deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
+}`,
+
   // A query-time projection over a tenant-scoped fold: the raw-table query
   // path carries no fold read scope.
   "loom.tenancy-projection-over-scoped-fold": `
@@ -4753,110 +3806,1018 @@ system S {
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
 }`,
-
-  // --- page-body / gate shapes that used to reach CODEGEN (audit D2/D3/D4) --
-  // `permissions.<name>` is a subdomain-scoped catalogue reference; a `ui` is
-  // declared outside the subdomain that owns it, so the name does not resolve
-  // and no frontend can evaluate the gate.  Before the check this reached
-  // `renderGateExpr`, which threw a bare JS `Error` with no code and no page.
-  "loom.page-gate-not-client-evaluable": `
+  // A tenantOwned row referencing a tenantOwned aggregate of another context.
+  "loom.tenancy-ref-unresolvable": `
 system S {
-  user { id: string  role: string  permissions: string[] }
-  subdomain Warehouse {
-    permissions { manage }
-    context Stock {
-      aggregate Item with crudish { sku: string }
-      repository Items for Item
+  user { id: string  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context A {
+      aggregate Org with crudish { name: string }
+      aggregate Invoice with tenantOwned, crudish { number: string }
     }
-  }
-  api StockApi from Warehouse
-  storage pg { type: postgres }
-  resource st { for: Stock, kind: state, use: pg }
-  deployable api {
-    platform: node
-    contexts: [Stock]
-    dataSources: [st]
-    serves: StockApi
-    auth: required
-    port: 8080
-  }
-  ui WebApp {
-    api Warehouse: StockApi
-    page Secret {
-      route: "/secret"
-      requires currentUser.role.startsWith("staff")
-      body: Stack { Text { "hi" } }
+    context B {
+      aggregate Claim with tenantOwned, crudish { invoice: Invoice id }
     }
-  }
-  deployable web {
-    platform: static
-    targets: api
-    auth: ui
-    ui: WebApp { Warehouse: api }
-    port: 3001
   }
 }`,
-  // A collection op is an EXPRESSION: its lambda body renders through the
-  // expression renderer, so a primitive there emits as a bare function call
-  // (`Card(Text(i.name))`) that nothing imports.  `For { each: … }` is the
-  // slot that renders markup.
-  "loom.markup-primitive-in-collection-lambda": uiPage(
-    `QueryView { of: Item.all, data: rows => Stack { rows.map(i => Card { Text { i.sku } }) } }`,
+  // The operating scope read on a deployable with no auth:
+  // there is no auth middleware, so no switch gate, so the read would be an
+  // unvalidated caller-submitted value.
+  // `organizationContext.ancestors` read on a deployable that does not host
+  // the registry's context — its database has no registry table to walk.
+  "loom.tenancy-registry-remote-unsupported": `
+system OrgAnc {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Registry {
+      aggregate Org with crudish { name: string  implements tenantRegistry }
+      repository Orgs for Org
+    }
+    context Books {
+      aggregate Note with tenantOwned, crudish {
+        under: bool?
+        operation probe(org: Org id) { under := organizationContext.ancestors.contains(org) }
+      }
+      repository Notes for Note
+    }
+  }
+  storage primary { type: postgres }
+  resource r { for: Registry, kind: state, use: primary }
+  resource b { for: Books, kind: state, use: primary }
+  deployable reg { platform: node, contexts: [Registry], dataSources: [r], port: 3001, auth: required }
+  deployable books { platform: node, contexts: [Books], dataSources: [b], port: 3002, auth: required }
+}`,
+  // A part that contains itself.  The natural domain is ordinary (a sub-task
+  // tree), and before the check this parsed clean and then killed `generate`
+  // with a bare `RangeError: Maximum call stack size exceeded`.
+  // A tenancy registry nothing can create — the signup loop's step one is
+  // missing, so the first tenant can never exist.
+  "loom.tenant-registry-not-constructible": `
+system Billder {
+  user { id: guid  email: string  tenantId: string }
+  tenancy by user.tenantId of Organization
+  subdomain Billing {
+    context Accounts {
+      aggregate Organization { name: string }
+      repository Organizations for Organization
+    }
+  }
+  storage primary { type: postgres }
+  resource b { for: Accounts, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Accounts], dataSources: [b], auth: required, port: 3000 }
+}`,
+  "loom.test-principal-claim-type": principalSys({
+    ctxTest: `    test "t" as { level: "3" } { let n = Note.create(text: "a") }`,
+  }),
+  "loom.test-principal-duplicate-claim": principalSys({
+    ctxTest: `    test "t" as { role: "a", role: "b" } { let n = Note.create(text: "a") }`,
+  }),
+  "loom.test-principal-no-user": principalSys({
+    user: "",
+    ctxTest: `    test "t" as { role: "a" } { let n = Note.create(text: "a") }`,
+  }).replace(" auth: required", ""),
+  // The `as { … }` test principal (test-placement.md).
+  "loom.test-principal-placement": principalSys({
+    ctxTest: `    aggregate Pin { label: string  test "unit" as { role: "x" } { expect(1).toBe(1) } }`,
+  }),
+  "loom.test-principal-unknown-claim": principalSys({
+    ctxTest: `    test "t" as { nope: "a" } { let n = Note.create(text: "a") }`,
+  }),
+  "loom.test-principal-value": principalSys({
+    ctxTest: `    test "t" as { role: 1 + 2 } { let n = Note.create(text: "a") }`,
+  }),
+  "loom.test-statement-invalid": `
+system TestVocab {
+  subdomain S { context C {
+    event Pinged { n: int }
+    aggregate Task with crudish { title: string }
+    test "t" { emit Pinged { n: 1 } }
+  } }
+}`,
+  "loom.theme-color-invalid": themed('neutral: "not-a-hex"'),
+  "loom.theme-color-scheme-invalid": themed('colorScheme: "sepia"'),
+  "loom.theme-property-duplicate": themed('primary: "#3b82f6"\n    primary: "#3b82f6"'),
+
+  // The `theme { … }` block's five rules.  Each is one property in an
+  // otherwise-valid block, so the fixture's diagnostic set is exactly one.
+  "loom.theme-property-unknown": themed('bogus: "#fff"'),
+  "loom.theme-radius-invalid": themed('radius: "gigantic"'),
+  "loom.throw-kind-integration-unsupported": throwKindProbe({
+    contextTest: `        expect(wo.complete()).toThrow(precondition)`,
+  }),
+  "loom.throw-kind-outside-tothrow": throwKindProbe({
+    unitBody: `          expect(wo.reference).toBe(invariant)`,
+  }),
+  // Ruling D1 — a timer tick has no tenant, so a tenant-scoped read from its
+  // reactor must say `ignoring tenantOwned`.
+  "loom.timer-tenant-read": `
+system TimerTenant {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Organization
+  subdomain Ops {
+    context Jobs {
+      aggregate Sweep crossTenant { runId: string }
+      event SweepTick { sweep: Sweep id, at: datetime }
+      aggregate Job with tenantOwned, crudish {
+        code: string
+        done: bool
+        unique (code)
+        operation close() { done := true }
+      }
+      repository Jobs for Job
+      workflow sweepRun {
+        sweep: Sweep id
+        create(t: SweepTick) by t.sweep {
+          let j = Jobs.getBy(code: "x")
+          j.close()
+        }
+      }
+      aggregate Organization with crudish { name: string }
+    }
+  }
+  timerSource nightly { for: SweepTick, cron: "0 3 * * *" }
+}`,
+
+  // A `toast(<expr>)` outside the message subset every realtime renderer
+  // implements — a CONVERSION call.  (A member CHAIN off the binding —
+  // `e.order.id` — used to sit here; it renders on all four renderers now, so
+  // the fixture moved to a shape that is still refused.)  Without the gate this
+  // aborts `ddd generate system` with a raw Error from `renderMessageExpr` /
+  // `renderFsToastMessage` / `renderMessageExprElixir` /
+  // `renderDartToastMessage`.
+  "loom.toast-message-unsupported": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+    event OrderPlaced { order: Order id, at: datetime }
+    channel Lifecycle { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }
+  } }
+  api Api from D
+  ui WebApp {
+    api C: Api
+    channel Live: C.Lifecycle
+    on Live.OrderPlaced(e) { toast(string(e.at)) }
+    page Home { route: "/" body: Stack { Heading { "home" } } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  "loom.tothrow-arity": matcherTest('expect("x").toThrow(404, 500)'),
+  // The mirror of `#throw-status`: INSIDE a `test e2e`, the status argument
+  // must be an integer literal for the e2e renderer to pin it.
+  "loom.tothrow-status-not-int": `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  test e2e "status must be an int literal" against api {
+    expect(api.things.create({ name: "x" })).toThrow("404")
+  }
+}`,
+  // A response record typed onto a stored aggregate field.
+  "loom.transport-type-position": `
+system S {
+  subdomain M { context C {
+    response Ok { n: int }
+    aggregate Doc with crudish { title: string  last: Ok }
+  } }
+}`,
+  // A scaffold selecting a subdomain the frontend's `targets:` backend does not
+  // serve (eval-closure #18): parsed clean, then failed on generated pages.
+  "loom.ui-aggregate-unserved": `
+system S {
+  subdomain One { context A {
+    aggregate Alpha with crudish { code: string }
+    repository Alphas for Alpha
+  } }
+  subdomain Two { context B {
+    aggregate Beta with crudish { label: string }
+    repository Betas for Beta
+  } }
+  api OneApi from One
+  api TwoApi from Two
+  ui U with scaffold(subdomains: [One, Two]) { }
+  storage pg { type: postgres }
+  resource aState { for: A, kind: state, use: pg }
+  resource bState { for: B, kind: state, use: pg }
+  deployable apiOne { platform: node, contexts: [A], dataSources: [aState], port: 3000, serves: OneApi }
+  deployable apiTwo { platform: node, contexts: [B], dataSources: [bState], port: 3001, serves: TwoApi }
+  deployable web { platform: static, targets: apiOne, ui: U, port: 3002 }
+}
+`,
+  // The `<apiParam>.<Aggregate>.<op>` body chain — an aggregate the api's
+  // module does not hold, and an operation the aggregate does not declare.
+  "loom.ui-api-aggregate-unknown": uiMembers(
+    'api Sales: SubApi\n    page P { route: "/a"  body: Stack { Button { "go", onClick: Sales.Ghost.create({ name: "x" }) } } }',
   ),
-  // `money` deserialises client-side to a \`Decimal\` object, which is not a
-  // renderable node — the emitted frontend fails its OWN typecheck.
-  "loom.money-in-text-slot": uiPage(
-    `QueryView { of: Item.all, data: rows => For { each: rows, i => Text { i.price } } }`,
+  "loom.ui-api-operation-unknown": uiMembers(
+    'api Sales: SubApi\n    page P { route: "/a"  body: Stack { Button { "go", onClick: Sales.Thing.explode({ name: "x" }) } } }',
   ),
-  // --- M-T5.42 (packet L1-V2) ---------------------------------------------
+  // The `ui { … }` member rules.
+  "loom.ui-api-param-duplicate": uiMembers("api Sales: SubApi\n    api Sales: SubApi"),
+  "loom.ui-api-unknown": uiMembers("api Ghost: NopeApi"),
+
+  // Each validated clean and then crashed `generate system`: the shared JS
+  // walker (`this`, a write to a non-state name), the Feliz MVU renderer (a block lambda in an action).
+  "loom.ui-assign-not-state": uiPages(
+    "",
+    `    page Home {
+      route: "/"
+      state { count: int = 0 }
+      action bump() { other := 1 }
+      body: Stack { Button { "Bump", onClick: bump } }
+    }`,
+  ),
+  "loom.ui-binding-duplicate": topology(
+    "deployable web { platform: react targets: api ui: WebApp { Sales: api, Sales: api } port: 3001 }",
+    { ui: true, uiApiParam: true },
+  ),
+  // The four `ui: <Ui> { … }` compose-binding rules.  `WebApp` declares one
+  // `api Sales: OrdersApi` parameter, so every shape below is a real binding
+  // defect rather than a missing declaration.
+  "loom.ui-binding-missing": topology(
+    "deployable web { platform: react targets: api ui: WebApp port: 3001 }",
+    { ui: true, uiApiParam: true },
+  ),
+  "loom.ui-binding-source-not-serving": topology(
+    `
+  deployable plain { platform: node contexts: [Orders] dataSources: [st] port: 3002 }
+  deployable web { platform: react targets: api ui: WebApp { Sales: plain } port: 3001 }`,
+    { ui: true, uiApiParam: true },
+  ),
+  "loom.ui-binding-unknown-param": topology(
+    "deployable web { platform: react targets: api ui: WebApp { Nope: api } port: 3001 }",
+    { ui: true },
+  ),
+  "loom.ui-binding-unknown-source": topology(
+    "deployable web { platform: react targets: api ui: WebApp { Sales: ghost } port: 3001 }",
+    { ui: true, uiApiParam: true },
+  ),
+  "loom.ui-binding-unmountable-platform": `
+system P {
+  subdomain D { context Orders {
+    aggregate Order with crudish { name: string }
+    repository Orders for Order
+  } }
+  ui WebApp { }
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable api { platform: node contexts: [Orders] dataSources: [st] ui: WebApp port: 3000 }
+}`,
+  "loom.ui-body-feature-unsupported": flutterUi(
+    `    page Detail(id: Order id) {
+      route: "/orders/:id"
+      state { msg: string = "" }
+      action go() {
+        match await Shop.Order.confirm() {
+          Order o => { match await Shop.Order.confirm() { Order p => { msg := p.code } else => { msg := "b" } } }
+          else => { msg := "u" }
+        }
+      }
+      body: Stack { Button { "Go", onClick: go } }
+    }`,
+  ),
+
+  // A backend-body statement form in a ui action.  The sibling of
+  // `loom.if-stmt-page-body-unsupported`: same reasoning, three more kinds,
+  // each of which crashed the JS walker with a bare throw and emitted a silent
+  // no-op comment on Flutter.
+  "loom.ui-body-statement-kind": uiPages(
+    "",
+    `    page Home {
+      route: "/"
+      state { n: int = 0 }
+      action bump() { precondition n > 0 }
+      body: Button { "Go", onClick: bump }
+    }`,
+  ),
+
+  // --- hand-authored `area` identity (the clause census's `Area` fixture) --
+  // All three arrived with the page-identity fix and are the next instance of
+  // the pattern the lifecycle trio above records: a code landing on `main` with
+  // no proof it fires.  Shapes taken from `test/ir/ui-page-identity-gate.test.ts`.
+  //
+  // Two `area Ops` blocks in ONE scope: uniqueness was scoped per Area NODE, so
+  // both pages computed `src/pages/ops/…` and the second silently won.
+  "loom.ui-duplicate-area": uiPages(
+    "",
+    `    area Ops {
+      page Dashboard { route: "/ops/a" body: Stack { Heading { "A", level: 1 }, testid: "a" } }
+    }
+    area Ops {
+      page Overview { route: "/ops/b" body: Stack { Heading { "B", level: 1 }, testid: "b" } }
+    }`,
+  ),
+  "loom.ui-find-call-arity": uiPages(
+    "",
+    `    page Home {
+      route: "/"
+      body: QueryView { of: Order.findAllByByCode(), loading: Text { "l" }, error: Text { "e" }, empty: Text { "n" }, data: rows => Text { "x" } }
+    }`,
+  )
+    .replace("context Orders {", "context Orders with scaffoldPaged(of: ByCode) {")
+    .replace(
+      "repository Orders for Order",
+      "repository Orders for Order\n    criterion ByCode(code: string) of Order = this.code == code",
+    )
+    .replace(
+      "api SalesApi from Sales",
+      "api SalesApi with scaffoldPagedApi(of: ByCode) from Sales",
+    ),
+  "loom.ui-function-duplicate": uiMembers(
+    'function f(x: int): int extern from "./f"\n    function f(x: int): int extern from "./f"',
+  ),
+
+  // A page `requires` gate outside the closed, client-evaluable subset every
+  // JS/F#/Dart gate renderer implements — a CONVERSION, the same shape that
+  // catches the toast gate above.  Without this gate the model reports
+  // `0 error(s), 0 warning(s)` and then aborts `ddd generate system` with a raw
+  // `Error: UI gate: expression kind 'convert' is not supported in a UI gate`
+  // from `renderGateExpr` / `renderFelizGate` / `renderFlutterGate`.
+  "loom.ui-gate-expr-unsupported": `
+system P {
+  user { id: guid  role: string }
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+  } }
+  api Api from D
+  ui WebApp {
+    api C: Api
+    page Home {
+      route: "/"
+      requires string(currentUser.role) == "admin"
+      body: Stack { Heading { "home" } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
+  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 auth: ui }
+}`,
+
+  // A UI-mounting deployable whose form would need a Select picker for an
+  // `X id` naming no aggregate in the system.  Needs the ui + react deployable
+  // — a backend-only system never reaches the id-reference walk.
+  "loom.ui-id-ref-unknown-aggregate": `
+system S {
+  subdomain Sub { context C {
+    aggregate Order with crudish { code: string  buyer: Ghost id }
+    repository Orders for Order
+  } }
+  api A from Sub
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  ui W { api Sales: A }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
+  deployable web { platform: react targets: api ui: W { Sales: api } port: 3001 }
+}`,
+  "loom.ui-menu-duplicate": uiMembers(
+    'page P { route: "/a"  body: Stack { Text { "hi" } } }\n' +
+      '    menu { section "Main" { link P } }\n' +
+      '    menu { section "Other" { link P } }',
+  ),
+
+  // A frontend deployable whose ui READS `currentUser` while the ui is not
+  // served under auth (`auth: ui` absent) — arrived on `main` mid-PR, same as
+  // the three above.
+  // A ui whose api handles fan out across two BACKENDS.  Parses and binds;
+  // the frontend is generated against `targets:` alone, so the second
+  // handle's api module is never written and the bundle does not typecheck.
+  "loom.ui-multi-backend-unsupported": `
+system S {
+  subdomain One { context A {
+    aggregate Alpha with crudish { code: string  derived display: string = code }
+    repository Alphas for Alpha
+  } }
+  subdomain Two { context B {
+    aggregate Beta with crudish { label: string  derived display: string = label }
+    repository Betas for Beta
+  } }
+  api OneApi from One
+  api TwoApi from Two
+  ui U {
+    api O: OneApi
+    api T: TwoApi
+    page Home { route: "/" body: Text { "hello" } }
+  }
+  storage pg { type: postgres }
+  resource aState { for: A, kind: state, use: pg }
+  resource bState { for: B, kind: state, use: pg }
+  deployable apiOne { platform: node, contexts: [A], dataSources: [aState], port: 3000, serves: OneApi }
+  deployable apiTwo { platform: node, contexts: [B], dataSources: [bState], port: 3001, serves: TwoApi }
+  deployable web { platform: react, targets: apiOne, ui: U { O: apiOne, T: apiTwo }, port: 3002, design: mantine }
+}
+`,
+  "loom.ui-page-duplicate": uiMembers(
+    'page Twin { route: "/a"  body: Stack { Text { "hi" } } }\n' +
+      '    page Twin { route: "/b"  body: Stack { Text { "hi" } } }',
+  ),
+
+  // `area Workflows { page Ship }` lands on `src/pages/workflows/ship.tsx` —
+  // exactly where the scaffold's `ShipWorkflow` page goes.  The two classify
+  // DIFFERENTLY, so only the path check sees this one.
+  "loom.ui-page-path-collision": uiPages(
+    " with scaffold(workflows: [ship])",
+    `    area Workflows {
+      page Ship {
+        route: "/workflows/ship-custom"
+        body: Stack { Heading { "Ship", level: 1 }, testid: "ship" }
+      }
+    }`,
+  ),
+
+  // Two pages of one ui sharing a `route:`.  Distinct names, distinct emit
+  // paths, distinct archetype slots — so neither collision gate above sees it,
+  // and only one of the two pages is reachable in any router (SvelteKit cannot
+  // emit them at all, and used to `throw` a bare `Error` mid-generate).
+  "loom.ui-page-route-collision": uiPages(
+    "",
+    `    page Alpha { route: "/dup" body: Stack { Heading { "Alpha", level: 1 } } }
+    page Beta { route: "/dup" body: Stack { Heading { "Beta", level: 1 } } }`,
+  ),
+
+  // The author's `area Sales { area Orders { page List } }` and the SCAFFOLD's
+  // `area Orders { page List }` both classify as aggregate Order's list page.
+  // Only one can be routed; the other was emitted as an unreachable file.
+  //
+  // NOTE two sibling areas holding same-named pages is NOT this defect — that
+  // is the documented silent case, and using it here made the fixture raise
+  // nothing at all.
+  "loom.ui-page-slot-collision": uiPages(
+    " with scaffold(aggregates: [Order])",
+    `    area Sales {
+      area Orders {
+        page List {
+          route: "/orders"
+          body: Stack { Heading { "Mine", level: 1 }, testid: "mine" }
+        }
+      }
+    }`,
+  ),
+  // `api` and `channel` parameters share ONE namespace on a ui, which is what
+  // this rule is for — hence a channel param colliding with an api param.
+  "loom.ui-param-duplicate": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+    event OrderPlaced { order: Order id, at: datetime }
+    channel Lifecycle { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }
+  } }
+  api Api from D
+  ui WebApp {
+    api Live: Api
+    channel Live: C.Lifecycle
+    page Home { route: "/" body: Stack { Heading { "home" } } }
+  }
+}`,
+  // A `QueryView` `of:` naming an operation the repository never declares.
+  // `findAllBySellable` is the shape a criterion gets only where `scaffoldPaged`
+  // synthesizes it; without that macro the criterion exists and the find does
+  // not, and the read used to become the unfiltered list on Phoenix.
+  "loom.ui-read-unresolved": `
+system S {
+  subdomain Sub { context C {
+    aggregate Product with crudish { name: string }
+    repository Products for Product
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page Shop {
+      route: "/shop"
+      body: QueryView { of: Product.findAllBySellable(), data: rows => Text { rows.count } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+
+  // `this` in a page action on a walker frontend: no aggregate instance is in
+  // scope there.  Without the gate the model reports `0 error(s)` and then the
+  // shared walker / Feliz update renderer abort `ddd generate system`.
+  "loom.ui-this-unbound": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+  } }
+  api Api from D
+  ui WebApp {
+    api C: Api
+    page Home {
+      route: "/"
+      state { label: string = "" }
+      action again() { label := string(this) }
+      body: Stack { Button { "Again", onClick: again } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  // A `money managed` field: off the create input, no `= <default>`, no stamp,
+  // and `money` is the one scalar with NO language-defined absent value — a
+  // `Decimal` has no agreed zero, so node's create factory emitted `total:
+  // null` into a non-nullable slot while .NET persisted a fabricated `0`.
+  // Deliberately `money` and not `int`: an `int managed` IS constructible (the
+  // seed is `0`) and must stay silent, which is what keeps this fixture
+  // honest about what the gate refuses.
+  "loom.unconstructible-server-field": `
+system Unconstructible {
+  subdomain S { context Billing {
+    aggregate Invoice with crudish {
+      reference: string
+      total: money managed
+    }
+  } }
+}`,
+  // A dropped `or E` result: the call statement throws the `error` case away.
+  "loom.unhandled-result": repoOnly(`    error Rejected { reason: string }
+    aggregate Order with crudish {
+      code: string
+      operation probe(): Order or Rejected { return Rejected { reason: code } }
+      operation touch() { probe() }
+    }`),
+  // Reading straight through an `or`-returning operation's result without a
+  // variant `match` (an unguarded dereference on all five backends).
+  "loom.union-read-undiscriminated": repoOnly(`    error NotFound { resource: string }
+    aggregate Order with crudish {
+      code: string
+      operation probe(): Order or NotFound { return NotFound { resource: code } }
+      operation touch() {
+        let r = probe()
+        code := r.code
+      }
+    }
+    repository Orders for Order`),
+  // A `unique (…)` on an abstract TPC base lands on each concrete TABLE, so it
+  // cannot stop the same value existing once per sibling subtype.
+  "loom.unique-tpc-not-hierarchy-wide": `
+system TpcUnique {
+  subdomain S { context Parties {
+    abstract aggregate Party inheritanceUsing: ownTable {
+      email: string
+      unique (email)
+    }
+    aggregate Customer extends Party inheritanceUsing: ownTable { creditLimit: decimal }
+    aggregate Supplier extends Party inheritanceUsing: ownTable { rating: int }
+  } }
+}`,
+  // `toBeAbsent()` is a claim about a SERIALIZED PAYLOAD, so it is e2e-only:
+  // a unit `test` asserts against an in-memory aggregate whose declared fields
+  // always exist.  Fire it from the unit tier, which is the refusal.
+  "loom.unit-absent-invalid": throwKindProbe({
+    unitBody: `          expect(wo.reference).toBeAbsent()`,
+  }),
+  // The `user { }` block declares `id` and `role`; the gate reads a third,
+  // undeclared claim.  Both member-typing sites fail OPEN on the principal
+  // (unknown ⇒ `string`), so before this check the model parsed, validated and
+  // GENERATED clean — and the emitted backend then failed its own compile
+  // against a `UserClaims` shape built from exactly these two fields.
+  // `money` is a precise decimal, not a record: before this check the read
+  // typed as `unknown`, every operand validator suppressed on `unknown`, and
+  // `.amount` reached the emitters verbatim — so `invariant m.amount > 0` was
+  // a business rule that can never fire (python/elixir compile it happily).
+  "loom.unknown-primitive-member": `
+system S {
+  subdomain Sub { context C {
+    aggregate Cover with crudish {
+      limit: money
+      invariant limit.amount > 0
+    }
+    repository Covers for Cover
+  } }
+}`,
+  "loom.unknown-user-claim": `
+system S {
+  user { id: string  role: string }
+  subdomain Sub { context C {
+    aggregate Widget with crudish {
+      name: string
+      operation touch() { requires currentUser.totallyBogusField == "x" }
+    }
+    repository Widgets for Widget
+  } }
+}`,
+  "loom.unresolved-call": orderOps("operation p() { nope() }"),
+  "loom.unresolved-lvalue-head": orderOps("operation p() { ghost := 1 }"),
+  // Both slugs of the code in one body: the mid-chain step (`tag.nope := …`)
+  // and the final member-call step, which can name the receiver type.
+  "loom.unresolved-member": orderOps(
+    'operation p() { tag.nope := "x" }\n      operation q() { tag.nope() }',
+  ),
+
+  // An unresolved bare ref in a rendered slot: the walker emits a comment and
+  // the content silently disappears on all six frontends (A17).
+  "loom.unresolved-page-ref": `
+system S {
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page Home { route: "/"  body: Text { nosuchthing } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  // The lowering backstop: a ui body reading a name nothing declares — the
+  // names validator leaves ui bodies to the typing pass, so nothing else
+  // refuses it.
+  "loom.unresolved-type": `
+system S {
+  subdomain M { context C { aggregate Doc with crudish { title: string } repository Docs for Doc { } } }
+  api A from M
+  ui U { api Api: A  page P { route: "/" body: For { each: orders, render: o => Text { "x" } } } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
+  deployable web { platform: react targets: d ui: U { Api: d } port: 3001 }
+}`,
+  // F-113.  A PARTIALLY-wired command body: `reference` is read (the control —
+  // it proves the gate is not a blanket "a create has params"), `notes` is
+  // not, so the emitted request schema publishes `notes` as required and the
+  // body throws it away.  A wholly empty body is deliberately NOT this shape;
+  // see the check's header.
+  // An unread `find` read: it answers absence as a value, so the binding does
+  // nothing (a `get` would be an existence check and is not flagged).
+  "loom.unused-let": repoOnly(`    aggregate Claim with crudish { reference: string }
+    repository Claims for Claim
+    commandHandler Touch(c: Claim id) { let x = Claims.find(c) }`),
+  // A `crudish` aggregate whose `status` field is BOTH mass-assigned by the
+  // macro's generic `update` and written by a `requires`-gated `approve()` —
+  // audit D3.  `POST /invoices/{id}/update {"status":…}` skips the gate.  The
+  // advisory points at `immutable`, which removes the field from the update
+  // input while leaving the operation free to assign it.
+  "loom.update-gate-suggestion": `
+system UpdateGate {
+  user { id: guid  role: string }
+  subdomain Core { context Billing {
+    enum InvoiceStatus { Draft, Approved }
+    aggregate Invoice with crudish {
+      total: int
+      status: InvoiceStatus
+      operation approve() {
+        requires currentUser.role == "admin"
+        status := Approved
+      }
+    }
+    repository Invoices for Invoice
+  } }
+  api BillingApi from Core
+  storage pg { type: postgres }
+  resource st { for: Billing, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 3000, auth: required }
+}`,
+
+  // A `slot` param on a WALKED component, on an Angular-hosted ui: the Angular
+  // component emitter filters such a component out entirely (no class file, and
+  // every call site keeps `<!-- unknown layout component: Panel -->`), because
+  // `ngComponentOutletInputs` sets INPUTS and has no content-projection channel.
+  "loom.user-component-deferred-target": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+  } }
+  api Api from D
+  ui WebApp {
+    api C: Api
+    component Panel(head: slot) { body: Card { head } }
+    page Home { route: "/" body: Stack { Panel(head: Text { "hi" }) } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable app { platform: angular targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  // `isSystem` / `causedBy` are the system principal's built-in slots.
+  "loom.user-reserved-field": `
+system Reserved {
+  user { id: guid  isSystem: bool }
+  subdomain S { context C { aggregate A with crudish { name: string } } }
+}`,
   // V7 — a value-object field read straight into a text slot.
   "loom.valueobject-in-text-slot": uiPage(
     `QueryView { of: Item.all, data: rows => For { each: rows, i => Text { i.place } } }`,
   ).replace("price: money }", "price: money  place: Spot }\n    valueobject Spot { city: string }"),
-  // V8 — a `Button { icon: }` name the builtin registry lacks.
-  "loom.button-icon-unknown": uiPage(`Button { "Delete", icon: "trash" }`),
-  // V2 — a default on a callable site whose lowerer drops it.
-  "loom.param-default-unsupported": repoOnly(`    aggregate Thing with crudish { n: int }
-    repository Things for Thing
-    domainService Calc {
-      operation twice(x: int = 3): int { return x * 2 }
+  // A bare call to a PRIVATE operation whose body reads `currentUser`.  Vanilla
+  // lowers the call to a module-local `__op_<name>(record, …)` pure transform
+  // (M-T6.55 F24) and has no way to thread the request principal into it — the
+  // caller binds `current_user` only when its OWN body reads it.  Refused here
+  // rather than emitted as a body `mix compile` rejects.
+  "loom.vanilla-op-call-actor": `
+system VanillaActor {
+  user { id: guid  role: string }
+  subdomain Core { context Billing {
+    aggregate Invoice with crudish {
+      total: int
+      operation bump(by: int) {
+        total := total + by
+        recompute()
+      }
+      private operation recompute() {
+        requires currentUser.role == "admin"
+        total := total * 2
+      }
+    }
+  } }
+  api BillingApi from Core
+  storage pg { type: postgres }
+  resource st { for: Billing, kind: state, use: pg }
+  deployable d { platform: elixir, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 4000, auth: required }
+}`,
+
+  // The three positional statements, each written in a place its lowerer
+  // does NOT reach: the statement `match` in a pure `function`, and `for` /
+  // `if let` outside a workflow (which would lower to the `<unknown>` call
+  // sentinel).
+  "loom.variant-match-placement": repoOnly(`    aggregate Order with crudish {
+      code: string
+      note: string?
+      function noteLabel(): string {
+        match note {
+          string s => { let shown = s }
+          else => { let shown = code }
+        }
+        return code
+      }
+    }
+    repository Orders for Order`),
+  "loom.vue-deployable-missing-ui": spaMissingUi("vue"),
+  "loom.when-not-bool": orderOps("operation p() when name { total := total + 1 }"),
+  "loom.when-private-operation": orderOps(
+    "private operation p() when total > 0 { total := total + 1 }",
+  ),
+
+  // A `when` gate that reads an operation parameter.  The companion
+  // `GET /{id}/can_<op>` route takes no arguments, so the gate can only be a
+  // predicate over the aggregate's own state.
+  "loom.when-references-op-param": repoOnly(`    aggregate Order with crudish {
+      total: int
+      operation addLine(qty: int) when qty > 0 { total := total + qty }
+    }
+    repository Orders for Order`),
+  // An event-sourced workflow with only a command-triggered create and no
+  // id-shaped state field: its event stream has no key, so it is refused even
+  // though nothing consumes an event (the .NET / Java / Elixir ES emitters
+  // need the key's id class).
+  "loom.workflow-correlation-required": `
+system EsNoKey {
+  subdomain S { context C {
+    event Recorded { code: string, count: int }
+    workflow Tracker eventSourced {
+      code: string
+      archivedCount: int
+      create(c: string) { emit Recorded { code: c, count: 1 } }
+      apply(rec: Recorded) { archivedCount := archivedCount + rec.count }
+    }
+  } }
+}`,
+  // F58 / M-T6.62.  A correlation field exists, but the COMMAND create supplies
+  // it neither way: `oid` does not name-match `orderId`, and the body never
+  // assigns `orderId := oid` either — so the body would render against an
+  // unbound receiver on all five backends.
+  "loom.workflow-create-correlation-unsupplied":
+    repoOnly(`    aggregate Order with crudish { name: string }
+    repository Orders for Order
+    workflow W {
+      orderId: Order id
+      status: string
+      create(oid: Order id) { status := "Pending" }
     }`),
-  // --- M-T5.34: the rulings (#2864 D6/G2, #2850 case B) ---------------
-  // Each fixture is minimal and ISOLATING — it raises its own code and no
-  // sibling from the packet, so a future regression names one gate.
-  // An entity-part-typed parameter on a PUBLIC operation.  The value-object
-  // spelling of the very same model is the passing sibling (it emits
-  // `z.array(LineSchema)` + `new Line(e.sku, e.qty)`), pinned in
-  // test/ir/entity-part-param.test.ts.
-  "loom.entity-part-param-unsupported": `
+  // The workflow-body twin of the gate above, and the same mechanism: the
+  // workflow lowerer indexes `reposByName` from its own context alone, so a
+  // foreign repository name never becomes a `repo-let` — it survives as a `ref`
+  // with `refKind: "unknown"` and every backend renders it verbatim.
+  "loom.workflow-cross-context-repository": `
 system S {
-  subdomain D { context Ops {
-    aggregate Order {
-      ref: string
-      lines: Line[]
-      entity Line { sku: string  qty: int }
-      operation replaceLines(newLines: Line[]) { lines := newLines }
+  subdomain Sub {
+    context Directory {
+      aggregate Technician with crudish { skills: string[] }
+      repository Technicians for Technician
+    }
+    context Dispatch {
+      aggregate WorkOrder with crudish {
+        status: string
+        operation assign() { status := "Assigned" }
+      }
+      repository WorkOrders for WorkOrder
+      workflow scheduleWorkOrder transactional {
+        create(workOrderId: WorkOrder id, assignTo: Technician id) {
+          let tech = Technicians.get(assignTo)
+          let wo = WorkOrders.get(workOrderId)
+          precondition tech.skills.count > 0
+          wo.assign()
+        }
+      }
+    }
+  }
+}`,
+
+  "loom.workflow-emit-unknown-field": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    event Happened { thing: Thing id, label: string }
+    workflow W {
+      create(n: string) { emit Happened { thing: id, label: n, bogus: n } }
+    }`),
+  // An explicit persistence statement in a workflow body: the body persists at
+  // its exit, so `Orders.save(o)` is refused rather than reinterpreted.
+  "loom.workflow-explicit-save": repoOnly(`    aggregate Order with crudish {
+      name: string
+      operation rename(n: string) { name := n }
     }
     repository Orders for Order
-  } }
-}`,
-  // Reactors, no starter.  The event IS carried by a channel, so
-  // `loom.reactor-event-uncarried` (the sibling gate for the other cause)
-  // stays quiet and this fixture isolates the missing-starter cause.
-  "loom.reactor-without-starter": `
+    workflow W {
+      create(oid: Order id) {
+        let o = Orders.get(oid)
+        o.rename("x")
+        Orders.save(o)
+      }
+    }`),
+  // The header gate runs BEFORE any instance is loaded, so only `currentUser`
+  // is in scope; `stage` is a workflow STATE field and has no value to read.
+  // It is lowered in the bare context env precisely so such a reference cannot
+  // silently resolve — this turns that into a diagnostic.
+  "loom.workflow-gate-not-current-user": `
 system S {
-  subdomain D { context Ops {
-    aggregate Order { ref: string }
+  user { id: guid  role: string }
+  subdomain Sales { context Orders {
+    aggregate Order { code: string }
     repository Orders for Order
-    event OrderPaid { order: Order id }
-    channel bus { carries: OrderPaid  delivery: broadcast  retention: ephemeral }
-    workflow Settle {
-      order: Order id
-      st: string
-      on(e: OrderPaid) { st := "paid" }
+    workflow Fulfilment requires stage == "started" {
+      orderId: Order id
+      stage: string
+      create start(order: Order id) { orderId := order  stage := "started" }
     }
   } }
+  api Api from Sales
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d {
+    platform: node
+    contexts: [Orders]
+    dataSources: [st]
+    serves: Api
+    port: 3000
+    auth: required
+  }
 }`,
+  // A repository reached INLINE, inside a `precondition` expression, instead of
+  // bound to its own `let`.  The let-bound sibling read (`Things.getById`) in
+  // the same body is the control: only the inline `Others` is flagged, which is
+  // what makes the fixture's diagnostic meaningful rather than a blanket
+  // "a repository name appears in this workflow".
+  "loom.workflow-inline-repository-call":
+    repoOnly(`    aggregate Thing with crudish { name: string  otherId: Other id }
+    repository Things for Thing
+    aggregate Other with crudish { label: string }
+    repository Others for Other
+    workflow W {
+      create(tid: Thing id) {
+        let t = Things.get(tid)
+        precondition t.name == "" || t.name == Others.get(t.otherId).label
+      }
+    }`),
+  "loom.workflow-mutation-result-unmatched": repoOnly(`    error Held { reason: string }
+    aggregate Order with crudish {
+      name: string
+      operation hold(): string or Held { name := "held"  return Held { reason: name } }
+    }
+    repository Orders for Order
+    workflow W {
+      create(oid: Order id) {
+        let o = Orders.get(oid)
+        let r = o.hold()
+        let s = r
+      }
+    }`),
+  // A let-bound mutating call: `a.rename` mutates `o`, but no save covers it.
+  "loom.workflow-mutation-unsaved": repoOnly(`    aggregate Order with crudish {
+      name: string
+      operation rename(n: string): string { name := n  return n }
+    }
+    repository Orders for Order
+    workflow W {
+      create(oid: Order id) {
+        let o = Orders.get(oid)
+        let r = o.rename("x") + "!"
+      }
+    }`),
+  "loom.workflow-name-collision": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    workflow Thing { create(n: string) { precondition n.length > 0 } }`),
+  "loom.workflow-param-unused": repoOnly(`    aggregate Claim with crudish { reference: string }
+    repository Claims for Claim
+    workflow file {
+      create(reference: string, notes: string) {
+        let c = Claim.create(reference: reference)
+      }
+    }`),
+  // An `eventSourced` workflow's create may only `emit` — no state for a
+  // result to read, and the event-sourced route has no result path.
+  "loom.workflow-return-event-sourced": workflowResult(
+    `
+      apply(e: Opened) { }
+      create(n: string): string {
+        emit Opened { account: n }
+        return n
+      }`,
+    " eventSourced",
+  ),
+  // A `: T` with no `return` — nothing to answer the declared 200 with.
+  "loom.workflow-return-missing": workflowResult(`
+      create(n: string): Account id {
+        let a = Account.create(number: n, balance: 0)
+      }`),
+  // `create(…): T` — a result needs a caller.  An event-triggered starter has
+  // none (the in-process dispatcher drops whatever it would return).
+  "loom.workflow-return-no-caller": workflowResult(`
+      create(e: Opened): int by e.account {
+        let a = Accounts.get(e.account)
+        return a.balance
+      }`),
+  // A `return` before the last statement would be lowered apart from the body
+  // and silently answered AFTER the steps that follow it.
+  "loom.workflow-return-not-last": workflowResult(`
+      create(n: string): Account id {
+        let a = Account.create(number: n, balance: 0)
+        return a.id
+        let b = Account.create(number: n, balance: 1)
+      }`),
+  // `create(…): W` answers the workflow's instance state, but W has no
+  // correlation field, so no instance is persisted.
+  "loom.workflow-return-this-uncorrelated": repoOnly(`    error Declined { reason: string }
+    workflow W {
+      create(n: int): W or Declined {
+        if n > 0 { notFound }
+        return this
+      }
+    }`),
+  // The returned value disagrees with the declared type.
+  "loom.workflow-return-type-mismatch": workflowResult(`
+      create(n: string): int {
+        let a = Account.create(number: n, balance: 0)
+        return a.number
+      }`),
+  // An aggregate result has no workflow-route wire projection yet.
+  "loom.workflow-return-type-unsupported": workflowResult(`
+      create(n: string): Account {
+        let a = Account.create(number: n, balance: 0)
+        return a
+      }`),
+  // A `return` with no `: T` — the route would answer a body its contract
+  // never published.
+  "loom.workflow-return-untyped": workflowResult(`
+      create(n: string) {
+        let a = Account.create(number: n, balance: 0)
+        return a.id
+      }`),
+  // `Repo.run(<Retrieval>(args))` naming a retrieval the context does not
+  // declare.  Its repository-side sibling is NOT drivable — an unknown
+  // repository name never lowers to a `repo-run` at all — so only this half
+  // gets a fixture.  Control: the same source with `ActiveOrders()` raises
+  // nothing, which is what makes the fixture's single diagnostic meaningful.
+  "loom.workflow-run-unknown-retrieval":
+    repoOnly(`    aggregate Order with crudish { code: string  archived: bool }
+    criterion Active of Order = !this.archived
+    retrieval ActiveOrders() of Order { where: Active  sort: [code asc] }
+    repository Orders for Order
+    workflow W {
+      create(n: string) { let batch = Orders.all(Nope()) }
+    }`),
+  // The read twin: the create reads state the workflow keeps no row for.
+  "loom.workflow-uncorrelated-state-read":
+    repoOnly(`    aggregate Order with crudish { name: string }
+    repository Orders for Order
+    workflow Tally {
+      total: int
+      create(n: int) { precondition total == 0 }
+    }`),
+  // A state write on a workflow with no id-shaped state field: no instance row
+  // is kept, so the write is unaddressable.
+  "loom.workflow-uncorrelated-state-write":
+    repoOnly(`    aggregate Order with crudish { name: string }
+    repository Orders for Order
+    workflow Tally {
+      total: int
+      create(n: int) { total := n }
+    }`),
 };
 
 /**
@@ -5234,6 +5195,11 @@ const catalogueCodes = (): string[] => [
 const UNCOVERED_BASELINE = 0;
 
 describe("diagnostic firing census", () => {
+  it("FIRING_FIXTURES is sorted by code, so concurrent additions land on different lines", () => {
+    const keys = Object.keys(FIRING_FIXTURES);
+    expect(keys, "keep FIRING_FIXTURES sorted by its code key").toEqual([...keys].sort());
+  });
+
   // Keeps the LATENT_GATES pins honest.  Without this the pin is prose and its
   // truth decays silently the moment a sixth backend family registers.
   describe("the latent capability gates are still latent", () => {
