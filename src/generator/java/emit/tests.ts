@@ -1,4 +1,5 @@
 import { createInputFields, createOmissionValue } from "../../../ir/enrich/wire-projection.js";
+import { unitTestGateChecks } from "../../../ir/plan/gate-ladder.js";
 import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
 import {
   type TestPrincipalShape,
@@ -101,7 +102,7 @@ function renderJavaSubjectTests(
 ): string | null {
   if (tests.length === 0) return null;
   const imports = new Set<string>();
-  const state = { usesTestUser: false, userFields, ctx };
+  const state: TestEmitState = { defaultUser: false, gated: false, userFields, ctx, basePkg };
   const methods = tests.flatMap((t) => renderTest(t, ctx, state));
   // Every OTHER aggregate the bodies name.  A test body may legally reach for a
   // sibling aggregate — the validator admits it, and it is the only way to
@@ -139,7 +140,8 @@ function renderJavaSubjectTests(
     includeServices ? `import ${basePkg}.domain.services.*;` : null,
     ``,
     `public class ${name}Tests {`,
-    ...(state.usesTestUser
+    ...(state.gated ? gatedHelpers() : []),
+    ...(state.defaultUser
       ? [
           `    private static final ${javaRef(`${basePkg}.auth`, "User")} __testUser = ${renderTestPrincipal(
             testPrincipal(userFields ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),
@@ -177,9 +179,13 @@ export function javaPrincipal(basePkg: string): PrincipalTarget {
 }
 
 interface TestEmitState {
-  usesTestUser: boolean;
+  /** A test without its own `as { … }` principal reads `__testUser`. */
+  defaultUser: boolean;
+  /** A test calls an operation behind a route gate. */
+  gated: boolean;
   userFields?: TestPrincipalShape;
   ctx: BoundedContextIR;
+  basePkg: string;
 }
 
 /** Append the stub test user to top-level op calls whose target
@@ -192,8 +198,54 @@ function withTestUser(expr: ExprIR, rendered: string, state: TestEmitState): str
   );
   const op = agg?.operations.find((o) => o.name === expr.member);
   if (!op || !operationBodyUsesCurrentUser(op) || !state.userFields) return rendered;
-  state.usesTestUser = true;
-  return rendered.replace(/\)$/, expr.args.length > 0 ? ", __testUser)" : "__testUser)");
+  return rendered.replace(/\)$/, expr.args.length > 0 ? `, ${TEST_USER})` : `${TEST_USER})`);
+}
+
+/** The principal the class binds: `__testUser`, shadowed by a test's head
+ *  `as { … }` principal. */
+const TEST_USER = "__testUser";
+
+/** The class-local helpers a unit test checks an operation's route gates with
+ *  (`unitTestGateChecks`): the route runs them before the domain method, so a
+ *  test calling the method runs them itself, against its test principal. */
+export const GATED = "gated";
+export function gatedHelpers(): string[] {
+  const refuse = "        if (!allowed) throw new ForbiddenException(message);";
+  return [
+    "    /** A route {@code requires} gate of the operation called next: refused as the route refuses it. */",
+    `    private static <T> T ${GATED}(boolean allowed, String message, ${javaRef("java.util.function", "Supplier")}<T> call) {`,
+    refuse,
+    "        return call.get();",
+    "    }",
+    "",
+    `    private static void ${GATED}(boolean allowed, String message, Runnable call) {`,
+    refuse,
+    "        call.run();",
+    "    }",
+    "",
+  ];
+}
+
+/** `call` behind the route `requires` gates of the operation it calls, checked
+ *  against `principal`; unchanged when the operation has none. */
+export function withGates(
+  expr: ExprIR,
+  call: string,
+  ctx: BoundedContextIR,
+  rctx: JavaRenderContext,
+  principal: string,
+): string {
+  if (expr.kind !== "method-call" || expr.receiverType.kind !== "entity") return call;
+  const name = expr.receiverType.name;
+  const op = ctx.aggregates
+    .find((a) => a.name === name)
+    ?.operations.find((o) => o.name === expr.member);
+  if (!op) return call;
+  return unitTestGateChecks(op, expr).reduceRight(
+    (inner, c) =>
+      `${GATED}(${renderJavaExpr(c.cond, { ...rctx, currentUserExpr: principal })}, ${JSON.stringify(`Forbidden: ${c.gate.source}`)}, () -> ${inner})`,
+    call,
+  );
 }
 
 function renderTest(t: TestIR, ctx: BoundedContextIR, state: TestEmitState): string[] {
@@ -204,10 +256,29 @@ function renderTest(t: TestIR, ctx: BoundedContextIR, state: TestEmitState): str
       .replace(/^([0-9])/, "_$1") || "test";
   const rctx = testBodyRenderContext(t, (name) => escapeJavaIdent(name));
   const body = t.statements.flatMap((s, i) => renderTestStmt(s, ctx, state, i, rctx));
+  const usesUser = body.some((l) => new RegExp(`\\b${TEST_USER}\\b`).test(l));
+  if (usesUser && !t.principal) state.defaultUser = true;
+  if (body.some((l) => l.includes(`${GATED}(`))) state.gated = true;
+  // A head `as { … }` clause shadows the class's `__testUser` with this test's
+  // principal, so its operation calls and their gates run as it.
+  const own =
+    t.principal && usesUser
+      ? [
+          `        var ${TEST_USER} = ${renderTestPrincipal(
+            testPrincipal(
+              state.userFields ?? testPrincipalShape(undefined),
+              t.principal,
+              enumPool(ctx),
+            ),
+            javaPrincipal(state.basePkg),
+          )};`,
+        ]
+      : [];
   return [
     `    @Test`,
     `    @DisplayName(${JSON.stringify(t.name)})`,
     `    public void ${methodName}() {`,
+    ...own,
     ...body,
     `    }`,
     ``,
@@ -467,13 +538,25 @@ function renderTestStmt(
   if (s.kind === "expect-throws") {
     const expr =
       renderCreateCall(s.expr, ctx, rctx) ??
-      withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state);
+      withGates(
+        s.expr,
+        withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state),
+        ctx,
+        rctx,
+        TEST_USER,
+      );
     return javaRejection(rejectionPlan(s), expr, `__thrown${index}`, "        ");
   }
   if (s.kind === "let") {
     const expr =
       renderCreateCall(s.expr, ctx, rctx) ??
-      withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state);
+      withGates(
+        s.expr,
+        withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state),
+        ctx,
+        rctx,
+        TEST_USER,
+      );
     return [`        var ${escapeJavaIdent(s.name)} = ${expr};`];
   }
   if (s.kind === "call") {
@@ -483,7 +566,13 @@ function renderTestStmt(
   if (s.kind === "expression") {
     const expr =
       renderCreateCall(s.expr, ctx, rctx) ??
-      withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state);
+      withGates(
+        s.expr,
+        withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state),
+        ctx,
+        rctx,
+        TEST_USER,
+      );
     return [`        ${expr};`];
   }
   throw new Error(
