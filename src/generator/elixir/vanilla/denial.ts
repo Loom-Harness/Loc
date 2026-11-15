@@ -28,6 +28,11 @@
 // structural-conflict rungs use, so a remap moves the runtime arm and
 // the OpenAPI declaration together and no rung is silently un-overridable.
 
+import type { ExprIR, StmtIR, WorkflowStmtIR } from "../../../ir/types/loom-ir.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { branchesContain } from "../../../ir/util/if-normal-form.js";
+import { pickErrorPath, singleFieldShape } from "../../../ir/util/invariant-classify.js";
+import { ruleParamRefs } from "../../../ir/util/rule-params.js";
 import {
   type FieldLimitCheck,
   fieldCode,
@@ -35,12 +40,7 @@ import {
   notFoundStmtDetail,
   ruleStage,
   wireSentence,
-} from "../../../ir/enrich/wire-policy.js";
-import type { ExprIR, StmtIR, WorkflowStmtIR } from "../../../ir/types/loom-ir.js";
-import { disallowedDetail } from "../../../ir/util/denial-detail.js";
-import { branchesContain } from "../../../ir/util/if-normal-form.js";
-import { ruleParamRefs } from "../../../ir/util/rule-params.js";
-import { pickErrorPath, singleFieldShape } from "../../../ir/validate/invariant-classify.js";
+} from "../../../ir/util/wire-policy.js";
 import { elixirString } from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { floorRuleText, ruleCode, ruleText } from "../../_i18n/rule-text.js";

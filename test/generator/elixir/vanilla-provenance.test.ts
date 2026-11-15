@@ -129,8 +129,8 @@ describe("vanilla provenance runtime (DEBT-06)", () => {
     // aggregate save back with it).
     const created = file(files, "_create_provenance_records.exs");
     expect(created).toContain("create table(:provenance_records, primary_key: false) do");
-    expect(created).toContain("create index(:provenance_records, [:target_type, :field])");
-    expect(created).toContain("create index(:provenance_records, [:correlation_id])");
+    expect(created).toContain("create index(:provenance_records, [:target_type, :field], name: ");
+    expect(created).toContain("create index(:provenance_records, [:correlation_id], name: ");
     expect(created).not.toContain("timestamps()");
   });
 

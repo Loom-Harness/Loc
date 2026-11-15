@@ -60,7 +60,7 @@ describe("vanilla relational entity parts (§11c)", () => {
     expect(project).not.toContain("field :pipelines");
   });
 
-  it("emits the part as a table-backed schema with belongs_to + timestamps + Jason encoder", async () => {
+  it("emits the part as a table-backed schema with belongs_to + Jason encoder, no timestamps", async () => {
     const pipeline = file(await generateSystemFiles(SOURCE), "/catalog/pipeline.ex");
     expect(pipeline).toContain("use Ecto.Schema");
     expect(pipeline).toContain("@derive {Jason.Encoder, only: [:id, :label, :run_count]}");
@@ -72,8 +72,8 @@ describe("vanilla relational entity parts (§11c)", () => {
     expect(pipeline).toContain(
       "belongs_to :project, Api.Catalog.Project, foreign_key: :project_id, type: :binary_id",
     );
-    // The child table carries NOT-NULL timestamps in the migration → auto-stamp.
-    expect(pipeline).toContain("timestamps(type: :utc_datetime)");
+    // The child table carries exactly the shared columns: no Ecto timestamps.
+    expect(pipeline).not.toContain("timestamps(");
     expect(pipeline).toContain("cast(attrs, [:label, :run_count])");
     // §15: the part changeset snakes ITS OWN top-level keys, so a `cast_assoc`
     // nested body with camelCase keys (`{"runCount": 3}`) casts cleanly instead of
@@ -112,7 +112,7 @@ describe("vanilla relational entity parts (§11c)", () => {
     const mig = file(await generateSystemFiles(SOURCE), "_create_pipelines.exs");
     expect(mig).toContain("create table(:pipelines");
     expect(mig).toContain("add :project_id, references(:projects");
-    expect(mig).toContain("timestamps()");
+    expect(mig).not.toContain("timestamps()");
   });
 });
 

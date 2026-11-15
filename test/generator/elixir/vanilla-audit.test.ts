@@ -218,8 +218,8 @@ describe("vanilla audit runtime (audit-and-logging.md)", () => {
     // declared no index — `audit_records` was the first to arrive with two.  The
     // failure is silent (reads just scan) and it desynchronises fresh-create
     // from migrate-chain, since the DELTA path always rendered them.
-    expect(sql).toContain("create index(:audit_records, [:target_type, :target_id])");
-    expect(sql).toContain("create index(:audit_records, [:correlation_id])");
+    expect(sql).toContain("create index(:audit_records, [:target_type, :target_id], name: ");
+    expect(sql).toContain("create index(:audit_records, [:correlation_id], name: ");
   });
 
   it("wraps the audited OPERATION persist in a forced transaction + records before/after", async () => {

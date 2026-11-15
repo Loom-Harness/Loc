@@ -1,13 +1,4 @@
-import {
-  fieldCode,
-  fieldLimitChecks,
-  missingFieldMessage,
-} from "../../../ir/enrich/wire-policy.js";
-import {
-  createInputFields,
-  emitsRestCreate,
-  isRequiredCreateInput,
-} from "../../../ir/enrich/wire-projection.js";
+import { createInputFields, isRequiredCreateInput } from "../../../ir/enrich/wire-projection.js";
 import { valueObjectBorne, valueObjectParams } from "../../../ir/plan/value-object-params.js";
 import type {
   EnrichedAggregateIR,
@@ -16,19 +7,21 @@ import type {
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
-import {
-  type MergePatchField,
-  mergePatchFields,
-  ruleMembers,
-} from "../../../ir/util/merge-patch.js";
-import { walkExprDeep } from "../../../ir/util/walk.js";
+import { emitsRestCreate } from "../../../ir/util/canonical-lifecycle.js";
 import {
   type ClassifyContext,
   classifyForWire,
   pickErrorPath,
   type SingleFieldPattern,
   singleFieldShape,
-} from "../../../ir/validate/invariant-classify.js";
+} from "../../../ir/util/invariant-classify.js";
+import {
+  type MergePatchField,
+  mergePatchFields,
+  ruleMembers,
+} from "../../../ir/util/merge-patch.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
+import { fieldCode, fieldLimitChecks, missingFieldMessage } from "../../../ir/util/wire-policy.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { javaCodePointLength } from "../../_expr/code-point.js";
@@ -56,7 +49,7 @@ import { collectWireToDomainImports, wireComponentNullable, wireToDomain } from 
 // to the cross-backend 422 `{pointer,message,code?}` envelope by ApiExceptionAdvice.
 //
 // Rule selection reuses the SHARED classifier
-// (`src/ir/validate/invariant-classify.ts`): an invariant that became a
+// (`src/ir/util/invariant-classify.ts`): an invariant that became a
 // FluentValidation rule on .NET / a Zod refine on Hono becomes the same check
 // here — same predicate, same coverage decision.
 //
@@ -580,7 +573,7 @@ function buildChecks(spec: CommandSpec, regexFields: Map<string, string>): strin
     // — so the guard rides here exactly as it does on .NET
     // (`.Must(x => !(guard) || (body))`, dotnet/validator-emit.ts), node
     // (`.refine(d => !(guard) || …)`) and python.  `singleFieldShape` returns
-    // null for every guarded invariant (ir/validate/invariant-classify.ts), so
+    // null for every guarded invariant (ir/util/invariant-classify.ts), so
     // this arm is the only one a guard can reach: nothing else re-enforces it.
     // Regex literals are collected from BOTH halves — the guard is
     // rendered source like any other, and a `Pattern` field it needs is

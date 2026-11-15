@@ -1,15 +1,15 @@
 // The TypeScript spelling of the `wirePolicy` fact's sentences
-// (`src/ir/enrich/wire-policy.ts`).  The fact owns the words; this module owns
+// (`src/ir/util/wire-policy.ts`).  The fact owns the words; this module owns
 // only how a node/Hono emitter interpolates a runtime subject into them, so
 // every node site renders the same sentence the same way.
 
+import type { BoundedContextIR, ExprIR } from "../../ir/types/loom-ir.js";
+import { ruleParamRefs } from "../../ir/util/rule-params.js";
 import {
   errorVariantCode,
   type WireRejectionClass,
   wireSentence,
-} from "../../ir/enrich/wire-policy.js";
-import type { BoundedContextIR, ExprIR } from "../../ir/types/loom-ir.js";
-import { ruleParamRefs } from "../../ir/util/rule-params.js";
+} from "../../ir/util/wire-policy.js";
 
 /** A TypeScript template literal for a sentence detail, the subject given as
  *  template-literal CONTENT (`Order \${id}`):

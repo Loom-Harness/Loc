@@ -1,5 +1,4 @@
 import { type PolymorphicRead, polymorphicReadFor } from "../../ir/enrich/read-scope.js";
-import { type WireRejectionClass, wireStatus } from "../../ir/enrich/wire-policy.js";
 import {
   polymorphicReadMasked,
   polymorphicReadOperations,
@@ -13,6 +12,7 @@ import {
   exprUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
 import { isTpcBase, isTphBase, tpcConcretesOf, tphConcretesOf } from "../../ir/util/inheritance.js";
+import { type WireRejectionClass, wireStatus } from "../../ir/util/wire-policy.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";

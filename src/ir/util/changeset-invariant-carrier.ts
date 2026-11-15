@@ -21,7 +21,7 @@
 
 import { snake } from "../../util/naming.js";
 import type { AggregateIR, EnrichedAggregateIR, ExprIR, InvariantIR } from "../types/loom-ir.js";
-import { singleFieldConstraints } from "../validate/invariant-classify.js";
+import { singleFieldConstraints } from "./invariant-classify.js";
 
 /** Reads that resolve against the applied struct (`data.<col>`).
  *

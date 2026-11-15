@@ -81,7 +81,7 @@ export function mergePatchFields(op: OperationIR): readonly MergePatchField[] | 
 /** The request members a wire rule reads, in first-read order — the keys a
  *  merge-patch body must carry for the rule to be judged at the schema stage.
  *  A patch that leaves any of them out defers the rule to the domain floor,
- *  which judges the MERGED state (`ruleStage` in `src/ir/enrich/wire-policy.ts`). */
+ *  which judges the MERGED state (`ruleStage` in `src/ir/util/wire-policy.ts`). */
 export function ruleMembers(rule: InvariantIR, available: ReadonlySet<string>): string[] {
   const out: string[] = [];
   const visit = (e: ExprIR): void => {

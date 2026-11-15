@@ -1,5 +1,4 @@
 import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
-import { wireCode } from "../../ir/enrich/wire-policy.js";
 import type {
   AuthIR,
   AuthValueIR,
@@ -14,6 +13,7 @@ import {
   orgContextPlan,
   registryContextName,
 } from "../../ir/util/org-context.js";
+import { wireCode } from "../../ir/util/wire-policy.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";

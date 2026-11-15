@@ -3,7 +3,6 @@ import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
 import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant, eventsKeepOriginFrame } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
-import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
 import { type CachedByIdRead, cachePlanFor } from "../../ir/plan/cache.js";
 import { channelPlan, foldsDedupe, hasDurableEvents } from "../../ir/plan/index.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
@@ -69,6 +68,7 @@ import {
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
+import { aggregateRouteTypes } from "../../ir/util/wire-policy.js";
 import { type BootRequiredSetting, bootRequiredAuthEnv } from "../_auth/boot-required.js";
 import { registryTableSql } from "../_persistence/registry-walk.js";
 

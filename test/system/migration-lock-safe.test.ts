@@ -249,7 +249,7 @@ describe("CREATE INDEX CONCURRENTLY on a table that already exists", () => {
         expect(conc).toContain("@disable_ddl_transaction true");
         expect(conc).toContain("@disable_migration_lock true");
         expect(conc).toContain(
-          'drop_if_exists index(:orders, [:status], prefix: "store", concurrently: true)\n    create index(:orders, [:status], prefix: "store", concurrently: true)',
+          'drop_if_exists index(:orders, [:status], name: "orders_status_idx", prefix: "store", concurrently: true)\n    create index(:orders, [:status], name: "orders_status_idx", prefix: "store", concurrently: true)',
         );
       },
     };

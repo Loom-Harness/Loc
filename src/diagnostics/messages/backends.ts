@@ -9,7 +9,15 @@
 import type { MessageEntry } from "./_shared.js";
 
 /** The code first-segments this family owns. */
-export const segments = ["target", "elixir", "vanilla", "dotnet", "mikroorm", "dapper"] as const;
+export const segments = [
+  "target",
+  "elixir",
+  "vanilla",
+  "dotnet",
+  "mikroorm",
+  "dapper",
+  "ecto",
+] as const;
 
 export const messages = {
   // ----------------------------------------------------------------------
@@ -231,16 +239,6 @@ export const messages = {
     `generated project would not compile. Move the 'currentUser' read up into ` +
     `'${p.opName}' (the routed operation, which receives the actor), or host this context on ` +
     `a backend with full support (node / dotnet / python / java).`,
-  "loom.elixir-part-timestamp-field": (p: {
-    owner: unknown;
-    name: unknown;
-    column: unknown;
-    ctxName: unknown;
-  }) =>
-    `'${p.ctxName}.${p.owner}' declares the field '${p.name}', whose column '${p.column}' is ` +
-    `one of the two columns Ecto's bundled 'timestamps()' macro defines on every relational entity-part ` +
-    `schema, so the generated Phoenix project defines the field twice and fails to compile. ` +
-    `Rename the field (e.g. '${p.name}Value'), or host this context on a non-elixir deployable.`,
   "loom.dotnet-name-collision": (p: {
     what: unknown;
     owner: unknown;
@@ -364,6 +362,19 @@ export const messages = {
     `${p.others} would each read tables the other never created. Select the same ` +
     `persistence on every deployable of '${p.storage}', or bind '${p.name}' to a storage of ` +
     `its own.`,
+  "loom.ecto-shared-database": (p: {
+    name: unknown;
+    storage: unknown;
+    others: unknown;
+    column: unknown;
+  }) =>
+    `Deployable '${p.name}' (persistence ecto) binds storage '${p.storage}', whose database it ` +
+    `shares with ${p.others}. Deployables on one storage share its database and the tables ` +
+    `its first deployable migrates, and every deployable must map those tables column for ` +
+    `column. '${p.column}' is a value object: the shared schema stores it as one column per ` +
+    `field, while the Ecto schema stores it as one json column, so '${p.name}' and ${p.others} ` +
+    `would each read columns the other never created. Bind '${p.name}' to a storage of its ` +
+    `own, or host every deployable of '${p.storage}' on the same persistence.`,
   "loom.mikroorm-unsupported#schema-ignored": (p: {
     name: unknown;
     binding: unknown;

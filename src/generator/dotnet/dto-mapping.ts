@@ -1,5 +1,4 @@
 import { carriesFieldMask } from "../../ir/enrich/mask-taint.js";
-import { fieldCode } from "../../ir/enrich/wire-policy.js";
 import type {
   AggregateIR,
   EnrichedAggregateIR,
@@ -22,6 +21,7 @@ import {
   valueObjectPool,
 } from "../../ir/util/reachable-types.js";
 import { responseWireFor } from "../../ir/util/response-wire.js";
+import { fieldCode } from "../../ir/util/wire-policy.js";
 import { upperFirst } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";

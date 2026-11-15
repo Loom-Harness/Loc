@@ -1,4 +1,4 @@
-import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../ir/plan/cache.js";
 import type {
   AggregateIR,
@@ -6,7 +6,11 @@ import type {
   EnrichedBoundedContextIR,
   RepositoryIR,
 } from "../../ir/types/loom-ir.js";
-import { canonicalCreate, canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
+import {
+  canonicalCreate,
+  canonicalDestroy,
+  emitsRestCreate,
+} from "../../ir/util/canonical-lifecycle.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { plural } from "../../util/naming.js";
 import {

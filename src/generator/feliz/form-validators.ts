@@ -1,6 +1,6 @@
-import type { FieldLimitCheck } from "../../ir/enrich/wire-policy.js";
 import type { ExprIR, InvariantIR } from "../../ir/types/loom-ir.js";
-import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
+import type { SingleFieldPattern } from "../../ir/util/invariant-classify.js";
+import type { FieldLimitCheck } from "../../ir/util/wire-policy.js";
 import { clientLimitChecks } from "../_frontend/error-codes.js";
 import { takeSingleFieldChain } from "../zod-refine.js";
 

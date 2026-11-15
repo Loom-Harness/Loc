@@ -8,8 +8,8 @@ import { renderExpr as renderEx } from "../../../src/generator/elixir/render-exp
 import { renderJavaExpr } from "../../../src/generator/java/render-expr.js";
 import { renderPyExpr } from "../../../src/generator/python/render-expr.js";
 import { renderTsExpr } from "../../../src/generator/typescript/render-expr.js";
-import { wireCode, wireRejection } from "../../../src/ir/enrich/wire-policy.js";
 import type { ExprIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
+import { wireCode, wireRejection } from "../../../src/ir/util/wire-policy.js";
 
 const INT: TypeIR = { kind: "primitive", name: "int" };
 const LONG: TypeIR = { kind: "primitive", name: "long" };

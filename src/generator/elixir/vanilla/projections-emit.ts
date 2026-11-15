@@ -116,7 +116,6 @@ defmodule ${projectionRowModule(contextModule, proj)} do
 ${prefixLine}  @primary_key false
   schema "${table}" do
 ${[...keyLines, ...fieldLines].join("\n")}
-    timestamps()
   end
 end
 `;
@@ -129,8 +128,7 @@ defmodule ${projectionRowModule(contextModule, proj)} do
 
 ${prefixLine}  @primary_key {:${snake(corr)}, ${pkType}, autogenerate: false}
   schema "${table}" do
-${fieldLines.length > 0 ? fieldLines.join("\n") + "\n" : ""}    timestamps()
-  end
+${fieldLines.length > 0 ? fieldLines.join("\n") + "\n" : ""}  end
 end
 `;
 }

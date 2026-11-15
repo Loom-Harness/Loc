@@ -27,12 +27,6 @@ import {
 } from "../../../generator/typescript/repository-wire-builder.js";
 import { T } from "../../../generator/typescript/ts-symbols.js";
 import { readDiscriminator, readScopeFor } from "../../../ir/enrich/read-scope.js";
-import {
-  wireCode,
-  wireFixedDetail,
-  wireStatus,
-  wireTitle,
-} from "../../../ir/enrich/wire-policy.js";
 import { projectionQueryParams } from "../../../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
@@ -68,6 +62,7 @@ import {
   enumPool,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
+import { wireCode, wireFixedDetail, wireStatus, wireTitle } from "../../../ir/util/wire-policy.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { wireToDomainExpr, zodFor } from "./routes-builder.js";

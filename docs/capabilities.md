@@ -436,8 +436,7 @@ Read surfaces (responses, views, detail/list pages) keep the field —
   plug populates it) and threads it on the write call.  `onCreate`
   stamps apply on insert only and `onUpdate` stamps apply on BOTH insert and
   update, so a NOT-NULL `updated_*` audit column is filled on the initial insert.
-  The audit `createdAt`/`updatedAt` become real Ecto schema fields (replacing the
-  bundled `timestamps()`), and the managed `createdBy`/`updatedBy` are excluded
+  The audit `createdAt`/`updatedAt` become real Ecto schema fields, and the managed `createdBy`/`updatedBy` are excluded
   from the changeset cast.  See `src/generator/elixir/vanilla/stamp-emit.ts`.
 
 ### Validator-gated stamp cases

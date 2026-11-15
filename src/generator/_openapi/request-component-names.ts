@@ -37,8 +37,8 @@
 //   2. A qualified id never SHADOWS a name that keeps its short form, so
 //      resolving one collision cannot silently create another.
 
-import { emitsRestCreate } from "../../ir/enrich/wire-projection.js";
 import type { BoundedContextIR } from "../../ir/types/loom-ir.js";
+import { emitsRestCreate } from "../../ir/util/canonical-lifecycle.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { plural, upperFirst } from "../../util/naming.js";
 

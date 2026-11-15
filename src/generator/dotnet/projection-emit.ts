@@ -1,6 +1,5 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { foldFloorTerms, foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
-import { wireStatus } from "../../ir/enrich/wire-policy.js";
 import { type FoldRowSeed, type FoldStep, foldRowSeeds, foldSteps } from "../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
@@ -10,6 +9,7 @@ import type {
   WireField,
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../ir/types/loom-ir.js";
+import { wireStatus } from "../../ir/util/wire-policy.js";
 import { escapeCsharpIdent, snake, upperFirst } from "../../util/naming.js";
 import { CS, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
 import { csIdValueClrType, dtoParam, projectToResponse, wireType } from "./dto-mapping.js";

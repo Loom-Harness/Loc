@@ -14,10 +14,10 @@
 // arm both adapters read (EF's `DbUpdateException` wrapper is only the
 // database-raised form).
 
-import { wireFixedDetail } from "../../../ir/enrich/wire-policy.js";
 import { admittedReferences, type ScopedReference } from "../../../ir/plan/ref-scope.js";
 import type { AggregateIR } from "../../../ir/types/loom-ir.js";
 import { type AggPool, isTphConcrete, rootBaseOf } from "../../../ir/util/inheritance.js";
+import { wireFixedDetail } from "../../../ir/util/wire-policy.js";
 import { upperFirst } from "../../../util/naming.js";
 import { PG_FOREIGN_KEY_VIOLATION } from "../../_persistence/pg-sqlstate.js";
 import { efReadSource } from "../ef-read-source.js";
