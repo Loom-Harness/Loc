@@ -14,7 +14,6 @@
 // equal on every tracked model with a React or Vue frontend.
 
 import type { ContractInvariant, FrontendContract } from "../../ir/contract/frontend-contract.js";
-import { emitsRestCreate } from "../../ir/enrich/wire-projection.js";
 import { createRequestFields } from "../../ir/plan/create-request.js";
 import { unionReturn } from "../../ir/stdlib/unions.js";
 import {
@@ -24,6 +23,7 @@ import {
   type ExprIR,
   type TypeIR,
 } from "../../ir/types/loom-ir.js";
+import { emitsRestCreate } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
 import { operationFormParams } from "../../ir/util/op-gates.js";
 import {

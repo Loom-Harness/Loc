@@ -1,18 +1,5 @@
 import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
 import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
-import {
-  aggregateRouteTypes,
-  fieldCode,
-  fieldFixedMessage,
-  fieldSentenceSuffix,
-  type WireRejectionClass,
-  wireCode,
-  wireFixedDetail,
-  wireParams,
-  wireSentence,
-  wireStatus,
-  wireTitle,
-} from "../../ir/enrich/wire-policy.js";
 import { cachePlanFor } from "../../ir/plan/cache.js";
 import {
   channelPlan,
@@ -69,6 +56,19 @@ import {
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
+import {
+  aggregateRouteTypes,
+  fieldCode,
+  fieldFixedMessage,
+  fieldSentenceSuffix,
+  type WireRejectionClass,
+  wireCode,
+  wireFixedDetail,
+  wireParams,
+  wireSentence,
+  wireStatus,
+  wireTitle,
+} from "../../ir/util/wire-policy.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,

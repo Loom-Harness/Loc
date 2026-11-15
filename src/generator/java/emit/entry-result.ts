@@ -12,7 +12,6 @@
 // `AFTER_COMMIT` listener.  The controller answers an error record as
 // problem+json at its mapped status and any other record at 200.
 
-import { errorVariantResponse } from "../../../ir/enrich/wire-policy.js";
 import { isScalarVariant, unionInstanceName, variantTag } from "../../../ir/stdlib/unions.js";
 import type { BoundedContextIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import {
@@ -20,6 +19,7 @@ import {
   type EntryResultLeaf,
   entryErrorTags,
 } from "../../../ir/util/entry-result.js";
+import { errorVariantResponse } from "../../../ir/util/wire-policy.js";
 import { RFC7807_MEMBERS, unionMembers } from "../../_payload/union-wire.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { javaErrorVariantExt } from "../wire-policy-java.js";

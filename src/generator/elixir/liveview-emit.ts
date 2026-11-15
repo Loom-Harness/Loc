@@ -18,7 +18,6 @@
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../diagnostics/messages.js";
-import { wireCode } from "../../ir/enrich/wire-policy.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -51,6 +50,7 @@ import {
 import { isFrontendReadableProjection } from "../../ir/util/projection-read.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
 import { byIdRouteFind, listReadGate } from "../../ir/util/read-gates.js";
+import { wireCode } from "../../ir/util/wire-policy.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import {

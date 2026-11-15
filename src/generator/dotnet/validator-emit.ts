@@ -1,5 +1,4 @@
-import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../../ir/enrich/wire-policy.js";
-import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import { valueObjectBorne, valueObjectParams } from "../../ir/plan/value-object-params.js";
 import type {
   AggregateIR,
@@ -9,15 +8,17 @@ import type {
   TypeIR,
   ValueObjectIR,
 } from "../../ir/types/loom-ir.js";
-import { isMergePatchUpdate, ruleMembers } from "../../ir/util/merge-patch.js";
-import { walkExprDeep } from "../../ir/util/walk.js";
+import { emitsRestCreate } from "../../ir/util/canonical-lifecycle.js";
 import {
   type ClassifyContext,
   classifyForWire,
   pickErrorPath,
   type SingleFieldPattern,
   singleFieldShape,
-} from "../../ir/validate/invariant-classify.js";
+} from "../../ir/util/invariant-classify.js";
+import { isMergePatchUpdate, ruleMembers } from "../../ir/util/merge-patch.js";
+import { walkExprDeep } from "../../ir/util/walk.js";
+import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../../ir/util/wire-policy.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import { csCodePointLength } from "../_expr/code-point.js";
 import { ruleCode, ruleText } from "../_i18n/rule-text.js";

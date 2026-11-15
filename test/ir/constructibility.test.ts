@@ -5,7 +5,7 @@
 // the create payload (managed field, derived getter, helper, post-create
 // state) makes it non-constructible.  This replaces the old defaults-based
 // `isSynthesizedCreate` gate.  See `satisfiableAtConstruction`
-// (`src/ir/validate/invariant-classify.ts`) and `isConstructible`
+// (`src/ir/util/invariant-classify.ts`) and `isConstructible`
 // (`src/ir/enrich/wire-projection.ts`).
 
 import { describe, expect, it } from "vitest";
@@ -20,7 +20,7 @@ import type {
   RefKind,
   TypeIR,
 } from "../../src/ir/types/loom-ir.js";
-import { satisfiableAtConstruction } from "../../src/ir/validate/invariant-classify.js";
+import { satisfiableAtConstruction } from "../../src/ir/util/invariant-classify.js";
 
 const INT: TypeIR = { kind: "primitive", name: "int" };
 const STRING: TypeIR = { kind: "primitive", name: "string" };

@@ -1,17 +1,17 @@
 import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import {
+  handlerNeedsCurrentUser,
+  type ResourceCalls,
+  resourceCalls,
+} from "../../../ir/plan/index.js";
+import {
   reasonPhrase,
   wireCode,
   wireFixedDetail,
   wireStatus,
   wireTitle,
-} from "../../../ir/enrich/wire-policy.js";
-import {
-  handlerNeedsCurrentUser,
-  type ResourceCalls,
-  resourceCalls,
-} from "../../../ir/plan/index.js";
+} from "../../../ir/util/wire-policy.js";
 
 // ---------------------------------------------------------------------------
 // Explicit application/transport layer → Hono emission

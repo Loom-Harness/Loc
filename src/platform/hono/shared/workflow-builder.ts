@@ -52,16 +52,6 @@ import {
   tsRuleParams,
 } from "../../../generator/typescript/wire-policy-ts.js";
 import {
-  errorVariantResponse,
-  notFoundStmtDetail,
-  reasonPhrase,
-  wireCode,
-  wireFixedDetail,
-  wireStatus,
-  wireStatusResolver,
-  wireTitle,
-} from "../../../ir/enrich/wire-policy.js";
-import {
   callsAuditedOp,
   commandCreateReturnsSelf,
   esStarterSharesEvent,
@@ -129,6 +119,16 @@ import {
 } from "../../../ir/util/reachable-types.js";
 import { reactorNeedsPrincipal } from "../../../ir/util/system-principal.js";
 import { walkWorkflowStmtsDeep, workflowEmits } from "../../../ir/util/walk.js";
+import {
+  errorVariantResponse,
+  notFoundStmtDetail,
+  reasonPhrase,
+  wireCode,
+  wireFixedDetail,
+  wireStatus,
+  wireStatusResolver,
+  wireTitle,
+} from "../../../ir/util/wire-policy.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,

@@ -183,9 +183,9 @@ OpenApiSpex.schema(%{
 ```
 ::: end
 
-> **Elixir divergence.** The other four backends emit a dedicated VO type and flatten its columns (`total_amount` / `total_currency`); the Elixir backend stores the VO as a single `:map` (JSONB) column `total` — in its Ecto schema *and* in its Ecto migration (`add :total, :map`). The *wire* (a nested `{ amount, currency }` object) is the cross-backend contract; the column layout is not.
+> **Elixir divergence.** The other four backends emit a dedicated VO type and flatten its columns (`total_amount` / `total_currency`); the Elixir backend stores the VO as a single `:map` (JSONB) column `total` — in its Ecto schema *and* in its Ecto migration (`add :total, :map`). The *wire* (a nested `{ amount, currency }` object) is the same on every backend. Because the shared schema flattens the VO, an elixir deployable is refused beside another backend on a shared database when a stored value object is involved (`loom.ecto-shared-database`, [D-ONE-SCHEMA](../decisions/D-ONE-SCHEMA.md)).
 >
-> This holds for **every** value object — `mapTypeToEcto` (`src/generator/elixir/vanilla/schema-emit.ts`) returns `":map"` for a `valueobject` unconditionally. There is no `embedded_schema` for a composite VO and no custom `Ecto.Type` for a single-field one; a VO carrying a `check` gets a *schemaless-changeset validator module* beside the owner (a `@types` map + `cast/3` + the invariant validators + `new/1`), and an unconstrained VO gets no module at all. [`generators.md`](../generators.md) claimed the `embedded_schema` / `Ecto.Type` split in two places until 2026-09-10; both rows now point back here.
+> This holds for **every** value object — `mapTypeToEcto` (`src/generator/elixir/vanilla/schema-emit.ts`) returns `":map"` for a `valueobject` unconditionally. There is no `embedded_schema` for a composite VO and no custom `Ecto.Type` for a single-field one; a VO carrying a `check` gets a *schemaless-changeset validator module* beside the owner (a `@types` map + `cast/3` + the invariant validators + `new/1`), and an unconstrained VO gets no module at all.
 
 ## `entity` parts & `contains`
 
@@ -524,12 +524,6 @@ owns:
   backend — `loom.dunder-field-name`. Elixir refuses `__struct__` in a struct
   definition, Ecto defines `__meta__` on every schema, and pydantic does not treat
   a dunder annotation as a field at all.
-- **`inserted_at` / `updated_at`** (or `insertedAt`) are the columns Ecto's bundled
-  `timestamps()` defines. On an aggregate root the Elixir backend drops
-  `timestamps()` from the schema and its migration, and the declared field owns
-  the column. On a relational entity part hosted on `platform: elixir` the name —
-  and `updatedAt`, whose column is `updated_at` — is refused,
-  `loom.elixir-part-timestamp-field`. A part's `createdAt` is an ordinary column.
 
 Elixir reserved words (`end`, `after`, `fn`, `do`, …) are fine as field and
 parameter names. The Elixir backend binds the local as `end_` and keeps the wire

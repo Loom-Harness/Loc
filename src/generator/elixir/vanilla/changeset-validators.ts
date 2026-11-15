@@ -1,18 +1,14 @@
-import {
-  type FieldLimitCheck,
-  fieldCode,
-  fieldLimitChecks,
-} from "../../../ir/enrich/wire-policy.js";
 import type { EnumIR, StmtIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import {
   residualInvariants,
   voUncarriedInvariants,
 } from "../../../ir/util/changeset-invariant-carrier.js";
-import { ruleParams } from "../../../ir/util/rule-params.js";
 import {
   type SingleFieldPattern,
   singleFieldConstraints,
-} from "../../../ir/validate/invariant-classify.js";
+} from "../../../ir/util/invariant-classify.js";
+import { ruleParams } from "../../../ir/util/rule-params.js";
+import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../../../ir/util/wire-policy.js";
 import { elixirRegexBody, elixirString, snake } from "../../../util/naming.js";
 import { namedRuleText } from "../../_i18n/rule-text.js";
 import { singleFieldMessage } from "../../zod-refine.js";

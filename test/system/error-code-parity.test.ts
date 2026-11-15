@@ -31,7 +31,7 @@ import {
   FIELD_LIMIT_REASONS,
   fieldCode,
   fieldParams,
-} from "../../src/ir/enrich/wire-policy.js";
+} from "../../src/ir/util/wire-policy.js";
 import { allPlatforms } from "../../src/platform/registry.js";
 import { ERROR_CODE_ROWS, type ErrorCodeRow } from "../_helpers/error-code-rows.js";
 import { generateSystemFiles } from "../_helpers/generate.js";

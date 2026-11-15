@@ -16,13 +16,13 @@ import {
 } from "../../ir/types/wire-types.js";
 import { AUDIT_HISTORY_FIND } from "../../ir/util/audit-history.js";
 import type { ContractResponse, ContractResponseField } from "../../ir/util/declared-response.js";
+import type { ClassifyContext, SingleFieldPattern } from "../../ir/util/invariant-classify.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import {
   type AnyTypeScope,
   findValueObjectInScope,
   type ScopeEnum,
 } from "../../ir/util/reachable-types.js";
-import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";

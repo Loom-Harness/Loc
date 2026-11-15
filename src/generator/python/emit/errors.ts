@@ -1,4 +1,4 @@
-import { wireFixedDetail } from "../../../ir/enrich/wire-policy.js";
+import { wireFixedDetail } from "../../../ir/util/wire-policy.js";
 // ---------------------------------------------------------------------------
 // `app/domain/errors.py` — the domain error taxonomy every layer maps
 // onto HTTP statuses (DomainError → 422 per RS-15, AggregateNotFoundError → 404,

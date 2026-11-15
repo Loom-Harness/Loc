@@ -14,9 +14,10 @@
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
-import { createInputFields, emitsRestCreate } from "../../src/ir/enrich/wire-projection.js";
+import { createInputFields } from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { ExprIR, PayloadIR, TypeIR } from "../../src/ir/types/loom-ir.js";
+import { emitsRestCreate } from "../../src/ir/util/canonical-lifecycle.js";
 import { declaredResponseFor } from "../../src/ir/util/declared-response.js";
 import { upperFirst } from "../../src/util/naming.js";
 import { expectReach } from "../_helpers/census-reach.js";

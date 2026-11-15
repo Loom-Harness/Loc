@@ -19,6 +19,7 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.criterion-impure": "10-repositories-and-queries.md#criterion",
   "loom.criterion-retrieval-name-clash": "10-repositories-and-queries.md#retrieval",
   "loom.persisted-table-collision": "13-workflows.md#13-workflows",
+  "loom.persisted-table-reserved": "14-apis-storage-resources-channels.md#reserved-table-names",
   "loom.find-where-column-column": "10-repositories-and-queries.md#the-queryable-subset",
   "loom.exists-outside-query":
     "10-repositories-and-queries.md#exists--quantifying-over-another-aggregate",

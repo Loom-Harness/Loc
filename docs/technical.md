@@ -729,7 +729,7 @@ and dozens more, one per theme, plus `shared.ts` helpers and `diagnostic.ts`
 for the `LoomDiagnostic` type).  `firstNonQueryableNode` +
 `LoomDiagnostic` are re-exported from `validate.ts`, so its public
 surface is unchanged.  Alongside sits
-`src/ir/validate/invariant-classify.ts` (~420 lines) — invariant
+`src/ir/util/invariant-classify.ts` (~420 lines) — invariant
 *wire-boundary* classification + single-field shape detection
 consumed by backend emitters (Zod refines, FluentValidation
 rules).  Not run by the validator itself; the file co-locates with

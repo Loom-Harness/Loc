@@ -32,6 +32,7 @@ import {
   auditEntryWireShape,
   auditFieldChangeWireShape,
 } from "../../ir/util/audit-history.js";
+import type { ClassifyContext, SingleFieldPattern } from "../../ir/util/invariant-classify.js";
 import { maskedPatchParams } from "../../ir/util/op-gates.js";
 import {
   collectReachableTypes,
@@ -40,7 +41,6 @@ import {
   valueObjectPool,
 } from "../../ir/util/reachable-types.js";
 import { responseWireFor } from "../../ir/util/response-wire.js";
-import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { PROVENANCED_REQUEST_ERROR, provenancedEntries } from "../_payload/provenanced-wire.js";
 import {

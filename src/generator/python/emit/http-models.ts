@@ -1,11 +1,11 @@
+import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
 import {
   fieldCode,
   fieldFixedMessage,
   fieldValuePrefix,
   INTEGER_RANGE_PARAMS,
-} from "../../../ir/enrich/wire-policy.js";
-import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
-import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
+} from "../../../ir/util/wire-policy.js";
 import { lines } from "../../../util/code-builder.js";
 import { UUID_WIRE_PATTERN } from "../../../util/uuid-wire.js";
 import { PY_IMPORTS, pyRef } from "../../_imports/python.js";

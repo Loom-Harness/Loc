@@ -1,14 +1,5 @@
 import { destroyVersionCheck, readsIfMatch } from "../../ir/enrich/version-check.js";
-import {
-  aggregateProblemParams,
-  aggregateTypeKey,
-  FIND_ABSENT_DETAIL,
-  reasonPhrase,
-  wireCode,
-  wireSentenceFor,
-  wireStatusResolver,
-} from "../../ir/enrich/wire-policy.js";
-import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../ir/plan/cache.js";
 import {
   canOpLadder,
@@ -49,7 +40,11 @@ import {
   relativeOpPath,
   servedOperations,
 } from "../../ir/util/api-surface.js";
-import { canonicalCreate, canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
+import {
+  canonicalCreate,
+  canonicalDestroy,
+  emitsRestCreate,
+} from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
 import { disallowedDetail } from "../../ir/util/denial-detail.js";
 import { isMergePatchUpdate, mergePatchFields } from "../../ir/util/merge-patch.js";
@@ -75,6 +70,15 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { listReadFind } from "../../ir/util/read-gates.js";
 import { responseWireFor } from "../../ir/util/response-wire.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
+import {
+  aggregateProblemParams,
+  aggregateTypeKey,
+  FIND_ABSENT_DETAIL,
+  reasonPhrase,
+  wireCode,
+  wireSentenceFor,
+  wireStatusResolver,
+} from "../../ir/util/wire-policy.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import {
   pythonIdent,
