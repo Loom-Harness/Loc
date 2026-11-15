@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 const repo = path.resolve(__dirname, "../..");
 
@@ -63,13 +64,14 @@ const naming = (files: readonly string[], symbols: readonly string[]): string[] 
 describe("frontend workflow / projection census", () => {
   it("the api modules read workflows and projections off the contract", () => {
     for (const f of API_MODULES) expect(fs.existsSync(path.join(repo, f)), f).toBe(true);
+    expectReach("workflow / projection api modules", API_MODULES.length, 5);
     expect(naming(API_MODULES, CONTRACT_DECIDED)).toEqual([]);
   });
 
   it("no frontend brings back a retired re-derivation", () => {
     const dirs = ["_walker", "_frontend", "react", "vue", "svelte", "angular", "feliz", "flutter"];
     const files = dirs.flatMap((d) => tsFiles(`src/generator/${d}`));
-    expect(files.length).toBeGreaterThan(200);
+    expectReach("frontend emitter files", files.length, 200);
     expect(naming(files, RETIRED)).toEqual([]);
   });
 });

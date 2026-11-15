@@ -183,7 +183,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/platform/hono/shared/explicit-handlers-builder.ts#buildExplicitRoutesFile": ALL_CONTEXTS,
   "src/platform/hono/shared/explicit-handlers-builder.ts#buildExplicitRoutesFile$2": ALL_CONTEXTS,
   "src/generator/feliz/index.ts#enumsFromContexts": ALL_CONTEXTS,
-  "src/generator/_frontend/projections-module.ts#buildProjectionsApiModule": ALL_CONTEXTS,
   "src/generator/dotnet/bcl-collision.ts#declaredTypeNames": ALL_CONTEXTS,
   "src/generator/_walker/model-text-sites.ts#implicitModelTextEntries": ALL_CONTEXTS,
 };
