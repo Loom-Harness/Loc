@@ -208,6 +208,8 @@ const ALLOWLIST: Readonly<Record<string, string>> = {
     "benign-boundary: buildMigrations passes a binding-aware resolver; default serves schema-only unit tests",
   "src/system/migrations-builder.ts::schemaFromModule::contextSchemaOf":
     "benign-boundary: buildMigrations passes resolveContextSchema; default serves schema-only unit tests",
+  "src/system/migrations-builder.ts::schemaFromModule::receivesDurable":
+    "benign-boundary: buildMigrations passes contextReceivesDurable(ctx, sys); the system-less default serves schema-only unit tests",
 
   // --- BENIGN at the boundary: the wire-spec builder passes the resolver ----
   // `bareRef` (unqualified `$ref`) is the single-context form; the builder
