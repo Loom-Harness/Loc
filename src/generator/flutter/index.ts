@@ -21,6 +21,7 @@
 // locally (no Flutter SDK); `generated-flutter-build.yml` owns the "is the Dart
 // real" gate — WEB ONLY, native isn't gated per-PR yet.
 
+import { buildFrontendHost } from "../../ir/contract/host.js";
 import type {
   DeployableIR,
   EnrichedAggregateIR,
@@ -34,9 +35,7 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { sourceLocaleOf } from "../../ir/types/loom-ir.js";
-import { backendServesRealtime } from "../../ir/util/channels.js";
 import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
-import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
@@ -178,8 +177,8 @@ export function generateFlutterForContexts(
   // Auth gate (D-AUTH-OIDC, `auth: ui`): this flutter deployable opts in AND its
   // target backend enforces auth AND the system declares a `user { }` claim
   // shape — the same three-way conjunction every other frontend's `authUi` is.
-  const target = sys.deployables.find((d) => d.name === deployable.targetName);
-  const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
+  const host = buildFrontendHost(sys, deployable);
+  const authUi = host.authUi;
   // The api-call credential (D-FLUTTER-BEARER).  ONE predicate,
   // shared with the realtime stream: `realtimeStreamCredential` is the gate
   // RULE 2 states, and it answers `cookie-web-bearer-native` for a
@@ -195,9 +194,7 @@ export function generateFlutterForContexts(
   // flutter emitters state the ONE value they can receive without re-deriving
   // the gate.
   const streamCredential: "cookie-web-bearer-native" | "none" =
-    realtimeStreamCredential(deployable, target, sys.user) === "none"
-      ? "none"
-      : "cookie-web-bearer-native";
+    host.realtime.credential === "none" ? "none" : "cookie-web-bearer-native";
   const credentialed = streamCredential !== "none";
 
   // Aggregate + owning-bounded-context lookups, built once — threaded into the
@@ -269,9 +266,7 @@ export function generateFlutterForContexts(
   // serves `GET /realtime/events`.  Without the second the subscription would
   // connect to nothing, which is the silent drop `loom.ui-realtime-unsupported`
   // exists to make honest.
-  const hasRealtime =
-    flutterHasRealtimeHandlers(ui) &&
-    backendServesRealtime(target?.platform ?? deployable.platform);
+  const hasRealtime = flutterHasRealtimeHandlers(ui) && host.realtime.served;
   if (hasRealtime && ui) {
     out.set("lib/realtime.dart", renderFlutterRealtime(ui, reads, streamCredential));
     out.set("lib/realtime_event.dart", REALTIME_EVENT_DART);

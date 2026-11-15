@@ -32,7 +32,10 @@ const SHIPPED: Record<string, string[] | null> = {
   ContractInvariant: ["expr", "guard", "message"],
   ContractFind: ["aggregate", "name", "params", "returnType", "routes", "sortDefault"],
   ContractFindRoute: ["api", "path"],
+  ContractInstanceField: ["id", "name", "optional", "type"],
   ContractParam: ["name", "type"],
+  ContractProjection: ["context", "fields", "many", "name"],
+  ContractWorkflow: ["context", "instance", "name", "params", "resultSegment"],
   ContractOperation: [
     "aggregate",
     "claimedByExplicitRoute",
