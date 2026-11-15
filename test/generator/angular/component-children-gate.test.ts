@@ -1,3 +1,4 @@
+// Gate for D-ANGULAR-EXTERN-CHILDREN (docs/decisions).
 // F2-CFE-8 — `loom.component-children-unsupported`, at its floor.
 //
 // A user component invoked with CHILDREN:

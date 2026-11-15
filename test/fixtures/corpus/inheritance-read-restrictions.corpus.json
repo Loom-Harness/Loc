@@ -1,4 +1,5 @@
 {
+  "//": "Gate for D-EF-TPH-ROOT-READS (docs/decisions).",
   "title": "inheritance (TPH + TPC) × a subtype capability × a subtype-only-column filter × `ignoring` × polymorphic base reads × `tenantOwned` across two tenants",
   "doc": "inheritance",
   "backends": "ALL",
@@ -8,5 +9,35 @@
     "uncalled": {
       "getOrganizationById": "noCreateRoute"
     }
+  },
+  "authzGate": {
+    "//": "The #3954 inheritance fixture.  Every gate is the tenant floor and there is no `requires`, so the in-tenant unauthorized principal is correctly ALLOWED.  Its tenancy statements are the ladder's cross-tenant rungs — a 404 by id, and the seeded row ABSENT from a 2xx collection read (`rowVisible`) — which this census does not count as refusals.",
+    "create POST /api/cars": "sharedTenancyIdentity",
+    "create POST /api/dispatchers": "sharedTenancyIdentity",
+    "create POST /api/drivers": "sharedTenancyIdentity",
+    "create POST /api/trucks": "sharedTenancyIdentity",
+    "destroy DELETE /api/dispatchers/{id}": "sharedTenancyIdentity",
+    "destroy DELETE /api/trucks/{id}": "sharedTenancyIdentity",
+    "find GET /api/cars": "sharedTenancyIdentity",
+    "find GET /api/crews": "sharedTenancyIdentity",
+    "find GET /api/vehicles": "sharedTenancyIdentity",
+    "explicitHandler GET /api/cars/by_plate_any_tenant": "sharedTenancyIdentity",
+    "explicitHandler GET /api/cars/by_plate_all": "sharedTenancyIdentity",
+    "find GET /api/dispatchers": "sharedTenancyIdentity",
+    "find GET /api/drivers": "sharedTenancyIdentity",
+    "explicitHandler GET /api/drivers/by_name": "sharedTenancyIdentity",
+    "explicitHandler GET /api/drivers/by_name_all": "sharedTenancyIdentity",
+    "find GET /api/organizations": "sharedTenancyIdentity",
+    "find GET /api/trucks": "sharedTenancyIdentity",
+    "getById GET /api/dispatchers/{id}": "sharedTenancyIdentity",
+    "getById GET /api/organizations/{id}": "sharedTenancyIdentity",
+    "getById GET /api/trucks/{id}": "sharedTenancyIdentity",
+    "operation POST /api/cars/{id}/restore": "sharedTenancyIdentity",
+    "operation POST /api/cars/{id}/soft_delete": "sharedTenancyIdentity",
+    "operation POST /api/cars/{id}/update": "sharedTenancyIdentity",
+    "operation POST /api/dispatchers/{id}/update": "sharedTenancyIdentity",
+    "operation POST /api/drivers/{id}/restore": "sharedTenancyIdentity",
+    "operation POST /api/drivers/{id}/soft_delete": "sharedTenancyIdentity",
+    "operation POST /api/drivers/{id}/update": "sharedTenancyIdentity"
   }
 }

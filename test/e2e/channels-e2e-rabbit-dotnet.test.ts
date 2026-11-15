@@ -1,3 +1,4 @@
+// Gate for D-CONSUMER-INBOX (docs/decisions).
 // M-T4.4 slice 7b — RabbitMQ queue semantics on the .NET backend, end to
 // end.
 //

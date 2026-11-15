@@ -1,3 +1,4 @@
+// Gate for D-HEEX-SHARED-WALKER (docs/decisions).
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";

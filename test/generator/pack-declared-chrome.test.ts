@@ -1,3 +1,4 @@
+// Gate for D-PACK-CHROME (docs/decisions).
 // Pack-DECLARED chrome (M-T1.11) — the user-visible English a design pack
 // bakes into its own `.hbs` templates ("Remove", "This operation has no
 // parameters.", "Yes"/"No", a picker's "Select…").  The content-hash extraction

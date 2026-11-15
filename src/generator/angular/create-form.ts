@@ -4,6 +4,7 @@ import { routeSegmentFor } from "../../util/storage-names.js";
 import { giveUp } from "../_walker/give-up.js";
 import { opModelText } from "../_walker/model-text-sites.js";
 import type { WalkContext } from "../_walker/walker-core.js";
+import { contextOfOptionalHome } from "../_walker/walker-model.js";
 import {
   type AngularFieldArraySpec,
   type AngularFieldGroupSpec,
@@ -78,7 +79,7 @@ export function renderAngularCreateForm(
       "CreateForm(of: …): missing 'of:' aggregate ref",
     );
   const agg = ctx.aggregatesByName.get(aggName);
-  const bc = ctx.model.homeOfAggregate(aggName);
+  const bc = contextOfOptionalHome(ctx.model.homeOfAggregate(aggName));
   if (!agg || !bc) {
     return giveUp(
       ctx.target,

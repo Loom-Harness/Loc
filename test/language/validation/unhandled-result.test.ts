@@ -1,3 +1,4 @@
+// Gate for D-FAILURE-MODEL (docs/decisions).
 // `loom.unhandled-result`: an `A or E` result whose `E` is an `error` must be
 // matched, returned, or bound and read.
 

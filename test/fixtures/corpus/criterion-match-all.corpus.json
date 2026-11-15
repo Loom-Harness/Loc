@@ -8,5 +8,12 @@
     "unattributed": [
       "api.bumpAll.run (no such aggregate)"
     ]
+  },
+  "typing": {
+    "unknown{no-rule}": {
+      "n": 1,
+      "why": "the `page: { offset, limit }` object literal of a paged repository read: the pass has no rule for it",
+      "issue": "#5931"
+    }
   }
 }

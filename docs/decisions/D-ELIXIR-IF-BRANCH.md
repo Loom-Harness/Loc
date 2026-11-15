@@ -77,3 +77,5 @@ than done here.
 `BRANCH_VOCABULARY`); `src/generator/elixir/vanilla/if-stmt-emit.ts`;
 `src/generator/elixir/vanilla/eventsourced-emit.ts`; `src/ir/util/prov-id.ts`;
 [`T6-backend-parity.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T6-backend-parity.md) M-T6.59.
+
+**Enforced by:** `test/fixtures/corpus/if-branch-shapes.ddd`

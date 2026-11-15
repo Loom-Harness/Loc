@@ -13,7 +13,6 @@ export type ThrowClassification =
   | { deferred: string; mission: string; reviewUntil: string };
 
 export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
-  // src/generator/_api/polymorphic-row.ts
   "src/generator/_api/polymorphic-row.ts#polymorphicRowOf": {
     invariant:
       "Only `contextOperations(ctx)` marks an operation `polymorphicBase`, and it derives one only for a base `routedPolymorphicRead` routes in that same ctx; no .ddd input reaches the throw.",
@@ -22,16 +21,122 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "`routedPolymorphicRead(base, ctx)` draws its variants from `ctx.aggregates`, so every variant names an aggregate of that ctx; no .ddd input reaches the throw.",
   },
+
+  "src/generator/_auth/dev-stub-id.ts#devStubIdExpr": {
+    invariant:
+      "Exhaustive `never` default over the closed dev-stub language union; tsc proves no other value. (src/generator/_auth/dev-stub-id.ts:88)",
+  },
+
+  "src/generator/_channels/wire-codec.ts#decodeValue": {
+    invariant:
+      "Exhaustive `never` default: every TypeIR kind has an arm above it. (src/generator/_channels/wire-codec.ts:128)",
+  },
+
+  "src/generator/_expr/target.ts#renderExprWith": {
+    guardedBy: ["loom.model-text-outside-ui"],
+  },
+  "src/generator/_expr/target.ts#renderExprWith$2": {
+    invariant:
+      "action-ref is lowered only when env.actions/env.stores are set (page/component/store lowering), and those bodies are rendered only by the frontend walkers (walker-core.ts:2200, heex-walker-core.ts:780), never by the backend renderExprWith callers (domain bodies, requires gates). (src/ir/lower/lower-expr.ts:2455, src/ir/lower/lower-expr.ts:744, src/ir/lower/lower-ui.ts:134/374)",
+  },
+  "src/generator/_expr/target.ts#renderExprWith$3": {
+    invariant:
+      "authz-filter is built only by enrichment (tenant-stance.ts:349/451, enrichments.ts:588/682) into contextFilters/writeScopeFilter, and every backend filter translator special-cases it (isDenyFilter/isDeepScopeFilter; in-app path _expr/authz-filter-inapp.ts). Empirically: the 90-fixture corpus with `deny on <every aggregate>` and `deny write` injected into every context, generated on node, node{mikroorm}, dotnet, dotnet{dapper}, python, java and elixir, never reached this throw. The document-shape crossing (policy-document.ddd) was the historical leak and is fixed. (src/ir/util/tenant-stance.ts:349,451; src/generator/_expr/authz-filter-inapp.ts)",
+  },
+  "src/generator/_expr/target.ts#renderExprWith$4": {
+    guardedBy: ["loom.exists-outside-query"],
+  },
+  "src/generator/_expr/target.ts#renderExprWithMarks": {
+    guardedBy: ["loom.model-text-outside-ui"],
+  },
+  "src/generator/_expr/target.ts#renderExprWithMarks$2": {
+    invariant:
+      "Only caller is the TS aggregate op-body loop (domain statements); action-ref is lowered only in UI bodies (env.actions/env.stores). (src/generator/typescript/render-stmt.ts:161; src/ir/lower/lower-expr.ts:2455)",
+  },
+  "src/generator/_expr/target.ts#renderExprWithMarks$3": {
+    invariant:
+      "Only caller renders aggregate op-body statements, which never contain the enrichment-only authz-filter sentinel (built at tenant-stance.ts:349/451 into filters only). (src/generator/typescript/render-stmt.ts:161)",
+  },
+  "src/generator/_expr/target.ts#renderExprWithMarks$4": {
+    guardedBy: ["loom.exists-outside-query"],
+  },
+  "src/generator/_frontend/contract.ts#requireFrontendContract": {
+    invariant:
+      "Every caller passes the system's Frontend Contract: the orchestrator builds it for any system with a ui and threads it through emitProject (src/system/index.ts emitSystem), the frontend surfaces forward it (src/platform/frontend-dispatch.ts), and each backend embedding a bundle forwards it from its emitProject args.",
+  },
   "src/generator/_frontend/form-row-binding.ts#settled": {
     invariant:
       "a shipped pack's field template binds its path or test id through a site the row binder does not rewrite; every shipped pack's dynamic rows render in the form-spec census and the walker suites, so only a new pack template shape reaches it",
   },
-  // src/generator/java/wire-policy-java.ts
-  "src/generator/java/wire-policy-java.ts#javaIngressCoercions": {
-    invariant:
-      "JACKSON_LOGICAL_TYPE is a closed emitter-side table; two primitives sharing a Jackson logical type must carry the same ingress rule, which the java wire-policy census pins. No .ddd input moves it.",
+
+  "src/generator/_frontend/gate-expr.ts#renderGateExpr": {
+    guardedBy: ["loom.page-gate-not-client-evaluable"],
+    note: "firstNonUiGateNode mirrors the renderer arm-for-arm and every renderGateExpr call site renders a page.requires, which validatePageGates checks for every page of every ui.",
   },
-  // src/generator/_imports/dotnet.ts
+  "src/generator/_frontend/gate-expr.ts#renderGateExpr$2": {
+    guardedBy: ["loom.page-gate-not-client-evaluable"],
+    note: 'A non-.contains method in a page gate is rejected with kind "method".',
+  },
+  "src/generator/_frontend/gate-expr.ts#renderGateExpr$3": {
+    guardedBy: ["loom.page-gate-not-client-evaluable"],
+    note: 'Any other expression kind in a page gate is rejected with kind "kind".',
+  },
+  "src/generator/_frontend/gate-expr.ts#renderLiteral": {
+    guardedBy: ["loom.page-gate-not-client-evaluable"],
+    note: 'Literal kinds outside string/bool/int/long/decimal/null are rejected with kind "literal"; same set as renderLiteral.',
+  },
+
+  "src/generator/_frontend/realtime.ts#renderMessageExpr": {
+    guardedBy: ["loom.toast-message-unsupported"],
+    note: "A toast ref other than the event binding is rejected by toastMessageProblem, which mirrors renderMessageExpr arm for arm.",
+  },
+  "src/generator/_frontend/realtime.ts#renderMessageExpr$2": {
+    guardedBy: ["loom.toast-message-unsupported"],
+    note: "A member chain not rooted at the event binding is rejected by toastMessageProblem, which mirrors renderMessageExpr arm for arm.",
+  },
+  "src/generator/_frontend/realtime.ts#renderMessageExpr$3": {
+    guardedBy: ["loom.toast-message-unsupported"],
+    note: "Every other expression kind (enumerated explicitly) is rejected by toastMessageProblem, which mirrors renderMessageExpr arm for arm.",
+  },
+
+  "src/generator/_frontend/shell-chrome.ts#entry": {
+    invariant:
+      "Chrome names are hard-coded string literals at every call site, all present in APP_SHELL_CHROME. (src/generator/svelte/index.ts:436-454; src/generator/elixir/vanilla/shell-emit.ts:233)",
+  },
+  "src/generator/_frontend/workflows-module.ts#contextOf": {
+    invariant:
+      "A workflows module is handed only `clientWorkflows(contract, contexts)` — the contract's workflows whose owning context is one of the served `contexts` the scope was built from — so every name it resolves is in the scope.",
+  },
+
+  "src/generator/_frontend/workflows-module.ts#zodForRequest": {
+    invariant:
+      "`duration` is not in the PrimitiveType grammar, so it exists only as an expression type and never as a declared workflow param type. (src/language/ddd.langium:2162)",
+  },
+  "src/generator/_frontend/workflows-module.ts#zodForRequest$2": {
+    guardedBy: ["loom.slot-out-of-position", "loom.action-out-of-position"],
+    note: "`slot`/`action` are rejected on any Parameter not owned by a Component, so a workflow param cannot have them.",
+  },
+  "src/generator/_frontend/workflows-module.ts#zodForRequest$3": {
+    guardedBy: ["loom.generic-position"],
+    note: "A generic carrier is allowed only as a find/queryHandler return or a payload field, never as a workflow Parameter (Provenanced has no grammar arm).",
+  },
+  "src/generator/_frontend/workflows-module.ts#zodForRequest$4": {
+    guardedBy: ["loom.union-position"],
+    note: "An anonymous `A or B` union is rejected on Parameters; named payload unions lower to an entity marker, and `none` appears only as a union arm.",
+  },
+
+  "src/generator/_frontend/zod-schemas.ts#zodForRequest": {
+    invariant:
+      "Same as api-module: Provenanced<T> only exists on response wire shapes; request callers pass declared types. (src/ir/enrich/wire-projection.ts:435; src/generator/svelte/api-builder.ts:94/121/142)",
+  },
+  "src/generator/_i18n/ordinal-rules.ts#ordinalTable": {
+    invariant:
+      "A locale Intl.PluralRules does not support returns undefined before the search, and every supported locale's ordinal rules depend on n mod 10 / 100 / 1000 at most, so one of PERIODS always repeats within VERIFY_UP_TO; test/generator/_i18n/ordinal-rules.test.ts derives the table for every locale the runtime knows.",
+  },
+  "src/generator/_i18n/wire-error-text.ts#wireErrorMessage": {
+    invariant:
+      "Every caller passes a wireCode(cls)/fieldCode(reason) key, and WIRE_ERROR_MESSAGES is built from the closed WireRejectionClass/FieldRejectionReason records, so every such key is present.",
+  },
   "src/generator/_imports/dotnet.ts#csUsing": {
     invariant:
       'Every slot namespace is an emitter-side constant (`csUsing("System.Linq")`, the persistence/channel header slots); no .ddd input reaches it. (src/generator/_imports/dotnet.ts:59)',
@@ -48,7 +153,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "Every emitted .cs unit has a `namespace` declaration or a leading `using` region, so a derived line always has a place; an emitter-authoring contract no .ddd input moves. (src/generator/_imports/dotnet.ts:182)",
   },
-  // src/generator/_imports/java.ts
   "src/generator/_imports/java.ts#finalizeJavaUnit": {
     invariant:
       "JAVA_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a unit that writes a marker has an import region). No .ddd input moves either; the wiring gate (test/generator/imports/java-imports.test.ts) finalizes every corpus unit. (src/generator/_imports/java.ts:109)",
@@ -63,34 +167,31 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     mission: "#3164",
     reviewUntil: "2027-01-31",
   },
-
-  // src/generator/_imports/ts.ts
-  "src/generator/_imports/ts.ts#tsSpecifier": {
+  "src/generator/_imports/python.ts#finalizePyModule": {
     invariant:
-      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:286)",
   },
-  "src/generator/_imports/ts.ts#render": {
+  "src/generator/_imports/python.ts#finalizePyModule$2": {
     invariant:
-      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:291)",
   },
-  "src/generator/_imports/ts.ts#finalizeTsModule": {
-    invariant:
-      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+  "src/generator/_imports/python.ts#finalizePyModule$3": {
+    deferred:
+      "A user name equal to an imported symbol (e.g. a value object named `Decimal` or `UTC`) makes two imports bind one name; refused here instead of emitting an F811/shadowing module. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it into the finalizer and re-classify guardedBy.",
+    mission: "#3164",
+    reviewUntil: "2027-01-31",
   },
-  "src/generator/_imports/ts.ts#finalizeTsModule$2": {
-    invariant:
-      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+  "src/generator/_imports/python.ts#finalizePyModule$4": {
+    deferred:
+      "A user name equal to an imported symbol (e.g. a value object named `Decimal` or `UTC`) makes two imports bind one name; refused here instead of emitting an F811/shadowing module. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it into the finalizer and re-classify guardedBy.",
+    mission: "#3164",
+    reviewUntil: "2027-01-31",
   },
-  "src/generator/_imports/ts.ts#finalizeTsModule$3": {
+  "src/generator/_imports/python.ts#finalizePyModule$5": {
     invariant:
-      "Every TS symbol is an infrastructure name (a framework export or a generated module's fixed export) or a name derived per module from a declaration the validator already keeps unique (an api slug's router, an objectStore's byte helpers); no two modules export one of them under one local name.",
-  },
-  "src/generator/_imports/ts.ts#assertNoSlots": {
-    invariant:
-      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:336)",
   },
 
-  // src/generator/_imports/python.ts
   "src/generator/_imports/python.ts#parseStatement": {
     invariant:
       "Parses only import lines the backend's own emitters wrote into a module's leading region (hand-written constant header lines); no .ddd text reaches them, and the python corpus+examples trees finalize clean. Fail-closed so an emitter writing an unsupported form fails generation instead of shipping a broken import. (src/generator/_imports/python.ts:141)",
@@ -107,32 +208,11 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "Parses only import lines the backend's own emitters wrote into a module's leading region (hand-written constant header lines); no .ddd text reaches them, and the python corpus+examples trees finalize clean. Fail-closed so an emitter writing an unsupported form fails generation instead of shipping a broken import. (src/generator/_imports/python.ts:164)",
   },
-  "src/generator/_imports/python.ts#finalizePyModule": {
+  "src/generator/_imports/symbol.ts#assertNoMarkers": {
     invariant:
-      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:286)",
-  },
-  "src/generator/_imports/python.ts#finalizePyModule$2": {
-    invariant:
-      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:291)",
-  },
-  "src/generator/_imports/python.ts#finalizePyModule$5": {
-    invariant:
-      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:336)",
-  },
-  "src/generator/_imports/python.ts#finalizePyModule$3": {
-    deferred:
-      "A user name equal to an imported symbol (e.g. a value object named `Decimal` or `UTC`) makes two imports bind one name; refused here instead of emitting an F811/shadowing module. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it into the finalizer and re-classify guardedBy.",
-    mission: "#3164",
-    reviewUntil: "2027-01-31",
-  },
-  "src/generator/_imports/python.ts#finalizePyModule$4": {
-    deferred:
-      "A user name equal to an imported symbol (e.g. a value object named `Decimal` or `UTC`) makes two imports bind one name; refused here instead of emitting an F811/shadowing module. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it into the finalizer and re-classify guardedBy.",
-    mission: "#3164",
-    reviewUntil: "2027-01-31",
+      "Markers are produced only by ref() with validated handles and consumed by the same module's finalizer; a malformed or surviving marker is an emitter bug (a fragment that bypassed the finalizer), never user input. (src/generator/_imports/symbol.ts:133)",
   },
 
-  // src/generator/_imports/symbol.ts
   "src/generator/_imports/symbol.ts#check": {
     invariant:
       "Import handles are constructed by emitter code from fixed module paths and names that pass through the backend's identifier escaping; a malformed handle is an emitter bug, caught at construction instead of emitting a broken import line. (src/generator/_imports/symbol.ts:47)",
@@ -153,122 +233,32 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "Markers are produced only by ref() with validated handles and consumed by the same module's finalizer; a malformed or surviving marker is an emitter bug (a fragment that bypassed the finalizer), never user input. (src/generator/_imports/symbol.ts:111)",
   },
-  "src/generator/_imports/symbol.ts#assertNoMarkers": {
+  "src/generator/_imports/ts.ts#assertNoSlots": {
     invariant:
-      "Markers are produced only by ref() with validated handles and consumed by the same module's finalizer; a malformed or surviving marker is an emitter bug (a fragment that bypassed the finalizer), never user input. (src/generator/_imports/symbol.ts:133)",
+      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+  },
+  "src/generator/_imports/ts.ts#finalizeTsModule": {
+    invariant:
+      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+  },
+  "src/generator/_imports/ts.ts#finalizeTsModule$2": {
+    invariant:
+      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
+  },
+  "src/generator/_imports/ts.ts#finalizeTsModule$3": {
+    invariant:
+      "Every TS symbol is an infrastructure name (a framework export or a generated module's fixed export) or a name derived per module from a declaration the validator already keeps unique (an api slug's router, an objectStore's byte helpers); no two modules export one of them under one local name.",
+  },
+  "src/generator/_imports/ts.ts#render": {
+    invariant:
+      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
   },
 
-  // src/generator/_trace/sourcemap.ts
-  "src/generator/_trace/sourcemap.ts#fragment": {
+  "src/generator/_imports/ts.ts#tsSpecifier": {
     invariant:
-      "Markers are produced only by ref() with validated handles and consumed by the same module's finalizer; a malformed or surviving marker is an emitter bug (a fragment that bypassed the finalizer), never user input. (src/generator/_trace/sourcemap.ts:251)",
+      "Slot / marker placement is an emitter-authoring contract: every project-relative symbol is finalized under its module's emitted path, a slot is a line of its own, and every slot names a module the emitter references. No .ddd input moves any of it; TsOutputMap.assertFinal and the corpus diff pin the node tree.",
   },
 
-  // src/generator/_auth/dev-stub-id.ts
-  "src/generator/_auth/dev-stub-id.ts#devStubIdExpr": {
-    invariant:
-      "Exhaustive `never` default over the closed dev-stub language union; tsc proves no other value. (src/generator/_auth/dev-stub-id.ts:88)",
-  },
-
-  // src/generator/_channels/wire-codec.ts
-  "src/generator/_channels/wire-codec.ts#decodeValue": {
-    invariant:
-      "Exhaustive `never` default: every TypeIR kind has an arm above it. (src/generator/_channels/wire-codec.ts:128)",
-  },
-
-  // src/generator/_expr/target.ts
-  "src/generator/_expr/target.ts#renderExprWith": {
-    guardedBy: ["loom.model-text-outside-ui"],
-  },
-  "src/generator/_expr/target.ts#renderExprWithMarks": {
-    guardedBy: ["loom.model-text-outside-ui"],
-  },
-  "src/generator/_expr/target.ts#renderExprWith$2": {
-    invariant:
-      "action-ref is lowered only when env.actions/env.stores are set (page/component/store lowering), and those bodies are rendered only by the frontend walkers (walker-core.ts:2200, heex-walker-core.ts:780), never by the backend renderExprWith callers (domain bodies, requires gates). (src/ir/lower/lower-expr.ts:2455, src/ir/lower/lower-expr.ts:744, src/ir/lower/lower-ui.ts:134/374)",
-  },
-  "src/generator/_expr/target.ts#renderExprWith$3": {
-    invariant:
-      "authz-filter is built only by enrichment (tenant-stance.ts:349/451, enrichments.ts:588/682) into contextFilters/writeScopeFilter, and every backend filter translator special-cases it (isDenyFilter/isDeepScopeFilter; in-app path _expr/authz-filter-inapp.ts). Empirically: the 90-fixture corpus with `deny on <every aggregate>` and `deny write` injected into every context, generated on node, node{mikroorm}, dotnet, dotnet{dapper}, python, java and elixir, never reached this throw. The document-shape crossing (policy-document.ddd) was the historical leak and is fixed. (src/ir/util/tenant-stance.ts:349,451; src/generator/_expr/authz-filter-inapp.ts)",
-  },
-  "src/generator/_expr/target.ts#renderExprWith$4": {
-    guardedBy: ["loom.exists-outside-query"],
-  },
-  "src/generator/_expr/target.ts#renderExprWithMarks$2": {
-    invariant:
-      "Only caller is the TS aggregate op-body loop (domain statements); action-ref is lowered only in UI bodies (env.actions/env.stores). (src/generator/typescript/render-stmt.ts:161; src/ir/lower/lower-expr.ts:2455)",
-  },
-  "src/generator/_expr/target.ts#renderExprWithMarks$3": {
-    invariant:
-      "Only caller renders aggregate op-body statements, which never contain the enrichment-only authz-filter sentinel (built at tenant-stance.ts:349/451 into filters only). (src/generator/typescript/render-stmt.ts:161)",
-  },
-  "src/generator/_expr/target.ts#renderExprWithMarks$4": {
-    guardedBy: ["loom.exists-outside-query"],
-  },
-
-  // src/generator/_frontend/gate-expr.ts
-  "src/generator/_frontend/gate-expr.ts#renderGateExpr": {
-    guardedBy: ["loom.page-gate-not-client-evaluable"],
-    note: "firstNonUiGateNode mirrors the renderer arm-for-arm and every renderGateExpr call site renders a page.requires, which validatePageGates checks for every page of every ui.",
-  },
-  "src/generator/_frontend/gate-expr.ts#renderGateExpr$2": {
-    guardedBy: ["loom.page-gate-not-client-evaluable"],
-    note: 'A non-.contains method in a page gate is rejected with kind "method".',
-  },
-  "src/generator/_frontend/gate-expr.ts#renderGateExpr$3": {
-    guardedBy: ["loom.page-gate-not-client-evaluable"],
-    note: 'Any other expression kind in a page gate is rejected with kind "kind".',
-  },
-  "src/generator/_frontend/gate-expr.ts#renderLiteral": {
-    guardedBy: ["loom.page-gate-not-client-evaluable"],
-    note: 'Literal kinds outside string/bool/int/long/decimal/null are rejected with kind "literal"; same set as renderLiteral.',
-  },
-
-  // src/generator/_frontend/realtime.ts
-  "src/generator/_frontend/realtime.ts#renderMessageExpr": {
-    guardedBy: ["loom.toast-message-unsupported"],
-    note: "A toast ref other than the event binding is rejected by toastMessageProblem, which mirrors renderMessageExpr arm for arm.",
-  },
-  "src/generator/_frontend/realtime.ts#renderMessageExpr$2": {
-    guardedBy: ["loom.toast-message-unsupported"],
-    note: "A member chain not rooted at the event binding is rejected by toastMessageProblem, which mirrors renderMessageExpr arm for arm.",
-  },
-  "src/generator/_frontend/realtime.ts#renderMessageExpr$3": {
-    guardedBy: ["loom.toast-message-unsupported"],
-    note: "Every other expression kind (enumerated explicitly) is rejected by toastMessageProblem, which mirrors renderMessageExpr arm for arm.",
-  },
-
-  // src/generator/_frontend/shell-chrome.ts
-  "src/generator/_frontend/shell-chrome.ts#entry": {
-    invariant:
-      "Chrome names are hard-coded string literals at every call site, all present in APP_SHELL_CHROME. (src/generator/svelte/index.ts:436-454; src/generator/elixir/vanilla/shell-emit.ts:233)",
-  },
-
-  // src/generator/_frontend/workflows-module.ts
-  "src/generator/_frontend/workflows-module.ts#zodForRequest": {
-    invariant:
-      "`duration` is not in the PrimitiveType grammar, so it exists only as an expression type and never as a declared workflow param type. (src/language/ddd.langium:2162)",
-  },
-  "src/generator/_frontend/workflows-module.ts#zodForRequest$2": {
-    guardedBy: ["loom.slot-out-of-position", "loom.action-out-of-position"],
-    note: "`slot`/`action` are rejected on any Parameter not owned by a Component, so a workflow param cannot have them.",
-  },
-  "src/generator/_frontend/workflows-module.ts#zodForRequest$3": {
-    guardedBy: ["loom.generic-position"],
-    note: "A generic carrier is allowed only as a find/queryHandler return or a payload field, never as a workflow Parameter (Provenanced has no grammar arm).",
-  },
-  "src/generator/_frontend/workflows-module.ts#zodForRequest$4": {
-    guardedBy: ["loom.union-position"],
-    note: "An anonymous `A or B` union is rejected on Parameters; named payload unions lower to an entity marker, and `none` appears only as a union arm.",
-  },
-
-  // src/generator/_frontend/zod-schemas.ts
-  "src/generator/_frontend/zod-schemas.ts#zodForRequest": {
-    invariant:
-      "Same as api-module: Provenanced<T> only exists on response wire shapes; request callers pass declared types. (src/ir/enrich/wire-projection.ts:435; src/generator/svelte/api-builder.ts:94/121/142)",
-  },
-
-  // src/generator/_packs/loader-fs.ts
   // `loadPack` throws `diagMessage("loom.design-pack-invalid#load")` for every
   // read-time pack defect, auto-guarded by the phase-⑦ check
   // (design-pack-checks.ts) that inspects the same defect list.
@@ -289,7 +279,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "The shipped install always has designs/ next to out/; this is a broken-install failure, not model-driven. (src/generator/_packs/loader-fs.ts:55-66)",
   },
 
-  // src/generator/_packs/loader.ts
   // `compilePack` throws `diagMessage("loom.design-pack-invalid#load")` for
   // every manifest defect (pack-defects.ts#manifestDefects) — auto-guarded.
   "src/generator/_packs/loader.ts#render": {
@@ -297,10 +286,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Every template name the generators render is in REQUIRED_PRIMITIVES (checked: all literal render/primitive names in react/_walker/_frontend) and so is enforced at load; the optional ones (realtime-toast-setup, primitive-modal-controlled) are checked with templates.has first. A custom pack of the wrong format is refused by loom.design-pack-format-mismatch, so the required set checked is the framework's own. (src/generator/_packs/required-primitives.ts; src/generator/react/realtime-handlers-builder.ts:33; src/generator/_walker/primitives/forms.ts:978)",
   },
 
-  // src/generator/_packs/pack-chrome.ts
   "src/generator/_packs/pack-chrome.ts#bind": {
     guardedBy: ["loom.design-pack-invalid"],
     note: "Every literal chrome role a template passes hash (hole) values to is scanned in a heex pack (pack-defects.ts kind chrome-hole-heex) by the phase-⑦ inspection; every shipped and every inspected template names its role as a string literal.",
+  },
+  "src/generator/_packs/pack-chrome.ts#declared": {
+    guardedBy: ["loom.design-pack-invalid"],
+    note: "Every literal chrome role a template uses is checked against pack.json's chrome map (pack-defects.ts kind chrome-role-undeclared) by the phase-⑦ inspection; built-in packs are inspected clean by test/generator/_packs/pack-defects.test.ts.",
   },
   "src/generator/_packs/pack-chrome.ts#sharedChrome": {
     deferred:
@@ -314,65 +306,50 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     mission: "#3915",
     reviewUntil: "2027-01-31",
   },
-  "src/generator/_packs/pack-chrome.ts#declared": {
-    guardedBy: ["loom.design-pack-invalid"],
-    note: "Every literal chrome role a template uses is checked against pack.json's chrome map (pack-defects.ts kind chrome-role-undeclared) by the phase-⑦ inspection; built-in packs are inspected clean by test/generator/_packs/pack-defects.test.ts.",
-  },
 
-  // src/generator/_packs/shell-emits.ts
   "src/generator/_packs/shell-emits.ts#emitShellFiles": {
     guardedBy: ["loom.design-pack-invalid"],
     note: "compilePack refuses a shellFiles key with no template (pack-defects.ts kind shellfile-not-emitted) before a LoadedPack exists, and phase ⑦ reports the same defect.",
   },
 
-  // src/generator/_stmt/target.ts
   "src/generator/_stmt/target.ts#renderStmt": {
     invariant: "Exhaustive `never` default over StmtIR kinds. (src/generator/_stmt/target.ts:221)",
   },
 
-  // src/generator/_type/target.ts
+  "src/generator/_trace/sourcemap.ts#fragment": {
+    invariant:
+      "Markers are produced only by ref() with validated handles and consumed by the same module's finalizer; a malformed or surviving marker is an emitter bug (a fragment that bypassed the finalizer), never user input. (src/generator/_trace/sourcemap.ts:251)",
+  },
+
   "src/generator/_type/target.ts#renderTypeWith": {
     guardedBy: ["loom.slot-out-of-position", "loom.action-out-of-position"],
     note: "`slot`/`action` types are legal only on component params, and those are rendered only by the frontends; renderTypeWith callers are the backend type renderers (java/dotnet/python/typescript render-expr), with no frontend importers.",
-  },
-
-  // src/generator/_walker/i18n-chrome.ts
-  "src/generator/_walker/i18n-chrome.ts#chromeMessage": {
-    invariant:
-      "Every chromeMessage/localizedChrome* call passes a hard-coded name from our own emitters, all present in CHROME_MESSAGES. (src/generator/_walker/i18n-chrome.ts:~60-91 (CHROME_MESSAGES))",
   },
   "src/generator/_walker/i18n-chrome.ts#authGateMessage": {
     invariant:
       "Every caller (the Feliz and Flutter auth gates, the session views of the pack-rendered frontends) passes a hard-coded session-gate name from its own emitter, all present in AUTH_GATE_CHROME or SESSION_VIEW_CHROME; no .ddd input names the string.",
   },
-  "src/generator/_i18n/ordinal-rules.ts#ordinalTable": {
+
+  "src/generator/_walker/i18n-chrome.ts#chromeMessage": {
     invariant:
-      "A locale Intl.PluralRules does not support returns undefined before the search, and every supported locale's ordinal rules depend on n mod 10 / 100 / 1000 at most, so one of PERIODS always repeats within VERIFY_UP_TO; test/generator/_i18n/ordinal-rules.test.ts derives the table for every locale the runtime knows.",
-  },
-  "src/generator/_i18n/wire-error-text.ts#wireErrorMessage": {
-    invariant:
-      "Every caller passes a wireCode(cls)/fieldCode(reason) key, and WIRE_ERROR_MESSAGES is built from the closed WireRejectionClass/FieldRejectionReason records, so every such key is present.",
+      "Every chromeMessage/localizedChrome* call passes a hard-coded name from our own emitters, all present in CHROME_MESSAGES. (src/generator/_walker/i18n-chrome.ts:~60-91 (CHROME_MESSAGES))",
   },
 
-  // src/generator/_walker/i18n-emit.ts
   "src/generator/_walker/i18n-emit.ts#icuParts": {
     invariant:
       "The hole values are supplied by our own emitter call sites against fixed catalog messages; this is a programmer-error precondition, not model-driven. (src/generator/_walker/i18n-emit.ts:722-729)",
   },
 
-  // src/generator/_walker/js-expr-leaves.ts
   "src/generator/_walker/js-expr-leaves.ts#unreachedExprLeaf": {
     invariant:
       "A shim for the HEEx target, which forks emitExpr into its own renderExpr and never calls the shared dispatcher leaves. (src/generator/elixir/heex-walker-core.ts:701)",
   },
 
-  // src/generator/_walker/primitives/display.ts
   "src/generator/_walker/primitives/display.ts#emitSlot": {
     invariant:
       "Every shared-walker target implements renderChildrenSlot or is React; HEEx dispatches Slot through its own def.heex (heex-walker-core.ts:1188). (svelte-target.ts:411, vue-target.ts:420, angular-target.ts:602, feliz-target.ts:913, flutter-target.ts:973 (react is in JSX_CHILDREN_PROP_FRAMEWORKS))",
   },
 
-  // src/generator/_walker/walker-core.ts
   "src/generator/_walker/walker-core.ts#emitExpr": {
     invariant:
       "Every target that runs the shared walker implements renderStoreFieldRead and renderStoreActionCall; HEEx forks its own walker (heex-target.ts:230). (tsx-target.ts:474/481, vue-target.ts:541/549, svelte-target.ts:455/462, angular-target.ts:636/645, feliz-target.ts:330/333, flutter-target.ts:287/292)",
@@ -421,7 +398,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Every target that runs the shared walker implements renderStoreFieldRead and renderStoreActionCall; HEEx forks its own walker (heex-target.ts:230). (tsx-target.ts:474/481, vue-target.ts:541/549, svelte-target.ts:455/462, angular-target.ts:636/645, feliz-target.ts:330/333, flutter-target.ts:287/292)",
   },
 
-  // src/generator/dotnet/adapters/by-feature-layout.ts
+  "src/generator/_walker/walker-model.ts#contextOfHome": {
+    invariant:
+      "Only Angular and Feliz call it, and they walk on `walkerModelOf`, whose homes are the bounded contexts it was handed; the walker-model census pins those targets to the enriched model, so no .ddd input reaches the throw.",
+  },
   "src/generator/dotnet/adapters/by-feature-layout.ts#need": {
     invariant:
       "Every artifact routed through the dotnet layout adapters is built with aggregateName set (per-aggregate place() and the cqrs emitForAggregate wrapper), so the missing-aggregateName branch is an internal-caller precondition. (src/generator/dotnet/index.ts:1387 (place() always sets aggregateName: agg.name) and index.ts:1777 + adapters/cqrs-style.ts:236-243 (cqrs artifacts always carry aggregateName); these are the only pathFor callers)",
@@ -431,7 +411,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "All artifacts reaching the dotnet layout adapter are tagged with a category by our own emit sites; a missing category is a programmer error. (src/generator/dotnet/index.ts:1382-1388 (place() takes a required DotnetArtifactCategory) and adapters/cqrs-style.ts:234-241 (categoriseCqrsPath tags every CQRS artifact); no other caller reaches the dotnet layout adapters)",
   },
 
-  // src/generator/dotnet/adapters/by-layer-layout.ts
   "src/generator/dotnet/adapters/by-layer-layout.ts#pathFor": {
     invariant:
       "All artifacts reaching byLayer.pathFor are tagged with a category by our own emit sites (byFeature delegates only already-checked artifacts). (src/generator/dotnet/index.ts:1382-1388 (place() takes a required DotnetArtifactCategory) and adapters/cqrs-style.ts:234-241 (categoriseCqrsPath tags every CQRS artifact); no other caller reaches the dotnet layout adapters)",
@@ -473,7 +452,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "No emit site ever routes a 'test-class' category through the layout adapter. (src/generator/dotnet/index.ts:480-491,1786 (test classes written directly via out.set, never through layout.pathFor))",
   },
 
-  // src/generator/dotnet/adapters/cqrs-style.ts
   "src/generator/dotnet/adapters/cqrs-style.ts#categoriseCqrsPath": {
     invariant:
       "emitCqrs / emitOperationCommandAndHandler only ever write Application/*/{Commands,Queries,Requests,Responses}/ or Api/ paths, all of which classify. (src/generator/dotnet/cqrs/{commands,queries,dtos,controller}.ts out.set paths (all Application/<Agg>/{Commands,Queries,Requests,Responses}/... or Api/...))",
@@ -486,8 +464,36 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "hostOf is only used by the per-operation adapter methods emitEndpoint/emitHandlerOrService, which the engine never calls. (grep: no caller of styleAdapter.emitEndpoint/emitHandlerOrService anywhere in src (only index.ts:1775 calls emitForAggregate))",
   },
+  "src/generator/dotnet/codec-spelling.ts#calendarDateFormat": {
+    invariant:
+      "The Codec fact's date wire form is `calendar-date` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/dotnet/codec-spelling.ts#csEnvelopeInstant": {
+    invariant:
+      "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/dotnet/codec-spelling.ts#csInstantIngressTruncate": {
+    invariant:
+      "The Codec fact's datetime wire form carries exactly three fraction digits (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/dotnet/codec-spelling.ts#csInt32Range": {
+    invariant:
+      "The Codec fact's int range is the CLR int32 (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/dotnet/codec-spelling.ts#csMoneyGrammar": {
+    invariant:
+      "The Codec fact's money grammar is the fixed `MONEY_WIRE_GRAMMAR` the emitted IsMoneyGrammar loop spells (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
 
-  // src/generator/dotnet/dto-mapping.ts
+  "src/generator/dotnet/codec-spelling.ts#csSqlTypeName": {
+    invariant:
+      "csSqlTypeName is reached only from csSqlType, csIdSqlType and csJsonSqlType, which pass the Codec fact's column for a storable scalar or an id value type; the fact maps none of those to `bigserial` or `array` (pinned by test/ir/codec.test.ts). (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/dotnet/codec-spelling.ts#instantFormat": {
+    invariant:
+      "The Codec fact's datetime wire form truncates at ingress and drops the fraction on a whole second (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+
   "src/generator/dotnet/dto-mapping.ts#domainToRequestExpr": {
     invariant:
       "Dead helper (no external callers), and even if called it would only receive declared domain types, which never carry the response-only provenanced carrier. (grep: domainToRequestExpr has no callers outside its own recursion in dto-mapping.ts)",
@@ -497,13 +503,15 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "A genericInstance 'provenanced' TypeIR is only synthesized on response-side wire fields and cannot be written by users, while wireToCommandArgument is only fed declared param/field types. (src/ir/enrich/wire-projection.ts:434 (the provenanced carrier is only built by responseWireFor for response/read wire fields); src/ir/stdlib/generics.ts:86-90 (no grammar arm for Provenanced<T>); callers cqrs/controller.ts:81,267,348 + workflow-emit.ts:2215 pass declared param/field types)",
   },
 
-  // src/generator/dotnet/emit/channels.ts
   "src/generator/dotnet/emit/channels.ts#renderDotnetChannels": {
     invariant:
       "renderDotnetChannels runs only with at least one binding and every binding's transport is one of the three wired drivers. (src/generator/dotnet/index.ts:370,604 (called only when channelBindings.length > 0) + src/generator/_channels/bindings.ts:22,74 (BrokerTransport is exactly redis|rabbitmq|kafka))",
   },
+  "src/generator/dotnet/emit/dapper-scope.ts#buildDapperScope": {
+    invariant:
+      "A capability filter outside the Dapper SQL subset. Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",
+  },
 
-  // src/generator/dotnet/emit/dapper.ts
   "src/generator/dotnet/emit/dapper.ts#arrayElemCs": {
     invariant:
       "Array element types of stored fields are limited by grammar+linker to primitive/enum/valueobject/id (part arrays become containments), exactly the handled set. (src/language/ddd-linker.ts:90-113 + src/language/containment.ts:19-26 (part[] fields lower to containments); grammar TypeRef (ddd.langium:2146) has no nested array/optional element)",
@@ -520,12 +528,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "writeScopeFilter is only synthesized by enrichment as a scope/deny authz-filter sentinel or `this.tenantId == currentUser.<claim>`, all of which whereToSql renders. (src/ir/enrich/enrichments.ts:680-684,759 + src/ir/util/tenant-stance.ts:369-455 (writeScopeFilter is only ever buildDeepScopeFilter / buildTenantFloorFilter / buildDenyFilter))",
   },
-  "src/generator/dotnet/emit/dapper-scope.ts#buildDapperScope": {
-    invariant:
-      "A capability filter outside the Dapper SQL subset. Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",
-  },
 
-  // src/generator/dotnet/emit/integration-tests.ts
   "src/generator/dotnet/emit/integration-tests.ts#renderStmt": {
     guardedBy: [
       "loom.expect-requires-matcher",
@@ -540,7 +543,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "A context integration test statement outside let/expression/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
   },
 
-  // src/generator/dotnet/emit/tests.ts
   "src/generator/dotnet/emit/tests.ts#renderTestStmt": {
     guardedBy: [
       "loom.expect-requires-matcher",
@@ -555,7 +557,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "A unit-test statement outside let/expression/call/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
   },
 
-  // src/generator/dotnet/query-projection-emit.ts
   "src/generator/dotnet/query-projection-emit.ts#dapperAggregationWhere": {
     invariant:
       "An aggregation projection `where` outside the Dapper SQL subset. Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",
@@ -598,7 +599,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "The only grouping-key transform is startOfDay and PG_INTRINSIC_SQL has its snippet. (src/ir/util/projection-aggregate.ts:111,135 (GroupKeyTransform is the closed union 'startOfDay') + src/generator/_expr/pg-intrinsics.ts:55 (datetime.startOfDay snippet exists))",
   },
 
-  // src/generator/dotnet/render-expr.ts
   "src/generator/dotnet/render-expr.ts#renderCall": {
     guardedBy: [
       "loom.resource-op-outside-workflow",
@@ -612,13 +612,11 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Exhaustive switch over the closed authz-filter union; the default is a compile-time never. (src/generator/dotnet/render-expr.ts:488-490 (`const _exhaustive: never`))",
   },
 
-  // src/generator/dotnet/workflow-eventsourced-emit.ts
   "src/generator/dotnet/workflow-eventsourced-emit.ts#esCorrIdClass": {
     guardedBy: ["loom.workflow-correlation-required", "loom.correlation-field-ambiguous"],
     note: "Every `eventSourced` workflow must declare exactly one id-shaped state field (its event-stream key), with or without event consumers, so correlationField is always set and id-typed here.",
   },
 
-  // src/generator/elixir/adapters/by-feature-layout.ts
   "src/generator/elixir/adapters/by-feature-layout.ts#pathFor": {
     invariant:
       "The elixir byFeature layout adapter's pathFor is never invoked: the platform's emitProject drops the layout axis ('the layout axis has no Phoenix consumer') and no elixir emitter calls layout.pathFor, so no artifact ever reaches pathForCategory. (src/platform/elixir.ts:63-74 (emitProject never forwards layoutAdapter to generateElixirProject); no src/generator/elixir code calls pathFor)",
@@ -648,7 +646,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "The elixir byFeature layout adapter's pathFor is never invoked: the platform's emitProject drops the layout axis ('the layout axis has no Phoenix consumer') and no elixir emitter calls layout.pathFor, so no artifact ever reaches pathForCategory. (src/platform/elixir.ts:63-74 (emitProject never forwards layoutAdapter to generateElixirProject); no src/generator/elixir code calls pathFor)",
   },
 
-  // src/generator/elixir/domain-service-emit.ts
   "src/generator/elixir/domain-service-emit.ts#renderOperation": {
     invariant:
       "A read-port can only name a repository of the service's own context because lowerDomainService builds serviceRepos from its own context, so readingIsSingleContext is always true (cross-context reads lower to an unresolved ref refused by loom.domain-service-cross-context-read). (src/ir/lower/lower-domain-service.ts:29-33 (serviceRepos built from env.ctx.members only))",
@@ -658,7 +655,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "The gate runs the identical elixirMatchRefusal(op.body,'value') predicate on every domain-service operation of a context hosted by an elixir deployable.",
   },
 
-  // src/generator/elixir/heex-handlers.ts
   "src/generator/elixir/heex-handlers.ts#renderStmt": {
     guardedBy: ["loom.if-stmt-page-body-unsupported"],
     note: "Any `if` statement in any ui page/component/store action or inline handler is an error on every frontend.",
@@ -671,13 +667,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     guardedBy: ["loom.ui-aggregate-unserved"],
     note: "A page `match await <Agg>.op()` names an aggregate through a bare aggregate ref; loom.ui-aggregate-unserved now also covers a backend that mounts its ui itself (HEEx LiveView), refusing any page read of an aggregate outside the deployable's own contexts \u2014 so every awaited aggregate is a served one.",
   },
-
-  // src/generator/elixir/heex-target.ts
-  "src/generator/elixir/heex-target.ts#renderChildrenSlot": {
+  "src/generator/elixir/heex-target.ts#bindDataAccess": {
     invariant:
       "heexTarget is walked only by walkBodyToHeex / renderThroughSharedCore, which always seed the HEEx walk context into the sink; the guard only names a broken caller. (src/generator/elixir/heex-walker-core.ts walkShared / renderThroughSharedCore)",
   },
-  "src/generator/elixir/heex-target.ts#bindDataAccess": {
+
+  "src/generator/elixir/heex-target.ts#renderChildrenSlot": {
     invariant:
       "heexTarget is walked only by walkBodyToHeex / renderThroughSharedCore, which always seed the HEEx walk context into the sink; the guard only names a broken caller. (src/generator/elixir/heex-walker-core.ts walkShared / renderThroughSharedCore)",
   },
@@ -690,7 +685,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "heexTarget is never handed to the shared _walker engine; the HEEx walker calls only a handful of its methods directly and never renderNestedStateWrite, so this shim is dead. (src/generator/elixir/heex-walker-core.ts:74 (heexTarget imported only here; only renderStateRead/renderStateWrite/renderMatch/renderApiCall/renderNavigate are invoked, at :873,:1466,:1620,:2178,:2222))",
   },
 
-  // src/generator/elixir/heex-walker-core.ts
   "src/generator/elixir/heex-walker-core.ts#interceptedKind": {
     invariant:
       "A HEEX_TARGET leaf for a kind HEEX_NODE_RENDERERS intercepts before the shared dispatcher reaches the leaves; the table and the leaf set are declared side by side. (src/generator/elixir/heex-walker-core.ts HEEX_TARGET)",
@@ -700,7 +694,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "authz-filter sentinels are built only by tenancy/deny enrichment into aggregate query-filter positions, never into a UI page body expression. (src/ir/util/tenant-stance.ts:349,:451 (only producers of authz-filter, used for aggregate contextFilters/writeScopeFilter in enrichment))",
   },
 
-  // src/generator/elixir/liveview-emit.ts
   "src/generator/elixir/liveview-emit.ts#assertSingleInstancePerStatefulComponent": {
     guardedBy: ["loom.heex-stateful-component-reused"],
     note: "The validator computes the same transitive per-page instance count of state-declaring components on every phoenixLiveView-mounted ui.",
@@ -710,7 +703,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "A bare store-action handler (`onClick: Cart.clear`) now names its own hyphenated event (`store-cart-clear`), which no `snake(action)` clause can spell, so the only cross-surface clause collisions left are page/component action names \u2014 exactly what loom.heex-handler-name-collision refuses.",
   },
 
-  // src/generator/elixir/realtime-liveview.ts
   "src/generator/elixir/realtime-liveview.ts#go": {
     guardedBy: ["loom.toast-message-unsupported"],
     note: "A toast ref other than the event binding is refused by the target-agnostic toast-subset gate.",
@@ -724,7 +716,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Every ExprIR kind outside literal/ref/member/paren/binary is refused by name in the toast-subset gate.",
   },
 
-  // src/generator/elixir/render-expr.ts
   "src/generator/elixir/render-expr.ts#renderCall": {
     guardedBy: [
       "loom.resource-verb-invalid",
@@ -737,6 +728,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     guardedBy: ["loom.operator-non-bool-operands"],
     note: "Only &&/|| reach the throw, and the language type checker rejects them on non-bool (money/decimal) operands (verified: `x && y` on decimals -> error).",
   },
+  "src/generator/elixir/render-expr.ts#renderEctoExists": {
+    invariant:
+      "Every Ecto filter render context that can hold an `exists` (renderEctoRestriction, the retrieval module, the repository finds) threads the context's aggregates as `pool`, and `loom.exists-cross-context` refuses a quantifier whose aggregate is not in that context. (src/generator/elixir/vanilla/capability-filter.ts, retrieval-emit.ts, repository-emit.ts)",
+  },
   "src/generator/elixir/render-expr.ts#renderExpr": {
     invariant:
       "Exhaustive-switch `never` default over the authz-filter decision kinds. (src/generator/elixir/render-expr.ts:319 (`never` default over the closed authz-filter `filter.kind` union in src/ir/types/loom-ir.ts:3853))",
@@ -746,7 +741,46 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "`slot` and `action` types are only legal on a component's parameter list, so they never reach a backend typespec.",
   },
 
-  // src/generator/elixir/vanilla/domain-core-emit.ts
+  "src/generator/elixir/store-emit.ts#renderStoreStmt": {
+    guardedBy: ["loom.ui-body-statement-kind"],
+    note: "precondition / requires / return / match await in a LiveView store action are refused by the #liveview-store arm of the gate.",
+  },
+  "src/generator/elixir/store-emit.ts#renderStoreStmt$2": {
+    guardedBy: ["loom.if-stmt-page-body-unsupported"],
+  },
+  "src/generator/elixir/store-emit.ts#renderStoreStmt$3": {
+    invariant:
+      "Scope resolution gives a ui body no aggregate to emit from, so an `emit` never lowers into a store action. (src/language/ddd-scope.ts)",
+  },
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exCalendarDateWire": {
+    invariant:
+      "The Codec fact's date wire form is `calendar-date` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exEnvelopeInstant": {
+    invariant:
+      "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exMoneyColumnSql": {
+    invariant:
+      "The Codec fact's money column is the bounded `NUMERIC(19,4)` decimal (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exMoneyGrammarRegex": {
+    invariant:
+      "The Codec fact's money grammar is the fixed `MONEY_WIRE_GRAMMAR` the emitted regex spells (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exPgInstantType": {
+    invariant:
+      "The Codec fact's datetime column is the `datetime` instant column (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exSchemaType": {
+    invariant:
+      "exSchemaType is reached only from exEctoScalarType, exEctoIdType, exEctoIdJsonType and exEctoJsonType, which pass the Codec fact's column for a storable scalar or an id value type; the fact maps none of those to `bigserial` or `array` (pinned by test/ir/codec.test.ts). (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/elixir/vanilla/datetime-type-emit.ts#renderLoomDatetimeModule": {
+    invariant:
+      "The Codec fact's datetime wire form is three truncated fraction digits with none on a whole second (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+
   "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt": {
     guardedBy: ["loom.elixir-match-stmt-unsupported"],
     note: "validateElixirMatchStatements refuses ANY statement match in an event-sourced operation / create / destroy on an elixir-hosted context (`#event-sourced`).",
@@ -756,13 +790,11 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Exhaustive `never` default: every StmtIR kind has an arm above it. (src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt)",
   },
 
-  // src/generator/elixir/vanilla/eventsourced-emit.ts
   "src/generator/elixir/vanilla/eventsourced-emit.ts#sortPath": {
     guardedBy: ["loom.elixir-match-stmt-unsupported"],
     note: "validateElixirMatchStatements refuses ANY statement match in an event-sourced operation / create / destroy on an elixir-hosted context (`#event-sourced`).",
   },
 
-  // src/generator/elixir/vanilla/fold-stmt-emit.ts
   "src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldNewMap": {
     guardedBy: ["loom.cross-aggregate-entity-part"],
     note: "validatePartConstructionOwner (body-stmt-vocabulary.ts) refuses an entity-part construction outside the aggregate that owns it, so an aggregate fold only builds its own parts (which resolvePart finds) and a workflow fold builds none.",
@@ -782,20 +814,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Exhaustive `never` default: every StmtIR kind has an arm above it. (src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldStatement)",
   },
 
-  // src/generator/elixir/store-emit.ts
-  "src/generator/elixir/store-emit.ts#renderStoreStmt": {
-    guardedBy: ["loom.ui-body-statement-kind"],
-    note: "precondition / requires / return / match await in a LiveView store action are refused by the #liveview-store arm of the gate.",
-  },
-  "src/generator/elixir/store-emit.ts#renderStoreStmt$2": {
-    guardedBy: ["loom.if-stmt-page-body-unsupported"],
-  },
-  "src/generator/elixir/store-emit.ts#renderStoreStmt$3": {
-    invariant:
-      "Scope resolution gives a ui body no aggregate to emit from, so an `emit` never lowers into a store action. (src/language/ddd-scope.ts)",
-  },
-
-  // src/generator/elixir/vanilla/function-emit.ts
   "src/generator/elixir/vanilla/function-emit.ts#renderPureBlock": {
     guardedBy: ["loom.function-block-impure"],
     note: "A call statement to anything but a pure function is #call-stmt.",
@@ -807,13 +825,11 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     guardedBy: ["loom.variant-match-placement"],
   },
 
-  // src/generator/elixir/vanilla/integration-tests-emit.ts
   "src/generator/elixir/vanilla/integration-tests-emit.ts#renderStmt": {
     guardedBy: ["loom.test-statement-invalid", "loom.aggregate-test-context"],
     note: "A context integration test statement outside let/expression/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
   },
 
-  // src/generator/elixir/vanilla/operation-returns-emit.ts
   "src/generator/elixir/vanilla/openapi-emit.ts#annotateApiControllers": {
     invariant:
       "Two documented operations share a method + path only if two derived builders mint the same route; the derived surface keys each route once (deriveAggregateOperations / servedOperationEntries), and an explicit route on a derived path is skipped by apiOperations' `published` check.",
@@ -839,13 +855,11 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "The gate runs the identical elixirMatchRefusal predicate (or the stricter event-sourced one) over every aggregate operation / create / destroy in an elixir-hosted context; a pure fold or function is refused by the placement rule on every backend.",
   },
 
-  // src/generator/elixir/vanilla/projections-emit.ts
   "src/generator/elixir/vanilla/projections-emit.ts#renderProjectionRowSchema": {
     invariant:
       "Projection state-field types that resolve are always primitive/enum/VO/id (union/generic/entity are refused by type-position validators and events/payloads don't resolve), all of which mapTypeToEcto maps. (src/language/ddd-linker.ts:110 (projection field types resolve only to primitive/enum/valueobject/id); src/generator/elixir/vanilla/schema-emit.ts:470-550 maps all of those (+array/optional))",
   },
 
-  // src/generator/elixir/vanilla/query-projections-emit.ts
   "src/generator/elixir/vanilla/query-projections-emit.ts#ectoAggregate": {
     guardedBy: ["loom.projection-aggregate-arg-not-columnar"],
     note: "Any non-count aggregate whose argument is not a `member` is rejected for every query projection select.",
@@ -859,7 +873,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "The only grouping-key transform maps to an intrinsic that the Ecto fragment table defines. (src/ir/util/projection-aggregate.ts:135-137 (GroupKeyTransform has the single member startOfDay) and src/generator/elixir/render-expr.ts:747 (ECTO_INTRINSIC_FRAGMENTS has datetime.startOfDay))",
   },
 
-  // src/generator/elixir/vanilla/tests-emit.ts
   "src/generator/elixir/vanilla/tests-emit.ts#renderCreate": {
     invariant:
       "renderCreate is only called after isCreate(e), which requires kind 'method-call'. (src/generator/elixir/vanilla/tests-emit.ts:591-606 (isCreate/isAggOp) and call sites :230,:243,:343,:346,:446-447)",
@@ -877,12 +890,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "isAggOp requires findOp(e.member, env) !== undefined, the same lookup renderOp repeats. (src/generator/elixir/vanilla/tests-emit.ts:591-606 (isCreate/isAggOp) and call sites :230,:243,:343,:346,:446-447)",
   },
 
-  // src/generator/elixir/vanilla/workflow-execution-emit.ts
   "src/generator/elixir/vanilla/workflow-execution-emit.ts#opCallParamFields": {
     guardedBy: ["loom.workflow-unknown-binding", "loom.workflow-unknown-operation"],
     note: "An op-call whose binding is not an own-context aggregate or whose op does not exist on it is an error (verified: an op-call on a foreign-context factory-let -> loom.workflow-unknown-binding).",
   },
-  // src/generator/feliz/auth-gate.ts
   "src/generator/feliz/auth-gate.ts#renderFelizGate": {
     guardedBy: ["loom.ui-gate-expr-unsupported", "loom.page-gate-not-client-evaluable"],
     note: "renderFelizGate is only called on page.requires (feliz/index.ts:479,736; opActionGate catches); pageGateProblem refuses any ref other than current-user/enum-value for every mounted feliz ui.",
@@ -900,7 +911,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Only string/bool/int/long/decimal literals pass the closed-framework page-gate check; exactly the literals the F# renderer spells.",
   },
 
-  // src/generator/feliz/fs-expr.ts
   "src/generator/feliz/fs-expr.ts#renderFsExpr": {
     guardedBy: ["loom.match-non-union-subject"],
     note: "A subject-form match in an action needs a union-typed subject; no union type resolves in ui scope (payloads/inline unions are refused there) and member/let unions infer as string, so every attempt is refused by loom.match-non-union-subject (tried find-return union, payload union field, extern fn).",
@@ -934,7 +944,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "A method on a typed primitive / list / value-object receiver outside the stdlib is refused target-neutrally (intrinsic-unknown / unknown-member — by the AST typing pass since M-T5.47, and by validateUiBodyRules on an action-body lambda param and a value-object function); the eight unrendered catalogue ops by frontend-collection-op-unsupported; `matches` by the per-target table (string-regex-match). Every remaining member — the intrinsic catalogue, the nine rendered ops, `length` — has an arm (ui-body-vocabulary-census.test.ts generates each).",
   },
 
-  // src/generator/feliz/index.ts
   "src/generator/feliz/index.ts#generateFelizForContexts": {
     guardedBy: ["loom.feliz-deployable-missing-ui"],
     note: "A platform: feliz deployable with no ui:/hosts binding is rejected; embedding hosts (elixir/dotnet/java/python) only call it under deployable.uiName.",
@@ -944,7 +953,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "uiName is read off a resolved Langium cross-reference (ui: / hosts: ref=[Ui:ID]); an unresolved name is a linking error, so the named ui always exists in sys.uis. (src/ir/lower/lower-deployment.ts:34-35)",
   },
 
-  // src/generator/feliz/realtime.ts
   "src/generator/feliz/realtime.ts#renderFsToastMessage": {
     guardedBy: ["loom.toast-message-unsupported"],
     note: "toastMessageProblem refuses any ref other than the handler's event binding, for every ui (ui-checks.ts:341).",
@@ -958,7 +966,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Every kind outside literal/ref/member/paren/binary is refused by name.",
   },
 
-  // src/generator/feliz/update-emit.ts
   "src/generator/feliz/update-emit.ts#renderUpdateStmt": {
     guardedBy: ["loom.unresolved-action-ref"],
     note: "`toast(…)` now renders (Cmd.ofEffect → updateToast). Every other private-operation call in a page / component / store action body is refused by loom.unresolved-action-ref, which now walks store action bodies too.",
@@ -972,7 +979,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "return/precondition/requires (deep, incl. stores) and if are refused for non-LiveView frameworks; emit cannot resolve an event from ui scope (linking error).",
   },
 
-  // src/generator/feliz/wire.ts
   "src/generator/feliz/wire-codec.ts#assertNotDurationWireField": {
     invariant:
       "PrimitiveType has no 'duration' spelling and wire/param/state types are all declared TypeRefs, so no wire field can be duration-typed. (src/language/ddd.langium:2162)",
@@ -982,7 +988,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "A QueryView read naming anything other than all/byId/history is refused (tried create/delete/undeclared names).",
   },
 
-  // src/generator/flutter/auth-gate.ts
   "src/generator/flutter/auth-gate.ts#renderFlutterGate": {
     guardedBy: ["loom.ui-gate-expr-unsupported", "loom.page-gate-not-client-evaluable"],
     note: "Only call site is page.requires (flutter/index.ts:1180; opActionGate catches); non-currentUser/enum refs refused.",
@@ -1000,7 +1005,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "GATE_LITERAL_KINDS (string/bool/int/long/decimal) equals the Dart renderer's literal arms; null/money/now refused for flutter.",
   },
 
-  // src/generator/flutter/realtime.ts
   "src/generator/flutter/realtime.ts#renderDartToastMessage": {
     guardedBy: ["loom.toast-message-unsupported"],
     note: "Same target-agnostic toast subset check as Feliz.",
@@ -1014,7 +1018,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Kinds outside the five-arm subset refused.",
   },
 
-  // src/generator/flutter/riverpod-emit.ts
   "src/generator/flutter/riverpod-emit.ts#renderNotifierStmt": {
     guardedBy: ["loom.unresolved-action-ref"],
     note: "navigate / toast render; any other private-operation call in a page, component or store action body is refused by loom.unresolved-action-ref (store bodies are now walked).",
@@ -1037,7 +1040,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Only called for top-level page match awaits: non-aggregate subjects, standard ops (#match-await-standard-op), and undeclared/private ops are all refused (tested delete and a private op).",
   },
 
-  // src/generator/java/adapters/by-layer-layout.ts
   "src/generator/java/adapters/by-layer-layout.ts#agg": {
     invariant:
       "Programmer-error precondition of an internal helper: every per-aggregate category is placed by our own emitter via place()/pkgFor with the aggregate name; no user input controls the argument. (src/generator/java/index.ts:322-341)",
@@ -1046,20 +1048,46 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "place() always builds the artifact as { name, content, category, aggregateName } with a required JavaArtifactCategory, so pathFor never sees a category-less artifact. (src/generator/java/index.ts:327)",
   },
+  "src/generator/java/codec-spelling.ts#assertCalendarDate": {
+    invariant:
+      "The Codec fact's date wire form is `calendar-date` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#instantUnit": {
+    invariant:
+      "The Codec fact's datetime wire form carries exactly three fraction digits and truncates at ingress (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#javaEnvelopeInstant": {
+    invariant:
+      "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#javaInstantWire": {
+    invariant:
+      "The Codec fact's datetime wire form drops the fraction on a whole second (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#javaIntOutOfRange": {
+    invariant:
+      "The Codec fact's int range is the JVM int (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
 
-  // src/generator/java/emit/channels.ts
+  "src/generator/java/codec-spelling.ts#javaJsonSqlType": {
+    invariant:
+      "The Codec fact stores the `json` scalar in a `json` column (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#javaMoneyColumnLabel": {
+    invariant:
+      "The Codec fact's money column is the bounded `decimal` NUMERIC(19,4) (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+
   "src/generator/java/emit/channels.ts#transportPickLine": {
     invariant:
       "renderJavaChannelFiles is only called when channelBindings.length > 0, and every BrokerBinding.transport is one of redis|rabbitmq|kafka, so at least one driver is always wired. (src/generator/java/index.ts:389,1319; src/generator/_channels/bindings.ts:22)",
   },
 
-  // src/generator/java/emit/integration-tests.ts
   "src/generator/java/emit/integration-tests.ts#renderStmt": {
     guardedBy: ["loom.test-statement-invalid", "loom.aggregate-test-context"],
     note: "A context integration test statement outside let/expression/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
   },
 
-  // src/generator/java/emit/jpa-annotations.ts
   "src/generator/java/emit/jpa-annotations.ts#jpaFieldAnnotations": {
     guardedBy: ["loom.collection-field-unpersisted"],
     note: "A projection / workflow state row's `X id[]` takes the `stateRow` jsonb arm before the association lookup; every other `X id[]` that is not an aggregate root's own non-optional field (optional, entity part, inside a value object) is refused by loom.collection-field-unpersisted, and enrichment derives one AssociationIR per remaining field.",
@@ -1069,7 +1097,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "A `<VO>[]` on a projection / workflow state row (the only owner without a ValueCollectionIR) is refused by loom.collection-field-unpersisted#state-value-collection; for aggregates / parts valueCollectionsFor derives one entry per VO-array field.",
   },
 
-  // src/generator/java/emit/projection-reads.ts
   "src/generator/java/emit/projection-reads.ts#corrValueType": {
     guardedBy: ["loom.projection-key-not-id"],
     note: "Whenever the id-source wire row exists it is the `keyed by` field, which validateKey requires to be type kind 'id' (enrichments.ts:1268-1279 builds the row from that field).",
@@ -1083,7 +1110,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Entity-part types only resolve inside their own aggregate, so a projection field can never be entity-typed (file comment and test/generator/java/generator-java-readmodel-gates.test.ts pin this). (src/language/ddd-scope.ts:45-61)",
   },
 
-  // src/generator/java/emit/projection-state.ts
   "src/generator/java/emit/projection-state.ts#correlationField": {
     guardedBy: ["loom.projection-event-unkeyed", "loom.projection-key-unknown"],
     note: "A keyless folded projection is refused whether its handlers use `by` or not (loom.projection-event-unkeyed#singleton); a keyed one names a declared state field (loom.projection-key-unknown).",
@@ -1093,7 +1119,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "correlationField() returns the keyed-by state field, which validateKey rejects unless its type kind is 'id' (stricter than the throw, which also unwraps optional).",
   },
 
-  // src/generator/java/emit/query-projection-reads.ts
   "src/generator/java/emit/query-projection-reads.ts#groupKeyCoerce": {
     guardedBy: ["loom.projection-columnless-source", "loom.projection-groupby-key-not-columnar"],
     note: "Every bare source column type has an arm (json and File included); a value-object or collection key is refused as loom.projection-columnless-source, a computed key as loom.projection-groupby-key-not-columnar, and `duration` has no field syntax so it is never a column.",
@@ -1118,19 +1143,16 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "`from <Projection>` resolves only within the same context (verified: cross-context source gives a linker error), so the source projection is always in ctx.projections. (src/language/ddd.langium:1630; src/language/ddd-scope.ts)",
   },
 
-  // src/generator/java/emit/tests.ts
   "src/generator/java/emit/tests.ts#renderTestStmt": {
     guardedBy: ["loom.test-statement-invalid", "loom.aggregate-test-context"],
     note: "A unit-test statement outside let/expression/call/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
   },
 
-  // src/generator/java/emit/workflow-eventsourced.ts
   "src/generator/java/emit/workflow-eventsourced.ts#esWorkflowCorrIdClass": {
     guardedBy: ["loom.workflow-correlation-required", "loom.correlation-field-ambiguous"],
     note: "Every `eventSourced` workflow must declare exactly one id-shaped state field (its event-stream key), with or without event consumers, so correlationField is always set and id-typed here.",
   },
 
-  // src/generator/java/emit/workflow-instances.ts
   "src/generator/java/emit/workflow-instances.ts#guardInstanceField": {
     invariant:
       "Entity-part types never resolve in workflow scope, so a saga-state field cannot be entity-typed. (src/language/ddd-scope.ts:45-61)",
@@ -1140,7 +1162,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "The id-source instance wire row exists only when correlationField is set, and lowering sets correlationField only to the single state field whose type kind is 'id'. (src/ir/enrich/enrichments.ts:1229-1231,1316-1327; src/ir/lower/lower-workflow.ts:151-152)",
   },
 
-  // src/generator/java/emit/workflow-state.ts
   "src/generator/java/emit/workflow-state.ts#corrIdClass": {
     invariant:
       "correlationField is always the unique state field whose type kind is 'id'. (src/ir/lower/lower-workflow.ts:151-152)",
@@ -1150,13 +1171,11 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Only correlationWorkflows (correlationField set) reach this, and lowering derives correlationField from a member of stateFields. (src/generator/java/emit/workflow-state.ts:37-39; src/ir/lower/lower-workflow.ts:151-152)",
   },
 
-  // src/generator/java/emit/workflow.ts
   "src/generator/java/emit/workflow.ts#factoryLet": {
     guardedBy: ["loom.workflow-create-unknown-aggregate"],
     note: "Every workflow factory-let naming an aggregate outside the context's aggregates is rejected by the IR validator.",
   },
 
-  // src/generator/java/render-expr.ts
   "src/generator/java/render-expr.ts#renderCall": {
     guardedBy: [
       "loom.projection-fold-impure",
@@ -1173,32 +1192,52 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     guardedBy: ["loom.aggregate-test-context"],
     note: "Part types resolve only inside their own aggregate, where every rendering context sets JavaRenderContext.agg; the one aggregate-scoped body without an aggregate instance \u2014 a nested unit test \u2014 refuses a part builder as loom.aggregate-test-context.",
   },
+  "src/generator/java/wire-policy-java.ts#javaIngressCoercions": {
+    invariant:
+      "JACKSON_LOGICAL_TYPE is a closed emitter-side table; two primitives sharing a Jackson logical type must carry the same ingress rule, which the java wire-policy census pins. No .ddd input moves it.",
+  },
 
-  // src/generator/python/channels-builder.ts
   "src/generator/python/channels-builder.ts#transportPickLines": {
     invariant:
       "buildPyChannelsFile is only called when channelBindings is non-empty, and every binding's transport is redis|rabbitmq|kafka. (src/generator/python/index.ts:211,622; src/generator/_channels/bindings.ts:22)",
   },
+  "src/generator/python/codec-spelling.ts#pyCalendarDateWire": {
+    invariant:
+      "The Codec fact's date wire form is `calendar-date` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/python/codec-spelling.ts#pyEnvelopeInstant": {
+    invariant:
+      "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/python/codec-spelling.ts#pyIsoHelperBody": {
+    invariant:
+      "The Codec fact's datetime wire form is three fraction digits, truncated at ingress, none on a whole second (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/python/codec-spelling.ts#pyMoneyGrammar": {
+    invariant:
+      "The Codec fact's money grammar is the fixed end-anchored `MONEY_WIRE_GRAMMAR` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
 
-  // src/generator/python/emit/integration-tests.ts
+  "src/generator/python/codec-spelling.ts#pySaColumnType": {
+    invariant:
+      "pySaColumnType is reached only from pyScalarColumn and the id / instant / int column helpers, which pass the Codec fact's column for a storable scalar; the fact maps none of those to `bigserial` or `array` (pinned by test/ir/codec.test.ts). (src/ir/enrich/codec.ts)",
+  },
+
   "src/generator/python/emit/integration-tests.ts#renderStmt": {
     guardedBy: ["loom.test-statement-invalid", "loom.aggregate-test-context"],
     note: "A context integration test statement outside let/expression/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
   },
 
-  // src/generator/python/emit/tests.ts
   "src/generator/python/emit/tests.ts#renderTestStmt": {
     guardedBy: ["loom.test-statement-invalid", "loom.aggregate-test-context"],
     note: "A unit-test statement outside let/expression/call/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
   },
 
-  // src/generator/python/find-predicate.ts
   "src/generator/python/find-predicate.ts#lower": {
     invariant:
       "Exhaustive switch over the authz-filter kind union with a `never` default; TypeScript guarantees every variant has an arm. (src/generator/python/find-predicate.ts:313-315)",
   },
 
-  // src/generator/python/py-columns.ts
   "src/generator/python/py-columns.ts#columnsFor": {
     guardedBy: [
       "loom.generic-position",
@@ -1209,7 +1248,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "The unhandled kinds (genericInstance, option/inline union, slot, action) are all rejected as stored-field types; named payload unions/payloads are not resolvable as field types (verified).",
   },
 
-  // src/generator/python/query-projections-builder.ts
   "src/generator/python/query-projections-builder.ts#keyCol": {
     guardedBy: [
       "loom.projection-groupby-key-not-columnar",
@@ -1222,7 +1260,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "The only transform is startOfDay → 'datetime.startOfDay', which SQLALCHEMY_INTRINSIC_SQL defines. (src/ir/util/projection-aggregate.ts:126-137; src/generator/python/find-predicate.ts:121)",
   },
 
-  // src/generator/python/workflow-eventsourced-emit.ts
   "src/generator/python/workflow-eventsourced-emit.ts#corrIdClass": {
     invariant:
       "esWorkflowFoldBlock is only emitted when wf.correlationField is set, and that field is always the unique id-typed state field (unlike Java, verified with g5-es-wf-nocorr-python.ddd which generates cleanly). (src/generator/python/dispatch-builder.ts:271-275; src/ir/lower/lower-workflow.ts:151-152)",
@@ -1238,37 +1275,25 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "The renderer covers APPLIER_STMT_KINDS (+ `expression`); validateApplierBodies refuses every other kind in a workflow applier.",
   },
 
-  // src/generator/react/index.ts
   "src/generator/react/index.ts#generateReactForContexts": {
     guardedBy: ["loom.react-deployable-missing-ui", "loom.static-deployable-missing-ui"],
     note: "A react deployable without ui:/hosts: is rejected (verified: parse reports the error).",
-  },
-  "src/generator/_frontend/workflows-module.ts#contextOf": {
-    invariant:
-      "A workflows module is handed only `clientWorkflows(contract, contexts)` — the contract's workflows whose owning context is one of the served `contexts` the scope was built from — so every name it resolves is in the scope.",
-  },
-  "src/generator/_frontend/contract.ts#requireFrontendContract": {
-    invariant:
-      "Every caller passes the system's Frontend Contract: the orchestrator builds it for any system with a ui and threads it through emitProject (src/system/index.ts emitSystem), the frontend surfaces forward it (src/platform/frontend-dispatch.ts), and each backend embedding a bundle forwards it from its emitProject args.",
   },
   "src/generator/react/index.ts#generateReactForContexts$2": {
     invariant:
       "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), and a project has exactly one system, so the ui is always in sys.uis. (src/ir/lower/lower-deployment.ts:34-35)",
   },
 
-  // src/generator/sql-pg-expr.ts
   "src/generator/sql-pg-expr.ts#renderSqlScalarExpr": {
     invariant:
       "Backfill rendering is wrapped in try/catch (and reported by loom.migration-expr-invalid), and the column-default path is gated by sqlLiteralColumnDefault, which admits no this-prop ref. (src/system/migrations-builder.ts:2266-2270, :3291-3295)",
   },
 
-  // src/generator/sql-pg.ts
   "src/generator/sql-pg.ts#seedSqlLiteral": {
     guardedBy: ["loom.seed-raw-non-literal-column"],
     note: "isRawSeedLiteral admits exactly literal + enum-value refs, mirroring seedSqlLiteral (verified: `size: -4` on a raw row is rejected).",
   },
 
-  // src/generator/svelte/index.ts
   "src/generator/svelte/index.ts#generateSvelteForContexts": {
     guardedBy: ["loom.svelte-deployable-missing-ui"],
     note: "A svelte deployable without ui:/hosts: is rejected (verified: parse reports the error).",
@@ -1278,139 +1303,24 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), and a project has exactly one system, so the ui is always in sys.uis. (src/ir/lower/lower-deployment.ts:34-35)",
   },
 
-  // src/generator/typescript/codec-spelling.ts
   "src/generator/typescript/codec-spelling.ts#drizzleColumn": {
     invariant:
       "drizzleColumn is reached only from drizzleScalarColumn / drizzleIdColumn, which pass the Codec fact's column for a storable scalar or an id value type; the fact maps none of those to `bigserial` or `array` (pinned by test/ir/codec.test.ts). (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/typescript/codec-spelling.ts#tsInstantWire": {
-    invariant:
-      "The Codec fact's datetime wire form carries exactly three fraction digits (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
   },
   "src/generator/typescript/codec-spelling.ts#tsEnvelopeInstant": {
     invariant:
       "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
   },
-
-  // src/generator/python/codec-spelling.ts
-  "src/generator/python/codec-spelling.ts#pySaColumnType": {
-    invariant:
-      "pySaColumnType is reached only from pyScalarColumn and the id / instant / int column helpers, which pass the Codec fact's column for a storable scalar; the fact maps none of those to `bigserial` or `array` (pinned by test/ir/codec.test.ts). (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/python/codec-spelling.ts#pyCalendarDateWire": {
-    invariant:
-      "The Codec fact's date wire form is `calendar-date` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/python/codec-spelling.ts#pyIsoHelperBody": {
-    invariant:
-      "The Codec fact's datetime wire form is three fraction digits, truncated at ingress, none on a whole second (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/python/codec-spelling.ts#pyMoneyGrammar": {
-    invariant:
-      "The Codec fact's money grammar is the fixed end-anchored `MONEY_WIRE_GRAMMAR` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/python/codec-spelling.ts#pyEnvelopeInstant": {
-    invariant:
-      "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-
-  // src/generator/dotnet/codec-spelling.ts
-  "src/generator/dotnet/codec-spelling.ts#csSqlTypeName": {
-    invariant:
-      "csSqlTypeName is reached only from csSqlType, csIdSqlType and csJsonSqlType, which pass the Codec fact's column for a storable scalar or an id value type; the fact maps none of those to `bigserial` or `array` (pinned by test/ir/codec.test.ts). (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/dotnet/codec-spelling.ts#csMoneyGrammar": {
-    invariant:
-      "The Codec fact's money grammar is the fixed `MONEY_WIRE_GRAMMAR` the emitted IsMoneyGrammar loop spells (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/dotnet/codec-spelling.ts#csInt32Range": {
-    invariant:
-      "The Codec fact's int range is the CLR int32 (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/dotnet/codec-spelling.ts#instantFormat": {
-    invariant:
-      "The Codec fact's datetime wire form truncates at ingress and drops the fraction on a whole second (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/dotnet/codec-spelling.ts#csInstantIngressTruncate": {
+  "src/generator/typescript/codec-spelling.ts#tsInstantWire": {
     invariant:
       "The Codec fact's datetime wire form carries exactly three fraction digits (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
   },
-  "src/generator/dotnet/codec-spelling.ts#calendarDateFormat": {
-    invariant:
-      "The Codec fact's date wire form is `calendar-date` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/dotnet/codec-spelling.ts#csEnvelopeInstant": {
-    invariant:
-      "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
 
-  // src/generator/java/codec-spelling.ts
-  "src/generator/java/codec-spelling.ts#javaJsonSqlType": {
-    invariant:
-      "The Codec fact stores the `json` scalar in a `json` column (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/java/codec-spelling.ts#javaMoneyColumnLabel": {
-    invariant:
-      "The Codec fact's money column is the bounded `decimal` NUMERIC(19,4) (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/java/codec-spelling.ts#javaIntOutOfRange": {
-    invariant:
-      "The Codec fact's int range is the JVM int (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/java/codec-spelling.ts#instantUnit": {
-    invariant:
-      "The Codec fact's datetime wire form carries exactly three fraction digits and truncates at ingress (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/java/codec-spelling.ts#javaInstantWire": {
-    invariant:
-      "The Codec fact's datetime wire form drops the fraction on a whole second (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/java/codec-spelling.ts#assertCalendarDate": {
-    invariant:
-      "The Codec fact's date wire form is `calendar-date` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/java/codec-spelling.ts#javaEnvelopeInstant": {
-    invariant:
-      "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  // src/generator/elixir/vanilla/codec-spelling-ex.ts
-  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exPgInstantType": {
-    invariant:
-      "The Codec fact's datetime column is the `datetime` instant column (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exSchemaType": {
-    invariant:
-      "exSchemaType is reached only from exEctoScalarType, exEctoIdType, exEctoIdJsonType and exEctoJsonType, which pass the Codec fact's column for a storable scalar or an id value type; the fact maps none of those to `bigserial` or `array` (pinned by test/ir/codec.test.ts). (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exMoneyColumnSql": {
-    invariant:
-      "The Codec fact's money column is the bounded `NUMERIC(19,4)` decimal (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exMoneyGrammarRegex": {
-    invariant:
-      "The Codec fact's money grammar is the fixed `MONEY_WIRE_GRAMMAR` the emitted regex spells (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exCalendarDateWire": {
-    invariant:
-      "The Codec fact's date wire form is `calendar-date` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  "src/generator/elixir/vanilla/codec-spelling-ex.ts#exEnvelopeInstant": {
-    invariant:
-      "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-  // src/generator/elixir/vanilla/datetime-type-emit.ts
-  "src/generator/elixir/vanilla/datetime-type-emit.ts#renderLoomDatetimeModule": {
-    invariant:
-      "The Codec fact's datetime wire form is three truncated fraction digits with none on a whole second (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
-  },
-
-  // src/generator/typescript/emit/channels.ts
   "src/generator/typescript/emit/channels.ts#transportFactoryLine": {
     invariant:
       "renderChannelsModule is only called when brokerChannelBindings() is non-empty, and every binding's transport is typed BrokerTransport = redis|rabbitmq|kafka (bindings skip any other storage type), so at least one driver is always wired. (src/platform/hono/shared/emit.ts:1431-1434; src/generator/_channels/bindings.ts:22,73)",
   },
 
-  // src/generator/typescript/emit/integration-tests.ts
   "src/generator/typescript/emit/integration-tests.ts#renderStmt": {
     guardedBy: ["loom.expect-requires-matcher"],
     note: "checkExpectMatcher rejects any `expect` whose trailing suffix is not an intrinsic matcher call; lowering (lower-expr.ts:1023) marks that suffix isIntrinsicMatcher, so renderExplicitMatcher never returns null for a validated expect.",
@@ -1420,7 +1330,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "A context integration test statement outside let/expression/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
   },
 
-  // src/generator/typescript/emit/mikroorm-entities.ts
   "src/generator/typescript/emit/mikroorm-entities.ts#columnsForType": {
     guardedBy: ["loom.collection-field-unpersisted"],
     note: "A collection of references or value objects nested inside a persisted value object is refused (loom.collection-field-unpersisted#nested-in-value-object), and a state row's `X id[]` takes the jsonb stateFieldColumns arm, so only primitive / enum arrays reach the array arm.",
@@ -1430,7 +1339,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "The remaining kinds cannot reach a stored field: genericInstance/union/none are refused in Property position (loom.generic-position, loom.union-position), slot/action by loom.slot-out-of-position/loom.action-out-of-position, a bare aggregate by loom.bare-aggregate-in-type, and the linker's field-type scope resolves no event/payload names (tried: 'Unknown type'), while a bare entity-part field lowers as containment. (src/language/validators/generics.ts:86; src/language/validators/unions.ts:58; src/language/validators/structural.ts:74-118; src/language/validators/structural.ts:171)",
   },
 
-  // src/generator/typescript/emit/mikroorm-filter.ts
   "src/generator/typescript/emit/mikroorm-filter.ts#authzFilterEntry": {
     invariant:
       "Exhaustive `never` default over the authz-filter discriminated union; every variant has an arm, so tsc guarantees it is unreachable. (src/generator/typescript/emit/mikroorm-filter.ts:580-582)",
@@ -1450,6 +1358,14 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/typescript/emit/mikroorm-filter.ts#comparisonEntry$4": {
     invariant:
       "Same as the raw-key arm: entry requires `==` or a FILTER_OP op and mirroring is closed over that set, so FILTER_OP[oriented.op] is always defined. (src/generator/typescript/emit/mikroorm-filter.ts:461-463; src/ir/util/comparison-operands.ts:30-37)",
+  },
+  "src/generator/typescript/emit/mikroorm-filter.ts#existsEntry": {
+    guardedBy: [
+      "loom.exists-cross-context",
+      "loom.exists-unsupported",
+      "loom.criterion-not-selectable",
+    ],
+    note: "the raw-SQL renderer covers exactly what `firstNonQueryablePredicate` admits inside an `exists`",
   },
   "src/generator/typescript/emit/mikroorm-filter.ts#filterValue": {
     invariant:
@@ -1479,8 +1395,11 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "A `this.<refColl>.contains(x)` the queryable oracle admits names an aggregate root's own non-optional `X id[]` (loom.collection-field-unpersisted refuses the other positions), which always has an AssociationIR, and every whereToMikroFilter caller \u2014 context filters and the write-scope guard included \u2014 passes agg.associations, so containsMembershipFragment resolves it; every other shape is measured by test/system/predicate-position-census.test.ts.",
   },
+  "src/generator/typescript/emit/mikroorm-filter.ts#rawPredicateEntry": {
+    guardedBy: ["loom.policy-row-not-queryable", "loom.criterion-not-selectable"],
+    note: "reached only for `organizationContext.ancestors.contains(<column>)`, which the predicate gate admits only with a row column — exactly what `lineageSql` renders",
+  },
 
-  // src/generator/typescript/emit/schema.ts
   "src/generator/typescript/emit/schema.ts#drizzleColumnLinesForName": {
     invariant:
       "`duration` is not a writable PrimitiveType in the grammar (only an inferred expression type), and every drizzle column comes from a declared Property TypeRef (aggregate/part/VO/workflow/folded-projection fields). (src/language/ddd.langium:2161-2162)",
@@ -1498,7 +1417,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Inline `A or B` unions are refused outside find/op returns and payload fields (loom.union-position), and `T option` (the only other source of union/none) is a GenericCtor refused by loom.generic-position.",
   },
 
-  // src/generator/typescript/emit/tests.ts
   "src/generator/typescript/emit/tests.ts#renderTestStmt": {
     guardedBy: ["loom.expect-requires-matcher"],
     note: "Every `expect` must end in an intrinsic matcher call, which lowers to a method-call with isIntrinsicMatcher=true, so renderExplicitMatcher always succeeds.",
@@ -1508,19 +1426,16 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "A unit-test statement outside let/expression/call/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
   },
 
-  // src/generator/typescript/render-expr.ts
   "src/generator/typescript/render-expr.ts#renderMoneyBinary": {
     guardedBy: ["loom.operator-non-bool-operands"],
     note: "The only BinOps without a MONEY_METHOD entry are && and ||, which the type validator rejects unless both operands are bool, so a money operand never reaches them.",
   },
 
-  // src/generator/typescript/repository-find-predicate.ts
   "src/generator/typescript/repository-find-predicate.ts#lowerExpr": {
     invariant:
       "Exhaustive `never` default over the authz-filter discriminated union; tsc guarantees every variant is handled. (src/generator/typescript/repository-find-predicate.ts:222-225)",
   },
 
-  // src/generator/vue/index.ts
   "src/generator/vue/index.ts#generateVueForContexts": {
     guardedBy: ["loom.vue-deployable-missing-ui"],
     note: "A vue deployable without ui:/hosts: is rejected (verified: parse reports the error).",
@@ -1530,16 +1445,9 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), and a project has exactly one system, so the ui is always in sys.uis. (src/ir/lower/lower-deployment.ts:34-35)",
   },
 
-  // src/generator/zod-refine.ts
   "src/generator/zod-refine.ts#unrenderable": {
     invariant:
       "refineClauseFor/takeSingleFieldChain screen with classifyForWire + refineRenderable before rendering; renderRefineExpr has no other production caller. (src/generator/zod-refine.ts:320, :338-339)",
-  },
-
-  // src/platform/hono/shared/adapters/by-feature-layout.ts
-  "src/platform/hono/shared/workflow-builder.ts#workflowResultTsType": {
-    guardedBy: ["loom.workflow-return-type-unsupported"],
-    note: "Reached only through commandCreateResult, whose type phase ④ admits only as an `X id` or a string/int/long/bool primitive (isSupportedWorkflowResult, src/language/validators/structural.ts).",
   },
   "src/platform/hono/shared/adapters/by-feature-layout.ts#pathFor": {
     invariant:
@@ -1550,7 +1458,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'drizzle-repository'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
   },
 
-  // src/platform/hono/shared/adapters/by-layer-layout.ts
   "src/platform/hono/shared/adapters/by-layer-layout.ts#pathFor": {
     invariant:
       "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'any'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
@@ -1576,7 +1483,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'http-routes'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
   },
 
-  // src/platform/hono/shared/projection-query-routes-builder.ts
   "src/platform/hono/shared/projection-query-routes-builder.ts#buildQueryProjectionsFile": {
     invariant:
       "A projection row `where` Drizzle cannot lower. Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",
@@ -1617,7 +1523,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Declared row fields cannot be unions/option (loom.union-position, loom.generic-position), and select expressions are column/aggregate reads over the source whose types are declared field types (ternary joins of incompatible types are rejected by the type checker). (src/language/validators/unions.ts:58; src/language/validators/generics.ts:86)",
   },
 
-  // src/platform/hono/shared/routes-builder.ts
   "src/platform/hono/shared/routes-builder.ts#wireToDomainExpr": {
     invariant:
       "Same as zodFor: wireToDomainExpr converts request bodies, whose TypeIRs never contain the response-only synthesized provenanced carrier. (src/language/ddd.langium:2155-2156; src/platform/hono/shared/routes-builder.ts:2466-2469)",
@@ -1627,7 +1532,11 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "`provenanced` is not a user-spellable GenericCtor; the carrier is synthesized only on the response side (routes-builder.ts:2468), and zodFor is only fed request-side TypeIRs. (src/language/ddd.langium:2155-2156; src/platform/hono/shared/routes-builder.ts:2466-2469)",
   },
 
-  // src/platform/hono/shared/workflow-eventsourced-builder.ts
+  "src/platform/hono/shared/workflow-builder.ts#workflowResultTsType": {
+    guardedBy: ["loom.workflow-return-type-unsupported"],
+    note: "Reached only through commandCreateResult, whose type phase ④ admits only as an `X id` or a string/int/long/bool primitive (isSupportedWorkflowResult, src/language/validators/structural.ts).",
+  },
+
   "src/platform/hono/shared/workflow-eventsourced-builder.ts#renderApplierStmt": {
     guardedBy: [
       "loom.applier-stmt-invalid",
@@ -1639,13 +1548,11 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "The renderer covers APPLIER_STMT_KINDS (+ `expression`); validateApplierBodies refuses every other kind in a workflow applier.",
   },
 
-  // src/platform/metadata.ts
   "src/platform/metadata.ts#descriptorFor": {
     guardedBy: ["loom.platform-unknown"],
     note: "checkDeployablePlatform rejects any non-backend platform not in FRONTEND_KEYWORDS; every backend family and frontend keyword resolves in PLATFORM_DESCRIPTORS (checked all 12).",
   },
 
-  // src/platform/registry.ts
   "src/platform/registry.ts#resolvePlatformRef": {
     guardedBy: ["loom.platform-version-unknown"],
     note: "A pinned `family@version` must be a registered backend surface (isRegisteredBackendRef), and barewords resolve through BUILTIN_PLATFORM_LATEST to a discovered surface.",
@@ -1653,21 +1560,5 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/platform/registry.ts#resolvePlatformRef$2": {
     guardedBy: ["loom.platform-unknown"],
     note: "A non-backend bareword not in FRONTEND_KEYWORDS is rejected, so the `platforms` lookup always hits.",
-  },
-  "src/generator/elixir/render-expr.ts#renderEctoExists": {
-    invariant:
-      "Every Ecto filter render context that can hold an `exists` (renderEctoRestriction, the retrieval module, the repository finds) threads the context's aggregates as `pool`, and `loom.exists-cross-context` refuses a quantifier whose aggregate is not in that context. (src/generator/elixir/vanilla/capability-filter.ts, retrieval-emit.ts, repository-emit.ts)",
-  },
-  "src/generator/typescript/emit/mikroorm-filter.ts#rawPredicateEntry": {
-    guardedBy: ["loom.policy-row-not-queryable", "loom.criterion-not-selectable"],
-    note: "reached only for `organizationContext.ancestors.contains(<column>)`, which the predicate gate admits only with a row column — exactly what `lineageSql` renders",
-  },
-  "src/generator/typescript/emit/mikroorm-filter.ts#existsEntry": {
-    guardedBy: [
-      "loom.exists-cross-context",
-      "loom.exists-unsupported",
-      "loom.criterion-not-selectable",
-    ],
-    note: "the raw-SQL renderer covers exactly what `firstNonQueryablePredicate` admits inside an `exists`",
   },
 };

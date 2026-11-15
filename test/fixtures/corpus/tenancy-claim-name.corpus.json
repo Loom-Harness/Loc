@@ -1,4 +1,5 @@
 {
+  "//": "Gate for D-REPO-KEY-LOOKUP (docs/decisions).",
   "title": "tenancy claim not named `tenantId` — the declared claim binds the tenantOwned stamp/filter",
   "doc": "tenancy",
   "backends": "ALL",
@@ -11,5 +12,16 @@
       "updateOrganization": "tenantRegistryRow",
       "allOrganization": "tenantRegistryRow"
     }
+  },
+  "authzGate": {
+    "//": "── the tenancy cluster ────────────────────────────────────────────────── Three fixtures, one cause: every route of a `tenantOwned` aggregate (and of the registry itself) is narrowed by a predicate keyed on the tenancy claim both harness identities hold.  A refusal here is a statement about two TENANTS, which is `tenancy-e2e`'s two-principal shape, not this tier's.",
+    "create POST /api/invoices": "sharedTenancyIdentity",
+    "create POST /api/organizations": "sharedTenancyIdentity",
+    "destroy DELETE /api/organizations/{id}": "sharedTenancyIdentity",
+    "find GET /api/invoices": "sharedTenancyIdentity",
+    "explicitHandler GET /api/invoices/by_number/{n}": "sharedTenancyIdentity",
+    "find GET /api/organizations": "sharedTenancyIdentity",
+    "getById GET /api/organizations/{id}": "sharedTenancyIdentity",
+    "operation POST /api/organizations/{id}/update": "sharedTenancyIdentity"
   }
 }

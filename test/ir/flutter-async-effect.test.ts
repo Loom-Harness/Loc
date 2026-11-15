@@ -1,3 +1,4 @@
+// Gate for D-FLUTTER-COMPONENT-BINDINGS (docs/decisions).
 // `loom.flutter-async-effect-unsupported` — a `match await` in a COMPONENT
 // action, on a Flutter-hosted ui.
 //

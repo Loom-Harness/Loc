@@ -1,4 +1,4 @@
-// Gate for D-CONSUMER-INBOX (docs/decisions).
+// The redelivery witness behind D-CONSUMER-INBOX (docs/decisions).
 // The redelivery witness every `channels-e2e-rabbit*` leg runs against its
 // booted consumer fleet: a durable envelope delivered more than once — one
 // replica after the other, or two replicas at the same time — changes the

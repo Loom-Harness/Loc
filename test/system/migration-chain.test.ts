@@ -1,3 +1,4 @@
+// Gate for D-MIGRATE-WORKFLOW (docs/decisions).
 import { describe, expect, it } from "vitest";
 import type { SchemaSnapshot } from "../../src/ir/types/migrations-ir.js";
 import {

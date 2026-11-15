@@ -1,4 +1,4 @@
-// Gate for D-CONSUMER-INBOX (docs/decisions).
+// Gate for D-PROJECTION-FOLD, D-CONSUMER-INBOX (docs/decisions).
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";

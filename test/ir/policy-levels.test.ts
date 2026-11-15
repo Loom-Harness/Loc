@@ -1,3 +1,4 @@
+// Gate for D-TENANCY-FLAT (docs/decisions).
 // `policy { allow [write] local on <Aggregate> }` — the flat ladder
 // (D-TENANCY-FLAT).  `local`, the tenant floor, is the only level: a rule only
 // names an aggregate for the phase-⑦ target checks, and enrichment leaves the

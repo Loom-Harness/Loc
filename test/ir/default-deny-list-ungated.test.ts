@@ -1,3 +1,4 @@
+// Gate for D-DEFAULT-DENY-LIST-WARN (docs/decisions).
 // Eval item 22, ruling D5 — under `auth { enforcement: denyByDefault }` the
 // aggregate LIST read (`GET /api/<plural>`, backed by the enrichment-injected
 // `find all`) served every row to any authenticated caller with no diagnostic:

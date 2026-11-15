@@ -132,7 +132,10 @@ available. The matured axis today is **`persistence:`**:
   shape**: every relational / document / embedded / event-sourced / inheritance
   (TPH+TPC) shape, containment (incl. recursive part-in-part), associations,
   filters, audit / provenance / managed fields, retrievals, seeds, and the
-  workflow outbox all emit. `dapper` ≡ EF Core; `mikroorm` ≡ Drizzle. The
+  workflow outbox all emit. `dapper` answers like EF Core on the wire and
+  `mikroorm` like Drizzle, but their stored layout differs (each keeps
+  value-object collections in a JSONB column), so each refuses to share a
+  database with another layout. The
   alternates share the generated **domain layer** with the default and only
   swap the persistence layer (Dapper SQL repositories / MikroORM
   `EntitySchema` + `EntityManager`), so a project can switch persistence
@@ -169,8 +172,7 @@ supersession note in `decisions.md`.
 
 `platform: elixir` emits plain `Ecto.Schema` / `Ecto.Changeset` / `Ecto.Repo`
 over `Phoenix.Endpoint` + LiveView. The former `foundation: ash` is **removed**,
-and with it the `foundation:` axis itself — it had collapsed to a single value
-(`vanilla`) on every backend, so it no longer exists on the grammar. A would-be
+and with it the `foundation:` axis itself. A would-be
 `foundation:` clause no longer parses.
 
 The document sub-case below is the one feature with a partial story:
@@ -178,7 +180,7 @@ The document sub-case below is the one feature with a partial story:
 | Feature | `elixir` (vanilla) | Gate (fail-fast) |
 |---|---|---|
 | Event-sourced storage `persistedAs: eventLog` | ✓ emits (incl. every `apply(…)` fold shape²) | — |
-| Event-sourced **workflow** (`eventSourced` saga) | ✓ emits (per-correlation stream + fold) | — (every backend emits it; no per-backend gate) |
+| Event-sourced **workflow** (`eventSourced` saga) | ✓ emits (per-correlation stream + fold) | — (no per-backend gate) |
 | Provenanced fields (runtime trace) | ✓ emits | — |
 | `shape: document` aggregate | ✓ CRUD + finds/ops/functions/returning-ops; small residual gated¹ | `loom.vanilla-document-unsupported` (sub-case) |
 | `or`-union-returning op with `emit`/`add`/`remove` body | ✓ full bodies | — |
@@ -214,9 +216,8 @@ state table), so EVERY fold shape emits — `src/generator/elixir/vanilla/fold-s
 
 Before M-T6.2 the compound-mutation shapes were silently dropped (a `# unsupported
 applier statement` comment that compiled green while losing the transition).
-Minting the contained-part id in the fold is non-deterministic across replays —
-a shared limitation of the ES contained-part model on every backend, tracked as a
-cross-backend follow-up.
+Minting the contained-part id in the fold makes it non-deterministic across
+replays: a replay mints a different id than the original apply did.
 
 Every emitter is compiled against real Elixir/Ecto by
 `elixir-vanilla-build.yml` (one fixture per feature under
@@ -241,7 +242,7 @@ interface LoomBackendManifest {
 }
 ```
 
-Today every backend family registers exactly one version.  The Hono
+`src/platform/registry.ts` registers one version per backend family.  The Hono
 backend's emitter and surface factory live in `src/platform/hono/shared/`;
 `src/platform/hono/v5/` is the registered version's pin set fed through that
 factory.  A directory carries a version name only while that version is
@@ -296,7 +297,7 @@ promises whatever runs it — compose, the k8s manifests, the Helm chart:
 | `healthcheck(port, path)` / `healthcheckBinaries` | The compose `test:` command and the binaries it needs in the runtime image. |
 | `listen` | Address families the listener accepts — `ipv4`, `dual-stack`, or the defect `ipv6-required` (k8s probes dial IPv4). |
 | `log` | `loom-json` (the shared envelope, `docs/observability.md`), `framework-json` or `text`, plus the log-level env var. |
-| `broker` | Broker-client resilience: reconnect, the outbox rides out a broker outage without spending attempts, a post-commit publish failure keeps the commit, bounded retry dead-letters under the generated ACL, competing relays publish each row once, trace propagation, messaging metrics. The retry, backoff and claim numbers every backend uses live in `src/generator/_channels/delivery-policy.ts`. |
+| `broker` | Broker-client resilience: reconnect, the outbox rides out a broker outage without spending attempts, a post-commit publish failure keeps the commit, bounded retry dead-letters under the generated ACL, competing relays publish each row once, trace propagation, messaging metrics. The retry, backoff and claim numbers are decided once in `src/generator/_channels/delivery-policy.ts` and rendered by each backend's channel emitter (`test/system/channel-delivery-policy-census.test.ts`). |
 | `migrations` | The boot migrator is idempotent on reboot and applies a changed non-last module. |
 | `gaps` | The open issue behind every fact above a platform does not meet yet. |
 

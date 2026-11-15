@@ -1,3 +1,4 @@
+// Gate for D-CONSUMER-INBOX (docs/decisions).
 // M-T4.4 slice 7c — RabbitMQ queue semantics on the Java backend, end to
 // end.
 //

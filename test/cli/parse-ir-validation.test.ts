@@ -1,3 +1,4 @@
+// Gate for D-STORAGE-SPLIT (docs/decisions).
 // `ddd parse` is documented as "parse + validate, exit non-zero on errors".
 // It used to be neither half, and both failures were silent:
 //

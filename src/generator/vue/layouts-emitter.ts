@@ -17,7 +17,7 @@ import type { ComponentIR, LayoutIR, ParamIR, SystemIR, UiIR } from "../../ir/ty
 import { layoutKeyPrefix } from "../_frontend/layout-key.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import { emptyWalkerModel } from "../_walker/walker-model.js";
 import { vueTarget } from "./walker/vue-target.js";
 
 interface WalkedSlot {
@@ -42,7 +42,7 @@ function walkSlot(
     userComponents,
     [],
     new Map(),
-    walkerModelOf({}),
+    emptyWalkerModel(),
     new Map(),
     new Map(),
     new Map(),

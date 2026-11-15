@@ -1,3 +1,4 @@
+// Gate for D-REPO-KEY-LOOKUP (docs/decisions).
 // Natural-key reads (D-REPO-KEY-LOOKUP) — `Repo.getBy(<col>: v, …)` /
 // `Repo.findBy(…)` must name exactly one declared `unique (…)` tuple.
 //

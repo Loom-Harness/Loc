@@ -1,3 +1,4 @@
+// Gate for D-CONSUMER-INBOX (docs/decisions).
 // M-T4.4 slice 7d — RabbitMQ queue semantics on the Phoenix backend, end to
 // end.
 //

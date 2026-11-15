@@ -1,3 +1,4 @@
+// Gate for D-CREATE-CALL-STYLE (docs/decisions).
 // The closed effect IR (`ir/types/effect-ir.ts`): what a workflow / handler
 // body does, derived from its lowered statements (`ir/util/effects.ts`).
 //

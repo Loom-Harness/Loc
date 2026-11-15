@@ -1,3 +1,4 @@
+// Gate for D-CONSUMER-INBOX (docs/decisions).
 // M-T4.4 slice 3 — RabbitMQ queue semantics, end to end.
 //
 // Boots the GENERATED producer plus THREE REPLICAS of the generated

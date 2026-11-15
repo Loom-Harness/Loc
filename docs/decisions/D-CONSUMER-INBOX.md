@@ -128,4 +128,4 @@ The redelivery witness runs on every `channels-e2e-rabbit*` leg: node, mikroorm,
 
 Each case changes the state-based saga and the event-sourced stream exactly once per id.  The saga-redelivery leg forces a local-relay redelivery on every backend and persistence adapter.  The plan test pins the key format and its stability, checks that no corpus handler shares a key, and checks that the migrations create the inbox wherever a consumer claims.  The censuses refuse a hand-written inbox statement and a re-derived dedupe decision.
 
-**Enforced by:** `test/e2e/support/redelivery-witness.ts`, `test/e2e/saga-redelivery-e2e.test.ts`, `test/ir/plan/consumer-inbox.test.ts`, `test/system/projection-fold-census.test.ts`, `test/system/channel-plan-census.test.ts`
+**Enforced by:** `test/e2e/channels-e2e-rabbit.test.ts`, `test/e2e/channels-e2e-rabbit-dotnet.test.ts`, `test/e2e/channels-e2e-rabbit-python.test.ts`, `test/e2e/channels-e2e-rabbit-java.test.ts`, `test/e2e/channels-e2e-rabbit-elixir.test.ts`, `test/e2e/saga-redelivery-e2e.test.ts`, `test/ir/plan/consumer-inbox.test.ts`, `test/system/projection-fold-census.test.ts`, `test/system/channel-plan-census.test.ts`
