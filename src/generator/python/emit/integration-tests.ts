@@ -38,6 +38,8 @@ import { PY } from "../py-symbols.js";
 import { renderPyExpr } from "../render-expr.js";
 import { pyStampedSaveLines } from "../stamp-call.js";
 import {
+  GATED,
+  gatedHelper,
   PY_PRINCIPAL,
   pytestHead,
   renderCreateInput,
@@ -348,6 +350,7 @@ export function renderPyContextIntegrationTest(
       out.push("");
     }
   }
+  if (bodyStr.includes(`${GATED}(`)) out.push(...gatedHelper().slice(2), "", "");
   out.push("@pytest.fixture");
   out.push("async def session() -> AsyncIterator[AsyncSession]:");
   // Wrapped as `ruff format` wraps it: on one line the call is 106 columns,

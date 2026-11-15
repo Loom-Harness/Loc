@@ -133,8 +133,7 @@ export function checkTestPlacement(model: Model, accept: ValidationAcceptor): vo
     // an aggregate unit test's head clause — the actor its operation calls run
     // as, gates included.  A body line that switches the actor mid-test is the
     // context rung's.
-    const aggregateUnit =
-      !ctxNode && (isAggregate(c) || (target != null && isAggregate(target)));
+    const aggregateUnit = !ctxNode && (isAggregate(c) || (target != null && isAggregate(target)));
     const principals = [
       ...(node.principal ? [node.principal] : []),
       ...node.body.filter(isTestPrincipal),

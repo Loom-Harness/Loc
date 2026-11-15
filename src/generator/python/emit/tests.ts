@@ -1,4 +1,5 @@
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
+import { unitTestGateChecks } from "../../../ir/plan/gate-ladder.js";
 import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
 import {
   type TestPrincipalShape,
@@ -177,11 +178,17 @@ function renderPySubjectTests(
 
   const body: string[] = [];
   const usedNames = new Set<string>();
+  let defaultPrincipal = false;
   for (const t of tests) {
+    const rendered = renderTest(t, ctx, usedNames, principal);
+    if (!t.principal && rendered.some((l) => l.includes(TEST_PRINCIPAL_CALL))) {
+      defaultPrincipal = true;
+    }
     body.push("", "");
-    body.push(...renderTest(t, ctx, usedNames));
+    body.push(...rendered);
   }
-  if (body.some((l) => l.includes(TEST_PRINCIPAL_CALL))) {
+  if (body.some((l) => l.includes(`${GATED}(`))) body.unshift(...gatedHelper());
+  if (defaultPrincipal) {
     const rendered = renderTestPrincipal(
       testPrincipal(principal ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),
       PY_PRINCIPAL,
@@ -268,7 +275,12 @@ function testFnName(name: string, used: Set<string>): string {
   return candidate;
 }
 
-function renderTest(t: TestIR, ctx: BoundedContextIR, used: Set<string>): string[] {
+function renderTest(
+  t: TestIR,
+  ctx: BoundedContextIR,
+  used: Set<string>,
+  principal: TestPrincipalShape | undefined,
+): string[] {
   const out: string[] = [];
   out.push(...pytestHead(t.name, used, []));
   // Track let-bound aggregate types: a bare `o.cancel()` expression
@@ -279,8 +291,38 @@ function renderTest(t: TestIR, ctx: BoundedContextIR, used: Set<string>): string
     if (s.kind === "let" && s.type?.kind === "entity") lets.set(s.name, s.type.name);
   }
   const stmts = t.statements.flatMap((s) => renderTestStmt(s, ctx, lets));
+  // A head `as { … }` clause shadows the module's `_test_principal()` with this
+  // test's principal, so its operation calls and their gates run as it.
+  if (t.principal && stmts.some((l) => l.includes(TEST_PRINCIPAL_CALL))) {
+    out.push(
+      `    def ${TEST_PRINCIPAL_CALL.slice(0, -2)}() -> ${pyRef("app.auth.user", "User")}:`,
+      `        return ${renderTestPrincipal(testPrincipal(principal ?? testPrincipalShape(undefined), t.principal, enumPool(ctx)), PY_PRINCIPAL)}`,
+      "",
+    );
+  }
   out.push(...(stmts.length > 0 ? stmts : ["    pass"]));
   return out;
+}
+
+/** The file-local helper a unit test checks an operation's route gates with
+ *  (`unitTestGateChecks`): the route runs them before the domain method, so a
+ *  test calling the method runs them itself, against its test principal. */
+export const GATED = "_gated";
+export function gatedHelper(): string[] {
+  const t = "_T";
+  return [
+    "",
+    "",
+    `${t} = ${pyRef("typing", "TypeVar")}("${t}")`,
+    "",
+    "",
+    `def ${GATED}(gates: list[tuple[bool, str]], call: ${pyRef("collections.abc", "Callable")}[[], ${t}]) -> ${t}:`,
+    '    """Route `requires` gates of the operation called next: refused as the route refuses them."""',
+    "    for allowed, message in gates:",
+    "        if not allowed:",
+    `            raise ${PY.ForbiddenError}(message)`,
+    "    return call()",
+  ];
 }
 
 /** Render a test-body expression: `<Agg>.create({ … })` object literals
@@ -360,7 +402,20 @@ export function renderTestExpr(
       // A currentUser-reading op's method signature carries a trailing
       // `current_user` parameter; thread the test principal.
       if (operationBodyUsesCurrentUser(op)) args.push(TEST_PRINCIPAL_CALL);
-      return `${recv}.${pythonIdent(e.member)}(${args.join(", ")})`;
+      const call = `${recv}.${pythonIdent(e.member)}(${args.join(", ")})`;
+      const receiverType =
+        e.receiverType.kind === "entity"
+          ? e.receiverType
+          : ({ kind: "entity", name: agg!.name, declKind: "aggregate" } as const);
+      const gates = unitTestGateChecks(op, {
+        receiver: e.receiver,
+        receiverType,
+        args: e.args,
+      }).map(
+        (c) =>
+          `(${renderPyExpr(c.cond, { thisName: "self", currentUserExpr: TEST_PRINCIPAL_CALL })}, ${JSON.stringify(`Forbidden: ${c.gate.source}`)})`,
+      );
+      return gates.length === 0 ? call : `${GATED}([${gates.join(", ")}], lambda: ${call})`;
     }
   }
   if (

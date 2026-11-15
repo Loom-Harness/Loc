@@ -26,7 +26,13 @@
 // takes the gates of each rung from `ladderGates` — it never re-partitions a
 // gate list itself (`test/system/gate-ladder-census.test.ts`).
 
-import type { AggregateIR, BoundedContextIR, ExprIR, OperationIR, TypeIR } from "../types/loom-ir.js";
+import type {
+  AggregateIR,
+  BoundedContextIR,
+  ExprIR,
+  OperationIR,
+  TypeIR,
+} from "../types/loom-ir.js";
 import { isMergePatchUpdate } from "../util/merge-patch.js";
 import {
   lifecycleGates,

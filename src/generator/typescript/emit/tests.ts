@@ -1,4 +1,5 @@
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
+import { unitTestGateChecks } from "../../../ir/plan/gate-ladder.js";
 import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
 import {
   type TestPrincipalShape,
@@ -17,7 +18,6 @@ import type {
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
-import { unitTestGateChecks } from "../../../ir/plan/gate-ladder.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
