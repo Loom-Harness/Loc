@@ -35,12 +35,7 @@ import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { quantifiesOver } from "./capability-filter.js";
 import { namedRoutesToResidual, renderInvariantValidatorFn } from "./changeset-invariant-emit.js";
 import { partConstraintLines } from "./changeset-validators.js";
-import {
-  exEctoIdType,
-  exEctoJsonType,
-  exEctoScalarType,
-  exFrameworkTimestampType,
-} from "./codec-spelling-ex.js";
+import { exEctoIdType, exEctoJsonType, exEctoScalarType } from "./codec-spelling-ex.js";
 import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
 import { isVanillaDocAgg, renderDocSchema } from "./document-emit.js";
 import { needsPureDomainCore, renderAggregatePureCore } from "./domain-core-emit.js";
@@ -254,9 +249,7 @@ function renderPartSchema(
   // migration's `<direct-parent>_id` FK.  For a NESTED part the direct parent is
   // a sibling part (`directParentName`), not the aggregate root, so the FK
   // targets the sibling's table exactly as `tableForPart` FKs it.  Stripped from
-  // the wire by `@derive only`.  The child table carries `timestamps()` (the
-  // migration emits NOT-NULL `inserted_at`/`updated_at`), so `:utc_datetime`
-  // auto-stamps on insert.
+  // the wire by `@derive only`.
   const ownerName = relational
     ? agg
       ? directParentName(agg, part.name, part.parentName)
@@ -265,14 +258,7 @@ function renderPartSchema(
   const belongsToLine = relational
     ? `    belongs_to :${snake(ownerName)}, ${appModule}.${ctxModule}.${upperFirst(ownerName)}, foreign_key: :${snake(ownerName)}_id, type: :binary_id`
     : "";
-  const timestampsLine = relational ? `    timestamps(type: ${exFrameworkTimestampType()})` : "";
-  const schemaBody = [
-    fieldLines,
-    containLines,
-    valueRowLines.join("\n"),
-    belongsToLine,
-    timestampsLine,
-  ]
+  const schemaBody = [fieldLines, containLines, valueRowLines.join("\n"), belongsToLine]
     .filter(Boolean)
     .join("\n");
   // Cast list: scalar columns only.  A nested containment round-trips via
@@ -449,9 +435,7 @@ function renderSchema(
   // `context-emit.ts` / `repository-emit.ts`), so they must be REAL schema
   // fields the stamp can `put_change`.  When present we emit them as explicit
   // `field :created_at|:updated_at, :utc_datetime` (mapped to the audit columns
-  // the shared migration adds) and DROP the bundled `timestamps()` macro — Ecto
-  // would otherwise declare a second `:updated_at` field and the schema fails to
-  // compile.  Without audit fields the plain `timestamps()` stays byte-identical.
+  // the shared migration adds).
   const hasCreatedAt = agg.fields.some((f) => f.name === "createdAt");
   const hasUpdatedAt = agg.fields.some((f) => f.name === "updatedAt");
   const auditTsLines = [
@@ -481,25 +465,8 @@ function renderSchema(
         })
         .join("\n")
     : "";
-  // The bundled Ecto `timestamps()` (→ `inserted_at`/`updated_at`) is dropped
-  // when an explicit `updated_at` audit field is present (it would collide) —
-  // and likewise when a DECLARED field already owns one of those columns
-  // (`inserted_at` / `insertedAt` / `updated_at`): Ecto would define the field
-  // twice ("field/association :inserted_at already exists on schema").  The
-  // declared field keeps its wire key and its column; the migration drops its
-  // `timestamps()` by the same column test (`migrations-emit.ts`).
-  const timestampsLine = hasEctoTimestamps(agg.fields)
-    ? `    timestamps(type: ${exFrameworkTimestampType()})`
-    : "";
   const refCollBlock = refCollLines.join("\n");
-  const schemaBody = [
-    kindLine,
-    fieldLines,
-    refCollBlock,
-    containLines,
-    valueCollectionLines,
-    timestampsLine,
-  ]
+  const schemaBody = [kindLine, fieldLines, refCollBlock, containLines, valueCollectionLines]
     .filter(Boolean)
     .join("\n");
   const prefixLine = schemaPrefix ? `  @schema_prefix ${JSON.stringify(schemaPrefix)}\n` : "";
@@ -531,27 +498,6 @@ ${schemaBody}
   end
 ${readScopeBlock}${pureCoreBlock}end
 `;
-}
-
-/** The two columns Ecto's bundled `timestamps()` macro defines. */
-const ECTO_TIMESTAMP_COLUMNS: ReadonlySet<string> = new Set(["inserted_at", "updated_at"]);
-
-/** Does the aggregate's table carry the bundled `timestamps()` pair
- *  (`inserted_at`/`updated_at`)?  Not when an `updatedAt` audit field maps to
- *  its own `updated_at` column, nor when a declared field owns one of the
- *  pair.  The schema, the migration and any raw INSERT must agree on this. */
-export function hasEctoTimestamps(fields: readonly { name: string }[]): boolean {
-  return !fields.some((f) => f.name === "updatedAt") && !ownsEctoTimestampColumn(fields);
-}
-
-/** Does a declared field already own one of the `timestamps()` columns?  The
- *  camelCase `createdAt`/`updatedAt` audit names are NOT counted — they keep
- *  their own explicit-field handling (`auditTsLines` / `renderFieldLine`). */
-export function ownsEctoTimestampColumn(fields: readonly { name: string }[]): boolean {
-  return fields.some(
-    (f) =>
-      f.name !== "createdAt" && f.name !== "updatedAt" && ECTO_TIMESTAMP_COLUMNS.has(snake(f.name)),
-  );
 }
 
 interface AggField {

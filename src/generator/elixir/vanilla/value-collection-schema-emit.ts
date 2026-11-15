@@ -25,11 +25,10 @@ import { usesRelationalContainments } from "./schema-emit.js";
 // — `<owner>_<field>` — modelled as a child Ecto schema the parent
 // `has_many`s + `cast_assoc`s.  This module emits that child schema:
 //
-//   * a synthetic `:binary_id` PK (so `cast_assoc` + `on_replace: :delete`
-//     have row identity for the replace-on-update diff; the migration adds
-//     the matching `id uuid` PK);
-//   * `belongs_to :<owner>` (the parent FK, `<owner>_id`);
-//   * `field :ordinal, :integer` (preserves declared order);
+//   * the shared composite primary key `(<owner>_id, ordinal)` — the
+//     `belongs_to :<owner>` FK and `field :ordinal`, both `primary_key: true`
+//     (the table any backend on the database creates; `ordinal` preserves
+//     declared order);
 //   * the value object's flattened fields;
 //   * `@derive {Jason.Encoder, only: [<vo fields>]}` — the synthetic id /
 //     parent FK / ordinal are stripped, so the wire array stays
@@ -201,13 +200,13 @@ defmodule ${moduleName} do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @primary_key {:id, :binary_id, autogenerate: true}
+  @primary_key false
   @foreign_key_type :binary_id
   @derive {Jason.Encoder, only: [${wireAtoms}]}
   schema "${vc.childTable}" do
 ${voFieldLines.join("\n")}
-    field :ordinal, :integer
-    belongs_to :${ownerRel}, ${ownerModule}, foreign_key: :${vc.parentFk}, type: :binary_id
+    field :ordinal, :integer, primary_key: true
+    belongs_to :${ownerRel}, ${ownerModule}, foreign_key: :${vc.parentFk}, type: :binary_id, primary_key: true
   end
 
   @doc false

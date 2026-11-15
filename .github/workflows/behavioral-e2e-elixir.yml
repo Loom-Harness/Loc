@@ -51,6 +51,9 @@ on:
       - 'src/generator/_packs/**'
       - 'src/generator/_payload/**'
       - 'src/generator/_persistence/**'
+      - 'src/generator/sql-pg.ts'
+      - 'src/system/migrations-builder.ts'
+      - 'src/generator/typescript/emit/migrations.ts'
       - 'src/generator/_stmt/**'
       - 'src/generator/_test/**'
       - 'src/generator/_trace/**'
@@ -243,3 +246,17 @@ jobs:
       - name: Run Elixir behavioral tier (api gate, real Postgres)
         working-directory: test/behavioral
         run: node run-elixir.mjs
+
+      # The shared-database leg (docs/decisions/D-ONE-SCHEMA.md): each case
+      # boots the elixir app as a NON-owner on the schema a node deployable's
+      # migrations create, and requires the elixir migrations to create the
+      # identical catalog.  One case per table shape keeps it to a few minutes;
+      # the whole corpus runs the same way locally (docs/testing.md).
+      - name: Run the shared-database leg (elixir as a non-owner)
+        working-directory: test/behavioral
+        env:
+          LOOM_BH_ELIXIR_SCHEMA: shared
+        run: >-
+          node run-elixir.mjs value-collections part-value-collection
+          contained-part-rebuild audited acronym-names saga channels-broker
+          tph tenancy-owned unique-conflict

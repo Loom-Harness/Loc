@@ -1023,7 +1023,7 @@
   "test/system/multifile-regression.test.ts#71af7ba7b3 :: nobody-knows": 1,
   "test/system/multifile-regression.test.ts#71af7ba7b3 :: unknown{unresolved-type}": 1,
   "test/system/readme.test.ts#f072e60971 :: ir-differs": 1,
-  "test/system/sourcemap.test.ts#3c84815c0e :: ir-differs": 2,
+  "test/system/sourcemap.test.ts#f9f1c49342 :: ir-differs": 2,
   "test/system/system-diagram.test.ts#b066f81ede :: unknown{no-rule}": 1,
   "test/system/system-diagram.test.ts#b066f81ede :: unknown{unresolved-name}": 1,
   "test/system/trace-roundtrip.test.ts#d8e67b466e :: ir-differs": 1,

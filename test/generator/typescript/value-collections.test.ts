@@ -85,15 +85,15 @@ describe("value-object collection — migration (relational child table, all bac
 
   it("the Phoenix migration creates the id-less child table and drops the parent column", async () => {
     const files = await generateSystemFiles(FIXTURE);
-    // A dedicated child-table migration (synthetic uuid PK + parent FK +
-    // ordinal + flattened VO columns) — NOT an inline `{:array, :map}` column.
+    // A dedicated child-table migration (the shared `(parent_fk, ordinal)` key +
+    // flattened VO columns) — NOT an inline `{:array, :map}` column.
     const child = findFile(files, /px\/.*migrations\/.*create_order_charges\.exs$/);
     expect(child).toMatch(/create table\(:order_charges, primary_key: false/);
-    expect(child).toMatch(/add :id, :uuid, primary_key: true/);
+    expect(child).not.toMatch(/add :id,/);
     expect(child).toMatch(
-      /add :order_id, references\(:orders, prefix: "c", type: :uuid, on_delete: :delete_all\), null: false/,
+      /add :order_id, references\(:orders, prefix: "c", type: :uuid, on_delete: :delete_all\), null: false, primary_key: true/,
     );
-    expect(child).toMatch(/add :ordinal, :integer, null: false/);
+    expect(child).toMatch(/add :ordinal, :integer, null: false, primary_key: true/);
     expect(child).toMatch(/add :amount, :decimal/);
     expect(child).toMatch(/add :currency, :text/);
     // The parent migration carries no `charges` column.
