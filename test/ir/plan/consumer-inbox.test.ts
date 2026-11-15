@@ -143,8 +143,8 @@ describe("consumer inbox key", () => {
       const loom = await buildLoomModel(
         TWO_CONTEXTS.replace(
           "        on(q: OrderPlaced) by q.order { let i = Invoice.create(orderRef: q.order) }\n",
-          extra,
-        ),
+          "",
+        ).replace("        on(p: OrderPlaced)", `${extra}        on(p: OrderPlaced)`),
       );
       const sys = loom.systems[0];
       const billing = sys.subdomains[0].contexts[1];
