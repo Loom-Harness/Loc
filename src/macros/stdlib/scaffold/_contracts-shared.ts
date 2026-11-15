@@ -1,20 +1,20 @@
-// Contract-record builders for `scaffoldHandlers` (M-T5.10, contract layer).
+// Contract-record builders for `scaffoldHandlers`.
 //
-// Alongside the `commandHandler` / `queryHandler` members it already emits,
+// Alongside the `commandHandler` / `queryHandler` members it emits,
 // `scaffoldHandlers` splices the literal `response` / `command` / `query`
-// PayloadDecl records that describe the API contract those handlers realise —
-// so the contract is SOURCE-VISIBLE (`unfold` ejects real `.ddd`).  In PR1 the
-// records are additive and fully INERT: no handler references them yet, so
-// generation is byte-identical with vs without them (verified on every backend).
+// PayloadDecl records that describe the API contract the context serves, so
+// the contract is source-visible (`unfold` ejects real `.ddd`).
 //
-// The records ride the SAME `handlerTargets(ctx)` selection the handlers do, so
-// records and handlers stay in lock-step — every command/query record names the
-// handler that will (in a later PR) reference it.  Response records are derived
-// per aggregate from `apiReadFields` (the AST twin of the IR wire-projection
-// `forApiRead(wireShape)`), with a sibling `<Part>Response` record for every
-// entity part reachable through the aggregate's containment closure (context
-// scope cannot reference a raw entity part, so a containment field points at the
-// part's own response record).
+// The command/query records ride `requestTargets(ctx)`: one per request of
+// every concrete aggregate, whether its repository is declared in source or
+// added by enrichment, because the deployable serves both.  The handlers ride
+// `handlerTargets(ctx)`, the subset with a declared repository, so every
+// handler names one of these records.  Response records are derived per
+// aggregate from `apiReadFields` (the AST twin of the API-read projection),
+// with a sibling `<Part>Response` record for every entity part reachable
+// through the aggregate's containment closure (context scope cannot reference
+// a raw entity part, so a containment field points at the part's own response
+// record).
 
 import type {
   Aggregate,
@@ -41,9 +41,9 @@ import {
 } from "../../api/index.js";
 import {
   createRequestMembers,
-  type HandlerTarget,
-  handlerTargets,
   idParamName,
+  type RequestTarget,
+  requestTargets,
   targetHandlerName,
 } from "./_handlers-shared.js";
 
@@ -69,9 +69,10 @@ export function contractRecords(ctx: BoundedContext): ContractRecord[] {
     for (const partRec of partResponses(agg)) emit(partRec);
   }
 
-  // Command / query records — the request contracts, one per handler target so
-  // they stay in lock-step with the handlers `scaffoldHandlers` emits.
-  for (const t of handlerTargets(ctx)) {
+  // Command / query records — the request contracts, one per request the
+  // context serves.  A handler target is a request target with a declared
+  // repository, so every handler `scaffoldHandlers` emits names one of these.
+  for (const t of requestTargets(ctx)) {
     emit(contractForTarget(t));
   }
 
@@ -84,7 +85,7 @@ export function contractRecords(ctx: BoundedContext): ContractRecord[] {
  *   - destroy  → `command <Destroy<Agg>>Command`  empty (id is a route param)
  *   - getById  → `query   <Get<Agg>>Query`        over the single `<agg>Id` id
  * The `*Command` name matches the .NET Mediator record name a later PR wires up. */
-function contractForTarget(t: HandlerTarget): ContractRecord {
+function contractForTarget(t: RequestTarget): ContractRecord {
   const base = targetHandlerName(t);
   switch (t.kind) {
     case "create":

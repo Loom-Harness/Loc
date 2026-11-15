@@ -1,7 +1,8 @@
 // ---------------------------------------------------------------------------
-// `_frontend/projections-module.ts` — `readableProjections` (WHICH projections
-// get a client) and `buildProjectionsApiModule` (the client itself), shared by
-// the React / Vue / Svelte hosts through its four leaf options.
+// The Frontend Contract's `wire.projections` (WHICH projections get a client,
+// read through `clientProjections`) and `_frontend/projections-module.ts`'s
+// `buildProjectionsApiModule` (the client itself), shared by the React / Vue /
+// Svelte hosts through its four leaf options.
 //
 // Already pinned elsewhere, not repeated here:
 //   * `react/projection-read{,-grouped}.test.ts`, `vue/projection-read.test.ts`,
@@ -14,7 +15,7 @@
 // What none of them state is the SELECTION property over a model carrying more
 // than one flavour of projection.  Each of those files generates a system whose
 // only projection is the readable one under test, so "excludes the unreadable"
-// is never actually exercised: a `readableProjections` that returned everything
+// is never actually exercised: a contract that shipped every projection
 // would pass all of them.  That is the emission this module is here to prevent
 // — a client hook for a route shape that does not exist, whose `.parse` throws
 // on first load from a model with no diagnostic at all.
@@ -25,10 +26,16 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
+import { clientProjections } from "../../../src/generator/_frontend/contract.js";
 import {
   buildProjectionsApiModule,
-  readableProjections,
+  type ProjectionsModuleScope,
 } from "../../../src/generator/_frontend/projections-module.js";
+import {
+  buildFrontendContract,
+  type ContractProjection,
+  type FrontendContract,
+} from "../../../src/ir/contract/frontend-contract.js";
 import type { BoundedContextIR } from "../../../src/ir/types/loom-ir.js";
 import { isQueryTimeProjection, isSingletonProjection } from "../../../src/ir/types/loom-ir.js";
 import { buildLoomModel } from "../../_helpers/index.js";
@@ -87,18 +94,35 @@ system Shop {
 }
 `;
 
-async function ordersContext(): Promise<BoundedContextIR> {
-  const model = await buildLoomModel(SRC);
-  const ctx = model.systems[0]?.subdomains
-    .flatMap((s) => s.contexts)
-    .find((c) => c.name === "Orders");
-  if (!ctx) throw new Error("fixture emitted no Orders context");
-  return ctx;
+interface Fixture {
+  ctx: BoundedContextIR;
+  contract: FrontendContract;
+  projections: ContractProjection[];
+  scope: ProjectionsModuleScope;
 }
 
-describe("readableProjections — the partition, on a model carrying every flavour", () => {
+async function fixture(): Promise<Fixture> {
+  const model = await buildLoomModel(SRC);
+  const sys = model.systems[0]!;
+  const ctx = sys.subdomains.flatMap((s) => s.contexts).find((c) => c.name === "Orders");
+  if (!ctx) throw new Error("fixture emitted no Orders context");
+  const contract = buildFrontendContract(model, sys);
+  return {
+    ctx,
+    contract,
+    projections: clientProjections(contract, ["Orders"]),
+    scope: { enums: contract.wire.enums, usesMoney: true },
+  };
+}
+
+async function ordersModule(): Promise<string> {
+  const f = await fixture();
+  return buildProjectionsApiModule(f.projections, f.scope);
+}
+
+describe("wire.projections — the partition, on a model carrying every flavour", () => {
   it("keeps only the query-time singletons; excludes the materialized / keyed", async () => {
-    const ctx = await ordersContext();
+    const { ctx, projections } = await fixture();
     // Anti-vacuity: the fixture really does carry the unreadable ones.
     expect((ctx.projections ?? []).map((p) => p.name).sort()).toEqual([
       "BigOrders",
@@ -106,16 +130,12 @@ describe("readableProjections — the partition, on a model carrying every flavo
       "SalesByStatus",
       "SalesTotals",
     ]);
-    expect(readableProjections([ctx]).map(({ proj }) => proj.name)).toEqual([
-      "SalesTotals",
-      "SalesByStatus",
-      "BigOrders",
-    ]);
+    expect(projections.map((p) => p.name)).toEqual(["SalesTotals", "SalesByStatus", "BigOrders"]);
   });
 
   it("agrees with the shared predicate's two conditions, projection by projection", async () => {
-    const ctx = await ordersContext();
-    const readable = new Set(readableProjections([ctx]).map(({ proj }) => proj.name));
+    const { ctx, projections } = await fixture();
+    const readable = new Set(projections.map((p) => p.name));
     for (const p of ctx.projections ?? []) {
       expect(readable.has(p.name), p.name).toBe(
         isQueryTimeProjection(p) && isSingletonProjection(p),
@@ -128,23 +148,23 @@ describe("readableProjections — the partition, on a model carrying every flavo
   });
 
   it("keeps declaration order, and carries the owning context back with each", async () => {
-    const ctx = await ordersContext();
-    for (const row of readableProjections([ctx])) expect(row.ctx).toBe(ctx);
-    expect(readableProjections([])).toEqual([]);
-    expect(readableProjections([{ ...ctx, projections: [] }])).toEqual([]);
+    const { contract, projections } = await fixture();
+    for (const p of projections) expect(p.context).toBe("Orders");
+    expect(clientProjections(contract, [])).toEqual([]);
+    expect(clientProjections(contract, ["Elsewhere"])).toEqual([]);
   });
 });
 
 describe("buildProjectionsApiModule — one hook per readable projection", () => {
   it("emits exactly one exported hook per readable projection, and none for the rest", async () => {
-    const module = buildProjectionsApiModule([await ordersContext()]);
+    const module = await ordersModule();
     const hooks = [...module.matchAll(/^export function (use\w+)\(\)/gm)].map((m) => m[1]);
     expect(hooks).toEqual(["useSalesTotals", "useSalesByStatus", "useBigOrders"]);
     expect(module).not.toContain("OrderBook");
   });
 
   it("hits `/projections/<snake_name>` with no argument, keyed the same way", async () => {
-    const module = buildProjectionsApiModule([await ordersContext()]);
+    const module = await ordersModule();
     expect(module).toContain('queryKey: ["projections", "sales_totals"]');
     expect(module).toContain("await api.get(`/projections/sales_totals`)");
     expect(module).toContain('queryKey: ["projections", "sales_by_status"]');
@@ -156,7 +176,7 @@ describe("buildProjectionsApiModule — one hook per readable projection", () =>
   });
 
   it("wraps a LIST-shaped read in z.array and leaves the aggregation a bare object", async () => {
-    const module = buildProjectionsApiModule([await ordersContext()]);
+    const module = await ordersModule();
     // Whole-table aggregation → one object.
     expect(module).toContain("export const SalesTotalsResponse = z.object({");
     expect(module).not.toContain("export const SalesTotalsRow");
@@ -169,30 +189,26 @@ describe("buildProjectionsApiModule — one hook per readable projection", () =>
   });
 
   it("parses the response at the boundary, per hook", async () => {
-    const module = buildProjectionsApiModule([await ordersContext()]);
+    const module = await ordersModule();
     for (const name of ["SalesTotals", "SalesByStatus", "BigOrders"]) {
       expect(module).toContain(`return ${name}Response.parse(r);`);
     }
   });
 
   it("renders an enum row field inline, since the <Enum>Schema consts live elsewhere", async () => {
-    const module = buildProjectionsApiModule([await ordersContext()]);
+    const module = await ordersModule();
     expect(module).toContain('status: z.enum(["Draft", "Confirmed"])');
   });
 
   it("imports moneySchema only because a row actually carries money", async () => {
-    const ctx = await ordersContext();
-    expect(buildProjectionsApiModule([ctx])).toContain(
-      'import { moneySchema } from "../lib/schemas";',
-    );
-    expect(buildProjectionsApiModule([ctx])).toContain("revenue: moneySchema,");
+    const module = await ordersModule();
+    expect(module).toContain('import { moneySchema } from "../lib/schemas";');
+    expect(module).toContain("revenue: moneySchema,");
   });
 
   it("emits the import block and nothing else for a context with no readable projection", async () => {
-    const ctx = await ordersContext();
-    const bare = buildProjectionsApiModule([
-      { ...ctx, projections: (ctx.projections ?? []).filter((p) => p.name === "OrderBook") },
-    ]);
+    const { scope } = await fixture();
+    const bare = buildProjectionsApiModule([], scope);
     expect(bare).not.toContain("export function use");
     expect(bare).not.toContain("z.object({");
   });
@@ -202,9 +218,9 @@ describe("buildProjectionsApiModule — one hook per readable projection", () =>
     // STRING substituted into otherwise identical output.  Stated as a diff of
     // exactly the substituted lines, so a future option that reshapes the
     // output rather than substituting into it fails here.
-    const ctx = await ordersContext();
-    const react = buildProjectionsApiModule([ctx]);
-    const svelte = buildProjectionsApiModule([ctx], {
+    const { projections, scope } = await fixture();
+    const react = buildProjectionsApiModule(projections, scope);
+    const svelte = buildProjectionsApiModule(projections, scope, {
       queryPackage: "@tanstack/svelte-query",
       queryFactory: "createQuery",
       thunkOptions: true,

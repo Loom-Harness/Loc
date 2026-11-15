@@ -102,7 +102,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "as the call plus a binding and save the mutated arguments at exit or in the non-error " +
       "arms of the `match` over it; Phoenix inlines a mutating service clause by clause, which " +
       "computes no value to bind.  A bound aggregate op call is rendered",
-    mission: "#4541",
+    mission: "#5933",
     verified: false,
   },
   {
@@ -286,7 +286,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "site with a degradation comment in the emitted Angular, so the comment documents the loss " +
       "in the output while this diagnostic tells the author at compile time — and neither half " +
       "refuses a model that has always generated.",
-    mission: "#3316",
+    mission: "#5933",
     verified: true,
   },
   {
@@ -394,7 +394,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     what:
       "`mask unless` read redaction ships on every backend — fires only when no backend " +
       "deployable hosts the context",
-    mission: "#3346",
+    mission: "#5933",
   },
   {
     code: "loom.flutter-async-effect-unsupported",
@@ -413,7 +413,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "M-T1.34 closes the `ref`-backed half of the same family (a component holding a " +
       "Riverpod `WidgetRef` — stores, `currentUser`, reads) and re-narrows this gate's " +
       "message to name the `id` as the only remaining cause",
-    mission: "#3329",
+    mission: "#5933",
   },
   {
     code: "loom.flutter-primitive-unsupported",
@@ -522,7 +522,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "target-neutral `loom.abstract-aggregate-contains`, impossible on every backend, not " +
       "adapter-specific).  All five ONCE-gated non-persistence features (query-time " +
       "projections, SSE, outbox, timers, brokers) closed under M-T6.23 (done)",
-    mission: "#3260",
+    mission: "#5933",
   },
   {
     code: "loom.polymorphic-id-ref-unsupported",
@@ -615,7 +615,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "and render the form, and HEEx's `renderModal` handles it, so this is a per-target gap, " +
       "not a rejected shape.  Drains when the four render the controlled shell around the " +
       "recorded OperationFormState",
-    mission: "#3320",
+    mission: "#5933",
   },
   {
     code: "loom.toast-message-unsupported",
@@ -632,7 +632,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "still THROWS on the remainder, so the gate replaces a codegen abort.  Drains when the " +
       "renderers grow the general expression path (they would then share the walker's " +
       "expression emitter rather than four hand-written subsets)",
-    mission: "#3323",
+    mission: "#5933",
   },
   {
     code: "loom.ui-gate-expr-unsupported",
@@ -652,7 +652,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "the shape the other six lack.  Drains when the gate renderers route through the " +
       "frontends' own expression emitters instead of three hand-written subsets — the same " +
       "drain condition, and the same seam, as M-T1.10",
-    mission: "#3323",
+    mission: "#5933",
   },
   {
     code: "loom.tph-backend-unsupported",
@@ -760,7 +760,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "`queryHandler` or `function` — those lowerers pass `defaults: false`, so the default " +
       "would be silently dropped and every generated signature would still require the " +
       "argument.  Lifting it is a capability change on every target, not a fix at one site",
-    mission: "#3106",
+    mission: "#5933",
     verified: true,
   },
   {

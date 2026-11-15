@@ -22,6 +22,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { expectReach } from "../_helpers/census-reach.js";
+import { fenceProblem } from "../_helpers/live-fences.js";
 
 const ROOTS = ["test/e2e", "test/behavioral"];
 const MAX_DEFERRAL_DAYS = 180;
@@ -82,7 +83,8 @@ function waiverProblems(today: Date): string[] {
     const days = (due - today.getTime()) / 86_400_000;
     if (days > MAX_DEFERRAL_DAYS)
       return [`${site}: reviewUntil ${w.reviewUntil} is past the ${MAX_DEFERRAL_DAYS}-day cap`];
-    if (!/^#\d+$/.test(w.blockedBy)) return [`${site}: blockedBy must name an issue (#NNNN)`];
+    const fence = fenceProblem(w.blockedBy);
+    if (fence) return [`${site}: ${fence}`];
     return [];
   });
 }

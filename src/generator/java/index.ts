@@ -1702,6 +1702,7 @@ function emitProjectFromContexts(
         ? generateSvelteForContexts(contexts, system.sys, system.deployable, {
             apiBaseUrl: "/api",
             pathPrefix: "ClientApp/",
+            frontendContract: system.frontendContract,
           })
         : uiFw === "vue"
           ? generateVueForContexts(contexts, system.sys, system.deployable, {
@@ -1713,6 +1714,7 @@ function emitProjectFromContexts(
             ? generateAngularForContexts(contexts, system.sys, system.deployable, {
                 apiBaseUrl: "/api",
                 pathPrefix: "ClientApp/",
+                frontendContract: system.frontendContract,
               })
             : uiFw === "feliz"
               ? generateFelizForContexts(contexts, system.sys, system.deployable, {
