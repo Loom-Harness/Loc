@@ -42,6 +42,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, resetDatabase, awaitOutboxDrained, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { writeCaseSource } from "./case-source.mjs";
+import { BEHAVIOURAL_XFAIL } from "./registers.mjs";
 import { optInTestReset, stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
 import { startSidecars } from "../support/fakes/index.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
@@ -611,7 +612,14 @@ const corpus = SHARED_SCHEMA ? sharedSchemaCases(allCases) : allCases;
 function sharedSchemaCases(cases) {
   const out = [];
   const refused = [];
+  const tracked = [];
   for (const c of cases) {
+    // A tracked expected failure fails for its own reason on the main leg;
+    // here it would only fail again, differently.
+    if (c.name in (BEHAVIOURAL_XFAIL.elixir ?? {})) {
+      tracked.push(c.name);
+      continue;
+    }
     const source = withSchemaOwner(c.source);
     const dir = join(WORK, c.name);
     mkdirSync(dir, { recursive: true });
@@ -621,7 +629,9 @@ function sharedSchemaCases(cases) {
     if (codes.length === 1 && codes[0] === ECTO_SHARED_DATABASE) refused.push(c.name);
     else out.push({ ...c, source });
   }
-  process.stdout.write(`shared-schema: ${out.length} case(s) run as a non-owner; ${refused.length} refused by ${ECTO_SHARED_DATABASE}: ${refused.join(", ") || "none"}\n`);
+  process.stdout.write(
+    `shared-schema: ${out.length} case(s) run as a non-owner; ${refused.length} refused by ${ECTO_SHARED_DATABASE}: ${refused.join(", ") || "none"}; ${tracked.length} tracked expected failure(s) left to the main leg\n`,
+  );
   return out;
 }
 

@@ -9,7 +9,15 @@
 import type { MessageEntry } from "./_shared.js";
 
 /** The code first-segments this family owns. */
-export const segments = ["target", "elixir", "vanilla", "dotnet", "mikroorm", "dapper", "ecto"] as const;
+export const segments = [
+  "target",
+  "elixir",
+  "vanilla",
+  "dotnet",
+  "mikroorm",
+  "dapper",
+  "ecto",
+] as const;
 
 export const messages = {
   // ----------------------------------------------------------------------

@@ -17,8 +17,8 @@ import type {
 } from "../../types/loom-ir.js";
 import { isMaterializedProjection } from "../../types/projection.js";
 import { databaseOf, deployablesOnDatabase } from "../../util/databases.js";
-import { valueCollectionsFor } from "../../util/value-collections.js";
 import { effectiveSavingShape, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
+import { valueCollectionsFor } from "../../util/value-collections.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------

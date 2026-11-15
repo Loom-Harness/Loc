@@ -87,11 +87,7 @@ import {
   vanillaDocWriteScopeFilter,
 } from "./capability-filter.js";
 import { ectoValidator } from "./changeset-validators.js";
-import {
-  exEctoIdType,
-  exEctoJsonType,
-  exEctoScalarType,
-} from "./codec-spelling-ex.js";
+import { exEctoIdType, exEctoJsonType, exEctoScalarType } from "./codec-spelling-ex.js";
 import { isVoValuedType, NORMALIZE_KEYS_DEFP, NORMALIZE_VO_KEYS_DEFP } from "./key-normalize.js";
 import { managedTimestampNames } from "./managed-timestamps.js";
 import { applyFnName, saveFnName } from "./op-in-memory.js";

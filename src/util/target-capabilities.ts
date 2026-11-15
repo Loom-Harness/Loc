@@ -371,7 +371,7 @@ export type UiScope =
 export type BackendScope =
   /** Generated members and types are C#, so two names that differ only in a
    *  way C# folds (or that clash with a namespace) collide. */
-  | "names:csharp-members";
+  "names:csharp-members";
 
 // --- the feature-tuple axis ---------------------------------------------------
 //

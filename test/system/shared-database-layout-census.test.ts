@@ -22,17 +22,17 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DIAGNOSTIC_MESSAGES } from "../../src/diagnostics/messages.js";
 import { renderPgStep } from "../../src/generator/sql-pg.js";
+import type { Platform } from "../../src/ir/types/deployment.js";
 import {
   availableAdapterNames,
   OWN_LAYOUT_PERSISTENCE,
 } from "../../src/platform/adapter-metadata.js";
 import { descriptorFor } from "../../src/platform/metadata.js";
 import { TARGET_FACTS } from "../../src/platform/target-facts.js";
-import type { Platform } from "../../src/ir/types/deployment.js";
 import { buildMigrations } from "../../src/system/migrations-builder.js";
 import { memorySnapshotStore } from "../../src/system/snapshot.js";
-import { generateSystemFiles } from "../_helpers/generate.js";
 import { expectReach } from "../_helpers/census-reach.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 import { buildLoomModel } from "../_helpers/index.js";
 
 const REPO = join(import.meta.dirname, "../..");

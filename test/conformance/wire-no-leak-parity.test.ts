@@ -13,9 +13,8 @@
 // simply weren't in the spec being compared) — a T0 static gate against the
 // emitted wire-serialization site is what catches it per-PR.
 //
-// Anchored to each backend's RESPONSE site, NOT the DB schema — Elixir's schema
-// legitimately declares `timestamps()`; the guarantee is that they don't reach
-// the wire. The leak signature is deliberately the framework-timestamp tokens
+// Anchored to each backend's RESPONSE site, NOT the DB schema: the guarantee
+// is that no framework bookkeeping reaches the wire. The leak signature is deliberately the framework-timestamp tokens
 // (`inserted_at`/`updated_at` + their camel wire forms) — NOT `createdAt`,
 // which is a legal *declared* field and also collides with .NET's
 // `CreatedAtAction` routing helper.
@@ -23,8 +22,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
-/** A plain aggregate — no declared timestamp field. On Elixir this still gets
- *  auto `timestamps()` in the schema, so it's the leak trigger. */
+/** A plain aggregate — no declared timestamp field. */
 function system(platform: string): string {
   return `
 system S {

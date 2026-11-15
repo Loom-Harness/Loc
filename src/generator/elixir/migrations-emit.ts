@@ -7,8 +7,6 @@ import type {
 } from "../../ir/types/migrations-ir.js";
 import { splitTransactionalSteps } from "../../ir/util/migration-steps.js";
 import { snake, upperFirst } from "../../util/naming.js";
-import { FOLD_INBOX_TABLE } from "../../ir/plan/index.js";
-import { TIMER_CLAIM_TABLE } from "../../util/timer.js";
 import { collapseVoGroups, collapseVoSteps } from "../_persistence/vo-json-columns.js";
 import {
   renderAlterColumnDefaultSql,
@@ -429,11 +427,7 @@ function isEventLogTable(t: TableShape): boolean {
  *  the remaining columns (incl. the `bigserial` `seq`) as plain adds. */
 function eventLogColumnLines(table: TableShape): string[] {
   const pk = new Set(table.primaryKey);
-  return table.columns.map((c) =>
-    pk.has(c.name)
-      ? pkColumnLine(c)
-      : renderEctoColumn(c, table),
-  );
+  return table.columns.map((c) => (pk.has(c.name) ? pkColumnLine(c) : renderEctoColumn(c, table)));
 }
 
 /** A persisted workflow-correlation (saga) state table: keyed by the
@@ -458,30 +452,9 @@ function pkColumnLine(c: ColumnShape): string {
 function stateColumnLines(table: TableShape): string[] {
   const pk = new Set(table.primaryKey);
   const lines = collapseVoGroups(table.columns.filter((c) => !c.valueArrayChildTable)).map((c) =>
-    pk.has(c.name)
-      ? pkColumnLine(c)
-      : renderEctoColumn(c, table),
+    pk.has(c.name) ? pkColumnLine(c) : renderEctoColumn(c, table),
   );
-  if (carriesEctoTimestamps(table)) lines.push("timestamps()");
   return lines;
-}
-
-/** Machinery tables: a fixed shape every backend writes with raw inserts, so
- *  none carries Ecto's timestamps. */
-const MACHINERY_TABLES: ReadonlySet<string> = new Set([
-  "__loom_outbox",
-  "audit_records",
-  "provenance_records",
-  TIMER_CLAIM_TABLE,
-  FOLD_INBOX_TABLE,
-]);
-
-/** A workflow-state or projection-row table (id-less, FK-less, not machinery)
- *  still carries Ecto's `timestamps()`: its schema (`dispatch-emit.ts`,
- *  `projections-emit.ts`) declares them.  Every other table carries exactly
- *  the shared columns. */
-function carriesEctoTimestamps(table: TableShape): boolean {
-  return table.foreignKeys.length === 0 && !MACHINERY_TABLES.has(table.name);
 }
 
 /** An entity table's columns: the `id` PK, then the rest with value objects
