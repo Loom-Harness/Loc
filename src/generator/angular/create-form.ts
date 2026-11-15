@@ -79,7 +79,7 @@ export function renderAngularCreateForm(
       "CreateForm(of: …): missing 'of:' aggregate ref",
     );
   const agg = ctx.aggregatesByName.get(aggName);
-  const bc = ctx.bcByAggregate?.get(aggName);
+  const bc = ctx.model.homeOfAggregate(aggName);
   if (!agg || !bc) {
     return giveUp(
       ctx.target,
@@ -88,7 +88,7 @@ export function renderAngularCreateForm(
     );
   }
 
-  const fields = createRequestFields(bc.payloads, agg);
+  const fields = ctx.model.createRequestFields(bc, agg);
   const ns = `${routeSegmentFor(agg.name)}-new`;
   const importFrom = `../../api/${lowerFirst(agg.name)}`;
   const requestType = `Create${agg.name}Request`;

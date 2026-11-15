@@ -86,6 +86,7 @@ import {
   pageKeyPrefix,
 } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 // Framework-neutral pieces that live react-side today (same sharing
 // pattern as the elixir theme-emit): the e2e harness constants, the
 // page-object emitters (testid/DOM-only — `@loom/ui-test-driver`
@@ -235,7 +236,7 @@ export function generateVueForContexts(
   pack.setChromeI18n(i18nEnabled);
   const formScope = {
     layouts: sys.layouts,
-    contexts,
+    model: walkerModelOf({ contexts }),
     sentences: pack.manifest.sentenceChrome ?? [],
     implicitModelText: vueTarget.modelTextImplicitSites === true,
     sessionView: authUi,
@@ -434,9 +435,8 @@ export function generateVueForContexts(
       userComponents,
       ui.apiParams,
       aggregatesIRByName,
-      bcByAggregate,
+      walkerModelOf({ bcByAggregate, bcByWorkflow }),
       workflowsByName,
-      bcByWorkflow,
       new Map(),
       pageRoutes,
       externFunctionNames,

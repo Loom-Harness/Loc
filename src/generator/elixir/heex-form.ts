@@ -24,6 +24,7 @@ import { giveUpText } from "../_walker/give-up.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
 import { workflowRunEntry } from "../_walker/model-text-sites.js";
 import type { InputControl } from "../_walker/target.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 import {
   heexChrome,
   heexChromeAttr,
@@ -494,7 +495,11 @@ function workflowRunLabel(
   const bcs = new Set(ctx.bcByAggregate.values());
   const bc = [...bcs].find((c) => c.workflows.some((w) => w.name === wfName));
   if (!bc) return undefined;
-  const { key, defaultText } = workflowRunEntry(wfName, bc, bcs);
+  const { key, defaultText } = workflowRunEntry(
+    wfName,
+    bc,
+    walkerModelOf({ bcByAggregate: ctx.bcByAggregate }),
+  );
   const english = sourceText(key, defaultText);
   return ctx.i18nPrefix ? { english, call: pgettextCall(key, defaultText) } : { english };
 }

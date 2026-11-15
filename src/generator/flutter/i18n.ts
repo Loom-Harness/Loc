@@ -56,6 +56,7 @@ import { baseAliases, localeEntries } from "../_frontend/locale-meta.js";
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
 import { ordinalTable } from "../_i18n/ordinal-rules.js";
 import { HAND_BUILT_FORM_SENTENCES } from "../_walker/i18n-chrome.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 
 /** A Dart single-quoted string literal.  Escapes the backslash, the quote and
  *  `$` (Dart interpolates `$name` / `${…}` inside a plain string), plus real
@@ -155,7 +156,7 @@ export function renderFlutterI18nModule(
   authGate = false,
 ): string {
   const scope = {
-    contexts,
+    model: walkerModelOf({ contexts }),
     sentences: HAND_BUILT_FORM_SENTENCES.rowsAndGuards,
     implicitModelText: true,
     pageNames: "all" as const,

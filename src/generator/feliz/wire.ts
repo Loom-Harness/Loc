@@ -62,6 +62,7 @@ import { isEntityHistoryRead } from "../_walker/history-read.js";
 import { isOfReadCall } from "../_walker/of-reads.js";
 import { isPagedQuery, type PagedQueryContext, queryShape } from "../_walker/paged-query.js";
 import { boolNamed } from "../_walker/shared/args.js";
+import { walkerModelOf } from "../_walker/walker-model.js";
 import { felizFieldArrays, felizFormFields } from "./form-fields.js";
 import { CODE_POINT_LEN_HELPER, type FelizFieldRule, felizFieldRules } from "./form-validators.js";
 import { fsString } from "./fs-expr.js";
@@ -1290,7 +1291,7 @@ function collectBodyReads(
     projectionsByName,
     workflowsByName: workflowIRs,
   };
-  const pagedCtx = { ...detCtx, bcByAggregate };
+  const pagedCtx = { ...detCtx, model: walkerModelOf({ bcByAggregate }) };
   const out: FelizRead[] = [];
   const seen = new Set<string>();
   for (const { of: ofArg, explicitPaged } of queryViewOfArgs(body)) {

@@ -2,6 +2,7 @@ import type { AggregateIR, BoundedContextIR, OperationIR } from "../../ir/types/
 import { formSeedTs } from "../_frontend/form-helpers.js";
 import { type FormSpec, formSpecEnvOf, operationFormSpec } from "../_frontend/form-spec.js";
 import type { WalkContext } from "../_walker/walker-core.js";
+import type { WalkerHome } from "../_walker/walker-model.js";
 import type { AngularFieldArraySpec } from "./form-fields.js";
 
 // ---------------------------------------------------------------------------
@@ -18,10 +19,10 @@ const TEXT_LIKE = new Set(["string", "date", "datetime", "enum", "ref", "optiona
 export function angularOpFormSpec(
   agg: AggregateIR,
   op: OperationIR,
-  bc: BoundedContextIR,
+  bc: WalkerHome,
   ctx: WalkContext,
 ): FormSpec {
-  return operationFormSpec(agg, op, formSpecEnvOf(bc, ctx.aggregatesByName, ctx.bcByAggregate));
+  return operationFormSpec(agg, op, ctx.model.formSpecEnv(bc, ctx.aggregatesByName));
 }
 
 /** Top-level fields whose cleared input must submit `null`. */
@@ -55,7 +56,7 @@ export function seedMethodLines(input: {
   formVar: string;
   recordType: string;
   spec: FormSpec;
-  bc: BoundedContextIR;
+  bc: WalkerHome;
   fieldArrays: readonly AngularFieldArraySpec[];
 }): string | undefined {
   const { spec, formVar } = input;

@@ -727,7 +727,6 @@ function walkShared(body: ExprIR, sink: HeexWalkSink): string {
     undefined,
     undefined,
     undefined,
-    undefined,
     new Set((ui.functions ?? []).map((f) => f.name)),
     new Set((page.derived ?? []).map((d) => d.name)),
     undefined,

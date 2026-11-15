@@ -32,7 +32,8 @@ import { routeSegmentFor } from "../../util/storage-names.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
 import { isOfReadCall } from "../_walker/of-reads.js";
-import { bcByAggregateOf, isPagedQuery } from "../_walker/paged-query.js";
+import { isPagedQuery } from "../_walker/paged-query.js";
+import { bcByAggregateOf, walkerModelOf } from "../_walker/walker-model.js";
 import { flutterHttpImport } from "./api-client.js";
 /** One distinct read a ui issues, projected to everything the provider emitter
  *  needs.  Deduped by `varName` across every page of the ui. */
@@ -165,7 +166,8 @@ export function collectFlutterReads(
   const projectionsByName = readableProjectionNames(contexts);
   const groupedProjections = groupedProjectionNames(contexts);
   const detCtx = { apiParamNames, aggregatesByName, projectionsByName };
-  const pagedCtx = { ...detCtx, bcByAggregate: bcByAggregateOf(contexts) };
+  const bcByAggregate = bcByAggregateOf(contexts);
+  const pagedCtx = { ...detCtx, model: walkerModelOf({ bcByAggregate }) };
   const out: FlutterRead[] = [];
   const seen = new Set<string>();
   const bodies = [
@@ -234,8 +236,7 @@ export function collectFlutterReads(
         routePath: `/${routeSegmentFor(detected.aggregateName)}`,
         paged: detected.operation !== "byId" && isPagedQuery(ofArg, pagedCtx),
         bareList:
-          detected.operation === "all" &&
-          !isPagedAllRead(detected.aggregateName, pagedCtx.bcByAggregate),
+          detected.operation === "all" && !isPagedAllRead(detected.aggregateName, bcByAggregate),
       });
     }
   }

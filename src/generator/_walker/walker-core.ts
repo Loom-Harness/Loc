@@ -56,7 +56,6 @@ import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
   ActionIR,
   AggregateIR,
-  BoundedContextIR,
   ExprIR,
   OperationIR,
   ParamIR,
@@ -65,10 +64,6 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { collectionOpSite } from "../../ir/util/collection-op-site.js";
-import {
-  listShapedProjectionNames,
-  readableProjectionNames,
-} from "../../ir/util/projection-read.js";
 import { walkStmtChildren } from "../../ir/util/walk.js";
 import { errorTypeUri } from "../../util/error-defaults.js";
 import { provableStringType } from "../../util/expr-body-type.js";
@@ -100,6 +95,7 @@ import { WALKER_PRIMITIVES } from "./registry.js";
 import { wirePackChromeImport } from "./render-primitive.js";
 import { describeReceiver, positionalArgs } from "./shared/args.js";
 import type { ChildSlot, DataBinding, RenderPosition, WalkerTarget, WalkScope } from "./target.js";
+import { type WalkerHome, type WalkerModel, walkerModelOf } from "./walker-model.js";
 
 export {
   type ActionMutationState,
@@ -444,18 +440,14 @@ export function walkBody(
    *  aggregate's IR here (field list for form dispatch; display-
    *  marked field for IdLink's link text). */
   aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
-  /** Bounded-context map keyed by aggregate name.  The
-   *  form-field preparer needs the BC to resolve enum / value-
-   *  object types declared alongside the aggregate. */
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
+  /** What the walk knows about the bounded contexts the ui reaches
+   *  (`walker-model.ts`): the type scope a form's fields resolve in, the
+   *  repository finds a read calls, the readable projections. */
+  model: WalkerModel = walkerModelOf({}),
   /** Workflows reachable from this UI's deployable.
    *  `WorkflowForm(runs: <wf>)` looks up the workflow's IR here (param
    *  list for form dispatch, owning BC for enum resolution). */
   workflowsByName: ReadonlyMap<string, WorkflowIR> = new Map(),
-  /** Owning bounded context per workflow (the form-
-   *  field preparer needs the BC to resolve enums / value-objects
-   *  referenced by workflow params). */
-  bcByWorkflow: ReadonlyMap<string, BoundedContextIR> = new Map(),
   /** In-scope instance variable → aggregate name (current body's
    *  aggregate-typed params), powering `Action(<instance>.<op>)`. */
   paramTypes: ReadonlyMap<string, string> = new Map(),
@@ -513,11 +505,10 @@ export function walkBody(
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName,
-    bcByAggregate,
+    model,
     workflowsByName,
-    projectionsByName: readableProjectionNames(new Set(bcByAggregate.values())),
-    listShapedProjections: listShapedProjectionNames(new Set(bcByAggregate.values())),
-    bcByWorkflow,
+    projectionsByName: model.readableProjections,
+    listShapedProjections: model.listShapedProjections,
     formOfs: [],
     // Shared opaque per-target sink.  One object on the root context (a
     // container the walker never inspects) so child contexts — built by
@@ -679,10 +670,8 @@ export interface WalkEnv {
    *  Powers `CreateForm(of: <Agg>)` field dispatch and `IdLink(of: <Agg>)`
    *  display-field resolution. */
   aggregatesByName: ReadonlyMap<string, AggregateIR>;
-  /** Map aggregate name → owning bounded context, so the
-   *  form-field preparer can resolve enums / value-objects declared
-   *  in the same context. */
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR>;
+  /** What the walk knows about the bounded contexts the ui reaches. */
+  model: WalkerModel;
   /** Workflows reachable from this UI's deployable.
    *  Powers `WorkflowForm(runs: <wf>)` field dispatch. */
   workflowsByName: ReadonlyMap<string, WorkflowIR>;
@@ -702,8 +691,6 @@ export interface WalkEnv {
    *  single-vs-list answer for a projection read.  Same optionality rationale
    *  as above. */
   listShapedProjections?: ReadonlySet<string>;
-  /** Owning bounded context per workflow. */
-  bcByWorkflow: ReadonlyMap<string, BoundedContextIR>;
   /** Extern frontend functions declared on this ui
    *  (`function f(…): T extern from "…"`) — names a body call can
    *  reference; the shell imports each used one from its
@@ -848,7 +835,8 @@ export interface WalkContext extends WalkEnv, Sink {}
 export type FormOfState = AggregateFormState | WorkflowFormState | OperationFormState;
 
 interface FormStateBase {
-  bc: BoundedContextIR;
+  /** The context the form's field types resolve in. */
+  home: WalkerHome;
   /** X id targets needing `useAllX()` injection at function top
    *  (resolved through `idTargetsInFields`).  One hook decl per
    *  target — collapsed across multiple `X id` fields on the same
@@ -2206,15 +2194,13 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
  *  Lowering cannot distinguish `Money(9.99, "USD")` (a VO construction) from
  *  `MyWidget(…)` (a component) or `fee(…)` (an extern function) — all three
  *  land as `callKind: "free"` — so the walker resolves it here against the
- *  bounded contexts it already carries for api-hook detection.  `bcByAggregate`
- *  is keyed per aggregate, so the same context appears under several keys;
- *  dedupe is unnecessary since we stop at the first match. */
+ *  contexts the walk's model reaches, the first declaring one winning. */
 function declaredValueObject(
   name: string,
   ctx: WalkContext,
 ): { fields: ReadonlyArray<{ name: string }> } | undefined {
-  for (const bc of ctx.bcByAggregate.values()) {
-    const vo = bc.valueObjects?.find((v) => v.name === name);
+  for (const home of ctx.model.homes) {
+    const vo = home.valueObjects.find((v) => v.name === name);
     if (vo) return vo;
   }
   return undefined;
@@ -2402,10 +2388,10 @@ function emitVariantMatch(
   const detected = detectDataAccess(stmt.subject, ctx);
   let mutationVar = "";
   let mutateArgs = "{}";
-  let bc: BoundedContextIR | undefined;
+  let home: WalkerHome | undefined;
   let resultType: string | undefined;
   if (detected) {
-    bc = ctx.bcByAggregate.get(detected.aggregateName);
+    home = ctx.model.homeOfAggregate(detected.aggregateName);
     const agg = ctx.aggregatesByName.get(detected.aggregateName);
     const op = agg?.operations.find((o) => o.name === detected.operation);
     // An aggregate `operation` is an INSTANCE command — its binding takes the
@@ -2447,7 +2433,7 @@ function emitVariantMatch(
   // body (its lowering env can't see the domain context), so the payload
   // classification is authoritative; the hint is an OR-fallback.
   const isErrorTag = (tag: string, hint: boolean | undefined): boolean =>
-    hint === true || !!bc?.payloads.some((p) => p.name === tag && p.kind === "error");
+    hint === true || (!!home && ctx.model.isErrorRecord(home, tag));
 
   const arms = stmt.arms.map((arm) => {
     const tag = variantTag(arm.varType);
