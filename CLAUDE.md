@@ -121,7 +121,7 @@ Phase ⑨ drives ⑧: it derives `MigrationsIR` and then invokes each platform e
 - `ir/` knows nothing about `generator/`.
 - `generator/<platform>/` knows nothing about other platforms.
 - `system/` composes outputs from the platform generators; it never generates domain code itself.
-- **No target-backend IR.** Every backend consumes `LoomModel` directly. The only secondary IR is `MigrationsIR`, derived once in phase ⑨ and shared by every backend with a database.
+- **No target-backend IR.** Every backend consumes `LoomModel` directly. The only secondary IR is `MigrationsIR`, derived once in phase ⑨; every backend with a database renders its schema from it (the SQL adapters through one shared Postgres renderer, Ecto in its own DSL).
 
 This is **test-enforced**, not just convention: `test/platform/pipeline-layering.test.ts` fails on any *value* (runtime) backward-edge across the `language → ir → generator → system` chain (type-only imports of the shared IR vocabulary are exempt — `import type` carries no runtime edge), and `test/platform/backend-packages-layering.test.ts` guards the `generator → platform` package edge. A shared helper consumed across layers belongs at the layer its consumers live at (e.g. pack-identity metadata and source-type predicates are in `src/util/`; the Postgres-SQL renderer is in `src/generator/`), never imported "upward" against the pipeline.
 
