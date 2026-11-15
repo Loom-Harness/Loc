@@ -131,9 +131,7 @@ export function renderInboxPurgeService(ns: string, usingDapper: boolean): strin
         param: "IServiceScopeFactory scopes",
         assign: "_scopes = scopes",
       };
-  const usings = usingDapper
-    ? "using Dapper;\nusing Npgsql;\n"
-    : `using Microsoft.EntityFrameworkCore;\nusing Microsoft.Extensions.DependencyInjection;\nusing ${ns}.Infrastructure.Persistence;\n`;
+  const usings = usingDapper ? dapperPurgeUsings() : efPurgeUsings(ns);
   return `// Auto-generated.
 using System;
 using System.Threading;
@@ -176,5 +174,20 @@ ${outboxRetentionMembers(purge)}
         }
     }
 }
+`;
+}
+
+/** The Dapper purge service's using block. */
+function dapperPurgeUsings(): string {
+  return `using Dapper;
+using Npgsql;
+`;
+}
+
+/** The EF purge service's using block. */
+function efPurgeUsings(ns: string): string {
+  return `using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using ${ns}.Infrastructure.Persistence;
 `;
 }

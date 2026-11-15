@@ -66,21 +66,21 @@ describe("elixir idempotent-consumer markers (M-T4.3)", () => {
     expect(file(files, "fulfil_state.ex")).toContain("field :last_event_id, :string");
   });
 
-  it("wraps the create starter in the marker check + stamp", async () => {
+  it("claims the create starter's delivery in the consumer inbox, then stamps the row", async () => {
     const files = await build(DURABLE);
     const start = file(files, "start_order_placed.ex");
     expect(start).toContain("event_id = Process.get(:loom_event_id)");
-    expect(start).toContain("if event_id && state.last_event_id == event_id do");
+    expect(start).toContain('["workflow:Fulfil", to_string(event_id)]).num_rows == 0 do');
     expect(start).toContain(
       "Repo.update!(Ecto.Changeset.change(state, %{last_event_id: event_id}))",
     );
   });
 
-  it("wraps the on reactor in the marker check + stamp", async () => {
+  it("claims the on reactor's delivery in the consumer inbox, then stamps the row", async () => {
     const files = await build(DURABLE);
     const on = file(files, "on_shipment_requested.ex");
     expect(on).toContain("event_id = Process.get(:loom_event_id)");
-    expect(on).toContain("if event_id && state.last_event_id == event_id do");
+    expect(on).toContain("insert into __loom_fold_inbox");
     expect(on).toContain("Repo.update!(Ecto.Changeset.change(state, %{last_event_id: event_id}))");
   });
 

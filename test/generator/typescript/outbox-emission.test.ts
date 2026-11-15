@@ -120,17 +120,18 @@ describe("transactional outbox emission — .NET (retention: log)", () => {
 });
 
 // ─── Idempotent-consumer markers (dispatch-delivery-semantics.md §3) ─────────
-// Under a durable channel the relay redelivers at-least-once, so the saga
-// row records the last processed outbox event id (`last_event_id`); handler
-// preambles no-op on a repeat.  Ephemeral contexts stay marker-free.
+// Under a durable channel the relay redelivers at-least-once, so each handler
+// claims the delivery in the consumer inbox in its transaction
+// (D-CONSUMER-INBOX); the saga row records the last event applied
+// (`last_event_id`).  Ephemeral contexts stay marker-free.
 
 describe("idempotent-consumer markers — Hono", () => {
-  it("the saga table gains last_event_id; handlers check + stamp; the relay threads the row id", async () => {
+  it("the saga table gains last_event_id; handlers claim + stamp; the relay threads the row id", async () => {
     const files = await generate("test/fixtures/outbox-sample.ddd");
     expect(files.get("db/schema.ts") ?? "").toContain('lastEventId: text("last_event_id"),');
     const wf = files.get("http/workflows.ts") ?? "";
     expect(wf).toContain("const __eventId = (p as { __loomEventId?: string }).__loomEventId;");
-    expect(wf).toContain("if (__eventId !== undefined && state.lastEventId === __eventId) {");
+    expect(wf).toContain("if (__claimed.rows.length === 0) return;");
     expect(wf).toContain("if (__eventId !== undefined) state.lastEventId = __eventId;");
     expect(wf).toContain(
       "await inner.dispatch({ ...(row.payload as Events.DomainEvent), __loomEventId: row.id } as unknown as Events.DomainEvent);",
@@ -149,7 +150,7 @@ describe("idempotent-consumer markers — .NET", () => {
     return generateBackendFiles(fs.readFileSync(path.join(root, file), "utf8"), "dotnet");
   }
 
-  it("state entity + EF mapping + OutboxDelivery AsyncLocal + handler check/stamp", async () => {
+  it("state entity + EF mapping + OutboxDelivery AsyncLocal + handler claim/stamp", async () => {
     const files = await dotnetFiles2("test/fixtures/outbox-sample.ddd");
     expect(files.get("Infrastructure/Persistence/Workflows/OrderFulfillmentState.cs")).toContain(
       "public string? LastEventId { get; set; }",
@@ -164,8 +165,8 @@ describe("idempotent-consumer markers — .NET", () => {
     expect(relay).toContain("OutboxDelivery.CurrentEventId = null;");
     const handler =
       files.get("Application/Workflows/OrderFulfillmentOnShipmentRequestedHandler.cs") ?? "";
-    expect(handler).toContain("var __eventId = OutboxDelivery.CurrentEventId;");
-    expect(handler).toContain("if (__eventId is not null && state.LastEventId == __eventId)");
+    expect(handler).toContain(".Domain.Common.OutboxDelivery.CurrentEventId;");
+    expect(handler).toContain('await _inbox.ApplyOnceAsync("workflow:OrderFulfillment", __eventId');
     expect(handler).toContain("if (__eventId is not null) state.LastEventId = __eventId;");
   });
 

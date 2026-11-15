@@ -89,7 +89,9 @@ describe("MikroORM transactional outbox", () => {
     expect(wf).toContain(
       "const state = (await loadOrderFulfillment(db, __key)) ?? { orderId: __key, attempts: 0, lastEventId: null };",
     );
-    expect(wf).toContain("if (__eventId !== undefined && state.lastEventId === __eventId) {");
+    // The inbox claim dedupes; the row only records the last event applied.
+    expect(wf).toContain("await db.transactional(async (__tx) => {");
+    expect(wf).toContain("if (__eventId !== undefined) state.lastEventId = __eventId;");
   });
 
   it("captures durable events on the EntityManager, not drizzle", async () => {

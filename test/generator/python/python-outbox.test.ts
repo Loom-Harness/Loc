@@ -104,12 +104,13 @@ describe("python durable-channel outbox", () => {
     expect(dispatch).toContain("return asyncio.create_task(_run_outbox_relay())");
   });
 
-  it("saga handlers dedup on last_event_id; chained emits clear the relayed id", async () => {
+  it("saga handlers claim the delivery in the consumer inbox; chained emits clear the relayed id", async () => {
     const files = await build();
     const dispatch = files.get("api/app/dispatch.py")!;
-    // Idempotent-consumer dedup before running the body.
+    // The inbox claim runs in the handler's session before the body; the row
+    // records the last event applied to it.
     expect(dispatch).toContain("__eid = _current_event_id.get()");
-    expect(dispatch).toContain("if state.last_event_id == __eid:");
+    expect(dispatch).toContain("if __claimed.first() is None:");
     expect(dispatch).toContain("state.last_event_id = __eid");
     // A handler's own emits dispatch with the relayed id cleared.
     expect(dispatch).toContain(

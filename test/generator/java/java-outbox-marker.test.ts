@@ -125,7 +125,7 @@ describe("java idempotent-consumer markers (M-T4.3)", () => {
     expect(state).toContain("public void setLastEventId(String lastEventId) {");
   });
 
-  it("emits the OutboxDelivery marker carrier and the dispatcher check + stamp", async () => {
+  it("emits the OutboxDelivery carrier and the dispatcher's inbox claim + stamp", async () => {
     const files = await generateSystemFiles(COLOCATED);
     const delivery = find(files, "sales_api", "OutboxDelivery.java");
     expect(delivery).toContain("private static final ThreadLocal<String> CURRENT");
@@ -134,12 +134,11 @@ describe("java idempotent-consumer markers (M-T4.3)", () => {
 
     const dispatcher = find(files, "sales_api", "OrdersDispatcher.java");
     expect(dispatcher).toContain("import com.loom.salesapi.domain.common.OutboxDelivery;");
-    // Preamble: no-op on a redelivery of the recorded id.
+    // Preamble: claim the delivery in the consumer inbox on the method's
+    // transaction; a delivery already claimed does nothing.
     expect(dispatcher).toContain("var __eventId = OutboxDelivery.currentEventId();");
-    expect(dispatcher).toContain(
-      "if (__eventId != null && __eventId.equals(state.lastEventId())) {",
-    );
-    // Stamp before the state save (same tx window as the saga mutation).
+    expect(dispatcher).toContain('"workflow:Fulfil", __eventId) == 0) return;');
+    // The row records the last event applied to it.
     expect(dispatcher).toContain("if (__eventId != null) state.setLastEventId(__eventId);");
   });
 
@@ -151,12 +150,15 @@ describe("java idempotent-consumer markers (M-T4.3)", () => {
     expect(consumer).toContain("OutboxDelivery.clear();");
   });
 
-  it("keeps a FOREIGN consumer marker-free (the ack-semantics stance)", async () => {
+  it("claims a FOREIGN durable delivery too, and purges the inbox without a relay", async () => {
     const files = await generateSystemFiles(FOREIGN);
-    // shipApi hosts no durable channel — its module owns no outbox table.
-    expect(find(files, "ship_api", "FulfilState.java")).not.toContain("last_event_id");
-    expect(find(files, "ship_api", "ChannelConsumerService.java")).not.toContain("OutboxDelivery");
-    expect(find(files, "ship_api", "OutboxDelivery.java")).toBe("");
+    // shipApi hosts no durable channel, but it consumes one: a broker
+    // redelivers its envelopes exactly as a local relay would.
+    expect(find(files, "ship_api", "FulfilState.java")).toContain("last_event_id");
+    expect(find(files, "ship_api", "ChannelConsumerService.java")).toContain(
+      "OutboxDelivery.setCurrentEventId(envelope.id());",
+    );
+    expect(find(files, "ship_api", "InboxPurgeService.java")).toContain("public int purge() {");
   });
 
   it("stays byte-identical for an ephemeral-only channel (no outbox, no markers)", async () => {
