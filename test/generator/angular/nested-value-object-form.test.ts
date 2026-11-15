@@ -12,7 +12,7 @@ const SOURCE = `
         valueobject Geo { lat: decimal  lng: decimal }
         valueobject Address { street: string  geo: Geo }
         valueobject Stop { label: string  spot: Geo }
-        aggregate Venue {
+        aggregate Venue with crudish {
           name: string
           address: Address
           stops: Stop[]

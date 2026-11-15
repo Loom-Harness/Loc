@@ -25,7 +25,7 @@ system S {
   subdomain D { context C {
     enum Color { red  green }
     valueobject LineItem { sku: string  qty: int  active: bool  shade: Color  due: datetime }
-    aggregate Order {
+    aggregate Order with crudish {
       ref: string
       lines: LineItem[]
       flags: bool[]

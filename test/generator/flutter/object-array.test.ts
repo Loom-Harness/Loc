@@ -17,7 +17,7 @@ system S {
   api A from D
   subdomain D { context C {
     valueobject LineItem { sku: string  qty: int }
-    aggregate Order {
+    aggregate Order with crudish {
       ref: string
       lines: LineItem[]
     }
