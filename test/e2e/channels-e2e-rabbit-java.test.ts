@@ -30,6 +30,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { redeliveryWitness } from "./support/redelivery-witness.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT_JAVA === "1";
 
@@ -292,6 +293,12 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — java leg (M-T4.4 slice 7
     const salesLog = readFileSync(join(dir, `sales_api-${SALES_PORT}.log`), "utf8");
     expect((salesLog.match(/channel_published/g) ?? []).length).toBe(ORDERS);
   }, 120_000);
+
+  redeliveryWitness({
+    container: () => (dlqProbe ? "loom-channels-rbjv-mq" : undefined),
+    address: ADDRESS,
+    consumer: () => `http://localhost:${REPLICA_PORTS[0]}`,
+  });
 
   it("parks a poisoned message in the DLQ instead of losing it", async () => {
     if (!dlqProbe) return; // AMQP override: no container to drive rabbitmqadmin in

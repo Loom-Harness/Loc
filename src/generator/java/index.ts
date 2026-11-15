@@ -8,7 +8,7 @@ import { type CachedByIdRead, cachePlanFor } from "../../ir/plan/cache.js";
 import {
   channelPlan,
   eventSourcedWorkflows,
-  foldsDedupe,
+  inboxDedupes,
   observableWorkflows,
   polymorphicReadGates,
   polymorphicReadMasked,
@@ -145,6 +145,7 @@ import {
   KAFKA_CLIENTS_VERSION,
   LETTUCE_CORE_VERSION,
   renderJavaChannelFiles,
+  renderJavaInboxPurgeService,
   renderJavaOutboxDelivery,
   renderJavaOutboxFiles,
   renderJavaStandaloneOutboxFiles,
@@ -423,21 +424,17 @@ function emitProjectFromContexts(
   const chPlan = channelPlan(contexts, system);
   const channelBindings = chPlan.bindings;
   const hasChannels = channelBindings.length > 0;
-  // Durable broker-bound events (M-T4.4): HOSTED durable events
-  // carried by a wired `queue`/`work` (or future `log`) channel — their
-  // producer path rides the outbox relay (design §5), never the inline tee.
-  // Hosted-only on purpose: the module-level migrations are what back the
-  // `__loom_outbox` table, and they can't see a foreign wiring; a foreign
-  // `queue`/`work` consumer relies on broker ack semantics + idempotent
-  // reactors (the slice-3 stance).
+  // Durable broker-bound events (M-T4.4): HOSTED durable events carried by a
+  // wired `queue`/`work` (or future `log`) channel — their producer path rides
+  // the outbox relay (design §5), never the inline tee.
   const hostedDurable = new Set(contexts.flatMap((c) => [...durableEventTypes(c)]));
-  // The relay purge prunes the fold inbox when a hosted fold claims events.
-  const pruneInbox = contexts.some((c) => foldsDedupe(c, true));
-  // Idempotent-consumer marker carrier (dispatch-delivery-semantics.md §3): the
-  // saga dispatcher's handler preamble references OutboxDelivery whenever a
-  // hosted context carries a durable channel, so it must exist whether or not a
-  // broker is wired.  Byte-identical for channel-less / ephemeral-only projects.
-  if (hostedDurable.size > 0) {
+  // The relay purge prunes the consumer inbox when a hosted consumer claims.
+  const pruneInbox = contexts.some((c) => inboxDedupes(c, true));
+  // Some consumer claims in the consumer inbox (`src/ir/plan/consumer-inbox.ts`).
+  const consumerDedupes = contexts.some((c) => inboxDedupes(c, chPlan.receivesDurable));
+  // The delivery-id carrier: the relays and the broker consumer set it, every
+  // claiming consumer reads it.
+  if (hostedDurable.size > 0 || consumerDedupes) {
     place("OutboxDelivery.java", "domain-common", renderJavaOutboxDelivery(basePkg));
   }
   const durableBrokerEvents = new Set(
@@ -1018,7 +1015,7 @@ function emitProjectFromContexts(
           basePkg,
           pkgFor("infra-persistence"),
           ctxSchema,
-          hostedDurable.size > 0,
+          chPlan.receivesDurable,
         ),
         undefined,
         wf.origin,
@@ -1102,7 +1099,7 @@ function emitProjectFromContexts(
         contextSchema: ctxSchema,
         extraChannels: hasChannels ? wiredForeignChannels : undefined,
         brokerEvents: hasChannels ? brokerEvents : undefined,
-        deployableDurable: hostedDurable.size > 0,
+        deployableDurable: chPlan.receivesDurable,
         localDurableEvents: standaloneOutbox ? localDurable : undefined,
         resources: { classes: resourceEmission.classes, pkg: pkgFor("resource-client") },
       },
@@ -1446,6 +1443,7 @@ function emitProjectFromContexts(
       consumerHandlers,
       {
         durableBroker: durableBrokerEvents.size > 0,
+        parksEventId: durableBrokerEvents.size > 0 || consumerDedupes,
         outboxEntityPkg: pkgFor("infra-persistence"),
         outboxRepoPkg: pkgFor("spring-data-repository"),
         valueObjects: [
@@ -1474,6 +1472,11 @@ function emitProjectFromContexts(
         place(f.name, f.category, f.content);
       }
     }
+  }
+
+  // The consumer inbox's purge where no relay runs to do it.
+  if (consumerDedupes && !standaloneOutbox && durableBrokerEvents.size === 0) {
+    place("InboxPurgeService.java", "config", renderJavaInboxPurgeService(pkgFor("config")));
   }
 
   // Explicit transport bindings (unfoldable-api-derivation.md, A2): one

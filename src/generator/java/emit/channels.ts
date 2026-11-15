@@ -295,11 +295,16 @@ export function renderJavaChannelFiles(
      *  ruling D1), the outbox row records it, and the consumer dispatches each
      *  event as the system principal of that origin (`auth/EventOrigin.java`). */
     carriesOrigin?: boolean;
+    /** The consumer parks the envelope id on `OutboxDelivery` for the
+     *  dispatch it runs: a consumer claims in the inbox, or the relay sets
+     *  the same carrier.  Defaults to `durableBroker`. */
+    parksEventId?: boolean;
   } = {
     durableBroker: false,
   },
 ): Map<string, string> {
   const pkg = `${basePkg}.config`;
+  const parks = opts.parksEventId ?? opts.durableBroker;
   const vos: ReadonlyMap<string, readonly FieldIR[]> = new Map(
     (opts.valueObjects ?? []).map((v) => [v.name, v.fields] as const),
   );
@@ -1528,7 +1533,7 @@ export function renderJavaChannelFiles(
           .filter((h) => h.dispatcherPkg !== pkg)
           .map((h) => `import ${h.dispatcherPkg}.${h.dispatcherClass};`),
         carriesOrigin ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
-        opts.durableBroker ? `import ${basePkg}.domain.common.OutboxDelivery;` : null,
+        parks ? `import ${basePkg}.domain.common.OutboxDelivery;` : null,
         `import ${basePkg}.domain.events.*;`,
         ``,
         `/** Consumer loop — subscribes every wired address (competing-consumer`,
@@ -1583,21 +1588,19 @@ export function renderJavaChannelFiles(
         `        var bare = envelope.type().contains(".")`,
         `                ? envelope.type().substring(envelope.type().indexOf('.') + 1)`,
         `                : envelope.type();`,
-        // Idempotent-consumer marker (dispatch-delivery-semantics.md §3): park
-        // the envelope id (= producer's outbox row id) so hosted saga handlers
-        // no-op on a redelivery of the same id.  Only where this deployable
-        // hosts the durable channel's context (its state rows carry
-        // last_event_id); foreign consumers keep the ack-semantics stance.
-        opts.durableBroker ? `        OutboxDelivery.setCurrentEventId(envelope.id());` : null,
-        opts.durableBroker ? `        try {` : null,
+        // The envelope id (the producer's outbox row id) rides in as the
+        // delivery id: every consumer that claims in the inbox claims it, so
+        // a redelivery applies once.
+        parks ? `        OutboxDelivery.setCurrentEventId(envelope.id());` : null,
+        parks ? `        try {` : null,
         `        switch (bare) {`,
         ...arms,
         `            default -> {`,
         `            }`,
         `        }`,
-        opts.durableBroker ? `        } finally {` : null,
-        opts.durableBroker ? `            OutboxDelivery.clear();` : null,
-        opts.durableBroker ? `        }` : null,
+        parks ? `        } finally {` : null,
+        parks ? `            OutboxDelivery.clear();` : null,
+        parks ? `        }` : null,
         `    }`,
         ``,
         // Subscribe BEFORE the web server accepts traffic.  SmartLifecycle
@@ -2259,4 +2262,77 @@ export function renderJavaStandaloneOutboxFiles(
       ),
     },
   ];
+}
+
+/** `InboxPurgeService.java`: the consumer inbox's retention purge on a
+ *  deployable that runs no outbox relay (the relay purges the inbox beside the
+ *  outbox otherwise).  Same window and interval as the relay's purge. */
+export function renderJavaInboxPurgeService(configPkg: string): string {
+  return lines(
+    `package ${configPkg};`,
+    ``,
+    `import java.sql.Timestamp;`,
+    `import java.time.Instant;`,
+    `import java.util.concurrent.Executors;`,
+    `import java.util.concurrent.ScheduledExecutorService;`,
+    `import java.util.concurrent.TimeUnit;`,
+    ``,
+    `import org.springframework.context.SmartLifecycle;`,
+    `import org.springframework.jdbc.core.JdbcTemplate;`,
+    `import org.springframework.stereotype.Component;`,
+    ``,
+    `/** Purges consumer-inbox claims older than the outbox retention window:`,
+    ` *  no redelivery of their event can still arrive. */`,
+    `@Component`,
+    `public class InboxPurgeService implements SmartLifecycle {`,
+    ...javaOutboxRetentionConstants(),
+    ``,
+    `    private final JdbcTemplate jdbc;`,
+    `    private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();`,
+    `    private volatile boolean running;`,
+    ``,
+    `    public InboxPurgeService(JdbcTemplate jdbc) {`,
+    `        this.jdbc = jdbc;`,
+    `    }`,
+    ``,
+    `    private static int retentionDays() {`,
+    `        try {`,
+    `            var days = Integer.parseInt(System.getenv().getOrDefault(${JSON.stringify(OUTBOX_RETENTION_ENV)}, "").trim());`,
+    `            return days > 0 ? days : ${OUTBOX_RETENTION_DEFAULT_DAYS};`,
+    `        } catch (NumberFormatException e) {`,
+    `            return ${OUTBOX_RETENTION_DEFAULT_DAYS};`,
+    `        }`,
+    `    }`,
+    ``,
+    `    /** One purge pass; public so an operator task (or a test) can run it. */`,
+    `    public int purge() {`,
+    `        var cutoff = Instant.now().minusSeconds(RETENTION_DAYS * 86_400L);`,
+    `        return jdbc.update(${JSON.stringify(foldInboxPurgeSql("?"))}, Timestamp.from(cutoff));`,
+    `    }`,
+    ``,
+    `    @Override`,
+    `    public void start() {`,
+    `        running = true;`,
+    `        executor.scheduleWithFixedDelay(() -> {`,
+    `            try {`,
+    `                purge();`,
+    `            } catch (RuntimeException e) {`,
+    `                CatalogLog.event(${javaLogEvent("outboxRelayError")}, "error", String.valueOf(e.getMessage()));`,
+    `            }`,
+    `        }, PURGE_INTERVAL_MS, PURGE_INTERVAL_MS, TimeUnit.MILLISECONDS);`,
+    `    }`,
+    ``,
+    `    @Override`,
+    `    public void stop() {`,
+    `        running = false;`,
+    `        executor.shutdown();`,
+    `    }`,
+    ``,
+    `    @Override`,
+    `    public boolean isRunning() {`,
+    `        return running;`,
+    `    }`,
+    `}`,
+    ``,
+  );
 }

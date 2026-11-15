@@ -6,8 +6,11 @@ import {
   foldInboxClaimSql,
   foldSteps,
   foldsDedupe,
+  inboxClaimSql,
   namesBound,
   subscriptionHandler,
+  workflowClaims,
+  workflowInboxKey,
 } from "../../../ir/plan/index.js";
 import type {
   ChannelIR,
@@ -99,10 +102,9 @@ export interface DispatchCtx {
    *  subscription; the ChannelConsumerService invokes these methods on
    *  delivery instead of Spring's local fan-out). */
   brokerEvents?: ReadonlySet<string>;
-  /** Any context this deployable hosts declares a durable channel.  A saga
-   *  consumer maps and checks `last_event_id` whenever it can receive a durable
-   *  envelope — the channel may be declared in a different hosted context than
-   *  the workflow. */
+  /** The deployable delivers durably (`channelPlan(...).receivesDurable`):
+   *  folds and state-based saga handlers claim in the consumer inbox, and
+   *  saga rows map `last_event_id`. */
   deployableDurable?: boolean;
   /** Durable events on a channel with NO broker (dispatch-delivery-semantics.md
    *  standalone tier): their handlers also DROP the local `@EventListener` — a
@@ -534,7 +536,10 @@ export function renderJavaDispatcher(
   const stateWfs = subscribedWfs.filter((wf) => !wf.eventSourced);
   const esPresent = subscribedWfs.some((wf) => wf.eventSourced);
   // The fold-inbox claim runs over the same JdbcTemplate.
-  const jdbcPresent = esPresent || (dedupe && touchedProjections.length > 0);
+  const jdbcPresent =
+    esPresent ||
+    (dedupe && touchedProjections.length > 0) ||
+    stateWfs.some((wf) => workflowClaims(wf, dctx.deployableDurable === true));
   // The bodies THIS class renders are the reactor / event-create ones, so size
   // the injected repository set from those — not from `reposUsed`, which reads
   // `wf.statements` (the primary-create facade) and is empty for a reactor-only
@@ -800,8 +805,7 @@ function renderHandler(
   unionPkgOf?: (unionName: string) => string | undefined,
   /** The generated `auth` package — see `javaPublishDrained`. */
   authPkg?: string,
-  /** The saga row carries `last_event_id` (any hosted context declares a
-   *  durable channel). */
+  /** The deployable delivers durably — see `DispatchCtx.deployableDurable`. */
   durable = false,
 ): string[] {
   const corr = wf.correlationField as string;
@@ -844,7 +848,18 @@ function renderHandler(
   // as the envelope id, which the ChannelConsumerService parks on
   // OutboxDelivery around each dispatch.  A repeat of the recorded id is a no-op
   // (at-least-once → effectively-once); inline (ephemeral) dispatch carries null.
-  const body: string[] = [`        var __key = ${keyExpr};`];
+  const body: string[] = [];
+  // A durably delivered event is claimed in the consumer inbox first, on the
+  // method's transaction: the claim commits with the body's writes, and a
+  // delivery already claimed — here or on another replica — does nothing.
+  const claims = workflowClaims(wf, durable);
+  if (claims) {
+    body.push(`        var __eventId = OutboxDelivery.currentEventId();`);
+    body.push(
+      `        if (__eventId != null && jdbc.update(${JSON.stringify(inboxClaimSql("?", "?", false))}, ${JSON.stringify(workflowInboxKey(wf.name))}, __eventId) == 0) return;`,
+    );
+  }
+  body.push(`        var __key = ${keyExpr};`);
   if (sub.trigger === "create") {
     body.push(
       `        var state = ${repo}.findById(__key).orElseGet(() -> ${stateClass}._allocate(__key));`,
@@ -856,12 +871,6 @@ function renderHandler(
       `            CatalogLog.event(${javaLogEvent("eventUnrouted")}, "workflow", "${wf.name}", "event_type", "${sub.event}", "key", __key);`,
     );
     body.push(`            return;`);
-    body.push(`        }`);
-  }
-  if (durable) {
-    body.push(`        var __eventId = OutboxDelivery.currentEventId();`);
-    body.push(`        if (__eventId != null && __eventId.equals(state.lastEventId())) {`);
-    body.push(`            return; // already processed — at-least-once redelivery`);
     body.push(`        }`);
   }
   if (hasEmit) body.push(`        var __events = new ${ARRAY_LIST}<DomainEvent>();`);
@@ -917,9 +926,9 @@ function renderHandler(
       )}`,
     );
   }
-  // Stamp the processed marker before the state save (same tx window as the
-  // saga mutation) so a redelivery of this id short-circuits above.
-  if (durable) body.push(`        if (__eventId != null) state.setLastEventId(__eventId);`);
+  // The row records the last event applied to it; the inbox claim, not this
+  // column, is what dedupes.
+  if (claims) body.push(`        if (__eventId != null) state.setLastEventId(__eventId);`);
   body.push(`        ${repo}.save(state);`);
   if (hasEmit) {
     body.push(`        for (var __e : __events) events.publishEvent(__e);`);
