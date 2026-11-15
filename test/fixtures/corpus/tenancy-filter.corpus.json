@@ -1,5 +1,10 @@
 {
   "title": "principal-referencing (tenancy) capability filter",
   "doc": "capabilities",
-  "backends": "ALL"
+  "backends": "ALL",
+  "authzGate": {
+    "create POST /api/accounts": "sharedTenancyIdentity",
+    "find GET /api/accounts": "sharedTenancyIdentity",
+    "explicitHandler GET /api/accounts/by_min_balance/{min}": "sharedTenancyIdentity"
+  }
 }
