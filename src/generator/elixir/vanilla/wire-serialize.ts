@@ -29,7 +29,6 @@
 // ---------------------------------------------------------------------------
 
 import { forApiRead } from "../../../ir/enrich/wire-projection.js";
-import type { WireMaskPlan } from "../../../ir/util/response-wire.js";
 import { provenancedCarrier } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -43,6 +42,7 @@ import type {
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import type { WireMaskPlan } from "../../../ir/util/response-wire.js";
 import {
   responseMaskPlan,
   responseWireFor,
