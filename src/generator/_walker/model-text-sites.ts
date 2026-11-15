@@ -20,14 +20,7 @@
 //     the translation runtime on by itself.
 // ---------------------------------------------------------------------------
 
-import type {
-  AggregateIR,
-  EnumIR,
-  ExprIR,
-  TypeIR,
-  UiIR,
-  WorkflowIR,
-} from "../../ir/types/loom-ir.js";
+import type { AggregateIR, EnumIR, ExprIR, TypeIR, UiIR } from "../../ir/types/loom-ir.js";
 import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { modelTextDefaultOfKey, modelTextEntry, modelTextKey } from "../../util/model-text-key.js";

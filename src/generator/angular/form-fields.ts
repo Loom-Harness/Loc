@@ -1,5 +1,4 @@
 import type { AggregateIR, ExprIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
-import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
 import { modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
 import { humanize, lowerFirst, plural, upperFirst } from "../../util/naming.js";
@@ -9,7 +8,6 @@ import {
   type FormFieldArms,
   type FormFieldSpec,
   formFieldSpec,
-  formSpecEnvOf,
   renderFormField,
 } from "../_frontend/form-spec.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";

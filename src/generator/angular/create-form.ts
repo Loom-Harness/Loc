@@ -1,4 +1,3 @@
-import { createRequestFields } from "../../ir/plan/create-request.js";
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { lowerFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
