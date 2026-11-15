@@ -321,7 +321,16 @@ serves every pg row below, or the suite starts its own sidecar where noted);
 proxy (`docs/tools.md` → "Compiling generated backends in Docker" has the
 full per-toolchain write-ups).
 
-`npm run prequeue` runs the cheap queue-blocking gates (typecheck, lint, fast censuses) on `origin/main` + HEAD in a throwaway worktree and lists the per-backend compile gates the diff reaches; `--heavy` runs them (`scripts/prequeue.mjs` holds the backend → command table).
+`npm run prequeue` runs the merge-queue gates on `origin/main` + HEAD in a throwaway worktree and prints every queue gate it did NOT run, with the reason. `scripts/prequeue-gates.mjs` holds one row per queue gate (`test/system/prequeue-gates.test.ts` pins it against `merge-queue-required-checks.ts`); whether a diff reaches a gate is read from that workflow's own `pull_request` `paths:` filter.
+
+| Tier | Flag | What runs | Time (4 cores) |
+|---|---|---|---|
+| fast | (default) | `tsc -b`, test typecheck, lint, the whole vitest suite (unit + mocked + corpus), langium-generated, actionlint (with docker) | ~25 min (the suite: 24 min measured) |
+| fast, censuses only | `--quick` | the vitest suite is replaced by the whole-tree censuses | ~3 min (measured) |
+| heavy | `--heavy` | the generated-project builds and the behavioural leg the diff reaches | up to ~3 h if a shared seam reaches all of them |
+| runtime | `--runtime` | the docker runtime legs (migrations, tenancy, channels, api-call, OIDC) the diff reaches | up to ~4 h |
+
+`--plan` prints the run / not-run list without running anything. The merge queue runs every gate on every group, so a gate prequeue skipped can still eject the train.
 
 Completeness is pinned by `test/system/local-run-mapping.test.ts` — every
 workflow file must have a row here, so a new gate without a local recipe
@@ -331,7 +340,7 @@ fails the fast suite.
 |---|---|---|
 | `test.yml` | `npm test` (shards: `-- --project unit --project mocked --shard=i/4`; corpus job: `-- --project corpus`; nightly coverage: `npm run test:coverage`, which runs under a 90 s `testTimeout` because v8 instrumentation roughly doubles wall time — the uninstrumented suite keeps its 30 s budget); lint job: `npm run lint && npm run test:biome-gen && npm run test:typecheck && npm run test:contrast && cd web && npx tsc -b && npm run test:ddl` | — |
 | `langium-generated.yml` | `npm run langium:generate && git diff --exit-code src/language/generated` | — |
-| `workflow-lint.yml` | `docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:latest -color` | docker |
+| `workflow-lint.yml` | `docker run --rm -e SHELLCHECK_OPTS=--severity=warning -v "$PWD":/repo -w /repo rhysd/actionlint:latest -pyflakes= -color .github/workflows/*.yml` (CI's flags; without them shellcheck's style findings fail it) | docker |
 | `pr-gate.yml` | nothing to run — it aggregates the other checks; its decision core: `npx vitest run test/system/pr-gate.test.ts` | — |
 | `hono-build.yml` | `npm run test:tsc` | — |
 | `dotnet-build.yml` | `npm run test:dotnet` (no host SDK? build in `mcr.microsoft.com/dotnet/sdk:10.0`) | docker |
