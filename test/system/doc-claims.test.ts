@@ -46,6 +46,18 @@ const MARKED_DOCS: readonly string[] = [
   "docs/workflow.md",
 ];
 
+/** Paragraphs whose marker waits on an open change that rewrites them,
+ *  keyed by the paragraph's opening words.  Each names its live fence; a
+ *  deferral whose paragraph gained a marker or stopped claiming fails as
+ *  stale, so it is deleted with the change that lands. */
+const DEFERRED: ReadonlyArray<{ doc: string; startsWith: string; blockedBy: string }> = [
+  {
+    doc: "docs/auth.md",
+    startsWith: "**These gates are proven to DENY, not just to compile.**",
+    blockedBy: "#5994",
+  },
+];
+
 /** Docs a universal claim may not appear in at all. */
 const NO_CLAIM_DOCS: readonly string[] = ["CLAUDE.md"];
 
@@ -140,25 +152,41 @@ function docProblems(
     fence: (ref: string) => string;
   },
 ): string[] {
-  return blocks(md).flatMap((b) => {
-    const where = `${path}:${b.line}`;
-    if (!opts.markers) {
-      if (b.marker)
-        return [`${where}: ${path} carries no markers — point at the reference doc instead`];
+  const deferred = DEFERRED.filter((d) => d.doc === path);
+  const stale = deferred
+    .filter((d) => {
+      const b = blocks(md).find((x) => x.text.startsWith(d.startsWith));
+      return !b || b.marker !== undefined || !claims(b.text);
+    })
+    .map((d) => `${path}: the deferral for "${d.startsWith}" is stale — delete it`);
+  const fences = deferred.flatMap((d) => {
+    const problem = opts.fence(d.blockedBy);
+    return problem ? [`${path}: deferral blockedBy ${problem}`] : [];
+  });
+  return [
+    ...stale,
+    ...fences,
+    ...blocks(md).flatMap((b) => {
+      if (deferred.some((d) => b.text.startsWith(d.startsWith))) return [];
+      const where = `${path}:${b.line}`;
+      if (!opts.markers) {
+        if (b.marker)
+          return [`${where}: ${path} carries no markers — point at the reference doc instead`];
+        return claims(b.text)
+          ? [
+              `${where}: a universal claim in ${path} — reword it, or point at the reference doc that gates it`,
+            ]
+          : [];
+      }
+      if (b.marker) return markerProblems(where, b.marker, opts.read, opts.ci, opts.fence);
       return claims(b.text)
         ? [
-            `${where}: a universal claim in ${path} — reword it, or point at the reference doc that gates it`,
+            `${where}: a universal claim with no marker — make it specific (the plan module, or the backends it holds for), ` +
+              "or add `<!-- gate|review|tracked: … -->` on its own line after the paragraph",
           ]
         : [];
-    }
-    if (b.marker) return markerProblems(where, b.marker, opts.read, opts.ci, opts.fence);
-    return claims(b.text)
-      ? [
-          `${where}: a universal claim with no marker — make it specific (the plan module, or the backends it holds for), ` +
-            "or add `<!-- gate|review|tracked: … -->` on its own line after the paragraph",
-        ]
-      : [];
-  });
+    }),
+  ];
 }
 
 const CI = ciText();

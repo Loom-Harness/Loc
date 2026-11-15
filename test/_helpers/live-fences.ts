@@ -48,6 +48,7 @@ export const LIVE_FENCES: Readonly<Record<string, string>> = {
   "#5900": "P2 redelivery dedupe: holds src/generator/elixir/dispatch-emit.ts",
   "#5923": "e2e suites still publishing fixed host ports",
   "#5933": "Re-own unsupported-register gaps whose owning issue closed",
+  "#5994": "Shared ledgers become per-fixture sidecars (train B moves the authz ladders)",
   "#6013": "Decision records with no enforcing gate yet",
   "#6018": "Reference-doc every-backend claims with no gate yet",
 };
