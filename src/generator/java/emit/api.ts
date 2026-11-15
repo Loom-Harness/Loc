@@ -3,19 +3,6 @@ import {
   operationVersionCheck,
   readsIfMatch,
 } from "../../../ir/enrich/version-check.js";
-import {
-  fieldCode,
-  fieldFixedMessage,
-  INTEGER_RANGE_PARAMS,
-  type WireRejectionClass,
-  wireCode,
-  wireFixedDetail,
-  wireParams,
-  wireSentence,
-  wireSentenceFor,
-  wireStatus,
-  wireTitle,
-} from "../../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import {
@@ -40,6 +27,19 @@ import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { listReadFind } from "../../../ir/util/read-gates.js";
+import {
+  fieldCode,
+  fieldFixedMessage,
+  INTEGER_RANGE_PARAMS,
+  type WireRejectionClass,
+  wireCode,
+  wireFixedDetail,
+  wireParams,
+  wireSentence,
+  wireSentenceFor,
+  wireStatus,
+  wireTitle,
+} from "../../../ir/util/wire-policy.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";

@@ -45,6 +45,9 @@ export const messages = {
   // ----------------------------------------------------------------------
   "loom.construction-missing-field": (p: { type: unknown; length: unknown; missing: unknown }) =>
     `'${p.type}' construction is missing required field${p.length}: ${p.missing}.`,
+  "loom.create-form-no-create": (p: { name: unknown }) =>
+    `\`CreateForm { of: ${p.name} }\` submits a create, and \`${p.name}\` serves none — give it ` +
+    `one: \`aggregate ${p.name} with crudish { … }\`, or a \`create(…) { … }\` member.`,
   "loom.create-server-field": (p: { name: unknown; name2: unknown; serverOwned: unknown }) =>
     `'${p.name}.create' can't set '${p.name2}' — it's a server-owned (${p.serverOwned}) field, ` +
     `populated automatically and absent from the factory input. Remove it.`,

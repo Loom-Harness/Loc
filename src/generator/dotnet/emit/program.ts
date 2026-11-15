@@ -1,10 +1,10 @@
-import { wireStatus } from "../../../ir/enrich/wire-policy.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import type { BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
 import { contextStaticSubpathRoutes } from "../../../ir/util/api-surface.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
 import { answersEntryResults } from "../../../ir/util/entry-result.js";
 import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
+import { wireStatus } from "../../../ir/util/wire-policy.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV } from "../../../util/dev-claims.js";

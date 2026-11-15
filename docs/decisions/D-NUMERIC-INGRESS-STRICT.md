@@ -60,3 +60,5 @@ residue row rather than waiting on a signature.
 [`numeric-types-audit-2026-08-23.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md)
 F12 annex; M-T6.48 and `test/conformance/numeric-ingress-parity.test.ts`; RS-12,
 RS-24.
+
+**Enforced by:** none, tracked by #6013 — the proposal is not applied (python is pinned lenient); a booted fixture sending "5" and a numeric money is buildable

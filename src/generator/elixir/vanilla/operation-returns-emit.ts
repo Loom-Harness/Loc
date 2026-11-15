@@ -12,7 +12,6 @@
 // ---------------------------------------------------------------------------
 
 import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
-import { errorVariantCode } from "../../../ir/enrich/wire-policy.js";
 import { operationLadder } from "../../../ir/plan/gate-ladder.js";
 import { variantTag } from "../../../ir/stdlib/unions.js";
 import type {
@@ -35,6 +34,7 @@ import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { eventsCarryRowTenant } from "../../../ir/util/tenant-stance.js";
 import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { walkExprDeep, walkStmtsDeep } from "../../../ir/util/walk.js";
+import { errorVariantCode } from "../../../ir/util/wire-policy.js";
 import { elixirMatchRefusal } from "../../../ir/validate/checks/elixir-match-stmt-checks.js";
 import {
   elixirLocal,

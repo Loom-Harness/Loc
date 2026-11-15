@@ -118,23 +118,6 @@ import {
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { anyRouteReadsIfMatch } from "../../../ir/enrich/version-check.js";
 import {
-  aggregateRouteTypes,
-  fieldCode,
-  fieldFixedMessage,
-  fieldSentenceSuffix,
-  fieldValuePrefix,
-  frameworkReasonPhrase,
-  INTEGER_RANGE_PARAMS,
-  REASON_PHRASE_STATUSES,
-  WIRE_REJECTION_CLASSES,
-  wireCode,
-  wireFixedDetail,
-  wireParams,
-  wireSentence,
-  wireStatus,
-  wireTitle,
-} from "../../../ir/enrich/wire-policy.js";
-import {
   type BoundedContextIR,
   contextUsesMoney,
   type DataSourceIR,
@@ -184,6 +167,23 @@ import {
   resolveDataSourceConfig,
 } from "../../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
+import {
+  aggregateRouteTypes,
+  fieldCode,
+  fieldFixedMessage,
+  fieldSentenceSuffix,
+  fieldValuePrefix,
+  frameworkReasonPhrase,
+  INTEGER_RANGE_PARAMS,
+  REASON_PHRASE_STATUSES,
+  WIRE_REJECTION_CLASSES,
+  wireCode,
+  wireFixedDetail,
+  wireParams,
+  wireSentence,
+  wireStatus,
+  wireTitle,
+} from "../../../ir/util/wire-policy.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 // Hono-framework builders now live in this package (P2b) — siblings.

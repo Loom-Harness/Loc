@@ -1,5 +1,4 @@
 import { existsScopePredicates } from "../../ir/enrich/read-scope.js";
-import { wireFixedDetail } from "../../ir/enrich/wire-policy.js";
 import type {
   AggregateIR,
   BinOp,
@@ -14,6 +13,7 @@ import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
+import { wireFixedDetail } from "../../ir/util/wire-policy.js";
 import type { WriteScopeContext } from "../../ir/util/write-scope-guards.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";

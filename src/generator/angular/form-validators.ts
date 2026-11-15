@@ -1,5 +1,5 @@
 import type { InvariantIR } from "../../ir/types/loom-ir.js";
-import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
+import type { SingleFieldPattern } from "../../ir/util/invariant-classify.js";
 import { tsCodePointLength } from "../_expr/code-point.js";
 import { asRegexLiteral } from "../_expr/regex-literal.js";
 import { type ClientLimitCheck, clientLimitChecks } from "../_frontend/error-codes.js";

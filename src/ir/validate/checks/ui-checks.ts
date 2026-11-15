@@ -59,6 +59,7 @@ export { COMPONENT_DEFERRALS } from "./ui-component-deferral-checks.js";
 import {
   type CallableNames,
   checkAsyncEffectArgs,
+  checkCreateFormOf,
   checkDestroyFormOf,
   checkInstanceEffectRouteId,
   checkOfReadBinds,
@@ -251,6 +252,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         checkInstanceEffectRouteId(page, aggNames, apiParamNames, diags);
         checkOpFormRouteId(page, diags);
         checkDestroyFormOf(page, pageWhere(page), aggByName, diags);
+        checkCreateFormOf(page, pageWhere(page), aggByName, diags);
         checkFrontendCollectionOps(page, pageWhere(page), diags, recordProjections);
         // Audit D3 / D4 — two shapes that validate clean and then break the
         // generated frontend's own typecheck.
@@ -330,6 +332,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         for (const d of comp.derived) checkBody(d.expr, ctx, diags);
         checkActionBodies(comp.actions, ctx, diags);
         checkDestroyFormOf(comp, `component '${comp.name}'`, aggByName, diags);
+        checkCreateFormOf(comp, `component '${comp.name}'`, aggByName, diags);
         checkFrontendCollectionOps(comp, `component '${comp.name}'`, diags, recordProjections);
         checkMarkupInCollectionLambda(comp, `component '${comp.name}'`, diags);
         checkMoneyInTextSlot(comp, `component '${comp.name}'`, moneySlotCtx, diags);

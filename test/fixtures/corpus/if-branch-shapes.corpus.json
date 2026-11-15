@@ -1,4 +1,5 @@
 {
+  "//": "Gate for D-ELIXIR-IF-BRANCH (docs/decisions).",
   "title": "the `if` statement deciding per path: early return, branch guard, branch emit + provenanced write, event-sourced command + applier",
   "doc": "language",
   "backends": "ALL"

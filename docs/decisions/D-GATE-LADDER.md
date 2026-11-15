@@ -37,3 +37,5 @@ answering it first leaks nothing (D-CREATE-GATE-ORDER).
 the `authzLadder` of the `auth-simple`, `read-gates` and
 `inheritance-read-gates` corpus fixtures (their `.corpus.json` sidecars),
 run by every behavioural runner.
+
+**Enforced by:** `test/system/gate-ladder-census.test.ts`, `test/fixtures/corpus/auth-simple.ddd`, `test/fixtures/corpus/read-gates.ddd`, `test/fixtures/corpus/inheritance-read-gates.ddd`

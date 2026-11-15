@@ -76,3 +76,5 @@ variants. The `if let` and `for` halves are unchanged.
 [`2026-09-03-language-docs-audit-findings.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-03-language-docs-audit-findings.md)
 F1/F4; `src/ir/lower/lower-stmt.ts`, `src/ir/lower/lower-workflow.ts`,
 `src/generator/_stmt/target.ts`, `src/language/ddd.langium`.
+
+**Enforced by:** `test/language/validators/stmt-placement.test.ts`

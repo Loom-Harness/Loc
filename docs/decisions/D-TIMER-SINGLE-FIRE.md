@@ -47,3 +47,5 @@ watermark row fixes both: a single autocommitted statement holds nothing
 across the dispatch, and the conditional update is the only arbiter needed.
 A lease row was rejected — it needs an expiry tuned against the period and a
 renewal loop, and the per-period watermark already gives the guarantee.
+
+**Enforced by:** `test/e2e/timer-single-fire-e2e.test.ts`

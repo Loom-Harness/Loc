@@ -44,3 +44,5 @@ carrying `find`s runs them from the toolchain before this change (the parent
 of the commit that removed them). The per-backend find-ROUTE emission (a
 non-synthesised, non-`all` find's `GET /<aggs>/<find>`) has no producer left;
 its removal is tracked separately so this cutover stays reviewable.
+
+**Enforced by:** `test/language/parsing/find-decl-removed.test.ts`

@@ -1,3 +1,4 @@
+// Gate for D-I18N-KEY (docs/decisions).
 import { describe, expect, it } from "vitest";
 import { detectRenames, moveKeys } from "../../src/i18n/renames.js";
 

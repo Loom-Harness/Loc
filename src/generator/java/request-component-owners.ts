@@ -18,8 +18,8 @@
 // emits its create schema unconditionally and therefore lists it unconditionally
 // — the same contract ("the owners this backend publishes"), a different answer.
 
-import { emitsRestCreate } from "../../ir/enrich/wire-projection.js";
 import type { EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
+import { emitsRestCreate } from "../../ir/util/canonical-lifecycle.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import type { RequestComponentOwner } from "../_openapi/request-component-names.js";
 

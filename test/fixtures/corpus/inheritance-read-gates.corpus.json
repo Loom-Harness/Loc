@@ -1,4 +1,5 @@
 {
+  "//": "Gate for D-GATE-LADDER (docs/decisions).",
   "title": "inheritance (TPH + TPC) × a concrete's `policy { read … }` gate × a concrete's `mask unless` field × the polymorphic base reads",
   "doc": "inheritance",
   "backends": "ALL",

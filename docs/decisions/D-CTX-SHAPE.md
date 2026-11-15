@@ -19,3 +19,5 @@ logging MDC, …) — they all read slices of this one value.
 (declassification clearance), `i18n.md` (`locale`),
 `audit-and-logging.md` (actor + correlation), `observability.md`
 (correlation). PlatformSurface lifecycle hooks receive its accessor.
+
+**Enforced by:** none, tracked by #6013 — no cross-backend test pins the RequestContext field set or forbids a parallel ambient channel

@@ -1,3 +1,4 @@
+// Gate for D-FRONTEND-CONTRACT (docs/decisions).
 // One source for a frontend's host facts (`src/ir/contract/host.ts`).
 //
 // Whether a frontend's target serves the realtime wire, which event types it

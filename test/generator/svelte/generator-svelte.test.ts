@@ -1,3 +1,4 @@
+// Gate for D-SVELTE-FRONTEND (docs/decisions).
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 

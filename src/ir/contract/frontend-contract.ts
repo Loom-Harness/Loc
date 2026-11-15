@@ -54,12 +54,12 @@ import {
   contractResponsesFor,
 } from "../util/declared-response.js";
 import { exposedContexts } from "../util/exposed-contexts.js";
+import { classifyForWire } from "../util/invariant-classify.js";
 import { maskedPatchParams } from "../util/op-gates.js";
 import { pagedFindRoutes } from "../util/paged-find-routes.js";
 import { isFrontendReadableProjection, projectionReadShape } from "../util/projection-read.js";
 import { aggregateIsVersioned } from "../util/versioned-capability.js";
 import { emitsCommandRoute, workflowResultSegment } from "../util/workflow-command-route.js";
-import { classifyForWire } from "../validate/invariant-classify.js";
 import { drop, keep, list, type Rule, record } from "./allowlist.js";
 import { componentRule, exprRule, layoutRule, messageRule, typeRule, uiRule } from "./ui-spec.js";
 

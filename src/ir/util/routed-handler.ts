@@ -24,7 +24,6 @@
 // ---------------------------------------------------------------------------
 
 import { lowerFirst, snake } from "../../util/naming.js";
-import { wireStatus } from "../enrich/wire-policy.js";
 import { pagedReturn } from "../stdlib/generics.js";
 import type {
   ApiIR,
@@ -37,6 +36,7 @@ import type {
   TypeIR,
 } from "../types/loom-ir.js";
 import { requestRecordFor } from "./handler-contracts.js";
+import { wireStatus } from "./wire-policy.js";
 
 /** The `{token}` names of a route path, in path order. */
 export function routePathTokens(path: string): string[] {

@@ -222,10 +222,7 @@ in Elixir's immutable idiom:
   migration chain (see "Schema" above): the column is an `add … :map` in the
   aggregate table's create (or an `add_if_not_exists` in a later generation's
   `alter table`), and the history table is its own
-  `…_create_provenance_records.exs`.  It is one of the tables the Ecto
-  emitter deliberately does NOT bundle `timestamps()` into, since the flush
-  inserts plain maps via `insert_all` and a NOT NULL `inserted_at` would reject
-  every provenanced write (and roll back the aggregate save with it).
+  `…_create_provenance_records.exs`.
 
 Capture covers **named operations** (the persisting path); returning-op bodies
 on vanilla don't persist, so a provenanced write there is a no-op (the

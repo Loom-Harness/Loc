@@ -1,3 +1,4 @@
+// Gate for D-INDEX-SUGGEST (docs/decisions).
 // Index-suggestion advisory lint (uniqueness-and-indexes.md §11, D-INDEX-SUGGEST).
 // A query-filtered column with no covering leading-column index earns a
 // warning-severity `loom.index-suggestion` naming the fix — never an

@@ -65,3 +65,5 @@ carries the migration note.  No correlation-addressed continuation
 [`2026-09-03-language-docs-audit-findings.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-03-language-docs-audit-findings.md)
 F13; `src/language/ddd.langium`, `src/ir/types/loom-ir.ts`,
 `src/ir/lower/lower-workflow.ts`, `src/diagnostics/messages.ts`.
+
+**Enforced by:** `test/language/parsing/workflow-handle-removed.test.ts`

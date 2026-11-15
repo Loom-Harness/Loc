@@ -1,3 +1,4 @@
+// Gate for D-LIVEVIEW-REFERENCE (docs/decisions).
 // A server-session frontend reaches the domain in-process.
 //
 // A frontend whose page state lives in a server process (`stateHome:

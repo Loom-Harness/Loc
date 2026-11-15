@@ -59,3 +59,5 @@ and its pins are gone, `node@v5` is the only registered Hono version, and a
   a `LayoutAdapter` extension.
 - [`docs/old/plans/packaging-split.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/packaging-split.md) / `backend-packages.md` — promoted
   from "plan" to the pinned target for backend layout.
+
+**Enforced by:** `test/platform/backend-packages-layering.test.ts`

@@ -1,3 +1,4 @@
+// Gate for D-FLUTTER-BEARER (docs/decisions).
 // Flutter's authenticated http client + the native bearer rule — M-T4.12 item
 // (1), under **D-FLUTTER-BEARER**.
 //
@@ -40,7 +41,7 @@ system Secure {
       : ""
   }
   subdomain D { context C {
-    aggregate Order { code: string  operation approve() { } }
+    aggregate Order with crudish { code: string  operation approve() { } }
     event OrderPlaced { code: string }
     channel live { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }
     repository Orders for Order {}

@@ -140,8 +140,7 @@ describe("vanilla elixir event-sourced workflows", () => {
 
   it("emits no mutable saga-state Ecto schema for the ES workflow", async () => {
     const s = (await gen()).get(`${WF}/order_fulfillment_state.ex`)!;
-    // The state path's schema would carry `use Ecto.Schema` + timestamps(); the
-    // ES fold struct carries neither.
-    expect(s).not.toContain("timestamps()");
+    // The state path's schema would `use Ecto.Schema`; the ES fold struct does not.
+    expect(s).not.toContain("use Ecto.Schema");
   });
 });

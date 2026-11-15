@@ -88,7 +88,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { serverSourcedDefaultFields } from "../../src/generator/_frontend/server-default.js";
 import { handlerReadAggregates } from "../../src/ir/enrich/policy-read-gates.js";
-import { createInputFields, emitsRestCreate } from "../../src/ir/enrich/wire-projection.js";
+import { createInputFields } from "../../src/ir/enrich/wire-projection.js";
 import { contextOperations } from "../../src/ir/plan/repo-polymorphic.js";
 import {
   type AggregateIR,
@@ -102,7 +102,11 @@ import {
   type WorkflowIR,
 } from "../../src/ir/types/loom-ir.js";
 import { aggregateSegment } from "../../src/ir/util/api-surface.js";
-import { canonicalCreate, canonicalDestroy } from "../../src/ir/util/canonical-lifecycle.js";
+import {
+  canonicalCreate,
+  canonicalDestroy,
+  emitsRestCreate,
+} from "../../src/ir/util/canonical-lifecycle.js";
 import { lifecycleGates, operationGates } from "../../src/ir/util/op-gates.js";
 import { platformFor } from "../../src/platform/registry.js";
 import { API_BASE_PATH } from "../../src/util/api-base.js";

@@ -1,6 +1,6 @@
-import { aggregateRouteTypes } from "../../../ir/enrich/wire-policy.js";
 import { channelPlan } from "../../../ir/plan/index.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
+import { aggregateRouteTypes } from "../../../ir/util/wire-policy.js";
 import { frontendAxesOf } from "../../../util/frontend-axes.js";
 import { bootRequiredAuthEnv } from "../../_auth/boot-required.js";
 // ---------------------------------------------------------------------------

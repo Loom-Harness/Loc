@@ -63,3 +63,5 @@ the `Home`/`WorkflowsIndex` registry primitives, and the page
 `origin`/`source` fields are all removed. `walker-primitive-expander.ts` is now
 just `buildExpandContext`. A page's kind is derived on demand from its
 role-scoped name + area via `classifyPage` (`src/ir/util/page-kind.ts`).
+
+**Enforced by:** none, tracked by #6013 — nothing asserts List/Detail/MasterDetail are refused; one validation case per name is easy to add

@@ -1,3 +1,4 @@
+// Gate for D-AUTH-OIDC (docs/decisions).
 // ---------------------------------------------------------------------------
 // Java backend — OIDC turnkey auth (D-AUTH-OIDC).  Mirrors the Hono/.NET
 // verifier+handshake: under an `auth { oidc }` block the Java backend emits a

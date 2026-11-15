@@ -1,3 +1,4 @@
+// Gate for D-TARGET-RESERVED-NAMES (docs/decisions).
 // Eval-closure item 6 / ruling D2: a `.ddd` member whose name is a reserved
 // word in the TARGET language — or the name of a private helper the target's
 // entity emitter generates — must still produce a project that compiles, with

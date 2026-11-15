@@ -1,6 +1,6 @@
-import { emitsRestCreate } from "../../ir/enrich/wire-projection.js";
 import { createRequestFields } from "../../ir/plan/create-request.js";
 import type { AggregateIR, BoundedContextIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { emitsRestCreate } from "../../ir/util/canonical-lifecycle.js";
 import { operationFormParams } from "../../ir/util/op-gates.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { lowerFirst, upperFirst } from "../../util/naming.js";

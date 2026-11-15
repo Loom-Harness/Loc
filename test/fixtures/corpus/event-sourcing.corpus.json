@@ -1,4 +1,5 @@
 {
+  "//": "Gate for D-VANILLA-ES-HOME (docs/decisions).",
   "title": "`persistedAs: eventLog` — append-only stream + appliers",
   "doc": "workflow",
   "backends": "ALL"

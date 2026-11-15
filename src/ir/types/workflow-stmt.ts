@@ -267,7 +267,7 @@ export type WorkflowStmtIR = (
       // `notFound` / `notFound "detail"` — end the body with the standard
       // not-found ProblemDetails, the same answer a `getById` miss earns on
       // that backend (status `NotFound` resolves to, its reason-phrase title).
-      // The detail sentence is `notFoundStmtDetail` (`ir/enrich/wire-policy.ts`):
+      // The detail sentence is `notFoundStmtDetail` (`ir/util/wire-policy.ts`):
       // the authored `detail`, else `<subject> not found`.  `subject` is the
       // aggregate of the `if let` whose `else` the statement sits in directly —
       // lowering knows it from the branch's source, no later pass does.

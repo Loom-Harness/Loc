@@ -7,18 +7,13 @@
 // it matters most: its create command is its `create` action's params, while
 // its declared fields are folded state the client never sends.
 //
-// An aggregate whose context declares no create record falls back to the
-// derived create input (`undeclaredCreateRequestFields`).  That fallback is
-// the only place outside the backends that reads the derived set.  The
-// scaffold splices a create record for every concrete aggregate of an exposed
-// context, so no served create of a shipped model reaches it;
-// `test/system/create-request-census.test.ts` holds that at zero.  What still
-// reaches it is an aggregate that serves NO create: the Elixir OpenAPI emitter
-// and the Svelte api module emit a create request schema for every aggregate,
-// and read the fallback for those.  Once both gate that schema on a served
-// create, the fallback has no reader and `createRequestFields` returns `[]`.
+// An aggregate whose context declares no create record takes no create
+// request: the scaffold splices a create record for every concrete aggregate
+// of an exposed context, and every emitter renders a create request only for
+// a served create.  `test/system/create-request-census.test.ts` holds every
+// served creatable aggregate to a declared record.
 
-import { createInputFields, isRequiredCreateInput } from "../enrich/wire-projection.js";
+import { isRequiredCreateInput } from "../enrich/wire-projection.js";
 import type { AggregateIR, FieldIR, PayloadIR } from "../types/loom-ir.js";
 import { declaredCreateCommandFor } from "../util/declared-request.js";
 
@@ -32,12 +27,12 @@ export function createRequestRecord(
 }
 
 /** The fields of an aggregate's create request: the declared record's fields,
- *  or the derived create input when the context declares no record. */
+ *  or none when the context declares no record (it serves no create). */
 export function createRequestFields(
   payloads: readonly PayloadIR[],
   agg: AggregateIR,
 ): readonly FieldIR[] {
-  return createRequestRecord(payloads, agg)?.fields ?? undeclaredCreateRequestFields(agg);
+  return createRequestRecord(payloads, agg)?.fields ?? [];
 }
 
 /** The names of the create request's fields a client MUST send: the rest are
@@ -50,12 +45,4 @@ export function createRequestRequiredNames(
   return createRequestFields(payloads, agg)
     .filter(isRequiredCreateInput)
     .map((f) => f.name);
-}
-
-/** The create request of an aggregate whose context declares no create
- *  command record: the derived create input every backend's create route
- *  reads.  Read only through `createRequestFields` and by the Frontend
- *  Contract's api module for the same case. */
-export function undeclaredCreateRequestFields(agg: AggregateIR): readonly FieldIR[] {
-  return createInputFields(agg);
 }

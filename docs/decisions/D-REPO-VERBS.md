@@ -41,3 +41,5 @@ spellings (`delete` / `remove`).
 asks for `page:` to be required there, but migrating the corpus would mean
 inventing a limit for every existing unbounded read. That truncates results
 and changes the generated code. It is left for the owner to rule on.
+
+**Enforced by:** `test/system/diagnostic-firing-census.test.ts`, `test/system/codemod-repo-verbs.test.ts`

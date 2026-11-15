@@ -10,3 +10,5 @@ The other folds and reactors for the same event still run.
 
 **Why.** A read model is derived. Letting its write fail or roll back the
 command would make the source of truth depend on the view of it.
+
+**Enforced by:** `test/fixtures/corpus/projection-fold-isolation.ddd`

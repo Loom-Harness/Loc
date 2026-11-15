@@ -60,3 +60,5 @@ is what `gap` means.
 `primitive-modal.hbs` across the JSX/Vue/Svelte packs;
 `src/generator/angular/modal.ts`; `src/ir/validate/checks/ui-collection-display-checks.ts`
 (`CONTROLLED_MODAL_OP_FORM_FRAMEWORKS`); mission M-T1.6.
+
+**Enforced by:** none, tracked by #6013 — `open:` honoured everywhere is not built; the existing test pins only the refusal

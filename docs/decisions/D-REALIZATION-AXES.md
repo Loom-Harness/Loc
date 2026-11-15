@@ -72,3 +72,5 @@ normalized form (mirrors `design:` via `BUILTIN_PACK_LATEST`).
 deployable grammar; `DeployableIR`; `checkDeployable`; each backend's
 `PlatformSurface` (menu+default fields). **Amends D-PHOENIX-SURFACE** open-item 1;
 **depends on D-ADAPTER-HOME**.
+
+**Enforced by:** `test/ir/deployable-axes-lowering.test.ts`, `test/platform/realization-axes-emit-wiring.test.ts`

@@ -1,4 +1,3 @@
-import { notFoundStmtDetail, wireStatusResolver } from "../../ir/enrich/wire-policy.js";
 import { createInputFields, createOmissionValue } from "../../ir/enrich/wire-projection.js";
 import {
   auditedOpCallAggregates,
@@ -34,6 +33,7 @@ import {
   workflowNeedsCurrentUser,
 } from "../../ir/util/op-gates.js";
 import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
+import { notFoundStmtDetail, wireStatusResolver } from "../../ir/util/wire-policy.js";
 import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 import { finalizeCsUnit } from "../_imports/dotnet.js";
 import { spellMarkers } from "../_imports/symbol.js";
@@ -48,7 +48,6 @@ type ResolvedWorkflowBody = {
   correlation: ExprIR | undefined;
 };
 
-import { wireStatus } from "../../ir/enrich/wire-policy.js";
 import { valueObjectParams } from "../../ir/plan/value-object-params.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { errorStatuses } from "../../ir/util/openapi-errors.js";
@@ -60,6 +59,7 @@ import {
 } from "../../ir/util/openapi-ids.js";
 import { collectReachableTypes } from "../../ir/util/reachable-types.js";
 import { mapExprChildren, workflowEmits } from "../../ir/util/walk.js";
+import { wireStatus } from "../../ir/util/wire-policy.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,
