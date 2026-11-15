@@ -272,6 +272,14 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     // the fixture's `test e2e` drives its 403 and its 204.
     "operation POST /api/tickets/{id}/retitle": R.rowDataGate,
     "gateProbe GET /api/tickets/{id}/can_retitle": R.probeAnswersFalse,
+    // `requires amount < 100` on a merge-patch update reads the merged value
+    // (the stored one when the body omits `amount`), not the caller; the
+    // fixture's `test e2e` drives its 403 and its 204.
+    "operation POST /api/budgets/{id}/update": R.rowDataGate,
+    // `Vault.secret` is masked from every harness principal: its reads redact
+    // inside a 200; the update's mask write gate is the fixture's `test e2e`.
+    "find GET /api/vaults": R.maskIsNotAStatus,
+    "getById GET /api/vaults/{id}": R.maskIsNotAStatus,
   },
 
   // ── mask unless — no status to refuse ────────────────────────────────────
@@ -610,13 +618,13 @@ export const NON_PARSING_SOURCES: readonly string[] = [];
  */
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   // +4: the masked concretes' reads in `inheritance-read-gates`.
-  maskIsNotAStatus: 11,
+  maskIsNotAStatus: 13,
   sharedPrincipalId: 6,
   notABehaviouralCase: 11,
   importGateOnly: 1,
   probeAnswersFalse: 2,
   principalFreeGate: 20,
-  rowDataGate: 6,
+  rowDataGate: 7,
   // Includes the two polymorphic base list reads of
   // `inheritance-read-restrictions`: their refusals are the ladder's
   // cross-tenant `rowVisible` rungs, like every other collection read in that

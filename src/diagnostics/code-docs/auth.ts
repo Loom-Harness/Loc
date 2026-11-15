@@ -28,6 +28,8 @@ export const anchors: Readonly<Record<string, string>> = {
     "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
   "loom.requires-private-operation":
     "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
+  "loom.requires-not-leading":
+    "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
   "loom.audited-private-operation": "22-macros.md#audit--the-built-in-capability-auditable",
 
   // --- src/language/validators/traceability.ts (M-T9.56 drain) ------------

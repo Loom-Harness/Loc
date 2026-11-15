@@ -1,5 +1,5 @@
 import { polymorphicReadFor } from "../../ir/enrich/read-scope.js";
-import { polymorphicReadGates, routedPolymorphicRead } from "../../ir/plan/index.js";
+import { routedPolymorphicRead } from "../../ir/plan/index.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
@@ -233,14 +233,7 @@ export function emitBaseReaders(
       place(
         `${plural(upperFirst(base.name))}Controller.cs`,
         "controller",
-        renderBaseController(
-          base,
-          read,
-          ctx,
-          ns,
-          opts.routePrefix,
-          polymorphicReadGates(base, ctx),
-        ),
+        renderBaseController(base, read, ctx, ns, opts.routePrefix),
       );
     }
   }
