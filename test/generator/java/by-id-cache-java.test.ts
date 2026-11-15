@@ -76,7 +76,9 @@ describe("java generator — by-id read cache", () => {
 
   it("a store that fails never fails the request: every store call is guarded", async () => {
     const caches = (await generateSystemFiles(system({ cache: true }))).get(CACHES)!;
-    expect(caches.match(/catch \(RuntimeException e\)/g)).toHaveLength(3);
+    // Read, write and evict each log a refused store call; an unreadable
+    // entry or body is a miss, not an error.
+    expect(caches.match(/unavailable\("(read|write|evict)", e\)/g)).toHaveLength(3);
     expect(caches).toContain('"cache_unavailable"');
   });
 

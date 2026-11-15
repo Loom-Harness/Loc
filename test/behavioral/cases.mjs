@@ -371,6 +371,17 @@ export const AUTHZ_LADDERS = {
         body: {},
         arms: { anonymous: null, unauthorized: 403, authorized: 409 },
       },
+      // A merge-patch update's mask write gate runs after the scoped load
+      // (\`mergePatchUpdateLadder\`): a missing id is 404 for every caller,
+      // never the mask's 403.  The visible-row 403 and the out-of-scope 404
+      // are the fixture's \`test e2e\`.
+      {
+        label: "gate order — a masked key on a missing id answers 404, not the mask's 403",
+        method: "POST",
+        path: "/api/vaults/00000000-0000-4000-8000-0000000000ae/update",
+        body: { secret: "rewritten" },
+        arms: { anonymous: null, unauthorized: 404, authorized: 404 },
+      },
       // \`can_<op>\` runs the operation's ladder (#5194) and answers its outcome
       // as \`{ allowed }\`: a caller the operation's \`requires\` refuses gets
       // \`allowed: false\` (the recorded golden pins the body), not the row's
@@ -1077,6 +1088,15 @@ export const AUTHZ_LADDERS = {
     gated: [
       { label: "TPH base — the polymorphic list read", method: "GET", path: "/api/vehicles" },
       { label: "TPH base — the polymorphic by-id read", method: "GET", path: "/api/vehicles/{id}" },
+      // The base read's ladder (`readLadder`): every concrete's list-read gate
+      // runs before the load, so a refused caller gets 403 for a missing id
+      // too — the refusal says nothing about which rows exist.
+      {
+        label: "TPH base — a missing id answers the refused caller's 403, not 404",
+        method: "GET",
+        path: "/api/vehicles/00000000-0000-4000-8000-0000000000ad",
+        arms: { anonymous: null, unauthorized: 403, authorized: 404 },
+      },
       {
         label: "TPC base — the polymorphic list read",
         seed: { path: "/api/dispatchers", body: { name: "LADDER-D", desk: 1 } },

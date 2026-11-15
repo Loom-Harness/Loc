@@ -122,6 +122,9 @@ export const messages = {
   // one sentence is exactly what the catalog exists to end.
   "loom.requires-not-bool": (p: { actual: unknown }) =>
     `'requires' must be of type 'bool', got '${p.actual}'.`,
+  // src/ir/validate/checks/requires-placement-checks.ts
+  "loom.requires-not-leading": (p: { aggregate: unknown; op: unknown; gate: unknown }) =>
+    `'requires ${p.gate}' in ${p.aggregate}.${p.op} follows another statement, so it runs in the domain method after the row loads, after the 'If-Match' check and after 'when': a caller it refuses sees 404 or 409 before its 403. It reads no field and no local, so move it above the first statement (or into the operation header) to run it before the load.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/structural.ts

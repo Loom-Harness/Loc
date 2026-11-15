@@ -182,12 +182,14 @@ const FRONTENDS: ReadonlyArray<Frontend> = [
   {
     // Phoenix LiveView — the SELF-HOSTING topology.  It owns the contexts and
     // renders the ui in one deployable; `serves:` is what lets `Console`'s api
-    // params bind back to `feCell` itself.
+    // params bind back to `feCell` itself.  It writes Catalog on the database
+    // the showcase's `catalogCache` is filled from, so it lists the cache too
+    // (`loom.cache-writer-not-evicting`).
     name: "heex",
     deployable: (ui) => `    deployable feCell {
         platform: elixir
         contexts: [Catalog, Builds, People]
-        dataSources: [catalogState, buildsState, peopleState]
+        dataSources: [catalogState, buildsState, peopleState, catalogCache]
         serves: ProjectsApi, DeliveryApi, AccountsApi
         ${UIS[ui]!.selfBind}
         port: 3900

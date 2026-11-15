@@ -2122,7 +2122,12 @@ the conforming backends, and the fix that established it.
 
   The handler loads the row, passes the stored value for every absent key and
   calls the operation as before, so its gates, invariants, lifecycle stamps and
-  `If-Match` check (RS-46) run unchanged. An empty patch `{}` is a valid no-op
+  `If-Match` check (RS-46) run unchanged.  A `requires` that reads a parameter
+  reads the same merged value, so it runs after the load
+  (`mergePatchUpdateLadder`, `src/ir/plan/gate-ladder.ts`): with
+  `requires amount < 100`, a patch that omits `amount` is judged on the stored
+  amount.  A `mask unless` write gate runs after the load too, and only when the
+  patch carries the masked key. An empty patch `{}` is a valid no-op
   that still counts as a persisted mutation (RS-20: the version moves). No key
   of the request schema is `required`; only a `T?` member is nullable.
 - **Rules over a patch.** A wire rule (an invariant or precondition the request

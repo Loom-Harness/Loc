@@ -8,7 +8,9 @@
 //
 //   - a `CacheStore` per cache resource — ioredis for a `redis` storage (the
 //     `<RESOURCE>_URL` connection, valkey in the dev compose), a `Map` with
-//     expiry for `inMemory`;
+//     expiry bounded by the plan's entry limit for `inMemory`;
+//   - the entry as the plan's `CACHE_ENTRY` envelope, so another backend on
+//     the same redis reads it; an unreadable entry is a miss;
 //   - one `ByIdCache` per cached aggregate;
 //   - `evictOnWrite`, which wraps the repository class's `save` and `delete`
 //     — every write of an aggregate reaches one of them, whichever persistence
@@ -23,10 +25,13 @@
 // its ttl.
 
 import {
+  CACHE_ENTRY,
+  CACHE_ETAG_HEADER,
   CACHE_STATUS_HEADER,
   type CachedByIdRead,
   type CacheScopeInput,
   cacheStoragesOf,
+  IN_MEMORY_CACHE_MAX_ENTRIES,
 } from "../../../ir/plan/cache.js";
 import type { DeployableIR, SystemIR } from "../../../ir/types/loom-ir.js";
 import { lowerFirst } from "../../../util/naming.js";
@@ -82,9 +87,9 @@ export function renderCacheHit(
     `${indent}const __scope = ${scopeFingerprintTs(read)};`,
     `${indent}const __hit = await ${cache}.read(${idExpr}, __scope);`,
     `${indent}if (__hit) {`,
-    `${indent}  if (__hit.etag !== null) c.header("etag", __hit.etag);`,
+    `${indent}  if (__hit.${CACHE_ENTRY.etag} !== null) c.header("${CACHE_ETAG_HEADER}", __hit.${CACHE_ENTRY.etag});`,
     `${indent}  c.header("${CACHE_STATUS_HEADER}", "hit");`,
-    `${indent}  return c.json(JSON.parse(__hit.body) as ${responseType}, 200);`,
+    `${indent}  return c.json(__hit.wire as ${responseType}, 200);`,
     `${indent}}`,
   ];
 }
@@ -99,7 +104,7 @@ export function renderCacheStore(
   indent: string,
 ): string[] {
   return [
-    `${indent}await ${cacheRef(read)}.write(${idExpr}, __scope, { body: JSON.stringify(${outExpr}), etag: ${etagExpr} });`,
+    `${indent}await ${cacheRef(read)}.write(${idExpr}, __scope, JSON.stringify(${outExpr}), ${etagExpr});`,
     `${indent}c.header("${CACHE_STATUS_HEADER}", "miss");`,
   ];
 }
@@ -168,6 +173,12 @@ export function renderByIdCacheModule(
           "",
         ]
       : []),
+    "/** The most entries an in-process store holds. */",
+    `const MEMORY_MAX_ENTRIES = ${IN_MEMORY_CACHE_MAX_ENTRIES};`,
+    "",
+    "/** An in-process map with expiry, holding at most `MEMORY_MAX_ENTRIES` entries: a",
+    " *  write that finds it full drops the expired entries, and is skipped when it",
+    " *  is still full. */",
     "class MemoryStore implements CacheStore {",
     "  private readonly entries = new Map<string, { value: string; expiresAt: number }>();",
     "  async get(key: string): Promise<string | null> {",
@@ -180,6 +191,11 @@ export function renderByIdCacheModule(
     "    return entry.value;",
     "  }",
     "  async set(key: string, value: string, ttlSeconds: number): Promise<void> {",
+    "    if (!this.entries.has(key) && this.entries.size >= MEMORY_MAX_ENTRIES) {",
+    "      const now = Date.now();",
+    "      for (const [k, e] of this.entries) if (e.expiresAt <= now) this.entries.delete(k);",
+    "      if (this.entries.size >= MEMORY_MAX_ENTRIES) return;",
+    "    }",
     "    this.entries.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });",
     "  }",
     "  async del(key: string): Promise<void> {",
@@ -187,10 +203,41 @@ export function renderByIdCacheModule(
     "  }",
     "}",
     "",
-    "/** One by-id answer as the route served it. */",
+    "/** One scope's answer as stored: the wire body's JSON text and its tag. */",
+    "interface StoredAnswer {",
+    `  ${CACHE_ENTRY.body}: string;`,
+    `  ${CACHE_ENTRY.etag}: string | null;`,
+    "}",
+    "",
+    "/** An entry: each scope fingerprint's answer.  Another backend on the same",
+    " *  store writes the same shape. */",
+    "type Entry = Record<string, unknown>;",
+    "",
+    "/** The stored entry, or an empty one when it is not a JSON object. */",
+    "function entryOf(raw: string | null): Entry {",
+    "  if (raw === null) return {};",
+    "  try {",
+    "    const parsed: unknown = JSON.parse(raw);",
+    '    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? (parsed as Entry) : {};',
+    "  } catch {",
+    "    return {};",
+    "  }",
+    "}",
+    "",
+    "/** `answer` when it is a readable answer, else undefined. */",
+    "function readable(answer: unknown): StoredAnswer | undefined {",
+    '  if (typeof answer !== "object" || answer === null) return undefined;',
+    "  const a = answer as Record<string, unknown>;",
+    `  const body = a.${CACHE_ENTRY.body};`,
+    `  const etag = a.${CACHE_ENTRY.etag} ?? null;`,
+    '  if (typeof body !== "string" || !(etag === null || typeof etag === "string")) return undefined;',
+    `  return { ${CACHE_ENTRY.body}: body, ${CACHE_ENTRY.etag}: etag };`,
+    "}",
+    "",
+    "/** One by-id answer as the route serves it on a hit. */",
     "export interface CachedAnswer {",
-    "  body: string;",
-    "  etag: string | null;",
+    "  wire: unknown;",
+    `  ${CACHE_ENTRY.etag}: string | null;`,
     "}",
     "",
     "/** The cached by-id reads of one aggregate: one entry per id, holding each",
@@ -207,22 +254,31 @@ export function renderByIdCacheModule(
     "    this.ttlSeconds = ttlSeconds;",
     "  }",
     "",
+    "  /** The answer stored for `id` under `scope`; an unreadable one is a miss. */",
     "  async read(id: string, scope: string): Promise<CachedAnswer | undefined> {",
+    "    let raw: string | null;",
     "    try {",
-    "      const raw = await this.store.get(this.entryPrefix + id);",
-    "      if (raw === null) return undefined;",
-    "      return (JSON.parse(raw) as Record<string, CachedAnswer>)[scope];",
+    "      raw = await this.store.get(this.entryPrefix + id);",
     "    } catch (err) {",
     `      ${warn("read")}`,
     "      return undefined;",
     "    }",
+    "    const answer = readable(entryOf(raw)[scope]);",
+    "    if (!answer) return undefined;",
+    "    try {",
+    `      return { wire: JSON.parse(answer.${CACHE_ENTRY.body}) as unknown, ${CACHE_ENTRY.etag}: answer.${CACHE_ENTRY.etag} };`,
+    "    } catch {",
+    "      return undefined;",
+    "    }",
     "  }",
     "",
-    "  async write(id: string, scope: string, answer: CachedAnswer): Promise<void> {",
+    "  /** Store `body` (the wire answer's JSON text) under `scope`, keeping the",
+    "   *  other scopes' answers; an entry that does not parse is replaced. */",
+    "  async write(id: string, scope: string, body: string, etag: string | null): Promise<void> {",
     "    try {",
     "      const key = this.entryPrefix + id;",
-    "      const raw = await this.store.get(key);",
-    "      const entry = raw === null ? {} : (JSON.parse(raw) as Record<string, CachedAnswer>);",
+    "      const entry = entryOf(await this.store.get(key));",
+    `      const answer: StoredAnswer = { ${CACHE_ENTRY.body}: body, ${CACHE_ENTRY.etag}: etag };`,
     "      await this.store.set(key, JSON.stringify({ ...entry, [scope]: answer }), this.ttlSeconds);",
     "    } catch (err) {",
     `      ${warn("write")}`,
