@@ -59,6 +59,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mixDepsGet, mixLocalInstall } from "./support/mix-retry.js";
 import { installGeneratedProject } from "./support/npm-install.js";
+import { freePort } from "./support/ports.js";
 
 const ENABLED = process.env.LOOM_API_CALL_E2E === "1";
 
@@ -362,9 +363,9 @@ system Acme {
 }
 `;
 
-const ORDERS_PORT = 3183;
-const SHIPPING_PORT = 3184;
-const PG_PORT = 55434;
+const ORDERS_PORT = await freePort();
+const SHIPPING_PORT = await freePort();
+const PG_PORT = await freePort();
 
 function sh(cmd: string, cwd?: string): string {
   return execSync(cmd, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
