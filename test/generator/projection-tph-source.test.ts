@@ -99,11 +99,11 @@ describe("projection over a TPH concrete reads the shared table, scoped by `kind
 // Eval item 14b: vanilla Ecto stores a value object as ONE `:map` (jsonb)
 // column, so `sum(b.amount.amount)` must extract + cast the leaf — the old
 // `sum(record.amount)` was `sum(jsonb)`, a Postgres error at request time.
-describe("elixir: a value-object leaf aggregates as a cast jsonb extraction", () => {
-  it("sum(b.amount.amount) → sum(fragment(\"(?->>'amount')::numeric\", record.amount))", async () => {
+describe("elixir: a value-object leaf aggregates over its own column", () => {
+  it("sum(b.amount.amount) → sum(record.amount_amount)", async () => {
     const src = await projectionSource("elixir", /query_projections\/bill_totals\.ex$/);
-    expect(src).toContain(`total: sum(fragment("(?->>'amount')::numeric", record.amount))`);
-    expect(src).not.toMatch(/sum\(record\.amount\)/);
+    expect(src).toContain("total: sum(record.amount_amount)");
+    expect(src).not.toContain("->>");
   }, 120_000);
 });
 

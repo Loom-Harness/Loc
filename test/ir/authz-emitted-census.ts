@@ -745,9 +745,9 @@ export const LOCATORS: Record<VariantId, Locator> = {
       // narrows the read above it, so it must not cut that read's window.
       // …and never an `exists(Ecto.Query.from(…))` subquery inside a predicate.
       /(?<!exists\(Ecto\.Query\.)\bfrom\(\s*\w+\s+in\s+([A-Z][\w.]*)(?=[\s,)])/,
-      /\bRepo\.(?:get|get_by|one|all)\(\s*([A-Z][\w.]+)/,
+      /\b(?:Repo|Records)\.(?:get|get_by|one|all)\(\s*([A-Z][\w.]+)/,
       /\bEcto\.Query\.(?:order_by|where|select|limit)\(\s*([A-Z][\w.]+)/,
-      /^\s*([A-Z][\w.]+)\s*\n\s*\|>[^\n]*\n?(?:\s*\|>[^\n]*\n?)*?\s*\|>\s*Repo\.all\(\)/m,
+      /^\s*([A-Z][\w.]+)\s*\n\s*\|>[^\n]*\n?(?:\s*\|>[^\n]*\n?)*?\s*\|>\s*(?:Repo|Records)\.all\(\)/m,
     ],
     // `__denied?/1` is the document deny carve-out's in-app predicate
     // (`Enum.member?([], row)` — membership in the empty set, always false).

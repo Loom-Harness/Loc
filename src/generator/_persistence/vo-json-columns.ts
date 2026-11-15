@@ -85,9 +85,8 @@ export function collapseVoSteps(
   m: MigrationsIR,
   keyCase: VoJsonKeyCase,
   /** Which tables store their value objects as json; a step on any other
-   *  table passes through as the canonical leaf-column step.  Every table
-   *  when omitted. */
-  collapses: (table: string, schema: string | undefined) => boolean = () => true,
+   *  table passes through as the canonical leaf-column step. */
+  collapses: (table: string, schema: string | undefined) => boolean,
 ): MigrationStep[] {
   const groupOf = (
     snap: SchemaSnapshot | null,
