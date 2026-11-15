@@ -507,7 +507,7 @@ export function walkBody(
     aggregatesByName,
     model,
     workflowsByName,
-    projectionsByName: model.readableProjections,
+    projectionsByName: model.readableProjectionSet,
     listShapedProjections: model.listShapedProjections,
     formOfs: [],
     // Shared opaque per-target sink.  One object on the root context (a

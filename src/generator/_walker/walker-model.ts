@@ -60,7 +60,7 @@ export interface WalkerModel {
   /** `<aggregate>.all` answers the `paged<T>` envelope. */
   isPagedAll(aggregate: string): boolean;
   /** The projections a client reads. */
-  readonly readableProjections: ReadonlySet<string>;
+  readonly readableProjectionSet: ReadonlySet<string>;
   /** The readable projections whose read answers a list of rows. */
   readonly listShapedProjections: ReadonlySet<string>;
   /** The fields `aggregate`'s create request carries (`createRequestFields`). */
@@ -117,7 +117,7 @@ function buildModel(opts: {
         ?.repositories.find((r) => r.aggregateName === aggregate)
         ?.finds.find((f) => f.name === name),
     isPagedAll: (aggregate) => isPagedAllRead(aggregate, bcByAggregate),
-    readableProjections: readableProjectionNames(contexts),
+    readableProjectionSet: readableProjectionNames(contexts),
     listShapedProjections: listShapedProjectionNames(contexts),
     createRequestFields: (home, aggregate) => createRequestFields(bcOf(home).payloads, aggregate),
     isErrorRecord: (home, name) =>
