@@ -140,7 +140,7 @@ describe("elixir — query-time projection over a `shape: document` source", () 
     // An unused import is a warning, and the corpus compile runs
     // `mix compile --warnings-as-errors`.
     expect(mod).not.toContain("import Ecto.Query");
-    expect(mod).toContain("  alias D.Records");
+    expect(mod).toContain("  alias D.Repo.Records");
     // …but the ordered read calls `order_by` FULLY QUALIFIED, and that is a
     // MACRO: without the `require`, Elixir parses it as a remote function call,
     // the `[r]` never becomes a query binding, and the module fails to compile

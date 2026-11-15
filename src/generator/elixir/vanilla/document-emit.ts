@@ -1190,7 +1190,7 @@ export function renderDocSaveFunction(facadeMod: string, agg: AggregateIR): stri
   @spec ${fn}(${aggModule}.t(), boolean()) ::
           {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | :conflict}
   def ${fn}(%${aggModule}{} = row, inserted \\\\ false) do
-    case ${appModule}.Records.get(${aggModule}, row.id) do
+    case ${appModule}.Repo.Records.get(${aggModule}, row.id) do
       nil ->
         {:error, :conflict}
 

@@ -1651,7 +1651,7 @@ function renderContextRefCollHelpers(appModule: string, includeResolve: boolean)
   # write, so it resolves them outside the read scope.
   defp __resolve_refs(ids, target_mod) do
     ids = ids |> List.wrap() |> Enum.map(&to_string/1)
-    ${appModule}.Records.all(from(t in target_mod, where: t.id in ^ids), skip_filters: :all)
+    ${appModule}.Repo.Records.all(from(t in target_mod, where: t.id in ^ids), skip_filters: :all)
   end`;
   return includeResolve ? refIdList + resolveRefs : refIdList;
 }

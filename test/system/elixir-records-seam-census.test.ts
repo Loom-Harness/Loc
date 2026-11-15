@@ -12,7 +12,7 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 // a VIRTUAL field domain code reads (`schema-emit.ts` `valueObjectColumns`).
 // Ecto has no load hook and does not let a Repo override `all`/`get`/`one`/
 // `preload`, so the virtual field is filled in exactly one place: the
-// generated `<App>.Records` (`src/generator/elixir/vanilla/records-emit.ts`),
+// generated `<App>.Repo.Records` (`src/generator/elixir/vanilla/records-emit.ts`),
 // which every emitted read and write goes through.  A raw `Repo.all(...)` (or
 // `get`, `one`, `preload`, `insert`, `update`, …) in an elixir emitter reads a
 // struct whose value objects are nil, or writes one whose leaf columns never
@@ -61,10 +61,24 @@ const VERBS = [
 
 /** `Repo.<verb>(`, bare or module-qualified, not part of a longer name
  *  (`ItemRepo.all(`, `Repository.get(`). */
+const VERB_ALT = VERBS.map((v) => v.replace("!", "\\!")).join("|");
 const RAW_REPO_CALL = new RegExp(
-  `(?<![A-Za-z0-9_])Repo\\.(?:${VERBS.map((v) => v.replace("!", "\\!")).join("|")})\\(`,
+  `(?:(?<![A-Za-z0-9_])Repo|(?<![\\w.])(?:repo\\(\\)|@repo|repo))\\.(?:${VERB_ALT})\\(`,
   "g",
 );
+
+/** Ways to reach the repo that the call pattern above would not see. */
+const HIDDEN_REPO = [
+  {
+    re: /\bfn repo\b/,
+    what: "an `fn repo ->` callback (Ecto.Multi.run / transaction/1 hand it the raw repo)",
+  },
+  { re: /alias [\w.${}]*Repo, as:/, what: "the repo aliased under another name" },
+];
+
+/** A jsonb path operator in an emitted query: a value object is its leaf
+ *  columns, so no Ecto query reads one through `->`/`->>`/`#>>`. */
+const JSONB_PATH = /->>|#>>|->'[\w{]/;
 
 type Waiver =
   | { standing: string; count: number }
@@ -91,10 +105,22 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/elixir/vanilla/workflow-eventsourced-emit.ts": HELD(3),
   "src/generator/elixir/vanilla/workflow-execution-emit.ts": HELD(4),
   "src/generator/elixir/vanilla/workflow-instances-emit.ts": HELD(2),
+  // The audit and provenance writers take the repo as an argument; their
+  // tables hold json snapshots and lineage, never a stored value object.
+  "src/generator/elixir/vanilla/audit-emit.ts": {
+    standing:
+      "audit-record insert through the repo argument; the audit table stores no value object",
+    count: 1,
+  },
+  "src/generator/elixir/vanilla/audit-history-emit.ts": {
+    standing:
+      "audit-history read through the repo argument; the audit table stores no value object",
+    count: 1,
+  },
 };
 
 /** The waived total — a new raw site cannot hide under a waiver's slack. */
-const CEILING = 26;
+const CEILING = 28;
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -108,7 +134,7 @@ function rawCalls(source: string): number {
   return [...source.matchAll(RAW_REPO_CALL)].length;
 }
 
-describe("elixir records seam — every emitted read and write goes through <App>.Records", () => {
+describe("elixir records seam — every emitted read and write goes through <App>.Repo.Records", () => {
   const files = walk(path.join(repoRoot, ROOT)).map((f) => ({
     rel: path.relative(repoRoot, f).replaceAll(path.sep, "/"),
     source: readFileSync(f, "utf8"),
@@ -133,7 +159,7 @@ describe("elixir records seam — every emitted read and write goes through <App
       if (n === 0 && !waiver) continue;
       if (!waiver) {
         failures.push(
-          `${rel}: ${n} raw Repo read/write call(s). Call <App>.Records instead (` +
+          `${rel}: ${n} raw Repo read/write call(s). Call <App>.Repo.Records instead (` +
             "`Records.all(...)`, `Records.insert(...)`, …) so a stored value object is " +
             "composed from / decomposed into its leaf columns.",
         );
@@ -151,6 +177,22 @@ describe("elixir records seam — every emitted read and write goes through <App
         failures.push(`${rel}: waived file no longer exists (delete the waiver)`);
     }
     expect(failures, failures.join("\n")).toEqual([]);
+  });
+
+  it("no emitter reaches the repo in a way the call census cannot see", () => {
+    const hits = files
+      .filter((f) => f.rel !== SEAM)
+      .flatMap((f) =>
+        HIDDEN_REPO.filter((h) => h.re.test(f.source)).map((h) => `${f.rel}: ${h.what}`),
+      );
+    expect(hits, hits.join("\n")).toEqual([]);
+  });
+
+  it("no elixir emitter reads a value object through a jsonb path operator", () => {
+    const hits = files
+      .filter((f) => JSONB_PATH.test(f.source))
+      .map((f) => `${f.rel}: a jsonb path operator — read the value object's leaf column instead`);
+    expect(hits, hits.join("\n")).toEqual([]);
   });
 
   it("the waived total is pinned", () => {
@@ -189,7 +231,14 @@ describe("elixir records seam — every emitted read and write goes through <App
       "Repo.aggregate(q, :count)",
       "Repo.transaction(fn -> nil end)",
       "Repo.get/2 raises on a malformed id",
+      "repo().all(query)",
+      "@repo.one(query)",
+      "repo.insert!(struct(Record, row))",
+      "repo.insert_all(Record, rows)",
     ].join("\n");
-    expect(rawCalls(sample)).toBe(3);
+    expect(rawCalls(sample)).toBe(6);
+    expect(JSONB_PATH.test(`fragment("?->>'amount'", record.price)`)).toBe(true);
+    expect(JSONB_PATH.test(`fragment("?#>>'{a,b}'", record.price)`)).toBe(true);
+    expect(JSONB_PATH.test("x -> y")).toBe(false);
   });
 });

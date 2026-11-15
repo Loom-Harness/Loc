@@ -1,5 +1,7 @@
 // ---------------------------------------------------------------------------
-// `<App>.Records` — the one place a table-backed schema is read or written.
+// `<App>.Repo.Records` — the one place a table-backed schema is read or written.
+// It lives under `<App>.Repo` (beside the Ecto repo, never inside it), where no
+// context module can land: a context is `<App>.<Context>`, one segment deep.
 //
 // The relational schema is the ONE schema `MigrationsIR` derives
 // (D-ONE-SCHEMA): a value object is its prefix-named leaf columns
@@ -35,7 +37,7 @@
 /** `lib/<app>/records.ex`. */
 export function renderRecordsModule(appModule: string): string {
   return `# Auto-generated.
-defmodule ${appModule}.Records do
+defmodule ${appModule}.Repo.Records do
   @moduledoc """
   Every read and write of a table-backed schema.  A stored value object is its
   leaf columns; the schema carries it as a virtual field, composed here on
@@ -58,46 +60,63 @@ defmodule ${appModule}.Records do
   def preload(structs, preloads, opts \\\\ []),
     do: structs |> Repo.preload(preloads, opts) |> compose()
 
-  def insert(changeset, opts \\\\ []), do: changeset |> decompose() |> Repo.insert(opts)
-  def insert!(changeset, opts \\\\ []), do: changeset |> decompose() |> Repo.insert!(opts)
-  def update(changeset, opts \\\\ []), do: changeset |> decompose() |> Repo.update(opts)
-  def update!(changeset, opts \\\\ []), do: changeset |> decompose() |> Repo.update!(opts)
+  def insert(changeset, opts \\\\ []), do: changeset |> decompose() |> Repo.insert(opts) |> written()
+  def insert!(changeset, opts \\\\ []), do: changeset |> decompose() |> Repo.insert!(opts) |> written()
+  def update(changeset, opts \\\\ []), do: changeset |> decompose() |> Repo.update(opts) |> written()
+  def update!(changeset, opts \\\\ []), do: changeset |> decompose() |> Repo.update!(opts) |> written()
 
   def insert_or_update(changeset, opts \\\\ []),
-    do: changeset |> decompose() |> Repo.insert_or_update(opts)
+    do: changeset |> decompose() |> Repo.insert_or_update(opts) |> written()
 
   def insert_or_update!(changeset, opts \\\\ []),
-    do: changeset |> decompose() |> Repo.insert_or_update!(opts)
+    do: changeset |> decompose() |> Repo.insert_or_update!(opts) |> written()
 
-  @doc "Fill every virtual value-object field of a loaded result from its leaf columns."
-  def compose(list) when is_list(list), do: Enum.map(list, &compose/1)
-  def compose(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> compose() |> List.to_tuple()
+  # A written struct is composed afresh from the leaf columns it was just
+  # written with, so the caller serializes exactly what the row now holds.
+  defp written({:ok, struct}), do: {:ok, compose(struct, :written)}
+  defp written({:error, _} = error), do: error
+  defp written(struct), do: compose(struct, :written)
 
-  def compose(%{__meta__: %Ecto.Schema.Metadata{}, __struct__: schema} = struct) do
+  @doc """
+  Fill every virtual value-object field of a read result from its leaf columns.
+  Total over what a read returns: nil, a struct, a list, a tuple, a plain map;
+  any other struct (a changeset, \`Ecto.Association.NotLoaded\`, a \`Decimal\`) and
+  any other term pass through.  A field already set is kept (\`:read\`); a
+  write result is recomposed whole (\`:written\`).
+  """
+  def compose(value, mode \\\\ :read)
+  def compose(list, mode) when is_list(list), do: Enum.map(list, &compose(&1, mode))
+
+  def compose(tuple, mode) when is_tuple(tuple),
+    do: tuple |> Tuple.to_list() |> compose(mode) |> List.to_tuple()
+
+  def compose(%{__meta__: %Ecto.Schema.Metadata{}, __struct__: schema} = struct, mode) do
     struct
-    |> compose_values(schema)
-    |> compose_associations(schema)
+    |> compose_values(schema, mode)
+    |> compose_associations(schema, mode)
   end
 
-  def compose(%{__struct__: _} = struct), do: struct
-  def compose(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, compose(v)} end)
-  def compose(other), do: other
+  def compose(%{__struct__: _} = struct, _mode), do: struct
+  def compose(map, mode) when is_map(map), do: Map.new(map, fn {k, v} -> {k, compose(v, mode)} end)
+  def compose(other, _mode), do: other
 
-  defp compose_values(struct, schema) do
+  defp compose_values(struct, schema, mode) do
     if function_exported?(schema, :__value_columns__, 0) do
       Enum.reduce(schema.__value_columns__(), struct, fn {field, node}, acc ->
-        if is_nil(Map.get(acc, field)), do: Map.put(acc, field, compose_node(acc, node)), else: acc
+        if mode == :written or is_nil(Map.get(acc, field)),
+          do: Map.put(acc, field, compose_node(acc, node)),
+          else: acc
       end)
     else
       struct
     end
   end
 
-  defp compose_associations(struct, schema) do
+  defp compose_associations(struct, schema, mode) do
     Enum.reduce(schema.__schema__(:associations), struct, fn assoc, acc ->
       case Map.get(acc, assoc) do
         %Ecto.Association.NotLoaded{} -> acc
-        loaded -> Map.put(acc, assoc, compose(loaded))
+        loaded -> Map.put(acc, assoc, compose(loaded, mode))
       end
     end)
   end
@@ -238,12 +257,97 @@ export function withRecordsAlias(appModule: string, module: string): string {
   const rest = module.slice(0, at) + module.slice(at + aliasLine.length);
   const calls = (name: string): boolean =>
     new RegExp(`(?<![\\w.])${name}\\.[a-z_]+[!?]?\\(`).test(rest);
-  const names = [calls("Records") ? "Records" : "", calls("Repo") ? "Repo" : ""].filter(Boolean);
-  const replacement =
-    names.length === 0
-      ? ""
-      : names.length === 1
-        ? `  alias ${appModule}.${names[0]}\n`
-        : `  alias ${appModule}.{${names.join(", ")}}\n`;
+  const replacement = [
+    calls("Repo") ? `  alias ${appModule}.Repo\n` : "",
+    calls("Records") ? `  alias ${appModule}.Repo.Records\n` : "",
+  ].join("");
   return module.slice(0, at) + replacement + module.slice(at + aliasLine.length);
+}
+
+/** `test/records_test.exs` — the null rule `<App>.Repo.Records` composes an
+ *  optional value object by, pinned on a schema of its own (no database): an
+ *  optional value object is absent when its required leaves are all NULL
+ *  (when it has none, when every leaf is) — the probe python's repository
+ *  reads, and what the shared null-consistency CHECK makes exact for every
+ *  row it admits. */
+export function renderRecordsTest(appModule: string): string {
+  return `# Auto-generated.
+defmodule ${appModule}.Repo.RecordsTest do
+  use ExUnit.Case, async: true
+
+  alias ${appModule}.Repo.Records
+
+  defmodule Row do
+    @moduledoc false
+    use Ecto.Schema
+
+    schema "records_test_rows" do
+      field :home, :map, virtual: true
+      field :home_line1, :string
+      field :home_line2, :string
+      field :home_city, :string
+      field :home_geo_lat, :decimal
+      field :home_geo_lng, :decimal
+      field :tag, :map, virtual: true
+      field :tag_note, :string
+    end
+
+    def __value_columns__ do
+      [
+        {:home,
+         {true,
+          [
+            {:line1, :home_line1, true},
+            {:line2, :home_line2, false},
+            {:city, :home_city, true},
+            {:geo, {true, [{:lat, :home_geo_lat, true}, {:lng, :home_geo_lng, true}]}}
+          ]}},
+        {:tag, {true, [{:note, :tag_note, false}]}}
+      ]
+    end
+  end
+
+  test "an optional value object whose leaves are all NULL reads as nil" do
+    assert %Row{home: nil, tag: nil} = Records.compose(%Row{})
+  end
+
+  test "a present value object composes its leaves, an absent nested one is nil" do
+    row = Records.compose(%Row{home_line1: "1 Main", home_city: "Oslo"})
+    assert row.home == %{line1: "1 Main", line2: nil, city: "Oslo", geo: nil}
+  end
+
+  test "required leaves NULL while an optional leaf is set reads as absent" do
+    assert Records.compose(%Row{home_line2: "Flat 2"}).home == nil
+  end
+
+  test "a value object with no required leaf is present when any leaf is set" do
+    assert Records.compose(%Row{tag_note: "x"}).tag == %{note: "x"}
+  end
+
+  test "a field already set is kept on a read and recomposed on a write" do
+    set = %Row{home: :in_memory, home_line1: "a", home_city: "b"}
+    assert Records.compose(set).home == :in_memory
+    assert Records.compose(set, :written).home.line1 == "a"
+  end
+
+  test "compose is total over what a read returns" do
+    assert Records.compose(nil) == nil
+    assert {:ok, %Row{home: nil}} = Records.compose({:ok, %Row{}})
+    assert %Ecto.Association.NotLoaded{} = Records.compose(%Ecto.Association.NotLoaded{})
+    assert Records.compose(Decimal.new("1.5")) == Decimal.new("1.5")
+  end
+
+  test "a write turns the value object back into its leaf columns" do
+    changeset =
+      %Row{}
+      |> Ecto.Changeset.change(%{home: %{line1: "x", city: "y", geo: %{lat: "1.5", lng: 2}}})
+      |> Records.decompose()
+
+    assert changeset.changes.home_line1 == "x"
+    assert changeset.changes.home_line2 == nil
+    assert changeset.changes.home_geo_lat == Decimal.new("1.5")
+    assert changeset.changes.home_geo_lng == Decimal.new(2)
+  end
+end
+`;
 }

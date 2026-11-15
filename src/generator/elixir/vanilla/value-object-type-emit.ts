@@ -7,7 +7,7 @@ import { exEctoIdType, exEctoScalarType } from "./codec-spelling-ex.js";
 // equality.
 //
 // A single value object (`berth: Berth`) is one map-valued field: the virtual
-// field over its leaf columns on a table-backed schema (`<App>.Records`
+// field over its leaf columns on a table-backed schema (`<App>.Repo.Records`
 // composes it), the stored jsonb value inside an embed.  Typed as a bare
 // `:map`, every path that produced it handed back a DIFFERENT term for the same
 // value:

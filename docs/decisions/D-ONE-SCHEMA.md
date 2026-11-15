@@ -34,7 +34,7 @@ for a value object on a saga-state or projection row (as one `:map` column).
 
 An ORM whose schema type cannot span several columns maps a value object as its
 leaf columns plus an in-memory value composed from them: Ecto declares the leaf
-fields and a virtual value-object field, and the generated `<App>.Records`
+fields and a virtual value-object field, and the generated `<App>.Repo.Records`
 composes it on every read and decomposes it on every write.
 
 **Mechanism.**
@@ -47,7 +47,7 @@ composes it on every read and decomposes it on every write.
   not in the list must emit the shared DDL statement for statement; one in it
   must have its refusal.
 - `test/system/elixir-records-seam-census.test.ts` forbids a raw `Repo` read or
-  write in the elixir emitters outside `<App>.Records`, the one place a stored
+  write in the elixir emitters outside `<App>.Repo.Records`, the one place a stored
   value object is composed from and decomposed into its leaf columns.
 - The booted shared-database leg (`LOOM_BH_ELIXIR_SCHEMA=shared`,
   `test/behavioral/shared-schema.mjs`) runs every elixir behavioural case as a

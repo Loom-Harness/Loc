@@ -60,7 +60,7 @@ describe("vanilla — Slice 1 CRUD read path", () => {
     const repoKey = [...files.keys()].find((k) => k.endsWith("/tracker/task_repository.ex"))!;
     expect(repoKey).toBeDefined();
     const repo = files.get(repoKey)!;
-    expect(repo).toMatch(/alias Api\.(Records|\{Records, Repo\})\n/);
+    expect(repo).toContain("alias Api.Repo.Records\n");
     expect(repo).toContain(
       'def list(page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc")',
     );

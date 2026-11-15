@@ -80,7 +80,7 @@ describe("vanilla — retrieval modules under lib/<app>/<ctx>/retrievals/", () =
     const files = await load();
     const body = files.get([...files.keys()].find((k) => k.endsWith("/retrievals/by_status.ex"))!)!;
     expect(body).toContain("import Ecto.Query");
-    expect(body).toContain("alias Api.Records");
+    expect(body).toContain("alias Api.Repo.Records");
   });
 
   it("renders the from/where over the aggregate schema with `record` binding", async () => {

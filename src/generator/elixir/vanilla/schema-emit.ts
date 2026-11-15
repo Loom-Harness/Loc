@@ -6,7 +6,7 @@
 //   enum → `Ecto.Enum` with a values list;
 //   valueobject → its leaf columns (`price_amount`, …, the shared schema) plus
 //     a virtual `Loom.ValueObject` field in the constructor shape, composed and
-//     decomposed by `<App>.Records` (records-emit.ts); inside an embed, the
+//     decomposed by `<App>.Repo.Records` (records-emit.ts); inside an embed, the
 //     jsonb value itself; id (foreign key reference) →
 //     `:binary_id` column; optional wrapper unwraps the inner type.
 // ---------------------------------------------------------------------------
@@ -562,7 +562,7 @@ function voColumnsOf(ctx: BoundedContextIR, leafColumns: boolean): VoColumns {
  *  (`field :price_amount, :decimal`, a nested value object prefix-chained —
  *  exactly the columns `MigrationsIR` flattens it into) and the virtual field
  *  domain code reads (`field :price, Loom.ValueObject, …, virtual: true`), plus
- *  the `__value_columns__/0` entry `<App>.Records` composes and decomposes it
+ *  the `__value_columns__/0` entry `<App>.Repo.Records` composes and decomposes it
  *  through (records-emit.ts). */
 export interface ValueObjectColumns {
   readonly lines: readonly string[];
@@ -631,7 +631,7 @@ export function renderValueColumnsFn(specs: readonly string[]): string {
   if (specs.length === 0) return "";
   return `
   @doc false
-  # The stored value objects as leaf columns — read by ${"`"}<App>.Records${"`"}.
+  # The stored value objects as leaf columns — read by ${"`"}<App>.Repo.Records${"`"}.
   def __value_columns__, do: [${specs.join(", ")}]
 `;
 }
