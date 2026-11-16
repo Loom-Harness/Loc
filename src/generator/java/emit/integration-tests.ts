@@ -40,12 +40,15 @@ import { jid } from "../java-ident.js";
 import { packagePath } from "../naming.js";
 import { type JavaRenderContext, renderJavaExpr } from "../render-expr.js";
 import {
+  GATED,
+  gatedHelpers,
   javaPrincipal,
   javaRejection,
   renderCreateCall,
   renderExplicitMatcher,
   renderOperationCall,
   testBodyRenderContext,
+  withGates,
 } from "./tests.js";
 
 /** A repository find on `agg` named `name`, or undefined. */
@@ -176,9 +179,15 @@ function renderStmt(
       ) {
         const aggName = s.expr.receiverType.name;
         const recv = renderJavaExpr(s.expr.receiver, rctx);
-        const call =
+        const call = withGates(
+          s.expr,
           renderOperationCall(s.expr, ctx, rctx, ambientPrincipal(scope)) ??
-          renderJavaExpr(s.expr, rctx);
+            renderJavaExpr(s.expr, rctx),
+          ctx,
+          rctx,
+          ambientPrincipal(scope) ?? "null",
+          scope.basePkg,
+        );
         return [`${I}${call};`, `${I}${repoField(aggName)}.save(${recv});`];
       }
       return [`${I}${renderJavaExpr(s.expr, rctx)};`];
@@ -191,8 +200,15 @@ function renderStmt(
     case "expect-throws": {
       const inner =
         renderCreateCall(s.expr, ctx, rctx) ??
-        renderOperationCall(s.expr, ctx, rctx, ambientPrincipal(scope)) ??
-        renderJavaExpr(s.expr, rctx);
+        withGates(
+          s.expr,
+          renderOperationCall(s.expr, ctx, rctx, ambientPrincipal(scope)) ??
+            renderJavaExpr(s.expr, rctx),
+          ctx,
+          rctx,
+          ambientPrincipal(scope) ?? "null",
+          scope.basePkg,
+        );
       return javaRejection(rejectionPlan(s), inner, `__thrown${index}`, I);
     }
     case "principal":
@@ -299,6 +315,7 @@ export function renderJavaContextIntegrationTest(
     // join it, and it rolls back at the test's end.
     `@${javaRef("org.springframework.transaction.annotation", "Transactional")}`,
     `public class ${className} {`,
+    ...(methods.some((l) => l.includes(`${GATED}(`)) ? gatedHelpers() : []),
     ...usedAggs.map((a) => `    @Autowired\n    private ${a.name}Repository ${repoField(a.name)};`),
     ``,
     // Provisioning-agnostic: LOOM_PG_URL (libpq URL) → spring.datasource.*.

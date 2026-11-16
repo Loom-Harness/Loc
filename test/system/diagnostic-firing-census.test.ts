@@ -3892,7 +3892,7 @@ system Billder {
   }).replace(" auth: required", ""),
   // The `as { … }` test principal (test-placement.md).
   "loom.test-principal-placement": principalSys({
-    ctxTest: `    aggregate Pin { label: string  test "unit" as { role: "x" } { expect(1).toBe(1) } }`,
+    ctxTest: `    valueobject Pin { label: string  test "unit" as { role: "x" } { expect(1).toBe(1) } }`,
   }),
   "loom.test-principal-unknown-claim": principalSys({
     ctxTest: `    test "t" as { nope: "a" } { let n = Note.create(text: "a") }`,

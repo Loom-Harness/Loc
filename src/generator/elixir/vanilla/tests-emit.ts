@@ -18,6 +18,7 @@ import type {
   ExprIR,
   OperationIR,
   TestIR,
+  TestPrincipalIR,
   TestStmtIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
@@ -109,6 +110,8 @@ export interface Env {
   docAggs?: ReadonlySet<string>;
   /** The test principal a currentUser-reading op call takes. */
   principal?: string;
+  /** A head `as { … }` clause's principal, rendered (`ShapeFacts.principalOf`). */
+  principalOf?: (p: TestPrincipalIR) => string;
   /** Test-local names bound to a document aggregate's record, collected while a
    *  test renders (`let d = Doc.create(…)`), so a later read or op call on `d`
    *  speaks the embed's string enums. */
@@ -140,9 +143,10 @@ export const EX_PRINCIPAL: PrincipalTarget = {
 export function exTestPrincipal(
   user: TestPrincipalShape | undefined,
   enums: readonly EnumIR[],
+  overrides?: TestPrincipalIR,
 ): string {
   return renderTestPrincipal(
-    testPrincipal(user ?? testPrincipalShape(undefined), undefined, enums),
+    testPrincipal(user ?? testPrincipalShape(undefined), overrides, enums),
     EX_PRINCIPAL,
   );
 }
@@ -181,6 +185,9 @@ export interface ShapeFacts {
   /** The test principal (`exTestPrincipal`) a currentUser-reading op call
    *  takes as its trailing argument. */
   principal?: string;
+  /** The principal of a test with a head `as { … }` clause: its operation
+   *  calls, and the gates the pure core runs, take it instead. */
+  principalOf?: (p: TestPrincipalIR) => string;
 }
 
 export function renderVanillaAggregateTestModule(
@@ -263,7 +270,11 @@ end
 }
 
 function renderTest(t: TestIR, outer: Env): string[] {
-  const env: Env = { ...outer, docVars: new Set() };
+  const env: Env = {
+    ...outer,
+    docVars: new Set(),
+    ...(t.principal && outer.principalOf ? { principal: outer.principalOf(t.principal) } : {}),
+  };
   try {
     const used = usedRefNames(t.statements);
     const lines = t.statements.flatMap((s, i) => renderStmt(s, env, used, i));

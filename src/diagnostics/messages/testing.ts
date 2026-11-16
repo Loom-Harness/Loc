@@ -156,10 +156,11 @@ export const messages = {
     `A 'test' declared outside its subject must name it: ` +
     `\`test ${p.name} for <Subject> { … }\`.`,
   "loom.test-principal-placement": (p: { name: unknown }) =>
-    `Test ${p.name} declares an 'as { … }' principal, but only a context integration ` +
-    `'test' (nested in a context, or 'for <Context>') and a 'test e2e' block run as a ` +
-    `principal — an aggregate, value-object or domain-service unit test never reaches ` +
-    `the auth layer.  Drop the clause, or move the test to its context.`,
+    `Test ${p.name} declares an 'as { … }' principal where none runs: a context integration ` +
+    `'test' and a 'test e2e' block take the clause in the head and as a body line, an ` +
+    `aggregate unit test takes it in the head (its operation calls, gates included, run as ` +
+    `that actor), and a value-object or domain-service unit test never reaches the auth ` +
+    `layer.  Move the clause to the test's head, or the test to its context.`,
   "loom.test-principal-value": (p: { name: unknown }) =>
     `Principal claim '${p.name}' must be a string literal (\`${p.name}: "acme"\`) or a list ` +
     `of string literals (\`${p.name}: ["agent"]\`) — a test principal is fixed data, not an ` +

@@ -3,8 +3,10 @@
 // (let-bound, so no member type to read), a `datetime` and a `date` written as
 // ISO strings, a value object, a list and an `X id` written as a string; an
 // operation named like a collection op called inside `expect`; an operation
-// that breaks an invariant, asserted by its rung and bare; and an operation
-// that reads a declared claim of a non-default `user { … }` shape.
+// that breaks an invariant, asserted by its rung and bare; an operation that
+// reads a declared claim of a non-default `user { … }` shape; and an operation
+// behind a `requires` gate, run as the default principal (every permission)
+// and as an `as { permissions: [] }` principal, which the gate refuses.
 //
 // Each backend's test emitter decided these on its own, and the same test
 // passed on one backend, failed on another and did not compile on a third:
@@ -20,6 +22,7 @@
 system TestAssertions {
   user { id: string  role: string  permissions: string[]  email: string }
   subdomain Selling {
+    permissions { refund }
     context Selling {
       valueobject Price { amount: money  currency: string }
       aggregate Customer with crudish { name: string }
@@ -39,6 +42,10 @@ system TestAssertions {
         operation take(n: int) { precondition n > 0  status := "taken" }
         operation discount(d: money) { total := total - d }
         operation sign() { precondition currentUser.email.length > 0  signedBy := currentUser.email }
+        operation refund() {
+          requires currentUser.permissions.contains(permissions.refund)
+          status := "refunded"
+        }
 
         test "money compares by value, whatever its scale" {
           let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
@@ -93,6 +100,17 @@ system TestAssertions {
           let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
           o.sign()
           expect(o.signedBy).toBe("email")
+        }
+
+        test "the default test principal passes a requires gate" {
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
+          o.refund()
+          expect(o.status).toBe("refunded")
+        }
+
+        test "a principal without the permission is refused by the requires gate" as { permissions: [] } {
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
+          expect(o.refund()).toThrow()
         }
       }
       repository Customers for Customer { }
