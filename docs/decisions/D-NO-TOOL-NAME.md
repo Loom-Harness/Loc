@@ -256,11 +256,11 @@ A helper drops the tool name. A name that becomes a common word takes the target
 
 ## Tool markers and `.loom/` — no read-back
 
-The generator reads nothing back from its own output, and the generated tree has no `.loom/` folder. Documentation artifacts move to `docs/` in the generated tree; the manifest and the `scaffold-once` marker go (the generator owns its output folders outright, except paths an ignore file names, and writes a scaffold-once file only when it is absent); the walker hands the unrendered list over directly instead of a marker being re-scanned; the source map stays opt-in, beside the build output; an artifact with no reader gets a real home or is dropped. The redesign is tracked as #5993; until it lands these names stay in the census's `pending` group. What writes and reads each one today:
+The generator reads nothing back from its own output, and the generated tree has no `.loom/` folder. Documentation artifacts move to `docs/` in the generated tree; the manifest goes (a hatch file — an `extern` implementation — is recognised by the generator from the model, carries no marker, and is written only when it is absent); the walker hands the unrendered list over directly instead of a marker being re-scanned; the source map stays opt-in, beside the build output; an artifact with no reader gets a real home or is dropped. The redesign is tracked as #5993; until it lands these names stay in the census's `pending` group. What writes and reads each one today:
 
 | artifact / marker | writer | read back by | could the reader take it from elsewhere? |
 |---|---|---|---|
-| `.loom/manifest.json` | `generate system` (`src/system/manifest.ts`) | `generate system` — the prune plan and the scaffold-once flags | no — the only record of what a past run wrote |
+| `.loom/manifest.json` | `generate system` (`src/system/manifest.ts`) | `generate system` — the prune plan and the hatch flags | no — the only record of what a past run wrote |
 | `.loom/sourcemap.json` | `generate system --sourcemap` (`src/system/sourcemap.ts`) | `ddd trace`, `ddd breakpoints`, the DAP server, the playground | no — a generation-time record; the generated tree carries no other `.ddd` spans |
 | `.loom/wire-spec.json` | `generate system` (`src/system/wire-spec.ts`) | nothing in the toolchain (`ddd diff` rebuilds it from the models and the `migrations/` chain); external clients | yes — rebuilt from the model |
 | `.loom/traceability.json` | `generate system` | the playground's tests panel | yes — the same builder over the model |
@@ -271,7 +271,6 @@ The generator reads nothing back from its own output, and the generated tree has
 | `.loom/frontend-contract.json` | `ddd emit-frontend-contract -o` only | nothing; frontends use the in-memory contract | yes — recomputed |
 | `locales/.loom/source.lock.json`, `stale/` | `ddd i18n sync` | `ddd i18n sync / status / check` (the merge base) | no — the source at the last sync |
 | `locales/.loom/exchange/` | `ddd i18n` export | translators | n/a — an export |
-| `loom:scaffold-once` (first line of scaffold-once files) | backend extern emitters, README | `generate system` — keeps the on-disk copy | partly — the manifest records the flag, the in-band marker protects an existing file |
 | `loom:sourcemap-begin` / `-end` (Java `build.gradle.kts`, `--sourcemap`) | `src/generator/java/emit/program.ts` | tests only | not read by the compiler |
 | `loom:unrendered [loom.<code>]` (TSX / HEEx comment on a walker give-up) | `src/generator/_walker/give-up.ts` | `generate system` re-scans the tree for it (`give-up-report.ts`) | yes — the walker could return the list |
 | `.loomignore` mentions (README, file headers) | `src/system/readme.ts`, comments | humans; the CLI honours the file itself | n/a |

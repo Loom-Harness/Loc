@@ -84,6 +84,7 @@ import {
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { aggregateRouteTypes } from "../../ir/util/wire-policy.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
+import { hatchStub } from "../../util/hatch.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
@@ -2150,7 +2151,7 @@ function emitAggregate(
     place(
       `${agg.name}Extern.java`,
       "entity",
-      renderJavaExternHook(agg, externOps, pkgFor("entity", agg.name), basePkg),
+      hatchStub(renderJavaExternHook(agg, externOps, pkgFor("entity", agg.name), basePkg)),
       agg.name,
     );
   }

@@ -27,7 +27,6 @@
 import type { AggregateIR } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
-import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import { renderCsType } from "../render-expr.js";
 
 /** The C# param list for an extern op's hook — mirrors the aggregate method's
@@ -62,9 +61,9 @@ export function renderExternHookImpl(agg: AggregateIR, ns: string): string | und
     })
     .join("\n\n");
 
-  return `// ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first
-// \`generate\` and NEVER overwrites it again, so your implementation survives every
-// regenerate.  Replace each \`throw\` with the operation's real domain logic.
+  return `// This file is yours: it is written only when it is missing, and
+// regeneration never overwrites it, so your implementation survives.
+// Replace each \`throw\` with the operation's real domain logic.
 // CA1822 (could be static) is silenced for the scaffold: the compiler only
 // exempts a bare NotImplementedException body, and yours will read instance state.
 #pragma warning disable CA1822

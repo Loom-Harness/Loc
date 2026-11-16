@@ -272,7 +272,7 @@ describe("elixir — extern commandHandler / queryHandler", () => {
   it("emits a scaffold-once impl module that raises", async () => {
     const m = await generateSystemFiles(EXTERN_SRC);
     const impl = fileEndingWith(m, "lib/api/ordering/handlers/place_order_impl.ex");
-    expect(impl.split("\n")[0]).toContain("loom:scaffold-once");
+    expect(impl.split("\n")[0]).toContain("This file is yours");
     expect(impl).toContain("defmodule Api.Ordering.Handlers.PlaceOrderImpl do");
     expect(impl).toContain("raise Api.NotImplementedError,");
   });

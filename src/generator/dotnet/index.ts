@@ -75,6 +75,7 @@ import {
 } from "../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { aggregateRouteTypes } from "../../ir/util/wire-policy.js";
+import { hatchStub } from "../../util/hatch.js";
 import { type BootRequiredSetting, bootRequiredAuthEnv } from "../_auth/boot-required.js";
 import { registryTableSql } from "../_persistence/registry-walk.js";
 
@@ -1519,7 +1520,7 @@ function emitAggregate(
   // rewrites its namespace in lockstep with the entity file.
   const externHookImpl = renderExternHookImpl(agg, ns);
   if (externHookImpl) {
-    place(`${agg.name}.Extern.cs`, "entity", externHookImpl, agg.origin);
+    place(`${agg.name}.Extern.cs`, "entity", hatchStub(externHookImpl), agg.origin);
   }
   // Pure Domain union types for exception-less operation returns — Domain-layer
   // artifacts (the aggregate method produces them), placed alongside the entity.

@@ -2,7 +2,6 @@ import type { EnrichedAggregateIR, OperationIR } from "../../../ir/types/loom-ir
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
-import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import { javaLocals, jid, localOf } from "../java-ident.js";
 import { renderJavaType } from "../render-expr.js";
 
@@ -71,9 +70,9 @@ export function renderJavaExternHook(
   while (methods.length > 0 && methods[methods.length - 1] === "") methods.pop();
 
   return lines(
-    `// ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first`,
-    `// \`generate\` and NEVER overwrites it again, so your implementation survives`,
-    `// every regenerate.  Replace each \`throw\` with the operation's real logic.`,
+    `// This file is yours: it is written only when it is missing, and`,
+    `// regeneration never overwrites it, so your implementation survives.`,
+    `// Replace each \`throw\` with the operation's real logic.`,
     `package ${pkg};`,
     ``,
     `import ${basePkg}.domain.common.*;`,

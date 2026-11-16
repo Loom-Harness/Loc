@@ -767,7 +767,7 @@ describe("typescript generator", () => {
     //    the generic 500 `"internal"` fallback, discarding the file-to-write
     //    hint (see test/generator/extern-not-implemented-status.test.ts).
     const subclass = files.get("domain/order.ts")!;
-    expect(subclass).toMatch(/loom:scaffold-once/);
+    expect(subclass).toMatch(/This file is yours/);
     expect(subclass).toMatch(/import \{ OrderBase \} from ".\/order.base"/);
     expect(subclass).toMatch(/import \{ NotImplementedError \} from ".\/errors"/);
     expect(subclass).toMatch(/export class Order extends OrderBase \{/);

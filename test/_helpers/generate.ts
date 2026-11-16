@@ -13,6 +13,7 @@ import {
   generateSystems,
   pendingMigrations,
   type SystemEmission,
+  withHatchStubs,
 } from "../../src/system/index.js";
 import {
   BASE_VERSION,
@@ -135,7 +136,9 @@ export async function generateSystemFiles(
   source: string,
   options: GenerateSystemOptions = {},
 ): Promise<Map<string, string>> {
-  return generateSystems(await assertGeneratable(source), withOverrides(source, options)).files;
+  return withHatchStubs(
+    generateSystems(await assertGeneratable(source), withOverrides(source, options)),
+  );
 }
 
 /** `options` carrying the source-language text of the translator tree beside the
@@ -174,7 +177,7 @@ export async function generateSystemFilesUnchecked(
         syntaxErrors.map((e) => `  ${e.message}`).join("\n"),
     );
   }
-  return generateSystems(model, withOverrides(source, {})).files;
+  return withHatchStubs(generateSystems(model, withOverrides(source, {})));
 }
 
 /**
@@ -229,7 +232,7 @@ export async function generateSystemFilesWithSourceText(
   const docPath = model.$document?.uri.path;
   if (!docPath) throw new Error("parsed fixture has no backing document — cannot key sourceTexts");
   const sourceTexts = new Map([[docPath, source]]);
-  return { files: generateSystems(model, { ...options, sourceTexts }).files, docPath };
+  return { files: withHatchStubs(generateSystems(model, { ...options, sourceTexts })), docPath };
 }
 
 /**
@@ -308,7 +311,7 @@ export async function generateSystemFilesFromLoom(
     );
   }
   const { generateSystemsFromLoom } = await import("../../src/system/index.js");
-  return generateSystemsFromLoom(loom, options).files;
+  return withHatchStubs(generateSystemsFromLoom(loom, options));
 }
 
 /**

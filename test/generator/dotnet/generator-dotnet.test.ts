@@ -411,7 +411,7 @@ describe(".NET generator", () => {
     // 4. The user-owned scaffold-once partial carries the marker + a
     //    compile-forcing implementing shape that throws until filled.
     const impl = files.get("Domain/Orders/Order.Extern.cs")!;
-    expect(impl).toMatch(/^\/\/ loom:scaffold-once/);
+    expect(impl).toMatch(/^\/\/ This file is yours/);
     expect(impl).toMatch(/public sealed partial class Order/);
     expect(impl).toMatch(
       /private partial void ConfirmCore\(\)\s*=> throw new ExternNotImplementedException\(/,
