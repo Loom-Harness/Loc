@@ -23,6 +23,14 @@
 // `initialValueTs` still does, ratcheted in `ZERO_CEILINGS`, and the Feliz,
 // Flutter and Angular form code must read the zero.
 //
+// Which blank inputs hold the submit is decided once too: `formBlankBlocks` (a
+// required file or reference), rendered per target as a request schema that
+// refuses the blank (`typeBlankBlocks`), a submit guard or a picker validator.
+// Every target's form code must call it, and none may decide it from a kind
+// and an optionality of its own (`kind === "ref" && !optional`), spell its own
+// `Validators.required`, or emit the uuid pattern a blank fails outside the
+// decision.
+//
 // What this asserts is the ABSENCE of a classification in emitter source,
 // which no compile or booted tier observes; the forms' booted behaviour runs
 // in the behavioural UI legs over `test/behavioral/form-spec-ui.ddd`.
@@ -74,6 +82,20 @@ const ZERO_READERS = [
   "src/generator/feliz/form-fields.ts",
   "src/generator/flutter/forms-emit.ts",
 ];
+
+/** A blank-block decided locally: a reference / file kind tested together with
+ *  an optionality. */
+const BLANK_BLOCK_REDERIVATION =
+  /\.kind\s*===\s*"(?:ref|file)"\s*&&[^;\n]*(?:optional|required|absence)|(?:optional|required|absence)[^;\n]*&&\s*[\w.]+\.kind\s*===\s*"(?:ref|file)"/g;
+
+/** Each target's renderer of the blank-block decision, and the call it makes. */
+const BLANK_BLOCK_READERS: Record<string, RegExp> = {
+  "src/generator/_frontend/zod-schemas.ts": /typeBlankBlocks\(/,
+  "src/generator/_frontend/workflows-module.ts": /typeBlankBlocks\(/,
+  "src/generator/angular/form-fields.ts": /formBlankBlocks\(/,
+  "src/generator/feliz/form-fields.ts": /formBlankBlocks\(/,
+  "src/generator/flutter/forms-emit.ts": /formBlankBlocks\(/,
+};
 
 /** Frontends whose form code is fully on the shared model: no ceiling. */
 const CLEAN_FRONTENDS = ["src/generator/feliz/", "src/generator/flutter/"];
@@ -136,6 +158,27 @@ describe("form-spec re-derivation census", () => {
     for (const p of ZERO_READERS) {
       expect(formFiles(), p).toContain(p);
       expect(readFileSync(p, "utf8"), p).toMatch(/formZeroText\(|\.zero\b/);
+    }
+  });
+
+  it("a blank input holds the submit only through formBlankBlocks", () => {
+    const files = formFiles();
+    for (const [p, call] of Object.entries(BLANK_BLOCK_READERS)) {
+      expect(files, p).toContain(p);
+      expect(readFileSync(p, "utf8"), `${p} must render formBlankBlocks`).toMatch(call);
+    }
+    for (const p of files) {
+      const src = readFileSync(p, "utf8");
+      expect(src.match(BLANK_BLOCK_REDERIVATION) ?? [], p).toEqual([]);
+      // Angular's emptiness validator is spelled once, behind the decision.
+      const required = src.match(/"Validators\.required"/g)?.length ?? 0;
+      expect(required, p).toBe(p === "src/generator/angular/form-fields.ts" ? 1 : 0);
+      // The uuid pattern (which a blank fails) only behind the decision.
+      for (const line of src.split("\n")) {
+        if (line.includes("${UUID_WIRE_REGEX_LITERAL}")) {
+          expect(line, p).toContain("typeBlankBlocks(");
+        }
+      }
     }
   });
 });
