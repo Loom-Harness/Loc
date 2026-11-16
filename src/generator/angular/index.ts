@@ -22,6 +22,7 @@ import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
+import { frontendAggregatesOf } from "../_frontend/aggregate-model.js";
 import {
   AUTH_REFRESH_INTERCEPTOR_ANGULAR,
   AUTH_SESSION_SERVICE_ANGULAR,
@@ -77,7 +78,7 @@ import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { HAND_BUILT_FORM_SENTENCES } from "../_walker/i18n-chrome.js";
 import { collectUiMessages, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import { emptyWalkerModel, walkerModelOf } from "../_walker/walker-model.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import { buildAngularApiModule } from "./api-module.js";
 import { renderAngularChartRuntime } from "./chart-runtime.js";
@@ -854,6 +855,8 @@ export function generateAngularForContexts(
         contextsByName: new Map(contexts.map((c) => [c.name, c])),
         pack,
         topLevelComponents: options.topLevelComponents ?? [],
+        walkerModel: emptyWalkerModel(),
+        frontendAggregate: frontendAggregatesOf(new Map(contexts.map((c) => [c.name, c]))),
       },
       // No walker-driven custom-page objects: Angular forms render inline
       // (no pack form templates), so the shared React TSX walker would throw

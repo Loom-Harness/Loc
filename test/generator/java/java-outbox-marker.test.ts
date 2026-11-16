@@ -1,14 +1,10 @@
-// M-T4.3 — idempotent-consumer markers on the Java (Spring Boot) backend
-// (dispatch-delivery-semantics.md §3), closing the slice-7c residual (java's
-// saga `last_event_id` dedup was NOT wired — it relied on broker ack semantics
-// + idempotent reactors).
+// Idempotent consumers on the Java (Spring Boot) backend (D-CONSUMER-INBOX).
 //
-// Where a deployable HOSTS a durable channel's context AND a non-event-sourced
-// saga consumes it, the outbox relay rides the outbox row id as the envelope id,
-// the ChannelConsumerService parks it on `OutboxDelivery` around each dispatch,
-// and the saga handler compares/stamps its `last_event_id` — at-least-once
-// redelivery becomes effectively-once.  A FOREIGN consumer (its module owns no
-// outbox table) keeps the ack-semantics stance byte-identically.
+// Where a deployable receives a durable channel's events AND a saga consumes
+// them, the outbox relay rides the outbox row id as the envelope id, the
+// ChannelConsumerService parks it on `OutboxDelivery` around each dispatch,
+// and the saga handler claims it in the consumer inbox inside its
+// `@Transactional` dispatch — a redelivery applies nothing.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
@@ -115,17 +111,14 @@ function find(files: Map<string, string>, dep: string, suffix: string): string {
 }
 
 describe("java idempotent-consumer markers (M-T4.3)", () => {
-  it("maps last_event_id on the hosted saga-state entity under a durable channel", async () => {
+  it("maps no marker column on the hosted saga-state entity: the inbox claim dedupes", async () => {
     const files = await generateSystemFiles(COLOCATED);
     const state = find(files, "sales_api", "FulfilState.java");
-    expect(state).toContain('@Column(name = "last_event_id")');
-    expect(state).toContain("String lastEventId;");
-    // Record-style accessor (read) + JavaBean setter (write from the dispatcher).
-    expect(state).toContain("public String lastEventId() {");
-    expect(state).toContain("public void setLastEventId(String lastEventId) {");
+    expect(state).toContain("public class FulfilState");
+    expect(state).not.toContain("lastEventId");
   });
 
-  it("emits the OutboxDelivery marker carrier and the dispatcher check + stamp", async () => {
+  it("emits the OutboxDelivery carrier the dispatcher reads, and stamps no marker", async () => {
     const files = await generateSystemFiles(COLOCATED);
     const delivery = find(files, "sales_api", "OutboxDelivery.java");
     expect(delivery).toContain("private static final ThreadLocal<String> CURRENT");
@@ -134,13 +127,10 @@ describe("java idempotent-consumer markers (M-T4.3)", () => {
 
     const dispatcher = find(files, "sales_api", "OrdersDispatcher.java");
     expect(dispatcher).toContain("import com.loom.salesapi.domain.common.OutboxDelivery;");
-    // Preamble: no-op on a redelivery of the recorded id.
+    // The claim itself is behavioural (the redelivery witness); this pins
+    // that the dispatcher reads the parked id.
     expect(dispatcher).toContain("var __eventId = OutboxDelivery.currentEventId();");
-    expect(dispatcher).toContain(
-      "if (__eventId != null && __eventId.equals(state.lastEventId())) {",
-    );
-    // Stamp before the state save (same tx window as the saga mutation).
-    expect(dispatcher).toContain("if (__eventId != null) state.setLastEventId(__eventId);");
+    expect(dispatcher).not.toContain("setLastEventId");
   });
 
   it("threads the envelope id through the broker consumer around each dispatch", async () => {
@@ -151,12 +141,11 @@ describe("java idempotent-consumer markers (M-T4.3)", () => {
     expect(consumer).toContain("OutboxDelivery.clear();");
   });
 
-  it("keeps a FOREIGN consumer marker-free (the ack-semantics stance)", async () => {
+  it("maps no marker column on a FOREIGN durable consumer's saga either", async () => {
     const files = await generateSystemFiles(FOREIGN);
-    // shipApi hosts no durable channel — its module owns no outbox table.
+    // shipApi hosts no durable channel but consumes one; its claim and purge
+    // are behavioural (test/e2e/support/redelivery-witness.ts).
     expect(find(files, "ship_api", "FulfilState.java")).not.toContain("last_event_id");
-    expect(find(files, "ship_api", "ChannelConsumerService.java")).not.toContain("OutboxDelivery");
-    expect(find(files, "ship_api", "OutboxDelivery.java")).toBe("");
   });
 
   it("stays byte-identical for an ephemeral-only channel (no outbox, no markers)", async () => {
@@ -166,11 +155,9 @@ describe("java idempotent-consumer markers (M-T4.3)", () => {
     expect(find(files, "sales_api", "OrdersDispatcher.java")).not.toContain("OutboxDelivery");
   });
 
-  // String tier on purpose: the behaviour (a redelivery runs the reactor once)
-  // is the redelivery e2e `test/e2e/saga-redelivery-e2e.test.ts`; this pins the
-  // wiring that leg needs where the channel and the saga sit in different
-  // hosted contexts.
-  it("maps and checks the marker when the durable channel is in another hosted context", async () => {
+  // Absence: the behaviour (a redelivery runs the reactor once) is
+  // `test/e2e/saga-redelivery-e2e.test.ts`.
+  it("maps no marker column when the durable channel is in another hosted context", async () => {
     const files = await generateSystemFiles(`
 system Acme {
   subdomain Catalog {
@@ -197,10 +184,6 @@ system Acme {
   resource adminState { for: AdminFeed, kind: state, use: pg }
   deployable d { platform: java contexts: [Catalog, AdminFeed] dataSources: [catalogState, adminState] port: 3000 }
 }`);
-    expect(find(files, "d", "FeedState.java")).toContain("last_event_id");
-    expect(find(files, "d", "AdminFeedDispatcher.java")).toContain(
-      "OutboxDelivery.currentEventId()",
-    );
-    expect(find(files, "d", "AdminFeedDispatcher.java")).toContain("setLastEventId");
+    expect(find(files, "d", "FeedState.java")).not.toContain("last_event_id");
   });
 });

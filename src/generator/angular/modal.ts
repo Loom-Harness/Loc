@@ -14,6 +14,7 @@ import { opModelText, paramLabelOwner } from "../_walker/model-text-sites.js";
 import { opGateFor, opRequiresClientGate } from "../_walker/op-gate.js";
 import { namedArgValue, positionalArgs, stringNamed } from "../_walker/shared/args.js";
 import { emitExpr, type WalkContext } from "../_walker/walker-core.js";
+import { contextOfOptionalHome } from "../_walker/walker-model.js";
 import {
   type AngularFieldArraySpec,
   type AngularFieldGroupSpec,
@@ -147,7 +148,7 @@ export function renderAngularModal(
 
   // The operation's identity-keyed label (`<Ctx>.<Agg>.op.<op>`) — the text of
   // a trigger with no authored label, the dialog title and the submit button.
-  const opBc = ctx.model.homeOfAggregate(aggName);
+  const opBc = contextOfOptionalHome(ctx.model.homeOfAggregate(aggName));
   const opLabelMarkup =
     (opBc && opModelText(ctx, opBc, aggName, op.name)?.markup) || humanize(op.name);
 
@@ -185,7 +186,7 @@ export function renderAngularModal(
         ? 'pButton type="button" [text]="true"'
         : 'class="loom-button loom-button-ghost" type="button"';
 
-  const bc = ctx.model.homeOfAggregate(aggName);
+  const bc = contextOfOptionalHome(ctx.model.homeOfAggregate(aggName));
   const agg = ctx.aggregatesByName.get(aggName);
   addNg(ctx, "@angular/forms", "FormControl", "FormGroup", "ReactiveFormsModule");
   if (style === "material") addNg(ctx, "@angular/material/button", "MatButtonModule");

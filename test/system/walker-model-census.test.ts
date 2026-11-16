@@ -10,8 +10,13 @@
 // way.  This census holds both shut:
 //   - no file under `_walker/` other than `walker-model.ts` names a bounded
 //     context type or the per-aggregate / per-workflow context maps;
-//   - `walkerModelOf` is the one adapter: no other source file builds a
-//     `WalkerModel` literal.
+//   - `walker-model.ts` holds the adapters: no other source file builds a
+//     `WalkerModel` literal;
+//   - each target walks on one adapter.  React and Vue build their model
+//     from the Frontend Contract (`walkerModelOfContract`); Svelte, Angular,
+//     Feliz, Flutter and LiveView build it from the enriched contexts
+//     (`walkerModelOf`).  `emptyWalkerModel` is a walk that reaches no
+//     context, and either mode may use it.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -30,10 +35,13 @@ function tsFiles(dir: string): string[] {
 }
 
 function code(f: string): string {
-  return fs
-    .readFileSync(path.join(repo, f), "utf8")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/.*$/gm, "");
+  return (
+    fs
+      .readFileSync(path.join(repo, f), "utf8")
+      // Line comments first: a line comment can hold `/*` (`/api/*`).
+      .replace(/\/\/.*$/gm, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+  );
 }
 
 /** What a walker file must not name: a bounded context, enriched or not, and
@@ -50,7 +58,7 @@ describe("walker model census", () => {
     expect(hits).toEqual([]);
   });
 
-  it("walkerModelOf is the one WalkerModel adapter", () => {
+  it("walker-model.ts holds the WalkerModel adapters", () => {
     // Every model member is a required property; a second adapter has to
     // spell this one.
     const files = tsFiles("src").filter((f) => f !== ADAPTER);
@@ -58,5 +66,34 @@ describe("walker model census", () => {
     const builders = files.filter((f) => /\bhomeOfAggregate\s*:/.test(code(f)));
     expect(builders).toEqual([]);
     expect(/\bhomeOfAggregate\s*:/.test(code(ADAPTER))).toBe(true);
+  });
+
+  it("React and Vue walk on the contract-built model, every other target on the enriched one", () => {
+    const CONTRACT = ["react", "vue"];
+    const ENRICHED = ["svelte", "angular", "feliz", "flutter", "elixir"];
+    const calls = (f: string, fn: string) => new RegExp(`\\b${fn}\\s*\\(`).test(code(f));
+    const modes: Record<string, string[]> = {};
+    const wrong: string[] = [];
+    for (const target of [...CONTRACT, ...ENRICHED]) {
+      const files = tsFiles(`src/generator/${target}`);
+      const seen = new Set<string>();
+      for (const f of files) {
+        if (calls(f, "walkerModelOfContract")) seen.add("contract");
+        if (calls(f, "walkerModelOf")) seen.add("enriched");
+      }
+      modes[target] = [...seen].sort();
+      const want = CONTRACT.includes(target) ? "contract" : "enriched";
+      for (const m of seen) if (m !== want) wrong.push(`${target}: walks on the ${m} model`);
+    }
+    expect(wrong).toEqual([]);
+    expect(modes).toEqual({
+      react: ["contract"],
+      vue: ["contract"],
+      svelte: ["enriched"],
+      angular: ["enriched"],
+      feliz: ["enriched"],
+      flutter: ["enriched"],
+      elixir: ["enriched"],
+    });
   });
 });

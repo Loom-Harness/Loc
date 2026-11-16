@@ -50,7 +50,7 @@ import {
 } from "../../_walker/render-primitive.js";
 import { collectStoreReads } from "../../_walker/shared/store-reads.js";
 import { renderActionHandlers, renderActionMutationArg } from "../../_walker/walker-core.js";
-import { walkerModelOf } from "../../_walker/walker-model.js";
+import { emptyWalkerModel, type WalkerModel } from "../../_walker/walker-model.js";
 import type {
   ActionMutationState,
   FormOfState,
@@ -139,10 +139,9 @@ export function renderCustomLayoutPage(
    *  Required for `CreateForm(of: <Agg>)` field dispatch and
    *  `IdLink(of: <Agg>)` display-field resolution. */
   aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
-  /** Owning bounded context per aggregate (drives
-   *  enum / value-object resolution inside the form-field
-   *  preparer). */
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
+  /** The domain facts the body walk reads — the form type scopes, finds,
+   *  create requests and workflow homes. */
+  model: WalkerModel = emptyWalkerModel(),
   /** Relative-path prefix from the emitted page TSX
    *  back to the `src/` root.  Defaults to `"../"` for pages at
    *  `src/pages/<name>.tsx` (1 hop).  Scaffold-expanded pages live
@@ -153,8 +152,6 @@ export function renderCustomLayoutPage(
   /** Workflows reachable from this UI's deployable.
    *  Required for `WorkflowForm(runs: <wf>)` field dispatch. */
   workflowsByName: ReadonlyMap<string, WorkflowIR> = new Map(),
-  /** Owning bounded context per workflow. */
-  bcByWorkflow: ReadonlyMap<string, BoundedContextIR> = new Map(),
   /** Page name → route path, for `Action`'s `then: navigate(<Page>)`. */
   pageRoutes: ReadonlyMap<string, string> = new Map(),
   /** Extern frontend functions declared on this ui — body calls
@@ -214,9 +211,8 @@ export function renderCustomLayoutPage(
     userComponents,
     apiParams,
     aggregatesByName,
-    bcByAggregate,
+    model,
     workflowsByName,
-    bcByWorkflow,
     aggregateParamTypes(params, aggregatesByName),
     pageRoutes,
     externFunctions,
@@ -281,7 +277,7 @@ export function renderCustomLayoutPage(
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName: new Map(),
-      model: walkerModelOf({}),
+      model: emptyWalkerModel(),
       workflowsByName: new Map(),
       formOfs: [],
       actionMutations: [],
@@ -343,7 +339,7 @@ export function renderCustomLayoutPage(
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName,
-      model: walkerModelOf({ bcByAggregate, bcByWorkflow }),
+      model,
       workflowsByName,
       formOfs: [],
       actionMutations: [],
@@ -404,7 +400,7 @@ export function renderCustomLayoutPage(
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName: new Map(),
-      model: walkerModelOf({}),
+      model: emptyWalkerModel(),
       workflowsByName: new Map(),
       formOfs: [],
       actionMutations: [],
@@ -965,6 +961,8 @@ export function renderUserComponentFile(
    *  `Action(<instance>.<op>)` operation + mutation-hook resolution. */
   aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
   bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
+  /** The domain facts the body walk reads. */
+  model: WalkerModel = emptyWalkerModel(),
   /** Page name → route path, for `Action`'s `then: navigate(<Page>)`. */
   pageRoutes: ReadonlyMap<string, string> = new Map(),
   /** Extern frontend functions declared on this ui (shim imports for
@@ -1016,8 +1014,7 @@ export function renderUserComponentFile(
     userComponents,
     apiParams,
     aggregatesByName,
-    bcByAggregate,
-    new Map(),
+    model,
     new Map(),
     aggregateParamTypes(params, aggregatesByName),
     pageRoutes,
@@ -1065,7 +1062,7 @@ export function renderUserComponentFile(
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName: new Map(),
-      model: walkerModelOf({}),
+      model: emptyWalkerModel(),
       workflowsByName: new Map(),
       formOfs: [],
       actionMutations: [],
@@ -1118,7 +1115,7 @@ export function renderUserComponentFile(
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName,
-      model: walkerModelOf({ bcByAggregate }),
+      model,
       workflowsByName: new Map(),
       formOfs: [],
       actionMutations: [],
@@ -1523,7 +1520,7 @@ function renderInitExpr(expr: ExprIR, pack: LoadedPack): string {
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),
-    model: walkerModelOf({}),
+    model: emptyWalkerModel(),
     workflowsByName: new Map(),
     formOfs: [],
     actionMutations: [],

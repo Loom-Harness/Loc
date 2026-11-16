@@ -28,7 +28,6 @@
 
 import type {
   ActionIR,
-  AggregateIR,
   ExprIR,
   FieldIR,
   LayoutIR,
@@ -36,14 +35,12 @@ import type {
   StmtIR,
   TypeIR,
   UiIR,
-  WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { detectAwaitedOp } from "../../ir/util/awaited-op.js";
 import type { PageNameCtx } from "../../ir/util/page-kind.js";
 import { menuMetaString } from "../../ir/util/page-menu.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { walkExprDeep, walkExprStmtsDeep, walkStmtsDeep } from "../../ir/util/walk.js";
-import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { humanize } from "../../util/naming.js";
 import { isDefaultNavPage } from "../_frontend/menu-emitter.js";
 import { sourceText } from "../_i18n/source-text.js";
@@ -51,7 +48,7 @@ import { WIRE_ERROR_MESSAGES } from "../_i18n/wire-error-text.js";
 import { type MessageEntry, pageNameEntry } from "./i18n-extract.js";
 import { implicitModelTextEntries } from "./model-text-sites.js";
 import { gridHasFilterableColumn, gridHasSelection } from "./primitives/data-grid-shape.js";
-import type { WalkerModel } from "./walker-model.js";
+import type { WalkerAggregate, WalkerModel, WalkerWorkflow } from "./walker-model.js";
 
 /** Stable key for a pack-chrome string: `chrome.<name>`. */
 export function chromeKey(name: string): string {
@@ -335,12 +332,12 @@ function refArgName(call: ExprIR & { kind: "call" }, argName: string): string | 
 /** The aggregates, workflows and create requests a UI's form calls resolve
  *  against. */
 function formsOf(model: WalkerModel | undefined): {
-  aggregates: Map<string, AggregateIR>;
-  workflows: Map<string, WorkflowIR>;
+  aggregates: Map<string, WalkerAggregate>;
+  workflows: Map<string, WalkerWorkflow>;
   createRequests: Map<string, readonly FieldIR[]>;
 } {
-  const aggregates = new Map<string, AggregateIR>();
-  const workflows = new Map<string, WorkflowIR>();
+  const aggregates = new Map<string, WalkerAggregate>();
+  const workflows = new Map<string, WalkerWorkflow>();
   const createRequests = new Map<string, readonly FieldIR[]>();
   if (!model) return { aggregates, workflows, createRequests };
   for (const [name, { agg, home }] of model.aggregates) {
@@ -371,7 +368,7 @@ function fallbackLabelNamesForUi(ui: UiIR, model: WalkerModel): string[] {
         const runs = refArgName(e, "runs");
         const wf = runs ? workflows.get(runs) : undefined;
         // An event-triggered workflow has no command surface: no form at all.
-        if (wf && !emitsCommandRoute(wf)) return;
+        if (wf && !wf.startable) return;
         const agg = of ? aggregates.get(of) : undefined;
         const inputs = wf
           ? wf.params.length

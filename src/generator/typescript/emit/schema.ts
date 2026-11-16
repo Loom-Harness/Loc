@@ -96,10 +96,6 @@ export function renderSchema(
      *  agg→context map-back.  Absent / undefined → unqualified `pgTable`,
      *  byte-identical with the pre-fix output. */
     resolveWorkflowSchema?: (wf: WorkflowIR) => string | undefined;
-    /** The deployable's consumers run the redelivery dedupe
-     *  (`channelPlan(...).receivesDurable`), so each saga row maps
-     *  `last_event_id`.  Absent → this context hosts a durable channel. */
-    receivesDurable?: boolean;
     /** Per-projection schema lookup — the schema its read-model table lands in,
      *  resolved from the projection's OWNING context (mirrors
      *  `resolveWorkflowSchema`).  Absent / undefined → unqualified `pgTable`. */
@@ -305,10 +301,7 @@ export function renderSchema(
     // `<ctx>_events` log emitted above (folded on load, filtered by
     // `stream_type`) — no per-workflow table.  A plain correlation-bearing
     // workflow keeps its mutable state row.
-    if (hasStateRow(wf))
-      tables.push(
-        emitWorkflowStateTable(wf, ctx, wfSchema, opts.receivesDurable ?? hasDurableEvents(ctx)),
-      );
+    if (hasStateRow(wf)) tables.push(emitWorkflowStateTable(wf, ctx, wfSchema));
   }
   // Projection read models (projection.md): one context-owned state table per
   // MATERIALIZED (folded) projection, keyed by its correlation column — the
@@ -619,7 +612,6 @@ function emitWorkflowStateTable(
   wf: WorkflowIR,
   ctx: BoundedContextIR,
   schema: string | undefined,
-  receivesDurable: boolean,
 ): string {
   const tableName = workflowStateTableName(wf.name);
   const lines: string[] = [];
@@ -636,13 +628,6 @@ function emitWorkflowStateTable(
     } else {
       lines.push(...drizzleColumnLines(f, ctx).map((s) => `  ${s}`));
     }
-  }
-  // Idempotent-consumer marker (dispatch-delivery-semantics.md §3): under a
-  // durable channel the relay redelivers at-least-once, so the saga row
-  // records the last processed outbox event id — the handler preamble
-  // no-ops on a repeat.  Ephemeral-only contexts stay byte-identical.
-  if (receivesDurable) {
-    lines.push(`  lastEventId: text("last_event_id"),`);
   }
   lines.push(`});`);
   return lines.join("\n");

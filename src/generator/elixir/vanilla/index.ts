@@ -1,4 +1,5 @@
-import { channelPlan } from "../../../ir/plan/index.js";
+import { channelPlan, deployableNeedsInbox } from "../../../ir/plan/index.js";
+import { testPrincipalShape } from "../../../ir/plan/test-principal.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
 import { aggregateRouteTypes } from "../../../ir/util/wire-policy.js";
 import { frontendAxesOf } from "../../../util/frontend-axes.js";
@@ -17,7 +18,6 @@ import { bootRequiredAuthEnv } from "../../_auth/boot-required.js";
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
 import { cachePlanFor } from "../../../ir/plan/cache.js";
-import { foldsDedupe } from "../../../ir/plan/index.js";
 import { sourceLocaleOf, workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
 import {
   aggregatesCanTripDanglingReference,
@@ -26,7 +26,6 @@ import {
 } from "../../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../../ir/util/api-resource-binding.js";
 import { contextHasAuditedTarget } from "../../../ir/util/audit-capability.js";
-import { durableEventTypes } from "../../../ir/util/channels.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import type { PageNameCtx } from "../../../ir/util/page-kind.js";
 import {
@@ -57,6 +56,7 @@ import {
   type ElixirChannelsCfg,
   type ElixirConsumerRoute,
   emitElixirChannelFiles,
+  emitElixirInboxPurge,
   emitElixirStandaloneOutbox,
 } from "../channels-emit.js";
 import { contextHasDispatcher, emitDispatch, emitWorkflowStateSchemas } from "../dispatch-emit.js";
@@ -294,21 +294,14 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // knobs (the Hono/Python/.NET/Java pattern); every broker-carried event
   // routes through the `<App>.Channels` tee at the emit seams.
   const chPlan = channelPlan(contexts, sys ? { deployable, sys } : undefined);
+  // Some consumer claims in the consumer inbox (`src/ir/plan/consumer-inbox.ts`).
+  const consumerDedupes = deployableNeedsInbox(contexts, chPlan);
   const channelBindings = chPlan.bindings;
   const hasChannels = channelBindings.length > 0;
   // Durable-producer split (design §5): HOSTED durable events carried by a
   // wired `queue`/`work` (or future `log`) channel ride the outbox relay,
-  // never the inline tee.  Hosted-only on purpose: the module-level
-  // migrations back the `__loom_outbox` table and can't see a foreign
-  // wiring; a foreign `queue`/`work` consumer relies on broker ack
-  // semantics + idempotent reactors (the slice-3 stance).
-  const hostedDurable = new Set(contexts.flatMap((c) => [...durableEventTypes(c)]));
-  const durableBrokerEvents = new Set(
-    channelBindings
-      .filter((b) => b.retention === "work" || b.retention === "log")
-      .flatMap((b) => b.events)
-      .filter((ev) => hostedDurable.has(ev)),
-  );
+  // never the inline tee.
+  const durableBrokerEvents = chPlan.durableBrokerEvents;
   // Local outbox tier (channels.md "Event routing"): the plan's outbox events
   // no wired binding carries are recorded and redelivered in-process by the
   // LocalOutboxRelay — on a broker-wired deployable too, where the tier is
@@ -522,7 +515,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // Saga tables live in the context's schema (matching the migration
     // `prefix:`), so the Ecto `@schema_prefix` and the DDL agree at runtime.
     const wfSchema = sys ? resolveContextSchema(ctx, sys) : undefined;
-    emitWorkflowStateSchemas(appName, ctx, appModule, out, wfSchema, hostedDurable.size > 0);
+    emitWorkflowStateSchemas(appName, ctx, appModule, out, wfSchema);
     // Event-sourced workflows (workflow-and-applier.md A2-S5b): the per-workflow
     // fold struct + `<wf>_events` Ecto schema + fold + stream IO modules (the
     // saga analogue of the ES aggregate files above).  The dispatcher branches
@@ -548,7 +541,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       sourcemap,
       channelsCfg,
       wiredForeignChannels,
-      hostedDurable.size > 0,
+      chPlan.receivesDurable,
       cached,
     );
     // First-boot seed data (database-seeding.md, M-T6.37) — one
@@ -562,7 +555,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     });
     if (seedMod) seedModules.push(seedMod.module);
     // Domain `test "..."` blocks → ExUnit (pure-subset; see tests-emit.ts).
-    const principalUser = deployable.auth?.required === true ? sys.user?.fields : undefined;
+    const principalUser =
+      deployable.auth?.required === true && sys.user ? testPrincipalShape(sys) : undefined;
     if (emitAggregateTests(ctx, appModule, out, sys, principalUser)) hasDomainTests = true;
   }
   if (hasDomainTests) emitTestHelper(out);
@@ -837,7 +831,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
         durableBroker: durableBrokerEvents.size > 0,
         carriesOrigin: deployable.auth?.required === true && !!sys.user,
         localOutbox: localOutboxBesideBroker,
-        pruneInbox: contexts.some((c) => foldsDedupe(c, true)),
+        parksEventId: durableBrokerEvents.size > 0 || consumerDedupes,
       },
     );
     for (const [path, content] of emission.files) out.set(path, content);
@@ -862,8 +856,13 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       hostedDispatchers,
       deployable.auth?.required === true && !!sys.user,
       localOutboxBesideBroker ? { emitsSchema: durableBrokerEvents.size === 0 } : undefined,
-      contexts.some((c) => foldsDedupe(c, true)),
     );
+    for (const [path, content] of emission.files) out.set(path, content);
+    channelChildren = [...channelChildren, ...emission.children];
+  }
+  // The consumer inbox's purge, wherever a consumer claims.
+  if (consumerDedupes) {
+    const emission = emitElixirInboxPurge(appName, appModule);
     for (const [path, content] of emission.files) out.set(path, content);
     channelChildren = [...channelChildren, ...emission.children];
   }

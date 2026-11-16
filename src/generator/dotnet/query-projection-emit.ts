@@ -1381,7 +1381,7 @@ function renderWorkflowHandler(
   // state column into a private row DTO and mapping it back to the state POCO
   // through each column's `hydrate` — so the `select` projections above (which
   // read domain-typed members off `r`) are byte-identical across adapters.
-  const stateCols = dapperWorkflowStateColumns(wf, false);
+  const stateCols = dapperWorkflowStateColumns(wf);
   const pocoFqn = `global::${ns}.Application.Workflows.${workflowStateClass(wf)}`;
   const rowDecl = usingDapper
     ? `${dapperRowClass("StateDbRow", stateCols)}\n${dapperRowMap("MapState", "StateDbRow", pocoFqn, stateCols)}\n\n`
