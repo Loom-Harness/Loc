@@ -10,9 +10,9 @@ import {
   foldsDedupe,
   hasStateRow,
   inboxClaimSql,
+  reactionBoundary,
   requiredStateFields,
   subscriptionHandler,
-  workflowClaims,
   workflowConsumerKey,
 } from "../../ir/plan/index.js";
 import type {
@@ -26,11 +26,12 @@ import type {
   ProjectionOnIR,
   SystemIR,
   TypeIR,
+  ValueObjectIR,
   WorkflowIR,
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
-import { enumPool } from "../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import { resolveContextSchema } from "../../ir/util/resolve-datasource.js";
 import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
@@ -49,7 +50,7 @@ import { exEctoIdJsonType, exEctoIdType } from "./vanilla/codec-spelling-ex.js";
 import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { bodyUsesParam, renderFunctionBodyLines } from "./vanilla/function-emit.js";
 import { elixirSavePlan } from "./vanilla/save-plan.js";
-import { mapTypeToEcto } from "./vanilla/schema-emit.js";
+import { mapTypeToEcto, renderValueColumnsFn, valueObjectColumns } from "./vanilla/schema-emit.js";
 import { elixirClaimWrap, renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
 
 /** M13 — a handler-render result: the module's final content plus one
@@ -223,7 +224,7 @@ export function emitWorkflowStateSchemas(
     if (!hasStateRow(wf)) continue;
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
-      renderStateSchema(contextModule, wf, enumPool(ctx), schema),
+      renderStateSchema(contextModule, wf, enumPool(ctx), valueObjectPool(ctx), schema),
     );
   }
 }
@@ -278,7 +279,7 @@ export function emitDispatch(
   for (const wf of correlationWfs.values()) {
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
-      renderStateSchema(contextModule, wf, enumPool(ctx), dispatchSchema),
+      renderStateSchema(contextModule, wf, enumPool(ctx), valueObjectPool(ctx), dispatchSchema),
     );
   }
 
@@ -291,7 +292,7 @@ export function emitDispatch(
     param: s.param,
   }));
   const keyFor = (sub: Subscription): string | undefined =>
-    workflowClaims(sub.workflow, durable)
+    reactionBoundary(sub.workflow, durable).claimsInbox
       ? workflowConsumerKey(sys, ctx, subsIR[subs.indexOf(sub)]!, subsIR)
       : undefined;
   for (const sub of subs) {
@@ -373,9 +374,9 @@ export const ectoIdType = exEctoIdType;
  *    so its elements are the id's JSON form (a guid is a string there, never
  *    Ecto's 16-byte `:binary_id` dump, which Jason cannot encode).
  *  - everything else rides the aggregate schema mapping (`mapTypeToEcto`): a
- *    value object is ONE `:map` column (the migration collapses its flattened
- *    leaf columns, `collapseVoGroups`), a `datetime` is the millisecond
- *    `Loom.Datetime` every declared datetime column uses (RS-38). */
+ *    `datetime` is the millisecond `Loom.Datetime` every declared datetime
+ *    column uses (RS-38).  A value object never reaches here: it is its leaf
+ *    columns (`valueObjectColumns`). */
 function ectoStateFieldType(t: TypeIR, enums: readonly EnumIR[]): string {
   if (t.kind === "optional") return ectoStateFieldType(t.inner, enums);
   if (t.kind === "id") return ectoIdType();
@@ -394,15 +395,28 @@ function renderStateSchema(
   contextModule: string,
   wf: WorkflowIR,
   enums: readonly EnumIR[],
+  valueObjects: readonly ValueObjectIR[],
   schema?: string,
 ): string {
   const corr = wf.correlationField as string;
   const corrField = (wf.stateFields ?? []).find((f) => f.name === corr);
   const pkType = corrField && corrField.type.kind === "id" ? ectoIdType() : ":string";
   const table = workflowStateTableName(wf.name);
+  // A value object is its leaf columns plus a virtual field (D-ONE-SCHEMA),
+  // as on an aggregate; `<App>.Repo.Records` composes and decomposes it.
+  const enumsByName = new Map(enums.map((e) => [e.name, e]));
+  const voPools = { vos: new Map(valueObjects.map((v) => [v.name, v])), enums: enumsByName };
+  const valueSpecs: string[] = [];
   const fieldLines = (wf.stateFields ?? [])
     .filter((f) => f.name !== corr)
-    .map((f) => `    field :${snake(f.name)}, ${ectoStateFieldType(f.type, enums)}`);
+    .flatMap((f) => {
+      const cols = valueObjectColumns(f, voPools, enumsByName);
+      if (cols) {
+        valueSpecs.push(cols.spec);
+        return [...cols.lines];
+      }
+      return [`    field :${snake(f.name)}, ${ectoStateFieldType(f.type, enums)}`];
+    });
   // `@schema_prefix` targets the workflow's context schema, matching the
   // migration `prefix:`.  Omitted ⇒ public, byte-identical.
   const prefixLine = schema ? `  @schema_prefix ${JSON.stringify(schema)}\n` : "";
@@ -415,7 +429,7 @@ defmodule ${stateModule(contextModule, wf)} do
 ${prefixLine}  @primary_key {:${snake(corr)}, ${pkType}, autogenerate: false}
   schema "${table}" do
 ${fieldLines.length > 0 ? fieldLines.join("\n") + "\n" : ""}  end
-end
+${renderValueColumnsFn(valueSpecs)}end
 `;
 }
 
@@ -550,7 +564,7 @@ function renderHandler(
   // Body statements → one 0-indented block: the `with`-chain in source order,
   // closed by the saves of the handles it changed in memory, the re-entrant
   // dispatches in its do-branch, the first failure thrown.
-  const plan = elixirSavePlan(sub.statements, sub.saves, ctx);
+  const plan = elixirSavePlan(sub.statements, sub.saves, ctx, sys);
   const { lines: body, regions } = renderReactorBody(
     sub.statements,
     reactorTarget(ctx, renderCtx, contextModule, channels, plan, cached),
@@ -704,8 +718,8 @@ function renderPersistedBody(
     const load = [
       `    key = ${keyExpr}`,
       `    ${bind} =`,
-      `      case ${appModule}.Repo.get(${stateMod}, key) do`,
-      `        nil -> ${appModule}.Repo.insert!(%${stateMod}{${allocFields.join(", ")}})`,
+      `      case ${appModule}.Repo.Records.get(${stateMod}, key) do`,
+      `        nil -> ${appModule}.Repo.Records.insert!(%${stateMod}{${allocFields.join(", ")}})`,
       `        existing -> existing`,
       `      end`,
       "",
@@ -720,7 +734,7 @@ function renderPersistedBody(
   ]);
   return [
     `    key = ${keyExpr}`,
-    `    case ${appModule}.Repo.get(${stateMod}, key) do`,
+    `    case ${appModule}.Repo.Records.get(${stateMod}, key) do`,
     `      nil ->`,
     `        ${logCall}`,
     `        :ok`,
@@ -807,8 +821,8 @@ function renderProjectionFoldHandler(
   const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
   const tenantCol = cols ? snake(cols.tenant.field) : "";
   const lookup = cols
-    ? `${appModule}.Repo.get_by(${rowMod}, ${snake(corr)}: key, ${tenantCol}: tenant)`
-    : `${appModule}.Repo.get(${rowMod}, key)`;
+    ? `${appModule}.Repo.Records.get_by(${rowMod}, ${snake(corr)}: key, ${tenantCol}: tenant)`
+    : `${appModule}.Repo.Records.get(${rowMod}, key)`;
   // A fresh row: the key, the tenant, and each column's starting value
   // (`foldRowSeeds`); every other column starts nil.
   const seed = [
@@ -828,7 +842,7 @@ function renderProjectionFoldHandler(
     // A fold that writes no column still binds `state` only when a step reads it.
     ...(steps.length > 0 ? [`    state = loaded`, ...stepLines] : []),
     ...(steps.length > 0 && written.length === 0 ? [`    _ = state`] : []),
-    `    {:ok, _} = ${appModule}.Repo.insert_or_update(${changeset})`,
+    `    {:ok, _} = ${appModule}.Repo.Records.insert_or_update(${changeset})`,
     `    :ok`,
   ];
   const event = `%${eventModule}.Events.${upperFirst(on.event)}{} = event`;

@@ -9,7 +9,9 @@ import {
 } from "langium/lsp";
 import { CompletionItemKind } from "vscode-languageserver";
 import { builtinCapabilities } from "../../macros/prelude.js";
+import { BUILTIN_PACK_LATEST } from "../../util/builtin-formats.js";
 import { isCollectionOp } from "../../util/collection-ops.js";
+import { registeredSourceTypes } from "../../util/source-types.js";
 import {
   type EnumDecl,
   isAggregate,
@@ -95,7 +97,32 @@ export class DddCompletionProvider extends DefaultCompletionProvider {
     if (this.isCapabilityNameSlot(context, next)) {
       this.completeCapabilityNames(context, acceptor);
     }
+    // Registry-name arm: `storage { type: … }` and `deployable { design: … }`
+    // take plain identifiers checked against the sourceType registry and pack
+    // discovery (D-REGISTRY-NAMES), so the names come from those lists.
+    const registry = this.registryNameSlot(context, next);
+    if (registry) {
+      for (const label of registry.names) {
+        acceptor(context, { label, kind: CompletionItemKind.EnumMember, detail: registry.detail });
+      }
+    }
     return super.completionFor(context, next, acceptor);
+  }
+
+  /** The identifier slots whose admissible names live in a registry rather
+   *  than in the grammar. */
+  private registryNameSlot(
+    context: CompletionContext,
+    next: NextFeature,
+  ): { names: readonly string[]; detail: string } | undefined {
+    const owner = next.type ?? context.node?.$type;
+    if (next.property === "type" && owner === "Storage") {
+      return { names: registeredSourceTypes(), detail: "storage type" };
+    }
+    if (next.property === "design" && owner === "Deployable") {
+      return { names: Object.keys(BUILTIN_PACK_LATEST).sort(), detail: "design pack" };
+    }
+    return undefined;
   }
 
   /** The `name` slot of a `MacroCall` (`with <Cap>`) or the `cap` slot of an

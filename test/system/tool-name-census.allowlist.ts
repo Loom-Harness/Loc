@@ -1129,12 +1129,6 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     note: "tool marker / .loom/ reference — removed by #5993 (no read-back)",
   },
   {
-    name: "loom:scaffold-once",
-    group: "pending",
-    step: "pending-design",
-    note: "tool marker / .loom/ reference — removed by #5993 (no read-back)",
-  },
-  {
     name: "loom:sourcemap-begin",
     group: "pending",
     step: "pending-design",

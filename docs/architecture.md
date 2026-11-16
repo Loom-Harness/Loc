@@ -79,26 +79,21 @@ deployables `serves:` apis.
 `storage X { type: T }` declares a typed physical store or service —
 reusable across deployables, contexts, and bindings.  `type:` names the
 built-in **sourceType** that realizes it (see [`resources.md`](resources.md)).
-v0 type enum:
+The name is checked against the sourceType registry, not the grammar; an
+unknown one is `loom.storage-type-unknown`. The registered types:
 
 | Category | Types | Bound to a `resource kind:`? |
 |---|---|---|
 | Transactional | `postgres`, `mysql`, `sqlite`, `inMemory` | yes — `state` / `eventLog` / `snapshot` / `replica` / `cache` |
 | Cache | `redis` | yes — `cache` |
-| Search | `elastic`, `meilisearch` | **no** — recognised, but no kind accepts them |
 | Events | `kafka` | yes — `eventLog` |
-| Analytics | `clickhouse`, `bigquery` | **no** — recognised, but no kind accepts them |
 | Object store | `s3`, `localDisk` | yes — `objectStore` |
 | Queue | `rabbitmq` | yes — `queue` |
-| Queue (unbound) | `nats` | **no** — `kind: queue` takes `rabbitmq` only |
 | External API | `restApi` | yes — `api` |
 | Mailer | `smtp`, `ses`, `sendgrid` | yes — `mailer` |
 
-The rows marked **no** parse as a `type:` and bind to nothing: there is no
-search kind and no analytics kind, and `queue` admits `rabbitmq` alone — so
-every `resource … use: <that storage>` is refused by `loom.resource-kind-storage-mismatch`,
-and no sidecar or client is emitted.
-See [`resources.md`](resources.md#recognised-but-bound-to-no-kind-yet).
+Every registered type binds at least one kind; a sourceType registered by a
+plugin is accepted the same way. See [`resources.md`](resources.md#unknown-storage-types).
 
 ```ddd
 storage primarySql   { type: postgres }

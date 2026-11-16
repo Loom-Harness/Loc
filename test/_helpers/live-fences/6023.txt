@@ -1,0 +1,1 @@
+Elixir unit tier: invariant floor for document-aggregate operations

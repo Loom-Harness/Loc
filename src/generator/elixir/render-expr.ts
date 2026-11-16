@@ -89,6 +89,10 @@ export interface RenderCtx {
   /** Set by a body that owns no event dispatch (a pure domain core, a
    *  private-operation helper): an `emit` statement renders nothing there. */
   dropEmits?: boolean;
+  /** Set by a returning op's apply step (`vanilla/op-in-memory.ts`): a
+   *  success `return` answers the changed struct beside the value,
+   *  `{:ok, record, value}`. */
+  applyAnswer?: boolean;
   /** Set by an event reactor that bound `current_user` to the system
    *  principal (ruling D1): an op-call to a `currentUser`-reading operation
    *  threads it as the context function's trailing actor.  Unset elsewhere. */

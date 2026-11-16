@@ -1,5 +1,11 @@
 {
   "title": "extern operations — preconditions gate a user handler",
   "doc": "extern",
-  "backends": "ALL"
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "The workflow run is a not-lifted route class.",
+    "unattributed": [
+      "api.cancelThenConfirm.run (no such aggregate)"
+    ]
+  }
 }

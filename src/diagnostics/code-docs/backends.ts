@@ -20,5 +20,4 @@ export const anchors: Readonly<Record<string, string>> = {
   // --- src/ir/validate/checks/orm-adapter-checks.ts -----------------------
   "loom.mikroorm-shared-database": "02-systems-and-topology.md#the-composed-stack",
   "loom.dapper-shared-database": "02-systems-and-topology.md#the-composed-stack",
-  "loom.ecto-shared-database": "02-systems-and-topology.md#the-composed-stack",
 };

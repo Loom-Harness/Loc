@@ -26,6 +26,7 @@ import {
   assembledStepText,
   elixirWorkflowTarget,
   saveSteps,
+  stagedInits,
   tupleBind,
 } from "./vanilla/workflow-execution-emit.js";
 
@@ -52,6 +53,7 @@ export function renderReactorBody(
 ): RenderBodyResult {
   const chunks = lowerWorkflowPipeline(statements, target);
   const all = [
+    ...(exit ? stagedInits(exit.saves, exit.plan) : []),
     ...chunks.flat(),
     ...(exit ? saveSteps(exit.saves, exit.plan, exit.contextModule) : []),
   ];
@@ -145,7 +147,7 @@ export function reactorTarget(
       {
         kind: "let",
         pattern: workflowBodyUsesOwnState(scope.rest) ? "state" : "_state",
-        expr: `${appModule}.Repo.update!(Ecto.Changeset.change(state, %{${snake(st.target.segments[0]!)}: ${expr(st.value)}}))`,
+        expr: `${appModule}.Repo.Records.update!(Ecto.Changeset.change(state, %{${snake(st.target.segments[0]!)}: ${expr(st.value)}}))`,
       },
     ],
 

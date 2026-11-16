@@ -228,6 +228,12 @@ export const messages = {
     `test '${p.test}': 'toThrow' asserts that a call is refused, and its subject here is a ` +
     "value, which is read, never called, so the assertion could only fail.  Pass the call " +
     "that should be refused: `expect(o.close()).toThrow()`, `expect(Order.create(…)).toThrow()`.",
+  "loom.test-throw-returned-error": (p: { test: unknown; operation: unknown; errors: unknown }) =>
+    `test '${p.test}': '${p.operation}' answers ${p.errors} by returning it, and nothing on its ` +
+    "path throws, so this 'toThrow' could only fail: 'toThrow' asserts a thrown rejection (an " +
+    "invariant, a precondition, a 'when' gate, a 'requires').  Assert the returned arm with " +
+    "`expect(<call>).toBe(<ErrorArm>)`, which checks which arm came back; over the wire, a " +
+    "'test e2e' block asserts it at its mapped status: `expect(api.<aggregates>.<op>(…)).toThrow(<status>)`.",
   "loom.test-throw-unsupported": (p: {
     test: unknown;
     aggregate: unknown;

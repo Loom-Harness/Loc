@@ -28,6 +28,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { freePort } from "./support/ports.js";
 import { redeliveryWitness, seedInboxForPurge } from "./support/redelivery-witness.js";
+import { settledCount } from "./support/settled-count.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT_DOTNET === "1";
 
@@ -299,13 +300,25 @@ describe.skipIf(!ENABLED)(`rabbitmq queue semantics — dotnet${SUFFIX} leg`, ()
     }
     // Work was actually SHARED: total consumed across replica logs == ORDERS,
     // and the producer relay announced the publishes.
-    const consumedPerReplica = REPLICA_PORTS.map((p) => {
-      const log = readFileSync(join(dir, `ship_api-${p}.log`), "utf8");
-      return countEvents(log, "channel_consumed");
-    });
-    expect(consumedPerReplica.reduce((a, b) => a + b, 0)).toBe(ORDERS);
-    const salesLog = readFileSync(join(dir, `sales_api-${SALES_PORT}.log`), "utf8");
-    expect(countEvents(salesLog, "channel_published")).toBe(ORDERS);
+    // The consumer logs after the handlers commit, so the lines are read
+    // until they settle rather than once.
+    const consumed = await settledCount(
+      () =>
+        REPLICA_PORTS.map((p) =>
+          countEvents(readFileSync(join(dir, `ship_api-${p}.log`), "utf8"), "channel_consumed"),
+        ).reduce((a, b) => a + b, 0),
+      ORDERS,
+    );
+    expect(consumed).toBe(ORDERS);
+    const published = await settledCount(
+      () =>
+        countEvents(
+          readFileSync(join(dir, `sales_api-${SALES_PORT}.log`), "utf8"),
+          "channel_published",
+        ),
+      ORDERS,
+    );
+    expect(published).toBe(ORDERS);
   }, 120_000);
 
   redeliveryWitness({

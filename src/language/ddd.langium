@@ -473,18 +473,17 @@ Platform returns string:
     'dotnet' | 'node' | 'react' | 'svelte' | 'vue' | 'angular' | 'feliz' | 'flutter' | 'static' | 'elixir' | 'python' | 'java' | STRING;
 
 // Design-system pack selector — picks the template pack the UI
-// generator renders pages against.  `mantine` (default), `shadcn`,
-// and `mui` are React/TSX packs; `coreComponents` is the HEEx pack for
-// the Phoenix LiveView platform; `shadcnSvelte` and `flowbite` are
-// the Svelte packs; `vuetify` and `shadcnVue` are the Vue packs;
-// `angularMaterial`, `primeng`, and `spartanNg` are the Angular packs.
-// STRING points at a custom pack:
-// a directory with `pack.json` resolved relative to the .ddd file.
+// generator renders pages against.  A bare name is a built-in pack family,
+// checked against pack discovery (`BUILTIN_PACK_LATEST`, mirroring
+// `designs/`) by the validator, so adding a pack needs no grammar edit
+// (D-REGISTRY-NAMES).  STRING is a pinned built-in (`"mantine@v9"`) or a
+// custom pack: a directory with `pack.json` resolved relative to the .ddd
+// file.
 // Only meaningful when the deployable mounts a UI; ignored
 // otherwise.  Named `design` (not `ui`) to avoid colliding with
 // the test-DSL's `ui.workflows.X(...)` accessor.
 DesignPack returns string:
-    'mantine' | 'shadcn' | 'mui' | 'chakra' | 'coreComponents' | 'daisyui' | 'shadcnSvelte' | 'flowbite' | 'vuetify' | 'shadcnVue' | 'angularMaterial' | 'primeng' | 'spartanNg' | STRING;
+    ID | STRING;
 // Per-deployable auth opt-in.  `required` enables JWT-decode middleware
 // and the user-supplied verifier hook on a backend; `ui` mounts the
 // login redirect + route guard on a frontend (react / LiveView) under a
@@ -563,15 +562,16 @@ AreaMember:
 
 // ---- api declaration (system-level) ----------------------------
 //
-// First-class API contract derived from a module's domain (its
-// aggregates, repositories, workflows, views).  Full surface
-// auto-derived from `from <Module>`; future: customization
-// (hide, rename, expose subset, version).
+// First-class API contract.  Its surface comes from `from <Subdomain>` (the
+// subdomain's aggregates, repositories, workflows and views), a `with` macro
+// such as `scaffoldApi(of: <Subdomain>)`, or explicit `route` lines; an api
+// with none of the three is refused (`loom.api-no-surface`).
 //
 //   api SalesApi from Sales
 //
-// Peer to module / ui / deployable.  Pure declarative — what's
-// available; consumers (ui, deployable) reference it by name.
+// Peer to subdomain / ui / deployable.  Consumers (ui, deployable) reference
+// it by name; a deployable that `serves:` it must host the contexts it serves
+// (`loom.serves-context-unhosted`).
 Api:
     'api' name=ID withClause=WithClause? ('from' source=[Subdomain:ID])?
         ('{'
@@ -598,8 +598,8 @@ ApiStatus:
 // `context` segment is a real cross-ref (existing global scope for
 // `BoundedContext`), while the `handler` segment is a plain name resolved
 // by the IR validator (it spans commandHandler | queryHandler | workflow
-// handle — three kinds one Langium cross-ref can't span cleanly).  These
-// nodes ride alongside `ApiIR` and are not yet read by any backend.
+// handle — three kinds one Langium cross-ref can't span cleanly).  Every
+// backend mounts the routes of each api a deployable serves, under `/api`.
 Route:
     'route' method=HttpMethod path=STRING '->' target=HandlerRef;
 
@@ -619,13 +619,11 @@ HandlerRef:
 //
 //   storage primarySql   { type: postgres }
 //   storage hotCache     { type: redis }
-//   storage warehouse    { type: clickhouse }
+//   storage uploads      { type: s3 }
 //
-// type enum: postgres | mysql | sqlite | inMemory (transactional
-// stores); redis (cache); elastic | meilisearch (search); kafka
-// (events); clickhouse | bigquery (analytics).  Only postgres /
-// inMemory have generator-side support; the rest parse + validate
-// but emit nothing yet.
+// `type:` is a name checked against the sourceType registry
+// (`src/util/source-types.ts`, plus out-of-tree plugins) by the validator,
+// so adding a sourceType needs no grammar edit (D-REGISTRY-NAMES).
 Storage:
     'storage' name=LooseName '{'
         ('type' ':' type=StorageType ','?)
@@ -645,13 +643,7 @@ ConfigValue:
     {infer StringConfigValue} value=STRING;
 
 StorageType returns string:
-      'postgres' | 'mysql' | 'sqlite' | 'inMemory'
-    | 'redis'
-    | 'elastic' | 'meilisearch'
-    | 'kafka'
-    | 'clickhouse' | 'bigquery'
-    | 's3' | 'localDisk' | 'rabbitmq' | 'nats' | 'restApi'
-    | 'smtp' | 'ses' | 'sendgrid';
+    ID;
 
 ConnectionSource:
       {infer ServiceConnectionSource} 'service' '(' service=ID ')'
@@ -2165,34 +2157,34 @@ CommonSoftKeywords returns string:
 // argument whose value is a list (`[code]` would parse both ways).
 SoftKeywordsExceptSort returns string:
       'abstract' | 'action' | 'against' | 'aggregates' | 'allow' | 'angular'
-      | 'angularMaterial' | 'api' | 'area' | 'asc' | 'audience' | 'audited' | 'auth' | 'bigquery' | 'bind'
-      | 'body' | 'broadcast' | 'by' | 'cache' | 'canonical' | 'capability' | 'carries' | 'chakra' | 'channel'
-      | 'channels' | 'channelSource' | 'check' | 'claims' | 'clickhouse' | 'clientId' | 'clientSecret'
+      | 'api' | 'area' | 'asc' | 'audience' | 'audited' | 'auth' | 'bind'
+      | 'body' | 'broadcast' | 'by' | 'cache' | 'canonical' | 'capability' | 'carries' | 'channel'
+      | 'channels' | 'channelSource' | 'check' | 'claims' | 'clientId' | 'clientSecret'
       | 'command' | 'commandHandler' | 'component' | 'config' | 'connection' | 'context' | 'contexts'
-      | 'cookie' | 'coreComponents' | 'covers' | 'criterion' | 'cron' | 'crossTenant' | 'daisyui'
+      | 'cookie' | 'covers' | 'criterion' | 'cron' | 'crossTenant'
       | 'dataSources' | 'date' | 'deep' | 'delivery' | 'deny' | 'denyByDefault' | 'deployable' | 'desc' | 'description'
-      | 'design' | 'directoryLayout' | 'document' | 'domainService' | 'dotnet' | 'e2e' | 'elastic' | 'elixir'
+      | 'design' | 'directoryLayout' | 'document' | 'domainService' | 'dotnet' | 'e2e' | 'elixir'
       | 'embedded' | 'enforcement' | 'entitles' | 'env' | 'envelope' | 'ephemeral' | 'error' | 'event'
-      | 'eventLog' | 'eventSourced' | 'every' | 'exists' | 'extern' | 'favicon' | 'feliz' | 'filter' | 'flowbite'
+      | 'eventLog' | 'eventSourced' | 'every' | 'exists' | 'extern' | 'favicon' | 'feliz' | 'filter'
       | 'flutter' | 'footer' | 'framework' | 'global' | 'group' | 'header' | 'hosts' | 'httpStatus'
-      | 'i18n' | 'immutable' | 'implements' | 'implies' | 'index' | 'inheritanceUsing' | 'inMemory' | 'instance'
-      | 'internal' | 'isolationLevel' | 'issuer' | 'java' | 'join' | 'jwt' | 'kafka' | 'key' | 'keyed'
-      | 'keyPrefix' | 'kind' | 'label' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'localDisk' | 'log'
-      | 'mailer' | 'main' | 'managed' | 'mantine' | 'mask' | 'meilisearch' | 'menu' | 'message' | 'migration'
-      | 'modules' | 'money' | 'mui' | 'mysql' | 'nats' | 'node' | 'objectStore' | 'of' | 'ogImage' | 'oidc'
+      | 'i18n' | 'immutable' | 'implements' | 'implies' | 'index' | 'inheritanceUsing' | 'instance'
+      | 'internal' | 'isolationLevel' | 'issuer' | 'java' | 'join' | 'jwt' | 'key' | 'keyed'
+      | 'keyPrefix' | 'kind' | 'label' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'log'
+      | 'mailer' | 'main' | 'managed' | 'mask' | 'menu' | 'message' | 'migration'
+      | 'modules' | 'money' | 'node' | 'objectStore' | 'of' | 'ogImage' | 'oidc'
       | 'onCreate' | 'onUpdate' | 'opt' | 'option' | 'or' | 'overlap' | 'own' | 'ownTable' | 'paged' | 'parent'
       | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'plural' | 'policy'
-      | 'port' | 'postgres' | 'primeng' | 'projection' | 'provenanced' | 'provider'
-      | 'python' | 'query' | 'queryHandler' | 'queue' | 'rabbitmq' | 'raw' | 'react' | 'readCommitted'
-      | 'readonly' | 'readUncommitted' | 'redis' | 'relational' | 'repeatableRead' | 'replica'
-      | 'required' | 'requirement' | 'resource' | 'response' | 'restApi' | 'retain' | 'retention'
-      | 'retrieval' | 'route' | 's3' | 'schema' | 'scopes' | 'secret' | 'section' | 'seed' | 'select'
-      | 'sendgrid' | 'sensitive' | 'serializable' | 'serves' | 'service' | 'ses' | 'sessions' | 'shadcn' | 'share'
-      | 'shadcnSvelte' | 'shadcnVue' | 'shape' | 'sharedTable' | 'sidebar' | 'slot' | 'smtp' | 'snapshot'
-      | 'solution' | 'source' | 'spartanNg' | 'sql' | 'sqlite' | 'stamp' | 'state' | 'storage' | 'store'
+      | 'port' | 'projection' | 'provenanced' | 'provider'
+      | 'python' | 'query' | 'queryHandler' | 'queue' | 'raw' | 'react' | 'readCommitted'
+      | 'readonly' | 'readUncommitted' | 'relational' | 'repeatableRead' | 'replica'
+      | 'required' | 'requirement' | 'resource' | 'response' | 'retain' | 'retention'
+      | 'retrieval' | 'route' | 'schema' | 'scopes' | 'secret' | 'section' | 'seed' | 'select'
+      | 'sensitive' | 'serializable' | 'serves' | 'service' | 'sessions' | 'share'
+      | 'shape' | 'sharedTable' | 'sidebar' | 'slot' | 'snapshot'
+      | 'solution' | 'source' | 'sql' | 'stamp' | 'state' | 'storage' | 'store'
       | 'subdomain' | 'svelte' | 'tablePrefix' | 'targets' | 'tenancy' | 'testCase' | 'theme' | 'timerSource'
       | 'title' | 'token' | 'transactional' | 'ttl' | 'type' | 'ui' | 'urlStyle' | 'use' | 'user'
-      | 'valueobject' | 'verifies' | 'views' | 'vue' | 'vuetify' | 'work' | 'workflow' | 'workflows' | 'write'
+      | 'valueobject' | 'verifies' | 'views' | 'vue' | 'work' | 'workflow' | 'workflows' | 'write'
       | 'enum' | 'import' | 'extends' | 'static' | 'system' | 'repository' | 'aggregate';
 
 // LooseName — admissible identifiers in name positions that need to

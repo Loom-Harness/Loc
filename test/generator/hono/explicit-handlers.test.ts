@@ -126,7 +126,7 @@ describe("hono — extern commandHandler / queryHandler", () => {
   it("emits a scaffold-once impl stub that throws loudly", async () => {
     const m = await generateSystemFiles(EXTERN_SRC);
     const impl = fileEndingWith(m, "application/place-order-handler-impl.ts");
-    expect(impl.split("\n")[0]).toContain("loom:scaffold-once");
+    expect(impl.split("\n")[0]).toContain("This file is yours");
     expect(impl).toContain(
       "export async function placeOrderImpl(code: string): Promise<Ids.OrderId>",
     );

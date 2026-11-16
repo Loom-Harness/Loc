@@ -76,16 +76,6 @@
     "paramName",
     "stateField"
   ],
-  "angularMaterial": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "api": [
     "fieldName",
     "fieldNameAfterField",
@@ -155,16 +145,6 @@
     "fieldNameAfterField",
     "migrationField",
     "paramName"
-  ],
-  "bigquery": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
   ],
   "bind": [
     "fieldName",
@@ -247,16 +227,6 @@
     "paramName",
     "stateField"
   ],
-  "chakra": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "channel": [
     "fieldName",
     "fieldNameAfterField",
@@ -298,16 +268,6 @@
     "stateField"
   ],
   "claims": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
-  "clickhouse": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",
@@ -423,16 +383,6 @@
     "paramName",
     "stateField"
   ],
-  "coreComponents": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "covers": [
     "fieldName",
     "fieldNameAfterField",
@@ -469,16 +419,6 @@
     "stateField"
   ],
   "crossTenant": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
-  "daisyui": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",
@@ -637,16 +577,6 @@
     "stateField"
   ],
   "e2e": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
-  "elastic": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",
@@ -856,16 +786,6 @@
   "find": [
     "memberAccess"
   ],
-  "flowbite": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "flutter": [
     "fieldName",
     "fieldNameAfterField",
@@ -1018,16 +938,6 @@
     "stateField"
   ],
   "in": [],
-  "inMemory": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "index": [
     "fieldName",
     "fieldNameAfterField",
@@ -1112,16 +1022,6 @@
   ],
   "json": [],
   "jwt": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
-  "kafka": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",
@@ -1232,16 +1132,6 @@
     "paramName",
     "stateField"
   ],
-  "localDisk": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "log": [
     "fieldName",
     "fieldNameAfterField",
@@ -1283,16 +1173,6 @@
     "paramName",
     "stateField"
   ],
-  "mantine": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "mask": [
     "fieldName",
     "fieldNameAfterField",
@@ -1304,16 +1184,6 @@
     "stateField"
   ],
   "match": [],
-  "meilisearch": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "menu": [
     "fieldName",
     "fieldNameAfterField",
@@ -1355,36 +1225,6 @@
     "stateField"
   ],
   "money": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
-  "mui": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
-  "mysql": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
-  "nats": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",
@@ -1652,27 +1492,7 @@
     "paramName",
     "stateField"
   ],
-  "postgres": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "precondition": [],
-  "primeng": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "private": [],
   "projection": [
     "fieldName",
@@ -1744,16 +1564,6 @@
     "paramName",
     "stateField"
   ],
-  "rabbitmq": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "raw": [
     "fieldName",
     "fieldNameAfterField",
@@ -1795,16 +1605,6 @@
     "stateField"
   ],
   "readonly": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
-  "redis": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",
@@ -1897,16 +1697,6 @@
     "paramName",
     "stateField"
   ],
-  "restApi": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "retain": [
     "fieldName",
     "fieldNameAfterField",
@@ -1939,16 +1729,6 @@
   ],
   "return": [],
   "route": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
-  "s3": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",
@@ -2018,16 +1798,6 @@
     "paramName",
     "stateField"
   ],
-  "sendgrid": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "sensitive": [
     "fieldName",
     "fieldNameAfterField",
@@ -2068,47 +1838,7 @@
     "paramName",
     "stateField"
   ],
-  "ses": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "sessions": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
-  "shadcn": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
-  "shadcnSvelte": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
-  "shadcnVue": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",
@@ -2168,16 +1898,6 @@
     "paramName",
     "stateField"
   ],
-  "smtp": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "snapshot": [
     "fieldName",
     "fieldNameAfterField",
@@ -2218,27 +1938,7 @@
     "paramName",
     "stateField"
   ],
-  "spartanNg": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "sql": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
-  "sqlite": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",
@@ -2520,16 +2220,6 @@
     "stateField"
   ],
   "vue": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
-  "vuetify": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",

@@ -9,11 +9,16 @@
 // `toThrow(<rung>)` narrows the set to the one rung, read from the error's
 // structural kind, never its message.
 //
+// A declared error an operation RETURNS (`operation close(): string or Closed`)
+// is not a throw: the call answers it as a value, on every backend.  A
+// `toThrow` over a call that can only answer that way asserts nothing a test
+// can observe (`throwOnlyReturns`), and is refused at validation.
+//
 // Which exception class each rung raises is the language's leaf table
 // (`src/generator/_test/throw-kind.ts`).
 
 import type { ThrowKindName } from "../../util/intrinsic-matchers.js";
-import type { AggregateIR, ExprIR, OperationIR } from "../types/loom-ir.js";
+import type { AggregateIR, ExprIR, OperationIR, TypeIR } from "../types/loom-ir.js";
 import { walkStmtExprsDeep, walkStmtsDeep } from "../util/walk.js";
 
 /** Every way the in-process domain floor refuses a call. */
@@ -80,4 +85,21 @@ export function rejectionNeedsInvariant(
 ): boolean {
   if (plan.accepts === "rung") return plan.rung === "invariant";
   return !operationMayRejectBeforeInvariants(op, agg);
+}
+
+/** The declared errors `op` answers by returning them: the `error` arms of its
+ *  return type. */
+export function returnedErrorArms(op: Pick<OperationIR, "returnType">): string[] {
+  const t = op.returnType;
+  const arms: readonly TypeIR[] = t === undefined ? [] : t.kind === "union" ? t.variants : [t];
+  return arms.flatMap((v) => (v.kind === "entity" && v.declKind === "error" ? [v.name] : []));
+}
+
+/** True when a `toThrow` over a call of `op` can only be about an error the
+ *  operation returns: it returns a declared error, and nothing on its path
+ *  throws — no `when` gate, no `precondition`, no `requires`.  A value-returning
+ *  operation checks no invariant floor on any backend, so an invariant is not a
+ *  path to a throw here. */
+export function throwOnlyReturns(op: OperationIR, agg: Pick<AggregateIR, "operations">): boolean {
+  return returnedErrorArms(op).length > 0 && !operationMayRejectBeforeInvariants(op, agg);
 }

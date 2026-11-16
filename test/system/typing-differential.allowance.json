@@ -41,6 +41,9 @@
   "test/ir/api-resource-binding.test.ts#a3af1d4c4b :: nobody-knows": {"n": 6, "why": "`catalog.getProductById(pid)` and the fields read off its result: `catalog` is an api resource binding the test supplies outside the document, so parsed alone neither side knows it"},
   "test/ir/api-resource-binding.test.ts#a3af1d4c4b :: unknown{unresolved-name}": {"n": 6, "why": "`catalog` / `pr`: the api resource binding the test supplies outside the document does not resolve when the document is parsed alone"},
   "test/playground/deployables.test.ts#96a1c16fd4 :: ir-differs": {"n": 1, "why": "a scaffold-synthesised page member chain (no source text): the pass types it never, lowering keeps the string placeholder"},
+  "test/system/architecture-integration.test.ts#97dc339ee8 :: ir-differs": {"n": 7, "why": "UI page-body builder calls (Stack / Heading / Text / Field / Button) lower to a component record rec:<Primitive> where the pass types a slot: the page-body IR representation"},
   "test/system/diagnostic-firing-census.test.ts#519ae54459 :: ir-differs": {"n": 2, "why": "UI page-body builder calls (Stack / CreateForm / Card / Text / …) lower to a component record rec:<Primitive> where the pass types a slot: the page-body IR representation"},
+  "test/system/diagnostic-firing-census.test.ts#d203b8ce42 :: ir-differs": {"n": 1, "why": "a scaffold-synthesised page member chain (no source text): the pass types it never, lowering keeps the string placeholder"},
+  "test/system/sourcemap.test.ts#3c84815c0e :: ir-differs": {"n": 2, "why": "scaffold-synthesised page member chains (no source text): the pass types them never, lowering keeps the string placeholder"},
   "web/src/examples/multi-frontend-system.ddd :: ir-differs": {"n": 2, "why": "scaffold-synthesised page member chains (no source text): the pass types them never, lowering keeps the string placeholder"}
 }

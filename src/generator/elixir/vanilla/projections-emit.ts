@@ -5,9 +5,10 @@ import type {
   EnumIR,
   ProjectionIR,
   SystemIR,
+  ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types/loom-ir.js";
-import { enumPool } from "../../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { resolveContextSchema } from "../../../ir/util/resolve-datasource.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import type { ApiRoute } from "../api-emit.js";
@@ -15,7 +16,7 @@ import { ectoIdType, projectionRowModule } from "../dispatch-emit.js";
 import { renderExpr } from "../render-expr.js";
 import { denialOverrides, denialResponse } from "./denial.js";
 import { effectiveGate } from "./gate.js";
-import { mapTypeToEcto } from "./schema-emit.js";
+import { mapTypeToEcto, renderValueColumnsFn, valueObjectColumns } from "./schema-emit.js";
 // ---------------------------------------------------------------------------
 // Vanilla foundation — projection read models (projection.md), the read half.
 //
@@ -67,7 +68,7 @@ export function emitVanillaProjectionSchemas(
   for (const proj of folded) {
     out.set(
       `lib/${appName}/${ctxSnake}/projections/${snake(proj.name)}_row.ex`,
-      renderProjectionRowSchema(contextModule, proj, enumsByName, schema),
+      renderProjectionRowSchema(contextModule, proj, enumsByName, valueObjectPool(ctx), schema),
     );
     refs.push({ ctx, proj });
   }
@@ -81,15 +82,27 @@ function renderProjectionRowSchema(
   contextModule: string,
   proj: ProjectionIR,
   enumsByName: Map<string, EnumIR>,
+  valueObjects: readonly ValueObjectIR[],
   schema?: string,
 ): string {
   const corr = proj.correlationField as string;
   const corrField = proj.stateFields.find((f) => f.name === corr);
   const pkType = corrField && corrField.type.kind === "id" ? ectoIdType() : ":string";
   const table = projectionTableName(proj);
+  // A value object is its leaf columns plus a virtual field (D-ONE-SCHEMA).
+  // Every non-key read-model column is nullable — a fold writes only what its
+  // event carries — so the value object is optional here whatever its
+  // declared optionality.
+  const voPools = { vos: new Map(valueObjects.map((v) => [v.name, v])), enums: enumsByName };
+  const valueSpecs: string[] = [];
   const fieldLines = proj.stateFields
     .filter((f) => f.name !== corr)
-    .map((f) => {
+    .flatMap((f) => {
+      const cols = valueObjectColumns(f, voPools, enumsByName, true);
+      if (cols) {
+        valueSpecs.push(cols.spec);
+        return [...cols.lines];
+      }
       const ecto = mapTypeToEcto(f.type, enumsByName);
       if (!ecto) {
         throw new Error(
@@ -117,7 +130,7 @@ ${prefixLine}  @primary_key false
   schema "${table}" do
 ${[...keyLines, ...fieldLines].join("\n")}
   end
-end
+${renderValueColumnsFn(valueSpecs)}end
 `;
   }
   return `# Auto-generated.
@@ -129,7 +142,7 @@ defmodule ${projectionRowModule(contextModule, proj)} do
 ${prefixLine}  @primary_key {:${snake(corr)}, ${pkType}, autogenerate: false}
   schema "${table}" do
 ${fieldLines.length > 0 ? fieldLines.join("\n") + "\n" : ""}  end
-end
+${renderValueColumnsFn(valueSpecs)}end
 `;
 }
 
@@ -229,12 +242,12 @@ function renderProjectionActions(
   const corrCol = snake(proj.correlationField as string);
   const listRead =
     floor.length > 0
-      ? `${appModule}.Repo.all(from(r in ${rowMod}, where: ${floor.map((t, i) => `r.${t.column} == ^scope${i}`).join(" and ")}))`
-      : `${appModule}.Repo.all(${rowMod})`;
+      ? `${appModule}.Repo.Records.all(from(r in ${rowMod}, where: ${floor.map((t, i) => `r.${t.column} == ^scope${i}`).join(" and ")}))`
+      : `${appModule}.Repo.Records.all(${rowMod})`;
   const keyRead =
     floor.length > 0
-      ? `${appModule}.Repo.get_by(${rowMod}, ${[`${corrCol}: key`, ...floor.map((t, i) => `${t.column}: scope${i}`)].join(", ")})`
-      : `${appModule}.Repo.get(${rowMod}, key)`;
+      ? `${appModule}.Repo.Records.get_by(${rowMod}, ${[`${corrCol}: key`, ...floor.map((t, i) => `${t.column}: scope${i}`)].join(", ")})`
+      : `${appModule}.Repo.Records.get(${rowMod}, key)`;
   const indent = (text: string, by: string): string =>
     text
       .split("\n")

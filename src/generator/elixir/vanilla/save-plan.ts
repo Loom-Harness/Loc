@@ -12,21 +12,38 @@
 // the per-aggregate `__save_<agg>/2`, the one write.  The public
 // `<op>_<agg>/2` (the REST and LiveView entry) keeps its own persist tail.
 //
-// An operation whose persist tail does more than write its columns — it emits
-// an event, records an audit row, flushes provenance, rewrites a relation or a
-// reference collection, answers a value, or delegates to an extern hook — has
-// no apply step, so a handle it touches keeps the per-call persist.  So does a
+// An operation whose persist tail dispatches events, records an audit row or
+// flushes provenance stages that work in its apply step; the handle carries
+// the staged list beside it (`stagedName`) and its save runs the list in the
+// save's transaction.  A returning operation's apply step answers the changed
+// struct beside its value; an extern operation's runs its hook.  An operation
+// that rewrites a relation or a reference collection has no apply step, nor
+// does a returning one that also stages work or hands a sibling operation's
+// result through; a handle such an operation touches keeps the per-call
+// persist, as does a call whose result a `match` dispatches on.  So does a
 // handle an `if let` branch or a `match` arm changes without saving it there:
 // a branch is an expression in Elixir, and the struct it changed would not
 // reach the outer save.  A handle mutated through a `mutating` domain service
 // persists through that service's inlined calls.
 
 import { lookupOp, nestedSaveScopes, type SaveEntry } from "../../../ir/plan/index.js";
-import type { BoundedContextIR, WorkflowStmtIR } from "../../../ir/types/loom-ir.js";
+import type {
+  AggregateIR,
+  BoundedContextIR,
+  SystemIR,
+  WorkflowStmtIR,
+} from "../../../ir/types/loom-ir.js";
 import { walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
-import { opAppliesInMemory } from "./op-in-memory.js";
+import { isVanillaDocAgg } from "./document-emit.js";
+import { opAppliesInMemory, opStagesForSave } from "./op-in-memory.js";
 
-export { applyFnName, opAppliesInMemory, saveFnName } from "./op-in-memory.js";
+export {
+  applyFnName,
+  opAppliesInMemory,
+  opStagesForSave,
+  saveFnName,
+  stagedName,
+} from "./op-in-memory.js";
 
 /** How one body saves: the op-calls that run in memory, the save entries that
  *  write those handles, and among them the rows the body inserted itself. */
@@ -41,6 +58,13 @@ export interface ElixirSavePlan {
   /** Saves of a row the body's own `create` inserted: that insert was the
    *  row's save, so this write keeps its version. */
   readonly inserted: ReadonlySet<SaveEntry>;
+  /** Saves of a handle an apply step staged work on (`opStagesForSave`): the
+   *  scope binds the handle's staged list empty at its start, and the save
+   *  passes it. */
+  readonly staged: ReadonlySet<SaveEntry>;
+  /** The handles those saves write: their staged list rides beside them
+   *  wherever they are threaded. */
+  readonly stagedNames: ReadonlySet<string>;
 }
 
 export const NO_SAVE_PLAN: ElixirSavePlan = {
@@ -48,6 +72,8 @@ export const NO_SAVE_PLAN: ElixirSavePlan = {
   saves: new Set(),
   savedNames: new Set(),
   inserted: new Set(),
+  staged: new Set(),
+  stagedNames: new Set(),
 };
 
 /** The save plan of a body whose exit saves are `exitSaves`.  Each save list
@@ -56,17 +82,22 @@ export function elixirSavePlan(
   statements: readonly WorkflowStmtIR[],
   exitSaves: readonly SaveEntry[],
   ctx: BoundedContextIR | undefined,
+  /** The system, so a document-shaped aggregate is told apart; every caller
+   *  of one context passes the same one, as `contextInMemoryOps` does. */
+  sys?: SystemIR,
 ): ElixirSavePlan {
   if (!ctx) return NO_SAVE_PLAN;
   const applyCalls = new Set<WorkflowStmtIR>();
   const saves = new Set<SaveEntry>();
   const inserted = new Set<SaveEntry>();
+  const staged = new Set<SaveEntry>();
   const planScope = (body: readonly WorkflowStmtIR[], scopeSaves: readonly SaveEntry[]): void => {
     for (const save of scopeSaves) {
-      const calls = inMemoryCalls(save.name, body, ctx);
+      const calls = inMemoryCalls(save.name, body, ctx, sys);
       if (!calls) continue;
       for (const c of calls) applyCalls.add(c);
       saves.add(save);
+      if (calls.some((c) => stagesForSave(c, ctx))) staged.add(save);
       if (body.some((s) => s.kind === "factory-let" && s.name === save.name)) inserted.add(save);
     }
   };
@@ -76,7 +107,21 @@ export function elixirSavePlan(
       for (const scope of nestedSaveScopes(st)) planScope(scope.body, scope.saves);
     });
   }
-  return { applyCalls, saves, savedNames: new Set([...saves].map((s) => s.name)), inserted };
+  return {
+    applyCalls,
+    saves,
+    savedNames: new Set([...saves].map((s) => s.name)),
+    inserted,
+    staged,
+    stagedNames: new Set([...staged].map((s) => s.name)),
+  };
+}
+
+/** Does this op-call's apply step stage work for its save? */
+export function stagesForSave(st: WorkflowStmtIR, ctx: BoundedContextIR | undefined): boolean {
+  if (st.kind !== "op-call" || !ctx) return false;
+  const op = lookupOp(ctx, st.aggName, st.op);
+  return op !== undefined && opStagesForSave(op);
 }
 
 /** The op-calls on `name` in `body` when every one of them can run in memory
@@ -86,6 +131,7 @@ function inMemoryCalls(
   name: string,
   body: readonly WorkflowStmtIR[],
   ctx: BoundedContextIR,
+  sys: SystemIR | undefined,
 ): WorkflowStmtIR[] | undefined {
   const calls: WorkflowStmtIR[] = [];
   let inMemory = true;
@@ -95,8 +141,9 @@ function inMemoryCalls(
       if (st.kind === "op-call" && st.target === name) {
         const agg = ctx.aggregates.find((a) => a.name === st.aggName);
         const op = lookupOp(ctx, st.aggName, st.op);
-        if (agg && op && opAppliesInMemory(op, agg)) calls.push(st);
-        else inMemory = false;
+        if (agg && op && opAppliesInMemory(op, agg, isDoc(agg, ctx, sys)) && !guardedResult(st)) {
+          calls.push(st);
+        } else inMemory = false;
       }
       if (st.kind === "domain-service-call" && namesRefd(st).has(name)) inMemory = false;
       for (const scope of nestedSaveScopes(st)) {
@@ -112,6 +159,17 @@ function inMemoryCalls(
   return inMemory && calls.length > 0 ? calls : undefined;
 }
 
+/** `let r = a.op(…)` over an op with an error variant: the `match` over `r`
+ *  commits the call only in its non-error arms, which save the handle
+ *  there, so the call persists on its own. */
+function guardedResult(st: Extract<WorkflowStmtIR, { kind: "op-call" }>): boolean {
+  return (st.result?.errorVariants.length ?? 0) > 0;
+}
+
+function isDoc(agg: AggregateIR, ctx: BoundedContextIR, sys: SystemIR | undefined): boolean {
+  return isVanillaDocAgg(agg, ctx, sys);
+}
+
 /** The names a domain-service call passes as bare arguments. */
 function namesRefd(st: Extract<WorkflowStmtIR, { kind: "domain-service-call" }>): Set<string> {
   const args = st.call.kind === "call" ? st.call.args : [];
@@ -123,12 +181,18 @@ function namesRefd(st: Extract<WorkflowStmtIR, { kind: "domain-service-call" }>)
  *  (`__apply_<op>_<agg>` / `__save_<agg>`).  Reads every body the Phoenix
  *  emitters lower: each workflow create and reactor, and each command
  *  handler. */
-export function contextInMemoryOps(ctx: BoundedContextIR): {
+export function contextInMemoryOps(
+  ctx: BoundedContextIR,
+  sys?: SystemIR,
+): {
   ops: ReadonlyMap<string, ReadonlySet<string>>;
   saved: ReadonlySet<string>;
+  /** The aggregates some save passes a staged list to. */
+  staged: ReadonlySet<string>;
 } {
   const ops = new Map<string, Set<string>>();
   const saved = new Set<string>();
+  const staged = new Set<string>();
   const bodies: { statements: readonly WorkflowStmtIR[]; saves: readonly SaveEntry[] }[] = [
     ...ctx.workflows.flatMap((wf) => [
       { statements: wf.statements ?? [], saves: wf.savesAtExit ?? [] },
@@ -138,7 +202,7 @@ export function contextInMemoryOps(ctx: BoundedContextIR): {
     ...(ctx.commandHandlers ?? []).map((h) => ({ statements: h.statements, saves: h.savesAtExit })),
   ];
   for (const { statements, saves } of bodies) {
-    const plan = elixirSavePlan(statements, saves, ctx);
+    const plan = elixirSavePlan(statements, saves, ctx, sys);
     for (const c of plan.applyCalls) {
       if (c.kind !== "op-call") continue;
       const set = ops.get(c.aggName) ?? new Set<string>();
@@ -146,6 +210,7 @@ export function contextInMemoryOps(ctx: BoundedContextIR): {
       ops.set(c.aggName, set);
     }
     for (const s of plan.saves) saved.add(s.aggName);
+    for (const s of plan.staged) staged.add(s.aggName);
   }
-  return { ops, saved };
+  return { ops, saved, staged };
 }

@@ -16,7 +16,10 @@
         "tests": {
           "a routed extern handler is mounted and fails loudly": "POST [^ ]*/api/orders → 422"
         },
-        "reason": "the explicit-route body model declares `customer_id`, so the camelCase wire key is refused (RS-1)"
+        "reason": "the explicit-route body model declares `customer_id`, so the camelCase wire key is refused (RS-1)",
+        "rules": [
+          "RS-1"
+        ]
       }
     }
   }

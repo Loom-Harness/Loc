@@ -23,6 +23,16 @@
 // `test/platform/pipeline-layering.test.ts` enforces the import rules.
 
 export {
+  assignsOwnState,
+  carriedInto,
+  changedIn,
+  isReadAfter,
+  readAfter,
+  type ThreadedOut,
+  threadedOut,
+  unreadBindings,
+} from "./binding-flow.js";
+export {
   type BrokerBinding,
   type BrokerTransport,
   brokerChannelBindings,
@@ -135,7 +145,18 @@ export {
   handlerNeedsCurrentUser,
   workflowNeedsCurrentUser,
 } from "./workflow-needs.js";
+export {
+  type PostBodyStep,
+  type PostBodyStepKind,
+  provenancedExitSaves,
+  workflowPostBody,
+} from "./workflow-post-body.js";
 export { commandCreateReturnsSelf, isWorkflowSelfType } from "./workflow-result.js";
+export {
+  routeStatusResolver,
+  workflowEntryErrorStatuses,
+  workflowRouteErrorStatuses,
+} from "./workflow-route-status.js";
 export {
   liveLetNames,
   nestedSaveScopes,
@@ -155,6 +176,8 @@ export {
   subscriptionHandler,
 } from "./workflow-subscriptions.js";
 export {
+  type ReactionBoundary,
+  reactionBoundary,
   workflowCapturesDurableEmits,
   workflowIsolation,
   workflowRunsInTransaction,

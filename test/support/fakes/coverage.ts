@@ -18,6 +18,7 @@
 // is re-read.  An `unbindable` row is a storage type no kind accepts.
 
 import type { DataSourceKind } from "../../../src/ir/types/loom-ir.js";
+import { LIVE_FENCES } from "../../_helpers/live-fences.js";
 
 export type FakeClass = "real-sidecar" | "emulated" | "in-process-fake" | "n/a";
 
@@ -49,11 +50,12 @@ export interface CoverageRow {
   refused?: `loom.${string}`;
 }
 
-/** The tracking issues a `pending` row may name, while they are open.  DELETE
- *  an entry the day its issue closes: every row still leaning on it then fails,
- *  which is the point — its witness is due.  Checked against GitHub by the
- *  census's online leg (`LOOM_CENSUS_ONLINE=1`), which runs nightly only. */
-export const OPEN_TRACKING_ISSUES: ReadonlySet<string> = new Set(["#5617", "#5712", "#5846"]);
+/** The tracking issues a `pending` row or a harness wait may name: the live
+ *  fences (`test/_helpers/live-fences/<NNNN>.txt`).  Deleting a fence the day
+ *  its issue closes fails every row still leaning on it, which is the point —
+ *  its witness is due.  Checked against GitHub by the census's online leg
+ *  (`LOOM_CENSUS_ONLINE=1`), which runs nightly only. */
+export const OPEN_TRACKING_ISSUES: ReadonlySet<string> = new Set(Object.keys(LIVE_FENCES));
 
 /** A pending row may not be parked further out than this. */
 export const MAX_PENDING_DAYS = 120;

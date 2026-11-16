@@ -107,9 +107,9 @@ describe("command-triggered create on a state-bearing workflow (F58)", () => {
     // The defect: `with state <- (%{state | status: "Pending"})` — the RHS
     // `state` was never bound anywhere in `run/1`.
     expect(wf).toContain('key = params["orderId"]');
-    expect(wf).toContain("case Repo.get(Api.Fulfil.Workflows.FulfillmentState, key) do");
+    expect(wf).toContain("case Repo.Records.get(Api.Fulfil.Workflows.FulfillmentState, key) do");
     expect(wf).toContain('with state <- (%{state | status: "Pending"})');
-    expect(wf).toContain("Repo.insert_or_update!");
+    expect(wf).toContain("Repo.Records.insert_or_update!");
   });
 });
 
@@ -274,8 +274,8 @@ describe("a create that ASSIGNS the correlation field from a param (F58 residue)
     // was an undefined variable in the emitted `run/1`.
     expect(wf).toContain('%{"order" => order} = params');
     expect(wf).toContain('key = params["order"]');
-    expect(wf).toContain("case Repo.get(D.Orders.Workflows.FulfilmentState, key) do");
+    expect(wf).toContain("case Repo.Records.get(D.Orders.Workflows.FulfilmentState, key) do");
     expect(wf).toContain("state = loom_state");
-    expect(wf).toContain("Repo.insert_or_update!");
+    expect(wf).toContain("Repo.Records.insert_or_update!");
   });
 });

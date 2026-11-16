@@ -21,6 +21,7 @@ export const segments = [
   "config",
   "resource",
   "datasource",
+  "storage",
   "capability",
   "cache",
 ] as const;
@@ -73,6 +74,15 @@ export const messages = {
   // suit the storage, a knob must suit the kind, and a knob must suit the
   // storage.  The `#slug`s name which knob, so a reader still gets the exact
   // sentence and the Problems panel still gets one code per rule.
+  "loom.storage-type-unknown": (p: {
+    name: unknown;
+    type: unknown;
+    known: unknown;
+    suggestion?: unknown;
+  }) =>
+    `storage '${p.name}' declares type '${p.type}', which is not a known storage type.` +
+    didYouMean(p.suggestion) +
+    ` Known types: ${p.known}.`,
   "loom.resource-kind-storage-mismatch": (p: {
     name: unknown;
     kind: unknown;
@@ -158,6 +168,8 @@ export const messages = {
     `Deployable '${p.name}' serves undeclared api '${p.apiName}'. Declare 'api ${p.apiName} from <Module>' at system scope.`,
   "loom.serves-duplicate-api": (p: { name: unknown; apiName: unknown }) =>
     `Deployable '${p.name}' lists api '${p.apiName}' more than once in its 'serves:' list.`,
+  "loom.api-no-surface": (p: { name: unknown }) =>
+    `api '${p.name}' declares no surface: it has no 'from <Subdomain>', no 'with' macro and no 'route', so serving it serves nothing. Add 'from <Subdomain>' (or 'with scaffoldApi(of: <Subdomain>)'), declare routes, or remove the api.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/duplicates.ts
@@ -180,6 +192,20 @@ export const messages = {
   /** An `api` no backend deployable `serves:` — dead declaration (#29). */
   "loom.api-unserved": (p: { name: unknown; backends: unknown }) =>
     `api '${p.name}' is declared but no backend deployable serves it, so no deployable mounts its routes or carries its contract. Add it to a backend deployable's 'serves:' list (backends: ${p.backends}), or remove the declaration.`,
+  "loom.serves-context-unhosted#from": (p: {
+    name: unknown;
+    apiName: unknown;
+    subdomain: unknown;
+    contexts: unknown;
+  }) =>
+    `Deployable '${p.name}' serves api '${p.apiName}', which is derived from subdomain '${p.subdomain}', but hosts none of its contexts (${p.contexts}), so it would serve none of the api's surface. Add one of them to 'contexts:', or serve the api from the deployable that hosts them.`,
+  "loom.serves-context-unhosted#route": (p: {
+    name: unknown;
+    apiName: unknown;
+    label: unknown;
+    context: unknown;
+  }) =>
+    `Deployable '${p.name}' serves api '${p.apiName}', whose route '${p.label}' targets context '${p.context}', but '${p.context}' is not in the deployable's 'contexts:', so the route would not be mounted. Add '${p.context}' to 'contexts:', or serve the api from the deployable that hosts it.`,
   "loom.route-handler-unresolved#api-route-targets-context": (p: {
     name: unknown;
     label: unknown;

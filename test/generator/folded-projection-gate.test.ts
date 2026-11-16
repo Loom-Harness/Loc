@@ -105,8 +105,8 @@ const BACKENDS = [
     name: "elixir",
     file: "controllers/projections_controller.ex",
     guard: '"Forbidden: projection OrderBook"',
-    list: { at: "def order_book_index(", read: "Repo.all(" },
-    byKey: { at: "def order_book_show(", read: "Repo.get(" },
+    list: { at: "def order_book_index(", read: "Records.all(" },
+    byKey: { at: "def order_book_show(", read: "Records.get(" },
   },
 ] as const;
 

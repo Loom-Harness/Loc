@@ -25,7 +25,6 @@ import {
 } from "../../system/manifest.js";
 import { refusalText } from "../../system/migration-diff.js";
 import type { MigrationWarning } from "../../system/migrations-builder.js";
-import { isScaffoldOnce } from "../../util/scaffold-once.js";
 import { loadSourceOverrides, loadTranslations } from "../i18n/index.js";
 import { readMigrationChain } from "../migrate.js";
 import { escapesOutDir } from "../output-containment.js";
@@ -242,6 +241,8 @@ async function runGenerate(
   // `mkdir`-ing the output dir.
 
   let files: Map<string, string>;
+  /** Escape-hatch stubs (`src/util/hatch.ts`): written only when missing. */
+  let hatches: Map<string, string>;
   /** Frontend constructs the walkers declined to render.  The walkers name a
    *  `loom.*` code beside each one in the emitted source; nothing lifted them
    *  until now, so a page whose body is `undefined.data.items.map(…)` shipped
@@ -278,6 +279,7 @@ async function runGenerate(
       sourceTexts,
     });
     files = emission.files;
+    hatches = emission.hatches;
     giveUps = emission.giveUps;
     // Phase-⑨ advisories (F-3).  The only one today announces the drop+add →
     // RENAME inference the migration builder makes deliberately: it fired,
@@ -359,6 +361,10 @@ async function runGenerate(
   // them, so it must not claim ownership of them.  The manifest lists itself,
   // which keeps it out of its own successor's prune set (belt to
   // `isProtectedFromPrune`'s braces).
+  // One write plan over generated files and hatch stubs; `hatches` says which
+  // paths are the user's.
+  for (const [p, stub] of hatches) files.set(p, stub);
+  const isHatch = (relPath: string): boolean => hatches.has(relPath);
   const manifestEntries: ManifestEntry[] = [{ path: MANIFEST_REL_PATH }];
   for (const relPath of [...files.keys()].sort()) {
     const normalised = relPath.split(path.sep).join("/");
@@ -369,7 +375,7 @@ async function runGenerate(
     // lands on a file a human edited (finding F-019).
     manifestEntries.push({
       path: normalised,
-      ...(isScaffoldOnce(content) ? { scaffoldOnce: true as const } : {}),
+      ...(isHatch(relPath) ? { scaffoldOnce: true as const } : {}),
       hash: contentDigest(content),
     });
   }
@@ -403,12 +409,9 @@ async function runGenerate(
     const normalised = relPath.split(path.sep).join("/");
     const ignored = ig.ignores(normalised);
     const full = path.join(outDir, relPath);
-    // Scaffold-once preservation (`src/util/scaffold-once.ts`): a file the
-    // generator marks scaffold-once (an `extern` impl, say) is written on the
-    // FIRST generate but never overwritten again, so the user's hand-written
-    // implementation survives every regen.  Detected in-band from the generated
-    // content's marker; only applies once the file already exists on disk.
-    const preserved = !ignored && isScaffoldOnce(content) && fs.existsSync(full);
+    // A hatch stub (`src/util/hatch.ts`) is written only when its file is
+    // missing: once it exists the file is the user's implementation.
+    const preserved = !ignored && isHatch(relPath) && fs.existsSync(full);
     // Classify exactly as the real writer does so a dry run's tallies
     // match the run it previews: an up-to-date file is `unchanged`, not
     // a would-write.  `fileContentMatches` returns false for a missing
@@ -428,7 +431,7 @@ async function runGenerate(
       const status = ignored
         ? "  skip (.loomignore)"
         : preserved
-          ? "  keep (scaffold-once)"
+          ? "  keep (hatch)       "
           : locallyModified
             ? "  write (local edits) "
             : wouldChange
@@ -521,7 +524,7 @@ async function runGenerate(
     );
   }
   if (unchanged > 0) parts.push(`unchanged: ${unchanged}`);
-  if (preservedScaffold > 0) parts.push(`preserved (scaffold-once): ${preservedScaffold}`);
+  if (preservedScaffold > 0) parts.push(`preserved (hatch): ${preservedScaffold}`);
   if (skippedByIgnore > 0) parts.push(`skipped (.loomignore): ${skippedByIgnore}`);
   if (removed > 0) parts.push(`${options.dryRun ? "would remove" : "removed"} (stale): ${removed}`);
   console.log(parts.join(", "));

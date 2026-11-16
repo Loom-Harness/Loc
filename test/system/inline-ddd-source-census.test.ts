@@ -142,8 +142,8 @@ const DELIBERATELY_UNPARSEABLE: readonly { file: string; contains?: string; why:
   },
   {
     file: "test/system/diagnostic-firing-census.test.ts",
-    contains: "design: mantinee",
-    why: "the mistyped design pack that makes `loom.parse-error` fire, proving the closed-set 'did you mean mantine?' message replaced chevrotain's token-sequence dump (F6)",
+    contains: "platform: reactt",
+    why: "the mistyped platform that makes `loom.parse-error` fire, proving the closed-set 'did you mean react?' message replaced chevrotain's token-sequence dump (F6)",
   },
   {
     file: "test/cli/parse-error-no-lowering.test.ts",

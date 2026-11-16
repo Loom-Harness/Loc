@@ -54,8 +54,8 @@ import {
   walkWorkflowStmtsDeep,
 } from "../../../ir/util/walk.js";
 import { bodyWriteScopeGuards, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
+import { hatchStub } from "../../../util/hatch.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
-import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import { claimsDerivedSlot } from "../../_api/explicit-route-mount.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import type { ApiRoute } from "../api-emit.js";
@@ -307,9 +307,9 @@ function renderExternImplModule(
   const appSnake = appAtom(appModule);
   const ctxSnake = N.stem(ctx.name);
   const fileRel = `lib/${appSnake}/${ctxSnake}/handlers/${N.stem(h.name)}_impl.ex`;
-  return `# ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first
-# \`generate\` and NEVER overwrites it again, so your implementation survives every
-# regenerate.  Replace the \`raise\` with the extern handler's real logic (the one
+  return `# This file is yours: it is written only when it is missing, and
+# regeneration never overwrites it, so your implementation survives.
+# Replace the \`raise\` with the extern handler's real logic (the one
 # external-service call this handler wraps).
 defmodule ${moduleName} do
   @moduledoc """
@@ -335,6 +335,7 @@ function renderHandlerModule(
   appModule: string,
   ctx: EnrichedBoundedContextIR,
   resourceModules: Map<string, string>,
+  sys?: SystemIR,
 ): string {
   // Extern handler: bodyless — the dispatch delegates to the scaffold-once impl.
   if (h.extern) return renderExternDispatchModule(h, kindLabel, appModule, ctx);
@@ -390,6 +391,7 @@ function renderHandlerModule(
     // last bound name — so no statement's bind is the result slot here.
     ownResult: true,
     saves: h.savesAtExit,
+    sys,
   });
   // An expected-failure result (`T or E`) closes the chain with its outcome
   // tuple (`entry-result-emit.ts`); an `error` variant rolls the transaction
@@ -511,23 +513,26 @@ export function emitExplicitHandlers(
   ctx: EnrichedBoundedContextIR,
   out: Map<string, string>,
   resourceModules: Map<string, string> = new Map(),
+  sys?: SystemIR,
 ): void {
   const ctxSnake = N.stem(ctx.name);
   const appSnake = appModule.replace(/([A-Z])/g, (_, c, i) => (i ? "_" : "") + c.toLowerCase());
   const emit = (h: Handler, kind: "Command handler" | "Query handler"): void => {
     out.set(
       `lib/${appSnake}/${ctxSnake}/handlers/${N.stem(h.name)}.ex`,
-      renderHandlerModule(h, kind, appModule, ctx, resourceModules),
+      renderHandlerModule(h, kind, appModule, ctx, resourceModules, sys),
     );
     // Extern: the scaffold-once user impl the dispatch above delegates to.
     if (h.extern) {
       out.set(
         `lib/${appSnake}/${ctxSnake}/handlers/${N.stem(h.name)}_impl.ex`,
-        renderExternImplModule(
-          h,
-          kind === "Command handler" ? "commandHandler" : "queryHandler",
-          appModule,
-          ctx,
+        hatchStub(
+          renderExternImplModule(
+            h,
+            kind === "Command handler" ? "commandHandler" : "queryHandler",
+            appModule,
+            ctx,
+          ),
         ),
       );
     }

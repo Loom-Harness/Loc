@@ -20,7 +20,7 @@ export { checkChannels } from "./channel.js";
 export { checkProjectSingletons, checkTopLevelDomainComposition } from "./composition.js";
 export { checkCreateArgs } from "./create-args.js";
 export { checkCriteria } from "./criterion.js";
-export { checkDataSource } from "./datasource.js";
+export { checkDataSource, checkStorageType } from "./datasource.js";
 export {
   checkDeployable,
   checkDeployableDataSources,

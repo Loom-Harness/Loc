@@ -150,11 +150,11 @@ At ~300 jobs a merge that repeat was the largest single consumer of the runner p
   `workflow-path-coverage.test.ts`).
 - **`pages.yml`** keeps `push: main`, because that run *is* the deploy.
 - **Live issue state** (test.yml `census-online`, nightly only): every issue a
-  census or register leans on — the fakes coverage census's
-  `OPEN_TRACKING_ISSUES`, and `LIVE_FENCES` in `test/_helpers/live-fences.ts`,
-  which the unsupported register's `mission` and every census waiver's
-  `blockedBy` must name — is asked of GitHub. Per PR and in the queue the same
-  references are checked offline against those committed lists, so a queue
+  census or register leans on — the live fences, one
+  `test/_helpers/live-fences/<NNNN>.txt` per issue, which the unsupported
+  register's `mission`, the fakes coverage census's pending rows and every
+  census waiver's `blockedBy` must name — is asked of GitHub. Per PR and in
+  the queue the same references are checked offline against those files, so a queue
   verdict never depends on the network or on an unrelated issue closing.
 
 The cost is detection latency for one class of break: two PRs that are green
@@ -1154,7 +1154,23 @@ fits any sane budget. **A leg that is slow is a different problem from a leg
 that is tight-budgeted, and it wants a different fix** — the budget stops the
 bleeding, cutting the runtime is the repair.
 
-### The 2026-11-14 re-measure (current for every leg)
+### The 2026-11-16 elixir re-measure (current for elixir)
+
+`behavioral-elixir` was cancelled at its 45m cap on PRs that change no
+generated output. Job-execution seconds from the Actions API, n=20 successful
+runs:
+
+| leg | job median | job p95 | job max | was | now |
+|---|---:|---:|---:|---:|---:|
+| `behavioral-e2e-elixir` | 33m22s | 41m13s | 44m14s | 45m | **65m** |
+
+The distribution was bimodal: a PR branch's first run primed every hex
+dependency set cold, because the dep-cache entry a PR branch saves is readable
+by that branch alone and twenty such entries evicted `main`'s. The leg now saves
+the entry only on `main` (the nightly run, or a manual dispatch) and every pull
+request restores it, so a PR primes only the dep sets its own change introduces.
+
+### The 2026-11-14 re-measure (current for every other leg)
 
 Every leg's p95 had outgrown the sample its budget came from, and
 `behavioral-python` was killed at its 15m cap on the run that first booted the

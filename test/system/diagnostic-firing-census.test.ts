@@ -624,6 +624,8 @@ system S {
   deployable netSvc { platform: python contexts: [Orgs] dataSources: [orgState] serves: NetApi auth: required port: 3000 }
   deployable shopSvc { platform: node contexts: [Sales] dataSources: [saleState, orgs] serves: ShopApi auth: required port: 3001 }
 }`,
+  // An api with no `from`, no `with` macro and no `route` serves nothing.
+  "loom.api-no-surface": systemScope("  api Floating"),
   "loom.api-unknown-subdomain": systemScope("  api Ghost from Nowhere"),
   // A second api the base's only backend never lists in `serves:` (#29).
   "loom.api-unserved": topology("api OrphanApi from D"),
@@ -1179,6 +1181,10 @@ system S {
     'deployable web { platform: react targets: api ui: WebApp design: "mantine@v7" port: 3001 }',
     { ui: true },
   ),
+  "loom.design-pack-unknown": topology(
+    "deployable web { platform: react targets: api ui: WebApp design: mantinee port: 3001 }",
+    { ui: true },
+  ),
   "loom.design-pack-version-unknown": topology(
     'deployable web { platform: react targets: api ui: WebApp design: "mantine@v999" port: 3001 }',
     { ui: true },
@@ -1570,28 +1576,6 @@ system S {
     let p = api.products.create({ sku: "W-1" })
     expect(p.sku).toBe("W-1")
   }
-}`,
-  "loom.ecto-shared-database": `
-system S {
-  subdomain D { context A {
-    valueobject Money { amount: decimal  currency: string }
-    aggregate Keep with crudish {
-      name: string
-      operation sell() { emit Sold { keep: id, price: Money { amount: 1, currency: "EUR" } } }
-    }
-    repository Keeps for Keep { }
-    event Sold { keep: Keep id, price: Money }
-    channel Sales { carries: Sold  delivery: broadcast  retention: ephemeral }
-    projection Board keyed by keep {
-      keep: Keep id
-      price: Money?
-      on(e: Sold) { price := e.price }
-    }
-  } }
-  storage primary { type: postgres }
-  resource aState { for: A, kind: state, use: primary }
-  deployable one { platform: node, contexts: [A], dataSources: [aState], port: 3000 }
-  deployable two { platform: elixir, contexts: [A], dataSources: [aState], port: 3001 }
 }`,
 
   // A `let`-bound mutating domain-service call in a workflow an elixir
@@ -2745,7 +2729,7 @@ system S {
   "loom.parameter-default-type-mismatch": orderTypes(
     'operation withDefault(n: int = "x") { total := total + n }',
   ),
-  // A mistyped design pack.  `loom.parse-error` is the code `src/api/report.ts`
+  // A mistyped platform.  `loom.parse-error` is the code `src/api/report.ts`
   // stamps on Langium's `parsing-error`, and the wording it carries is
   // `src/language/parse-errors.ts`'s — the closed-set "did you mean" that
   // replaced chevrotain's numbered token-sequence dump.
@@ -2759,7 +2743,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
-  deployable web { platform: react, targets: api, ui: WebApp, port: 3001, design: mantinee }
+  deployable web { platform: reactt, targets: api, ui: WebApp, port: 3001 }
 }`,
   // A response record field must name a readable member of its aggregate.
   "loom.payload-response-field": `
@@ -3460,6 +3444,18 @@ system S {
       salary: money sensitive(pii) mask unless currentUser.role == "hr"
     }
     repository People for Person`),
+  // A deployable serving `AApi from A` while hosting none of A's contexts.
+  "loom.serves-context-unhosted": `
+system S {
+  subdomain A { context Ca { aggregate Foo with crudish { name: string } repository Foos for Foo } }
+  subdomain B { context Cb { aggregate Bar with crudish { name: string } repository Bars for Bar } }
+  api AApi from A
+  storage pg { type: postgres }
+  resource caState { for: Ca, kind: state, use: pg }
+  resource cbState { for: Cb, kind: state, use: pg }
+  deployable be { platform: node contexts: [Cb] dataSources: [cbState] serves: AApi port: 3000 }
+  deployable ab { platform: node contexts: [Ca] dataSources: [caState] port: 3001 }
+}`,
   "loom.serves-duplicate-api": topology(
     "deployable api2 { platform: node contexts: [Orders] dataSources: [st] serves: OrdersApi, OrdersApi port: 3002 }",
   ),
@@ -3565,6 +3561,17 @@ system P {
   "loom.static-deployable-missing-ui": topology(
     "deployable web { platform: static targets: api port: 3001 }",
   ),
+  // A storage type the sourceType registry does not know.
+  "loom.storage-type-unknown": `
+system S {
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+  } }
+  storage pg { type: postgress }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}`,
   // A store field's default is evaluated when the store is created, so on the
   // JS-family store renderer it must be a constant: a call is refused.
   "loom.store-init-not-constant": `
@@ -3930,6 +3937,28 @@ system S {
     repository Boxes for Box { }
   } }
   api A from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 4000 }
+}`,
+  // A `toThrow` over an operation that can only answer a declared error it
+  // returns: nothing on its path throws.
+  "loom.test-throw-returned-error": `
+system S {
+  subdomain D { context C {
+    error Closed { reason: string }
+    aggregate Box with crudish {
+      status: string = "open"
+      operation close(): string or Closed {
+        if status == "closed" { return Closed { reason: "already" } }
+        status := "closed"
+        return "ok"
+      }
+      test "t" { let b = Box.create(status: "closed")  expect(b.close()).toThrow() }
+    }
+    repository Boxes for Box { }
+  } }
+  api A from D { httpStatus Closed -> 409 }
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 4000 }

@@ -89,6 +89,7 @@ import {
   checkSlotMemberAccess,
   checkSlotTypePosition,
   checkStatementPlacement,
+  checkStorageType,
   checkStoreActionCallArgs,
   checkTemplateHoles,
   checkTenancyDecls,
@@ -578,8 +579,9 @@ export class DddValidator {
           }
           // `from <Subdomain>` is optional — an api may instead derive its
           // surface from a `with scaffoldApi(...)` macro or carry explicit
-          // `route` bindings.  Only flag a `from` that was written but doesn't
-          // resolve (source present, ref unresolved).
+          // `route` bindings, but it needs one of the three.  Flag a `from`
+          // that was written but doesn't resolve (source present, ref
+          // unresolved), and an api with no surface at all.
           if (api.source && !api.source.ref) {
             accept(
               "error",
@@ -589,6 +591,14 @@ export class DddValidator {
               }),
               { node: api, property: "source", code: "loom.api-unknown-subdomain" },
             );
+          }
+          // An api with none of the three surface sources serves nothing.
+          if (!api.source && !api.withClause && api.routes.length === 0) {
+            accept("error", diagMessage("loom.api-no-surface", { name: api.name }), {
+              node: api,
+              property: "name",
+              code: "loom.api-no-surface",
+            });
           }
         }
         // urlStyle conflict: a subdomain surfaced by two apis with
@@ -620,9 +630,7 @@ export class DddValidator {
 
         // Storage declaration checks.
         //   - Names unique within the system.
-        //   - Type is one of the v0 enum values (parser ensures shape;
-        //     this is a structural sanity-check + future hook for
-        //     cross-platform constraints).
+        //   - Type is a registered sourceType (`checkStorageType`).
         const storages = sysMembers.filter((sm) => sm.$type === "Storage") as Storage[];
         const storageNamesSeen = new Map<string, Storage>();
         for (const s of storages) {
@@ -636,6 +644,7 @@ export class DddValidator {
           } else {
             storageNamesSeen.set(s.name, s);
           }
+          guard("storage", s, () => checkStorageType(s, accept));
         }
 
         // DataSource declaration checks.

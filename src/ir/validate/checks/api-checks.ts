@@ -275,6 +275,8 @@ export function validateUnservedApis(sys: SystemIR, diags: LoomDiagnostic[]): vo
     .map((d) => `'${d.name}'`);
   for (const api of sys.apis) {
     if (served.has(api.name) || resourceBound.has(api.name)) continue;
+    // A surfaceless api is already refused (`loom.api-no-surface`).
+    if (!api.sourceModule && api.routes.length === 0) continue;
     diags.push({
       severity: "warning",
       code: "loom.api-unserved",
@@ -284,5 +286,52 @@ export function validateUnservedApis(sys: SystemIR, diags: LoomDiagnostic[]): vo
       }),
       source: `${sys.name}/${api.name}`,
     });
+  }
+}
+
+/** `loom.serves-context-unhosted`: a backend deployable `serves:` an api whose
+ *  surface it cannot serve.  The derived surface of `from <Subdomain>` is the
+ *  hosted contexts' share of it, so a deployable hosting none of the
+ *  subdomain's contexts serves nothing of it; an explicit route to a context
+ *  the deployable does not host is never mounted.  Hosting some of the
+ *  subdomain's contexts is legal: one api may be split across deployables.
+ *  IR-level for the same reason as `validateUnservedApis`. */
+export function validateServedApiContexts(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  const contextsOf = new Map(sys.subdomains.map((sd) => [sd.name, sd.contexts.map((c) => c.name)]));
+  for (const d of sys.deployables) {
+    if (descriptorFor(d.platform).isFrontend) continue;
+    const hosted = new Set(d.contextNames);
+    for (const apiName of d.serves) {
+      const api = sys.apis.find((a) => a.name === apiName);
+      if (!api) continue;
+      const fromContexts = api.sourceModule ? contextsOf.get(api.sourceModule) : undefined;
+      if (fromContexts && fromContexts.length > 0 && !fromContexts.some((c) => hosted.has(c))) {
+        diags.push({
+          severity: "error",
+          code: "loom.serves-context-unhosted",
+          message: diagMessage("loom.serves-context-unhosted#from", {
+            name: d.name,
+            apiName: api.name,
+            subdomain: api.sourceModule,
+            contexts: fromContexts.map((c) => `'${c}'`).join(", "),
+          }),
+          source: `${sys.name}/${d.name}`,
+        });
+      }
+      for (const route of api.routes) {
+        if (hosted.has(route.target.context)) continue;
+        diags.push({
+          severity: "error",
+          code: "loom.serves-context-unhosted",
+          message: diagMessage("loom.serves-context-unhosted#route", {
+            name: d.name,
+            apiName: api.name,
+            label: `${route.method} ${route.path}`,
+            context: route.target.context,
+          }),
+          source: `${sys.name}/${d.name}`,
+        });
+      }
+    }
   }
 }

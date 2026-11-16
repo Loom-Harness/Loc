@@ -274,10 +274,10 @@ async function generateFromAst(input: {
   if (loom.systems.length > 0) {
     // Code-split: keep the backend generators out of the main bundle (see the
     // import-header note + the dynamic-import seam for future server-side gen).
-    const { generateSystems } = await import("../../../src/system/index.js");
+    const { generateSystems, withHatchStubs } = await import("../../../src/system/index.js");
     return wrapGenerate("system", input.diagnostics, irDiags, () =>
       systemEmission(
-        generateSystems(input.model, systemOptions(input)).files,
+        withHatchStubs(generateSystems(input.model, systemOptions(input))),
         loom,
         input.sourcemap === true,
       ),
@@ -400,10 +400,12 @@ async function generateFromLoom(input: {
   if (unrecorded) irDiags.push(unrecorded);
 
   if (loom.systems.length > 0) {
-    const { generateSystemsFromLoom } = await import("../../../src/system/index.js");
+    const { generateSystemsFromLoom, withHatchStubs } = await import(
+      "../../../src/system/index.js"
+    );
     return wrapGenerate("system", input.diagnostics, irDiags, () =>
       systemEmission(
-        generateSystemsFromLoom(loom, systemOptions(input)).files,
+        withHatchStubs(generateSystemsFromLoom(loom, systemOptions(input))),
         loom,
         input.sourcemap === true,
       ),

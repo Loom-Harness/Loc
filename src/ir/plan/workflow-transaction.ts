@@ -15,6 +15,13 @@
 // transaction, the same rule `loom.isolation-requires-transactional` enforces
 // for the explicit form.
 //
+// A reaction — an `on` reactor or an event-triggered `create` — always runs in
+// one transaction, however the event arrived: a failed reaction leaves none of
+// its effects (workflow.md § "Reactor failures"), so the saves a loop made
+// before a later row failed roll back with it.  A durably delivered event is
+// claimed in the consumer inbox inside that same transaction.  Events the
+// reaction's saves raise are dispatched once it has committed.
+//
 // A workflow-level `emit` of a DURABLE event type (one a `retention: log |
 // work` channel carries) is owed exactly when the workflow's writes commit.
 // When the body runs in a transaction, its outbox row is therefore written by
@@ -28,6 +35,7 @@ import { resolveWorkflowIsolation } from "../util/resolve-datasource.js";
 import { workflowEmits } from "../util/walk.js";
 import { commandCreateEntryResult } from "../util/workflow-command-route.js";
 import { bodyWriteScopeGuards, writeScopeContext } from "../util/write-scope-guards.js";
+import { workflowClaims } from "./consumer-inbox.js";
 
 /** True when the workflow's command body runs in one transaction.  This is
  *  the transaction boundary every backend keeps: any other workflow commits
@@ -65,4 +73,17 @@ export function workflowCapturesDurableEmits(wf: WorkflowIR, ctx: BoundedContext
   if (!workflowRunsInTransaction(wf, ctx)) return false;
   const durable = durableEventTypes(ctx);
   return workflowEmits(wf.statements).some((st) => durable.has(st.eventName));
+}
+
+/** How a reaction (`on` reactor or event-triggered `create`) of `wf` runs:
+ *  always in one transaction, claiming a durably delivered event in the
+ *  consumer inbox inside it when the deployable delivers durably
+ *  (`receivesDurable`). */
+export interface ReactionBoundary {
+  readonly transaction: true;
+  readonly claimsInbox: boolean;
+}
+
+export function reactionBoundary(wf: WorkflowIR, receivesDurable: boolean): ReactionBoundary {
+  return { transaction: true, claimsInbox: workflowClaims(wf, receivesDurable) };
 }
