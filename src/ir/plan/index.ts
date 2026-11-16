@@ -146,6 +146,8 @@ export {
   workflowNeedsCurrentUser,
 } from "./workflow-needs.js";
 export {
+  type DeferredCreate,
+  deferredCreates,
   type ParentFirstSaves,
   parentFirstSaves,
   withParentFirstSaves,
