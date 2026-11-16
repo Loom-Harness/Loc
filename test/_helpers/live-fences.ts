@@ -17,8 +17,8 @@
 // unsupported-register.test.ts), the `none, tracked by #N` line of a decision
 // record (docs/decisions, via decision-gates.test.ts), and the `blockedBy` of
 // the waivers in symbol-plan-census, openapi-native-census,
-// e2e-fixed-port-census, channel-plan-census, ir-walk-census and
-// workflow-plan-census.
+// e2e-fixed-port-census, channel-plan-census, ir-walk-census,
+// workflow-plan-census and binding-flow-census.
 
 export const LIVE_FENCES: Readonly<Record<string, string>> = {
   "#3317": "Server-driven Table filter",
