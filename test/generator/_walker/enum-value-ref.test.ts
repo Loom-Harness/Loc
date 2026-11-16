@@ -21,10 +21,13 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-/** `platform` is the FRONTEND deployable's platform; `elixir` instead mounts
- *  the ui on the backend deployable itself (LiveView is not a bundle host). */
-const source = (platform: string, valueRef = "Public") => {
-  const heex = platform === "elixir";
+/** `target` is the frontend the ui renders on: a web framework (hosted by a
+ *  `platform: web` deployable), `feliz`/`flutter` (their own platform), or
+ *  `elixir`, which mounts the ui on the backend deployable itself (LiveView is
+ *  not a bundle host). */
+const source = (target: string, valueRef = "Public") => {
+  const heex = target === "elixir";
+  const selfHosted = target === "feliz" || target === "flutter";
   return `
 system EnumRef {
   subdomain Ops {
@@ -39,6 +42,7 @@ system EnumRef {
   }
   api OpsApi from Ops
   ui Web {
+    ${heex || selfHosted ? "" : `framework: ${target}`}
     api ops: OpsApi
     page Board {
       route: "/board"
@@ -63,7 +67,7 @@ system EnumRef {
     ${heex ? "ui: Web { ops: svc }" : ""}
     port: 4000
   }
-  ${heex ? "" : `deployable web { platform: ${platform} targets: svc ui: Web { ops: svc } port: 3000 }`}
+  ${heex ? "" : `deployable web { platform: ${selfHosted ? target : "web"} targets: svc ui: Web { ops: svc } port: 3000 }`}
 }
 `;
 };

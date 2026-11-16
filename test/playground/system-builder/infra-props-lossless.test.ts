@@ -46,7 +46,7 @@ const SRC = `system Shop {
   // Static frontend — no port configured yet.
   deployable web {
     // targets the api deployable above
-    platform: static
+    platform: web
     targets: api
   }
 }`;
@@ -112,7 +112,7 @@ describe("builder lossless edits — infra scalar props", () => {
     expectCommentsIntact(out);
     // The sibling deployable's own platform clause is a distinct line —
     // asserting the hunk above already proves it wasn't touched.
-    expect(out).toContain("platform: static");
+    expect(out).toContain("platform: web");
   });
 
   it("setDeployablePort rewrites an existing port value", () => {

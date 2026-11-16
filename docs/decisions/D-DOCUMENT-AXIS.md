@@ -48,7 +48,7 @@ in #724 — `shape: relational` == old `normalised(true)`, `shape: document`
   `persistenceStrategy: stateBased | eventSourced` → header
   `persistedAs: eventLog|state`. Breaking change; **hard cutover** —
   `persistenceStrategy:` is removed (not accepted in parallel);
-  existing `.ddd` sources migrate in one step (codemod offered).
+  every `.ddd` source in the repository is rewritten in the same change.
 - **All** aggregate-level config lives on the **header**
   (`with`, `extends`, `persistedAs: …`,
   `shape: …`, `inheritanceUsing: …`; bare `abstract`/`crossTenant`).
@@ -133,8 +133,8 @@ in #724 — `shape: relational` == old `normalised(true)`, `shape: document`
   is renamed by D-RENAME (below) to the `inheritanceUsing: …`
   header modifier; same header line.
 - Shipped grammar — `persistenceStrategy:` (body) **removed** in favour
-  of `persistedAs: …` (header); hard cutover, one-step source migration
-  (codemod).
+  of `persistedAs: …` (header); hard cutover, every source rewritten in the
+  same change.
 - `resolve-datasource.ts` — mode→kind mapping collapses to identity.
 
 **Enforced by:** `test/language/parsing/aggregate-persistence-strategy.test.ts`, `test/ir/saving-shape-support.test.ts`

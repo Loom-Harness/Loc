@@ -32,7 +32,7 @@ describe("+= / -= in onClick mutations", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -58,7 +58,7 @@ describe("+= / -= in onClick mutations", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -86,7 +86,7 @@ describe("+= / -= in onClick mutations", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -120,7 +120,7 @@ describe("+= / -= in onClick mutations", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -147,7 +147,7 @@ describe("+= / -= in onClick mutations", () => {
           }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const content = files.get("web/src/pages/tags.tsx")!;
@@ -169,7 +169,7 @@ describe("+= / -= in onClick mutations", () => {
           }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const content = files.get("web/src/pages/tags.tsx")!;
@@ -205,7 +205,7 @@ describe("+= / -= in onClick mutations", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001

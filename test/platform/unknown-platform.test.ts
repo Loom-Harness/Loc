@@ -33,10 +33,9 @@ describe("B20 — unknown platform resolution", () => {
       "java",
       "python",
       "elixir",
-      "react",
-      "vue",
-      "svelte",
-      "angular",
+      "web",
+      "feliz",
+      "flutter",
     ] as Platform[]) {
       expect(platformFor(p).name).toBeTypeOf("string");
       expect(descriptorFor(p).isFrontend).toBeTypeOf("boolean");

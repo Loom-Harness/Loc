@@ -26,7 +26,7 @@ async function diagsOf(src: string) {
 
 /** `platform:` for a ui's host — same rule as the DataGrid gate tests. */
 const hostFor = (framework: string): string =>
-  framework === "feliz" || framework === "flutter" ? framework : "static";
+  framework === "feliz" || framework === "flutter" ? framework : "web";
 
 /** One system, parameterised by ui framework / deployable design / chart args.
  *  Ships BOTH a grouped and a singleton projection so each case picks its

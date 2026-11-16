@@ -22,9 +22,8 @@ packs live: in the grammar, in the registries the toolchain reads, or both?
 - **Every registered sourceType binds at least one kind.** A type nothing can
   use is not registered, so it is unknown rather than accepted and refused
   later.
-- Breaking changes here ship as a hard cutover with a `scripts/` codemod when a
-  valid spelling changes. This one changes no valid spelling, so there is no
-  codemod.
+- A change to a valid spelling here rewrites every model in the repository in
+  the same change, with no migration aid. This one changes no valid spelling.
 - The editor completes both slots from the same registries.
 
 **Why.** The vendor lists existed three times (grammar union, registry,

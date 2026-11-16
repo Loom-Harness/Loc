@@ -45,7 +45,7 @@ system Helpdesk {
 
   ui WebApp with scaffold(subdomains: [Support]) { }
   deployable web {
-    platform: react
+    platform: web
     targets: api
     ui: WebApp
     port: 3001

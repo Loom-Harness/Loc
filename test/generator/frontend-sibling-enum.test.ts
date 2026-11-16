@@ -15,7 +15,11 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
-const src = (ui: string): string => `
+/** `ui` is `framework: <fw>, design: …`: the framework goes on the ui, the
+ *  rest on the `web` deployable. */
+const src = (ui: string): string => {
+  const [, fw, rest] = /^framework: (\w+)(.*)$/.exec(ui)!;
+  return `
 system R {
   subdomain S {
     context A {
@@ -33,14 +37,15 @@ system R {
       }
     }
   }
-  ui W with scaffold(subdomains: [S]) { }
+  ui W with scaffold(subdomains: [S]) { framework: ${fw} }
   storage primary { type: postgres }
   resource a { for: A, kind: state, use: primary }
   resource b { for: B, kind: state, use: primary }
   deployable api { platform: node, contexts: [A, B], dataSources: [a, b], port: 3000 }
-  deployable web { ${ui}, targets: api, ui: W, port: 3001 }
+  deployable web { platform: web${rest}, targets: api, ui: W, port: 3001 }
 }
 `;
+};
 
 function bySuffix(files: Map<string, string>, suffix: string): string {
   const key = [...files.keys()].find((k) => k.endsWith(suffix));
@@ -50,7 +55,7 @@ function bySuffix(files: Map<string, string>, suffix: string): string {
 
 describe("a sibling-context enum renders as an enum on the frontends", () => {
   it("react: create + workflow forms default to the first member and render the enum Select", async () => {
-    const files = await generateSystemFiles(src("platform: react, design: mantine"));
+    const files = await generateSystemFiles(src("framework: react, design: mantine"));
     for (const [page, testId] of [
       ["pages/clms/new.tsx", "clms-new-input-kind"],
       ["pages/workflows/file_clm.tsx", "workflow-file_clm-input-kind"],
@@ -69,7 +74,7 @@ describe("a sibling-context enum renders as an enum on the frontends", () => {
   });
 
   it("angular: the enum select lists the sibling enum's members", async () => {
-    const files = await generateSystemFiles(src("platform: angular, design: angularMaterial"));
+    const files = await generateSystemFiles(src("framework: angular, design: angularMaterial"));
     for (const page of ["clm-new.component.ts", "file-clm-workflow.component.ts"]) {
       expect(bySuffix(files, page), page).toContain('<mat-select formControlName="kind"');
       // The option labels are identity-keyed under the enum's own context

@@ -29,6 +29,7 @@ system SvelteStoreShowcase {
   api SalesApi from Sales
 
   ui WebApp {
+    framework: svelte
     api Sales: SalesApi
 
     // Shared client-side state container.  In-memory (no persist:/sync:).
@@ -127,7 +128,7 @@ system SvelteStoreShowcase {
   }
 
   deployable web {
-    platform: svelte
+    platform: web
     targets: api
     ui: WebApp { Sales: api }
     port: 3001

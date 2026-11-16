@@ -37,6 +37,7 @@ const SRC = `
     } }
     api SalesApi from Sales
     ui WebApp {
+      framework: svelte
       api Sales: SalesApi
       page OrderAdmin {
         route: "/orders/:id/admin"
@@ -54,7 +55,7 @@ const SRC = `
       serves: SalesApi
       port: 3000
     }
-    deployable web { platform: svelte, targets: api, ui: WebApp { Sales: api }, port: 3001 }
+    deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }
   }
 `;
 

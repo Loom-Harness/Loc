@@ -42,7 +42,7 @@ const actionSys = (op: string) => `
       }
     }
     deployable api { platform: node, contexts: [Sales], serves: SalesApi, port: 3000 }
-    deployable web { platform: static, targets: api, ui: WebApp { Sales: api }, port: 3001 }
+    deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }
   }
 `;
 
@@ -79,7 +79,7 @@ const methodCallSys = (body: string) => `
       }
     }
     deployable api { platform: node, contexts: [C], port: 3000 }
-    deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+    deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
   }
 `;
 
@@ -110,7 +110,7 @@ describe("method-call receiver resolution (F2)", () => {
           }
         }
         deployable api { platform: node, contexts: [Sales], serves: SalesApi, port: 3000 }
-        deployable web { platform: static, targets: api, port: 3001, ui: WebApp { Sales: api } }
+        deployable web { platform: web, targets: api, port: 3001, ui: WebApp { Sales: api } }
       }
     `;
     // Guard against vacuous pass: the `ui:` compose-binding must be the LAST

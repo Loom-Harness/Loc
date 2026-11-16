@@ -52,7 +52,7 @@ ${decls}
     }
   }
   deployable api { platform: node, contexts: [Orders], dataSources: [st], serves: SalesApi, port: 8080 }
-  deployable web { platform: react, targets: api, ui: WebApp { Sales: api }, port: 3001 }
+  deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }
 }`;
 
 const codes = async (src: string): Promise<string[]> =>

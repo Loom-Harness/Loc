@@ -13,7 +13,7 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const system = (platform: string, pack: string): string => `
+const system = (framework: string, pack: string): string => `
   system Shop {
     api ShopApi from Catalog
     subdomain Catalog {
@@ -25,6 +25,7 @@ const system = (platform: string, pack: string): string => `
     storage db { type: postgres }
     resource s { for: Cat, kind: state, use: db }
     ui WebApp {
+      framework: ${framework}
       api Shop: ShopApi
       page Home {
         route: "/"
@@ -34,7 +35,7 @@ const system = (platform: string, pack: string): string => `
     }
     deployable api { platform: node contexts: [Cat] dataSources: [s] serves: ShopApi port: 3000 }
     deployable web {
-      platform: ${platform} design: "${pack}" targets: api
+      platform: web design: "${pack}" targets: api
       ui: WebApp { Shop: api } port: 3005
     }
   }
@@ -70,14 +71,14 @@ const PAYLOAD = "<img src=x onerror=alert(1)>";
 const MESSAGE = "Hello <b>{name}</b>, welcome";
 
 describe("tRich escapes hole values on every HTML-binding frontend", () => {
-  for (const [platform, pack] of [
-    ["static", "mantine"],
+  for (const [framework, pack] of [
+    ["react", "mantine"],
     ["vue", "vuetify"],
     ["svelte", "flowbite"],
     ["angular", "angularMaterial"],
   ] as const) {
-    it(`${platform}: an injected element comes out as text`, async () => {
-      const files = await generateSystemFiles(system(platform, pack));
+    it(`${framework}: an injected element comes out as text`, async () => {
+      const files = await generateSystemFiles(system(framework, pack));
       const defining = [...files].filter(
         ([p, c]) => p.startsWith("web/") && c.includes("export function tRich("),
       );

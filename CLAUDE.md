@@ -138,7 +138,7 @@ After lowering, `src/ir/enrich/` (`enrichments.ts` + `wire-projection.ts`) runs 
 1. **The wire shape** is not derived here: it is the declared `response <Agg>Response` / `<Part>Response` record every exposed context carries (`scaffoldHandlers`, `api X from <Subdomain>`, or hand-written). `responseWireFor` (`src/ir/util/response-wire.ts`) turns a record into the ordered rows the backends' DTOs and serializers render (`id`, then the record's fields, masks from `declaredResponseFor`), so cross-backend wire compatibility is structural, not coincidental; a value object's wire is its declaration (`valueObjectWire`). `wire-projection.ts` keeps the access-modifier filters and the create/update input derivations.
 2. **Auto-`findAll`** on every aggregate's repository.
 3. **Associations** for `X id[]` collection fields (join-table metadata).
-4. **React `targets:` module inheritance** — react deployables inherit their target backend's `moduleNames`.
+4. **Frontend `targets:` module inheritance** — frontend deployables inherit their target backend's `moduleNames`.
 5. **Per-module `migrationsOwner`** — picks one backend deployable per module to own schema-migration emission; consumed by `buildMigrations` in phase ⑨.
 6. **Tenancy scope-filter stances** (tenant floor/deny/self-scope), plus `deriveNeeds`, resource interfaces, event subscriptions, workflow return/instance shapes, and traceability derivations — the pass has grown well beyond the five original derivations.
 

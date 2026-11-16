@@ -42,6 +42,7 @@ system Shop {
   storage pg { type: postgres }
   resource ordersState { for: Orders, kind: state, use: pg }
   ui WebApp {
+    framework: angular
     api Sales: SalesApi${components}
     page Dash {
       route: "/dash"
@@ -50,7 +51,7 @@ system Shop {
     }
   }
   deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 }
-  deployable web { platform: angular targets: api ui: WebApp { Sales: api }${design} port: 3000 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api }${design} port: 3000 }
 }
 `;
 

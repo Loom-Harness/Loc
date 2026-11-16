@@ -73,7 +73,7 @@ system MultiFileLanding {
   }
 
   deployable site {
-    platform: react
+    platform: web
     targets: api
     ui: Site
     port: 3001

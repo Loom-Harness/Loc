@@ -48,11 +48,11 @@ describe("architecture.c4", () => {
   });
 
   it("a frontend container declares no context components (calls edge only)", async () => {
-    // acme's `webApp` (static SPA) inherits its target's contexts for
+    // acme's `webApp` (a `web` SPA) inherits its target's contexts for
     // wire-scope; the C4 container must not portray them as owned components.
     const sys = (await build("examples/acme.ddd")).systems[0]!;
     const web = sys.deployables.find((d) => d.name === "webApp")!;
-    expect(web.platform).toBe("static");
+    expect(web.platform).toBe("web");
     expect(web.contextNames.length).toBeGreaterThan(0);
     const out = buildC4Model(sys);
     // The container block for webApp is empty of `component` lines.

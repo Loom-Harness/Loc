@@ -125,10 +125,16 @@ const GRID_PROBE = `,
             selection: picked
           }
         }`;
-const GRID_PLATFORMS: ReadonlySet<string> = new Set(["react", "vue", "svelte", "angular", "feliz"]);
+const GRID_FRAMEWORKS: ReadonlySet<string> = new Set([
+  "react",
+  "vue",
+  "svelte",
+  "angular",
+  "feliz",
+]);
 
 const probeBody = (t: FrontendTarget): string =>
-  PROBE_BODY.replace("__GRID__", GRID_PLATFORMS.has(t.platform) ? GRID_PROBE : "");
+  PROBE_BODY.replace("__GRID__", GRID_FRAMEWORKS.has(t.framework ?? "") ? GRID_PROBE : "");
 
 /** Every authored literal the fixture carries — the (b) direction's input. */
 const authored = (menu: MenuShape, t: FrontendTarget): string[] => [
@@ -198,7 +204,7 @@ function uiBlock(t: FrontendTarget, menu: MenuShape): string {
         : ""
     }
     ${
-      SIGN_OUT_PLATFORMS.has(t.platform)
+      SIGN_OUT_FRAMEWORKS.has(t.framework ?? "")
         ? `page Gated {
       route: "/gated"
       requires currentUser.role == "agent"
@@ -250,7 +256,7 @@ const DOMAIN = `
 /** The frontends whose pack shell draws a Sign out control, and only under
  *  `auth: ui` — so the fixture's web deployable declares it, putting that
  *  control (and its chrome key) in every one of their cells. */
-const SIGN_OUT_PLATFORMS: ReadonlySet<string> = new Set(["react", "vue", "svelte", "angular"]);
+const SIGN_OUT_FRAMEWORKS: ReadonlySet<string> = new Set(["react", "vue", "svelte", "angular"]);
 
 function frontendSystem(t: FrontendTarget, menu: MenuShape): string {
   const deployables =
@@ -260,7 +266,7 @@ function frontendSystem(t: FrontendTarget, menu: MenuShape): string {
       design: "${t.pack}", ui: WebApp { Shop: phoenixApp }, port: 4000
     }`
       : `deployable api { platform: node contexts: [Cat] dataSources: [s, f] serves: ShopApi port: 3000${
-          SIGN_OUT_PLATFORMS.has(t.platform) ? " auth: required" : ""
+          SIGN_OUT_FRAMEWORKS.has(t.framework ?? "") ? " auth: required" : ""
         } }
     deployable web {
       platform: ${t.platform}
@@ -268,9 +274,11 @@ function frontendSystem(t: FrontendTarget, menu: MenuShape): string {
       targets: api
       ui: WebApp { Shop: api }
       port: 3005
-      ${SIGN_OUT_PLATFORMS.has(t.platform) ? "auth: ui" : ""}
+      ${SIGN_OUT_FRAMEWORKS.has(t.framework ?? "") ? "auth: ui" : ""}
     }`;
-  const user = SIGN_OUT_PLATFORMS.has(t.platform) ? "\n  user { id: string  role: string }" : "";
+  const user = SIGN_OUT_FRAMEWORKS.has(t.framework ?? "")
+    ? "\n  user { id: string  role: string }"
+    : "";
   return `system Shop {${user}${DOMAIN}${uiBlock(t, menu)}
     ${deployables}
   }`;
@@ -280,23 +288,25 @@ function frontendSystem(t: FrontendTarget, menu: MenuShape): string {
 
 interface FrontendTarget {
   readonly id: string;
+  /** The deployable `platform:` (`web`, `feliz`, `flutter`, `elixir`). */
   readonly platform: string;
   readonly pack?: string;
+  /** The ui `framework:` clause; absent on the LiveView cells. */
   readonly framework?: string;
 }
 
 const FRONTENDS: readonly FrontendTarget[] = [
-  { id: "mantine", platform: "react", pack: "mantine" },
-  { id: "shadcn", platform: "react", pack: "shadcn" },
-  { id: "mui", platform: "react", pack: "mui" },
-  { id: "chakra", platform: "react", pack: "chakra" },
-  { id: "vuetify", platform: "vue", pack: "vuetify" },
-  { id: "shadcnVue", platform: "vue", pack: "shadcnVue" },
-  { id: "shadcnSvelte", platform: "svelte", pack: "shadcnSvelte" },
-  { id: "flowbite", platform: "svelte", pack: "flowbite" },
-  { id: "angularMaterial", platform: "angular", pack: "angularMaterial" },
-  { id: "primeng", platform: "angular", pack: "primeng" },
-  { id: "spartanNg", platform: "angular", pack: "spartanNg" },
+  { id: "mantine", platform: "web", framework: "react", pack: "mantine" },
+  { id: "shadcn", platform: "web", framework: "react", pack: "shadcn" },
+  { id: "mui", platform: "web", framework: "react", pack: "mui" },
+  { id: "chakra", platform: "web", framework: "react", pack: "chakra" },
+  { id: "vuetify", platform: "web", framework: "vue", pack: "vuetify" },
+  { id: "shadcnVue", platform: "web", framework: "vue", pack: "shadcnVue" },
+  { id: "shadcnSvelte", platform: "web", framework: "svelte", pack: "shadcnSvelte" },
+  { id: "flowbite", platform: "web", framework: "svelte", pack: "flowbite" },
+  { id: "angularMaterial", platform: "web", framework: "angular", pack: "angularMaterial" },
+  { id: "primeng", platform: "web", framework: "angular", pack: "primeng" },
+  { id: "spartanNg", platform: "web", framework: "angular", pack: "spartanNg" },
   { id: "feliz", platform: "feliz", framework: "feliz" },
   { id: "flutter", platform: "flutter", framework: "flutter" },
   { id: "coreComponents", platform: "elixir", pack: "coreComponents" },
@@ -820,10 +830,10 @@ describe("i18n round trip — frontends (M-T9.39)", () => {
 /** The four pack-rendered frontends draw their own forbidden fallback for a
  *  `requires`-gated page; one cell per framework. */
 const FORBIDDEN_CELLS: readonly FrontendTarget[] = [
-  { id: "mantine", platform: "react", pack: "mantine" },
-  { id: "vuetify", platform: "vue", pack: "vuetify" },
-  { id: "flowbite", platform: "svelte", pack: "flowbite" },
-  { id: "angularMaterial", platform: "angular", pack: "angularMaterial" },
+  { id: "mantine", platform: "web", framework: "react", pack: "mantine" },
+  { id: "vuetify", platform: "web", framework: "vue", pack: "vuetify" },
+  { id: "flowbite", platform: "web", framework: "svelte", pack: "flowbite" },
+  { id: "angularMaterial", platform: "web", framework: "angular", pack: "angularMaterial" },
 ];
 
 /** A minimal `auth: ui` frontend with a `requires`-gated page.  `heading` is
@@ -844,6 +854,7 @@ system Helpdesk {
   api SupportApi from Support
   deployable api { platform: node contexts: [Tickets] serves: SupportApi dataSources: [st] port: 8080 auth: required }
   ui WebApp {
+    framework: ${t.framework}
     api Support: SupportApi
     page Secret { route: "/secret" requires currentUser.role == "agent" body: Stack { ${heading} Divider() } }
   }
@@ -885,7 +896,7 @@ describe("i18n round trip — the page-level `requires` forbidden view", () => {
 // --- chrome slots on the JS frontends ----------------------------------------
 
 const JS_FRONTENDS = FRONTENDS.filter((t) =>
-  ["react", "vue", "svelte", "angular"].includes(t.platform),
+  ["react", "vue", "svelte", "angular"].includes(t.framework ?? ""),
 );
 
 const CHROME_SLOTS_SYSTEM = (t: FrontendTarget): string => `
@@ -904,6 +915,7 @@ const CHROME_SLOTS_SYSTEM = (t: FrontendTarget): string => `
     storage db { type: postgres }
     resource st { for: C, kind: state, use: db }
     ui W {
+      framework: ${t.framework}
       api S: A
       menu { section "Main" { link Console } }
       page Console {
@@ -928,10 +940,7 @@ describe("i18n chrome slots — nav label from a page title, Action label (JS fr
   for (const t of JS_FRONTENDS) {
     it(`${t.id}: the nav link reuses the page-title key; Action renders the op key`, async () => {
       const files = await generateSystemFiles(CHROME_SLOTS_SYSTEM(t), { locales: ["ar"] } as never);
-      const catalog = JSON.parse(files.get("contracts/messages.en.json")!) as Record<
-        string,
-        string
-      >;
+      const catalog = JSON.parse(files.get("contracts/messages.en.json")!) as Record<string, string>;
       const titleKeys = Object.keys(catalog).filter((k) => catalog[k] === "SlotConsoleTitle");
       // One translator entry for the title, not one per surface.
       expect(titleKeys).toHaveLength(1);
@@ -1056,10 +1065,14 @@ describe("i18n round trip — backend rule-key codes", () => {
 // is catalogued, consumed through its key, and a translated locale value lands
 // in the catalog the app compiles in beside the source one.
 
+/** The frontends that are their own deployable platform; every other ui
+ *  framework renders on `platform: web`. */
+const SELF_HOSTED: ReadonlySet<string> = new Set(["feliz", "flutter"]);
+
 /** A scaffolded aggregate with a `provenanced` field — its detail page renders
  *  `ProvenanceInfo` — plus one untitled hand-written page, so the nav has two
  *  top-level pages. */
-const provSystem = (platform: string): string => `
+const provSystem = (framework: string): string => `
   system ProvDemo {
     subdomain Ordering {
       context Ordering {
@@ -1072,12 +1085,13 @@ const provSystem = (platform: string): string => `
       }
     }
     ui Web with scaffold(subdomains: [Ordering]) {
+      ${SELF_HOSTED.has(framework) ? "" : `framework: ${framework}`}
       page Notes { route: "/notes" body: Text { "Some notes" } }
     }
     storage primary { type: postgres }
     resource orderingState { for: Ordering, kind: state, use: primary }
     deployable api { platform: node, contexts: [Ordering], dataSources: [orderingState], port: 3000 }
-    deployable web { platform: ${platform}, targets: api, ui: Web, port: 3001 }
+    deployable web { platform: ${SELF_HOSTED.has(framework) ? framework : "web"}, targets: api, ui: Web, port: 3001 }
   }`;
 
 const PROV_KEYS = {
@@ -1104,25 +1118,25 @@ describe("i18n round trip — ProvenanceInfo chrome", () => {
   // its rows reads there.
   const jsRow = (k: string, v: string): string => `"${k}": "${v}"`;
   const TARGETS = [
-    { platform: "react", de: /locales\/de\.json$/, row: jsRow },
-    { platform: "vue", de: /locales\/de\.json$/, row: jsRow },
-    { platform: "svelte", de: /locales\/de\.json$/, row: jsRow },
-    { platform: "angular", de: /locales\/de\.json$/, row: jsRow },
+    { framework: "react", de: /locales\/de\.json$/, row: jsRow },
+    { framework: "vue", de: /locales\/de\.json$/, row: jsRow },
+    { framework: "svelte", de: /locales\/de\.json$/, row: jsRow },
+    { framework: "angular", de: /locales\/de\.json$/, row: jsRow },
     {
-      platform: "feliz",
+      framework: "feliz",
       de: /App\.fs$/,
       row: (k: string, v: string) => `"${k}", "${v}"`,
     },
     {
-      platform: "flutter",
+      framework: "flutter",
       de: /lib\/i18n\.dart$/,
       row: (k: string, v: string) => `'${k}': '${v}'`,
     },
   ] as const;
 
   for (const t of TARGETS) {
-    it(`${t.platform}: catalogued, read through its key, and the translated value ships`, async () => {
-      const files = await generateSystemFiles(provSystem(t.platform), {
+    it(`${t.framework}: catalogued, read through its key, and the translated value ships`, async () => {
+      const files = await generateSystemFiles(provSystem(t.framework), {
         translations: new Map([["de", DE_PROV]]),
       });
       const system = json(files, "contracts/messages.en.json");
@@ -1148,30 +1162,30 @@ describe("i18n round trip — ProvenanceInfo chrome", () => {
 describe("i18n round trip — untitled page names", () => {
   const NOTES = /^Web\.page\.Notes\.name\.\w+$/;
 
-  for (const platform of ["feliz", "flutter", "react", "vue", "svelte", "angular"] as const) {
-    it(`${platform}: the name is catalogued, bound through its key, and translatable`, async () => {
-      const probe = await generateSystemFiles(provSystem(platform));
+  for (const framework of ["feliz", "flutter", "react", "vue", "svelte", "angular"] as const) {
+    it(`${framework}: the name is catalogued, bound through its key, and translatable`, async () => {
+      const probe = await generateSystemFiles(provSystem(framework));
       const system = json(probe, "contracts/messages.en.json");
       const key = Object.keys(system).find((k) => NOTES.test(k));
       expect(key, "name entry for the untitled page").toBeDefined();
       expect(system[key!]).toBe("Notes");
-      const files = await generateSystemFiles(provSystem(platform), {
+      const files = await generateSystemFiles(provSystem(framework), {
         translations: new Map([["de", { [key!]: "Notizen" }]]),
       });
       expect(appSource(files)).toMatch(quoted(key!));
       // Flutter's catalog lives in `lib/i18n.dart` (not a consumer); Feliz's in
       // `App.fs`; the SPA frontends' in `locales/de.json`.
       const catalogPath =
-        platform === "feliz"
+        framework === "feliz"
           ? /App\.fs$/
-          : platform === "flutter"
+          : framework === "flutter"
             ? /lib\/i18n\.dart$/
             : /locales\/de\.json$/;
       const catalogFile = [...files].find(([p]) => p.startsWith("web/") && catalogPath.test(p))![1];
       expect(catalogFile).toContain(
-        platform === "feliz"
+        framework === "feliz"
           ? `"${key}", "Notizen"`
-          : platform === "flutter"
+          : framework === "flutter"
             ? `'${key}': 'Notizen'`
             : `"${key}": "Notizen"`,
       );
@@ -1190,9 +1204,9 @@ describe("i18n round trip — untitled page names", () => {
   });
 
   it("a page the nav never links carries no name entry (catalogued only when emitted)", async () => {
-    for (const platform of ["react", "vue", "svelte", "angular"] as const) {
+    for (const framework of ["react", "vue", "svelte", "angular"] as const) {
       const files = await generateSystemFiles(
-        provSystem(platform).replace(
+        provSystem(framework).replace(
           'route: "/notes" body',
           'route: "/notes" menu { hidden: true } body',
         ),
@@ -1200,7 +1214,7 @@ describe("i18n round trip — untitled page names", () => {
       const system = json(files, "contracts/messages.en.json");
       expect(
         Object.keys(system).filter((k) => NOTES.test(k)),
-        platform,
+        framework,
       ).toEqual([]);
     }
   });

@@ -475,7 +475,7 @@ export class DddValidator {
     // `system { }`, the deployment-shape members written at file top level
     // fold into it (implicit-system-composition.md).  They must run through
     // the SAME per-System check family as their nested siblings — otherwise a
-    // `platform: react` deployable with no `ui:` (say) errors nested and
+    // `platform: web` deployable with no `ui:` (say) errors nested and
     // passes top-level.  Bare top-level `context` keeps its legacy loose
     // meaning and is checked by the `BoundedContext` arm below, so it is
     // excluded from the fold (folding it would double-check it).

@@ -21,11 +21,11 @@ const SOURCE = `
         }
       }
     }
-    ui WebApp with scaffold(subdomains: [Sales]) { }
+    ui WebApp with scaffold(subdomains: [Sales]) { framework: vue }
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000 }
-    deployable web { platform: vue, targets: api, ui: WebApp, port: 3003 }
+    deployable web { platform: web, targets: api, ui: WebApp, port: 3003 }
   }
 `;
 
@@ -102,6 +102,7 @@ describe("vue walker — scaffold pages", () => {
           }
         }
         ui WebApp {
+          framework: vue
           api Sales: SalesApi
           page OrderDetail {
             route: "/orders/:id"
@@ -111,7 +112,7 @@ describe("vue walker — scaffold pages", () => {
         storage loomDb { type: postgres }
         resource ordersState { for: Orders, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-        deployable web { platform: vue, targets: api, ui: WebApp { Sales: api }, port: 3003 }
+        deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3003 }
       }
     `);
     const detail = all.get("web/src/pages/order_detail.vue")!;

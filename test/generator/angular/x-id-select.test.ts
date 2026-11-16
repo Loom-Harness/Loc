@@ -36,6 +36,7 @@ const SOURCE = (design: string | null) => `
       }
     }
     ui WebApp {
+      framework: angular
       api Sales: SalesApi
       page OrderNew {
         route: "/"
@@ -52,7 +53,7 @@ const SOURCE = (design: string | null) => `
       port: 8080
     }
     deployable web {
-      platform: angular
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3004
@@ -135,6 +136,7 @@ const NO_DISPLAY_SOURCE = `
       }
     }
     ui WebApp {
+      framework: angular
       api Sales: SalesApi
       page OrderNew {
         route: "/"
@@ -151,7 +153,7 @@ const NO_DISPLAY_SOURCE = `
       port: 8080
     }
     deployable web {
-      platform: angular
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3004

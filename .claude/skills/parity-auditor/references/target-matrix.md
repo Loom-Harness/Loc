@@ -65,12 +65,12 @@ the migration record, not as current behaviour.
 
 ### Frontends (6, and the HEEx render path is the elixir backend's own)
 
-| Frontend | `platform:` | Generator | Walker target | Default pack | Walker core |
+| Frontend | `platform:` (+ ui `framework:`) | Generator | Walker target | Default pack | Walker core |
 |---|---|---|---|---|---|
-| React | `react` (+ `static` alias) | `src/generator/react/` | `react/walker/tsx-target.ts` | `mantine@v9` | shared `walkBody` |
-| Vue | `vue` | `src/generator/vue/` | `vue/walker/vue-target.ts` | `vuetify@v3` | shared `walkBody` |
-| Svelte | `svelte` | `src/generator/svelte/` | `svelte/walker/svelte-target.ts` | `shadcnSvelte@v1` | shared `walkBody` |
-| Angular | `angular` | `src/generator/angular/` | `angular/walker/angular-target.ts` | `angularMaterial@v1` | shared `walkBody` |
+| React | `web` (ui `framework: react`, the default) | `src/generator/react/` | `react/walker/tsx-target.ts` | `mantine@v9` | shared `walkBody` |
+| Vue | `web` (ui `framework: vue`) | `src/generator/vue/` | `vue/walker/vue-target.ts` | `vuetify@v3` | shared `walkBody` |
+| Svelte | `web` (ui `framework: svelte`) | `src/generator/svelte/` | `svelte/walker/svelte-target.ts` | `shadcnSvelte@v1` | shared `walkBody` |
+| Angular | `web` (ui `framework: angular`) | `src/generator/angular/` | `angular/walker/angular-target.ts` | `angularMaterial@v1` | shared `walkBody` |
 | **Feliz** | `feliz` | `src/generator/feliz/` | `feliz/feliz-target.ts` (emits **F#**, not JSX) | none — `feliz/pack.ts` is procedural | shared `walkBody` |
 | **Flutter** | `flutter` | `src/generator/flutter/` | `flutter/flutter-target.ts` (emits **Dart**) | none — `flutter/pack.ts` is procedural | shared `walkBody` |
 | Phoenix HEEx | (the `elixir` backend's LiveView render path) | `src/generator/elixir/` | `elixir/heex-target.ts` | `coreComponents@v3` | **parallel** `heex-walker-core.ts` |
@@ -100,7 +100,8 @@ static-bundle frontends do not run over these two at all. Flutter additionally
 builds native Android/iOS from the same Dart source via its Makefile
 (`make apk`/`ipa`), which compose does not serve.
 
-`static` shares the React surface (it is React's UI-only deployable alias).
+The four static-bundle frameworks share one platform, `web`; the bound ui's
+`framework:` picks the generator.
 
 ## 2. The corpus backend keys (the test matrix)
 

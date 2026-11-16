@@ -56,11 +56,11 @@ describe("loom.default-deny-by-id-ungated — the ungated by-id read warns (and 
     const byId = diags.filter((d) => d.code === CODE);
     expect(byId).toHaveLength(1);
     expect(byId[0]!.severity).toBe("warning");
-    // Says plainly what happens now, what fixes it, and what happens later.
+    // Says plainly what happens now and what fixes it.
     expect(byId[0]!.message).toContain("REFUSED AT RUNTIME (403)");
     expect(byId[0]!.message).toContain("policy { read Secret requires <expr> }");
     expect(byId[0]!.message).toContain("enforcement: opt");
-    expect(byId[0]!.message).toContain("becomes an error in a later release");
+    expect(byId[0]!.message).not.toContain("later release");
     // Names the aggregate AND the exact route, so the reader can check it.
     expect(byId[0]!.message).toContain("Secret");
     expect(byId[0]!.message).toContain("/api/secrets/{id}");

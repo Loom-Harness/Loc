@@ -32,10 +32,10 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFilesUnchecked } from "../../_helpers/generate.js";
 
 const HOST: Record<string, string> = {
-  react: "static",
-  vue: "static",
-  svelte: "static",
-  angular: "static",
+  react: "web",
+  vue: "web",
+  svelte: "web",
+  angular: "web",
   feliz: "feliz",
   flutter: "flutter",
 };
@@ -66,7 +66,7 @@ system TabArg {
   ${deployables}
 }`;
 
-const staticSys = (framework: string) =>
+const hostedSys = (framework: string) =>
   sys(
     framework,
     `deployable api { platform: node contexts: [Ops] dataSources: [st] serves: OpsApi port: 4400 }
@@ -104,7 +104,7 @@ describe.each([
   "flutter",
 ])("%s — Tab with an unrecognised named arg", (framework) => {
   it("still renders the panel body", async () => {
-    const src = await homePage(staticSys(framework), framework);
+    const src = await homePage(hostedSys(framework), framework);
     expect(src, `${framework}: the tab body was swallowed by the caption slot`).toMatch(
       /swallowed-one/,
     );
@@ -122,7 +122,7 @@ it("phoenixLiveView — still renders the panel body", async () => {
 });
 
 it("a text-like caption is still consumed as the caption, not duplicated into the body", async () => {
-  const src = await homePage(staticSys("react"), "react");
+  const src = await homePage(hostedSys("react"), "react");
   // `Tab { "Two", … }` — exactly one occurrence (the trigger), never a second
   // in the panel.  The regression this guards is over-correcting the rule into
   // "every positional is body".

@@ -18,8 +18,8 @@
 // runners (`run-ui.mjs`, `run-ui-flutter.mjs`) open `/money-compare` on the
 // BUILT app and require every expected token (and none of the wrong ones) in the
 // rendered text — the DOM on the JS/Feliz frontends, Flutter's accessibility
-// tree there.  `__FRONTEND__` is swapped per case (test/behavioral/corpus.json →
-// `frontend`).  Kept out of `systems/`, which every BACKEND leg iterates.
+// tree there.  `__FRONTEND__` and `__FRAMEWORK__` are filled per case
+// (test/behavioral/frontend-fixture.mjs, from corpus.json → `frontend`).  Kept out of `systems/`, which every BACKEND leg iterates.
 system MoneyCompareUi {
   subdomain Billing {
     context Billing {
@@ -32,6 +32,7 @@ system MoneyCompareUi {
   api BillingApi from Billing
 
   ui WebApp {
+    __FRAMEWORK__
     page MoneyCompare {
       route: "/money-compare"
       state {

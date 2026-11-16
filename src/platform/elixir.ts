@@ -54,15 +54,7 @@ const elixirPlatform: PlatformSurface = {
   // (angular.json + the `<base>` tag) so their asset URLs + base-aware links
   // resolve under the prefix — the same `basePath` thread react/vue use for
   // their vite `base`.
-  hostableFrameworks: new Set([
-    "phoenixLiveView",
-    "react",
-    "static",
-    "vue",
-    "svelte",
-    "angular",
-    "feliz",
-  ]),
+  hostableFrameworks: new Set(["phoenixLiveView", "react", "vue", "svelte", "angular", "feliz"]),
   capabilities: TARGET_CAPABILITIES.elixir,
   facts: TARGET_FACTS.elixir,
   emitProject({

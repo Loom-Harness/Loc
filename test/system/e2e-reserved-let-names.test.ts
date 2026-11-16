@@ -32,7 +32,7 @@ system KwE2e {
     port: 4000
   }
   deployable web {
-    platform: react
+    platform: web
     targets: d
     ui: WebApp { Work: d }
     port: 3000

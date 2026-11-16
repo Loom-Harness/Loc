@@ -10,6 +10,10 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
+/** The static-bundle frameworks render on `platform: web`, named by the ui's
+ *  `framework:`; feliz and flutter are their own platforms. */
+const isWeb = (frontend: string) => frontend !== "feliz" && frontend !== "flutter";
+
 const source = (frontend: string) => `
 system R {
   user { id: string  permissions: string[] }
@@ -27,9 +31,9 @@ system R {
   api A from S
   storage db { type: postgres }
   resource st { for: C, kind: state, use: db }
-  ui W with scaffold(subdomains: [S]) { api S: A }
+  ui W with scaffold(subdomains: [S]) { ${isWeb(frontend) ? `framework: ${frontend}` : ""} api S: A }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 auth: required }
-  deployable web { platform: ${frontend} targets: api ui: W { S: api } port: 3001 }
+  deployable web { platform: ${isWeb(frontend) ? "web" : frontend} targets: api ui: W { S: api } port: 3001 }
 }`;
 
 async function webFiles(frontend: string): Promise<string> {

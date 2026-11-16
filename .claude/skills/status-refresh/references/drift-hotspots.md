@@ -29,8 +29,8 @@ it registers:
   lane), `dotnet`, `java`, `python`, `elixir` (vanilla Ecto/Phoenix).
 - **6 frontends:** `react`, `vue`, `svelte`, `angular`, `feliz` (F#/Fable/Elmish,
   built via `dotnet fable`+vite — not the vite-only static pipeline), `flutter`
-  (Dart/Riverpod, built via the Flutter SDK; plus
-  `static`/`vite` aliasing to `react`).
+  (Dart/Riverpod, built via the Flutter SDK).  The first four are ui
+  frameworks on the one `platform: web`.
 
 Anything in the docs saying "three backends", "four targets", "the React frontend"
 (singular), "node/dotnet/phoenix/react", or "three DB backends" is a freeze candidate.

@@ -27,7 +27,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-async function pageFor(platform: string, body: string): Promise<string> {
+async function pageFor(framework: string, body: string): Promise<string> {
   const files = await generateSystemFiles(`
     system Demo {
       subdomain S {
@@ -38,20 +38,21 @@ async function pageFor(platform: string, body: string): Promise<string> {
       }
       api Api from S
       ui Web {
+        framework: ${framework}
         api C: Api
         page P1 { route: "/p1" body: ${body} }
       }
       storage loomDb { type: postgres }
       resource st { for: C, kind: state, use: loomDb }
       deployable api { platform: node, contexts: [C], dataSources: [st], serves: Api, port: 3000 }
-      deployable web { platform: ${platform}, targets: api, ui: Web { C: api }, port: 3001 }
+      deployable web { platform: web, targets: api, ui: Web { C: api }, port: 3001 }
     }
   `);
   for (const [path, src] of files) {
     if (!path.startsWith("web/src")) continue;
     if (/p1/.test(path)) return src;
   }
-  throw new Error(`no page emitted for ${platform}`);
+  throw new Error(`no page emitted for ${framework}`);
 }
 
 const FOR_BODY = `QueryView { of: C.Item.all, data: rows => For { each: rows, r => Text { r.name } } }`;

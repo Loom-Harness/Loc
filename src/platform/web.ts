@@ -1,3 +1,9 @@
+// The `web` platform: a static-bundle frontend host.  It targets a backend,
+// inherits that backend's contexts, owns no database, and renders its bound
+// ui in that ui's `framework:` — react, vue, svelte or angular — served as a
+// built bundle (D-WEB-PLATFORM).  The framework, not the platform, picks the
+// generator and the default port.
+
 import { API_BASE_PATH } from "../util/api-base.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import { dispatchFrontendProject } from "./frontend-dispatch.js";
@@ -9,20 +15,19 @@ import {
 } from "./surface.js";
 import { TARGET_FACTS } from "./target-facts.js";
 
-const reactPlatform: PlatformSurface = {
-  name: "react",
+const webPlatform: PlatformSurface = {
+  name: "web",
+  // The port of a React bundle; a deployable rendering another framework
+  // takes that framework's `webDefaultPort` (lowering reads both).
   defaultPort: 3001,
   // Frontends are SPAs hitting a peer backend; they own no DB.
   needsDb: false,
   mountsUi: true,
   isFrontend: true,
-  // Standalone static-asset host (Vite preview over a built bundle):
-  // serves any static-bundle framework.  D-PHOENIX-SURFACE.
+  // Standalone static-asset host: serves any static-bundle framework.
   hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
-  // React generator only emits API hooks — no per-aggregate
-  // repository class.  No find-name collisions are possible.
-  capabilities: TARGET_CAPABILITIES.react,
-  facts: TARGET_FACTS.react,
+  capabilities: TARGET_CAPABILITIES.web,
+  facts: TARGET_FACTS.web,
   emitProject({
     contexts,
     sys,
@@ -32,9 +37,8 @@ const reactPlatform: PlatformSurface = {
     sourcemap,
     translations,
   }): Map<string, string> {
-    // Frontend hosts dispatch by the UI's framework — a react/static host can
-    // serve a `framework: svelte|vue|angular` ui (any static bundle runs on a
-    // static host).  `react` is the native fallback for a ui-less mount.
+    // The bound ui's framework picks the generator; React renders a ui that
+    // states none.
     return dispatchFrontendProject(deployable.uiFramework, "react", {
       contexts,
       sys,
@@ -57,4 +61,4 @@ const reactPlatform: PlatformSurface = {
   },
 };
 
-export default reactPlatform;
+export default webPlatform;

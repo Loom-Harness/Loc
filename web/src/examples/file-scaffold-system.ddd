@@ -32,7 +32,7 @@ system FileScaffold {
     port: 4300
   }
   deployable webApp {
-    platform: react
+    platform: web
     targets: api
     hosts: WebApp
   }

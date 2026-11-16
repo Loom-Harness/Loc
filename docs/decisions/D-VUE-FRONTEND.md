@@ -1,6 +1,6 @@
 # D-VUE-FRONTEND — reuse the shared walker, Vite+vue-router SPA, vee-validate forms
 
-`platform: vue` (Phase B of the platform-expansion roadmap;
+`platform: web` (Phase B of the platform-expansion roadmap;
 [`docs/old/plans/vue-frontend-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/vue-frontend-plan.md)) ships as the third frontend with
 three locked choices:
 

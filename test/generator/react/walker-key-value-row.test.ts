@@ -26,7 +26,7 @@ async function emit(body: string): Promise<string> {
         page P { route: "/p"  body: ${body} }
       }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
     }
   `);
   const tsx = files.get("web/src/pages/p.tsx");
@@ -51,7 +51,7 @@ describe("KeyValueRow primitive", () => {
           page P { route: "/p"  body: KeyValueRow { "Status", Text { "active" } } }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const catalog = JSON.parse(files.get("contracts/messages.en.json")!) as Record<string, string>;

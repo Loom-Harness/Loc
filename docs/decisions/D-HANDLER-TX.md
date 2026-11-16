@@ -19,8 +19,10 @@ A resource call inside a command handler stays allowed inside that
 transaction, in statement order — no refusal, no deferral.  Its outside effect
 does not roll back with the database: a call the handler reads from is safe
 there, and a call that must happen exactly when the change commits belongs in
-a reactor on an emitted event.  `loom.resource-op-in-transaction` keeps
-refusing resource calls in `transactional` workflows only.
+a reactor on an emitted event.  The same holds wherever a transaction is
+open (a `transactional` workflow, a reaction): a resource call is never
+refused there, and an effect is named by the `loom.effect-in-transaction`
+advisory.
 
 **Rationale.** A handler answers its caller with one outcome, so its writes
 are one unit.  Workflows keep their own default (`D-WORKFLOW-TX-BOUNDARY`):

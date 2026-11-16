@@ -50,7 +50,7 @@ export const TASK_TRACKER_DDD = `system TaskTracker {
   }
 
   deployable board {
-    platform: react
+    platform: web
     targets: api
     ui: Board
     port: 3001

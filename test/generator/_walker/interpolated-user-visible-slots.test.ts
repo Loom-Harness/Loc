@@ -32,7 +32,11 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const SYSTEM = (body: string, platform: string, pack: string): string => `
+/** Feliz and flutter host themselves; every other frontend is a `web` bundle
+ *  whose ui names its framework. */
+const selfHosted = (frontend: string): boolean => frontend === "feliz" || frontend === "flutter";
+
+const SYSTEM = (body: string, frontend: string, pack: string): string => `
   system Shop {
     api ShopApi from Catalog
     subdomain Catalog {
@@ -44,6 +48,7 @@ const SYSTEM = (body: string, platform: string, pack: string): string => `
     storage db { type: postgres }
     resource s { for: Cat, kind: state, use: db }
     ui WebApp {
+      ${selfHosted(frontend) ? "" : `framework: ${frontend}`}
       api Shop: ShopApi
       page Home {
         route: "/"
@@ -53,17 +58,17 @@ const SYSTEM = (body: string, platform: string, pack: string): string => `
     }
     deployable api { platform: node contexts: [Cat] dataSources: [s] serves: ShopApi port: 3000 }
     deployable web {
-      platform: ${platform} design: "${pack}" targets: api ui: WebApp { Shop: api } port: 3005
+      platform: ${selfHosted(frontend) ? frontend : "web"} design: "${pack}" targets: api ui: WebApp { Shop: api } port: 3005
     }
   }
 `;
 
-async function filesOf(body: string, platform: string, pack: string) {
-  return await generateSystemFiles(SYSTEM(body, platform, pack));
+async function filesOf(body: string, frontend: string, pack: string) {
+  return await generateSystemFiles(SYSTEM(body, frontend, pack));
 }
 
-async function pageOf(body: string, platform = "static", pack = "mantine"): Promise<string> {
-  const files = await filesOf(body, platform, pack);
+async function pageOf(body: string, frontend = "react", pack = "mantine"): Promise<string> {
+  const files = await filesOf(body, frontend, pack);
   const entry = [...files].find(
     ([p]) => /\/(pages|routes)\//.test(p) && !/\.spec\./.test(p) && !/\.dart$/.test(p),
   );
@@ -82,18 +87,18 @@ describe("an interpolated attribute slot translates", () => {
   // Feliz emits ONE `App.fs` rather than a page tree, so the render site is
   // located per target rather than by a single path shape.
   const PAGE_FILE = /\/(pages|routes)\/|App\.fs$/;
-  const CASES: ReadonlyArray<[string, string, string, RegExp]> = [
-    ["react", "static", "mantine", /aria-label=\{t\(/],
-    ["vue", "vue", "vuetify", /:aria-label='t\(/],
-    ["svelte", "svelte", "flowbite", /aria-label=\{t\(/],
-    ["angular", "angular", "angularMaterial", /\[attr\.aria-label\]='t\(/],
-    ["feliz", "feliz", "light", /prop\.ariaLabel \(I18n\.tf /],
-    ["flutter", "flutter", "mantine", /Semantics\(label: t\(/],
+  const CASES: ReadonlyArray<[string, string, RegExp]> = [
+    ["react", "mantine", /aria-label=\{t\(/],
+    ["vue", "vuetify", /:aria-label='t\(/],
+    ["svelte", "flowbite", /aria-label=\{t\(/],
+    ["angular", "angularMaterial", /\[attr\.aria-label\]='t\(/],
+    ["feliz", "light", /prop\.ariaLabel \(I18n\.tf /],
+    ["flutter", "mantine", /Semantics\(label: t\(/],
   ];
 
-  for (const [name, platform, pack, shape] of CASES) {
-    it(`${name}: the aria name resolves through the runtime, not concatenation`, async () => {
-      const files = await filesOf(BUTTON, platform, pack);
+  for (const [frontend, pack, shape] of CASES) {
+    it(`${frontend}: the aria name resolves through the runtime, not concatenation`, async () => {
+      const files = await filesOf(BUTTON, frontend, pack);
       const page = [...files].find(([p]) => PAGE_FILE.test(p) && !/\.spec\./.test(p))?.[1];
       if (!page) throw new Error("no page emitted");
       expect(page).toMatch(shape);
@@ -104,7 +109,7 @@ describe("an interpolated attribute slot translates", () => {
   }
 
   it("the emitted key EQUALS the catalog key — no dead entry", async () => {
-    const files = await filesOf(BUTTON, "static", "mantine");
+    const files = await filesOf(BUTTON, "react", "mantine");
     const catalog = files.get("contracts/messages.en.json");
     if (!catalog) throw new Error("no catalog emitted");
     const keys = Object.keys(JSON.parse(catalog)).filter((k) => k.includes("buttonAria"));

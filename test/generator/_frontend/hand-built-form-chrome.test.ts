@@ -113,7 +113,7 @@ describe("feliz forms", () => {
 
 describe("angular forms", () => {
   it("read the Remove sentence under i18n", async () => {
-    const files = await generateSystemFiles(SYS("angular", "angular", true));
+    const files = await generateSystemFiles(SYS("web", "angular", true));
     const forms = [...files]
       .filter(([p]) => p.endsWith(".ts") && p.includes("/app/"))
       .map(([, c]) => c)

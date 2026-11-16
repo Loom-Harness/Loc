@@ -18,7 +18,7 @@ surfaced in the playground dropdown, live under `web/src/examples/`.
 | `sales-ui.ddd` | `docs/page-metamodel.md` &mdash; **historical prototype, does not parse** (target syntax for the discussion; see its header) |
 | `provenance.ddd` | `provenanced` fields and the runtime trace SDK (`docs/provenance.md`) |
 | `showcase.ddd` | the whole-surface conformance fixture; the design-pack matrix in CI |
-| `vue-showcase.ddd` | the acme system with a `platform: vue` frontend (Vuetify pack) |
+| `vue-showcase.ddd` | the acme system with a `platform: web` frontend (Vuetify pack) |
 | `svelte-shop.ddd` | a themed system with a Svelte frontend |
 | `document.ddd` | the three saving shapes: relational, `document`, `embedded` |
 | `event-sourcing.ddd` | an event-sourced ledger aggregate (`apply` folds over an event stream) |

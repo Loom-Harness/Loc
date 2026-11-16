@@ -55,6 +55,7 @@ system Wellformed {
   } }
   api CApi from S
   ui W {
+    framework: ${frontend}
     api C: CApi
     page Home {
       route: "/"
@@ -70,7 +71,7 @@ system Wellformed {
   storage primary { type: postgres }
   resource cs { for: C, kind: state, use: primary }
   deployable api { platform: node, contexts: [C], dataSources: [cs], serves: CApi, port: 3000 }
-  deployable w { platform: ${frontend}, targets: api, ui: W { C: api }, port: 3001, design: ${design} }
+  deployable w { platform: web, targets: api, ui: W { C: api }, port: 3001, design: ${design} }
 }
 `;
 

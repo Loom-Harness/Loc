@@ -25,13 +25,13 @@ async function validateSource(src: string) {
 }
 
 /** `platform:` for a ui's host.  The four static-bundle frameworks share the
- *  `static` host; Feliz and Flutter each only host their own (they build through
- *  their own toolchains), so the validator rejects them on `static`; a
+ *  `web` host; Feliz and Flutter each only host their own (they build through
+ *  their own toolchains), so the validator rejects them on `web`; a
  *  phoenixLiveView ui is served by its own `elixir` backend deployable. */
 const hostFor = (framework: string): string => {
   if (framework === "feliz" || framework === "flutter") return framework;
   if (framework === "phoenixLiveView") return "elixir";
-  return "static";
+  return "web";
 };
 
 /** The deployable topology a ui's framework implies.  The five JS frontends are

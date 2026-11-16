@@ -11,9 +11,9 @@ async function svelteFiles(uiBody: string): Promise<Map<string, string>> {
   return generateSystemFiles(`
     system Demo {
       subdomain S { context C { } }
-      ui Web { ${uiBody} }
+      ui Web { framework: svelte, ${uiBody} }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: svelte, targets: api, ui: Web, port: 3001 }
+      deployable web { platform: web, targets: api, ui: Web, port: 3001 }
     }
   `);
 }

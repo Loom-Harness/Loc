@@ -77,7 +77,7 @@ ${
 ${
   frontend
     ? `  deployable web {
-    platform: react
+    platform: web
     targets: d
     ui: Web { Sales: d }
     port: 5173

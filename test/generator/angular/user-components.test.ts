@@ -61,13 +61,14 @@ const sys = (uiBody: string) => `
     } }
     api SalesApi from M
     ui WebApp {
+      framework: angular
       api Sales: SalesApi
 ${uiBody}
     }
     storage primary { type: postgres }
     resource salesState { for: Sales, kind: state, use: primary }
     deployable api { platform: node, contexts: [Sales], serves: SalesApi, dataSources: [salesState], port: 3000 }
-    deployable web { platform: angular, targets: api, port: 3001, ui: WebApp { Sales: api } }
+    deployable web { platform: web, targets: api, port: 3001, ui: WebApp { Sales: api } }
   }
 `;
 
@@ -280,12 +281,13 @@ describe("user components — Angular", () => {
       system S {
         subdomain M { context Sales { aggregate Order { customerId: string } } }
         ui WebApp {
+          framework: angular
           page Home { route: "/" body: Stack { Ribbon(label: "sale") } }
         }
         storage loomDb { type: postgres }
         resource salesState { for: Sales, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [Sales], dataSources: [salesState], port: 3000 }
-        deployable web { platform: angular, targets: api, port: 3001, ui: WebApp }
+        deployable web { platform: web, targets: api, port: 3001, ui: WebApp }
       }
     `);
     expect(files.get("src/app/components/Ribbon.ts")).toContain("export class Ribbon {");

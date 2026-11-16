@@ -87,7 +87,7 @@ system Shop {
     api Warehouse: StockApi${page}
   }
   deployable webApp {
-    platform: static
+    platform: web
     targets: api
     auth: ui
     ui: WebApp { Warehouse: api }

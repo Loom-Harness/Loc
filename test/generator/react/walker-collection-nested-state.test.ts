@@ -13,11 +13,12 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const sys = (plat: string, state: string, handler: string): string => `
+const sys = (framework: string, state: string, handler: string): string => `
   valueobject Address { city: string  zip: string }
   system S {
     subdomain M { context C { aggregate Thing with crudish { name: string } repository Things for Thing { } } }
     ui WebApp {
+      framework: ${framework}
       page Form {
         route: "/form"
         state { ${state} }
@@ -28,31 +29,31 @@ const sys = (plat: string, state: string, handler: string): string => `
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-    deployable web { platform: ${plat}, targets: api, ui: WebApp, port: 3001 }
+    deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
   }
 `;
 
 const SUFFIX: Record<string, string> = {
-  static: "pages/form.tsx",
+  react: "pages/form.tsx",
   vue: "pages/form.vue",
   // Svelte routes land under a `(app)` group, so match by suffix.
   svelte: "form/+page.svelte",
 };
 
-async function page(plat: string, state: string, handler: string): Promise<string> {
-  const files = await generateSystemFiles(sys(plat, state, handler));
+async function page(framework: string, state: string, handler: string): Promise<string> {
+  const files = await generateSystemFiles(sys(framework, state, handler));
   for (const [p, c] of files) {
-    if (p.endsWith(SUFFIX[plat]!)) return c;
+    if (p.endsWith(SUFFIX[framework]!)) return c;
   }
-  throw new Error(`MISSING *${SUFFIX[plat]}; keys=${[...files.keys()].join(",")}`);
+  throw new Error(`MISSING *${SUFFIX[framework]}; keys=${[...files.keys()].join(",")}`);
 }
 
 describe("collection state mutation — append / remove (DEBT-10)", () => {
   it("React: += appends immutably, -= removes by value", async () => {
-    expect(await page("static", `tags: string[]`, `tags += "x"`)).toContain(
+    expect(await page("react", `tags: string[]`, `tags += "x"`)).toContain(
       'setTags([...tags, "x"]);',
     );
-    expect(await page("static", `tags: string[]`, `tags -= "x"`)).toContain(
+    expect(await page("react", `tags: string[]`, `tags -= "x"`)).toContain(
       'setTags(tags.filter((__v) => __v !== "x"));',
     );
   });
@@ -80,7 +81,7 @@ describe("collection state mutation — append / remove (DEBT-10)", () => {
   });
 
   it("scalar += stays arithmetic on every frontend (not append)", async () => {
-    expect(await page("static", `n: int = 0`, `n += 1`)).toContain("setN(n + 1);");
+    expect(await page("react", `n: int = 0`, `n += 1`)).toContain("setN(n + 1);");
     expect(await page("vue", `n: int = 0`, `n += 1`)).toContain("n.value = n.value + 1;");
     expect(await page("svelte", `n: int = 0`, `n += 1`)).toContain("n = n + 1;");
   });
@@ -90,7 +91,7 @@ describe("nested state mutation — immutable spread vs in-place (DEBT-10)", () 
   const ADDR = `addr: Address = Address { city: "", zip: "" }`;
 
   it("React spreads the state root + setter (immutable)", async () => {
-    expect(await page("static", ADDR, `addr.zip := "90210"`)).toContain(
+    expect(await page("react", ADDR, `addr.zip := "90210"`)).toContain(
       'setAddr({ ...addr, zip: "90210" });',
     );
   });

@@ -124,7 +124,7 @@ ddd new acme --platform python                 # FastAPI backend + React (mantin
 | --- | --- | --- |
 | `--platform <node\|dotnet\|elixir\|java\|python>` | `node` | Backend platform (ports: node 3000, dotnet 8080, elixir 4000, java 8081, python 8000). Prints a hint listing the alternatives when defaulted. |
 | `--template <blank\|crud>` | `crud` | `blank` = one aggregate; `crud` = two aggregates with a `criterion` + `retrieval` list read. |
-| `--design <pack>` | `mantine` (`coreComponents` for elixir) | Frontend design pack — **every** built-in family (the list is derived from the pack registry, `src/util/builtin-formats.ts`, so `ddd new --help` and `designs/` cannot disagree): React `mantine`/`shadcn`/`mui`/`chakra`, Vue `vuetify`/`shadcnVue`, Svelte `shadcnSvelte`/`flowbite`, Angular `angularMaterial`/`primeng`/`spartanNg`, Phoenix LiveView `coreComponents`/`daisyui`. The pack's FORMAT picks the frontend deployable: a Vue pack scaffolds `platform: vue`, an Angular pack `platform: angular`, and a HEEx pack makes Phoenix a single LiveView fullstack (so it requires `--platform elixir`). |
+| `--design <pack>` | `mantine` (`coreComponents` for elixir) | Frontend design pack — **every** built-in family (the list is derived from the pack registry, `src/util/builtin-formats.ts`, so `ddd new --help` and `designs/` cannot disagree): React `mantine`/`shadcn`/`mui`/`chakra`, Vue `vuetify`/`shadcnVue`, Svelte `shadcnSvelte`/`flowbite`, Angular `angularMaterial`/`primeng`/`spartanNg`, Phoenix LiveView `coreComponents`/`daisyui`. The pack's FORMAT picks the frontend: a React, Vue, Svelte or Angular pack scaffolds a `platform: web` deployable whose ui states the matching `framework:`, and a HEEx pack makes Phoenix a single LiveView fullstack (so it requires `--platform elixir`). |
 | `-o, --out <dir>` | `./<name>` | Output directory. |
 | `--force` | off | Scaffold into an existing, non-empty directory. |
 
@@ -374,7 +374,9 @@ looked like before.
   into its own root) are never counted or pruned.  Dot-entries (`.env`,
   `.git`, `.venv`), a build tool's directories (`node_modules`, `bin`, `obj`,
   `_build`, `deps`, `target`, `build`, `dist`, `out`, `__pycache__`) and
-  `.loomignore`d paths are skipped too.
+  `.loomignore`d paths are skipped too.  A hand-written file you keep inside
+  a generated folder belongs in `.loomignore`: otherwise it is counted with
+  the unproduced files and `--prune` deletes it.
 - **Hatch files** — the `extern` implementations, [`extern.md`](extern.md) —
   are the user's code and generation never writes one.  A hatch is present
   when its file exists and pending when it does not; nothing else records it.
@@ -391,7 +393,8 @@ looked like before.
   stub (a body that throws until you fill it in) and never touches an existing
   one; `--dry-run` lists what it would write.  A hatch file whose `extern` was
   removed from the model is no longer a hatch: it is reported with the other
-  files the model does not produce.
+  files the model does not produce, and `--prune` deletes it unless
+  `.loomignore` names it.
 - **`ddd render`** prints any output path as this run would render it,
   without writing: a generated file, or the fresh stub of a hatch file.  Diff
   the stub against your file to carry a renamed or re-signed hook into it.
@@ -422,8 +425,10 @@ What the merge does with each kind of change:
 - a new `extern` hook's stub is inserted into your hatch file;
 - a renamed or re-signed hook conflicts in your hatch file — `ddd render
   <file.ddd> <path>` prints the fresh stub: take the signature from it and
-  keep your body (an Elixir hook takes the request as a map, so re-signing it
-  changes neither stub nor file);
+  keep your body.  On .NET a re-signed hook merges cleanly into the new
+  signature and the compiler checks your body.  On Elixir a re-signed hook
+  merges silently, because the hook takes the request as a map: nothing
+  reports the new parameter until it is missing at runtime;
 - a generated file the model stops producing is deleted, unless you edited it
   (then git reports a modify/delete conflict);
 - a `.loomignore`d path keeps the branch's version: a pin is a fork.
@@ -1300,7 +1305,7 @@ compose up -d`, or write assertions that tolerate shared state
 
 ### React frontend deployable
 
-A `platform: react` deployable produces a Vite-built SPA with React,
+A `platform: web` deployable produces a Vite-built SPA with React,
 React Query, Zod, and Mantine.  It points at another deployable
 (`targets: <name>`); the API base URL is baked from the target's
 port at generation time.  Modules are inherited from the target so

@@ -29,7 +29,7 @@ system Shop {
     ${pages}
   }
   deployable api { platform: node contexts: [Cat] dataSources: [s] serves: ShopApi port: 3000 }
-  deployable web { platform: react design: mantine targets: api ui: WebApp { Shop: api } port: 3005 }
+  deployable web { platform: web design: mantine targets: api ui: WebApp { Shop: api } port: 3005 }
 }`;
 
 const TWO_PAGES = `
@@ -116,17 +116,16 @@ const DETAIL_PAGE = `
       }
     }`;
 
-const FRAMEWORK_PACKS: ReadonlyArray<{ platform: string; designs: readonly string[] }> = [
-  { platform: "vue", designs: ["vuetify", "shadcnVue"] },
-  { platform: "svelte", designs: ["flowbite", "shadcnSvelte"] },
-  { platform: "angular", designs: ["angularMaterial", "primeng", "spartanNg"] },
+const FRAMEWORK_PACKS: ReadonlyArray<{ framework: string; designs: readonly string[] }> = [
+  { framework: "vue", designs: ["vuetify", "shadcnVue"] },
+  { framework: "svelte", designs: ["flowbite", "shadcnSvelte"] },
+  { framework: "angular", designs: ["angularMaterial", "primeng", "spartanNg"] },
 ];
 
-function systemOn(platform: string, design: string): string {
-  return SYSTEM(TWO_PAGES + DETAIL_PAGE).replace(
-    "platform: react design: mantine",
-    `platform: ${platform} design: ${design}`,
-  );
+function systemOn(framework: string, design: string): string {
+  return SYSTEM(TWO_PAGES + DETAIL_PAGE)
+    .replace("ui WebApp {", `ui WebApp {\n    framework: ${framework}`)
+    .replace("platform: web design: mantine", `platform: web design: ${design}`);
 }
 
 /** The app's own source: everything but the catalogs, which would make a key
@@ -138,11 +137,11 @@ function appSource(files: Map<string, string>): string {
     .join("\n");
 }
 
-for (const { platform, designs } of FRAMEWORK_PACKS) {
+for (const { framework, designs } of FRAMEWORK_PACKS) {
   for (const design of designs) {
-    describe(`implicit model text on ${platform} / ${design}`, () => {
+    describe(`implicit model text on ${framework} / ${design}`, () => {
       it("keys form labels, enum options and the submit button by identity", async () => {
-        const src = appSource(await generateSystemFiles(systemOn(platform, design)));
+        const src = appSource(await generateSystemFiles(systemOn(framework, design)));
         expect(src).toContain('"Cat.Product.field.name", "Name"');
         expect(src).toContain('"Cat.Product.field.status", "Status"');
         expect(src).toContain('"InReview": t("Cat.Status.value.InReview", "In Review")');
@@ -150,17 +149,17 @@ for (const { platform, designs } of FRAMEWORK_PACKS) {
       });
 
       it("keys an operation form's submit button by the op's identity", async () => {
-        const src = appSource(await generateSystemFiles(systemOn(platform, design)));
+        const src = appSource(await generateSystemFiles(systemOn(framework, design)));
         expect(src).toContain('"Cat.Product.op.update", "Update"');
       });
 
       it("labels an EnumBadge by the value's identity key", async () => {
-        const src = appSource(await generateSystemFiles(systemOn(platform, design)));
+        const src = appSource(await generateSystemFiles(systemOn(framework, design)));
         expect(src).toMatch(/"Draft":\s*t\("Cat\.Status\.value\.Draft", "Draft"\)/);
       });
 
       it("reads back every identity key its catalogs carry", async () => {
-        const files = await generateSystemFiles(systemOn(platform, design));
+        const files = await generateSystemFiles(systemOn(framework, design));
         const src = appSource(files);
         const catalogs = [...files].filter(
           ([p]) => p.endsWith("contracts/messages.en.json") || p.endsWith("/locales/en.json"),

@@ -79,32 +79,64 @@ interface Target {
   readonly pack?: string;
   /** `platform:` of the ui deployable. */
   readonly platform: string;
-  /** `framework:` on the `ui` block, when it differs from the host default. */
+  /** `framework:` on the `ui` block; absent renders React on the `web` host. */
   readonly framework?: string;
   /** Path suffix of the emitted page the slot must reach. */
   readonly pageSuffix: string;
 }
 
 const TARGETS: readonly Target[] = [
-  { id: "mantine", pack: "mantine", platform: "static", pageSuffix: "pages/home.tsx" },
-  { id: "shadcn", pack: "shadcn", platform: "static", pageSuffix: "pages/home.tsx" },
-  { id: "mui", pack: "mui", platform: "static", pageSuffix: "pages/home.tsx" },
-  { id: "chakra", pack: "chakra", platform: "static", pageSuffix: "pages/home.tsx" },
-  { id: "vuetify", pack: "vuetify", platform: "vue", pageSuffix: "pages/home.vue" },
-  { id: "shadcnVue", pack: "shadcnVue", platform: "vue", pageSuffix: "pages/home.vue" },
-  { id: "shadcnSvelte", pack: "shadcnSvelte", platform: "svelte", pageSuffix: "+page.svelte" },
-  { id: "flowbite", pack: "flowbite", platform: "svelte", pageSuffix: "+page.svelte" },
+  { id: "mantine", pack: "mantine", platform: "web", pageSuffix: "pages/home.tsx" },
+  { id: "shadcn", pack: "shadcn", platform: "web", pageSuffix: "pages/home.tsx" },
+  { id: "mui", pack: "mui", platform: "web", pageSuffix: "pages/home.tsx" },
+  { id: "chakra", pack: "chakra", platform: "web", pageSuffix: "pages/home.tsx" },
+  {
+    id: "vuetify",
+    pack: "vuetify",
+    platform: "web",
+    framework: "vue",
+    pageSuffix: "pages/home.vue",
+  },
+  {
+    id: "shadcnVue",
+    pack: "shadcnVue",
+    platform: "web",
+    framework: "vue",
+    pageSuffix: "pages/home.vue",
+  },
+  {
+    id: "shadcnSvelte",
+    pack: "shadcnSvelte",
+    platform: "web",
+    framework: "svelte",
+    pageSuffix: "+page.svelte",
+  },
+  {
+    id: "flowbite",
+    pack: "flowbite",
+    platform: "web",
+    framework: "svelte",
+    pageSuffix: "+page.svelte",
+  },
   {
     id: "angularMaterial",
     pack: "angularMaterial",
-    platform: "angular",
+    platform: "web",
+    framework: "angular",
     pageSuffix: "pages/home.component.ts",
   },
-  { id: "primeng", pack: "primeng", platform: "angular", pageSuffix: "pages/home.component.ts" },
+  {
+    id: "primeng",
+    pack: "primeng",
+    platform: "web",
+    framework: "angular",
+    pageSuffix: "pages/home.component.ts",
+  },
   {
     id: "spartanNg",
     pack: "spartanNg",
-    platform: "angular",
+    platform: "web",
+    framework: "angular",
     pageSuffix: "pages/home.component.ts",
   },
   { id: "feliz", platform: "feliz", framework: "feliz", pageSuffix: "src/App.fs" },

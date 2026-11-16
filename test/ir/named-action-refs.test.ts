@@ -75,7 +75,7 @@ const withApi = (
     resource cState { for: C, kind: state, use: primary }
     deployable api { platform: node, contexts: [C], dataSources: [cState], serves: CApi, port: 3000 }
     deployable web {
-      platform: react
+      platform: web
       targets: api
       ui: Web { C: api }
       port: 3001
@@ -98,7 +98,7 @@ describe("action→action lowering (Fix 1)", () => {
           }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+        deployable web { platform: web, targets: api, ui: Web, port: 3001 }
       }
     `);
     const go = page.actions.find((a) => a.name === "go")!;
@@ -121,7 +121,7 @@ describe("action→action lowering (Fix 1)", () => {
           }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+        deployable web { platform: web, targets: api, ui: Web, port: 3001 }
       }
     `);
     const go = page.actions.find((a) => a.name === "go")!;
@@ -146,7 +146,7 @@ describe("action→action lowering (Fix 1)", () => {
           }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+        deployable web { platform: web, targets: api, ui: Web, port: 3001 }
       }
     `);
     const a = page.actions.find((x) => x.name === "a")!;
@@ -276,7 +276,7 @@ describe("loom.missing-effect-marker (async-actions-and-effects.md Stage 2b)", (
         resource cState { for: C, kind: state, use: primary }
         deployable api { platform: node, contexts: [C], dataSources: [cState], serves: CApi, port: 3000 }
         deployable web {
-          platform: react
+          platform: web
           targets: api
           ui: Web { C: api }
           port: 3001
@@ -312,7 +312,7 @@ describe("loom.missing-effect-marker (async-actions-and-effects.md Stage 2b)", (
         resource cState { for: C, kind: state, use: primary }
         deployable api { platform: node, contexts: [C], dataSources: [cState], serves: CApi, port: 3000 }
         deployable web {
-          platform: react
+          platform: web
           targets: api
           ui: Web { C: api }
           port: 3001
@@ -428,7 +428,7 @@ describe("loom.effect-in-lambda (fable-elmish-frontend.md §8)", () => {
         storage p { type: postgres }
         resource cs { for: C, kind: state, use: p }
         deployable api { platform: node, contexts: [C], dataSources: [cs], serves: CApi, port: 3000 }
-        deployable web { platform: static  targets: api  ui: WebApp { C: api }  port: 3001 }
+        deployable web { platform: web  targets: api  ui: WebApp { C: api }  port: 3001 }
       }
     `);
     expect(diags).not.toContain("loom.effect-in-lambda");
@@ -456,7 +456,7 @@ describe("loom.effect-in-lambda (fable-elmish-frontend.md §8)", () => {
         storage p { type: postgres }
         resource cs { for: C, kind: state, use: p }
         deployable api { platform: node, contexts: [C], dataSources: [cs], serves: CApi, port: 3000 }
-        deployable web { platform: static  targets: api  ui: WebApp { C: api }  port: 3001 }
+        deployable web { platform: web  targets: api  ui: WebApp { C: api }  port: 3001 }
       }
     `);
     expect(diags).toContain("loom.effect-in-lambda");

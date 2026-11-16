@@ -199,7 +199,7 @@ describe.skip("storage declarations + module-storage map (legacy — superseded 
             port: 3000
           }
           deployable webApp {
-            platform: static
+            platform: web
             contexts: [Orders]
             targets: api
             ui: WebApp

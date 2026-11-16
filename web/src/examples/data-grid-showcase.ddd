@@ -75,7 +75,7 @@ system GridDemo {
     }
 
     deployable webApp {
-        platform: static
+        platform: web
         targets: api
         ui: Console { Sales: api }
         design: mantine

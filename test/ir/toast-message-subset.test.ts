@@ -156,10 +156,10 @@ describe("loom.toast-message-unsupported", () => {
   describe("the subset stays accepted", () => {
     for (const { label, toast } of IN_SUBSET) {
       it(`${label} validates clean`, async () => {
-        expect(await codesOf(sys(toast, "static"))).not.toContain(CODE);
+        expect(await codesOf(sys(toast, "web"))).not.toContain(CODE);
       });
       it(`${label} renders on the JS, Feliz and Flutter emitters today`, async () => {
-        await expect(generateSystemFiles(sys(toast, "static"))).resolves.toBeInstanceOf(Map);
+        await expect(generateSystemFiles(sys(toast, "web"))).resolves.toBeInstanceOf(Map);
         await expect(generateSystemFiles(sys(toast, "feliz"))).resolves.toBeInstanceOf(Map);
         await expect(generateSystemFiles(sys(toast, "flutter"))).resolves.toBeInstanceOf(Map);
       }, 180_000);
@@ -179,7 +179,7 @@ describe("loom.toast-message-unsupported", () => {
   //           RAISES); `to_string(nil)` is `""`
   describe("renders the same chain on every target", () => {
     it("React/Vue/Svelte/Angular — optional chain + empty-string fallback", async () => {
-      const f = await generateSystemFiles(sys(`toast("Order " + e.order.id)`, "static"));
+      const f = await generateSystemFiles(sys(`toast("Order " + e.order.id)`, "web"));
       expect(oneLine(f, "String(event")).toContain(`"Order " + String(event.order?.id ?? "")`);
     }, 180_000);
 
@@ -246,7 +246,7 @@ describe("loom.toast-message-unsupported", () => {
   describe("outside the subset the gate fires", () => {
     for (const { label, toast, detail } of OUT_OF_SUBSET) {
       it(`${label} is rejected`, async () => {
-        const diags = await diagsOf(sys(toast, "static"));
+        const diags = await diagsOf(sys(toast, "web"));
         const mine = diags.filter((d) => d.code === CODE);
         expect(
           mine.map((d) => d.message),
@@ -270,7 +270,7 @@ describe("loom.toast-message-unsupported", () => {
         // checked helper would throw its phase-⑦ refusal before codegen runs.
         const why =
           "this leg proves the raw codegen abort loom.toast-message-unsupported replaces; the gate rejects the model by design";
-        await expect(generateSystemFilesUnchecked(sys(toast, "static"), why)).rejects.toThrow(
+        await expect(generateSystemFilesUnchecked(sys(toast, "web"), why)).rejects.toThrow(
           /RealtimeHandlers: /,
         );
         await expect(generateSystemFilesUnchecked(sys(toast, "feliz"), why)).rejects.toThrow(
@@ -295,7 +295,7 @@ describe("loom.toast-message-unsupported", () => {
   // makes this fail with `RealtimeHandlers: unsupported expression kind
   // 'convert' in toast message.` — the original silent crash, verbatim.
   it("an out-of-subset message reaches the user as a diagnostic, never a raw throw", async () => {
-    await expect(generateSystemFiles(sys(`toast(string(e.at))`, "static"))).rejects.toThrow(
+    await expect(generateSystemFiles(sys(`toast(string(e.at))`, "web"))).rejects.toThrow(
       /loom\.toast-message-unsupported/,
     );
   }, 180_000);
@@ -305,6 +305,6 @@ describe("loom.toast-message-unsupported", () => {
   });
 
   it("a refetch-only handler is untouched", async () => {
-    expect(await codesOf(sys(`refetch(Order)`, "static"))).not.toContain(CODE);
+    expect(await codesOf(sys(`refetch(Order)`, "web"))).not.toContain(CODE);
   });
 });

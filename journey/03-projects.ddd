@@ -134,7 +134,7 @@ system Todo {
   }
 
   deployable webApp {
-    platform: react,
+    platform: web,
     targets: api,
     ui: WebApp,
     port: 3001,

@@ -70,59 +70,27 @@ function uiMountingPlatformMenu(): string {
     .join(", ");
 }
 
-/** Rule 4b — one emitter per SPA frontend platform, for the
+/** Rule 4 — one emitter per frontend platform, for the
  *  "frontend deployable declares no `ui:`" error.  The diagnostic code stays
- *  PER-PLATFORM (`loom.react-deployable-missing-ui` and its `svelte`/`vue`/
- *  `angular`/`feliz`/`flutter` siblings) so the fix-hint registry can dispatch on it
+ *  PER-PLATFORM (`loom.web-deployable-missing-ui` and its `feliz`/`flutter`
+ *  siblings) so the fix-hint registry can dispatch on it
  *  (`src/language/fix-hints.ts` → `missingUiFix`); the wording differs only in
  *  the platform label and lives in the catalog under the matching key.
  *
  *  Why a table of emitters rather than one `accept` with a computed
  *  `` code: `loom.${d.platform}-deployable-missing-ui` ``: a computed code is
  *  invisible to the wording ratchet (`test/system/diagnostic-catalog.test.ts`
- *  only records a site whose `code:` is statically known), which is exactly how
- *  these kept inline wording long after every sibling moved to the catalog.
- *  Both the key and the code are spelled out here, once per platform. */
+ *  only records a site whose `code:` is statically known).  Both the key and the code are spelled out here, once per platform. */
 const SPA_MISSING_UI: Record<string, (d: Deployable, accept: ValidationAcceptor) => void> = {
-  static: (d, accept) =>
-    accept("error", diagMessage("loom.static-deployable-missing-ui", { name: d.name }), {
+  web: (d, accept) =>
+    accept("error", diagMessage("loom.web-deployable-missing-ui", { name: d.name }), {
       node: d,
       property: "name",
-      code: "loom.static-deployable-missing-ui",
+      code: "loom.web-deployable-missing-ui",
     }),
-  react: (d, accept) =>
-    accept("error", diagMessage("loom.react-deployable-missing-ui", { name: d.name }), {
-      node: d,
-      property: "name",
-      code: "loom.react-deployable-missing-ui",
-    }),
-  svelte: (d, accept) =>
-    accept("error", diagMessage("loom.svelte-deployable-missing-ui", { name: d.name }), {
-      node: d,
-      property: "name",
-      code: "loom.svelte-deployable-missing-ui",
-    }),
-  vue: (d, accept) =>
-    accept("error", diagMessage("loom.vue-deployable-missing-ui", { name: d.name }), {
-      node: d,
-      property: "name",
-      code: "loom.vue-deployable-missing-ui",
-    }),
-  angular: (d, accept) =>
-    accept("error", diagMessage("loom.angular-deployable-missing-ui", { name: d.name }), {
-      node: d,
-      property: "name",
-      code: "loom.angular-deployable-missing-ui",
-    }),
-  // Feliz and Flutter are frontends too — they just build through their own
-  // toolchains (`dotnet fable` + vite / the Flutter SDK) instead of the shared
-  // static-bundle pipeline, which is why they were missed here.  Without an
-  // arm, a `ui:`-less deployable on either platform passed validation and then
-  // FAILED SILENTLY DOWNSTREAM: the Feliz generator threw a raw
-  // `Error: Feliz deployable 'web' has no ui binding (uiName).`
-  // (`src/generator/feliz/index.ts`), while Flutter emitted a degenerate
-  // placeholder app — a bare `ListTile` home page — and exited 0
-  // (`src/generator/flutter/index.ts`, `deployable.uiName ? … : undefined`).
+  // Feliz and Flutter are frontends too, building through their own
+  // toolchains; without a ui the Feliz generator has nothing to render and
+  // Flutter would emit a placeholder app.
   feliz: (d, accept) =>
     accept("error", diagMessage("loom.feliz-deployable-missing-ui", { name: d.name }), {
       node: d,
@@ -146,18 +114,16 @@ export function checkDeployable(
   // Rule 3:  only platforms whose descriptor says `mountsUi` admit `ui:` —
   //          every frontend plus the fullstack backends (`elixir`, `dotnet`,
   //          `java`, `python`).  The menu is derived, not listed here.
-  // Rule 4:  every `static` deployable must declare `ui:` (otherwise
-  //          it has nothing to serve).
-  // Rule 4b: every `react` deployable must declare `ui:`.  There is no
-  //          "no ui → fall back to per-aggregate scaffolded pages" path:
-  //          every React project's pages flow through `ui.pages`, which the
-  //          `scaffold` stdlib macro populates for the bulk-CRUD case.
-  //          Diagnostic code `loom.react-deployable-missing-ui`.
+  // Rule 4:  every frontend deployable (`web`/`feliz`/`flutter`) must
+  //          declare `ui:`.  There is no "no ui → fall back to
+  //          per-aggregate scaffolded pages" path: every frontend's pages
+  //          flow through `ui.pages`, which the `scaffold` stdlib macro
+  //          populates for the bulk-CRUD case.
   checkDeployablePlatform(d, accept);
   checkDeployableRealizationAxes(d, accept);
   // D-PHOENIX-SURFACE: `hosts:` is a UI mount on equal footing with the
-  // legacy `ui:` bindings — it satisfies the "must declare a UI" rules
-  // (4/4b) and is subject to the same platform-mounts-UI check (3).
+  // legacy `ui:` bindings — it satisfies the "must declare a UI" rule
+  // (4) and is subject to the same platform-mounts-UI check (3).
   const hasHosts = (d.hosts ?? []).length > 0;
   const hasUiBinding = !!(d.uiSugar || d.uiCompose) || hasHosts;
   if (hasUiBinding && !platformMountsUi(d.platform)) {
@@ -218,7 +184,7 @@ export function checkDeployable(
   // Rule 14: design-pack format must match the framework the deployable
   // renders against.  TSX packs (mantine/shadcn/mui/chakra) need a
   // `react` framework; HEEx packs (coreComponents) need `phoenixLiveView`.
-  // Without this rule, a mismatched pair (e.g. `platform: react,
+  // Without this rule, a mismatched pair (e.g. `platform: web,
   // design: coreComponents`) lowers cleanly and explodes at generation
   // time with a confusing "template not registered" error.  Custom
   // packs (any name not in BUILTIN_PACK_FORMATS) get a warning

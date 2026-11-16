@@ -13,10 +13,11 @@ async function pageHtml(body: string): Promise<string> {
     system S {
       subdomain M { context C { } }
       ui Web {
+        framework: angular
         page P { route: "/p" body: ${body} }
       }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: angular, targets: api, ui: Web, port: 3004 }
+      deployable web { platform: web, targets: api, ui: Web, port: 3004 }
     }
   `);
   for (const [p, c] of files) {

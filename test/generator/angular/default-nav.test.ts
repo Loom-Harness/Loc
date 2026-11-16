@@ -18,8 +18,8 @@ system Shop {
   resource st { for: Sales, kind: state, use: primary }
   api SalesApi from Sales
   deployable api { platform: node contexts: [Sales] serves: SalesApi dataSources: [st] port: 8080 }
-  ui WebApp with scaffold(subdomains: [Sales]) { }
-  deployable web { platform: angular targets: api ui: WebApp port: 3004 }
+  ui WebApp with scaffold(subdomains: [Sales]) { framework: angular }
+  deployable web { platform: web targets: api ui: WebApp port: 3004 }
 }
 `;
 

@@ -55,7 +55,7 @@ const BANK_THREE_BACKEND = `
     resource promoState { for: Promo, kind: state, use: loomDb }
     deployable marketingApi { platform: node, contexts: [Promo], dataSources: [promoState], port: 3010 }
     ui WebUi with scaffold(subdomains: [Accounts]) { }
-    deployable webApp { platform: static, targets: honoApi, ui: WebUi, port: 8080 }
+    deployable webApp { platform: web, targets: honoApi, ui: WebUi, port: 8080 }
 
     test e2e "create an account" against honoApi {
       let a = api.accounts.create({ balance: 0 })
@@ -127,7 +127,7 @@ describe("e2e expansion — multi-backend replay", () => {
   it("frontend (react/static) deployables are excluded from replay even when modules nominally cover", async () => {
     const files = await generateSystemFiles(BANK_THREE_BACKEND);
     const e2e = files.get("e2e/Bank.e2e.test.ts")!;
-    // `webApp` is `platform: static` (targets honoApi).  Through the
+    // `webApp` is `platform: web` (targets honoApi).  Through the
     // `targets:` enrichment its `moduleNames` would inherit Accounts —
     // but isBackendPlatform skips frontends, so no `against web_app`
     // it() emits.
