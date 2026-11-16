@@ -62,6 +62,32 @@ const FRONTENDS: readonly { dir: string; reaches: readonly string[] }[] = [
       "src/generator/_packs/loader.ts",
     ],
   },
+  {
+    dir: "src/generator/feliz",
+    reaches: [
+      "src/generator/feliz/feliz-target.ts",
+      "src/generator/feliz/wire.ts",
+      "src/generator/feliz/component-emit.ts",
+      "src/generator/feliz/form-prefill.ts",
+      "src/generator/feliz/i18n.ts",
+      "src/generator/_walker/walker-core.ts",
+      "src/generator/_walker/walker-model.ts",
+    ],
+  },
+  {
+    dir: "src/generator/flutter",
+    reaches: [
+      "src/generator/flutter/flutter-target.ts",
+      "src/generator/flutter/dart-model-emit.ts",
+      "src/generator/flutter/forms-emit.ts",
+      "src/generator/flutter/reads-emit.ts",
+      "src/generator/flutter/riverpod-emit.ts",
+      "src/generator/flutter/component-emit.ts",
+      "src/generator/flutter/i18n.ts",
+      "src/generator/_walker/walker-core.ts",
+      "src/generator/_walker/walker-model.ts",
+    ],
+  },
 ];
 
 /** The relative specifiers `text` imports or re-exports at runtime: every

@@ -52,8 +52,6 @@
 import { diagMessage } from "../../diagnostics/messages.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
-  EnrichedAggregateIR,
-  EnrichedBoundedContextIR,
   ExprIR,
   PageIR,
   ParamIR,
@@ -62,7 +60,7 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { errorTypeUri } from "../../util/error-defaults.js";
-import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { lowerFirst, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUp } from "../_walker/give-up.js";
@@ -74,7 +72,12 @@ import {
   tryRenderNavigateCall,
   type WalkContext,
 } from "../_walker/walker-core.js";
-import { walkerAggregateOf, walkerModelOf } from "../_walker/walker-model.js";
+import {
+  emptyWalkerModel,
+  type WalkerAggregate,
+  type WalkerModel,
+  walkerAggregatesOf,
+} from "../_walker/walker-model.js";
 import { copyWithChain } from "./copy-with.js";
 import { coerceDartMoneyInit, dartString, dartZeroValue, isMoneyType } from "./dart-expr.js";
 import { dartMember } from "./dart-member.js";
@@ -125,7 +128,7 @@ export function hasRiverpodState(page: PageIR): boolean {
 export function stateCtx(opts: {
   stateNames: ReadonlySet<string>;
   derivedNames: ReadonlySet<string>;
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>;
+  aggregatesByName: ReadonlyMap<string, WalkerAggregate>;
   locals: ReadonlyMap<string, string>;
   paramNames?: ReadonlySet<string>;
   apiParamNames?: ReadonlyMap<string, string>;
@@ -164,11 +167,9 @@ export function stateCtx(opts: {
     dataBindings: new Map(),
     lambdaParams: locals,
     shellLocals: new Set(),
-    aggregatesByName: new Map(
-      [...aggregatesByName].map(([name, agg]) => [name, walkerAggregateOf(agg)] as const),
-    ),
-    domainAggregates: aggregatesByName,
-    model: walkerModelOf({}),
+    aggregatesByName: new Map(aggregatesByName),
+    domainAggregates: new Map(),
+    model: emptyWalkerModel(),
     workflowsByName: new Map(),
     formOfs: [],
     sink: {},
@@ -403,14 +404,14 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
 function renderVariantMatchNotifier(
   stmt: Extract<StmtIR, { kind: "variant-match" }>,
   ctx: WalkContext,
-  contexts: readonly EnrichedBoundedContextIR[],
+  model: WalkerModel,
 ): string[] {
   const detected = tryDetectApiHook(stmt.subject, {
     apiParamNames: ctx.apiParamNames,
-    aggregatesByName: ctx.domainAggregates,
+    aggregatesByName: ctx.aggregatesByName,
     workflowsByName: ctx.workflowsByName,
   });
-  const agg = detected ? ctx.domainAggregates.get(detected.aggregateName) : undefined;
+  const agg = detected ? ctx.aggregatesByName.get(detected.aggregateName) : undefined;
   const op = agg?.operations.find((o) => o.name === detected?.operation);
   if (!detected || !agg || !op) {
     // INTERNAL FLOOR.  An awaited subject that is not an api-rooted call is
@@ -427,9 +428,9 @@ function renderVariantMatchNotifier(
       }),
     );
   }
-  const bc = contexts.find((c) => c.aggregates.some((a) => a.name === agg.name));
+  const bc = model.homeOfAggregate(agg.name);
   const coll = routeSegmentFor(agg.name);
-  const opPath = snake(op.routeSlug ?? op.name);
+  const opPath = op.segment;
   // Request payload — the op's params filled from the awaited call's positional
   // args (matching the op signature; validated upstream by loom.match-await-*).
   const bodyEntries = op.params.map(
@@ -443,8 +444,7 @@ function renderVariantMatchNotifier(
   // `isError` hint is the OR-fallback (its UI-body lowering can't see the context).
   const arms = stmt.arms.map((arm) => {
     const tag = variantTag(arm.varType);
-    const isError =
-      arm.isError === true || !!bc?.payloads.some((p) => p.name === tag && p.kind === "error");
+    const isError = arm.isError === true || (bc !== undefined && model.isErrorRecord(bc, tag));
     const armCtx: WalkContext = arm.binding
       ? {
           ...ctx,
@@ -663,18 +663,13 @@ export function buildStateInits(
   return { entries, constEligible };
 }
 
-/** Aggregate-name lookup over a set of contexts (used to seed a `stateCtx`). */
-function aggregateIndex(
-  contexts: readonly EnrichedBoundedContextIR[],
-): ReadonlyMap<string, EnrichedAggregateIR> {
-  return new Map(contexts.flatMap((c) => c.aggregates.map((a) => [a.name, a] as const)));
-}
-
 /** Project a stateful page into its `<Page>State` / `<Page>Notifier` /
  *  `<page>Provider` Dart triad. */
 export function renderRiverpod(
   page: PageIR,
-  contexts: readonly EnrichedBoundedContextIR[],
+  /** The model of the contexts the page reaches: the aggregates an action
+   *  body's `match await` posts to, and their error records. */
+  model: WalkerModel,
   apiParamNames: ReadonlyMap<string, string> = new Map(),
   /** The page's EMIT NAME (`pageEmitName` — `ProductList`, not the scaffold's
    *  role-scoped `List`).  These three are TOP-LEVEL Dart declarations and
@@ -692,7 +687,7 @@ export function renderRiverpod(
   const notifierClass = `${upperFirst(emitName)}Notifier`;
   const providerName = `${lowerFirst(emitName)}Provider`;
 
-  const aggregatesByName = aggregateIndex(contexts);
+  const aggregatesByName = walkerAggregatesOf(model);
   const stateNames = new Set(page.state.map((s) => s.name));
   const derivedNames = new Set(page.derived.map((d) => d.name));
   const fields = buildStateFields(page.state);
@@ -735,7 +730,7 @@ export function renderRiverpod(
     // switch; any sibling statements render as normal Notifier lines.
     const body = renderNotifierBody(action.body, ctx, (s, scoped) =>
       s.kind === "variant-match"
-        ? renderVariantMatchNotifier(s, scoped, contexts)
+        ? renderVariantMatchNotifier(s, scoped, model)
         : [renderNotifierStmt(s, scoped)],
     );
     if (isAsync) asyncEffectActions.add(action.name);
