@@ -8,7 +8,7 @@
 // pack imports the JSX needs.  The preparer wires those imports
 // into the App.tsx shell's import list (deduped).
 
-import type { ComponentIR, LayoutIR, ParamIR, SystemIR, UiIR } from "../../ir/types/loom-ir.js";
+import type { ComponentIR, LayoutIR, ParamIR, UiIR } from "../../ir/types/loom-ir.js";
 import { layoutKeyPrefix } from "../_frontend/layout-key.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { walkBodyToTsx } from "./body-walker.js";
@@ -84,13 +84,13 @@ export interface PreparedNamedLayout {
  *  in `pages-emitter.ts`). */
 export function prepareNamedLayouts(
   ui: UiIR,
-  sys: SystemIR,
+  layouts: readonly LayoutIR[],
   pack: LoadedPack,
   routesByLayout: ReadonlyMap<string, ExtraPageRoute[]>,
   topLevelComponents: readonly ComponentIR[] = [],
   i18nEnabled = false,
 ): { namedLayouts: PreparedNamedLayout[]; extraImports: ImportVM[] } {
-  if (sys.layouts.length === 0) return { namedLayouts: [], extraImports: [] };
+  if (layouts.length === 0) return { namedLayouts: [], extraImports: [] };
   const referenced = new Set<string>();
   for (const page of ui.pages) {
     if (page.layout?.kind === "named") referenced.add(page.layout.ref);
@@ -104,7 +104,7 @@ export function prepareNamedLayouts(
   const namedLayouts: PreparedNamedLayout[] = [];
   const aggregatedImports = new Map<string, Set<string>>();
   const aggregatedUserComponents = new Set<string>();
-  for (const layout of sys.layouts) {
+  for (const layout of layouts) {
     if (!referenced.has(layout.name)) continue;
     const prefix = i18nEnabled ? layoutKeyPrefix(ui, layout) : undefined;
     const header = layout.header

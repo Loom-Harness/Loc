@@ -59,6 +59,9 @@ export interface ContractResponseField {
   /** The field rides the wire inside the `Provenanced<T>` carrier, with its
    *  lineage beside the value. */
   provenanced?: true;
+  /** The entity computes the field (a `derived` member) rather than storing
+   *  it. */
+  derived?: true;
 }
 
 /** The declared response records of `agg` and of every part it contains, read
@@ -71,23 +74,29 @@ export function contractResponsesFor(
 ): ContractResponse[] | undefined {
   const root = declaredResponseFor(payloads, agg);
   if (!root) return undefined;
-  const out: ContractResponse[] = [contractResponse(root, agg.name)];
+  const out: ContractResponse[] = [contractResponse(root, agg)];
   for (const part of agg.parts) {
     const rec = declaredResponseFor(payloads, part);
-    if (rec) out.push(contractResponse(rec, part.name));
+    if (rec) out.push(contractResponse(rec, part));
   }
   return out;
 }
 
 /** A declared response record leaves the identity implicit; every backend
  *  serializes it first, so it is stated here. */
-function contractResponse(rec: PayloadIR, entity: string): ContractResponse {
+function contractResponse(
+  rec: PayloadIR,
+  owner: { readonly name: string; readonly derived: readonly { readonly name: string }[] },
+): ContractResponse {
+  const entity = owner.name;
+  const derived = new Set(owner.derived.map((d) => d.name));
   const fields: ContractResponseField[] = rec.fields.map((f) => ({
     name: f.name,
     type: f.type,
     optional: f.optional,
     ...(f.maskUnless !== undefined ? { maskable: true as const } : {}),
     ...(f.provenanced ? { provenanced: true as const } : {}),
+    ...(derived.has(f.name) ? { derived: true as const } : {}),
   }));
   if (!fields.some((f) => f.name === "id")) {
     fields.unshift({ name: "id", type: { kind: "id", targetName: entity }, optional: false });

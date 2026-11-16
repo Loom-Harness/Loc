@@ -52,7 +52,11 @@ import {
   type WalkResult,
   walkBody,
 } from "../../_walker/walker-core.js";
-import { emptyWalkerModel, type WalkerModel } from "../../_walker/walker-model.js";
+import {
+  emptyWalkerModel,
+  type WalkerModel,
+  walkerAggregatesOf,
+} from "../../_walker/walker-model.js";
 import { idTargetHookVar } from "../../react/form-helpers.js";
 import { vueTarget } from "./vue-target.js";
 
@@ -91,6 +95,7 @@ function initCtx(pack: LoadedPack): WalkContext {
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),
+    domainAggregates: new Map(),
     model: emptyWalkerModel(),
     workflowsByName: new Map(),
     formOfs: [],
@@ -159,7 +164,11 @@ function opFormSeeds(
       onOpen: "",
     };
   }
-  const spec = operationFormSpec(st.agg, st.op, formSpecEnvOf(st.home, new Map()));
+  const spec = operationFormSpec(
+    st.agg,
+    st.op,
+    formSpecEnvOf(st.home, () => false),
+  );
   return {
     setup: formSeedTs(spec, st.home, {}),
     recordParam: `, record?: ${st.recordType}`,
@@ -514,7 +523,7 @@ export function renderVuePage(input: VuePageShellInput): string {
   // to /workflows.  Mutually exclusive with an aggregate form on the
   // same page in practice (one `form` instance per page).
   if (wfFormState && wfFormState.kind === "workflow") {
-    // Universe-resolved identifier base (`_frontend/request-names.ts`), not a
+    // Universe-resolved identifier base (`ir/util/request-names.ts`), not a
     // re-derivation from the workflow's name — it must match what
     // `api/workflows.ts` exported.
     const wf = wfFormState.requestBase;
@@ -1383,7 +1392,7 @@ export function renderVueComponentFile(
     apiImports.set(from, names);
   }
   if (wfFormState && wfFormState.kind === "workflow") {
-    // Universe-resolved identifier base (`_frontend/request-names.ts`), not a
+    // Universe-resolved identifier base (`ir/util/request-names.ts`), not a
     // re-derivation from the workflow's name — it must match what
     // `api/workflows.ts` exported.
     const wf = wfFormState.requestBase;
@@ -1706,6 +1715,7 @@ function buildDerivedLines(
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName: new Map(),
+      domainAggregates: new Map(),
       model: emptyWalkerModel(),
       workflowsByName: new Map(),
       formOfs: [],
@@ -1825,7 +1835,8 @@ function buildActionLines(
       dataBindings,
       lambdaParams: new Map(),
       shellLocals: new Set(),
-      aggregatesByName: ctxOpts.aggregatesByName ?? new Map(),
+      aggregatesByName: walkerAggregatesOf(ctxOpts.model ?? emptyWalkerModel()),
+      domainAggregates: new Map(),
       model: ctxOpts.model ?? emptyWalkerModel(),
       workflowsByName: new Map(),
       formOfs: [],

@@ -6,10 +6,7 @@
 // trigger surface onto the operation state its Form child just pushed,
 // so it must share the same sink and live alongside the form emitters.
 
-import type { AggregateIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
-import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
-import { operationFormParams } from "../../../ir/util/op-gates.js";
-import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
+import type { ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import {
   escapeTsIdent,
   humanize,
@@ -31,10 +28,8 @@ import {
 import { optionalGroupRendererFor } from "../../_frontend/form-optional-group.js";
 import { rowBinderFor } from "../../_frontend/form-row-binding.js";
 import { operationFormSpec } from "../../_frontend/form-spec.js";
-import { frontendRequestNames } from "../../_frontend/request-names.js";
 import { serverSourcedDefaultFields } from "../../_frontend/server-default.js";
 import type { FormFieldVM } from "../../_frontend/view-models.js";
-import { workflowResultSegment } from "../../_frontend/workflow-result.js";
 import { FIELD_ERROR_TEXT, prepareFormFieldVM } from "../form-fields-vm.js";
 import { GIVE_UP_SENTINEL, giveUp } from "../give-up.js";
 import { opDialogChrome, sentenceChromeName } from "../i18n-chrome.js";
@@ -80,7 +75,7 @@ import {
   testidAttr,
   walk,
 } from "../walker-core.js";
-import type { WalkerHome } from "../walker-model.js";
+import type { WalkerAggregate, WalkerHome } from "../walker-model.js";
 import { emitActionThen } from "./controls.js";
 import { selectPlaceholderAttr } from "./inputs.js";
 
@@ -182,7 +177,7 @@ export function emitDestroyForm(
       `DestroyForm(of: ${ofArg.name}): aggregate not found`,
     );
   }
-  if (!canonicalDestroy(agg)) {
+  if (!agg.destroyable) {
     return giveUp(
       ctx.target,
       "loom.page-ref-unreachable",
@@ -251,7 +246,7 @@ export function emitWorkflowForm(
   // form to submit to and no `use<Wf>Workflow` call helper to bind — give up
   // honestly, on every walker target, before a target fork could wire one.
   const runsWf = runsArg?.kind === "ref" ? ctx.workflowsByName.get(runsArg.name) : undefined;
-  if (runsWf && !emitsCommandRoute(runsWf)) {
+  if (runsWf && !runsWf.startable) {
     return giveUp(
       ctx.target,
       "loom.page-ref-unreachable",
@@ -387,7 +382,7 @@ function emitFormOfOperationByName(
   // A masked field a merge-patch update guards is left off the form: the
   // caller may be unable to read it, and sending its key is refused (403);
   // left out, the stored value stays (`maskedPatchParams`).
-  const fields = operationFormParams(op);
+  const fields = [...op.formParams];
   const fieldsForHelpers = fields.map((f) => ({ ...f, optional: false }));
   const testidNamespace =
     stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-op-${op.name}`;
@@ -446,7 +441,7 @@ function emitFormOfOperationByName(
 }
 
 interface PreparedForm {
-  idTargets: AggregateIR[];
+  idTargets: WalkerAggregate[];
   useController: boolean;
   defaultValuesTs: string;
   fieldHtmls: string[];
@@ -584,7 +579,7 @@ function prepareFormFields(
 function emitFormOnSubmit(
   ctx: WalkContext,
   call: ExprIR & { kind: "call" },
-  idTargets: AggregateIR[],
+  idTargets: WalkerAggregate[],
   mutationLocal: string,
 ): string | null {
   // A named-action reference (`onSubmit: setCustomer`) binds the hoisted
@@ -828,7 +823,7 @@ function emitFormRuns(
       `WorkflowForm(runs: ${wfName}): workflow not found in this UI's reachable contexts`,
     );
   }
-  const fields = workflow.params;
+  const fields = [...workflow.params];
   // form-helpers expect `{ name, type, optional }` rows; workflow
   // params don't carry an `optional` flag so we adapt here.  All
   // workflow params are treated as required (matches the scaffold
@@ -846,13 +841,11 @@ function emitFormRuns(
     () => workflow.name,
   );
   // Identifier base for the workflow's whole frontend surface, minted against
-  // the SAME universe the api-module emitter resolves against (the deployable's
+  // the SAME universe the api-module emitter resolves against (the frontend's
   // aggregates + workflows), so the import names the symbol `api/workflows.ts`
-  // really exported — see `_frontend/request-names.ts`.
-  const wfPascalForImport = frontendRequestNames(
-    ctx.aggregatesByName.values(),
-    ctx.workflowsByName.values(),
-  ).workflow(workflow.name);
+  // really exported — see `ir/util/request-names.ts`.  One no command starts
+  // claims no base, so it keeps its own name.
+  const wfPascalForImport = workflow.requestBase ?? upperFirst(workflow.name);
   addImport(
     ctx,
     "../api/workflows",
@@ -861,7 +854,7 @@ function emitFormRuns(
   );
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
   const onSubmitJs = emitFormOnSubmit(ctx, call, prepared.idTargets, "run");
-  const resultSegment = workflowResultSegment(workflow);
+  const resultSegment = workflow.resultSegment;
   const wfFormStateType = formStateTypeFor(wfPascalForImport, fields, home);
   if (wfFormStateType) addTypeImport(ctx, "../api/workflows", wfFormStateType);
   ctx.formOfs.push({
@@ -958,7 +951,7 @@ function emitFormOfOperation(
   // A masked field a merge-patch update guards is left off the form: the
   // caller may be unable to read it, and sending its key is refused (403);
   // left out, the stored value stays (`maskedPatchParams`).
-  const fields = operationFormParams(op);
+  const fields = [...op.formParams];
   const fieldsForHelpers = fields.map((f) => ({ ...f, optional: false }));
   // A `this.<field>` param default can seed `defaultValues` from the loaded
   // record — but only when the active pack threads a `record` prop into the
@@ -970,7 +963,7 @@ function emitFormOfOperation(
   // The form's spec also prefills every param named and typed like one of the
   // aggregate's fields from the record (an update form opens on the current
   // values), so the record is threaded for that too.
-  const spec = operationFormSpec(agg, op, ctx.model.formSpecEnv(home, ctx.aggregatesByName));
+  const spec = operationFormSpec(agg, op, ctx.model.formSpecEnv(home));
   const wantsRecord =
     ctx.pack.manifest.seedsOpFormRecord === true &&
     (spec.prefillsFromRecord || fieldsForHelpers.some((f) => defaultUsesThis(f.default)));

@@ -23,13 +23,8 @@
 // and adopted by the other two.
 
 import { diagMessage } from "../../diagnostics/messages.js";
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  ParamIR,
-  TypeIR,
-  ValueObjectIR,
-} from "../../ir/types/loom-ir.js";
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
+import type { BoundedContextIR, ParamIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
 import { lowerFirst } from "../../util/naming.js";
 
 /** The TS spelling of the `File` primitive's wire shape.
@@ -44,6 +39,17 @@ import { lowerFirst } from "../../util/naming.js";
  *  binds — that mistake is exactly what `unknown` used to hide on Angular. */
 export const FILE_REF_TS = "{ url: string; key: string; contentType: string; size: number }";
 
+/** The aggregates a prop may name: an aggregate-typed prop is its wire DTO. */
+export interface AggregateNames {
+  has(name: string): boolean;
+}
+
+/** A value object a prop spells structurally: its fields. */
+export interface PropValueObject {
+  readonly name: string;
+  readonly fields: readonly { readonly name: string; readonly type: TypeIR }[];
+}
+
 /** Index every declared value object by name, across every bounded context the
  *  caller carries.
  *
@@ -57,6 +63,24 @@ export function valueObjectIndex(
   const out = new Map<string, ValueObjectIR>();
   for (const bc of bcByAggregate.values()) {
     for (const vo of bc.valueObjects ?? []) if (!out.has(vo.name)) out.set(vo.name, vo);
+  }
+  return out;
+}
+
+/** {@link valueObjectIndex} read off the Frontend Contract: the value objects
+ *  of each of `contextNames` that serves an aggregate, in context order, the
+ *  first declaration of a name winning. */
+export function valueObjectIndexOfContract(
+  contract: FrontendContract,
+  contextNames: readonly string[],
+): Map<string, PropValueObject> {
+  const withAggregates = new Set(contract.wire.aggregates.map((a) => a.context));
+  const out = new Map<string, PropValueObject>();
+  for (const ctx of contextNames) {
+    if (!withAggregates.has(ctx)) continue;
+    for (const vo of contract.wire.valueObjects) {
+      if (vo.context === ctx && !out.has(vo.name)) out.set(vo.name, vo);
+    }
   }
   return out;
 }
@@ -89,12 +113,12 @@ function propTypeFloor(what: string): Error {
  */
 export function componentPropTsType(
   t: TypeIR,
-  aggregatesByName: ReadonlyMap<string, AggregateIR>,
+  aggregatesByName: AggregateNames,
   dtoImports: Map<string, string>,
   /** Declared value objects by name — see {@link valueObjectIndex}.  Optional
    *  so a caller with no VO in reach (a route-param list) need not build one;
    *  an absent entry is an emit-time floor, not a silent `unknown`. */
-  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
+  valueObjects: ReadonlyMap<string, PropValueObject> = new Map(),
 ): string {
   switch (t.kind) {
     case "primitive":
@@ -192,9 +216,9 @@ export function takeMoneyPropImport(dtoImports: Map<string, string>): boolean {
  */
 export function paramPropTsType(
   p: ParamIR,
-  aggregatesByName: ReadonlyMap<string, AggregateIR>,
+  aggregatesByName: AggregateNames,
   dtoImports: Map<string, string>,
-  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
+  valueObjects: ReadonlyMap<string, PropValueObject> = new Map(),
 ): string {
   const t = p.type;
   const action =

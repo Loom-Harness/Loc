@@ -78,7 +78,7 @@ export function renderAngularCreateForm(
       "loom.page-primitive-arg-missing",
       "CreateForm(of: …): missing 'of:' aggregate ref",
     );
-  const agg = ctx.aggregatesByName.get(aggName);
+  const agg = ctx.domainAggregates.get(aggName);
   const bc = contextOfOptionalHome(ctx.model.homeOfAggregate(aggName));
   if (!agg || !bc) {
     return giveUp(

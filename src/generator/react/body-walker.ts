@@ -7,16 +7,14 @@
 // tests) keep their import path, and adds the TSX-flavoured entry
 // point that threads `tsxTarget` into the walk.
 
-import type {
-  AggregateIR,
-  ExprIR,
-  ParamIR,
-  UiApiParamIR,
-  WorkflowIR,
-} from "../../ir/types/loom-ir.js";
+import type { AggregateIR, ExprIR, ParamIR, UiApiParamIR } from "../../ir/types/loom-ir.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { type WalkResult, walkBody } from "../_walker/walker-core.js";
-import { emptyWalkerModel, type WalkerModel } from "../_walker/walker-model.js";
+import {
+  emptyWalkerModel,
+  type WalkerModel,
+  type WalkerWorkflow,
+} from "../_walker/walker-model.js";
 import { tsxTarget } from "./walker/tsx-target.js";
 
 export * from "../_walker/walker-core.js";
@@ -33,7 +31,7 @@ export function walkBodyToTsx(
   apiParams: ReadonlyArray<UiApiParamIR> = [],
   aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
   model: WalkerModel = emptyWalkerModel(),
-  workflowsByName: ReadonlyMap<string, WorkflowIR> = new Map(),
+  workflowsByName: ReadonlyMap<string, WalkerWorkflow> = new Map(),
   paramTypes: ReadonlyMap<string, string> = new Map(),
   pageRoutes: ReadonlyMap<string, string> = new Map(),
   /** Extern frontend function names declared on this ui. */

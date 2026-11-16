@@ -113,7 +113,7 @@ import { walkExprDeep } from "../../ir/util/walk.js";
 import { upperFirst } from "../../util/naming.js";
 import { componentKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import { walkerModelOf, walkerWorkflowsFor } from "../_walker/walker-model.js";
 import { felizTarget } from "./feliz-target.js";
 import {
   FELIZ_CHILDREN_FIELD,
@@ -324,6 +324,10 @@ function renderOne(
   // own state, which is a Model field), so it renders without walking anything —
   // and its F# text joins the body in the disqualifying scans below.
   const derivedBinds = renderDerivedBinds(c);
+  const componentModel = walkerModelOf({
+    bcByAggregate: ctx.bcByAggregate,
+    bcByWorkflow: ctx.bcByWorkflow,
+  });
   const result = walkBody(
     c.body!,
     felizTarget,
@@ -335,8 +339,8 @@ function renderOne(
     componentParams,
     ctx.apiParams,
     ctx.aggregatesByName,
-    walkerModelOf({ bcByAggregate: ctx.bcByAggregate, bcByWorkflow: ctx.bcByWorkflow }),
-    ctx.workflowsByName,
+    componentModel,
+    walkerWorkflowsFor(componentModel, ctx.workflowsByName),
     // Aggregate-typed params, so `Action(order.confirm)` could resolve the
     // receiver — such a body is deferred below, but the map costs nothing.
     new Map(

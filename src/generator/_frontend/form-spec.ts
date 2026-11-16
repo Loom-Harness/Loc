@@ -1,10 +1,4 @@
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  ExprIR,
-  OperationIR,
-  TypeIR,
-} from "../../ir/types/loom-ir.js";
+import type { BoundedContextIR, ExprIR, OperationIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { operationFormParams } from "../../ir/util/op-gates.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import {
@@ -155,13 +149,13 @@ export interface FormSpecEnv {
 /** The env for forms over `ctx`'s types. */
 export function formSpecEnvOf(
   ctx: AnyTypeScope,
-  aggregatesByName: ReadonlyMap<string, AggregateIR>,
+  hasDisplay: (aggregate: string) => boolean,
   bcByAggregate?: ReadonlyMap<string, BoundedContextIR>,
 ): FormSpecEnv {
   return {
     enumValues: (name) => enumPool(ctx).find((e) => e.name === name)?.values,
     valueObjectFields: (name) => findValueObjectInScope(ctx, name)?.fields,
-    hasDisplay: (aggregate) => !!aggregatesByName.get(aggregate)?.displayDerived,
+    hasDisplay,
     isPaged: (aggregate) => isPagedAllRead(aggregate, bcByAggregate),
   };
 }
@@ -361,14 +355,44 @@ function sameValueType(a: TypeIR, b: TypeIR): boolean {
   }
 }
 
+/** The record an operation form prefills from: the aggregate's fields. */
+export interface FormRecordOwner {
+  readonly name: string;
+  readonly fields: readonly {
+    readonly name: string;
+    readonly type: TypeIR;
+    readonly provenanced?: boolean;
+  }[];
+}
+
+/** An operation as its form renders it: the params the form sends
+ *  (`operationFormParams`), with their declared defaults. */
+export interface FormOperation {
+  readonly name: string;
+  readonly formParams: readonly {
+    readonly name: string;
+    readonly type: TypeIR;
+    readonly default?: ExprIR;
+  }[];
+}
+
+/** A domain operation as its form renders it. */
+export function formOperationOf(op: OperationIR): FormOperation {
+  return { name: op.name, formParams: operationFormParams(op) };
+}
+
 /** An operation form.  A param named and typed like one of the aggregate's
  *  fields prefills from the loaded record, so an update form opens on the
  *  current values and a partial edit keeps every other field.  The form is an
  *  `update` form when every param prefills that way. */
-export function operationFormSpec(agg: AggregateIR, op: OperationIR, env: FormSpecEnv): FormSpec {
+export function operationFormSpec(
+  agg: FormRecordOwner,
+  op: FormOperation,
+  env: FormSpecEnv,
+): FormSpec {
   const recordFields = new Map<string, TypeIR>(agg.fields.map((f) => [f.name, f.type]));
   const carriers = new Set(agg.fields.filter((f) => f.provenanced).map((f) => f.name));
-  const fields = operationFormParams(op).map((p) => {
+  const fields = op.formParams.map((p) => {
     const spec = formFieldSpec(p, env, p.name, recordFields);
     return spec.prefill.from === "record" && carriers.has(p.name)
       ? { ...spec, prefill: { ...spec.prefill, carrier: true as const } }

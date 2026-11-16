@@ -13,6 +13,7 @@
 // and every target builds its model through it.
 
 import type {
+  ContractAggregate,
   ContractEnum,
   ContractField,
   ContractValueObject,
@@ -20,8 +21,19 @@ import type {
 } from "../../ir/contract/frontend-contract.js";
 import { createRequestFields } from "../../ir/plan/create-request.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
-import type { AggregateIR, BoundedContextIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type {
+  AggregateIR,
+  BoundedContextIR,
+  ExprIR,
+  FieldIR,
+  OperationIR,
+  PayloadIR,
+  TypeIR,
+} from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
+import { contractResponsesFor } from "../../ir/util/declared-response.js";
 import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
+import { clientActionGates, operationFormParams } from "../../ir/util/op-gates.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import {
   listShapedProjectionNames,
@@ -31,11 +43,14 @@ import {
   enumPool,
   findValueObjectInScope,
   type ScopeEnum,
+  type ScopeField,
   type ScopeValueObject,
   type TypeScope,
 } from "../../ir/util/reachable-types.js";
-import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
+import { requestNamesForContexts } from "../../ir/util/request-names.js";
+import { emitsCommandRoute, workflowResultSegment } from "../../ir/util/workflow-command-route.js";
 import { type FormSpecEnv, formSpecEnvOf } from "../_frontend/form-spec.js";
+import { containedPart, recordFields } from "./record-fields.js";
 
 /** One bounded context as the walker sees it: its name (the `<Ctx>` segment of
  *  an identity text key) and the enum and value-object declarations a type
@@ -44,20 +59,54 @@ export interface WalkerHome extends TypeScope<ScopeEnum, ScopeValueObject> {
   readonly name: string;
 }
 
-/** An aggregate as the walker sees it: its public operations, each with the
- *  params a form for it renders. */
+/** A field of a record a page reads: its wire type and absence, and whether
+ *  it rides the `Provenanced<T>` carrier. */
+export interface WalkerField extends ScopeField {
+  readonly provenanced?: boolean;
+}
+
+/** An aggregate as the walker sees it: the record a page loads, its parts and
+ *  containments, and its public operations, each with the params a form for
+ *  it renders. */
 export interface WalkerAggregate {
   readonly name: string;
-  /** Its declared fields, by name: an operation input mirroring one keys its
-   *  label under the aggregate. */
-  readonly fields: readonly { readonly name: string }[];
+  /** The fields of the record a page loads: a cell's absence guard, a value
+   *  object row, an update form's prefill and an operation input's label read
+   *  them by name. */
+  readonly fields: readonly WalkerField[];
+  readonly parts: readonly { readonly name: string; readonly fields: readonly WalkerField[] }[];
+  /** Its containments: the member a record reads and the part it holds. */
+  readonly contains: readonly {
+    readonly name: string;
+    readonly partName: string;
+    readonly collection: boolean;
+  }[];
   readonly operations: readonly WalkerOperation[];
+  /** It declares a `derived display`, served as the record's `display` field. */
+  readonly display: boolean;
+  /** It serves the generic delete (its canonical `destroy`). */
+  readonly destroyable: boolean;
+}
+
+/** An operation param a form renders: a declared default seeds its value. */
+export interface WalkerParam {
+  readonly name: string;
+  readonly type: TypeIR;
+  readonly default?: ExprIR;
 }
 
 export interface WalkerOperation {
   readonly name: string;
   readonly visibility: string;
   readonly params: readonly { readonly name: string; readonly type: TypeIR }[];
+  /** The params its form renders, with their declared defaults: a masked
+   *  merge-patch key is left out. */
+  readonly formParams: readonly WalkerParam[];
+  /** It has a `when` gate, probed at `GET /{id}/can_<op>`. */
+  readonly gated: boolean;
+  /** Its action gates when every one reads only `currentUser` and constants
+   *  (`clientActionGates`). */
+  readonly clientGates?: readonly ExprIR[];
 }
 
 /** A workflow as the walker sees it: whether a command starts it
@@ -67,6 +116,32 @@ export interface WalkerWorkflow {
   readonly name: string;
   readonly params: readonly { readonly name: string; readonly type: TypeIR }[];
   readonly startable: boolean;
+  /** On a startable workflow: the route segment of the aggregate a successful
+   *  start created, when the start route answers with its id. */
+  readonly resultSegment?: string;
+  /** On a startable workflow: the identifier base of its client surface
+   *  (`<base>Request`, `use<base>Workflow`), minted against every aggregate
+   *  request the frontend's contexts export (`ir/util/request-names.ts`). */
+  readonly requestBase?: string;
+}
+
+/** The workflows of `model` a walk may run, restricted to `names` (a page walk
+ *  runs any; a component, action or store walk none). */
+export function walkerWorkflowsFor(
+  model: WalkerModel,
+  names: { keys(): Iterable<string> },
+): ReadonlyMap<string, WalkerWorkflow> {
+  const out = new Map<string, WalkerWorkflow>();
+  for (const name of names.keys()) {
+    const hit = model.workflows.get(name);
+    if (hit) out.set(name, hit.wf);
+  }
+  return out;
+}
+
+/** The workflows a walk may run, keyed by name: every one of `model`'s. */
+export function walkerWorkflowsOf(model: WalkerModel): ReadonlyMap<string, WalkerWorkflow> {
+  return new Map([...model.workflows].map(([name, { wf }]) => [name, wf] as const));
 }
 
 /** A repository find, as a page body calls it. */
@@ -103,8 +178,9 @@ export interface WalkerModel {
   /** The context `typeName`'s identity text is keyed under, looked up first in
    *  `home` (`modelTextContextOf`). */
   modelTextOwner(typeName: string, home: WalkerHome | undefined): string | undefined;
-  /** The form-spec env for forms over `home`'s types. */
-  formSpecEnv(home: WalkerHome, aggregatesByName: ReadonlyMap<string, AggregateIR>): FormSpecEnv;
+  /** The form-spec env for forms over `home`'s types; a picker's display
+   *  reads this model's aggregates. */
+  formSpecEnv(home: WalkerHome): FormSpecEnv;
 }
 
 /** The model of a walk that reaches no bounded context — a layout slot, a
@@ -125,6 +201,46 @@ export function walkerModelOf(opts: {
   return buildModel(opts);
 }
 
+/** The walker's view of an enriched aggregate. */
+/** `op` as the walker sees it. */
+export function walkerOperationOf(op: OperationIR): WalkerOperation {
+  const clientGates = clientActionGates(op);
+  return {
+    name: op.name,
+    visibility: op.visibility,
+    params: op.params,
+    formParams: operationFormParams(op),
+    gated: !!op.when,
+    ...(clientGates ? { clientGates } : {}),
+  };
+}
+
+/** `agg` as the walker sees it.  Given its context's `payloads`, its record is
+ *  the declared response a page loads; without them, its declared fields. */
+export function walkerAggregateOf(
+  agg: AggregateIR,
+  payloads?: readonly PayloadIR[],
+): WalkerAggregate {
+  const responses = payloads && contractResponsesFor(payloads, agg);
+  const partNames = new Set(agg.parts.map((p) => p.name));
+  return {
+    name: agg.name,
+    fields: responses ? recordFields(responses, agg.name, partNames) : agg.fields,
+    parts: agg.parts.map((p) => ({
+      name: p.name,
+      fields: responses ? recordFields(responses, p.name, partNames) : p.fields,
+    })),
+    contains: agg.contains.map((c) => ({
+      name: c.name,
+      partName: c.partName,
+      collection: c.collection,
+    })),
+    operations: agg.operations.map(walkerOperationOf),
+    display: !!agg.displayDerived,
+    destroyable: canonicalDestroy(agg) !== null,
+  };
+}
+
 function buildModel(opts: {
   bcByAggregate?: ReadonlyMap<string, BoundedContextIR>;
   bcByWorkflow?: ReadonlyMap<string, BoundedContextIR>;
@@ -137,8 +253,10 @@ function buildModel(opts: {
   ];
   const aggregates = new Map<string, { agg: WalkerAggregate; home: WalkerHome }>();
   const workflows = new Map<string, { wf: WalkerWorkflow; home: WalkerHome }>();
+  const requestNames = requestNamesForContexts(contexts);
   for (const bc of contexts) {
-    for (const agg of bc.aggregates) aggregates.set(agg.name, { agg, home: bc });
+    for (const agg of bc.aggregates)
+      aggregates.set(agg.name, { agg: walkerAggregateOf(agg, bc.payloads), home: bc });
     for (const wf of bc.workflows) {
       workflows.set(wf.name, {
         wf: {
@@ -147,6 +265,12 @@ function buildModel(opts: {
           // one has no start params to render.
           params: emitsCommandRoute(wf) ? wf.params : [],
           startable: emitsCommandRoute(wf),
+          ...(emitsCommandRoute(wf)
+            ? {
+                ...optionalSegment(workflowResultSegment(wf)),
+                requestBase: requestNames.workflow(wf.name),
+              }
+            : {}),
         },
         home: bc,
       });
@@ -177,7 +301,8 @@ function buildModel(opts: {
     isErrorRecord: (home, name) =>
       bcOf(home).payloads.some((p) => p.name === name && p.kind === "error"),
     modelTextOwner: (typeName, home) => modelTextContextOf(typeName, home && bcOf(home), contexts),
-    formSpecEnv: (home, aggregatesByName) => formSpecEnvOf(home, aggregatesByName, bcByAggregate),
+    formSpecEnv: (home) =>
+      formSpecEnvOf(home, (name) => aggregates.get(name)?.agg.display === true, bcByAggregate),
   };
 }
 
@@ -277,30 +402,20 @@ export function walkerModelOfContract(
   for (const a of servedAggregates) {
     const home = homeByName.get(a.context);
     if (!home) continue;
-    const response = w.responses.find((r) => r.entity === a.name);
-    aggregates.set(a.name, {
-      agg: {
-        name: a.name,
-        fields: (response?.fields ?? []).map((f) => ({ name: f.name })),
-        operations: w.operations
-          .filter((o) => o.aggregate === a.name && o.kind === "operation" && o.opName)
-          .map((o) => ({
-            name: o.opName as string,
-            visibility: "public",
-            params: o.params
-              .filter((p) => p.location === "body")
-              .map((p) => ({ name: p.name, type: p.type })),
-          })),
-      },
-      home,
-    });
+    aggregates.set(a.name, { agg: contractAggregateOf(contract, a), home });
   }
   const workflows = new Map<string, { wf: WalkerWorkflow; home: WalkerHome }>();
   for (const wf of w.workflows) {
     const home = homeByName.get(wf.context);
     if (!home) continue;
     workflows.set(wf.name, {
-      wf: { name: wf.name, params: wf.params ?? [], startable: wf.params !== undefined },
+      wf: {
+        name: wf.name,
+        params: wf.params ?? [],
+        startable: wf.params !== undefined,
+        ...optionalSegment(wf.resultSegment),
+        ...(wf.requestBase !== undefined ? { requestBase: wf.requestBase } : {}),
+      },
       home,
     });
   }
@@ -356,10 +471,10 @@ export function walkerModelOfContract(
         .filter((h) => declares(h, typeName) === "own")
         .sort()[0];
     },
-    formSpecEnv: (home, aggregatesByName) => ({
+    formSpecEnv: (home) => ({
       enumValues: (name) => enumPool(home).find((e) => e.name === name)?.values,
       valueObjectFields: (name) => findValueObjectInScope(home, name)?.fields,
-      hasDisplay: (aggregate) => !!aggregatesByName.get(aggregate)?.displayDerived,
+      hasDisplay: (aggregate) => aggregates.get(aggregate)?.agg.display === true,
       isPaged: isPagedAll,
     }),
   };
@@ -373,4 +488,66 @@ function asField(f: ContractField): FieldIR {
     optional: f.optional,
     ...(f.default !== undefined ? { default: f.default } : {}),
   } as FieldIR;
+}
+
+const optionalSegment = (resultSegment: string | undefined) =>
+  resultSegment !== undefined ? { resultSegment } : {};
+
+/** The walker's view of an aggregate the contract carries: the record is its
+ *  declared response, each part's its own, and its operations the ones an
+ *  api serves. */
+function contractAggregateOf(contract: FrontendContract, a: ContractAggregate): WalkerAggregate {
+  const w = contract.wire;
+  const partNames = new Set(a.parts ?? []);
+  const ops = w.operations.filter((o) => o.aggregate === a.name);
+  const gated = new Set(ops.filter((o) => o.kind === "gateProbe").map((o) => o.opName));
+  return {
+    name: a.name,
+    fields: recordFields(w.responses, a.name, partNames),
+    parts: (a.parts ?? []).map((p) => ({
+      name: p,
+      fields: recordFields(w.responses, p, partNames),
+    })),
+    contains: (w.responses.find((r) => r.entity === a.name)?.fields ?? []).flatMap((f) => {
+      const hit = containedPart(f.type, partNames);
+      return hit ? [{ name: f.name, partName: hit.part, collection: hit.collection }] : [];
+    }),
+    operations: ops
+      .filter((o) => o.kind === "operation" && o.opName !== undefined)
+      .map((o) => {
+        const body = o.params
+          .filter((p) => p.location === "body")
+          .map((p) => ({ name: p.name, type: p.type }));
+        const optional = new Set(o.optionalParams ?? []);
+        const defaults = new Map((o.paramDefaults ?? []).map((d) => [d.name, d.value]));
+        return {
+          name: o.opName as string,
+          visibility: "public",
+          params: body,
+          formParams: body
+            .filter((p) => !optional.has(p.name))
+            .map((p) => {
+              const d = defaults.get(p.name);
+              return d ? { ...p, default: d } : p;
+            }),
+          gated: gated.has(o.opName),
+          ...(o.clientGates ? { clientGates: o.clientGates } : {}),
+        };
+      }),
+    display: a.display === true,
+    destroyable: ops.some((o) => o.kind === "destroy"),
+  };
+}
+
+/** Every aggregate of `model`, keyed by name. */
+export function walkerAggregatesOf(model: WalkerModel): ReadonlyMap<string, WalkerAggregate> {
+  return new Map([...model.aggregates].map(([name, { agg }]) => [name, agg] as const));
+}
+
+/** The aggregate `name` of the walk's model, as the walker sees it. */
+export function walkerAggregate(
+  model: WalkerModel,
+  name: string | undefined,
+): WalkerAggregate | undefined {
+  return name === undefined ? undefined : model.aggregates.get(name)?.agg;
 }

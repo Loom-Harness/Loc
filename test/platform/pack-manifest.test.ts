@@ -8,7 +8,7 @@ import { loadPack, resolvePackDir } from "../../src/generator/_packs/loader-fs.j
 // ---------------------------------------------------------------------------
 // Manifest-extension tests for `shellFiles` and `shellGlobs` (the
 // pack-declared shell-file mappings that replaced the hardcoded
-// switchboard in `src/generator/react/index.ts`).  Built-in packs
+// switchboard in `src/generator/react/from-contract.ts`).  Built-in packs
 // are exercised through the snapshot suite; these tests focus on
 // the validation surface that snapshots can't assert (typos in
 // shellFiles produce a clear error, glob captures expand correctly).

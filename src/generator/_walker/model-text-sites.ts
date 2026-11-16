@@ -20,7 +20,7 @@
 //     the translation runtime on by itself.
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR, ExprIR, TypeIR, UiIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR, TypeIR, UiIR } from "../../ir/types/loom-ir.js";
 import { enumPool, findValueObjectInScope, type ScopeEnum } from "../../ir/util/reachable-types.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { modelTextDefaultOfKey, modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
@@ -118,7 +118,11 @@ export function opModelText(
  *  position: the operation's identity-keyed translation call under i18n (the
  *  key the scaffold's operation forms and `implicitModelTextEntries` share),
  *  else the humanized operation name. */
-export function actionButtonLabel(ctx: WalkContext, agg: AggregateIR, opName: string): string {
+export function actionButtonLabel(
+  ctx: WalkContext,
+  agg: { readonly name: string },
+  opName: string,
+): string {
   const home = ctx.model.homeOfAggregate(agg.name);
   return (home && opModelText(ctx, home, agg.name, opName)?.markup) || humanize(opName);
 }
@@ -249,7 +253,10 @@ export function formInputModelText(
 /** The type a form input's label is keyed under: the aggregate when it
  *  declares a field of that name (an operation parameter mirroring a field),
  *  else none — an input that names no model fact keeps its English. */
-export function paramLabelOwner(agg: WalkerAggregate, name: string): string | undefined {
+export function paramLabelOwner(
+  agg: { readonly name: string; readonly fields: readonly { readonly name: string }[] },
+  name: string,
+): string | undefined {
   return agg.fields.some((f) => f.name === name) ? agg.name : undefined;
 }
 

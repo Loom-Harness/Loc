@@ -261,7 +261,7 @@ describe("emitEnumSchema", () => {
   });
 
   it("emits a single-value enum without a trailing separator", () => {
-    expect(emitEnumSchema({ name: "Only", systemLevel: false, values: ["One"] })).toEqual([
+    expect(emitEnumSchema({ name: "Only", values: ["One"] })).toEqual([
       'export const OnlySchema = z.enum(["One"]);',
     ]);
   });

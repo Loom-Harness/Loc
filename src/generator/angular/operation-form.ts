@@ -8,7 +8,7 @@ import { opModelText, paramLabelOwner } from "../_walker/model-text-sites.js";
 import { opGateFor } from "../_walker/op-gate.js";
 import { namedArgValue, positionalArgs, stringNamed } from "../_walker/shared/args.js";
 import { emitExpr, type WalkContext } from "../_walker/walker-core.js";
-import { contextOfOptionalHome } from "../_walker/walker-model.js";
+import { contextOfOptionalHome, walkerOperationOf } from "../_walker/walker-model.js";
 import {
   type AngularFieldArraySpec,
   type AngularFieldGroupSpec,
@@ -83,7 +83,7 @@ function resolveOpForm(
   const ofArg = namedArgValue(call, "of");
   const opArg = namedArgValue(call, "op");
   if (ofArg?.kind === "ref" && opArg?.kind === "ref") {
-    const agg = ctx.aggregatesByName.get(ofArg.name);
+    const agg = ctx.domainAggregates.get(ofArg.name);
     const op = agg?.operations.find((o) => o.name === opArg.name && o.visibility === "public");
     if (!agg || !op) return undefined;
     ctx.usedParams.add("id"); // the route id the mutate targets
@@ -96,7 +96,7 @@ function resolveOpForm(
   if (ref?.kind === "member" && ref.receiver.kind === "ref") {
     const instanceName = ref.receiver.name;
     const aggName = ctx.paramTypes?.get(instanceName);
-    const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
+    const agg = aggName ? ctx.domainAggregates.get(aggName) : undefined;
     const op = agg?.operations.find((o) => o.name === ref.member && o.visibility === "public");
     if (!agg || !op) return undefined;
     // A function-top param (a component prop) is in class-field scope, so target
@@ -138,9 +138,9 @@ export function renderAngularOperationForm(
 
   addNg(ctx, "@angular/forms", "FormControl", "FormGroup", "ReactiveFormsModule");
   addNg(ctx, importFrom, mutationFn);
-  const gateAgg = ctx.aggregatesByName.get(aggName);
+  const gateAgg = ctx.domainAggregates.get(aggName);
   const gate = gateAgg
-    ? opGateFor(ctx, gateAgg, op, `can${upperFirst(op.name)}${aggName}`)
+    ? opGateFor(ctx, gateAgg, walkerOperationOf(op), `can${upperFirst(op.name)}${aggName}`)
     : undefined;
   if (gate) addNg(ctx, importFrom, gate.hook);
 
@@ -149,7 +149,7 @@ export function renderAngularOperationForm(
   // over a field the op doesn't take drops out (its field isn't `available`).
   // Resolved BEFORE the markup is built so each constrained control can carry
   // the `aria-invalid` / `aria-describedby` matching its inline error.
-  const agg = ctx.aggregatesByName.get(aggName);
+  const agg = ctx.domainAggregates.get(aggName);
   const opInvariants = [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)];
   const available = new Set(operationFormParams(op).map((p) => p.name));
   const errorFields = angularRuleCodes(opInvariants, available);
