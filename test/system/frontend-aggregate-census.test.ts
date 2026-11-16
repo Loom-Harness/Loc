@@ -8,10 +8,12 @@
 // its own way.  This census holds both shut:
 //   - `api-module.ts` and `page-objects-builder.ts` name no bounded context,
 //     enriched node or domain declaration type;
-//   - each frontend builds the model with one adapter.  React, Vue and Svelte
-//     build it from the Frontend Contract (`contractAggregate` /
-//     `frontendAggregatesOfContract`); Angular and Feliz build it from the
+//   - each frontend builds the model with the adapters its table row names.
+//     React, Vue and Svelte build it from the Frontend Contract
+//     (`contractAggregate` / `frontendAggregatesOfContract`); Feliz from the
 //     enriched contexts (`frontendAggregateOf` / `frontendAggregatesOf`).
+//     Angular builds its api modules from the contract and its page objects
+//     from the enriched contexts.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -55,7 +57,7 @@ describe("frontend aggregate model census", () => {
     expect(hits).toEqual([]);
   });
 
-  it("React, Vue and Svelte build the model from the contract, every other frontend from the enriched IR", () => {
+  it("each frontend builds the model with the adapters its row names", () => {
     const CONTRACT = ["react", "vue", "svelte"];
     const ENRICHED = ["angular", "feliz"];
     const calls = (f: string, fns: readonly string[]) =>
@@ -75,7 +77,7 @@ describe("frontend aggregate model census", () => {
       react: ["contract"],
       vue: ["contract"],
       svelte: ["contract"],
-      angular: ["enriched"],
+      angular: ["contract", "enriched"],
       feliz: ["enriched"],
     });
   });
