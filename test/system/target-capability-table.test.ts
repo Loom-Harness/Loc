@@ -43,6 +43,7 @@ import {
   UI_CONSTRUCT_REFUSAL,
   UI_CONSTRUCTS,
   type UiConstruct,
+  uiTables,
 } from "../../src/util/target-capabilities.js";
 import { generateSystemFiles, parseString, parseValid } from "../_helpers/index.js";
 
@@ -55,7 +56,7 @@ function uiTopology(framework: string, uiName: string): string {
   if (framework === "phoenixLiveView") {
     return `deployable app { platform: elixir, contexts: [Orders], dataSources: [st], serves: SalesApi, ui: ${uiName} { Sales: app }, port: 4000 }`;
   }
-  const host = framework === "feliz" || framework === "flutter" ? framework : "static";
+  const host = framework === "feliz" || framework === "flutter" ? framework : "web";
   return `deployable api { platform: node, contexts: [Orders], dataSources: [st], serves: SalesApi, port: 3000 }
   deployable web { platform: ${host}, targets: api, port: 3001, ui: ${uiName} { Sales: api } }`;
 }
@@ -152,7 +153,7 @@ interface OwnedSpec {
  *  is fullstack, so `auth: required` sits on the host itself. */
 function ownedWitness(framework: string, spec: OwnedSpec): string {
   const lv = framework === "phoenixLiveView";
-  const host = framework === "feliz" || framework === "flutter" ? framework : "static";
+  const host = framework === "feliz" || framework === "flutter" ? framework : "web";
   const deployables = lv
     ? `deployable app { platform: elixir, contexts: [Orders], dataSources: [st], serves: SalesApi, ui: WebApp { Sales: app }, port: 4000${spec.auth ? ", auth: required" : ""} }`
     : `deployable api { platform: node, contexts: [Orders], dataSources: [st], serves: SalesApi, port: 3000${spec.auth ? ", auth: required" : ""} }
@@ -850,14 +851,12 @@ const isOwnedConstruct = (c: UiConstruct): c is OwnedUiConstruct =>
 
 function cells(): Cell[] {
   const out: Cell[] = [];
-  for (const [platform, table] of Object.entries(TARGET_CAPABILITIES)) {
-    // `static` shares React's table object; one pass over it is enough.
-    if (platform === "static") continue;
-    for (const fw of table.ui?.frameworks ?? []) {
+  for (const ui of uiTables()) {
+    for (const fw of ui.frameworks) {
       for (const c of ALL_UI_CONSTRUCTS) {
         out.push({
           id: `${fw}|${c}`,
-          verdict: table.ui!.constructs[c],
+          verdict: ui.constructs[c],
           source: isOwnedConstruct(c) ? OWNED_WITNESSES[c](fw) : UI_WITNESSES[c](fw),
           // `auth: ui` on a LiveView deployable is already a phase-④ error; the
           // IR check is the backstop behind it, reached only without that tier.
@@ -865,6 +864,8 @@ function cells(): Cell[] {
         });
       }
     }
+  }
+  for (const [platform, table] of Object.entries(TARGET_CAPABILITIES)) {
     for (const c of table.backend ? BACKEND_CONSTRUCTS : []) {
       out.push({
         id: `${platform}|${c}`,

@@ -54,7 +54,7 @@ const DOMAIN = `
   storage primary { type: postgres }
   resource ordersState { for: Orders, kind: state, use: primary }`;
 
-/** A static-bundle frontend (react / vue / svelte) beside a node backend. */
+/** A `web` bundle frontend (react / vue / svelte / angular) beside a node backend. */
 const spa = (framework: string) => `
 system Shop {${DOMAIN}
   ui WebApp {
@@ -72,7 +72,7 @@ ${UI}
   deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3004 }
 }`;
 
-/** A frontend whose deployable IS the platform (angular / feliz / flutter). */
+/** A frontend whose deployable IS the platform (feliz / flutter). */
 const hosted = (platform: string) => `
 system Shop {${DOMAIN}
   ui WebApp {
@@ -113,7 +113,7 @@ const CASES = [
   { framework: "react", source: spa("react"), pages: /\/src\/pages\/.*\.tsx$/ },
   { framework: "vue", source: spa("vue"), pages: /\/src\/pages\/.*\.vue$/ },
   { framework: "svelte", source: spa("svelte"), pages: /\+page\.svelte$/ },
-  { framework: "angular", source: hosted("angular"), pages: /\/src\/app\/pages\// },
+  { framework: "angular", source: spa("angular"), pages: /\/src\/app\/pages\// },
   { framework: "feliz", source: hosted("feliz"), pages: /App\.fs$/ },
   { framework: "flutter", source: hosted("flutter"), pages: /lib\/pages\// },
   { framework: "phoenixLiveView", source: selfHosted, pages: /_live\.ex$/ },

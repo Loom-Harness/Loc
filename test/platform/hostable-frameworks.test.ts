@@ -10,7 +10,7 @@ import { EMBEDDABLE_FRAMEWORKS, STATIC_BUNDLE_FRAMEWORKS } from "../../src/platf
 //
 // Encodes the principled rule: a host can serve a `ui { framework: … }`
 // iff it provides the runtime that framework requires.  Static-bundle
-// frameworks (`react`/`static`) are hostable by any static-asset host;
+// frameworks (`react`, `vue`, `svelte`, `angular`) are hostable by any static-asset host;
 // the runtime-coupled `phoenixLiveView` (LiveView) only by Phoenix.
 //
 // The field is DORMANT this phase (no validator/grammar consumes it
@@ -21,11 +21,11 @@ import { EMBEDDABLE_FRAMEWORKS, STATIC_BUNDLE_FRAMEWORKS } from "../../src/platf
 const sorted = (s: ReadonlySet<string>) => [...s].sort();
 
 describe("hostableFrameworks — the host-capability rule", () => {
-  it("frontend static hosts (+ node) serve exactly the static-bundle frameworks", () => {
-    // The standalone frontend hosts serve any vite/adapter-static bundle but
+  it("the `web` host (+ node) serve exactly the static-bundle frameworks", () => {
+    // The `web` host serves any vite/adapter-static bundle but
     // NOT feliz — a static-asset host can't run feliz's `dotnet fable` build.
     // `node` (no `ui:` embed dispatch) stays on the static set too.
-    for (const p of ["react", "svelte", "static", "vue", "node"] as Platform[]) {
+    for (const p of ["web", "node"] as Platform[]) {
       expect(sorted(platformFor(p).hostableFrameworks)).toEqual(sorted(STATIC_BUNDLE_FRAMEWORKS));
     }
   });
@@ -44,12 +44,11 @@ describe("hostableFrameworks — the host-capability rule", () => {
     const phoenix = platformFor("elixir").hostableFrameworks;
     // Hosts its own runtime-coupled LiveView…
     expect(phoenix.has("phoenixLiveView")).toBe(true);
-    // …and every static bundle, all served from /app: react / static /
+    // …and every static bundle, all served from /app: react /
     // vue build with vite `base: "/app/"`, svelte with SvelteKit
     // `paths.base = "/app"` — so asset URLs + client-side links resolve
     // under the prefix instead of 404-ing at root.
     expect(phoenix.has("react")).toBe(true);
-    expect(phoenix.has("static")).toBe(true);
     expect(phoenix.has("vue")).toBe(true);
     expect(phoenix.has("svelte")).toBe(true);
     // …plus feliz (its own dotnet-fable SPA-build stage under /app).
@@ -58,7 +57,7 @@ describe("hostableFrameworks — the host-capability rule", () => {
 
   it("LiveView is hostable ONLY by Phoenix (runtime-coupled, not a static bundle)", () => {
     expect(STATIC_BUNDLE_FRAMEWORKS.has("phoenixLiveView")).toBe(false);
-    for (const p of ["react", "svelte", "static", "vue", "dotnet", "node"] as Platform[]) {
+    for (const p of ["web", "dotnet", "node"] as Platform[]) {
       expect(platformFor(p).hostableFrameworks.has("phoenixLiveView")).toBe(false);
     }
   });

@@ -603,7 +603,6 @@ system EnumAmbiguity {
     }
   } }
 }`,
-  "loom.angular-deployable-missing-ui": spaMissingUi("angular"),
   // An event reactor calls an api whose server requires auth: it has no
   // caller credential to forward.
   "loom.api-call-principal-unsupported": `
@@ -3112,7 +3111,6 @@ system S {
     repository Carts for Cart { }
   } }
 }`,
-  "loom.react-deployable-missing-ui": spaMissingUi("react"),
 
   "loom.reactor-gate-unsatisfiable": `
 system ReactorGate {
@@ -3556,12 +3554,9 @@ system P {
   deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
 }`,
 
-  // 24 uncoded sites, all of them deployable-composition rules that used to
+  // The uncoded sites below are deployable-composition rules that used to
   // reach the user as `loom.unknown`.  One fixture each, over the shared
   // `topology(...)` base above: the extra deployable / knob IS the defect.
-  "loom.static-deployable-missing-ui": topology(
-    "deployable web { platform: web targets: api port: 3001 }",
-  ),
   // A storage type the sourceType registry does not know.
   "loom.storage-type-unknown": `
 system S {
@@ -3638,7 +3633,6 @@ system S {
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
   deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
-  "loom.svelte-deployable-missing-ui": spaMissingUi("svelte"),
 
   // A client-side `Table { filter: … }` over a SERVER-PAGED table narrows one
   // server window, so the walker drops the arg.  The auto-paged rewrite makes
@@ -4646,7 +4640,7 @@ system VanillaActor {
       }
     }
     repository Orders for Order`),
-  "loom.vue-deployable-missing-ui": spaMissingUi("vue"),
+  "loom.web-deployable-missing-ui": spaMissingUi("web"),
   "loom.when-not-bool": orderOps("operation p() when name { total := total + 1 }"),
   "loom.when-private-operation": orderOps(
     "private operation p() when total > 0 { total := total + 1 }",

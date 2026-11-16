@@ -4089,7 +4089,7 @@ export interface Ui extends langium.AstNode {
     readonly $type: 'Ui';
     framework?: Framework;
     members: Array<UiMember>;
-    name: string;
+    name: UiName;
     withClause?: WithClause;
 }
 
@@ -4187,6 +4187,12 @@ export const UiMember = {
 
 export function isUiMember(item: unknown): item is UiMember {
     return reflection.isInstance(item, UiMember.$type);
+}
+
+export type UiName = 'web' | string;
+
+export function isUiName(item: unknown): item is UiName {
+    return item === 'web' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
 }
 
 export interface UiNotification extends langium.AstNode {

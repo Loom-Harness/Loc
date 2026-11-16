@@ -149,7 +149,7 @@ describe("ddd new — platform/frontend wiring", () => {
     expect(src).toContain("platform: web");
     expect(src).toContain("design: vuetify");
     expect(src).toContain("port: 3003");
-    expect(src).not.toContain("platform: web");
+    expect(src).toContain("framework: vue");
     fs.rmSync(tmp, { recursive: true });
   });
 

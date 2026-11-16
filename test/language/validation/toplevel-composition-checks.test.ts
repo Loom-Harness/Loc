@@ -20,7 +20,7 @@ describe("validator: top-level composition members get per-System checks", () =>
       deployable web { platform: web, targets: api, port: 3001 }
     `);
     expect(
-      errors.some((e) => /React deployable 'web' must declare a 'ui:' binding/.test(e)),
+      errors.some((e) => /Web deployable 'web' must declare a 'ui:' binding/.test(e)),
       errors.join("\n"),
     ).toBe(true);
   });
@@ -34,7 +34,7 @@ describe("validator: top-level composition members get per-System checks", () =>
       }
     `);
     expect(
-      errors.some((e) => /React deployable 'web' must declare a 'ui:' binding/.test(e)),
+      errors.some((e) => /Web deployable 'web' must declare a 'ui:' binding/.test(e)),
       errors.join("\n"),
     ).toBe(true);
   });

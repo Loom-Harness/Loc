@@ -59,17 +59,17 @@ describe("layout slot text", () => {
     vue: "web/src/layouts/Marketing.vue",
     svelte: "web/src/routes/(marketing)/+layout.svelte",
   };
-  for (const platform of ["vue", "svelte"] as const) {
-    it(`${platform} looks the slot text up under the catalogued keys`, async () => {
+  for (const framework of ["vue", "svelte"] as const) {
+    it(`${framework} looks the slot text up under the catalogued keys`, async () => {
       const files = await generateSystemFiles(
-        system("Stack { }").replace("platform: web", `platform: ${platform}`),
+        system("Stack { }").replace("ui Web {", `ui Web {\n    framework: ${framework}`),
       );
       const catalog = JSON.parse(files.get(".loom/messages.en.json") ?? "{}") as Record<
         string,
         string
       >;
-      const layout = files.get(LAYOUT_FILE[platform]!) ?? "";
-      expect(layout, `${LAYOUT_FILE[platform]} not generated`).not.toBe("");
+      const layout = files.get(LAYOUT_FILE[framework]!) ?? "";
+      expect(layout, `${LAYOUT_FILE[framework]} not generated`).not.toBe("");
       const heading = messageKey("Web.layout.Marketing", "heading", "Acme");
       const rich = messageKey("Web.layout.Marketing", "text", "Read the <b>terms</b> first");
       expect(layout).toContain(`t("${heading}", "Acme")`);

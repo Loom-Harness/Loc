@@ -98,6 +98,11 @@ describe("the `if` statement in a domain body is valid on every backend", () => 
   }
 });
 
+/** The static-bundle frameworks render on `platform: web`; feliz and flutter
+ *  are their own platforms. */
+const hostFor = (framework: string): string =>
+  framework === "feliz" || framework === "flutter" ? framework : "web";
+
 const uiSys = (framework: string, webPlatform: string, action: string): string => `system S {
   subdomain M { context C {
     aggregate Task { title: string }
@@ -127,9 +132,10 @@ const UI_NO_IF = `        n := 1`;
 describe("loom.if-stmt-page-body-unsupported", () => {
   it("errors for a page action on EVERY SPA frontend, not just one", async () => {
     for (const framework of ["react", "vue", "svelte", "angular", "feliz", "flutter"]) {
-      expect(await codes(uiSys(framework, framework, UI_IF)), `framework ${framework}`).toContain(
-        "loom.if-stmt-page-body-unsupported",
-      );
+      expect(
+        await codes(uiSys(framework, hostFor(framework), UI_IF)),
+        `framework ${framework}`,
+      ).toContain("loom.if-stmt-page-body-unsupported");
     }
   });
 
@@ -167,7 +173,7 @@ describe("loom.if-stmt-page-body-unsupported", () => {
   });
 
   it("does NOT fire on a page whose action has no `if`", async () => {
-    expect(await codes(uiSys("react", "react", UI_NO_IF))).not.toContain(
+    expect(await codes(uiSys("react", "web", UI_NO_IF))).not.toContain(
       "loom.if-stmt-page-body-unsupported",
     );
   });

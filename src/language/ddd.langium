@@ -368,8 +368,8 @@ Deployable:
             // (The bracketed form avoids the unbracketed-comma swallow where
             // `hosts: A, design` would read `design` as another ref.)
           | ('hosts' ':' (
-                '[' hosts+=[Ui:ID] (',' hosts+=[Ui:ID])* ','? ']'
-              | hosts+=[Ui:ID]
+                '[' hosts+=[Ui:UiName] (',' hosts+=[Ui:UiName])* ','? ']'
+              | hosts+=[Ui:UiName]
             ) ','?)
           | ('port' ':' port=INT ','?)
           | ('auth' ':' auth=AuthMode ','?)
@@ -393,7 +393,7 @@ Deployable:
 // and `parseValid` rejected it.  ~30 fixtures were parsing with that hidden
 // error.
 UiComposeBinding:
-    'ui' ':' ref=[Ui:ID] '{'
+    'ui' ':' ref=[Ui:UiName] '{'
         (bindings+=UiParamBinding (',' bindings+=UiParamBinding)* ','?)?
     '}' ','?;
 
@@ -449,7 +449,7 @@ DataSourceKind returns string:
     | 'objectStore' | 'queue' | 'api' | 'mailer';
 
 UiSugarBinding:
-    'ui' ':' ref=[Ui:ID] ','?;
+    'ui' ':' ref=[Ui:UiName] ','?;
 
 // Frameworks the `ui:` mount lowers against.  `react` renders TSX against a
 // design pack (`mantine`/`shadcn`); `phoenixLiveView` renders HEEx against
@@ -510,7 +510,7 @@ AuthMode returns string:
 // ---------------------------------------------------------------------------
 
 Ui:
-    'ui' name=ID withClause=WithClause? '{'
+    'ui' name=UiName withClause=WithClause? '{'
         // The UI's framework is part of its own technical identity, not
         // derived from the host.  Absent, the ui renders in its host
         // platform's default framework (`react` on `web` and on the
@@ -518,6 +518,11 @@ Ui:
         ('framework' ':' framework=Framework ','?)?
         members+=UiMember*
     '}';
+
+// A ui's name: an identifier, or `web` — the frontend platform keyword is
+// also the most natural name for a web frontend's ui.
+UiName returns string:
+    ID | 'web';
 
 UiMember:
     UiApiParam | UiChannelParam | UiNotification | UiFunction | Page | Component | Store | Area | MenuBlock;

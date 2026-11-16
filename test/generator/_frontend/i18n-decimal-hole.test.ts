@@ -9,7 +9,7 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const system = (platform: string, pack: string): string => `
+const system = (framework: string, pack: string): string => `
   system Shop {
     api ShopApi from Catalog
     subdomain Catalog {
@@ -21,6 +21,7 @@ const system = (platform: string, pack: string): string => `
     storage db { type: postgres }
     resource s { for: Cat, kind: state, use: db }
     ui WebApp {
+      framework: ${framework}
       api Shop: ShopApi
       page Home {
         route: "/"
@@ -30,7 +31,7 @@ const system = (platform: string, pack: string): string => `
     }
     deployable api { platform: node contexts: [Cat] dataSources: [s] serves: ShopApi port: 3000 }
     deployable web {
-      platform: ${platform} design: "${pack}" targets: api
+      platform: web design: "${pack}" targets: api
       ui: WebApp { Shop: api } port: 3005
     }
   }
@@ -96,14 +97,14 @@ declare module "*.json" { const v: Record<string, string>; export default v }`,
 }
 
 describe("a Decimal reaches a numeric ICU hole as a number", () => {
-  for (const [platform, pack] of [
-    ["static", "mantine"],
+  for (const [framework, pack] of [
+    ["react", "mantine"],
     ["vue", "vuetify"],
     ["svelte", "flowbite"],
     ["angular", "angularMaterial"],
   ] as const) {
-    it(`${platform}: type admits Decimal, number hole gets a number`, async () => {
-      const files = await generateSystemFiles(system(platform, pack));
+    it(`${framework}: type admits Decimal, number hole gets a number`, async () => {
+      const files = await generateSystemFiles(system(framework, pack));
       const runtime = [...files].find(
         ([p, c]) =>
           p.startsWith("web/") &&

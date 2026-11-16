@@ -29,7 +29,7 @@ async function files(framework: "vue" | "angular", uiBody: string): Promise<Map<
       subdomain S { context C { } }
       ui Web { framework: ${framework} ${uiBody} }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: ${framework}, targets: api, ui: Web, port: 3001 }
+      deployable web { platform: web, targets: api, ui: Web, port: 3001 }
     }
   `);
 }

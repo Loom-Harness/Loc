@@ -28,17 +28,21 @@ const DOMAIN = `
 
 /** A scaffolded ui: its Home page declares no static `title:`, so the shell
  *  falls back — which is the case under test. */
-const spa = (platform: string): string => `
+const spa = (framework: string): string => {
+  const selfHosted = framework === "feliz" || framework === "flutter";
+  return `
   system Fable {${DOMAIN}
     ui Web with scaffold(subdomains: [S]) {
+      ${selfHosted ? "" : `framework: ${framework}`}
       api Ops: DemoApi
     }
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], serves: DemoApi, port: 3000 }
-    deployable webApp { platform: ${platform}, targets: api, ui: Web { Ops: api }, port: 3001 }
+    deployable webApp { platform: ${selfHosted ? framework : "web"}, targets: api, ui: Web { Ops: api }, port: 3001 }
   }
 `;
+};
 
 /** Where each frontend spells the app title, and what it should say. */
 const TARGETS = [

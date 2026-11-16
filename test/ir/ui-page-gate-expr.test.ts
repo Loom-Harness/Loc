@@ -44,11 +44,15 @@ import { parseErrorsOf, parseString } from "../_helpers/parse.js";
 const CODE = "loom.ui-gate-expr-unsupported";
 
 function sys(gate: string, frontend: string): string {
+  // feliz and flutter host their own framework; the other frontends are a
+  // `platform: web` bundle rendering the framework the ui names.
+  const selfHosted = frontend === "feliz" || frontend === "flutter";
+  const webFramework = frontend === "phoenixLiveView" || selfHosted ? "" : `framework: ${frontend}`;
   const uiDeployable =
     frontend === "phoenixLiveView"
       ? `deployable app { platform: elixir contexts: [C] dataSources: [st] serves: Api ui: WebApp port: 3001 auth: required }`
       : `deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
-  deployable app { platform: ${frontend} targets: api ui: WebApp { C: api } port: 3001 auth: ui }`;
+  deployable app { platform: ${selfHosted ? frontend : "web"} targets: api ui: WebApp { C: api } port: 3001 auth: ui }`;
   return `
 system P {
   user { id: guid  role: string }
@@ -57,6 +61,7 @@ system P {
   } }
   api Api from D
   ui WebApp {
+    ${webFramework}
     api C: Api
     page Home {
       route: "/"

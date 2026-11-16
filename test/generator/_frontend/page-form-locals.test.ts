@@ -45,18 +45,20 @@ const DOMAIN = `
   storage pg { type: postgres }
 `;
 
-async function formDiags(platform: string, body: string): Promise<string[]> {
+async function formDiags(framework: string, body: string): Promise<string[]> {
+  const selfHosted = framework === "feliz" || framework === "flutter";
   const loom = await buildLoomModel(`
     system Demo {
       ${DOMAIN}
       ui Web {
+        ${selfHosted ? "" : `framework: ${framework}`}
         api C: Api
         page Probe { route: "/probe" body: ${body} }
       }
       storage loomDb { type: postgres }
       resource st { for: C, kind: state, use: loomDb }
       deployable api { platform: node, contexts: [C], dataSources: [st], serves: Api, port: 3000 }
-      deployable web { platform: ${platform}, targets: api, ui: Web { C: api }, port: 3001 }
+      deployable web { platform: ${selfHosted ? framework : "web"}, targets: api, ui: Web { C: api }, port: 3001 }
     }
   `);
   return validateLoomModel(loom)

@@ -43,10 +43,10 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 
 /** framework → (deployable platform, the emitted page file to read). */
 const TARGETS = {
-  react: ["static", "web/src/pages/x.tsx"],
-  vue: ["static", "web/src/pages/x.vue"],
-  svelte: ["static", "x/+page.svelte"],
-  angular: ["static", "web/src/app/pages/x.component.ts"],
+  react: ["web", "web/src/pages/x.tsx"],
+  vue: ["web", "web/src/pages/x.vue"],
+  svelte: ["web", "x/+page.svelte"],
+  angular: ["web", "web/src/app/pages/x.component.ts"],
   feliz: ["feliz", "web/src/App.fs"],
   flutter: ["flutter", "x_page.dart"],
   phoenixLiveView: ["elixir", "x_live.ex"],

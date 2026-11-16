@@ -964,10 +964,13 @@ const STATIC_BUNDLE_UI: readonly UiTable[] = [
   },
 ];
 
-/** Every ui table: each platform's own, then the static-bundle frameworks'. */
-function uiTables(): UiTable[] {
-  const own = Object.values(TARGET_CAPABILITIES).flatMap((t) => (t.ui ? [t.ui] : []));
-  return [...own, ...STATIC_BUNDLE_UI];
+/** Every ui table, in target order: each platform's own, with the static-bundle
+ *  frameworks' tables at `web`'s place. */
+export function uiTables(): UiTable[] {
+  // One stable order, so a message listing frameworks always reads the same.
+  return Object.entries(TARGET_CAPABILITIES).flatMap(([target, t]) =>
+    target === "web" ? [...STATIC_BUNDLE_UI] : t.ui ? [t.ui] : [],
+  );
 }
 
 /** The verdict for a UI construct on a framework.  A framework no target

@@ -474,7 +474,7 @@ describe("page metamodel — IR shape", () => {
     expect(link!.props.map((p) => p.name)).toEqual(["label"]);
   });
 
-  it("Platform enum accepts 'static'", async () => {
+  it("Platform enum accepts 'web'", async () => {
     const loom = await buildLoom(`
       system Acme {
         subdomain M { context C { } }
@@ -483,7 +483,7 @@ describe("page metamodel — IR shape", () => {
       }
     `);
     const platforms = firstSystem(loom).deployables.map((d) => d.platform);
-    expect(platforms).toContain("static");
+    expect(platforms).toContain("web");
   });
 
   // D-PHOENIX-SURFACE phase 2 — `framework` on the `ui` declaration.

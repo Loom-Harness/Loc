@@ -68,15 +68,21 @@ const DOMAIN = `
     }
     api DemoApi from S`;
 
-const spa = (platform: string): string => `
+/** The ui on `frontend`: the static-bundle frameworks host on `platform: web`
+ *  with the ui naming its `framework:`; Feliz and Flutter are their own platform. */
+const spa = (frontend: string): string => {
+  const selfHosted = frontend === "feliz" || frontend === "flutter";
+  const ui = selfHosted ? UI : UI.replace("ui Web {", `ui Web {\n      framework: ${frontend}`);
+  return `
   system Demo {${DOMAIN}
-    ${UI}
+    ${ui}
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], serves: DemoApi, port: 3000 }
-    deployable web { platform: ${platform}, targets: api, ui: Web { Ops: api }, port: 3001 }
+    deployable web { platform: ${selfHosted ? frontend : "web"}, targets: api, ui: Web { Ops: api }, port: 3001 }
   }
 `;
+};
 
 const phoenix = `
   system Demo {${DOMAIN}

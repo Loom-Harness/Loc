@@ -82,13 +82,13 @@ const UI_OFF = `
       page Home { route: "/" state { q: string = "" } body: Stack { Text { q } } }
     }`;
 
-const spa = (ui: string, platform = "react", design = "mantine"): string => `
+const spa = (ui: string, framework = "react", design = "mantine"): string => `
   system Demo {${DOMAIN}
-    ${ui}
+    ${ui.replace("ui Web {", `ui Web {\n      framework: ${framework}`)}
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], serves: DemoApi, port: 3000 }
-    deployable web { platform: ${platform}, targets: api, ui: Web { Ops: api }, design: ${design}, port: 3001 }
+    deployable web { platform: web, targets: api, ui: Web { Ops: api }, design: ${design}, port: 3001 }
   }
 `;
 
@@ -149,13 +149,13 @@ describe("i18n key agreement — every emitted t() key exists in the app's own c
     "vue",
     "svelte",
     "angular",
-  ])("%s: the same set agreement holds (the key is framework-neutral, only the wrapper is not)", async (platform) => {
-    const design = { vue: "vuetify", svelte: "flowbite", angular: "angularMaterial" }[platform]!;
-    const files = await generateSystemFiles(spa(UI_ON, platform, design));
+  ])("%s: the same set agreement holds (the key is framework-neutral, only the wrapper is not)", async (framework) => {
+    const design = { vue: "vuetify", svelte: "flowbite", angular: "angularMaterial" }[framework]!;
+    const files = await generateSystemFiles(spa(UI_ON, framework, design));
     const catalog = catalogOf(files);
     const used = emittedKeys(files);
     const missing = [...used].filter((k) => !(k in catalog)).sort();
-    expect(missing, `unresolvable t() keys on ${platform}`).toEqual([]);
+    expect(missing, `unresolvable t() keys on ${framework}`).toEqual([]);
     expect([...used].some((k) => k.startsWith("Web.menu.section."))).toBe(true);
   });
 

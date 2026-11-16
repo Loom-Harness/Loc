@@ -29,21 +29,24 @@ const FRONTENDS = ["react", "vue", "svelte", "angular", "feliz", "flutter"] as c
 
 /** `auditable` + a scaffolded frontend, with the principal properly declared.
  *  The minimal shape the audit's repro was missing. */
-const WITH_PRINCIPAL = (platform: string) => `
+const WITH_PRINCIPAL = (frontend: string) => {
+  const own = frontend === "feliz" || frontend === "flutter";
+  return `
 system AuditUi {
   user { id: string  email: string }
   subdomain Shop { context Shop {
     aggregate Widget with crudish, auditable { code: string }
     repository Widgets for Widget { }
   } }
-  ui Console with scaffold(subdomains: [Shop]) { }
+  ui Console with scaffold(subdomains: [Shop]) { ${own ? "" : `framework: ${frontend}`} }
   api ShopApi from Shop
   storage primary { type: postgres }
   resource shopState { for: Shop, kind: state, use: primary }
   deployable api { platform: node  contexts: [Shop]  dataSources: [shopState]  serves: ShopApi  port: 3000  auth: required }
-  deployable web { platform: ${platform}  targets: api  ui: Console  port: 3001 }
+  deployable web { platform: ${own ? frontend : "web"}  targets: api  ui: Console  port: 3001 }
 }
 `;
+};
 
 /** The same system with NO `user {}` block — `createdBy := currentUser` with
  *  no principal in the model at all. */

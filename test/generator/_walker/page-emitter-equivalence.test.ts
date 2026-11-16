@@ -107,7 +107,7 @@ describe("byte-equivalence — page emitter vs legacy direct walk", () => {
     // out without this `uiName`-presence assertion catching the drop
     // first.  Page emission post-#606 has no fallback path — every
     // React project's pages flow through `ui.pages`, so an empty
-    // `uiName` would surface as a `loom.react-deployable-missing-ui`
+    // `uiName` would surface as a `loom.web-deployable-missing-ui`
     // validator error rather than silently falling through.
     const { lowerModel } = await import("../../../src/ir/lower/lower.js");
     const { enrichLoomModel } = await import("../../../src/ir/enrich/enrichments.js");

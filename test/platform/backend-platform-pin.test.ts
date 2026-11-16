@@ -82,7 +82,7 @@ describe("platform pin grammar + validation", () => {
         subdomain M { context C { } }
         ui W { page Home() { route: "/" body: Heading { "hi" } } }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: "static", targets: api, ui: W, port: 3001 }
+        deployable web { platform: "web", targets: api, ui: W, port: 3001 }
       }
     `);
     expect(errors).toEqual([]);
@@ -128,7 +128,7 @@ describe("lowering normalises platform + platformRef", () => {
     );
     const loom = lowerModel(doc.parseResult.value as Model);
     const web = loom.systems[0]!.deployables.find((x) => x.name === "web")!;
-    expect(web.platform).toBe("static");
-    expect(web.platformRef).toBe("static");
+    expect(web.platform).toBe("web");
+    expect(web.platformRef).toBe("web");
   });
 });

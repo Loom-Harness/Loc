@@ -490,7 +490,7 @@ describe("validation", () => {
           deployable web { platform: web, targets: api, port: 3001 }
         }
       `);
-      expect(errors.some((e) => /Static deployable 'web' must declare a 'ui:'/.test(e))).toBe(true);
+      expect(errors.some((e) => /Web deployable 'web' must declare a 'ui:'/.test(e))).toBe(true);
     });
 
     it("accepts a 'platform: web' deployable with a 'ui:' binding", async () => {

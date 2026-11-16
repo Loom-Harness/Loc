@@ -31,7 +31,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
-const HOST: Record<string, string> = { react: "static", vue: "static", svelte: "static" };
+const HOST: Record<string, string> = { react: "web", vue: "web", svelte: "web" };
 
 const sys = (framework: string) => `
 system WalkerPredicates {

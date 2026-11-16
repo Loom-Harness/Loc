@@ -3,6 +3,7 @@ import { applyPatches } from "../../src/api/index.js";
 import { parseDdd } from "../../web/src/builder/parse.js";
 import {
   designPackMenu,
+  frontendFrameworkMenu,
   maskInert,
   platformMenu,
   readClause,
@@ -18,7 +19,8 @@ import {
 // range and every other byte of the file, comments included, survives.
 //
 // What these pin: the clause scanner does not match inside a comment or a
-// string; the rewrite preserves the rest of the block verbatim; a platform swap
+// string; the rewrite preserves the rest of the block verbatim; a frontend's
+// framework change moves the deployable to the platform that renders it and
 // carries an incompatible `design:` with it; and a scan that disagrees with the
 // AST refuses instead of rewriting the wrong line.
 
@@ -89,15 +91,15 @@ describe("maskInert / readClause — the scanner", () => {
 describe("rewriteClause", () => {
   it("replaces the value and leaves every other byte alone", () => {
     const before = byName("webApp").text;
-    const after = rewriteClause(before, "platform", "vue");
+    const after = rewriteClause(before, "platform", "feliz");
     expect(after).not.toBeNull();
-    expect(after).toContain("platform: web");
-    // Everything except the six bytes of the value is untouched.
-    expect(after?.replace("platform: web", "platform: web")).toBe(before);
+    expect(after).toContain("platform: feliz");
+    // Everything except the bytes of the value is untouched.
+    expect(after?.replace("platform: feliz", "platform: web")).toBe(before);
   });
 
   it("is a no-op (null) when the clause already reads the value", () => {
-    expect(rewriteClause(byName("webApp").text, "platform", "react")).toBeNull();
+    expect(rewriteClause(byName("webApp").text, "platform", "web")).toBeNull();
   });
 
   it("quotes a value the grammar's barewords do not cover", () => {
@@ -127,7 +129,7 @@ describe("readTargets", () => {
     expect(api.design).toBeNull();
     expect(api.ui).toBeNull();
     const web = byName("webApp");
-    expect(web.platform).toBe("react");
+    expect(web.platform).toBe("web");
     expect(web.isFrontend).toBe(true);
     expect(web.design).toBe("mantine");
     expect(web.mountsUi).toBe(true);
@@ -145,33 +147,40 @@ describe("readTargets", () => {
 });
 
 describe("targetPatches — the drawer's edit", () => {
-  it("React → Vue rewrites the deployable clause as a replace patch", () => {
-    const patches = targetPatches(byName("webApp"), "platform", "vue");
-    const deployable = patches.find((p) => p.target === "deployable webApp");
-    expect(deployable?.op).toBe("replace");
-    expect(deployable?.source).toContain("platform: web");
+  it("picking a framework rewrites the bound ui's `framework:`", () => {
+    const patches = targetPatches(byName("webApp"), "framework", "vue");
+    const ui = patches.find((p) => p.target === "ui WebApp");
+    expect(ui?.op).toBe("replace");
+    expect(ui?.source).toContain("framework: vue");
   });
 
-  it("carries the bound ui's framework with the platform swap", () => {
-    const patches = targetPatches(byName("webApp"), "platform", "vue");
+  it("carries an incompatible design pack with the framework", () => {
+    // `mantine` is a tsx pack; a vue ui renders vue markup, so leaving it
+    // would hand the user `loom.design-pack-format-mismatch` for a change the
+    // drawer made.
+    const patches = targetPatches(byName("webApp"), "framework", "vue");
     expect(patches.map((p) => p.target)).toEqual(["ui WebApp", "deployable webApp"]);
-    expect(patches[0]?.source).toContain("framework: vue");
-  });
-
-  it("carries an incompatible design pack with the platform swap", () => {
-    // `mantine` is a tsx pack; a vue deployable renders vue markup, so leaving
-    // it would hand the user `loom.design-pack-format-mismatch` for a change
-    // the drawer made.
-    const patches = targetPatches(byName("webApp"), "platform", "vue");
     const source = patches.find((p) => p.target === "deployable webApp")?.source ?? "";
     expect(source).toContain("design: vuetify");
+    expect(source).toContain("platform: web");
     expect(source).not.toContain("mantine");
   });
 
+  it("moves the deployable to the platform that renders the framework", () => {
+    const patches = targetPatches(byName("webApp"), "framework", "feliz");
+    expect(patches.find((p) => p.target === "ui WebApp")?.source).toContain("framework: feliz");
+    expect(patches.find((p) => p.target === "deployable webApp")?.source).toContain(
+      "platform: feliz",
+    );
+  });
+
   it("leaves a compatible design pack alone", () => {
-    const patches = targetPatches(byName("webApp"), "platform", "static");
-    expect(patches).toHaveLength(1);
-    expect(patches[0]?.source).toContain("design: mantine");
+    const noFramework = SOURCE.replace("    framework: react\n", "");
+    const patches = targetPatches(byName("webApp", noFramework), "platform", "web");
+    expect(patches).toEqual([]);
+    expect(targetPatches(byName("webApp"), "design", "shadcn")[0]?.source).toContain(
+      "platform: web",
+    );
   });
 
   it("changes the design pack on its own", () => {
@@ -181,15 +190,18 @@ describe("targetPatches — the drawer's edit", () => {
     expect(patches[0]?.source).toContain("platform: web");
   });
 
-  it("targets the bound `ui` declaration for the framework axis", () => {
-    const patches = targetPatches(byName("webApp"), "framework", "vue");
-    expect(patches).toHaveLength(1);
-    expect(patches[0]?.target).toBe("ui WebApp");
-    expect(patches[0]?.source).toContain("framework: vue");
+  it("on a backend, the framework axis rewrites only the ui", () => {
+    const hosted = SOURCE.replace(
+      "    contexts: [Sales]\n",
+      "    contexts: [Sales]\n    ui: WebApp\n",
+    ).replace("platform: node", "platform: dotnet");
+    const patches = targetPatches(byName("api", hosted), "framework", "vue");
+    expect(patches.map((p) => p.target)).toEqual(["ui WebApp"]);
   });
 
   it("emits nothing for a no-op change — the caller refuses visibly", () => {
-    expect(targetPatches(byName("webApp"), "platform", "react")).toEqual([]);
+    expect(targetPatches(byName("webApp"), "framework", "react")).toEqual([]);
+    expect(targetPatches(byName("webApp"), "platform", "web")).toEqual([]);
     expect(targetPatches(byName("api"), "framework", "vue")).toEqual([]);
   });
 
@@ -199,18 +211,27 @@ describe("targetPatches — the drawer's edit", () => {
     // (the same READ gate `builder/pane-write.ts` applies to a recovered AST).
     const bogus: TargetDeployable = {
       ...byName("webApp"),
-      platform: "svelte",
+      platform: "feliz",
     };
-    expect(targetPatches(bogus, "platform", "vue")).toEqual([]);
+    expect(targetPatches(bogus, "framework", "vue")).toEqual([]);
+    expect(targetPatches(bogus, "platform", "flutter")).toEqual([]);
   });
 });
 
 describe("the menus", () => {
   it("offers frontends to a frontend and backends to a backend", () => {
-    expect(platformMenu(byName("webApp"))).toContain("vue");
+    expect(platformMenu(byName("webApp"))).toEqual(["feliz", "flutter", "web"]);
+    expect(frontendFrameworkMenu()).toEqual([
+      "angular",
+      "feliz",
+      "flutter",
+      "react",
+      "svelte",
+      "vue",
+    ]);
     expect(platformMenu(byName("webApp"))).not.toContain("node");
     expect(platformMenu(byName("api"))).toContain("java");
-    expect(platformMenu(byName("api"))).not.toContain("react");
+    expect(platformMenu(byName("api"))).not.toContain("web");
   });
 
   it("offers only packs whose format matches the framework", () => {
@@ -222,9 +243,10 @@ describe("the menus", () => {
   });
 
   it("offers vue packs once the deployable is a vue target", () => {
-    const vueSource = SOURCE.replace("platform: web\n    targets", "platform: web\n    targets")
-      .replace("framework: react", "framework: vue")
-      .replace("design: mantine", "design: vuetify");
+    const vueSource = SOURCE.replace("framework: react", "framework: vue").replace(
+      "design: mantine",
+      "design: vuetify",
+    );
     const menu = designPackMenu(byName("webApp", vueSource));
     expect(menu).toEqual(["shadcnVue", "vuetify"]);
   });
@@ -232,7 +254,7 @@ describe("the menus", () => {
 
 describe("through applyPatches — the real applier", () => {
   it("splices the deployable and the ui, leaving every other byte alone", async () => {
-    const patches = targetPatches(byName("webApp"), "platform", "vue");
+    const patches = targetPatches(byName("webApp"), "framework", "vue");
     const result = await applyPatches(SOURCE, patches);
     expect(result.errors).toEqual([]);
     expect(result.ok).toBe(true);

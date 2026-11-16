@@ -39,10 +39,10 @@ const MODAL = "loom.modal-controlled-op-form-unsupported";
 
 /** JSX-family hosts are `platform: web`; feliz and flutter self-host. */
 const HOST: Record<string, string> = {
-  react: "static",
-  vue: "static",
-  svelte: "static",
-  angular: "static",
+  react: "web",
+  vue: "web",
+  svelte: "web",
+  angular: "web",
   feliz: "feliz",
   flutter: "flutter",
 };

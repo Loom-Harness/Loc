@@ -386,7 +386,7 @@ describe("pack-declared chrome — catalogs and emission", () => {
   // import block had been serialized.  So the binding and its `t` are asserted
   // together, per frontend, on a scaffolded detail page (where op dialogs
   // actually appear) whose aggregate has an array field.
-  const OP_DIALOG_SYSTEM = (platform: string, design: string) => `
+  const OP_DIALOG_SYSTEM = (framework: string, design: string) => `
   system Shop {
     subdomain Sales {
       context Sales {
@@ -400,7 +400,7 @@ describe("pack-declared chrome — catalogs and emission", () => {
       }
     }
     api SalesApi from Sales
-    ui Web with scaffold(subdomains: [Sales]) { api Sales: SalesApi }
+    ui Web with scaffold(subdomains: [Sales]) { framework: ${framework}  api Sales: SalesApi }
     storage primary { type: postgres }
     resource salesState { for: Sales, kind: state, use: primary }
     deployable api {
@@ -410,17 +410,17 @@ describe("pack-declared chrome — catalogs and emission", () => {
       serves: SalesApi
       port: 3000
     }
-    deployable web { platform: ${platform} targets: api ui: Web { Sales: api } design: ${design} port: 3100 }
+    deployable web { platform: web targets: api ui: Web { Sales: api } design: ${design} port: 3100 }
   }
 `;
 
-  for (const [platform, design, family, suffix, importLine] of [
+  for (const [framework, design, family, suffix, importLine] of [
     ["react", "mantine", "mantine", "pages/orders/detail.tsx", 'from "../../i18n"'],
     ["vue", "vuetify", "vuetify", "pages/orders/detail.vue", 'from "../../lib/locale"'],
     ["svelte", "flowbite", "flowbite", "orders/[id]/+page.svelte", 'from "$lib/locale.svelte"'],
   ] as const) {
-    it(`${platform}: an op dialog's pack chrome binds AND the page imports its \`t\``, async () => {
-      const files = await generateSystemFiles(OP_DIALOG_SYSTEM(platform, design));
+    it(`${framework}: an op dialog's pack chrome binds AND the page imports its \`t\``, async () => {
+      const files = await generateSystemFiles(OP_DIALOG_SYSTEM(framework, design));
       const page = fileEndingWith(files, suffix);
       expect(page).toContain(`t("pack.${family}.removeItem.`);
       expect(page).toContain(importLine);

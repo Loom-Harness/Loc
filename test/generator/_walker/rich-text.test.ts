@@ -14,7 +14,9 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 const SENTENCE = "Read the <b>terms</b> first";
 const KEY = messageKey("WebApp.page.Home", "text", SENTENCE);
 
-const system = (platform: string, pack: string, body: string): string => `
+/** feliz and flutter host their own framework; the other frontends are a
+ *  `platform: web` bundle rendering the framework the ui names. */
+const system = (framework: string, pack: string, body: string): string => `
   system Shop {
     api ShopApi from Catalog
     subdomain Catalog {
@@ -26,13 +28,13 @@ const system = (platform: string, pack: string, body: string): string => `
     storage db { type: postgres }
     resource s { for: Cat, kind: state, use: db }
     ui WebApp {
-      ${platform === "feliz" || platform === "flutter" ? `framework: ${platform}` : ""}
+      framework: ${framework}
       api Shop: ShopApi
       page Home { route: "/" body: ${body} }
     }
     deployable api { platform: node contexts: [Cat] dataSources: [s] serves: ShopApi port: 3000 }
     deployable web {
-      platform: ${platform} ${pack ? `design: "${pack}"` : ""} targets: api
+      platform: ${framework === "feliz" || framework === "flutter" ? framework : "web"} ${pack ? `design: "${pack}"` : ""} targets: api
       ui: WebApp { Shop: api } port: 3005
     }
   }
@@ -75,18 +77,18 @@ function pageOf(files: Map<string, string>, suffix: string): string {
 }
 
 describe("rich text: one whole-sentence message per target", () => {
-  const TARGETS: ReadonlyArray<[id: string, platform: string, pack: string, page: string]> = [
-    ["react", "static", "mantine", "pages/home.tsx"],
-    ["vue", "vue", "vuetify", "pages/home.vue"],
-    ["svelte", "svelte", "flowbite", "+page.svelte"],
-    ["angular", "angular", "angularMaterial", "pages/home.component.ts"],
-    ["feliz", "feliz", "", "src/App.fs"],
-    ["flutter", "flutter", "", "pages/home_page.dart"],
+  const TARGETS: ReadonlyArray<[id: string, pack: string, page: string]> = [
+    ["react", "mantine", "pages/home.tsx"],
+    ["vue", "vuetify", "pages/home.vue"],
+    ["svelte", "flowbite", "+page.svelte"],
+    ["angular", "angularMaterial", "pages/home.component.ts"],
+    ["feliz", "", "src/App.fs"],
+    ["flutter", "", "pages/home_page.dart"],
   ];
 
-  for (const [id, platform, pack, suffix] of TARGETS) {
+  for (const [id, pack, suffix] of TARGETS) {
     it(`${id}: the sentence is one catalog entry and the page resolves it`, async () => {
-      const files = await generateSystemFiles(system(platform, pack, BODY));
+      const files = await generateSystemFiles(system(id, pack, BODY));
       const catalog = JSON.parse(files.get(".loom/messages.en.json") ?? "{}") as Record<
         string,
         string
@@ -117,7 +119,7 @@ describe("rich text: one whole-sentence message per target", () => {
 
   it("an interpolated child stays a hole in the same sentence", async () => {
     const files = await generateSystemFiles(
-      system("static", "mantine", `Text { "Hello ", Bold { \`{name}\` }, ", welcome" }`).replace(
+      system("react", "mantine", `Text { "Hello ", Bold { \`{name}\` }, ", welcome" }`).replace(
         "page Home {",
         `page Home { state { name: string = "" }`,
       ),
@@ -131,7 +133,7 @@ describe("rich text: one whole-sentence message per target", () => {
 
   it("a Text with a non-inline child is still refused", async () => {
     await expect(
-      generateSystemFiles(system("static", "mantine", `Text { "a", Badge { "b" } }`)),
+      generateSystemFiles(system("react", "mantine", `Text { "a", Badge { "b" } }`)),
     ).rejects.toThrow(/loom\.page-primitive-extra-children/);
   });
 });

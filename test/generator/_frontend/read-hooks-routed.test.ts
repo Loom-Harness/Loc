@@ -124,7 +124,7 @@ system P {
   // refused up front (`loom.ui-read-unresolved#unrouted`) instead of becoming a
   // missing-import build error in the generated client.  LiveView reads the
   // context in-process and needs no route.
-  const READING = (apiMacro: string, webPlatform = "react"): string =>
+  const READING = (apiMacro: string, webPlatform = "web"): string =>
     FIXTURE(apiMacro)
       .replace(
         "ui WebApp with scaffold(subdomains: [S]) { }",

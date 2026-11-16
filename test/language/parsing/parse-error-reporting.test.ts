@@ -158,19 +158,19 @@ describe("F6 — an alternation names what was meant, not every path", () => {
     // names, where the distance budget is one edit — see
     // `test/util/edit-distance.test.ts`.)
     const { errors } = await parseString(
-      pageWith(`Text { "x" }`).replace("platform: web", "platform: reakt"),
+      pageWith(`Text { "x" }`).replace("platform: web", "platform: fluttre"),
     );
-    expect(errors[0]).toMatch(/Did you mean 'react'\?/);
+    expect(errors[0]).toMatch(/Did you mean 'flutter'\?/);
   });
 
   it("does not dump every lookahead path", async () => {
     const { errors } = await parseString(
-      pageWith(`Text { "x" }`).replace("platform: web", "platform: reakt"),
+      pageWith(`Text { "x" }`).replace("platform: web", "platform: fluttre"),
     );
     expect(errors[0]).not.toMatch(/possible Token sequences/);
-    // One line, and a bounded sample of the closed set rather than all 13.
+    // One line, and a bounded sample of the closed set rather than all nine.
     expect(errors[0]).not.toContain("\n");
-    expect(errors[0]).toMatch(/\(\+8 more\)/);
+    expect(errors[0]).toMatch(/\(\+4 more\)/);
   });
 
   it("offers no did-you-mean for a punctuation token", async () => {

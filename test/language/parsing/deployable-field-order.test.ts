@@ -56,7 +56,7 @@ describe("deployable field order-independence", () => {
     const byName = Object.fromEntries(deployables(model).map((d) => [d.name, d]));
 
     // Frontend: design/port/ui/targets all landed despite design-before-port.
-    expect(byName.web?.platform).toBe("react");
+    expect(byName.web?.platform).toBe("web");
     expect(byName.web?.design).toBe("shadcn");
     expect(byName.web?.port).toBe(3001);
     expect(byName.web?.targets?.$refText).toBe("api");

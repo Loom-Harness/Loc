@@ -26,9 +26,9 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const HOST: Record<string, string> = {
-  react: "static",
-  vue: "static",
-  svelte: "static",
+  react: "web",
+  vue: "web",
+  svelte: "web",
   feliz: "feliz",
   flutter: "flutter",
 };

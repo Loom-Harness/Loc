@@ -40,8 +40,8 @@ describe("System builder — infra construct properties", () => {
 
   it("reads and sets a deployable platform (preserving the rest)", () => {
     expect(deployablePlatform(node("Deployable", "catalogWeb"))).toBe("node");
-    const out = setDeployablePlatform(acme, "catalogWeb", "react")!;
-    expect(out).toMatch(/deployable catalogWeb \{\s*platform: web/);
+    const out = setDeployablePlatform(acme, "catalogWeb", "feliz")!;
+    expect(out).toMatch(/deployable catalogWeb \{\s*platform: feliz/);
     expect(out).toMatch(/deployable api \{\s*platform: dotnet/); // sibling untouched
   });
 
@@ -55,6 +55,6 @@ describe("System builder — infra construct properties", () => {
 
   it("returns null for unknown infra nodes", () => {
     expect(setStorageType(acme, "nope", "redis")).toBeNull();
-    expect(setDeployablePlatform(acme, "nope", "react")).toBeNull();
+    expect(setDeployablePlatform(acme, "nope", "web")).toBeNull();
   });
 });
