@@ -496,7 +496,7 @@ build worker returns a per-file content hash), and each History commit carries
 a *What changed in the output* section grouped by deployable.
 
 **Source ↔ output correspondence** is the Compiler-Explorer feature over
-`.loom/sourcemap.json`, which the build worker now records on every system
+`debug/sourcemap.json`, which the build worker now records on every system
 generate (the artifact itself is still only written into the tree under
 `--sourcemap`, so the emitted output is unchanged). Hovering a `.ddd`
 declaration names it, marks the generated files it produced and decorates

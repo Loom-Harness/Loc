@@ -487,7 +487,7 @@ export interface LayoutCtx {
    *  by the build worker (never parsed out of generated source, and
    *  available without booting).  Null before the first system generate. */
   apiSurface: ApiSurfaceView | null;
-  /** The parsed `.loom/sourcemap.json` of the latest generate — recorded on
+  /** The parsed `debug/sourcemap.json` of the latest generate — recorded on
    *  every generate now, not just the `--sourcemap` boot pass.  Null when
    *  the source produced no system. */
   sourceMap: LoomSourceMap | null;

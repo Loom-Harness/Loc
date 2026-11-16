@@ -1099,12 +1099,6 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
 
   // ── pending ─────────────────────────────────────────────────────
   {
-    name: "path:.loom",
-    group: "pending",
-    step: "pending-design",
-    note: "the .loom/ artifact bundle — removed by #5993",
-  },
-  {
     name: ".loom/",
     group: "pending",
     step: "pending-design",
@@ -1120,7 +1114,7 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     name: "loom-std",
     group: "pending",
     step: "pending-design",
-    note: "stdlib pseudo-source URI in .loom/sourcemap.json — #5993",
+    note: "stdlib pseudo-source URI in debug/sourcemap.json — #5993",
   },
   {
     name: "loomignore",

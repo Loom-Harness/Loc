@@ -103,7 +103,7 @@ interface RunOptions {
    * model error; off by default.  `generate system` only. */
   verifyIr?: boolean;
   /** `--sourcemap` switch — when true, `generate system` additionally emits
-   * `.loom/sourcemap.json` mapping generated file regions back to `.ddd`
+   * `debug/sourcemap.json` mapping generated file regions back to `.ddd`
    * spans / macro-call sites.  Off by default (byte-identical output).
    * See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md. */
   sourcemap?: boolean;
@@ -744,7 +744,7 @@ export function registerGenerateCommand(program: Command): void {
     )
     .option(
       "--sourcemap",
-      "emit .loom/sourcemap.json mapping generated code back to .ddd spans; off by default. See docs/debugging.md.",
+      "emit debug/sourcemap.json mapping generated code back to .ddd spans; off by default. See docs/debugging.md.",
     )
     .option(
       "--inline-sources",

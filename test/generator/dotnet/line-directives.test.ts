@@ -108,9 +108,9 @@ describe(".NET enhanced #line directives (M7 phase 6a)", () => {
     expect(lines[defaultIdx + 1]).toContain("AssertInvariants");
   });
 
-  it(".loom/sourcemap.json statement regions still resolve after the weave (fragment anchoring survived)", async () => {
+  it("debug/sourcemap.json statement regions still resolve after the weave (fragment anchoring survived)", async () => {
     const { files } = await generateSystemFilesWithSourceText(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<
         string,

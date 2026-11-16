@@ -12,7 +12,7 @@ interface BreakpointOptions {
 }
 
 /** `ddd breakpoints` — resolve a `.ddd` source line to the generated
- *  file:line(s) it produced, via `.loom/sourcemap.json` — the reverse of
+ *  file:line(s) it produced, via `debug/sourcemap.json` — the reverse of
  *  `ddd trace`. Best-effort: exits 0 whenever the map loads, same as
  *  `runTrace` — a line with no mapping is a valid answer, not a failure. */
 async function runBreakpoints(file: string, options: BreakpointOptions): Promise<void> {
@@ -74,12 +74,12 @@ export function registerBreakpointsCommand(program: Command): void {
     .command("breakpoints <file>")
     .description(
       "Resolve a .ddd source line to the generated file:line(s) it produced, via " +
-        ".loom/sourcemap.json — the reverse of `ddd trace`. See docs/debugging.md.",
+        "debug/sourcemap.json — the reverse of `ddd trace`. See docs/debugging.md.",
     )
     .requiredOption("--line <n>", "1-based .ddd source line to resolve")
     .option(
       "--map <path>",
-      "explicit path to sourcemap.json (default: <out>/.loom/sourcemap.json, else ./.loom/sourcemap.json)",
+      "explicit path to sourcemap.json (default: <out>/debug/sourcemap.json, else ./debug/sourcemap.json)",
     )
     .option(
       "-o, --out <dir>",

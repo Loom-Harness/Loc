@@ -2,24 +2,25 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Command } from "commander";
 import { annotateTrace, type SourceMap, traceCoverage } from "../../trace/index.js";
+import { SOURCE_MAP_PATH } from "../../util/source-map-path.js";
 
 interface TraceOptions {
   map?: string;
   out?: string;
 }
 
-/** Resolve the `.loom/sourcemap.json` path per the discovery rule: an
- *  explicit `--map` wins; else `<--out dir>/.loom/sourcemap.json`; else
- *  `./.loom/sourcemap.json`. */
+/** Resolve the `debug/sourcemap.json` path per the discovery rule: an
+ *  explicit `--map` wins; else `<--out dir>/debug/sourcemap.json`; else
+ *  `./debug/sourcemap.json`. */
 export function resolveMapPath(options: TraceOptions): string {
   if (options.map) return path.resolve(options.map);
-  if (options.out) return path.join(path.resolve(options.out), ".loom", "sourcemap.json");
-  return path.resolve(".loom", "sourcemap.json");
+  if (options.out) return path.join(path.resolve(options.out), SOURCE_MAP_PATH);
+  return path.resolve(SOURCE_MAP_PATH);
 }
 
 /** `ddd trace` — annotate a crash log / stack trace with the `.ddd`
  *  construct + source location each recognized frame maps to, via
- *  `.loom/sourcemap.json`. Best-effort: exits 0 whenever the map loads,
+ *  `debug/sourcemap.json`. Best-effort: exits 0 whenever the map loads,
  *  same as `annotateTrace` itself — an unresolved frame passes through
  *  unchanged rather than failing the run. */
 async function runTrace(file: string, options: TraceOptions): Promise<void> {
@@ -114,11 +115,11 @@ export function registerTraceCommand(program: Command): void {
     .command("trace <logfile>")
     .description(
       "Annotate a crash log / stack trace with the .ddd construct + source location each " +
-        "frame maps to, via .loom/sourcemap.json. See docs/debugging.md.",
+        "frame maps to, via debug/sourcemap.json. See docs/debugging.md.",
     )
     .option(
       "--map <path>",
-      "explicit path to sourcemap.json (default: <out>/.loom/sourcemap.json, else ./.loom/sourcemap.json)",
+      "explicit path to sourcemap.json (default: <out>/debug/sourcemap.json, else ./debug/sourcemap.json)",
     )
     .option(
       "-o, --out <dir>",

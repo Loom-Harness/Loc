@@ -58,7 +58,7 @@ see `docs/technical.md`), always runs and refuses an ill-formed lowering as
 `loom.ir-ill-formed`.
 
 `generate system` additionally accepts `--sourcemap`, which also emits
-`.loom/sourcemap.json` (construct- and statement-granular `.ddd` ↔ generated-line
+`debug/sourcemap.json` (construct- and statement-granular `.ddd` ↔ generated-line
 origins). `ddd trace <logfile>` reads that file to rewrite a backend stack-trace so
 each frame points at the `.ddd` line it was generated from — the debugging companion
 to the source map. For Node/V8 frames (the only dialect whose frames carry a column),
@@ -76,7 +76,7 @@ the `.ddd` files are not — on the ERP example it takes the sidecars from 95 KB
 `.ddd` source line, it prints every generated `file:line` that line produced
 (narrowest construct first — a line can host nested constructs, e.g. an
 aggregate declaration and a narrower operation inside it), sourced from the
-same `.loom/sourcemap.json` (`--map`/`-o, --out` follow the identical
+same `debug/sourcemap.json` (`--map`/`-o, --out` follow the identical
 discovery rule as `trace`). When the matched construct is a fine expression
 region carrying a `targetCol` (the same TS/Hono marks `trace`'s column-aware
 path already consumes), it resolves to `file:line:col` instead — the
@@ -196,7 +196,7 @@ project the .NET namespace and `.csproj` keep the capitalised form.
 | `--prune` | `generate system` | Delete the files under the generated folders that the run did not produce — see [Regeneration](#regeneration-what-generate-reads-writes-and-leaves). |
 | `--json` | `parse`, `generate system`, `patch`, `diff`, `migrate status`, `verify` | Print the structured result (diagnostics + outline, deployable manifest, patch result, report, verification) as JSON instead of the human summary.  On `generate system` it writes no files. |
 | `--k8s` | `generate system` | Also emit a Helm chart (`helm/`) and raw manifests (`k8s/`) beside `docker-compose.yml` — see [`kubernetes.md`](kubernetes.md). |
-| `--sourcemap`, `--inline-sources` | `generate system` | Emit `.loom/sourcemap.json` mapping generated code back to `.ddd` spans; `--inline-sources` also inlines each `.ddd`'s text into every v3 sidecar — see [`debugging.md`](debugging.md). |
+| `--sourcemap`, `--inline-sources` | `generate system` | Emit `debug/sourcemap.json` mapping generated code back to `.ddd` spans; `--inline-sources` also inlines each `.ddd`'s text into every v3 sidecar — see [`debugging.md`](debugging.md). |
 | `--locales <dir>` | `generate system` | Translator tree root to read locale catalogs from (default `<.ddd dir>/locales`); each locale found is emitted into every frontend with a translation runtime — see [i18n](#i18n-translator-workflow-ddd-i18n). |
 | `--verify-ir` | `generate system` | Run the IR verifier (a compiler self-check of the lowering/enrichment output) before validation and exit non-zero on a violation. |
 | `--trace` | `generate system` | Emit trace-level domain instrumentation (`value_computed`, `precondition_evaluated`, …) into the generated project.  Off by default — see [`observability.md`](observability.md). |

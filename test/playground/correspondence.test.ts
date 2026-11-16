@@ -48,7 +48,7 @@ async function fixture(file: string): Promise<Fixture> {
   // Through the shared helper, so the fixture is gated on phases ①/④/⑦ —
   // asserting on output no `ddd generate` could produce would prove nothing.
   const files = await generateSystemFiles(source, { sourcemap: true });
-  const raw = files.get(".loom/sourcemap.json");
+  const raw = files.get("debug/sourcemap.json");
   expect(raw).toBeDefined();
   const map = JSON.parse(raw!) as SourceMap;
   expect(map.sources).toHaveLength(1);

@@ -64,8 +64,8 @@ interface Region {
 
 async function mapOf(): Promise<Record<string, Region[]>> {
   const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-  const raw = files.get(".loom/sourcemap.json");
-  expect(raw, "no .loom/sourcemap.json emitted").toBeDefined();
+  const raw = files.get("debug/sourcemap.json");
+  expect(raw, "no debug/sourcemap.json emitted").toBeDefined();
   return (JSON.parse(raw!) as { files: Record<string, Region[]> }).files;
 }
 
@@ -117,7 +117,7 @@ describe("flutter generator — sourcemap recording", () => {
   it("the recorded page region really spans the emitted file", async () => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const map = (
-      JSON.parse(files.get(".loom/sourcemap.json")!) as { files: Record<string, Region[]> }
+      JSON.parse(files.get("debug/sourcemap.json")!) as { files: Record<string, Region[]> }
     ).files;
     const src = files.get("app/lib/pages/board_page.dart");
     expect(src, "board_page.dart not emitted").toBeDefined();
@@ -127,7 +127,7 @@ describe("flutter generator — sourcemap recording", () => {
 
   it("off by default — no sourcemap artifact, Dart unaffected", async () => {
     const files = await generateSystemFiles(SOURCE);
-    expect(files.has(".loom/sourcemap.json")).toBe(false);
+    expect(files.has("debug/sourcemap.json")).toBe(false);
     expect(files.has("app/lib/pages/board_page.dart")).toBe(true);
   });
 });

@@ -35,7 +35,7 @@ async function fixture(): Promise<Fixture> {
     content,
     size: content.length,
   }));
-  const raw = emitted.get(".loom/sourcemap.json");
+  const raw = emitted.get("debug/sourcemap.json");
   expect(raw).toBeDefined();
   return { files, map: JSON.parse(raw!) as SourceMap, source };
 }

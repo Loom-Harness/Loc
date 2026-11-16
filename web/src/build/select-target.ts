@@ -11,7 +11,7 @@
 //      the emitted TEXT (rather than reproducing the walker's id-derivation
 //      rules) means this keeps working for every design pack and every
 //      frontend framework, and cannot drift from what actually shipped.
-//   2. WHICH DECLARATION produced that file?  `.loom/sourcemap.json` already
+//   2. WHICH DECLARATION produced that file?  `debug/sourcemap.json` already
 //      answers that — the same reverse lookup the correspondence hover uses.
 //
 // Pure: no React, no DOM, no worker.
