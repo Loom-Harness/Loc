@@ -735,7 +735,10 @@ system M {
     ),
   // A routed workflow `create` answering `T or E`.
   "return:expected-failure@entry-point": (platform) =>
-    ledgerWitness(platform, `workflow W transactional { create(n: int): int or Insufficient { return n } }`),
+    ledgerWitness(
+      platform,
+      `workflow W transactional { create(n: int): int or Insufficient { return n } }`,
+    ),
   // A guard inside an operation's `match` arm.
   "stmt:match-arm-shape@body": (platform) =>
     noteWitness(
