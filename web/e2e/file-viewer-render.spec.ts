@@ -7,15 +7,15 @@
 // text.  `loom-services.ts` now registers the standard-language grammars, and
 // `FileViewer` gives `.md` a rendered-HTML preview.  This drives both:
 //
-//   1. open a generated `.loom/*.md` → its rendered preview shows real HTML
+//   1. open a generated `docs/*.md` → its rendered preview shows real HTML
 //      headings, and the Source toggle drops to a syntax-highlighted view;
-//   2. open a generated `.loom/wire-spec.json` → Monaco tokenizes it (proving
+//   2. open a generated `contracts/wire-spec.json` → Monaco tokenizes it (proving
 //      the grammar registration reaches the read-only file viewer).
 //
 // Acme is used because its `generate system` output always emits the
-// `.loom/` artefact bundle (coverage.md, traceability.md, wire-spec.json …).
-// The `.loom` folder sorts first in the tree (leading dot), so its files are
-// reliably rendered inside react-arborist's virtualized viewport.
+// derived documents (`docs/coverage.md`, `docs/traceability.md`, `contracts/wire-spec.json` …).
+// The tree is virtualized, so each row is scrolled into existence before it
+// is opened.
 
 import type { Page } from "@playwright/test";
 import { expect, test } from "./_test";
@@ -47,9 +47,9 @@ test("Generated explorer renders markdown and highlights code files", async ({ p
   await page.getByTestId("explorer-mode").getByText("Generated").click();
   const tree = page.getByTestId("explorer-tree");
 
-  // 1) Markdown renders as HTML.  coverage.md is always part of the `.loom`
-  //    artefact bundle and its report opens with a heading.
-  await tree.getByText("coverage.md", { exact: true }).click();
+  // 1) Markdown renders as HTML.  coverage.md is always part of the derived
+  //    `docs/` and its report opens with a heading.
+  await (await revealRow(page, tree, "coverage.md")).click();
   const preview = page.getByTestId("md-preview");
   await expect(preview).toBeVisible({ timeout: 15_000 });
   // A rendered heading proves marked → HTML ran (raw markdown would show a
@@ -67,8 +67,14 @@ test("Generated explorer renders markdown and highlights code files", async ({ p
     .toBeGreaterThan(1);
 
   // 3) A standard code file (JSON) is likewise highlighted.  wire-spec.json
-  //    sits at the bottom of the `.loom` bundle, virtualized out of the
-  //    initial viewport — scroll until the row mounts, then open it.
+  //    is under `contracts/`, which sorts above `docs/`: the reveal above left
+  //    the tree scrolled past it, so start again from the top and scroll until
+  //    the row mounts, then open it.
+  await tree.evaluate((el) => {
+    for (const n of [el, ...el.querySelectorAll<HTMLElement>("*")]) {
+      if (n instanceof HTMLElement && n.scrollTop > 0) n.scrollTop = 0;
+    }
+  });
   const jsonRow = await revealRow(page, tree, "wire-spec.json");
   await jsonRow.click();
   await expect
