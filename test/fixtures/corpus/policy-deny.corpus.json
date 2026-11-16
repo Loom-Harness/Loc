@@ -36,5 +36,119 @@
     "operation POST /api/notes/{id}/update": "principalFreeGate",
     "operation POST /api/orgs/{id}/update": "sharedTenancyIdentity",
     "operation POST /api/secrets/{id}/update": "principalFreeGate"
+  },
+  "authzLadder": {
+    "//": [
+      "`deny write on Account` — the write seam refused, the read seam open (M-T9.28 slice 2).",
+      "What this adds over the fixture's own `test e2e`, which already drives the whole deny matrix for the authorized principal: `deny` renders an always-false filter through each backend's STATIC (principal-free) filter path, so the split between a frozen write and an open read must hold for ANY identity.  A backend that reused the write scope as a read filter, or keyed either seam on the principal, passes the e2e and fails here.  It is also the second half of the control above: one identity admitted on the READ and refused on the WRITE of the SAME row, which no single surface can show.",
+      "The read-DENIED aggregates (`Secret`, `Note`) deliberately get no arm: they refuse both identities identically, so a second-identity 404 beside the fixture's first-identity 404 asserts nothing.  Both are pinned in `test/ir/authz-gate-census-pins.ts` under `R.principalFreeGate` with that reason — the same call `policy-document.ddd` records at its own site.",
+      "Returning operations load through the same command seam as `update`: a union-returning and a value-returning op on the write-denied row match no row either. Wave C3 packet 3c: `Ledger`, the aggregate carrying ONLY the tenant floor (no `policy` stance), refused across tenants on its read AND write seams — the tenancy predicate's own refusal, next to the policy carve-outs above.  Each surface seeds its own ledger."
+    ],
+    "seed": {
+      "path": "/api/accounts",
+      "body": {
+        "balance": 100
+      }
+    },
+    "gated": [
+      {
+        "label": "write-denied aggregate — its READ seam stays open",
+        "method": "GET",
+        "path": "/api/accounts/{id}",
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 200,
+          "authorized": 200
+        }
+      },
+      {
+        "label": "write-denied aggregate — the command load matches no row",
+        "method": "POST",
+        "path": "/api/accounts/{id}/update",
+        "body": {
+          "balance": 999
+        }
+      },
+      {
+        "label": "write-denied aggregate — destroy is refused the same way",
+        "method": "DELETE",
+        "path": "/api/accounts/{id}"
+      },
+      {
+        "label": "write-denied aggregate — a union-returning op is refused",
+        "method": "POST",
+        "path": "/api/accounts/{id}/settle",
+        "body": {
+          "amt": 5
+        }
+      },
+      {
+        "label": "write-denied aggregate — a value-returning op is refused",
+        "method": "POST",
+        "path": "/api/accounts/{id}/doubled",
+        "body": {}
+      },
+      {
+        "label": "tenant-floored control — a foreign tenant's by-id read",
+        "seed": {
+          "path": "/api/ledgers",
+          "body": {
+            "label": "LADDER-L1"
+          }
+        },
+        "method": "GET",
+        "path": "/api/ledgers/{id}",
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 200,
+          "otherTenant": 404,
+          "authorized": 200
+        }
+      },
+      {
+        "label": "tenant-floored control — a foreign tenant's update",
+        "seed": {
+          "path": "/api/ledgers",
+          "body": {
+            "label": "LADDER-L2"
+          }
+        },
+        "method": "POST",
+        "path": "/api/ledgers/{id}/update",
+        "body": {
+          "label": "LADDER-L2B"
+        },
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 204,
+          "otherTenant": 404,
+          "authorized": 204
+        }
+      },
+      {
+        "label": "tenant-floored control — a foreign tenant's destroy",
+        "seed": {
+          "path": "/api/ledgers",
+          "body": {
+            "label": "LADDER-L3"
+          }
+        },
+        "method": "DELETE",
+        "path": "/api/ledgers/{id}",
+        "note": "same-tenant caller has no requires to fail - its DELETE would succeed and make the cross-tenant 404 after it meaningless",
+        "arms": {
+          "anonymous": null,
+          "unauthorized": null,
+          "otherTenant": 404,
+          "authorized": 204
+        }
+      }
+    ],
+    "arms": {
+      "anonymous": null,
+      "unauthorized": 404,
+      "authorized": 404
+    },
+    "anonymousNote": "dev-stub verifier accepts every request — no anonymous caller exists"
   }
 }

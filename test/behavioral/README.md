@@ -268,22 +268,27 @@ stay in the docker `conformance-full` leg.
 
 Every behavioural corpus fixture runs on **all five** backends. A cell a
 backend gets wrong is **booted anyway**, as a tracked expected failure in
-`BEHAVIOURAL_XFAIL` (`registers.mjs`), keyed by runner leg (`node`,
-`mikroorm`, `dotnet`, `dapper`, `java`, `python`, `elixir`) and linked to
-the issue that fixes it. It is never dropped from the leg:
+the fixture's sidecar (`test/fixtures/corpus/<id>.corpus.json`), keyed by
+runner leg (`node`, `mikroorm`, `dotnet`, `dapper`, `java`, `python`,
+`elixir`) and linked to the issue that fixes it. `registers.mjs` collects
+the rows as `BEHAVIOURAL_XFAIL`. The cell is never dropped from the leg:
 
-```js
-dotnet: {
-  // fails to build — `match` pins the error
-  "projection-valueobject-row": { issue: "#4023", expect: "error", match: "dotnet build", reason: "…" },
-  // runtime — `tests` pins the EXACT failing set, test-name fragment → message regex
-  "inheritance-base-reads": {
-    issue: "#3956, #3959", expect: "fail",
-    tests: { "TPC: a base capability narrows every subtype": "expected the call to reject, but it resolved", … },
-    reason: "…",
-  },
-},
+```json
+"behavioural": {
+  "xfail": {
+    "dotnet": { "issue": "#4023", "expect": "error", "match": "dotnet build", "reason": "…" },
+    "python": {
+      "issue": "#4023", "expect": "fail",
+      "tests": { "a value object on a folded read model": "/place → 500" },
+      "reason": "…"
+    }
+  }
+}
 ```
+
+`error` pins the generate/build/boot message with `match`; `fail` pins the
+EXACT failing set with `tests` (test-name fragment → message regex). A `"//"`
+key in a row is its comment.
 
 `case-loop.mjs` (the one per-case loop all seven legs share) settles each
 such cell:
@@ -291,7 +296,7 @@ such cell:
 | observed | leg |
 |---|---|
 | fails as recorded (same kind; `match` / every `tests` pin claims a failure and every failure is claimed) | green — `⊘ failed as expected (#NNNN)` |
-| **passes** | **red** — `XPASS … delete its BEHAVIOURAL_XFAIL entry` |
+| **passes** | **red** — `XPASS … delete its expected-failure row` |
 | fails any other way (another kind, another message, a recorded block now passing, a new block failing) | **red** — `MISMATCH …` |
 
 A fix's PR therefore deletes its own entry, and a half-landed fix narrows
@@ -372,7 +377,8 @@ separating them by the time a request reaches a route is the authorization
 predicate. A 403 from the second one therefore cannot be confused with a
 verifier failure (which is a 401).
 
-`AUTHZ_LADDERS` (`cases.mjs`) declares, per case, one or more
+A fixture's `authzLadder` (its sidecar; `AUTHZ_LADDERS` in `registers.mjs`
+collects them) declares one or more
 `requires`-gated surfaces; `__authzLadder` (the shared recorder preamble in
 `wire-differential.mjs`, so every leg can adopt it) walks the three rungs
 over each of them:

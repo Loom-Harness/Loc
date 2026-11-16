@@ -12,5 +12,15 @@
     "unattributed": [
       "api.draftOrder.run (no such aggregate)"
     ]
+  },
+  "behavioural": {
+    "xfail": {
+      "elixir": {
+        "//": "A workflow's emit broadcasts locally instead of dispatching through the channels module, so the durable event never reaches the outbox.",
+        "issue": "#5745",
+        "expect": "wire",
+        "reason": "an Elixir workflow emit of a durable channel event bypasses the outbox; the broker records no publish"
+      }
+    }
   }
 }

@@ -10,5 +10,14 @@
       "api.addViaSecond.run (no such aggregate)",
       "api.dropViaSecond.run (no such aggregate)"
     ]
+  },
+  "behavioural": {
+    "xfail": {
+      "elixir": {
+        "issue": "#3838",
+        "expect": "wire",
+        "reason": "the workflow 409 `detail` names no aggregate or id (M-T6.94's removal half is fixed)"
+      }
+    }
   }
 }
