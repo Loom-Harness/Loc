@@ -10,7 +10,6 @@
 // or a reader's own edits.
 
 import { describe, expect, it } from "vitest";
-import { isScaffoldOnce } from "../../src/util/scaffold-once.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** A one-backend, no-UI system, with unit `test` blocks but no `test e2e`. */
@@ -106,7 +105,7 @@ const DOTNET_BACKEND = `
 
 async function readme(source: string): Promise<string> {
   const files = await generateSystemFiles(source);
-  const md = files.get("README.md");
+  const md = files.get("docs/README.md");
   expect(md, "generate system must emit a README.md at the output root").toBeDefined();
   return md!;
 }
@@ -114,7 +113,7 @@ async function readme(source: string): Promise<string> {
 describe("README.md — it is emitted at all", () => {
   it("writes one at the system root", async () => {
     const files = await generateSystemFiles(BACKEND_ONLY);
-    expect([...files.keys()]).toContain("README.md");
+    expect([...files.keys()]).toContain("docs/README.md");
   });
 
   it("titles it with the system name", async () => {
@@ -122,20 +121,12 @@ describe("README.md — it is emitted at all", () => {
   });
 });
 
-describe("README.md — scaffold-once", () => {
-  // Load-bearing: `ddd new` writes its own README.md at this exact path and
-  // then tells the author to generate into that same directory.  Without the
-  // marker the first `ddd generate system` destroys it.  The marker is
-  // detected in-band by the CLI writer, so it also buys `--dry-run`,
-  // `.loomignore` and prune participation with no change to that writer.
-  it("marks the file scaffold-once so regeneration never overwrites it", async () => {
-    expect(isScaffoldOnce(await readme(BACKEND_ONLY))).toBe(true);
-  });
-
-  it("carries the marker in an HTML comment, so the rendered page is unaffected", async () => {
-    const first = (await readme(BACKEND_ONLY)).split("\n")[0];
-    expect(first.startsWith("<!--")).toBe(true);
-    expect(first.endsWith("-->")).toBe(true);
+describe("docs/README.md — regenerated, never at the root", () => {
+  // The project's root README.md is the team's own file (`ddd new` writes
+  // one), so the generated page lives under docs/ and is ordinary output.
+  it("writes no root README.md", async () => {
+    const files = await generateSystemFiles(BACKEND_ONLY);
+    expect(files.has("README.md")).toBe(false);
   });
 });
 
@@ -377,7 +368,7 @@ system Shop {
 
   it("names the dev Keycloak, the demo user and a token recipe that matches the realm", async () => {
     const files = await generateSystemFiles(OIDC);
-    const md = files.get("README.md")!;
+    const md = files.get("docs/README.md")!;
     const realm = JSON.parse(files.get("keycloak/realm.json")!) as {
       realm: string;
       clients: { clientId: string }[];
@@ -395,14 +386,14 @@ system Shop {
   // A declared env-bound audience fails closed when it resolves empty, so the
   // "real provider" recipe must name the variable or the deployment 401s.
   it("names OIDC_AUDIENCE for a real provider only when the model declares an env audience", async () => {
-    const plain = (await generateSystemFiles(OIDC)).get("README.md")!;
+    const plain = (await generateSystemFiles(OIDC)).get("docs/README.md")!;
     expect(plain).not.toContain("plus `OIDC_AUDIENCE`");
     const withAud = OIDC.replace(
       'clientId: env("OIDC_CLIENT_ID") }',
       'clientId: env("OIDC_CLIENT_ID")  audience: env("OIDC_AUDIENCE") }',
     );
     expect(withAud).not.toBe(OIDC);
-    const md = (await generateSystemFiles(withAud)).get("README.md")!;
+    const md = (await generateSystemFiles(withAud)).get("docs/README.md")!;
     expect(md).toContain("plus `OIDC_AUDIENCE` (the value that provider puts in `aud`)");
     expect(md).toContain("rejects every token");
   });
@@ -440,7 +431,7 @@ describe("README.md — what the in-process suites need", () => {
     const files = await generateSystemFiles(WITH_INTEGRATION);
     // Vacuity guard: the model really emitted an integration suite.
     expect([...files.keys()].some((p) => /^api\/.*integration.*\.test\.ts$/.test(p))).toBe(true);
-    const md = files.get("README.md")!;
+    const md = files.get("docs/README.md")!;
     expect(md).toContain("is an **integration test**");
     expect(md).toContain("LOOM_PG_URL=postgres://postgres:postgres@localhost:5432/api npm test");
   });

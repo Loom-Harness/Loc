@@ -93,7 +93,7 @@ async (httpCtx) => {
   await orders.save(order);
   return httpCtx.json(order.id as unknown, 200);
 }
-// the extern handler dispatches to a scaffold-once, user-owned module
+// the extern handler dispatches to a user-owned module
 const result = await getQuoteImpl(sku);
 ```
 == dotnet

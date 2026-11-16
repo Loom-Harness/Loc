@@ -1,6 +1,6 @@
 # 21. Externs
 
-The escape hatches from the model to hand-written code, each with a typed boundary Loom generates and checks. Four seams: an `extern` **operation** (the body declares only its preconditions; the aggregate runs them, then calls a co-located hook you own), an `extern` **commandHandler / queryHandler** (a bodyless application-layer handler whose scaffold-once impl file you own — the home for "one external-service call around one aggregate"), an `extern` **component** (a page region rendered by a hand-written module against a generated props interface), and an `extern` **function** (a typed pure frontend function with a generated signature + conformance shim). Reach for `extern` when the *decision* belongs outside the model — pricing, fraud scoring, a call to a system of record — while the invariants stay on the aggregate.
+The escape hatches from the model to hand-written code, each with a typed boundary Loom generates and checks. Four seams: an `extern` **operation** (the body declares only its preconditions; the aggregate runs them, then calls a co-located hook you own), an `extern` **commandHandler / queryHandler** (a bodyless application-layer handler whose impl file you own — the home for "one external-service call around one aggregate"), an `extern` **component** (a page region rendered by a hand-written module against a generated props interface), and an `extern` **function** (a typed pure frontend function with a generated signature + conformance shim). Reach for `extern` when the *decision* belongs outside the model — pricing, fraud scoring, a call to a system of record — while the invariants stay on the aggregate.
 
 > **Grammar:** `Operation` (`extern?` after the param list), `CommandHandler` / `QueryHandler` (`extern?` prefix + bodyless `;`), `Component` (`extern?='extern' 'from' externPath`), `UiFunction` (`'extern' 'from' externPath`) · **Validators:** `loom.extern-body-not-precondition`, `loom.extern-on-private-operation`, `loom.extern-handler-has-body`, `loom.handler-missing-body`, `loom.extern-component-has-body`, `loom.component-missing-body`, `loom.extern-function-shadows-stdlib`, `loom.user-component-deferred-target` · **Docs:** [`../extern.md`](../extern.md)
 
@@ -10,7 +10,7 @@ An extern operation's body is **preconditions only** — no assignment, no `emit
 load aggregate → run preconditions → call your hook → run invariants → save → drain events
 ```
 
-The generated hook file is **scaffold-once** on every backend: its first line carries a `loom:scaffold-once` marker, the writer keeps the on-disk copy whenever it already exists, and `ddd generate system` reports it as `preserved (scaffold-once): N`. The stub **throws** until you fill it in, so a forgotten implementation is a loud 500, never a silent success.
+The hook file is a **hatch file** on every backend: it is written only when it is missing, the writer keeps the on-disk copy whenever it exists, and `ddd generate system` reports it as `preserved (hatch): N`. Nothing in the file marks it; its existence is the whole state. The stub **throws** until you fill it in, so a forgotten implementation is a loud 500, never a silent success.
 
 ## `extern` operation
 
@@ -53,7 +53,7 @@ export abstract class OrderBase {
 }
 ```
 ```ts
-// domain/order.ts — loom:scaffold-once, yours
+// domain/order.ts — yours
 export class Order extends OrderBase {
   protected override confirmExtern(): void {
     throw new Error("extern operation 'confirm' on Order is not implemented — write its body in src/domain/order.ts");
@@ -79,7 +79,7 @@ public sealed partial class Order
 }
 ```
 ```csharp
-// Domain/Orders/Order.Extern.cs — loom:scaffold-once, yours; a MEMBER of Order → private state reachable
+// Domain/Orders/Order.Extern.cs — yours; a MEMBER of Order → private state reachable
 public sealed partial class Order
 {
     private partial void ConfirmCore()
@@ -100,7 +100,7 @@ public void confirm() {
 }
 ```
 ```java
-// features/orders/OrderExtern.java — loom:scaffold-once; same package → package-private fields + _raiseEvent
+// features/orders/OrderExtern.java — yours; same package → package-private fields + _raiseEvent
 final class OrderExtern {
     private OrderExtern() {}
     static void confirm(Order order) {
@@ -121,7 +121,7 @@ def confirm(self) -> None:
     self._assert_invariants()
 ```
 ```python
-# app/domain/extern/order_extern.py — loom:scaffold-once, yours
+# app/domain/extern/order_extern.py — yours
 def confirm(order: Order) -> None:
     raise NotImplementedError(
         "extern operation `confirm` on Order is not implemented — "
@@ -151,7 +151,7 @@ def confirm_order(%DElixir.Sales.Order{} = record, params) when is_map(params) d
 end
 ```
 ```elixir
-# lib/<app>/sales/order_extern_impl.ex — loom:scaffold-once, yours
+# lib/<app>/sales/order_extern_impl.ex — yours
 defmodule DElixir.Sales.OrderExternImpl do
   @behaviour DElixir.Sales.OrderExtern
   @impl true
@@ -188,7 +188,7 @@ workflow confirmOrder {
 
 ## `extern` commandHandler / queryHandler
 
-The application-layer twin: a **bodyless** `extern commandHandler` / `extern queryHandler` declares the signature (params + return contract) and hands the implementation to a scaffold-once impl file the generated route dispatch calls. Use it when the *whole* handler is an outbound call (a payment gateway, a quote service) rather than a DSL-expressible load → mutate → save. A non-extern handler must carry a `{ … }` body and an extern one must not — `loom.handler-missing-body` / `loom.extern-handler-has-body` pin the pairing.
+The application-layer twin: a **bodyless** `extern commandHandler` / `extern queryHandler` declares the signature (params + return contract) and hands the implementation to a user-owned impl file the generated route dispatch calls. Use it when the *whole* handler is an outbound call (a payment gateway, a quote service) rather than a DSL-expressible load → mutate → save. A non-extern handler must carry a `{ … }` body and an extern one must not — `loom.handler-missing-body` / `loom.extern-handler-has-body` pin the pairing.
 
 ```ddd
 context Orders {
@@ -202,7 +202,7 @@ api OrdersApi from Sales {
 ::: tabs backend
 == node
 ```ts
-// application/get-quote-handler-impl.ts — loom:scaffold-once, yours
+// application/get-quote-handler-impl.ts — yours
 export async function getQuoteImpl(sku: string): Promise<string> {
   throw new ExternHandlerError("GetQuote", "Orders",
     new Error("extern queryHandler 'GetQuote' is not implemented — fill in src/application/get-quote-handler-impl.ts"));
@@ -215,7 +215,7 @@ return httpCtx.json(result as unknown, 200);
 ```
 == dotnet
 ```csharp
-// Application/Handlers/GetQuoteExternHandler.cs — loom:scaffold-once; Scrutor registers [ExternHandler] impls
+// Application/Handlers/GetQuoteExternHandler.cs — yours; Scrutor registers [ExternHandler] impls
 [ExternHandler]
 public sealed class GetQuoteExternHandler : IGetQuoteHandler
 {
@@ -225,7 +225,7 @@ public sealed class GetQuoteExternHandler : IGetQuoteHandler
 ```
 == java
 ```java
-// application/workflows/GetQuoteHandlerImpl.java — loom:scaffold-once; a @Service implementing GetQuotePort
+// application/workflows/GetQuoteHandlerImpl.java — yours; a @Service implementing GetQuotePort
 @Service
 public class GetQuoteHandlerImpl implements GetQuotePort {
     @Override
@@ -236,7 +236,7 @@ public class GetQuoteHandlerImpl implements GetQuotePort {
 ```
 == python
 ```python
-# app/application/impl/get_quote_impl.py — loom:scaffold-once
+# app/application/impl/get_quote_impl.py — yours
 async def get_quote_impl(sku: str) -> str:
     raise NotImplementedError(
         "extern queryHandler 'GetQuote' is not implemented — fill in app/application/impl/get_quote_impl.py"
@@ -244,7 +244,7 @@ async def get_quote_impl(sku: str) -> str:
 ```
 == elixir
 ```elixir
-# lib/<app>/orders/handlers/get_quote_impl.ex — loom:scaffold-once; the generated
+# lib/<app>/orders/handlers/get_quote_impl.ex — yours; the generated
 # GetQuote.run/1 delegates via Application.get_env(:app, GetQuote, GetQuoteImpl).run(params)
 defmodule DElixir.Orders.Handlers.GetQuoteImpl do
   @spec run(map()) :: {:ok, term()} | {:error, term()}

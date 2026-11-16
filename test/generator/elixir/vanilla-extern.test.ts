@@ -9,7 +9,6 @@
 // module that `raise`s until filled in, delegated to from the context.
 
 import { describe, expect, it } from "vitest";
-import { isScaffoldOnce } from "../../../src/util/scaffold-once.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SYSTEM = `
@@ -64,8 +63,7 @@ describe("vanilla extern seam", () => {
     const files = await generateSystemFiles(SYSTEM);
     const impl = files.get("api/lib/api/c/order_extern_impl.ex");
     expect(impl).toBeDefined();
-    // Scaffold-once marker on line 1 → the CLI writer preserves it across regen.
-    expect(isScaffoldOnce(impl!)).toBe(true);
+    expect(impl!.split("\n")[0]).toContain("This file is yours");
     expect(impl).toContain("defmodule Api.C.OrderExternImpl do");
     expect(impl).toContain("@behaviour Api.C.OrderExtern");
     expect(impl).toContain("@impl true");

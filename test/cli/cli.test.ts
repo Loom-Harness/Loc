@@ -66,7 +66,7 @@ describe("CLI", () => {
     // unchanged — 0 would-writes, matching what a real re-run does.
     const dry = runCli(["generate", "system", example, "-o", tmp, "--dry-run"]);
     expect(dry.status).toBe(0);
-    expect(dry.stdout).toMatch(/Would write 0 file\(s\) in [^,]+, unchanged: 54/);
+    expect(dry.stdout).toMatch(/Would write 0 file\(s\) in [^,]+, unchanged: 55/);
     fs.rmSync(tmp, { recursive: true });
   });
 
@@ -111,8 +111,8 @@ describe("CLI", () => {
     fs.rmSync(tmp, { recursive: true });
   });
 
-  // The root `README.md` IS emitted — the scaffold-once orientation page for
-  // the generated tree, written once and then left to the user.
+  // The orientation page is `docs/README.md`; the root `README.md` is the
+  // team's own file and generation never writes it.
   it("does not emit project-shell files (.env.example, .gitignore)", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loom-shell-"));
     expect(runCli(["generate", "system", example, "-o", tmp]).status).toBe(0);
@@ -121,6 +121,8 @@ describe("CLI", () => {
       expect(fs.existsSync(path.join(dir, ".gitignore"))).toBe(false);
     }
     expect(fs.existsSync(path.join(tmp, proj, "README.md"))).toBe(false);
+    expect(fs.existsSync(path.join(tmp, "README.md"))).toBe(false);
+    expect(fs.existsSync(path.join(tmp, "docs", "README.md"))).toBe(true);
     fs.rmSync(tmp, { recursive: true });
   });
 
@@ -136,9 +138,7 @@ describe("CLI", () => {
 
     const second = runCli(["generate", "system", example, "-o", tmp]);
     expect(second.status).toBe(0);
-    expect(second.stdout).toMatch(
-      /Wrote 0 file\(s\) in [^,]+, unchanged: 54, preserved \(scaffold-once\): 1/,
-    );
+    expect(second.stdout).toMatch(/Wrote 0 file\(s\) in [^,]+, unchanged: 55$/m);
     const mtimeAfter = fs.statSync(sample).mtimeMs;
     expect(mtimeAfter).toBe(mtimeBefore);
     fs.rmSync(tmp, { recursive: true });
@@ -169,7 +169,7 @@ describe("CLI", () => {
     // the digest this path recorded in `.loom/manifest.json` no longer matches
     // what is on disk, which is exactly the case the count exists to surface.
     expect(result.stdout).toMatch(
-      /Wrote 1 file\(s\) in [^,]+, 1 of which had local modifications \(pinnable via \.loomignore\), unchanged: 53, preserved \(scaffold-once\): 1/,
+      /Wrote 1 file\(s\) in [^,]+, 1 of which had local modifications \(pinnable via \.loomignore\), unchanged: 54$/m,
     );
     expect(fs.statSync(idsPath).mtimeMs).toBeGreaterThan(idsMtimeBefore);
     expect(fs.statSync(orderPath).mtimeMs).toBe(orderMtimeBefore);

@@ -14,6 +14,7 @@ import {
 } from "../../../ir/plan/index.js";
 import { testPrincipalShape } from "../../../ir/plan/test-principal.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
+import { hatchStub } from "../../../util/hatch.js";
 // This orchestrator (project assembly: which files, framework wiring,
 // package.json/Dockerfile) is backend-specific, so it lives with the
 // Hono platform surface and drives the shared neutral emitter library
@@ -1400,7 +1401,7 @@ export function generateTypeScriptForContexts(
         place(
           "domain-aggregate",
           agg.name,
-          buildExternSubclassFile(agg, ctx),
+          hatchStub(buildExternSubclassFile(agg, ctx)),
           agg.origin,
           construct,
         );
