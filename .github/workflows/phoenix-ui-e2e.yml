@@ -226,6 +226,10 @@ jobs:
           restore-keys: |
             hex-mix-vanilla-
 
+      # The suite loads the hosted page in Chromium (the root component renders).
+      - name: Install the chromium browser
+        run: npx playwright install --with-deps chromium
+
       - name: Run Phoenix-embeds-React runtime e2e
         env:
           LOOM_OBS_PG_URL: 'postgres://postgres:postgres@127.0.0.1:5432'
