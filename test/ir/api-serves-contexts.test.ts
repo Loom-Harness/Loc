@@ -94,8 +94,12 @@ describe("loom.api-no-surface", () => {
     expect(hits).toHaveLength(1);
     expect(hits[0]!.severity).toBe(1);
     expect(hits[0]!.message).toContain("api 'Floating' declares no surface");
-    // One diagnostic at the cause: the unserved warning is not repeated.
-    expect(diagnostics.map((d) => d.code)).not.toContain("loom.api-unserved");
+    // One diagnostic at the cause: the IR-level unserved warning is not repeated.
+    const { model } = await parseString(sys(deployable, "api AApi from A\n  api Floating"), {
+      validate: false,
+    });
+    const ir = validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+    expect(ir).not.toContain("loom.api-unserved");
   });
 
   it("accepts each of the three surface sources", async () => {
