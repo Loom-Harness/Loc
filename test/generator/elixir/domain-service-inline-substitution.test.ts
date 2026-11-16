@@ -48,7 +48,7 @@ describe("elixir mutating domainService inlining substitutes params at any depth
     const key = [...files.keys()].find((k) => k.endsWith("workflows/bump_order.ex"));
     expect(key, "workflow module not emitted").toBeDefined();
     const wf = files.get(key!)!;
-    expect(wf).toContain("Context.extend_order(o, %{");
+    expect(wf).toContain("Context.__apply_extend_order(o, %{");
     expect(wf).toContain("((k) * 86400000)");
     expect(wf).not.toContain("((n) * 86400000)");
   });
