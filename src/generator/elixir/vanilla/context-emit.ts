@@ -315,7 +315,7 @@ export function emitVanillaContextModule(
   out.set(path, content);
   if (sourcemap && opFragments) {
     for (const frag of opFragments) {
-      sourcemap.fragment(path, content, frag.fragmentText, frag.subRegions);
+      sourcemap.fragment(path, content, frag.fragmentText, frag.subRegions, frag.within);
     }
   }
 }
@@ -1858,6 +1858,7 @@ function renderNamedOpFunction(
   if (isExternOp(op)) {
     return renderExternOpFunction(facadeMod, ctx, agg, aggPascal, aggSnake, op);
   }
+  const fragmentsBefore = opFragments?.length ?? 0;
   const opSnake = snake(op.name);
   const aggModule = `${facadeMod}.${aggPascal}`;
   const repoMod = `${aggModule}Repository`;
@@ -2263,12 +2264,16 @@ ${dispatchBlock}
   const okSpec = staging
     ? `{:ok, ${aggModule}.t(), [(${aggModule}.t() -> term())]}`
     : `{:ok, ${aggModule}.t()}`;
-  return `  @doc "${doc}"
+  const fnText = `  @doc "${doc}"
   @spec ${fnName}(${aggModule}.t(), map()${staging ? ", list()" : ""}) ::
           ${okSpec} | {:error, Ecto.Changeset.t() | term()}
   def ${fnName}(%${aggModule}{} = record, params${stagedArg}${opUsesCurrentUser(op) ? ", current_user \\\\ nil" : ""}) when is_map(params) do
 ${bodyContent}
   end`;
+  // The apply step repeats this body, so each fragment is anchored inside
+  // this function.
+  for (const frag of opFragments?.slice(fragmentsBefore) ?? []) frag.within = fnText;
+  return fnText;
 }
 
 /** The end of an apply step that stages work for its save: each event built

@@ -115,6 +115,9 @@ import {
 export interface OpFragment {
   fragmentText: string;
   subRegions: SourceMapSubRegion[];
+  /** The whole function the fragment sits in, when the file renders the same
+   *  body in more than one function (an op and its apply step). */
+  within?: string;
 }
 
 /** The wire field list a returning op's success branch serialises `record`
