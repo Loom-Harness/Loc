@@ -531,7 +531,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     return agg ? resolveDs(agg)?.schema : undefined;
   });
   const hasSeeds = seedFile != null;
-  // Durable-channel outbox relay (dispatch-delivery-semantics.md): when a
+  // Durable-channel outbox relay (docs/channels.md): when a
   // durable channel carries a *subscribed* event, `app/dispatch.py` ships
   // `start_outbox_relay`, which the lifespan kicks off as a background
   // task. adds the workflow-less durable-broker PRODUCER

@@ -769,7 +769,7 @@ export function buildWorkflowsFile(
   const drizzleOps = ["and", "asc", "eq", "isNull", "lt"].filter((op) =>
     new RegExp(`(?<!\\.)\\b${op}\\(`).test(bodyStr),
   );
-  // The fold-inbox purge is a raw `sql` template.
+  // The consumer-inbox purge is a raw `sql` template.
   if (/(?<!\.)\bsql`/.test(bodyStr)) drizzleOps.push("sql");
   if (drizzleOps.length > 0)
     imports.push(`import { ${drizzleOps.join(", ")} } from "drizzle-orm";`);
@@ -1839,7 +1839,7 @@ function outboxPurgeStep(del: string): string[] {
   ];
 }
 
-/** Transactional-outbox tier (dispatch-delivery-semantics.md): events carried
+/** Transactional-outbox tier (docs/channels.md): events carried
  *  by a channel with `retention: log | work` are recorded in `__loom_outbox`
  *  (same control-flow point the inline dispatch sat at) instead of being
  *  dispatched in-process; `startOutboxRelay` drains the pending rows
@@ -1958,9 +1958,9 @@ function emitOutboxMachinery(
   out.push(`          .for("update", { skipLocked: true });`);
   out.push(`        for (const row of rows) {`);
   out.push(`          try {`);
-  // The outbox row id rides on the dispatched event so the saga handler's
-  // idempotent-consumer marker can no-op on redelivery (dispatch-delivery-
-  // semantics.md §3).  Inline (ephemeral) dispatch carries no id.
+  // The outbox row id rides on the dispatched event as its event id, so
+  // every consumer's claim in the consumer inbox no-ops on redelivery
+  // (D-CONSUMER-INBOX).  Inline (ephemeral) dispatch carries no id.
   out.push(...redeliver("            "));
   out.push(
     `            await tx.update(schema.loomOutbox).set({ dispatchedAt: new Date() }).where(eq(schema.loomOutbox.id, row.id));`,
@@ -2077,8 +2077,8 @@ function emitMikroOutboxMachinery(
     `        );`,
     `        for (const row of rows) {`,
     `          try {`,
-    // The outbox row id rides on the dispatched event so the saga handler's
-    // idempotent-consumer marker can no-op on redelivery — identical to the
+    // The outbox row id rides on the dispatched event as its event id, so
+    // every consumer's inbox claim no-ops on redelivery — identical to the
     // drizzle relay above.
     ...redeliver("            "),
     `            await tx.nativeUpdate(${ROW}, { id: row.id }, { dispatchedAt: new Date() });`,

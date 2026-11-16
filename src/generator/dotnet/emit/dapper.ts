@@ -2551,7 +2551,7 @@ export function renderDapperRepository(
       ...containSaveLines,
       ...provFlushLines,
       ...auditFlushLines,
-      // Transactional outbox (dispatch-delivery-semantics.md §1): the durable
+      // Transactional outbox (docs/channels.md): the durable
       // events' __loom_outbox rows are INSERTed on `__tx` — the same
       // transaction the write set rides — so the commit below records them
       // atomically with the state change.  Inserting from DispatchAsync AFTER

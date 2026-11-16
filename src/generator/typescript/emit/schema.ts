@@ -280,7 +280,7 @@ export function renderSchema(
   }
   if (opts.audit) tables.push(AUDIT_TABLE);
   if (opts.provenance) tables.push(PROVENANCE_TABLE);
-  // Transactional outbox (dispatch-delivery-semantics.md): emitted when any
+  // Transactional outbox (docs/channels.md): emitted when any
   // channel asks for durability (`retention: log | work`).  The dispatcher
   // records durable events here; the relay drains undispatched rows in
   // insert order (serial id) through the in-process dispatcher.

@@ -1,5 +1,5 @@
 // M-T4.3 — standalone (no-broker) transactional outbox on the Java backend
-// (dispatch-delivery-semantics.md §1-2), closing the last M-T4.3 residual: a
+// (docs/channels.md), closing the last M-T4.3 residual: a
 // durable channel (`retention: log | work`) with NO `channelSource` used to
 // silently downgrade to at-most-once inline dispatch on java. Now it gets the
 // same crash-safe in-process outbox node/dotnet/python emit:

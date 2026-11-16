@@ -58,7 +58,7 @@ function file(files: Map<string, string>, suffix: string): string {
   return key ? (files.get(key) ?? "") : "";
 }
 
-describe("elixir idempotent-consumer markers (M-T4.3)", () => {
+describe("elixir consumer inbox", () => {
   it("maps no marker column on the saga-state Ecto schema: the inbox claim dedupes", async () => {
     const files = await build(DURABLE);
     expect(file(files, "fulfil_state.ex")).not.toContain("last_event_id");

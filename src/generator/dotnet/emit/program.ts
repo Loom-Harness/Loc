@@ -217,7 +217,7 @@ export function renderProgram(
     /** The cached by-id reads of the deployable: each one's repository is
      *  registered behind its eviction decorator. */
     byIdCaches?: readonly CachedByIdRead[];
-    /** Transactional outbox (dispatch-delivery-semantics.md): registers the
+    /** Transactional outbox (docs/channels.md): registers the
      *  outbox-wrapping dispatcher + the relay BackgroundService.  Implies
      *  hasSubscriptions. */
     hasOutbox?: boolean;

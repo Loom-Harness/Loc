@@ -1,4 +1,4 @@
-// Channel-derived helpers (channels.md / dispatch-delivery-semantics.md).
+// Channel-derived helpers (docs/channels.md).
 //
 // Pure over the IR — shared by the schema emitter, the migrations builder,
 // and the per-backend dispatch wiring, so "which events are durable" has one
@@ -21,7 +21,7 @@ export function backendServesRealtime(platform: Platform | undefined): boolean {
  *  (`retention: log | work`).  These route through the transactional
  *  outbox (`__loom_outbox` + relay) instead of the inline in-process
  *  dispatch; an `ephemeral` channel keeps the at-most-once path.
- *  (dispatch-delivery-semantics.md — `retention` is the opt-in knob.) */
+ *  (docs/channels.md — `retention` is the opt-in knob.) */
 export function durableEventTypes(ctx: BoundedContextIR): ReadonlySet<string> {
   const out = new Set<string>();
   for (const ch of ctx.channels ?? []) {

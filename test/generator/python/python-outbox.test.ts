@@ -6,14 +6,14 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — durable-channel outbox tier (F3,
-// dispatch-delivery-semantics.md).  A `retention: log | work` channel
+// docs/channels.md).  A `retention: log | work` channel
 // routes its events through the transactional outbox: an
 // `OutboxDispatcher` wraps the in-process one and records durable events
 // in `__loom_outbox` inside the request transaction; a background relay
 // (`start_outbox_relay` → `_run_outbox_relay`) redelivers them
 // at-least-once through the in-process dispatcher, ordered by
-// occurred_at, dead-lettering after max_attempts; saga rows carry
-// `last_event_id` for idempotent-consumer dedup, and chained emits clear
+// occurred_at, dead-lettering after max_attempts; each handler claims the
+// delivery in the consumer inbox (D-CONSUMER-INBOX), and chained emits clear
 // the relayed id so they aren't deduped.  Verified live (place → outbox
 // row → relay drain → Shipment Tracked → idempotent redelivery).
 // ---------------------------------------------------------------------------
@@ -29,7 +29,7 @@ async function build() {
 }
 
 describe("python durable-channel outbox", () => {
-  it("schema gains the __loom_outbox table + last_event_id marker", async () => {
+  it("schema gains the __loom_outbox table and no saga marker column", async () => {
     const files = await build();
     const schema = files.get("api/app/db/schema.py")!;
     expect(schema).toContain("class LoomOutboxRow(Base):");

@@ -58,7 +58,7 @@ const CASES: Array<[fixture: string, project: string, flags?: string]> = [
   // Generated from the shared corpus fixture.
   ["corpus:eventsourced-workflow", CORPUS_DEPLOYABLE],
   // Durable channel (`retention: log`): transactional outbox + relay +
-  // last_event_id idempotent-consumer dedup.
+  // the consumer-inbox claim (D-CONSUMER-INBOX).
   ["test/e2e/fixtures/python-build/outbox.ddd", "api"],
   // `auth: required` — User dataclass + verifier registry + middleware,
   // requires-guarded op/workflow, currentUser-scoped find.

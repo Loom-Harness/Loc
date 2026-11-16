@@ -131,9 +131,8 @@ describe("rabbitmq queue transport — java leg (M-T4.4 slice 7c)", () => {
     );
     expect(consumer).not.toContain("executor.submit");
     // The consumer does NOT host the durable channel's context: no outbox
-    // tier — broker ack semantics carry the redelivery contract (the
-    // slice-3 stance; java saga last_event_id dedup is the documented
-    // in-mission residual).
+    // tier — broker ack semantics carry the redelivery, and the consumer
+    // inbox dedupes it (D-CONSUMER-INBOX).
     expect(find(files, "ship_api", "OutboxRelayService.java")).toBe("");
     expect(find(files, "ship_api", "LoomOutboxMessage.java")).toBe("");
     const tee = find(files, "ship_api", "ChannelPublishTee.java");

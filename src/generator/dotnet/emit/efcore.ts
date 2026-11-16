@@ -82,7 +82,7 @@ export function renderDbContext(
    *  converter), NOT a join table — so its associations are dropped from
    *  the join-entity DbSet/configuration set here.  Empty ⇒ byte-identical. */
   embeddedAggs: ReadonlySet<string> = new Set(),
-  /** Transactional outbox (dispatch-delivery-semantics.md): when the
+  /** Transactional outbox (docs/channels.md): when the
    *  context carries any durable channel (`retention: log | work`), the
    *  AppDbContext maps the shared `__loom_outbox` table (OutboxMessage
    *  entity + configuration).  False ⇒ byte-identical. */

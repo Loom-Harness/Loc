@@ -604,7 +604,7 @@ export function renderRepositoryImpl(
       ...versionGuardLines,
       ...saveDiffSyncLines,
       ...provFlushLines,
-      // Transactional outbox (dispatch-delivery-semantics.md §1): the pending
+      // Transactional outbox (docs/channels.md): the pending
       // events are drained and the DURABLE ones staged on the SAME change
       // tracker BEFORE the single SaveChangesAsync below, so their
       // __loom_outbox rows land in the same round trip — and therefore the same
