@@ -49,7 +49,6 @@ import { hasStateRow } from "../../plan/index.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
-  EnrichedLoomModel,
   FieldIR,
   SystemIR,
   TypeIR,

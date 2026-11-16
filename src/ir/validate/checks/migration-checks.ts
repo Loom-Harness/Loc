@@ -1,15 +1,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  EnrichedLoomModel,
-  ExprIR,
-  FieldIR,
-  TypeIR,
-} from "../../types/loom-ir.js";
+import type { AggregateIR, EnrichedLoomModel, ExprIR, TypeIR } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
 import { databaseModules, databaseOf } from "../../util/databases.js";
-import { valueObjectPool } from "../../util/reachable-types.js";
 import { sqlRenderableExpr, sqlTemporalArith } from "../../util/sql-renderable-expr.js";
 import { resolveTableStepTarget } from "../../util/table-step-target.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
