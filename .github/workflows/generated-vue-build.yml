@@ -94,7 +94,7 @@ jobs:
       - name: vue-tsc + vite build every selected case
         env:
           # Empty selects every case (see the header for the PR slice).
-          LOOM_VUE_BUILD_CASE: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'scaffold,showcase,store,grid' || '' }}
+          LOOM_VUE_BUILD_CASE: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'scaffold,showcase,store,grid,extern-user-path' || '' }}
         run: npm run test:vue-build
 
   # ── Merge-queue / branch-protection rollup ────────────────────────────
