@@ -146,6 +146,7 @@ export {
   workflowNeedsCurrentUser,
 } from "./workflow-needs.js";
 export {
+  POST_BODY_ORDER,
   type PostBodyStep,
   type PostBodyStepKind,
   provenancedExitSaves,
