@@ -6,13 +6,13 @@ import {
   eventLogTable,
   isWorkflowSelfType,
   observableWorkflows,
+  reactionBoundary,
   reposNeeded,
   resourceCalls,
   serviceOpReadPorts,
   servicesCalled,
   subscriptionHandler,
   workflowCapturesDurableEmits,
-  workflowClaims,
   workflowConsumerKey,
   workflowIsolation,
   workflowRunsInTransaction,
@@ -497,7 +497,7 @@ export function emitDispatchHandlers(
         construct,
         ownerOf,
         opFragments,
-        workflowClaims(wf, durable)
+        reactionBoundary(wf, durable).claimsInbox
           ? workflowConsumerKey(sys, ctx, sub, ctx.eventSubscriptions)
           : undefined,
       );
@@ -535,7 +535,7 @@ export function emitDispatchHandlers(
       construct,
       ownerOf,
       opFragments,
-      workflowClaims(wf, durable)
+      reactionBoundary(wf, durable).claimsInbox
         ? workflowConsumerKey(sys, ctx, sub, ctx.eventSubscriptions)
         : undefined,
     );
@@ -567,6 +567,30 @@ function analyseStmts(
     // there is nothing to collect; kept for the `WorkflowUsage` shape.
     externs: new Map(),
   };
+}
+
+/** The unit of work a reaction handler runs its body through. */
+function injectUnitOfWork(
+  fields: string[],
+  ctorParamPairs: string[],
+  ctorAssigns: string[],
+  ns: string,
+): void {
+  fields.push(`    private readonly global::${ns}.Domain.Common.IUnitOfWork _uow;`);
+  ctorParamPairs.push(`global::${ns}.Domain.Common.IUnitOfWork uow`);
+  ctorAssigns.push("_uow = uow");
+}
+
+/** A reaction's body lines (8-space indent) wrapped in
+ *  `IUnitOfWork.RunInTransactionAsync`: the transaction already open on the
+ *  scope, else one of its own. */
+function reactionTransaction(inner: readonly string[]): string[] {
+  return [
+    "        await _uow.RunInTransactionAsync(async () =>",
+    "        {",
+    ...inner.map((l) => (l === "" ? l : `    ${l}`)),
+    "        }, cancellationToken);",
+  ];
 }
 
 /** One `INotificationHandler<TEvent>` for a reactor / event-create.  The
@@ -708,6 +732,7 @@ function renderEventReactorHandler(
     ctorParamPairs.push(`global::${ns}.Domain.Common.IConsumerInbox inbox`);
     ctorAssigns.push("_inbox = inbox");
   }
+  injectUnitOfWork(fields, ctorParamPairs, ctorAssigns, ns);
   // Statement rendering.  The bound event param resolves to `notification`;
   // `this.<stateField>` resolves to the loaded `state` row (persisted only).
   const stmtLines: string[] = [];
@@ -806,9 +831,10 @@ function renderEventReactorHandler(
   );
   stmtLines.push(...stmtChunks.flat());
   if (opFragments) {
-    // No re-indent on this path — the reactor body renders flush at INDENT,
-    // unlike the transactional command handler's tab-in (renderHandler).
-    const chunkTexts = stmtChunks.map((ls) => ls.join("\n"));
+    // Replay the re-indent the body takes below: +4 inside the reaction's
+    // transaction lambda, +4 more inside the inbox claim's.
+    const pad = claims ? "        " : "    ";
+    const chunkTexts = stmtChunks.map((ls) => ls.map((l) => pad + l).join("\n"));
     if (chunkTexts.length > 0) {
       opFragments.push({
         fragmentText: chunkTexts.join("\n"),
@@ -852,19 +878,25 @@ function renderEventReactorHandler(
     stmtLines.push("        await _sagaState.SaveChangesAsync(cancellationToken);");
   }
 
-  if (claims) {
-    // The emit buffer stays outside the claimed body: its events dispatch
-    // after the transaction commits.
+  // The body runs in one transaction (`reactionBoundary`): a failure part-way
+  // through leaves none of its effects, and the events its saves raise go out
+  // after the commit.  A durably delivered event is claimed in the consumer
+  // inbox inside that transaction.  The emit buffer stays outside both, so its
+  // events dispatch after the commit.
+  {
     const bufferDecl = "        var _workflowEvents = new List<IDomainEvent>();";
-    const inner = stmtLines.filter((l) => l !== bufferDecl);
+    let inner = stmtLines.filter((l) => l !== bufferDecl);
+    if (claims) {
+      inner = [
+        `        await _inbox.ApplyOnceAsync(${JSON.stringify(consumerKey)}, global::${ns}.Domain.Common.OutboxDelivery.CurrentEventId, async () =>`,
+        "        {",
+        ...inner.map((l) => (l === "" ? l : `    ${l}`)),
+        "        }, cancellationToken);",
+      ];
+    }
     stmtLines.length = 0;
     if (usage.hasEmit) stmtLines.push(bufferDecl);
-    stmtLines.push(
-      `        await _inbox.ApplyOnceAsync(${JSON.stringify(consumerKey)}, global::${ns}.Domain.Common.OutboxDelivery.CurrentEventId, async () =>`,
-      "        {",
-      ...inner.map((l) => (l === "" ? l : `    ${l}`)),
-      "        }, cancellationToken);",
-    );
+    stmtLines.push(...reactionTransaction(inner));
   }
   let body = stmtLines.join("\n") + "\n";
   if (usage.hasEmit) {
@@ -953,6 +985,9 @@ function renderCsEsBranch(
    *  re-indent onto the statement chunks before anchoring, mirroring the
    *  `renderHandler` transactional precedent. */
   opFragments?: OpFragment[],
+  /** The extra indent the merged handler adds around the whole if/else: the
+   *  reaction's transaction lambda, and the inbox claim's inside it. */
+  outerPad = "",
 ): string[] {
   const usage = analyseStmts(resolved.statements, resolved.saves);
   const resourceClasses = buildResourceClasses(sys);
@@ -972,7 +1007,7 @@ function renderCsEsBranch(
     // Replay the +4 re-indent the caller applies when nesting this branch
     // inside the if/else (renderMergedEventSourcedHandler's `if (__rows.Count
     // == 0)` / `else` blocks) so the fragment anchors the FINAL text.
-    const chunkTexts = stmtChunks.map((ls) => ls.map((l) => "    " + l).join("\n"));
+    const chunkTexts = stmtChunks.map((ls) => ls.map((l) => `${outerPad}    ${l}`).join("\n"));
     if (chunkTexts.length > 0) {
       opFragments.push({
         fragmentText: chunkTexts.join("\n"),
@@ -1102,6 +1137,9 @@ function renderMergedEventSourcedHandler(
   const st = esStreamType(wf);
   const stateCls = workflowStateClass(wf);
 
+  // The whole if/else nests in the reaction's transaction lambda (+4), and
+  // in the inbox claim's inside it (+4) when the workflow claims.
+  const esPad = consumerKey !== undefined ? "        " : "    ";
   const createBranch = renderCsEsBranch(
     wf,
     createResolved,
@@ -1114,6 +1152,7 @@ function renderMergedEventSourcedHandler(
     construct,
     ownerOf,
     opFragments,
+    esPad,
   );
   const onBranch = renderCsEsBranch(
     wf,
@@ -1127,6 +1166,7 @@ function renderMergedEventSourcedHandler(
     construct,
     ownerOf,
     opFragments,
+    esPad,
   );
 
   const bodyLines: string[] = [
@@ -1155,6 +1195,9 @@ function renderMergedEventSourcedHandler(
       "        }, cancellationToken);",
     );
   }
+  // The reaction runs in one transaction (`reactionBoundary`).
+  injectUnitOfWork(fields, ctorParamPairs, ctorAssigns, ns);
+  bodyLines.push(...reactionTransaction(bodyLines.splice(0, bodyLines.length)));
   const body = bodyLines.join("\n") + "\n";
 
   const ctor =

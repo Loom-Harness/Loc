@@ -639,6 +639,21 @@ when the workflow's aggregates share a database AND you want
 all-or-nothing semantics — at the cost of locking and the
 distribution barrier the keyword represents.
 
+### Command handlers
+
+A `commandHandler` runs in **one transaction** on every backend, whatever its
+body holds: a failure part-way through — a loop that saved a row and then
+refused a later one, a row outside the write scope, an `error` answer — leaves
+none of its writes, and the events its saves raised go out only after the
+commit (`D-HANDLER-TX`).  A query handler writes nothing and needs none.
+<!-- gate: `test/fixtures/corpus/handler-loop-boundary.ddd`, `test/system/workflow-plan-census.test.ts` -->
+
+A resource call inside a command handler runs inside that transaction, in
+statement order.  Its outside effect does not roll back with the database: a
+call the handler reads from (`get`, `list`, an api `get`) is safe there, but a
+call that must happen exactly when the change commits (an email, an enqueue)
+belongs in a reactor on an event the handler emits.
+
 ### Isolation levels
 
 `transactional` accepts an optional SQL-92 isolation level:
@@ -701,12 +716,20 @@ Before H-28, the same model answered 500 after the commit (node, elixir) or 422
 after the commit (.NET), so a client retry then hit the `precondition`. On
 java and python it answered 422 and the reactor rolled the command back.
 
+Every reaction runs in **one transaction** on every backend, however its event
+arrived: a loop that saved rows before a later row failed rolls them back with
+the rest of the reaction, and the events its saves raised are dispatched only
+once it has committed.  A durably delivered event is claimed in the consumer
+inbox inside that same transaction.  The plan's `reactionBoundary` states it
+once (`D-REACTION-TX`).
+<!-- gate: `test/fixtures/corpus/reactor-loop-rollback.ddd`, `test/system/workflow-plan-census.test.ts` -->
+
 How each backend gets there:
 
 | backend | when the reaction runs | isolation |
 |---|---|---|
-| node | after the repository's transaction commits | `createInProcessDispatcher(db, { isolateReactorFailures: true })` on the request path; each handler is caught on its own |
-| .NET | after `SaveChangesAsync` | `InProcessDomainEventDispatcher` catches by default and detaches the EF changes the failed reaction staged |
+| node | after the repository's transaction commits | `createInProcessDispatcher(db, { isolateReactorFailures: true })` on the request path; each handler is caught on its own and runs in its own transaction |
+| .NET | after `SaveChangesAsync` | `InProcessDomainEventDispatcher` catches by default and detaches the EF changes the failed reaction staged; each handler runs through `IUnitOfWork.RunInTransactionAsync` (the scope's open transaction, else its own) |
 | elixir | after the op's `Repo.update` | the request path calls `<Ctx>.Dispatcher.AfterCommit` (rescue + catch); each handler runs in `Repo.transaction`, so its saga row rolls back with it |
 | java | `@TransactionalEventListener(AFTER_COMMIT)` | `<Ctx>Dispatcher.ReactorListener` runs each handler in its own `REQUIRES_NEW` transaction |
 | python | inside the request transaction, before it commits | each reaction runs in a SAVEPOINT (`session.begin_nested()`) |

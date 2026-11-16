@@ -87,7 +87,8 @@ it if `docker info` starts failing mid-session.
 ```bash
 node bin/cli.js new <name> [--platform node|dotnet|elixir|java|python] [--template blank|crud] [--design <pack>]  # scaffold a starter project (main.ddd + README + .loomignore + LICENSE), validated before writing
 node bin/cli.js parse <file.ddd>                       # parse + validate (AST + IR, multi-file aware), exit non-zero on errors
-node bin/cli.js generate system <file.ddd> -o <out>    # full multi-deployable tree + docker-compose.yml
+node bin/cli.js generate system <file.ddd> -o <out>    # full multi-deployable tree + docker-compose.yml; leaves files it did not produce (`--prune` deletes them) and refuses while an extern implementation file is missing
+node bin/cli.js scaffold <file.ddd> -o <out>           # write the missing extern implementation (hatch) files; never touches an existing one
 node bin/cli.js migrate add     <name> <file.ddd> [--allow-destructive]  # record the model's schema changes as the next entry of the migration chain (migrations/ beside the .ddd, committed) — like `ef migrations add`; `generate system` renders the chain and refuses unrecorded changes.  `migrate status` / `remove` / `rebase` inspect, drop the newest entry, and resolve two heads after a merge
 node bin/cli.js diff            <file.ddd> [--baseline <old.ddd> | --git <ref>] [--json]  # classify model changes as compatible / breaking-for-clients (wire contract) / breaking-for-data (the destructive migration gate); default baseline is the committed migrations/ chain; exits 1 on breaking, 2 when it cannot diff
 node bin/cli.js snapshot        <file.ddd> -o <out>    # capture immutable .loom/snapshots/<ts>-<guid>.loomsnap.json (provenance rule snapshot, run deliberately)

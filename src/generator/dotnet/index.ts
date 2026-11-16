@@ -43,7 +43,6 @@ import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
 import { migratesAtBoot } from "../../ir/util/databases.js";
 import { discardedAggregates } from "../../ir/util/discards.js";
-import { answersEntryResults } from "../../ir/util/entry-result.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
   foreignValueTypeSeeds,
@@ -75,6 +74,7 @@ import {
 } from "../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { aggregateRouteTypes } from "../../ir/util/wire-policy.js";
+import { hatchStub } from "../../util/hatch.js";
 import { type BootRequiredSetting, bootRequiredAuthEnv } from "../_auth/boot-required.js";
 import { registryTableSql } from "../_persistence/registry-walk.js";
 
@@ -185,7 +185,7 @@ import {
   renderOutboxMessage,
   renderOutboxRelay,
 } from "./emit/outbox.js";
-import { renderPersistencePortAdapters } from "./emit/persistence-ports.js";
+import { handlersUseUnitOfWork, renderPersistencePortAdapters } from "./emit/persistence-ports.js";
 import {
   contextsHaveProvenance,
   renderProvenanceRecord,
@@ -829,7 +829,7 @@ function emitProjectFromContexts(
       merged.projections,
       eventLogContexts(contexts).map((c) => c.name),
       out,
-      answersEntryResults(merged),
+      handlersUseUnitOfWork(merged),
     );
     // Event-sourced workflow fold classes (Application/Workflows/<Wf>State.cs)
     // are persistence-neutral (JSON codec over the event stream) — reused
@@ -943,7 +943,7 @@ function emitProjectFromContexts(
     if (
       merged.workflows.length > 0 ||
       merged.projections.length > 0 ||
-      answersEntryResults(merged)
+      handlersUseUnitOfWork(merged)
     ) {
       out.set("Infrastructure/Persistence/PersistencePorts.cs", renderPersistencePortAdapters(ns));
     }
@@ -1519,7 +1519,7 @@ function emitAggregate(
   // rewrites its namespace in lockstep with the entity file.
   const externHookImpl = renderExternHookImpl(agg, ns);
   if (externHookImpl) {
-    place(`${agg.name}.Extern.cs`, "entity", externHookImpl, agg.origin);
+    place(`${agg.name}.Extern.cs`, "entity", hatchStub(externHookImpl), agg.origin);
   }
   // Pure Domain union types for exception-less operation returns — Domain-layer
   // artifacts (the aggregate method produces them), placed alongside the entity.

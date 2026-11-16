@@ -29,7 +29,7 @@ import path from "node:path";
 import { NodeFileSystem } from "langium/node";
 import { URI } from "vscode-uri";
 import { createDddServices } from "../out/language/ddd-module.js";
-import { generateSystems } from "../out/system/index.js";
+import { generateSystems, withHatchStubs } from "../out/system/index.js";
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const corpusDir = path.join(repoRoot, "test/fixtures/corpus");
@@ -84,7 +84,7 @@ async function capture(outFile) {
           failed++;
           continue;
         }
-        const { files } = generateSystems(doc.parseResult.value);
+        const files = withHatchStubs(generateSystems(doc.parseResult.value));
         const hashes = {};
         for (const p of [...files.keys()].sort()) hashes[p] = sha(files.get(p));
         cells[key] = { status: "ok", fileCount: files.size, files: hashes };

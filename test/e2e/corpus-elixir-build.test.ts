@@ -279,10 +279,13 @@ describe.skipIf(!ENABLED)(
           const outDir = fs.mkdtempSync(path.join(mix.root, `${featureId}-`));
           try {
             const src = materializeCorpusFixture(featureId, "vanilla", outDir);
-            await sh(`node ${cli} generate system ${src} -o ${outDir}`, {
-              cwd: repoRoot,
-              timeout: 300_000,
-            });
+            await sh(
+              `node ${cli} scaffold ${src} -o ${outDir} && node ${cli} generate system ${src} -o ${outDir}`,
+              {
+                cwd: repoRoot,
+                timeout: 300_000,
+              },
+            );
             // One project per declared deployable (`d` for every single-service
             // fixture; a multi-service feature names both, and BOTH must compile).
             const failingSuites: string[] = [];

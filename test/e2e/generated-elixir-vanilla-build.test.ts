@@ -133,10 +133,13 @@ describe.skipIf(!ENABLED)(
             // locales (the default `locales/` dir is shared by every fixture here).
             const localesDir = fixturePath.replace(/\.ddd$/, ".locales");
             const localesFlag = fs.existsSync(localesDir) ? ` --locales ${localesDir}` : "";
-            await sh(`node ${cli} generate system ${fixturePath} -o ${genRoot}${localesFlag}`, {
-              cwd: repoRoot,
-              timeout: 300_000,
-            });
+            await sh(
+              `node ${cli} scaffold ${fixturePath} -o ${genRoot} && node ${cli} generate system ${fixturePath} -o ${genRoot}${localesFlag}`,
+              {
+                cwd: repoRoot,
+                timeout: 300_000,
+              },
+            );
             // The vanilla orchestrator emits one project per deployable under
             // `out/<deployable>/`; the deployable slug varies per fixture (`api`,
             // `phoenixApp`, …), so discover the elixir project(s) by globbing for

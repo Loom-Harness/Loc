@@ -75,10 +75,13 @@ describe.skipIf(!ENABLED)("extern component end-to-end (LOOM_REACT_BUILD)", () =
     try {
       const dddPath = path.join(outDir, "demo.ddd");
       fs.writeFileSync(dddPath, SOURCE);
-      execSync(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
-        stdio: "inherit",
-        cwd: repoRoot,
-      });
+      execSync(
+        `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
+        {
+          stdio: "inherit",
+          cwd: repoRoot,
+        },
+      );
       const projectDir = path.join(outDir, "web");
       expect(fs.existsSync(projectDir), `expected React project at ${projectDir}`).toBe(true);
 

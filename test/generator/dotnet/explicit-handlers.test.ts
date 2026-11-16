@@ -62,7 +62,7 @@ describe(".NET — extern commandHandler / queryHandler", () => {
   it("emits a scaffold-once [ExternHandler] impl that throws", async () => {
     const m = await generateSystemFiles(EXTERN_SRC);
     const impl = fileEndingWith(m, "Application/Handlers/PlaceOrderExternHandler.cs");
-    expect(impl.split("\n")[0]).toContain("loom:scaffold-once");
+    expect(impl.split("\n")[0]).toContain("This file is yours");
     expect(impl).toContain("[ExternHandler]");
     expect(impl).toContain("public sealed class PlaceOrderExternHandler : IPlaceOrderHandler");
     expect(impl).toContain("throw new ExternNotImplementedException(");

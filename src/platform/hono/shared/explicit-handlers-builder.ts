@@ -2,6 +2,7 @@ import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import {
   handlerNeedsCurrentUser,
+  handlerRunsInTransaction,
   type ResourceCalls,
   resourceCalls,
 } from "../../../ir/plan/index.js";
@@ -12,6 +13,7 @@ import {
   wireStatus,
   wireTitle,
 } from "../../../ir/util/wire-policy.js";
+import { hatchStub } from "../../../util/hatch.js";
 
 // ---------------------------------------------------------------------------
 // Explicit application/transport layer → Hono emission
@@ -121,10 +123,9 @@ import {
   routedParamSource,
 } from "../../../ir/util/routed-handler.js";
 import { workflowEmits } from "../../../ir/util/walk.js";
-import { bodyWriteScopeGuards, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
+import { writeScopeContext } from "../../../ir/util/write-scope-guards.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
-import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import {
   emitWireSchema,
   QUERY_BOOL,
@@ -588,13 +589,15 @@ function emitRouteHandler(
     out.push(`);`);
     return out;
   }
-  // A body that re-checks a held row's write scope runs in one transaction
-  // (aggregate events buffered until it commits), so a row outside the scope
-  // fails the whole command and rolls back the rows it already changed.  The
-  // body renders into `out` at the plain indent and is re-indented into the
-  // transaction callback below.
+  // A command handler runs in one transaction (`handlerRunsInTransaction`),
+  // aggregate events buffered until it commits, so a failure part-way through
+  // — a row outside the write scope, a later row's precondition — rolls back
+  // the rows it already changed.  The body renders into `out` at the plain
+  // indent and is re-indented into the transaction callback below.
   const writeScope = writeScopeContext(h.statements, ctx);
-  const inTx = bodyWriteScopeGuards(h.statements, writeScope).length > 0;
+  const inTx = handlerRunsInTransaction(
+    (ctx.queryHandlers ?? []).includes(h as QueryHandlerIR) ? "query" : "command",
+  );
   const head = out;
   out = [];
   const [handle, dispatcher] = inTx ? ["tx", "__deferred"] : ["db", "events"];
@@ -1220,9 +1223,9 @@ function renderExternHandlerImpl(h: Handler, ctx: EnrichedBoundedContextIR): str
   if (voEnumNames.length > 0) {
     imports.push(`import { ${voEnumNames.join(", ")} } from "../domain/value-objects";`);
   }
-  return `// ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first
-// \`generate\` and NEVER overwrites it again, so your implementation survives
-// every regenerate.  Replace the \`throw\` with the extern handler's real logic
+  return `// This file is yours: it is written only when it is missing, and
+// regeneration never overwrites it, so your implementation survives.
+// Replace the \`throw\` with the extern handler's real logic
 // (the one external-service call this handler wraps).
 ${imports.join("\n")}
 
@@ -1241,6 +1244,6 @@ export function emitExternHandlerImpls(
 ): void {
   for (const h of [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])]) {
     if (!h.extern) continue;
-    out.set(externImplFilePath(h.name), renderExternHandlerImpl(h, ctx));
+    out.set(externImplFilePath(h.name), hatchStub(renderExternHandlerImpl(h, ctx)));
   }
 }

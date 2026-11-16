@@ -96,7 +96,7 @@ describe("workflow emit inside a branch (D4)", () => {
 
   it("node: a subscription handler with an `if let` emit declares + dispatches", async () => {
     const wf = (await build("node")).get("api/http/workflows.ts")!;
-    const fn = slice(wf, "export async function reactStartKick(", "\n}\n");
+    const fn = slice(wf, "async function reactStartKickApply(", "\n}\n");
     expect(fn).toContain("const workflowEvents: Events.DomainEvent[] = [];");
     expect(fn).toContain('workflowEvents.push({ type: "Reacted"');
     expect(fn).toContain("for (const ev of workflowEvents) await events.dispatch(ev);");

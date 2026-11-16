@@ -137,10 +137,13 @@ describe.skipIf(!ENABLED)(
         );
         const dddPath = path.join(outDir, "read-scope.ddd");
         fs.writeFileSync(dddPath, fixture.replaceAll("__PLATFORM__", "elixir"));
-        execSync(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
-          stdio: "pipe",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
+          {
+            stdio: "pipe",
+            cwd: repoRoot,
+          },
+        );
         const appDir = path.join(outDir, "d");
         execSync(`${mixLocalInstall()} && ${mixDepsGet()}`, {
           cwd: appDir,

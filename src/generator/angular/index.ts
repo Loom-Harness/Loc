@@ -9,7 +9,6 @@ import type {
   EnrichedBoundedContextIR,
   PageIR,
   ParamIR,
-  RepositoryIR,
   SystemIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
@@ -18,11 +17,10 @@ import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
 import { menuMetaString } from "../../ir/util/page-menu.js";
-import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
-import { frontendAggregatesOf } from "../_frontend/aggregate-model.js";
+import { contractAggregate, frontendAggregatesOf } from "../_frontend/aggregate-model.js";
 import {
   AUTH_REFRESH_INTERCEPTOR_ANGULAR,
   AUTH_SESSION_SERVICE_ANGULAR,
@@ -34,9 +32,12 @@ import {
 } from "../_frontend/code-highlight.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import {
+  clientAggregates,
+  clientFinds,
   clientProjections,
   clientWorkflows,
   requireFrontendContract,
+  servesHistory,
 } from "../_frontend/contract.js";
 import {
   E2E_PACKAGE_JSON_ANGULAR,
@@ -73,14 +74,19 @@ import { prepareThemeVM } from "../_frontend/theme-preparer.js";
 import { DOM_TOAST_SOURCE, uiUsesToastEffect } from "../_frontend/toast-effect.js";
 import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
 import { workflowPageObjectsOf } from "../_frontend/workflow-page-object.js";
-import { workflowsModuleScope } from "../_frontend/workflows-module.js";
+import { workflowsModuleScopeOfContract } from "../_frontend/workflows-module.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { HAND_BUILT_FORM_SENTENCES } from "../_walker/i18n-chrome.js";
 import { collectUiMessages, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { emptyWalkerModel, walkerModelOf, walkerWorkflowsFor } from "../_walker/walker-model.js";
+import {
+  contractHomes,
+  emptyWalkerModel,
+  walkerModelOf,
+  walkerWorkflowsFor,
+} from "../_walker/walker-model.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import { buildAngularApiModule } from "./api-module.js";
 import { renderAngularChartRuntime } from "./chart-runtime.js";
@@ -194,13 +200,6 @@ export function generateAngularForContexts(
   const aggregates: Array<{ agg: EnrichedAggregateIR; ctx: EnrichedBoundedContextIR }> = [];
   for (const ctx of contexts) {
     for (const agg of ctx.aggregates) aggregates.push({ agg, ctx });
-  }
-  // Per-aggregate repository (carries the parameterised finds the api module
-  // emits a `use<Find><Agg>` factory for).  A plain aggregate without a
-  // declared `repository` has only the enriched auto-`all` find.
-  const repoByAggregate = new Map<string, RepositoryIR>();
-  for (const ctx of contexts) {
-    for (const repo of ctx.repositories) repoByAggregate.set(repo.aggregateName, repo);
   }
   const hasDelete = aggregates.some((a) => !!canonicalDestroy(a.agg));
   const usesMoney = contexts.some(contextUsesMoney);
@@ -796,15 +795,24 @@ export function generateAngularForContexts(
   // Per-aggregate API modules — the idiomatic-Angular `@Injectable` service +
   // signal-backed `use<Op><Agg>` read factory (the
   // QueryView read path that consumes them lands in the next sub-slice).
-  for (const { agg } of aggregates) {
+  const contextNames = contexts.map((c) => c.name);
+  const homes = contractHomes(contract, contextNames);
+  // The fields of the declared command record an aggregate's create request is.
+  const createFieldsOf = (createRequest: string | undefined) =>
+    contract.wire.records.find((r) => r.name === createRequest)?.fields ?? [];
+  for (const a of clientAggregates(contract, contextNames)) {
+    const finds = clientFinds(contract, a.name, host.serves);
+    const home = homes.get(a.context);
+    if (!home) throw new Error(`internal: aggregate '${a.name}' has no contract home`);
     out.set(
-      `src/api/${lowerFirst(agg.name)}.ts`,
-      buildAngularApiModule(
-        agg,
-        repoByAggregate.get(agg.name),
-        bcByAggregate.get(agg.name),
-        pagedFindRoutes(sys, target ?? deployable),
-      ),
+      `src/api/${lowerFirst(a.name)}.ts`,
+      buildAngularApiModule(contractAggregate(contract, a.name, finds), {
+        contract,
+        scope: home,
+        finds,
+        history: servesHistory(contract, a.name),
+        createFields: createFieldsOf(a.createRequest),
+      }),
     );
   }
   // Workflows API module — the Angular-native sibling of the
@@ -818,7 +826,11 @@ export function generateAngularForContexts(
   if (clientWfs.length > 0) {
     out.set(
       "src/api/workflows.ts",
-      buildAngularWorkflowsModule(clientWfs, workflowsModuleScope(contexts)),
+      buildAngularWorkflowsModule(
+        clientWfs,
+        workflowsModuleScopeOfContract(contract, contextNames, host.serves),
+        contract,
+      ),
     );
   }
 

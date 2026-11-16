@@ -1124,15 +1124,9 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
   },
   {
     name: "loomignore",
-    group: "pending",
-    step: "pending-design",
-    note: "tool marker / .loom/ reference — removed by #5993 (no read-back)",
-  },
-  {
-    name: "loom:scaffold-once",
-    group: "pending",
-    step: "pending-design",
-    note: "tool marker / .loom/ reference — removed by #5993 (no read-back)",
+    group: "user",
+    step: "standing",
+    note: "the user's pin file — an input the compiler reads, outside the rule (D-NO-TOOL-NAME)",
   },
   {
     name: "loom:sourcemap-begin",

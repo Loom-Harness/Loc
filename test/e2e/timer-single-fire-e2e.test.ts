@@ -160,7 +160,10 @@ describe.runIf(RUN)("every: timer fires once per period across two replicas", ()
       const src = path.join(dir, "tick.ddd");
       fs.writeFileSync(src, fixture(backend));
       const out = path.join(dir, "out");
-      sh(`node ${cli} generate system ${src} -o ${out}`, repoRoot);
+      sh(
+        `node ${cli} scaffold ${src} -o ${out} && node ${cli} generate system ${src} -o ${out}`,
+        repoRoot,
+      );
       const compose = `docker compose -p ${project}`;
       try {
         const build = prebuildBehindProxy(out, project);

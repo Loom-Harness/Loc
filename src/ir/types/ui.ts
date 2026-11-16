@@ -122,7 +122,8 @@ export interface UiNotificationIR {
  *  (hide, rename, expose subset, version). */
 export interface ApiIR {
   name: string;
-  /** Source module the api derives its surface from. */
+  /** The subdomain `from <Subdomain>` names; empty when the api has no
+   *  `from` (its surface is a `with` macro's or its explicit routes). */
   sourceModule: string;
   /** URL slug style for lifecycle actions surfaced by this api.
    *  `"literal"` (default) emits the action name verbatim; `"resource"`
@@ -135,9 +136,9 @@ export interface ApiIR {
    *  (`src/util/error-defaults.ts`).  Empty when the api declares none. */
   errorStatuses: Record<string, number>;
   /** Explicit transport bindings declared via `route <METHOD> <PATH> ->
-   *  <Context>.<Handler>` in the api block (unfoldable-api-derivation.md,
-   *  Layer 4).  Ride alongside the api, unread by any backend.
-   *  Empty when the api declares none. */
+   *  <Context>.<Handler>` in the api block, written by hand or expanded from a
+   *  `with` macro.  Every backend mounts them on each deployable that serves
+   *  the api.  Empty when the api declares none. */
   routes: RouteIR[];
 }
 

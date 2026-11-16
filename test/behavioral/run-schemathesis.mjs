@@ -167,6 +167,7 @@ async function boot(c) {
   const genDir = mkdtempSync(join(tmpdir(), `loom-st-${c.name}-`));
   const workDir = join(WORK, c.name);
   mkdirSync(workDir, { recursive: true });
+  execFileSync("node", [join(REPO, "bin/cli.js"), "scaffold", join(REPO, c.ddd), "-o", genDir], { stdio: "pipe" });
   execFileSync(
     "node",
     [join(REPO, "bin/cli.js"), "generate", "system", join(REPO, c.ddd), "-o", genDir],

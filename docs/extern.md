@@ -24,12 +24,12 @@ aggregate Order {
  backends — Hono, .NET, **Python**, **Java**, and **Elixir/Phoenix**.  As
 > [`docs/old/proposals/extern-domain-extension-point.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/extern-domain-extension-point.md) re-homes `extern` from an
 > injected application-layer handler to a domain-internal extension point, **all
-> five backends** now use the **domain hook (co-located, scaffold-once)** idiom:
+> five backends** now use the **domain hook (co-located hatch file)** idiom:
 > the extern op is a member of the aggregate's own lifecycle, delegating to a
-> **scaffold-once** user-owned implementation that reaches the aggregate's own
+> **hatch** user-owned implementation that reaches the aggregate's own
 > private state directly (no injected registry, no setter widening).  Per
 > backend: **.NET** a `partial`-method hook, **Java** a co-located `<Agg>Extern`
-> class, **Python** a scaffold-once hook module, **Hono** an abstract hook on
+> class, **Python** a hatch hook module, **Hono** an abstract hook on
 > `<Agg>Base` + a concrete subclass, and **Elixir** a generated `@behaviour` +
 > an impl module — see the per-backend sections below.  A missing hook is a
 > compile error (or fails loudly at runtime); an unfilled one throws.
@@ -122,7 +122,7 @@ public sealed partial class Order
 }
 ```
 
-You implement the hook in the **co-located, scaffold-once** partial
+You implement the hook in the **co-located hatch** partial
 `Domain/Orders/Order.Extern.cs`.  Because the hook is a *member* of `Order`, it
 reaches the aggregate's own `private` state natively — no setter widening:
 
@@ -146,10 +146,10 @@ construction, not contained: no external holder ever gets write access).  The
 auto Mediator command handler simply calls `aggregate.Confirm()` directly, and
 a workflow op-call is likewise a plain `order.Confirm()`.
 
-`Order.Extern.cs` is **scaffold-once**: Loom writes it on the first `generate`
+`Order.Extern.cs` is a **hatch file**: `ddd scaffold` writes it only when it is missing
 (each `ConfirmCore` body `throw`s `NotImplementedException` until you fill it)
-and **never overwrites it again** (a `loom:scaffold-once` marker on line 1 tells
-the writer to keep your copy).  The hook is declared `private partial`, an
+and **never overwritten** — its existence is the whole state; nothing in the
+file marks it.  The hook is declared `private partial`, an
 *extended* partial method — so a **missing** implementation is a **compile
 error**, not a silent no-op:
 
@@ -186,14 +186,14 @@ two files:
   }
   ```
 
-- `domain/<agg>.ts` — the **scaffold-once** concrete `class <Agg> extends
-  <Agg>Base` you own.  Loom writes it once (default hook `throw`s loudly) and
-  never overwrites it.  Fill in each `*Extern` method: it is a MEMBER of the
+- `domain/<agg>.ts` — the **hatch** concrete `class <Agg> extends
+  <Agg>Base` you own.  `ddd scaffold` writes it once (default hook `throw`s loudly)
+  and nothing overwrites it.  Fill in each `*Extern` method: it is a MEMBER of the
   aggregate, so it reaches the aggregate's own state directly (no editor, no
   setters):
 
   ```ts
-  // loom:scaffold-once — this file is yours.
+  // This file is yours: it is written only when it is missing, and …
   import { OrderBase } from "./order.base.js";
   import { OrderStatus } from "./value-objects.js";
 
@@ -263,9 +263,9 @@ The scaffolded impl **fails loudly** until you fill it in — a missing
 implementation is an HTTP 500 with a clear message, never a silent success:
 
 ```elixir
-# lib/sales/sales/order_extern_impl.ex — SCAFFOLD-ONCE, yours to edit
-# loom:scaffold-once — this file is yours.  Loom scaffolds it on the first
-# `generate` and NEVER overwrites it again …
+# lib/sales/sales/order_extern_impl.ex — a hatch file, yours to edit
+# This file is yours: it is written only when it is missing, and
+# regeneration never overwrites it …
 defmodule Sales.Sales.OrderExternImpl do
   @behaviour Sales.Sales.OrderExtern
 
@@ -284,36 +284,36 @@ invariants → save flow as the other backends).  Mutate the struct and return
 `{:ok, record}`; the context persists every scalar column off the returned
 struct via `force_change`.  Return `{:error, term}` to abort the write.
 Adding a *new* extern op later regenerates the behaviour with a new `@callback`
-the scaffold-once impl doesn't yet satisfy, so `mix compile
+the impl file doesn't yet satisfy, so `mix compile
 --warnings-as-errors` fails until you implement it — loud at compile time too.
 
 > Scope: the Elixir hook persists **scalar columns**.  Mutating a containment
 > or reference collection from an extern impl is a follow-up.
 
-### Regeneration preservation (scaffold-once)
+### Regeneration preservation (hatch files)
 
-The Elixir extern impl is the first user of Loom's **scaffold-once** mechanic
-(`src/util/scaffold-once.ts`): a generated file carries a `loom:scaffold-once`
-marker in its first-line comment, and the CLI writer, on seeing that marker,
-**keeps the on-disk copy** whenever the file already exists — writing it only on
-the first `generate`.  `ddd generate system` reports these as
-`preserved (scaffold-once): N`.  The mechanic is in-band (no side-channel), so a
-backend opts a file into it by emitting one comment line; the other extern
-slices (.NET partial classes, TS/Python/Java overridable hooks) reuse it.
+Every extern impl file on every backend is a **hatch file**
+(`src/util/hatch.ts`).  The emitter builds its stub next to the generated code
+that calls it, and the stub leaves generation in a map of its own, separate from
+the generated files: a path is either generated or the user's, never both.
+`ddd generate system` never writes a hatch file.  While one the model calls for
+is missing it refuses and names it; `ddd scaffold <file.ddd> -o <out>` writes
+the missing stubs and never touches an existing file.  Nothing inside the file
+and nothing in the output records it — the file's existence is the whole state
+([`tools.md`](tools.md#regeneration-what-generate-reads-writes-and-leaves)).
 
 ## Java (Spring Boot / JPA)
 
 Java uses the same **co-located domain extension point** as Elixir — the extern
-op is a member of the aggregate's own lifecycle, delegating to a scaffold-once
+op is a member of the aggregate's own lifecycle, delegating to a hatch
 hook you own.  One file is generated per aggregate that declares an extern op:
 
-- **`<Agg>Extern`** (`.../features/<plural>/<Agg>Extern.java`) — a **scaffold-once**
+- **`<Agg>Extern`** (`.../features/<plural>/<Agg>Extern.java`) — a **hatch**
   class co-located with the aggregate (SAME package → it reaches the entity's
   package-private fields + `_raiseEvent` natively; Java never had the .NET/Hono
   S10 setter leak, so no widening is needed).  One `static` method per extern op,
   taking the loaded aggregate.  Scaffolded once with a loud-throwing stub, then
-  **yours** — a `generate system` re-run never overwrites it (the
-  `loom:scaffold-once` marker).
+  **yours** — a `generate system` re-run never overwrites it.
 
 The generated aggregate method runs the preconditions, delegates to the hook, and
 re-asserts invariants (the same load → preconditions → hook → invariants → save
@@ -332,9 +332,9 @@ The scaffolded hook **fails loudly** until you fill it in — a missing
 implementation is a 500 with a clear message, never a silent success:
 
 ```java
-// Order/OrderExtern.java — SCAFFOLD-ONCE, yours to edit
-// loom:scaffold-once — this file is yours.  Loom scaffolds it on the first
-// `generate` and NEVER overwrites it again …
+// Order/OrderExtern.java — a hatch file, yours to edit
+// This file is yours: it is written only when it is missing, and
+// regeneration never overwrites it …
 package com.example.features.orders;
 
 import com.example.domain.enums.*;
@@ -356,7 +356,7 @@ final class OrderExtern {
 The service (and any workflow's `order.confirm()`) calls the op directly —
 `repository.getById(id)` → `aggregate.confirm()` → `repository.save(...)` — with
 no injected handler and no DI.  Adding a *new* extern op later regenerates the
-aggregate with a `<Agg>Extern.<newOp>(...)` call the scaffold-once file doesn't
+aggregate with a `<Agg>Extern.<newOp>(...)` call the hatch file doesn't
 yet define, so `gradle testClasses` fails until you implement it — loud at
 compile time too.
 
@@ -443,10 +443,10 @@ bodyless. The validator pins the pairing: `loom.extern-handler-has-body`
 handler written `;`).
 
 Each backend expresses the same intent idiomatically — the generated dispatch
-wires the route + DTO exactly as a normal handler but calls a scaffold-once,
-user-owned impl instead of a DSL-lowered body:
+wires the route + DTO exactly as a normal handler but calls a hatch file —
+a user-owned impl instead of a DSL-lowered body:
 
-| Backend | Generated dispatch | Scaffold-once user impl (`loom:scaffold-once`) |
+| Backend | Generated dispatch | User-owned impl (hatch file) |
 |---|---|---|
 | Hono | route imports the impl module | `src/application/<kebab>-handler-impl.ts` — `throw new ExternHandlerError(...)` |
 | .NET | Mediator handler ctor-injects `I<Name>Handler`; Scrutor registers the `[ExternHandler]` impl + a startup verify | `Application/Handlers/<Name>ExternHandler.cs` — `throw new NotImplementedException(...)` |
@@ -461,8 +461,8 @@ never a silent no-op. The generated Hono impl for the example above:
 
 ```ts
 // src/application/place-order-handler-impl.ts
-// loom:scaffold-once — this file is yours.  Loom scaffolds it on the first
-// `generate` and NEVER overwrites it again …
+// This file is yours: it is written only when it is missing, and
+// regeneration never overwrites it …
 import { ExternHandlerError } from "../domain/errors";
 import * as Ids from "../domain/ids";
 

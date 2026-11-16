@@ -106,7 +106,10 @@ describe.skipIf(!RUN)(
 
     beforeAll(async () => {
       outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-auth-dn-e2e-"));
-      execSync(`node ${cli} generate system ${fixture} -o ${outDir}`, { stdio: "inherit" });
+      execSync(
+        `node ${cli} scaffold ${fixture} -o ${outDir} && node ${cli} generate system ${fixture} -o ${outDir}`,
+        { stdio: "inherit" },
+      );
       apiDir = path.join(outDir, "api");
       execSync("dotnet restore", { cwd: apiDir, stdio: "inherit", timeout: 300_000 });
 

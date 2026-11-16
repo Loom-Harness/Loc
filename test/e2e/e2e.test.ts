@@ -97,9 +97,12 @@ describe.skipIf(!RUN)("e2e: docker compose smoke", () => {
 
   beforeAll(() => {
     outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-e2e-"));
-    execSync(`node ${cli} generate system ${example} -o ${outDir}`, {
-      stdio: "inherit",
-    });
+    execSync(
+      `node ${cli} scaffold ${example} -o ${outDir} && node ${cli} generate system ${example} -o ${outDir}`,
+      {
+        stdio: "inherit",
+      },
+    );
     writeExternUserModules(outDir);
     injectProxyCAsIfPresent(outDir);
   }, 60_000);

@@ -330,7 +330,10 @@ describe.runIf(RUN)("lifecycle: reboot, regenerate, broker outage, DB pause", ()
       const generate = (v2: boolean, migration: string) => {
         fs.writeFileSync(src, fixture(cell, v2));
         sh(`node ${cli} migrate add ${migration} ${src}`, dir);
-        sh(`node ${cli} generate system ${src} -o ${out}`, dir);
+        sh(
+          `node ${cli} scaffold ${src} -o ${out} && node ${cli} generate system ${src} -o ${out}`,
+          dir,
+        );
       };
       const up = () =>
         sh(`${compose} up -d ${prebuildBehindProxy(out, project)} --wait`, out, 1_800_000);
@@ -682,7 +685,10 @@ describe.runIf(RUN)("lifecycle: fail closed on security env", () => {
       const compose = `docker compose -p ${project}`;
       fs.writeFileSync(src, authFixture(cell));
       sh(`node ${cli} migrate add initial ${src}`, dir);
-      sh(`node ${cli} generate system ${src} -o ${out}`, dir);
+      sh(
+        `node ${cli} scaffold ${src} -o ${out} && node ${cli} generate system ${src} -o ${out}`,
+        dir,
+      );
       try {
         const build = prebuildBehindProxy(out, project);
         if (build === "--build") sh(`${compose} build d`, out, 1_800_000);

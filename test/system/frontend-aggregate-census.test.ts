@@ -8,10 +8,12 @@
 // its own way.  This census holds both shut:
 //   - `api-module.ts` and `page-objects-builder.ts` name no bounded context,
 //     enriched node or domain declaration type;
-//   - each frontend builds the model with one adapter.  React and Vue build it
-//     from the Frontend Contract (`contractAggregate` /
-//     `frontendAggregatesOfContract`); Svelte, Angular and Feliz build it from
-//     the enriched contexts (`frontendAggregateOf` / `frontendAggregatesOf`).
+//   - each frontend builds the model with the adapters its table row names.
+//     React, Vue and Svelte build it from the Frontend Contract
+//     (`contractAggregate` / `frontendAggregatesOfContract`); Feliz from the
+//     enriched contexts (`frontendAggregateOf` / `frontendAggregatesOf`).
+//     Angular builds its api modules from the contract and its page objects
+//     from the enriched contexts.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -55,9 +57,9 @@ describe("frontend aggregate model census", () => {
     expect(hits).toEqual([]);
   });
 
-  it("React and Vue build the model from the contract, every other frontend from the enriched IR", () => {
-    const CONTRACT = ["react", "vue"];
-    const ENRICHED = ["svelte", "angular", "feliz"];
+  it("each frontend builds the model with the adapters its row names", () => {
+    const CONTRACT = ["react", "vue", "svelte"];
+    const ENRICHED = ["angular", "feliz"];
     const calls = (f: string, fns: readonly string[]) =>
       fns.some((fn) => new RegExp(`\\b${fn}\\s*\\(`).test(code(f)));
     const modes: Record<string, string[]> = {};
@@ -74,8 +76,8 @@ describe("frontend aggregate model census", () => {
     expect(modes).toEqual({
       react: ["contract"],
       vue: ["contract"],
-      svelte: ["enriched"],
-      angular: ["enriched"],
+      svelte: ["contract"],
+      angular: ["contract", "enriched"],
       feliz: ["enriched"],
     });
   });

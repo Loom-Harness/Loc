@@ -98,7 +98,10 @@ describe.skipIf(!ENABLED)("generated react project runs (vite preview + Playwrig
     const work = fs.mkdtempSync(path.join(os.tmpdir(), "loom-react-e2e-"));
     const src = fs.readFileSync(path.join(repoRoot, EXAMPLE), "utf-8");
     fs.writeFileSync(path.join(work, "main.ddd"), injectDesign(src, PACK));
-    run(`node ${cli} generate system ${work}/main.ddd -o ${work}/out`, repoRoot);
+    run(
+      `node ${cli} scaffold ${work}/main.ddd -o ${work}/out && node ${cli} generate system ${work}/main.ddd -o ${work}/out`,
+      repoRoot,
+    );
 
     const project = path.join(work, "out", REACT_DIR);
     expect(fs.existsSync(path.join(project, "package.json")), "react project emitted").toBe(true);

@@ -562,15 +562,16 @@ AreaMember:
 
 // ---- api declaration (system-level) ----------------------------
 //
-// First-class API contract derived from a module's domain (its
-// aggregates, repositories, workflows, views).  Full surface
-// auto-derived from `from <Module>`; future: customization
-// (hide, rename, expose subset, version).
+// First-class API contract.  Its surface comes from `from <Subdomain>` (the
+// subdomain's aggregates, repositories, workflows and views), a `with` macro
+// such as `scaffoldApi(of: <Subdomain>)`, or explicit `route` lines; an api
+// with none of the three is refused (`loom.api-no-surface`).
 //
 //   api SalesApi from Sales
 //
-// Peer to module / ui / deployable.  Pure declarative — what's
-// available; consumers (ui, deployable) reference it by name.
+// Peer to subdomain / ui / deployable.  Consumers (ui, deployable) reference
+// it by name; a deployable that `serves:` it must host the contexts it serves
+// (`loom.serves-context-unhosted`).
 Api:
     'api' name=ID withClause=WithClause? ('from' source=[Subdomain:ID])?
         ('{'
@@ -597,8 +598,8 @@ ApiStatus:
 // `context` segment is a real cross-ref (existing global scope for
 // `BoundedContext`), while the `handler` segment is a plain name resolved
 // by the IR validator (it spans commandHandler | queryHandler | workflow
-// handle — three kinds one Langium cross-ref can't span cleanly).  These
-// nodes ride alongside `ApiIR` and are not yet read by any backend.
+// handle — three kinds one Langium cross-ref can't span cleanly).  Every
+// backend mounts the routes of each api a deployable serves, under `/api`.
 Route:
     'route' method=HttpMethod path=STRING '->' target=HandlerRef;
 

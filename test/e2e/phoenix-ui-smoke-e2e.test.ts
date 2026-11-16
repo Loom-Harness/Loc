@@ -111,10 +111,13 @@ describe.skipIf(!ENABLED)("Phoenix LiveView UI smoke — runtime e2e (LOOM_PHOEN
       }
 
       // 2. Generate the system + assert the emitted e2e smoke surface.
-      execSync(`node ${cli} generate system ${EXAMPLE} -o ${outDir}/out`, {
-        stdio: "pipe",
-        cwd: repoRoot,
-      });
+      execSync(
+        `node ${cli} scaffold ${EXAMPLE} -o ${outDir}/out && node ${cli} generate system ${EXAMPLE} -o ${outDir}/out`,
+        {
+          stdio: "pipe",
+          cwd: repoRoot,
+        },
+      );
       const projDir = path.join(outDir, "out", "phoenix_app");
       expect(fs.existsSync(path.join(projDir, "mix.exs"))).toBe(true);
       const e2eDir = path.join(projDir, "e2e");

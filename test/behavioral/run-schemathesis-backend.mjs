@@ -342,6 +342,7 @@ async function boot(c) {
     const srcPath = join(workDir, "system.ddd");
     writeFileSync(srcPath, source);
     copyLocales(localesBeside(join(REPO, c.ddd)), workDir);
+    execFileSync("node", [join(REPO, "bin/cli.js"), "scaffold", srcPath, "-o", genDir], { stdio: "pipe" });
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", srcPath, "-o", genDir], {
       stdio: "pipe",
     });

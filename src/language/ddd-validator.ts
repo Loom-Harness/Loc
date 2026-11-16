@@ -579,8 +579,9 @@ export class DddValidator {
           }
           // `from <Subdomain>` is optional — an api may instead derive its
           // surface from a `with scaffoldApi(...)` macro or carry explicit
-          // `route` bindings.  Only flag a `from` that was written but doesn't
-          // resolve (source present, ref unresolved).
+          // `route` bindings, but it needs one of the three.  Flag a `from`
+          // that was written but doesn't resolve (source present, ref
+          // unresolved), and an api with no surface at all.
           if (api.source && !api.source.ref) {
             accept(
               "error",
@@ -590,6 +591,14 @@ export class DddValidator {
               }),
               { node: api, property: "source", code: "loom.api-unknown-subdomain" },
             );
+          }
+          // An api with none of the three surface sources serves nothing.
+          if (!api.source && !api.withClause && api.routes.length === 0) {
+            accept("error", diagMessage("loom.api-no-surface", { name: api.name }), {
+              node: api,
+              property: "name",
+              code: "loom.api-no-surface",
+            });
           }
         }
         // urlStyle conflict: a subdomain surfaced by two apis with
