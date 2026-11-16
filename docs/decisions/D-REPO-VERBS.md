@@ -24,12 +24,11 @@ spellings (`delete` / `remove`).
   (`loom.repo-get-criterion`).
 - `sort:` is a slot of the member call (`SortItem`s over the candidate,
   columnar only), accepted on `all(<Criterion>)` alone
-  (`loom.repo-sort-placement`). It replaces the anonymous `RetrievalLiteral`,
-  which is out of the grammar (`loom.parse-error#retrieval-literal-removed`);
-  its never-shipped `loads:` has no successor.
-- Each retired verb (`getById`, `findById`, `findAll`, `run`, `delete`) is an
-  error that names its replacement (`loom.repo-verb-renamed`). There is no
-  warning window; every model in the repository uses the new verbs.
+  (`loom.repo-sort-placement`). There is no anonymous `retrieval { … }`
+  literal.
+- No other verb is a repository read: a name the contract does not spell is
+  an unknown repository read (`loom.repo-unknown-read`;
+  `loom.workflow-unknown-repository-method` in a workflow body).
 - The IR keeps naming the repository METHOD a read is emitted as (`getById`,
   `findById`, `findAll`, the synthesised `findAllBy<C>` / `run<R>`). The
   contract table maps each verb to it, so no emitter changed and the generated

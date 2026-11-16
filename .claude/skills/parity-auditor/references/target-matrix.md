@@ -45,7 +45,7 @@ add.
 
 | Family | `platform:` id | Versions registered | Stack |
 |---|---|---|---|
-| Hono / TS | `node` | `node@v5` (only version, zod 4 / TS 6; `node@v4` retired) | Hono + Drizzle |
+| Hono / TS | `node` | `node@v5` (only version, zod 4 / TS 6) | Hono + Drizzle |
 | .NET | `dotnet` | `dotnet@v10` | ASP.NET + EF Core + Mediator |
 | Java | `java` | `java@v1` | Spring Boot + Spring Data JPA |
 | Python | `python` | `python@v1` | FastAPI + SQLAlchemy 2 |
@@ -161,7 +161,7 @@ snapshot that will drift.** The membership column is a 2026-09-10 reading.
 | TPH inheritance `inheritanceUsing: sharedTable` | (universal — fires only when no backend hosts the context) | `storage-inheritance-checks.ts` | — |
 | TPC inheritance `inheritanceUsing: ownTable` | (universal — no gate) | — | — |
 | `shape: document` / `shape: embedded` | `PLATFORM_SAVING_SHAPES` → `validateSavingShapeSupport` | `platform-axes.ts` / `system-checks.ts` | per-platform map |
-| Discriminated unions (`A or B` / `T option`) | (universal — no gate) | — | — |
+| Discriminated unions (`A or B`) | (universal — no gate) | — | — |
 | Generic carriers (`paged<T>`, `envelope<T>`) | (universal — no gate) | — | — |
 | `when` canCommand gate + `can_<op>` query | (universal — no gate) | — | — |
 | Exception-less returns (`op(): X or NotFound`) | (universal — no gate) | — | — |

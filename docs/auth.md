@@ -280,10 +280,9 @@ system Acme {
 
 Under a `tenancy by user.<claim> of <Registry>` declaration the principal is
 exactly its declared `user { … }` claims; the tenancy claim is the caller's
-home org. There is no computed org-path member: `currentUser.orgPath` and
-`currentUser.rootOrg` are `loom.tenancy-principal-member-removed`, naming the
-replacement (`organizationContext.org` for the org the request acts in,
-`organizationContext.ancestors` for it and the orgs above it). In a system that
+home org. There is no computed org-path member: the org the request acts in is
+`organizationContext.org`, and `organizationContext.ancestors` is it and the
+orgs above it. In a system that
 reads the operating scope — every `tenantOwned` floor does — each backend's
 auth middleware also sets server-side members through the `x-org-context`
 switch gate: `currentUser.operatingOrg`, what `organizationContext.org` lowers

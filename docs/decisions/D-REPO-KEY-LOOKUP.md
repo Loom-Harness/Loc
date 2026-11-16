@@ -39,7 +39,7 @@ first (`loom.single-row-find-not-unique` was only advisory). And
   predicate the java / python / elixir repository emitters read to raise
   not-found where node and .NET already did for a `T` find.
 - `T or <Error>` finds are dropped: a miss is `T?`, and a `getBy` miss is the
-  standard 404. `T option` maps like `T?`, `T envelope` like `T`.
+  standard 404.
 - `findBy` / `getBy` stay unique-only (owner ruling, 2026-10-25, second
   comment): they promise zero-or-one, and only a declared `unique (…)` makes
   that true. A single-row find over any other key is a specification query —
